@@ -435,6 +435,26 @@ impl Screen {
         self.mark_dirty();
     }
 
+    /// ECH (CSI Ps X): erase `count` cells from the cursor in place, overwriting
+    /// them with blanks WITHOUT shifting the rest of the line. Row-local: no
+    /// wrap, no scroll, cursor stays put. Blanks use the default-attribute erase
+    /// policy (Cell::blank()), uniform with erase_line/erase_display/ICH/DCH;
+    /// BCE is not implemented.
+    fn erase_chars(&mut self, count: usize) {
+        let columns = self.dimensions.columns;
+        let column = self.cursor.column;
+        let count = count.max(1).min(columns - column);
+
+        let row = &mut self.rows[self.cursor.row];
+        for cell in &mut row[column..column + count] {
+            *cell = Cell::blank();
+        }
+
+        sanitize_wide_row(row);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
     fn move_up(&mut self, count: usize) {
         self.cursor.row = self.cursor.row.saturating_sub(count);
         self.pending_wrap = false;
@@ -771,6 +791,7 @@ impl Perform for Screen {
             'L' => self.insert_lines(param_or(params, 0, 1)),
             'M' => self.delete_lines(param_or(params, 0, 1)),
             'P' => self.delete_chars(param_or(params, 0, 1)),
+            'X' => self.erase_chars(param_or(params, 0, 1)),
             'c' => self.device_attributes(params, intermediates),
             'd' => self.move_to(param_or(params, 0, 1), self.cursor.column + 1),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
@@ -1251,6 +1272,106 @@ mod tests {
         let plain = terminal.screen().plain_text();
         assert_eq!(plain, " ab");
         // No cell still flagged as a wide continuation.
+        assert!(
+            (0..6).all(|c| !terminal.screen().cell(0, c).unwrap().wide_continuation),
+            "no orphaned wide-continuation cells should remain"
+        );
+    }
+
+    // ECH (CSI Ps X): row-local erase-in-place. Unlike DCH it does NOT shift the
+    // line — it overwrites count cells with default-attribute blanks. Cursor
+    // stays put, pending_wrap clears, count clamps to the row tail.
+    #[test]
+    fn erase_chars_blanks_in_place_without_shifting() {
+        let mut terminal = Terminal::new(6, 1);
+
+        terminal.advance(b"abcdef");
+        terminal.advance(b"\x1b[1;2H"); // cursor at column index 1 (the 'b')
+        terminal.advance(b"\x1b[2X"); // ECH 2 -> erase 'b','c' in place
+
+        // No shift: "a" + 2 blanks + "def".
+        assert_eq!(terminal.screen().plain_text(), "a  def");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 1 });
+    }
+
+    #[test]
+    fn erase_chars_default_and_zero_count_is_one() {
+        let mut terminal = Terminal::new(6, 1);
+
+        terminal.advance(b"abcdef");
+        terminal.advance(b"\x1b[1;1H");
+        terminal.advance(b"\x1b[X"); // omitted count -> 1
+        assert_eq!(terminal.screen().plain_text(), " bcdef");
+
+        terminal.advance(b"\x1b[1;3H");
+        terminal.advance(b"\x1b[0X"); // zero count -> 1
+        assert_eq!(terminal.screen().plain_text(), " b def");
+    }
+
+    #[test]
+    fn erase_chars_count_clamps_to_row_tail() {
+        let mut terminal = Terminal::new(5, 1);
+
+        terminal.advance(b"abcde");
+        terminal.advance(b"\x1b[1;3H"); // column index 2
+        terminal.advance(b"\x1b[99X"); // far exceeds remaining 3 columns
+
+        // Erases from cursor to end of row; "ab" preserved, cursor unchanged.
+        assert_eq!(terminal.screen().plain_text(), "ab");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 2 });
+    }
+
+    #[test]
+    fn erase_chars_is_row_local_and_resets_attrs() {
+        let mut terminal = Terminal::new(6, 2);
+
+        // Row 0: plain 'a' then bold-red "bc". Row 1: "xyz" (must stay intact).
+        terminal.advance(b"a\x1b[1;31mbc\x1b[0m\r\nxyz");
+        terminal.advance(b"\x1b[1;2H"); // back to row 0, column index 1 ('b')
+        terminal.advance(b"\x1b[2X"); // erase the bold-red 'b','c'
+
+        // Row 1 untouched (row-local).
+        assert_eq!(terminal.screen().plain_text(), "a\nxyz");
+        // Erased cells carry DEFAULT attrs, not the prior bold-red.
+        let erased = terminal.screen().cell(0, 1).unwrap();
+        assert_eq!(erased.ch, ' ');
+        assert_eq!(erased.attrs, Attrs::default());
+    }
+
+    #[test]
+    fn erase_chars_clears_pending_wrap() {
+        let mut terminal = Terminal::new(4, 2);
+
+        // Fill the row to arm pending_wrap at the right edge.
+        terminal.advance(b"abcd");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 3 });
+
+        terminal.advance(b"\x1b[1X"); // ECH clears pending_wrap
+
+        // Because pending_wrap was cleared, the next printable overwrites the
+        // last column on THIS row instead of wrapping to row 1. Z lands at
+        // column 3 (the cursor re-caps at columns-1 and re-arms pending_wrap);
+        // crucially it stays on row 0.
+        terminal.advance(b"Z");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 3 });
+        // Row 1 is empty (Z did not wrap there); plain_text joins both rows.
+        assert_eq!(terminal.screen().plain_text(), "abcZ\n");
+    }
+
+    #[test]
+    fn erase_chars_cleans_up_orphaned_wide_continuation() {
+        let mut terminal = Terminal::new(6, 1);
+
+        // Wide glyph at cols 0-1 (lead + continuation), then "ab".
+        terminal.advance("世ab".as_bytes());
+        assert!(terminal.screen().cell(0, 1).unwrap().wide_continuation);
+
+        terminal.advance(b"\x1b[1;1H"); // cursor at the wide lead
+        terminal.advance(b"\x1b[1X"); // ECH 1 -> erase the lead in place
+
+        // Erasing only the lead orphans the continuation spacer at col 1; it
+        // must be cleaned to a blank, not left dangling. "ab" stays in place.
+        assert_eq!(terminal.screen().plain_text(), "  ab");
         assert!(
             (0..6).all(|c| !terminal.screen().cell(0, c).unwrap().wide_continuation),
             "no orphaned wide-continuation cells should remain"
