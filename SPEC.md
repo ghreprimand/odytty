@@ -6,7 +6,7 @@ In the spirit of OdysseyOS, I feel like I need my own terminal: Odyssey Terminal
 
 The open questions are part of the idea: what would make Odyssey Terminal stand out from terminals like Ghostty or Konsole? Is it richer visual effects, better themes and color schemes, a stronger sense of identity, or features that make the terminal feel more alive without getting in the way?
 
-I am drawn to building from scratch, but the practical path is still uncertain. We need to decide whether a from-scratch build makes sense, what language would be solid enough for a real terminal, or whether forking an existing terminal and giving it an Odyssey take would get us further faster.
+The project should pursue genuinely original terminal work rather than forking or skinning an existing terminal. If that path cannot produce something interesting, useful, and reliable enough to justify itself, the project should be scrapped or rethought instead of becoming a themed version of another terminal.
 
 ## Concept
 
@@ -22,7 +22,7 @@ Start with a narrow terminal-emulator prototype that proves the core rendering a
 
 Architecture should separate the terminal core from the Odyssey experience layer: shell process and PTY handling, escape-sequence parsing, input mapping, text layout, rendering, theme/effects, and settings should be distinct enough that visual experiments can change without destabilizing core behavior. The build should include a compatibility test path early, using existing terminal behavior as the baseline rather than inventing semantics.
 
-The main open decision is whether to build from scratch or fork an existing terminal. A from-scratch spike is useful for learning and identity exploration, but the project should set an early checkpoint: if shell compatibility, text rendering, input correctness, or performance become the dominant work, evaluate forking or extending an existing terminal instead. Other open decisions include the implementation language, rendering backend, how ambitious visual effects should be, and which nonstandard features are valuable enough to justify their maintenance cost.
+The project should start from scratch as a Linux-first Rust terminal with a GPU-backed renderer and an OdyTTY-owned terminal model. Use narrow, purpose-built crates for parsing, PTY handling, windowing, text shaping, and rendering where they help, but do not delegate the product's terminal core to another terminal emulator. Use Ghostty and other mature terminals as behavior references, not implementation bases. Visual ambition should stay open, but every effect and workflow layer must be isolated from terminal correctness and remain bounded by readability and performance.
 
 ## Scope
 
@@ -50,6 +50,6 @@ Smallest useful end-to-end slice: a single-window Odyssey Terminal opens the use
 
 ## Stack
 
-Start from scratch for the first spike, with a systems language and GPU-backed rendering path, but keep the stack conservative until terminal correctness is proven. A strong early direction is Rust for the terminal core, PTY handling, parsing, input state, and settings; a cross-platform windowing layer such as winit; and a renderer path using wgpu or another GPU abstraction only if it can keep text sharp, fast, and predictable. Treat visual effects as a separate Odyssey layer on top of the core, not as part of terminal semantics.
+Start from scratch for the first spike, with a Linux-first Rust core and a GPU-backed rendering path. A strong early direction is Rust for the terminal model, PTY handling, input state, and settings; `vte` for escape-sequence parsing; Linux PTY support through a narrow crate or direct system bindings; `winit` for windowing; `wgpu` for rendering; and a CPU-shaped glyph atlas for sharp, predictable terminal text. Treat visual effects as a separate Odyssey layer on top of the core, not as part of terminal semantics.
 
-Use existing terminal standards and behavior as compatibility references rather than forking a codebase at the outset. Forking Ghostty, Konsole, or another mature terminal should remain a checkpoint fallback if shell compatibility, escape-sequence handling, font shaping, performance, or platform integration consume too much of the project before the Odyssey-specific experience can be explored.
+Use existing terminal standards and behavior as compatibility references rather than as implementation bases. Ghostty should be the primary daily-driver behavior reference, with xterm/ECMA-style behavior as the lower-level compatibility baseline. Do not fork a terminal or embed another terminal emulator's core as the product path.

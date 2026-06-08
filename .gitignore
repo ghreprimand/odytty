@@ -9,3 +9,6 @@ GEMINI.md
 # Local/private configuration
 .env
 .env.*
+
+# Added by cargo
+/target
