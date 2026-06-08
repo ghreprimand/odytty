@@ -5,7 +5,10 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use crossterm::cursor::{Hide, MoveTo, Show};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyCode, KeyEvent, KeyEventKind,
+    KeyModifiers,
+};
 use crossterm::style::Print;
 use crossterm::terminal::{
     Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -75,9 +78,8 @@ pub fn run_interactive() -> Result<()> {
                     should_render = true;
                 }
                 Event::Paste(text) => {
-                    writer
-                        .write_all(text.as_bytes())
-                        .context("paste into pty")?;
+                    let paste = encode_paste(&terminal, &text);
+                    writer.write_all(&paste).context("paste into pty")?;
                     writer.flush().context("flush pasted input")?;
                 }
                 _ => {}
@@ -207,6 +209,35 @@ fn ctrl_char(ch: char) -> Option<u8> {
     }
 }
 
+fn encode_paste(terminal: &Terminal, text: &str) -> Vec<u8> {
+    if terminal.bracketed_paste_enabled() {
+        let mut bytes = b"\x1b[200~".to_vec();
+        bytes.extend_from_slice(&sanitize_paste(text.as_bytes()));
+        bytes.extend_from_slice(b"\x1b[201~");
+        bytes
+    } else {
+        text.as_bytes().to_vec()
+    }
+}
+
+/// Strip any embedded bracketed-paste end marker from pasted bytes. Without
+/// this, a crafted clipboard payload containing `ESC [ 2 0 1 ~` would close the
+/// paste guard early and inject its tail as live keystrokes/commands.
+fn sanitize_paste(text: &[u8]) -> Vec<u8> {
+    const END: &[u8] = b"\x1b[201~";
+    let mut output = Vec::with_capacity(text.len());
+    let mut index = 0;
+    while index < text.len() {
+        if text[index..].starts_with(END) {
+            index += END.len();
+        } else {
+            output.push(text[index]);
+            index += 1;
+        }
+    }
+    output
+}
+
 #[derive(Debug)]
 enum PtyMessage {
     Output(Vec<u8>),
@@ -226,7 +257,7 @@ struct TerminalModeGuard;
 impl TerminalModeGuard {
     fn enter() -> Result<Self> {
         enable_raw_mode().context("enable raw mode")?;
-        if let Err(error) = execute!(stdout(), EnterAlternateScreen, Hide) {
+        if let Err(error) = execute!(stdout(), EnterAlternateScreen, EnableBracketedPaste, Hide) {
             let _ = disable_raw_mode();
             return Err(error).context("enter alternate screen");
         }
@@ -236,7 +267,7 @@ impl TerminalModeGuard {
 
 impl Drop for TerminalModeGuard {
     fn drop(&mut self) {
-        let _ = execute!(stdout(), Show, LeaveAlternateScreen);
+        let _ = execute!(stdout(), Show, DisableBracketedPaste, LeaveAlternateScreen);
         let _ = disable_raw_mode();
     }
 }
@@ -275,5 +306,30 @@ mod tests {
             encode_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL)),
             InputAction::Quit
         );
+    }
+
+    #[test]
+    fn wraps_paste_when_bracketed_paste_is_enabled() {
+        let mut terminal = Terminal::new(10, 2);
+
+        assert_eq!(encode_paste(&terminal, "abc"), b"abc");
+
+        terminal.advance(b"\x1b[?2004h");
+        assert_eq!(encode_paste(&terminal, "abc"), b"\x1b[200~abc\x1b[201~");
+    }
+
+    #[test]
+    fn strips_embedded_end_marker_from_bracketed_paste() {
+        let mut terminal = Terminal::new(10, 2);
+        terminal.advance(b"\x1b[?2004h");
+
+        // A payload smuggling its own end marker must not break out of the guard.
+        let malicious = "safe\x1b[201~rm -rf /\r";
+        let encoded = encode_paste(&terminal, malicious);
+
+        assert_eq!(encoded, b"\x1b[200~saferm -rf /\r\x1b[201~");
+        // Exactly one start and one end marker survive.
+        assert_eq!(encoded.windows(6).filter(|w| *w == b"\x1b[201~").count(), 1);
+        assert_eq!(encoded.windows(6).filter(|w| *w == b"\x1b[200~").count(), 1);
     }
 }

@@ -100,6 +100,8 @@ pub struct Screen {
     pending_wrap: bool,
     saved_cursor: Option<SavedCursor>,
     primary_screen: Option<StoredScreen>,
+    scroll_region: Option<ScrollRegion>,
+    bracketed_paste: bool,
     current_attrs: Attrs,
     dirty: DirtyRegion,
     host_output: Vec<u8>,
@@ -112,12 +114,19 @@ struct StoredScreen {
     cursor: Position,
     pending_wrap: bool,
     saved_cursor: Option<SavedCursor>,
+    scroll_region: Option<ScrollRegion>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SavedCursor {
     position: Position,
     pending_wrap: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ScrollRegion {
+    top: usize,
+    bottom: usize,
 }
 
 impl Screen {
@@ -132,6 +141,8 @@ impl Screen {
             pending_wrap: false,
             saved_cursor: None,
             primary_screen: None,
+            scroll_region: None,
+            bracketed_paste: false,
             current_attrs: Attrs::default(),
             dirty: DirtyRegion::Full,
             host_output: Vec::new(),
@@ -182,8 +193,10 @@ impl Screen {
             primary.cursor.row = primary.cursor.row.min(dimensions.rows - 1);
             primary.cursor.column = primary.cursor.column.min(dimensions.columns - 1);
             primary.pending_wrap = false;
+            primary.scroll_region = clamp_scroll_region(primary.scroll_region, dimensions);
         }
 
+        self.scroll_region = clamp_scroll_region(self.scroll_region, dimensions);
         self.mark_dirty();
     }
 
@@ -209,6 +222,10 @@ impl Screen {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    pub fn bracketed_paste_enabled(&self) -> bool {
+        self.bracketed_paste
     }
 
     fn print_char(&mut self, ch: char) {
@@ -274,19 +291,39 @@ impl Screen {
 
     fn line_feed(&mut self) {
         self.pending_wrap = false;
-        if self.cursor.row + 1 == self.dimensions.rows {
-            self.scroll_up();
-        } else {
+        if self
+            .scroll_region
+            .is_some_and(|region| self.cursor.row == region.bottom)
+        {
+            self.scroll_up_region();
+        } else if self.cursor.row + 1 == self.dimensions.rows && self.scroll_region.is_none() {
+            self.scroll_up_full();
+        } else if self.cursor.row + 1 < self.dimensions.rows {
             self.cursor.row += 1;
+            self.mark_dirty();
+        } else {
             self.mark_dirty();
         }
     }
 
-    fn scroll_up(&mut self) {
+    fn scroll_up_full(&mut self) {
         let removed = self.rows.remove(0);
-        self.scrollback.push(removed);
+
+        if self.primary_screen.is_none() {
+            self.scrollback.push(removed);
+        }
+
         self.rows.push(blank_row(self.dimensions.columns));
         self.mark_dirty();
+    }
+
+    fn scroll_up_region(&mut self) {
+        if let Some(region) = self.scroll_region {
+            self.rows.remove(region.top);
+            self.rows
+                .insert(region.bottom, blank_row(self.dimensions.columns));
+            self.mark_dirty();
+        }
     }
 
     fn move_up(&mut self, count: usize) {
@@ -427,19 +464,24 @@ impl Screen {
             return;
         }
 
-        match param_or(params, 0, 0) {
-            25 => {
-                self.cursor_visible = action == 'h';
-                self.mark_dirty();
-            }
-            1049 => {
-                if action == 'h' {
-                    self.enter_alternate_screen();
-                } else {
-                    self.leave_alternate_screen();
+        for mode in private_mode_params(params) {
+            match mode {
+                25 => {
+                    self.cursor_visible = action == 'h';
+                    self.mark_dirty();
                 }
+                1049 => {
+                    if action == 'h' {
+                        self.enter_alternate_screen();
+                    } else {
+                        self.leave_alternate_screen();
+                    }
+                }
+                2004 => {
+                    self.bracketed_paste = action == 'h';
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
 
@@ -484,11 +526,13 @@ impl Screen {
             cursor: self.cursor,
             pending_wrap: self.pending_wrap,
             saved_cursor: self.saved_cursor,
+            scroll_region: self.scroll_region,
         };
 
         self.cursor = Position::default();
         self.pending_wrap = false;
         self.saved_cursor = None;
+        self.scroll_region = None;
         self.primary_screen = Some(primary_screen);
         self.mark_dirty();
     }
@@ -506,8 +550,23 @@ impl Screen {
             };
             self.pending_wrap = primary_screen.pending_wrap;
             self.saved_cursor = primary_screen.saved_cursor;
+            self.scroll_region = primary_screen.scroll_region;
             self.mark_dirty();
         }
+    }
+
+    fn set_scroll_region(&mut self, params: &Params) {
+        let top = param_or(params, 0, 1).saturating_sub(1);
+        let bottom = param_or(params, 1, self.dimensions.rows).saturating_sub(1);
+
+        self.scroll_region = if top < bottom && bottom < self.dimensions.rows {
+            Some(ScrollRegion { top, bottom })
+        } else {
+            None
+        };
+
+        self.move_to(1, 1);
+        self.mark_dirty();
     }
 }
 
@@ -568,6 +627,7 @@ impl Perform for Screen {
             'd' => self.move_to(param_or(params, 0, 1), self.cursor.column + 1),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
             'm' => self.apply_sgr(params),
+            'r' => self.set_scroll_region(params),
             's' => self.save_cursor(),
             'u' => self.restore_cursor(),
             _ => {}
@@ -612,6 +672,10 @@ impl Terminal {
         std::mem::take(&mut self.screen.host_output)
     }
 
+    pub fn bracketed_paste_enabled(&self) -> bool {
+        self.screen.bracketed_paste_enabled()
+    }
+
     pub fn screen(&self) -> &Screen {
         &self.screen
     }
@@ -647,6 +711,17 @@ fn resize_buffer_rows(
     rows.resize_with(dimensions.rows, || blank_row(dimensions.columns));
 }
 
+fn clamp_scroll_region(
+    region: Option<ScrollRegion>,
+    dimensions: Dimensions,
+) -> Option<ScrollRegion> {
+    region.and_then(|region| {
+        let top = region.top.min(dimensions.rows - 1);
+        let bottom = region.bottom.min(dimensions.rows - 1);
+        (top < bottom).then_some(ScrollRegion { top, bottom })
+    })
+}
+
 fn param_or(params: &Params, index: usize, default: usize) -> usize {
     params
         .iter()
@@ -655,6 +730,10 @@ fn param_or(params: &Params, index: usize, default: usize) -> usize {
         .copied()
         .map(usize::from)
         .unwrap_or(default)
+}
+
+fn private_mode_params(params: &Params) -> impl Iterator<Item = u16> + '_ {
+    params.iter().filter_map(|param| param.first().copied())
 }
 
 fn sgr_codes(params: &Params) -> Vec<u16> {
@@ -747,6 +826,56 @@ mod tests {
 
         assert_eq!(terminal.screen().plain_text(), "PRIMARY\n\n");
         assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 7 });
+    }
+
+    #[test]
+    fn scroll_region_scrolls_only_inside_margins() {
+        let mut terminal = Terminal::new(8, 4);
+
+        terminal.advance(b"top\r\none\r\ntwo\r\nbot");
+        terminal.advance(b"\x1b[2;3r\x1b[3;1H\nX");
+
+        assert_eq!(terminal.screen().plain_text(), "top\ntwo\nX\nbot");
+        assert_eq!(terminal.screen().scrollback_len(), 0);
+    }
+
+    #[test]
+    fn tracks_bracketed_paste_mode() {
+        let mut terminal = Terminal::new(8, 2);
+
+        assert!(!terminal.bracketed_paste_enabled());
+
+        terminal.advance(b"\x1b[?2004h");
+        assert!(terminal.bracketed_paste_enabled());
+
+        terminal.advance(b"\x1b[?2004l");
+        assert!(!terminal.bracketed_paste_enabled());
+    }
+
+    #[test]
+    fn applies_multiple_dec_private_modes_in_one_sequence() {
+        let mut terminal = Terminal::new(8, 2);
+
+        terminal.advance(b"\x1b[?25;2004l");
+
+        assert!(!terminal.snapshot().cursor_visible);
+        assert!(!terminal.bracketed_paste_enabled());
+
+        terminal.advance(b"\x1b[?25;2004h");
+
+        assert!(terminal.snapshot().cursor_visible);
+        assert!(terminal.bracketed_paste_enabled());
+    }
+
+    #[test]
+    fn line_feed_at_screen_bottom_outside_active_region_does_not_scroll_full_screen() {
+        let mut terminal = Terminal::new(8, 4);
+
+        terminal.advance(b"head\r\none\r\ntwo\r\nfoot");
+        terminal.advance(b"\x1b[2;3r\x1b[4;1H\nZ");
+
+        assert_eq!(terminal.screen().plain_text(), "head\none\ntwo\nZoot");
+        assert_eq!(terminal.screen().scrollback_len(), 0);
     }
 
     #[test]
