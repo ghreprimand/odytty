@@ -105,6 +105,7 @@ pub struct Screen {
     current_attrs: Attrs,
     dirty: DirtyRegion,
     host_output: Vec<u8>,
+    last_graphic_char: Option<char>,
 }
 
 #[derive(Debug, Clone)]
@@ -146,6 +147,7 @@ impl Screen {
             current_attrs: Attrs::default(),
             dirty: DirtyRegion::Full,
             host_output: Vec::new(),
+            last_graphic_char: None,
         }
     }
 
@@ -233,6 +235,8 @@ impl Screen {
         if width == 0 {
             return;
         }
+
+        self.last_graphic_char = Some(ch);
 
         if self.pending_wrap {
             self.carriage_return();
@@ -453,6 +457,22 @@ impl Screen {
         sanitize_wide_row(row);
         self.pending_wrap = false;
         self.mark_dirty();
+    }
+
+    /// REP (CSI Ps b): repeat the last printed graphic character `count` times,
+    /// using normal print processing (so the current SGR attrs apply and
+    /// autowrap behaves as if the character were typed again). Omitted/zero
+    /// count = 1. No-op when no graphic character has been printed yet.
+    /// Replaying through `print_char` means a wide last character repeats as a
+    /// wide glyph and wraps correctly.
+    fn repeat_char(&mut self, count: usize) {
+        let Some(ch) = self.last_graphic_char else {
+            return;
+        };
+        let count = count.max(1);
+        for _ in 0..count {
+            self.print_char(ch);
+        }
     }
 
     fn move_up(&mut self, count: usize) {
@@ -786,6 +806,7 @@ impl Perform for Screen {
             'G' => self.move_to(self.cursor.row + 1, param_or(params, 0, 1)),
             'H' | 'f' => self.move_to(param_or(params, 0, 1), param_or(params, 1, 1)),
             '@' => self.insert_chars(param_or(params, 0, 1)),
+            'b' => self.repeat_char(param_or(params, 0, 1)),
             'J' => self.erase_display(param_or(params, 0, 0)),
             'K' => self.erase_line(param_or(params, 0, 0)),
             'L' => self.insert_lines(param_or(params, 0, 1)),
@@ -1376,6 +1397,84 @@ mod tests {
             (0..6).all(|c| !terminal.screen().cell(0, c).unwrap().wide_continuation),
             "no orphaned wide-continuation cells should remain"
         );
+    }
+
+    // REP (CSI Ps b): repeat the last printed graphic char N times through normal
+    // print processing. Baseline: repeats carry the CURRENT SGR attrs and obey
+    // autowrap, exactly as if the char were typed again; omitted/zero count = 1;
+    // no-op when nothing graphic has been printed.
+    #[test]
+    fn repeat_char_repeats_last_graphic() {
+        let mut terminal = Terminal::new(8, 1);
+
+        terminal.advance(b"a\x1b[3b"); // print 'a', then REP 3
+
+        // One original + three repeats = four 'a'.
+        assert_eq!(terminal.screen().plain_text(), "aaaa");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 4 });
+    }
+
+    #[test]
+    fn repeat_char_default_and_zero_count_is_one() {
+        let mut terminal = Terminal::new(8, 1);
+
+        terminal.advance(b"x\x1bb"); // not a CSI; ensure only real REP counts
+        // (ESC b is not REP; nothing should repeat from it.)
+        assert_eq!(terminal.screen().plain_text(), "x");
+
+        terminal.advance(b"\x1b[b"); // REP omitted -> 1
+        assert_eq!(terminal.screen().plain_text(), "xx");
+
+        terminal.advance(b"\x1b[0b"); // REP 0 -> 1
+        assert_eq!(terminal.screen().plain_text(), "xxx");
+    }
+
+    #[test]
+    fn repeat_char_is_noop_without_preceding_graphic() {
+        let mut terminal = Terminal::new(8, 1);
+
+        terminal.advance(b"\x1b[5b"); // REP before any printable char
+
+        assert_eq!(terminal.screen().plain_text(), "");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+    }
+
+    #[test]
+    fn repeat_char_preserves_current_attrs() {
+        let mut terminal = Terminal::new(8, 1);
+
+        terminal.advance(b"\x1b[1;31mr\x1b[2b"); // bold-red 'r', then REP 2
+
+        for column in 0..3 {
+            let cell = terminal.screen().cell(0, column).unwrap();
+            assert_eq!(cell.ch, 'r');
+            assert!(cell.attrs.bold, "repeat at col {column} should stay bold");
+            assert_eq!(cell.attrs.foreground, Color::Indexed(1));
+        }
+    }
+
+    #[test]
+    fn repeat_char_obeys_autowrap() {
+        let mut terminal = Terminal::new(3, 2);
+
+        terminal.advance(b"a\x1b[3b"); // 'a' then REP 3 -> 4 'a' total across wrap
+
+        // Row 0 fills to width 3; the 4th 'a' wraps onto row 1.
+        assert_eq!(terminal.screen().plain_text(), "aaa\na");
+        assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 1 });
+    }
+
+    #[test]
+    fn repeat_char_repeats_wide_glyph() {
+        let mut terminal = Terminal::new(6, 1);
+
+        terminal.advance("世".as_bytes()); // wide lead + continuation
+        terminal.advance(b"\x1b[1b"); // REP 1 -> a second wide glyph
+
+        // Policy (documented): REP replays a wide last char as a full wide glyph.
+        assert_eq!(terminal.screen().plain_text(), "世世");
+        assert!(terminal.screen().cell(0, 1).unwrap().wide_continuation);
+        assert!(terminal.screen().cell(0, 3).unwrap().wide_continuation);
     }
 
     // Baseline: xterm, Ghostty, and xterm.js all specify that IL (CSI L) and
