@@ -1,7 +1,5 @@
 # OdyTTY
 
-> Scaffolded by Archon Genesis from a staged idea seed. Edit freely — this is a starting brief, not a contract.
-
 ## What it is
 
 Odyssey Terminal is a reliable terminal emulator with an OdysseyOS visual identity, exploring how motion, themes, effects, and interface details can make command-line work feel more alive without weakening core terminal behavior. Its central question is whether a terminal can add useful, nonstandard features and a richer experience while staying fast, solid, and practical for daily use.
