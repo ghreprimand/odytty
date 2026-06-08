@@ -1,0 +1,11 @@
+# Archon Genesis local state
+.archon/
+
+# Local agent guidance generated from the Genesis seed
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+
+# Local/private configuration
+.env
+.env.*
