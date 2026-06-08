@@ -633,6 +633,40 @@ impl Screen {
         self.move_to(1, 1);
         self.mark_dirty();
     }
+
+    /// RIS (ESC c): hard reset. Returns the terminal to its power-on state —
+    /// exits the alternate screen, clears the visible grid and scrollback,
+    /// drops saved cursor / scroll region, resets attributes, cursor
+    /// visibility, bracketed paste and pending wrap, homes the cursor, and
+    /// discards any pending host output.
+    fn hard_reset(&mut self) {
+        self.primary_screen = None;
+        self.rows = vec![blank_row(self.dimensions.columns); self.dimensions.rows];
+        self.scrollback.clear();
+        self.cursor = Position::default();
+        self.cursor_visible = true;
+        self.pending_wrap = false;
+        self.saved_cursor = None;
+        self.scroll_region = None;
+        self.bracketed_paste = false;
+        self.current_attrs = Attrs::default();
+        self.host_output.clear();
+        self.mark_dirty();
+    }
+
+    /// DECSTR (CSI ! p): soft reset. Resets modes and cursor state without
+    /// touching the visible cells or scrollback. Cursor policy: homed to the
+    /// top-left (documented in tests), matching xterm's DECSTR behaviour.
+    fn soft_reset(&mut self) {
+        self.cursor = Position::default();
+        self.cursor_visible = true;
+        self.pending_wrap = false;
+        self.saved_cursor = None;
+        self.scroll_region = None;
+        self.bracketed_paste = false;
+        self.current_attrs = Attrs::default();
+        self.mark_dirty();
+    }
 }
 
 impl TerminalModel for Screen {
@@ -694,6 +728,7 @@ impl Perform for Screen {
             'd' => self.move_to(param_or(params, 0, 1), self.cursor.column + 1),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
             'm' => self.apply_sgr(params),
+            'p' if intermediates == b"!" => self.soft_reset(),
             'r' => self.set_scroll_region(params),
             's' => self.save_cursor(),
             'u' => self.restore_cursor(),
@@ -710,6 +745,7 @@ impl Perform for Screen {
             b'7' => self.save_cursor(),
             b'8' => self.restore_cursor(),
             b'M' => self.reverse_index(),
+            b'c' => self.hard_reset(),
             _ => {}
         }
     }
@@ -1047,5 +1083,76 @@ mod tests {
         terminal.advance(b"\x1b[M"); // DL -> no-op
 
         assert_eq!(terminal.screen().plain_text(), "r0\nr1\nr2\nr3");
+    }
+
+    #[test]
+    fn hard_reset_restores_power_on_state() {
+        let mut terminal = Terminal::new(8, 3);
+
+        // Dirty as much state as possible: scrollback, alt screen, margins,
+        // saved cursor, attrs, bracketed paste, hidden cursor, pending DA reply.
+        terminal.advance(b"a\r\nb\r\nc\r\nd"); // forces a scrollback line
+        terminal.advance(b"\x1b[?2004h"); // bracketed paste on
+        terminal.advance(b"\x1b[?25l"); // cursor hidden
+        terminal.advance(b"\x1b[2;3r"); // scroll region
+        terminal.advance(b"\x1b7"); // save cursor
+        terminal.advance(b"\x1b[1;31m"); // bold red attrs
+        terminal.advance(b"\x1b[?1049h"); // enter alt screen
+        terminal.advance(b"\x1b[c"); // queue a primary DA reply in host_output
+
+        terminal.advance(b"\x1bc"); // RIS
+
+        assert_eq!(terminal.screen().plain_text(), "\n\n");
+        assert_eq!(terminal.screen().scrollback_len(), 0);
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+        assert!(!terminal.bracketed_paste_enabled());
+        assert!(terminal.take_host_output().is_empty());
+
+        // Power-on attrs: text printed after RIS carries default attributes.
+        terminal.advance(b"Z");
+        let cell = terminal.screen().cell(0, 0).unwrap();
+        assert_eq!(cell.ch, 'Z');
+        assert_eq!(cell.attrs, Attrs::default());
+
+        // Cursor visible again after reset (snapshot reflects it).
+        assert!(terminal.snapshot().cursor_visible);
+
+        // Scroll region cleared: a bottom-row newline now scrolls the whole
+        // screen and feeds scrollback (region scroll would not).
+        terminal.advance(b"\x1b[3;1H\n");
+        assert_eq!(terminal.screen().scrollback_len(), 1);
+    }
+
+    #[test]
+    fn soft_reset_keeps_cells_but_resets_modes() {
+        let mut terminal = Terminal::new(8, 3);
+
+        terminal.advance(b"keep\r\ntwo"); // visible content + scrollback baseline
+        terminal.advance(b"\x1b[?2004h"); // bracketed paste on
+        terminal.advance(b"\x1b[?25l"); // cursor hidden
+        terminal.advance(b"\x1b[2;3r"); // scroll region
+        terminal.advance(b"\x1b7"); // save cursor
+
+        terminal.advance(b"\x1b[!p"); // DECSTR soft reset
+
+        // Visible cells preserved (NOT cleared).
+        assert_eq!(terminal.screen().plain_text(), "keep\ntwo\n");
+
+        // Modes reset.
+        assert!(!terminal.bracketed_paste_enabled());
+        assert!(terminal.snapshot().cursor_visible);
+
+        // Cursor policy: DECSTR homes the cursor to top-left (documented).
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+
+        // Saved cursor dropped: a restore after soft reset is a no-op, so the
+        // cursor stays where it was moved rather than jumping to a stale save.
+        terminal.advance(b"\x1b[2;5H"); // move to row 1, col 4
+        terminal.advance(b"\x1b8"); // restore -> no saved cursor, no movement
+        assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 4 });
+
+        // Scroll region cleared by the soft reset.
+        terminal.advance(b"\x1b[3;1H\n");
+        assert_eq!(terminal.screen().scrollback_len(), 1);
     }
 }
