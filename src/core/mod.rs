@@ -326,6 +326,71 @@ impl Screen {
         }
     }
 
+    /// Active vertical scroll margins. Falls back to the full screen when no
+    /// explicit DECSTBM region is set (the standard behaviour for RI/IL/DL).
+    fn effective_region(&self) -> (usize, usize) {
+        match self.scroll_region {
+            Some(region) => (region.top, region.bottom),
+            None => (0, self.dimensions.rows - 1),
+        }
+    }
+
+    /// RI (ESC M): at the top margin, scroll the region down by one; otherwise
+    /// move the cursor up one row. Never feeds scrollback.
+    fn reverse_index(&mut self) {
+        self.pending_wrap = false;
+        let (top, bottom) = self.effective_region();
+
+        if self.cursor.row == top {
+            self.rows.remove(bottom);
+            self.rows.insert(top, blank_row(self.dimensions.columns));
+        } else {
+            self.cursor.row = self.cursor.row.saturating_sub(1);
+        }
+        self.mark_dirty();
+    }
+
+    /// IL (CSI Ps L): insert `count` blank lines at the cursor row, scrolling
+    /// the rows below it down within the region. Lines pushed past the region
+    /// bottom are discarded (never to scrollback). No-op outside the region.
+    fn insert_lines(&mut self, count: usize) {
+        let (top, bottom) = self.effective_region();
+        if self.cursor.row < top || self.cursor.row > bottom {
+            return;
+        }
+
+        let count = count.max(1).min(bottom - self.cursor.row + 1);
+        for _ in 0..count {
+            self.rows.remove(bottom);
+            self.rows
+                .insert(self.cursor.row, blank_row(self.dimensions.columns));
+        }
+
+        self.cursor.column = 0;
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    /// DL (CSI Ps M): delete `count` lines at the cursor row, scrolling the
+    /// rows below it up within the region and filling blanks at the region
+    /// bottom. No-op outside the region.
+    fn delete_lines(&mut self, count: usize) {
+        let (top, bottom) = self.effective_region();
+        if self.cursor.row < top || self.cursor.row > bottom {
+            return;
+        }
+
+        let count = count.max(1).min(bottom - self.cursor.row + 1);
+        for _ in 0..count {
+            self.rows.remove(self.cursor.row);
+            self.rows.insert(bottom, blank_row(self.dimensions.columns));
+        }
+
+        self.cursor.column = 0;
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
     fn move_up(&mut self, count: usize) {
         self.cursor.row = self.cursor.row.saturating_sub(count);
         self.pending_wrap = false;
@@ -623,6 +688,8 @@ impl Perform for Screen {
             'H' | 'f' => self.move_to(param_or(params, 0, 1), param_or(params, 1, 1)),
             'J' => self.erase_display(param_or(params, 0, 0)),
             'K' => self.erase_line(param_or(params, 0, 0)),
+            'L' => self.insert_lines(param_or(params, 0, 1)),
+            'M' => self.delete_lines(param_or(params, 0, 1)),
             'c' => self.device_attributes(params, intermediates),
             'd' => self.move_to(param_or(params, 0, 1), self.cursor.column + 1),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
@@ -642,6 +709,7 @@ impl Perform for Screen {
         match byte {
             b'7' => self.save_cursor(),
             b'8' => self.restore_cursor(),
+            b'M' => self.reverse_index(),
             _ => {}
         }
     }
@@ -906,5 +974,78 @@ mod tests {
 
         assert_eq!(terminal.screen().plain_text(), "two\nthree");
         assert_eq!(terminal.screen().scrollback_len(), 1);
+    }
+
+    #[test]
+    fn reverse_index_at_top_margin_scrolls_region_down() {
+        let mut terminal = Terminal::new(8, 4);
+
+        // Fill four rows, set region rows 2..=3 (1-based 2;3 -> top=1, bottom=2),
+        // home into the region top, then RI to scroll the region down by one.
+        terminal.advance(b"top\r\none\r\ntwo\r\nbot");
+        terminal.advance(b"\x1b[2;3r"); // homes cursor to 1,1 (top-left)
+        terminal.advance(b"\x1b[2;1H"); // move to region top (row index 1)
+        terminal.advance(b"\x1bM"); // RI
+
+        // Region (rows 1,2) scrolls down: blank inserted at top of region,
+        // former bottom-of-region line discarded. Outside rows untouched.
+        assert_eq!(terminal.screen().plain_text(), "top\n\none\nbot");
+        assert_eq!(terminal.screen().scrollback_len(), 0);
+    }
+
+    #[test]
+    fn reverse_index_below_top_moves_cursor_up() {
+        let mut terminal = Terminal::new(8, 3);
+
+        terminal.advance(b"\x1b[3;1H"); // row index 2
+        terminal.advance(b"\x1bM"); // RI moves cursor up, no scroll
+
+        assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 0 });
+        assert_eq!(terminal.screen().plain_text(), "\n\n");
+    }
+
+    #[test]
+    fn insert_lines_within_region_preserves_outside_rows() {
+        let mut terminal = Terminal::new(8, 5);
+
+        terminal.advance(b"r0\r\nr1\r\nr2\r\nr3\r\nr4");
+        terminal.advance(b"\x1b[2;4r"); // region rows index 1..=3
+        terminal.advance(b"\x1b[3;1H"); // cursor at row index 2 (inside region)
+        terminal.advance(b"\x1b[L"); // IL 1
+
+        // Blank inserted at row 2; rows 2..3 shift down; region bottom (r3) lost.
+        // Rows 0 and 4 (outside region) untouched. No scrollback pollution.
+        assert_eq!(terminal.screen().plain_text(), "r0\nr1\n\nr2\nr4");
+        assert_eq!(terminal.screen().scrollback_len(), 0);
+        assert_eq!(terminal.screen().cursor(), Position { row: 2, column: 0 });
+    }
+
+    #[test]
+    fn delete_lines_within_region_preserves_outside_rows() {
+        let mut terminal = Terminal::new(8, 5);
+
+        terminal.advance(b"r0\r\nr1\r\nr2\r\nr3\r\nr4");
+        terminal.advance(b"\x1b[2;4r"); // region rows index 1..=3
+        terminal.advance(b"\x1b[2;1H"); // cursor at row index 1 (region top)
+        terminal.advance(b"\x1b[M"); // DL 1
+
+        // r1 deleted; r2,r3 shift up; blank fills region bottom (row 3).
+        // Rows 0 and 4 (outside region) untouched.
+        assert_eq!(terminal.screen().plain_text(), "r0\nr2\nr3\n\nr4");
+        assert_eq!(terminal.screen().scrollback_len(), 0);
+        assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 0 });
+    }
+
+    #[test]
+    fn insert_and_delete_lines_outside_region_are_noops() {
+        let mut terminal = Terminal::new(8, 4);
+
+        terminal.advance(b"r0\r\nr1\r\nr2\r\nr3");
+        terminal.advance(b"\x1b[2;3r"); // region rows index 1..=2
+        terminal.advance(b"\x1b[4;1H"); // cursor at row index 3 (outside region)
+        terminal.advance(b"\x1b[L"); // IL -> no-op
+        terminal.advance(b"\x1b[M"); // DL -> no-op
+
+        assert_eq!(terminal.screen().plain_text(), "r0\nr1\nr2\nr3");
     }
 }
