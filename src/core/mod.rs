@@ -391,6 +391,50 @@ impl Screen {
         self.mark_dirty();
     }
 
+    /// ICH (CSI Ps @): insert `count` blank cells at the cursor, shifting the
+    /// rest of the line right. Cells pushed past the right edge are discarded.
+    /// Row-local: no wrap, no scroll, cursor stays in place. Fill blanks use
+    /// the default-attribute erase policy (see `erase_line`), matching the rest
+    /// of OdyTTY's erase handling; background-color-erase is a separate future
+    /// change applied uniformly, not here.
+    fn insert_chars(&mut self, count: usize) {
+        let columns = self.dimensions.columns;
+        let column = self.cursor.column;
+        let count = count.max(1).min(columns - column);
+
+        let row = &mut self.rows[self.cursor.row];
+        for _ in 0..count {
+            row.insert(column, Cell::blank());
+        }
+        row.truncate(columns);
+
+        sanitize_wide_row(row);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    /// DCH (CSI Ps P): delete `count` cells at the cursor, shifting the rest of
+    /// the line left and filling blanks at the right edge. Row-local: no wrap,
+    /// no scroll, cursor stays in place. Fill blanks use the default-attribute
+    /// erase policy, matching `erase_line`.
+    fn delete_chars(&mut self, count: usize) {
+        let columns = self.dimensions.columns;
+        let column = self.cursor.column;
+        let count = count.max(1).min(columns - column);
+
+        let row = &mut self.rows[self.cursor.row];
+        for _ in 0..count {
+            row.remove(column);
+        }
+        while row.len() < columns {
+            row.push(Cell::blank());
+        }
+
+        sanitize_wide_row(row);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
     fn move_up(&mut self, count: usize) {
         self.cursor.row = self.cursor.row.saturating_sub(count);
         self.pending_wrap = false;
@@ -721,10 +765,12 @@ impl Perform for Screen {
             'D' => self.move_left(param_or(params, 0, 1)),
             'G' => self.move_to(self.cursor.row + 1, param_or(params, 0, 1)),
             'H' | 'f' => self.move_to(param_or(params, 0, 1), param_or(params, 1, 1)),
+            '@' => self.insert_chars(param_or(params, 0, 1)),
             'J' => self.erase_display(param_or(params, 0, 0)),
             'K' => self.erase_line(param_or(params, 0, 0)),
             'L' => self.insert_lines(param_or(params, 0, 1)),
             'M' => self.delete_lines(param_or(params, 0, 1)),
+            'P' => self.delete_chars(param_or(params, 0, 1)),
             'c' => self.device_attributes(params, intermediates),
             'd' => self.move_to(param_or(params, 0, 1), self.cursor.column + 1),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
@@ -792,6 +838,30 @@ impl Terminal {
 
 fn blank_row(columns: usize) -> Vec<Cell> {
     vec![Cell::blank(); columns]
+}
+
+/// Repair wide-character pairs broken by a row-local shift (ICH/DCH). A
+/// wide glyph occupies a lead cell plus a `wide_continuation` spacer; shifting
+/// can orphan either half. Blank any continuation cell whose lead is missing,
+/// and any wide lead whose continuation slot no longer carries the flag
+/// (including a wide lead shifted into the last column with no room to follow).
+fn sanitize_wide_row(row: &mut [Cell]) {
+    let columns = row.len();
+    for index in 0..columns {
+        if row[index].wide_continuation {
+            let lead_ok = index > 0
+                && !row[index - 1].wide_continuation
+                && UnicodeWidthChar::width(row[index - 1].ch) == Some(2);
+            if !lead_ok {
+                row[index] = Cell::blank();
+            }
+        } else if UnicodeWidthChar::width(row[index].ch) == Some(2) {
+            let cont_ok = index + 1 < columns && row[index + 1].wide_continuation;
+            if !cont_ok {
+                row[index] = Cell::blank();
+            }
+        }
+    }
 }
 
 fn resize_buffer_rows(
@@ -1084,6 +1154,107 @@ mod tests {
         terminal.advance(b"\x1b[M"); // DL -> no-op
 
         assert_eq!(terminal.screen().plain_text(), "r0\nr1\nr2\nr3");
+    }
+
+    // ICH (CSI Ps @) / DCH (CSI Ps P): row-local insert/delete of cells. Baseline
+    // verified against xterm/Ghostty — cursor stays put, no wrap/scroll, shifted
+    // cells keep their attrs, fill blanks use OdyTTY's default-attribute erase
+    // policy (uniform with erase_line; bce is a separate future change).
+    #[test]
+    fn insert_chars_shifts_right_and_keeps_cursor() {
+        let mut terminal = Terminal::new(6, 1);
+
+        terminal.advance(b"abcdef");
+        terminal.advance(b"\x1b[1;3H"); // cursor at column index 2 (the 'c')
+        terminal.advance(b"\x1b[2@"); // ICH 2
+
+        // "ab" + 2 blanks + "cd"; "ef" pushed off the right edge are discarded.
+        assert_eq!(terminal.screen().plain_text(), "ab  cd");
+        // Cursor unchanged.
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 2 });
+    }
+
+    #[test]
+    fn delete_chars_shifts_left_and_keeps_cursor() {
+        let mut terminal = Terminal::new(6, 1);
+
+        terminal.advance(b"abcdef");
+        terminal.advance(b"\x1b[1;2H"); // cursor at column index 1 (the 'b')
+        terminal.advance(b"\x1b[2P"); // DCH 2
+
+        // "a" + "def" shifted left + 2 blanks at the right edge.
+        assert_eq!(terminal.screen().plain_text(), "adef");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 1 });
+    }
+
+    #[test]
+    fn insert_and_delete_chars_default_and_zero_count_is_one() {
+        let mut terminal = Terminal::new(6, 1);
+
+        terminal.advance(b"abcdef");
+        terminal.advance(b"\x1b[1;1H");
+        terminal.advance(b"\x1b[@"); // ICH, omitted count -> 1
+        assert_eq!(terminal.screen().plain_text(), " abcde");
+
+        terminal.advance(b"\x1b[1;1H");
+        terminal.advance(b"\x1b[0P"); // DCH, zero count -> 1
+        assert_eq!(terminal.screen().plain_text(), "abcde");
+    }
+
+    #[test]
+    fn insert_chars_count_clamps_to_remaining_columns() {
+        let mut terminal = Terminal::new(5, 1);
+
+        terminal.advance(b"abcde");
+        terminal.advance(b"\x1b[1;3H"); // column index 2
+        terminal.advance(b"\x1b[99@"); // ICH count far exceeds remaining 3 columns
+
+        // Everything from the cursor is blanked; "ab" preserved.
+        assert_eq!(terminal.screen().plain_text(), "ab");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 2 });
+    }
+
+    #[test]
+    fn delete_chars_preserves_attrs_of_shifted_cells() {
+        let mut terminal = Terminal::new(6, 1);
+
+        // 'a' plain, then bold-red "XY", then plain 'z'.
+        terminal.advance(b"a\x1b[1;31mXY\x1b[0mz");
+        terminal.advance(b"\x1b[1;1H"); // cursor at 'a'
+        terminal.advance(b"\x1b[1P"); // DCH 1 -> delete 'a', shift left
+
+        assert_eq!(terminal.screen().plain_text(), "XYz");
+        // Shifted X/Y keep their bold-red attrs.
+        let x = terminal.screen().cell(0, 0).unwrap();
+        assert_eq!(x.ch, 'X');
+        assert!(x.attrs.bold);
+        assert_eq!(x.attrs.foreground, Color::Indexed(1));
+    }
+
+    #[test]
+    fn delete_chars_cleans_up_orphaned_wide_continuation() {
+        let mut terminal = Terminal::new(6, 1);
+
+        // Wide glyph occupies cols 0-1 (lead + continuation), then "ab".
+        terminal.advance("世ab".as_bytes());
+        // Sanity: continuation spacer present at col 1.
+        assert!(terminal.screen().cell(0, 1).unwrap().wide_continuation);
+
+        terminal.advance(b"\x1b[1;1H"); // cursor at the wide lead
+        terminal.advance(b"\x1b[1P"); // DCH 1 -> remove the lead
+
+        // DCH removes ONE cell (the wide lead). Its continuation spacer shifts
+        // into col 0 and is cleaned to a blank in place — so a single leading
+        // blank remains, then "ab". The orphaned continuation must NOT survive
+        // as a dangling spacer. plain_text only trims trailing space, so the
+        // leading blank is retained.
+        let plain = terminal.screen().plain_text();
+        assert_eq!(plain, " ab");
+        // No cell still flagged as a wide continuation.
+        assert!(
+            (0..6).all(|c| !terminal.screen().cell(0, c).unwrap().wide_continuation),
+            "no orphaned wide-continuation cells should remain"
+        );
     }
 
     // Baseline: xterm, Ghostty, and xterm.js all specify that IL (CSI L) and
