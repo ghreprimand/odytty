@@ -98,9 +98,26 @@ pub struct Screen {
     cursor: Position,
     cursor_visible: bool,
     pending_wrap: bool,
+    saved_cursor: Option<SavedCursor>,
+    primary_screen: Option<StoredScreen>,
     current_attrs: Attrs,
     dirty: DirtyRegion,
     host_output: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+struct StoredScreen {
+    rows: Vec<Vec<Cell>>,
+    scrollback: Vec<Vec<Cell>>,
+    cursor: Position,
+    pending_wrap: bool,
+    saved_cursor: Option<SavedCursor>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SavedCursor {
+    position: Position,
+    pending_wrap: bool,
 }
 
 impl Screen {
@@ -113,6 +130,8 @@ impl Screen {
             cursor: Position::default(),
             cursor_visible: true,
             pending_wrap: false,
+            saved_cursor: None,
+            primary_screen: None,
             current_attrs: Attrs::default(),
             dirty: DirtyRegion::Full,
             host_output: Vec::new(),
@@ -141,21 +160,30 @@ impl Screen {
     pub fn resize(&mut self, columns: usize, rows: usize) {
         let dimensions = Dimensions::new(columns, rows);
 
-        for row in &mut self.rows {
-            row.resize(dimensions.columns, Cell::blank());
-        }
-
-        if self.rows.len() > dimensions.rows {
-            let removed = self.rows.len() - dimensions.rows;
-            self.scrollback.extend(self.rows.drain(0..removed));
-        }
-        self.rows
-            .resize_with(dimensions.rows, || blank_row(dimensions.columns));
+        resize_buffer_rows(
+            &mut self.rows,
+            &mut self.scrollback,
+            dimensions,
+            self.primary_screen.is_some(),
+        );
 
         self.dimensions = dimensions;
         self.cursor.row = self.cursor.row.min(self.dimensions.rows - 1);
         self.cursor.column = self.cursor.column.min(self.dimensions.columns - 1);
         self.pending_wrap = false;
+
+        if let Some(primary) = &mut self.primary_screen {
+            resize_buffer_rows(
+                &mut primary.rows,
+                &mut primary.scrollback,
+                dimensions,
+                false,
+            );
+            primary.cursor.row = primary.cursor.row.min(dimensions.rows - 1);
+            primary.cursor.column = primary.cursor.column.min(dimensions.columns - 1);
+            primary.pending_wrap = false;
+        }
+
         self.mark_dirty();
     }
 
@@ -395,15 +423,90 @@ impl Screen {
     }
 
     fn set_cursor_mode(&mut self, params: &Params, intermediates: &[u8], action: char) {
-        if intermediates == b"?" && param_or(params, 0, 0) == 25 {
-            self.cursor_visible = action == 'h';
-            self.mark_dirty();
+        if intermediates != b"?" {
+            return;
+        }
+
+        match param_or(params, 0, 0) {
+            25 => {
+                self.cursor_visible = action == 'h';
+                self.mark_dirty();
+            }
+            1049 => {
+                if action == 'h' {
+                    self.enter_alternate_screen();
+                } else {
+                    self.leave_alternate_screen();
+                }
+            }
+            _ => {}
         }
     }
 
     fn device_attributes(&mut self, params: &Params, intermediates: &[u8]) {
         if intermediates.is_empty() && param_or(params, 0, 0) == 0 {
             self.host_output.extend_from_slice(b"\x1b[?1;2c");
+        }
+    }
+
+    fn save_cursor(&mut self) {
+        self.saved_cursor = Some(SavedCursor {
+            position: self.cursor,
+            pending_wrap: self.pending_wrap,
+        });
+    }
+
+    fn restore_cursor(&mut self) {
+        if let Some(saved_cursor) = self.saved_cursor {
+            self.cursor = Position {
+                row: saved_cursor.position.row.min(self.dimensions.rows - 1),
+                column: saved_cursor
+                    .position
+                    .column
+                    .min(self.dimensions.columns - 1),
+            };
+            self.pending_wrap = saved_cursor.pending_wrap;
+            self.mark_dirty();
+        }
+    }
+
+    fn enter_alternate_screen(&mut self) {
+        if self.primary_screen.is_some() {
+            return;
+        }
+
+        let primary_screen = StoredScreen {
+            rows: std::mem::replace(
+                &mut self.rows,
+                vec![blank_row(self.dimensions.columns); self.dimensions.rows],
+            ),
+            scrollback: std::mem::take(&mut self.scrollback),
+            cursor: self.cursor,
+            pending_wrap: self.pending_wrap,
+            saved_cursor: self.saved_cursor,
+        };
+
+        self.cursor = Position::default();
+        self.pending_wrap = false;
+        self.saved_cursor = None;
+        self.primary_screen = Some(primary_screen);
+        self.mark_dirty();
+    }
+
+    fn leave_alternate_screen(&mut self) {
+        if let Some(primary_screen) = self.primary_screen.take() {
+            self.rows = primary_screen.rows;
+            self.scrollback = primary_screen.scrollback;
+            self.cursor = Position {
+                row: primary_screen.cursor.row.min(self.dimensions.rows - 1),
+                column: primary_screen
+                    .cursor
+                    .column
+                    .min(self.dimensions.columns - 1),
+            };
+            self.pending_wrap = primary_screen.pending_wrap;
+            self.saved_cursor = primary_screen.saved_cursor;
+            self.mark_dirty();
         }
     }
 }
@@ -465,6 +568,20 @@ impl Perform for Screen {
             'd' => self.move_to(param_or(params, 0, 1), self.cursor.column + 1),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
             'm' => self.apply_sgr(params),
+            's' => self.save_cursor(),
+            'u' => self.restore_cursor(),
+            _ => {}
+        }
+    }
+
+    fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
+        if ignore || !intermediates.is_empty() {
+            return;
+        }
+
+        match byte {
+            b'7' => self.save_cursor(),
+            b'8' => self.restore_cursor(),
             _ => {}
         }
     }
@@ -506,6 +623,28 @@ impl Terminal {
 
 fn blank_row(columns: usize) -> Vec<Cell> {
     vec![Cell::blank(); columns]
+}
+
+fn resize_buffer_rows(
+    rows: &mut Vec<Vec<Cell>>,
+    scrollback: &mut Vec<Vec<Cell>>,
+    dimensions: Dimensions,
+    discard_removed_rows: bool,
+) {
+    for row in rows.iter_mut() {
+        row.resize(dimensions.columns, Cell::blank());
+    }
+
+    if rows.len() > dimensions.rows {
+        let removed = rows.len() - dimensions.rows;
+        if discard_removed_rows {
+            rows.drain(0..removed);
+        } else {
+            scrollback.extend(rows.drain(0..removed));
+        }
+    }
+
+    rows.resize_with(dimensions.rows, || blank_row(dimensions.columns));
 }
 
 fn param_or(params: &Params, index: usize, default: usize) -> usize {
@@ -578,6 +717,36 @@ mod tests {
 
         assert_eq!(terminal.take_host_output(), b"\x1b[?1;2c");
         assert!(terminal.take_host_output().is_empty());
+    }
+
+    #[test]
+    fn saves_and_restores_cursor_with_escape_sequences() {
+        let mut terminal = Terminal::new(8, 2);
+
+        terminal.advance(b"abc\x1b7XX\x1b8Z");
+
+        assert_eq!(terminal.screen().plain_text(), "abcZX\n");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 4 });
+    }
+
+    #[test]
+    fn saves_and_restores_cursor_with_csi_sequences() {
+        let mut terminal = Terminal::new(8, 2);
+
+        terminal.advance(b"abc\x1b[sXX\x1b[uZ");
+
+        assert_eq!(terminal.screen().plain_text(), "abcZX\n");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 4 });
+    }
+
+    #[test]
+    fn isolates_alternate_screen_from_primary_screen() {
+        let mut terminal = Terminal::new(8, 3);
+
+        terminal.advance(b"PRI\x1b[?1049hALT\x1b[?1049lMARY");
+
+        assert_eq!(terminal.screen().plain_text(), "PRIMARY\n\n");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 7 });
     }
 
     #[test]
