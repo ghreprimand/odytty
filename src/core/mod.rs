@@ -106,6 +106,7 @@ pub struct Screen {
     dirty: DirtyRegion,
     host_output: Vec<u8>,
     last_graphic_char: Option<char>,
+    tab_stops: Vec<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -148,6 +149,7 @@ impl Screen {
             dirty: DirtyRegion::Full,
             host_output: Vec::new(),
             last_graphic_char: None,
+            tab_stops: default_tab_stops(dimensions.columns),
         }
     }
 
@@ -184,6 +186,7 @@ impl Screen {
         self.cursor.row = self.cursor.row.min(self.dimensions.rows - 1);
         self.cursor.column = self.cursor.column.min(self.dimensions.columns - 1);
         self.pending_wrap = false;
+        self.resize_tab_stops(dimensions.columns);
 
         if let Some(primary) = &mut self.primary_screen {
             resize_buffer_rows(
@@ -281,10 +284,52 @@ impl Screen {
     }
 
     fn tab(&mut self) {
-        let next_tab = ((self.cursor.column / 8) + 1) * 8;
-        self.cursor.column = next_tab.min(self.dimensions.columns - 1);
+        let last = self.dimensions.columns - 1;
+        // Advance to the next tab stop strictly right of the cursor; if none
+        // exists, clamp to the right edge.
+        let next = ((self.cursor.column + 1)..self.dimensions.columns)
+            .find(|&column| self.tab_stops.get(column).copied().unwrap_or(false))
+            .unwrap_or(last);
+        self.cursor.column = next;
         self.pending_wrap = false;
         self.mark_dirty();
+    }
+
+    /// HTS (ESC H): set a tab stop at the current cursor column.
+    fn set_tab_stop(&mut self) {
+        if let Some(stop) = self.tab_stops.get_mut(self.cursor.column) {
+            *stop = true;
+        }
+    }
+
+    /// TBC (CSI Ps g): clear tab stops. Ps=0 (the default) clears the stop at
+    /// the current column; Ps=3 clears every tab stop. Other selectors ignored.
+    fn clear_tab_stop(&mut self, mode: usize) {
+        match mode {
+            0 => {
+                if let Some(stop) = self.tab_stops.get_mut(self.cursor.column) {
+                    *stop = false;
+                }
+            }
+            3 => self.tab_stops.iter_mut().for_each(|stop| *stop = false),
+            _ => {}
+        }
+    }
+
+    /// Resize the tab-stop table coherently. Existing stops in the retained
+    /// column range are preserved; when growing, newly exposed columns receive
+    /// the default every-8 stops; when shrinking, the table is truncated so
+    /// stops beyond the new width can no longer be used.
+    fn resize_tab_stops(&mut self, columns: usize) {
+        let old = self.tab_stops.len();
+        if columns > old {
+            self.tab_stops.resize(columns, false);
+            for column in (old..columns).filter(|column| column % 8 == 0 && *column >= 8) {
+                self.tab_stops[column] = true;
+            }
+        } else {
+            self.tab_stops.truncate(columns);
+        }
     }
 
     fn carriage_return(&mut self) {
@@ -735,12 +780,18 @@ impl Screen {
         self.bracketed_paste = false;
         self.current_attrs = Attrs::default();
         self.host_output.clear();
+        self.last_graphic_char = None;
+        // RIS restores the default every-8 tab stops (DECSTR does not — see
+        // soft_reset).
+        self.tab_stops = default_tab_stops(self.dimensions.columns);
         self.mark_dirty();
     }
 
     /// DECSTR (CSI ! p): soft reset. Resets modes and cursor state without
     /// touching the visible cells or scrollback. Cursor policy: homed to the
     /// top-left (documented in tests), matching xterm's DECSTR behaviour.
+    /// Tab stops are deliberately PRESERVED — per the VT220 soft-reset
+    /// definition, DECSTR does not clear tab stops; only RIS does.
     fn soft_reset(&mut self) {
         self.cursor = Position::default();
         self.cursor_visible = true;
@@ -750,6 +801,7 @@ impl Screen {
         self.bracketed_paste = false;
         self.current_attrs = Attrs::default();
         self.host_output.clear();
+        self.last_graphic_char = None;
         self.mark_dirty();
     }
 }
@@ -815,6 +867,7 @@ impl Perform for Screen {
             'X' => self.erase_chars(param_or(params, 0, 1)),
             'c' => self.device_attributes(params, intermediates),
             'd' => self.move_to(param_or(params, 0, 1), self.cursor.column + 1),
+            'g' => self.clear_tab_stop(param_or(params, 0, 0)),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
             'm' => self.apply_sgr(params),
             'p' if intermediates == b"!" => self.soft_reset(),
@@ -835,6 +888,7 @@ impl Perform for Screen {
             b'8' => self.restore_cursor(),
             b'M' => self.reverse_index(),
             b'c' => self.hard_reset(),
+            b'H' => self.set_tab_stop(),
             _ => {}
         }
     }
@@ -880,6 +934,14 @@ impl Terminal {
 
 fn blank_row(columns: usize) -> Vec<Cell> {
     vec![Cell::blank(); columns]
+}
+
+fn default_tab_stops(columns: usize) -> Vec<bool> {
+    let mut stops = vec![false; columns];
+    for column in (8..columns).step_by(8) {
+        stops[column] = true;
+    }
+    stops
 }
 
 /// Repair wide-character pairs broken by a row-local shift (ICH/DCH). A
@@ -1443,14 +1505,33 @@ mod tests {
     fn repeat_char_preserves_current_attrs() {
         let mut terminal = Terminal::new(8, 1);
 
-        terminal.advance(b"\x1b[1;31mr\x1b[2b"); // bold-red 'r', then REP 2
+        // REP reprints the previous graphic char through normal print handling,
+        // so it uses CURRENT SGR attrs rather than the original cell attrs.
+        terminal.advance(b"\x1b[1;31mr\x1b[0m\x1b[2b");
 
-        for column in 0..3 {
-            let cell = terminal.screen().cell(0, column).unwrap();
-            assert_eq!(cell.ch, 'r');
-            assert!(cell.attrs.bold, "repeat at col {column} should stay bold");
-            assert_eq!(cell.attrs.foreground, Color::Indexed(1));
+        let original = terminal.screen().cell(0, 0).unwrap();
+        assert_eq!(original.ch, 'r');
+        assert!(original.attrs.bold);
+        assert_eq!(original.attrs.foreground, Color::Indexed(1));
+
+        for column in 1..3 {
+            let repeated = terminal.screen().cell(0, column).unwrap();
+            assert_eq!(repeated.ch, 'r');
+            assert_eq!(repeated.attrs, Attrs::default());
         }
+    }
+
+    #[test]
+    fn repeat_char_is_reset_by_ris_and_decstr() {
+        let mut terminal = Terminal::new(8, 2);
+
+        terminal.advance(b"a\x1bc\x1b[3b");
+        assert_eq!(terminal.screen().plain_text(), "\n");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+
+        terminal.advance(b"b\x1b[!p\x1b[3b");
+        assert_eq!(terminal.screen().plain_text(), "b\n");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
     }
 
     #[test]
@@ -1475,6 +1556,117 @@ mod tests {
         assert_eq!(terminal.screen().plain_text(), "世世");
         assert!(terminal.screen().cell(0, 1).unwrap().wide_continuation);
         assert!(terminal.screen().cell(0, 3).unwrap().wide_continuation);
+    }
+
+    // Tab stops (HT / HTS / TBC): owned every-8 default model. HT advances to
+    // the next stop right of the cursor or clamps to the right edge; HTS (ESC H)
+    // sets a stop at the current column; TBC (CSI Ps g) clears current (0) or
+    // all (3). Reset policy: RIS restores defaults; DECSTR preserves stops
+    // (VT220 soft-reset definition). Resize preserves retained stops and
+    // default-fills newly exposed columns.
+
+    // Helper: column the cursor lands on after a single HT from `start`.
+    fn tab_to(terminal: &mut Terminal, start: usize) -> usize {
+        terminal.advance(format!("\x1b[1;{}H", start + 1).as_bytes());
+        terminal.advance(b"\t");
+        terminal.screen().cursor().column
+    }
+
+    #[test]
+    fn default_tab_stops_advance_every_eight() {
+        let mut terminal = Terminal::new(40, 1);
+
+        assert_eq!(tab_to(&mut terminal, 0), 8);
+        assert_eq!(tab_to(&mut terminal, 7), 8);
+        assert_eq!(tab_to(&mut terminal, 8), 16);
+        assert_eq!(tab_to(&mut terminal, 15), 16);
+        assert_eq!(tab_to(&mut terminal, 23), 24);
+    }
+
+    #[test]
+    fn tab_clamps_to_right_edge_when_no_later_stop() {
+        let mut terminal = Terminal::new(12, 1);
+
+        // Width 12: default stop at col 8 only. From col 9 there is no later
+        // stop, so HT clamps to the right edge (col 11).
+        assert_eq!(tab_to(&mut terminal, 9), 11);
+        // From the right edge, HT stays clamped.
+        assert_eq!(tab_to(&mut terminal, 11), 11);
+    }
+
+    #[test]
+    fn hts_sets_custom_tab_stop() {
+        let mut terminal = Terminal::new(20, 1);
+
+        // Set a custom stop at column 3 via HTS.
+        terminal.advance(b"\x1b[1;4H"); // move to column index 3
+        terminal.advance(b"\x1bH"); // HTS at column 3
+
+        // From column 0, HT now lands on the new stop at 3 (before the default 8).
+        assert_eq!(tab_to(&mut terminal, 0), 3);
+        // From column 3, HT advances to the default stop at 8.
+        assert_eq!(tab_to(&mut terminal, 3), 8);
+    }
+
+    #[test]
+    fn tbc_clears_current_tab_stop() {
+        let mut terminal = Terminal::new(20, 1);
+
+        // Clear the default stop at column 8.
+        terminal.advance(b"\x1b[1;9H"); // column index 8
+        terminal.advance(b"\x1b[0g"); // TBC current column
+
+        // From column 0, HT now skips the cleared 8 and lands on the next
+        // default stop at 16.
+        assert_eq!(tab_to(&mut terminal, 0), 16);
+    }
+
+    #[test]
+    fn tbc_clears_all_tab_stops() {
+        let mut terminal = Terminal::new(20, 1);
+
+        terminal.advance(b"\x1b[3g"); // TBC clear all
+
+        // With no stops anywhere, HT from column 0 clamps to the right edge.
+        assert_eq!(tab_to(&mut terminal, 0), 19);
+    }
+
+    #[test]
+    fn ris_restores_default_tab_stops_decstr_preserves() {
+        let mut terminal = Terminal::new(20, 2);
+
+        // Wipe all stops, then confirm HT clamps.
+        terminal.advance(b"\x1b[3g");
+        assert_eq!(tab_to(&mut terminal, 0), 19);
+
+        // DECSTR (soft reset) PRESERVES the (now empty) tab-stop table.
+        terminal.advance(b"\x1b[!p");
+        assert_eq!(tab_to(&mut terminal, 0), 19);
+
+        // RIS (hard reset) RESTORES the default every-8 stops.
+        terminal.advance(b"\x1bc");
+        assert_eq!(tab_to(&mut terminal, 0), 8);
+    }
+
+    #[test]
+    fn resize_preserves_stops_and_default_fills_growth() {
+        let mut terminal = Terminal::new(10, 1);
+
+        // Custom stop at column 3; default stop at 8 also present.
+        terminal.advance(b"\x1b[1;4H\x1bH");
+
+        // Grow to 24 columns: retained stops (3, 8) preserved; new columns get
+        // default stops (16).
+        terminal.resize(24, 1);
+        assert_eq!(tab_to(&mut terminal, 0), 3); // custom stop retained
+        assert_eq!(tab_to(&mut terminal, 3), 8); // default retained
+        assert_eq!(tab_to(&mut terminal, 8), 16); // default-filled on growth
+
+        // Shrink to 6 columns: stops beyond width are dropped; the custom 3
+        // remains, and HT past it clamps to the new right edge (col 5).
+        terminal.resize(6, 1);
+        assert_eq!(tab_to(&mut terminal, 0), 3);
+        assert_eq!(tab_to(&mut terminal, 3), 5);
     }
 
     // Baseline: xterm, Ghostty, and xterm.js all specify that IL (CSI L) and
