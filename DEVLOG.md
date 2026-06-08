@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-08 — Native window / rendering boundary (scaffold)
+
+Architecture spike toward the first native GPU-rendered prototype, kept to
+buildable seams rather than a partial subsystem.
+
+### What landed
+
+- **`native` module** (`src/native.rs`): the boundary where the native app will
+  live. Defines `NativeOptions` (window title, initial grid, monospace font
+  family, font size) with documented Linux-first defaults, a `NativeError` type,
+  and `run_native`, which currently returns `NativeError::NotImplemented`.
+- **`--native` CLI path** (`src/main`): wired to fail loudly with a clear
+  not-implemented message and a non-zero exit, instead of silently doing nothing.
+- **Presentation seam** (`src/render`): `CellMetrics` computes per-cell pixel
+  origins and full-grid surface size — GPU-agnostic, unit-tested, and free of
+  terminal semantics so the future text renderer has a tested foundation.
+
+### Stack decisions
+
+- The native app stays a distinct boundary from the terminal core: `winit` for
+  the event loop, `wgpu` for surface/rendering, a CPU-rasterized monospace glyph
+  atlas for text, and grid presentation driven by the core's snapshot.
+- `winit`/`wgpu` are intentionally **not** added as dependencies yet. They arrive
+  with the packet that implements the actual window, so the dependency tree only
+  carries exercised code. This keeps the spike buildable and fast.
+- First-prototype text is a single monospace font with no complex shaping (no
+  ligatures or BiDi); cell width comes from `unicode-width`, as in the core.
+
+### Unchanged
+
+- The existing headless and `crossterm` host-terminal interactive paths are
+  untouched and still pass.
+
+### Remaining for the next native packet
+
+- Add `winit`/`wgpu`, open and close a real window cleanly, then render the grid
+  with readable monospaced text and wire PTY output + keyboard input into it.
+
+---
+
 ## 2026-06-08 — Owned terminal core, PTY path, and smoke harness
 
 ### Direction

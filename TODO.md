@@ -22,8 +22,10 @@ disabled. See `DEVLOG.md` for current state and `SPEC.md` for durable decisions.
 
 ## Native Window and Rendering
 
-- [ ] Document the native app stack: `winit` event loop, `wgpu` renderer,
+- [x] Document the native app stack: `winit` event loop, `wgpu` renderer,
       font/text shaping approach, and Linux assumptions.
+- [x] Scaffold the `native` module boundary and `--native` entry (returns a
+      clear not-implemented error until the window/renderer land).
 - [ ] Add a native window that opens and closes cleanly.
 - [ ] Render the owned terminal grid with readable monospaced text.
 - [ ] Connect PTY output to the rendered grid.

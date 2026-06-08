@@ -1,6 +1,7 @@
 use anyhow::Result;
 use odytty::app::run_interactive;
 use odytty::core::Terminal;
+use odytty::native::{NativeOptions, run_native};
 use odytty::pty::PtySession;
 
 fn main() -> Result<()> {
@@ -17,6 +18,13 @@ fn main() -> Result<()> {
 
     if args.first().map(String::as_str) == Some("--interactive") {
         return run_interactive();
+    }
+
+    if args.first().map(String::as_str) == Some("--native") {
+        // Scaffolded path: fails loudly with a clear not-implemented error until
+        // the native window/renderer packets land.
+        run_native(NativeOptions::default())?;
+        return Ok(());
     }
 
     let mut terminal = Terminal::new(80, 24);
