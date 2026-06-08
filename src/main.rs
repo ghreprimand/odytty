@@ -1,4 +1,5 @@
 use anyhow::Result;
+use odytty::app::run_interactive;
 use odytty::core::Terminal;
 use odytty::pty::PtySession;
 
@@ -12,6 +13,10 @@ fn main() -> Result<()> {
             .map(String::as_str)
             .unwrap_or("printf 'OdyTTY\\r\\n'");
         return dump_command(command);
+    }
+
+    if args.first().map(String::as_str) == Some("--interactive") {
+        return run_interactive();
     }
 
     let mut terminal = Terminal::new(80, 24);

@@ -97,8 +97,10 @@ pub struct Screen {
     scrollback: Vec<Vec<Cell>>,
     cursor: Position,
     cursor_visible: bool,
+    pending_wrap: bool,
     current_attrs: Attrs,
     dirty: DirtyRegion,
+    host_output: Vec<u8>,
 }
 
 impl Screen {
@@ -110,8 +112,10 @@ impl Screen {
             scrollback: Vec::new(),
             cursor: Position::default(),
             cursor_visible: true,
+            pending_wrap: false,
             current_attrs: Attrs::default(),
             dirty: DirtyRegion::Full,
+            host_output: Vec::new(),
         }
     }
 
@@ -151,6 +155,7 @@ impl Screen {
         self.dimensions = dimensions;
         self.cursor.row = self.cursor.row.min(self.dimensions.rows - 1);
         self.cursor.column = self.cursor.column.min(self.dimensions.columns - 1);
+        self.pending_wrap = false;
         self.mark_dirty();
     }
 
@@ -184,6 +189,12 @@ impl Screen {
             return;
         }
 
+        if self.pending_wrap {
+            self.carriage_return();
+            self.line_feed();
+            self.pending_wrap = false;
+        }
+
         if self.cursor.column + width > self.dimensions.columns {
             self.carriage_return();
             self.line_feed();
@@ -205,30 +216,36 @@ impl Screen {
             };
         }
 
-        self.cursor.column += width;
-        if self.cursor.column >= self.dimensions.columns {
+        if self.cursor.column + width >= self.dimensions.columns {
             self.cursor.column = self.dimensions.columns - 1;
+            self.pending_wrap = true;
+        } else {
+            self.cursor.column += width;
         }
         self.mark_dirty();
     }
 
     fn backspace(&mut self) {
         self.cursor.column = self.cursor.column.saturating_sub(1);
+        self.pending_wrap = false;
         self.mark_dirty();
     }
 
     fn tab(&mut self) {
         let next_tab = ((self.cursor.column / 8) + 1) * 8;
         self.cursor.column = next_tab.min(self.dimensions.columns - 1);
+        self.pending_wrap = false;
         self.mark_dirty();
     }
 
     fn carriage_return(&mut self) {
         self.cursor.column = 0;
+        self.pending_wrap = false;
         self.mark_dirty();
     }
 
     fn line_feed(&mut self) {
+        self.pending_wrap = false;
         if self.cursor.row + 1 == self.dimensions.rows {
             self.scroll_up();
         } else {
@@ -246,27 +263,32 @@ impl Screen {
 
     fn move_up(&mut self, count: usize) {
         self.cursor.row = self.cursor.row.saturating_sub(count);
+        self.pending_wrap = false;
         self.mark_dirty();
     }
 
     fn move_down(&mut self, count: usize) {
         self.cursor.row = (self.cursor.row + count).min(self.dimensions.rows - 1);
+        self.pending_wrap = false;
         self.mark_dirty();
     }
 
     fn move_right(&mut self, count: usize) {
         self.cursor.column = (self.cursor.column + count).min(self.dimensions.columns - 1);
+        self.pending_wrap = false;
         self.mark_dirty();
     }
 
     fn move_left(&mut self, count: usize) {
         self.cursor.column = self.cursor.column.saturating_sub(count);
+        self.pending_wrap = false;
         self.mark_dirty();
     }
 
     fn move_to(&mut self, row: usize, column: usize) {
         self.cursor.row = row.saturating_sub(1).min(self.dimensions.rows - 1);
         self.cursor.column = column.saturating_sub(1).min(self.dimensions.columns - 1);
+        self.pending_wrap = false;
         self.mark_dirty();
     }
 
@@ -378,6 +400,12 @@ impl Screen {
             self.mark_dirty();
         }
     }
+
+    fn device_attributes(&mut self, params: &Params, intermediates: &[u8]) {
+        if intermediates.is_empty() && param_or(params, 0, 0) == 0 {
+            self.host_output.extend_from_slice(b"\x1b[?1;2c");
+        }
+    }
 }
 
 impl TerminalModel for Screen {
@@ -433,6 +461,7 @@ impl Perform for Screen {
             'H' | 'f' => self.move_to(param_or(params, 0, 1), param_or(params, 1, 1)),
             'J' => self.erase_display(param_or(params, 0, 0)),
             'K' => self.erase_line(param_or(params, 0, 0)),
+            'c' => self.device_attributes(params, intermediates),
             'd' => self.move_to(param_or(params, 0, 1), self.cursor.column + 1),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
             'm' => self.apply_sgr(params),
@@ -460,6 +489,10 @@ impl Terminal {
 
     pub fn resize(&mut self, columns: usize, rows: usize) {
         self.screen.resize(columns, rows);
+    }
+
+    pub fn take_host_output(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.screen.host_output)
     }
 
     pub fn screen(&self) -> &Screen {
@@ -538,6 +571,16 @@ mod tests {
     }
 
     #[test]
+    fn responds_to_primary_device_attributes() {
+        let mut terminal = Terminal::new(10, 2);
+
+        terminal.advance(b"\x1b[c");
+
+        assert_eq!(terminal.take_host_output(), b"\x1b[?1;2c");
+        assert!(terminal.take_host_output().is_empty());
+    }
+
+    #[test]
     fn handles_cursor_movement_and_erase_line() {
         let mut terminal = Terminal::new(8, 2);
 
@@ -545,6 +588,16 @@ mod tests {
 
         assert_eq!(terminal.screen().plain_text(), "abcZ\n");
         assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 4 });
+    }
+
+    #[test]
+    fn wraps_after_right_edge_on_next_printable() {
+        let mut terminal = Terminal::new(5, 2);
+
+        terminal.advance(b"abcdeF");
+
+        assert_eq!(terminal.screen().plain_text(), "abcde\nF");
+        assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 1 });
     }
 
     #[test]
