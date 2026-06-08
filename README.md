@@ -15,3 +15,10 @@ Start with a narrow terminal-emulator prototype that proves the core rendering a
 Architecture should separate the terminal core from the Odyssey experience layer: shell process and PTY handling, escape-sequence parsing, input mapping, text layout, rendering, theme/effects, and settings should be distinct enough that visual experiments can change without destabilizing core behavior. The build should include a compatibility test path early, using existing terminal behavior as the baseline rather than inventing semantics.
 
 The project should pursue genuinely original terminal work rather than forking or skinning an existing terminal. The first spike should be Linux-first, written in Rust, and built around an OdyTTY-owned terminal model: use existing parser and systems crates where they are narrow tools, but do not delegate the product's terminal core to another terminal emulator. Use Ghostty and other mature terminals as behavior references, not implementation bases. Visual ambition should stay open, but every effect and workflow layer must be isolated from terminal correctness and remain bounded by readability and performance.
+
+## Project docs
+
+- [`DEVLOG.md`](DEVLOG.md) — running record of what has landed and current state.
+- [`TODO.md`](TODO.md) — milestone checklist toward the first prototype.
+- [`SPEC.md`](SPEC.md) — durable product and architecture decisions.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — change, commit, and safety conventions.

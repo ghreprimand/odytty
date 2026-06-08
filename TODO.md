@@ -1,15 +1,71 @@
 # OdyTTY — TODO
 
-First steps, drawn from the build direction. Refine before starting.
+Milestone checklist toward the first meaningful prototype: a single-window,
+GPU-rendered terminal that opens a real shell, renders readable text, handles
+enough common terminal behavior for basic daily commands, supports resize and
+copy/paste basics, and includes one isolated Odyssey visual layer that can be
+disabled. See `DEVLOG.md` for current state and `SPEC.md` for durable decisions.
 
-- [x] Confirm the stack and scope boundaries
-- [x] Stand up the minimal runnable skeleton
-- [ ] Build the smallest end-to-end slice of the core concept
+## Core Readiness
 
-## Build-direction notes
+- [x] Confirm the stack and scope boundaries.
+- [x] Stand up the minimal runnable skeleton (owned core, PTY, render seam).
+- [x] Owned terminal model using `vte` as the parser.
+- [x] PTY shell command path and host-terminal interactive mode.
+- [x] Core compatibility primitives: printing, cursor movement, SGR, erase,
+      scrollback, alternate screen, save/restore, scroll regions, bracketed
+      paste, RI, IL/DL, RIS/DECSTR, ICH/DCH, ECH, REP, tab stops, DA reply.
+- [x] Headless transcript smoke harness with deterministic default fixtures.
+- [ ] Add further compatibility sequences as the prototype needs them, decided
+      from evidence rather than guesswork (e.g. BCE, SU/SD + DECOM).
+- [ ] Convert any reproducible failures into deterministic fixtures.
 
-Start with a narrow terminal-emulator prototype that proves the core rendering and interaction loop before committing to a full product direction. The first slice should open a real shell, handle common terminal I/O correctly, render readable text at speed, support copy/paste and resizing, and expose a small Odyssey-themed visual layer such as theme presets, subtle motion, or optional background/effect treatments. Keep effects strictly behind performance and readability boundaries so the project can test visual identity without masking terminal correctness.
+## Native Window and Rendering
 
-Architecture should separate the terminal core from the Odyssey experience layer: shell process and PTY handling, escape-sequence parsing, input mapping, text layout, rendering, theme/effects, and settings should be distinct enough that visual experiments can change without destabilizing core behavior. The build should include a compatibility test path early, using existing terminal behavior as the baseline rather than inventing semantics.
+- [ ] Document the native app stack: `winit` event loop, `wgpu` renderer,
+      font/text shaping approach, and Linux assumptions.
+- [ ] Add a native window that opens and closes cleanly.
+- [ ] Render the owned terminal grid with readable monospaced text.
+- [ ] Connect PTY output to the rendered grid.
+- [ ] Connect keyboard input to the PTY using the existing input mapping.
+- [ ] Render cursor and basic viewport state.
+- [ ] Handle window resize by resizing both PTY and terminal model.
 
-The project should pursue genuinely original terminal work rather than forking or skinning an existing terminal. The first spike should be Linux-first, written in Rust, GPU-rendered, and built around an OdyTTY-owned terminal model using `vte` as a parser rather than embedding another terminal emulator's core. Ghostty and other mature terminals should be compatibility references, not implementation bases. Visual ambition should stay open, but effects and workflow layers must remain isolated from terminal correctness and bounded by readability and performance.
+## Daily Loop Basics
+
+- [ ] Paste into the PTY path, respecting bracketed paste mode.
+- [ ] Basic mouse text selection.
+- [ ] Copy from selection.
+- [ ] Scrollback viewport navigation.
+- [ ] Validate basic commands interactively: prompt display, `ls --color`,
+      `clear`, simple editor/pager enter-exit behavior, and resize.
+
+## Odyssey Layer
+
+- [ ] Small theme system with a plain baseline and 1–2 Odyssey presets.
+- [ ] One optional visual treatment behind a setting, isolated from terminal
+      correctness.
+- [ ] Verify the visual layer can be disabled and does not affect compatibility
+      tests.
+- [ ] Check readability and performance boundaries before adding more effects.
+
+## First Prototype Acceptance
+
+- [ ] A native OdyTTY window opens a real local shell.
+- [ ] Common shell output is readable and responsive.
+- [ ] Resize, paste, selection/copy, cursor, and scrollback work at a basic level.
+- [ ] The compatibility test suite and transcript smoke suite pass.
+- [ ] One Odyssey visual treatment exists and can be disabled.
+- [ ] Public docs and devlog describe what works, what is deferred, and what
+      risks remain.
+
+## Deferred Until After the First Prototype
+
+- [ ] Tabs, panes, sessions, profiles, and multiplexing.
+- [ ] Shell integration beyond basic PTY behavior.
+- [ ] Plugins, AI features, command palettes, dashboards, or rich nonstandard
+      workflows.
+- [ ] Heavy animation or effects that can compromise readability or latency.
+- [ ] Broad cross-platform support beyond Linux-first validation.
+- [ ] Daily-driver claims against Ghostty/Konsole before compatibility and
+      performance are proven.
