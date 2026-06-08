@@ -665,6 +665,7 @@ impl Screen {
         self.scroll_region = None;
         self.bracketed_paste = false;
         self.current_attrs = Attrs::default();
+        self.host_output.clear();
         self.mark_dirty();
     }
 }
@@ -1085,6 +1086,68 @@ mod tests {
         assert_eq!(terminal.screen().plain_text(), "r0\nr1\nr2\nr3");
     }
 
+    // Baseline: xterm, Ghostty, and xterm.js all specify that IL (CSI L) and
+    // DL (CSI M) move the cursor to the left margin (column 0) and unset the
+    // pending wrap state. These fixtures start the cursor at a NONZERO column
+    // to prove the column-reset policy (a column-preserving impl would fail
+    // them). RI (ESC M), by contrast, preserves the column — see
+    // reverse_index_preserves_cursor_column.
+    #[test]
+    fn insert_lines_resets_cursor_to_left_margin() {
+        let mut terminal = Terminal::new(8, 4);
+
+        terminal.advance(b"r0\r\nr1\r\nr2\r\nr3");
+        terminal.advance(b"\x1b[2;5H"); // row index 1, column index 4 (nonzero)
+        assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 4 });
+
+        terminal.advance(b"\x1b[L"); // IL 1
+
+        // Cursor homed to the left margin of the current row.
+        assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 0 });
+    }
+
+    #[test]
+    fn delete_lines_resets_cursor_to_left_margin() {
+        let mut terminal = Terminal::new(8, 4);
+
+        terminal.advance(b"r0\r\nr1\r\nr2\r\nr3");
+        terminal.advance(b"\x1b[3;6H"); // row index 2, column index 5 (nonzero)
+        assert_eq!(terminal.screen().cursor(), Position { row: 2, column: 5 });
+
+        terminal.advance(b"\x1b[M"); // DL 1
+
+        assert_eq!(terminal.screen().cursor(), Position { row: 2, column: 0 });
+    }
+
+    #[test]
+    fn insert_lines_at_right_edge_clears_pending_wrap() {
+        let mut terminal = Terminal::new(4, 3);
+
+        // Print to the last column to arm pending_wrap, then IL. The column
+        // resets to 0 and pending_wrap is cleared, so the next printable lands
+        // at column 1 (not wrapped to a new row).
+        terminal.advance(b"abcd"); // fills row 0, cursor parked at col 3, pending_wrap set
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 3 });
+
+        terminal.advance(b"\x1b[L"); // IL at row 0
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+
+        terminal.advance(b"Z"); // lands at column 0 then advances to 1, no wrap
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 1 });
+    }
+
+    #[test]
+    fn reverse_index_preserves_cursor_column() {
+        let mut terminal = Terminal::new(8, 3);
+
+        // RI is NOT IL/DL: it preserves the cursor column (only the row/scroll
+        // changes). Start at a nonzero column below the top margin.
+        terminal.advance(b"\x1b[3;6H"); // row index 2, column index 5
+        terminal.advance(b"\x1bM"); // RI moves cursor up one row, column intact
+
+        assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 5 });
+    }
+
     #[test]
     fn hard_reset_restores_power_on_state() {
         let mut terminal = Terminal::new(8, 3);
@@ -1127,20 +1190,24 @@ mod tests {
     fn soft_reset_keeps_cells_but_resets_modes() {
         let mut terminal = Terminal::new(8, 3);
 
-        terminal.advance(b"keep\r\ntwo"); // visible content + scrollback baseline
+        terminal.advance(b"old\r\nkeep\r\ntwo\r\nthree"); // visible content + scrollback
+        assert_eq!(terminal.screen().scrollback_len(), 1);
         terminal.advance(b"\x1b[?2004h"); // bracketed paste on
         terminal.advance(b"\x1b[?25l"); // cursor hidden
         terminal.advance(b"\x1b[2;3r"); // scroll region
         terminal.advance(b"\x1b7"); // save cursor
+        terminal.advance(b"\x1b[c"); // queue a primary DA reply in host_output
 
         terminal.advance(b"\x1b[!p"); // DECSTR soft reset
 
-        // Visible cells preserved (NOT cleared).
-        assert_eq!(terminal.screen().plain_text(), "keep\ntwo\n");
+        // Visible cells and scrollback preserved (NOT cleared).
+        assert_eq!(terminal.screen().plain_text(), "keep\ntwo\nthree");
+        assert_eq!(terminal.screen().scrollback_len(), 1);
 
         // Modes reset.
         assert!(!terminal.bracketed_paste_enabled());
         assert!(terminal.snapshot().cursor_visible);
+        assert!(terminal.take_host_output().is_empty());
 
         // Cursor policy: DECSTR homes the cursor to top-left (documented).
         assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
@@ -1153,6 +1220,6 @@ mod tests {
 
         // Scroll region cleared by the soft reset.
         terminal.advance(b"\x1b[3;1H\n");
-        assert_eq!(terminal.screen().scrollback_len(), 1);
+        assert_eq!(terminal.screen().scrollback_len(), 2);
     }
 }
