@@ -64,7 +64,7 @@ use crate::text::{self, CellSize, GlyphAtlas};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, MouseButton, WindowEvent};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{Window, WindowId};
@@ -637,6 +637,96 @@ enum FrameOutcome {
     Skipped,
 }
 
+/// How many rows a single mouse-wheel notch scrolls the viewport.
+const WHEEL_STEP_LINES: usize = 3;
+
+/// Native-side scrollback viewport state.
+///
+/// Tracks how many rows the rendered viewport is paged upward from the live
+/// bottom (`offset == 0` is the live screen). Every mutation clamps against the
+/// supplied scrollback length, so the offset can never address rows that do not
+/// exist. The core `snapshot_with_scrollback` clamps too; tracking the bound
+/// here keeps the UX honest (no "dead" scrolling past the oldest row) and lets
+/// the offset logic be unit-tested without a GPU/window.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct Viewport {
+    offset: usize,
+}
+
+impl Viewport {
+    fn offset(self) -> usize {
+        self.offset
+    }
+
+    /// Whether the viewport is at the live bottom (offset 0).
+    fn is_live(self) -> bool {
+        self.offset == 0
+    }
+
+    /// Page `lines` rows upward into history, clamped to `scrollback_len`.
+    /// Returns whether the offset changed.
+    fn scroll_up(&mut self, lines: usize, scrollback_len: usize) -> bool {
+        let next = self.offset.saturating_add(lines).min(scrollback_len);
+        self.set(next)
+    }
+
+    /// Page `lines` rows downward toward the live bottom. Returns whether the
+    /// offset changed.
+    fn scroll_down(&mut self, lines: usize) -> bool {
+        let next = self.offset.saturating_sub(lines);
+        self.set(next)
+    }
+
+    /// Snap back to the live bottom. Returns whether the offset changed.
+    fn reset_to_live(&mut self) -> bool {
+        self.set(0)
+    }
+
+    /// Keep the scrolled-back view anchored to the same absolute rows when
+    /// `added` new rows entered scrollback. This is the "stay scrolled" policy:
+    /// fresh PTY output does not scroll the user's view out from under them.
+    /// No-op at the live bottom (where new output should appear immediately).
+    fn anchor_after_growth(&mut self, added: usize, scrollback_len: usize) {
+        if self.offset == 0 || added == 0 {
+            return;
+        }
+        self.offset = self.offset.saturating_add(added).min(scrollback_len);
+    }
+
+    /// Re-clamp after the available history may have shrunk (resize reflow,
+    /// alternate-screen entry clearing primary scrollback).
+    fn clamp(&mut self, scrollback_len: usize) {
+        self.offset = self.offset.min(scrollback_len);
+    }
+
+    fn set(&mut self, next: usize) -> bool {
+        if next == self.offset {
+            return false;
+        }
+        self.offset = next;
+        true
+    }
+}
+
+/// Convert a mouse-wheel delta into a signed row count: positive scrolls up
+/// into history, negative scrolls toward the live bottom. Line deltas map each
+/// notch to [`WHEEL_STEP_LINES`] rows; pixel deltas convert by the cell height.
+fn wheel_lines(delta: MouseScrollDelta, cell_height: u32) -> isize {
+    match delta {
+        MouseScrollDelta::LineDelta(_, y) => {
+            if y == 0.0 {
+                return 0;
+            }
+            let notches = y.abs().ceil().max(1.0) as isize;
+            y.signum() as isize * notches * WHEEL_STEP_LINES as isize
+        }
+        MouseScrollDelta::PixelDelta(pos) => {
+            let height = (cell_height.max(1)) as f64;
+            (pos.y / height).round() as isize
+        }
+    }
+}
+
 /// Application state driving the `winit` event loop.
 ///
 /// The window is created lazily on `resumed` per `winit`'s portability
@@ -678,6 +768,13 @@ struct App {
     pointer_cell: Option<CellPoint>,
     /// Whether the left mouse button is currently extending a selection.
     selecting: bool,
+    /// Scrollback viewport offset (0 == live). Mouse wheel and Shift+PageUp/
+    /// PageDown move it; any PTY-bound input snaps it back to live.
+    viewport: Viewport,
+    /// Scrollback length observed at the last rebuild, used to anchor the
+    /// scrolled-back view as new output grows scrollback (the "stay scrolled"
+    /// policy in [`Viewport::anchor_after_growth`]).
+    last_scrollback_len: usize,
     autoclose: Option<Duration>,
     deadline: Option<Instant>,
     startup_error: Option<NativeError>,
@@ -705,6 +802,8 @@ impl App {
             selection: SelectionState::default(),
             pointer_cell: None,
             selecting: false,
+            viewport: Viewport::default(),
+            last_scrollback_len: 0,
             autoclose,
             deadline: None,
             startup_error: None,
@@ -762,6 +861,16 @@ impl App {
             self.handle_paste_shortcut();
             return;
         }
+        // Shift+PageUp/PageDown drive the scrollback viewport rather than the
+        // PTY, so plain (unmodified) PageUp/PageDown still reach the shell/TUI.
+        if is_scroll_up_key(&logical, mods) {
+            self.scroll_viewport(self.page_lines() as isize);
+            return;
+        }
+        if is_scroll_down_key(&logical, mods) {
+            self.scroll_viewport(-(self.page_lines() as isize));
+            return;
+        }
 
         let mut bytes = Vec::new();
         match logical {
@@ -784,6 +893,9 @@ impl App {
         if bytes.is_empty() {
             return;
         }
+        // Any keystroke that reaches the shell snaps the viewport back to live,
+        // so typing always returns to the prompt at the bottom.
+        self.return_to_live();
         if let Ok(mut writer) = self.writer.lock() {
             let _ = writer.write_all(&bytes);
             let _ = writer.flush();
@@ -797,6 +909,8 @@ impl App {
         let Some(text) = read_clipboard_text() else {
             return;
         };
+        // Paste writes to the PTY, so treat it like typed input: return to live.
+        self.return_to_live();
         let _ = write_paste_text(&self.terminal, &self.writer, &text);
     }
 
@@ -854,6 +968,57 @@ impl App {
             window.request_redraw();
         }
     }
+
+    /// Number of rows a Shift+PageUp/PageDown press scrolls: one screenful less
+    /// one row of overlap for continuity (at least one row).
+    fn page_lines(&self) -> usize {
+        self.grid.rows.saturating_sub(1).max(1)
+    }
+
+    /// Current scrollback length from the shared model (0 if the lock is
+    /// poisoned), used to clamp upward scrolling.
+    fn scrollback_len(&self) -> usize {
+        self.terminal
+            .lock()
+            .map(|t| t.screen().scrollback_len())
+            .unwrap_or(0)
+    }
+
+    /// Adjust the scrollback viewport. `delta > 0` pages up into history,
+    /// `delta < 0` pages toward the live bottom. A change clears any selection
+    /// (visible-grid ranges are ambiguous across a viewport shift) and asks for
+    /// a redraw; with no scrollback this is a clamped no-op (never panics).
+    fn scroll_viewport(&mut self, delta: isize) {
+        let changed = match delta.cmp(&0) {
+            std::cmp::Ordering::Greater => self
+                .viewport
+                .scroll_up(delta as usize, self.scrollback_len()),
+            std::cmp::Ordering::Less => self.viewport.scroll_down((-delta) as usize),
+            std::cmp::Ordering::Equal => false,
+        };
+        if changed {
+            self.on_viewport_changed();
+        }
+    }
+
+    /// Return the viewport to the live bottom (offset 0). Called whenever input
+    /// is written to the PTY so typing always jumps back to the prompt.
+    fn return_to_live(&mut self) {
+        if self.viewport.reset_to_live() {
+            self.on_viewport_changed();
+        }
+    }
+
+    /// Shared side effects of a viewport offset change: drop any selection,
+    /// cancel an in-progress drag, and request one rebuild/redraw.
+    fn on_viewport_changed(&mut self) {
+        self.selection.clear();
+        self.selecting = false;
+        self.needs_rebuild = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
 }
 
 fn is_copy_shortcut(logical: &WinitKey, mods: Modifiers) -> bool {
@@ -870,6 +1035,17 @@ fn is_paste_shortcut(logical: &WinitKey, mods: Modifiers) -> bool {
     }
 
     matches!(logical, WinitKey::Character(text) if text.eq_ignore_ascii_case("v"))
+}
+
+/// Shift+PageUp pages the scrollback viewport upward. Shift only (no Ctrl/Alt)
+/// so plain PageUp still reaches the PTY.
+fn is_scroll_up_key(logical: &WinitKey, mods: Modifiers) -> bool {
+    mods.shift && !mods.ctrl && !mods.alt && matches!(logical, WinitKey::Named(NamedKey::PageUp))
+}
+
+/// Shift+PageDown pages the scrollback viewport toward the live bottom.
+fn is_scroll_down_key(logical: &WinitKey, mods: Modifiers) -> bool {
+    mods.shift && !mods.ctrl && !mods.alt && matches!(logical, WinitKey::Named(NamedKey::PageDown))
 }
 
 fn read_clipboard_text() -> Option<String> {
@@ -992,6 +1168,10 @@ impl ApplicationHandler<UserEvent> for App {
                     self.selection.clear();
                     self.selecting = false;
                     self.pointer_cell = None;
+                    // Reflow changes the row/scrollback layout; return to the
+                    // live bottom so the offset is never stale against the new
+                    // geometry. clamp() in the rebuild guards bounds regardless.
+                    self.viewport.reset_to_live();
                     self.needs_rebuild = true;
                 }
                 if let Some(window) = self.window.as_ref() {
@@ -1003,8 +1183,25 @@ impl ApplicationHandler<UserEvent> for App {
                 // pump wakes coalesced into this frame. Snapshot under the lock,
                 // then drop it before touching the GPU.
                 if self.needs_rebuild {
-                    let mut snapshot = self.terminal.lock().expect("terminal mutex").snapshot();
-                    if let Some(range) = self.selection.range() {
+                    let mut snapshot = {
+                        let terminal = self.terminal.lock().expect("terminal mutex");
+                        let scrollback_len = terminal.screen().scrollback_len();
+                        // "Stay scrolled": as new output grows scrollback while
+                        // the user is scrolled back, anchor the view to the same
+                        // absolute rows instead of letting it scroll away. Only
+                        // explicit input (handle_key_press/paste) returns to live.
+                        let added = scrollback_len.saturating_sub(self.last_scrollback_len);
+                        self.viewport.anchor_after_growth(added, scrollback_len);
+                        self.last_scrollback_len = scrollback_len;
+                        self.viewport.clamp(scrollback_len);
+                        terminal.snapshot_with_scrollback(self.viewport.offset())
+                    };
+                    // Selection highlighting only applies to the live viewport;
+                    // a viewport change clears selection, so this is just
+                    // belt-and-suspenders for the offset-0 case.
+                    if self.viewport.is_live()
+                        && let Some(range) = self.selection.range()
+                    {
                         selection::apply_highlight(&mut snapshot, range);
                     }
                     if let Some(gpu) = self.gpu.as_mut() {
@@ -1043,6 +1240,13 @@ impl ApplicationHandler<UserEvent> for App {
                 ElementState::Pressed => self.begin_selection(),
                 ElementState::Released => self.finish_selection(),
             },
+            WindowEvent::MouseWheel { delta, .. } => {
+                let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.atlas.cell.height);
+                let lines = wheel_lines(delta, cell_height);
+                if lines != 0 {
+                    self.scroll_viewport(lines);
+                }
+            }
             // Only act on key-down (ignore key-up). Repeats are kept: holding a
             // key should autorepeat into the shell like a real terminal.
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
@@ -1210,6 +1414,140 @@ pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use winit::dpi::PhysicalPosition;
+
+    #[test]
+    fn viewport_scroll_up_clamps_to_scrollback() {
+        let mut vp = Viewport::default();
+        assert!(vp.is_live());
+        // Scroll up within bounds.
+        assert!(vp.scroll_up(3, 10));
+        assert_eq!(vp.offset(), 3);
+        // Scroll up past the available history clamps to scrollback_len.
+        assert!(vp.scroll_up(100, 10));
+        assert_eq!(vp.offset(), 10);
+        // Already at the top: no change.
+        assert!(!vp.scroll_up(5, 10));
+        assert_eq!(vp.offset(), 10);
+    }
+
+    #[test]
+    fn viewport_scroll_up_with_no_scrollback_is_noop() {
+        let mut vp = Viewport::default();
+        assert!(!vp.scroll_up(5, 0));
+        assert_eq!(vp.offset(), 0);
+        assert!(vp.is_live());
+    }
+
+    #[test]
+    fn viewport_scroll_down_saturates_at_live() {
+        let mut vp = Viewport::default();
+        vp.scroll_up(5, 10);
+        assert!(vp.scroll_down(2));
+        assert_eq!(vp.offset(), 3);
+        // Scrolling down past live saturates at 0 and reports live.
+        assert!(vp.scroll_down(100));
+        assert_eq!(vp.offset(), 0);
+        assert!(vp.is_live());
+        // Already live: no change.
+        assert!(!vp.scroll_down(1));
+    }
+
+    #[test]
+    fn viewport_to_live_resets_offset() {
+        let mut vp = Viewport::default();
+        vp.scroll_up(4, 10);
+        assert!(vp.reset_to_live());
+        assert_eq!(vp.offset(), 0);
+        // Returning to live again is a no-op.
+        assert!(!vp.reset_to_live());
+    }
+
+    #[test]
+    fn viewport_anchors_view_when_scrollback_grows() {
+        let mut vp = Viewport::default();
+        vp.scroll_up(5, 20);
+        // Three new rows enter scrollback while scrolled back: offset advances
+        // to keep the same absolute rows in view.
+        vp.anchor_after_growth(3, 23);
+        assert_eq!(vp.offset(), 8);
+        // Anchoring clamps to the new scrollback length.
+        vp.anchor_after_growth(1000, 30);
+        assert_eq!(vp.offset(), 30);
+    }
+
+    #[test]
+    fn viewport_anchor_is_noop_when_live() {
+        let mut vp = Viewport::default();
+        // At the live bottom, new output should appear immediately (no anchor).
+        vp.anchor_after_growth(5, 10);
+        assert_eq!(vp.offset(), 0);
+        assert!(vp.is_live());
+    }
+
+    #[test]
+    fn viewport_clamp_shrinks_offset_to_available_history() {
+        let mut vp = Viewport::default();
+        vp.scroll_up(15, 20);
+        // History shrank (e.g. alternate-screen entry cleared scrollback).
+        vp.clamp(4);
+        assert_eq!(vp.offset(), 4);
+        vp.clamp(0);
+        assert_eq!(vp.offset(), 0);
+        assert!(vp.is_live());
+    }
+
+    #[test]
+    fn wheel_line_delta_maps_notches_to_rows() {
+        // Positive y scrolls up into history; one notch == WHEEL_STEP_LINES.
+        assert_eq!(wheel_lines(MouseScrollDelta::LineDelta(0.0, 1.0), 16), 3);
+        // Negative y scrolls toward live.
+        assert_eq!(wheel_lines(MouseScrollDelta::LineDelta(0.0, -1.0), 16), -3);
+        // Multi-notch deltas scale.
+        assert_eq!(wheel_lines(MouseScrollDelta::LineDelta(0.0, 2.0), 16), 6);
+        // Zero is no scroll.
+        assert_eq!(wheel_lines(MouseScrollDelta::LineDelta(0.0, 0.0), 16), 0);
+    }
+
+    #[test]
+    fn wheel_pixel_delta_converts_by_cell_height() {
+        // 32px / 16px cell == 2 rows up.
+        let up = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 32.0));
+        assert_eq!(wheel_lines(up, 16), 2);
+        // Negative pixels scroll toward live.
+        let down = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, -16.0));
+        assert_eq!(wheel_lines(down, 16), -1);
+        // A zero cell height must not divide-by-zero (clamped to 1).
+        let safe = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 5.0));
+        assert_eq!(wheel_lines(safe, 0), 5);
+    }
+
+    #[test]
+    fn scroll_keys_require_shift_without_ctrl_or_alt() {
+        let shift = Modifiers {
+            shift: true,
+            ctrl: false,
+            alt: false,
+        };
+        let plain = Modifiers::default();
+        let up = WinitKey::Named(NamedKey::PageUp);
+        let down = WinitKey::Named(NamedKey::PageDown);
+        // Shift+PageUp/PageDown drive the viewport.
+        assert!(is_scroll_up_key(&up, shift));
+        assert!(is_scroll_down_key(&down, shift));
+        // Plain PageUp/PageDown do NOT (they reach the PTY).
+        assert!(!is_scroll_up_key(&up, plain));
+        assert!(!is_scroll_down_key(&down, plain));
+        // Ctrl/Alt held disqualifies the scroll binding.
+        assert!(!is_scroll_up_key(
+            &up,
+            Modifiers {
+                shift: true,
+                ctrl: true,
+                alt: false,
+            }
+        ));
+    }
 
     #[test]
     fn default_options_are_linux_first_monospace() {
