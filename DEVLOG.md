@@ -7,6 +7,61 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Glyph atlas wired into the native renderer (readable text)
+
+The window now shows readable monospaced text. This is the GPU half of the
+text-rendering milestone: the `src/text` atlas is uploaded to a texture and the
+owned-core `Snapshot` is drawn as textured quads with the `cell.wgsl` pipeline.
+Content shown is a static seeded snapshot — PTY output, keyboard input, and the
+theme layer are deliberately later packets.
+
+### What landed
+
+- **`src/grid.rs`** (GPU-agnostic, unit-tested): a `#[repr(C)]` `Pod` `Vertex`
+  and `build_vertices(&Snapshot, &GlyphAtlas) -> Vec<Vertex>`. Per cell it emits
+  a background quad and, for inked printable glyphs, a foreground glyph quad
+  with the atlas UV. `attrs.inverse` swaps fg/bg; `wide_continuation` spacers
+  are skipped (wide lead cells span two columns); non-ASCII/control cells emit
+  background only. Geometry is pixel-space so a resize never rebuilds it.
+- **`src/native.rs`** (`GpuState`): uploads the atlas to an `R8Unorm` texture
+  (+ nearest/clamp sampler), adds a `Viewport` uniform updated on resize, builds
+  the `cell.wgsl` render pipeline with straight-alpha blending, and draws the
+  cell vertex buffer over the existing neutral clear in the same pass. The atlas
+  is rasterized at `font_size_px * scale_factor` physical px for crisp HiDPI.
+- **Seeded demo content**: `GpuState::new` drives a real `core::Terminal`
+  (title line + an ANSI-colored sample row + a bold/inverse row) and renders its
+  snapshot, so SGR/colors exercise the genuine parsing path. Marked in-code as
+  placeholder for the next (PTY) packet.
+- **Resize choice**: geometry is stable across resize; only the viewport uniform
+  is rewritten with the new physical size.
+- **wgpu 29 API notes**: `ImageCopyTexture`/`ImageDataLayout` are now
+  `TexelCopyTextureInfo`/`TexelCopyBufferLayout`; `PipelineLayoutDescriptor`
+  uses `immediate_size` (no `push_constant_ranges`); `RenderPipelineDescriptor`
+  uses `multiview_mask: Option<NonZeroU32>` (not `multiview`);
+  `bind_group_layouts` takes `&[Some(&layout)]`; sampler `mipmap_filter` wants
+  `MipmapFilterMode`.
+
+### Test status (verified 2026-06-09)
+
+- `cargo test`: 72 lib + 8 smoke (1 ignored) green — adds 5 `build_vertices`
+  unit tests (vertex count, blank→bg-only, inverse swap, non-ASCII→no glyph,
+  ANSI palette color).
+- `cargo fmt --check`: clean. `cargo clippy`: clean for this packet (one
+  pre-existing `core` derive suggestion is untouched).
+- Wayland-native smoke:
+  `WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`
+  exits 0 with no errors/validation warnings (Vulkan adapter).
+
+### Gaps toward the prototype
+
+- Text is a static seeded snapshot; live PTY output is the next packet.
+- No keyboard input, selection/copy, scrollback, or theme layer yet.
+- Atlas covers printable ASCII only; wide/CJK glyphs render background-only.
+- Seeded grid uses the coarse default window size, so the drawn grid may not
+  exactly fill the window — cosmetic until PTY-driven sizing lands.
+
+---
+
 ## 2026-06-09 — Monospace glyph atlas + cell shader (CPU foundation)
 
 The CPU-side foundation for readable text: a GPU-agnostic glyph atlas module and

@@ -5,14 +5,21 @@
 //! reviewable on its own:
 //!
 //! - **Window lifecycle** — a `winit` window that opens and closes cleanly.
-//! - **GPU surface bring-up** — a `wgpu` surface/device/queue that clears the
-//!   window to a solid color each frame and survives resize.
+//! - **GPU surface bring-up** — a `wgpu` surface/device/queue that survives
+//!   resize.
+//! - **Glyph text rendering** — the `crate::text` atlas is uploaded to an
+//!   `R8Unorm` texture and the `crate::grid` geometry is drawn as textured
+//!   quads with the shared `cell.wgsl` pipeline, so the window shows readable
+//!   monospaced text.
 //!
-//! Still deliberately absent this packet: the glyph atlas / text renderer, PTY
-//! wiring, keyboard input, and the Odyssey visual/theme layer. The solid clear
-//! color here is a neutral placeholder that proves the GPU pipeline opens,
-//! presents, and reconfigures on resize — it is **not** the theme system, which
+//! The surface is still cleared to a neutral placeholder color before the cell
+//! geometry is drawn over it; that clear is **not** the theme system, which
 //! lands later as a disableable layer.
+//!
+//! Still deliberately absent this packet: PTY wiring, keyboard input, and the
+//! Odyssey visual/theme layer. The text shown is a *static seeded snapshot*
+//! (see [`GpuState::new`]) driven through the real owned core so colors/SGR
+//! exercise the real path; live PTY output replaces it in the next packet.
 //!
 //! ## Ownership split (filled in incrementally)
 //!
@@ -24,10 +31,11 @@
 //! - **GPU surface/device** — `wgpu` owns the surface, device, queue, and swap
 //!   chain, presenting frames to the window. *(this packet: solid clear only)*
 //! - **Glyph atlas / text renderer** — a CPU-rasterized monospace glyph atlas
-//!   uploaded to a `wgpu` texture; cells drawn as textured quads. *(later)*
-//! - **Grid presentation** — maps an owned-core `Snapshot` to positioned cells
-//!   via `crate::render` metrics, with no terminal semantics in the renderer.
-//!   *(later)*
+//!   (`crate::text`) uploaded to a `wgpu` texture; cells drawn as textured
+//!   quads. *(this packet)*
+//! - **Grid presentation** — maps an owned-core `Snapshot` to positioned cell
+//!   quads via `crate::grid`, with no terminal semantics in the renderer.
+//!   *(this packet)*
 //!
 //! ## Linux / Wayland
 //!
@@ -39,8 +47,12 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::core::Dimensions;
+use wgpu::util::DeviceExt;
+
+use crate::core::{Dimensions, Terminal};
+use crate::grid::{self, Vertex};
 use crate::render::CellMetrics;
+use crate::text::{self, GlyphAtlas};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -85,6 +97,9 @@ pub enum NativeError {
     /// The GPU device/queue could not be acquired.
     #[error("gpu device request failed: {0}")]
     DeviceRequest(String),
+    /// Font loading or glyph-atlas setup for the text renderer failed.
+    #[error("text setup failed: {0}")]
+    Text(String),
 }
 
 /// Initial native window and text assumptions.
@@ -150,17 +165,35 @@ fn autoclose_from_env() -> Option<Duration> {
     }
 }
 
+/// Viewport uniform mirroring `Viewport` in `cell.wgsl`: physical surface size
+/// in pixels plus padding to a 16-byte std140 slot.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct ViewportUniform {
+    size: [f32; 2],
+    _pad: [f32; 2],
+}
+
 /// GPU surface state bound to a single window.
 ///
-/// Owns the `wgpu` surface, device, queue, and surface configuration. This
-/// packet only clears the surface to [`CLEAR_COLOR`]; the glyph renderer plugs
-/// in at [`GpuState::render`] later. The surface borrows the window for
-/// `'static` by holding an `Arc<Window>`.
+/// Owns the `wgpu` surface, device, queue, and surface configuration, plus the
+/// text-rendering resources: the glyph atlas texture, the cell render pipeline,
+/// its bind group, the viewport uniform, and the vertex buffer holding the
+/// current snapshot's cell quads. The surface borrows the window for `'static`
+/// by holding an `Arc<Window>`.
 struct GpuState {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
+    pipeline: wgpu::RenderPipeline,
+    bind_group: wgpu::BindGroup,
+    viewport_buf: wgpu::Buffer,
+    vertex_buf: wgpu::Buffer,
+    vertex_count: u32,
+    // Kept alive for the lifetime of the bind group; never read directly.
+    _atlas_texture: wgpu::Texture,
+    _atlas_sampler: wgpu::Sampler,
 }
 
 impl GpuState {
@@ -169,8 +202,9 @@ impl GpuState {
     /// Synchronous from the caller's perspective: the async adapter/device
     /// requests are driven to completion with `pollster`, since `winit`'s
     /// handler callbacks are synchronous.
-    fn new(window: Arc<Window>) -> Result<Self, NativeError> {
+    fn new(window: Arc<Window>, options: &NativeOptions) -> Result<Self, NativeError> {
         let size = window.inner_size();
+        let scale = window.scale_factor() as f32;
         // No display handle is supplied here: the default Linux backend is
         // Vulkan, which ignores it. (It only matters for GLES-on-Wayland.)
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -218,12 +252,229 @@ impl GpuState {
         };
         surface.configure(&device, &config);
 
+        // --- Glyph atlas: rasterize at physical pixels for crisp HiDPI text.
+        let font = text::load_font().map_err(|err| NativeError::Text(err.to_string()))?;
+        let atlas = GlyphAtlas::build(&font, options.font_size_px * scale.max(1.0));
+
+        let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("odytty-atlas"),
+            size: wgpu::Extent3d {
+                width: atlas.width,
+                height: atlas.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &atlas_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &atlas.data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(atlas.width),
+                rows_per_image: Some(atlas.height),
+            },
+            wgpu::Extent3d {
+                width: atlas.width,
+                height: atlas.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        let atlas_view = atlas_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // Nearest + clamp: glyph cells map 1:1 to pixels, so no filtering.
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("odytty-atlas-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+
+        // --- Viewport uniform (physical surface size), updated on resize.
+        let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("odytty-viewport"),
+            contents: bytemuck::bytes_of(&ViewportUniform {
+                size: [config.width as f32, config.height as f32],
+                _pad: [0.0, 0.0],
+            }),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // --- Bind group layout / group: uniform + atlas texture + sampler.
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("odytty-cell-bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("odytty-cell-bg"),
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&atlas_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&atlas_sampler),
+                },
+            ],
+        });
+
+        // --- Render pipeline from the shared cell shader.
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("odytty-cell-shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/cell.wgsl").into()),
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("odytty-cell-pl"),
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
+        });
+        let vertex_attrs = wgpu::vertex_attr_array![
+            0 => Float32x2, // pos_px
+            1 => Float32x2, // uv
+            2 => Float32x4, // color
+            3 => Float32,   // is_glyph
+        ];
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("odytty-cell-pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &vertex_attrs,
+                }],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                // No culling: quad winding is not normalized in the geometry.
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    // Straight-alpha blend so glyph coverage composites over the
+                    // already-drawn background quad of the same cell.
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        // --- Seeded demo snapshot (PLACEHOLDER: replaced by live PTY output in
+        // the next packet). Driven through the real owned core so SGR/colors go
+        // through the genuine parsing path rather than a hand-built Snapshot.
+        let mut term = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);
+        term.advance(b"OdyTTY native renderer -- placeholder content\r\n");
+        term.advance(b"PTY output, keyboard input, and themes land in later packets.\r\n");
+        term.advance(b"\r\n");
+        term.advance(
+            b"\x1b[31mred \x1b[32mgreen \x1b[33myellow \x1b[34mblue \x1b[35mmagenta \x1b[36mcyan\x1b[0m\r\n",
+        );
+        term.advance(b"\x1b[1;37;44m bold white on blue \x1b[0m back to normal\r\n");
+        term.advance(b"\x1b[7m inverse video sample \x1b[0m\r\n");
+        let snapshot = term.snapshot();
+
+        let vertices = grid::build_vertices(&snapshot, &atlas);
+        let vertex_count = vertices.len() as u32;
+        let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("odytty-cell-vertices"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
         Ok(Self {
             surface,
             device,
             queue,
             config,
+            pipeline,
+            bind_group,
+            viewport_buf,
+            vertex_buf,
+            vertex_count,
+            _atlas_texture: atlas_texture,
+            _atlas_sampler: atlas_sampler,
         })
+    }
+
+    /// Write the current physical surface size into the viewport uniform so the
+    /// vertex shader maps pixel-space geometry to NDC correctly after a resize.
+    fn update_viewport(&self) {
+        self.queue.write_buffer(
+            &self.viewport_buf,
+            0,
+            bytemuck::bytes_of(&ViewportUniform {
+                size: [self.config.width as f32, self.config.height as f32],
+                _pad: [0.0, 0.0],
+            }),
+        );
     }
 
     /// Reconfigure the surface for a new physical size. No-op for zero extents
@@ -235,6 +486,9 @@ impl GpuState {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
+        // Geometry is pixel-space and stable across resize; only the viewport
+        // uniform needs the new physical size.
+        self.update_viewport();
     }
 
     /// Reapply the current configuration, used to recover a lost/outdated
@@ -273,13 +527,14 @@ impl GpuState {
                 label: Some("odytty-clear-encoder"),
             });
         {
-            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("odytty-clear-pass"),
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("odytty-cell-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     depth_slice: None,
                     ops: wgpu::Operations {
+                        // Keep the neutral clear, then draw cell quads over it.
                         load: wgpu::LoadOp::Clear(CLEAR_COLOR),
                         store: wgpu::StoreOp::Store,
                     },
@@ -289,6 +544,12 @@ impl GpuState {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            if self.vertex_count > 0 {
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, &self.bind_group, &[]);
+                pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+                pass.draw(0..self.vertex_count, 0..1);
+            }
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         frame.present();
@@ -363,7 +624,7 @@ impl ApplicationHandler for App {
             }
         };
 
-        match GpuState::new(window.clone()) {
+        match GpuState::new(window.clone(), &self.options) {
             Ok(gpu) => self.gpu = Some(gpu),
             Err(err) => {
                 self.fail(event_loop, err);
