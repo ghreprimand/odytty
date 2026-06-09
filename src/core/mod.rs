@@ -1133,25 +1133,25 @@ impl Perform for Screen {
         }
 
         match action {
-            'A' => self.move_up(param_or(params, 0, 1)),
-            'B' => self.move_down(param_or(params, 0, 1)),
-            'C' => self.move_right(param_or(params, 0, 1)),
-            'D' => self.move_left(param_or(params, 0, 1)),
-            'G' => self.move_to(self.cursor.row + 1, param_or(params, 0, 1)),
-            'H' | 'f' => self.move_to_origin(param_or(params, 0, 1), param_or(params, 1, 1)),
-            'S' => self.scroll_region_up(param_or(params, 0, 1)),
-            'T' => self.scroll_region_down(param_or(params, 0, 1)),
-            '@' => self.insert_chars(param_or(params, 0, 1)),
-            'b' => self.repeat_char(param_or(params, 0, 1)),
+            'A' => self.move_up(param_or_one(params, 0)),
+            'B' => self.move_down(param_or_one(params, 0)),
+            'C' => self.move_right(param_or_one(params, 0)),
+            'D' => self.move_left(param_or_one(params, 0)),
+            'G' => self.move_to(self.cursor.row + 1, param_or_one(params, 0)),
+            'H' | 'f' => self.move_to_origin(param_or_one(params, 0), param_or_one(params, 1)),
+            'S' => self.scroll_region_up(param_or_one(params, 0)),
+            'T' => self.scroll_region_down(param_or_one(params, 0)),
+            '@' => self.insert_chars(param_or_one(params, 0)),
+            'b' => self.repeat_char(param_or_one(params, 0)),
             'J' => self.erase_display(param_or(params, 0, 0)),
             'K' => self.erase_line(param_or(params, 0, 0)),
-            'L' => self.insert_lines(param_or(params, 0, 1)),
-            'M' => self.delete_lines(param_or(params, 0, 1)),
-            'P' => self.delete_chars(param_or(params, 0, 1)),
-            'X' => self.erase_chars(param_or(params, 0, 1)),
+            'L' => self.insert_lines(param_or_one(params, 0)),
+            'M' => self.delete_lines(param_or_one(params, 0)),
+            'P' => self.delete_chars(param_or_one(params, 0)),
+            'X' => self.erase_chars(param_or_one(params, 0)),
             'c' => self.device_attributes(params, intermediates),
             'n' => self.device_status_report(params, intermediates),
-            'd' => self.move_to_origin(param_or(params, 0, 1), self.cursor.column + 1),
+            'd' => self.move_to_origin(param_or_one(params, 0), self.cursor.column + 1),
             'g' => self.clear_tab_stop(param_or(params, 0, 0)),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
             'm' => self.apply_sgr(params),
@@ -1519,6 +1519,21 @@ fn param_or(params: &Params, index: usize, default: usize) -> usize {
         .unwrap_or(default)
 }
 
+/// Resolve a count/position CSI parameter, applying the ECMA-48 rule that an
+/// omitted *or zero* parameter means 1. `vte` represents an omitted parameter
+/// as an explicit `0` (e.g. `ESC [ A` parses as a single `0` param), so the
+/// plain [`param_or`] with a default of 1 still yields 0 for these controls and
+/// turns a bare cursor move (CUU/CUD/CUF/CUB) into a no-op — the bug behind
+/// fish leaving stale completion rows on screen because its `ESC [ A` failed to
+/// return the cursor to the command line before `ESC [ J`. Use this for
+/// movement and count controls (A/B/C/D, S/T, ICH/IL/DL/DCH/ECH, REP) and for
+/// 1-based position controls (CHA/CUP/VPA). Mode-selector controls such as ED,
+/// EL, SGR, DSR, DA, and tab-clear keep [`param_or`] with a `0` default because
+/// a literal `0` there is a meaningful mode, not a count.
+fn param_or_one(params: &Params, index: usize) -> usize {
+    param_or(params, index, 1).max(1)
+}
+
 fn private_mode_params(params: &Params) -> impl Iterator<Item = u16> + '_ {
     params.iter().filter_map(|param| param.first().copied())
 }
@@ -1655,6 +1670,62 @@ mod tests {
         terminal.advance(b"\x1b[?6n");
 
         assert!(terminal.take_host_output().is_empty());
+    }
+
+    #[test]
+    fn bare_cursor_moves_default_to_one() {
+        // ECMA-48: an omitted parameter on CUU/CUD/CUF/CUB means 1. `vte`
+        // delivers the omitted parameter as an explicit `0`, so the encoder
+        // must still treat it as 1 rather than as a zero-count no-op.
+        let mut terminal = Terminal::new(10, 10);
+
+        terminal.advance(b"\x1b[5;5H"); // row 5, col 5 (1-based) -> index (4,4)
+        assert_eq!(terminal.screen().cursor(), Position { row: 4, column: 4 });
+
+        terminal.advance(b"\x1b[A"); // bare CUU -> up 1
+        assert_eq!(terminal.screen().cursor(), Position { row: 3, column: 4 });
+        terminal.advance(b"\x1b[B"); // bare CUD -> down 1
+        assert_eq!(terminal.screen().cursor(), Position { row: 4, column: 4 });
+        terminal.advance(b"\x1b[C"); // bare CUF -> right 1
+        assert_eq!(terminal.screen().cursor(), Position { row: 4, column: 5 });
+        terminal.advance(b"\x1b[D"); // bare CUB -> left 1
+        assert_eq!(terminal.screen().cursor(), Position { row: 4, column: 4 });
+    }
+
+    #[test]
+    fn zero_count_cursor_moves_are_treated_as_one() {
+        // A literal `0` count is equivalent to an omitted one for these moves.
+        let mut terminal = Terminal::new(10, 10);
+
+        terminal.advance(b"\x1b[5;5H\x1b[0A");
+        assert_eq!(terminal.screen().cursor(), Position { row: 3, column: 4 });
+    }
+
+    #[test]
+    fn completion_pager_redraw_clears_stale_rows() {
+        // Distilled from a captured fish completion redraw: the shell prints the
+        // command line, drops to the row below to list candidates, returns to
+        // the command line with a bare CUU, then narrows the prefix and issues
+        // ED-to-end-of-screen (ESC [ J) to wipe the old candidate rows. If the
+        // bare CUU is a no-op the cursor never returns to the command line, so
+        // ESC [ J clears from the wrong row and the candidates linger. This is
+        // the operator-reported "stale completion text" regression.
+        let mut terminal = Terminal::new(40, 6);
+
+        // Command line on row 0, then candidates on row 1.
+        terminal.advance(b"> less build\r\nBackups/ Bonnie build.sh busy.log");
+        // Return to the command line: CR + bare CUU.
+        terminal.advance(b"\r\x1b[A");
+        assert_eq!(terminal.screen().cursor().row, 0);
+
+        // Narrow the prefix: echo a char, then clear to end of screen.
+        terminal.advance(b"\x1b[12C u\x1b[J");
+
+        let text = terminal.screen().plain_text();
+        assert!(
+            !text.contains("Backups/") && !text.contains("busy.log"),
+            "stale completion candidates remained:\n{text}"
+        );
     }
 
     #[test]
