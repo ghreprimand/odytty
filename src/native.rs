@@ -1,11 +1,18 @@
-//! Native window lifecycle (Linux-first).
+//! Native window + GPU surface (Linux-first, Wayland-native).
 //!
-//! This module owns the seam between the OS window/event loop and the rest of
-//! OdyTTY. It is intentionally narrow: this packet brings up a real `winit`
-//! window that opens and closes cleanly, and nothing else. GPU surface setup
-//! (`wgpu`), the glyph atlas / text renderer, PTY wiring, input mapping, and the
-//! Odyssey visual layer all land in later packets so each can be reviewed on its
-//! own.
+//! This module owns the seam between the OS window/event loop, the GPU surface,
+//! and the rest of OdyTTY. It is built up incrementally so each piece is
+//! reviewable on its own:
+//!
+//! - **Window lifecycle** — a `winit` window that opens and closes cleanly.
+//! - **GPU surface bring-up** — a `wgpu` surface/device/queue that clears the
+//!   window to a solid color each frame and survives resize.
+//!
+//! Still deliberately absent this packet: the glyph atlas / text renderer, PTY
+//! wiring, keyboard input, and the Odyssey visual/theme layer. The solid clear
+//! color here is a neutral placeholder that proves the GPU pipeline opens,
+//! presents, and reconfigures on resize — it is **not** the theme system, which
+//! lands later as a disableable layer.
 //!
 //! ## Ownership split (filled in incrementally)
 //!
@@ -13,21 +20,23 @@
 //! windowing, GPU rendering, and any later Odyssey visual layer:
 //!
 //! - **Event loop** — `winit` owns the OS window, input events, and resize.
-//!   *(this packet)*
-//! - **GPU surface/device** — `wgpu` will own the surface, device, queue, and
-//!   swap chain. *(later)*
+//!   *(done)*
+//! - **GPU surface/device** — `wgpu` owns the surface, device, queue, and swap
+//!   chain, presenting frames to the window. *(this packet: solid clear only)*
 //! - **Glyph atlas / text renderer** — a CPU-rasterized monospace glyph atlas
 //!   uploaded to a `wgpu` texture; cells drawn as textured quads. *(later)*
 //! - **Grid presentation** — maps an owned-core `Snapshot` to positioned cells
 //!   via `crate::render` metrics, with no terminal semantics in the renderer.
 //!   *(later)*
 //!
-//! Because there is no renderer yet, the window's surface contents are
-//! undefined this packet; the milestone here is purely a clean open/close
-//! lifecycle. The window is sized from the requested grid using approximate
-//! monospace cell metrics so the dimensions are realistic ahead of real text
-//! layout.
+//! ## Linux / Wayland
+//!
+//! `winit` compiles in both Wayland and X11 backends and selects Wayland at
+//! runtime when `WAYLAND_DISPLAY` is set, so under Hyprland this is a native
+//! Wayland surface (no XWayland). `wgpu` presents to that surface via its
+//! default backends (Vulkan on Linux), so the GPU path is Wayland-native too.
 
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::core::Dimensions;
@@ -46,6 +55,18 @@ use winit::window::{Window, WindowId};
 /// product setting.
 const AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 
+/// Placeholder clear color for the window surface, in linear RGBA.
+///
+/// A neutral near-black so the GPU bring-up is visually obvious without
+/// implying a theme. The real background comes from the Odyssey theme layer in
+/// a later packet; this is intentionally not that.
+const CLEAR_COLOR: wgpu::Color = wgpu::Color {
+    r: 0.043,
+    g: 0.047,
+    b: 0.063,
+    a: 1.0,
+};
+
 /// Errors from the native app path.
 #[derive(Debug, thiserror::Error)]
 pub enum NativeError {
@@ -55,6 +76,15 @@ pub enum NativeError {
     /// The OS window could not be created.
     #[error("native window creation failed: {0}")]
     WindowCreation(String),
+    /// The GPU surface could not be created for the window.
+    #[error("gpu surface creation failed: {0}")]
+    SurfaceCreation(String),
+    /// No compatible GPU adapter was available.
+    #[error("no compatible gpu adapter: {0}")]
+    NoAdapter(String),
+    /// The GPU device/queue could not be acquired.
+    #[error("gpu device request failed: {0}")]
+    DeviceRequest(String),
 }
 
 /// Initial native window and text assumptions.
@@ -120,14 +150,176 @@ fn autoclose_from_env() -> Option<Duration> {
     }
 }
 
+/// GPU surface state bound to a single window.
+///
+/// Owns the `wgpu` surface, device, queue, and surface configuration. This
+/// packet only clears the surface to [`CLEAR_COLOR`]; the glyph renderer plugs
+/// in at [`GpuState::render`] later. The surface borrows the window for
+/// `'static` by holding an `Arc<Window>`.
+struct GpuState {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+}
+
+impl GpuState {
+    /// Bring up the GPU surface for `window`.
+    ///
+    /// Synchronous from the caller's perspective: the async adapter/device
+    /// requests are driven to completion with `pollster`, since `winit`'s
+    /// handler callbacks are synchronous.
+    fn new(window: Arc<Window>) -> Result<Self, NativeError> {
+        let size = window.inner_size();
+        // No display handle is supplied here: the default Linux backend is
+        // Vulkan, which ignores it. (It only matters for GLES-on-Wayland.)
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+
+        let surface = instance
+            .create_surface(window)
+            .map_err(|err| NativeError::SurfaceCreation(err.to_string()))?;
+
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::default(),
+            force_fallback_adapter: false,
+            compatible_surface: Some(&surface),
+        }))
+        .map_err(|err| NativeError::NoAdapter(err.to_string()))?;
+
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("odytty-device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            memory_hints: wgpu::MemoryHints::default(),
+            trace: wgpu::Trace::Off,
+        }))
+        .map_err(|err| NativeError::DeviceRequest(err.to_string()))?;
+
+        let caps = surface.get_capabilities(&adapter);
+        let format = caps
+            .formats
+            .iter()
+            .copied()
+            .find(wgpu::TextureFormat::is_srgb)
+            .unwrap_or(caps.formats[0]);
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: size.width.max(1),
+            height: size.height.max(1),
+            // Fifo (vsync) is universally supported and avoids tearing; the
+            // present mode can become a setting once frames carry real content.
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&device, &config);
+
+        Ok(Self {
+            surface,
+            device,
+            queue,
+            config,
+        })
+    }
+
+    /// Reconfigure the surface for a new physical size. No-op for zero extents
+    /// (e.g. a minimized window), which the swap chain rejects.
+    fn resize(&mut self, width: u32, height: u32) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        self.config.width = width;
+        self.config.height = height;
+        self.surface.configure(&self.device, &self.config);
+    }
+
+    /// Reapply the current configuration, used to recover a lost/outdated
+    /// surface before the next frame.
+    fn reconfigure(&self) {
+        self.surface.configure(&self.device, &self.config);
+    }
+
+    /// Clear the surface to [`CLEAR_COLOR`] and present one frame.
+    ///
+    /// Returns a [`FrameOutcome`] so the event loop can decide whether to
+    /// reconfigure the surface or simply skip the frame. `wgpu` 29 reports
+    /// acquisition status through [`wgpu::CurrentSurfaceTexture`] rather than a
+    /// `Result`, so there is no fatal out-of-memory path here.
+    fn render(&mut self) -> FrameOutcome {
+        let (frame, suboptimal) = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(frame) => (frame, false),
+            // Acquired, but the surface no longer matches: draw this frame, then
+            // reconfigure for the next one.
+            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => (frame, true),
+            // Surface changed/lost or a validation error: reconfigure and retry.
+            wgpu::CurrentSurfaceTexture::Outdated
+            | wgpu::CurrentSurfaceTexture::Lost
+            | wgpu::CurrentSurfaceTexture::Validation => return FrameOutcome::NeedsReconfigure,
+            // Transient: drop this frame and try again later.
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return FrameOutcome::Skipped;
+            }
+        };
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("odytty-clear-encoder"),
+            });
+        {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("odytty-clear-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(CLEAR_COLOR),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+        frame.present();
+
+        if suboptimal {
+            FrameOutcome::NeedsReconfigure
+        } else {
+            FrameOutcome::Presented
+        }
+    }
+}
+
+/// What the event loop should do after a frame attempt.
+enum FrameOutcome {
+    /// A frame was presented successfully.
+    Presented,
+    /// The surface needs reconfiguring before the next frame.
+    NeedsReconfigure,
+    /// The frame was intentionally skipped (transient surface state).
+    Skipped,
+}
+
 /// Application state driving the `winit` event loop.
 ///
-/// Holds only what the open/close lifecycle needs. The window is created lazily
-/// on `resumed` per `winit`'s portability contract, and any startup failure is
-/// captured so it can be surfaced after the loop returns.
+/// The window is created lazily on `resumed` per `winit`'s portability
+/// contract, and any startup failure is captured so it can be surfaced after
+/// the loop returns.
 struct App {
     options: NativeOptions,
-    window: Option<Window>,
+    window: Option<Arc<Window>>,
+    gpu: Option<GpuState>,
     autoclose: Option<Duration>,
     deadline: Option<Instant>,
     startup_error: Option<NativeError>,
@@ -138,10 +330,17 @@ impl App {
         Self {
             options,
             window: None,
+            gpu: None,
             autoclose,
             deadline: None,
             startup_error: None,
         }
+    }
+
+    /// Record a fatal startup error and ask the loop to exit.
+    fn fail(&mut self, event_loop: &ActiveEventLoop, err: NativeError) {
+        self.startup_error = Some(err);
+        event_loop.exit();
     }
 }
 
@@ -156,20 +355,29 @@ impl ApplicationHandler for App {
             .with_title(self.options.title.clone())
             .with_inner_size(LogicalSize::new(w, h));
 
-        match event_loop.create_window(attributes) {
-            Ok(window) => {
-                window.request_redraw();
-                self.window = Some(window);
-                if let Some(delay) = self.autoclose {
-                    let deadline = Instant::now() + delay;
-                    self.deadline = Some(deadline);
-                    event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
-                }
-            }
+        let window = match event_loop.create_window(attributes) {
+            Ok(window) => Arc::new(window),
             Err(err) => {
-                self.startup_error = Some(NativeError::WindowCreation(err.to_string()));
-                event_loop.exit();
+                self.fail(event_loop, NativeError::WindowCreation(err.to_string()));
+                return;
             }
+        };
+
+        match GpuState::new(window.clone()) {
+            Ok(gpu) => self.gpu = Some(gpu),
+            Err(err) => {
+                self.fail(event_loop, err);
+                return;
+            }
+        }
+
+        window.request_redraw();
+        self.window = Some(window);
+
+        if let Some(delay) = self.autoclose {
+            let deadline = Instant::now() + delay;
+            self.deadline = Some(deadline);
+            event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
         }
     }
 
@@ -183,9 +391,24 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
             }
+            WindowEvent::Resized(size) => {
+                if let Some(gpu) = self.gpu.as_mut() {
+                    gpu.resize(size.width, size.height);
+                }
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => {
-                // No renderer yet: the GPU surface and text rendering arrive in
-                // later packets. Nothing to present this packet.
+                let Some(gpu) = self.gpu.as_mut() else {
+                    return;
+                };
+                match gpu.render() {
+                    FrameOutcome::Presented | FrameOutcome::Skipped => {}
+                    // Surface lost/outdated/suboptimal (e.g. after a resize or
+                    // compositor change): reconfigure and try again next frame.
+                    FrameOutcome::NeedsReconfigure => gpu.reconfigure(),
+                }
             }
             _ => {}
         }
@@ -202,9 +425,12 @@ impl ApplicationHandler for App {
 
 /// Entry point for the native app.
 ///
-/// Opens a real OS window sized to the requested grid and runs the event loop
-/// until the window is closed (or, when `ODYTTY_NATIVE_AUTOCLOSE_MS` is set, the
-/// auto-close deadline elapses). Returns once the window has closed cleanly.
+/// Opens a real OS window sized to the requested grid, brings up a `wgpu`
+/// surface, and runs the event loop until the window is closed (or, when
+/// `ODYTTY_NATIVE_AUTOCLOSE_MS` is set, the auto-close deadline elapses). The
+/// surface is cleared to a neutral placeholder color each frame; readable text
+/// rendering lands in a later packet. Returns once the window has closed
+/// cleanly.
 pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
     let event_loop = EventLoop::new().map_err(|err| NativeError::EventLoop(err.to_string()))?;
     event_loop.set_control_flow(ControlFlow::Wait);
@@ -264,5 +490,10 @@ mod tests {
         };
         let (w, h) = options.window_logical_size();
         assert!(w >= 1 && h >= 1);
+    }
+
+    #[test]
+    fn clear_color_is_opaque() {
+        assert_eq!(CLEAR_COLOR.a, 1.0);
     }
 }

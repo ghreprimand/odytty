@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — GPU surface clears the window (wgpu bring-up)
+
+The `--native` window now has a live `wgpu` surface. Each frame is cleared to a
+neutral placeholder color and presented; the surface reconfigures on resize.
+This is the GPU-pipeline half of the text-rendering milestone, split out so GPU
+bring-up is verified before any glyph work. No glyph atlas, PTY wiring, input,
+or theme layer yet — the clear color is a placeholder, not the theme system.
+
+### What landed
+
+- **`wgpu 29` + `pollster 0.4`** dependencies. `pollster` drives `wgpu`'s async
+  adapter/device requests to completion inside `winit`'s synchronous handlers.
+- **`GpuState`** (`src/native.rs`): owns the surface, device, queue, and surface
+  configuration. Picks an sRGB surface format when available, uses `Fifo`
+  (vsync) present mode, clears to the placeholder color via a render pass, and
+  presents. Resize reconfigures the surface; lost/outdated/suboptimal surfaces
+  are recovered by reconfiguring before the next frame (modeled as a small
+  `FrameOutcome`). New `NativeError` variants cover surface/adapter/device
+  bring-up failures.
+- **Window holds an `Arc<Window>`** so the `wgpu` surface can borrow it for
+  `'static`.
+
+### Wayland / Hyprland (verified 2026-06-09)
+
+- Ran with `DISPLAY` unset and only `WAYLAND_DISPLAY` set: the window opens and
+  presents, so the path is **native Wayland, not XWayland**.
+- `wgpu` selected the **Vulkan backend on the AMD hardware adapter** (a lavapipe
+  software ICD is present only as a fallback). This is the intended Hyprland
+  path.
+
+### Test status (verified 2026-06-09)
+
+- `cargo test`: 62 lib unit tests + 8 smoke tests pass, 1 live-PTY test ignored.
+- `cargo fmt --check`: clean.
+
+### Remaining for the next native packet
+
+- Build the CPU-rasterized monospace glyph atlas and draw the owned core's
+  `Snapshot` as readable text into this surface, then wire PTY output + keyboard
+  input.
+
+---
+
 ## 2026-06-09 — Native window opens and closes cleanly
 
 First real native window. The `--native` path now brings up an OS window via
