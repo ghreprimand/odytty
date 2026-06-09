@@ -238,6 +238,92 @@ struct ViewportUniform {
     effect: [f32; 2],
 }
 
+/// Retains a platform clipboard handle across copy/paste operations.
+///
+/// On Linux, clipboard contents are commonly served by the application that
+/// last set them. Dropping the `Clipboard` immediately after `set_text` can make
+/// copied text disappear before the compositor or clipboard manager has had a
+/// chance to request it, so the native app keeps the handle alive for its
+/// lifetime.
+#[derive(Debug)]
+struct ClipboardSlot<T> {
+    handle: Option<T>,
+}
+
+impl<T> ClipboardSlot<T> {
+    fn new() -> Self {
+        Self { handle: None }
+    }
+
+    fn get_or_try_init<E>(&mut self, create: impl FnOnce() -> Result<T, E>) -> Result<&mut T, E> {
+        if self.handle.is_none() {
+            self.handle = Some(create()?);
+        }
+
+        Ok(self.handle.as_mut().expect("clipboard handle initialized"))
+    }
+
+    fn clear(&mut self) {
+        self.handle = None;
+    }
+
+    #[cfg(test)]
+    fn is_retaining_handle(&self) -> bool {
+        self.handle.is_some()
+    }
+}
+
+impl<T> Default for ClipboardSlot<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Default)]
+struct NativeClipboard {
+    slot: ClipboardSlot<Clipboard>,
+}
+
+impl NativeClipboard {
+    fn read_text(&mut self) -> Option<String> {
+        let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
+            Ok(clipboard) => clipboard,
+            Err(err) => {
+                eprintln!("odytty: clipboard unavailable for paste: {err}");
+                return None;
+            }
+        };
+
+        match clipboard.get_text() {
+            Ok(text) => Some(text),
+            Err(err) => {
+                eprintln!("odytty: clipboard paste failed: {err}");
+                self.slot.clear();
+                None
+            }
+        }
+    }
+
+    fn write_text(&mut self, text: &str) -> Option<()> {
+        let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
+            Ok(clipboard) => clipboard,
+            Err(err) => {
+                eprintln!("odytty: clipboard unavailable for copy: {err}");
+                return None;
+            }
+        };
+
+        match clipboard.set_text(text.to_owned()) {
+            Ok(()) => Some(()),
+            Err(err) => {
+                eprintln!("odytty: clipboard copy failed: {err}");
+                self.slot.clear();
+                None
+            }
+        }
+    }
+}
+
 /// GPU surface state bound to a single window.
 ///
 /// Owns the `wgpu` surface, device, queue, and surface configuration, plus the
@@ -811,6 +897,9 @@ struct App {
     /// scrolled-back view as new output grows scrollback (the "stay scrolled"
     /// policy in [`Viewport::anchor_after_growth`]).
     last_scrollback_len: usize,
+    /// Native-side clipboard owner. Kept alive across copy/paste operations so
+    /// Linux clipboard contents remain served after Ctrl+Shift+C.
+    clipboard: NativeClipboard,
     autoclose: Option<Duration>,
     deadline: Option<Instant>,
     startup_error: Option<NativeError>,
@@ -844,6 +933,7 @@ impl App {
             selecting: false,
             viewport: Viewport::default(),
             last_scrollback_len: 0,
+            clipboard: NativeClipboard::default(),
             autoclose,
             deadline: None,
             startup_error: None,
@@ -946,7 +1036,7 @@ impl App {
     /// reachable. Clipboard failures are deliberately non-fatal: a terminal
     /// should keep running even when the compositor denies clipboard access.
     fn handle_paste_shortcut(&mut self) {
-        let Some(text) = read_clipboard_text() else {
+        let Some(text) = self.clipboard.read_text() else {
             return;
         };
         // Paste writes to the PTY, so treat it like typed input: return to live.
@@ -957,7 +1047,7 @@ impl App {
     /// Copy the current visible selection to the clipboard. This is kept fully
     /// native-side: the selected text is derived from a snapshot copy and no
     /// terminal state is mutated.
-    fn handle_copy_shortcut(&self) {
+    fn handle_copy_shortcut(&mut self) {
         let Some(range) = self.selection.range() else {
             return;
         };
@@ -968,7 +1058,7 @@ impl App {
         if text.is_empty() {
             return;
         }
-        let _ = write_clipboard_text(&text);
+        let _ = self.clipboard.write_text(&text);
     }
 
     fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
@@ -1086,14 +1176,6 @@ fn is_scroll_up_key(logical: &WinitKey, mods: Modifiers) -> bool {
 /// Shift+PageDown pages the scrollback viewport toward the live bottom.
 fn is_scroll_down_key(logical: &WinitKey, mods: Modifiers) -> bool {
     mods.shift && !mods.ctrl && !mods.alt && matches!(logical, WinitKey::Named(NamedKey::PageDown))
-}
-
-fn read_clipboard_text() -> Option<String> {
-    Clipboard::new().ok()?.get_text().ok()
-}
-
-fn write_clipboard_text(text: &str) -> Option<()> {
-    Clipboard::new().ok()?.set_text(text.to_owned()).ok()
 }
 
 fn write_paste_text(
@@ -1688,6 +1770,47 @@ mod tests {
     fn viewport_uniform_is_sixteen_bytes() {
         // std140 slot: vec2 size + vec2 effect == 16 bytes, matching cell.wgsl.
         assert_eq!(std::mem::size_of::<ViewportUniform>(), 16);
+    }
+
+    #[test]
+    fn clipboard_slot_retains_initialized_handle() {
+        let mut slot = ClipboardSlot::default();
+        let mut created = 0;
+
+        *slot
+            .get_or_try_init(|| {
+                created += 1;
+                Ok::<_, ()>(41)
+            })
+            .expect("first handle") += 1;
+        let retained = *slot
+            .get_or_try_init(|| {
+                created += 1;
+                Ok::<_, ()>(0)
+            })
+            .expect("retained handle");
+
+        assert_eq!(created, 1);
+        assert_eq!(retained, 42);
+        assert!(slot.is_retaining_handle());
+    }
+
+    #[test]
+    fn clipboard_slot_can_drop_failed_or_stale_handle() {
+        let mut slot = ClipboardSlot::default();
+
+        let _ = slot
+            .get_or_try_init(|| Ok::<_, ()>("first"))
+            .expect("first handle");
+        assert!(slot.is_retaining_handle());
+
+        slot.clear();
+        assert!(!slot.is_retaining_handle());
+
+        let retained = *slot
+            .get_or_try_init(|| Ok::<_, ()>("replacement"))
+            .expect("replacement handle");
+        assert_eq!(retained, "replacement");
     }
 
     fn cell(width: u32, height: u32) -> CellSize {
