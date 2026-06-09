@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Wayland clipboard export
+
+Manual validation showed OdyTTY copy/paste worked inside OdyTTY but did not
+export selected text reliably to other Wayland apps. The native clipboard path
+now enables `arboard`'s Wayland data-control backend while keeping the
+persistent clipboard owner added earlier.
+
+### What landed
+
+- **`Cargo.toml` / `Cargo.lock`** — enabled `arboard`'s
+  `wayland-data-control` feature so Hyprland/Wayland sessions can publish
+  clipboard text through the Wayland clipboard backend instead of only the X11
+  fallback path.
+- **`src/native.rs`** — kept copy as a plain text-only payload and added focused
+  tests around the selected-text helper to guard against empty selections and
+  non-text copy-path regressions.
+
+### Verified
+
+- `cargo test`: **159 lib + 10 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose exits `0` with no lingering `odytty` process.
+
+### Known gaps
+
+- This still needs the operator's real-compositor retest: select text in
+  OdyTTY, press `Ctrl+Shift+C`, and paste into an external Wayland app.
+
+---
+
 ## 2026-06-09 — Manual validation fixes: clipboard and resize reflow
 
 Manual native validation exposed two first-prototype blockers: Linux clipboard
