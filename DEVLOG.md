@@ -7,6 +7,61 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Keyboard input + shared key encoder
+
+The native window is now **interactive**: `cargo run -- --native` opens a real
+shell you can type into. `ls`, `echo hi`, line editing with Backspace and
+arrows, `Ctrl-C` to interrupt, and `Ctrl-D` at an empty prompt (which exits the
+shell and closes the window) all work. This completes the read+write loop on top
+of the PTY writer plumbed last packet.
+
+### What landed
+
+- **`src/input.rs`** (new) — a source-agnostic key encoder that is the **single
+  source of truth** for the byte sequences sent to the PTY:
+  - `enum Key` (Char + named keys), `struct Modifiers { ctrl, alt, shift }`,
+    `fn encode_key(Key, Modifiers) -> Vec<u8>`, and `fn ctrl_char`.
+  - No windowing, GPU, or crossterm dependency — both front ends depend on it
+    without depending on each other, so the escape table lives in exactly one
+    place and cannot drift.
+  - `\r` for Enter, `0x7f` Backspace, `ESC[A..D` arrows, control bytes for
+    Ctrl-letter, `ESC` prefix for Alt. Empty result = "ignore".
+- **`src/app.rs`** — refactored to map crossterm `KeyEvent` → neutral
+  `Key`/`Modifiers` (via a new `map_keycode`) and defer byte production to
+  `input::encode_key`. The `ctrl_char` table moved into `input`. The Ctrl-Q quit
+  affordance stays in `app.rs` (it's a debug-mode concern, not a real terminal
+  byte). Both existing key tests pass **unchanged**.
+- **`src/native.rs`** — winit keyboard wired to the PTY:
+  - `WindowEvent::ModifiersChanged` caches Ctrl/Alt/Shift; `KeyboardInput`
+    (Pressed only; repeats kept for autorepeat) maps the winit `logical_key`
+    (`Character` / `Named`) to the neutral `Key` via `map_named_key`, encodes,
+    and writes+flushes to the shared PTY writer.
+  - `map_named_key` resolves Shift-Tab → BackTab and maps Space to `Char(' ')`
+    so Ctrl-Space encodes to NUL through the shared encoder.
+  - The writer (previously held unused for "next packet") is now the live input
+    sink; docs updated to drop the stale "keyboard input absent" notes.
+
+### Verified
+
+- `cargo test`: **81 lib + 8 smoke** green (1 ignored live-PTY each). New: 7
+  `input::encode_key` unit tests (printable, Enter/Backspace, arrows, Ctrl-C/D,
+  Ctrl-with-no-mapping, Alt-prefix, Ctrl punctuation) + 2 native `map_named_key`
+  tests (Shift-Tab, Space→NUL-under-Ctrl). The two existing `app.rs` key tests
+  still pass with identical assertions.
+- `cargo fmt --check` clean. `cargo clippy` clean for touched files (only the
+  pre-existing `core/mod.rs` derive note remains).
+- Wayland-native autoclose
+  (`WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS` …) exits `0`,
+  no validation errors, no zombies/lingering processes.
+
+### Known gaps (unchanged this packet)
+
+- Window-resize reflow of the PTY/model is still deferred (viewport-only).
+- No paste/bracketed-paste, mouse selection, or scrollback navigation yet —
+  those are the next Daily-Loop plan items.
+
+---
+
 ## 2026-06-09 — Live PTY output in the native window
 
 The native window now renders a **real shell**. The seeded demo snapshot is

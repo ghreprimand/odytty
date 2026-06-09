@@ -16,10 +16,12 @@
 //! geometry is drawn over it; that clear is **not** the theme system, which
 //! lands later as a disableable layer.
 //!
-//! Still deliberately absent this packet: PTY wiring, keyboard input, and the
-//! Odyssey visual/theme layer. The text shown is a *static seeded snapshot*
-//! (see [`GpuState::new`]) driven through the real owned core so colors/SGR
-//! exercise the real path; live PTY output replaces it in the next packet.
+//! The window now opens a real shell: PTY output is rendered live and keyboard
+//! input is encoded and written back to the PTY (via the shared
+//! [`crate::input`] encoder), so the read+write loop is complete. Still
+//! deliberately absent: window-resize reflow of the PTY/model, mouse selection,
+//! paste/bracketed-paste, scrollback navigation, and the Odyssey visual/theme
+//! layer.
 //!
 //! ## Ownership split (filled in incrementally)
 //!
@@ -53,14 +55,16 @@ use wgpu::util::DeviceExt;
 
 use crate::core::{Dimensions, Snapshot, Terminal};
 use crate::grid::{self, Vertex};
+use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 use crate::render::CellMetrics;
 use crate::text::{self, GlyphAtlas};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::WindowEvent;
+use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
+use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{Window, WindowId};
 
 /// Environment variable that, when set to a positive integer of milliseconds,
@@ -124,9 +128,9 @@ enum UserEvent {
 /// The single PTY master writer, shared behind a lock.
 ///
 /// `portable-pty`'s `take_writer` yields the writer once, so it is wrapped here
-/// and shared: the pump thread uses it to send host responses (query replies)
-/// this packet, and the App keeps a clone alive for the keyboard-input path that
-/// lands next packet.
+/// and shared: the pump thread uses it to send host responses (query replies),
+/// and the App uses its clone to send encoded keystrokes — both write to the
+/// single PTY master.
 type PtyWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 
 /// Initial native window and text assumptions.
@@ -632,9 +636,14 @@ struct App {
     /// Set when the pump thread reports new output; the next `RedrawRequested`
     /// rebuilds the vertex buffer once (coalescing many wakes into one rebuild).
     needs_rebuild: bool,
-    /// The shared PTY writer, kept alive for the keyboard-input path that lands
-    /// next packet. Not read yet — holding it proves the seam.
-    _writer: PtyWriter,
+    /// The shared PTY writer. Key presses are encoded to bytes and written here,
+    /// completing the read+write loop with the pump thread that owns the reader.
+    writer: PtyWriter,
+    /// Latest modifier state, tracked across `ModifiersChanged` events so a key
+    /// press can be encoded with the Ctrl/Alt/Shift held at press time. `winit`
+    /// delivers modifier changes separately from key events, so this must be
+    /// remembered rather than read off each `KeyboardInput`.
+    modifiers: Modifiers,
     autoclose: Option<Duration>,
     deadline: Option<Instant>,
     startup_error: Option<NativeError>,
@@ -653,7 +662,8 @@ impl App {
             gpu: None,
             terminal,
             needs_rebuild: true,
-            _writer: writer,
+            writer,
+            modifiers: Modifiers::default(),
             autoclose,
             deadline: None,
             startup_error: None,
@@ -665,6 +675,72 @@ impl App {
         self.startup_error = Some(err);
         event_loop.exit();
     }
+
+    /// Encode a pressed key and write its bytes to the PTY.
+    ///
+    /// Maps the `winit` logical key (plus the cached [`Modifiers`]) onto the
+    /// neutral [`Key`] model and defers byte production to the shared
+    /// [`input::encode_key`], so the native and crossterm front ends emit
+    /// identical sequences. Keys the prototype does not encode are dropped. The
+    /// PTY writer is flushed after each write so the keystroke reaches the shell
+    /// without buffering latency.
+    fn handle_key_press(&mut self, logical: WinitKey) {
+        let mods = self.modifiers;
+        let mut bytes = Vec::new();
+        match logical {
+            // `Key::Character` may carry more than one char (composed input);
+            // encode each so multi-char text still reaches the shell intact.
+            WinitKey::Character(text) => {
+                for ch in text.chars() {
+                    bytes.extend_from_slice(&input::encode_key(Key::Char(ch), mods));
+                }
+            }
+            WinitKey::Named(named) => {
+                if let Some(key) = map_named_key(named, mods.shift) {
+                    bytes = input::encode_key(key, mods);
+                }
+            }
+            // Dead keys / unidentified: nothing to send.
+            _ => {}
+        }
+
+        if bytes.is_empty() {
+            return;
+        }
+        if let Ok(mut writer) = self.writer.lock() {
+            let _ = writer.write_all(&bytes);
+            let _ = writer.flush();
+        }
+    }
+}
+
+/// Translate a `winit` [`NamedKey`] into the neutral [`Key`] model.
+///
+/// `shift` is consulted only to turn Tab into [`Key::BackTab`] (Shift-Tab),
+/// matching how the crossterm front end distinguishes the two. `Space` is
+/// mapped to [`Key::Char(' ')`] rather than a named key so Ctrl-Space encodes
+/// to `NUL` via the shared encoder. Named keys the prototype does not handle
+/// (function keys, media keys, etc.) return `None`.
+fn map_named_key(named: NamedKey, shift: bool) -> Option<Key> {
+    Some(match named {
+        NamedKey::Enter => Key::Enter,
+        NamedKey::Backspace => Key::Backspace,
+        NamedKey::ArrowLeft => Key::Left,
+        NamedKey::ArrowRight => Key::Right,
+        NamedKey::ArrowUp => Key::Up,
+        NamedKey::ArrowDown => Key::Down,
+        NamedKey::Home => Key::Home,
+        NamedKey::End => Key::End,
+        NamedKey::PageUp => Key::PageUp,
+        NamedKey::PageDown => Key::PageDown,
+        NamedKey::Tab if shift => Key::BackTab,
+        NamedKey::Tab => Key::Tab,
+        NamedKey::Delete => Key::Delete,
+        NamedKey::Insert => Key::Insert,
+        NamedKey::Escape => Key::Esc,
+        NamedKey::Space => Key::Char(' '),
+        _ => return None,
+    })
 }
 
 impl ApplicationHandler<UserEvent> for App {
@@ -746,6 +822,21 @@ impl ApplicationHandler<UserEvent> for App {
                     // compositor change): reconfigure and try again next frame.
                     FrameOutcome::NeedsReconfigure => gpu.reconfigure(),
                 }
+            }
+            // `winit` reports modifier state separately from key presses; cache
+            // it so the next `KeyboardInput` encodes with Ctrl/Alt/Shift held.
+            WindowEvent::ModifiersChanged(state) => {
+                let state = state.state();
+                self.modifiers = Modifiers {
+                    ctrl: state.control_key(),
+                    alt: state.alt_key(),
+                    shift: state.shift_key(),
+                };
+            }
+            // Only act on key-down (ignore key-up). Repeats are kept: holding a
+            // key should autorepeat into the shell like a real terminal.
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                self.handle_key_press(event.logical_key);
             }
             _ => {}
         }
@@ -841,8 +932,8 @@ fn spawn_pty_pump(
 /// way out the child shell is killed and reaped and the pump thread is joined,
 /// so no zombie process or detached thread is left behind.
 ///
-/// Keyboard input is deliberately not wired this packet — output flows
-/// shell → core → pixels only.
+/// The read+write loop is complete: PTY output flows shell → core → pixels, and
+/// keyboard input flows window → [`crate::input`] encoder → PTY → shell.
 pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
     let event_loop = EventLoop::<UserEvent>::with_user_event()
         .build()
@@ -862,8 +953,8 @@ pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
     let reader = session
         .try_clone_reader()
         .map_err(|err| NativeError::Pty(err.to_string()))?;
-    // One writer, shared: the pump thread sends host responses through it now;
-    // the App keeps a clone for the keyboard-input path (next packet).
+    // One writer, shared: the pump thread sends host responses through it, and
+    // the App sends encoded keystrokes through its clone.
     let writer: PtyWriter = Arc::new(Mutex::new(
         session
             .take_writer()
@@ -941,6 +1032,30 @@ mod tests {
     #[test]
     fn clear_color_is_opaque() {
         assert_eq!(CLEAR_COLOR.a, 1.0);
+    }
+
+    #[test]
+    fn named_keys_map_to_neutral_model() {
+        assert_eq!(map_named_key(NamedKey::Enter, false), Some(Key::Enter));
+        assert_eq!(map_named_key(NamedKey::ArrowUp, false), Some(Key::Up));
+        assert_eq!(
+            map_named_key(NamedKey::Backspace, false),
+            Some(Key::Backspace)
+        );
+        // Shift-Tab becomes BackTab; plain Tab stays Tab.
+        assert_eq!(map_named_key(NamedKey::Tab, false), Some(Key::Tab));
+        assert_eq!(map_named_key(NamedKey::Tab, true), Some(Key::BackTab));
+        // Space maps to a char so Ctrl-Space can encode to NUL downstream.
+        assert_eq!(map_named_key(NamedKey::Space, false), Some(Key::Char(' ')));
+        // Unhandled named keys are dropped.
+        assert_eq!(map_named_key(NamedKey::F1, false), None);
+    }
+
+    #[test]
+    fn space_named_key_encodes_nul_under_ctrl() {
+        // Full path: Space named key -> neutral Key -> shared encoder, with Ctrl.
+        let key = map_named_key(NamedKey::Space, false).expect("space maps");
+        assert_eq!(input::encode_key(key, Modifiers::CTRL), vec![0]);
     }
 
     /// End-to-end PTY → core check: spawn a one-shot command on a real PTY,

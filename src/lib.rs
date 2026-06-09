@@ -1,6 +1,7 @@
 pub mod app;
 pub mod core;
 pub mod grid;
+pub mod input;
 pub mod native;
 pub mod pty;
 pub mod render;

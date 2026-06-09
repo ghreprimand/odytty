@@ -16,6 +16,7 @@ use crossterm::terminal::{
 use crossterm::{execute, queue};
 
 use crate::core::{Dimensions, Terminal};
+use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 
 const INPUT_POLL: Duration = Duration::from_millis(16);
@@ -155,58 +156,62 @@ fn render_debug_screen(stdout: &mut Stdout, terminal: &Terminal) -> Result<()> {
     stdout.flush().context("flush debug render")
 }
 
+/// Map a crossterm key event to a PTY action.
+///
+/// This is the crossterm front end's thin adapter: it intercepts the
+/// debug-mode-only Ctrl-Q quit affordance (which is *not* a real terminal
+/// byte sequence and so does not belong in the shared encoder), then translates
+/// the crossterm `KeyCode`/`KeyModifiers` into the neutral [`Key`]/[`Modifiers`]
+/// model and defers all byte production to [`input::encode_key`] — the single
+/// source of truth shared with the native front end.
 fn encode_key(key: KeyEvent) -> InputAction {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    let alt = key.modifiers.contains(KeyModifiers::ALT);
+    let mods = Modifiers {
+        ctrl: key.modifiers.contains(KeyModifiers::CONTROL),
+        alt: key.modifiers.contains(KeyModifiers::ALT),
+        shift: key.modifiers.contains(KeyModifiers::SHIFT),
+    };
 
-    if ctrl && matches!(key.code, KeyCode::Char('q' | 'Q')) {
+    // Ctrl-Q is an interactive-mode quit affordance, not a key the shell sees.
+    if mods.ctrl && matches!(key.code, KeyCode::Char('q' | 'Q')) {
         return InputAction::Quit;
     }
 
-    let mut bytes = match key.code {
-        KeyCode::Backspace => vec![0x7f],
-        KeyCode::Enter => b"\r".to_vec(),
-        KeyCode::Left => b"\x1b[D".to_vec(),
-        KeyCode::Right => b"\x1b[C".to_vec(),
-        KeyCode::Up => b"\x1b[A".to_vec(),
-        KeyCode::Down => b"\x1b[B".to_vec(),
-        KeyCode::Home => b"\x1b[H".to_vec(),
-        KeyCode::End => b"\x1b[F".to_vec(),
-        KeyCode::PageUp => b"\x1b[5~".to_vec(),
-        KeyCode::PageDown => b"\x1b[6~".to_vec(),
-        KeyCode::Tab => b"\t".to_vec(),
-        KeyCode::BackTab => b"\x1b[Z".to_vec(),
-        KeyCode::Delete => b"\x1b[3~".to_vec(),
-        KeyCode::Insert => b"\x1b[2~".to_vec(),
-        KeyCode::Esc => b"\x1b".to_vec(),
-        KeyCode::Char(ch) if ctrl => ctrl_char(ch).map_or_else(Vec::new, |byte| vec![byte]),
-        KeyCode::Char(ch) => ch.to_string().into_bytes(),
-        _ => Vec::new(),
+    let Some(neutral) = map_keycode(key.code) else {
+        return InputAction::Ignore;
     };
 
+    let bytes = input::encode_key(neutral, mods);
     if bytes.is_empty() {
-        return InputAction::Ignore;
+        InputAction::Ignore
+    } else {
+        InputAction::Bytes(bytes)
     }
-
-    if alt {
-        bytes.insert(0, b'\x1b');
-    }
-
-    InputAction::Bytes(bytes)
 }
 
-fn ctrl_char(ch: char) -> Option<u8> {
-    match ch {
-        'a'..='z' => Some((ch as u8) - b'a' + 1),
-        'A'..='Z' => Some((ch as u8) - b'A' + 1),
-        '[' => Some(0x1b),
-        '\\' => Some(0x1c),
-        ']' => Some(0x1d),
-        '^' => Some(0x1e),
-        '_' => Some(0x1f),
-        ' ' => Some(0),
-        _ => None,
-    }
+/// Translate a crossterm [`KeyCode`] into the neutral [`Key`] model.
+///
+/// Returns `None` for key codes the prototype does not encode (function keys,
+/// media keys, etc.), which the caller treats as "ignore".
+fn map_keycode(code: KeyCode) -> Option<Key> {
+    Some(match code {
+        KeyCode::Char(ch) => Key::Char(ch),
+        KeyCode::Backspace => Key::Backspace,
+        KeyCode::Enter => Key::Enter,
+        KeyCode::Left => Key::Left,
+        KeyCode::Right => Key::Right,
+        KeyCode::Up => Key::Up,
+        KeyCode::Down => Key::Down,
+        KeyCode::Home => Key::Home,
+        KeyCode::End => Key::End,
+        KeyCode::PageUp => Key::PageUp,
+        KeyCode::PageDown => Key::PageDown,
+        KeyCode::Tab => Key::Tab,
+        KeyCode::BackTab => Key::BackTab,
+        KeyCode::Delete => Key::Delete,
+        KeyCode::Insert => Key::Insert,
+        KeyCode::Esc => Key::Esc,
+        _ => return None,
+    })
 }
 
 fn encode_paste(terminal: &Terminal, text: &str) -> Vec<u8> {
