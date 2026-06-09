@@ -14,7 +14,8 @@ disabled. See `DEVLOG.md` for current state and `SPEC.md` for durable decisions.
 - [x] PTY shell command path and host-terminal interactive mode.
 - [x] Core compatibility primitives: printing, cursor movement, SGR, erase,
       scrollback, alternate screen, save/restore, scroll regions, bracketed
-      paste, RI, IL/DL, RIS/DECSTR, ICH/DCH, ECH, REP, tab stops, DA reply.
+      paste, RI, IL/DL, SU/SD, DECOM, RIS/DECSTR, ICH/DCH, ECH, REP, tab
+      stops, DA reply.
 - [x] Headless transcript smoke harness with deterministic default fixtures.
 - [x] Add further compatibility sequences as the prototype needs them, decided
       from evidence rather than guesswork (e.g. BCE, SU/SD + DECOM).

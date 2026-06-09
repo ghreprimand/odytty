@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — SU/SD scrolling and DECOM origin mode
+
+The owned terminal core now covers the next bounded compatibility packet needed
+for common shell and TUI behavior: scroll-up/down region commands and origin
+mode addressing. This keeps compatibility work evidence-driven while leaving the
+renderer and native event loop untouched.
+
+### What landed
+
+- **`src/core/mod.rs`** — `CSI Ps S` (SU) and `CSI Ps T` (SD) scroll the active
+  region up or down by a count, clamp to the region height, fill with
+  BCE-aware blank rows, and never add lines to scrollback.
+- **DECOM origin mode** (`CSI ? 6 h/l`) — when enabled, CUP/HVP/VPA row
+  addressing is relative to the active scroll-region top and clamps to the
+  region bottom. Disabling DECOM returns addressing to full-screen absolute
+  behavior and homes the cursor to the screen origin.
+- Origin mode is saved/restored across the alternate screen and cleared by RIS
+  and DECSTR. DECSTBM now homes consistently with the active origin mode.
+
+### Verified
+
+- `cargo test`: **109 lib + 8 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose
+  (`WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`)
+  exits `0`, no validation errors, no lingering `odytty` process.
+
+### Known gaps
+
+- DECOM is vertical-origin only; horizontal margins/DECLRMM remain out of scope
+  for the first prototype.
+- No new transcript smoke fixture was added because the behavior is covered by
+  targeted deterministic core tests.
+
+---
+
 ## 2026-06-09 — Native resize reflows PTY and model
 
 The native window resize path now updates the actual terminal size, not only the
