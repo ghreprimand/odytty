@@ -5,4 +5,5 @@ pub mod input;
 pub mod native;
 pub mod pty;
 pub mod render;
+pub mod selection;
 pub mod text;

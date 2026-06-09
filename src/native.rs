@@ -19,9 +19,8 @@
 //! The window now opens a real shell: PTY output is rendered live and keyboard
 //! input is encoded and written back to the PTY (via the shared
 //! [`crate::input`] encoder), so the read+write loop is complete. Still
-//! deliberately absent: window-resize reflow of the PTY/model, mouse selection,
-//! scrollback navigation, mouse selection/copy, and the Odyssey visual/theme
-//! layer.
+//! deliberately absent: window-resize reflow of the PTY/model, scrollback
+//! navigation, and the Odyssey visual/theme layer.
 //!
 //! ## Ownership split (filled in incrementally)
 //!
@@ -60,11 +59,12 @@ use crate::grid::{self, Vertex};
 use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 use crate::render::CellMetrics;
+use crate::selection::{self, CellPoint, SelectionState};
 use crate::text::{self, CellSize, GlyphAtlas};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, WindowEvent};
+use winit::event::{ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{Window, WindowId};
@@ -669,6 +669,15 @@ struct App {
     /// delivers modifier changes separately from key events, so this must be
     /// remembered rather than read off each `KeyboardInput`.
     modifiers: Modifiers,
+    /// Current visible-cell selection. Native owns this UI state; the terminal
+    /// core remains unaware of selections and clipboard operations.
+    selection: SelectionState,
+    /// Most recent pointer position mapped to a terminal cell. `winit` mouse
+    /// button events do not carry coordinates, so press/release use this cached
+    /// cell from the latest cursor movement.
+    pointer_cell: Option<CellPoint>,
+    /// Whether the left mouse button is currently extending a selection.
+    selecting: bool,
     autoclose: Option<Duration>,
     deadline: Option<Instant>,
     startup_error: Option<NativeError>,
@@ -693,6 +702,9 @@ impl App {
             pty,
             grid,
             modifiers: Modifiers::default(),
+            selection: SelectionState::default(),
+            pointer_cell: None,
+            selecting: false,
             autoclose,
             deadline: None,
             startup_error: None,
@@ -742,6 +754,10 @@ impl App {
     /// without buffering latency.
     fn handle_key_press(&mut self, logical: WinitKey) {
         let mods = self.modifiers;
+        if is_copy_shortcut(&logical, mods) {
+            self.handle_copy_shortcut();
+            return;
+        }
         if is_paste_shortcut(&logical, mods) {
             self.handle_paste_shortcut();
             return;
@@ -783,6 +799,69 @@ impl App {
         };
         let _ = write_paste_text(&self.terminal, &self.writer, &text);
     }
+
+    /// Copy the current visible selection to the clipboard. This is kept fully
+    /// native-side: the selected text is derived from a snapshot copy and no
+    /// terminal state is mutated.
+    fn handle_copy_shortcut(&self) {
+        let Some(range) = self.selection.range() else {
+            return;
+        };
+        let text = {
+            let snapshot = self.terminal.lock().expect("terminal mutex").snapshot();
+            selection::selected_text(&snapshot, range)
+        };
+        if text.is_empty() {
+            return;
+        }
+        let _ = write_clipboard_text(&text);
+    }
+
+    fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
+        let Some(cell) = self.gpu.as_ref().map(|gpu| gpu.atlas.cell) else {
+            return;
+        };
+        let point = selection::cell_at_physical(x_px, y_px, cell, self.grid);
+        self.pointer_cell = Some(point);
+        if self.selecting {
+            self.selection.update(point);
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+    }
+
+    fn begin_selection(&mut self) {
+        let Some(point) = self.pointer_cell else {
+            return;
+        };
+        self.selection.begin(point);
+        self.selecting = true;
+        self.needs_rebuild = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
+    fn finish_selection(&mut self) {
+        if !self.selecting {
+            return;
+        }
+        self.selecting = false;
+        self.needs_rebuild = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+}
+
+fn is_copy_shortcut(logical: &WinitKey, mods: Modifiers) -> bool {
+    if !(mods.ctrl && mods.shift) || mods.alt {
+        return false;
+    }
+
+    matches!(logical, WinitKey::Character(text) if text.eq_ignore_ascii_case("c"))
 }
 
 fn is_paste_shortcut(logical: &WinitKey, mods: Modifiers) -> bool {
@@ -795,6 +874,10 @@ fn is_paste_shortcut(logical: &WinitKey, mods: Modifiers) -> bool {
 
 fn read_clipboard_text() -> Option<String> {
     Clipboard::new().ok()?.get_text().ok()
+}
+
+fn write_clipboard_text(text: &str) -> Option<()> {
+    Clipboard::new().ok()?.set_text(text.to_owned()).ok()
 }
 
 fn write_paste_text(
@@ -906,6 +989,9 @@ impl ApplicationHandler<UserEvent> for App {
                 if let Some(cell) = cell
                     && self.resize_grid(cell, size.width, size.height)
                 {
+                    self.selection.clear();
+                    self.selecting = false;
+                    self.pointer_cell = None;
                     self.needs_rebuild = true;
                 }
                 if let Some(window) = self.window.as_ref() {
@@ -917,7 +1003,10 @@ impl ApplicationHandler<UserEvent> for App {
                 // pump wakes coalesced into this frame. Snapshot under the lock,
                 // then drop it before touching the GPU.
                 if self.needs_rebuild {
-                    let snapshot = self.terminal.lock().expect("terminal mutex").snapshot();
+                    let mut snapshot = self.terminal.lock().expect("terminal mutex").snapshot();
+                    if let Some(range) = self.selection.range() {
+                        selection::apply_highlight(&mut snapshot, range);
+                    }
                     if let Some(gpu) = self.gpu.as_mut() {
                         gpu.update_from_snapshot(&snapshot);
                     }
@@ -943,6 +1032,17 @@ impl ApplicationHandler<UserEvent> for App {
                     shift: state.shift_key(),
                 };
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.update_pointer_cell(position.x, position.y);
+            }
+            WindowEvent::MouseInput {
+                state,
+                button: MouseButton::Left,
+                ..
+            } => match state {
+                ElementState::Pressed => self.begin_selection(),
+                ElementState::Released => self.finish_selection(),
+            },
             // Only act on key-down (ignore key-up). Repeats are kept: holding a
             // key should autorepeat into the shell like a real terminal.
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
@@ -1312,6 +1412,46 @@ mod tests {
         ));
         assert!(!is_paste_shortcut(
             &WinitKey::Named(NamedKey::Enter),
+            Modifiers {
+                ctrl: true,
+                shift: true,
+                alt: false,
+            }
+        ));
+    }
+
+    #[test]
+    fn copy_shortcut_requires_ctrl_shift_c() {
+        assert!(is_copy_shortcut(
+            &WinitKey::Character("c".into()),
+            Modifiers {
+                ctrl: true,
+                shift: true,
+                alt: false,
+            }
+        ));
+        assert!(is_copy_shortcut(
+            &WinitKey::Character("C".into()),
+            Modifiers {
+                ctrl: true,
+                shift: true,
+                alt: false,
+            }
+        ));
+        assert!(!is_copy_shortcut(
+            &WinitKey::Character("c".into()),
+            Modifiers::CTRL
+        ));
+        assert!(!is_copy_shortcut(
+            &WinitKey::Character("c".into()),
+            Modifiers {
+                ctrl: true,
+                shift: true,
+                alt: true,
+            }
+        ));
+        assert!(!is_copy_shortcut(
+            &WinitKey::Character("v".into()),
             Modifiers {
                 ctrl: true,
                 shift: true,
