@@ -324,6 +324,14 @@ impl NativeClipboard {
     }
 }
 
+fn selected_clipboard_text(
+    snapshot: &Snapshot,
+    range: selection::SelectionRange,
+) -> Option<String> {
+    let text = selection::selected_text(snapshot, range);
+    (!text.is_empty()).then_some(text)
+}
+
 /// GPU surface state bound to a single window.
 ///
 /// Owns the `wgpu` surface, device, queue, and surface configuration, plus the
@@ -1053,12 +1061,10 @@ impl App {
         };
         let text = {
             let snapshot = self.terminal.lock().expect("terminal mutex").snapshot();
-            selection::selected_text(&snapshot, range)
+            selected_clipboard_text(&snapshot, range)
         };
-        if text.is_empty() {
-            return;
-        }
-        let _ = self.clipboard.write_text(&text);
+        let Some(text) = text else { return };
+        let _ = self.clipboard.write_text(text.as_str());
     }
 
     fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
@@ -1553,7 +1559,29 @@ pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::{Attrs, Cell, Position};
     use winit::dpi::PhysicalPosition;
+
+    fn snapshot(lines: &[&str], columns: usize) -> Snapshot {
+        let rows = lines.len();
+        let mut cells = Vec::new();
+        for line in lines {
+            let mut chars = line.chars().collect::<Vec<_>>();
+            chars.resize(columns, ' ');
+            cells.extend(chars.into_iter().take(columns).map(|ch| Cell {
+                ch,
+                attrs: Attrs::default(),
+                wide_continuation: false,
+            }));
+        }
+
+        Snapshot {
+            dimensions: Dimensions::new(columns, rows),
+            cursor: Position::default(),
+            cursor_visible: true,
+            cells,
+        }
+    }
 
     #[test]
     fn viewport_scroll_up_clamps_to_scrollback() {
@@ -1811,6 +1839,31 @@ mod tests {
             .get_or_try_init(|| Ok::<_, ()>("replacement"))
             .expect("replacement handle");
         assert_eq!(retained, "replacement");
+    }
+
+    #[test]
+    fn selected_clipboard_text_is_plain_terminal_text() {
+        let snapshot = snapshot(&["copy me   ", "not image "], 10);
+        let range = selection::SelectionRange {
+            start: CellPoint { row: 0, column: 0 },
+            end: CellPoint { row: 0, column: 6 },
+        };
+
+        assert_eq!(
+            selected_clipboard_text(&snapshot, range).as_deref(),
+            Some("copy me")
+        );
+    }
+
+    #[test]
+    fn selected_clipboard_text_ignores_empty_selection_payloads() {
+        let snapshot = snapshot(&["          "], 10);
+        let range = selection::SelectionRange {
+            start: CellPoint { row: 0, column: 0 },
+            end: CellPoint { row: 0, column: 9 },
+        };
+
+        assert_eq!(selected_clipboard_text(&snapshot, range), None);
     }
 
     fn cell(width: u32, height: u32) -> CellSize {
