@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Optional ambient visual treatment
+
+OdyTTY now has a small disableable Odyssey visual treatment. It is deliberately
+presentation-only: the terminal core, PTY path, input mapping, selection state,
+and stored cell attributes do not know it exists.
+
+### What landed
+
+- **`src/theme.rs`** — added `VisualEffect`, selected by `ODYTTY_VISUAL`.
+  `off`, `none`, and `plain` disable the treatment; `ambient` and `scanlines`
+  enable it. Unset, empty, or invalid values fall back to off.
+- **`src/shaders/cell.wgsl`** — added a faint static scanline wash over cell
+  backgrounds only. Glyph fragments bypass the effect so text coverage remains
+  full contrast.
+- **`src/native.rs`** — packs visual-effect parameters into the existing
+  viewport uniform slot and exposes an off path with zero strength.
+
+### Verified
+
+- `cargo test`: **149 lib + 10 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose exits `0` with the visual unset, with
+  `ODYTTY_VISUAL=ambient`, and with invalid visual fallback, with no lingering
+  `odytty` process.
+
+### Known gaps
+
+- The effect has not had a human readability pass in a real interactive shell.
+- The current treatment is static and intentionally subtle; no motion or richer
+  effect stack exists yet.
+
+---
+
 ## 2026-06-09 — Theme system and daily-loop smoke fixtures
 
 OdyTTY now has the first Odyssey presentation hook: a small theme system that

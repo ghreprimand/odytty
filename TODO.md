@@ -48,9 +48,9 @@ disabled. See `DEVLOG.md` for current state and `SPEC.md` for durable decisions.
 ## Odyssey Layer
 
 - [x] Small theme system with a plain baseline and 1–2 Odyssey presets.
-- [ ] One optional visual treatment behind a setting, isolated from terminal
+- [x] One optional visual treatment behind a setting, isolated from terminal
       correctness.
-- [ ] Verify the visual layer can be disabled and does not affect compatibility
+- [x] Verify the visual layer can be disabled and does not affect compatibility
       tests.
 - [ ] Check readability and performance boundaries before adding more effects.
 
