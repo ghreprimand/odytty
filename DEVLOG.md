@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Scrollback viewport snapshots
+
+The core can now produce snapshots for historical scrollback viewports without
+changing the live rendering path. This gives the native UI a clean model API for
+future scrollback navigation while keeping terminal semantics and rendering
+separate.
+
+### What landed
+
+- **`src/core/mod.rs`** — added `Screen::snapshot_with_scrollback(offset_rows)`
+  and `Terminal::snapshot_with_scrollback(offset_rows)`. Offset `0` returns the
+  same live snapshot as `snapshot()`. Positive offsets page upward into
+  scrollback and clamp at the oldest available history.
+- Snapshot rows are composed from `scrollback` plus live rows and normalized to
+  the active grid width, so callers still receive the existing `Snapshot` shape.
+- Cursor policy is explicit: live offset preserves cursor state, while any
+  historical offset hides the cursor. Alternate-screen snapshots stay isolated
+  from primary-screen scrollback.
+
+### Verified
+
+- `cargo test`: **118 lib + 8 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose
+  (`WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`)
+  exits `0`, no validation errors, no lingering `odytty` process.
+
+### Known gaps
+
+- Native scrollback navigation is not wired yet; this packet only adds the core
+  snapshot API needed to implement it cleanly.
+
+---
+
 ## 2026-06-09 — Native bracketed paste
 
 The native window can now paste text into the PTY with `Ctrl+Shift+V`. Paste
