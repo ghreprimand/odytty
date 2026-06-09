@@ -58,7 +58,7 @@ use crate::grid::{self, Vertex};
 use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 use crate::render::CellMetrics;
-use crate::text::{self, GlyphAtlas};
+use crate::text::{self, CellSize, GlyphAtlas};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -194,6 +194,21 @@ fn autoclose_from_env() -> Option<Duration> {
     } else {
         Some(Duration::from_millis(ms))
     }
+}
+
+/// Compute the terminal grid (columns × rows) that fits a physical surface.
+///
+/// `width_px`/`height_px` are the window's physical pixel size (what `winit`
+/// reports in `WindowEvent::Resized`) and `cell` is the rasterized per-cell
+/// pixel metric from the glyph atlas — the *same* metric the grid geometry uses
+/// — so the fit matches what is actually drawn. Integer floor division gives
+/// the number of whole cells that fit; both axes are clamped to at least one so
+/// a sliver-sized or minimized window can never produce a zero-dimension grid.
+/// Cell extents are defensively clamped to `>= 1` to avoid division by zero.
+fn grid_dimensions_for(width_px: u32, height_px: u32, cell: CellSize) -> Dimensions {
+    let cols = width_px / cell.width.max(1);
+    let rows = height_px / cell.height.max(1);
+    Dimensions::new(cols as usize, rows as usize)
 }
 
 /// Viewport uniform mirroring `Viewport` in `cell.wgsl`: physical surface size
@@ -639,6 +654,14 @@ struct App {
     /// The shared PTY writer. Key presses are encoded to bytes and written here,
     /// completing the read+write loop with the pump thread that owns the reader.
     writer: PtyWriter,
+    /// The shared PTY session, used to push the new window size to the kernel
+    /// (`TIOCSWINSZ`) on resize so shell/TUI programs see the updated `$COLUMNS`
+    /// and `$LINES`. Shared with `run_native`, which reaps the child on exit.
+    pty: Arc<Mutex<PtySession>>,
+    /// The terminal grid size last applied to the model and PTY. Tracked so a
+    /// `Resized` event that does not change the whole-cell grid skips redundant
+    /// model/PTY resize work (idempotence): only surface reconfigure runs.
+    grid: Dimensions,
     /// Latest modifier state, tracked across `ModifiersChanged` events so a key
     /// press can be encoded with the Ctrl/Alt/Shift held at press time. `winit`
     /// delivers modifier changes separately from key events, so this must be
@@ -654,8 +677,10 @@ impl App {
         options: NativeOptions,
         terminal: Arc<Mutex<Terminal>>,
         writer: PtyWriter,
+        pty: Arc<Mutex<PtySession>>,
         autoclose: Option<Duration>,
     ) -> Self {
+        let grid = options.initial_grid;
         Self {
             options,
             window: None,
@@ -663,11 +688,40 @@ impl App {
             terminal,
             needs_rebuild: true,
             writer,
+            pty,
+            grid,
             modifiers: Modifiers::default(),
             autoclose,
             deadline: None,
             startup_error: None,
         }
+    }
+
+    /// Resize the terminal model and PTY to fit the new physical surface size.
+    ///
+    /// Idempotent: when the computed whole-cell grid is unchanged (a sub-cell
+    /// pixel change, or a duplicate event), no model or PTY resize is performed
+    /// and `false` is returned. The GPU surface itself is reconfigured by the
+    /// caller regardless, since it tracks pixel size, not the cell grid.
+    ///
+    /// Lock scopes are kept tight and never nested: the terminal mutex is taken
+    /// and dropped for the model resize, then the PTY mutex is taken and dropped
+    /// for the (non-blocking) `TIOCSWINSZ`. Neither is held across the other or
+    /// across any GPU call.
+    fn resize_grid(&mut self, cell: CellSize, width_px: u32, height_px: u32) -> bool {
+        let new_grid = grid_dimensions_for(width_px, height_px, cell);
+        if new_grid == self.grid {
+            return false;
+        }
+        self.grid = new_grid;
+
+        if let Ok(mut terminal) = self.terminal.lock() {
+            terminal.resize(new_grid.columns, new_grid.rows);
+        }
+        if let Ok(pty) = self.pty.lock() {
+            let _ = pty.resize(new_grid);
+        }
+        true
     }
 
     /// Record a fatal startup error and ask the loop to exit.
@@ -795,8 +849,17 @@ impl ApplicationHandler<UserEvent> for App {
                 event_loop.exit();
             }
             WindowEvent::Resized(size) => {
-                if let Some(gpu) = self.gpu.as_mut() {
+                // Reconfigure the GPU surface (pixel size) and read the real
+                // per-cell metric so the grid fit matches what is drawn.
+                let cell = self.gpu.as_mut().map(|gpu| {
                     gpu.resize(size.width, size.height);
+                    gpu.atlas.cell
+                });
+                // Resize the model + PTY only when the whole-cell grid changes.
+                if let Some(cell) = cell
+                    && self.resize_grid(cell, size.width, size.height)
+                {
+                    self.needs_rebuild = true;
                 }
                 if let Some(window) = self.window.as_ref() {
                     window.request_redraw();
@@ -948,7 +1011,7 @@ pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
     )));
 
     // Spawn the shell PTY and start pumping its output into the shared terminal.
-    let mut session = PtySession::spawn_default_shell(options.initial_grid)
+    let session = PtySession::spawn_default_shell(options.initial_grid)
         .map_err(|err| NativeError::Pty(err.to_string()))?;
     let reader = session
         .try_clone_reader()
@@ -964,16 +1027,30 @@ pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
     let proxy = event_loop.create_proxy();
     let pump_thread = spawn_pty_pump(reader, writer.clone(), terminal.clone(), proxy);
 
-    let mut app = App::new(options, terminal, writer, autoclose_from_env());
+    // Share the session: the App pushes window-size changes to it on resize,
+    // and this function reaps the child on the way out.
+    let session = Arc::new(Mutex::new(session));
+
+    let mut app = App::new(
+        options,
+        terminal,
+        writer,
+        session.clone(),
+        autoclose_from_env(),
+    );
     let run_result = event_loop
         .run_app(&mut app)
         .map_err(|err| NativeError::EventLoop(err.to_string()));
 
     // Tear down deterministically: kill + reap the shell, which closes the PTY
-    // master and unblocks the pump thread's `read`, then join the thread.
-    let _ = session.kill();
-    let _ = session.wait();
-    drop(session);
+    // master and unblocks the pump thread's `read`, then join the thread. The
+    // App's session clone is dropped with `app` after this; reaping the child
+    // is what EOFs the pump's reader, independent of master drop order.
+    {
+        let mut session = session.lock().expect("pty session");
+        let _ = session.kill();
+        let _ = session.wait();
+    }
     let _ = pump_thread.join();
 
     run_result?;
@@ -1032,6 +1109,104 @@ mod tests {
     #[test]
     fn clear_color_is_opaque() {
         assert_eq!(CLEAR_COLOR.a, 1.0);
+    }
+
+    fn cell(width: u32, height: u32) -> CellSize {
+        CellSize {
+            width,
+            height,
+            baseline: 0,
+        }
+    }
+
+    #[test]
+    fn grid_dimensions_floor_divide_pixel_size_by_cell() {
+        // 800/8 = 100 cols, 600/16 = 37 rows (592px of 600 used; remainder
+        // floored away). Matches the whole cells the geometry can draw.
+        let dims = grid_dimensions_for(800, 600, cell(8, 16));
+        assert_eq!(dims, Dimensions::new(100, 37));
+    }
+
+    #[test]
+    fn grid_dimensions_clamp_to_at_least_one() {
+        // A window smaller than a single cell still yields a 1x1 grid rather
+        // than a zero-dimension (panicking) grid.
+        let dims = grid_dimensions_for(4, 4, cell(8, 16));
+        assert_eq!(dims, Dimensions::new(1, 1));
+    }
+
+    #[test]
+    fn grid_dimensions_survive_zero_extents() {
+        // A minimized window reports 0x0; clamps to 1x1 without dividing by the
+        // (clamped) cell extents incorrectly.
+        let dims = grid_dimensions_for(0, 0, cell(8, 16));
+        assert_eq!(dims, Dimensions::new(1, 1));
+    }
+
+    #[test]
+    fn grid_dimensions_tolerate_degenerate_cell() {
+        // Defensive: a zero-sized cell metric must not divide by zero.
+        let dims = grid_dimensions_for(80, 40, cell(0, 0));
+        assert_eq!(dims, Dimensions::new(80, 40));
+    }
+
+    /// Drive the idempotence seam directly: resizing to the same whole-cell
+    /// grid is a no-op (returns `false`), a different grid applies (returns
+    /// `true`) and updates both the tracked grid and the shared model. The PTY
+    /// is a real one-shot session so `resize` exercises the actual ioctl path.
+    #[test]
+    fn resize_grid_is_idempotent_and_updates_model() {
+        let dims = Dimensions::new(80, 24);
+        let session = match PtySession::spawn_shell_command(dims, "sleep 1") {
+            Ok(session) => session,
+            Err(_) => {
+                eprintln!("skipping: no PTY available");
+                return;
+            }
+        };
+        let writer: PtyWriter = match session.take_writer() {
+            Ok(writer) => Arc::new(Mutex::new(writer)),
+            Err(_) => {
+                eprintln!("skipping: could not take PTY writer");
+                return;
+            }
+        };
+        let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+        let pty = Arc::new(Mutex::new(session));
+        let mut app = App::new(
+            NativeOptions::default(),
+            terminal.clone(),
+            writer,
+            pty.clone(),
+            None,
+        );
+
+        // 8x16 cell, 800x600 surface -> 100x37 grid: first apply changes state.
+        let metric = cell(8, 16);
+        assert!(app.resize_grid(metric, 800, 600));
+        assert_eq!(app.grid, Dimensions::new(100, 37));
+        assert_eq!(
+            terminal.lock().expect("terminal").snapshot().dimensions,
+            Dimensions::new(100, 37)
+        );
+
+        // Same surface again: idempotent no-op.
+        assert!(!app.resize_grid(metric, 800, 600));
+        assert_eq!(app.grid, Dimensions::new(100, 37));
+
+        // Sub-cell pixel change (still 100x37 whole cells): also a no-op.
+        assert!(!app.resize_grid(metric, 807, 607));
+        assert_eq!(app.grid, Dimensions::new(100, 37));
+
+        // A genuinely different grid applies.
+        assert!(app.resize_grid(metric, 640, 480));
+        assert_eq!(app.grid, Dimensions::new(80, 30));
+
+        // Reap the child so no zombie lingers.
+        if let Ok(mut session) = pty.lock() {
+            let _ = session.kill();
+            let _ = session.wait();
+        }
     }
 
     #[test]
