@@ -36,11 +36,18 @@ This is a hard publishing boundary. Never commit, push, paste, or summarize
 secrets, credentials, private hostnames/URLs, personal data, or local-only
 configuration. If anything looks ambiguous, stop and confirm before committing.
 
-## Commit cadence
+## Commit, push, and devlog cadence
 
-- Commit at noteworthy milestones only: a passing work packet, a docs/process
-  checkpoint, or a prototype slice. Avoid noisy partial commits.
+- Commit at noteworthy milestones: a passing work packet, a docs/process
+  checkpoint, or a prototype slice. Avoid noisy partial commits, but do not let
+  finished work sit uncommitted.
+- Update `DEVLOG.md` as part of each work packet (what landed, verified
+  `cargo test` / `cargo fmt --check` status, remaining gaps) so the running
+  record stays in lockstep with the code.
 - Write clear commit messages describing what changed and why.
-- Push only after the tree is clean, tests pass, public docs match the state of
-  the project, and a push is explicitly intended. Pushing is a deliberate step,
-  not automatic on every commit.
+- Push after each completed packet, once the tree is clean, `cargo test` and
+  `cargo fmt --check` pass, public docs and `DEVLOG.md` match the state of the
+  project, and tracked content has been scanned for secrets or local-only data.
+  Frequent pushed commits are preferred so the public history is a living record
+  of development; the public-repo safety boundary is the gate, not deliberate
+  infrequency.

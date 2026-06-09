@@ -4,6 +4,17 @@
 
 Odyssey Terminal is a reliable terminal emulator with an OdysseyOS visual identity, exploring how motion, themes, effects, and interface details can make command-line work feel more alive without weakening core terminal behavior. Its central question is whether a terminal can add useful, nonstandard features and a richer experience while staying fast, solid, and practical for daily use.
 
+## Status
+
+Early prototype, in active development on Linux. In place today: an OdyTTY-owned
+terminal core (grid, cursor, scrollback, alternate screen) driven by `vte` as a
+parser, a real PTY-backed shell path, broad escape-sequence compatibility, and a
+deterministic headless smoke suite. A native `winit` window opens on Wayland with
+a live `wgpu` (Vulkan) surface. Next up: readable monospaced text rendering,
+input wiring, the daily-loop basics, and one disableable Odyssey visual layer.
+See [`DEVLOG.md`](DEVLOG.md) for the running record and [`TODO.md`](TODO.md) for
+the milestone checklist.
+
 ## Why build it
 
 Odyssey Terminal is worth exploring because the terminal is a daily operating surface, not just a utility, and OdysseyOS needs one that carries its own visual identity without compromising trust. It is for the operator who wants command-line work to feel more expressive, polished, and alive while remaining dependable enough for real use. The friction it removes is the gap between solid existing terminals and a more personal, visually distinctive environment: instead of accepting either reliability with generic presentation or flashiness that risks distraction, the project tests whether both can coexist. Scope should stop before novelty damages terminal fundamentals; speed, compatibility, input correctness, readable text, stable rendering, and predictable behavior matter more than effects, themes, or nonstandard features.
