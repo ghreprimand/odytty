@@ -20,7 +20,7 @@
 //! input is encoded and written back to the PTY (via the shared
 //! [`crate::input`] encoder), so the read+write loop is complete. Still
 //! deliberately absent: window-resize reflow of the PTY/model, mouse selection,
-//! paste/bracketed-paste, scrollback navigation, and the Odyssey visual/theme
+//! scrollback navigation, mouse selection/copy, and the Odyssey visual/theme
 //! layer.
 //!
 //! ## Ownership split (filled in incrementally)
@@ -52,6 +52,8 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use wgpu::util::DeviceExt;
+
+use arboard::Clipboard;
 
 use crate::core::{Dimensions, Snapshot, Terminal};
 use crate::grid::{self, Vertex};
@@ -740,6 +742,11 @@ impl App {
     /// without buffering latency.
     fn handle_key_press(&mut self, logical: WinitKey) {
         let mods = self.modifiers;
+        if is_paste_shortcut(&logical, mods) {
+            self.handle_paste_shortcut();
+            return;
+        }
+
         let mut bytes = Vec::new();
         match logical {
             // `Key::Character` may carry more than one char (composed input);
@@ -766,6 +773,46 @@ impl App {
             let _ = writer.flush();
         }
     }
+
+    /// Paste clipboard text into the PTY if the platform clipboard is
+    /// reachable. Clipboard failures are deliberately non-fatal: a terminal
+    /// should keep running even when the compositor denies clipboard access.
+    fn handle_paste_shortcut(&mut self) {
+        let Some(text) = read_clipboard_text() else {
+            return;
+        };
+        let _ = write_paste_text(&self.terminal, &self.writer, &text);
+    }
+}
+
+fn is_paste_shortcut(logical: &WinitKey, mods: Modifiers) -> bool {
+    if !(mods.ctrl && mods.shift) || mods.alt {
+        return false;
+    }
+
+    matches!(logical, WinitKey::Character(text) if text.eq_ignore_ascii_case("v"))
+}
+
+fn read_clipboard_text() -> Option<String> {
+    Clipboard::new().ok()?.get_text().ok()
+}
+
+fn write_paste_text(
+    terminal: &Arc<Mutex<Terminal>>,
+    writer: &PtyWriter,
+    text: &str,
+) -> std::io::Result<()> {
+    let bracketed_paste = terminal
+        .lock()
+        .map(|terminal| terminal.bracketed_paste_enabled())
+        .unwrap_or(false);
+    let bytes = input::encode_paste(text, bracketed_paste);
+
+    if let Ok(mut writer) = writer.lock() {
+        writer.write_all(&bytes)?;
+        writer.flush()?;
+    }
+    Ok(())
 }
 
 /// Translate a `winit` [`NamedKey`] into the neutral [`Key`] model.
@@ -1231,6 +1278,99 @@ mod tests {
         // Full path: Space named key -> neutral Key -> shared encoder, with Ctrl.
         let key = map_named_key(NamedKey::Space, false).expect("space maps");
         assert_eq!(input::encode_key(key, Modifiers::CTRL), vec![0]);
+    }
+
+    #[test]
+    fn paste_shortcut_requires_ctrl_shift_v() {
+        assert!(is_paste_shortcut(
+            &WinitKey::Character("v".into()),
+            Modifiers {
+                ctrl: true,
+                shift: true,
+                alt: false,
+            }
+        ));
+        assert!(is_paste_shortcut(
+            &WinitKey::Character("V".into()),
+            Modifiers {
+                ctrl: true,
+                shift: true,
+                alt: false,
+            }
+        ));
+        assert!(!is_paste_shortcut(
+            &WinitKey::Character("v".into()),
+            Modifiers::CTRL
+        ));
+        assert!(!is_paste_shortcut(
+            &WinitKey::Character("v".into()),
+            Modifiers {
+                ctrl: true,
+                shift: true,
+                alt: true,
+            }
+        ));
+        assert!(!is_paste_shortcut(
+            &WinitKey::Named(NamedKey::Enter),
+            Modifiers {
+                ctrl: true,
+                shift: true,
+                alt: false,
+            }
+        ));
+    }
+
+    #[derive(Clone, Default)]
+    struct RecordingWriter {
+        bytes: Arc<Mutex<Vec<u8>>>,
+        flushes: Arc<Mutex<usize>>,
+    }
+
+    type RecordingWriterParts = (PtyWriter, Arc<Mutex<Vec<u8>>>, Arc<Mutex<usize>>);
+
+    impl Write for RecordingWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.bytes.lock().expect("bytes").extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            *self.flushes.lock().expect("flushes") += 1;
+            Ok(())
+        }
+    }
+
+    fn recording_writer() -> RecordingWriterParts {
+        let recorder = RecordingWriter::default();
+        let bytes = recorder.bytes.clone();
+        let flushes = recorder.flushes.clone();
+        (Arc::new(Mutex::new(Box::new(recorder))), bytes, flushes)
+    }
+
+    #[test]
+    fn write_paste_text_sends_plain_clipboard_text() {
+        let terminal = Arc::new(Mutex::new(Terminal::new(10, 2)));
+        let (writer, bytes, flushes) = recording_writer();
+
+        write_paste_text(&terminal, &writer, "plain\npaste").expect("paste write");
+
+        assert_eq!(&*bytes.lock().expect("bytes"), b"plain\npaste");
+        assert_eq!(*flushes.lock().expect("flushes"), 1);
+    }
+
+    #[test]
+    fn write_paste_text_uses_bracketed_paste_mode() {
+        let terminal = Arc::new(Mutex::new(Terminal::new(10, 2)));
+        terminal.lock().expect("terminal").advance(b"\x1b[?2004h");
+        let (writer, bytes, flushes) = recording_writer();
+
+        write_paste_text(&terminal, &writer, "safe\x1b[201~tail").expect("paste write");
+
+        assert_eq!(
+            &*bytes.lock().expect("bytes"),
+            b"\x1b[200~safetail\x1b[201~"
+        );
+        assert_eq!(*flushes.lock().expect("flushes"), 1);
     }
 
     /// End-to-end PTY → core check: spawn a one-shot command on a real PTY,

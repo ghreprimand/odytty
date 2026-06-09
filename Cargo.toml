@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 ab_glyph = "0.2.32"
 anyhow = "1.0.102"
+arboard = "3.6.1"
 bytemuck = { version = "1.25.0", features = ["derive"] }
 crossterm = "0.29.0"
 pollster = "0.4.0"

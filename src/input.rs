@@ -142,6 +142,41 @@ pub fn ctrl_char(ch: char) -> Option<u8> {
     }
 }
 
+/// Encode pasted text for the PTY.
+///
+/// When bracketed paste mode is active, the payload is wrapped in the xterm
+/// bracketed-paste guard and any embedded end marker is removed so pasted text
+/// cannot break out of the guard early. When bracketed paste is inactive, bytes
+/// are sent unchanged to preserve the plain terminal behavior.
+pub fn encode_paste(text: &str, bracketed_paste: bool) -> Vec<u8> {
+    if bracketed_paste {
+        let mut bytes = b"\x1b[200~".to_vec();
+        bytes.extend_from_slice(&sanitize_paste(text.as_bytes()));
+        bytes.extend_from_slice(b"\x1b[201~");
+        bytes
+    } else {
+        text.as_bytes().to_vec()
+    }
+}
+
+/// Strip any embedded bracketed-paste end marker from pasted bytes. Without
+/// this, a crafted clipboard payload containing `ESC [ 2 0 1 ~` would close the
+/// paste guard early and inject its tail as live keystrokes/commands.
+pub fn sanitize_paste(text: &[u8]) -> Vec<u8> {
+    const END: &[u8] = b"\x1b[201~";
+    let mut output = Vec::with_capacity(text.len());
+    let mut index = 0;
+    while index < text.len() {
+        if text[index..].starts_with(END) {
+            index += END.len();
+        } else {
+            output.push(text[index]);
+            index += 1;
+        }
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,5 +234,27 @@ mod tests {
         assert_eq!(ctrl_char(' '), Some(0));
         assert_eq!(ctrl_char('a'), Some(1));
         assert_eq!(ctrl_char('1'), None);
+    }
+
+    #[test]
+    fn encodes_plain_paste_without_brackets() {
+        assert_eq!(encode_paste("abc\n", false), b"abc\n");
+        assert_eq!(encode_paste("a\x1b[201~b", false), b"a\x1b[201~b");
+    }
+
+    #[test]
+    fn wraps_paste_when_bracketed_paste_is_enabled() {
+        assert_eq!(encode_paste("abc", true), b"\x1b[200~abc\x1b[201~");
+    }
+
+    #[test]
+    fn strips_embedded_end_marker_from_bracketed_paste() {
+        // A payload smuggling its own end marker must not break out of the guard.
+        let encoded = encode_paste("safe\x1b[201~rm -rf /\r", true);
+
+        assert_eq!(encoded, b"\x1b[200~saferm -rf /\r\x1b[201~");
+        // Exactly one start and one end marker survive.
+        assert_eq!(encoded.windows(6).filter(|w| *w == b"\x1b[201~").count(), 1);
+        assert_eq!(encoded.windows(6).filter(|w| *w == b"\x1b[200~").count(), 1);
     }
 }
