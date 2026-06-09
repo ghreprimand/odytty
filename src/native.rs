@@ -63,7 +63,7 @@ use crate::pty::PtySession;
 use crate::render::CellMetrics;
 use crate::selection::{self, CellPoint, SelectionState};
 use crate::text::{self, CellSize, GlyphAtlas};
-use crate::theme::Theme;
+use crate::theme::{Theme, VisualEffect};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -93,6 +93,13 @@ fn theme_clear_color(theme: &Theme) -> wgpu::Color {
         b: text::srgb_to_linear(b) as f64,
         a: 1.0,
     }
+}
+
+/// Pack a [`VisualEffect`] into the shader uniform's `effect` slot:
+/// `[scanline_strength, scanline_period_px]`. When off, strength is `0.0`, which
+/// makes the shader's scanline term vanish (pixel-identical to no effect).
+fn effect_params(visual: VisualEffect) -> [f32; 2] {
+    [visual.scanline_strength(), visual.scanline_period_px()]
 }
 
 /// Errors from the native app path.
@@ -221,12 +228,14 @@ fn grid_dimensions_for(width_px: u32, height_px: u32, cell: CellSize) -> Dimensi
 }
 
 /// Viewport uniform mirroring `Viewport` in `cell.wgsl`: physical surface size
-/// in pixels plus padding to a 16-byte std140 slot.
+/// in pixels plus the ambient-effect params (strength, period_px) filling the
+/// 16-byte std140 slot. `effect` is `[0.0, _]` when the visual treatment is off,
+/// which makes the shader a no-op.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct ViewportUniform {
     size: [f32; 2],
-    _pad: [f32; 2],
+    effect: [f32; 2],
 }
 
 /// GPU surface state bound to a single window.
@@ -251,6 +260,9 @@ struct GpuState {
     atlas: GlyphAtlas,
     /// Surface clear color from the active theme (linear RGBA).
     clear_color: wgpu::Color,
+    /// Ambient-effect uniform params `[strength, period_px]` ([0,_] == off).
+    /// Re-written into the viewport uniform on every resize/reconfigure.
+    effect: [f32; 2],
     // Kept alive for the lifetime of the bind group; never read directly.
     _atlas_texture: wgpu::Texture,
     _atlas_sampler: wgpu::Sampler,
@@ -267,7 +279,9 @@ impl GpuState {
         options: &NativeOptions,
         initial_snapshot: &Snapshot,
         theme: Theme,
+        visual: VisualEffect,
     ) -> Result<Self, NativeError> {
+        let effect = effect_params(visual);
         let size = window.inner_size();
         let scale = window.scale_factor() as f32;
         // No display handle is supplied here: the default Linux backend is
@@ -372,7 +386,7 @@ impl GpuState {
             label: Some("odytty-viewport"),
             contents: bytemuck::bytes_of(&ViewportUniform {
                 size: [config.width as f32, config.height as f32],
-                _pad: [0.0, 0.0],
+                effect,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -383,7 +397,9 @@ impl GpuState {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    // VERTEX uses size for NDC mapping; FRAGMENT reads the
+                    // effect params for the ambient scanline wash.
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -516,6 +532,7 @@ impl GpuState {
             vertex_count,
             atlas,
             clear_color: theme_clear_color(&theme),
+            effect,
             _atlas_texture: atlas_texture,
             _atlas_sampler: atlas_sampler,
         })
@@ -548,7 +565,7 @@ impl GpuState {
             0,
             bytemuck::bytes_of(&ViewportUniform {
                 size: [self.config.width as f32, self.config.height as f32],
-                _pad: [0.0, 0.0],
+                effect: self.effect,
             }),
         );
     }
@@ -749,6 +766,10 @@ struct App {
     /// the surface clear color; the default cell colors are applied process-wide
     /// at startup via `text::set_default_colors`. Presentation-only.
     theme: Theme,
+    /// Active optional visual treatment (selected once from `ODYTTY_VISUAL`,
+    /// default off). Drives the ambient scanline uniform; presentation-only and
+    /// fully disableable. The core never sees it.
+    visual: VisualEffect,
     window: Option<Arc<Window>>,
     gpu: Option<GpuState>,
     /// The terminal model shared with the PTY pump thread. Snapshots are taken
@@ -799,6 +820,7 @@ impl App {
     fn new(
         options: NativeOptions,
         theme: Theme,
+        visual: VisualEffect,
         terminal: Arc<Mutex<Terminal>>,
         writer: PtyWriter,
         pty: Arc<Mutex<PtySession>>,
@@ -808,6 +830,7 @@ impl App {
         Self {
             options,
             theme,
+            visual,
             window: None,
             gpu: None,
             terminal,
@@ -1142,7 +1165,13 @@ impl ApplicationHandler<UserEvent> for App {
         // Seed the first buffer from the current shared-terminal snapshot (any
         // PTY output already pumped is picked up by the first redraw below).
         let initial_snapshot = self.terminal.lock().expect("terminal mutex").snapshot();
-        match GpuState::new(window.clone(), &self.options, &initial_snapshot, self.theme) {
+        match GpuState::new(
+            window.clone(),
+            &self.options,
+            &initial_snapshot,
+            self.theme,
+            self.visual,
+        ) {
             Ok(gpu) => self.gpu = Some(gpu),
             Err(err) => {
                 self.fail(event_loop, err);
@@ -1376,6 +1405,9 @@ pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
     // affects how Color::Default paints; the terminal core is unaware of it.
     let theme = Theme::from_env();
     text::set_default_colors(theme.foreground, theme.background);
+    // Optional visual treatment (ODYTTY_VISUAL, default off). Presentation-only;
+    // the terminal core is unaware of it and it is fully disableable.
+    let visual = VisualEffect::from_env();
 
     // Shared terminal model, sized to the initial grid. The pump thread writes
     // to it; the UI thread snapshots from it.
@@ -1408,6 +1440,7 @@ pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
     let mut app = App::new(
         options,
         theme,
+        visual,
         terminal,
         writer,
         session.clone(),
@@ -1628,6 +1661,35 @@ mod tests {
         }
     }
 
+    #[test]
+    fn effect_params_off_is_zero_strength_disable() {
+        // Off → zero strength makes the shader scanline term vanish (the effect
+        // is disabled and rendering is identical to the pre-effect path).
+        let params = effect_params(VisualEffect::Off);
+        assert_eq!(params[0], 0.0, "off must have zero strength");
+        assert!(params[1] > 0.0, "period stays positive even when off");
+    }
+
+    #[test]
+    fn effect_params_ambient_is_subtle_and_enabled() {
+        let params = effect_params(VisualEffect::Ambient);
+        assert!(
+            params[0] > 0.0 && params[0] <= 0.15,
+            "ambient strength subtle: {}",
+            params[0]
+        );
+        assert!(params[1] > 0.0, "ambient period positive");
+        // The packed strength matches the effect's own report (single source).
+        assert_eq!(params[0], VisualEffect::Ambient.scanline_strength());
+        assert_eq!(params[1], VisualEffect::Ambient.scanline_period_px());
+    }
+
+    #[test]
+    fn viewport_uniform_is_sixteen_bytes() {
+        // std140 slot: vec2 size + vec2 effect == 16 bytes, matching cell.wgsl.
+        assert_eq!(std::mem::size_of::<ViewportUniform>(), 16);
+    }
+
     fn cell(width: u32, height: u32) -> CellSize {
         CellSize {
             width,
@@ -1693,6 +1755,7 @@ mod tests {
         let mut app = App::new(
             NativeOptions::default(),
             Theme::default(),
+            VisualEffect::default(),
             terminal.clone(),
             writer,
             pty.clone(),
