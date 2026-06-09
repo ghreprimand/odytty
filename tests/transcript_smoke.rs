@@ -65,6 +65,59 @@ fn clear_screen_resets_and_redraws() {
 }
 
 #[test]
+fn prompt_command_output_prompt_loop_stays_readable() {
+    // A normal shell interaction shape: prompt, typed command, command output,
+    // then the next prompt. This keeps the smoke suite grounded in the daily
+    // loop without spawning a host shell.
+    let terminal = run_transcript(
+        40,
+        4,
+        &[
+            b"odytty@host:~/src$ ls --color=auto\r\n",
+            b"\x1b[34msrc\x1b[0m  README.md\r\n",
+            b"odytty@host:~/src$ ",
+        ],
+    );
+
+    let lines = visible_lines(&terminal);
+    assert_eq!(lines[0], "odytty@host:~/src$ ls --color=auto");
+    assert_eq!(lines[1], "src  README.md");
+    assert_eq!(lines[2], "odytty@host:~/src$");
+    assert_eq!(terminal.screen().cursor().row, 2);
+    assert_eq!(
+        terminal.screen().cursor().column,
+        "odytty@host:~/src$ ".len()
+    );
+}
+
+#[test]
+fn clear_screen_uses_active_background_color() {
+    // BCE smoke: if a TUI/theme has set a background color, a clear-style ED 2
+    // should erase cells to blanks carrying that active background, while other
+    // attrs fall back to defaults.
+    let terminal = run_transcript(
+        12,
+        3,
+        &[
+            b"\x1b[44mold text\r\nmore text", // blue background (bg index 4)
+            b"\x1b[2J\x1b[H",                 // clear + home while bg is active
+        ],
+    );
+
+    assert_eq!(terminal.screen().plain_text(), "\n\n");
+    for row in 0..3 {
+        for column in 0..12 {
+            let cell = terminal.screen().cell(row, column).unwrap();
+            assert_eq!(cell.ch, ' ');
+            assert_eq!(cell.attrs.background, Color::Indexed(4));
+            assert_eq!(cell.attrs.foreground, Color::Default);
+            assert!(!cell.attrs.bold);
+            assert!(!cell.attrs.underline);
+        }
+    }
+}
+
+#[test]
 fn ansi_colored_listing_applies_sgr_colors() {
     // Synthetic `ls --color`-style transcript: a green executable, a blue
     // directory, and a plain file, separated by spaces. Assert the colors land
