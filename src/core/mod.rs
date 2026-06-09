@@ -930,6 +930,36 @@ impl Screen {
         }
     }
 
+    /// DSR (ESC [ Ps n): answer the host status queries that line editors rely
+    /// on. `5n` reports "terminal OK" (`ESC [ 0 n`); `6n` reports the cursor
+    /// position as `ESC [ row ; col R` (1-based). Shells such as fish issue
+    /// `6n` to locate the cursor while drawing the completion pager and
+    /// multi-line prompts; without a reply their screen model desyncs and
+    /// completion listings render in the wrong place or fail to refresh. The
+    /// reported row honors origin mode (DECOM): when set, it is relative to the
+    /// scroll-region top, mirroring [`Screen::move_to_origin`]. Private-marker
+    /// (DECDSR, `?`-intermediate) requests are ignored here.
+    fn device_status_report(&mut self, params: &Params, intermediates: &[u8]) {
+        if !intermediates.is_empty() {
+            return;
+        }
+        match param_or(params, 0, 0) {
+            5 => self.host_output.extend_from_slice(b"\x1b[0n"),
+            6 => {
+                let row = if self.origin_mode {
+                    let (top, _) = self.effective_region();
+                    self.cursor.row.saturating_sub(top) + 1
+                } else {
+                    self.cursor.row + 1
+                };
+                let column = self.cursor.column + 1;
+                self.host_output
+                    .extend_from_slice(format!("\x1b[{row};{column}R").as_bytes());
+            }
+            _ => {}
+        }
+    }
+
     fn save_cursor(&mut self) {
         self.saved_cursor = Some(SavedCursor {
             position: self.cursor,
@@ -1120,6 +1150,7 @@ impl Perform for Screen {
             'P' => self.delete_chars(param_or(params, 0, 1)),
             'X' => self.erase_chars(param_or(params, 0, 1)),
             'c' => self.device_attributes(params, intermediates),
+            'n' => self.device_status_report(params, intermediates),
             'd' => self.move_to_origin(param_or(params, 0, 1), self.cursor.column + 1),
             'g' => self.clear_tab_stop(param_or(params, 0, 0)),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
@@ -1569,6 +1600,60 @@ mod tests {
         terminal.advance(b"\x1b[c");
 
         assert_eq!(terminal.take_host_output(), b"\x1b[?1;2c");
+        assert!(terminal.take_host_output().is_empty());
+    }
+
+    #[test]
+    fn reports_cursor_position_for_dsr_6n() {
+        let mut terminal = Terminal::new(20, 5);
+
+        // Move the cursor to row 3, column 5 (1-based H), then request DSR 6n.
+        terminal.advance(b"\x1b[3;5H\x1b[6n");
+
+        // Reply is the cursor position report, 1-based: ESC [ row ; col R.
+        assert_eq!(terminal.take_host_output(), b"\x1b[3;5R");
+        assert!(terminal.take_host_output().is_empty());
+    }
+
+    #[test]
+    fn dsr_6n_tracks_cursor_after_printing() {
+        let mut terminal = Terminal::new(20, 5);
+
+        // Print four glyphs on the top row; cursor sits at column 5 (1-based).
+        terminal.advance(b"less\x1b[6n");
+
+        assert_eq!(terminal.take_host_output(), b"\x1b[1;5R");
+    }
+
+    #[test]
+    fn dsr_6n_honors_origin_mode_region() {
+        let mut terminal = Terminal::new(20, 10);
+
+        // DECSTBM rows 3..=8 (1-based), enable DECOM, home within the region,
+        // then ask for the cursor position: row must be region-relative (1).
+        terminal.advance(b"\x1b[3;8r\x1b[?6h\x1b[H\x1b[6n");
+
+        assert_eq!(terminal.take_host_output(), b"\x1b[1;1R");
+    }
+
+    #[test]
+    fn responds_to_dsr_5n_status() {
+        let mut terminal = Terminal::new(10, 2);
+
+        terminal.advance(b"\x1b[5n");
+
+        // 5n -> terminal OK (ESC [ 0 n).
+        assert_eq!(terminal.take_host_output(), b"\x1b[0n");
+        assert!(terminal.take_host_output().is_empty());
+    }
+
+    #[test]
+    fn ignores_private_dsr_request() {
+        let mut terminal = Terminal::new(10, 2);
+
+        // DECDSR (private marker) is not answered by the plain DSR path.
+        terminal.advance(b"\x1b[?6n");
+
         assert!(terminal.take_host_output().is_empty());
     }
 
