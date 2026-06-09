@@ -54,9 +54,18 @@ pub struct Cell {
 
 impl Cell {
     pub fn blank() -> Self {
+        Self::blank_with_bg(Color::Default)
+    }
+
+    pub fn blank_with_bg(background: Color) -> Self {
+        let attrs = Attrs {
+            background,
+            ..Attrs::default()
+        };
+
         Self {
             ch: ' ',
-            attrs: Attrs::default(),
+            attrs,
             wide_continuation: false,
         }
     }
@@ -357,20 +366,25 @@ impl Screen {
 
     fn scroll_up_full(&mut self) {
         let removed = self.rows.remove(0);
+        let background = self.current_attrs.background;
 
         if self.primary_screen.is_none() {
             self.scrollback.push(removed);
         }
 
-        self.rows.push(blank_row(self.dimensions.columns));
+        self.rows
+            .push(blank_row_with_bg(self.dimensions.columns, background));
         self.mark_dirty();
     }
 
     fn scroll_up_region(&mut self) {
         if let Some(region) = self.scroll_region {
+            let background = self.current_attrs.background;
             self.rows.remove(region.top);
-            self.rows
-                .insert(region.bottom, blank_row(self.dimensions.columns));
+            self.rows.insert(
+                region.bottom,
+                blank_row_with_bg(self.dimensions.columns, background),
+            );
             self.mark_dirty();
         }
     }
@@ -389,10 +403,12 @@ impl Screen {
     fn reverse_index(&mut self) {
         self.pending_wrap = false;
         let (top, bottom) = self.effective_region();
+        let background = self.current_attrs.background;
 
         if self.cursor.row == top {
             self.rows.remove(bottom);
-            self.rows.insert(top, blank_row(self.dimensions.columns));
+            self.rows
+                .insert(top, blank_row_with_bg(self.dimensions.columns, background));
         } else {
             self.cursor.row = self.cursor.row.saturating_sub(1);
         }
@@ -409,10 +425,13 @@ impl Screen {
         }
 
         let count = count.max(1).min(bottom - self.cursor.row + 1);
+        let background = self.current_attrs.background;
         for _ in 0..count {
             self.rows.remove(bottom);
-            self.rows
-                .insert(self.cursor.row, blank_row(self.dimensions.columns));
+            self.rows.insert(
+                self.cursor.row,
+                blank_row_with_bg(self.dimensions.columns, background),
+            );
         }
 
         self.cursor.column = 0;
@@ -430,9 +449,13 @@ impl Screen {
         }
 
         let count = count.max(1).min(bottom - self.cursor.row + 1);
+        let background = self.current_attrs.background;
         for _ in 0..count {
             self.rows.remove(self.cursor.row);
-            self.rows.insert(bottom, blank_row(self.dimensions.columns));
+            self.rows.insert(
+                bottom,
+                blank_row_with_bg(self.dimensions.columns, background),
+            );
         }
 
         self.cursor.column = 0;
@@ -443,63 +466,66 @@ impl Screen {
     /// ICH (CSI Ps @): insert `count` blank cells at the cursor, shifting the
     /// rest of the line right. Cells pushed past the right edge are discarded.
     /// Row-local: no wrap, no scroll, cursor stays in place. Fill blanks use
-    /// the default-attribute erase policy (see `erase_line`), matching the rest
-    /// of OdyTTY's erase handling; background-color-erase is a separate future
-    /// change applied uniformly, not here.
+    /// the active background color and otherwise default attributes, matching
+    /// xterm-style background-color-erase behavior for insert fills.
     fn insert_chars(&mut self, count: usize) {
         let columns = self.dimensions.columns;
         let column = self.cursor.column;
         let count = count.max(1).min(columns - column);
+        let blank = self.current_blank();
 
         let row = &mut self.rows[self.cursor.row];
         for _ in 0..count {
-            row.insert(column, Cell::blank());
+            row.insert(column, blank);
         }
         row.truncate(columns);
 
-        sanitize_wide_row(row);
+        sanitize_wide_row(row, blank);
         self.pending_wrap = false;
         self.mark_dirty();
     }
 
     /// DCH (CSI Ps P): delete `count` cells at the cursor, shifting the rest of
     /// the line left and filling blanks at the right edge. Row-local: no wrap,
-    /// no scroll, cursor stays in place. Fill blanks use the default-attribute
-    /// erase policy, matching `erase_line`.
+    /// no scroll, cursor stays in place. Fill blanks use the active background
+    /// color and otherwise default attributes, matching xterm-style
+    /// background-color-erase behavior for delete fills.
     fn delete_chars(&mut self, count: usize) {
         let columns = self.dimensions.columns;
         let column = self.cursor.column;
         let count = count.max(1).min(columns - column);
+        let blank = self.current_blank();
 
         let row = &mut self.rows[self.cursor.row];
         for _ in 0..count {
             row.remove(column);
         }
         while row.len() < columns {
-            row.push(Cell::blank());
+            row.push(blank);
         }
 
-        sanitize_wide_row(row);
+        sanitize_wide_row(row, blank);
         self.pending_wrap = false;
         self.mark_dirty();
     }
 
     /// ECH (CSI Ps X): erase `count` cells from the cursor in place, overwriting
     /// them with blanks WITHOUT shifting the rest of the line. Row-local: no
-    /// wrap, no scroll, cursor stays put. Blanks use the default-attribute erase
-    /// policy (Cell::blank()), uniform with erase_line/erase_display/ICH/DCH;
-    /// BCE is not implemented.
+    /// wrap, no scroll, cursor stays put. Blanks use the active background
+    /// color and otherwise default attributes, matching xterm-style
+    /// background-color-erase behavior.
     fn erase_chars(&mut self, count: usize) {
         let columns = self.dimensions.columns;
         let column = self.cursor.column;
         let count = count.max(1).min(columns - column);
+        let blank = self.current_blank();
 
         let row = &mut self.rows[self.cursor.row];
         for cell in &mut row[column..column + count] {
-            *cell = Cell::blank();
+            *cell = blank;
         }
 
-        sanitize_wide_row(row);
+        sanitize_wide_row(row, blank);
         self.pending_wrap = false;
         self.mark_dirty();
     }
@@ -552,22 +578,23 @@ impl Screen {
     }
 
     fn erase_display(&mut self, mode: usize) {
+        let background = self.current_attrs.background;
         match mode {
             0 => {
                 self.erase_line_from_cursor();
                 for row in self.cursor.row + 1..self.dimensions.rows {
-                    self.rows[row] = blank_row(self.dimensions.columns);
+                    self.rows[row] = blank_row_with_bg(self.dimensions.columns, background);
                 }
             }
             1 => {
                 for row in 0..self.cursor.row {
-                    self.rows[row] = blank_row(self.dimensions.columns);
+                    self.rows[row] = blank_row_with_bg(self.dimensions.columns, background);
                 }
                 self.erase_line_to_cursor();
             }
             2 | 3 => {
                 for row in &mut self.rows {
-                    *row = blank_row(self.dimensions.columns);
+                    *row = blank_row_with_bg(self.dimensions.columns, background);
                 }
                 if mode == 3 {
                     self.scrollback.clear();
@@ -582,24 +609,36 @@ impl Screen {
         match mode {
             0 => self.erase_line_from_cursor(),
             1 => self.erase_line_to_cursor(),
-            2 => self.rows[self.cursor.row] = blank_row(self.dimensions.columns),
+            2 => {
+                self.rows[self.cursor.row] = self.current_blank_row();
+            }
             _ => {}
         }
         self.mark_dirty();
     }
 
     fn erase_line_from_cursor(&mut self) {
+        let blank = self.current_blank();
         for column in self.cursor.column..self.dimensions.columns {
-            self.rows[self.cursor.row][column] = Cell::blank();
+            self.rows[self.cursor.row][column] = blank;
         }
         self.mark_dirty();
     }
 
     fn erase_line_to_cursor(&mut self) {
+        let blank = self.current_blank();
         for column in 0..=self.cursor.column {
-            self.rows[self.cursor.row][column] = Cell::blank();
+            self.rows[self.cursor.row][column] = blank;
         }
         self.mark_dirty();
+    }
+
+    fn current_blank(&self) -> Cell {
+        Cell::blank_with_bg(self.current_attrs.background)
+    }
+
+    fn current_blank_row(&self) -> Vec<Cell> {
+        blank_row_with_bg(self.dimensions.columns, self.current_attrs.background)
     }
 
     fn mark_dirty(&mut self) {
@@ -936,6 +975,10 @@ fn blank_row(columns: usize) -> Vec<Cell> {
     vec![Cell::blank(); columns]
 }
 
+fn blank_row_with_bg(columns: usize, background: Color) -> Vec<Cell> {
+    vec![Cell::blank_with_bg(background); columns]
+}
+
 fn default_tab_stops(columns: usize) -> Vec<bool> {
     let mut stops = vec![false; columns];
     for column in (8..columns).step_by(8) {
@@ -949,7 +992,7 @@ fn default_tab_stops(columns: usize) -> Vec<bool> {
 /// can orphan either half. Blank any continuation cell whose lead is missing,
 /// and any wide lead whose continuation slot no longer carries the flag
 /// (including a wide lead shifted into the last column with no room to follow).
-fn sanitize_wide_row(row: &mut [Cell]) {
+fn sanitize_wide_row(row: &mut [Cell], blank: Cell) {
     let columns = row.len();
     for index in 0..columns {
         if row[index].wide_continuation {
@@ -957,12 +1000,12 @@ fn sanitize_wide_row(row: &mut [Cell]) {
                 && !row[index - 1].wide_continuation
                 && UnicodeWidthChar::width(row[index - 1].ch) == Some(2);
             if !lead_ok {
-                row[index] = Cell::blank();
+                row[index] = blank;
             }
         } else if UnicodeWidthChar::width(row[index].ch) == Some(2) {
             let cont_ok = index + 1 < columns && row[index + 1].wide_continuation;
             if !cont_ok {
-                row[index] = Cell::blank();
+                row[index] = blank;
             }
         }
     }
@@ -1041,6 +1084,24 @@ fn parse_extended_color(codes: &[u16]) -> Option<(Color, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_blank_with_background(
+        terminal: &Terminal,
+        row: usize,
+        column: usize,
+        background: Color,
+    ) {
+        let cell = terminal.screen().cell(row, column).unwrap();
+        assert_eq!(cell.ch, ' ');
+        assert_eq!(
+            cell.attrs,
+            Attrs {
+                background,
+                ..Attrs::default()
+            }
+        );
+        assert!(!cell.wide_continuation);
+    }
 
     #[test]
     fn prints_plain_text_into_owned_grid() {
@@ -1168,6 +1229,40 @@ mod tests {
     }
 
     #[test]
+    fn background_color_erase_applies_to_ed_el_and_ech() {
+        let mut terminal = Terminal::new(6, 3);
+        let red = Color::Indexed(1);
+
+        terminal.advance(b"abcdef\r\nghijkl\r\nmnopqr");
+        terminal.advance(b"\x1b[1;34;41m\x1b[2;3H\x1b[J");
+
+        assert_eq!(terminal.screen().cell(1, 1).unwrap().ch, 'h');
+        assert_blank_with_background(&terminal, 1, 2, red);
+        assert_blank_with_background(&terminal, 2, 5, red);
+
+        terminal.advance(b"\x1b[1;1H\x1b[K");
+        assert_blank_with_background(&terminal, 0, 0, red);
+        assert_blank_with_background(&terminal, 0, 5, red);
+
+        terminal.advance(b"\x1b[2;1Hzzzzzz\x1b[2;2H\x1b[2X");
+        assert_eq!(terminal.screen().plain_text(), "\nz  zzz\n");
+        assert_blank_with_background(&terminal, 1, 1, red);
+        assert_blank_with_background(&terminal, 1, 2, red);
+    }
+
+    #[test]
+    fn background_color_erase_uses_default_after_sgr_49_and_reset() {
+        let mut terminal = Terminal::new(6, 1);
+
+        terminal.advance(b"\x1b[1;34;41mabcdef\x1b[49m\x1b[1;2H\x1b[K");
+        assert_blank_with_background(&terminal, 0, 1, Color::Default);
+        assert_blank_with_background(&terminal, 0, 5, Color::Default);
+
+        terminal.advance(b"\x1b[41m\x1b[1;1H\x1b[0m\x1b[X");
+        assert_blank_with_background(&terminal, 0, 0, Color::Default);
+    }
+
+    #[test]
     fn wraps_after_right_edge_on_next_printable() {
         let mut terminal = Terminal::new(5, 2);
 
@@ -1185,6 +1280,39 @@ mod tests {
 
         assert_eq!(terminal.screen().plain_text(), "two\nthree");
         assert_eq!(terminal.screen().scrollback_len(), 1);
+    }
+
+    #[test]
+    fn background_color_erase_applies_to_scroll_and_line_fills() {
+        let mut terminal = Terminal::new(4, 3);
+
+        terminal.advance(b"r0\r\nr1\r\nr2");
+        terminal.advance(b"\x1b[42m\x1b[3;1H\n");
+        assert_blank_with_background(&terminal, 2, 0, Color::Indexed(2));
+        assert_blank_with_background(&terminal, 2, 3, Color::Indexed(2));
+
+        terminal.advance(b"\x1b[43m\x1b[2;1H\x1b[L");
+        assert_blank_with_background(&terminal, 1, 0, Color::Indexed(3));
+        assert_blank_with_background(&terminal, 1, 3, Color::Indexed(3));
+
+        terminal.advance(b"\x1b[44m\x1b[2;1H\x1b[M");
+        assert_blank_with_background(&terminal, 2, 0, Color::Indexed(4));
+        assert_blank_with_background(&terminal, 2, 3, Color::Indexed(4));
+    }
+
+    #[test]
+    fn background_color_erase_applies_inside_scroll_regions() {
+        let mut terminal = Terminal::new(4, 4);
+
+        terminal.advance(b"r0\r\nr1\r\nr2\r\nr3");
+        terminal.advance(b"\x1b[45m\x1b[2;3r\x1b[3;1H\n");
+        assert_blank_with_background(&terminal, 2, 0, Color::Indexed(5));
+        assert_blank_with_background(&terminal, 2, 3, Color::Indexed(5));
+
+        terminal.advance(b"\x1b[46m\x1b[2;1H\x1bM");
+        assert_blank_with_background(&terminal, 1, 0, Color::Indexed(6));
+        assert_blank_with_background(&terminal, 1, 3, Color::Indexed(6));
+        assert_eq!(terminal.screen().scrollback_len(), 0);
     }
 
     #[test]
@@ -1262,8 +1390,8 @@ mod tests {
 
     // ICH (CSI Ps @) / DCH (CSI Ps P): row-local insert/delete of cells. Baseline
     // verified against xterm/Ghostty — cursor stays put, no wrap/scroll, shifted
-    // cells keep their attrs, fill blanks use OdyTTY's default-attribute erase
-    // policy (uniform with erase_line; bce is a separate future change).
+    // cells keep their attrs, fill blanks use the current background color and
+    // otherwise default attributes.
     #[test]
     fn insert_chars_shifts_right_and_keeps_cursor() {
         let mut terminal = Terminal::new(6, 1);
@@ -1319,6 +1447,20 @@ mod tests {
     }
 
     #[test]
+    fn insert_and_delete_chars_fill_with_current_background() {
+        let mut terminal = Terminal::new(6, 1);
+
+        terminal.advance(b"abcdef\x1b[42m\x1b[1;3H\x1b[2@");
+        assert_eq!(terminal.screen().plain_text(), "ab  cd");
+        assert_blank_with_background(&terminal, 0, 2, Color::Indexed(2));
+        assert_blank_with_background(&terminal, 0, 3, Color::Indexed(2));
+
+        terminal.advance(b"\x1b[43m\x1b[1;2H\x1b[2P");
+        assert_blank_with_background(&terminal, 0, 4, Color::Indexed(3));
+        assert_blank_with_background(&terminal, 0, 5, Color::Indexed(3));
+    }
+
+    #[test]
     fn delete_chars_preserves_attrs_of_shifted_cells() {
         let mut terminal = Terminal::new(6, 1);
 
@@ -1362,8 +1504,8 @@ mod tests {
     }
 
     // ECH (CSI Ps X): row-local erase-in-place. Unlike DCH it does NOT shift the
-    // line — it overwrites count cells with default-attribute blanks. Cursor
-    // stays put, pending_wrap clears, count clamps to the row tail.
+    // line — it overwrites count cells with BCE blanks. Cursor stays put,
+    // pending_wrap clears, count clamps to the row tail.
     #[test]
     fn erase_chars_blanks_in_place_without_shifting() {
         let mut terminal = Terminal::new(6, 1);
