@@ -228,6 +228,64 @@ impl Screen {
         }
     }
 
+    /// Produce a visible-grid snapshot at a scrollback viewport offset.
+    ///
+    /// `offset_rows` counts how many rows the viewport is paged *upward* into
+    /// scrollback. Offset `0` is the live visible screen and is byte-for-byte
+    /// identical to [`snapshot`](Self::snapshot). Positive offsets page upward;
+    /// the offset is clamped to the available scrollback so callers cannot read
+    /// past the oldest stored row.
+    ///
+    /// The composed buffer is `scrollback` (oldest→newest) followed by the live
+    /// `rows`; the returned viewport is the `dimensions.rows`-tall window whose
+    /// bottom edge sits `offset_rows` above the live bottom. Each emitted row is
+    /// normalized to `dimensions.columns` so the `cells` length always equals
+    /// `dimensions.rows * dimensions.columns`.
+    ///
+    /// Cursor policy: at offset `0` the live cursor and its visibility carry
+    /// through unchanged; for any nonzero (scrolled-back) offset the cursor is
+    /// hidden (`cursor_visible == false`) because it does not belong to the
+    /// historical viewport. The cursor position is reported unchanged.
+    ///
+    /// Alternate-screen isolation is preserved for free: entering the alternate
+    /// screen moves the primary scrollback into off-screen storage, so an
+    /// alternate-screen `Screen` has empty scrollback and every offset clamps to
+    /// the live grid — primary history never leaks into alternate snapshots.
+    pub fn snapshot_with_scrollback(&self, offset_rows: usize) -> Snapshot {
+        let height = self.dimensions.rows;
+        let columns = self.dimensions.columns;
+        let scrollback_len = self.scrollback.len();
+        let offset = offset_rows.min(scrollback_len);
+
+        if offset == 0 {
+            return self.snapshot();
+        }
+
+        // Combined buffer index of the row just below the viewport bottom.
+        let total = scrollback_len + height;
+        let window_end = total - offset;
+        let window_start = window_end - height;
+
+        let mut cells = Vec::with_capacity(height * columns);
+        for index in window_start..window_end {
+            let row = if index < scrollback_len {
+                &self.scrollback[index]
+            } else {
+                &self.rows[index - scrollback_len]
+            };
+            for column in 0..columns {
+                cells.push(row.get(column).copied().unwrap_or_else(Cell::blank));
+            }
+        }
+
+        Snapshot {
+            dimensions: self.dimensions,
+            cursor: self.cursor,
+            cursor_visible: false,
+            cells,
+        }
+    }
+
     pub fn plain_text(&self) -> String {
         self.rows
             .iter()
@@ -1045,6 +1103,13 @@ impl Terminal {
     pub fn snapshot(&self) -> Snapshot {
         self.screen.snapshot()
     }
+
+    /// Snapshot the visible grid at a scrollback viewport `offset_rows` (0 ==
+    /// live screen). See [`Screen::snapshot_with_scrollback`] for the offset,
+    /// clamping, cursor, and alternate-screen policy.
+    pub fn snapshot_with_scrollback(&self, offset_rows: usize) -> Snapshot {
+        self.screen.snapshot_with_scrollback(offset_rows)
+    }
 }
 
 fn blank_row(columns: usize) -> Vec<Cell> {
@@ -1356,6 +1421,98 @@ mod tests {
 
         assert_eq!(terminal.screen().plain_text(), "two\nthree");
         assert_eq!(terminal.screen().scrollback_len(), 1);
+    }
+
+    fn snapshot_rows(snapshot: &Snapshot) -> Vec<String> {
+        let columns = snapshot.dimensions.columns;
+        snapshot
+            .cells
+            .chunks(columns)
+            .map(|row| {
+                row.iter()
+                    .filter(|cell| !cell.wide_continuation)
+                    .map(|cell| cell.ch)
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn scrollback_snapshot_offset_zero_matches_live() {
+        let mut terminal = Terminal::new(5, 2);
+        terminal.advance(b"one\r\ntwo\r\nthree");
+
+        // Offset 0 is byte-for-byte identical to the live snapshot, cursor and
+        // visibility included.
+        assert_eq!(
+            terminal.snapshot_with_scrollback(0),
+            terminal.snapshot(),
+            "offset 0 must equal the live snapshot"
+        );
+    }
+
+    #[test]
+    fn scrollback_snapshot_mixes_scrollback_and_visible_rows() {
+        let mut terminal = Terminal::new(5, 2);
+        terminal.advance(b"one\r\ntwo\r\nthree\r\nfour");
+
+        // Visible "three/four"; scrollback holds "one","two".
+        assert_eq!(terminal.screen().scrollback_len(), 2);
+        assert_eq!(
+            snapshot_rows(&terminal.snapshot_with_scrollback(0)),
+            ["three", "four"]
+        );
+        // Offset 1 pages up one row: scrollback "two" + visible "three".
+        assert_eq!(
+            snapshot_rows(&terminal.snapshot_with_scrollback(1)),
+            ["two", "three"]
+        );
+        // Offset 2 reaches the oldest stored rows.
+        assert_eq!(
+            snapshot_rows(&terminal.snapshot_with_scrollback(2)),
+            ["one", "two"]
+        );
+    }
+
+    #[test]
+    fn scrollback_snapshot_clamps_beyond_history() {
+        let mut terminal = Terminal::new(5, 2);
+        terminal.advance(b"one\r\ntwo\r\nthree\r\nfour");
+
+        // Any offset past the available scrollback clamps to the oldest window.
+        let clamped = terminal.snapshot_with_scrollback(999);
+        assert_eq!(snapshot_rows(&clamped), ["one", "two"]);
+        assert_eq!(clamped, terminal.snapshot_with_scrollback(2));
+    }
+
+    #[test]
+    fn scrollback_snapshot_hides_cursor_when_scrolled() {
+        let mut terminal = Terminal::new(5, 2);
+        terminal.advance(b"one\r\ntwo\r\nthree\r\nfour");
+
+        // Offset 0 keeps the live cursor visible; any scrolled-back offset hides
+        // it because the cursor does not belong to the historical viewport.
+        assert!(terminal.snapshot_with_scrollback(0).cursor_visible);
+        assert!(!terminal.snapshot_with_scrollback(1).cursor_visible);
+        assert!(!terminal.snapshot_with_scrollback(999).cursor_visible);
+    }
+
+    #[test]
+    fn scrollback_snapshot_isolates_alternate_screen() {
+        let mut terminal = Terminal::new(5, 2);
+        // Build primary scrollback, then enter the alternate screen.
+        terminal.advance(b"one\r\ntwo\r\nthree\r\nfour");
+        assert_eq!(terminal.screen().scrollback_len(), 2);
+        terminal.advance(b"\x1b[?1049h");
+
+        // Alternate screen has no scrollback: every offset clamps to the live
+        // alternate grid and primary history never leaks in.
+        assert_eq!(terminal.screen().scrollback_len(), 0);
+        let live = terminal.snapshot();
+        assert_eq!(terminal.snapshot_with_scrollback(0), live);
+        assert_eq!(terminal.snapshot_with_scrollback(5), live);
     }
 
     #[test]
