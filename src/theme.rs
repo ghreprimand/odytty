@@ -128,9 +128,9 @@ impl VisualEffect {
     /// fraction by which a background fragment is darkened at a scanline trough.
     /// Kept small so the effect is felt, not read. `Off` is always `0.0`, which
     /// makes the shader a no-op.
-    const AMBIENT_STRENGTH: f32 = 0.06;
+    const AMBIENT_STRENGTH: f32 = 0.12;
     /// Scanline period in physical pixels for [`Ambient`](Self::Ambient).
-    const AMBIENT_PERIOD_PX: f32 = 3.0;
+    const AMBIENT_PERIOD_PX: f32 = 8.0;
 
     /// Resolve an effect by name (case-insensitive, whitespace-trimmed).
     ///
@@ -292,12 +292,13 @@ mod tests {
         // Off must be a true no-op (zero strength → shader identity).
         assert_eq!(VisualEffect::Off.scanline_strength(), 0.0);
         assert!(!VisualEffect::Off.is_enabled());
-        // Ambient is enabled, positive, and bounded to a subtle range.
+        // Ambient is enabled, visible enough to evaluate, and bounded to a
+        // subtle range.
         assert!(VisualEffect::Ambient.is_enabled());
         let strength = VisualEffect::Ambient.scanline_strength();
-        assert!(strength > 0.0 && strength <= 0.15, "strength={strength}");
+        assert!((0.10..=0.15).contains(&strength), "strength={strength}");
         // Period is always positive (no divide-by-zero in the shader).
         assert!(VisualEffect::Off.scanline_period_px() > 0.0);
-        assert!(VisualEffect::Ambient.scanline_period_px() > 0.0);
+        assert!(VisualEffect::Ambient.scanline_period_px() >= 6.0);
     }
 }
