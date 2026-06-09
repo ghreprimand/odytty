@@ -110,6 +110,9 @@ pub struct Screen {
     saved_cursor: Option<SavedCursor>,
     primary_screen: Option<StoredScreen>,
     scroll_region: Option<ScrollRegion>,
+    /// DECOM (origin mode, private mode 6). When set, CUP/HVP/VPA addressing is
+    /// relative to the active scroll region top and constrained within it.
+    origin_mode: bool,
     bracketed_paste: bool,
     current_attrs: Attrs,
     dirty: DirtyRegion,
@@ -126,6 +129,7 @@ struct StoredScreen {
     pending_wrap: bool,
     saved_cursor: Option<SavedCursor>,
     scroll_region: Option<ScrollRegion>,
+    origin_mode: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,6 +157,7 @@ impl Screen {
             saved_cursor: None,
             primary_screen: None,
             scroll_region: None,
+            origin_mode: false,
             bracketed_paste: false,
             current_attrs: Attrs::default(),
             dirty: DirtyRegion::Full,
@@ -389,6 +394,40 @@ impl Screen {
         }
     }
 
+    /// SU (CSI Ps S): scroll the active region up by `count` lines, discarding
+    /// lines off the top of the region and filling at the bottom with BCE-aware
+    /// blank rows. Falls back to the full screen when no DECSTBM region is set.
+    /// Never feeds scrollback (no pollution) and does not move the cursor.
+    fn scroll_region_up(&mut self, count: usize) {
+        let (top, bottom) = self.effective_region();
+        let count = count.max(1).min(bottom - top + 1);
+        let background = self.current_attrs.background;
+        for _ in 0..count {
+            self.rows.remove(top);
+            self.rows.insert(
+                bottom,
+                blank_row_with_bg(self.dimensions.columns, background),
+            );
+        }
+        self.mark_dirty();
+    }
+
+    /// SD (CSI Ps T): scroll the active region down by `count` lines, discarding
+    /// lines off the bottom of the region and filling at the top with BCE-aware
+    /// blank rows. Falls back to the full screen when no DECSTBM region is set.
+    /// Never feeds scrollback (no pollution) and does not move the cursor.
+    fn scroll_region_down(&mut self, count: usize) {
+        let (top, bottom) = self.effective_region();
+        let count = count.max(1).min(bottom - top + 1);
+        let background = self.current_attrs.background;
+        for _ in 0..count {
+            self.rows.remove(bottom);
+            self.rows
+                .insert(top, blank_row_with_bg(self.dimensions.columns, background));
+        }
+        self.mark_dirty();
+    }
+
     /// Active vertical scroll margins. Falls back to the full screen when no
     /// explicit DECSTBM region is set (the standard behaviour for RI/IL/DL).
     fn effective_region(&self) -> (usize, usize) {
@@ -577,6 +616,28 @@ impl Screen {
         self.mark_dirty();
     }
 
+    /// CUP/HVP/VPA addressing honoring DECOM (origin mode).
+    ///
+    /// `row`/`column` are 1-based. When origin mode is off this is identical to
+    /// [`Screen::move_to`] (full-screen absolute addressing). When origin mode
+    /// is on, the row is interpreted relative to the active scroll region top
+    /// and clamped to the region bottom, so a program that set DECSTBM + DECOM
+    /// can address rows `1..=region_height` without escaping the region. The
+    /// column is unaffected by origin mode (no horizontal margins here).
+    fn move_to_origin(&mut self, row: usize, column: usize) {
+        let column = column.saturating_sub(1).min(self.dimensions.columns - 1);
+        if self.origin_mode {
+            let (top, bottom) = self.effective_region();
+            let target = top + row.max(1) - 1;
+            self.cursor.row = target.min(bottom);
+        } else {
+            self.cursor.row = row.saturating_sub(1).min(self.dimensions.rows - 1);
+        }
+        self.cursor.column = column;
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
     fn erase_display(&mut self, mode: usize) {
         let background = self.current_attrs.background;
         match mode {
@@ -699,6 +760,12 @@ impl Screen {
 
         for mode in private_mode_params(params) {
             match mode {
+                6 => {
+                    // DECOM: toggling origin mode homes the cursor to the
+                    // (region-relative when on, screen when off) origin.
+                    self.origin_mode = action == 'h';
+                    self.move_to_origin(1, 1);
+                }
                 25 => {
                     self.cursor_visible = action == 'h';
                     self.mark_dirty();
@@ -760,12 +827,14 @@ impl Screen {
             pending_wrap: self.pending_wrap,
             saved_cursor: self.saved_cursor,
             scroll_region: self.scroll_region,
+            origin_mode: self.origin_mode,
         };
 
         self.cursor = Position::default();
         self.pending_wrap = false;
         self.saved_cursor = None;
         self.scroll_region = None;
+        self.origin_mode = false;
         self.primary_screen = Some(primary_screen);
         self.mark_dirty();
     }
@@ -784,6 +853,7 @@ impl Screen {
             self.pending_wrap = primary_screen.pending_wrap;
             self.saved_cursor = primary_screen.saved_cursor;
             self.scroll_region = primary_screen.scroll_region;
+            self.origin_mode = primary_screen.origin_mode;
             self.mark_dirty();
         }
     }
@@ -798,7 +868,9 @@ impl Screen {
             None
         };
 
-        self.move_to(1, 1);
+        // DECSTBM homes the cursor: to the region top-left when origin mode is
+        // on, otherwise to the screen top-left (consistent with prior behavior).
+        self.move_to_origin(1, 1);
         self.mark_dirty();
     }
 
@@ -816,6 +888,7 @@ impl Screen {
         self.pending_wrap = false;
         self.saved_cursor = None;
         self.scroll_region = None;
+        self.origin_mode = false;
         self.bracketed_paste = false;
         self.current_attrs = Attrs::default();
         self.host_output.clear();
@@ -837,6 +910,7 @@ impl Screen {
         self.pending_wrap = false;
         self.saved_cursor = None;
         self.scroll_region = None;
+        self.origin_mode = false;
         self.bracketed_paste = false;
         self.current_attrs = Attrs::default();
         self.host_output.clear();
@@ -895,7 +969,9 @@ impl Perform for Screen {
             'C' => self.move_right(param_or(params, 0, 1)),
             'D' => self.move_left(param_or(params, 0, 1)),
             'G' => self.move_to(self.cursor.row + 1, param_or(params, 0, 1)),
-            'H' | 'f' => self.move_to(param_or(params, 0, 1), param_or(params, 1, 1)),
+            'H' | 'f' => self.move_to_origin(param_or(params, 0, 1), param_or(params, 1, 1)),
+            'S' => self.scroll_region_up(param_or(params, 0, 1)),
+            'T' => self.scroll_region_down(param_or(params, 0, 1)),
             '@' => self.insert_chars(param_or(params, 0, 1)),
             'b' => self.repeat_char(param_or(params, 0, 1)),
             'J' => self.erase_display(param_or(params, 0, 0)),
@@ -905,7 +981,7 @@ impl Perform for Screen {
             'P' => self.delete_chars(param_or(params, 0, 1)),
             'X' => self.erase_chars(param_or(params, 0, 1)),
             'c' => self.device_attributes(params, intermediates),
-            'd' => self.move_to(param_or(params, 0, 1), self.cursor.column + 1),
+            'd' => self.move_to_origin(param_or(params, 0, 1), self.cursor.column + 1),
             'g' => self.clear_tab_stop(param_or(params, 0, 0)),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
             'm' => self.apply_sgr(params),
@@ -1341,6 +1417,155 @@ mod tests {
 
         assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 0 });
         assert_eq!(terminal.screen().plain_text(), "\n\n");
+    }
+
+    #[test]
+    fn scroll_up_default_count_moves_content_up_one_line() {
+        let mut terminal = Terminal::new(4, 4);
+        terminal.advance(b"r0\r\nr1\r\nr2\r\nr3");
+        // SU with no param defaults to 1: every line shifts up one, blank at
+        // the bottom, top line discarded. No scrollback pollution.
+        terminal.advance(b"\x1b[S");
+        assert_eq!(terminal.screen().plain_text(), "r1\nr2\nr3\n");
+        assert_eq!(terminal.screen().scrollback_len(), 0);
+    }
+
+    #[test]
+    fn scroll_up_explicit_count_and_clamp() {
+        let mut terminal = Terminal::new(4, 3);
+        terminal.advance(b"r0\r\nr1\r\nr2");
+        // SU 2 shifts content up two lines.
+        terminal.advance(b"\x1b[2S");
+        assert_eq!(terminal.screen().plain_text(), "r2\n\n");
+        // SU with a count past the screen height clamps to a full clear.
+        terminal.advance(b"\x1b[99S");
+        assert_eq!(terminal.screen().plain_text(), "\n\n");
+        assert_eq!(terminal.screen().scrollback_len(), 0);
+    }
+
+    #[test]
+    fn scroll_down_default_count_moves_content_down_one_line() {
+        let mut terminal = Terminal::new(4, 4);
+        terminal.advance(b"r0\r\nr1\r\nr2\r\nr3");
+        // SD with no param defaults to 1: blank inserted at the top, bottom
+        // line discarded.
+        terminal.advance(b"\x1b[T");
+        assert_eq!(terminal.screen().plain_text(), "\nr0\nr1\nr2");
+        assert_eq!(terminal.screen().scrollback_len(), 0);
+    }
+
+    #[test]
+    fn scroll_up_and_down_respect_scroll_region() {
+        let mut terminal = Terminal::new(4, 4);
+        terminal.advance(b"r0\r\nr1\r\nr2\r\nr3");
+        // Region = rows index 1..=2 (1-based 2;3). SU 1 scrolls only inside it.
+        terminal.advance(b"\x1b[2;3r");
+        terminal.advance(b"\x1b[S");
+        assert_eq!(terminal.screen().plain_text(), "r0\nr2\n\nr3");
+        // SD 1 inside the same region pushes the region content back down.
+        terminal.advance(b"\x1b[T");
+        assert_eq!(terminal.screen().plain_text(), "r0\n\nr2\nr3");
+        assert_eq!(terminal.screen().scrollback_len(), 0);
+    }
+
+    #[test]
+    fn scroll_up_fill_rows_use_background_color() {
+        let mut terminal = Terminal::new(4, 3);
+        terminal.advance(b"r0\r\nr1\r\nr2");
+        // BCE: SU's blank bottom row carries the active background color.
+        terminal.advance(b"\x1b[41m\x1b[S");
+        assert_blank_with_background(&terminal, 2, 0, Color::Indexed(1));
+        assert_blank_with_background(&terminal, 2, 3, Color::Indexed(1));
+    }
+
+    #[test]
+    fn scroll_down_fill_rows_use_background_color() {
+        let mut terminal = Terminal::new(4, 3);
+        terminal.advance(b"r0\r\nr1\r\nr2");
+        // BCE: SD's blank top row carries the active background color.
+        terminal.advance(b"\x1b[42m\x1b[T");
+        assert_blank_with_background(&terminal, 0, 0, Color::Indexed(2));
+        assert_blank_with_background(&terminal, 0, 3, Color::Indexed(2));
+    }
+
+    #[test]
+    fn origin_mode_makes_cup_relative_to_region_top() {
+        let mut terminal = Terminal::new(8, 6);
+        // Region rows index 2..=4 (1-based 3;5), enable DECOM.
+        terminal.advance(b"\x1b[3;5r\x1b[?6h");
+        // After DECOM enable the cursor homes to the region top (row index 2).
+        assert_eq!(terminal.screen().cursor().row, 2);
+        // CUP row 1 addresses the region top, not the screen top.
+        terminal.advance(b"\x1b[1;1H");
+        assert_eq!(terminal.screen().cursor(), Position { row: 2, column: 0 });
+        // CUP row 2 is the second row of the region (screen index 3).
+        terminal.advance(b"\x1b[2;1H");
+        assert_eq!(terminal.screen().cursor(), Position { row: 3, column: 0 });
+    }
+
+    #[test]
+    fn origin_mode_clamps_cup_to_region_bottom() {
+        let mut terminal = Terminal::new(8, 6);
+        terminal.advance(b"\x1b[3;5r\x1b[?6h");
+        // CUP far past the region bottom clamps to the region bottom (index 4),
+        // never escaping into rows below the region.
+        terminal.advance(b"\x1b[99;1H");
+        assert_eq!(terminal.screen().cursor().row, 4);
+    }
+
+    #[test]
+    fn origin_mode_off_addresses_full_screen() {
+        let mut terminal = Terminal::new(8, 6);
+        terminal.advance(b"\x1b[3;5r"); // region set, DECOM off (default)
+        // With DECOM off, CUP row 1 is the screen top regardless of the region.
+        terminal.advance(b"\x1b[1;1H");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+        // And the cursor can address rows outside the region.
+        terminal.advance(b"\x1b[6;1H");
+        assert_eq!(terminal.screen().cursor().row, 5);
+    }
+
+    #[test]
+    fn origin_mode_disable_homes_to_screen_top() {
+        let mut terminal = Terminal::new(8, 6);
+        terminal.advance(b"\x1b[3;5r\x1b[?6h");
+        assert_eq!(terminal.screen().cursor().row, 2);
+        // Disabling DECOM homes back to the screen top-left.
+        terminal.advance(b"\x1b[?6l");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+    }
+
+    #[test]
+    fn origin_mode_applies_to_vpa() {
+        let mut terminal = Terminal::new(8, 6);
+        terminal.advance(b"\x1b[3;5r\x1b[?6h");
+        // VPA (CSI Ps d) row 2 is region-relative under DECOM (screen index 3).
+        terminal.advance(b"\x1b[2d");
+        assert_eq!(terminal.screen().cursor().row, 3);
+    }
+
+    #[test]
+    fn origin_mode_reset_by_ris_and_decstr() {
+        // RIS clears DECOM.
+        let mut terminal = Terminal::new(8, 6);
+        terminal.advance(b"\x1b[3;5r\x1b[?6h\x1bc");
+        terminal.advance(b"\x1b[1;1H");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+
+        // DECSTR (soft reset) also clears DECOM.
+        let mut terminal = Terminal::new(8, 6);
+        terminal.advance(b"\x1b[3;5r\x1b[?6h\x1b[!p");
+        terminal.advance(b"\x1b[1;1H");
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+    }
+
+    #[test]
+    fn decstbm_homes_to_region_top_under_origin_mode() {
+        let mut terminal = Terminal::new(8, 6);
+        // Enable DECOM first, then set a new region: DECSTBM homes to the new
+        // region's top (index 1) rather than the screen top.
+        terminal.advance(b"\x1b[?6h\x1b[2;4r");
+        assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 0 });
     }
 
     #[test]
