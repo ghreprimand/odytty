@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Cursor rendering and BCE fills
+
+The native renderer now draws the terminal cursor, and the owned terminal model
+implements xterm-style Background-Color Erase for common blank-fill paths. The
+prototype is closer to a useful daily loop: shell output is readable, keyboard
+input reaches the PTY, the cursor is visible in the GPU window, and colored
+erase/scroll fills preserve the active SGR background.
+
+### What landed
+
+- **`src/grid.rs`** — `build_vertices` appends a block cursor from
+  `Snapshot.cursor` when `cursor_visible` is true. The cursor is drawn as an
+  inverse block: the cell foreground becomes the cursor block color, and any
+  glyph under the cursor is redrawn in the cell background color. The cursor
+  position is clamped to the snapshot dimensions so stale positions cannot index
+  outside the grid.
+- **`src/core/mod.rs`** — erase and fill operations now preserve the active
+  background color while resetting other attributes. Covered paths include
+  ED/EL/ECH, full-screen and scroll-region scroll-in rows, RI, IL/DL, and
+  ICH/DCH fill cells.
+
+### Verified
+
+- `cargo test`: **91 lib + 8 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose
+  (`WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`)
+  exits `0`, no validation errors, no lingering `odytty` process.
+
+### Known gaps
+
+- Resize reflow of both the PTY and terminal model is still next.
+- Cursor rendering reflects the live snapshot only; scrollback viewport offsets
+  remain deferred until scrollback navigation lands.
+
+---
+
 ## 2026-06-09 — Keyboard input + shared key encoder
 
 The native window is now **interactive**: `cargo run -- --native` opens a real

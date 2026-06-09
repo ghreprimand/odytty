@@ -16,7 +16,7 @@ disabled. See `DEVLOG.md` for current state and `SPEC.md` for durable decisions.
       scrollback, alternate screen, save/restore, scroll regions, bracketed
       paste, RI, IL/DL, RIS/DECSTR, ICH/DCH, ECH, REP, tab stops, DA reply.
 - [x] Headless transcript smoke harness with deterministic default fixtures.
-- [ ] Add further compatibility sequences as the prototype needs them, decided
+- [x] Add further compatibility sequences as the prototype needs them, decided
       from evidence rather than guesswork (e.g. BCE, SU/SD + DECOM).
 - [ ] Convert any reproducible failures into deterministic fixtures.
 
@@ -29,10 +29,10 @@ disabled. See `DEVLOG.md` for current state and `SPEC.md` for durable decisions.
       Wayland verified on Linux/Hyprland).
 - [x] Bring up a `wgpu` surface that clears the window and survives resize
       (GPU-pipeline half of text rendering; Vulkan on the hardware adapter).
-- [ ] Render the owned terminal grid with readable monospaced text (glyph atlas).
-- [ ] Connect PTY output to the rendered grid.
-- [ ] Connect keyboard input to the PTY using the existing input mapping.
-- [ ] Render cursor and basic viewport state.
+- [x] Render the owned terminal grid with readable monospaced text (glyph atlas).
+- [x] Connect PTY output to the rendered grid.
+- [x] Connect keyboard input to the PTY using the existing input mapping.
+- [x] Render cursor and basic viewport state.
 - [ ] Handle window resize by resizing both PTY and terminal model.
 
 ## Daily Loop Basics
