@@ -7,6 +7,51 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Monospace glyph atlas + cell shader (CPU foundation)
+
+The CPU-side foundation for readable text: a GPU-agnostic glyph atlas module and
+the cell shader it will feed. This is the rasterization/color half of the
+text-rendering milestone, committed separately from the GPU wiring so it can be
+unit-tested without a window and reviewed on its own. The atlas is not yet
+uploaded to a texture or drawn — wiring it into `src/native.rs` is the next
+packet.
+
+### What landed
+
+- **`ab_glyph 0.2` + `bytemuck 1` (derive)** dependencies. `ab_glyph` rasterizes
+  outlines to coverage bitmaps; `bytemuck` will back the GPU vertex/instance
+  buffers in the wiring packet.
+- **`src/text.rs`** (GPU-agnostic, unit-tested):
+  - Font sourcing: `ODYTTY_FONT` env override, else a probe list of common Linux
+    monospace paths. No font is bundled into the public repo yet (deliberate —
+    avoids committing a binary + license); falls back with a clear error.
+  - `GlyphAtlas::build` rasterizes printable ASCII (`0x20..=0x7E`) into a single
+    R8 coverage bitmap on a fixed equal-cell grid, with shared monospace
+    `CellSize` metrics and `uv_rect` for per-cell UVs.
+  - Color resolution: sRGB→linear conversion (surface is sRGB), the full xterm
+    256-color palette (16 ANSI + 6×6×6 cube + grayscale ramp), and
+    `foreground_linear` / `background_linear` for `core::Color`.
+- **`src/shaders/cell.wgsl`**: pixel-space → NDC vertex stage (Y-flipped) driven
+  by a viewport-size uniform so resize only updates the uniform; fragment stage
+  samples the R8 atlas as coverage/alpha for glyph quads and passes solid color
+  for background quads.
+
+### Test status (verified 2026-06-09)
+
+- `cargo test`: 67 lib tests + 8 smoke pass, 1 live-PTY ignored.
+- `cargo fmt --check`: clean.
+- New `text.rs` tests cover sRGB endpoints, the 256-color cube/grayscale, RGB
+  passthrough, and atlas metrics/coverage/UV coverage (atlas test self-skips
+  when no system font is present).
+
+### Next
+
+- Wire the atlas into `src/native.rs`: upload the bitmap to an R8 texture, build
+  per-cell background + glyph instance quads from a `core::Snapshot`, and draw
+  them through `cell.wgsl`. That turns the placeholder clear into readable text.
+
+---
+
 ## 2026-06-09 — GPU surface clears the window (wgpu bring-up)
 
 The `--native` window now has a live `wgpu` surface. Each frame is cleared to a
