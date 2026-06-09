@@ -134,7 +134,73 @@ pub fn build_vertices(snapshot: &Snapshot, atlas: &GlyphAtlas) -> Vec<Vertex> {
         }
     }
 
+    push_cursor(&mut out, snapshot, atlas, cell_w, cell_h);
+
     out
+}
+
+/// Emit a block cursor for the snapshot, if one should be drawn.
+///
+/// Drawn as an **inverse** block: a background quad in the underlying cell's
+/// foreground color, with that cell's glyph (if any) redrawn on top in the
+/// cell's background color. This keeps the character readable under the cursor
+/// rather than eliding it. A hidden cursor (`cursor_visible == false`) emits
+/// nothing. The cursor position is clamped to the grid so a stale snapshot can
+/// never index out of bounds.
+///
+/// Reflects only the live snapshot cursor — no scrollback/viewport offset is
+/// applied here (that is a later packet).
+fn push_cursor(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cell_w: f32,
+    cell_h: f32,
+) {
+    if !snapshot.cursor_visible {
+        return;
+    }
+
+    let cols = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    if cols == 0 || rows == 0 {
+        return;
+    }
+
+    // Defensive clamp: a stale snapshot could carry a cursor past the grid.
+    let row = snapshot.cursor.row.min(rows - 1);
+    let col = snapshot.cursor.column.min(cols - 1);
+
+    let cell = &snapshot.cells[row * cols + col];
+
+    // Effective colors after the cell's own inverse attribute, then swapped
+    // again for the cursor so the block reads as an inversion of the cell.
+    let mut fg = text::foreground_linear(cell.attrs.foreground);
+    let mut bg = text::background_linear(cell.attrs.background);
+    if cell.attrs.inverse {
+        std::mem::swap(&mut fg, &mut bg);
+    }
+    let block_color = fg;
+    let glyph_color = bg;
+
+    let x0 = col as f32 * cell_w;
+    let y0 = row as f32 * cell_h;
+    let x1 = x0 + cell_w;
+    let y1 = y0 + cell_h;
+
+    push_quad(
+        out,
+        [x0, y0, x1, y1],
+        [0.0, 0.0, 0.0, 0.0],
+        block_color,
+        0.0,
+    );
+
+    if cell.ch != ' '
+        && let Some(uv) = atlas.uv_rect(cell.ch)
+    {
+        push_quad(out, [x0, y0, x1, y1], uv, glyph_color, 1.0);
+    }
 }
 
 #[cfg(test)]
@@ -155,9 +221,10 @@ mod tests {
             return;
         };
         // 5x1 grid with "Hi" then three blanks: 5 background quads, plus glyph
-        // quads only for the two inked, printable characters.
+        // quads only for the two inked, printable characters. Cursor hidden so
+        // this asserts cell geometry alone.
         let mut term = Terminal::new(5, 1);
-        term.advance(b"Hi");
+        term.advance(b"\x1b[?25lHi");
         let snapshot = term.snapshot();
         let verts = build_vertices(&snapshot, &atlas);
         let expected = (5 + 2) * VERTS_PER_QUAD;
@@ -171,7 +238,9 @@ mod tests {
             return;
         };
         // A fresh terminal is all spaces: every cell is background-only.
-        let term = Terminal::new(3, 2);
+        // Cursor hidden so the count is pure cell geometry.
+        let mut term = Terminal::new(3, 2);
+        term.advance(b"\x1b[?25l");
         let snapshot = term.snapshot();
         let verts = build_vertices(&snapshot, &atlas);
         assert_eq!(verts.len(), 3 * 2 * VERTS_PER_QUAD);
@@ -208,11 +277,118 @@ mod tests {
             return;
         };
         // 'é' is printable but outside the atlas's ASCII range: background only.
+        // Cursor hidden so only the cell quad is counted.
         let mut term = Terminal::new(1, 1);
+        term.advance("\x1b[?25l".as_bytes());
         term.advance("é".as_bytes());
         let verts = build_vertices(&term.snapshot(), &atlas);
         assert_eq!(verts.len(), VERTS_PER_QUAD);
         assert!(verts.iter().all(|v| v.is_glyph == 0.0));
+    }
+
+    #[test]
+    fn cursor_visible_emits_one_block_quad_on_blank_cell() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        // Fresh 3x2 terminal: cursor visible at (0,0) on a blank cell. The
+        // cursor adds exactly one background (block) quad over the cell grid.
+        let visible = Terminal::new(3, 2);
+        let with_cursor = build_vertices(&visible.snapshot(), &atlas);
+
+        let mut hidden = Terminal::new(3, 2);
+        hidden.advance(b"\x1b[?25l");
+        let without_cursor = build_vertices(&hidden.snapshot(), &atlas);
+
+        assert_eq!(with_cursor.len() - without_cursor.len(), VERTS_PER_QUAD);
+    }
+
+    #[test]
+    fn hidden_cursor_emits_no_cursor_quad() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let mut term = Terminal::new(4, 1);
+        term.advance(b"\x1b[?25l");
+        let verts = build_vertices(&term.snapshot(), &atlas);
+        // Four blank cells, cursor hidden: only the four cell backgrounds.
+        assert_eq!(verts.len(), 4 * VERTS_PER_QUAD);
+    }
+
+    #[test]
+    fn cursor_quad_sits_at_cursor_cell() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let cell_w = atlas.cell.width as f32;
+        let cell_h = atlas.cell.height as f32;
+
+        // Move the cursor to row 1, column 3 (1-based CUP -> 0-based 1,3).
+        let mut term = Terminal::new(5, 3);
+        term.advance(b"\x1b[2;4H");
+        let snapshot = term.snapshot();
+        assert_eq!(snapshot.cursor, crate::core::Position { row: 1, column: 3 });
+
+        let verts = build_vertices(&snapshot, &atlas);
+        // The cursor cell is blank, so the cursor is the final background quad.
+        let cursor_tl = verts[verts.len() - VERTS_PER_QUAD].pos;
+        assert_eq!(cursor_tl, [3.0 * cell_w, 1.0 * cell_h]);
+    }
+
+    #[test]
+    fn cursor_position_is_clamped_to_grid_bounds() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let cell_w = atlas.cell.width as f32;
+        let cell_h = atlas.cell.height as f32;
+
+        // Hand-build a snapshot whose cursor points past the last cell.
+        let dimensions = crate::core::Dimensions::new(2, 2);
+        let cells = vec![crate::core::Cell::blank(); 4];
+        let snapshot = Snapshot {
+            dimensions,
+            cursor: crate::core::Position {
+                row: 99,
+                column: 99,
+            },
+            cursor_visible: true,
+            cells,
+        };
+
+        // Must not panic, and the clamped cursor lands on the last cell (1,1).
+        let verts = build_vertices(&snapshot, &atlas);
+        let cursor_tl = verts[verts.len() - VERTS_PER_QUAD].pos;
+        assert_eq!(cursor_tl, [1.0 * cell_w, 1.0 * cell_h]);
+    }
+
+    #[test]
+    fn cursor_over_glyph_redraws_it_inverted() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        // 1x1 terminal with 'R': pending-wrap keeps the cursor on the 'R'.
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"R");
+        let snapshot = term.snapshot();
+        assert_eq!(snapshot.cursor, crate::core::Position { row: 0, column: 0 });
+
+        let verts = build_vertices(&snapshot, &atlas);
+        // Cell bg, cell glyph, cursor block, cursor glyph = 4 quads.
+        assert_eq!(verts.len(), 4 * VERTS_PER_QUAD);
+
+        let cursor_block = verts[2 * VERTS_PER_QUAD];
+        let cursor_glyph = verts[3 * VERTS_PER_QUAD];
+        // Block carries the cell's foreground; the redrawn glyph the background.
+        assert_eq!(cursor_block.is_glyph, 0.0);
+        assert_eq!(cursor_block.color, text::foreground_linear(Color::Default));
+        assert_eq!(cursor_glyph.is_glyph, 1.0);
+        assert_eq!(cursor_glyph.color, text::background_linear(Color::Default));
     }
 
     #[test]
