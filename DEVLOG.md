@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Native bracketed paste
+
+The native window can now paste text into the PTY with `Ctrl+Shift+V`. Paste
+uses the same source-agnostic encoding policy as the headless crossterm path, so
+bracketed paste behavior stays consistent across front ends.
+
+### What landed
+
+- **`src/input.rs`** — paste encoding moved into shared helpers:
+  `encode_paste(text, bracketed_paste)` and `sanitize_paste`. Bracketed mode
+  wraps pasted bytes with `ESC[200~` / `ESC[201~` and strips embedded end
+  markers so clipboard text cannot break out of the paste guard early.
+- **`src/app.rs`** — headless/crossterm paste now uses the shared encoder.
+- **`src/native.rs`** — `Ctrl+Shift+V` reads text from the platform clipboard
+  with `arboard`, reads bracketed-paste state under the terminal lock, drops
+  that lock, then writes and flushes encoded paste bytes to the PTY writer.
+  Clipboard access failures are quiet and non-fatal.
+
+### Verified
+
+- `cargo test`: **113 lib + 8 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose
+  (`WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`)
+  exits `0`, no validation errors, no lingering `odytty` process.
+
+### Known gaps
+
+- Native paste is currently `Ctrl+Shift+V` only; no menu or compositor paste
+  event path is wired yet.
+- Selection/copy and scrollback navigation are still open Daily Loop items.
+
+---
+
 ## 2026-06-09 — SU/SD scrolling and DECOM origin mode
 
 The owned terminal core now covers the next bounded compatibility packet needed

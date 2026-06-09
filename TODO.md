@@ -38,7 +38,7 @@ disabled. See `DEVLOG.md` for current state and `SPEC.md` for durable decisions.
 
 ## Daily Loop Basics
 
-- [ ] Paste into the PTY path, respecting bracketed paste mode.
+- [x] Paste into the PTY path, respecting bracketed paste mode.
 - [ ] Basic mouse text selection.
 - [ ] Copy from selection.
 - [ ] Scrollback viewport navigation.
