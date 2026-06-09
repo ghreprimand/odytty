@@ -19,8 +19,8 @@
 //! The window now opens a real shell: PTY output is rendered live and keyboard
 //! input is encoded and written back to the PTY (via the shared
 //! [`crate::input`] encoder), so the read+write loop is complete. Still
-//! deliberately absent: window-resize reflow of the PTY/model, scrollback
-//! navigation, and the Odyssey visual/theme layer.
+//! deliberately absent: the Odyssey visual/theme layer and richer workflow
+//! polish beyond the first daily-loop basics.
 //!
 //! ## Ownership split (filled in incrementally)
 //!

@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Native scrollback navigation
+
+The native window can now navigate scrollback instead of only showing the live
+bottom. This wires the earlier core `snapshot_with_scrollback` API into the GPU
+render path while preserving normal terminal input behavior.
+
+### What landed
+
+- **`src/native.rs`** — added a clamped native viewport offset. Mouse wheel
+  scrolls by rows, and `Shift+PageUp` / `Shift+PageDown` page through history.
+  Plain `PageUp` / `PageDown` still go to the PTY.
+- Rendering now rebuilds from `Terminal::snapshot_with_scrollback(offset)`.
+  Offset `0` is live; nonzero offsets use the core policy that hides the cursor.
+- New PTY output keeps a scrolled-back viewport anchored to the same absolute
+  rows. Any typed key or paste that writes to the PTY returns to live. Selection
+  is cleared when the viewport changes.
+
+### Verified
+
+- `cargo test`: **134 lib + 8 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose
+  (`WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`)
+  exits `0`, no validation errors, no lingering `odytty` process.
+
+### Known gaps
+
+- No scrollbar, viewport indicator, top/bottom hotkeys, or scrollback selection.
+- Scrollback storage is still unbounded.
+
+---
+
 ## 2026-06-09 — Native mouse selection and copy
 
 The native window now supports basic visible-grid text selection and copying.
