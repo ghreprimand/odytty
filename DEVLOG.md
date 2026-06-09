@@ -20,18 +20,24 @@ evaluate. Both now have scoped fixes awaiting final real-compositor retest.
   cursor-position reply is 1-based and honors DECOM/origin-mode scroll regions,
   matching the row semantics used by cursor movement. Fish uses this handshake
   while drawing completions and multi-line prompts.
+- **`src/core/mod.rs`** — count/position CSI controls now treat omitted or zero
+  parameters as one where ECMA-48 expects a default count. This fixes bare
+  relative cursor moves such as `ESC [ A`, which fish uses to return from its
+  completion candidate row to the command line before clearing the old pager.
 - **`src/theme.rs`** — the ambient scanline treatment was retuned from an
   extremely fine, low-contrast pattern to a still-subtle but visible background
   wash. The off path remains an exact zero-strength no-op.
 
 ### Verified
 
-- `cargo test`: **164 lib + 10 smoke** green (1 ignored live-PTY each).
+- `cargo test`: **167 lib + 10 smoke** green (1 ignored live-PTY each).
 - `cargo fmt --check` clean.
 - `cargo clippy --all-targets` clean except the pre-existing
   `core/mod.rs:32` derivable-impl warning.
 - Wayland-native autoclose exits `0` with the visual unset and with
   `ODYTTY_VISUAL=ambient`, with no lingering `odytty` process.
+- A distilled fish completion redraw regression now verifies that narrowing the
+  prefix clears stale candidate rows.
 
 ### Known gaps
 
