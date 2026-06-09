@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Native mouse selection and copy
+
+The native window now supports basic visible-grid text selection and copying.
+This is intentionally simple: selection is native UI state over the current
+snapshot, with no terminal-core mutation and no scrollback selection yet.
+
+### What landed
+
+- **`src/selection.rs`** — added source-agnostic helpers for mapping physical
+  pointer coordinates to terminal cells, normalizing row-major ranges,
+  extracting row-spanning selected text, and applying inverse-cell highlight to
+  a snapshot copy.
+- **`src/native.rs`** — left mouse drag tracks a visible-grid selection using
+  the active glyph atlas cell size and current grid dimensions. Redraw applies
+  highlight to a snapshot copy before building vertices.
+- **`Ctrl+Shift+C` copy** — copies the current visible selection to the system
+  clipboard with `arboard`, quietly ignoring clipboard failures. Plain `Ctrl-C`
+  remains shell input.
+
+### Verified
+
+- `cargo test`: **124 lib + 8 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose
+  (`WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`)
+  exits `0`, no validation errors, no lingering `odytty` process.
+
+### Known gaps
+
+- Selection is visible-grid only; no scrollback selection, word selection, or
+  primary-selection integration.
+- Copy is `Ctrl+Shift+C` only.
+
+---
+
 ## 2026-06-09 — Scrollback viewport snapshots
 
 The core can now produce snapshots for historical scrollback viewports without
