@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Manual validation fixes: clipboard and resize reflow
+
+Manual native validation exposed two first-prototype blockers: Linux clipboard
+ownership was unreliable after copy, and narrowing then widening the window
+could permanently lose text. Both are now fixed in scoped packets.
+
+### What landed
+
+- **`src/native.rs`** — native copy/paste now keeps a clipboard owner alive for
+  the app lifetime instead of creating and dropping an `arboard::Clipboard`
+  immediately after `set_text`. Clipboard failures stay non-fatal and now emit
+  concise diagnostics.
+- **`src/core/mod.rs`** — resize now reflows primary-screen content instead of
+  truncating rows. Soft-wrap markers let wrapped physical rows rejoin into
+  logical lines across scrollback + visible rows and re-wrap to the new width.
+- Alternate-screen resize remains isolated: TUI apps keep their app-managed
+  alternate grid and repaint on resize, while the stored primary screen behind
+  it is reflowed coherently.
+
+### Verified
+
+- `cargo test`: **157 lib + 10 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose exits `0` with the plain renderer and with
+  `ODYTTY_VISUAL=ambient`, with no lingering `odytty` process.
+
+### Known gaps
+
+- The clipboard fix still needs the operator's real-compositor retest:
+  select text, `Ctrl+Shift+C`, paste into another app, then paste external text
+  back into OdyTTY with `Ctrl+Shift+V`.
+- Resize reflow is intentionally bounded for the first prototype. It preserves
+  normal wrapped text, hard line breaks, scrollback round trips, cursor mapping,
+  and alternate-screen isolation, but complex wide-glyph edge cases remain
+  conservative.
+
+---
+
 ## 2026-06-09 — Optional ambient visual treatment
 
 OdyTTY now has a small disableable Odyssey visual treatment. It is deliberately
