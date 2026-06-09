@@ -7,3 +7,4 @@ pub mod pty;
 pub mod render;
 pub mod selection;
 pub mod text;
+pub mod theme;

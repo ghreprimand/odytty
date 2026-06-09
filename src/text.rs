@@ -23,6 +23,7 @@
 //! atlas-cell rectangle for a character — no per-glyph offset math downstream.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use ab_glyph::{Font, FontVec, Glyph, PxScale, ScaleFont, point};
 
@@ -216,14 +217,58 @@ impl GlyphAtlas {
 }
 
 /// Default foreground (light gray) and background (near-black) in sRGB bytes.
+///
+/// These are the *baseline* defaults (the plain theme). The active default used
+/// when resolving `Color::Default` is overridable at runtime via
+/// [`set_default_colors`]; the theme layer sets it once at startup. Core terminal
+/// semantics never read these — only presentation does.
 pub const DEFAULT_FG_SRGB: (u8, u8, u8) = (0xCC, 0xCC, 0xCC);
 pub const DEFAULT_BG_SRGB: (u8, u8, u8) = (0x0B, 0x0C, 0x10);
+
+/// Pack an sRGB triple into a `u32` for atomic storage (`0x00RRGGBB`).
+const fn pack_srgb(c: (u8, u8, u8)) -> u32 {
+    ((c.0 as u32) << 16) | ((c.1 as u32) << 8) | (c.2 as u32)
+}
+
+/// Unpack a `0x00RRGGBB` value back into an sRGB triple.
+fn unpack_srgb(v: u32) -> (u8, u8, u8) {
+    (
+        ((v >> 16) & 0xFF) as u8,
+        ((v >> 8) & 0xFF) as u8,
+        (v & 0xFF) as u8,
+    )
+}
+
+/// Active default foreground/background for `Color::Default`, overridable by the
+/// theme layer. Stored as packed sRGB so resolution stays lock-free. This is a
+/// presentation-only override: it changes how `Color::Default` paints, never
+/// what the terminal core stores.
+static DEFAULT_FG: AtomicU32 = AtomicU32::new(pack_srgb(DEFAULT_FG_SRGB));
+static DEFAULT_BG: AtomicU32 = AtomicU32::new(pack_srgb(DEFAULT_BG_SRGB));
+
+/// Override the default foreground/background used to resolve `Color::Default`.
+///
+/// Called once at native startup by the theme layer. Affects only rendering;
+/// the terminal model is unaware of it. Passing the baseline constants restores
+/// the plain appearance.
+pub fn set_default_colors(foreground: (u8, u8, u8), background: (u8, u8, u8)) {
+    DEFAULT_FG.store(pack_srgb(foreground), Ordering::Relaxed);
+    DEFAULT_BG.store(pack_srgb(background), Ordering::Relaxed);
+}
+
+fn default_fg_srgb() -> (u8, u8, u8) {
+    unpack_srgb(DEFAULT_FG.load(Ordering::Relaxed))
+}
+
+fn default_bg_srgb() -> (u8, u8, u8) {
+    unpack_srgb(DEFAULT_BG.load(Ordering::Relaxed))
+}
 
 /// Convert one sRGB channel byte to a linear float in `[0, 1]`.
 ///
 /// The surface uses an sRGB texture format, which applies the linear→sRGB
 /// transfer on write, so shader inputs must be linear.
-fn srgb_to_linear(byte: u8) -> f32 {
+pub fn srgb_to_linear(byte: u8) -> f32 {
     let c = byte as f32 / 255.0;
     if c <= 0.04045 {
         c / 12.92
@@ -282,7 +327,7 @@ pub fn indexed_srgb(index: u8) -> (u8, u8, u8) {
 /// Resolve a terminal foreground color to linear RGBA.
 pub fn foreground_linear(color: Color) -> [f32; 4] {
     match color {
-        Color::Default => linear_rgba(DEFAULT_FG_SRGB),
+        Color::Default => linear_rgba(default_fg_srgb()),
         Color::Indexed(i) => linear_rgba(indexed_srgb(i)),
         Color::Rgb(r, g, b) => linear_rgba((r, g, b)),
     }
@@ -291,7 +336,7 @@ pub fn foreground_linear(color: Color) -> [f32; 4] {
 /// Resolve a terminal background color to linear RGBA.
 pub fn background_linear(color: Color) -> [f32; 4] {
     match color {
-        Color::Default => linear_rgba(DEFAULT_BG_SRGB),
+        Color::Default => linear_rgba(default_bg_srgb()),
         Color::Indexed(i) => linear_rgba(indexed_srgb(i)),
         Color::Rgb(r, g, b) => linear_rgba((r, g, b)),
     }

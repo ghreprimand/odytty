@@ -12,15 +12,17 @@
 //!   quads with the shared `cell.wgsl` pipeline, so the window shows readable
 //!   monospaced text.
 //!
-//! The surface is still cleared to a neutral placeholder color before the cell
-//! geometry is drawn over it; that clear is **not** the theme system, which
-//! lands later as a disableable layer.
+//! The surface is cleared to the active theme's clear color before the cell
+//! geometry is drawn over it. The theme (selected by `ODYTTY_THEME`, defaulting
+//! to the plain baseline) also sets the default foreground/background used for
+//! `Color::Default` cells. Themes are presentation-only: they never touch the
+//! terminal core or cell attributes (see [`crate::theme`]).
 //!
 //! The window now opens a real shell: PTY output is rendered live and keyboard
 //! input is encoded and written back to the PTY (via the shared
 //! [`crate::input`] encoder), so the read+write loop is complete. Still
-//! deliberately absent: the Odyssey visual/theme layer and richer workflow
-//! polish beyond the first daily-loop basics.
+//! deliberately absent: richer Odyssey visual treatments (motion/effects) and
+//! workflow polish beyond the first daily-loop basics.
 //!
 //! ## Ownership split (filled in incrementally)
 //!
@@ -61,6 +63,7 @@ use crate::pty::PtySession;
 use crate::render::CellMetrics;
 use crate::selection::{self, CellPoint, SelectionState};
 use crate::text::{self, CellSize, GlyphAtlas};
+use crate::theme::Theme;
 
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -76,17 +79,21 @@ use winit::window::{Window, WindowId};
 /// product setting.
 const AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 
-/// Placeholder clear color for the window surface, in linear RGBA.
+/// Convert a theme's clear color (sRGB bytes) into a linear-RGBA `wgpu::Color`.
 ///
-/// A neutral near-black so the GPU bring-up is visually obvious without
-/// implying a theme. The real background comes from the Odyssey theme layer in
-/// a later packet; this is intentionally not that.
-const CLEAR_COLOR: wgpu::Color = wgpu::Color {
-    r: 0.043,
-    g: 0.047,
-    b: 0.063,
-    a: 1.0,
-};
+/// The surface format is sRGB, which applies the linear→sRGB transfer on write,
+/// so the clear value must be linear — same conversion the glyph/cell colors use
+/// (via [`text::srgb_to_linear`]), keeping the surround and the cell backgrounds
+/// in the same color space.
+fn theme_clear_color(theme: &Theme) -> wgpu::Color {
+    let (r, g, b) = theme.clear;
+    wgpu::Color {
+        r: text::srgb_to_linear(r) as f64,
+        g: text::srgb_to_linear(g) as f64,
+        b: text::srgb_to_linear(b) as f64,
+        a: 1.0,
+    }
+}
 
 /// Errors from the native app path.
 #[derive(Debug, thiserror::Error)]
@@ -242,6 +249,8 @@ struct GpuState {
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
     atlas: GlyphAtlas,
+    /// Surface clear color from the active theme (linear RGBA).
+    clear_color: wgpu::Color,
     // Kept alive for the lifetime of the bind group; never read directly.
     _atlas_texture: wgpu::Texture,
     _atlas_sampler: wgpu::Sampler,
@@ -257,6 +266,7 @@ impl GpuState {
         window: Arc<Window>,
         options: &NativeOptions,
         initial_snapshot: &Snapshot,
+        theme: Theme,
     ) -> Result<Self, NativeError> {
         let size = window.inner_size();
         let scale = window.scale_factor() as f32;
@@ -505,6 +515,7 @@ impl GpuState {
             vertex_buf,
             vertex_count,
             atlas,
+            clear_color: theme_clear_color(&theme),
             _atlas_texture: atlas_texture,
             _atlas_sampler: atlas_sampler,
         })
@@ -562,7 +573,7 @@ impl GpuState {
         self.surface.configure(&self.device, &self.config);
     }
 
-    /// Clear the surface to [`CLEAR_COLOR`] and present one frame.
+    /// Clear the surface to the active theme's clear color and present one frame.
     ///
     /// Returns a [`FrameOutcome`] so the event loop can decide whether to
     /// reconfigure the surface or simply skip the frame. `wgpu` 29 reports
@@ -600,7 +611,7 @@ impl GpuState {
                     depth_slice: None,
                     ops: wgpu::Operations {
                         // Keep the neutral clear, then draw cell quads over it.
-                        load: wgpu::LoadOp::Clear(CLEAR_COLOR),
+                        load: wgpu::LoadOp::Clear(self.clear_color),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -734,6 +745,10 @@ fn wheel_lines(delta: MouseScrollDelta, cell_height: u32) -> isize {
 /// the loop returns.
 struct App {
     options: NativeOptions,
+    /// Active presentation theme (selected once from `ODYTTY_THEME`). Used for
+    /// the surface clear color; the default cell colors are applied process-wide
+    /// at startup via `text::set_default_colors`. Presentation-only.
+    theme: Theme,
     window: Option<Arc<Window>>,
     gpu: Option<GpuState>,
     /// The terminal model shared with the PTY pump thread. Snapshots are taken
@@ -783,6 +798,7 @@ struct App {
 impl App {
     fn new(
         options: NativeOptions,
+        theme: Theme,
         terminal: Arc<Mutex<Terminal>>,
         writer: PtyWriter,
         pty: Arc<Mutex<PtySession>>,
@@ -791,6 +807,7 @@ impl App {
         let grid = options.initial_grid;
         Self {
             options,
+            theme,
             window: None,
             gpu: None,
             terminal,
@@ -1125,7 +1142,7 @@ impl ApplicationHandler<UserEvent> for App {
         // Seed the first buffer from the current shared-terminal snapshot (any
         // PTY output already pumped is picked up by the first redraw below).
         let initial_snapshot = self.terminal.lock().expect("terminal mutex").snapshot();
-        match GpuState::new(window.clone(), &self.options, &initial_snapshot) {
+        match GpuState::new(window.clone(), &self.options, &initial_snapshot, self.theme) {
             Ok(gpu) => self.gpu = Some(gpu),
             Err(err) => {
                 self.fail(event_loop, err);
@@ -1354,6 +1371,12 @@ pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
         .map_err(|err| NativeError::EventLoop(err.to_string()))?;
     event_loop.set_control_flow(ControlFlow::Wait);
 
+    // Select the presentation theme once (ODYTTY_THEME, default plain) and apply
+    // its default cell colors process-wide before any rendering. This only
+    // affects how Color::Default paints; the terminal core is unaware of it.
+    let theme = Theme::from_env();
+    text::set_default_colors(theme.foreground, theme.background);
+
     // Shared terminal model, sized to the initial grid. The pump thread writes
     // to it; the UI thread snapshots from it.
     let terminal = Arc::new(Mutex::new(Terminal::new(
@@ -1384,6 +1407,7 @@ pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
 
     let mut app = App::new(
         options,
+        theme,
         terminal,
         writer,
         session.clone(),
@@ -1592,8 +1616,16 @@ mod tests {
     }
 
     #[test]
-    fn clear_color_is_opaque() {
-        assert_eq!(CLEAR_COLOR.a, 1.0);
+    fn theme_clear_color_is_opaque_and_linearized() {
+        // Every built-in theme yields an opaque clear color, and the conversion
+        // matches the renderer's sRGB→linear transfer (same as cell colors).
+        for theme in Theme::ALL {
+            let color = theme_clear_color(&theme);
+            assert_eq!(color.a, 1.0, "{} clear must be opaque", theme.name);
+            assert_eq!(color.r, text::srgb_to_linear(theme.clear.0) as f64);
+            assert_eq!(color.g, text::srgb_to_linear(theme.clear.1) as f64);
+            assert_eq!(color.b, text::srgb_to_linear(theme.clear.2) as f64);
+        }
     }
 
     fn cell(width: u32, height: u32) -> CellSize {
@@ -1660,6 +1692,7 @@ mod tests {
         let pty = Arc::new(Mutex::new(session));
         let mut app = App::new(
             NativeOptions::default(),
+            Theme::default(),
             terminal.clone(),
             writer,
             pty.clone(),
