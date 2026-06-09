@@ -33,7 +33,7 @@ disabled. See `DEVLOG.md` for current state and `SPEC.md` for durable decisions.
 - [x] Connect PTY output to the rendered grid.
 - [x] Connect keyboard input to the PTY using the existing input mapping.
 - [x] Render cursor and basic viewport state.
-- [ ] Handle window resize by resizing both PTY and terminal model.
+- [x] Handle window resize by resizing both PTY and terminal model.
 
 ## Daily Loop Basics
 

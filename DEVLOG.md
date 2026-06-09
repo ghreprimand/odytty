@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Native resize reflows PTY and model
+
+The native window resize path now updates the actual terminal size, not only the
+GPU surface. Resizing the window recomputes the whole-cell grid from the
+rasterized glyph cell metrics, resizes the owned terminal model, and sends the
+new size to the PTY so shells and TUIs receive updated `$COLUMNS`/`$LINES`.
+
+### What landed
+
+- **`src/native.rs`** — `WindowEvent::Resized` still reconfigures the `wgpu`
+  surface, then derives the terminal grid from the atlas cell dimensions used by
+  grid rendering. Partial trailing pixels are ignored with floor division, and
+  dimensions clamp to at least `1x1`.
+- The PTY session is now shared with the app behind `Arc<Mutex<_>>` so resize
+  events can call `PtySession::resize` while shutdown still kills and reaps the
+  child shell deterministically.
+- Resize work is idempotent: duplicate events or sub-cell pixel changes that do
+  not alter the whole-cell grid skip model and PTY resize.
+
+### Verified
+
+- `cargo test`: **96 lib + 8 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose
+  (`WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`)
+  exits `0`, no validation errors, no lingering `odytty` process.
+
+### Known gaps
+
+- Resize uses the existing model resize behavior; scrollback-aware reflow of
+  already-wrapped lines is still deferred.
+- Paste, selection/copy, and scrollback navigation remain the next daily-loop
+  gaps.
+
+---
+
 ## 2026-06-09 — Cursor rendering and BCE fills
 
 The native renderer now draws the terminal cursor, and the owned terminal model
