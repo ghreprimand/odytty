@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Theme system and daily-loop smoke fixtures
+
+OdyTTY now has the first Odyssey presentation hook: a small theme system that
+can change default rendering colors without changing terminal semantics. The
+daily-loop smoke suite also gained deterministic coverage for prompt/command
+output and clear-style Background-Color Erase behavior.
+
+### What landed
+
+- **`src/theme.rs`** — added a source-agnostic `Theme` model with a plain
+  baseline plus `odyssey` and `odyssey-noir` presets. `ODYTTY_THEME` selects a
+  preset and falls back to plain when unset, empty, or invalid.
+- **Presentation-only wiring** — the native renderer now uses the active
+  theme's clear color, and `Color::Default` foreground/background resolution is
+  overridden at native startup. The terminal core and stored cell attributes
+  remain theme-unaware.
+- **`tests/transcript_smoke.rs`** — added smoke fixtures for a prompt →
+  command → colored output → prompt loop and for clearing while an active
+  background color is set.
+
+### Verified
+
+- `cargo test`: **141 lib + 10 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose exits `0` for the plain default,
+  `ODYTTY_THEME=odyssey`, and invalid-theme fallback, with no lingering
+  `odytty` process.
+
+### Known gaps
+
+- This is a color theme system only, not the optional Odyssey visual treatment.
+- Real interactive validation still needs a human at the Hyprland display for
+  prompt responsiveness, external commands, clipboard behavior, and resizing.
+
+---
+
 ## 2026-06-09 — Native scrollback navigation
 
 The native window can now navigate scrollback instead of only showing the live
