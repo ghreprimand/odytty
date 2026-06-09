@@ -44,20 +44,23 @@
 //! Wayland surface (no XWayland). `wgpu` presents to that surface via its
 //! default backends (Vulkan on Linux), so the GPU path is Wayland-native too.
 
-use std::sync::Arc;
+use std::io::{Read, Write};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use wgpu::util::DeviceExt;
 
-use crate::core::{Dimensions, Terminal};
+use crate::core::{Dimensions, Snapshot, Terminal};
 use crate::grid::{self, Vertex};
+use crate::pty::PtySession;
 use crate::render::CellMetrics;
 use crate::text::{self, GlyphAtlas};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
 /// Environment variable that, when set to a positive integer of milliseconds,
@@ -100,7 +103,31 @@ pub enum NativeError {
     /// Font loading or glyph-atlas setup for the text renderer failed.
     #[error("text setup failed: {0}")]
     Text(String),
+    /// The shell PTY could not be spawned.
+    #[error("pty spawn failed: {0}")]
+    Pty(String),
 }
+
+/// Events the PTY pump thread sends to wake the `winit` event loop.
+///
+/// The loop otherwise sleeps (`ControlFlow::Wait`) with no input wired this
+/// packet, so these proxy events are what drive redraws as shell output
+/// arrives and what signals a clean exit when the shell ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UserEvent {
+    /// New PTY output landed in the shared terminal; rebuild + redraw.
+    Redraw,
+    /// The shell's PTY reached EOF (shell exited): exit the loop.
+    ShellExited,
+}
+
+/// The single PTY master writer, shared behind a lock.
+///
+/// `portable-pty`'s `take_writer` yields the writer once, so it is wrapped here
+/// and shared: the pump thread uses it to send host responses (query replies)
+/// this packet, and the App keeps a clone alive for the keyboard-input path that
+/// lands next packet.
+type PtyWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 
 /// Initial native window and text assumptions.
 ///
@@ -191,6 +218,9 @@ struct GpuState {
     viewport_buf: wgpu::Buffer,
     vertex_buf: wgpu::Buffer,
     vertex_count: u32,
+    /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
+    /// live PTY output arrives.
+    atlas: GlyphAtlas,
     // Kept alive for the lifetime of the bind group; never read directly.
     _atlas_texture: wgpu::Texture,
     _atlas_sampler: wgpu::Sampler,
@@ -202,7 +232,11 @@ impl GpuState {
     /// Synchronous from the caller's perspective: the async adapter/device
     /// requests are driven to completion with `pollster`, since `winit`'s
     /// handler callbacks are synchronous.
-    fn new(window: Arc<Window>, options: &NativeOptions) -> Result<Self, NativeError> {
+    fn new(
+        window: Arc<Window>,
+        options: &NativeOptions,
+        initial_snapshot: &Snapshot,
+    ) -> Result<Self, NativeError> {
         let size = window.inner_size();
         let scale = window.scale_factor() as f32;
         // No display handle is supplied here: the default Linux backend is
@@ -427,21 +461,11 @@ impl GpuState {
             cache: None,
         });
 
-        // --- Seeded demo snapshot (PLACEHOLDER: replaced by live PTY output in
-        // the next packet). Driven through the real owned core so SGR/colors go
-        // through the genuine parsing path rather than a hand-built Snapshot.
-        let mut term = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);
-        term.advance(b"OdyTTY native renderer -- placeholder content\r\n");
-        term.advance(b"PTY output, keyboard input, and themes land in later packets.\r\n");
-        term.advance(b"\r\n");
-        term.advance(
-            b"\x1b[31mred \x1b[32mgreen \x1b[33myellow \x1b[34mblue \x1b[35mmagenta \x1b[36mcyan\x1b[0m\r\n",
-        );
-        term.advance(b"\x1b[1;37;44m bold white on blue \x1b[0m back to normal\r\n");
-        term.advance(b"\x1b[7m inverse video sample \x1b[0m\r\n");
-        let snapshot = term.snapshot();
-
-        let vertices = grid::build_vertices(&snapshot, &atlas);
+        // Build the first vertex buffer from the initial (blank) snapshot. Live
+        // PTY output replaces this content via `update_from_snapshot` as the
+        // pump thread advances the shared terminal. A >=1x1 grid always emits at
+        // least one background quad, so this buffer is never zero-sized.
+        let vertices = grid::build_vertices(initial_snapshot, &atlas);
         let vertex_count = vertices.len() as u32;
         let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("odytty-cell-vertices"),
@@ -459,9 +483,29 @@ impl GpuState {
             viewport_buf,
             vertex_buf,
             vertex_count,
+            atlas,
             _atlas_texture: atlas_texture,
             _atlas_sampler: atlas_sampler,
         })
+    }
+
+    /// Rebuild the cell vertex buffer from a fresh terminal snapshot.
+    ///
+    /// Called on the UI thread after the pump thread signals new PTY output.
+    /// The grid is small (e.g. 80×24 → a few thousand vertices), so recreating
+    /// the buffer per coalesced update is cheap and avoids tracking capacity.
+    /// The caller must already hold the snapshot by value — the terminal mutex
+    /// is dropped before this runs so the lock is never held across GPU calls.
+    fn update_from_snapshot(&mut self, snapshot: &Snapshot) {
+        let vertices = grid::build_vertices(snapshot, &self.atlas);
+        self.vertex_count = vertices.len() as u32;
+        self.vertex_buf = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("odytty-cell-vertices"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
     }
 
     /// Write the current physical surface size into the viewport uniform so the
@@ -581,17 +625,35 @@ struct App {
     options: NativeOptions,
     window: Option<Arc<Window>>,
     gpu: Option<GpuState>,
+    /// The terminal model shared with the PTY pump thread. Snapshots are taken
+    /// under this lock on the UI thread, then the lock is dropped before any GPU
+    /// work so it is never held across `wgpu` calls.
+    terminal: Arc<Mutex<Terminal>>,
+    /// Set when the pump thread reports new output; the next `RedrawRequested`
+    /// rebuilds the vertex buffer once (coalescing many wakes into one rebuild).
+    needs_rebuild: bool,
+    /// The shared PTY writer, kept alive for the keyboard-input path that lands
+    /// next packet. Not read yet — holding it proves the seam.
+    _writer: PtyWriter,
     autoclose: Option<Duration>,
     deadline: Option<Instant>,
     startup_error: Option<NativeError>,
 }
 
 impl App {
-    fn new(options: NativeOptions, autoclose: Option<Duration>) -> Self {
+    fn new(
+        options: NativeOptions,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        autoclose: Option<Duration>,
+    ) -> Self {
         Self {
             options,
             window: None,
             gpu: None,
+            terminal,
+            needs_rebuild: true,
+            _writer: writer,
             autoclose,
             deadline: None,
             startup_error: None,
@@ -605,7 +667,7 @@ impl App {
     }
 }
 
-impl ApplicationHandler for App {
+impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
             return;
@@ -624,7 +686,10 @@ impl ApplicationHandler for App {
             }
         };
 
-        match GpuState::new(window.clone(), &self.options) {
+        // Seed the first buffer from the current shared-terminal snapshot (any
+        // PTY output already pumped is picked up by the first redraw below).
+        let initial_snapshot = self.terminal.lock().expect("terminal mutex").snapshot();
+        match GpuState::new(window.clone(), &self.options, &initial_snapshot) {
             Ok(gpu) => self.gpu = Some(gpu),
             Err(err) => {
                 self.fail(event_loop, err);
@@ -632,6 +697,7 @@ impl ApplicationHandler for App {
             }
         }
 
+        self.needs_rebuild = true;
         window.request_redraw();
         self.window = Some(window);
 
@@ -661,6 +727,16 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
+                // Rebuild geometry at most once per redraw, no matter how many
+                // pump wakes coalesced into this frame. Snapshot under the lock,
+                // then drop it before touching the GPU.
+                if self.needs_rebuild {
+                    let snapshot = self.terminal.lock().expect("terminal mutex").snapshot();
+                    if let Some(gpu) = self.gpu.as_mut() {
+                        gpu.update_from_snapshot(&snapshot);
+                    }
+                    self.needs_rebuild = false;
+                }
                 let Some(gpu) = self.gpu.as_mut() else {
                     return;
                 };
@@ -675,6 +751,23 @@ impl ApplicationHandler for App {
         }
     }
 
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+        match event {
+            // Coalesce: flag a rebuild and ask for one redraw. Many output
+            // chunks between frames collapse into a single snapshot+rebuild
+            // because `winit` merges redundant `request_redraw` calls and we
+            // only rebuild when `needs_rebuild` is set.
+            UserEvent::Redraw => {
+                self.needs_rebuild = true;
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
+            // The shell exited (PTY EOF): close the window cleanly.
+            UserEvent::ShellExited => event_loop.exit(),
+        }
+    }
+
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(deadline) = self.deadline
             && Instant::now() >= deadline
@@ -684,23 +777,115 @@ impl ApplicationHandler for App {
     }
 }
 
+/// Read loop that pumps PTY output into the shared terminal and wakes the UI.
+///
+/// Owns its own reader and writer clones of the PTY master: it advances the
+/// shared [`Terminal`] with each chunk, writes back any host responses the core
+/// produces (e.g. answers to cursor/device queries) so query-driven prompts do
+/// not stall, and signals the event loop with [`UserEvent::Redraw`]. On EOF or
+/// a read error (the shell exited) it signals [`UserEvent::ShellExited`] and
+/// returns, ending the thread.
+///
+/// Redraw coalescing is intentionally simple: one wake per read chunk. The UI
+/// side merges these into a single rebuild per presented frame, so a burst of
+/// output never causes one rebuild per byte.
+fn spawn_pty_pump(
+    mut reader: Box<dyn Read + Send>,
+    writer: PtyWriter,
+    terminal: Arc<Mutex<Terminal>>,
+    proxy: EventLoopProxy<UserEvent>,
+) -> JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => {
+                    let _ = proxy.send_event(UserEvent::ShellExited);
+                    break;
+                }
+                Ok(len) => {
+                    let host_output = {
+                        let mut term = terminal.lock().expect("terminal mutex");
+                        term.advance(&buffer[..len]);
+                        term.take_host_output()
+                    };
+                    if !host_output.is_empty()
+                        && let Ok(mut writer) = writer.lock()
+                    {
+                        let _ = writer.write_all(&host_output);
+                        let _ = writer.flush();
+                    }
+                    // If the loop has shut down, the proxy is closed: stop.
+                    if proxy.send_event(UserEvent::Redraw).is_err() {
+                        break;
+                    }
+                }
+                Err(ref err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => {
+                    let _ = proxy.send_event(UserEvent::ShellExited);
+                    break;
+                }
+            }
+        }
+    })
+}
+
 /// Entry point for the native app.
 ///
 /// Opens a real OS window sized to the requested grid, brings up a `wgpu`
-/// surface, and runs the event loop until the window is closed (or, when
-/// `ODYTTY_NATIVE_AUTOCLOSE_MS` is set, the auto-close deadline elapses). The
-/// surface is cleared to a neutral placeholder color each frame; readable text
-/// rendering lands in a later packet. Returns once the window has closed
-/// cleanly.
+/// surface, spawns the default shell on a PTY, and renders the shell's live
+/// output: a pump thread feeds PTY bytes into a shared [`Terminal`] and wakes
+/// the event loop, which rebuilds the cell geometry and presents a frame. The
+/// loop runs until the window is closed, the shell exits, or (when
+/// `ODYTTY_NATIVE_AUTOCLOSE_MS` is set) the auto-close deadline elapses. On the
+/// way out the child shell is killed and reaped and the pump thread is joined,
+/// so no zombie process or detached thread is left behind.
+///
+/// Keyboard input is deliberately not wired this packet — output flows
+/// shell → core → pixels only.
 pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
-    let event_loop = EventLoop::new().map_err(|err| NativeError::EventLoop(err.to_string()))?;
+    let event_loop = EventLoop::<UserEvent>::with_user_event()
+        .build()
+        .map_err(|err| NativeError::EventLoop(err.to_string()))?;
     event_loop.set_control_flow(ControlFlow::Wait);
 
-    let mut app = App::new(options, autoclose_from_env());
-    event_loop
-        .run_app(&mut app)
-        .map_err(|err| NativeError::EventLoop(err.to_string()))?;
+    // Shared terminal model, sized to the initial grid. The pump thread writes
+    // to it; the UI thread snapshots from it.
+    let terminal = Arc::new(Mutex::new(Terminal::new(
+        options.initial_grid.columns,
+        options.initial_grid.rows,
+    )));
 
+    // Spawn the shell PTY and start pumping its output into the shared terminal.
+    let mut session = PtySession::spawn_default_shell(options.initial_grid)
+        .map_err(|err| NativeError::Pty(err.to_string()))?;
+    let reader = session
+        .try_clone_reader()
+        .map_err(|err| NativeError::Pty(err.to_string()))?;
+    // One writer, shared: the pump thread sends host responses through it now;
+    // the App keeps a clone for the keyboard-input path (next packet).
+    let writer: PtyWriter = Arc::new(Mutex::new(
+        session
+            .take_writer()
+            .map_err(|err| NativeError::Pty(err.to_string()))?,
+    ));
+
+    let proxy = event_loop.create_proxy();
+    let pump_thread = spawn_pty_pump(reader, writer.clone(), terminal.clone(), proxy);
+
+    let mut app = App::new(options, terminal, writer, autoclose_from_env());
+    let run_result = event_loop
+        .run_app(&mut app)
+        .map_err(|err| NativeError::EventLoop(err.to_string()));
+
+    // Tear down deterministically: kill + reap the shell, which closes the PTY
+    // master and unblocks the pump thread's `read`, then join the thread.
+    let _ = session.kill();
+    let _ = session.wait();
+    drop(session);
+    let _ = pump_thread.join();
+
+    run_result?;
     if let Some(err) = app.startup_error {
         return Err(err);
     }
@@ -756,5 +941,39 @@ mod tests {
     #[test]
     fn clear_color_is_opaque() {
         assert_eq!(CLEAR_COLOR.a, 1.0);
+    }
+
+    /// End-to-end PTY → core check: spawn a one-shot command on a real PTY,
+    /// pump its bytes into a `Terminal` exactly as the native pump thread does,
+    /// and assert the rendered snapshot contains the command's output.
+    ///
+    /// `#[ignore]`d like the other live-PTY smoke test: it needs a real shell
+    /// and a PTY, so it is opt-in (`cargo test -- --ignored`).
+    #[test]
+    #[ignore = "spawns a real shell on a PTY"]
+    fn pty_output_pumps_into_terminal_snapshot() {
+        use std::io::Read;
+
+        let dims = Dimensions::new(40, 10);
+        let session = PtySession::spawn_shell_command(dims, "printf 'HELLO_ODYTTY'")
+            .expect("spawn one-shot pty command");
+        let mut reader = session.try_clone_reader().expect("clone reader");
+        let mut terminal = Terminal::new(dims.columns, dims.rows);
+
+        // Pump to EOF, mirroring the pump thread's read/advance loop.
+        let mut buffer = [0u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(len) => terminal.advance(&buffer[..len]),
+                Err(ref err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
+
+        assert!(
+            terminal.screen().plain_text().contains("HELLO_ODYTTY"),
+            "snapshot should contain the command output"
+        );
     }
 }

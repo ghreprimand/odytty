@@ -7,6 +7,60 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Live PTY output in the native window
+
+The native window now renders a **real shell**. The seeded demo snapshot is
+gone; `cargo run -- --native` spawns `$SHELL` on a PTY and renders its live
+startup output (prompt + any banner) as it arrives. This proves the
+shell → core → pixels path end to end. Keyboard input is still deliberately out
+of scope (next packet), so you can't type yet.
+
+### What landed
+
+- **`src/native.rs`** — shell wired in behind the renderer:
+  - `run_native` spawns `PtySession::spawn_default_shell(initial_grid)`, shares
+    a `core::Terminal` as `Arc<Mutex<Terminal>>`, and starts a pump thread.
+  - **Pump thread** (`spawn_pty_pump`) reads PTY bytes, advances the shared
+    terminal under the lock, drains/writes `take_host_output()` responses back
+    so query-driven prompts don't stall, and wakes the UI with a `winit`
+    `EventLoopProxy<UserEvent>`. EOF/read-error sends `UserEvent::ShellExited`.
+  - **Redraw coalescing**: each pump wake sets `needs_rebuild` + one
+    `request_redraw()`; `winit` merges redundant redraw requests, and the
+    snapshot+vertex rebuild happens at most once per presented frame. The
+    terminal is snapshotted under the lock, then the lock is dropped *before*
+    any GPU call — the mutex is never held across `wgpu`.
+  - `GpuState` now stores the `GlyphAtlas` and gains `update_from_snapshot`,
+    which rebuilds the vertex buffer (small grid → cheap to recreate per
+    update).
+  - **Single shared writer**: `portable-pty`'s `take_writer` yields once, so the
+    writer is wrapped in `Arc<Mutex<…>>` — the pump thread uses it for host
+    responses now; the App keeps a clone for next packet's input path.
+  - **Clean teardown**: on loop exit the child is `kill()`ed + `wait()`ed, the
+    master is dropped (unblocking the pump `read`), and the pump thread is
+    `join()`ed — verified no zombies and no lingering `odytty` processes.
+
+### Deferred this packet (noted, not done)
+
+- **Window resize → PTY/model resize**: window resize updates only the GPU
+  viewport uniform; the PTY rows/cols and terminal model stay at `initial_grid`.
+  Full resize coherence (resize both PTY and model, reflow) is a later plan
+  item — resizing the window does not crash, it just doesn't reflow yet.
+- Keyboard input, mouse/selection, scrollback, themes/effects — all later.
+
+### Test status (verified 2026-06-09)
+
+- `cargo test`: 72 lib + 8 smoke green; +1 `#[ignore]`d live-PTY integration
+  test (`pty_output_pumps_into_terminal_snapshot`) that spawns a one-shot
+  command on a real PTY, pumps it into a `Terminal`, and asserts the snapshot
+  contains the output. Verified passing via `cargo test -- --ignored`.
+- `cargo fmt --check`: clean. `cargo clippy`: clean for this packet (only the
+  pre-existing `core` derive suggestion remains, untouched).
+- Wayland-native smoke:
+  `WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`
+  exits 0 with a real shell spawned, no validation errors.
+
+---
+
 ## 2026-06-09 — Glyph atlas wired into the native renderer (readable text)
 
 The window now shows readable monospaced text. This is the GPU half of the
