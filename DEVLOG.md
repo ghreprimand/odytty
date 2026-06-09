@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Fish completion DSR replies and visible ambient pass
+
+Manual validation found two remaining prototype issues: fish tab completion
+could desync its completion pager, and `ODYTTY_VISUAL=ambient` was too subtle to
+evaluate. Both now have scoped fixes awaiting final real-compositor retest.
+
+### What landed
+
+- **`src/core/mod.rs`** — OdyTTY now answers DSR status (`CSI 5 n`) and cursor
+  position (`CSI 6 n`) reports through the existing host-output path. The
+  cursor-position reply is 1-based and honors DECOM/origin-mode scroll regions,
+  matching the row semantics used by cursor movement. Fish uses this handshake
+  while drawing completions and multi-line prompts.
+- **`src/theme.rs`** — the ambient scanline treatment was retuned from an
+  extremely fine, low-contrast pattern to a still-subtle but visible background
+  wash. The off path remains an exact zero-strength no-op.
+
+### Verified
+
+- `cargo test`: **164 lib + 10 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose exits `0` with the visual unset and with
+  `ODYTTY_VISUAL=ambient`, with no lingering `odytty` process.
+
+### Known gaps
+
+- The operator should re-run the exact fish completion case:
+  `less b<Tab>`, continue typing a prefix, and confirm the candidate list and
+  command line refresh normally.
+- The operator should compare `ODYTTY_VISUAL=off` and
+  `ODYTTY_VISUAL=ambient` and confirm the effect is visible without hurting
+  readability.
+
+---
+
 ## 2026-06-09 — Wayland clipboard export
 
 Manual validation showed OdyTTY copy/paste worked inside OdyTTY but did not
