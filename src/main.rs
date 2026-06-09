@@ -21,8 +21,9 @@ fn main() -> Result<()> {
     }
 
     if args.first().map(String::as_str) == Some("--native") {
-        // Scaffolded path: fails loudly with a clear not-implemented error until
-        // the native window/renderer packets land.
+        // Opens a real native window and runs the event loop until the window is
+        // closed. GPU text rendering, PTY wiring, and input land in later
+        // packets; this path currently proves a clean open/close lifecycle.
         run_native(NativeOptions::default())?;
         return Ok(());
     }

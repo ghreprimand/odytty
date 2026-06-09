@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — Native window opens and closes cleanly
+
+First real native window. The `--native` path now brings up an OS window via
+`winit` and runs the event loop until the window is closed, replacing the
+not-implemented scaffold. Kept deliberately narrow: no `wgpu`, no text renderer,
+no PTY wiring, no input — those are separate later packets.
+
+### What landed
+
+- **`winit` dependency** (`winit 0.30`): the first piece of the GPU stack. `wgpu`
+  is still not added; it arrives with the rendering packet.
+- **`run_native` lifecycle** (`src/native.rs`): an `ApplicationHandler` that
+  creates the window lazily on `resumed` (per `winit`'s portability contract),
+  exits on `CloseRequested`, and surfaces window-creation failures as
+  `NativeError::WindowCreation` after the loop returns. `NativeError` now carries
+  `EventLoop` and `WindowCreation` variants instead of `NotImplemented`.
+- **Grid-derived window size**: `NativeOptions::cell_metrics` / `window_logical_size`
+  size the window from the requested grid using coarse monospace metrics
+  (~0.6em advance, ~1.2em line height) — realistic dimensions ahead of real font
+  measurement, unit-tested without a display.
+- **Headless lifecycle check**: `ODYTTY_NATIVE_AUTOCLOSE_MS` auto-closes the
+  window after a delay so open/close can be exercised non-interactively. Verified
+  end-to-end (window opens, auto-closes, exit 0).
+
+### Test status (verified 2026-06-09)
+
+- `cargo test`: 61 lib unit tests + 8 smoke tests pass, 1 live-PTY test ignored.
+- `cargo fmt --check`: clean.
+
+### Remaining for the next native packet
+
+- Add `wgpu`, then render the owned grid as readable monospaced text and wire
+  PTY output + keyboard input into the window.
+
+---
+
 ## 2026-06-08 — Native window / rendering boundary (scaffold)
 
 Architecture spike toward the first native GPU-rendered prototype, kept to
