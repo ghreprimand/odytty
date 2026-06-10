@@ -22,6 +22,93 @@ pub struct Position {
     pub column: usize,
 }
 
+/// Which mouse events the host has asked to receive, selected via DECSET/DECRST
+/// of the private modes 9/1000/1002/1003.
+///
+/// xterm stores these in a single state variable rather than as independent
+/// bits: each DECSET overwrites the active tracking mode (so a later DECSET
+/// wins), and a DECRST of *any* tracking mode returns to [`Off`](Self::Off).
+/// This mirrors xterm's `send_mouse_pos` handling and is what real apps that
+/// reset their modes (`?1000l ?1002l ?1003l`) rely on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MouseTracking {
+    /// No reporting (default / after any tracking DECRST).
+    #[default]
+    Off,
+    /// Mode 9 (X10): button press only, no modifiers, no release, no motion.
+    X10,
+    /// Mode 1000 (normal): button press and release.
+    Normal,
+    /// Mode 1002 (button-event): press, release, and motion while a button is held.
+    ButtonEvent,
+    /// Mode 1003 (any-event): press, release, and all motion.
+    AnyEvent,
+}
+
+/// How mouse coordinates and buttons are encoded on the wire, selected via
+/// DECSET/DECRST of the private modes 1005/1006/1015. As with tracking, xterm
+/// keeps a single active encoding: a later DECSET wins and a DECRST of any
+/// extension returns to [`Default`](Self::Default).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MouseEncoding {
+    /// Legacy X10 byte encoding: `CSI M Cb Cx Cy`, each value offset by 32.
+    /// Coordinates above 223 cannot be represented and are dropped.
+    #[default]
+    Default,
+    /// Mode 1005: legacy layout but each value encoded as UTF-8, extending the
+    /// representable range.
+    Utf8,
+    /// Mode 1006 (SGR): `CSI < Cb ; Cx ; Cy M|m` with decimal, unbounded
+    /// coordinates and a distinct release terminator (`m`).
+    Sgr,
+    /// Mode 1015 (urxvt): `CSI Cb ; Cx ; Cy M` with decimal values.
+    Urxvt,
+}
+
+/// The active mouse reporting protocol: which events to report and how to
+/// encode them. Exposed so a front end can decide what to send without
+/// reaching into terminal internals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MouseProtocol {
+    pub tracking: MouseTracking,
+    pub encoding: MouseEncoding,
+}
+
+impl MouseProtocol {
+    /// Whether any mouse reporting is active.
+    pub fn is_enabled(&self) -> bool {
+        self.tracking != MouseTracking::Off
+    }
+}
+
+/// A mouse button (or wheel direction) for [`encode_mouse_event`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseButton {
+    Left,
+    Middle,
+    Right,
+    WheelUp,
+    WheelDown,
+}
+
+/// The kind of mouse event being reported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseEventKind {
+    Press,
+    Release,
+    /// Pointer motion (a drag in button-event mode, or any move in any-event mode).
+    Motion,
+}
+
+/// Keyboard modifiers held during a mouse event. Folded into the button code
+/// for every encoding except X10 tracking, which carries no modifiers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MouseModifiers {
+    pub shift: bool,
+    pub alt: bool,
+    pub ctrl: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
     Default,
@@ -168,6 +255,14 @@ pub struct Screen {
     host_output: Vec<u8>,
     last_graphic_char: Option<char>,
     tab_stops: Vec<bool>,
+    /// Window title set via OSC 0/2. `None` until a title is set; `Some("")`
+    /// records an explicit empty title (distinct from never-set).
+    title: Option<String>,
+    /// Set whenever the title changes; cleared by `take_title_changed` so a
+    /// front end can poll without re-applying an unchanged title.
+    title_changed: bool,
+    /// Active mouse reporting protocol (tracking mode + wire encoding).
+    mouse: MouseProtocol,
 }
 
 #[derive(Debug, Clone)]
@@ -213,6 +308,9 @@ impl Screen {
             host_output: Vec::new(),
             last_graphic_char: None,
             tab_stops: default_tab_stops(dimensions.columns),
+            title: None,
+            title_changed: false,
+            mouse: MouseProtocol::default(),
         }
     }
 
@@ -378,6 +476,29 @@ impl Screen {
 
     pub fn bracketed_paste_enabled(&self) -> bool {
         self.bracketed_paste
+    }
+
+    /// The current window title, or `None` if no OSC 0/2 has set one. An
+    /// explicit empty title is reported as `Some("")`.
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    /// Return whether the title changed since the last call and clear the flag.
+    /// Lets a front end poll once per frame and update the OS window title only
+    /// when it actually changed.
+    pub fn take_title_changed(&mut self) -> bool {
+        std::mem::take(&mut self.title_changed)
+    }
+
+    /// The active mouse reporting protocol (tracking mode + encoding).
+    pub fn mouse_protocol(&self) -> MouseProtocol {
+        self.mouse
+    }
+
+    fn set_title(&mut self, title: String) {
+        self.title = Some(title);
+        self.title_changed = true;
     }
 
     fn print_char(&mut self, ch: char) {
@@ -919,9 +1040,36 @@ impl Screen {
                 2004 => {
                     self.bracketed_paste = action == 'h';
                 }
+                // Mouse tracking modes (single active mode; later DECSET wins,
+                // any DECRST returns to Off). See `MouseTracking`.
+                9 => self.set_mouse_tracking(MouseTracking::X10, action),
+                1000 => self.set_mouse_tracking(MouseTracking::Normal, action),
+                1002 => self.set_mouse_tracking(MouseTracking::ButtonEvent, action),
+                1003 => self.set_mouse_tracking(MouseTracking::AnyEvent, action),
+                // Mouse encoding extensions (single active encoding; later
+                // DECSET wins, any DECRST returns to Default). See `MouseEncoding`.
+                1005 => self.set_mouse_encoding(MouseEncoding::Utf8, action),
+                1006 => self.set_mouse_encoding(MouseEncoding::Sgr, action),
+                1015 => self.set_mouse_encoding(MouseEncoding::Urxvt, action),
                 _ => {}
             }
         }
+    }
+
+    fn set_mouse_tracking(&mut self, mode: MouseTracking, action: char) {
+        self.mouse.tracking = if action == 'h' {
+            mode
+        } else {
+            MouseTracking::Off
+        };
+    }
+
+    fn set_mouse_encoding(&mut self, encoding: MouseEncoding, action: char) {
+        self.mouse.encoding = if action == 'h' {
+            encoding
+        } else {
+            MouseEncoding::Default
+        };
     }
 
     fn device_attributes(&mut self, params: &Params, intermediates: &[u8]) {
@@ -1062,6 +1210,9 @@ impl Screen {
         self.current_attrs = Attrs::default();
         self.host_output.clear();
         self.last_graphic_char = None;
+        // RIS returns mouse reporting to its power-on (off) state. The title is
+        // a persistent window property and is intentionally left untouched.
+        self.mouse = MouseProtocol::default();
         // RIS restores the default every-8 tab stops (DECSTR does not — see
         // soft_reset).
         self.tab_stops = default_tab_stops(self.dimensions.columns);
@@ -1123,6 +1274,25 @@ impl Perform for Screen {
             b'\t' => self.tab(),
             b'\n' | b'\x0b' | b'\x0c' => self.line_feed(),
             b'\r' => self.carriage_return(),
+            _ => {}
+        }
+    }
+
+    /// OSC handler. Only the title controls (OSC 0/2 set the window title; OSC 1
+    /// sets the icon name, which this model does not surface) are acted on; the
+    /// numeric `vte` splits out as the first parameter selects them. Every other
+    /// OSC (4 palette, 7 cwd, 8 hyperlink, 10/11/12 colors, 52 clipboard, 133
+    /// shell integration, …) is consumed safely here. Because OSC payloads never
+    /// flow through `print`, none of these can leak bytes into the grid.
+    fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
+        let Some(&ident) = params.first() else {
+            return;
+        };
+        match ident {
+            // OSC 0 = icon name + window title, OSC 2 = window title.
+            b"0" | b"2" => self.set_title(osc_string(&params[1..])),
+            // OSC 1 = icon name only: consume without touching the window title.
+            b"1" => {}
             _ => {}
         }
     }
@@ -1206,6 +1376,21 @@ impl Terminal {
 
     pub fn bracketed_paste_enabled(&self) -> bool {
         self.screen.bracketed_paste_enabled()
+    }
+
+    /// The current window title (OSC 0/2), or `None` if never set.
+    pub fn title(&self) -> Option<&str> {
+        self.screen.title()
+    }
+
+    /// Whether the title changed since the last poll; clears the flag.
+    pub fn take_title_changed(&mut self) -> bool {
+        self.screen.take_title_changed()
+    }
+
+    /// The active mouse reporting protocol (tracking mode + encoding).
+    pub fn mouse_protocol(&self) -> MouseProtocol {
+        self.screen.mouse_protocol()
     }
 
     pub fn screen(&self) -> &Screen {
@@ -1517,6 +1702,188 @@ fn param_or(params: &Params, index: usize, default: usize) -> usize {
         .copied()
         .map(usize::from)
         .unwrap_or(default)
+}
+
+/// Reassemble an OSC string payload (everything after the numeric selector)
+/// into text. `vte` splits the OSC on every `;`, so a title containing a
+/// semicolon arrives as multiple parts; rejoin them with `;` to recover it.
+/// Invalid UTF-8 is replaced rather than rejected so a malformed title can
+/// never panic or desync the parser. An empty payload yields an empty string.
+fn osc_string(parts: &[&[u8]]) -> String {
+    let mut bytes = Vec::new();
+    for (index, part) in parts.iter().enumerate() {
+        if index > 0 {
+            bytes.push(b';');
+        }
+        bytes.extend_from_slice(part);
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// Base button code (xterm "Cb" low bits) before modifiers/motion are folded
+/// in. Wheel events set bit 6 (64).
+fn mouse_button_code(button: MouseButton) -> u16 {
+    match button {
+        MouseButton::Left => 0,
+        MouseButton::Middle => 1,
+        MouseButton::Right => 2,
+        MouseButton::WheelUp => 64,
+        MouseButton::WheelDown => 65,
+    }
+}
+
+/// Modifier bits folded into Cb: Shift = 4, Alt/Meta = 8, Ctrl = 16.
+fn mouse_modifier_bits(mods: MouseModifiers) -> u16 {
+    (if mods.shift { 4 } else { 0 })
+        | (if mods.alt { 8 } else { 0 })
+        | (if mods.ctrl { 16 } else { 0 })
+}
+
+/// Encode a mouse event into the exact bytes a terminal would send to the host
+/// for the given [`MouseProtocol`], or `None` when the event should not be
+/// reported under the active protocol (or cannot be represented).
+///
+/// `column`/`row` are 1-based screen coordinates. The result honors the
+/// tracking gate (X10 reports presses only and carries no modifiers; normal
+/// drops motion; button/any-event allow motion) and the selected encoding
+/// (legacy byte, UTF-8, SGR, urxvt). For the legacy byte encoding a coordinate
+/// beyond 223 cannot fit in a byte and the report is dropped, matching xterm.
+pub fn encode_mouse_event(
+    protocol: MouseProtocol,
+    button: MouseButton,
+    kind: MouseEventKind,
+    column: usize,
+    row: usize,
+    mods: MouseModifiers,
+) -> Option<Vec<u8>> {
+    // Gate on what the active tracking mode reports.
+    match protocol.tracking {
+        MouseTracking::Off => return None,
+        MouseTracking::X10 => {
+            if kind != MouseEventKind::Press {
+                return None;
+            }
+        }
+        MouseTracking::Normal => {
+            if kind == MouseEventKind::Motion {
+                return None;
+            }
+        }
+        MouseTracking::ButtonEvent | MouseTracking::AnyEvent => {}
+    }
+
+    // X10 carries no modifiers; every other mode folds them into Cb.
+    let mod_bits = if protocol.tracking == MouseTracking::X10 {
+        0
+    } else {
+        mouse_modifier_bits(mods)
+    };
+
+    match protocol.encoding {
+        MouseEncoding::Sgr => Some(encode_mouse_sgr(button, kind, column, row, mod_bits)),
+        MouseEncoding::Urxvt => Some(encode_mouse_urxvt(button, kind, column, row, mod_bits)),
+        MouseEncoding::Default => encode_mouse_legacy(button, kind, column, row, mod_bits, false),
+        MouseEncoding::Utf8 => encode_mouse_legacy(button, kind, column, row, mod_bits, true),
+    }
+}
+
+/// Cb for the legacy/urxvt encodings: release collapses to button bits `3`
+/// (the specific button is not distinguishable); press/motion use the real
+/// button code. Motion sets bit 5 (32). Modifiers are pre-folded by the caller.
+fn legacy_cb(button: MouseButton, kind: MouseEventKind, mod_bits: u16) -> u16 {
+    let base = match kind {
+        MouseEventKind::Release => 3,
+        _ => mouse_button_code(button),
+    };
+    let motion = if kind == MouseEventKind::Motion {
+        32
+    } else {
+        0
+    };
+    base + mod_bits + motion
+}
+
+/// SGR (1006): `CSI < Cb ; Cx ; Cy M|m`. Cb keeps the real button code even on
+/// release (the release is conveyed by the lowercase `m` terminator), so SGR is
+/// the only encoding that reports which button was released.
+fn encode_mouse_sgr(
+    button: MouseButton,
+    kind: MouseEventKind,
+    column: usize,
+    row: usize,
+    mod_bits: u16,
+) -> Vec<u8> {
+    let motion = if kind == MouseEventKind::Motion {
+        32
+    } else {
+        0
+    };
+    let cb = mouse_button_code(button) + mod_bits + motion;
+    let terminator = if kind == MouseEventKind::Release {
+        'm'
+    } else {
+        'M'
+    };
+    format!("\x1b[<{cb};{column};{row}{terminator}").into_bytes()
+}
+
+/// urxvt (1015): `CSI Cb ; Cx ; Cy M` with decimal values. Cb is offset by 32
+/// (as in the legacy byte protocol) but written as a decimal parameter, and the
+/// coordinates are plain 1-based decimals, so there is no 223 limit.
+fn encode_mouse_urxvt(
+    button: MouseButton,
+    kind: MouseEventKind,
+    column: usize,
+    row: usize,
+    mod_bits: u16,
+) -> Vec<u8> {
+    let cb = 32 + legacy_cb(button, kind, mod_bits);
+    format!("\x1b[{cb};{column};{row}M").into_bytes()
+}
+
+/// Legacy byte encoding: `CSI M Cb Cx Cy`, each value offset by 32. With
+/// `utf8` false (default protocol) each value must fit in a single byte, so a
+/// coordinate above 223 makes the report unrepresentable and the whole event is
+/// dropped (`None`). With `utf8` true (mode 1005) values are encoded as UTF-8,
+/// extending the range to U+07FF.
+fn encode_mouse_legacy(
+    button: MouseButton,
+    kind: MouseEventKind,
+    column: usize,
+    row: usize,
+    mod_bits: u16,
+    utf8: bool,
+) -> Option<Vec<u8>> {
+    let cb = 32 + legacy_cb(button, kind, mod_bits);
+    let cx = 32 + column as u32;
+    let cy = 32 + row as u32;
+
+    let mut out = vec![0x1b, b'[', b'M'];
+    push_legacy_value(&mut out, cb as u32, utf8)?;
+    push_legacy_value(&mut out, cx, utf8)?;
+    push_legacy_value(&mut out, cy, utf8)?;
+    Some(out)
+}
+
+/// Append one legacy-encoded value. Byte mode rejects values above 255 (the
+/// 223-coordinate limit once the +32 offset is applied); UTF-8 mode encodes up
+/// to U+07FF as one or two bytes and rejects anything larger.
+fn push_legacy_value(out: &mut Vec<u8>, value: u32, utf8: bool) -> Option<()> {
+    if utf8 {
+        if value < 0x80 {
+            out.push(value as u8);
+        } else if value <= 0x7FF {
+            out.push(0xC0 | (value >> 6) as u8);
+            out.push(0x80 | (value & 0x3F) as u8);
+        } else {
+            return None;
+        }
+    } else if value <= 0xFF {
+        out.push(value as u8);
+    } else {
+        return None;
+    }
+    Some(())
 }
 
 /// Resolve a count/position CSI parameter, applying the ECMA-48 rule that an
@@ -2913,5 +3280,474 @@ mod tests {
         // Scroll region cleared by the soft reset.
         terminal.advance(b"\x1b[3;1H\n");
         assert_eq!(terminal.screen().scrollback_len(), 2);
+    }
+
+    // === OSC title handling ===
+
+    #[test]
+    fn osc_sets_window_title() {
+        let mut terminal = Terminal::new(20, 3);
+        assert_eq!(terminal.title(), None);
+        assert!(!terminal.take_title_changed());
+
+        // OSC 2 (window title), BEL-terminated.
+        terminal.advance(b"\x1b]2;hello\x07");
+        assert_eq!(terminal.title(), Some("hello"));
+        assert!(terminal.take_title_changed());
+        // Flag clears after the poll.
+        assert!(!terminal.take_title_changed());
+
+        // OSC 0 (icon + window title), ST-terminated.
+        terminal.advance(b"\x1b]0;second\x1b\\");
+        assert_eq!(terminal.title(), Some("second"));
+        assert!(terminal.take_title_changed());
+    }
+
+    #[test]
+    fn osc_title_payload_does_not_leak_into_grid() {
+        let mut terminal = Terminal::new(20, 2);
+        terminal.advance(b"A\x1b]2;NOTONSCREEN\x07B");
+        // Only the printed A and B reach the grid; the title text does not.
+        assert_eq!(terminal.screen().plain_text(), "AB\n");
+        assert_eq!(terminal.title(), Some("NOTONSCREEN"));
+    }
+
+    #[test]
+    fn osc_empty_title_is_explicit_empty() {
+        let mut terminal = Terminal::new(20, 2);
+        terminal.advance(b"\x1b]2;\x07");
+        // Empty payload is a real (set) empty title, distinct from never-set.
+        assert_eq!(terminal.title(), Some(""));
+        assert!(terminal.take_title_changed());
+    }
+
+    #[test]
+    fn osc_title_preserves_embedded_semicolons() {
+        let mut terminal = Terminal::new(40, 2);
+        // vte splits on ';'; the title must be rejoined intact.
+        terminal.advance(b"\x1b]2;a; b; c\x07");
+        assert_eq!(terminal.title(), Some("a; b; c"));
+    }
+
+    #[test]
+    fn osc_title_handles_utf8_and_invalid_bytes() {
+        let mut terminal = Terminal::new(40, 2);
+        // Valid multi-byte UTF-8 round-trips.
+        terminal.advance("\x1b]2;héllo 🚀\x07".as_bytes());
+        assert_eq!(terminal.title(), Some("héllo 🚀"));
+
+        // Invalid UTF-8 must not panic; lossy replacement is acceptable.
+        terminal.advance(b"\x1b]2;\xff\xfe\x07");
+        let title = terminal.title().expect("title set");
+        assert!(title.contains('\u{FFFD}'));
+    }
+
+    #[test]
+    fn osc_icon_name_only_does_not_change_window_title() {
+        let mut terminal = Terminal::new(20, 2);
+        terminal.advance(b"\x1b]2;window\x07");
+        assert!(terminal.take_title_changed());
+
+        // OSC 1 sets the icon name only; the window title is untouched.
+        terminal.advance(b"\x1b]1;iconname\x07");
+        assert_eq!(terminal.title(), Some("window"));
+        assert!(!terminal.take_title_changed());
+    }
+
+    #[test]
+    fn unknown_osc_sequences_are_consumed_without_corruption() {
+        let mut terminal = Terminal::new(40, 2);
+        // A spread of OSCs a real shell/editor emits: cwd (7), hyperlink (8),
+        // colors (10/11), palette (4), clipboard (52), shell integration (133).
+        terminal.advance(b"X");
+        terminal.advance(b"\x1b]7;file://host/home/user\x07");
+        terminal.advance(b"\x1b]8;;https://example.com\x07");
+        terminal.advance(b"\x1b]10;rgb:ffff/ffff/ffff\x07");
+        terminal.advance(b"\x1b]11;rgb:0000/0000/0000\x07");
+        terminal.advance(b"\x1b]4;1;rgb:ff00/0000/0000\x07");
+        terminal.advance(b"\x1b]52;c;SGVsbG8=\x07");
+        terminal.advance(b"\x1b]133;A\x07");
+        terminal.advance(b"Y");
+
+        // Only the printed characters reach the grid; no payload leaks, no title.
+        assert_eq!(terminal.screen().plain_text(), "XY\n");
+        assert_eq!(terminal.title(), None);
+    }
+
+    // === Mouse mode tracking ===
+
+    #[test]
+    fn mouse_tracking_modes_set_and_reset() {
+        let mut terminal = Terminal::new(10, 3);
+        assert_eq!(terminal.mouse_protocol(), MouseProtocol::default());
+        assert!(!terminal.mouse_protocol().is_enabled());
+
+        terminal.advance(b"\x1b[?1000h");
+        assert_eq!(terminal.mouse_protocol().tracking, MouseTracking::Normal);
+        assert!(terminal.mouse_protocol().is_enabled());
+
+        terminal.advance(b"\x1b[?9h");
+        assert_eq!(terminal.mouse_protocol().tracking, MouseTracking::X10);
+
+        terminal.advance(b"\x1b[?1002h");
+        assert_eq!(
+            terminal.mouse_protocol().tracking,
+            MouseTracking::ButtonEvent
+        );
+
+        terminal.advance(b"\x1b[?1003h");
+        assert_eq!(terminal.mouse_protocol().tracking, MouseTracking::AnyEvent);
+
+        // Any tracking DECRST returns to Off (xterm shared-variable semantics).
+        terminal.advance(b"\x1b[?1003l");
+        assert_eq!(terminal.mouse_protocol().tracking, MouseTracking::Off);
+    }
+
+    #[test]
+    fn later_mouse_decset_wins() {
+        let mut terminal = Terminal::new(10, 3);
+        terminal.advance(b"\x1b[?1000h\x1b[?1002h");
+        // The later DECSET (1002) is the active tracking mode.
+        assert_eq!(
+            terminal.mouse_protocol().tracking,
+            MouseTracking::ButtonEvent
+        );
+        // A DECRST of any mouse mode turns reporting off.
+        terminal.advance(b"\x1b[?1000l");
+        assert_eq!(terminal.mouse_protocol().tracking, MouseTracking::Off);
+    }
+
+    #[test]
+    fn mouse_encoding_modes_set_and_reset() {
+        let mut terminal = Terminal::new(10, 3);
+        assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::Default);
+
+        terminal.advance(b"\x1b[?1006h");
+        assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::Sgr);
+        terminal.advance(b"\x1b[?1005h");
+        assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::Utf8);
+        terminal.advance(b"\x1b[?1015h");
+        assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::Urxvt);
+
+        // Encoding and tracking are independent axes.
+        terminal.advance(b"\x1b[?1000h");
+        assert_eq!(terminal.mouse_protocol().tracking, MouseTracking::Normal);
+        assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::Urxvt);
+
+        // DECRST of an encoding mode restores the default encoding only.
+        terminal.advance(b"\x1b[?1015l");
+        assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::Default);
+        assert_eq!(terminal.mouse_protocol().tracking, MouseTracking::Normal);
+    }
+
+    #[test]
+    fn ris_resets_mouse_modes_but_keeps_title() {
+        let mut terminal = Terminal::new(10, 3);
+        terminal.advance(b"\x1b]2;keepme\x07\x1b[?1002h\x1b[?1006h");
+        assert_eq!(
+            terminal.mouse_protocol().tracking,
+            MouseTracking::ButtonEvent
+        );
+
+        terminal.advance(b"\x1bc"); // RIS
+        assert_eq!(terminal.mouse_protocol(), MouseProtocol::default());
+        // Title persists across RIS (a window property, not power-on state).
+        assert_eq!(terminal.title(), Some("keepme"));
+    }
+
+    // === Pure mouse-event encoders ===
+
+    fn proto(tracking: MouseTracking, encoding: MouseEncoding) -> MouseProtocol {
+        MouseProtocol { tracking, encoding }
+    }
+
+    #[test]
+    fn encode_mouse_off_reports_nothing() {
+        let p = proto(MouseTracking::Off, MouseEncoding::Default);
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::Left,
+                MouseEventKind::Press,
+                1,
+                1,
+                MouseModifiers::default()
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn encode_mouse_legacy_press_release() {
+        let p = proto(MouseTracking::Normal, MouseEncoding::Default);
+        // Left press at col 1, row 1: Cb=0+32=32(' '), Cx=33('!'), Cy=33('!').
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::Left,
+                MouseEventKind::Press,
+                1,
+                1,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[M !!"
+        );
+        // Release collapses the button to bits 3: Cb=3+32=35('#').
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::Left,
+                MouseEventKind::Release,
+                1,
+                1,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[M#!!"
+        );
+    }
+
+    #[test]
+    fn encode_mouse_legacy_buttons_and_wheel() {
+        let p = proto(MouseTracking::Normal, MouseEncoding::Default);
+        let press = |btn| {
+            encode_mouse_event(
+                p,
+                btn,
+                MouseEventKind::Press,
+                1,
+                1,
+                MouseModifiers::default(),
+            )
+            .unwrap()
+        };
+        // Middle=1 -> 33('!'), Right=2 -> 34('"').
+        assert_eq!(press(MouseButton::Middle), b"\x1b[M!!!");
+        assert_eq!(press(MouseButton::Right), b"\x1b[M\"!!");
+        // WheelUp=64 -> 96('`'), WheelDown=65 -> 97('a').
+        assert_eq!(press(MouseButton::WheelUp), b"\x1b[M`!!");
+        assert_eq!(press(MouseButton::WheelDown), b"\x1b[Ma!!");
+    }
+
+    #[test]
+    fn encode_mouse_legacy_modifiers_and_coordinates() {
+        let p = proto(MouseTracking::Normal, MouseEncoding::Default);
+        // Ctrl(16)+Shift(4)=20 on a left press: Cb=0+20+32=52('4').
+        let mods = MouseModifiers {
+            shift: true,
+            ctrl: true,
+            alt: false,
+        };
+        let bytes =
+            encode_mouse_event(p, MouseButton::Left, MouseEventKind::Press, 10, 5, mods).unwrap();
+        // Cx=10+32=42('*'), Cy=5+32=37('%').
+        assert_eq!(bytes, b"\x1b[M4*%");
+    }
+
+    #[test]
+    fn encode_mouse_legacy_drops_out_of_range_coordinate() {
+        let p = proto(MouseTracking::Normal, MouseEncoding::Default);
+        // Column 223 is the last representable (223+32=255); 224 overflows.
+        assert!(
+            encode_mouse_event(
+                p,
+                MouseButton::Left,
+                MouseEventKind::Press,
+                223,
+                1,
+                MouseModifiers::default()
+            )
+            .is_some()
+        );
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::Left,
+                MouseEventKind::Press,
+                224,
+                1,
+                MouseModifiers::default()
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn encode_mouse_x10_press_only_no_modifiers() {
+        let p = proto(MouseTracking::X10, MouseEncoding::Default);
+        let mods = MouseModifiers {
+            shift: true,
+            ctrl: true,
+            alt: true,
+        };
+        // X10 ignores modifiers: left press is plain Cb=32(' ').
+        assert_eq!(
+            encode_mouse_event(p, MouseButton::Left, MouseEventKind::Press, 1, 1, mods).unwrap(),
+            b"\x1b[M !!"
+        );
+        // X10 does not report release or motion.
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::Left,
+                MouseEventKind::Release,
+                1,
+                1,
+                MouseModifiers::default()
+            ),
+            None
+        );
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::Left,
+                MouseEventKind::Motion,
+                1,
+                1,
+                MouseModifiers::default()
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn encode_mouse_normal_drops_motion_button_event_keeps_it() {
+        let normal = proto(MouseTracking::Normal, MouseEncoding::Sgr);
+        assert_eq!(
+            encode_mouse_event(
+                normal,
+                MouseButton::Left,
+                MouseEventKind::Motion,
+                3,
+                4,
+                MouseModifiers::default()
+            ),
+            None
+        );
+
+        let button_event = proto(MouseTracking::ButtonEvent, MouseEncoding::Sgr);
+        // Motion adds 32 to Cb: left drag -> Cb=0+32=32.
+        assert_eq!(
+            encode_mouse_event(
+                button_event,
+                MouseButton::Left,
+                MouseEventKind::Motion,
+                3,
+                4,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[<32;3;4M"
+        );
+    }
+
+    #[test]
+    fn encode_mouse_sgr_press_release_carry_button() {
+        let p = proto(MouseTracking::Normal, MouseEncoding::Sgr);
+        // Left press: Cb=0, terminator M.
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::Left,
+                MouseEventKind::Press,
+                12,
+                34,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[<0;12;34M"
+        );
+        // Right release: Cb=2 preserved, terminator m (SGR reports the button).
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::Right,
+                MouseEventKind::Release,
+                12,
+                34,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[<2;12;34m"
+        );
+    }
+
+    #[test]
+    fn encode_mouse_sgr_handles_large_coordinates_and_modifiers() {
+        let p = proto(MouseTracking::Normal, MouseEncoding::Sgr);
+        // SGR has no 223 limit.
+        let mods = MouseModifiers {
+            shift: true,
+            alt: false,
+            ctrl: false,
+        };
+        // Left press + Shift(4): Cb=4.
+        assert_eq!(
+            encode_mouse_event(p, MouseButton::Left, MouseEventKind::Press, 500, 300, mods)
+                .unwrap(),
+            b"\x1b[<4;500;300M"
+        );
+    }
+
+    #[test]
+    fn encode_mouse_utf8_extends_range() {
+        let p = proto(MouseTracking::Normal, MouseEncoding::Utf8);
+        // Small coordinates match the legacy single-byte form.
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::Left,
+                MouseEventKind::Press,
+                1,
+                1,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[M !!"
+        );
+        // A coordinate past 223 is encoded as 2-byte UTF-8 rather than dropped.
+        // Column 300 -> value 332 (0x14C) -> UTF-8 0xC5 0x8C.
+        let bytes = encode_mouse_event(
+            p,
+            MouseButton::Left,
+            MouseEventKind::Press,
+            300,
+            1,
+            MouseModifiers::default(),
+        )
+        .unwrap();
+        assert_eq!(bytes, b"\x1b[M \xc5\x8c!");
+    }
+
+    #[test]
+    fn encode_mouse_urxvt_decimal_form() {
+        let p = proto(MouseTracking::Normal, MouseEncoding::Urxvt);
+        // Left press at (200,100): Cb=0+32=32, decimal params, terminator M.
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::Left,
+                MouseEventKind::Press,
+                200,
+                100,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[32;200;100M"
+        );
+        // Release collapses to button bits 3: Cb=3+32=35.
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::Left,
+                MouseEventKind::Release,
+                200,
+                100,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[35;200;100M"
+        );
     }
 }
