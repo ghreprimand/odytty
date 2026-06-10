@@ -25,6 +25,8 @@ mod cursor_tests;
 #[cfg(test)]
 mod encoding_tests;
 #[cfg(test)]
+mod parser_oracle_tests;
+#[cfg(test)]
 mod scrollback_tests;
 #[cfg(test)]
 mod search_tests;

@@ -5,7 +5,9 @@
 //! `super::tests`.
 
 use unicode_width::UnicodeWidthChar;
-use vte::{Params, Perform};
+use vte::Perform;
+
+use crate::parser::{Params, VtDispatch};
 
 use super::reflow::resize_buffer_rows;
 use super::scrollback::{Scrollback, resize_lazy};
@@ -198,6 +200,14 @@ impl Screen {
 
     pub fn cursor(&self) -> Position {
         self.cursor
+    }
+
+    /// Pending host-bound responses (DA/DSR replies) accumulated by dispatch.
+    /// Exposed within the crate so the differential parser oracle can assert the
+    /// `vte` and OdyTTY-owned parsers drive identical host output. Test-only.
+    #[cfg(test)]
+    pub(crate) fn host_output_bytes(&self) -> &[u8] {
+        &self.host_output
     }
 
     pub fn scrollback_len(&self) -> usize {
@@ -1251,12 +1261,17 @@ impl TerminalModel for Screen {
         dirty
     }
 }
-impl Perform for Screen {
-    fn print(&mut self, c: char) {
+/// Shared dispatch logic for the terminal core, parameterised over the owned
+/// [`crate::parser::Params`] type. Both the live `vte`-driven [`Perform`] impl
+/// and the OdyTTY-owned [`VtDispatch`] impl funnel through these methods, so the
+/// two parsers produce byte-identical terminal state (asserted by the
+/// differential oracle) and there is exactly one copy of the dispatch behaviour.
+impl Screen {
+    fn dispatch_print(&mut self, c: char) {
         self.print_char(c);
     }
 
-    fn execute(&mut self, byte: u8) {
+    fn dispatch_execute(&mut self, byte: u8) {
         match byte {
             b'\x08' => self.backspace(),
             b'\t' => self.tab(),
@@ -1268,11 +1283,11 @@ impl Perform for Screen {
 
     /// OSC handler. Only the title controls (OSC 0/2 set the window title; OSC 1
     /// sets the icon name, which this model does not surface) are acted on; the
-    /// numeric `vte` splits out as the first parameter selects them. Every other
-    /// OSC (4 palette, 7 cwd, 8 hyperlink, 10/11/12 colors, 52 clipboard, 133
-    /// shell integration, …) is consumed safely here. Because OSC payloads never
-    /// flow through `print`, none of these can leak bytes into the grid.
-    fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
+    /// numeric the parser splits out as the first parameter selects them. Every
+    /// other OSC (4 palette, 7 cwd, 8 hyperlink, 10/11/12 colors, 52 clipboard,
+    /// 133 shell integration, …) is consumed safely here. Because OSC payloads
+    /// never flow through `print`, none of these can leak bytes into the grid.
+    fn dispatch_osc(&mut self, params: &[&[u8]], _bell_terminated: bool) {
         let Some(&ident) = params.first() else {
             return;
         };
@@ -1285,7 +1300,7 @@ impl Perform for Screen {
         }
     }
 
-    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+    fn dispatch_csi(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
         if ignore {
             return;
         }
@@ -1322,7 +1337,7 @@ impl Perform for Screen {
         }
     }
 
-    fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
+    fn dispatch_esc(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
         if ignore || !intermediates.is_empty() {
             return;
         }
@@ -1335,6 +1350,66 @@ impl Perform for Screen {
             b'H' => self.set_tab_stop(),
             _ => {}
         }
+    }
+}
+
+/// Live production seam: the `vte` parser drives the core via this impl. Each
+/// callback converts `vte`'s parameter list into the OdyTTY-owned [`Params`]
+/// (where applicable) and delegates to the shared `dispatch_*` logic above, so
+/// production behaviour is unchanged while `vte` remains the live parser.
+impl Perform for Screen {
+    fn print(&mut self, c: char) {
+        self.dispatch_print(c);
+    }
+
+    fn execute(&mut self, byte: u8) {
+        self.dispatch_execute(byte);
+    }
+
+    fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
+        self.dispatch_osc(params, bell_terminated);
+    }
+
+    fn csi_dispatch(
+        &mut self,
+        params: &vte::Params,
+        intermediates: &[u8],
+        ignore: bool,
+        action: char,
+    ) {
+        self.dispatch_csi(&Params::from_vte(params), intermediates, ignore, action);
+    }
+
+    fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
+        self.dispatch_esc(intermediates, ignore, byte);
+    }
+}
+
+/// OdyTTY-owned seam: the [`OdyParser`](crate::parser::OdyParser) drives the core
+/// through this impl. Parameters already arrive as the owned [`Params`], so the
+/// callbacks forward straight to the shared `dispatch_*` logic. Ships dark in
+/// PA1 (exercised only by the differential oracle); `hook`/`put`/`unhook` and
+/// `apc_dispatch` keep their no-op defaults until DCS/APC are wired in later
+/// packets, matching the current `vte`-path behaviour exactly.
+impl VtDispatch for Screen {
+    fn print(&mut self, c: char) {
+        self.dispatch_print(c);
+    }
+
+    fn execute(&mut self, byte: u8) {
+        self.dispatch_execute(byte);
+    }
+
+    fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
+        self.dispatch_osc(params, bell_terminated);
+    }
+
+    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        self.dispatch_csi(params, intermediates, ignore, action);
+    }
+
+    fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
+        self.dispatch_esc(intermediates, ignore, byte);
     }
 }
 pub struct Terminal {
