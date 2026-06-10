@@ -132,14 +132,50 @@ pub struct Attrs {
     pub background: Color,
 }
 
+/// Maximum zero-width combining marks stored per cell. Marks beyond this are
+/// dropped — a bounded limitation; common diacritics use one or two marks.
+const MAX_COMBINING: usize = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Cell {
+    /// Base character of the cell's grapheme cluster. Width 1, or width 2 for a
+    /// wide lead; a `wide_continuation` spacer carries `' '`. The renderer draws
+    /// this glyph; zero-width combining marks attached to it are read via
+    /// [`Cell::combining`] / [`Cell::grapheme`].
     pub ch: char,
     pub attrs: Attrs,
+    /// True for the trailing spacer cell of a wide (two-column) glyph.
     pub wide_continuation: bool,
+    /// Zero-width combining marks attached to `ch`, in arrival order. Unused
+    /// slots hold `'\0'`. Private so the invariant (`combining_len` marks, the
+    /// rest zeroed) stays internal; constructors keep `Cell: Copy`.
+    combining: [char; MAX_COMBINING],
+    combining_len: u8,
 }
 
 impl Cell {
+    /// A single-width cell carrying `ch` with `attrs` and no combining marks.
+    pub fn new(ch: char, attrs: Attrs) -> Self {
+        Self {
+            ch,
+            attrs,
+            wide_continuation: false,
+            combining: ['\0'; MAX_COMBINING],
+            combining_len: 0,
+        }
+    }
+
+    /// The trailing spacer cell of a wide glyph, inheriting `attrs`.
+    pub fn wide_spacer(attrs: Attrs) -> Self {
+        Self {
+            ch: ' ',
+            attrs,
+            wide_continuation: true,
+            combining: ['\0'; MAX_COMBINING],
+            combining_len: 0,
+        }
+    }
+
     pub fn blank() -> Self {
         Self::blank_with_bg(Color::Default)
     }
@@ -150,11 +186,36 @@ impl Cell {
             ..Attrs::default()
         };
 
-        Self {
-            ch: ' ',
-            attrs,
-            wide_continuation: false,
+        Self::new(' ', attrs)
+    }
+
+    /// Zero-width combining marks attached to this cell's base char, in order.
+    /// Empty for the common case. The renderer composes `ch` followed by these.
+    pub fn combining(&self) -> &[char] {
+        &self.combining[..self.combining_len as usize]
+    }
+
+    /// Append a combining mark. Returns `false` (dropping the mark) once the
+    /// per-cell capacity is reached — a bounded limitation.
+    fn push_combining(&mut self, mark: char) -> bool {
+        let len = self.combining_len as usize;
+        if len < MAX_COMBINING {
+            self.combining[len] = mark;
+            self.combining_len += 1;
+            true
+        } else {
+            false
         }
+    }
+
+    /// The full grapheme cluster: the base char followed by any combining marks.
+    pub fn grapheme(&self) -> String {
+        let mut s = String::with_capacity(1 + self.combining_len as usize);
+        s.push(self.ch);
+        for &mark in self.combining() {
+            s.push(mark);
+        }
+        s
     }
 }
 
@@ -463,12 +524,14 @@ impl Screen {
         self.rows
             .iter()
             .map(|row| {
-                row.iter()
-                    .filter(|cell| !cell.wide_continuation)
-                    .map(|cell| cell.ch)
-                    .collect::<String>()
-                    .trim_end()
-                    .to_owned()
+                let mut line = String::new();
+                for cell in row.iter().filter(|cell| !cell.wide_continuation) {
+                    line.push(cell.ch);
+                    for &mark in cell.combining() {
+                        line.push(mark);
+                    }
+                }
+                line.trim_end().to_owned()
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -522,9 +585,36 @@ impl Screen {
         }
     }
 
+    /// Attach a zero-width combining mark to the base cell the cursor last
+    /// advanced past, appending it to that cell's grapheme. After printing a
+    /// base char the cursor sits to its right (or stays on it in pending-wrap),
+    /// so the base is just left of the cursor; a wide continuation spacer is
+    /// stepped back to its lead. No-op at line start or when capacity is full —
+    /// never panics.
+    fn attach_combining(&mut self, mark: char) {
+        let row = self.cursor.row;
+        let col = if self.pending_wrap {
+            self.cursor.column
+        } else if self.cursor.column > 0 {
+            self.cursor.column - 1
+        } else {
+            return; // combining mark at line start: nothing to attach to.
+        };
+        let base_col = if self.rows[row][col].wide_continuation && col > 0 {
+            col - 1
+        } else {
+            col
+        };
+        self.rows[row][base_col].push_combining(mark);
+        self.mark_dirty();
+    }
+
     fn print_char(&mut self, ch: char) {
         let width = UnicodeWidthChar::width(ch).unwrap_or(1);
         if width == 0 {
+            // Zero-width combining mark: attach to the preceding base cell
+            // rather than consuming a column. No-op at line start.
+            self.attach_combining(ch);
             return;
         }
 
@@ -561,18 +651,10 @@ impl Screen {
         // Overwriting either half of an existing wide pair must clear its
         // partner so no half-wide orphan survives.
         self.clear_wide_orphans(row, column, width);
-        self.rows[row][column] = Cell {
-            ch,
-            attrs: self.current_attrs,
-            wide_continuation: false,
-        };
+        self.rows[row][column] = Cell::new(ch, self.current_attrs);
 
         if width == 2 && column + 1 < self.dimensions.columns {
-            self.rows[row][column + 1] = Cell {
-                ch: ' ',
-                attrs: self.current_attrs,
-                wide_continuation: true,
-            };
+            self.rows[row][column + 1] = Cell::wide_spacer(self.current_attrs);
         }
 
         if self.cursor.column + width >= self.dimensions.columns {
@@ -1642,11 +1724,7 @@ fn reflow_lines(
                 let cont = if i + 1 < cells.len() && cells[i + 1].wide_continuation {
                     cells[i + 1]
                 } else {
-                    Cell {
-                        ch: ' ',
-                        attrs: cell.attrs,
-                        wide_continuation: true,
-                    }
+                    Cell::wide_spacer(cell.attrs)
                 };
                 row_cells.push(cont);
                 // Skip a real continuation cell if it followed the lead.
@@ -2963,6 +3041,93 @@ mod tests {
 
         // Alternate screen never feeds scrollback.
         assert_eq!(terminal.screen().scrollback_len(), 0);
+    }
+
+    // --- Combining marks (C2b) ---
+
+    #[test]
+    fn combining_mark_attaches_to_preceding_cell() {
+        let mut terminal = Terminal::new(6, 1);
+        // 'e' then COMBINING ACUTE ACCENT (U+0301), zero width.
+        terminal.advance("e\u{0301}".as_bytes());
+
+        let cell = terminal.screen().cell(0, 0).unwrap();
+        assert_eq!(cell.ch, 'e');
+        assert_eq!(cell.combining(), &['\u{0301}']);
+        assert_eq!(cell.grapheme(), "e\u{0301}");
+        // The mark does not consume a column; the cursor advanced only by 'e'.
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 1 });
+        assert_eq!(terminal.screen().plain_text(), "e\u{0301}");
+    }
+
+    #[test]
+    fn combining_mark_attaches_to_wide_lead_not_spacer() {
+        let mut terminal = Terminal::new(6, 1);
+        // Wide '世' (cols 0-1) then a combining mark: it must attach to the lead
+        // at col 0, stepping back over the continuation spacer at col 1.
+        terminal.advance("世\u{0301}".as_bytes());
+
+        assert_eq!(
+            terminal.screen().cell(0, 0).unwrap().combining(),
+            &['\u{0301}']
+        );
+        assert!(terminal.screen().cell(0, 1).unwrap().wide_continuation);
+        assert!(terminal.screen().cell(0, 1).unwrap().combining().is_empty());
+    }
+
+    #[test]
+    fn combining_mark_at_line_start_is_noop() {
+        let mut terminal = Terminal::new(6, 1);
+        // A combining mark with no preceding base char must not panic and must
+        // leave the grid untouched.
+        terminal.advance("\u{0301}".as_bytes());
+
+        let cell = terminal.screen().cell(0, 0).unwrap();
+        assert_eq!(cell.ch, ' ');
+        assert!(cell.combining().is_empty());
+        assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+    }
+
+    #[test]
+    fn combining_marks_clamp_to_capacity_without_panicking() {
+        let mut terminal = Terminal::new(6, 1);
+        // Three combining marks on one base; only MAX_COMBINING are retained.
+        terminal.advance("e\u{0301}\u{0302}\u{0303}".as_bytes());
+
+        let cell = terminal.screen().cell(0, 0).unwrap();
+        assert_eq!(cell.ch, 'e');
+        assert_eq!(cell.combining().len(), MAX_COMBINING);
+        assert_eq!(cell.combining(), &['\u{0301}', '\u{0302}']);
+    }
+
+    #[test]
+    fn overwriting_a_cell_clears_its_combining_marks() {
+        let mut terminal = Terminal::new(6, 1);
+        terminal.advance("e\u{0301}".as_bytes());
+        assert_eq!(terminal.screen().cell(0, 0).unwrap().combining().len(), 1);
+
+        // Overwrite col 0 with a fresh char: combining state must reset.
+        terminal.advance(b"\x1b[1;1Hx");
+        let cell = terminal.screen().cell(0, 0).unwrap();
+        assert_eq!(cell.ch, 'x');
+        assert!(cell.combining().is_empty());
+    }
+
+    #[test]
+    fn combining_mark_in_pending_wrap_attaches_to_last_column() {
+        let mut terminal = Terminal::new(3, 2);
+        // Fill the row so the last char sets pending-wrap; a following combining
+        // mark must attach to that last-column cell, not wrap to a new row.
+        terminal.advance("abc".as_bytes());
+        terminal.advance("\u{0301}".as_bytes());
+
+        assert_eq!(terminal.screen().cell(0, 2).unwrap().ch, 'c');
+        assert_eq!(
+            terminal.screen().cell(0, 2).unwrap().combining(),
+            &['\u{0301}']
+        );
+        // No premature wrap onto row 1.
+        assert_eq!(terminal.screen().cell(1, 0).unwrap().ch, ' ');
     }
 
     // REP (CSI Ps b): repeat the last printed graphic char N times through normal

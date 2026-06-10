@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Combining marks attach to the preceding cell
+
+Stage 2 Unicode hardening, second half. Zero-width combining marks now attach to
+the base cell the cursor last advanced past instead of being discarded, so the
+model carries the full grapheme cluster for a future renderer and for copy/text
+queries. Completes the C2 Unicode-width packet (wide-cell coherence landed in the
+previous commit).
+
+### What landed
+
+- **`Cell` grapheme storage** — `Cell` keeps a small inline combining buffer
+  (`MAX_COMBINING = 2`) and stays `Copy`, so marks travel with the cell through
+  scroll, insert/delete, erase, and resize-reflow for free. `ch` remains the
+  renderer-facing base char; new `Cell::combining()` and `Cell::grapheme()`
+  expose attached marks. Construction moved to `Cell::new`/`Cell::wide_spacer`.
+- **Attachment rule** — a width-0 mark appends to the cell left of the cursor,
+  stepping back over a wide continuation spacer to reach its lead, and honoring
+  pending-wrap so a mark after a last-column char lands on that char (no
+  premature wrap). A mark at line start, or after capacity is reached, is a
+  safe no-op — never panics.
+- **`plain_text`** now emits full grapheme clusters (base + marks).
+- **Bounded limitation** — more than two combining marks on one base are
+  dropped; ambiguous-width remains narrow (a future setting, not built).
+
+### Verified
+
+- 6 new fixtures: attach-to-base, attach-to-wide-lead (not spacer),
+  line-start no-op, capacity clamp, overwrite clears marks, and pending-wrap
+  attach. Full suite: 212 lib + 10 smoke pass; fmt and clippy clean (except the
+  pre-existing `Color` derive note); native autoclose smoke exit 0. The only
+  native touch was migrating one `#[cfg(test)]` snapshot helper to `Cell::new`.
+
+---
+
 ## 2026-06-10 — Native title and mouse reporting wiring
 
 The native front end now consumes the C1 core title/mouse groundwork. Window

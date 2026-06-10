@@ -40,7 +40,10 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
       handling.
   - [x] Core: wide-cell write/erase coherence — overwrite-half clears the pair,
         wide glyph wraps whole at EOL, erase/ICH/DCH/ECH repair pairs. Ambiguous
-        width stays narrow (future setting). Combining-mark attach still pending.
+        width stays narrow (future setting).
+  - [x] Core: zero-width combining marks attach to the preceding cell's grapheme
+        (inline per-cell buffer, cap 2); safe no-op at line start. Renderer
+        composition of marks is a later packet.
 - [ ] Grow PTY-backed smoke coverage without making default tests flaky or slow.
 
 ## Stage 3: High-Quality Text And Rendering

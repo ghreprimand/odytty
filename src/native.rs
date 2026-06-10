@@ -1728,11 +1728,12 @@ mod tests {
         for line in lines {
             let mut chars = line.chars().collect::<Vec<_>>();
             chars.resize(columns, ' ');
-            cells.extend(chars.into_iter().take(columns).map(|ch| Cell {
-                ch,
-                attrs: Attrs::default(),
-                wide_continuation: false,
-            }));
+            cells.extend(
+                chars
+                    .into_iter()
+                    .take(columns)
+                    .map(|ch| Cell::new(ch, Attrs::default())),
+            );
         }
 
         Snapshot {
