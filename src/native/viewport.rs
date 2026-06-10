@@ -75,6 +75,12 @@ impl Viewport {
         self.offset = self.offset.min(scrollback_len);
     }
 
+    /// Jump directly to a computed scrollback offset. Used by search result
+    /// navigation, which already works in absolute row coordinates.
+    pub(super) fn jump_to(&mut self, offset: usize, scrollback_len: usize) -> bool {
+        self.set(offset.min(scrollback_len))
+    }
+
     fn set(&mut self, next: usize) -> bool {
         if next == self.offset {
             return false;

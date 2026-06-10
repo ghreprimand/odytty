@@ -53,6 +53,7 @@ mod clipboard;
 mod gpu;
 mod options;
 mod pty;
+mod search_ui;
 mod viewport;
 
 #[cfg(test)]

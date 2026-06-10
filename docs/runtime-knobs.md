@@ -18,6 +18,24 @@ cargo run -- --native
 | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `off` | Enables or disables the optional presentation-only ambient effect. |
 | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
 
+## Native Shortcuts
+
+| Shortcut | Behavior |
+| --- | --- |
+| `Ctrl+Shift+F` | Open or close the scrollback search bar. Search is case-insensitive by default. |
+| `Enter` while searching | Jump to the next match, wrapping at the end. |
+| `Shift+Enter` while searching | Jump to the previous match, wrapping at the start. |
+| `Backspace` while searching | Edit the query. |
+| `Esc` while searching | Close search, restore the pre-search viewport, and return keyboard input to the PTY. |
+| `Ctrl+Shift+C` | Copy the current selection. |
+| `Ctrl+Shift+V` | Paste clipboard text into the PTY path. |
+| `Shift+PageUp` / `Shift+PageDown` | Move the scrollback viewport when mouse reporting is not using the wheel. |
+
+When the search bar is open, keyboard input is consumed by search rather than
+sent to the PTY. Closing search restores the viewport offset that was active
+before search opened. Resizing the native window closes the search bar because
+reflow changes absolute match rows.
+
 ## Examples
 
 Run with larger text:

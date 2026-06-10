@@ -7,6 +7,51 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Native scrollback search UI
+
+The Q1 scrollback search engine is now wired into the native window, giving the
+prototype an in-terminal search loop without touching core semantics or the GPU
+shader path.
+
+### What landed
+
+- **Native search state** — new `src/native/search_ui.rs` owns the open/closed
+  state, query text, current match, case-insensitive default, next/previous
+  navigation, viewport-jump math, and snapshot-only rendering helpers.
+- **Keyboard loop** — `Ctrl+Shift+F` opens/closes search; typed characters build
+  the query; `Backspace` edits; `Enter` and `Shift+Enter` jump next/previous
+  with wraparound through the Q1 `find_next`/`find_prev` behavior; `Esc` closes
+  and restores the pre-search viewport.
+- **PTY isolation while searching** — when the bar is open, keyboard input is
+  consumed by native search rather than sent to the shell. Mouse and PTY output
+  behavior otherwise stay on the existing paths.
+- **Viewport jumps and highlights** — the current match scrolls into view using
+  the absolute row convention shared with selection. All visible matches are
+  highlighted by mutating the snapshot copy before vertex generation; the
+  current match uses a distinct indexed highlight. The search bar itself is a
+  bottom-row snapshot overlay, not terminal state.
+- **Resize/reflow reset** — native resize closes search and returns to the live
+  bottom so stale absolute match rows are never carried across reflow.
+
+### Verified
+
+- Added headless tests for the search query state machine, case-insensitive
+  refresh, next/previous wraparound, viewport jump math, and snapshot-only
+  overlay rendering.
+- `cargo test` passes (`262` lib tests passed, `1` ignored; PTY smoke `2`
+  passed; transcript smoke `10` passed, `1` ignored).
+- `cargo fmt --check` passes.
+- Native autoclose smoke exits 0.
+
+### Known gaps
+
+- The search bar is deliberately minimal: no case-sensitivity toggle, no
+  persistent query history, and no dedicated search UI theme yet.
+- Manual interactive search validation is still useful before treating this as
+  daily-driver-comfortable.
+
+---
+
 ## 2026-06-10 — Native dynamic glyph atlas wiring
 
 The native renderer now uses the dynamic glyph cache from the atlas layer during

@@ -16,17 +16,19 @@ use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::Key as WinitKey;
+use winit::keyboard::NamedKey;
 use winit::window::{Window, WindowId};
 
 use super::bindings::{
     changed_window_title, encode_native_focus_report, encode_native_mouse_report, is_copy_shortcut,
-    is_paste_shortcut, is_scroll_down_key, is_scroll_up_key, map_named_key, map_winit_mouse_button,
-    motion_report_button, wheel_report_button,
+    is_paste_shortcut, is_scroll_down_key, is_scroll_up_key, is_search_shortcut, map_named_key,
+    map_winit_mouse_button, motion_report_button, wheel_report_button,
 };
 use super::clipboard::{NativeClipboard, selected_clipboard_text, write_paste_text};
 use super::gpu::{FrameOutcome, GpuState};
 use super::options::{NativeError, NativeOptions};
 use super::pty::{PtyWriter, UserEvent};
+use super::search_ui::{SearchUi, apply_search_ui};
 use super::viewport::{SELECTION_AUTOSCROLL_INTERVAL, Viewport, grid_dimensions_for, wheel_lines};
 
 /// Application state driving the `winit` event loop.
@@ -91,6 +93,13 @@ pub(super) struct App {
     /// Scrollback viewport offset (0 == live). Mouse wheel and Shift+PageUp/
     /// PageDown move it; any PTY-bound input snaps it back to live.
     viewport: Viewport,
+    /// Native scrollback search state. It is UI-only: queries and highlights
+    /// mutate snapshot copies, never terminal-core state.
+    search: SearchUi,
+    /// Viewport offset to restore when the search bar closes. Search result
+    /// navigation is temporary UI movement; closing search returns to the view
+    /// the operator was inspecting before opening the bar.
+    search_restore_viewport: Option<usize>,
     /// Scrollback length observed at the last rebuild, used to anchor the
     /// scrolled-back view as new output grows scrollback (the "stay scrolled"
     /// policy in [`Viewport::anchor_after_growth`]).
@@ -133,6 +142,8 @@ impl App {
             last_selection_autoscroll: None,
             report_button: None,
             viewport: Viewport::default(),
+            search: SearchUi::default(),
+            search_restore_viewport: None,
             last_scrollback_len: 0,
             clipboard: NativeClipboard::default(),
             autoclose,
@@ -184,6 +195,14 @@ impl App {
     /// without buffering latency.
     fn handle_key_press(&mut self, logical: WinitKey) {
         let mods = self.modifiers;
+        if is_search_shortcut(&logical, mods) {
+            self.toggle_search();
+            return;
+        }
+        if self.search.is_open() {
+            self.handle_search_key(logical);
+            return;
+        }
         if is_copy_shortcut(&logical, mods) {
             self.handle_copy_shortcut();
             return;
@@ -230,6 +249,97 @@ impl App {
         if let Ok(mut writer) = self.writer.lock() {
             let _ = writer.write_all(&bytes);
             let _ = writer.flush();
+        }
+    }
+
+    fn toggle_search(&mut self) {
+        if self.search.is_open() {
+            self.close_search(true);
+        } else {
+            self.search_restore_viewport = Some(self.viewport.offset());
+            self.search.open();
+            self.selection.clear();
+            self.selecting = false;
+            self.last_selection_autoscroll = None;
+            self.refresh_search_matches();
+        }
+        self.request_selection_redraw();
+    }
+
+    fn close_search(&mut self, restore_viewport: bool) {
+        self.search.close();
+        let restore_offset = restore_viewport
+            .then(|| self.search_restore_viewport.take())
+            .flatten();
+        self.search_restore_viewport = None;
+
+        if let Some(offset) = restore_offset {
+            let scrollback_len = self.scrollback_len();
+            if self.viewport.jump_to(offset, scrollback_len) {
+                self.on_viewport_changed();
+            }
+        }
+    }
+
+    fn handle_search_key(&mut self, logical: WinitKey) {
+        match logical {
+            WinitKey::Named(NamedKey::Escape) => {
+                self.close_search(true);
+                self.request_selection_redraw();
+            }
+            WinitKey::Named(NamedKey::Enter) => {
+                self.refresh_search_matches();
+                if self.modifiers.shift {
+                    self.search.prev();
+                } else {
+                    self.search.next();
+                }
+                self.jump_to_current_search_match();
+                self.request_selection_redraw();
+            }
+            WinitKey::Named(NamedKey::Backspace) => {
+                self.search.backspace();
+                self.refresh_search_matches();
+                self.jump_to_current_search_match();
+                self.request_selection_redraw();
+            }
+            WinitKey::Named(NamedKey::Space) if !self.modifiers.ctrl && !self.modifiers.alt => {
+                self.search.push_char(' ');
+                self.refresh_search_matches();
+                self.jump_to_current_search_match();
+                self.request_selection_redraw();
+            }
+            WinitKey::Character(text) if !self.modifiers.ctrl && !self.modifiers.alt => {
+                for ch in text.chars() {
+                    self.search.push_char(ch);
+                }
+                self.refresh_search_matches();
+                self.jump_to_current_search_match();
+                self.request_selection_redraw();
+            }
+            _ => {}
+        }
+    }
+
+    fn refresh_search_matches(&mut self) {
+        if !self.search.is_open() {
+            return;
+        }
+        if let Ok(terminal) = self.terminal.lock() {
+            self.search.refresh(&terminal);
+        }
+    }
+
+    fn jump_to_current_search_match(&mut self) {
+        let scrollback_len = self.scrollback_len();
+        let Some(offset) = self
+            .search
+            .viewport_offset_for_current(scrollback_len, self.grid)
+        else {
+            return;
+        };
+        if self.viewport.jump_to(offset, scrollback_len) {
+            self.on_viewport_changed();
         }
     }
 
@@ -611,8 +721,12 @@ impl ApplicationHandler<UserEvent> for App {
                     self.pointer_cell = None;
                     // Reflow changes the row/scrollback layout; return to the
                     // live bottom so the offset is never stale against the new
-                    // geometry. clamp() in the rebuild guards bounds regardless.
+                    // geometry. Search closes because its absolute row matches
+                    // were computed against the old layout. clamp() in the
+                    // rebuild guards bounds regardless.
                     self.viewport.reset_to_live();
+                    self.search.reset_for_reflow();
+                    self.search_restore_viewport = None;
                     self.needs_rebuild = true;
                 }
                 if let Some(window) = self.window.as_ref() {
@@ -636,6 +750,9 @@ impl ApplicationHandler<UserEvent> for App {
                         self.viewport.anchor_after_growth(added, scrollback_len);
                         self.last_scrollback_len = scrollback_len;
                         self.viewport.clamp(scrollback_len);
+                        if self.search.is_open() {
+                            self.search.refresh(&terminal);
+                        }
                         (
                             terminal.snapshot_with_scrollback(self.viewport.offset()),
                             scrollback_len,
@@ -651,6 +768,13 @@ impl ApplicationHandler<UserEvent> for App {
                     {
                         selection::apply_highlight(&mut snapshot, visible_range);
                     }
+                    apply_search_ui(
+                        &mut snapshot,
+                        &self.search,
+                        self.viewport.offset(),
+                        scrollback_len,
+                        self.grid,
+                    );
                     if let Some(gpu) = self.gpu.as_mut() {
                         gpu.update_from_snapshot(&snapshot);
                     }

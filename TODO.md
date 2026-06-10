@@ -91,12 +91,17 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         current viewport for highlight/copy.
 - [ ] Improve clipboard behavior, including large paste behavior, diagnostics,
       and primary selection if appropriate.
-- [ ] Add search in scrollback.
+- [x] Add search in scrollback.
   - [x] Core engine in `src/core/search.rs`: literal case-sensitive/insensitive
         search over scrollback + screen, inclusive absolute-cell match ranges,
         wide/combining-aware spans, soft-wrap-spanning matches, and next/prev
-        with wraparound. Native search UI (overlay, highlight, jump) is a later
-        packet.
+        with wraparound.
+  - [x] Native search UI: `Ctrl+Shift+F` opens a minimal search bar, typed text
+        updates a case-insensitive query, `Enter`/`Shift+Enter` jump next/prev
+        with wraparound, visible matches are highlighted, and `Esc` closes while
+        restoring the pre-search viewport.
+        Search state closes on resize/reflow so absolute match rows are never
+        kept across a layout change.
 - [ ] Add viewport affordance such as a scrollbar or scroll position indicator.
 - [ ] Add configurable key bindings after settings are available.
 - [ ] Add cursor style and blink policy settings.

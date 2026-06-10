@@ -79,6 +79,15 @@ pub(super) fn is_paste_shortcut(logical: &WinitKey, mods: Modifiers) -> bool {
     matches!(logical, WinitKey::Character(text) if text.eq_ignore_ascii_case("v"))
 }
 
+/// Ctrl+Shift+F opens/closes the native scrollback search bar.
+pub(super) fn is_search_shortcut(logical: &WinitKey, mods: Modifiers) -> bool {
+    if !(mods.ctrl && mods.shift) || mods.alt {
+        return false;
+    }
+
+    matches!(logical, WinitKey::Character(text) if text.eq_ignore_ascii_case("f"))
+}
+
 /// Shift+PageUp pages the scrollback viewport upward. Shift only (no Ctrl/Alt)
 /// so plain PageUp still reaches the PTY.
 pub(super) fn is_scroll_up_key(logical: &WinitKey, mods: Modifiers) -> bool {
