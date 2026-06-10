@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Native title and mouse reporting wiring
+
+The native front end now consumes the C1 core title/mouse groundwork. Window
+titles set by shells or editors are applied to the `winit` window, and
+mouse-aware TUIs can receive pointer reports through the PTY.
+
+### What landed
+
+- **Window title** — the native redraw path polls
+  `Terminal::take_title_changed()` and applies `Terminal::title()` to the OS
+  window. The default title stays `OdyTTY` until a title is set; an explicit
+  empty title remains valid.
+- **Mouse reporting** — native pointer press/release/motion/wheel events are
+  translated from window pixels to 1-based terminal cells and passed through
+  `Terminal::mouse_protocol()` plus `encode_mouse_event(...)` before writing to
+  the PTY.
+- **Interaction policy** — when mouse tracking is active, pointer events go to
+  the host app and local selection is suppressed. Holding Shift forces local
+  selection/scrollback behavior, matching common xterm-family convention. When
+  tracking is off, existing selection and scrollback behavior stays unchanged.
+- **Tests** — native unit seams cover title polling, one-based mouse
+  coordinates, modifier mapping, button mapping, and wheel-button translation.
+
+### Remaining
+
+- Manual validation in a mouse-aware TUI is still needed to confirm behavior
+  against a real full-screen app.
+- Any-event hover reporting is limited by the current core button-only encoder;
+  a no-button motion representation can be a follow-up if real TUIs require it.
+
+---
+
 ## 2026-06-10 — Core OSC title and mouse reporting state
 
 Stage 2 correctness work added the terminal-core side of window-title reporting

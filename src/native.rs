@@ -57,7 +57,11 @@ use wgpu::util::DeviceExt;
 
 use arboard::Clipboard;
 
-use crate::core::{Dimensions, Snapshot, Terminal};
+use crate::core::{
+    Dimensions, MouseButton as CoreMouseButton, MouseEventKind,
+    MouseModifiers as CoreMouseModifiers, MouseProtocol, MouseTracking, Snapshot, Terminal,
+    encode_mouse_event,
+};
 use crate::grid::{self, Vertex};
 use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
@@ -69,7 +73,7 @@ use crate::theme::{Theme, VisualEffect};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{Window, WindowId};
@@ -323,6 +327,46 @@ fn selected_clipboard_text(
 ) -> Option<String> {
     let text = selection::selected_text(snapshot, range);
     (!text.is_empty()).then_some(text)
+}
+
+fn changed_window_title(terminal: &mut Terminal, default_title: &str) -> Option<String> {
+    terminal
+        .take_title_changed()
+        .then(|| terminal.title().unwrap_or(default_title).to_owned())
+}
+
+fn core_mouse_modifiers(mods: Modifiers) -> CoreMouseModifiers {
+    CoreMouseModifiers {
+        // Shift is reserved for local selection when mouse reporting is active.
+        shift: false,
+        alt: mods.alt,
+        ctrl: mods.ctrl,
+    }
+}
+
+fn encode_native_mouse_report(
+    protocol: MouseProtocol,
+    point: CellPoint,
+    button: CoreMouseButton,
+    kind: MouseEventKind,
+    mods: Modifiers,
+) -> Option<Vec<u8>> {
+    encode_mouse_event(
+        protocol,
+        button,
+        kind,
+        point.column + 1,
+        point.row + 1,
+        core_mouse_modifiers(mods),
+    )
+}
+
+fn wheel_report_button(delta: MouseScrollDelta) -> Option<CoreMouseButton> {
+    match wheel_lines(delta, 1).cmp(&0) {
+        std::cmp::Ordering::Greater => Some(CoreMouseButton::WheelUp),
+        std::cmp::Ordering::Less => Some(CoreMouseButton::WheelDown),
+        std::cmp::Ordering::Equal => None,
+    }
 }
 
 /// GPU surface state bound to a single window.
@@ -892,6 +936,10 @@ struct App {
     pointer_cell: Option<CellPoint>,
     /// Whether the left mouse button is currently extending a selection.
     selecting: bool,
+    /// Button currently held for host mouse reporting. Kept separate from local
+    /// selection so TUI mouse mode can suppress selection without losing drag
+    /// reports.
+    report_button: Option<CoreMouseButton>,
     /// Scrollback viewport offset (0 == live). Mouse wheel and Shift+PageUp/
     /// PageDown move it; any PTY-bound input snaps it back to live.
     viewport: Viewport,
@@ -933,6 +981,7 @@ impl App {
             selection: SelectionState::default(),
             pointer_cell: None,
             selecting: false,
+            report_button: None,
             viewport: Viewport::default(),
             last_scrollback_len: 0,
             clipboard: NativeClipboard::default(),
@@ -1061,6 +1110,91 @@ impl App {
         let _ = self.clipboard.write_text(text.as_str());
     }
 
+    fn update_window_title(&mut self) {
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        let Some(title) = ({
+            let mut terminal = self.terminal.lock().expect("terminal mutex");
+            changed_window_title(&mut terminal, &self.options.title)
+        }) else {
+            return;
+        };
+
+        window.set_title(&title);
+    }
+
+    fn mouse_protocol(&self) -> MouseProtocol {
+        self.terminal
+            .lock()
+            .map(|terminal| terminal.mouse_protocol())
+            .unwrap_or_default()
+    }
+
+    fn mouse_reporting_enabled(&self) -> bool {
+        self.mouse_protocol().is_enabled()
+    }
+
+    /// Shift is the local-selection escape hatch while a TUI has enabled mouse
+    /// reporting, matching the common xterm-family terminal convention.
+    fn should_report_mouse_to_pty(&self) -> bool {
+        self.mouse_reporting_enabled() && !self.modifiers.shift
+    }
+
+    fn write_pty_bytes(&self, bytes: &[u8]) {
+        if let Ok(mut writer) = self.writer.lock() {
+            let _ = writer.write_all(bytes);
+            let _ = writer.flush();
+        }
+    }
+
+    fn send_mouse_report(&mut self, button: CoreMouseButton, kind: MouseEventKind) -> bool {
+        let protocol = self.mouse_protocol();
+        let Some(point) = self.pointer_cell else {
+            return false;
+        };
+        let Some(bytes) = encode_native_mouse_report(protocol, point, button, kind, self.modifiers)
+        else {
+            return false;
+        };
+
+        self.return_to_live();
+        self.write_pty_bytes(&bytes);
+        true
+    }
+
+    fn send_mouse_motion_report(&mut self) {
+        let protocol = self.mouse_protocol();
+        let Some(button) = self.report_button.or_else(|| {
+            (protocol.tracking == MouseTracking::AnyEvent).then_some(CoreMouseButton::Left)
+        }) else {
+            return;
+        };
+        let _ = self.send_mouse_report(button, MouseEventKind::Motion);
+    }
+
+    fn handle_reported_mouse_input(&mut self, state: ElementState, button: CoreMouseButton) {
+        match state {
+            ElementState::Pressed => {
+                self.report_button = Some(button);
+                let _ = self.send_mouse_report(button, MouseEventKind::Press);
+            }
+            ElementState::Released => {
+                let _ = self.send_mouse_report(button, MouseEventKind::Release);
+                if self.report_button == Some(button) {
+                    self.report_button = None;
+                }
+            }
+        }
+    }
+
+    fn handle_reported_wheel(&mut self, delta: MouseScrollDelta) -> bool {
+        let Some(button) = wheel_report_button(delta) else {
+            return false;
+        };
+        self.send_mouse_report(button, MouseEventKind::Press)
+    }
+
     fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
         let Some(cell) = self.gpu.as_ref().map(|gpu| gpu.atlas.cell) else {
             return;
@@ -1073,6 +1207,8 @@ impl App {
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();
             }
+        } else if self.should_report_mouse_to_pty() || self.report_button.is_some() {
+            self.send_mouse_motion_report();
         }
     }
 
@@ -1225,6 +1361,15 @@ fn map_named_key(named: NamedKey, shift: bool) -> Option<Key> {
     })
 }
 
+fn map_winit_mouse_button(button: WinitMouseButton) -> Option<CoreMouseButton> {
+    Some(match button {
+        WinitMouseButton::Left => CoreMouseButton::Left,
+        WinitMouseButton::Middle => CoreMouseButton::Middle,
+        WinitMouseButton::Right => CoreMouseButton::Right,
+        _ => return None,
+    })
+}
+
 impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -1295,6 +1440,7 @@ impl ApplicationHandler<UserEvent> for App {
                 {
                     self.selection.clear();
                     self.selecting = false;
+                    self.report_button = None;
                     self.pointer_cell = None;
                     // Reflow changes the row/scrollback layout; return to the
                     // live bottom so the offset is never stale against the new
@@ -1307,6 +1453,7 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             }
             WindowEvent::RedrawRequested => {
+                self.update_window_title();
                 // Rebuild geometry at most once per redraw, no matter how many
                 // pump wakes coalesced into this frame. Snapshot under the lock,
                 // then drop it before touching the GPU.
@@ -1360,15 +1507,34 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::CursorMoved { position, .. } => {
                 self.update_pointer_cell(position.x, position.y);
             }
-            WindowEvent::MouseInput {
-                state,
-                button: MouseButton::Left,
-                ..
-            } => match state {
-                ElementState::Pressed => self.begin_selection(),
-                ElementState::Released => self.finish_selection(),
-            },
+            WindowEvent::MouseInput { state, button, .. } => {
+                if self.selecting {
+                    if button == WinitMouseButton::Left && state == ElementState::Released {
+                        self.finish_selection();
+                    }
+                    return;
+                }
+
+                if (self.should_report_mouse_to_pty() || self.report_button.is_some())
+                    && let Some(button) = map_winit_mouse_button(button)
+                {
+                    self.handle_reported_mouse_input(state, button);
+                    return;
+                }
+
+                if button == WinitMouseButton::Left {
+                    match state {
+                        ElementState::Pressed => self.begin_selection(),
+                        ElementState::Released => self.finish_selection(),
+                    }
+                }
+            }
             WindowEvent::MouseWheel { delta, .. } => {
+                if self.should_report_mouse_to_pty() {
+                    let _ = self.handle_reported_wheel(delta);
+                    return;
+                }
+
                 let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.atlas.cell.height);
                 let lines = wheel_lines(delta, cell_height);
                 if lines != 0 {
@@ -1708,6 +1874,85 @@ mod tests {
                 alt: false,
             }
         ));
+    }
+
+    #[test]
+    fn changed_window_title_reports_only_on_core_change() {
+        let mut terminal = Terminal::new(10, 2);
+
+        assert_eq!(changed_window_title(&mut terminal, "OdyTTY"), None);
+
+        terminal.advance(b"\x1b]2;build log\x07");
+        assert_eq!(
+            changed_window_title(&mut terminal, "OdyTTY").as_deref(),
+            Some("build log")
+        );
+        assert_eq!(changed_window_title(&mut terminal, "OdyTTY"), None);
+
+        terminal.advance(b"\x1b]2;\x07");
+        assert_eq!(
+            changed_window_title(&mut terminal, "OdyTTY").as_deref(),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn native_mouse_reports_use_one_based_cells_and_modifiers() {
+        let protocol = MouseProtocol {
+            tracking: MouseTracking::Normal,
+            encoding: crate::core::MouseEncoding::Sgr,
+        };
+        let point = CellPoint { row: 4, column: 9 };
+        let mods = Modifiers {
+            shift: true,
+            ctrl: true,
+            alt: true,
+        };
+
+        assert_eq!(
+            encode_native_mouse_report(
+                protocol,
+                point,
+                CoreMouseButton::Left,
+                MouseEventKind::Press,
+                mods,
+            )
+            .as_deref(),
+            Some(b"\x1b[<24;10;5M".as_slice())
+        );
+    }
+
+    #[test]
+    fn maps_winit_mouse_buttons_to_core_buttons() {
+        assert_eq!(
+            map_winit_mouse_button(WinitMouseButton::Left),
+            Some(CoreMouseButton::Left)
+        );
+        assert_eq!(
+            map_winit_mouse_button(WinitMouseButton::Middle),
+            Some(CoreMouseButton::Middle)
+        );
+        assert_eq!(
+            map_winit_mouse_button(WinitMouseButton::Right),
+            Some(CoreMouseButton::Right)
+        );
+        assert_eq!(map_winit_mouse_button(WinitMouseButton::Back), None);
+    }
+
+    #[test]
+    fn wheel_delta_maps_to_mouse_report_buttons() {
+        assert_eq!(
+            wheel_report_button(MouseScrollDelta::LineDelta(0.0, 1.0)),
+            Some(CoreMouseButton::WheelUp)
+        );
+        assert_eq!(
+            wheel_report_button(MouseScrollDelta::LineDelta(0.0, -1.0)),
+            Some(CoreMouseButton::WheelDown)
+        );
+        assert_eq!(
+            wheel_report_button(MouseScrollDelta::LineDelta(0.0, 0.0)),
+            None
+        );
     }
 
     #[test]

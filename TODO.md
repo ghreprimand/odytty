@@ -27,10 +27,13 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 - [ ] Improve OSC support, including title handling and common shell/editor
       sequences.
   - [x] Core: OSC 0/2 window-title capture with dirty flag; unknown OSC payloads
-        consumed (no grid leakage). Native title wiring still pending.
+        consumed (no grid leakage).
+  - [x] Native: apply changed OSC window titles to the `winit` window.
 - [ ] Add mouse reporting modes required by real TUIs.
   - [x] Core: DECSET/DECRST tracking (9/1000/1002/1003) and encoding
-        (1005/1006/1015) state plus pure report encoders. Native emit pending.
+        (1005/1006/1015) state plus pure report encoders.
+  - [x] Native: route press/release/motion/wheel events through the active mouse
+        protocol, with Shift reserved for local selection/scrollback.
 - [ ] Harden alternate-screen behavior with editors, pagers, and full-screen
       apps.
 - [ ] Improve Unicode, wide-character, combining-mark, and ambiguous-width
@@ -67,7 +70,10 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 - [ ] Add configurable key bindings after settings are available.
 - [ ] Add cursor style and blink policy settings.
 - [ ] Add window title and focus behavior.
+  - [x] Apply OSC title changes to the native window title.
 - [ ] Improve mouse and keyboard interaction in TUI apps.
+  - [x] Emit native mouse reports to PTY apps when DECSET mouse tracking is
+        active.
 
 ## Archived First Prototype Checklist
 
