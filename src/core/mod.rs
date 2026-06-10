@@ -9,18 +9,26 @@
 //! - [`screen`] — the [`Screen`] grid and [`Terminal`] state machine: parsing,
 //!   scrollback, scroll regions, resize reflow, and CSI/OSC/SGR dispatch.
 //! - [`encoding`] — pure mouse-/focus-event byte encoders.
+//! - [`search`] — pure literal scrollback/screen search over the combined
+//!   buffer, reporting matches as absolute cell ranges.
 
 mod encoding;
 mod screen;
+mod search;
 mod types;
 
 #[cfg(test)]
 mod encoding_tests;
 #[cfg(test)]
+mod search_tests;
+#[cfg(test)]
 mod tests;
 
 pub use encoding::{encode_focus_event, encode_mouse_event};
 pub use screen::{Screen, Terminal};
+pub use search::{
+    AbsolutePoint, SearchMatch, SearchOptions, SearchRow, find_next, find_prev, search_rows,
+};
 pub use types::{
     Attrs, Cell, Color, Dimensions, DirtyRegion, MouseButton, MouseEncoding, MouseEventKind,
     MouseModifiers, MouseProtocol, MouseTracking, Position, Snapshot, TerminalModel,

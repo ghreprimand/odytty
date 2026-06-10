@@ -7,6 +7,7 @@
 use unicode_width::UnicodeWidthChar;
 use vte::{Params, Perform};
 
+use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
 use super::types::*;
 
 /// One physical row of cells plus a soft-wrap marker.
@@ -322,6 +323,23 @@ impl Screen {
     /// [`encode_focus_event`]).
     pub fn focus_reporting(&self) -> bool {
         self.focus_reporting
+    }
+
+    /// Search the combined scrollback + visible buffer for `query`, returning
+    /// every match as an absolute cell range (row `0` = oldest scrollback;
+    /// see [`super::search`] for the coordinate convention and limitations).
+    /// Matches are returned in reading order, sorted ascending by `start`.
+    pub fn search(&self, query: &str, options: SearchOptions) -> Vec<SearchMatch> {
+        let rows: Vec<SearchRow<'_>> = self
+            .scrollback
+            .iter()
+            .chain(self.rows.iter())
+            .map(|line| SearchRow {
+                cells: &line.cells,
+                wrapped: line.wrapped,
+            })
+            .collect();
+        search_rows(&rows, query, options)
     }
 
     fn set_title(&mut self, title: String) {
@@ -1298,6 +1316,12 @@ impl Terminal {
     /// clamping, cursor, and alternate-screen policy.
     pub fn snapshot_with_scrollback(&self, offset_rows: usize) -> Snapshot {
         self.screen.snapshot_with_scrollback(offset_rows)
+    }
+
+    /// Search the combined scrollback + visible buffer for `query`. See
+    /// [`Screen::search`] for the coordinate convention and result ordering.
+    pub fn search(&self, query: &str, options: SearchOptions) -> Vec<SearchMatch> {
+        self.screen.search(query, options)
     }
 }
 fn blank_row(columns: usize) -> Line {
