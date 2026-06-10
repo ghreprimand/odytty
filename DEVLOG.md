@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Native modularity split
+
+The native module has been mechanically split from one large `src/native.rs`
+file into focused sibling modules under `src/native/`, with the public
+`odytty::native::{NativeOptions, run_native}` entry point preserved.
+
+### What landed
+
+- **`src/native/mod.rs`** now owns the public native entry point and wires the
+  submodules together.
+- **Focused native modules** separate the event-loop app handler, GPU state,
+  clipboard/paste helpers, key/mouse/focus bindings, options/errors, PTY pump,
+  viewport helpers, and native tests.
+- **Extracted tests** moved from the old inline module into
+  `src/native/tests.rs` with explicit imports, keeping the same test coverage
+  while reducing the runtime module surface.
+
+### Verified
+
+- `cargo fmt --check`
+- `cargo test` (`234` lib tests passed, `1` ignored; integration smoke tests
+  passed with no test-count change)
+- `WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`
+
+All resulting native source files are below the ~2000-line modularity limit.
+
+---
+
 ## 2026-06-10 — Glyph atlas management: fallback box and dynamic cache
 
 Stage 3 high-quality-text work begins with the glyph atlas. The build-once
