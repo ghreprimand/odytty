@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use ab_glyph::FontVec;
 use wgpu::util::DeviceExt;
 
 use crate::core::Snapshot;
@@ -39,12 +40,91 @@ pub(super) struct ViewportUniform {
     effect: [f32; 2],
 }
 
+fn create_atlas_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    atlas: &GlyphAtlas,
+) -> wgpu::Texture {
+    let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("odytty-atlas"),
+        size: wgpu::Extent3d {
+            width: atlas.width,
+            height: atlas.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &atlas_texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &atlas.data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(atlas.width),
+            rows_per_image: Some(atlas.height),
+        },
+        wgpu::Extent3d {
+            width: atlas.width,
+            height: atlas.height,
+            depth_or_array_layers: 1,
+        },
+    );
+    atlas_texture
+}
+
+fn create_atlas_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    viewport_buf: &wgpu::Buffer,
+    atlas_texture: &wgpu::Texture,
+    atlas_sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    let atlas_view = atlas_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("odytty-cell-bg"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: viewport_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&atlas_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(atlas_sampler),
+            },
+        ],
+    })
+}
+
+pub(super) fn ensure_snapshot_glyphs(atlas: &mut GlyphAtlas, font: &FontVec, snapshot: &Snapshot) {
+    for cell in &snapshot.cells {
+        if cell.wide_continuation || cell.ch.is_ascii() {
+            continue;
+        }
+        let _ = atlas.ensure(font, cell.ch);
+    }
+}
+
 pub(super) struct GpuState {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
     viewport_buf: wgpu::Buffer,
     vertex_buf: wgpu::Buffer,
@@ -52,14 +132,16 @@ pub(super) struct GpuState {
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
     pub(super) atlas: GlyphAtlas,
+    /// Font used to populate the atlas's dynamic non-ASCII region.
+    font: FontVec,
     /// Surface clear color from the active theme (linear RGBA).
     clear_color: wgpu::Color,
     /// Ambient-effect uniform params `[strength, period_px]` ([0,_] == off).
     /// Re-written into the viewport uniform on every resize/reconfigure.
     effect: [f32; 2],
     // Kept alive for the lifetime of the bind group; never read directly.
-    _atlas_texture: wgpu::Texture,
-    _atlas_sampler: wgpu::Sampler,
+    atlas_texture: wgpu::Texture,
+    atlas_sampler: wgpu::Sampler,
 }
 
 impl GpuState {
@@ -128,42 +210,9 @@ impl GpuState {
         // --- Glyph atlas: rasterize at physical pixels for crisp HiDPI text.
         let font = text::load_font_with_path(options.font_path.as_deref())
             .map_err(|err| NativeError::Text(err.to_string()))?;
-        let atlas = GlyphAtlas::build(&font, options.font_size_px * scale.max(1.0));
-
-        let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("odytty-atlas"),
-            size: wgpu::Extent3d {
-                width: atlas.width,
-                height: atlas.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &atlas_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &atlas.data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(atlas.width),
-                rows_per_image: Some(atlas.height),
-            },
-            wgpu::Extent3d {
-                width: atlas.width,
-                height: atlas.height,
-                depth_or_array_layers: 1,
-            },
-        );
-        let atlas_view = atlas_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut atlas = GlyphAtlas::build(&font, options.font_size_px * scale.max(1.0));
+        ensure_snapshot_glyphs(&mut atlas, &font, initial_snapshot);
+        let atlas_texture = create_atlas_texture(&device, &queue, &atlas);
         // Nearest + clamp: glyph cells map 1:1 to pixels, so no filtering.
         let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("odytty-atlas-sampler"),
@@ -220,24 +269,14 @@ impl GpuState {
                 },
             ],
         });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("odytty-cell-bg"),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: viewport_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&atlas_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&atlas_sampler),
-                },
-            ],
-        });
+        let bind_group = create_atlas_bind_group(
+            &device,
+            &bind_group_layout,
+            &viewport_buf,
+            &atlas_texture,
+            &atlas_sampler,
+        );
+        let _ = atlas.take_dirty();
 
         // --- Render pipeline from the shared cell shader.
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -321,16 +360,29 @@ impl GpuState {
             queue,
             config,
             pipeline,
+            bind_group_layout,
             bind_group,
             viewport_buf,
             vertex_buf,
             vertex_count,
             atlas,
+            font,
             clear_color: theme_clear_color(&theme),
             effect,
-            _atlas_texture: atlas_texture,
-            _atlas_sampler: atlas_sampler,
+            atlas_texture,
+            atlas_sampler,
         })
+    }
+
+    fn refresh_atlas_texture(&mut self) {
+        self.atlas_texture = create_atlas_texture(&self.device, &self.queue, &self.atlas);
+        self.bind_group = create_atlas_bind_group(
+            &self.device,
+            &self.bind_group_layout,
+            &self.viewport_buf,
+            &self.atlas_texture,
+            &self.atlas_sampler,
+        );
     }
 
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot.
@@ -341,6 +393,10 @@ impl GpuState {
     /// The caller must already hold the snapshot by value — the terminal mutex
     /// is dropped before this runs so the lock is never held across GPU calls.
     pub(super) fn update_from_snapshot(&mut self, snapshot: &Snapshot) {
+        ensure_snapshot_glyphs(&mut self.atlas, &self.font, snapshot);
+        if self.atlas.take_dirty() {
+            self.refresh_atlas_texture();
+        }
         let vertices = grid::build_vertices(snapshot, &self.atlas);
         self.vertex_count = vertices.len() as u32;
         self.vertex_buf = self

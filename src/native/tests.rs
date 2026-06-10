@@ -9,7 +9,7 @@ use super::bindings::{
     motion_report_button, wheel_report_button,
 };
 use super::clipboard::{ClipboardSlot, selected_clipboard_text, write_paste_text};
-use super::gpu::{ViewportUniform, effect_params, theme_clear_color};
+use super::gpu::{ViewportUniform, effect_params, ensure_snapshot_glyphs, theme_clear_color};
 use super::options::NativeOptions;
 use super::pty::PtyWriter;
 use super::viewport::{Viewport, grid_dimensions_for, wheel_lines};
@@ -21,7 +21,7 @@ use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, CellPoint};
 use crate::settings::{DEFAULT_FONT_SIZE_PX, Settings};
-use crate::text::{self, CellSize};
+use crate::text::{self, CellSize, GlyphAtlas};
 use crate::theme::{Theme, VisualEffect};
 use winit::dpi::PhysicalPosition;
 use winit::event::{MouseButton as WinitMouseButton, MouseScrollDelta};
@@ -401,6 +401,42 @@ fn effect_params_ambient_is_subtle_and_enabled() {
 fn viewport_uniform_is_sixteen_bytes() {
     // std140 slot: vec2 size + vec2 effect == 16 bytes, matching cell.wgsl.
     assert_eq!(std::mem::size_of::<ViewportUniform>(), 16);
+}
+
+#[test]
+fn snapshot_glyph_ensure_populates_dynamic_non_ascii_slots() {
+    let Ok(font) = text::load_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let Some((ch, expected_uv)) = ['é', '─', 'Ω', '世'].into_iter().find_map(|ch| {
+        let mut probe = GlyphAtlas::build(&font, 24.0);
+        let fallback = probe.uv_rect(ch)?;
+        let ensured = probe.ensure(&font, ch)?;
+        (ensured != fallback).then_some((ch, ensured))
+    }) else {
+        eprintln!("skipping: test font has no candidate non-ASCII glyph");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    let fallback = atlas.uv_rect(ch).expect("fallback uv");
+    let line = ch.to_string();
+    let snapshot = snapshot(&[line.as_str()], 1);
+
+    ensure_snapshot_glyphs(&mut atlas, &font, &snapshot);
+
+    assert!(
+        atlas.take_dirty(),
+        "dynamic glyph insertion should dirty atlas"
+    );
+    assert_eq!(atlas.uv_rect(ch), Some(expected_uv));
+    assert_ne!(atlas.uv_rect(ch), Some(fallback));
+
+    ensure_snapshot_glyphs(&mut atlas, &font, &snapshot);
+    assert!(
+        !atlas.take_dirty(),
+        "resident glyph should not dirty atlas again"
+    );
 }
 
 #[test]

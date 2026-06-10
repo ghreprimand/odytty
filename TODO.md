@@ -65,8 +65,9 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] Atlas extracted to `src/atlas.rs`; missing-glyph fallback box, dynamic
         glyph cache with page-append growth (no eviction), and full-rebuild
         size invalidation with a `revision()`/`take_dirty()` re-upload signal.
-  - [ ] Wire `ensure()` per non-ASCII cell + texture re-upload on `take_dirty()`
-        in native so real non-ASCII glyphs render (currently fallback boxes).
+  - [x] Native render loop calls `ensure()` for non-ASCII cells, re-uploads the
+        atlas texture on `take_dirty()`, and rebuilds vertices against the
+        current atlas so real resident glyphs render instead of fallback boxes.
 - [ ] Decide the shaping strategy for ligatures/stylistic sets behind settings
       while preserving cell correctness.
 - [ ] Improve rasterization quality: pixel alignment, baseline consistency,

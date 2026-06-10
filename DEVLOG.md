@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Native dynamic glyph atlas wiring
+
+The native renderer now uses the dynamic glyph cache from the atlas layer during
+live rendering. Non-ASCII cells no longer have to stay fallback boxes once the
+loaded font can rasterize the codepoint.
+
+### What landed
+
+- **Font retained in the renderer** — `GpuState` keeps the loaded `FontVec` next
+  to the atlas so frame rebuilds can populate dynamic glyph slots without
+  touching terminal-core state.
+- **Batched per-snapshot ensure** — before rebuilding vertex geometry, native
+  scans the snapshot for non-ASCII, non-continuation cells and calls
+  `GlyphAtlas::ensure()` for each. ASCII still uses the fixed startup region.
+- **Texture refresh on dirty atlas** — if `take_dirty()` reports inserted glyphs
+  or atlas growth, the renderer recreates and re-uploads the R8 atlas texture
+  and bind group once for that rebuild, then builds vertices against the current
+  atlas dimensions.
+
+### Verified
+
+- Added a headless native test proving snapshot scanning populates a dynamic
+  non-ASCII slot once and does not dirty the atlas again for resident glyphs.
+- `cargo test --lib` passes in the shared tree (`257` passed, `1` ignored;
+  includes OPUS's in-flight core search tests).
+- Native autoclose smoke exits 0 at the default font size and with
+  `ODYTTY_FONT_SIZE=18`.
+- A live native PTY smoke using a temporary shell that prints `é ─ Ω 世` exits 0,
+  exercising the non-ASCII atlas path in the window loop.
+
+### Known gaps
+
+- Complex shaping remains out of scope: combining-mark composition, ligatures,
+  stylistic sets, emoji policy, and font fallback are later text-quality work.
+- Whole-repo formatting is temporarily blocked by OPUS-owned in-flight
+  `src/core/search.rs` formatting; N3 native files were formatted separately and
+  the Director was notified.
+
+---
+
 ## 2026-06-10 — Native modularity split
 
 The native module has been mechanically split from one large `src/native.rs`
