@@ -1,0 +1,1637 @@
+//! The owned terminal state machine: the [`Screen`] grid (primary + alternate),
+//! the [`Terminal`] facade that drives the `vte` parser, scrollback, scroll
+//! regions, resize reflow, and the CSI/OSC/SGR dispatch helpers. This is the
+//! bulk of the terminal core; it builds on [`super::types`] and is exercised by
+//! `super::tests`.
+
+use unicode_width::UnicodeWidthChar;
+use vte::{Params, Perform};
+
+use super::types::*;
+
+/// One physical row of cells plus a soft-wrap marker.
+///
+/// `wrapped` is `true` when this row's content continues onto the next physical
+/// row because auto-wrap ran at the right edge (a *soft* line break), and
+/// `false` when the row ends at a hard line break (newline) or screen edge with
+/// no continuation. The marker lets [`Screen::resize`] rejoin soft-wrapped rows
+/// into logical lines and re-wrap them to a new width, so text that scrolls off
+/// a narrowed window reappears when it is widened again.
+///
+/// `Line` derefs to its `cells` vector, so existing `row[col]`, `row.iter()`,
+/// `row.get(..)`, and `row.resize(..)` call sites keep working unchanged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Line {
+    cells: Vec<Cell>,
+    wrapped: bool,
+}
+impl Line {
+    /// A row that ends a logical line (hard break / no continuation).
+    fn unwrapped(cells: Vec<Cell>) -> Self {
+        Self {
+            cells,
+            wrapped: false,
+        }
+    }
+
+    /// A row that soft-wraps into the next physical row.
+    fn wrapped(cells: Vec<Cell>) -> Self {
+        Self {
+            cells,
+            wrapped: true,
+        }
+    }
+}
+impl std::ops::Deref for Line {
+    type Target = Vec<Cell>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.cells
+    }
+}
+impl std::ops::DerefMut for Line {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.cells
+    }
+}
+#[derive(Debug, Clone)]
+pub struct Screen {
+    dimensions: Dimensions,
+    rows: Vec<Line>,
+    scrollback: Vec<Line>,
+    cursor: Position,
+    cursor_visible: bool,
+    pending_wrap: bool,
+    saved_cursor: Option<SavedCursor>,
+    primary_screen: Option<StoredScreen>,
+    scroll_region: Option<ScrollRegion>,
+    /// DECOM (origin mode, private mode 6). When set, CUP/HVP/VPA addressing is
+    /// relative to the active scroll region top and constrained within it.
+    origin_mode: bool,
+    bracketed_paste: bool,
+    current_attrs: Attrs,
+    dirty: DirtyRegion,
+    host_output: Vec<u8>,
+    last_graphic_char: Option<char>,
+    tab_stops: Vec<bool>,
+    /// Window title set via OSC 0/2. `None` until a title is set; `Some("")`
+    /// records an explicit empty title (distinct from never-set).
+    title: Option<String>,
+    /// Set whenever the title changes; cleared by `take_title_changed` so a
+    /// front end can poll without re-applying an unchanged title.
+    title_changed: bool,
+    /// Active mouse reporting protocol (tracking mode + wire encoding).
+    mouse: MouseProtocol,
+    /// DECSET/DECRST 1004 focus reporting. When on, the front end emits
+    /// `ESC [ I` / `ESC [ O` on focus in/out. Off at power-on; RIS resets it.
+    focus_reporting: bool,
+}
+#[derive(Debug, Clone)]
+struct StoredScreen {
+    rows: Vec<Line>,
+    scrollback: Vec<Line>,
+    cursor: Position,
+    pending_wrap: bool,
+    saved_cursor: Option<SavedCursor>,
+    scroll_region: Option<ScrollRegion>,
+    origin_mode: bool,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SavedCursor {
+    position: Position,
+    pending_wrap: bool,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ScrollRegion {
+    top: usize,
+    bottom: usize,
+}
+impl Screen {
+    pub fn new(columns: usize, rows: usize) -> Self {
+        let dimensions = Dimensions::new(columns, rows);
+        Self {
+            dimensions,
+            rows: vec![blank_row(dimensions.columns); dimensions.rows],
+            scrollback: Vec::new(),
+            cursor: Position::default(),
+            cursor_visible: true,
+            pending_wrap: false,
+            saved_cursor: None,
+            primary_screen: None,
+            scroll_region: None,
+            origin_mode: false,
+            bracketed_paste: false,
+            current_attrs: Attrs::default(),
+            dirty: DirtyRegion::Full,
+            host_output: Vec::new(),
+            last_graphic_char: None,
+            tab_stops: default_tab_stops(dimensions.columns),
+            title: None,
+            title_changed: false,
+            mouse: MouseProtocol::default(),
+            focus_reporting: false,
+        }
+    }
+
+    pub fn dimensions(&self) -> Dimensions {
+        self.dimensions
+    }
+
+    pub fn cursor(&self) -> Position {
+        self.cursor
+    }
+
+    pub fn scrollback_len(&self) -> usize {
+        self.scrollback.len()
+    }
+
+    pub fn cell(&self, row: usize, column: usize) -> Option<Cell> {
+        self.rows
+            .get(row)
+            .and_then(|line| line.get(column))
+            .copied()
+    }
+
+    /// Resize the grid to `columns` × `rows`, preserving content.
+    ///
+    /// The active **primary** screen reflows: soft-wrapped physical rows are
+    /// rejoined into logical lines (using each row's [`Line::wrapped`] marker),
+    /// then re-wrapped to the new width across the combined scrollback + visible
+    /// buffer. This means text that wraps off a narrowed window is recoverable
+    /// when it is widened again, rather than being truncated at the right edge.
+    ///
+    /// The **alternate** screen does not reflow: full-screen TUI applications
+    /// own their layout and repaint on resize (`SIGWINCH`), so the alternate
+    /// grid is simply truncated/padded to the new size. The stored primary
+    /// screen behind it is still reflowed so leaving the alternate screen after
+    /// a resize is coherent. Alternate-screen isolation and the no-scrollback
+    /// rule for the alternate buffer are preserved.
+    pub fn resize(&mut self, columns: usize, rows: usize) {
+        let dimensions = Dimensions::new(columns, rows);
+
+        if self.primary_screen.is_some() {
+            // Alternate screen active: truncate/pad the app-managed grid (it
+            // repaints), but never feed the alternate buffer into scrollback.
+            resize_buffer_rows(&mut self.rows, &mut self.scrollback, dimensions, true);
+            self.cursor.row = self.cursor.row.min(dimensions.rows - 1);
+            self.cursor.column = self.cursor.column.min(dimensions.columns - 1);
+
+            if let Some(mut primary) = self.primary_screen.take() {
+                let cursor = reflow_lines(
+                    &mut primary.scrollback,
+                    &mut primary.rows,
+                    dimensions,
+                    primary.cursor,
+                );
+                primary.cursor = cursor;
+                primary.pending_wrap = false;
+                primary.scroll_region = clamp_scroll_region(primary.scroll_region, dimensions);
+                self.primary_screen = Some(primary);
+            }
+        } else {
+            // Primary screen active: reflow visible + scrollback to the new width
+            // so wrapped content is preserved across shrink/grow.
+            self.cursor = reflow_lines(
+                &mut self.scrollback,
+                &mut self.rows,
+                dimensions,
+                self.cursor,
+            );
+        }
+
+        self.dimensions = dimensions;
+        self.pending_wrap = false;
+        self.resize_tab_stops(dimensions.columns);
+        self.scroll_region = clamp_scroll_region(self.scroll_region, dimensions);
+        self.mark_dirty();
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            dimensions: self.dimensions,
+            cursor: self.cursor,
+            cursor_visible: self.cursor_visible,
+            cells: self
+                .rows
+                .iter()
+                .flat_map(|line| line.iter())
+                .copied()
+                .collect(),
+        }
+    }
+
+    /// Produce a visible-grid snapshot at a scrollback viewport offset.
+    ///
+    /// `offset_rows` counts how many rows the viewport is paged *upward* into
+    /// scrollback. Offset `0` is the live visible screen and is byte-for-byte
+    /// identical to [`snapshot`](Self::snapshot). Positive offsets page upward;
+    /// the offset is clamped to the available scrollback so callers cannot read
+    /// past the oldest stored row.
+    ///
+    /// The composed buffer is `scrollback` (oldest→newest) followed by the live
+    /// `rows`; the returned viewport is the `dimensions.rows`-tall window whose
+    /// bottom edge sits `offset_rows` above the live bottom. Each emitted row is
+    /// normalized to `dimensions.columns` so the `cells` length always equals
+    /// `dimensions.rows * dimensions.columns`.
+    ///
+    /// Cursor policy: at offset `0` the live cursor and its visibility carry
+    /// through unchanged; for any nonzero (scrolled-back) offset the cursor is
+    /// hidden (`cursor_visible == false`) because it does not belong to the
+    /// historical viewport. The cursor position is reported unchanged.
+    ///
+    /// Alternate-screen isolation is preserved for free: entering the alternate
+    /// screen moves the primary scrollback into off-screen storage, so an
+    /// alternate-screen `Screen` has empty scrollback and every offset clamps to
+    /// the live grid — primary history never leaks into alternate snapshots.
+    pub fn snapshot_with_scrollback(&self, offset_rows: usize) -> Snapshot {
+        let height = self.dimensions.rows;
+        let columns = self.dimensions.columns;
+        let scrollback_len = self.scrollback.len();
+        let offset = offset_rows.min(scrollback_len);
+
+        if offset == 0 {
+            return self.snapshot();
+        }
+
+        // Combined buffer index of the row just below the viewport bottom.
+        let total = scrollback_len + height;
+        let window_end = total - offset;
+        let window_start = window_end - height;
+
+        let mut cells = Vec::with_capacity(height * columns);
+        for index in window_start..window_end {
+            let row = if index < scrollback_len {
+                &self.scrollback[index]
+            } else {
+                &self.rows[index - scrollback_len]
+            };
+            for column in 0..columns {
+                cells.push(row.get(column).copied().unwrap_or_else(Cell::blank));
+            }
+        }
+
+        Snapshot {
+            dimensions: self.dimensions,
+            cursor: self.cursor,
+            cursor_visible: false,
+            cells,
+        }
+    }
+
+    pub fn plain_text(&self) -> String {
+        self.rows
+            .iter()
+            .map(|row| {
+                let mut line = String::new();
+                for cell in row.iter().filter(|cell| !cell.wide_continuation) {
+                    line.push(cell.ch);
+                    for &mark in cell.combining() {
+                        line.push(mark);
+                    }
+                }
+                line.trim_end().to_owned()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    pub fn bracketed_paste_enabled(&self) -> bool {
+        self.bracketed_paste
+    }
+
+    /// The current window title, or `None` if no OSC 0/2 has set one. An
+    /// explicit empty title is reported as `Some("")`.
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    /// Return whether the title changed since the last call and clear the flag.
+    /// Lets a front end poll once per frame and update the OS window title only
+    /// when it actually changed.
+    pub fn take_title_changed(&mut self) -> bool {
+        std::mem::take(&mut self.title_changed)
+    }
+
+    /// The active mouse reporting protocol (tracking mode + encoding).
+    pub fn mouse_protocol(&self) -> MouseProtocol {
+        self.mouse
+    }
+
+    /// Whether DECSET 1004 focus reporting is enabled. When true, a front end
+    /// should emit `ESC [ I` on focus gain and `ESC [ O` on focus loss (see
+    /// [`encode_focus_event`]).
+    pub fn focus_reporting(&self) -> bool {
+        self.focus_reporting
+    }
+
+    fn set_title(&mut self, title: String) {
+        self.title = Some(title);
+        self.title_changed = true;
+    }
+
+    /// Before overwriting `width` cells starting at `column` on `row`, blank any
+    /// wide-pair partner that sits OUTSIDE the overwrite span so no half-wide
+    /// orphan survives. A wide glyph is a lead cell (printable, width 2) plus a
+    /// `wide_continuation` spacer; overwriting one half must clear the other,
+    /// matching xterm. O(1): only the two span boundaries can orphan a partner.
+    fn clear_wide_orphans(&mut self, row: usize, column: usize, width: usize) {
+        let columns = self.dimensions.columns;
+        let blank = self.current_blank();
+        // Left boundary: the first overwritten cell is a continuation whose lead
+        // sits to its left, outside the span — blank the now-orphaned lead.
+        if column > 0 && column < columns && self.rows[row][column].wide_continuation {
+            self.rows[row][column - 1] = blank;
+        }
+        // Right boundary: the cell just past the span is a continuation whose
+        // lead is the last overwritten cell — blank the orphaned continuation.
+        let end = column + width;
+        if end < columns && self.rows[row][end].wide_continuation {
+            self.rows[row][end] = blank;
+        }
+    }
+
+    /// Attach a zero-width combining mark to the base cell the cursor last
+    /// advanced past, appending it to that cell's grapheme. After printing a
+    /// base char the cursor sits to its right (or stays on it in pending-wrap),
+    /// so the base is just left of the cursor; a wide continuation spacer is
+    /// stepped back to its lead. No-op at line start or when capacity is full —
+    /// never panics.
+    fn attach_combining(&mut self, mark: char) {
+        let row = self.cursor.row;
+        let col = if self.pending_wrap {
+            self.cursor.column
+        } else if self.cursor.column > 0 {
+            self.cursor.column - 1
+        } else {
+            return; // combining mark at line start: nothing to attach to.
+        };
+        let base_col = if self.rows[row][col].wide_continuation && col > 0 {
+            col - 1
+        } else {
+            col
+        };
+        self.rows[row][base_col].push_combining(mark);
+        self.mark_dirty();
+    }
+
+    fn print_char(&mut self, ch: char) {
+        let width = UnicodeWidthChar::width(ch).unwrap_or(1);
+        if width == 0 {
+            // Zero-width combining mark: attach to the preceding base cell
+            // rather than consuming a column. No-op at line start.
+            self.attach_combining(ch);
+            return;
+        }
+
+        self.last_graphic_char = Some(ch);
+
+        if self.pending_wrap {
+            // The row we are leaving filled to the right edge and the logical
+            // line continues here: mark it as a soft wrap so resize can rejoin.
+            self.rows[self.cursor.row].wrapped = true;
+            self.carriage_return();
+            self.line_feed();
+            self.pending_wrap = false;
+        }
+
+        if self.cursor.column + width > self.dimensions.columns {
+            // A wide glyph does not fit in the remaining columns. xterm does not
+            // split it across rows: blank the trailing cell(s) and soft-wrap the
+            // glyph onto the next row, marking the row wrapped so resize rejoins
+            // the logical line.
+            let blank = self.current_blank();
+            let r = self.cursor.row;
+            let c = self.cursor.column;
+            self.clear_wide_orphans(r, c, self.dimensions.columns - c);
+            for col in c..self.dimensions.columns {
+                self.rows[r][col] = blank;
+            }
+            self.rows[r].wrapped = true;
+            self.carriage_return();
+            self.line_feed();
+        }
+
+        let row = self.cursor.row;
+        let column = self.cursor.column;
+        // Overwriting either half of an existing wide pair must clear its
+        // partner so no half-wide orphan survives.
+        self.clear_wide_orphans(row, column, width);
+        self.rows[row][column] = Cell::new(ch, self.current_attrs);
+
+        if width == 2 && column + 1 < self.dimensions.columns {
+            self.rows[row][column + 1] = Cell::wide_spacer(self.current_attrs);
+        }
+
+        if self.cursor.column + width >= self.dimensions.columns {
+            self.cursor.column = self.dimensions.columns - 1;
+            self.pending_wrap = true;
+        } else {
+            self.cursor.column += width;
+        }
+        self.mark_dirty();
+    }
+
+    fn backspace(&mut self) {
+        self.cursor.column = self.cursor.column.saturating_sub(1);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    fn tab(&mut self) {
+        let last = self.dimensions.columns - 1;
+        // Advance to the next tab stop strictly right of the cursor; if none
+        // exists, clamp to the right edge.
+        let next = ((self.cursor.column + 1)..self.dimensions.columns)
+            .find(|&column| self.tab_stops.get(column).copied().unwrap_or(false))
+            .unwrap_or(last);
+        self.cursor.column = next;
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    /// HTS (ESC H): set a tab stop at the current cursor column.
+    fn set_tab_stop(&mut self) {
+        if let Some(stop) = self.tab_stops.get_mut(self.cursor.column) {
+            *stop = true;
+        }
+    }
+
+    /// TBC (CSI Ps g): clear tab stops. Ps=0 (the default) clears the stop at
+    /// the current column; Ps=3 clears every tab stop. Other selectors ignored.
+    fn clear_tab_stop(&mut self, mode: usize) {
+        match mode {
+            0 => {
+                if let Some(stop) = self.tab_stops.get_mut(self.cursor.column) {
+                    *stop = false;
+                }
+            }
+            3 => self.tab_stops.iter_mut().for_each(|stop| *stop = false),
+            _ => {}
+        }
+    }
+
+    /// Resize the tab-stop table coherently. Existing stops in the retained
+    /// column range are preserved; when growing, newly exposed columns receive
+    /// the default every-8 stops; when shrinking, the table is truncated so
+    /// stops beyond the new width can no longer be used.
+    fn resize_tab_stops(&mut self, columns: usize) {
+        let old = self.tab_stops.len();
+        if columns > old {
+            self.tab_stops.resize(columns, false);
+            for column in (old..columns).filter(|column| column % 8 == 0 && *column >= 8) {
+                self.tab_stops[column] = true;
+            }
+        } else {
+            self.tab_stops.truncate(columns);
+        }
+    }
+
+    fn carriage_return(&mut self) {
+        self.cursor.column = 0;
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    fn line_feed(&mut self) {
+        self.pending_wrap = false;
+        if self
+            .scroll_region
+            .is_some_and(|region| self.cursor.row == region.bottom)
+        {
+            self.scroll_up_region();
+        } else if self.cursor.row + 1 == self.dimensions.rows && self.scroll_region.is_none() {
+            self.scroll_up_full();
+        } else if self.cursor.row + 1 < self.dimensions.rows {
+            self.cursor.row += 1;
+            self.mark_dirty();
+        } else {
+            self.mark_dirty();
+        }
+    }
+
+    fn scroll_up_full(&mut self) {
+        let removed = self.rows.remove(0);
+        let background = self.current_attrs.background;
+
+        if self.primary_screen.is_none() {
+            self.scrollback.push(removed);
+        }
+
+        self.rows
+            .push(blank_row_with_bg(self.dimensions.columns, background));
+        self.mark_dirty();
+    }
+
+    fn scroll_up_region(&mut self) {
+        if let Some(region) = self.scroll_region {
+            let background = self.current_attrs.background;
+            self.rows.remove(region.top);
+            self.rows.insert(
+                region.bottom,
+                blank_row_with_bg(self.dimensions.columns, background),
+            );
+            self.mark_dirty();
+        }
+    }
+
+    /// SU (CSI Ps S): scroll the active region up by `count` lines, discarding
+    /// lines off the top of the region and filling at the bottom with BCE-aware
+    /// blank rows. Falls back to the full screen when no DECSTBM region is set.
+    /// Never feeds scrollback (no pollution) and does not move the cursor.
+    fn scroll_region_up(&mut self, count: usize) {
+        let (top, bottom) = self.effective_region();
+        let count = count.max(1).min(bottom - top + 1);
+        let background = self.current_attrs.background;
+        for _ in 0..count {
+            self.rows.remove(top);
+            self.rows.insert(
+                bottom,
+                blank_row_with_bg(self.dimensions.columns, background),
+            );
+        }
+        self.mark_dirty();
+    }
+
+    /// SD (CSI Ps T): scroll the active region down by `count` lines, discarding
+    /// lines off the bottom of the region and filling at the top with BCE-aware
+    /// blank rows. Falls back to the full screen when no DECSTBM region is set.
+    /// Never feeds scrollback (no pollution) and does not move the cursor.
+    fn scroll_region_down(&mut self, count: usize) {
+        let (top, bottom) = self.effective_region();
+        let count = count.max(1).min(bottom - top + 1);
+        let background = self.current_attrs.background;
+        for _ in 0..count {
+            self.rows.remove(bottom);
+            self.rows
+                .insert(top, blank_row_with_bg(self.dimensions.columns, background));
+        }
+        self.mark_dirty();
+    }
+
+    /// Active vertical scroll margins. Falls back to the full screen when no
+    /// explicit DECSTBM region is set (the standard behaviour for RI/IL/DL).
+    fn effective_region(&self) -> (usize, usize) {
+        match self.scroll_region {
+            Some(region) => (region.top, region.bottom),
+            None => (0, self.dimensions.rows - 1),
+        }
+    }
+
+    /// RI (ESC M): at the top margin, scroll the region down by one; otherwise
+    /// move the cursor up one row. Never feeds scrollback.
+    fn reverse_index(&mut self) {
+        self.pending_wrap = false;
+        let (top, bottom) = self.effective_region();
+        let background = self.current_attrs.background;
+
+        if self.cursor.row == top {
+            self.rows.remove(bottom);
+            self.rows
+                .insert(top, blank_row_with_bg(self.dimensions.columns, background));
+        } else {
+            self.cursor.row = self.cursor.row.saturating_sub(1);
+        }
+        self.mark_dirty();
+    }
+
+    /// IL (CSI Ps L): insert `count` blank lines at the cursor row, scrolling
+    /// the rows below it down within the region. Lines pushed past the region
+    /// bottom are discarded (never to scrollback). No-op outside the region.
+    fn insert_lines(&mut self, count: usize) {
+        let (top, bottom) = self.effective_region();
+        if self.cursor.row < top || self.cursor.row > bottom {
+            return;
+        }
+
+        let count = count.max(1).min(bottom - self.cursor.row + 1);
+        let background = self.current_attrs.background;
+        for _ in 0..count {
+            self.rows.remove(bottom);
+            self.rows.insert(
+                self.cursor.row,
+                blank_row_with_bg(self.dimensions.columns, background),
+            );
+        }
+
+        self.cursor.column = 0;
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    /// DL (CSI Ps M): delete `count` lines at the cursor row, scrolling the
+    /// rows below it up within the region and filling blanks at the region
+    /// bottom. No-op outside the region.
+    fn delete_lines(&mut self, count: usize) {
+        let (top, bottom) = self.effective_region();
+        if self.cursor.row < top || self.cursor.row > bottom {
+            return;
+        }
+
+        let count = count.max(1).min(bottom - self.cursor.row + 1);
+        let background = self.current_attrs.background;
+        for _ in 0..count {
+            self.rows.remove(self.cursor.row);
+            self.rows.insert(
+                bottom,
+                blank_row_with_bg(self.dimensions.columns, background),
+            );
+        }
+
+        self.cursor.column = 0;
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    /// ICH (CSI Ps @): insert `count` blank cells at the cursor, shifting the
+    /// rest of the line right. Cells pushed past the right edge are discarded.
+    /// Row-local: no wrap, no scroll, cursor stays in place. Fill blanks use
+    /// the active background color and otherwise default attributes, matching
+    /// xterm-style background-color-erase behavior for insert fills.
+    fn insert_chars(&mut self, count: usize) {
+        let columns = self.dimensions.columns;
+        let column = self.cursor.column;
+        let count = count.max(1).min(columns - column);
+        let blank = self.current_blank();
+
+        let row = &mut self.rows[self.cursor.row];
+        for _ in 0..count {
+            row.insert(column, blank);
+        }
+        row.truncate(columns);
+
+        sanitize_wide_row(row, blank);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    /// DCH (CSI Ps P): delete `count` cells at the cursor, shifting the rest of
+    /// the line left and filling blanks at the right edge. Row-local: no wrap,
+    /// no scroll, cursor stays in place. Fill blanks use the active background
+    /// color and otherwise default attributes, matching xterm-style
+    /// background-color-erase behavior for delete fills.
+    fn delete_chars(&mut self, count: usize) {
+        let columns = self.dimensions.columns;
+        let column = self.cursor.column;
+        let count = count.max(1).min(columns - column);
+        let blank = self.current_blank();
+
+        let row = &mut self.rows[self.cursor.row];
+        for _ in 0..count {
+            row.remove(column);
+        }
+        while row.len() < columns {
+            row.push(blank);
+        }
+
+        sanitize_wide_row(row, blank);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    /// ECH (CSI Ps X): erase `count` cells from the cursor in place, overwriting
+    /// them with blanks WITHOUT shifting the rest of the line. Row-local: no
+    /// wrap, no scroll, cursor stays put. Blanks use the active background
+    /// color and otherwise default attributes, matching xterm-style
+    /// background-color-erase behavior.
+    fn erase_chars(&mut self, count: usize) {
+        let columns = self.dimensions.columns;
+        let column = self.cursor.column;
+        let count = count.max(1).min(columns - column);
+        let blank = self.current_blank();
+
+        let row = &mut self.rows[self.cursor.row];
+        for cell in &mut row[column..column + count] {
+            *cell = blank;
+        }
+
+        sanitize_wide_row(row, blank);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    /// REP (CSI Ps b): repeat the last printed graphic character `count` times,
+    /// using normal print processing (so the current SGR attrs apply and
+    /// autowrap behaves as if the character were typed again). Omitted/zero
+    /// count = 1. No-op when no graphic character has been printed yet.
+    /// Replaying through `print_char` means a wide last character repeats as a
+    /// wide glyph and wraps correctly.
+    fn repeat_char(&mut self, count: usize) {
+        let Some(ch) = self.last_graphic_char else {
+            return;
+        };
+        let count = count.max(1);
+        for _ in 0..count {
+            self.print_char(ch);
+        }
+    }
+
+    fn move_up(&mut self, count: usize) {
+        self.cursor.row = self.cursor.row.saturating_sub(count);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    fn move_down(&mut self, count: usize) {
+        self.cursor.row = (self.cursor.row + count).min(self.dimensions.rows - 1);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    fn move_right(&mut self, count: usize) {
+        self.cursor.column = (self.cursor.column + count).min(self.dimensions.columns - 1);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    fn move_left(&mut self, count: usize) {
+        self.cursor.column = self.cursor.column.saturating_sub(count);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    fn move_to(&mut self, row: usize, column: usize) {
+        self.cursor.row = row.saturating_sub(1).min(self.dimensions.rows - 1);
+        self.cursor.column = column.saturating_sub(1).min(self.dimensions.columns - 1);
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    /// CUP/HVP/VPA addressing honoring DECOM (origin mode).
+    ///
+    /// `row`/`column` are 1-based. When origin mode is off this is identical to
+    /// [`Screen::move_to`] (full-screen absolute addressing). When origin mode
+    /// is on, the row is interpreted relative to the active scroll region top
+    /// and clamped to the region bottom, so a program that set DECSTBM + DECOM
+    /// can address rows `1..=region_height` without escaping the region. The
+    /// column is unaffected by origin mode (no horizontal margins here).
+    fn move_to_origin(&mut self, row: usize, column: usize) {
+        let column = column.saturating_sub(1).min(self.dimensions.columns - 1);
+        if self.origin_mode {
+            let (top, bottom) = self.effective_region();
+            let target = top + row.max(1) - 1;
+            self.cursor.row = target.min(bottom);
+        } else {
+            self.cursor.row = row.saturating_sub(1).min(self.dimensions.rows - 1);
+        }
+        self.cursor.column = column;
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    fn erase_display(&mut self, mode: usize) {
+        let background = self.current_attrs.background;
+        match mode {
+            0 => {
+                self.erase_line_from_cursor();
+                for row in self.cursor.row + 1..self.dimensions.rows {
+                    self.rows[row] = blank_row_with_bg(self.dimensions.columns, background);
+                }
+            }
+            1 => {
+                for row in 0..self.cursor.row {
+                    self.rows[row] = blank_row_with_bg(self.dimensions.columns, background);
+                }
+                self.erase_line_to_cursor();
+            }
+            2 | 3 => {
+                for row in &mut self.rows {
+                    *row = blank_row_with_bg(self.dimensions.columns, background);
+                }
+                if mode == 3 {
+                    self.scrollback.clear();
+                }
+            }
+            _ => {}
+        }
+        self.mark_dirty();
+    }
+
+    fn erase_line(&mut self, mode: usize) {
+        match mode {
+            0 => self.erase_line_from_cursor(),
+            1 => self.erase_line_to_cursor(),
+            2 => {
+                self.rows[self.cursor.row] = self.current_blank_row();
+            }
+            _ => {}
+        }
+        self.mark_dirty();
+    }
+
+    fn erase_line_from_cursor(&mut self) {
+        let blank = self.current_blank();
+        let row = self.cursor.row;
+        for column in self.cursor.column..self.dimensions.columns {
+            self.rows[row][column] = blank;
+        }
+        // Erasing the lead-side boundary can orphan a wide pair (a continuation
+        // at the cursor whose lead is just left of it); repair the row.
+        sanitize_wide_row(&mut self.rows[row], blank);
+        self.mark_dirty();
+    }
+
+    fn erase_line_to_cursor(&mut self) {
+        let blank = self.current_blank();
+        let row = self.cursor.row;
+        for column in 0..=self.cursor.column {
+            self.rows[row][column] = blank;
+        }
+        // Erasing up to the cursor can orphan a wide lead at the cursor whose
+        // continuation sits just right of it; repair the row.
+        sanitize_wide_row(&mut self.rows[row], blank);
+        self.mark_dirty();
+    }
+
+    fn current_blank(&self) -> Cell {
+        Cell::blank_with_bg(self.current_attrs.background)
+    }
+
+    fn current_blank_row(&self) -> Line {
+        blank_row_with_bg(self.dimensions.columns, self.current_attrs.background)
+    }
+
+    fn mark_dirty(&mut self) {
+        self.dirty = DirtyRegion::Full;
+    }
+
+    fn apply_sgr(&mut self, params: &Params) {
+        let codes = sgr_codes(params);
+        let codes = if codes.is_empty() { vec![0] } else { codes };
+        let mut index = 0;
+
+        while index < codes.len() {
+            match codes[index] {
+                0 => self.current_attrs = Attrs::default(),
+                1 => self.current_attrs.bold = true,
+                3 => self.current_attrs.italic = true,
+                4 => self.current_attrs.underline = true,
+                7 => self.current_attrs.inverse = true,
+                22 => self.current_attrs.bold = false,
+                23 => self.current_attrs.italic = false,
+                24 => self.current_attrs.underline = false,
+                27 => self.current_attrs.inverse = false,
+                30..=37 => {
+                    self.current_attrs.foreground = Color::Indexed((codes[index] - 30) as u8)
+                }
+                39 => self.current_attrs.foreground = Color::Default,
+                40..=47 => {
+                    self.current_attrs.background = Color::Indexed((codes[index] - 40) as u8)
+                }
+                49 => self.current_attrs.background = Color::Default,
+                90..=97 => {
+                    self.current_attrs.foreground = Color::Indexed((codes[index] - 90 + 8) as u8);
+                }
+                100..=107 => {
+                    self.current_attrs.background = Color::Indexed((codes[index] - 100 + 8) as u8);
+                }
+                38 | 48 => {
+                    if let Some((color, consumed)) = parse_extended_color(&codes[index..]) {
+                        if codes[index] == 38 {
+                            self.current_attrs.foreground = color;
+                        } else {
+                            self.current_attrs.background = color;
+                        }
+                        index += consumed - 1;
+                    }
+                }
+                _ => {}
+            }
+
+            index += 1;
+        }
+    }
+
+    fn set_cursor_mode(&mut self, params: &Params, intermediates: &[u8], action: char) {
+        if intermediates != b"?" {
+            return;
+        }
+
+        for mode in private_mode_params(params) {
+            match mode {
+                6 => {
+                    // DECOM: toggling origin mode homes the cursor to the
+                    // (region-relative when on, screen when off) origin.
+                    self.origin_mode = action == 'h';
+                    self.move_to_origin(1, 1);
+                }
+                25 => {
+                    self.cursor_visible = action == 'h';
+                    self.mark_dirty();
+                }
+                1049 => {
+                    if action == 'h' {
+                        self.enter_alternate_screen();
+                    } else {
+                        self.leave_alternate_screen();
+                    }
+                }
+                2004 => {
+                    self.bracketed_paste = action == 'h';
+                }
+                // Mouse tracking modes (single active mode; later DECSET wins,
+                // any DECRST returns to Off). See `MouseTracking`.
+                9 => self.set_mouse_tracking(MouseTracking::X10, action),
+                1000 => self.set_mouse_tracking(MouseTracking::Normal, action),
+                1002 => self.set_mouse_tracking(MouseTracking::ButtonEvent, action),
+                1003 => self.set_mouse_tracking(MouseTracking::AnyEvent, action),
+                // 1004: focus reporting. DECSET enables, DECRST disables.
+                1004 => self.focus_reporting = action == 'h',
+                // Mouse encoding extensions (single active encoding; later
+                // DECSET wins, any DECRST returns to Default). See `MouseEncoding`.
+                1005 => self.set_mouse_encoding(MouseEncoding::Utf8, action),
+                1006 => self.set_mouse_encoding(MouseEncoding::Sgr, action),
+                1015 => self.set_mouse_encoding(MouseEncoding::Urxvt, action),
+                _ => {}
+            }
+        }
+    }
+
+    fn set_mouse_tracking(&mut self, mode: MouseTracking, action: char) {
+        self.mouse.tracking = if action == 'h' {
+            mode
+        } else {
+            MouseTracking::Off
+        };
+    }
+
+    fn set_mouse_encoding(&mut self, encoding: MouseEncoding, action: char) {
+        self.mouse.encoding = if action == 'h' {
+            encoding
+        } else {
+            MouseEncoding::Default
+        };
+    }
+
+    fn device_attributes(&mut self, params: &Params, intermediates: &[u8]) {
+        if intermediates.is_empty() && param_or(params, 0, 0) == 0 {
+            self.host_output.extend_from_slice(b"\x1b[?1;2c");
+        }
+    }
+
+    /// DSR (ESC [ Ps n): answer the host status queries that line editors rely
+    /// on. `5n` reports "terminal OK" (`ESC [ 0 n`); `6n` reports the cursor
+    /// position as `ESC [ row ; col R` (1-based). Shells such as fish issue
+    /// `6n` to locate the cursor while drawing the completion pager and
+    /// multi-line prompts; without a reply their screen model desyncs and
+    /// completion listings render in the wrong place or fail to refresh. The
+    /// reported row honors origin mode (DECOM): when set, it is relative to the
+    /// scroll-region top, mirroring [`Screen::move_to_origin`]. Private-marker
+    /// (DECDSR, `?`-intermediate) requests are ignored here.
+    fn device_status_report(&mut self, params: &Params, intermediates: &[u8]) {
+        if !intermediates.is_empty() {
+            return;
+        }
+        match param_or(params, 0, 0) {
+            5 => self.host_output.extend_from_slice(b"\x1b[0n"),
+            6 => {
+                let row = if self.origin_mode {
+                    let (top, _) = self.effective_region();
+                    self.cursor.row.saturating_sub(top) + 1
+                } else {
+                    self.cursor.row + 1
+                };
+                let column = self.cursor.column + 1;
+                self.host_output
+                    .extend_from_slice(format!("\x1b[{row};{column}R").as_bytes());
+            }
+            _ => {}
+        }
+    }
+
+    fn save_cursor(&mut self) {
+        self.saved_cursor = Some(SavedCursor {
+            position: self.cursor,
+            pending_wrap: self.pending_wrap,
+        });
+    }
+
+    fn restore_cursor(&mut self) {
+        if let Some(saved_cursor) = self.saved_cursor {
+            self.cursor = Position {
+                row: saved_cursor.position.row.min(self.dimensions.rows - 1),
+                column: saved_cursor
+                    .position
+                    .column
+                    .min(self.dimensions.columns - 1),
+            };
+            self.pending_wrap = saved_cursor.pending_wrap;
+            self.mark_dirty();
+        }
+    }
+
+    fn enter_alternate_screen(&mut self) {
+        if self.primary_screen.is_some() {
+            return;
+        }
+
+        let primary_screen = StoredScreen {
+            rows: std::mem::replace(
+                &mut self.rows,
+                vec![blank_row(self.dimensions.columns); self.dimensions.rows],
+            ),
+            scrollback: std::mem::take(&mut self.scrollback),
+            cursor: self.cursor,
+            pending_wrap: self.pending_wrap,
+            saved_cursor: self.saved_cursor,
+            scroll_region: self.scroll_region,
+            origin_mode: self.origin_mode,
+        };
+
+        self.cursor = Position::default();
+        self.pending_wrap = false;
+        self.saved_cursor = None;
+        self.scroll_region = None;
+        self.origin_mode = false;
+        self.primary_screen = Some(primary_screen);
+        self.mark_dirty();
+    }
+
+    fn leave_alternate_screen(&mut self) {
+        if let Some(primary_screen) = self.primary_screen.take() {
+            self.rows = primary_screen.rows;
+            self.scrollback = primary_screen.scrollback;
+            self.cursor = Position {
+                row: primary_screen.cursor.row.min(self.dimensions.rows - 1),
+                column: primary_screen
+                    .cursor
+                    .column
+                    .min(self.dimensions.columns - 1),
+            };
+            self.pending_wrap = primary_screen.pending_wrap;
+            self.saved_cursor = primary_screen.saved_cursor;
+            self.scroll_region = primary_screen.scroll_region;
+            self.origin_mode = primary_screen.origin_mode;
+            self.mark_dirty();
+        }
+    }
+
+    fn set_scroll_region(&mut self, params: &Params) {
+        let top = param_or(params, 0, 1).saturating_sub(1);
+        let bottom = param_or(params, 1, self.dimensions.rows).saturating_sub(1);
+
+        self.scroll_region = if top < bottom && bottom < self.dimensions.rows {
+            Some(ScrollRegion { top, bottom })
+        } else {
+            None
+        };
+
+        // DECSTBM homes the cursor: to the region top-left when origin mode is
+        // on, otherwise to the screen top-left (consistent with prior behavior).
+        self.move_to_origin(1, 1);
+        self.mark_dirty();
+    }
+
+    /// RIS (ESC c): hard reset. Returns the terminal to its power-on state —
+    /// exits the alternate screen, clears the visible grid and scrollback,
+    /// drops saved cursor / scroll region, resets attributes, cursor
+    /// visibility, bracketed paste and pending wrap, homes the cursor, and
+    /// discards any pending host output.
+    fn hard_reset(&mut self) {
+        self.primary_screen = None;
+        self.rows = vec![blank_row(self.dimensions.columns); self.dimensions.rows];
+        self.scrollback.clear();
+        self.cursor = Position::default();
+        self.cursor_visible = true;
+        self.pending_wrap = false;
+        self.saved_cursor = None;
+        self.scroll_region = None;
+        self.origin_mode = false;
+        self.bracketed_paste = false;
+        self.current_attrs = Attrs::default();
+        self.host_output.clear();
+        self.last_graphic_char = None;
+        // RIS returns mouse reporting to its power-on (off) state. The title is
+        // a persistent window property and is intentionally left untouched.
+        self.mouse = MouseProtocol::default();
+        self.focus_reporting = false;
+        // RIS restores the default every-8 tab stops (DECSTR does not — see
+        // soft_reset).
+        self.tab_stops = default_tab_stops(self.dimensions.columns);
+        self.mark_dirty();
+    }
+
+    /// DECSTR (CSI ! p): soft reset. Resets modes and cursor state without
+    /// touching the visible cells or scrollback. Cursor policy: homed to the
+    /// top-left (documented in tests), matching xterm's DECSTR behaviour.
+    /// Tab stops are deliberately PRESERVED — per the VT220 soft-reset
+    /// definition, DECSTR does not clear tab stops; only RIS does.
+    fn soft_reset(&mut self) {
+        self.cursor = Position::default();
+        self.cursor_visible = true;
+        self.pending_wrap = false;
+        self.saved_cursor = None;
+        self.scroll_region = None;
+        self.origin_mode = false;
+        self.bracketed_paste = false;
+        self.current_attrs = Attrs::default();
+        self.host_output.clear();
+        self.last_graphic_char = None;
+        self.mark_dirty();
+    }
+}
+impl TerminalModel for Screen {
+    fn dimensions(&self) -> Dimensions {
+        self.dimensions()
+    }
+
+    fn cursor(&self) -> Position {
+        self.cursor()
+    }
+
+    fn cell(&self, row: usize, column: usize) -> Option<Cell> {
+        self.cell(row, column)
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        self.snapshot()
+    }
+
+    fn take_dirty(&mut self) -> DirtyRegion {
+        let dirty = self.dirty;
+        self.dirty = DirtyRegion::Clean;
+        dirty
+    }
+}
+impl Perform for Screen {
+    fn print(&mut self, c: char) {
+        self.print_char(c);
+    }
+
+    fn execute(&mut self, byte: u8) {
+        match byte {
+            b'\x08' => self.backspace(),
+            b'\t' => self.tab(),
+            b'\n' | b'\x0b' | b'\x0c' => self.line_feed(),
+            b'\r' => self.carriage_return(),
+            _ => {}
+        }
+    }
+
+    /// OSC handler. Only the title controls (OSC 0/2 set the window title; OSC 1
+    /// sets the icon name, which this model does not surface) are acted on; the
+    /// numeric `vte` splits out as the first parameter selects them. Every other
+    /// OSC (4 palette, 7 cwd, 8 hyperlink, 10/11/12 colors, 52 clipboard, 133
+    /// shell integration, …) is consumed safely here. Because OSC payloads never
+    /// flow through `print`, none of these can leak bytes into the grid.
+    fn osc_dispatch(&mut self, params: &[&[u8]], _bell_terminated: bool) {
+        let Some(&ident) = params.first() else {
+            return;
+        };
+        match ident {
+            // OSC 0 = icon name + window title, OSC 2 = window title.
+            b"0" | b"2" => self.set_title(osc_string(&params[1..])),
+            // OSC 1 = icon name only: consume without touching the window title.
+            b"1" => {}
+            _ => {}
+        }
+    }
+
+    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        if ignore {
+            return;
+        }
+
+        match action {
+            'A' => self.move_up(param_or_one(params, 0)),
+            'B' => self.move_down(param_or_one(params, 0)),
+            'C' => self.move_right(param_or_one(params, 0)),
+            'D' => self.move_left(param_or_one(params, 0)),
+            'G' => self.move_to(self.cursor.row + 1, param_or_one(params, 0)),
+            'H' | 'f' => self.move_to_origin(param_or_one(params, 0), param_or_one(params, 1)),
+            'S' => self.scroll_region_up(param_or_one(params, 0)),
+            'T' => self.scroll_region_down(param_or_one(params, 0)),
+            '@' => self.insert_chars(param_or_one(params, 0)),
+            'b' => self.repeat_char(param_or_one(params, 0)),
+            'J' => self.erase_display(param_or(params, 0, 0)),
+            'K' => self.erase_line(param_or(params, 0, 0)),
+            'L' => self.insert_lines(param_or_one(params, 0)),
+            'M' => self.delete_lines(param_or_one(params, 0)),
+            'P' => self.delete_chars(param_or_one(params, 0)),
+            'X' => self.erase_chars(param_or_one(params, 0)),
+            'c' => self.device_attributes(params, intermediates),
+            'n' => self.device_status_report(params, intermediates),
+            'd' => self.move_to_origin(param_or_one(params, 0), self.cursor.column + 1),
+            'g' => self.clear_tab_stop(param_or(params, 0, 0)),
+            'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
+            'm' => self.apply_sgr(params),
+            'p' if intermediates == b"!" => self.soft_reset(),
+            'r' => self.set_scroll_region(params),
+            's' => self.save_cursor(),
+            'u' => self.restore_cursor(),
+            _ => {}
+        }
+    }
+
+    fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
+        if ignore || !intermediates.is_empty() {
+            return;
+        }
+
+        match byte {
+            b'7' => self.save_cursor(),
+            b'8' => self.restore_cursor(),
+            b'M' => self.reverse_index(),
+            b'c' => self.hard_reset(),
+            b'H' => self.set_tab_stop(),
+            _ => {}
+        }
+    }
+}
+pub struct Terminal {
+    parser: vte::Parser,
+    screen: Screen,
+}
+impl Terminal {
+    pub fn new(columns: usize, rows: usize) -> Self {
+        Self {
+            parser: vte::Parser::new(),
+            screen: Screen::new(columns, rows),
+        }
+    }
+
+    pub fn advance(&mut self, bytes: &[u8]) {
+        self.parser.advance(&mut self.screen, bytes);
+    }
+
+    pub fn resize(&mut self, columns: usize, rows: usize) {
+        self.screen.resize(columns, rows);
+    }
+
+    pub fn take_host_output(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.screen.host_output)
+    }
+
+    pub fn bracketed_paste_enabled(&self) -> bool {
+        self.screen.bracketed_paste_enabled()
+    }
+
+    /// The current window title (OSC 0/2), or `None` if never set.
+    pub fn title(&self) -> Option<&str> {
+        self.screen.title()
+    }
+
+    /// Whether the title changed since the last poll; clears the flag.
+    pub fn take_title_changed(&mut self) -> bool {
+        self.screen.take_title_changed()
+    }
+
+    /// The active mouse reporting protocol (tracking mode + encoding).
+    pub fn mouse_protocol(&self) -> MouseProtocol {
+        self.screen.mouse_protocol()
+    }
+
+    /// Whether DECSET 1004 focus reporting is enabled.
+    pub fn focus_reporting(&self) -> bool {
+        self.screen.focus_reporting()
+    }
+
+    pub fn screen(&self) -> &Screen {
+        &self.screen
+    }
+
+    pub fn snapshot(&self) -> Snapshot {
+        self.screen.snapshot()
+    }
+
+    /// Snapshot the visible grid at a scrollback viewport `offset_rows` (0 ==
+    /// live screen). See [`Screen::snapshot_with_scrollback`] for the offset,
+    /// clamping, cursor, and alternate-screen policy.
+    pub fn snapshot_with_scrollback(&self, offset_rows: usize) -> Snapshot {
+        self.screen.snapshot_with_scrollback(offset_rows)
+    }
+}
+fn blank_row(columns: usize) -> Line {
+    Line::unwrapped(vec![Cell::blank(); columns])
+}
+fn blank_row_with_bg(columns: usize, background: Color) -> Line {
+    Line::unwrapped(vec![Cell::blank_with_bg(background); columns])
+}
+fn default_tab_stops(columns: usize) -> Vec<bool> {
+    let mut stops = vec![false; columns];
+    for column in (8..columns).step_by(8) {
+        stops[column] = true;
+    }
+    stops
+}
+/// Repair wide-character pairs broken by a row-local shift (ICH/DCH). A
+/// wide glyph occupies a lead cell plus a `wide_continuation` spacer; shifting
+/// can orphan either half. Blank any continuation cell whose lead is missing,
+/// and any wide lead whose continuation slot no longer carries the flag
+/// (including a wide lead shifted into the last column with no room to follow).
+fn sanitize_wide_row(row: &mut [Cell], blank: Cell) {
+    let columns = row.len();
+    for index in 0..columns {
+        if row[index].wide_continuation {
+            let lead_ok = index > 0
+                && !row[index - 1].wide_continuation
+                && UnicodeWidthChar::width(row[index - 1].ch) == Some(2);
+            if !lead_ok {
+                row[index] = blank;
+            }
+        } else if UnicodeWidthChar::width(row[index].ch) == Some(2) {
+            let cont_ok = index + 1 < columns && row[index + 1].wide_continuation;
+            if !cont_ok {
+                row[index] = blank;
+            }
+        }
+    }
+}
+fn resize_buffer_rows(
+    rows: &mut Vec<Line>,
+    scrollback: &mut Vec<Line>,
+    dimensions: Dimensions,
+    discard_removed_rows: bool,
+) {
+    for row in rows.iter_mut() {
+        row.resize(dimensions.columns, Cell::blank());
+    }
+
+    if rows.len() > dimensions.rows {
+        let removed = rows.len() - dimensions.rows;
+        if discard_removed_rows {
+            rows.drain(0..removed);
+        } else {
+            scrollback.extend(rows.drain(0..removed));
+        }
+    }
+
+    rows.resize_with(dimensions.rows, || blank_row(dimensions.columns));
+}
+/// A logical line collected from soft-wrapped physical rows, plus the flat
+/// offset of the cursor within it (if the cursor was on one of those rows).
+struct LogicalLine {
+    cells: Vec<Cell>,
+    cursor_offset: Option<usize>,
+}
+/// Reflow the combined `scrollback` + `rows` buffer to `dimensions`, preserving
+/// content by rejoining soft-wrapped rows into logical lines and re-wrapping
+/// them to the new width. Replaces `scrollback` and `rows` in place and returns
+/// the cursor's new visible-grid position.
+///
+/// Policy (bounded first-prototype reflow):
+/// - Logical lines are formed by joining consecutive rows whose [`Line::wrapped`]
+///   marker is set; a hard line break (no marker) ends a logical line.
+/// - Trailing plain blanks are trimmed from each logical line before re-wrapping
+///   (but never past the cursor column), so a cleared-but-tall screen does not
+///   bloat into many blank rows on shrink.
+/// - Wide glyphs are kept whole: a wide pair never straddles the right edge.
+/// - The visible window is the bottom `dimensions.rows` rows of the reflowed
+///   buffer; everything above becomes scrollback. The cursor is mapped to its
+///   character's new location and clamped into the visible grid.
+fn reflow_lines(
+    scrollback: &mut Vec<Line>,
+    rows: &mut Vec<Line>,
+    dimensions: Dimensions,
+    cursor: Position,
+) -> Position {
+    let new_cols = dimensions.columns;
+    let new_rows = dimensions.rows;
+
+    // Combined buffer, oldest first. The cursor's absolute row is its visible
+    // row offset by the current scrollback height.
+    let cursor_abs_row = scrollback.len() + cursor.row;
+    let mut combined: Vec<Line> = Vec::with_capacity(scrollback.len() + rows.len());
+    combined.append(scrollback);
+    combined.append(rows);
+
+    // 1) Segment into logical lines, joining soft-wrapped rows and tracking the
+    //    cursor's flat offset within its logical line.
+    let mut logicals: Vec<LogicalLine> = Vec::new();
+    let mut current: Vec<Cell> = Vec::new();
+    let mut current_cursor: Option<usize> = None;
+    for (idx, line) in combined.iter().enumerate() {
+        if idx == cursor_abs_row {
+            current_cursor = Some(current.len() + cursor.column.min(line.cells.len()));
+        }
+        current.extend(line.cells.iter().copied());
+        if !line.wrapped {
+            logicals.push(LogicalLine {
+                cells: std::mem::take(&mut current),
+                cursor_offset: current_cursor.take(),
+            });
+        }
+    }
+    // Flush a trailing logical line whose last row was still marked wrapped.
+    if !current.is_empty() || current_cursor.is_some() {
+        logicals.push(LogicalLine {
+            cells: current,
+            cursor_offset: current_cursor,
+        });
+    }
+
+    // Drop trailing blank logical lines that are just unused grid padding below
+    // the content/cursor, so a partially-filled screen does not inflate the
+    // reflowed buffer (which would otherwise scroll content off the top). A line
+    // is kept if it holds the cursor or any non-blank cell; interior blank lines
+    // are preserved. (Trailing blank *output* lines collapse here — a bounded,
+    // documented reflow limitation.)
+    let plain = Cell::blank();
+    while logicals.len() > 1 {
+        let last = logicals.last().expect("non-empty");
+        let is_padding =
+            last.cursor_offset.is_none() && last.cells.iter().all(|cell| *cell == plain);
+        if is_padding {
+            logicals.pop();
+        } else {
+            break;
+        }
+    }
+
+    // 2) Re-wrap each logical line to the new width.
+    let mut new_combined: Vec<Line> = Vec::new();
+    let mut cursor_dest: Option<(usize, usize)> = None;
+
+    for logical in &logicals {
+        // Trim trailing plain blanks fully: the cursor is mapped separately
+        // (see below), so trailing blanks never need to be materialized as
+        // extra rows.
+        let mut keep = logical.cells.len();
+        while keep > 0 && logical.cells[keep - 1] == plain {
+            keep -= 1;
+        }
+        let cells = &logical.cells[..keep];
+        // Where the cursor sits within this logical line's content, clamped to
+        // the trimmed length (a cursor past the content lands at end-of-line).
+        let cursor_target = logical.cursor_offset.map(|off| off.min(keep));
+
+        let mut row_cells: Vec<Cell> = Vec::with_capacity(new_cols);
+        let mut produced_any = false;
+        let mut i = 0;
+        while i < cells.len() {
+            let cell = cells[i];
+            let is_wide_lead =
+                !cell.wide_continuation && UnicodeWidthChar::width(cell.ch) == Some(2);
+            // A wide glyph needs two columns; if the grid is too narrow to hold
+            // a pair, degrade it to width 1 (conservative wide-glyph handling).
+            let unit = if is_wide_lead && new_cols >= 2 { 2 } else { 1 };
+
+            // If a wide unit will not fit in the remaining columns, pad the row
+            // and wrap before placing it so the pair stays whole.
+            if unit == 2 && row_cells.len() + unit > new_cols && !row_cells.is_empty() {
+                while row_cells.len() < new_cols {
+                    row_cells.push(plain);
+                }
+                new_combined.push(Line::wrapped(std::mem::take(&mut row_cells)));
+                produced_any = true;
+                row_cells = Vec::with_capacity(new_cols);
+            }
+
+            // Cursor on a content cell: record its destination before placing.
+            if cursor_target == Some(i) {
+                cursor_dest = Some((new_combined.len(), row_cells.len()));
+            }
+
+            if unit == 2 {
+                row_cells.push(cell);
+                let cont = if i + 1 < cells.len() && cells[i + 1].wide_continuation {
+                    cells[i + 1]
+                } else {
+                    Cell::wide_spacer(cell.attrs)
+                };
+                row_cells.push(cont);
+                // Skip a real continuation cell if it followed the lead.
+                i += if i + 1 < cells.len() && cells[i + 1].wide_continuation {
+                    2
+                } else {
+                    1
+                };
+            } else {
+                // Drop an orphaned continuation cell (its lead was degraded).
+                if !cell.wide_continuation {
+                    row_cells.push(cell);
+                }
+                i += 1;
+            }
+
+            if row_cells.len() >= new_cols {
+                new_combined.push(Line::wrapped(std::mem::take(&mut row_cells)));
+                produced_any = true;
+                row_cells = Vec::with_capacity(new_cols);
+            }
+        }
+
+        // Cursor at end-of-content (just past the last char). Map it onto the
+        // last row of this logical line rather than spilling onto a new row, so
+        // a full line keeps the cursor at the right edge (pending-wrap), exactly
+        // as the pre-reflow grid did.
+        if cursor_target == Some(keep) {
+            if !row_cells.is_empty() {
+                // Partial final row: cursor sits just after the last char.
+                cursor_dest = Some((new_combined.len(), row_cells.len().min(new_cols - 1)));
+            } else if produced_any {
+                // The content exactly filled the last (still-wrapped) row.
+                cursor_dest = Some((new_combined.len() - 1, new_cols - 1));
+            } else {
+                // Empty logical line: cursor at the start of the blank row.
+                cursor_dest = Some((new_combined.len(), 0));
+            }
+        }
+
+        if !row_cells.is_empty() || !produced_any {
+            // Final (line-ending) row of this logical line.
+            while row_cells.len() < new_cols {
+                row_cells.push(plain);
+            }
+            new_combined.push(Line::unwrapped(row_cells));
+        } else if let Some(last) = new_combined.last_mut() {
+            // The line ended exactly on a wrap boundary: the last row is the
+            // logical line's terminator, not a continuation.
+            last.wrapped = false;
+        }
+    }
+
+    // 3) Split into scrollback + a bottom-anchored visible window.
+    let total = new_combined.len();
+    let visible_start = total.saturating_sub(new_rows);
+    let new_scrollback: Vec<Line> = new_combined.drain(0..visible_start).collect();
+    let mut visible = new_combined;
+    while visible.len() < new_rows {
+        visible.push(blank_row(new_cols));
+    }
+
+    *scrollback = new_scrollback;
+    *rows = visible;
+
+    match cursor_dest {
+        Some((abs_row, col)) => Position {
+            row: abs_row.saturating_sub(visible_start).min(new_rows - 1),
+            column: col.min(new_cols - 1),
+        },
+        None => Position {
+            row: cursor.row.min(new_rows - 1),
+            column: cursor.column.min(new_cols - 1),
+        },
+    }
+}
+fn clamp_scroll_region(
+    region: Option<ScrollRegion>,
+    dimensions: Dimensions,
+) -> Option<ScrollRegion> {
+    region.and_then(|region| {
+        let top = region.top.min(dimensions.rows - 1);
+        let bottom = region.bottom.min(dimensions.rows - 1);
+        (top < bottom).then_some(ScrollRegion { top, bottom })
+    })
+}
+fn param_or(params: &Params, index: usize, default: usize) -> usize {
+    params
+        .iter()
+        .nth(index)
+        .and_then(|param| param.first())
+        .copied()
+        .map(usize::from)
+        .unwrap_or(default)
+}
+/// Reassemble an OSC string payload (everything after the numeric selector)
+/// into text. `vte` splits the OSC on every `;`, so a title containing a
+/// semicolon arrives as multiple parts; rejoin them with `;` to recover it.
+/// Invalid UTF-8 is replaced rather than rejected so a malformed title can
+/// never panic or desync the parser. An empty payload yields an empty string.
+fn osc_string(parts: &[&[u8]]) -> String {
+    let mut bytes = Vec::new();
+    for (index, part) in parts.iter().enumerate() {
+        if index > 0 {
+            bytes.push(b';');
+        }
+        bytes.extend_from_slice(part);
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+/// Resolve a count/position CSI parameter, applying the ECMA-48 rule that an
+/// omitted *or zero* parameter means 1. `vte` represents an omitted parameter
+/// as an explicit `0` (e.g. `ESC [ A` parses as a single `0` param), so the
+/// plain [`param_or`] with a default of 1 still yields 0 for these controls and
+/// turns a bare cursor move (CUU/CUD/CUF/CUB) into a no-op — the bug behind
+/// fish leaving stale completion rows on screen because its `ESC [ A` failed to
+/// return the cursor to the command line before `ESC [ J`. Use this for
+/// movement and count controls (A/B/C/D, S/T, ICH/IL/DL/DCH/ECH, REP) and for
+/// 1-based position controls (CHA/CUP/VPA). Mode-selector controls such as ED,
+/// EL, SGR, DSR, DA, and tab-clear keep [`param_or`] with a `0` default because
+/// a literal `0` there is a meaningful mode, not a count.
+fn param_or_one(params: &Params, index: usize) -> usize {
+    param_or(params, index, 1).max(1)
+}
+fn private_mode_params(params: &Params) -> impl Iterator<Item = u16> + '_ {
+    params.iter().filter_map(|param| param.first().copied())
+}
+fn sgr_codes(params: &Params) -> Vec<u16> {
+    params
+        .iter()
+        .filter_map(|param| param.first().copied())
+        .filter(|value| ![b'?' as u16, b'>' as u16, b'<' as u16, b'=' as u16].contains(value))
+        .collect()
+}
+fn parse_extended_color(codes: &[u16]) -> Option<(Color, usize)> {
+    match codes {
+        [_, 5, index, ..] => Some((Color::Indexed((*index).min(255) as u8), 3)),
+        [_, 2, red, green, blue, ..] => Some((
+            Color::Rgb(
+                (*red).min(255) as u8,
+                (*green).min(255) as u8,
+                (*blue).min(255) as u8,
+            ),
+            5,
+        )),
+        _ => None,
+    }
+}
