@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Configurable native key bindings
+
+K1 from the Stage 4 daily-driver track. Native terminal-local shortcuts can now
+be rebound through the settings path without changing the bytes applications
+receive from the PTY input encoder.
+
+### What landed
+
+- **Bindable action inventory** — the current terminal-local actions are
+  explicit: search toggle, copy, paste, scrollback page-up, and scrollback
+  page-down. Search's modal editing keys remain internal to the search UI.
+- **`ODYTTY_KEYBINDS`** — comma/semicolon-separated `chord=action` entries parse
+  Ctrl/Shift/Alt/Super modifiers, letters, digits, F-keys, and common named
+  keys. Unset preserves existing defaults exactly; valid entries override one
+  action at a time; invalid entries warn and skip; duplicate chords resolve to
+  the last valid binding.
+- **Native-only dispatch** — rebound local chords are consumed before PTY
+  forwarding just like the old hardcoded shortcuts. The PTY key mapping remains
+  unchanged, including the Ctrl/Alt/Shift-only modifier model used for encoded
+  shell input.
+
+### Verified
+
+- Added parser coverage for valid entries, bad-entry warnings, aliases,
+  duplicate ordering, and empty values.
+- Added native dispatch coverage for default preservation, action-only
+  overrides, Super chords, and duplicate-chord last-wins behavior.
+
+---
+
 ## 2026-06-10 — Lazy scrollback re-wrap on width change (P1-b)
 
 The last open performance hotspot from the Stage 3 profiling: resize was

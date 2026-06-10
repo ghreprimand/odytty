@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex};
 
 use super::app::{App, PendingResize, ResizeDebouncer};
 use super::bindings::{
-    changed_window_title, encode_native_focus_report, encode_native_mouse_report, is_copy_shortcut,
-    is_paste_shortcut, is_scroll_down_key, is_scroll_up_key, map_named_key, map_winit_mouse_button,
-    motion_report_button, wheel_report_button,
+    KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
+    is_copy_shortcut, is_paste_shortcut, is_scroll_down_key, is_scroll_up_key, map_named_key,
+    map_winit_mouse_button, motion_report_button, wheel_report_button,
 };
 use super::clipboard::{ClipboardSlot, selected_clipboard_text, write_paste_text};
 use super::gpu::{
@@ -24,7 +24,10 @@ use crate::grid::{SolidQuad, VERTS_PER_QUAD};
 use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, CellPoint};
-use crate::settings::{DEFAULT_FONT_SIZE_PX, DEFAULT_TEXT_GAMMA, Settings};
+use crate::settings::{
+    BindableAction, DEFAULT_FONT_SIZE_PX, DEFAULT_TEXT_GAMMA, KeyBindingKey, KeyBindingModifiers,
+    KeyBindingOverride, KeyChord, Settings,
+};
 use crate::text::{self, CellSize, FontStyle, GlyphAtlas};
 use crate::theme::{Theme, VisualEffect};
 use std::time::{Duration, Instant};
@@ -787,6 +790,7 @@ fn resize_grid_is_idempotent_and_updates_model() {
         terminal.clone(),
         writer,
         pty.clone(),
+        KeyBindings::default(),
         None,
     );
 
@@ -920,6 +924,140 @@ fn copy_shortcut_requires_ctrl_shift_c() {
             alt: false,
         }
     ));
+}
+
+#[test]
+fn key_bindings_preserve_default_shortcuts_when_unset() {
+    let bindings = KeyBindings::from_overrides(&[]);
+    let ctrl_shift = Modifiers {
+        ctrl: true,
+        shift: true,
+        alt: false,
+    };
+    let shift = Modifiers {
+        ctrl: false,
+        shift: true,
+        alt: false,
+    };
+
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("f".into()), ctrl_shift, false),
+        Some(BindableAction::Search)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("c".into()), ctrl_shift, false),
+        Some(BindableAction::Copy)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("v".into()), ctrl_shift, false),
+        Some(BindableAction::Paste)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Named(NamedKey::PageUp), shift, false),
+        Some(BindableAction::ScrollPageUp)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Named(NamedKey::PageDown), shift, false),
+        Some(BindableAction::ScrollPageDown)
+    );
+}
+
+#[test]
+fn key_bindings_override_only_the_named_action() {
+    let override_ = KeyBindingOverride {
+        chord: KeyChord {
+            modifiers: KeyBindingModifiers {
+                ctrl: true,
+                shift: true,
+                alt: false,
+                super_key: false,
+            },
+            key: KeyBindingKey::Character('y'),
+        },
+        action: BindableAction::Copy,
+    };
+    let bindings = KeyBindings::from_overrides(&[override_]);
+    let ctrl_shift = Modifiers {
+        ctrl: true,
+        shift: true,
+        alt: false,
+    };
+
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("y".into()), ctrl_shift, false),
+        Some(BindableAction::Copy)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("c".into()), ctrl_shift, false),
+        None
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("v".into()), ctrl_shift, false),
+        Some(BindableAction::Paste)
+    );
+}
+
+#[test]
+fn key_bindings_support_super_modifier_without_pty_modifier_changes() {
+    let override_ = KeyBindingOverride {
+        chord: KeyChord {
+            modifiers: KeyBindingModifiers {
+                ctrl: false,
+                shift: false,
+                alt: false,
+                super_key: true,
+            },
+            key: KeyBindingKey::Character('f'),
+        },
+        action: BindableAction::Search,
+    };
+    let bindings = KeyBindings::from_overrides(&[override_]);
+
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("f".into()), Modifiers::default(), true),
+        Some(BindableAction::Search)
+    );
+    assert_eq!(
+        bindings.action_for(
+            &WinitKey::Character("f".into()),
+            Modifiers::default(),
+            false
+        ),
+        None
+    );
+}
+
+#[test]
+fn duplicate_key_binding_chord_uses_last_action() {
+    let chord = KeyChord {
+        modifiers: KeyBindingModifiers {
+            ctrl: true,
+            shift: true,
+            alt: false,
+            super_key: false,
+        },
+        key: KeyBindingKey::Character('y'),
+    };
+    let bindings = KeyBindings::from_overrides(&[
+        KeyBindingOverride {
+            chord,
+            action: BindableAction::Copy,
+        },
+        KeyBindingOverride {
+            chord,
+            action: BindableAction::Paste,
+        },
+    ]);
+    let ctrl_shift = Modifiers {
+        ctrl: true,
+        shift: true,
+        alt: false,
+    };
+
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("y".into()), ctrl_shift, false),
+        Some(BindableAction::Paste)
+    );
 }
 
 #[derive(Clone, Default)]

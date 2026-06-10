@@ -71,6 +71,7 @@ use winit::event_loop::{ControlFlow, EventLoop};
 pub use options::{NativeError, NativeOptions};
 
 use app::App;
+use bindings::KeyBindings;
 use pty::{PtyWriter, UserEvent, spawn_pty_pump};
 
 pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), NativeError> {
@@ -123,6 +124,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         terminal,
         writer,
         session.clone(),
+        KeyBindings::from_overrides(&settings.key_bindings),
         settings.native_autoclose,
     );
     let run_result = event_loop

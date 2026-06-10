@@ -15,7 +15,8 @@ cargo run -- --native
 | `ODYTTY_FONT_SIZE` | Pixel size, clamped to `6.0..=72.0` | `14.0` | Controls native glyph rasterization, cell size, initial window size, and resize grid fitting. Invalid values fall back to `14.0` with one stderr warning. |
 | `ODYTTY_TEXT_GAMMA` | Floating-point gamma, clamped to `0.5..=3.0` | `1.4` | Adjusts glyph coverage in the shader for text weight/contrast. `1.0` is the exact legacy linear blend path. Invalid values fall back to `1.4` with one stderr warning. |
 | `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | Host monospace probe list | Overrides the probed Linux monospace font. A missing or unparseable path no longer aborts startup: it logs one stderr notice and falls back to the probe list. |
-| `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | Host monospace probe list | Selects the regular face by family name or path. The match is validated as monospace; a proportional or unresolved value logs one stderr notice and falls back to the probe list, so a bad value never aborts startup. `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered but not yet rendered (groundwork). |
+| `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | Host monospace probe list | Selects the regular face by family name or path. The match is validated as monospace; a proportional or unresolved value logs one stderr notice and falls back to the probe list, so a bad value never aborts startup. `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered and used for styled text when present, with regular-face fallback. |
+| `ODYTTY_KEYBINDS` | Comma- or semicolon-separated `chord=action` entries | unset | Rebinds native terminal-local actions only. Invalid entries log one stderr warning and are skipped; duplicate chords use the last valid entry. PTY key encoding is unchanged. |
 | `ODYTTY_THEME` | `plain`, `odyssey`, `odyssey-noir` | `plain` | Selects default foreground/background and window clear color. Unknown values fall back to `plain`. |
 | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `off` | Enables or disables the optional presentation-only ambient effect. |
 | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
@@ -32,6 +33,22 @@ cargo run -- --native
 | `Ctrl+Shift+C` | Copy the current selection. |
 | `Ctrl+Shift+V` | Paste clipboard text into the PTY path. |
 | `Shift+PageUp` / `Shift+PageDown` | Move the scrollback viewport when mouse reporting is not using the wheel. |
+
+`ODYTTY_KEYBINDS` accepts chords with `ctrl`, `shift`, `alt`, and `super`
+modifiers plus a key name, separated by `+`. Keys may be letters, digits,
+`f1`-`f24`, or common named keys such as `pageup`, `pagedown`, `home`, `end`,
+`enter`, `esc`, `backspace`, `delete`, `insert`, `tab`, `space`, and arrow
+keys. Actions are `search`, `copy`, `paste`, `scroll-up`, and `scroll-down`.
+Examples:
+
+```sh
+ODYTTY_KEYBINDS="ctrl+shift+y=copy,ctrl+shift+p=paste" cargo run -- --native
+ODYTTY_KEYBINDS="super+f=search;alt+pageup=scroll-up;alt+pagedown=scroll-down" cargo run -- --native
+```
+
+Valid entries override the default chord for that action only. For example,
+rebinding `copy` to `Ctrl+Shift+Y` leaves paste/search/scroll defaults intact
+and frees `Ctrl+Shift+C` to reach the PTY path.
 
 When the search bar is open, keyboard input is consumed by search rather than
 sent to the PTY. Closing search restores the viewport offset that was active
@@ -69,6 +86,12 @@ found or is not monospace):
 
 ```sh
 ODYTTY_FONT_FAMILY="DejaVu Sans Mono" cargo run -- --native
+```
+
+Run with remapped copy/paste shortcuts:
+
+```sh
+ODYTTY_KEYBINDS="ctrl+shift+y=copy,ctrl+shift+p=paste" cargo run -- --native
 ```
 
 Run a non-interactive native lifecycle smoke check:

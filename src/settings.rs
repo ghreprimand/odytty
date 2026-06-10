@@ -17,6 +17,7 @@ pub const FONT_ENV: &str = "ODYTTY_FONT";
 pub const FONT_FAMILY_ENV: &str = "ODYTTY_FONT_FAMILY";
 pub const FONT_SIZE_ENV: &str = "ODYTTY_FONT_SIZE";
 pub const TEXT_GAMMA_ENV: &str = "ODYTTY_TEXT_GAMMA";
+pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 
 pub const DEFAULT_FONT_SIZE_PX: f32 = 14.0;
@@ -25,6 +26,77 @@ pub const MAX_FONT_SIZE_PX: f32 = 72.0;
 pub const DEFAULT_TEXT_GAMMA: f32 = 1.4;
 pub const MIN_TEXT_GAMMA: f32 = 0.5;
 pub const MAX_TEXT_GAMMA: f32 = 3.0;
+
+/// Terminal-local actions that can be rebound without changing PTY input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BindableAction {
+    Search,
+    Copy,
+    Paste,
+    ScrollPageUp,
+    ScrollPageDown,
+}
+
+impl BindableAction {
+    fn parse(raw: &str) -> Option<Self> {
+        match normalize_name(raw).as_str() {
+            "search" | "searchtoggle" | "togglesearch" => Some(Self::Search),
+            "copy" => Some(Self::Copy),
+            "paste" => Some(Self::Paste),
+            "scrollup" | "pageup" | "scrollpageup" | "scrollbackpageup" => Some(Self::ScrollPageUp),
+            "scrolldown" | "pagedown" | "scrollpagedown" | "scrollbackpagedown" => {
+                Some(Self::ScrollPageDown)
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub struct KeyBindingModifiers {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub super_key: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeyBindingKey {
+    Character(char),
+    Named(KeyBindingNamedKey),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeyBindingNamedKey {
+    Enter,
+    Backspace,
+    Escape,
+    Tab,
+    Space,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+    Delete,
+    Insert,
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    F(u8),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct KeyChord {
+    pub modifiers: KeyBindingModifiers,
+    pub key: KeyBindingKey,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct KeyBindingOverride {
+    pub chord: KeyChord,
+    pub action: BindableAction,
+}
 
 /// Typed runtime settings used by the native prototype.
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +107,7 @@ pub struct Settings {
     pub font_family: Option<String>,
     pub font_size_px: f32,
     pub text_gamma: f32,
+    pub key_bindings: Vec<KeyBindingOverride>,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -47,6 +120,7 @@ impl Default for Settings {
             font_family: None,
             font_size_px: DEFAULT_FONT_SIZE_PX,
             text_gamma: DEFAULT_TEXT_GAMMA,
+            key_bindings: Vec::new(),
             native_autoclose: None,
         }
     }
@@ -107,6 +181,7 @@ impl Settings {
         };
         let font_size_px = parse_font_size(get(FONT_SIZE_ENV).as_deref(), &mut warn);
         let text_gamma = parse_text_gamma(get(TEXT_GAMMA_ENV).as_deref(), &mut warn);
+        let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -116,6 +191,7 @@ impl Settings {
             font_family,
             font_size_px,
             text_gamma,
+            key_bindings,
             native_autoclose,
         }
     }
@@ -171,6 +247,114 @@ fn parse_autoclose(raw: Option<&OsStr>) -> Option<Duration> {
     let raw = raw?;
     let ms: u64 = raw.to_string_lossy().trim().parse().ok()?;
     (ms > 0).then_some(Duration::from_millis(ms))
+}
+
+fn parse_key_bindings(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> Vec<KeyBindingOverride> {
+    let Some(raw) = raw else {
+        return Vec::new();
+    };
+    let value = raw.to_string_lossy();
+    value
+        .split([',', ';'])
+        .filter_map(|entry| parse_key_binding_entry(entry, warn))
+        .collect()
+}
+
+fn parse_key_binding_entry(entry: &str, warn: &mut impl FnMut(&str)) -> Option<KeyBindingOverride> {
+    let trimmed = entry.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let Some((chord_raw, action_raw)) = trimmed.split_once('=') else {
+        warn(&format!(
+            "{KEYBINDS_ENV} entry {trimmed:?} is missing '='; skipping"
+        ));
+        return None;
+    };
+    let Some(chord) = parse_key_chord(chord_raw.trim()) else {
+        warn(&format!(
+            "{KEYBINDS_ENV} entry {trimmed:?} has an invalid key chord; skipping"
+        ));
+        return None;
+    };
+    let Some(action) = BindableAction::parse(action_raw.trim()) else {
+        warn(&format!(
+            "{KEYBINDS_ENV} entry {trimmed:?} has an unknown action; skipping"
+        ));
+        return None;
+    };
+    Some(KeyBindingOverride { chord, action })
+}
+
+fn parse_key_chord(raw: &str) -> Option<KeyChord> {
+    let mut modifiers = KeyBindingModifiers::default();
+    let mut key = None;
+    for token in raw
+        .split('+')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        match normalize_name(token).as_str() {
+            "ctrl" | "control" => modifiers.ctrl = true,
+            "shift" => modifiers.shift = true,
+            "alt" | "option" => modifiers.alt = true,
+            "super" | "meta" | "cmd" | "command" | "win" | "windows" => {
+                modifiers.super_key = true;
+            }
+            _ if key.is_none() => key = parse_key_binding_key(token),
+            _ => return None,
+        }
+    }
+    Some(KeyChord {
+        modifiers,
+        key: key?,
+    })
+}
+
+fn parse_key_binding_key(raw: &str) -> Option<KeyBindingKey> {
+    let trimmed = raw.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.len() == 1 {
+        let ch = lower.chars().next()?;
+        if ch.is_ascii_alphanumeric() {
+            return Some(KeyBindingKey::Character(ch));
+        }
+    }
+
+    let named = match normalize_name(trimmed).as_str() {
+        "enter" | "return" => KeyBindingNamedKey::Enter,
+        "backspace" | "bksp" => KeyBindingNamedKey::Backspace,
+        "esc" | "escape" => KeyBindingNamedKey::Escape,
+        "tab" => KeyBindingNamedKey::Tab,
+        "space" | "spacebar" => KeyBindingNamedKey::Space,
+        "pageup" | "pgup" => KeyBindingNamedKey::PageUp,
+        "pagedown" | "pgdn" => KeyBindingNamedKey::PageDown,
+        "home" => KeyBindingNamedKey::Home,
+        "end" => KeyBindingNamedKey::End,
+        "delete" | "del" => KeyBindingNamedKey::Delete,
+        "insert" | "ins" => KeyBindingNamedKey::Insert,
+        "up" | "arrowup" => KeyBindingNamedKey::ArrowUp,
+        "down" | "arrowdown" => KeyBindingNamedKey::ArrowDown,
+        "left" | "arrowleft" => KeyBindingNamedKey::ArrowLeft,
+        "right" | "arrowright" => KeyBindingNamedKey::ArrowRight,
+        f_key if f_key.starts_with('f') => {
+            let number = f_key[1..].parse::<u8>().ok()?;
+            if (1..=24).contains(&number) {
+                KeyBindingNamedKey::F(number)
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+    Some(KeyBindingKey::Named(named))
+}
+
+fn normalize_name(raw: &str) -> String {
+    raw.chars()
+        .filter(|ch| !matches!(ch, '-' | '_' | ' '))
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 #[cfg(test)]
@@ -340,6 +524,95 @@ mod tests {
         let (settings, warnings) = settings_from([(FONT_FAMILY_ENV, "   ")]);
         assert_eq!(settings.font_family, None);
         assert_eq!(settings.font_path, None);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn key_bindings_parse_valid_entries_case_insensitively() {
+        let (settings, warnings) = settings_from([(
+            KEYBINDS_ENV,
+            "ctrl+shift+y=copy; SUPER+F=search, Shift+PageDown=scroll-down",
+        )]);
+
+        assert_eq!(settings.key_bindings.len(), 3);
+        assert_eq!(
+            settings.key_bindings[0],
+            KeyBindingOverride {
+                chord: KeyChord {
+                    modifiers: KeyBindingModifiers {
+                        ctrl: true,
+                        shift: true,
+                        alt: false,
+                        super_key: false,
+                    },
+                    key: KeyBindingKey::Character('y'),
+                },
+                action: BindableAction::Copy,
+            }
+        );
+        assert_eq!(
+            settings.key_bindings[1],
+            KeyBindingOverride {
+                chord: KeyChord {
+                    modifiers: KeyBindingModifiers {
+                        ctrl: false,
+                        shift: false,
+                        alt: false,
+                        super_key: true,
+                    },
+                    key: KeyBindingKey::Character('f'),
+                },
+                action: BindableAction::Search,
+            }
+        );
+        assert_eq!(
+            settings.key_bindings[2].chord.key,
+            KeyBindingKey::Named(KeyBindingNamedKey::PageDown)
+        );
+        assert_eq!(
+            settings.key_bindings[2].action,
+            BindableAction::ScrollPageDown
+        );
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn key_bindings_skip_bad_entries_with_warnings() {
+        let (settings, warnings) = settings_from([(
+            KEYBINDS_ENV,
+            "ctrl+shift=copy,ctrl+shift+f=nope,ctrl+x+z=paste,alt+space=paste",
+        )]);
+
+        assert_eq!(settings.key_bindings.len(), 1);
+        assert_eq!(
+            settings.key_bindings[0].chord.key,
+            KeyBindingKey::Named(KeyBindingNamedKey::Space)
+        );
+        assert_eq!(settings.key_bindings[0].action, BindableAction::Paste);
+        assert_eq!(warnings.len(), 3);
+        assert!(
+            warnings
+                .iter()
+                .all(|warning| warning.contains(KEYBINDS_ENV))
+        );
+    }
+
+    #[test]
+    fn empty_key_bindings_are_ignored_without_warning() {
+        let (settings, warnings) = settings_from([(KEYBINDS_ENV, " , ; ")]);
+
+        assert!(settings.key_bindings.is_empty());
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn duplicate_key_binding_entries_preserve_input_order() {
+        let (settings, warnings) =
+            settings_from([(KEYBINDS_ENV, "ctrl+shift+y=copy,ctrl+shift+y=paste")]);
+
+        assert_eq!(settings.key_bindings.len(), 2);
+        assert_eq!(settings.key_bindings[0].action, BindableAction::Copy);
+        assert_eq!(settings.key_bindings[1].action, BindableAction::Paste);
         assert!(warnings.is_empty());
     }
 }

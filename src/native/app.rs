@@ -9,6 +9,7 @@ use crate::core::{
 use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker};
+use crate::settings::BindableAction;
 use crate::text::{self, CellSize};
 use crate::theme::{Theme, VisualEffect};
 
@@ -21,9 +22,8 @@ use winit::keyboard::NamedKey;
 use winit::window::{Window, WindowId};
 
 use super::bindings::{
-    changed_window_title, encode_native_focus_report, encode_native_mouse_report, is_copy_shortcut,
-    is_paste_shortcut, is_scroll_down_key, is_scroll_up_key, is_search_shortcut, map_named_key,
-    map_winit_mouse_button, motion_report_button, wheel_report_button,
+    KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
+    map_named_key, map_winit_mouse_button, motion_report_button, wheel_report_button,
 };
 use super::clipboard::{NativeClipboard, selected_clipboard_text, write_paste_text};
 use super::gpu::{FrameOutcome, GpuState};
@@ -133,6 +133,11 @@ pub(super) struct App {
     /// delivers modifier changes separately from key events, so this must be
     /// remembered rather than read off each `KeyboardInput`.
     modifiers: Modifiers,
+    /// Native-only Super/Logo modifier state. This is deliberately kept out of
+    /// `input::Modifiers` because Super-based local shortcuts must not affect
+    /// PTY key encoding.
+    super_key: bool,
+    key_bindings: KeyBindings,
     /// Current selection anchored to absolute rows in the
     /// scrollback+visible-screen space. Native owns this UI state; the terminal
     /// core remains unaware of selections and clipboard operations.
@@ -183,6 +188,7 @@ impl App {
         terminal: Arc<Mutex<Terminal>>,
         writer: PtyWriter,
         pty: Arc<Mutex<PtySession>>,
+        key_bindings: KeyBindings,
         autoclose: Option<Duration>,
     ) -> Self {
         let grid = options.initial_grid;
@@ -198,6 +204,8 @@ impl App {
             pty,
             grid,
             modifiers: Modifiers::default(),
+            super_key: false,
+            key_bindings,
             selection: AbsoluteSelectionState::default(),
             pointer_cell: None,
             selecting: false,
@@ -296,7 +304,8 @@ impl App {
     /// without buffering latency.
     fn handle_key_press(&mut self, logical: WinitKey) {
         let mods = self.modifiers;
-        if is_search_shortcut(&logical, mods) {
+        let action = self.key_bindings.action_for(&logical, mods, self.super_key);
+        if action == Some(BindableAction::Search) {
             self.toggle_search();
             return;
         }
@@ -304,23 +313,24 @@ impl App {
             self.handle_search_key(logical);
             return;
         }
-        if is_copy_shortcut(&logical, mods) {
-            self.handle_copy_shortcut();
-            return;
-        }
-        if is_paste_shortcut(&logical, mods) {
-            self.handle_paste_shortcut();
-            return;
-        }
-        // Shift+PageUp/PageDown drive the scrollback viewport rather than the
-        // PTY, so plain (unmodified) PageUp/PageDown still reach the shell/TUI.
-        if is_scroll_up_key(&logical, mods) {
-            self.scroll_viewport(self.page_lines() as isize);
-            return;
-        }
-        if is_scroll_down_key(&logical, mods) {
-            self.scroll_viewport(-(self.page_lines() as isize));
-            return;
+        match action {
+            Some(BindableAction::Copy) => {
+                self.handle_copy_shortcut();
+                return;
+            }
+            Some(BindableAction::Paste) => {
+                self.handle_paste_shortcut();
+                return;
+            }
+            Some(BindableAction::ScrollPageUp) => {
+                self.scroll_viewport(self.page_lines() as isize);
+                return;
+            }
+            Some(BindableAction::ScrollPageDown) => {
+                self.scroll_viewport(-(self.page_lines() as isize));
+                return;
+            }
+            Some(BindableAction::Search) | None => {}
         }
 
         let mut bytes = Vec::new();
@@ -911,6 +921,7 @@ impl ApplicationHandler<UserEvent> for App {
                     alt: state.alt_key(),
                     shift: state.shift_key(),
                 };
+                self.super_key = state.super_key();
             }
             WindowEvent::Focused(focused) => {
                 self.send_focus_report(focused);

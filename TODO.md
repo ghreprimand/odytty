@@ -149,7 +149,13 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] Native right-edge scroll indicator appears when scrolled back, shows
         position/proportion in scrollback+screen, stays hidden at live tail and
         in alternate-screen/live-clamped views, and uses the existing quad path.
-- [ ] Add configurable key bindings after settings are available.
+- [x] Add configurable key bindings after settings are available.
+  - [x] `ODYTTY_KEYBINDS` parses comma/semicolon-separated `chord=action`
+        entries for native terminal-local actions: search, copy, paste,
+        scroll-up, and scroll-down.
+  - [x] Unset preserves today's defaults exactly; valid entries override one
+        action at a time; invalid entries log and skip; duplicate chords use
+        the last valid binding. PTY input mapping remains unchanged.
 - [ ] Add cursor style and blink policy settings.
 - [ ] Add window title and focus behavior.
   - [x] Apply OSC title changes to the native window title.
