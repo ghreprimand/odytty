@@ -111,7 +111,13 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] Core resize fast path (`src/core/reflow.rs`): width-unchanged resize
         skips the per-cell reflow (height-only deep ~16,905 µs → ~58 µs, ~293×),
         proven byte-identical to the full reflow by differential oracle tests.
-        Bounded width-*change* reflow (P1-b) deferred pending a design decision.
+  - [x] Lazy scrollback re-wrap on width change (`src/core/scrollback.rs`, P1-b):
+        scrollback stored as logical lines with a memoized physical projection;
+        resize re-wraps only the trailing lines needed for the new window and
+        defers deep history (re-wrap on access). Width-changed deep resize
+        ~46 ms → ~20 µs (~2300×); height-only deep ~58 µs → ~6.6 µs. Proven
+        byte/coordinate-identical to eager reflow by a 900-scenario differential
+        parity sweep; zero `Snapshot`/`TerminalModel` API change.
 - [ ] Add visual regression screenshots or pixel-level smoke checks where
       practical.
 

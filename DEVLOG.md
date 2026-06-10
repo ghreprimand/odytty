@@ -7,6 +7,51 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Lazy scrollback re-wrap on width change (P1-b)
+
+The last open performance hotspot from the Stage 3 profiling: resize was
+O(total scrollback) because reflow re-wrapped every history line to the new
+width, even history the user never looks at (~46 ms at 50k lines). P1-b makes
+resize re-wrap only what the new window needs and defer the rest.
+
+### What landed
+
+- **Logical-line scrollback** (`src/core/scrollback.rs`) — scrollback is stored
+  as logical lines (soft-wrap runs rejoined) with a memoized physical projection
+  rebuilt only when the width changes. The renderer/search/`scrollback_len`
+  accessors project at the current width through a `RefCell` cache, keeping the
+  public methods `&self` (single-threaded `Terminal` invariant documented). The
+  physical-row absolute-coordinate contract is preserved, so Q1 search and S3
+  selection are untouched.
+- **Bottom-only re-wrap** — `resize_lazy` pulls just the trailing logical lines
+  needed to fill the new window (plus the live grid, and through any trailing
+  blank run for collapse parity) and feeds them to the *unchanged*
+  `reflow_lines` / `resize_keep_width` primitives, so cursor mapping,
+  bottom-anchoring, and trailing-blank collapse are exactly the eager behavior.
+  Deep history stays logical and is re-wrapped lazily the next time it is read
+  (xterm-style re-wrap on access).
+- **Two commits**: C1 introduced the storage seam + the logical projection with
+  its parity suite as a zero-behavior/zero-perf-change foundation; C2 flipped the
+  source of truth to logical and made resize lazy.
+
+### Verified
+
+- `cargo test`: 334 lib + 2 PTY + 10 smoke green; `cargo fmt --check` clean;
+  clippy clean (pre-existing `Color` derive lint only); native autoclose smoke
+  exit 0 at default and `ODYTTY_FONT_SIZE=18`.
+- Differential parity: a 900-scenario sweep (scrollback depth × visible height ×
+  cursor × new width × new height) plus a repeated-resize chain prove the lazy
+  result — visible rows, cursor, full scrollback projection at the new width, and
+  search — is byte/coordinate-identical to eager reflow.
+- `cargo bench --bench perf` (50k scrollback): width-changed deep resize
+  46,086 µs → 20.0 µs (~2300×, near shallow's 12.6 µs); height-only deep
+  58 µs → 6.6 µs; shallow resize, feed throughput, and snapshot unchanged. The
+  one-time projection rebuild on the first scrolled-back read/search after a
+  width change is the option-C re-wrap-on-access tradeoff.
+- Zero `Snapshot` / `TerminalModel` API change.
+
+---
+
 ## 2026-06-10 — Native text attribute rendering
 
 N7 from the Stage 3 text-quality track. The renderer now consumes the styled
