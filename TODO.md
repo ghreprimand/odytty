@@ -91,6 +91,10 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         grow-only GPU vertex buffer remove steady-state vertex-buffer
         allocation/recreation, and resize debounce coalesces drag bursts before
         core reflow + PTY winsize while still applying the final size exactly.
+  - [x] Core resize fast path (`src/core/reflow.rs`): width-unchanged resize
+        skips the per-cell reflow (height-only deep ~16,905 µs → ~58 µs, ~293×),
+        proven byte-identical to the full reflow by differential oracle tests.
+        Bounded width-*change* reflow (P1-b) deferred pending a design decision.
 - [ ] Add visual regression screenshots or pixel-level smoke checks where
       practical.
 

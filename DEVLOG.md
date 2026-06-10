@@ -7,6 +7,48 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Resize fast path: width-unchanged reflow + reflow module
+
+P1-a from the P1 perf findings. A width-unchanged resize was re-wrapping the
+entire scrollback even though the column count never changed — ~16,905 µs/op at
+50k-line scrollback. Since re-wrapping at the same width reproduces the identical
+physical rows, the new fast path skips the per-cell reflow entirely.
+
+### What landed
+
+- **`resize_keep_width`** (`src/core/reflow.rs`) — when the column count is
+  unchanged, re-window and re-cursor at O(rows) row moves instead of O(cells)
+  copies. It performs exactly the three observable transforms the full reflow
+  does at unchanged width: collapse trailing blank logical lines, bottom-anchor
+  the visible window, and snap the cursor column to its row's trimmed content.
+  Used for the primary screen and the stored primary behind the alternate screen.
+- **`src/core/reflow.rs`** — `reflow_lines`, `resize_keep_width`,
+  `resize_buffer_rows`, and `LogicalLine` extracted from `screen.rs`
+  (1775 → 1457 lines) per the modularity directive; `Line`/`blank_row` widened to
+  `pub(in crate::core)` for the sibling module.
+
+### Verified
+
+- **`cargo bench --bench perf`**: width-unchanged (height-only) deep resize
+  **16,904.9 µs/op → 57.8 µs/op (~293×)**. Width-changed deep (~46 ms) and
+  shallow (~7.8 µs) unchanged — no regression.
+- **Parity**: 10 differential oracle tests run both `reflow_lines` and
+  `resize_keep_width` on identical clones and assert byte-identical
+  scrollback/rows/cursor across fresh, content+trailing-blank, cursor-on-blank,
+  cursor-on-trimmed-content, soft-wrapped, deep-scrollback, all-blank, interior-
+  blank, single-row, and far-bottom-shrink states over a sweep of target heights.
+- 286 lib + 2 integration + 10 smoke pass; `cargo fmt`/clippy clean; native smoke
+  exit 0 at default and `ODYTTY_FONT_SIZE=18`.
+
+### Deferred
+
+- P1-b (bounded width-*change* reflow): every lossless bounded option requires a
+  behavior change (history drop / stale wrap of scrolled-back lines / lazy-rewrap
+  architecture) that interacts with scrollback search and selection, so it is a
+  separate design decision rather than part of this fast-path packet.
+
+---
+
 ## 2026-06-10 — Native render-loop perf: vertex reuse and resize debounce
 
 This packet applies the native-side mitigations from the P1 findings: reduce
