@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Performance profiling harness (evidence)
+
+Stage 3 evidence packet: a headless benchmark harness through the owned terminal
+model, plus a findings doc with ranked optimization proposals. Measure first —
+no optimization landed in this packet.
+
+### What landed
+
+- **`benches/perf.rs`** — dependency-free (`harness = false`, registered in
+  `Cargo.toml`, excluded from `cargo test`). Run with `cargo bench --bench perf`.
+  Workloads: feed throughput (seq, plain ASCII, heavy SGR, scroll-region churn,
+  full repaint), per-frame cost (`snapshot()`, `snapshot_with_scrollback()`,
+  `build_vertices()`, combined redraw), and resize/reflow with deep vs shallow
+  vs height-only scrollback.
+
+### Findings (headline)
+
+- **Resize/reflow is O(total scrollback)** — ~46 ms/op at 50k lines vs ~8 µs
+  with shallow scrollback, and ~17 ms even when width is unchanged (no re-wrap
+  needed). The dominant hotspot; a window drag at any real scrollback depth
+  hitches.
+- **`build_vertices` is the per-frame hotspot** — ~96 µs, 56× `snapshot()`,
+  rebuilding all geometry every frame because dirty tracking is all-or-nothing.
+- **Feed throughput is healthy** (135–270 MB/s); `snapshot()` (1.7 µs) and
+  dirty tracking are cheap.
+
+### Verified
+
+- 266 lib + 2 integration + 10 smoke tests pass; the bench is absent from
+  `cargo test`. `cargo fmt` clean; clippy clean (incl. the bench) except the
+  pre-existing core derive lint. Ranked proposals (resize fast path, bounded
+  reflow, vertex-buffer reuse, region dirty) captured for future packets.
+
+---
+
 ## 2026-06-10 — Shader text gamma and contrast
 
 Stage 3 text quality now includes a native shader-side coverage correction for

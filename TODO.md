@@ -82,7 +82,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         glyph geometry for true beyond-cell overflow.
 - [ ] Render text attributes cleanly at multiple sizes: bold, dim, italic,
       underline, strikethrough, inverse, cursor, and selection.
-- [ ] Profile redraw, scrolling, resize, and large-output performance.
+- [x] Profile redraw, scrolling, resize, and large-output performance.
+  - [x] Headless `cargo bench --bench perf` harness (evidence-only). Hotspots:
+        resize/reflow is O(total scrollback) (~46 ms at 50k lines; ~17 ms even
+        width-unchanged), `build_vertices` per-frame (~96 µs, 56× snapshot).
+        Optimization packets ranked in findings; none landed yet.
 - [ ] Add visual regression screenshots or pixel-level smoke checks where
       practical.
 
