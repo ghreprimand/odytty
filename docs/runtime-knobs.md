@@ -13,6 +13,7 @@ cargo run -- --native
 | Variable | Values | Default | Notes |
 | --- | --- | --- | --- |
 | `ODYTTY_FONT_SIZE` | Pixel size, clamped to `6.0..=72.0` | `14.0` | Controls native glyph rasterization, cell size, initial window size, and resize grid fitting. Invalid values fall back to `14.0` with one stderr warning. |
+| `ODYTTY_TEXT_GAMMA` | Floating-point gamma, clamped to `0.5..=3.0` | `1.4` | Adjusts glyph coverage in the shader for text weight/contrast. `1.0` is the exact legacy linear blend path. Invalid values fall back to `1.4` with one stderr warning. |
 | `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | Host monospace probe list | Overrides the probed Linux monospace font. |
 | `ODYTTY_THEME` | `plain`, `odyssey`, `odyssey-noir` | `plain` | Selects default foreground/background and window clear color. Unknown values fall back to `plain`. |
 | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `off` | Enables or disables the optional presentation-only ambient effect. |
@@ -42,6 +43,12 @@ Run with larger text:
 
 ```sh
 ODYTTY_FONT_SIZE=18 cargo run -- --native
+```
+
+Run with the legacy text coverage blend:
+
+```sh
+ODYTTY_TEXT_GAMMA=1.0 cargo run -- --native
 ```
 
 Run with an Odyssey theme and ambient visual treatment:

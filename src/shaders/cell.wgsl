@@ -12,6 +12,9 @@ struct Viewport {
     // effect a no-op), y = scanline period in physical pixels. Presentation
     // only; never affects glyph coverage or terminal contents.
     effect: vec2<f32>,
+    // Text rendering params: x = glyph coverage gamma. A value of 1.0 makes
+    // coverage correction exactly the legacy linear blend path.
+    text: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> viewport: Viewport;
@@ -51,7 +54,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         // Glyphs are never touched by the ambient effect: text stays crisp and
         // full-contrast regardless of the visual setting.
         let coverage = textureSample(atlas_tex, atlas_sampler, in.uv).r;
-        return vec4<f32>(in.color.rgb, in.color.a * coverage);
+        let gamma = max(viewport.text.x, 0.0001);
+        var corrected = coverage;
+        if (gamma != 1.0) {
+            corrected = pow(coverage, 1.0 / gamma);
+        }
+        return vec4<f32>(in.color.rgb, in.color.a * corrected);
     }
 
     // Background fill. When the ambient wash is enabled (strength > 0) apply a

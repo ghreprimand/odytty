@@ -7,6 +7,56 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Shader text gamma and contrast
+
+Stage 3 text quality now includes a native shader-side coverage correction for
+glyph blending. The atlas still stores linear R8 coverage; the GPU adjusts that
+coverage immediately before compositing foreground glyph quads over cell
+background quads.
+
+### What landed
+
+- **`ODYTTY_TEXT_GAMMA` setting** — new runtime knob parsed through
+  `Settings`, clamped to `0.5..=3.0`, and passed into `NativeOptions`. Invalid
+  values fall back to the default with one warning.
+- **Default `1.4`** — chosen from the low end of the R2 finding's recommended
+  `1.4..=1.8` starting range. It gives light-on-dark text more perceptual
+  weight without jumping to the heavier end of the range.
+- **Exact legacy escape hatch** — `ODYTTY_TEXT_GAMMA=1.0` takes an explicit
+  shader branch that uses raw atlas coverage, preserving the previous linear
+  blend path instead of relying on `pow(coverage, 1.0)` backend behavior.
+- **Uniform plumbing** — the cell shader uniform now packs surface size,
+  optional visual-effect params, and text params in one 32-byte buffer. Glyphs
+  apply `pow(coverage, 1.0 / gamma)` before straight-alpha compositing; ambient
+  scanlines still affect backgrounds only.
+
+### Verified
+
+- Added settings tests for parse/default/invalid/clamp behavior and native
+  tests for settings propagation, text-param packing, `1.0` legacy value, and
+  the 32-byte uniform layout.
+- `cargo test` passes (`271` lib tests passed, `1` ignored; PTY smoke `2`
+  passed; transcript smoke `10` passed, `1` ignored).
+- `cargo fmt --check` passes.
+- Native autoclose smoke exits 0 at default settings, with
+  `ODYTTY_FONT_SIZE=18`, and with `ODYTTY_TEXT_GAMMA=1.0`.
+
+### Manual observation
+
+- Full-screen Wayland screenshots were captured for default gamma and
+  `ODYTTY_TEXT_GAMMA=1.0`. On the dark OdyTTY prompt, the `1.4` default appears
+  slightly fuller/brighter than the legacy path without changing cell layout.
+  This was a short visual check, not a long operator comfort pass.
+
+### Known gaps
+
+- This does not add subpixel AA. R2 recommends keeping that as a later optional
+  packet because it needs RGB coverage, dual-source blending, and per-monitor
+  gating.
+- True beyond-cell glyph overflow still needs future bearing-aware geometry.
+
+---
+
 ## 2026-06-10 — Rasterization quality: baseline, rounding, padding gutter
 
 Stage 3 raster-quality work on the glyph atlas (`src/atlas.rs`), all CPU-side:

@@ -29,15 +29,22 @@ pub(super) fn effect_params(visual: VisualEffect) -> [f32; 2] {
     [visual.scanline_strength(), visual.scanline_period_px()]
 }
 
+/// Pack the glyph coverage correction into the shader uniform. A gamma of
+/// `1.0` makes `pow(coverage, 1.0 / gamma)` exactly the old linear coverage.
+pub(super) fn text_params(text_gamma: f32) -> [f32; 4] {
+    [text_gamma, 0.0, 0.0, 0.0]
+}
+
 /// Viewport uniform mirroring `Viewport` in `cell.wgsl`: physical surface size
-/// in pixels plus the ambient-effect params (strength, period_px) filling the
-/// 16-byte std140 slot. `effect` is `[0.0, _]` when the visual treatment is off,
-/// which makes the shader a no-op.
+/// in pixels plus presentation-only params. `effect` is `[0.0, _]` when the
+/// visual treatment is off, which makes the shader a no-op. `text.x` is glyph
+/// coverage gamma; `1.0` preserves the legacy linear blend exactly.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct ViewportUniform {
     size: [f32; 2],
     effect: [f32; 2],
+    text: [f32; 4],
 }
 
 fn create_atlas_texture(
@@ -139,6 +146,8 @@ pub(super) struct GpuState {
     /// Ambient-effect uniform params `[strength, period_px]` ([0,_] == off).
     /// Re-written into the viewport uniform on every resize/reconfigure.
     effect: [f32; 2],
+    /// Glyph coverage gamma uniform. `1.0` is the exact legacy output path.
+    text: [f32; 4],
     // Kept alive for the lifetime of the bind group; never read directly.
     atlas_texture: wgpu::Texture,
     atlas_sampler: wgpu::Sampler,
@@ -158,6 +167,7 @@ impl GpuState {
         visual: VisualEffect,
     ) -> Result<Self, NativeError> {
         let effect = effect_params(visual);
+        let text = text_params(options.text_gamma);
         let size = window.inner_size();
         let scale = window.scale_factor() as f32;
         // No display handle is supplied here: the default Linux backend is
@@ -231,6 +241,7 @@ impl GpuState {
             contents: bytemuck::bytes_of(&ViewportUniform {
                 size: [config.width as f32, config.height as f32],
                 effect,
+                text,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -369,6 +380,7 @@ impl GpuState {
             font,
             clear_color: theme_clear_color(&theme),
             effect,
+            text,
             atlas_texture,
             atlas_sampler,
         })
@@ -417,6 +429,7 @@ impl GpuState {
             bytemuck::bytes_of(&ViewportUniform {
                 size: [self.config.width as f32, self.config.height as f32],
                 effect: self.effect,
+                text: self.text,
             }),
         );
     }

@@ -9,7 +9,9 @@ use super::bindings::{
     motion_report_button, wheel_report_button,
 };
 use super::clipboard::{ClipboardSlot, selected_clipboard_text, write_paste_text};
-use super::gpu::{ViewportUniform, effect_params, ensure_snapshot_glyphs, theme_clear_color};
+use super::gpu::{
+    ViewportUniform, effect_params, ensure_snapshot_glyphs, text_params, theme_clear_color,
+};
 use super::options::NativeOptions;
 use super::pty::PtyWriter;
 use super::viewport::{Viewport, grid_dimensions_for, wheel_lines};
@@ -20,7 +22,7 @@ use crate::core::{
 use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, CellPoint};
-use crate::settings::{DEFAULT_FONT_SIZE_PX, Settings};
+use crate::settings::{DEFAULT_FONT_SIZE_PX, DEFAULT_TEXT_GAMMA, Settings};
 use crate::text::{self, CellSize, GlyphAtlas};
 use crate::theme::{Theme, VisualEffect};
 use winit::dpi::PhysicalPosition;
@@ -311,6 +313,7 @@ fn default_options_are_linux_first_monospace() {
     assert_eq!(options.font_family, "monospace");
     assert_eq!(options.font_path, None);
     assert_eq!(options.font_size_px, DEFAULT_FONT_SIZE_PX);
+    assert_eq!(options.text_gamma, DEFAULT_TEXT_GAMMA);
     assert_eq!(options.title, "OdyTTY");
 }
 
@@ -319,12 +322,14 @@ fn options_apply_runtime_font_settings() {
     let settings = Settings {
         font_path: Some(PathBuf::from("/tmp/ody.ttf")),
         font_size_px: 21.0,
+        text_gamma: 1.25,
         ..Settings::default()
     };
     let options = NativeOptions::from_settings(&settings);
 
     assert_eq!(options.font_path, Some(PathBuf::from("/tmp/ody.ttf")));
     assert_eq!(options.font_size_px, 21.0);
+    assert_eq!(options.text_gamma, 1.25);
     assert_eq!(options.initial_grid, NativeOptions::default().initial_grid);
 }
 
@@ -398,9 +403,22 @@ fn effect_params_ambient_is_subtle_and_enabled() {
 }
 
 #[test]
-fn viewport_uniform_is_sixteen_bytes() {
-    // std140 slot: vec2 size + vec2 effect == 16 bytes, matching cell.wgsl.
-    assert_eq!(std::mem::size_of::<ViewportUniform>(), 16);
+fn text_params_legacy_gamma_preserves_linear_coverage() {
+    let params = text_params(1.0);
+    assert_eq!(params, [1.0, 0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn text_params_pack_default_gamma() {
+    let params = text_params(DEFAULT_TEXT_GAMMA);
+    assert_eq!(params[0], DEFAULT_TEXT_GAMMA);
+    assert_eq!(&params[1..], &[0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn viewport_uniform_is_thirty_two_bytes() {
+    // WGSL uniform: vec2 size + vec2 effect + vec4 text params.
+    assert_eq!(std::mem::size_of::<ViewportUniform>(), 32);
 }
 
 #[test]
