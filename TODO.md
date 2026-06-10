@@ -74,8 +74,15 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 
 ## Stage 4: Daily-Driver Interaction
 
-- [ ] Refine selection: double-click word, line selection, drag beyond viewport,
+- [x] Refine selection: double-click word, line selection, drag beyond viewport,
       and scrollback-aware ranges.
+  - [x] Double-click selects words using alphanumeric plus `_`, `.`, `/`, `-`,
+        and `~` as word characters.
+  - [x] Triple-click selects the full line.
+  - [x] Dragging in top/bottom edge bands scrolls the viewport at a bounded
+        rate while extending selection.
+  - [x] Selection anchors use absolute scrollback rows and project into the
+        current viewport for highlight/copy.
 - [ ] Improve clipboard behavior, including large paste behavior, diagnostics,
       and primary selection if appropriate.
 - [ ] Add search in scrollback.

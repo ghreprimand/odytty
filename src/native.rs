@@ -66,7 +66,7 @@ use crate::grid::{self, Vertex};
 use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 use crate::render::CellMetrics;
-use crate::selection::{self, CellPoint, SelectionState};
+use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker};
 use crate::settings::{DEFAULT_FONT_SIZE_PX, Settings};
 use crate::text::{self, CellSize, GlyphAtlas};
 use crate::theme::{Theme, VisualEffect};
@@ -812,6 +812,8 @@ enum FrameOutcome {
 
 /// How many rows a single mouse-wheel notch scrolls the viewport.
 const WHEEL_STEP_LINES: usize = 3;
+/// Minimum delay between drag-edge autoscroll steps.
+const SELECTION_AUTOSCROLL_INTERVAL: Duration = Duration::from_millis(80);
 
 /// Native-side scrollback viewport state.
 ///
@@ -832,6 +834,7 @@ impl Viewport {
     }
 
     /// Whether the viewport is at the live bottom (offset 0).
+    #[cfg(test)]
     fn is_live(self) -> bool {
         self.offset == 0
     }
@@ -940,15 +943,21 @@ struct App {
     /// delivers modifier changes separately from key events, so this must be
     /// remembered rather than read off each `KeyboardInput`.
     modifiers: Modifiers,
-    /// Current visible-cell selection. Native owns this UI state; the terminal
+    /// Current selection anchored to absolute rows in the
+    /// scrollback+visible-screen space. Native owns this UI state; the terminal
     /// core remains unaware of selections and clipboard operations.
-    selection: SelectionState,
+    selection: AbsoluteSelectionState,
     /// Most recent pointer position mapped to a terminal cell. `winit` mouse
     /// button events do not carry coordinates, so press/release use this cached
     /// cell from the latest cursor movement.
     pointer_cell: Option<CellPoint>,
     /// Whether the left mouse button is currently extending a selection.
     selecting: bool,
+    /// Same-cell click counter for double-click word and triple-click line
+    /// selection.
+    clicks: ClickTracker,
+    /// Last bounded drag-edge autoscroll step while extending a selection.
+    last_selection_autoscroll: Option<Instant>,
     /// Button currently held for host mouse reporting. Kept separate from local
     /// selection so TUI mouse mode can suppress selection without losing drag
     /// reports.
@@ -991,9 +1000,11 @@ impl App {
             pty,
             grid,
             modifiers: Modifiers::default(),
-            selection: SelectionState::default(),
+            selection: AbsoluteSelectionState::default(),
             pointer_cell: None,
             selecting: false,
+            clicks: ClickTracker::default(),
+            last_selection_autoscroll: None,
             report_button: None,
             viewport: Viewport::default(),
             last_scrollback_len: 0,
@@ -1116,8 +1127,18 @@ impl App {
             return;
         };
         let text = {
-            let snapshot = self.terminal.lock().expect("terminal mutex").snapshot();
-            selected_clipboard_text(&snapshot, range)
+            let terminal = self.terminal.lock().expect("terminal mutex");
+            let scrollback_len = terminal.screen().scrollback_len();
+            let Some(visible_range) = selection::visible_range_from_absolute(
+                range,
+                self.viewport.offset(),
+                scrollback_len,
+                self.grid,
+            ) else {
+                return;
+            };
+            let snapshot = terminal.snapshot_with_scrollback(self.viewport.offset());
+            selected_clipboard_text(&snapshot, visible_range)
         };
         let Some(text) = text else { return };
         let _ = self.clipboard.write_text(text.as_str());
@@ -1226,11 +1247,14 @@ impl App {
         let point = selection::cell_at_physical(x_px, y_px, cell, self.grid);
         self.pointer_cell = Some(point);
         if self.selecting {
-            self.selection.update(point);
-            self.needs_rebuild = true;
-            if let Some(window) = self.window.as_ref() {
-                window.request_redraw();
-            }
+            self.autoscroll_selection_if_needed(y_px, cell);
+            let scrollback_len = self.scrollback_len();
+            self.selection.update(selection::visible_to_absolute(
+                point,
+                self.viewport.offset(),
+                scrollback_len,
+            ));
+            self.request_selection_redraw();
         } else if self.should_report_mouse_to_pty() || self.report_button.is_some() {
             self.send_mouse_motion_report();
         }
@@ -1240,12 +1264,90 @@ impl App {
         let Some(point) = self.pointer_cell else {
             return;
         };
-        self.selection.begin(point);
+        match self.clicks.register_click(point, Instant::now()) {
+            1 => self.begin_drag_selection(point),
+            2 => self.select_word(point),
+            _ => self.select_line(point),
+        }
+    }
+
+    fn begin_drag_selection(&mut self, point: CellPoint) {
+        let scrollback_len = self.scrollback_len();
+        self.selection.begin(selection::visible_to_absolute(
+            point,
+            self.viewport.offset(),
+            scrollback_len,
+        ));
         self.selecting = true;
+        self.last_selection_autoscroll = None;
+        self.request_selection_redraw();
+    }
+
+    fn select_word(&mut self, point: CellPoint) {
+        let (snapshot, scrollback_len) = self.selection_snapshot();
+        let Some(range) = selection::word_range_at(&snapshot, point) else {
+            self.selection.clear();
+            self.selecting = false;
+            self.request_selection_redraw();
+            return;
+        };
+
+        self.selection
+            .set_range(selection::absolute_range_from_visible(
+                range,
+                self.viewport.offset(),
+                scrollback_len,
+            ));
+        self.selecting = false;
+        self.request_selection_redraw();
+    }
+
+    fn select_line(&mut self, point: CellPoint) {
+        let scrollback_len = self.scrollback_len();
+        let Some(range) = selection::line_range_at(point, self.grid) else {
+            return;
+        };
+
+        self.selection
+            .set_range(selection::absolute_range_from_visible(
+                range,
+                self.viewport.offset(),
+                scrollback_len,
+            ));
+        self.selecting = false;
+        self.request_selection_redraw();
+    }
+
+    fn request_selection_redraw(&mut self) {
         self.needs_rebuild = true;
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
+    }
+
+    fn selection_snapshot(&self) -> (Snapshot, usize) {
+        let terminal = self.terminal.lock().expect("terminal mutex");
+        (
+            terminal.snapshot_with_scrollback(self.viewport.offset()),
+            terminal.screen().scrollback_len(),
+        )
+    }
+
+    fn autoscroll_selection_if_needed(&mut self, y_px: f64, cell: CellSize) {
+        let delta = selection::drag_autoscroll_delta(y_px, cell, self.grid);
+        if delta == 0 {
+            return;
+        }
+
+        let now = Instant::now();
+        if self
+            .last_selection_autoscroll
+            .is_some_and(|last| now.saturating_duration_since(last) < SELECTION_AUTOSCROLL_INTERVAL)
+        {
+            return;
+        }
+        self.last_selection_autoscroll = Some(now);
+        self.scroll_viewport(delta);
     }
 
     fn finish_selection(&mut self) {
@@ -1253,10 +1355,8 @@ impl App {
             return;
         }
         self.selecting = false;
-        self.needs_rebuild = true;
-        if let Some(window) = self.window.as_ref() {
-            window.request_redraw();
-        }
+        self.last_selection_autoscroll = None;
+        self.request_selection_redraw();
     }
 
     /// Number of rows a Shift+PageUp/PageDown press scrolls: one screenful less
@@ -1275,9 +1375,9 @@ impl App {
     }
 
     /// Adjust the scrollback viewport. `delta > 0` pages up into history,
-    /// `delta < 0` pages toward the live bottom. A change clears any selection
-    /// (visible-grid ranges are ambiguous across a viewport shift) and asks for
-    /// a redraw; with no scrollback this is a clamped no-op (never panics).
+    /// `delta < 0` pages toward the live bottom. Selections are stored against
+    /// absolute rows, so moving the viewport keeps their anchors meaningful.
+    /// With no scrollback this is a clamped no-op (never panics).
     fn scroll_viewport(&mut self, delta: isize) {
         let changed = match delta.cmp(&0) {
             std::cmp::Ordering::Greater => self
@@ -1299,11 +1399,10 @@ impl App {
         }
     }
 
-    /// Shared side effects of a viewport offset change: drop any selection,
-    /// cancel an in-progress drag, and request one rebuild/redraw.
+    /// Shared side effects of a viewport offset change: keep absolute
+    /// selections intact and request one rebuild/redraw so their visible
+    /// intersection is recomputed.
     fn on_viewport_changed(&mut self) {
-        self.selection.clear();
-        self.selecting = false;
         self.needs_rebuild = true;
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
@@ -1464,6 +1563,7 @@ impl ApplicationHandler<UserEvent> for App {
                 {
                     self.selection.clear();
                     self.selecting = false;
+                    self.last_selection_autoscroll = None;
                     self.report_button = None;
                     self.pointer_cell = None;
                     // Reflow changes the row/scrollback layout; return to the
@@ -1482,7 +1582,7 @@ impl ApplicationHandler<UserEvent> for App {
                 // pump wakes coalesced into this frame. Snapshot under the lock,
                 // then drop it before touching the GPU.
                 if self.needs_rebuild {
-                    let mut snapshot = {
+                    let (mut snapshot, scrollback_len) = {
                         let terminal = self.terminal.lock().expect("terminal mutex");
                         let scrollback_len = terminal.screen().scrollback_len();
                         // "Stay scrolled": as new output grows scrollback while
@@ -1493,15 +1593,20 @@ impl ApplicationHandler<UserEvent> for App {
                         self.viewport.anchor_after_growth(added, scrollback_len);
                         self.last_scrollback_len = scrollback_len;
                         self.viewport.clamp(scrollback_len);
-                        terminal.snapshot_with_scrollback(self.viewport.offset())
+                        (
+                            terminal.snapshot_with_scrollback(self.viewport.offset()),
+                            scrollback_len,
+                        )
                     };
-                    // Selection highlighting only applies to the live viewport;
-                    // a viewport change clears selection, so this is just
-                    // belt-and-suspenders for the offset-0 case.
-                    if self.viewport.is_live()
-                        && let Some(range) = self.selection.range()
+                    if let Some(range) = self.selection.range()
+                        && let Some(visible_range) = selection::visible_range_from_absolute(
+                            range,
+                            self.viewport.offset(),
+                            scrollback_len,
+                            self.grid,
+                        )
                     {
-                        selection::apply_highlight(&mut snapshot, range);
+                        selection::apply_highlight(&mut snapshot, visible_range);
                     }
                     if let Some(gpu) = self.gpu.as_mut() {
                         gpu.update_from_snapshot(&snapshot);

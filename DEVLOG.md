@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Selection refinement and scrollback-aware ranges
+
+Stage 4 daily-driver interaction now has richer native selection behavior:
+double-click word selection, triple-click line selection, drag-edge viewport
+scrolling, and selection anchors stored against absolute scrollback rows.
+
+### What landed
+
+- **Click selection** — same-cell clicks within 500 ms are counted. Single click
+  starts the normal drag selection, double-click selects the word under the
+  pointer, and triple-click selects the full line.
+- **Word boundary policy** — word selection includes alphanumeric characters
+  plus `_`, `.`, `/`, `-`, and `~`, matching common shell/path fragments such as
+  `./src/foo-bar~`.
+- **Scrollback-aware ranges** — native selection anchors are stored as absolute
+  rows in the current scrollback+screen space, then projected into the current
+  viewport for highlight/copy. Moving the viewport no longer discards an
+  existing selection; resize/reflow still clears it because row identity changes.
+- **Drag autoscroll** — dragging in the top or bottom cell-height band scrolls
+  the viewport at a bounded 80 ms cadence while preserving the selection
+  anchor/focus in absolute rows.
+
+### Verified
+
+- Headless native tests cover word-boundary detection, click-count reset rules,
+  absolute-row projection, visible-to-absolute conversion, and drag autoscroll
+  edge bands. Full verification is recorded with the local S3 commit.
+
+---
+
 ## 2026-06-10 — Native hover motion and focus reporting wiring
 
 The native front end now consumes the C3 core mouse/focus additions. Any-event
