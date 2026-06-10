@@ -6,8 +6,12 @@ map of what a serious OdyTTY product would need if the prototype continues to
 justify itself.
 
 The core rule stays the same: terminal correctness, readable text, predictable
-input, and stable performance outrank visual novelty. Odyssey-specific visuals
-should make the terminal feel more intentional and alive without weakening trust.
+input, and stable performance outrank visual novelty. At the same time, visual
+quality is a defining pillar of the product, not decoration. OdyTTY treats the
+visible rendering capability of the strongest modern GPU terminals as a floor
+to reach and then exceed within its own identity. Odyssey-specific visuals
+should make the terminal feel more intentional and alive without weakening
+trust.
 
 ## Current Baseline
 
@@ -68,9 +72,10 @@ Acceptance target:
 ## Stage 3: High-Quality Text And Rendering
 
 Text quality should be a major product pillar, not a minor renderer detail.
-Ghostty sets a strong modern baseline: text feels sharp, stable, well-spaced,
-and pleasant for long sessions. OdyTTY should aim to meet that baseline first
-and then explore whether it can feel even better within its own visual identity.
+Ghostty sets the strongest modern baseline: text feels sharp, stable,
+well-spaced, and pleasant for long sessions. For OdyTTY that baseline is the
+floor, not the finish line. Meet it first, then keep pushing wherever
+measurable rendering quality allows.
 
 The goal is not to copy Ghostty's implementation. The goal is to hold OdyTTY to
 the same user-visible standard: text should look professionally rendered at
@@ -100,6 +105,8 @@ Acceptance target:
 
 - Text is sharp and comfortable at the default size and at several configured
   sizes.
+- Side-by-side comparison against reference terminals shows no visible text
+  quality deficit at common sizes and scale factors.
 - Dense colored shell output and basic TUIs remain readable.
 - Renderer performance remains stable under large output and scrollback.
 - Visual effects never reduce glyph contrast or text clarity unless explicitly
@@ -138,6 +145,11 @@ Focus:
 - Config file format and path.
 - Defaults, validation, and diagnostics.
 - Theme, font, cursor, shell, shortcut, window, and effect settings.
+- Live reload of config changes where the renderer already has rebuild seams
+  (the scale-agnostic atlas rebuild path was built to support a live font
+  change, for example); settings that cannot reload live should say so clearly.
+- CLI introspection helpers such as listing themes, fonts, and the effective
+  config, once there is enough surface to introspect.
 - Profile support once the basic config model is reliable.
 - Precedence rules: built-in defaults, config file, environment, command-line
   overrides.
@@ -147,15 +159,31 @@ Acceptance target:
 - Users can configure OdyTTY without recompiling or relying on ad hoc env vars.
 - Bad config is recoverable and clearly reported.
 
-## Stage 6: Odyssey Visual Layer
+## Stage 6: Visual Capability Parity And The Odyssey Layer
 
-Develop the visual identity after the terminal is trustworthy. Effects must stay
-optional, measurable, and isolated from correctness.
+This stage is the project's thesis test. Stages 1 through 5 build a competent
+terminal; Stage 6 is where OdyTTY must become visually distinctive without
+weakening what was built. The work has two halves, in order: capability parity,
+then identity. Parity means OdyTTY can render what the leading GPU terminals
+render, at the same visible quality. Identity means using that capability to
+look and feel like OdyTTY rather than a generic terminal.
 
-Focus:
+Focus, parity half:
+
+- Close remaining text-rendering gaps against reference terminals found by
+  side-by-side comparison.
+- Ligatures and stylistic sets behind settings, following the recorded shaping
+  decision and its trigger conditions.
+- Subpixel anti-aliasing strategy where the display stack benefits from it.
+- Image and graphics protocol support (Kitty graphics protocol, Sixel) so
+  modern TUI media workflows render natively.
+- Extend visual regression coverage to every parity feature as it lands.
+
+Focus, identity half:
 
 - Theme presets that work with terminal colors rather than fighting them.
 - Better baseline and Odyssey palettes.
+- Cursor, selection, and window chrome treatments distinctive to OdysseyOS.
 - Optional background treatments and subtle motion only after frame timing is
   measured.
 - Strict off switches for every effect.
@@ -163,6 +191,9 @@ Focus:
 
 Acceptance target:
 
+- A user comparing OdyTTY side by side with the leading GPU terminals finds no
+  visual capability it lacks, and at least one respect in which it clearly
+  looks or feels better.
 - OdyTTY has a recognizable visual identity while remaining readable and fast.
 - A plain baseline remains available and tested.
 
@@ -174,6 +205,7 @@ Focus:
 
 - Tabs.
 - Panes.
+- Multi-window.
 - Sessions.
 - Profiles.
 - Session restore.
@@ -233,6 +265,16 @@ Acceptance target:
 - Experimental features build on a reliable terminal instead of compensating for
   an unreliable one.
 
+## Open Architectural Questions
+
+Named here so they get decided deliberately rather than by default:
+
+- Embeddable core: whether the terminal core should eventually be exposed as a
+  reusable library with a stable embedding interface (in the spirit of
+  libghostty), or remain application-internal. The existing core/render
+  separation keeps the option open; there is no commitment in either direction
+  yet, and no current work should depend on one.
+
 ## Near-Term Recommendation
 
 The next active plan should cover stages 1 through 4:
@@ -244,3 +286,7 @@ The next active plan should cover stages 1 through 4:
 
 Tabs, panes, profiles, plugins, AI features, heavy effects, packaging, and broad
 cross-platform work should remain deferred until this foundation is stronger.
+
+Stages 1 through 4 are the table stakes that make the rest safe to attempt.
+Stage 6 is where the project's central question gets answered, and the
+foundation work should be judged by how well it sets that stage up.

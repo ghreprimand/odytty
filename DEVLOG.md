@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Roadmap checkpoint: visual capability parity framing
+
+A comparison of OdyTTY against Ghostty's current feature surface prompted a
+roadmap revision (`docs/full-build-roadmap.md`). No code changes.
+
+- **Stage 6 reframed** as "Visual Capability Parity And The Odyssey Layer" with
+  two ordered halves: parity (render what the leading GPU terminals render, at
+  the same visible quality — ligatures per the recorded shaping decision,
+  subpixel AA strategy, Kitty graphics protocol + Sixel image support, visual
+  regression coverage for each), then identity (themes, palettes, distinctive
+  cursor/selection/chrome treatments, bounded effects). The stage's acceptance
+  now includes a side-by-side standard: no missing visual capability, and at
+  least one respect in which OdyTTY clearly looks or feels better.
+- **Stage 3 acceptance tightened**: the reference-terminal baseline is a floor,
+  with side-by-side comparison as the test.
+- **Stage 5 gains** live config reload (the scale-agnostic atlas rebuild seam
+  from H1 was built to support this) and CLI introspection helpers.
+- **Stage 7 gains** multi-window, previously implied but unnamed.
+- **New "Open Architectural Questions" section** records the embeddable-core
+  question (libghostty-style reusable core vs. application-internal) as
+  deliberately undecided rather than absent.
+
+Previously unmapped gaps vs. Ghostty — image protocols, embeddability, live
+reload, CLI helpers, multi-window — are now all either scheduled or explicitly
+held as open questions.
+
 ## 2026-06-10 — Pixel-level smoke checks (V1)
 
 V1 closes the last unstarted Stage 3 item ("visual regression / pixel-level
