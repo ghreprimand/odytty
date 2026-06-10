@@ -248,24 +248,20 @@ pub(super) struct GpuState {
     /// Fonts used to populate the atlas dynamic region for regular and styled
     /// glyphs. Missing style faces intentionally fall back to the regular font.
     fonts: StyleFonts,
-    // The three fields below back the HiDPI rescale seam. They are read only by
-    // `set_scale`/`set_font_px`, which H2 (GPT) wires into the `ScaleFactorChanged`
-    // handler after this lands; until then the compiler sees them as unread.
-    // H2 removes these `allow(dead_code)` markers when it wires the seam.
+    // The three fields below back the live HiDPI rescale seam. `ScaleFactorChanged`
+    // updates `scale`, derives a new physical atlas size from `font_size_px`, and
+    // keeps `physical_px` idempotent across repeated events.
     /// Logical (unscaled) font size in pixels. Retained so a scale-factor change
     /// can re-derive the physical rasterization size; a future live
     /// `ODYTTY_FONT_SIZE` reload would update this then call [`Self::set_font_px`].
-    #[allow(dead_code)]
     font_size_px: f32,
     /// Current window scale factor, clamped to `>= 1.0` (see [`physical_font_px`]).
     /// Retained so a repeated `ScaleFactorChanged` carrying an unchanged value is
     /// a cheap no-op instead of a needless atlas rebuild.
-    #[allow(dead_code)]
     scale: f32,
     /// Physical pixel size the atlas is currently rasterized at
     /// (`physical_font_px(font_size_px, scale)`). Tracked so [`Self::set_font_px`]
     /// is idempotent on an unchanged size.
-    #[allow(dead_code)]
     physical_px: f32,
     /// Surface clear color from the active theme (linear RGBA).
     clear_color: wgpu::Color,
@@ -532,15 +528,11 @@ impl GpuState {
     /// The current per-cell pixel metrics. These change when the atlas is
     /// rebuilt at a new scale, so callers that derive grid dimensions from the
     /// cell size must re-read this after [`Self::set_scale`] reports a rebuild.
-    /// (Consumed by H2's resize handler; unused until then.)
-    #[allow(dead_code)]
     pub(super) fn cell(&self) -> crate::atlas::CellSize {
         self.atlas.cell
     }
 
     /// The clamped scale factor the atlas is currently rasterized for.
-    /// (Consumed by H2's resize handler; unused until then.)
-    #[allow(dead_code)]
     pub(super) fn scale(&self) -> f32 {
         self.scale
     }
@@ -554,10 +546,6 @@ impl GpuState {
     /// [`physical_font_px`]). Returns `true` when a rebuild occurred so the
     /// caller can republish [`Self::cell`] (cell metrics scale with density) and
     /// rebuild its grid geometry.
-    ///
-    /// H2 (GPT) calls this from the `ScaleFactorChanged` handler; unused until
-    /// then, so it carries `allow(dead_code)` which H2 removes when wiring.
-    #[allow(dead_code)]
     pub(super) fn set_scale(&mut self, scale: f32) -> bool {
         let clamped = scale.max(1.0);
         if (clamped - self.scale).abs() < f32::EPSILON {

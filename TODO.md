@@ -74,8 +74,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         documented `>= 1.0` clamp; `set_scale`/`set_font_px` rebuild the atlas,
         texture, and bind group and republish `atlas.cell` (reusable for a
         future live font-size reload). Invalidation is by construction (fresh
-        build, empty dynamic region). No event wiring yet.
-  - [ ] H2: wire `set_scale` into a `ScaleFactorChanged` handler (native).
+        build, empty dynamic region).
+  - [x] H2: native `ScaleFactorChanged` wiring acknowledges the physical inner
+        size, drives `GpuState::set_scale`, re-reads rebuilt cell metrics, and
+        feeds the existing debounced grid/PTY resize reset path. Headless tests
+        cover debounce, metric recompute, and repeated-scale no-ops.
   - [ ] H3: manual cross-scale validation matrix (operator session).
 - [ ] Improve glyph atlas management, including cache growth, invalidation, and
       missing-glyph behavior.

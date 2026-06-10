@@ -2,7 +2,9 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use super::app::{App, PendingResize, ResizeDebouncer};
+use super::app::{
+    App, PendingResize, ResizeDebouncer, pending_resize_for_surface, scale_factor_changed,
+};
 use super::bindings::{
     KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
     is_copy_shortcut, is_paste_shortcut, is_scroll_down_key, is_scroll_up_key, map_named_key,
@@ -33,7 +35,7 @@ use crate::settings::{
 use crate::text::{self, CellSize, FontStyle, GlyphAtlas};
 use crate::theme::{Theme, VisualEffect};
 use std::time::{Duration, Instant};
-use winit::dpi::PhysicalPosition;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{MouseButton as WinitMouseButton, MouseScrollDelta};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
@@ -256,6 +258,63 @@ fn resize_debounce_allows_bounded_immediate_apply_after_interval() {
     assert_eq!(debounce.record(first, t0), Some(first));
     assert_eq!(debounce.record(later, t0 + interval), Some(later));
     assert_eq!(debounce.deadline(), None);
+}
+
+#[test]
+fn scale_debounce_applies_first_then_latest_cell_metrics_at_deadline() {
+    let interval = Duration::from_millis(40);
+    let mut debounce = ResizeDebouncer::new(interval);
+    let t0 = Instant::now();
+    let size = PhysicalSize::new(800, 600);
+    let first = pending_resize_for_surface(cell(8, 16), size);
+    let second = pending_resize_for_surface(cell(10, 20), size);
+    let final_resize = pending_resize_for_surface(cell(12, 24), size);
+
+    assert_eq!(debounce.record(first, t0), Some(first));
+    assert_eq!(debounce.deadline(), None);
+    assert_eq!(
+        debounce.record(second, t0 + Duration::from_millis(10)),
+        None
+    );
+    assert_eq!(
+        debounce.record(final_resize, t0 + Duration::from_millis(20)),
+        None
+    );
+
+    assert_eq!(debounce.take_due(t0 + Duration::from_millis(39)), None);
+    assert_eq!(debounce.take_due(t0 + interval), Some(final_resize));
+    assert_eq!(debounce.deadline(), None);
+}
+
+#[test]
+fn scale_resize_recomputes_grid_from_rebuilt_cell_metrics() {
+    let size = PhysicalSize::new(800, 600);
+    let one_x = pending_resize_for_surface(cell(8, 16), size);
+    let two_x = pending_resize_for_surface(cell(16, 32), size);
+
+    assert_eq!(
+        grid_dimensions_for(one_x.width_px, one_x.height_px, one_x.cell),
+        Dimensions {
+            columns: 100,
+            rows: 37
+        }
+    );
+    assert_eq!(
+        grid_dimensions_for(two_x.width_px, two_x.height_px, two_x.cell),
+        Dimensions {
+            columns: 50,
+            rows: 18
+        }
+    );
+}
+
+#[test]
+fn repeated_scale_factor_is_noop_after_clamp() {
+    assert!(!scale_factor_changed(1.25, 1.25));
+    assert!(!scale_factor_changed(1.0, 0.75));
+    assert!(!scale_factor_changed(0.75, 1.0));
+    assert!(scale_factor_changed(1.0, 1.5));
+    assert!(scale_factor_changed(1.5, 2.0));
 }
 
 #[test]

@@ -14,7 +14,7 @@ use crate::text::{self, CellSize};
 use crate::theme::{Theme, VisualEffect};
 
 use winit::application::ApplicationHandler;
-use winit::dpi::LogicalSize;
+use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::Key as WinitKey;
@@ -42,6 +42,18 @@ pub(super) struct PendingResize {
     pub(super) cell: CellSize,
     pub(super) width_px: u32,
     pub(super) height_px: u32,
+}
+
+pub(super) fn pending_resize_for_surface(cell: CellSize, size: PhysicalSize<u32>) -> PendingResize {
+    PendingResize {
+        cell,
+        width_px: size.width,
+        height_px: size.height,
+    }
+}
+
+pub(super) fn scale_factor_changed(current: f32, next: f32) -> bool {
+    (next.max(1.0) - current.max(1.0)).abs() >= f32::EPSILON
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -340,6 +352,12 @@ impl App {
             self.search.reset_for_reflow();
             self.search_restore_viewport = None;
             self.needs_rebuild = true;
+        }
+    }
+
+    fn record_pending_resize(&mut self, resize: PendingResize, now: Instant) {
+        if let Some(due) = self.resize_debounce.record(resize, now) {
+            self.apply_grid_resize(due);
         }
     }
 
@@ -681,7 +699,7 @@ impl App {
     }
 
     fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
-        let Some(cell) = self.gpu.as_ref().map(|gpu| gpu.atlas.cell) else {
+        let Some(cell) = self.gpu.as_ref().map(GpuState::cell) else {
             return;
         };
         let point = selection::cell_at_physical(x_px, y_px, cell, self.grid);
@@ -915,17 +933,39 @@ impl ApplicationHandler<UserEvent> for App {
                 // are debounced so drag bursts do not reflow on every event.
                 let resize = self.gpu.as_mut().map(|gpu| {
                     gpu.resize(size.width, size.height);
-                    PendingResize {
-                        cell: gpu.atlas.cell,
-                        width_px: size.width,
-                        height_px: size.height,
-                    }
+                    pending_resize_for_surface(gpu.cell(), size)
                 });
 
-                if let Some(resize) = resize
-                    && let Some(due) = self.resize_debounce.record(resize, Instant::now())
-                {
-                    self.apply_grid_resize(due);
+                if let Some(resize) = resize {
+                    self.record_pending_resize(resize, Instant::now());
+                }
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+                self.update_control_flow_deadline(event_loop);
+            }
+            WindowEvent::ScaleFactorChanged {
+                scale_factor,
+                mut inner_size_writer,
+            } => {
+                let size = self
+                    .window
+                    .as_ref()
+                    .map(|window| window.inner_size())
+                    .unwrap_or_else(|| PhysicalSize::new(0, 0));
+                let _ = inner_size_writer.request_inner_size(size);
+
+                let resize = self.gpu.as_mut().and_then(|gpu| {
+                    gpu.resize(size.width, size.height);
+                    let scale = scale_factor as f32;
+                    if !scale_factor_changed(gpu.scale(), scale) || !gpu.set_scale(scale) {
+                        return None;
+                    }
+                    Some(pending_resize_for_surface(gpu.cell(), size))
+                });
+
+                if let Some(resize) = resize {
+                    self.record_pending_resize(resize, Instant::now());
                 }
                 if let Some(window) = self.window.as_ref() {
                     window.request_redraw();
@@ -990,7 +1030,7 @@ impl ApplicationHandler<UserEvent> for App {
                             self.viewport.offset(),
                             scrollback_len,
                             self.grid,
-                            gpu.atlas.cell,
+                            gpu.cell(),
                             color,
                         )
                     });
@@ -1073,7 +1113,7 @@ impl ApplicationHandler<UserEvent> for App {
                     return;
                 }
 
-                let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.atlas.cell.height);
+                let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
                 let lines = wheel_lines(delta, cell_height);
                 if lines != 0 {
                     self.scroll_viewport(lines);

@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Live scale-factor resize wiring (H2)
+
+H2 connects the H1 atlas rescale seam to native `winit` scale-factor events.
+Moving the window across displays or changing compositor scale now re-rasterizes
+the atlas at the new physical density, re-reads the resulting cell metrics, and
+feeds the existing grid/PTY resize path.
+
+### What landed
+
+- **ScaleFactorChanged handler** — native acknowledges `inner_size_writer` with
+  the current physical inner size, reconfigures the surface, calls
+  `GpuState::set_scale`, and only republishes grid metrics when the atlas
+  actually rebuilt.
+- **Shared resize semantics** — scale-driven grid changes use the same debounced
+  `apply_grid_resize` path as window resizes, so selection, search, pointer
+  state, viewport, rebuild flags, and PTY winsize reset consistently.
+- **Idempotent repeated events** — unchanged/clamped scale values are ignored
+  before reaching the rebuild path; scale bursts keep the first immediate apply
+  and the latest pending resize at the debounce deadline.
+- **H1 cleanup** — the temporary dead-code markers on the retained scale state
+  and scale/cell accessors are gone now that the seam is wired.
+
+### Verification
+
+- Headless tests cover scale-burst debounce, grid recompute from changed cell
+  metrics, and repeated-scale no-ops.
+- Live multi-monitor and fractional-scale behavior cannot be verified in the
+  headless runner; H3 remains queued for an operator manual matrix across window
+  sizes and monitor scale factors.
+
+---
+
 ## 2026-06-10 — Scale-agnostic atlas re-raster seam (H1)
 
 H1 is the render-stack half of HiDPI scale handling (Stage 3). It does not wire
