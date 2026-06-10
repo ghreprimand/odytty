@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Native hover motion and focus reporting wiring
+
+The native front end now consumes the C3 core mouse/focus additions. Any-event
+mouse tracking sends true no-button hover motion, and windows emit focus-in/out
+reports to PTY apps only when DECSET 1004 has enabled them.
+
+### What landed
+
+- **Any-event hover** — native pointer motion with no held mouse button now uses
+  `MouseButton::NoButton` instead of the N1 placeholder left-button report when
+  tracking mode 1003 is active. Button-held motion still reports the held
+  button, and non-any-event modes do not emit no-button hover.
+- **Focus reporting** — `WindowEvent::Focused(true/false)` is translated through
+  `encode_focus_event(terminal.focus_reporting(), focused)` and written to the
+  PTY. The core encoder gates output, so focus changes are silent unless the app
+  requested mode 1004.
+- **Tests** — native unit seams cover no-button hover fallback selection and
+  focus-report gating/direction through the terminal state.
+
+### Verified
+
+- Targeted native tests pass; full verification is recorded with the local N2
+  commit.
+
+---
+
 ## 2026-06-10 — Any-event hover motion and focus reporting
 
 Stage 2 mouse hardening. The core mouse encoder now produces correct no-button

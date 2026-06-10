@@ -60,7 +60,7 @@ use arboard::Clipboard;
 use crate::core::{
     Dimensions, MouseButton as CoreMouseButton, MouseEventKind,
     MouseModifiers as CoreMouseModifiers, MouseProtocol, MouseTracking, Snapshot, Terminal,
-    encode_mouse_event,
+    encode_focus_event, encode_mouse_event,
 };
 use crate::grid::{self, Vertex};
 use crate::input::{self, Key, Modifiers};
@@ -359,6 +359,19 @@ fn encode_native_mouse_report(
         point.row + 1,
         core_mouse_modifiers(mods),
     )
+}
+
+fn motion_report_button(
+    protocol: MouseProtocol,
+    held_button: Option<CoreMouseButton>,
+) -> Option<CoreMouseButton> {
+    held_button.or_else(|| {
+        (protocol.tracking == MouseTracking::AnyEvent).then_some(CoreMouseButton::NoButton)
+    })
+}
+
+fn encode_native_focus_report(terminal: &Terminal, focused: bool) -> Option<Vec<u8>> {
+    encode_focus_event(terminal.focus_reporting(), focused)
 }
 
 fn wheel_report_button(delta: MouseScrollDelta) -> Option<CoreMouseButton> {
@@ -1165,12 +1178,23 @@ impl App {
 
     fn send_mouse_motion_report(&mut self) {
         let protocol = self.mouse_protocol();
-        let Some(button) = self.report_button.or_else(|| {
-            (protocol.tracking == MouseTracking::AnyEvent).then_some(CoreMouseButton::Left)
-        }) else {
+        let Some(button) = motion_report_button(protocol, self.report_button) else {
             return;
         };
         let _ = self.send_mouse_report(button, MouseEventKind::Motion);
+    }
+
+    fn send_focus_report(&mut self, focused: bool) {
+        let Some(bytes) = self
+            .terminal
+            .lock()
+            .ok()
+            .and_then(|terminal| encode_native_focus_report(&terminal, focused))
+        else {
+            return;
+        };
+
+        self.write_pty_bytes(&bytes);
     }
 
     fn handle_reported_mouse_input(&mut self, state: ElementState, button: CoreMouseButton) {
@@ -1503,6 +1527,9 @@ impl ApplicationHandler<UserEvent> for App {
                     alt: state.alt_key(),
                     shift: state.shift_key(),
                 };
+            }
+            WindowEvent::Focused(focused) => {
+                self.send_focus_report(focused);
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.update_pointer_cell(position.x, position.y);
@@ -1921,6 +1948,49 @@ mod tests {
             .as_deref(),
             Some(b"\x1b[<24;10;5M".as_slice())
         );
+    }
+
+    #[test]
+    fn any_event_hover_motion_uses_no_button_when_no_button_is_held() {
+        let any_event = MouseProtocol {
+            tracking: MouseTracking::AnyEvent,
+            encoding: crate::core::MouseEncoding::Sgr,
+        };
+        let button_event = MouseProtocol {
+            tracking: MouseTracking::ButtonEvent,
+            encoding: crate::core::MouseEncoding::Sgr,
+        };
+
+        assert_eq!(
+            motion_report_button(any_event, None),
+            Some(CoreMouseButton::NoButton)
+        );
+        assert_eq!(
+            motion_report_button(any_event, Some(CoreMouseButton::Left)),
+            Some(CoreMouseButton::Left)
+        );
+        assert_eq!(motion_report_button(button_event, None), None);
+    }
+
+    #[test]
+    fn native_focus_reports_follow_terminal_focus_mode() {
+        let mut terminal = Terminal::new(10, 2);
+
+        assert_eq!(encode_native_focus_report(&terminal, true), None);
+        assert_eq!(encode_native_focus_report(&terminal, false), None);
+
+        terminal.advance(b"\x1b[?1004h");
+        assert_eq!(
+            encode_native_focus_report(&terminal, true).as_deref(),
+            Some(b"\x1b[I".as_slice())
+        );
+        assert_eq!(
+            encode_native_focus_report(&terminal, false).as_deref(),
+            Some(b"\x1b[O".as_slice())
+        );
+
+        terminal.advance(b"\x1b[?1004l");
+        assert_eq!(encode_native_focus_report(&terminal, true), None);
     }
 
     #[test]

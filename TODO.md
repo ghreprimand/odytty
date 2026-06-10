@@ -29,14 +29,16 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] Core: OSC 0/2 window-title capture with dirty flag; unknown OSC payloads
         consumed (no grid leakage).
   - [x] Native: apply changed OSC window titles to the `winit` window.
-- [ ] Add mouse reporting modes required by real TUIs.
+- [x] Add mouse reporting modes required by real TUIs.
   - [x] Core: DECSET/DECRST tracking (9/1000/1002/1003) and encoding
         (1005/1006/1015) state plus pure report encoders.
   - [x] Native: route press/release/motion/wheel events through the active mouse
         protocol, with Shift reserved for local selection/scrollback.
   - [x] Core: any-event (1003) no-button hover motion encoding (legacy/SGR/
         urxvt/UTF-8); 1002 still drops no-button motion. Focus reporting (1004)
-        state + ESC[I/ESC[O encoders. Native emit pending.
+        state + ESC[I/ESC[O encoders.
+  - [x] Native: emit no-button hover motion for any-event tracking and send
+        focus-in/out reports to the PTY when 1004 is enabled.
 - [ ] Harden alternate-screen behavior with editors, pagers, and full-screen
       apps.
   - [x] PTY smoke: real `less` and `vim` enter alternate screen, accept basic
@@ -82,6 +84,7 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 - [ ] Add cursor style and blink policy settings.
 - [ ] Add window title and focus behavior.
   - [x] Apply OSC title changes to the native window title.
+  - [x] Emit DECSET 1004 focus-in/out reports from native window focus events.
 - [ ] Improve mouse and keyboard interaction in TUI apps.
   - [x] Emit native mouse reports to PTY apps when DECSET mouse tracking is
         active.
