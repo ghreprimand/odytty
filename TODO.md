@@ -8,9 +8,23 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 ## Stage 4.5: Foundation Ownership
 
 - [ ] Replace the `vte` parser with an OdyTTY-owned DEC ANSI state machine.
-  - [ ] PA1: parser skeleton with ground/escape/CSI/OSC states, mid-stream
+  - [x] PA1: parser skeleton with ground/escape/CSI/OSC states, mid-stream
         UTF-8 decoding, an OdyTTY dispatch trait, and a differential oracle
         harness against the existing fixture corpus.
+    - [x] `src/parser/` ships dark: `OdyParser` (14-state DEC ANSI machine,
+          split-codepoint UTF-8, 32-slot param cap with saturating accumulate,
+          2-byte intermediate cap), an owned `Params`, and a `VtDispatch` trait
+          mirroring the core's `vte::Perform` shape plus first-class
+          `apc_dispatch` (the capability `vte` never surfaces).
+    - [x] Core seam additive + zero behaviour change: shared `dispatch_*`
+          helpers; live `impl Perform` (vte) and dark `impl VtDispatch`
+          (OdyParser) both delegate; `Terminal` still drives `vte`.
+    - [x] Differential oracle asserts byte-identical Screen state (snapshot at
+          every offset + cursor + style/blink + modes + title + host output)
+          across the corpus fed whole and at every byte split, plus SGR storms,
+          excess intermediates, value saturation, invalid/split UTF-8, DCS, and
+          APC-invisibility. The one intended divergence (APC surfacing) is
+          documented and Screen-invisible.
   - [ ] PA2: edge-case hardening for C1 controls, cancel/abort semantics,
         parameter limits, OSC terminators, DCS/APC plumbing, malformed UTF-8,
         and fuzzing.

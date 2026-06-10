@@ -7,6 +7,67 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — OdyTTY-owned VT parser skeleton + vte differential oracle (PA1)
+
+First Foundation-Ownership packet on the parser side. OdyTTY now has its own DEC
+ANSI escape-sequence parser, `src/parser/`, shipping **dark** behind a
+differential oracle. `vte` remains the live production parser this packet; the
+owned parser is proven byte-for-byte equivalent before it ever goes live.
+
+### What landed
+
+- **`src/parser/` module** — an OdyTTY-owned VT parser:
+  - `VtDispatch` trait mirroring the callback shape the core already implements
+    for `vte` (`print`/`execute`/`csi`/`esc`/`osc` + DCS `hook`/`put`/`unhook`),
+    plus a first-class `apc_dispatch`. APC (`ESC _ … ST`) is the capability
+    `vte` never surfaces and the whole reason OdyTTY owns its byte path — the
+    Kitty graphics protocol consumes it on owned plumbing in a later packet.
+  - `OdyParser` — the 14-state DEC ANSI state machine (ground, escape,
+    escape-intermediate, CSI entry/param/intermediate/ignore, DCS
+    entry/param/intermediate/passthrough/ignore, OSC, SOS/PM/APC), with
+    mid-stream UTF-8 decoding that completes codepoints split across `advance()`
+    calls, parameter accumulation with saturating arithmetic + a 32-slot cap,
+    and intermediate collection with a 2-byte cap.
+  - Owned `Params` container (colon subparams, semicolon groups) with a
+    `from_vte` bridge for the transition.
+
+- **Core seam (additive, zero behaviour change).** The private CSI/SGR/mode
+  dispatch helpers now operate on the owned `Params`; shared `dispatch_*`
+  methods hold the exact prior logic. The live `impl Perform` converts
+  `vte::Params` and delegates; a new `impl VtDispatch` (the dark path) delegates
+  directly. `Terminal` still drives `vte` — the production byte path is
+  untouched.
+
+- **Differential oracle** (`src/core/parser_oracle_tests.rs`). Feeds identical
+  byte streams to `vte`+Screen and `OdyParser`+Screen and asserts byte-identical
+  terminal state: the full snapshot at every scrollback offset, cursor +
+  style/blink, mouse/focus/bracketed-paste modes, title, and host output
+  (DA/DSR replies). The corpus spans the core's feature set fed both whole and
+  at **every byte split**, plus SGR storms (param overflow), excess
+  intermediates, value saturation, split + invalid UTF-8, DCS, and APC.
+
+### Intended divergence (documented)
+
+OdyParser surfaces APC payloads via `apc_dispatch`; `vte` discards them. This is
+invisible at the Screen-state layer (the core ignores `apc_dispatch` today), so
+the oracle still asserts equality everywhere. A dedicated test pins exactly that.
+
+### Validation
+
+- Parser source ~993 lines (mod 94 + params 156 + utf8 96 + state 647); parser
+  unit tests 559 lines; oracle 262 lines. All files well under the 2000 ceiling.
+- 428 lib tests (+41: 30 parser units + 9 oracle + 2 seam) + 10 pixel + 6 PTY +
+  10 transcript green; `cargo fmt --check` clean; clippy clean for parser/oracle
+  (4 pre-existing lib warnings unchanged); native smoke exit 0 at default.
+
+### Next (Foundation Ownership)
+
+PA2 hardens the edge cases (real DCS hook/put/unhook semantics, APC terminator
+policy, fuzzing with differential assertion); PA3 removes `vte`, ports the oracle
+to golden fixtures, and states the ownership boundary in SPEC/README.
+
+---
+
 ## 2026-06-10 — Owned Linux PTY layer and headless input path (P0)
 
 P0 starts the Foundation Ownership work on the process/input side while the
