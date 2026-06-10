@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Rasterization quality: baseline, rounding, padding gutter
+
+Stage 3 raster-quality work on the glyph atlas (`src/atlas.rs`), all CPU-side:
+no native, shader, or per-cell layout changes — `CellSize` values and the 1:1
+cell→quad contract are unchanged, so the renderer is untouched.
+
+### What landed
+
+- **Single documented baseline** — every glyph (ASCII, accents, box-drawing,
+  dynamic) is positioned on one integer baseline (the font ascent rounded),
+  replacing the prior split where `cell.baseline` was rounded but glyphs were
+  drawn at the raw float ascent. Mixed glyphs now share a consistent line.
+- **Per-slot padding gutter** (`ATLAS_PAD = 1`) — each atlas slot reserves a
+  transparent 1px border while `uv_rect` still hands out only the inner
+  `cell.width × cell.height` rect. The gutter (a) stops bilinear sampling at
+  non-integer scale factors from bleeding a neighbor's coverage into a glyph
+  edge, and (b) absorbs bearing-driven edge overflow so box-drawing joins and
+  descenders are preserved instead of hard-cropped.
+- **Rounded placement** — rasterization rounds to the nearest atlas pixel
+  instead of truncating, and clips to the slot (cell + its own gutter) rather
+  than the bare cell, so a glyph's final row/column is no longer dropped.
+
+### Verified
+
+- +4 atlas fixtures (padding-gutter separation, box-drawing U+2500/U+2502 reach
+  the cell edges, glyphs share one baseline, descender not cropped); existing
+  atlas tests updated for the padded layout. 261 lib + 2 integration + 10 smoke
+  pass. `cargo fmt` clean; clippy clean except the pre-existing core derive lint;
+  native autoclose smoke exit 0 at default and `ODYTTY_FONT_SIZE=18`.
+
+### Deferred (findings for a future native packet)
+
+- Shader **gamma/contrast** blending (biggest remaining visible win), optional
+  **subpixel** AA, and true **beyond-cell** glyph overflow (needs a grid/native
+  geometry change, not a raster change). Written up as findings.
+
+---
+
 ## 2026-06-10 — Native scrollback search UI
 
 The Q1 scrollback search engine is now wired into the native window, giving the

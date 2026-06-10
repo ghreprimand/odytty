@@ -72,6 +72,12 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
       while preserving cell correctness.
 - [ ] Improve rasterization quality: pixel alignment, baseline consistency,
       padding, gamma, blending, and contrast.
+  - [x] Raster side (`src/atlas.rs`): single documented baseline for every
+        glyph, nearest-pixel rounding, and a per-slot transparent padding gutter
+        that blocks UV bleed and preserves box-drawing edge joins + descenders.
+  - [ ] Shader side (future native packet): gamma/contrast blending, optional
+        subpixel AA, and bearing-aware glyph geometry for true beyond-cell
+        overflow.
 - [ ] Render text attributes cleanly at multiple sizes: bold, dim, italic,
       underline, strikethrough, inverse, cursor, and selection.
 - [ ] Profile redraw, scrolling, resize, and large-output performance.
