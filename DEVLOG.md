@@ -7,6 +7,53 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Scale-agnostic atlas re-raster seam (H1)
+
+H1 is the render-stack half of HiDPI scale handling (Stage 3). It does not wire
+any events yet — it builds the seam a `ScaleFactorChanged` handler (H2) will
+drive so glyphs re-rasterize at the display's physical pixel density instead of
+the atlas being baked once at startup.
+
+### What landed
+
+- **Retained scale state** — `GpuState` now keeps the logical `font_size_px`,
+  the clamped `scale`, and the current `physical_px`. `physical_font_px(font_px,
+  scale)` folds the window scale into the rasterization size.
+- **Documented sub-1.0 clamp** — the scale is clamped to `>= 1.0`: a fractional
+  downscale would rasterize glyphs below their logical size and hurt legibility,
+  so the atlas is never built under 1x (the surface still maps to real pixels
+  via `resize`). Keep-and-document was chosen over honoring sub-1.0 scales.
+- **Rescale rebuild** — `set_scale(scale)` is a cheap no-op when the clamped
+  value is unchanged (winit re-emits `ScaleFactorChanged` on unrelated
+  transitions) and otherwise rebuilds; `set_font_px(px)` rebuilds the atlas at a
+  new physical size, recreates the atlas texture + bind group, and republishes
+  `atlas.cell`. The method is deliberately reusable for a future live
+  `ODYTTY_FONT_SIZE` reload.
+- **Invalidation by construction** — a rebuild is a fresh `GlyphAtlas::build`
+  with an empty dynamic region, so no old-density slot can survive into the new
+  atlas (the R1 invalidation requirement holds for free). Live non-ASCII glyphs
+  repopulate at the new size on the next snapshot via `ensure_snapshot_glyphs`.
+
+### Verification
+
+- `cargo test`: 379 lib + 2 PTY + 10 smoke green (1 ignored live-PTY). New: five
+  `physical_font_px` tests (identity at 1x, fractional folds, monotonic, sub-1.0
+  clamp, floor) and two atlas tests (rebuild grows the cell + drops dynamic
+  slots; cell metrics deterministic, seam-free, and monotonic across
+  1.0/1.25/1.5/2.0).
+- `cargo fmt --check` clean; clippy clean for `atlas.rs`/`gpu.rs` (remaining
+  warnings are pre-existing and in other files). Native autoclose smoke exit 0
+  at default and `ODYTTY_FONT_SIZE=18`. `atlas.rs` 1382, `gpu.rs` 798 (< 2000).
+
+### Gaps / next
+
+- **H2 (GPT)** wires `set_scale` into a `ScaleFactorChanged` handler in the
+  native event loop and republishes the cell metrics into the grid layout; it
+  removes the `allow(dead_code)` markers on the seam when it does.
+- **H3** is the manual cross-scale validation matrix (operator session).
+
+---
+
 ## 2026-06-10 — Cursor style + blink policy (C4)
 
 C4 spans the Stage 2 correctness track (DECSCUSR) and the Stage 4 daily-driver

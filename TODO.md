@@ -69,6 +69,14 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         fallback when a style face is absent.
 - [ ] Validate HiDPI scale handling across window sizes and monitor scale
       factors.
+  - [x] H1: scale-agnostic atlas re-raster seam — `GpuState` retains logical
+        `font_size_px` + clamped `scale`; `physical_font_px` folds scale with a
+        documented `>= 1.0` clamp; `set_scale`/`set_font_px` rebuild the atlas,
+        texture, and bind group and republish `atlas.cell` (reusable for a
+        future live font-size reload). Invalidation is by construction (fresh
+        build, empty dynamic region). No event wiring yet.
+  - [ ] H2: wire `set_scale` into a `ScaleFactorChanged` handler (native).
+  - [ ] H3: manual cross-scale validation matrix (operator session).
 - [ ] Improve glyph atlas management, including cache growth, invalidation, and
       missing-glyph behavior.
   - [x] Atlas extracted to `src/atlas.rs`; missing-glyph fallback box, dynamic
