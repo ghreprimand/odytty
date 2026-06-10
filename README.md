@@ -6,14 +6,21 @@ Odyssey Terminal is a reliable terminal emulator with an OdysseyOS visual identi
 
 ## Status
 
-Early prototype, in active development on Linux. In place today: an OdyTTY-owned
-terminal core (grid, cursor, scrollback, alternate screen) driven by `vte` as a
-parser, a real PTY-backed shell path, broad escape-sequence compatibility, and a
-deterministic headless smoke suite. A native `winit` window opens on Wayland with
-a live `wgpu` (Vulkan) surface. Next up: readable monospaced text rendering,
-input wiring, the daily-loop basics, and one disableable Odyssey visual layer.
-See [`DEVLOG.md`](DEVLOG.md) for the running record and [`TODO.md`](TODO.md) for
-the milestone checklist.
+First meaningful prototype reached on Linux/Hyprland. In place today: an
+OdyTTY-owned terminal core (grid, cursor, scrollback, alternate screen) driven by
+`vte` as a parser, a real PTY-backed shell path, broad escape-sequence
+compatibility, and a deterministic headless smoke suite. A native `winit` window
+opens on Wayland with a live `wgpu` (Vulkan) surface, renders readable
+monospaced text, handles keyboard input, resize, paste, mouse selection/copy,
+scrollback navigation, cursor rendering, and basic daily shell workflows.
+
+The prototype also includes a small theme system and a disableable ambient
+scanline visual treatment selected with `ODYTTY_VISUAL=ambient`; unset,
+`off`, `none`, or `plain` keep the baseline renderer. Known gaps remain before
+daily-driver claims: no font-size configuration yet, no profiles or settings UI,
+basic selection only, no tabs/panes, and Linux-first validation only. See
+[`DEVLOG.md`](DEVLOG.md) for the running record and [`TODO.md`](TODO.md) for the
+milestone checklist.
 
 ## Why build it
 

@@ -7,6 +7,48 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-09 — First meaningful prototype reached
+
+OdyTTY now has the first meaningful prototype slice: a native Wayland window
+opens a real shell, renders readable GPU text, handles resize, keyboard input,
+paste, selection/copy, scrollback navigation, cursor rendering, and enough
+terminal compatibility for the validated daily loop.
+
+### What is validated
+
+- Real shell startup and prompt rendering in the native window.
+- Common command output including `ls --color` and `clear`.
+- Pager/editor basics: `less` enter/exit and `nano` launch.
+- Resize preserves content through shrink/grow reflow.
+- Native paste respects bracketed paste mode, and selection copy exports plain
+  text through the Wayland clipboard path.
+- Fish completion redraws correctly after DSR replies and default-one CSI count
+  handling for bare cursor moves.
+- `ODYTTY_VISUAL=ambient` provides a visible, subtle scanline treatment while
+  `off`/unset keeps the baseline renderer.
+
+### Verified
+
+- `cargo test`: **167 lib + 10 smoke** green (1 ignored live-PTY each).
+- `cargo fmt --check` clean.
+- `cargo clippy --all-targets` clean except the pre-existing
+  `core/mod.rs:32` derivable-impl warning.
+- Wayland-native autoclose exits `0`, with no lingering `odytty` process.
+- Operator manual validation on Hyprland covered prompt display, color output,
+  `clear`, resize, copy/paste, scrollback, fish completion, pager/editor basics,
+  and the ambient visual layer.
+
+### Deferred / risks
+
+- No font-size configuration yet; the prototype uses the fixed native default.
+- No settings file or UI; prototype knobs are environment variables.
+- Selection is basic and visible-grid oriented; no advanced selection model.
+- Tabs, panes, profiles, shell integration, and broad cross-platform support are
+  deferred until after this prototype.
+- OdyTTY is still a prototype, not a daily-driver terminal claim.
+
+---
+
 ## 2026-06-09 — Fish completion DSR replies and visible ambient pass
 
 Manual validation found two remaining prototype issues: fish tab completion

@@ -19,7 +19,7 @@ disabled. See `DEVLOG.md` for current state and `SPEC.md` for durable decisions.
 - [x] Headless transcript smoke harness with deterministic default fixtures.
 - [x] Add further compatibility sequences as the prototype needs them, decided
       from evidence rather than guesswork (e.g. BCE, SU/SD + DECOM).
-- [ ] Convert any reproducible failures into deterministic fixtures.
+- [x] Convert any reproducible failures into deterministic fixtures.
 
 ## Native Window and Rendering
 
@@ -42,7 +42,7 @@ disabled. See `DEVLOG.md` for current state and `SPEC.md` for durable decisions.
 - [x] Basic mouse text selection.
 - [x] Copy from selection.
 - [x] Scrollback viewport navigation.
-- [ ] Validate basic commands interactively: prompt display, `ls --color`,
+- [x] Validate basic commands interactively: prompt display, `ls --color`,
       `clear`, simple editor/pager enter-exit behavior, and resize.
 
 ## Odyssey Layer
@@ -52,16 +52,16 @@ disabled. See `DEVLOG.md` for current state and `SPEC.md` for durable decisions.
       correctness.
 - [x] Verify the visual layer can be disabled and does not affect compatibility
       tests.
-- [ ] Check readability and performance boundaries before adding more effects.
+- [x] Check readability and performance boundaries before adding more effects.
 
 ## First Prototype Acceptance
 
-- [ ] A native OdyTTY window opens a real local shell.
-- [ ] Common shell output is readable and responsive.
-- [ ] Resize, paste, selection/copy, cursor, and scrollback work at a basic level.
-- [ ] The compatibility test suite and transcript smoke suite pass.
-- [ ] One Odyssey visual treatment exists and can be disabled.
-- [ ] Public docs and devlog describe what works, what is deferred, and what
+- [x] A native OdyTTY window opens a real local shell.
+- [x] Common shell output is readable and responsive.
+- [x] Resize, paste, selection/copy, cursor, and scrollback work at a basic level.
+- [x] The compatibility test suite and transcript smoke suite pass.
+- [x] One Odyssey visual treatment exists and can be disabled.
+- [x] Public docs and devlog describe what works, what is deferred, and what
       risks remain.
 
 ## Deferred Until After the First Prototype
