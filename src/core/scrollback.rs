@@ -1,28 +1,35 @@
-//! Scrollback storage plus the logical-line projection machinery that the lazy
-//! resize path (commit C2) is built on.
+//! Logical-line scrollback storage with a lazily-projected physical view.
 //!
-//! # Two-commit plan
+//! # Why this exists
 //!
-//! Scrollback is a sequence of *physical* rows wrapped to the width that was
-//! active when each row scrolled off the top of the visible grid. Resize is
-//! therefore O(total scrollback): [`super::reflow::reflow_lines`] rejoins every
-//! physical row into logical lines and re-wraps all of it to the new width, even
-//! history the user never looks at (~46 ms at 50k lines).
+//! Scrollback used to be a `Vec<Line>` of *physical* rows wrapped to the width
+//! that was active when each row scrolled off the top of the visible grid. That
+//! made resize O(total scrollback): [`super::reflow::reflow_lines`] rejoined
+//! every physical row into logical lines and re-wrapped all of it to the new
+//! width, even history the user never looks at (~46 ms at 50k lines).
 //!
-//! - **C1 (this commit):** [`Scrollback`] wraps the physical `Vec<Line>` so the
-//!   storage seam is established and `Screen` no longer touches a raw `Vec`. The
-//!   resize primitives keep operating on the physical rows in place, so behavior
-//!   *and performance* are byte-for-byte and microsecond-for-microsecond
-//!   identical to before (the P1-a width-unchanged fast path is fully
-//!   preserved). Alongside it this module lands the *logical-line projection*
-//!   ([`logical_from_physical`] + [`project_logical`]) with a differential
-//!   parity suite proving the projection reproduces eager-reflow output exactly.
-//!   These are not yet on the hot path — they are the validated foundation for
-//!   C2.
-//! - **C2 (next commit):** flip [`Scrollback`] to store logical lines as the
-//!   source of truth with a memoized physical projection, and make resize
-//!   re-wrap only the visible tail while deferring history — turning the
-//!   O(total) width-change cost into ~O(visible).
+//! This module stores scrollback as **logical lines** — hard-terminated lines
+//! with their soft-wrap runs rejoined — and computes the physical view (what the
+//! renderer, search, and `scrollback_len` need) by *projecting* each logical
+//! line back to physical rows at the current width. The projection is memoized
+//! ([`Projection`]) so repeated reads at a stable width are cheap and only
+//! rebuilt when the width changes.
+//!
+//! [`resize_lazy`] re-wraps only the bottom of the buffer — the trailing logical
+//! lines needed to fill the new visible window, plus the live grid — and leaves
+//! deep history untouched as logical lines, projected lazily the next time it is
+//! read (xterm-style "re-wrap on access"). Resizing while viewing the live tail
+//! therefore costs ~O(visible) instead of O(total scrollback).
+//!
+//! # Correctness strategy
+//!
+//! [`resize_lazy`] reuses the unchanged [`super::reflow::reflow_lines`] /
+//! [`super::reflow::resize_keep_width`] primitives on the bounded subset, so
+//! cursor mapping, bottom-anchoring, and trailing-blank collapse are exactly the
+//! eager behavior. The differential parity suite proves the lazy result (visible
+//! rows, cursor, full physical projection at every offset, and search) is
+//! byte/coordinate-identical to running the eager primitive over the whole
+//! buffer.
 //!
 //! # Coordinate contract (unchanged)
 //!
@@ -30,83 +37,233 @@
 //! the oldest physical scrollback row, counting down through scrollback into the
 //! live grid. Search and selection coordinates are unaffected — see
 //! [`super::search`]. No `Snapshot` / `TerminalModel` surface changes.
+//!
+//! # Single-threaded invariant
+//!
+//! The projection cache uses [`RefCell`] so the scrollback accessors on
+//! [`super::screen::Screen`] stay `&self`. A `Terminal` is driven from a single
+//! thread (the front end serializes all access), so the `RefCell` is never
+//! borrowed concurrently; `Screen` is `!Sync` as a result, matching its existing
+//! usage.
+
+use std::cell::{Ref, RefCell};
 
 use unicode_width::UnicodeWidthChar;
 
+use super::reflow::{reflow_lines, resize_keep_width};
 use super::screen::Line;
-use super::types::Cell;
+use super::types::{Cell, Dimensions, Position};
 
-/// Scrollback storage. In C1 this is a thin wrapper over the physical rows; C2
-/// replaces the backing store with logical lines + a projection cache without
-/// changing this type's method surface used by [`super::screen::Screen`].
+/// One logical line: a hard-terminated line whose soft-wrap runs have been
+/// rejoined into a single flat cell vector. `open` is true when the line's last
+/// physical row was soft-wrapped — the logical line is not yet hard terminated
+/// and continues into whatever follows (the next physical row that scrolls off,
+/// or the live grid). An open line is only ever the *last* line in the store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::core) struct LogicalLine {
+    cells: Vec<Cell>,
+    open: bool,
+}
+
+/// Memoized physical projection of the logical store at a single width.
+#[derive(Debug, Clone)]
+struct Projection {
+    /// Width the cached rows were wrapped at; `None` means invalid.
+    width: Option<usize>,
+    rows: Vec<Line>,
+}
+
+impl Projection {
+    fn empty() -> Self {
+        Self {
+            width: None,
+            rows: Vec::new(),
+        }
+    }
+}
+
+/// Logical-line scrollback with a lazily-(re)built physical projection.
 #[derive(Debug, Clone)]
 pub(in crate::core) struct Scrollback {
-    physical: Vec<Line>,
+    lines: Vec<LogicalLine>,
+    cache: RefCell<Projection>,
 }
 
 impl Scrollback {
     pub(in crate::core) fn new() -> Self {
         Self {
-            physical: Vec::new(),
+            lines: Vec::new(),
+            cache: RefCell::new(Projection::empty()),
         }
     }
 
-    /// Number of physical scrollback rows.
-    pub(in crate::core) fn len(&self) -> usize {
-        self.physical.len()
+    /// Build a store from physical rows (test oracle helper).
+    #[cfg(test)]
+    pub(in crate::core) fn from_physical(rows: &[Line]) -> Self {
+        Self {
+            lines: logical_from_physical(rows),
+            cache: RefCell::new(Projection::empty()),
+        }
     }
 
-    // Rounds out the `len` API (clippy `len_without_is_empty`); used by tests.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Number of physical rows the scrollback projects to at `width`.
+    pub(in crate::core) fn physical_len(&self, width: usize) -> usize {
+        self.ensure_cache(width);
+        self.cache.borrow().rows.len()
+    }
+
+    #[cfg(test)]
     pub(in crate::core) fn is_empty(&self) -> bool {
-        self.physical.is_empty()
+        self.lines.is_empty()
     }
 
-    /// The physical scrollback rows (oldest first) for read-only access by the
-    /// snapshot and search bridges.
-    pub(in crate::core) fn physical(&self) -> &[Line] {
-        &self.physical
-    }
-
-    /// Mutable access to the physical rows for the resize primitives, which
-    /// re-window/re-wrap in place exactly as before.
-    pub(in crate::core) fn physical_mut(&mut self) -> &mut Vec<Line> {
-        &mut self.physical
+    /// The physical projection at `width` (oldest first), byte-identical to what
+    /// eager reflow would store as scrollback. Borrows the memoized cache,
+    /// rebuilding it first if the width changed.
+    pub(in crate::core) fn physical(&self, width: usize) -> Ref<'_, Vec<Line>> {
+        self.ensure_cache(width);
+        Ref::map(self.cache.borrow(), |c| &c.rows)
     }
 
     /// Append one physical row that has just scrolled off the visible grid.
+    /// Extends the trailing open logical line when the previous row soft-wrapped,
+    /// otherwise starts a new logical line.
     pub(in crate::core) fn push_row(&mut self, row: Line) {
-        self.physical.push(row);
+        let wrapped = row.wrapped;
+        if let Some(last) = self.lines.last_mut()
+            && last.open
+        {
+            last.cells.extend(row.cells.iter().copied());
+            last.open = wrapped;
+        } else {
+            self.lines.push(LogicalLine {
+                cells: row.cells,
+                open: wrapped,
+            });
+        }
+        self.invalidate();
     }
 
     /// Clear all scrollback.
     pub(in crate::core) fn clear(&mut self) {
-        self.physical.clear();
+        self.lines.clear();
+        self.invalidate();
+    }
+
+    fn invalidate(&self) {
+        let mut cache = self.cache.borrow_mut();
+        cache.width = None;
+        cache.rows.clear();
+    }
+
+    fn ensure_cache(&self, width: usize) {
+        {
+            let cache = self.cache.borrow();
+            if cache.width == Some(width) {
+                return;
+            }
+        }
+        let rows = project_logical(&self.lines, width);
+        let mut cache = self.cache.borrow_mut();
+        cache.width = Some(width);
+        cache.rows = rows;
     }
 }
 
-/// One logical line: a hard-terminated line whose soft-wrap runs have been
-/// rejoined into a single flat cell vector. `open` is true when the line's last
-/// physical row was soft-wrapped — i.e. the logical line is not yet hard
-/// terminated and continues into whatever follows (the next physical row that
-/// scrolls off, or the live grid). An open line is only ever the *last* line in
-/// a store.
+/// Resize `rows` (the live grid) and `sb` (scrollback) to `new_dims`, re-wrapping
+/// only the bottom of the buffer and leaving deep history as logical lines for
+/// lazy projection. Returns the cursor's new visible-grid position.
 ///
-/// Foundation for the C2 lazy projection; exercised now by the parity suite.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))]
-pub(in crate::core) struct LogicalLine {
-    cells: Vec<Cell>,
-    open: bool,
+/// Reuses the eager reflow primitives on a bounded subset — the trailing logical
+/// lines needed to fill the new window plus the live grid — so the visible
+/// result, cursor, and the overflow returned to scrollback match the eager path
+/// exactly (proven by the differential parity suite). `width_unchanged` selects
+/// the O(rows) [`resize_keep_width`] fast path (preserving P1-a) over the general
+/// [`reflow_lines`].
+pub(in crate::core) fn resize_lazy(
+    sb: &mut Scrollback,
+    rows: &mut Vec<Line>,
+    new_dims: Dimensions,
+    cursor: Position,
+    width_unchanged: bool,
+) -> Position {
+    let new_rows = new_dims.rows;
+    let new_width = new_dims.columns;
+
+    // Pull trailing logical lines into the re-wrap subset: enough to fill the new
+    // window, always including the open tail (which continues into the live
+    // grid), and through any trailing blank run so trailing-blank collapse
+    // matches the eager oracle exactly.
+    let mut pulled: Vec<LogicalLine> = Vec::new();
+    let mut pulled_rows = 0usize;
+    loop {
+        let need_more = pulled_rows < new_rows;
+        let extend_blank =
+            pulled_rows >= new_rows && sb.lines.last().is_some_and(|l| cells_all_blank(&l.cells));
+        if !(need_more || extend_blank) {
+            break;
+        }
+        match sb.lines.pop() {
+            Some(line) => {
+                pulled_rows += count_projected_rows(&line.cells, new_width, line.open);
+                pulled.push(line);
+            }
+            None => break,
+        }
+    }
+    pulled.reverse();
+
+    // Build the subset fed to the (unchanged) reflow primitive.
+    let mut subset: Vec<Line> = Vec::new();
+    if width_unchanged {
+        // Project at the unchanged width: full-width rows, no mid-line padding
+        // (open lines are exact multiples of the width), so the keep-width fast
+        // path's well-formedness assumption holds.
+        subset = project_logical(&pulled, new_width);
+    } else {
+        // One mega-row per logical line (all cells, marked open/closed). The
+        // reflow primitive rejoins by the wrapped flag — cell count is
+        // irrelevant — so no projection/padding is needed and an open line joins
+        // to the live grid without inserted blanks.
+        for line in &pulled {
+            subset.push(if line.open {
+                Line::wrapped(line.cells.clone())
+            } else {
+                Line::unwrapped(line.cells.clone())
+            });
+        }
+    }
+    let cursor_prefix = subset.len();
+    subset.append(rows);
+    let cursor_in = Position {
+        row: cursor_prefix + cursor.row,
+        column: cursor.column,
+    };
+
+    // Reflow the subset; `overflow` is the part above the new window that returns
+    // to scrollback, `subset` becomes the new visible window.
+    let mut overflow: Vec<Line> = Vec::new();
+    let new_cursor = if width_unchanged {
+        resize_keep_width(&mut overflow, &mut subset, new_dims, cursor_in)
+    } else {
+        reflow_lines(&mut overflow, &mut subset, new_dims, cursor_in)
+    };
+
+    *rows = subset;
+    // Remaining sb.lines are all hard-terminated (the open tail was pulled), so
+    // appending the overflow rows merges into logical lines correctly.
+    for row in overflow {
+        sb.push_row(row);
+    }
+    sb.invalidate();
+    new_cursor
 }
 
 /// Rebuild logical lines from physical rows (the inverse of [`project_logical`]).
 /// Consecutive rows are joined into one logical line until a non-`wrapped`
 /// (hard-terminated) row ends it; a trailing run that ends on a `wrapped` row
 /// becomes an `open` logical line.
-///
-/// Not yet wired into [`Scrollback`] (C2); validated by the parity suite.
-#[cfg_attr(not(test), allow(dead_code))]
+#[cfg(test)]
 pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> {
     let mut lines = Vec::new();
     let mut current: Vec<Cell> = Vec::new();
@@ -120,7 +277,6 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
         }
     }
     if !current.is_empty() {
-        // Trailing rows ended on a soft-wrap: an open logical line.
         lines.push(LogicalLine {
             cells: current,
             open: true,
@@ -129,16 +285,24 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
     lines
 }
 
-/// Project logical lines to physical rows at `width` — the inverse of
-/// [`logical_from_physical`]. Reproduces eager-reflow output exactly so the C2
-/// switch is behavior-identical (proven by the parity suite).
-#[cfg_attr(not(test), allow(dead_code))]
+/// Project logical lines to physical rows at `width`.
 pub(in crate::core) fn project_logical(lines: &[LogicalLine], width: usize) -> Vec<Line> {
     let mut out = Vec::new();
     for line in lines {
         project_line_into(&line.cells, width, line.open, &mut out);
     }
     out
+}
+
+fn cells_all_blank(cells: &[Cell]) -> bool {
+    let plain = Cell::blank();
+    cells.iter().all(|c| *c == plain)
+}
+
+fn count_projected_rows(cells: &[Cell], width: usize, open: bool) -> usize {
+    let mut tmp = Vec::new();
+    project_line_into(cells, width, open, &mut tmp);
+    tmp.len()
 }
 
 /// Project one logical line's cells to physical rows at `width`, appending to
@@ -151,9 +315,7 @@ pub(in crate::core) fn project_logical(lines: &[LogicalLine], width: usize) -> V
 ///   edge; if the grid is too narrow for a pair the lead degrades to width 1 and
 ///   an orphaned continuation spacer is dropped.
 /// - Every row except the last is marked `wrapped`. The last row is marked
-///   `wrapped` iff the logical line is `open` (still continues), otherwise it is
-///   hard-terminated (`unwrapped`).
-#[cfg_attr(not(test), allow(dead_code))]
+///   `wrapped` iff the logical line is `open`, otherwise it is hard-terminated.
 fn project_line_into(cells: &[Cell], width: usize, open: bool, out: &mut Vec<Line>) {
     let plain = Cell::blank();
 

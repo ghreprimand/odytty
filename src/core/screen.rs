@@ -7,8 +7,8 @@
 use unicode_width::UnicodeWidthChar;
 use vte::{Params, Perform};
 
-use super::reflow::{reflow_lines, resize_buffer_rows, resize_keep_width};
-use super::scrollback::Scrollback;
+use super::reflow::resize_buffer_rows;
+use super::scrollback::{Scrollback, resize_lazy};
 use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
 use super::types::*;
 
@@ -145,7 +145,7 @@ impl Screen {
     }
 
     pub fn scrollback_len(&self) -> usize {
-        self.scrollback.len()
+        self.scrollback.physical_len(self.dimensions.columns)
     }
 
     pub fn cell(&self, row: usize, column: usize) -> Option<Cell> {
@@ -171,61 +171,42 @@ impl Screen {
     /// rule for the alternate buffer are preserved.
     pub fn resize(&mut self, columns: usize, rows: usize) {
         let dimensions = Dimensions::new(columns, rows);
+        let width_unchanged = dimensions.columns == self.dimensions.columns;
 
         if self.primary_screen.is_some() {
             // Alternate screen active: truncate/pad the app-managed grid (it
-            // repaints), but never feed the alternate buffer into scrollback.
-            resize_buffer_rows(
-                &mut self.rows,
-                self.scrollback.physical_mut(),
-                dimensions,
-                true,
-            );
+            // repaints), but never feed the alternate buffer into scrollback
+            // (the alternate screen keeps none).
+            let mut discard = Vec::new();
+            resize_buffer_rows(&mut self.rows, &mut discard, dimensions, true);
             self.cursor.row = self.cursor.row.min(dimensions.rows - 1);
             self.cursor.column = self.cursor.column.min(dimensions.columns - 1);
 
             if let Some(mut primary) = self.primary_screen.take() {
-                // The stored primary shares the (old) width; use the same
-                // width-unchanged fast path when columns are unchanged.
-                let cursor = if dimensions.columns == self.dimensions.columns {
-                    resize_keep_width(
-                        primary.scrollback.physical_mut(),
-                        &mut primary.rows,
-                        dimensions,
-                        primary.cursor,
-                    )
-                } else {
-                    reflow_lines(
-                        primary.scrollback.physical_mut(),
-                        &mut primary.rows,
-                        dimensions,
-                        primary.cursor,
-                    )
-                };
-                primary.cursor = cursor;
+                // The stored primary shares the (old) width, so the same
+                // width-unchanged decision applies.
+                primary.cursor = resize_lazy(
+                    &mut primary.scrollback,
+                    &mut primary.rows,
+                    dimensions,
+                    primary.cursor,
+                    width_unchanged,
+                );
                 primary.pending_wrap = false;
                 primary.scroll_region = clamp_scroll_region(primary.scroll_region, dimensions);
                 self.primary_screen = Some(primary);
             }
-        } else if dimensions.columns == self.dimensions.columns {
-            // Width-unchanged fast path: re-wrapping at the same width reproduces
-            // the identical physical rows, so skip the O(cells) reflow and only
-            // re-window/re-cursor at O(rows). Byte-identical to `reflow_lines`
-            // for width-unchanged resizes (proven by `reflow_fast_path_tests`).
-            self.cursor = resize_keep_width(
-                self.scrollback.physical_mut(),
-                &mut self.rows,
-                dimensions,
-                self.cursor,
-            );
         } else {
-            // Primary screen active: reflow visible + scrollback to the new width
-            // so wrapped content is preserved across shrink/grow.
-            self.cursor = reflow_lines(
-                self.scrollback.physical_mut(),
+            // Lazy resize: re-wrap only the bottom of the buffer needed for the
+            // new window; deep history stays logical and is projected on access.
+            // The width-unchanged path uses the O(rows) keep-width fast path
+            // (preserving P1-a).
+            self.cursor = resize_lazy(
+                &mut self.scrollback,
                 &mut self.rows,
                 dimensions,
                 self.cursor,
+                width_unchanged,
             );
         }
 
@@ -276,7 +257,7 @@ impl Screen {
     pub fn snapshot_with_scrollback(&self, offset_rows: usize) -> Snapshot {
         let height = self.dimensions.rows;
         let columns = self.dimensions.columns;
-        let scrollback = self.scrollback.physical();
+        let scrollback = self.scrollback.physical(columns);
         let scrollback_len = scrollback.len();
         let offset = offset_rows.min(scrollback_len);
 
@@ -360,7 +341,7 @@ impl Screen {
     /// see [`super::search`] for the coordinate convention and limitations).
     /// Matches are returned in reading order, sorted ascending by `start`.
     pub fn search(&self, query: &str, options: SearchOptions) -> Vec<SearchMatch> {
-        let scrollback = self.scrollback.physical();
+        let scrollback = self.scrollback.physical(self.dimensions.columns);
         let rows: Vec<SearchRow<'_>> = scrollback
             .iter()
             .chain(self.rows.iter())

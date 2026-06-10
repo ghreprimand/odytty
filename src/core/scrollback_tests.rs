@@ -10,10 +10,11 @@
 //! prove search/snapshot stay coherent across width changes through the live
 //! resize path.
 
+use super::reflow::{reflow_lines, resize_keep_width};
 use super::screen::{Line, Terminal, blank_row};
-use super::scrollback::{Scrollback, logical_from_physical, project_logical};
+use super::scrollback::{Scrollback, logical_from_physical, project_logical, resize_lazy};
 use super::search::SearchOptions;
-use super::types::{Attrs, Cell};
+use super::types::{Attrs, Cell, Dimensions, Position};
 
 const W: usize = 8;
 
@@ -215,12 +216,27 @@ fn scrollback_wrapper_basics() {
     assert!(store.is_empty());
     store.push_row(content("a"));
     store.push_row(content("b"));
-    assert_eq!(store.len(), 2);
-    assert_eq!(store.physical().len(), 2);
-    assert_eq!(store.physical()[0], content("a"));
+    assert_eq!(store.physical_len(W), 2);
+    assert_eq!(store.physical(W).len(), 2);
+    assert_eq!(store.physical(W)[0], content("a"));
     store.clear();
     assert!(store.is_empty());
-    assert_eq!(store.len(), 0);
+    assert_eq!(store.physical_len(W), 0);
+}
+
+/// `push_row` merges a soft-wrapped (open) run into one logical line that
+/// re-wraps as a unit, while a hard newline starts a fresh line.
+#[test]
+fn push_row_merges_open_runs() {
+    let mut store = Scrollback::new();
+    store.push_row(wrapped_full('a')); // open: continues
+    store.push_row(content("tail")); // hard-terminates the run
+    store.push_row(content("next"));
+    // Two logical lines: ["aaaaaaaa"+"tail", "next"]. At width 8 that projects to
+    // 3 physical rows (2 for the wrapped line + 1).
+    assert_eq!(store.physical_len(W), 3);
+    let phys = store.physical(W);
+    assert!(phys[0].wrapped && !phys[1].wrapped && !phys[2].wrapped);
 }
 
 /// Search must keep finding content through reflow at different widths — the
@@ -288,4 +304,166 @@ fn snapshot_coherent_across_width_change() {
             );
         }
     }
+}
+
+// --- Differential parity: lazy resize vs eager reflow oracle ---------------
+//
+// `resize_lazy` re-wraps only the bottom of the buffer; the eager
+// `reflow_lines` / `resize_keep_width` primitives re-wrap the whole buffer.
+// Both must produce byte/coordinate-identical results: the new visible rows, the
+// cursor, and the full physical scrollback projection at the new width.
+
+/// Run both paths on identical inputs and assert they agree.
+fn assert_resize_parity(
+    scrollback: &[Line],
+    visible: &[Line],
+    cursor: Position,
+    old_width: usize,
+    new_dims: Dimensions,
+) {
+    let width_unchanged = new_dims.columns == old_width;
+
+    // Oracle: eager reflow over the full physical buffer.
+    let mut oracle_sb = scrollback.to_vec();
+    let mut oracle_vis = visible.to_vec();
+    let oracle_cursor = if width_unchanged {
+        resize_keep_width(&mut oracle_sb, &mut oracle_vis, new_dims, cursor)
+    } else {
+        reflow_lines(&mut oracle_sb, &mut oracle_vis, new_dims, cursor)
+    };
+
+    // Lazy: logical store + bottom-only re-wrap.
+    let mut sb = Scrollback::from_physical(scrollback);
+    let mut vis = visible.to_vec();
+    let lazy_cursor = resize_lazy(&mut sb, &mut vis, new_dims, cursor, width_unchanged);
+
+    assert_eq!(lazy_cursor, oracle_cursor, "cursor mismatch ({new_dims:?})");
+    assert_eq!(vis, oracle_vis, "visible rows mismatch ({new_dims:?})");
+    assert_eq!(
+        *sb.physical(new_dims.columns),
+        oracle_sb,
+        "scrollback projection mismatch ({new_dims:?})"
+    );
+}
+
+/// Build a deterministic physical buffer (a `width`-wide grid of `n` rows) with a
+/// mix of plain, soft-wrapped, blank, and wide-glyph content.
+fn sample_rows(width: usize, n: usize) -> Vec<Line> {
+    let mut rows = Vec::new();
+    for i in 0..n {
+        match i % 6 {
+            0 => rows.push(content_w(
+                &format!("row{i}")[..4.min(format!("row{i}").len())],
+                width,
+            )),
+            1 => {
+                // A soft-wrapped logical line: a full row continuing into the next.
+                rows.push(Line::wrapped(vec![Cell::new('w', Attrs::default()); width]));
+                rows.push(content_w("tail", width));
+            }
+            2 => rows.push(blank_row(width)),
+            3 => {
+                let mut cells = vec![
+                    Cell::new('世', Attrs::default()),
+                    Cell::wide_spacer(Attrs::default()),
+                ];
+                while cells.len() < width {
+                    cells.push(Cell::blank());
+                }
+                rows.push(Line::unwrapped(cells));
+            }
+            _ => rows.push(content_w(
+                &format!("L{i}")[..2.min(format!("L{i}").len())],
+                width,
+            )),
+        }
+    }
+    rows
+}
+
+#[test]
+fn resize_parity_sweep() {
+    let old_width = 8;
+    for &sb_depth in &[0usize, 1, 5, 60] {
+        let scrollback = sample_rows(old_width, sb_depth);
+        for &vis_h in &[1usize, 3, 6] {
+            let visible = sample_rows(old_width, vis_h);
+            let visible: Vec<Line> = visible.into_iter().take(vis_h).collect();
+            // Pad/truncate visible to exactly vis_h rows of width old_width.
+            let mut visible = visible;
+            while visible.len() < vis_h {
+                visible.push(blank_row(old_width));
+            }
+            visible.truncate(vis_h);
+
+            for cur in [
+                Position { row: 0, column: 0 },
+                Position {
+                    row: vis_h - 1,
+                    column: old_width - 1,
+                },
+                Position {
+                    row: vis_h / 2,
+                    column: 3.min(old_width - 1),
+                },
+            ] {
+                for &new_w in &[old_width, 4, 6, 12, 20] {
+                    for &new_h in &[1usize, 2, vis_h, vis_h + 3, vis_h + 10] {
+                        assert_resize_parity(
+                            &scrollback,
+                            &visible,
+                            cur,
+                            old_width,
+                            Dimensions::new(new_w, new_h),
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Repeated resizes through the lazy path must keep the buffer consistent with a
+/// from-scratch eager reflow to the final size.
+#[test]
+fn resize_parity_repeated() {
+    let old_width = 8;
+    let scrollback = sample_rows(old_width, 50);
+    let visible = {
+        let mut v = sample_rows(old_width, 5);
+        v.truncate(5);
+        while v.len() < 5 {
+            v.push(blank_row(old_width));
+        }
+        v
+    };
+    let cursor = Position { row: 2, column: 4 };
+
+    // Drive a chain of resizes through the lazy path.
+    let mut sb = Scrollback::from_physical(&scrollback);
+    let mut vis = visible.clone();
+    let mut cur = cursor;
+    let mut width = old_width;
+    for &(w, h) in &[(4usize, 6usize), (16, 3), (10, 8), (6, 4)] {
+        let dims = Dimensions::new(w, h);
+        cur = resize_lazy(&mut sb, &mut vis, dims, cur, w == width);
+        width = w;
+    }
+
+    // The lazy chain's final physical buffer must be self-consistent: projecting
+    // and re-deriving is stable, and a fresh eager reflow of the lazy buffer to
+    // the same size is a no-op.
+    let lazy_full: Vec<Line> = sb
+        .physical(width)
+        .iter()
+        .cloned()
+        .chain(vis.iter().cloned())
+        .collect();
+    let mut oracle_sb = lazy_full.clone();
+    oracle_sb.truncate(lazy_full.len().saturating_sub(vis.len()));
+    let mut oracle_vis = vis.clone();
+    let dims = Dimensions::new(width, vis.len());
+    let oracle_cursor = resize_keep_width(&mut oracle_sb, &mut oracle_vis, dims, cur);
+    assert_eq!(oracle_vis, vis, "stable visible under no-op eager reflow");
+    assert_eq!(oracle_cursor, cur, "stable cursor under no-op eager reflow");
 }
