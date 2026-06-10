@@ -7,6 +7,55 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — TUI mouse/keyboard interaction evidence (T1)
+
+T1 expands the PTY-backed smoke harness from alternate-screen restore checks
+into direct interaction evidence for real TUIs. The tests remain hermetic,
+skip when a host binary is missing, and assert through OdyTTY's owned terminal
+model while sending bytes through the PTY.
+
+### What landed
+
+- **`less --mouse` wheel path** — starts `less` over a PTY with mouse support
+  enabled, waits for the app to enable SGR mouse reporting, sends the exact
+  source-of-truth wheel report (`ESC [ < 65 ; 40 ; 6 M`), and asserts the
+  visible page scrolls before quitting and restoring the seeded primary screen.
+- **`vim` SGR mouse path** — starts `vim -N -u NONE --noplugin` with
+  `mouse=a ttymouse=sgr`, verifies SGR mouse reporting, sends exact click
+  bytes (`ESC [ < 0 ; 20 ; 5 M` / `m`) and asserts the cursor moves to the
+  clicked cell; wheel reports then scroll the visible buffer, followed by a
+  clean alternate-screen restore.
+- **Bash readline key path** — drives `bash --noprofile --norc -i` with the
+  public `input::encode_key` table. Left/Delete edits `echo T1DEL_abXc` into
+  `T1DEL_abc`; Home/End edits a split command into `T1HOME_abcd`, proving the
+  current normal-mode arrow, Home/End, Delete, and Enter bytes reach readline.
+- **Current-keyboard finding fixture** — a small regression test records the
+  present encoder limitation rather than failing the suite: after an app sends
+  DECCKM/DECPAM (`ESC [ ? 1 h`, `ESC =`), `Key::Up` still emits normal
+  `ESC [ A` instead of application-cursor `ESC O A`; `Ctrl+Right` still emits
+  plain `ESC [ C` instead of xterm's modified `ESC [ 1 ; 5 C`.
+
+### Findings
+
+- **Mode-aware keyboard encoding is still missing.** The input encoder is
+  stateless, so application cursor mode and keypad mode cannot affect emitted
+  key bytes yet. Repro: feed `ESC [ ? 1 h ESC =` from an app, then press Up;
+  OdyTTY emits `ESC [ A`, while a mode-aware terminal should emit `ESC O A`.
+- **Modified named-key encoding is still missing.** Ctrl/Alt/Shift modifiers on
+  named keys are not encoded in xterm's CSI-u-style modifier form. Repro:
+  `Ctrl+Right` emits `ESC [ C`; expected follow-up behavior for common TUIs is
+  `ESC [ 1 ; 5 C` (or a deliberately chosen compatible variant).
+
+### Verification
+
+- `cargo test --test pty_alt_screen_smoke`: 6 passed locally in the host
+  environment with `less`, `vim`, and `bash` available.
+- Full default `cargo test` remains green: 382 lib + 9 pixel smoke + 6 PTY +
+  10 transcript smoke tests passed (2 ignored live/manual cases). Native
+  autoclose smoke exits 0 at the default font size and `ODYTTY_FONT_SIZE=18`.
+
+---
+
 ## 2026-06-10 — Roadmap checkpoint: foundation ownership (own the parser)
 
 A second roadmap revision in the same direction-setting pass: OdyTTY commits

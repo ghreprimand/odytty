@@ -204,6 +204,14 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 - [ ] Improve mouse and keyboard interaction in TUI apps.
   - [x] Emit native mouse reports to PTY apps when DECSET mouse tracking is
         active.
+  - [x] PTY evidence (T1): real `less --mouse` accepts SGR wheel reports and
+        scrolls; real `vim` with `mouse=a ttymouse=sgr` accepts SGR click and
+        wheel reports; `bash` readline accepts the current normal-mode
+        Left/Home/End/Delete/Enter byte sequences.
+  - [ ] Follow-up: make keyboard encoding mode-aware for DECCKM/application
+        cursor mode and keypad mode (`ESC[?1h`, `ESC=`).
+  - [ ] Follow-up: encode modifiers for named keys such as `Ctrl+Arrow` using a
+        documented xterm-compatible form.
 
 ## Archived First Prototype Checklist
 
