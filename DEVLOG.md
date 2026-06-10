@@ -7,6 +7,69 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Parser edge-case hardening + differential fuzzers (PA2)
+
+Second Foundation-Ownership parser packet. Hardens the OdyTTY-owned VT parser's
+edge cases, pins the two open design decisions, and locks the behaviour against
+`vte` with permanent fixtures and committed differential fuzzers. `vte` stays the
+live production parser; `OdyParser` remains dark behind the oracle (it goes live
+in PA3).
+
+### Discovery: zero divergences
+
+A throwaway discovery harness (isolated worktree, never committed) compared both
+parsers' full `Screen` state across every C1 byte, the 8-bit C1 introducers, C1
+via 2-byte UTF-8 (whole + every split), cancel/abort in every string state, OSC
+terminator variants, DCS/APC payload edges, param edge shapes, and **100k fuzz
+iterations** (byte-soup + split + structure-aware). Result: **byte-identical to
+`vte` everywhere** modulo the one intended APC-surfacing extension. The PA1 state
+machine is already a faithful replica; PA2 locks that down rather than fixing it.
+
+### Decisions pinned (documented in `src/parser/state.rs`)
+
+- **C1 / UTF-8 precedence.** OdyTTY is a UTF-8 terminal: UTF-8 decoding wins and
+  8-bit C1 sequence introduction is not supported (matching `vte`/xterm UTF-8
+  mode). A lone `0x80..=0x9F` byte executes as a C1 control and does **not**
+  introduce a sequence (`0x9B` ≠ CSI, `0x9D` ≠ OSC, `0x9F` ≠ APC, `0x9C` ≠ ST).
+  A C1 scalar arriving as valid 2-byte UTF-8 follows the canonical
+  print(continuation) / execute(whole-Ground) rule — verified identical to `vte`
+  at every byte split for all of `U+0080..U+009F`.
+- **DCS / APC payload buffer policy.** DCS is unbuffered streaming passthrough
+  (`hook → put → unhook`), so there is no parser-side DCS buffer or cap. APC is
+  buffered (it is the Kitty-graphics landing pad) and bounded by `MAX_APC_RAW`
+  (1 MiB); an over-cap APC is **dropped, not dispatched truncated**, so a hostile
+  or unterminated APC cannot grow memory without bound.
+
+### What landed
+
+- **`src/parser/state.rs`** — `MAX_APC_RAW` cap + `apc_overflow` flag; over-cap
+  APC dropped; module docs pin both decisions above.
+- **`src/parser/state_tests.rs`** — APC under-cap surfaced-whole + over-cap
+  dropped (parser recovers to Ground) tests.
+- **`src/core/parser_oracle_tests.rs`** — 35 curated edge inputs folded into the
+  shared `corpus()` (so each also gets all-byte-split + narrow-grid coverage),
+  and three committed deterministic differential fuzzers (byte-soup, two-chunk
+  split, structure-aware) whose iteration budget is `ODYTTY_FUZZ_ITERS` (default
+  2000 for fast CI; a documented deep run mirrors the 40k discovery sweep).
+
+### Verified
+
+- `cargo test --lib`: 438 passed, 0 failed.
+- Differential fuzzers: 120k iterations (3 × 40k deep) — zero divergence.
+- `cargo fmt --check` clean; `cargo clippy --lib` clean (4 pre-existing warnings,
+  none in the parser lane).
+- Native autoclose smoke exit 0; live byte path unchanged (`vte` still drives
+  `Terminal`), so zero production behaviour change.
+- All parser files under ~700 lines.
+
+### Known gaps / next
+
+- PA3 retires `vte`: swap `OdyParser` into the live `Screen` feed, port the
+  oracle suite to golden fixtures, and update SPEC/README to state the ownership
+  boundary.
+
+---
+
 ## 2026-06-10 — OdyTTY-owned VT parser skeleton + vte differential oracle (PA1)
 
 First Foundation-Ownership packet on the parser side. OdyTTY now has its own DEC

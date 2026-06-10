@@ -25,9 +25,21 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
           excess intermediates, value saturation, invalid/split UTF-8, DCS, and
           APC-invisibility. The one intended divergence (APC surfacing) is
           documented and Screen-invisible.
-  - [ ] PA2: edge-case hardening for C1 controls, cancel/abort semantics,
+  - [x] PA2: edge-case hardening for C1 controls, cancel/abort semantics,
         parameter limits, OSC terminators, DCS/APC plumbing, malformed UTF-8,
         and fuzzing.
+    - [x] Decisions pinned: C1/UTF-8 precedence (UTF-8 wins; lone 8-bit C1
+          bytes execute and do not introduce sequences; C1-via-2-byte-UTF-8
+          follows the canonical print/execute split), and DCS/APC payload policy
+          (DCS unbuffered streaming passthrough; APC buffered + bounded by
+          `MAX_APC_RAW`, over-cap APC dropped not truncated).
+    - [x] 35 curated edge fixtures folded into the oracle `corpus()` (C1
+          singles/introducers, C1-via-multibyte, abort-in-string-states, OSC
+          terminator variants, param edge shapes), each also covered at every
+          byte split and on a narrow grid.
+    - [x] Three committed deterministic differential fuzzers (byte-soup,
+          two-chunk split, structure-aware) with an `ODYTTY_FUZZ_ITERS` budget;
+          120k iterations run zero-divergence against `vte`.
   - [ ] PA3: remove `vte` after the oracle suite is ported to golden fixtures.
 - [x] P0: replace `portable-pty` with an OdyTTY-owned Linux PTY layer.
   - [x] PTY allocation uses `openpt`/`grantpt`/`unlockpt`/`TIOCGPTPEER`, sets
