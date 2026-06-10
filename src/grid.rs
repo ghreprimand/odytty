@@ -61,6 +61,16 @@ impl Vertex {
 /// Number of vertices per quad (two triangles).
 pub const VERTS_PER_QUAD: usize = 6;
 
+/// A solid pixel-space overlay quad appended after terminal-cell geometry.
+///
+/// Native uses this for presentation-only overlays that do not need glyph atlas
+/// sampling, such as the scrollback position indicator.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SolidQuad {
+    pub rect: [f32; 4],
+    pub color: [f32; 4],
+}
+
 /// Push a pixel-space rectangle as two triangles into `out`.
 ///
 /// `rect` is `[x0, y0, x1, y1]` in pixels; `uv` is `[u0, v0, u1, v1]`. For
@@ -75,6 +85,11 @@ fn push_quad(out: &mut Vec<Vertex>, rect: [f32; 4], uv: [f32; 4], color: [f32; 4
     let bl = Vertex::new([x0, y1], [u0, v1], color, is_glyph);
     let br = Vertex::new([x1, y1], [u1, v1], color, is_glyph);
     out.extend_from_slice(&[tl, bl, tr, tr, bl, br]);
+}
+
+/// Append one solid, non-glyph quad to an existing vertex list.
+pub fn push_solid_quad(out: &mut Vec<Vertex>, quad: SolidQuad) {
+    push_quad(out, quad.rect, [0.0, 0.0, 0.0, 0.0], quad.color, 0.0);
 }
 
 /// Build the full vertex list for a snapshot against a glyph atlas.
@@ -151,6 +166,20 @@ pub fn build_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atlas: &G
     }
 
     push_cursor(out, snapshot, atlas, cell_w, cell_h);
+}
+
+/// Rebuild the full vertex list and append presentation-only solid overlays.
+pub fn build_vertices_with_overlays_into(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    overlays: &[SolidQuad],
+) {
+    build_vertices_into(out, snapshot, atlas);
+    out.reserve(overlays.len() * VERTS_PER_QUAD);
+    for &overlay in overlays {
+        push_solid_quad(out, overlay);
+    }
 }
 
 /// Emit a block cursor for the snapshot, if one should be drawn.

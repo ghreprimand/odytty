@@ -4,7 +4,7 @@ use ab_glyph::FontVec;
 use wgpu::util::DeviceExt;
 
 use crate::core::Snapshot;
-use crate::grid::{self, Vertex};
+use crate::grid::{self, SolidQuad, Vertex};
 use crate::text::{self, GlyphAtlas};
 use crate::theme::{Theme, VisualEffect};
 
@@ -432,11 +432,26 @@ impl GpuState {
     /// The caller must already hold the snapshot by value — the terminal mutex
     /// is dropped before this runs so the lock is never held across GPU calls.
     pub(super) fn update_from_snapshot(&mut self, snapshot: &Snapshot) {
+        self.update_from_snapshot_with_overlays(snapshot, &[]);
+    }
+
+    /// Rebuild the cell vertex buffer from a fresh terminal snapshot plus
+    /// presentation-only solid overlays.
+    pub(super) fn update_from_snapshot_with_overlays(
+        &mut self,
+        snapshot: &Snapshot,
+        overlays: &[SolidQuad],
+    ) {
         ensure_snapshot_glyphs(&mut self.atlas, &self.font, snapshot);
         if self.atlas.take_dirty() {
             self.refresh_atlas_texture();
         }
-        grid::build_vertices_into(&mut self.vertices, snapshot, &self.atlas);
+        grid::build_vertices_with_overlays_into(
+            &mut self.vertices,
+            snapshot,
+            &self.atlas,
+            overlays,
+        );
         self.vertex_count = self.vertices.len() as u32;
         let needed = vertex_bytes_len(&self.vertices);
         let capacity = grow_vertex_buffer_capacity(self.vertex_buf_capacity_bytes, needed);

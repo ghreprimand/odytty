@@ -15,11 +15,12 @@ use super::gpu::{
 };
 use super::options::NativeOptions;
 use super::pty::PtyWriter;
-use super::viewport::{Viewport, grid_dimensions_for, wheel_lines};
+use super::viewport::{Viewport, grid_dimensions_for, scroll_indicator_quad, wheel_lines};
 use crate::core::{
     Attrs, Cell, Dimensions, MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol,
     MouseTracking, Position, Snapshot, Terminal,
 };
+use crate::grid::{SolidQuad, VERTS_PER_QUAD};
 use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, CellPoint};
@@ -132,6 +133,64 @@ fn viewport_clamp_shrinks_offset_to_available_history() {
     vp.clamp(0);
     assert_eq!(vp.offset(), 0);
     assert!(vp.is_live());
+}
+
+#[test]
+fn scroll_indicator_hidden_at_live_tail_and_without_history() {
+    let color = [1.0, 1.0, 1.0, 0.62];
+    let dimensions = Dimensions::new(10, 5);
+    let cell = cell(8, 10);
+
+    assert_eq!(scroll_indicator_quad(0, 15, dimensions, cell, color), None);
+    assert_eq!(scroll_indicator_quad(3, 0, dimensions, cell, color), None);
+}
+
+#[test]
+fn scroll_indicator_maps_offset_to_right_edge_thumb() {
+    let color = [0.5, 0.6, 0.7, 0.62];
+    let dimensions = Dimensions::new(10, 5);
+    let cell = cell(8, 10);
+
+    let oldest = scroll_indicator_quad(15, 15, dimensions, cell, color).expect("oldest");
+    assert_eq!(oldest.rect, [77.0, 0.0, 80.0, 12.5]);
+    assert_eq!(oldest.color, color);
+
+    let mid = scroll_indicator_quad(5, 15, dimensions, cell, color).expect("middle");
+    assert_eq!(mid.rect, [77.0, 25.0, 80.0, 37.5]);
+}
+
+#[test]
+fn solid_overlay_quads_append_after_cell_geometry() {
+    let Ok(font) = text::load_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let atlas = GlyphAtlas::build(&font, 24.0);
+    let snapshot = snapshot(&["  "], 2);
+    let overlay = SolidQuad {
+        rect: [1.0, 2.0, 4.0, 8.0],
+        color: [0.2, 0.3, 0.4, 0.5],
+    };
+    let mut vertices = Vec::new();
+
+    crate::grid::build_vertices_with_overlays_into(
+        &mut vertices,
+        &snapshot,
+        &atlas,
+        std::slice::from_ref(&overlay),
+    );
+
+    assert_eq!(vertices.len(), 4 * VERTS_PER_QUAD);
+    assert_eq!(vertices[vertices.len() - VERTS_PER_QUAD].pos, [1.0, 2.0]);
+    assert_eq!(
+        vertices[vertices.len() - VERTS_PER_QUAD].color,
+        overlay.color
+    );
+    assert!(
+        vertices[vertices.len() - VERTS_PER_QUAD..]
+            .iter()
+            .all(|vertex| vertex.is_glyph == 0.0)
+    );
 }
 
 #[test]

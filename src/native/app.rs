@@ -3,12 +3,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::core::{
-    Dimensions, MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol, Snapshot, Terminal,
+    Color, Dimensions, MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol, Snapshot,
+    Terminal,
 };
 use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker};
-use crate::text::CellSize;
+use crate::text::{self, CellSize};
 use crate::theme::{Theme, VisualEffect};
 
 use winit::application::ApplicationHandler;
@@ -29,7 +30,10 @@ use super::gpu::{FrameOutcome, GpuState};
 use super::options::{NativeError, NativeOptions};
 use super::pty::{PtyWriter, UserEvent};
 use super::search_ui::{SearchUi, apply_search_ui};
-use super::viewport::{SELECTION_AUTOSCROLL_INTERVAL, Viewport, grid_dimensions_for, wheel_lines};
+use super::viewport::{
+    SELECTION_AUTOSCROLL_INTERVAL, Viewport, grid_dimensions_for, scroll_indicator_quad,
+    wheel_lines,
+};
 
 const RESIZE_DEBOUNCE_INTERVAL: Duration = Duration::from_millis(40);
 
@@ -267,6 +271,13 @@ impl App {
             Some(deadline) => event_loop.set_control_flow(ControlFlow::WaitUntil(deadline)),
             None => event_loop.set_control_flow(ControlFlow::Wait),
         }
+    }
+
+    fn scroll_indicator_color(&self) -> [f32; 4] {
+        let (r, g, b) = self.theme.foreground;
+        let mut color = text::foreground_linear(Color::Rgb(r, g, b));
+        color[3] = 0.62;
+        color
     }
 
     /// Record a fatal startup error and ask the loop to exit.
@@ -859,8 +870,25 @@ impl ApplicationHandler<UserEvent> for App {
                         scrollback_len,
                         self.grid,
                     );
+                    let color = self.scroll_indicator_color();
+                    let overlay = self.gpu.as_ref().and_then(|gpu| {
+                        scroll_indicator_quad(
+                            self.viewport.offset(),
+                            scrollback_len,
+                            self.grid,
+                            gpu.atlas.cell,
+                            color,
+                        )
+                    });
                     if let Some(gpu) = self.gpu.as_mut() {
-                        gpu.update_from_snapshot(&snapshot);
+                        if let Some(overlay) = overlay {
+                            gpu.update_from_snapshot_with_overlays(
+                                &snapshot,
+                                std::slice::from_ref(&overlay),
+                            );
+                        } else {
+                            gpu.update_from_snapshot(&snapshot);
+                        }
                     }
                     self.needs_rebuild = false;
                 }

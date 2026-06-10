@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Native viewport scroll indicator
+
+Stage 4 daily-driver interaction packet. Scrolling into history now gives a
+small visual position cue without changing terminal semantics or adding shader
+work.
+
+### What landed
+
+- **Right-edge scroll indicator** — when the viewport is scrolled back, native
+  appends a thin solid quad at the right edge showing the visible window's
+  position and proportion within `scrollback + screen`.
+- **Hidden at live tail** — the indicator is not shown at offset `0`, so the
+  default live terminal view stays visually unchanged. Alternate screen has no
+  active scrollback and clamps the viewport to live, so full-screen TUIs do not
+  show the indicator.
+- **Theme-aware presentation** — the indicator derives from the active theme's
+  foreground color with partial alpha. It is rendered through the existing cell
+  quad pipeline; no shader, atlas, core, or settings changes were needed.
+
+### Verified
+
+- Added headless native tests for indicator visibility and geometry, plus a
+  solid-overlay vertex append test.
+- A visibility knob is intentionally deferred; if it becomes necessary it should
+  go through the settings path in a later packet.
+
+---
+
 ## 2026-06-10 — Resize fast path: width-unchanged reflow + reflow module
 
 P1-a from the P1 perf findings. A width-unchanged resize was re-wrapping the

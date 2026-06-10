@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::core::Dimensions;
+use crate::grid::SolidQuad;
 use crate::text::CellSize;
 
 use winit::event::MouseScrollDelta;
@@ -12,6 +13,8 @@ pub(super) fn grid_dimensions_for(width_px: u32, height_px: u32, cell: CellSize)
 }
 
 const WHEEL_STEP_LINES: usize = 3;
+const SCROLL_INDICATOR_WIDTH_PX: f32 = 3.0;
+const SCROLL_INDICATOR_MIN_HEIGHT_PX: f32 = 8.0;
 /// Minimum delay between drag-edge autoscroll steps.
 pub(super) const SELECTION_AUTOSCROLL_INTERVAL: Duration = Duration::from_millis(80);
 
@@ -107,4 +110,52 @@ pub(super) fn wheel_lines(delta: MouseScrollDelta, cell_height: u32) -> isize {
             (pos.y / height).round() as isize
         }
     }
+}
+
+/// Build the right-edge scrollback indicator overlay for the current viewport.
+///
+/// `viewport_offset == 0` is the live tail, where the indicator is hidden. In
+/// alternate screen the core exposes no active scrollback, so the same rule
+/// hides the bar there without native needing a core-specific alt-screen query.
+pub(super) fn scroll_indicator_quad(
+    viewport_offset: usize,
+    scrollback_len: usize,
+    dimensions: Dimensions,
+    cell: CellSize,
+    color: [f32; 4],
+) -> Option<SolidQuad> {
+    if viewport_offset == 0 || scrollback_len == 0 {
+        return None;
+    }
+
+    let offset = viewport_offset.min(scrollback_len);
+    let cols = dimensions.columns;
+    let rows = dimensions.rows;
+    if cols == 0 || rows == 0 {
+        return None;
+    }
+
+    let track_w = cols as f32 * cell.width.max(1) as f32;
+    let track_h = rows as f32 * cell.height.max(1) as f32;
+    if track_w <= 0.0 || track_h <= 0.0 {
+        return None;
+    }
+
+    let total_rows = scrollback_len.saturating_add(rows).max(1);
+    let proportional_h = track_h * (rows as f32 / total_rows as f32);
+    let thumb_h = proportional_h
+        .max(SCROLL_INDICATOR_MIN_HEIGHT_PX.min(track_h))
+        .min(track_h);
+    let travel = (track_h - thumb_h).max(0.0);
+    let position = (scrollback_len - offset) as f32 / scrollback_len as f32;
+    let y0 = travel * position;
+    let y1 = (y0 + thumb_h).min(track_h);
+    let width = SCROLL_INDICATOR_WIDTH_PX.min(track_w);
+    let x1 = track_w;
+    let x0 = x1 - width;
+
+    Some(SolidQuad {
+        rect: [x0, y0, x1, y1],
+        color,
+    })
 }

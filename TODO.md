@@ -122,7 +122,10 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         restoring the pre-search viewport.
         Search state closes on resize/reflow so absolute match rows are never
         kept across a layout change.
-- [ ] Add viewport affordance such as a scrollbar or scroll position indicator.
+- [x] Add viewport affordance such as a scrollbar or scroll position indicator.
+  - [x] Native right-edge scroll indicator appears when scrolled back, shows
+        position/proportion in scrollback+screen, stays hidden at live tail and
+        in alternate-screen/live-clamped views, and uses the existing quad path.
 - [ ] Add configurable key bindings after settings are available.
 - [ ] Add cursor style and blink policy settings.
 - [ ] Add window title and focus behavior.
