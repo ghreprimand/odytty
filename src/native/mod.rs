@@ -91,10 +91,13 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
 
     // Shared terminal model, sized to the initial grid. The pump thread writes
     // to it; the UI thread snapshots from it.
-    let terminal = Arc::new(Mutex::new(Terminal::new(
-        options.initial_grid.columns,
-        options.initial_grid.rows,
-    )));
+    let mut model = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);
+    // Apply the host default cursor shape/blink policy from settings before any
+    // output. An application's DECSCUSR can still override this at runtime; RIS/
+    // DECSTR return to it. Presentation policy only — the grid contents are
+    // unaffected.
+    model.set_cursor_defaults(settings.cursor_style, settings.cursor_blink.enabled());
+    let terminal = Arc::new(Mutex::new(model));
 
     // Spawn the shell PTY and start pumping its output into the shared terminal.
     let session = PtySession::spawn_default_shell(options.initial_grid)

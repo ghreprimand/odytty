@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ab_glyph::FontVec;
 use wgpu::util::DeviceExt;
 
-use crate::core::Snapshot;
+use crate::core::{CursorStyle, Snapshot};
 use crate::grid::{self, SolidQuad, Vertex};
 use crate::text::{self, FontStyle, GlyphAtlas};
 use crate::theme::{Theme, VisualEffect};
@@ -500,25 +500,27 @@ impl GpuState {
     /// the buffer per coalesced update is cheap and avoids tracking capacity.
     /// The caller must already hold the snapshot by value — the terminal mutex
     /// is dropped before this runs so the lock is never held across GPU calls.
-    pub(super) fn update_from_snapshot(&mut self, snapshot: &Snapshot) {
-        self.update_from_snapshot_with_overlays(snapshot, &[]);
+    pub(super) fn update_from_snapshot(&mut self, snapshot: &Snapshot, cursor_style: CursorStyle) {
+        self.update_from_snapshot_with_overlays(snapshot, cursor_style, &[]);
     }
 
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot plus
-    /// presentation-only solid overlays.
+    /// presentation-only solid overlays, drawing the cursor in `cursor_style`.
     pub(super) fn update_from_snapshot_with_overlays(
         &mut self,
         snapshot: &Snapshot,
+        cursor_style: CursorStyle,
         overlays: &[SolidQuad],
     ) {
         ensure_snapshot_glyphs(&mut self.atlas, &self.fonts, snapshot);
         if self.atlas.take_dirty() {
             self.refresh_atlas_texture();
         }
-        grid::build_vertices_with_overlays_into(
+        grid::build_vertices_with_overlays_and_cursor_into(
             &mut self.vertices,
             snapshot,
             &self.atlas,
+            cursor_style,
             overlays,
         );
         self.vertex_count = self.vertices.len() as u32;

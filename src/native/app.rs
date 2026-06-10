@@ -93,6 +93,69 @@ impl ResizeDebouncer {
     }
 }
 
+/// Half-period of the cursor blink, i.e. the interval between on/off toggles.
+/// ~530ms matches the long-standing xterm/VT default cadence.
+const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(530);
+
+/// Drives the cursor blink on/off phase from injected time.
+///
+/// Policy (documented): the cursor only blinks when the active style requests it
+/// (DECSCUSR or the host default) **and** the window is focused. When either is
+/// false the cursor is held solid-on and no wake is scheduled, so an idle or
+/// unfocused window never spins the event loop. While blinking, [`Self::poll`]
+/// toggles at [`CURSOR_BLINK_INTERVAL`] and [`Self::deadline`] reports the next
+/// toggle instant for `ControlFlow::WaitUntil`, bounding the wake rate.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct CursorBlinkState {
+    interval: Duration,
+    on: bool,
+    next_toggle: Option<Instant>,
+}
+
+impl CursorBlinkState {
+    pub(super) fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            on: true,
+            next_toggle: None,
+        }
+    }
+
+    /// Update the blink phase for `now` and return whether the cursor is
+    /// currently visible (on-phase). Solid-on (and deadline cleared) whenever the
+    /// cursor is not blinking or the window is unfocused.
+    pub(super) fn poll(&mut self, now: Instant, blinking: bool, focused: bool) -> bool {
+        if !blinking || !focused {
+            self.on = true;
+            self.next_toggle = None;
+            return true;
+        }
+        match self.next_toggle {
+            None => {
+                self.on = true;
+                self.next_toggle = Some(now + self.interval);
+            }
+            Some(deadline) if now >= deadline => {
+                self.on = !self.on;
+                self.next_toggle = Some(now + self.interval);
+            }
+            Some(_) => {}
+        }
+        self.on
+    }
+
+    /// The next scheduled toggle instant, if the cursor is currently blinking.
+    pub(super) fn deadline(&self) -> Option<Instant> {
+        self.next_toggle
+    }
+
+    /// Whether a scheduled toggle is due at `now` (the loop should rebuild and
+    /// redraw so the phase flips).
+    pub(super) fn is_due(&self, now: Instant) -> bool {
+        self.next_toggle.is_some_and(|deadline| now >= deadline)
+    }
+}
+
 /// Application state driving the `winit` event loop.
 ///
 /// The window is created lazily on `resumed` per `winit`'s portability
@@ -175,6 +238,13 @@ pub(super) struct App {
     /// Linux clipboard contents remain served after Ctrl+Shift+C.
     clipboard: NativeClipboard,
     resize_debounce: ResizeDebouncer,
+    /// Cursor blink phase driver. Toggles only when the active cursor style
+    /// blinks and the window is focused; otherwise the cursor is solid and the
+    /// loop is not woken for it.
+    cursor_blink: CursorBlinkState,
+    /// Whether the window currently holds focus. Blink pauses (cursor solid)
+    /// while unfocused, matching common terminal behavior.
+    focused: bool,
     autoclose: Option<Duration>,
     deadline: Option<Instant>,
     pub(super) startup_error: Option<NativeError>,
@@ -218,6 +288,9 @@ impl App {
             last_scrollback_len: 0,
             clipboard: NativeClipboard::default(),
             resize_debounce: ResizeDebouncer::new(RESIZE_DEBOUNCE_INTERVAL),
+            cursor_blink: CursorBlinkState::new(CURSOR_BLINK_INTERVAL),
+            // Assume focused at startup; the first `Focused` event corrects it.
+            focused: true,
             autoclose,
             deadline: None,
             startup_error: None,
@@ -271,10 +344,14 @@ impl App {
     }
 
     fn update_control_flow_deadline(&self, event_loop: &ActiveEventLoop) {
-        let next = [self.deadline, self.resize_debounce.deadline()]
-            .into_iter()
-            .flatten()
-            .min();
+        let next = [
+            self.deadline,
+            self.resize_debounce.deadline(),
+            self.cursor_blink.deadline(),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         match next {
             Some(deadline) => event_loop.set_control_flow(ControlFlow::WaitUntil(deadline)),
             None => event_loop.set_control_flow(ControlFlow::Wait),
@@ -844,7 +921,7 @@ impl ApplicationHandler<UserEvent> for App {
                 // pump wakes coalesced into this frame. Snapshot under the lock,
                 // then drop it before touching the GPU.
                 if self.needs_rebuild {
-                    let (mut snapshot, scrollback_len) = {
+                    let (mut snapshot, scrollback_len, cursor_style, cursor_blinking) = {
                         let terminal = self.terminal.lock().expect("terminal mutex");
                         let scrollback_len = terminal.screen().scrollback_len();
                         // "Stay scrolled": as new output grows scrollback while
@@ -861,8 +938,18 @@ impl ApplicationHandler<UserEvent> for App {
                         (
                             terminal.snapshot_with_scrollback(self.viewport.offset()),
                             scrollback_len,
+                            terminal.cursor_style(),
+                            terminal.cursor_blinking(),
                         )
                     };
+                    // Blink phase: hide the cursor during the off-phase. Only the
+                    // live view (offset 0) shows a cursor; the blink driver holds
+                    // it solid when not blinking or unfocused.
+                    let now = Instant::now();
+                    let cursor_on = self.cursor_blink.poll(now, cursor_blinking, self.focused);
+                    if !cursor_on {
+                        snapshot.cursor_visible = false;
+                    }
                     if let Some(range) = self.selection.range()
                         && let Some(visible_range) = selection::visible_range_from_absolute(
                             range,
@@ -894,10 +981,11 @@ impl ApplicationHandler<UserEvent> for App {
                         if let Some(overlay) = overlay {
                             gpu.update_from_snapshot_with_overlays(
                                 &snapshot,
+                                cursor_style,
                                 std::slice::from_ref(&overlay),
                             );
                         } else {
-                            gpu.update_from_snapshot(&snapshot);
+                            gpu.update_from_snapshot(&snapshot, cursor_style);
                         }
                     }
                     self.needs_rebuild = false;
@@ -924,6 +1012,13 @@ impl ApplicationHandler<UserEvent> for App {
                 self.super_key = state.super_key();
             }
             WindowEvent::Focused(focused) => {
+                self.focused = focused;
+                // Force the cursor solid-on immediately on focus loss (and
+                // resume blinking on focus gain) by rebuilding next frame.
+                self.needs_rebuild = true;
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
                 self.send_focus_report(focused);
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -998,6 +1093,15 @@ impl ApplicationHandler<UserEvent> for App {
             }
         }
 
+        // A due cursor-blink toggle rebuilds once so the phase flips; the rebuild
+        // path polls the blink driver and advances it.
+        if self.cursor_blink.is_due(now) {
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+
         if let Some(deadline) = self.deadline
             && now >= deadline
         {
@@ -1006,5 +1110,72 @@ impl ApplicationHandler<UserEvent> for App {
         }
 
         self.update_control_flow_deadline(event_loop);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn blink() -> CursorBlinkState {
+        CursorBlinkState::new(Duration::from_millis(500))
+    }
+
+    #[test]
+    fn blink_holds_solid_when_not_blinking() {
+        let mut state = blink();
+        let t0 = Instant::now();
+        // Steady cursor: always on, no scheduled wake.
+        assert!(state.poll(t0, false, true));
+        assert_eq!(state.deadline(), None);
+        assert!(state.poll(t0 + Duration::from_secs(10), false, true));
+        assert_eq!(state.deadline(), None);
+    }
+
+    #[test]
+    fn blink_holds_solid_when_unfocused() {
+        let mut state = blink();
+        let t0 = Instant::now();
+        // Blinking requested but unfocused: solid, no wake scheduled.
+        assert!(state.poll(t0, true, false));
+        assert_eq!(state.deadline(), None);
+    }
+
+    #[test]
+    fn blink_toggles_at_the_interval_when_focused() {
+        let mut state = blink();
+        let t0 = Instant::now();
+        // First poll arms the phase (on) and schedules the next toggle.
+        assert!(state.poll(t0, true, true));
+        let deadline = state.deadline().expect("blink should schedule a wake");
+        assert_eq!(deadline, t0 + Duration::from_millis(500));
+        assert!(!state.is_due(t0));
+
+        // Before the deadline: unchanged, still on.
+        assert!(state.poll(t0 + Duration::from_millis(250), true, true));
+
+        // At/after the deadline: flips to off and reschedules.
+        assert!(state.is_due(t0 + Duration::from_millis(500)));
+        assert!(!state.poll(t0 + Duration::from_millis(500), true, true));
+        assert_eq!(
+            state.deadline(),
+            Some(t0 + Duration::from_millis(1000)),
+            "next toggle is one interval later"
+        );
+
+        // Next interval flips back on.
+        assert!(state.poll(t0 + Duration::from_millis(1000), true, true));
+    }
+
+    #[test]
+    fn blink_resets_to_solid_when_focus_lost_mid_cycle() {
+        let mut state = blink();
+        let t0 = Instant::now();
+        assert!(state.poll(t0, true, true));
+        // Toggle to off-phase.
+        assert!(!state.poll(t0 + Duration::from_millis(500), true, true));
+        // Losing focus forces solid-on and clears the scheduled wake.
+        assert!(state.poll(t0 + Duration::from_millis(600), true, false));
+        assert_eq!(state.deadline(), None);
     }
 }

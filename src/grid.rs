@@ -23,7 +23,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::atlas::GlyphBounds;
-use crate::core::{Attrs, Snapshot};
+use crate::core::{Attrs, CursorStyle, Snapshot};
 use crate::text::{self, FontStyle, GlyphAtlas};
 
 /// One vertex of a cell quad. Matches the `VsIn` layout in `cell.wgsl`.
@@ -162,7 +162,19 @@ pub fn build_vertices(snapshot: &Snapshot, atlas: &GlyphAtlas) -> Vec<Vertex> {
 ///
 /// This is the allocation-reuse path used by the native renderer: callers keep
 /// a grow-only `Vec<Vertex>`, then clear and refill it for each rebuilt frame.
+/// The cursor is drawn as a block; callers that honor DECSCUSR cursor shapes use
+/// [`build_vertices_with_cursor_into`].
 pub fn build_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atlas: &GlyphAtlas) {
+    build_vertices_with_cursor_into(out, snapshot, atlas, CursorStyle::Block);
+}
+
+/// Rebuild the full vertex list, drawing the cursor in the given DECSCUSR shape.
+pub fn build_vertices_with_cursor_into(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cursor_style: CursorStyle,
+) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
     let cell_w = atlas.cell.width as f32;
@@ -263,7 +275,7 @@ pub fn build_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atlas: &G
         }
     }
 
-    push_cursor(out, snapshot, atlas, cell_w, cell_h);
+    push_cursor(out, snapshot, atlas, cell_w, cell_h, cursor_style);
 }
 
 /// Push a glyph quad sized and positioned from bearing-aware atlas bounds.
@@ -280,36 +292,79 @@ fn push_glyph_quad(out: &mut Vec<Vertex>, x0: f32, y0: f32, bounds: GlyphBounds,
 }
 
 /// Rebuild the full vertex list and append presentation-only solid overlays.
+/// The cursor is drawn as a block; see
+/// [`build_vertices_with_overlays_and_cursor_into`] for shaped cursors.
 pub fn build_vertices_with_overlays_into(
     out: &mut Vec<Vertex>,
     snapshot: &Snapshot,
     atlas: &GlyphAtlas,
     overlays: &[SolidQuad],
 ) {
-    build_vertices_into(out, snapshot, atlas);
+    build_vertices_with_overlays_and_cursor_into(
+        out,
+        snapshot,
+        atlas,
+        CursorStyle::Block,
+        overlays,
+    );
+}
+
+/// Rebuild the full vertex list with a DECSCUSR-shaped cursor and append
+/// presentation-only solid overlays.
+pub fn build_vertices_with_overlays_and_cursor_into(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cursor_style: CursorStyle,
+    overlays: &[SolidQuad],
+) {
+    build_vertices_with_cursor_into(out, snapshot, atlas, cursor_style);
     out.reserve(overlays.len() * VERTS_PER_QUAD);
     for &overlay in overlays {
         push_solid_quad(out, overlay);
     }
 }
 
-/// Emit a block cursor for the snapshot, if one should be drawn.
+/// Pixel thickness of a non-block cursor (underline bar / vertical bar).
+fn cursor_bar_thickness(extent: f32) -> f32 {
+    (extent / 8.0).round().clamp(1.0, extent.max(1.0))
+}
+
+/// Pixel-space rectangle for an underline cursor: a thin horizontal bar pinned
+/// to the bottom edge of the cell.
+pub fn cursor_underline_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32) -> [f32; 4] {
+    let thickness = cursor_bar_thickness(cell_h);
+    [x0, y0 + cell_h - thickness, x0 + cell_w, y0 + cell_h]
+}
+
+/// Pixel-space rectangle for a bar cursor: a thin vertical bar at the cell's
+/// left edge.
+pub fn cursor_bar_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32) -> [f32; 4] {
+    let thickness = cursor_bar_thickness(cell_w);
+    [x0, y0, x0 + thickness, y0 + cell_h]
+}
+
+/// Emit the cursor for the snapshot in the given shape, if one should be drawn.
 ///
-/// Drawn as an **inverse** block: a background quad in the underlying cell's
-/// foreground color, with that cell's glyph (if any) redrawn on top in the
-/// cell's background color. This keeps the character readable under the cursor
-/// rather than eliding it. A hidden cursor (`cursor_visible == false`) emits
-/// nothing. The cursor position is clamped to the grid so a stale snapshot can
-/// never index out of bounds.
+/// - **Block**: an **inverse** block — a background quad in the cell's
+///   foreground color with the cell's glyph (if any) redrawn on top in the
+///   cell's background color, keeping the character readable under the cursor.
+/// - **Underline**: a thin foreground-colored bar at the cell's bottom edge,
+///   drawn over the cell's existing glyph (no inversion).
+/// - **Bar**: a thin foreground-colored vertical bar at the cell's left edge,
+///   drawn over the cell's existing glyph (no inversion).
 ///
-/// Reflects only the live snapshot cursor — no scrollback/viewport offset is
-/// applied here (that is a later packet).
+/// A hidden cursor (`cursor_visible == false`, which the renderer also uses for
+/// the blink "off" phase) emits nothing. The position is clamped to the grid so
+/// a stale snapshot can never index out of bounds. Reflects only the live
+/// snapshot cursor — no scrollback/viewport offset is applied here.
 fn push_cursor(
     out: &mut Vec<Vertex>,
     snapshot: &Snapshot,
     atlas: &GlyphAtlas,
     cell_w: f32,
     cell_h: f32,
+    style: CursorStyle,
 ) {
     if !snapshot.cursor_visible {
         return;
@@ -327,8 +382,9 @@ fn push_cursor(
 
     let cell = &snapshot.cells[row * cols + col];
 
-    // Effective colors after the cell's own inverse attribute, then swapped
-    // again for the cursor so the block reads as an inversion of the cell.
+    // Effective colors after the cell's own inverse attribute. For the block
+    // cursor these are swapped again so the block reads as an inversion of the
+    // cell; the bar/underline shapes draw in the effective foreground.
     let mut fg = text::foreground_linear(cell.attrs.foreground);
     let mut bg = text::background_linear(cell.attrs.background);
     if cell.attrs.inverse {
@@ -337,27 +393,47 @@ fn push_cursor(
     if cell.attrs.dim {
         fg = dim_color(fg);
     }
-    let block_color = fg;
-    let glyph_color = bg;
 
     let x0 = col as f32 * cell_w;
     let y0 = row as f32 * cell_h;
-    let x1 = x0 + cell_w;
-    let y1 = y0 + cell_h;
 
-    push_quad(
-        out,
-        [x0, y0, x1, y1],
-        [0.0, 0.0, 0.0, 0.0],
-        block_color,
-        0.0,
-    );
-
-    if !cell.attrs.hidden
-        && cell.ch != ' '
-        && let Some(bounds) = atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
-    {
-        push_glyph_quad(out, x0, y0, bounds, glyph_color);
+    match style {
+        CursorStyle::Block => {
+            let block_color = fg;
+            let glyph_color = bg;
+            push_quad(
+                out,
+                [x0, y0, x0 + cell_w, y0 + cell_h],
+                [0.0, 0.0, 0.0, 0.0],
+                block_color,
+                0.0,
+            );
+            if !cell.attrs.hidden
+                && cell.ch != ' '
+                && let Some(bounds) =
+                    atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
+            {
+                push_glyph_quad(out, x0, y0, bounds, glyph_color);
+            }
+        }
+        CursorStyle::Underline => {
+            push_solid_quad(
+                out,
+                SolidQuad {
+                    rect: cursor_underline_rect(x0, y0, cell_w, cell_h),
+                    color: fg,
+                },
+            );
+        }
+        CursorStyle::Bar => {
+            push_solid_quad(
+                out,
+                SolidQuad {
+                    rect: cursor_bar_rect(x0, y0, cell_w, cell_h),
+                    color: fg,
+                },
+            );
+        }
     }
 }
 
@@ -784,5 +860,92 @@ mod tests {
         assert_eq!(line.is_glyph, 0.0);
         assert_eq!(line.pos, [expected[0], expected[1]]);
         assert_eq!(line.color, text::foreground_linear(Color::Default));
+    }
+
+    #[test]
+    fn block_cursor_matches_default_build() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        // Explicit Block cursor is byte-identical to the default build path.
+        let term = Terminal::new(3, 2);
+        let snapshot = term.snapshot();
+        let mut default_path = Vec::new();
+        build_vertices_into(&mut default_path, &snapshot, &atlas);
+        let mut block_path = Vec::new();
+        build_vertices_with_cursor_into(&mut block_path, &snapshot, &atlas, CursorStyle::Block);
+        assert_eq!(default_path, block_path);
+    }
+
+    #[test]
+    fn underline_cursor_emits_single_bottom_bar() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let cell_w = atlas.cell.width as f32;
+        let cell_h = atlas.cell.height as f32;
+        // Blank cell, visible cursor at (0,0). Underline cursor = one solid quad
+        // pinned to the bottom edge, no inverse block, no glyph redraw.
+        let term = Terminal::new(2, 1);
+        let mut verts = Vec::new();
+        build_vertices_with_cursor_into(
+            &mut verts,
+            &term.snapshot(),
+            &atlas,
+            CursorStyle::Underline,
+        );
+        // Two blank-cell backgrounds + one cursor bar.
+        assert_eq!(verts.len(), 3 * VERTS_PER_QUAD);
+        let bar = verts[verts.len() - VERTS_PER_QUAD];
+        let expected = cursor_underline_rect(0.0, 0.0, cell_w, cell_h);
+        assert_eq!(bar.is_glyph, 0.0);
+        assert_eq!(bar.pos, [expected[0], expected[1]]);
+        // The bar hugs the bottom edge of the cell.
+        assert!((expected[3] - cell_h).abs() < 1e-6);
+        assert!(expected[1] > cell_h * 0.5);
+        assert_eq!(bar.color, text::foreground_linear(Color::Default));
+    }
+
+    #[test]
+    fn bar_cursor_emits_single_left_bar() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let cell_w = atlas.cell.width as f32;
+        let cell_h = atlas.cell.height as f32;
+        let term = Terminal::new(2, 1);
+        let mut verts = Vec::new();
+        build_vertices_with_cursor_into(&mut verts, &term.snapshot(), &atlas, CursorStyle::Bar);
+        assert_eq!(verts.len(), 3 * VERTS_PER_QUAD);
+        let bar = verts[verts.len() - VERTS_PER_QUAD];
+        let expected = cursor_bar_rect(0.0, 0.0, cell_w, cell_h);
+        assert_eq!(bar.is_glyph, 0.0);
+        assert_eq!(bar.pos, [expected[0], expected[1]]);
+        // The bar hugs the left edge and spans the full cell height.
+        assert!((expected[0]).abs() < 1e-6);
+        assert!(expected[2] < cell_w * 0.5);
+        assert!((expected[3] - cell_h).abs() < 1e-6);
+        assert_eq!(bar.color, text::foreground_linear(Color::Default));
+    }
+
+    #[test]
+    fn hidden_cursor_emits_nothing_for_any_style() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        // Cursor hidden (also the blink "off" phase): no cursor quad regardless
+        // of shape. Four blank cells -> four backgrounds only.
+        let mut term = Terminal::new(4, 1);
+        term.advance(b"\x1b[?25l");
+        let snapshot = term.snapshot();
+        for style in [CursorStyle::Block, CursorStyle::Underline, CursorStyle::Bar] {
+            let mut verts = Vec::new();
+            build_vertices_with_cursor_into(&mut verts, &snapshot, &atlas, style);
+            assert_eq!(verts.len(), 4 * VERTS_PER_QUAD, "style {style:?}");
+        }
     }
 }

@@ -218,6 +218,20 @@ impl Default for Cell {
         Self::blank()
     }
 }
+/// Visual shape of the text cursor, selected by DECSCUSR (`CSI Ps SP q`) or the
+/// host default policy. Terminal semantics only — how each shape is drawn is the
+/// renderer's concern.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CursorStyle {
+    /// Full-cell block (the power-on default).
+    #[default]
+    Block,
+    /// Thin horizontal bar along the cell's baseline/bottom edge.
+    Underline,
+    /// Thin vertical bar at the cell's left edge.
+    Bar,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Snapshot {
     pub dimensions: Dimensions,

@@ -9,6 +9,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::core::CursorStyle;
 use crate::theme::{Theme, VisualEffect};
 
 pub const THEME_ENV: &str = "ODYTTY_THEME";
@@ -18,7 +19,52 @@ pub const FONT_FAMILY_ENV: &str = "ODYTTY_FONT_FAMILY";
 pub const FONT_SIZE_ENV: &str = "ODYTTY_FONT_SIZE";
 pub const TEXT_GAMMA_ENV: &str = "ODYTTY_TEXT_GAMMA";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
+pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
+pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
+
+/// Default cursor blink policy (`ODYTTY_CURSOR_BLINK`). This is the host default
+/// applied at power-on and after DECSCUSR 0 / RIS / DECSTR; an application's
+/// DECSCUSR can still override it at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CursorBlink {
+    /// Cursor blinks by default.
+    On,
+    /// Cursor is steady by default.
+    Off,
+    /// Conventional terminal default. Currently resolves to blinking; reserved
+    /// to later follow a system/app preference.
+    #[default]
+    Auto,
+}
+
+impl CursorBlink {
+    /// Resolve the policy to a concrete default blink flag for the core.
+    pub fn enabled(self) -> bool {
+        match self {
+            Self::On | Self::Auto => true,
+            Self::Off => false,
+        }
+    }
+
+    fn parse(raw: &str) -> Option<Self> {
+        match normalize_name(raw).as_str() {
+            "on" | "true" | "yes" | "blink" | "blinking" => Some(Self::On),
+            "off" | "false" | "no" | "steady" | "solid" => Some(Self::Off),
+            "auto" | "default" => Some(Self::Auto),
+            _ => None,
+        }
+    }
+}
+
+fn parse_cursor_style(raw: &str) -> Option<CursorStyle> {
+    match normalize_name(raw).as_str() {
+        "block" => Some(CursorStyle::Block),
+        "underline" | "under" => Some(CursorStyle::Underline),
+        "bar" | "ibeam" | "beam" | "vertical" => Some(CursorStyle::Bar),
+        _ => None,
+    }
+}
 
 pub const DEFAULT_FONT_SIZE_PX: f32 = 14.0;
 pub const MIN_FONT_SIZE_PX: f32 = 6.0;
@@ -108,6 +154,10 @@ pub struct Settings {
     pub font_size_px: f32,
     pub text_gamma: f32,
     pub key_bindings: Vec<KeyBindingOverride>,
+    /// Default cursor shape applied at power-on (DECSCUSR can override).
+    pub cursor_style: CursorStyle,
+    /// Default cursor blink policy applied at power-on (DECSCUSR can override).
+    pub cursor_blink: CursorBlink,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -121,6 +171,8 @@ impl Default for Settings {
             font_size_px: DEFAULT_FONT_SIZE_PX,
             text_gamma: DEFAULT_TEXT_GAMMA,
             key_bindings: Vec::new(),
+            cursor_style: CursorStyle::Block,
+            cursor_blink: CursorBlink::Auto,
             native_autoclose: None,
         }
     }
@@ -182,6 +234,8 @@ impl Settings {
         let font_size_px = parse_font_size(get(FONT_SIZE_ENV).as_deref(), &mut warn);
         let text_gamma = parse_text_gamma(get(TEXT_GAMMA_ENV).as_deref(), &mut warn);
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
+        let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
+        let cursor_blink = parse_cursor_blink_setting(get(CURSOR_BLINK_ENV).as_deref(), &mut warn);
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -192,7 +246,53 @@ impl Settings {
             font_size_px,
             text_gamma,
             key_bindings,
+            cursor_style,
+            cursor_blink,
             native_autoclose,
+        }
+    }
+}
+
+/// Parse `ODYTTY_CURSOR_STYLE`, falling back to the default block shape with one
+/// warning on an unrecognized value. Empty/unset is the silent default.
+fn parse_cursor_style_setting(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> CursorStyle {
+    let Some(raw) = raw else {
+        return CursorStyle::Block;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return CursorStyle::Block;
+    }
+    match parse_cursor_style(trimmed) {
+        Some(style) => style,
+        None => {
+            warn(&format!(
+                "{CURSOR_STYLE_ENV}={trimmed:?} is not block|underline|bar; using block"
+            ));
+            CursorStyle::Block
+        }
+    }
+}
+
+/// Parse `ODYTTY_CURSOR_BLINK`, falling back to the default `auto` policy with
+/// one warning on an unrecognized value. Empty/unset is the silent default.
+fn parse_cursor_blink_setting(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> CursorBlink {
+    let Some(raw) = raw else {
+        return CursorBlink::Auto;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return CursorBlink::Auto;
+    }
+    match CursorBlink::parse(trimmed) {
+        Some(policy) => policy,
+        None => {
+            warn(&format!(
+                "{CURSOR_BLINK_ENV}={trimmed:?} is not on|off|auto; using auto"
+            ));
+            CursorBlink::Auto
         }
     }
 }
@@ -613,6 +713,55 @@ mod tests {
         assert_eq!(settings.key_bindings.len(), 2);
         assert_eq!(settings.key_bindings[0].action, BindableAction::Copy);
         assert_eq!(settings.key_bindings[1].action, BindableAction::Paste);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn cursor_defaults_without_env() {
+        let (settings, warnings) = settings_from([]);
+        assert_eq!(settings.cursor_style, CursorStyle::Block);
+        assert_eq!(settings.cursor_blink, CursorBlink::Auto);
+        assert!(settings.cursor_blink.enabled());
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn cursor_style_and_blink_parse_case_insensitively() {
+        let (settings, warnings) =
+            settings_from([(CURSOR_STYLE_ENV, "  Bar  "), (CURSOR_BLINK_ENV, "Off")]);
+        assert_eq!(settings.cursor_style, CursorStyle::Bar);
+        assert_eq!(settings.cursor_blink, CursorBlink::Off);
+        assert!(!settings.cursor_blink.enabled());
+        assert!(warnings.is_empty());
+
+        let (underline, _) = settings_from([(CURSOR_STYLE_ENV, "underline")]);
+        assert_eq!(underline.cursor_style, CursorStyle::Underline);
+        let (on, _) = settings_from([(CURSOR_BLINK_ENV, "on")]);
+        assert_eq!(on.cursor_blink, CursorBlink::On);
+    }
+
+    #[test]
+    fn garbage_cursor_style_falls_back_with_one_warning() {
+        let (settings, warnings) = settings_from([(CURSOR_STYLE_ENV, "diamond")]);
+        assert_eq!(settings.cursor_style, CursorStyle::Block);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains(CURSOR_STYLE_ENV));
+    }
+
+    #[test]
+    fn garbage_cursor_blink_falls_back_with_one_warning() {
+        let (settings, warnings) = settings_from([(CURSOR_BLINK_ENV, "sometimes")]);
+        assert_eq!(settings.cursor_blink, CursorBlink::Auto);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains(CURSOR_BLINK_ENV));
+    }
+
+    #[test]
+    fn empty_cursor_settings_are_silent_defaults() {
+        let (settings, warnings) =
+            settings_from([(CURSOR_STYLE_ENV, "  "), (CURSOR_BLINK_ENV, "")]);
+        assert_eq!(settings.cursor_style, CursorStyle::Block);
+        assert_eq!(settings.cursor_blink, CursorBlink::Auto);
         assert!(warnings.is_empty());
     }
 }

@@ -88,6 +88,15 @@ pub struct Screen {
     /// DECSET/DECRST 1004 focus reporting. When on, the front end emits
     /// `ESC [ I` / `ESC [ O` on focus in/out. Off at power-on; RIS resets it.
     focus_reporting: bool,
+    /// Effective cursor shape (DECSCUSR `CSI Ps SP q`, or the host default).
+    cursor_style: CursorStyle,
+    /// Effective cursor blink policy (DECSCUSR, or the host default).
+    cursor_blink: bool,
+    /// Host default cursor shape, applied at power-on and on DECSCUSR 0 / RIS /
+    /// DECSTR. Set once from settings via [`Screen::set_cursor_defaults`].
+    default_cursor_style: CursorStyle,
+    /// Host default cursor blink policy, applied alongside `default_cursor_style`.
+    default_cursor_blink: bool,
 }
 #[derive(Debug, Clone)]
 struct StoredScreen {
@@ -133,7 +142,54 @@ impl Screen {
             title_changed: false,
             mouse: MouseProtocol::default(),
             focus_reporting: false,
+            cursor_style: CursorStyle::default(),
+            cursor_blink: true,
+            default_cursor_style: CursorStyle::default(),
+            default_cursor_blink: true,
         }
+    }
+
+    /// Set the host default cursor shape and blink policy (from settings).
+    ///
+    /// Establishes the values DECSCUSR 0 / RIS / DECSTR reset to, and applies
+    /// them immediately as the current effective cursor since no application has
+    /// issued DECSCUSR yet. Intended to be called once at startup before output.
+    pub fn set_cursor_defaults(&mut self, style: CursorStyle, blink: bool) {
+        self.default_cursor_style = style;
+        self.default_cursor_blink = blink;
+        self.cursor_style = style;
+        self.cursor_blink = blink;
+    }
+
+    /// The cursor shape currently in effect (DECSCUSR or host default).
+    pub fn cursor_style(&self) -> CursorStyle {
+        self.cursor_style
+    }
+
+    /// Whether the cursor's blink policy is currently enabled.
+    pub fn cursor_blinking(&self) -> bool {
+        self.cursor_blink
+    }
+
+    /// DECSCUSR (`CSI Ps SP q`): set the cursor shape and blink.
+    ///
+    /// Per the VT520/xterm convention: `0` resets to the host default policy,
+    /// odd values blink and even values are steady, with `1/2` = block,
+    /// `3/4` = underline, `5/6` = bar. Unknown values are ignored.
+    fn set_cursor_style(&mut self, ps: usize) {
+        let (style, blink) = match ps {
+            0 => (self.default_cursor_style, self.default_cursor_blink),
+            1 => (CursorStyle::Block, true),
+            2 => (CursorStyle::Block, false),
+            3 => (CursorStyle::Underline, true),
+            4 => (CursorStyle::Underline, false),
+            5 => (CursorStyle::Bar, true),
+            6 => (CursorStyle::Bar, false),
+            _ => return,
+        };
+        self.cursor_style = style;
+        self.cursor_blink = blink;
+        self.mark_dirty();
     }
 
     pub fn dimensions(&self) -> Dimensions {
@@ -1141,6 +1197,9 @@ impl Screen {
         // a persistent window property and is intentionally left untouched.
         self.mouse = MouseProtocol::default();
         self.focus_reporting = false;
+        // RIS returns the cursor shape/blink to the host default policy.
+        self.cursor_style = self.default_cursor_style;
+        self.cursor_blink = self.default_cursor_blink;
         // RIS restores the default every-8 tab stops (DECSTR does not — see
         // soft_reset).
         self.tab_stops = default_tab_stops(self.dimensions.columns);
@@ -1163,6 +1222,9 @@ impl Screen {
         self.current_attrs = Attrs::default();
         self.host_output.clear();
         self.last_graphic_char = None;
+        // DECSTR returns the cursor shape/blink to the host default policy.
+        self.cursor_style = self.default_cursor_style;
+        self.cursor_blink = self.default_cursor_blink;
         self.mark_dirty();
     }
 }
@@ -1252,6 +1314,7 @@ impl Perform for Screen {
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
             'm' => self.apply_sgr(params),
             'p' if intermediates == b"!" => self.soft_reset(),
+            'q' if intermediates == b" " => self.set_cursor_style(param_or(params, 0, 0)),
             'r' => self.set_scroll_region(params),
             's' => self.save_cursor(),
             'u' => self.restore_cursor(),
@@ -1320,6 +1383,22 @@ impl Terminal {
     /// Whether DECSET 1004 focus reporting is enabled.
     pub fn focus_reporting(&self) -> bool {
         self.screen.focus_reporting()
+    }
+
+    /// The cursor shape currently in effect (DECSCUSR or host default).
+    pub fn cursor_style(&self) -> CursorStyle {
+        self.screen.cursor_style()
+    }
+
+    /// Whether the cursor's blink policy is currently enabled.
+    pub fn cursor_blinking(&self) -> bool {
+        self.screen.cursor_blinking()
+    }
+
+    /// Set the host default cursor shape and blink policy (from settings). See
+    /// [`Screen::set_cursor_defaults`].
+    pub fn set_cursor_defaults(&mut self, style: CursorStyle, blink: bool) {
+        self.screen.set_cursor_defaults(style, blink);
     }
 
     pub fn screen(&self) -> &Screen {

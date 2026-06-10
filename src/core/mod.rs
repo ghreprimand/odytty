@@ -21,6 +21,8 @@ mod search;
 mod types;
 
 #[cfg(test)]
+mod cursor_tests;
+#[cfg(test)]
 mod encoding_tests;
 #[cfg(test)]
 mod scrollback_tests;
@@ -35,6 +37,7 @@ pub use search::{
     AbsolutePoint, SearchMatch, SearchOptions, SearchRow, find_next, find_prev, search_rows,
 };
 pub use types::{
-    Attrs, Cell, Color, Dimensions, DirtyRegion, MouseButton, MouseEncoding, MouseEventKind,
-    MouseModifiers, MouseProtocol, MouseTracking, Position, Snapshot, TerminalModel,
+    Attrs, Cell, Color, CursorStyle, Dimensions, DirtyRegion, MouseButton, MouseEncoding,
+    MouseEventKind, MouseModifiers, MouseProtocol, MouseTracking, Position, Snapshot,
+    TerminalModel,
 };
