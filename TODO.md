@@ -133,8 +133,15 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         ~46 ms → ~20 µs (~2300×); height-only deep ~58 µs → ~6.6 µs. Proven
         byte/coordinate-identical to eager reflow by a 900-scenario differential
         parity sweep; zero `Snapshot`/`TerminalModel` API change.
-- [ ] Add visual regression screenshots or pixel-level smoke checks where
+- [x] Add visual regression screenshots or pixel-level smoke checks where
       practical.
+  - [x] V1: `tests/pixel_smoke.rs` — a headless CPU compositor rasterizes the
+        real `grid::build_vertices*` geometry (default-path blend) and asserts
+        structural invariants: blank-cell purity, glyph ink within bounds,
+        inverse fg/bg swap, dim luminance drop, underline/strikethrough rows,
+        box-drawing `U+2500` seam continuity, wide-char single-draw, bar-cursor
+        stripe. Structural over byte-exact goldens for host-font portability;
+        runs in the default suite. Optional hash-golden layer deferred.
 
 ## Stage 4: Daily-Driver Interaction
 

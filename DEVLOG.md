@@ -7,6 +7,55 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Pixel-level smoke checks (V1)
+
+V1 closes the last unstarted Stage 3 item ("visual regression / pixel-level
+smoke checks where practical") and satisfies one of G1's deferral triggers for
+future shaping work. It adds a headless CPU compositor that exercises the real
+render geometry without a GPU.
+
+### What landed
+
+- **`tests/pixel_smoke.rs`** — a GPU-free compositor rasterizes a small grid
+  from a `Snapshot` using the real `grid::build_vertices*` quads and the
+  `cell.wgsl` default-path blend (text gamma `1.0`, ambient effect off): glyph
+  alpha is the atlas R8 coverage, background/solid quads are opaque fills, and
+  the painter order (all backgrounds, then glyphs/decorations) matches the GPU.
+- **Structural assertions** (robust for any monospace face, not byte-exact
+  goldens): blank cell renders pure background; a known ASCII glyph inks within
+  its own cell with no bleed; inverse swaps the fg/bg fill; dim lowers summed
+  cell luminance; underline and strikethrough each ink a continuous decoration
+  row at the documented offset; box-drawing `U+2500` joins unbroken across the
+  cell seam; a wide char spans two cells with exactly one glyph quad and no ink
+  past the span; the bar cursor inks only a thin left stripe.
+- **Portability choice** — rendered pixels depend on the host font, so a
+  byte-hash golden would be non-portable; the structural layer is the durable
+  contract (documented in the module header). A hash-golden layer could be
+  layered on top later but is intentionally omitted.
+
+### Findings
+
+- No pixel defects found. The box-drawing seam check passes, positively
+  confirming the R2 atlas gutter + R3 bearing-aware quad work joins `U+2500`
+  flush across cells. Recorded as evidence, not a fix.
+
+### Verification
+
+- `cargo test`: 382 lib + **9 pixel-smoke** + 2 PTY + 10 smoke green (1 ignored
+  live-PTY); the compositor runs sub-millisecond, so no `#[ignore]` is needed.
+- `cargo fmt --check` clean; clippy clean for the new test (remaining warnings
+  are pre-existing in `types.rs`/`app.rs`). Native smoke exit 0 at default and
+  `ODYTTY_FONT_SIZE=18` (read-only on native). Reuses only the public geometry
+  API — no edits to `atlas.rs`/`text.rs`/`grid.rs`, zero shipped-binary surface.
+  `tests/pixel_smoke.rs` 522 lines (< 2000).
+
+### Gaps / next
+
+- An optional hash-golden layer (with a documented regeneration path) could be
+  added if a fixed bundled font is ever pinned for deterministic CI rendering.
+
+---
+
 ## 2026-06-10 — Live scale-factor resize wiring (H2)
 
 H2 connects the H1 atlas rescale seam to native `winit` scale-factor events.
