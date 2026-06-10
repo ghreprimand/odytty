@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Native render-loop perf: vertex reuse and resize debounce
+
+This packet applies the native-side mitigations from the P1 findings: reduce
+per-frame allocation around geometry rebuilds, and avoid paying core resize /
+PTY winsize cost on every compositor resize event during window drags.
+
+### What landed
+
+- **Reusable vertex generation** — `grid::build_vertices_into` refills an
+  existing `Vec<Vertex>` while keeping the existing `build_vertices` API as a
+  compatibility wrapper.
+- **Grow-only native vertex storage** — `GpuState` now owns the CPU vertex
+  vector and a GPU vertex buffer capacity. Steady-state frames clear/refill the
+  CPU vector and upload with `queue.write_buffer`; the GPU buffer is recreated
+  only when the required byte capacity grows.
+- **Resize debounce** — the GPU surface still reconfigures immediately on every
+  `WindowEvent::Resized`, but terminal model reflow and PTY `TIOCSWINSZ` are
+  applied immediately at most once per 40 ms, with the latest pending size
+  applied on a trailing wake. During a drag, the old terminal grid remains
+  rendered in fixed cell pixels over the resized surface until the debounced
+  model resize lands; this avoids grid tearing while bounding reflow work.
+
+### Verified
+
+- Added native tests for the resize debounce state machine (time-injected, no
+  sleeps), grow-only vertex capacity, and `build_vertices_into` allocation
+  reuse.
+- `cargo test --lib native::tests` passes (`47` passed, `1` ignored).
+- Ran `cargo bench --bench perf` after the change. The harness still reports
+  `build_vertices()` at ~95.7 us/op because it intentionally calls the
+  allocating compatibility wrapper; P1's baseline was ~95.6 us/op. The native
+  render path now removes the extra per-frame CPU allocation and GPU buffer
+  recreation around that geometry build.
+
+### Known gaps
+
+- Region-dirty redraw skipping is still deferred; it needs finer core
+  `DirtyRegion` granularity before native can skip unchanged rows safely.
+- Core resize/reflow cost is still being addressed separately; native debounce
+  reduces event-burst frequency but does not make each core reflow cheaper.
+
+---
+
 ## 2026-06-10 — Performance profiling harness (evidence)
 
 Stage 3 evidence packet: a headless benchmark harness through the owned terminal

@@ -92,10 +92,26 @@ fn push_quad(out: &mut Vec<Vertex>, rect: [f32; 4], uv: [f32; 4], color: [f32; 4
 pub fn build_vertices(snapshot: &Snapshot, atlas: &GlyphAtlas) -> Vec<Vertex> {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
+    let mut out = Vec::with_capacity(rows * cols * VERTS_PER_QUAD * 2);
+    build_vertices_into(&mut out, snapshot, atlas);
+    out
+}
+
+/// Rebuild the full vertex list into an existing allocation.
+///
+/// This is the allocation-reuse path used by the native renderer: callers keep
+/// a grow-only `Vec<Vertex>`, then clear and refill it for each rebuilt frame.
+pub fn build_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atlas: &GlyphAtlas) {
+    let cols = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
 
-    let mut out = Vec::with_capacity(rows * cols * VERTS_PER_QUAD * 2);
+    let needed = rows * cols * VERTS_PER_QUAD * 2;
+    out.clear();
+    if out.capacity() < needed {
+        out.reserve(needed - out.capacity());
+    }
 
     for row in 0..rows {
         for col in 0..cols {
@@ -123,20 +139,18 @@ pub fn build_vertices(snapshot: &Snapshot, atlas: &GlyphAtlas) -> Vec<Vertex> {
             let x1 = x0 + cell_w * span;
             let y1 = y0 + cell_h;
 
-            push_quad(&mut out, [x0, y0, x1, y1], [0.0, 0.0, 0.0, 0.0], bg, 0.0);
+            push_quad(out, [x0, y0, x1, y1], [0.0, 0.0, 0.0, 0.0], bg, 0.0);
 
             if cell.ch != ' '
                 && let Some(uv) = atlas.uv_rect(cell.ch)
             {
                 // Glyph quad covers exactly one atlas cell (1:1 mapping).
-                push_quad(&mut out, [x0, y0, x0 + cell_w, y1], uv, fg, 1.0);
+                push_quad(out, [x0, y0, x0 + cell_w, y1], uv, fg, 1.0);
             }
         }
     }
 
-    push_cursor(&mut out, snapshot, atlas, cell_w, cell_h);
-
-    out
+    push_cursor(out, snapshot, atlas, cell_w, cell_h);
 }
 
 /// Emit a block cursor for the snapshot, if one should be drawn.

@@ -31,6 +31,64 @@ use super::pty::{PtyWriter, UserEvent};
 use super::search_ui::{SearchUi, apply_search_ui};
 use super::viewport::{SELECTION_AUTOSCROLL_INTERVAL, Viewport, grid_dimensions_for, wheel_lines};
 
+const RESIZE_DEBOUNCE_INTERVAL: Duration = Duration::from_millis(40);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct PendingResize {
+    pub(super) cell: CellSize,
+    pub(super) width_px: u32,
+    pub(super) height_px: u32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ResizeDebouncer {
+    interval: Duration,
+    pending: Option<PendingResize>,
+    deadline: Option<Instant>,
+    last_applied: Option<Instant>,
+}
+
+impl ResizeDebouncer {
+    pub(super) fn new(interval: Duration) -> Self {
+        Self {
+            interval,
+            pending: None,
+            deadline: None,
+            last_applied: None,
+        }
+    }
+
+    pub(super) fn record(&mut self, resize: PendingResize, now: Instant) -> Option<PendingResize> {
+        if self
+            .last_applied
+            .is_none_or(|last| now.saturating_duration_since(last) >= self.interval)
+        {
+            self.pending = None;
+            self.deadline = None;
+            self.last_applied = Some(now);
+            return Some(resize);
+        }
+
+        let deadline = self.last_applied.expect("checked") + self.interval;
+        self.pending = Some(resize);
+        self.deadline = Some(deadline);
+        None
+    }
+
+    pub(super) fn take_due(&mut self, now: Instant) -> Option<PendingResize> {
+        if self.deadline.is_some_and(|deadline| now >= deadline) {
+            self.deadline = None;
+            self.last_applied = Some(now);
+            return self.pending.take();
+        }
+        None
+    }
+
+    pub(super) fn deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
+}
+
 /// Application state driving the `winit` event loop.
 ///
 /// The window is created lazily on `resumed` per `winit`'s portability
@@ -107,6 +165,7 @@ pub(super) struct App {
     /// Native-side clipboard owner. Kept alive across copy/paste operations so
     /// Linux clipboard contents remain served after Ctrl+Shift+C.
     clipboard: NativeClipboard,
+    resize_debounce: ResizeDebouncer,
     autoclose: Option<Duration>,
     deadline: Option<Instant>,
     pub(super) startup_error: Option<NativeError>,
@@ -146,6 +205,7 @@ impl App {
             search_restore_viewport: None,
             last_scrollback_len: 0,
             clipboard: NativeClipboard::default(),
+            resize_debounce: ResizeDebouncer::new(RESIZE_DEBOUNCE_INTERVAL),
             autoclose,
             deadline: None,
             startup_error: None,
@@ -177,6 +237,36 @@ impl App {
             let _ = pty.resize(new_grid);
         }
         true
+    }
+
+    fn apply_grid_resize(&mut self, resize: PendingResize) {
+        if self.resize_grid(resize.cell, resize.width_px, resize.height_px) {
+            self.selection.clear();
+            self.selecting = false;
+            self.last_selection_autoscroll = None;
+            self.report_button = None;
+            self.pointer_cell = None;
+            // Reflow changes the row/scrollback layout; return to the live
+            // bottom so the offset is never stale against the new geometry.
+            // Search closes because its absolute row matches were computed
+            // against the old layout. clamp() in the rebuild guards bounds
+            // regardless.
+            self.viewport.reset_to_live();
+            self.search.reset_for_reflow();
+            self.search_restore_viewport = None;
+            self.needs_rebuild = true;
+        }
+    }
+
+    fn update_control_flow_deadline(&self, event_loop: &ActiveEventLoop) {
+        let next = [self.deadline, self.resize_debounce.deadline()]
+            .into_iter()
+            .flatten()
+            .min();
+        match next {
+            Some(deadline) => event_loop.set_control_flow(ControlFlow::WaitUntil(deadline)),
+            None => event_loop.set_control_flow(ControlFlow::Wait),
+        }
     }
 
     /// Record a fatal startup error and ask the loop to exit.
@@ -705,33 +795,27 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::Resized(size) => {
                 // Reconfigure the GPU surface (pixel size) and read the real
-                // per-cell metric so the grid fit matches what is drawn.
-                let cell = self.gpu.as_mut().map(|gpu| {
+                // per-cell metric so the grid fit matches what is drawn. The
+                // surface updates immediately; the terminal model + PTY winsize
+                // are debounced so drag bursts do not reflow on every event.
+                let resize = self.gpu.as_mut().map(|gpu| {
                     gpu.resize(size.width, size.height);
-                    gpu.atlas.cell
+                    PendingResize {
+                        cell: gpu.atlas.cell,
+                        width_px: size.width,
+                        height_px: size.height,
+                    }
                 });
-                // Resize the model + PTY only when the whole-cell grid changes.
-                if let Some(cell) = cell
-                    && self.resize_grid(cell, size.width, size.height)
+
+                if let Some(resize) = resize
+                    && let Some(due) = self.resize_debounce.record(resize, Instant::now())
                 {
-                    self.selection.clear();
-                    self.selecting = false;
-                    self.last_selection_autoscroll = None;
-                    self.report_button = None;
-                    self.pointer_cell = None;
-                    // Reflow changes the row/scrollback layout; return to the
-                    // live bottom so the offset is never stale against the new
-                    // geometry. Search closes because its absolute row matches
-                    // were computed against the old layout. clamp() in the
-                    // rebuild guards bounds regardless.
-                    self.viewport.reset_to_live();
-                    self.search.reset_for_reflow();
-                    self.search_restore_viewport = None;
-                    self.needs_rebuild = true;
+                    self.apply_grid_resize(due);
                 }
                 if let Some(window) = self.window.as_ref() {
                     window.request_redraw();
                 }
+                self.update_control_flow_deadline(event_loop);
             }
             WindowEvent::RedrawRequested => {
                 self.update_window_title();
@@ -867,10 +951,21 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let now = Instant::now();
+        if let Some(resize) = self.resize_debounce.take_due(now) {
+            self.apply_grid_resize(resize);
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+
         if let Some(deadline) = self.deadline
-            && Instant::now() >= deadline
+            && now >= deadline
         {
             event_loop.exit();
+            return;
         }
+
+        self.update_control_flow_deadline(event_loop);
     }
 }

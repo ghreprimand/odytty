@@ -2,7 +2,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use super::app::App;
+use super::app::{App, PendingResize, ResizeDebouncer};
 use super::bindings::{
     changed_window_title, encode_native_focus_report, encode_native_mouse_report, is_copy_shortcut,
     is_paste_shortcut, is_scroll_down_key, is_scroll_up_key, map_named_key, map_winit_mouse_button,
@@ -10,7 +10,8 @@ use super::bindings::{
 };
 use super::clipboard::{ClipboardSlot, selected_clipboard_text, write_paste_text};
 use super::gpu::{
-    ViewportUniform, effect_params, ensure_snapshot_glyphs, text_params, theme_clear_color,
+    ViewportUniform, effect_params, ensure_snapshot_glyphs, grow_vertex_buffer_capacity,
+    text_params, theme_clear_color,
 };
 use super::options::NativeOptions;
 use super::pty::PtyWriter;
@@ -25,6 +26,7 @@ use crate::selection::{self, CellPoint};
 use crate::settings::{DEFAULT_FONT_SIZE_PX, DEFAULT_TEXT_GAMMA, Settings};
 use crate::text::{self, CellSize, GlyphAtlas};
 use crate::theme::{Theme, VisualEffect};
+use std::time::{Duration, Instant};
 use winit::dpi::PhysicalPosition;
 use winit::event::{MouseButton as WinitMouseButton, MouseScrollDelta};
 use winit::keyboard::{Key as WinitKey, NamedKey};
@@ -130,6 +132,66 @@ fn viewport_clamp_shrinks_offset_to_available_history() {
     vp.clamp(0);
     assert_eq!(vp.offset(), 0);
     assert!(vp.is_live());
+}
+
+#[test]
+fn resize_debounce_applies_first_then_latest_pending_at_deadline() {
+    let interval = Duration::from_millis(40);
+    let mut debounce = ResizeDebouncer::new(interval);
+    let t0 = Instant::now();
+    let first = PendingResize {
+        cell: cell(10, 20),
+        width_px: 800,
+        height_px: 600,
+    };
+    let second = PendingResize {
+        cell: cell(10, 20),
+        width_px: 810,
+        height_px: 610,
+    };
+    let final_size = PendingResize {
+        cell: cell(10, 20),
+        width_px: 900,
+        height_px: 700,
+    };
+
+    assert_eq!(debounce.record(first, t0), Some(first));
+    assert_eq!(debounce.deadline(), None);
+
+    assert_eq!(
+        debounce.record(second, t0 + Duration::from_millis(10)),
+        None
+    );
+    assert_eq!(debounce.deadline(), Some(t0 + interval));
+    assert_eq!(
+        debounce.record(final_size, t0 + Duration::from_millis(20)),
+        None
+    );
+
+    assert_eq!(debounce.take_due(t0 + Duration::from_millis(39)), None);
+    assert_eq!(debounce.take_due(t0 + interval), Some(final_size));
+    assert_eq!(debounce.deadline(), None);
+}
+
+#[test]
+fn resize_debounce_allows_bounded_immediate_apply_after_interval() {
+    let interval = Duration::from_millis(40);
+    let mut debounce = ResizeDebouncer::new(interval);
+    let t0 = Instant::now();
+    let first = PendingResize {
+        cell: cell(10, 20),
+        width_px: 800,
+        height_px: 600,
+    };
+    let later = PendingResize {
+        cell: cell(10, 20),
+        width_px: 1000,
+        height_px: 700,
+    };
+
+    assert_eq!(debounce.record(first, t0), Some(first));
+    assert_eq!(debounce.record(later, t0 + interval), Some(later));
+    assert_eq!(debounce.deadline(), None);
 }
 
 #[test]
@@ -400,6 +462,33 @@ fn effect_params_ambient_is_subtle_and_enabled() {
     // The packed strength matches the effect's own report (single source).
     assert_eq!(params[0], VisualEffect::Ambient.scanline_strength());
     assert_eq!(params[1], VisualEffect::Ambient.scanline_period_px());
+}
+
+#[test]
+fn vertex_buffer_capacity_is_grow_only() {
+    let vertex = std::mem::size_of::<crate::grid::Vertex>() as u64;
+    let first = grow_vertex_buffer_capacity(0, vertex);
+
+    assert!(first >= vertex);
+    assert_eq!(grow_vertex_buffer_capacity(first, vertex / 2), first);
+    assert!(grow_vertex_buffer_capacity(first, first + 1) > first);
+}
+
+#[test]
+fn build_vertices_into_reuses_existing_vec_capacity() {
+    let Ok(font) = text::load_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let atlas = GlyphAtlas::build(&font, 24.0);
+    let snapshot = snapshot(&["reuse"], 10);
+    let mut vertices = Vec::with_capacity(4096);
+    let original_capacity = vertices.capacity();
+
+    crate::grid::build_vertices_into(&mut vertices, &snapshot, &atlas);
+
+    assert!(!vertices.is_empty());
+    assert_eq!(vertices.capacity(), original_capacity);
 }
 
 #[test]

@@ -125,6 +125,28 @@ pub(super) fn ensure_snapshot_glyphs(atlas: &mut GlyphAtlas, font: &FontVec, sna
     }
 }
 
+fn vertex_bytes_len(vertices: &[Vertex]) -> u64 {
+    std::mem::size_of_val(vertices) as u64
+}
+
+pub(super) fn grow_vertex_buffer_capacity(current: u64, needed: u64) -> u64 {
+    if needed <= current {
+        return current;
+    }
+
+    let minimum = std::mem::size_of::<Vertex>() as u64;
+    needed.max(minimum).next_power_of_two()
+}
+
+fn create_vertex_buffer(device: &wgpu::Device, capacity_bytes: u64) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("odytty-cell-vertices"),
+        size: capacity_bytes.max(std::mem::size_of::<Vertex>() as u64),
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 pub(super) struct GpuState {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -135,6 +157,8 @@ pub(super) struct GpuState {
     bind_group: wgpu::BindGroup,
     viewport_buf: wgpu::Buffer,
     vertex_buf: wgpu::Buffer,
+    vertex_buf_capacity_bytes: u64,
+    vertices: Vec<Vertex>,
     vertex_count: u32,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
@@ -357,13 +381,14 @@ impl GpuState {
         // PTY output replaces this content via `update_from_snapshot` as the
         // pump thread advances the shared terminal. A >=1x1 grid always emits at
         // least one background quad, so this buffer is never zero-sized.
-        let vertices = grid::build_vertices(initial_snapshot, &atlas);
+        let mut vertices = Vec::new();
+        grid::build_vertices_into(&mut vertices, initial_snapshot, &atlas);
         let vertex_count = vertices.len() as u32;
-        let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("odytty-cell-vertices"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let vertex_buf_capacity_bytes = grow_vertex_buffer_capacity(0, vertex_bytes_len(&vertices));
+        let vertex_buf = create_vertex_buffer(&device, vertex_buf_capacity_bytes);
+        if vertex_count > 0 {
+            queue.write_buffer(&vertex_buf, 0, bytemuck::cast_slice(&vertices));
+        }
 
         Ok(Self {
             surface,
@@ -375,6 +400,8 @@ impl GpuState {
             bind_group,
             viewport_buf,
             vertex_buf,
+            vertex_buf_capacity_bytes,
+            vertices,
             vertex_count,
             atlas,
             font,
@@ -409,15 +436,18 @@ impl GpuState {
         if self.atlas.take_dirty() {
             self.refresh_atlas_texture();
         }
-        let vertices = grid::build_vertices(snapshot, &self.atlas);
-        self.vertex_count = vertices.len() as u32;
-        self.vertex_buf = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("odytty-cell-vertices"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+        grid::build_vertices_into(&mut self.vertices, snapshot, &self.atlas);
+        self.vertex_count = self.vertices.len() as u32;
+        let needed = vertex_bytes_len(&self.vertices);
+        let capacity = grow_vertex_buffer_capacity(self.vertex_buf_capacity_bytes, needed);
+        if capacity != self.vertex_buf_capacity_bytes {
+            self.vertex_buf = create_vertex_buffer(&self.device, capacity);
+            self.vertex_buf_capacity_bytes = capacity;
+        }
+        if self.vertex_count > 0 {
+            self.queue
+                .write_buffer(&self.vertex_buf, 0, bytemuck::cast_slice(&self.vertices));
+        }
     }
 
     /// Write the current physical surface size into the viewport uniform so the

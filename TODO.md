@@ -86,7 +86,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] Headless `cargo bench --bench perf` harness (evidence-only). Hotspots:
         resize/reflow is O(total scrollback) (~46 ms at 50k lines; ~17 ms even
         width-unchanged), `build_vertices` per-frame (~96 µs, 56× snapshot).
-        Optimization packets ranked in findings; none landed yet.
+        Optimization packets ranked in findings.
+  - [x] Native render-loop mitigation: reusable CPU vertex storage plus a
+        grow-only GPU vertex buffer remove steady-state vertex-buffer
+        allocation/recreation, and resize debounce coalesces drag bursts before
+        core reflow + PTY winsize while still applying the final size exactly.
 - [ ] Add visual regression screenshots or pixel-level smoke checks where
       practical.
 
