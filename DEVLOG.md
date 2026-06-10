@@ -7,6 +7,62 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Bearing-aware glyph quad geometry (R3)
+
+R3 from the Stage 3 rendering track, building on the R2 rasterization-quality
+finding 3. Glyph ink that genuinely extends past the cell box now renders
+uncropped instead of being clipped to `cell.width × cell.height`.
+
+### What landed
+
+- **Atlas overflow capture** — each slot now reserves a border of the 1px bleed
+  gutter plus an overflow margin (`cell.height/4`). Ink rasterizes into the cell
+  plus that margin (powerline separators, italic side bearing, tall combining
+  stacks, descenders); only the outer 1px ring stays transparent for bleed
+  safety.
+- **Per-slot inked bounds** — rasterization records each slot's tight inked
+  pixel extent. New `GlyphBounds { offset_x, offset_y, width, height, uv }` and
+  `glyph_quad` / `glyph_quad_styled` return the bearing-aware extent (offset may
+  be negative, size may exceed the cell). UV is derived on demand because the
+  atlas grows in height as dynamic glyphs are added. The fallback box keeps
+  full-cell bounds, so missing glyphs render exactly as before.
+- **Two-pass grid emission** — `build_vertices_into` now emits all full-cell
+  backgrounds first, then all glyph quads plus underline/strikethrough. A later
+  column's background can no longer paint over an earlier glyph's overflow ink.
+  Glyph quads (cells and the cursor redraw) are sized from the atlas bounds
+  (1 atlas pixel == 1 physical screen pixel). Backgrounds stay full-cell.
+
+### Compatibility
+
+- `uv_rect` / `uv_rect_styled` / `ensure*` / `build` / `take_dirty` keep
+  identical signatures and semantics; in-cell glyphs render pixel-identical
+  (a smaller quad sampling the same texels). Vertex count is unchanged
+  (emission reordered, not added to); overlays still append last. `gpu.rs` is
+  untouched — the Nearest sampler and dimension-driven texture upload adapt to
+  the larger slots automatically.
+
+### Verified
+
+- `cargo test` green: 349 lib + 2 PTY + 10 smoke. New fixtures: bounds track
+  actual ink, box-drawing U+2500 spans the full cell width (flush joins), a
+  real glyph overflows the cell and reports it, and backgrounds batch before
+  glyphs.
+- `cargo fmt --check` clean; `cargo clippy --all-targets` clean for atlas/grid
+  (only the pre-existing `Color` derive and an unrelated native arg-count
+  warning remain). Native autoclose smoke exit 0 at default, `ODYTTY_FONT_SIZE=18`,
+  and a font-family fallback config. `atlas.rs` 1302 lines, `grid.rs` 788 —
+  both well under the 2000-line ceiling.
+
+### Known gaps
+
+- The overflow margin is sized from cell height; pathological glyphs that
+  overflow further than the margin are still clipped to the margin (not the
+  cell) — a deliberate bound on atlas growth.
+- Wide (double-cell) glyphs still rasterize into a single cell-width slot; true
+  wide-glyph atlas slots remain future work.
+
+---
+
 ## 2026-06-10 — Configurable native key bindings
 
 K1 from the Stage 4 daily-driver track. Native terminal-local shortcuts can now

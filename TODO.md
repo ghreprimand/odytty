@@ -87,8 +87,12 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] Shader gamma/contrast side: `ODYTTY_TEXT_GAMMA` drives a glyph coverage
         correction uniform; `1.0` is the exact legacy blend escape hatch and
         `1.4` is the tuned default for light-on-dark text weight.
-  - [ ] Future native rendering work: optional subpixel AA and bearing-aware
-        glyph geometry for true beyond-cell overflow.
+  - [x] Bearing-aware glyph geometry (`src/atlas.rs` + `src/grid.rs`, R3): each
+        atlas slot reserves an overflow margin and records per-slot inked bounds;
+        `glyph_quad` sizes each glyph quad to its real ink so overflow renders
+        uncropped, with a two-pass (backgrounds-then-glyphs) emission so neighbor
+        backgrounds never erase overflow ink.
+  - [ ] Future native rendering work: optional subpixel AA.
 - [x] Render text attributes cleanly at multiple sizes: bold, dim, italic,
       underline, strikethrough, inverse, cursor, and selection.
   - [x] Core attrs expose bold, dim, italic, underline, strikethrough, inverse,
