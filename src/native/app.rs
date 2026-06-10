@@ -393,8 +393,7 @@ impl App {
     ///
     /// Maps the `winit` logical key (plus the cached [`Modifiers`]) onto the
     /// neutral [`Key`] model and defers byte production to the shared
-    /// [`input::encode_key`], so the native and crossterm front ends emit
-    /// identical sequences. Keys the prototype does not encode are dropped. The
+    /// [`input::encode_key`]. Keys the prototype does not encode are dropped. The
     /// PTY writer is flushed after each write so the keystroke reaches the shell
     /// without buffering latency.
     fn handle_key_press(&mut self, logical: WinitKey) {

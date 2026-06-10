@@ -1,28 +1,23 @@
 //! Source-agnostic keyboard encoding: the single source of truth for the byte
 //! sequences OdyTTY sends to the PTY in response to key presses.
 //!
-//! Two front ends produce key events in two different, incompatible shapes:
-//! the crossterm-driven interactive debug mode (`crate::app`) and the `winit`
-//! native window (`crate::native`). Rather than duplicate the escape-sequence
-//! table in both — which guarantees drift — each front end maps its own event
-//! type onto the neutral [`Key`] / [`Modifiers`] model here and calls
-//! [`encode_key`]. The encoder is deliberately free of any windowing, GPU, or
-//! crossterm dependency so both callers depend on it without depending on each
-//! other.
+//! Front ends produce key events in shapes owned by their input source. The
+//! `winit` native window maps its event types onto the neutral [`Key`] /
+//! [`Modifiers`] model here and calls [`encode_key`]. The encoder is
+//! deliberately free of windowing and GPU dependencies.
 //!
 //! The byte sequences match the common DEC/xterm conventions a PTY shell
 //! expects: `\r` for Enter, `0x7f` for Backspace, `ESC [ A..D` for arrows,
 //! control bytes for Ctrl-letter, and an `ESC` prefix for Alt-modified keys.
 //! Quit/close affordances are intentionally *not* modeled here — those are an
-//! interactive-front-end concern (e.g. the crossterm debug mode's Ctrl-Q); the
+//! interactive-front-end concern (e.g. the headless debug mode's Ctrl-Q); the
 //! encoder only ever produces the bytes a real terminal would send.
 
 /// A neutral, front-end-independent key identity.
 ///
 /// Printable text is carried as [`Key::Char`]; everything else is a named key.
 /// This mirrors the distinction `winit` draws between `Key::Character` and
-/// `Key::Named`, and the one crossterm draws between `KeyCode::Char` and its
-/// named variants, so both callers map onto it without information loss for the
+/// `Key::Named`, so callers can map onto it without information loss for the
 /// keys the prototype handles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Key {
@@ -50,8 +45,7 @@ pub enum Key {
 ///
 /// `shift` is included for completeness but is not consulted by [`encode_key`]:
 /// front ends resolve Shift into the produced [`Key::Char`] glyph (and into
-/// [`Key::BackTab`] for Shift-Tab) before encoding, matching the prior
-/// crossterm behavior.
+/// [`Key::BackTab`] for Shift-Tab) before encoding.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Modifiers {
     pub ctrl: bool,
@@ -89,7 +83,7 @@ impl Modifiers {
 /// empty result as "ignore". An Alt modifier prefixes the sequence with `ESC`,
 /// matching xterm's meta-sends-escape convention. Ctrl applies only to
 /// [`Key::Char`] (turning a letter into its control byte); named keys ignore
-/// Ctrl here, preserving the prior crossterm behavior.
+/// Ctrl here.
 pub fn encode_key(key: Key, mods: Modifiers) -> Vec<u8> {
     let mut bytes = match key {
         Key::Backspace => vec![0x7f],

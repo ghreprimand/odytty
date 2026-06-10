@@ -258,10 +258,9 @@ pub(super) fn is_scroll_down_key(logical: &WinitKey, mods: Modifiers) -> bool {
 /// Translate a `winit` [`NamedKey`] into the neutral [`Key`] model.
 ///
 /// `shift` is consulted only to turn Tab into [`Key::BackTab`] (Shift-Tab),
-/// matching how the crossterm front end distinguishes the two. `Space` is
-/// mapped to [`Key::Char(' ')`] rather than a named key so Ctrl-Space encodes
-/// to `NUL` via the shared encoder. Named keys the prototype does not handle
-/// (function keys, media keys, etc.) return `None`.
+/// while `Space` is mapped to [`Key::Char(' ')`] rather than a named key so
+/// Ctrl-Space encodes to `NUL` via the shared encoder. Named keys the prototype
+/// does not handle (function keys, media keys, etc.) return `None`.
 pub(super) fn map_named_key(named: NamedKey, shift: bool) -> Option<Key> {
     Some(match named {
         NamedKey::Enter => Key::Enter,

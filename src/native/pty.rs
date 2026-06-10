@@ -21,10 +21,9 @@ pub(super) enum UserEvent {
 
 /// The single PTY master writer, shared behind a lock.
 ///
-/// `portable-pty`'s `take_writer` yields the writer once, so it is wrapped here
-/// and shared: the pump thread uses it to send host responses (query replies),
-/// and the App uses its clone to send encoded keystrokes — both write to the
-/// single PTY master.
+/// The pump thread uses it to send host responses (query replies), and the App
+/// uses its clone to send encoded keystrokes — both write to the single PTY
+/// master.
 pub(super) type PtyWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 
 pub(super) const PASTE_CHUNK_SIZE: usize = 16 * 1024;

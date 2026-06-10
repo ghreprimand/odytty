@@ -18,8 +18,7 @@ use odytty::core::{
     MouseTracking, Terminal, encode_mouse_event,
 };
 use odytty::input::{self, Key, Modifiers};
-use odytty::pty::PtySession;
-use portable_pty::CommandBuilder;
+use odytty::pty::{CommandBuilder, PtySession};
 
 const COLUMNS: usize = 80;
 const ROWS: usize = 12;

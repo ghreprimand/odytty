@@ -7,6 +7,54 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Owned Linux PTY layer and headless input path (P0)
+
+P0 starts the Foundation Ownership work on the process/input side while the
+parser replacement remains staged separately. The terminal shell path no longer
+depends on `portable-pty`, and the headless debug path no longer depends on
+`crossterm`.
+
+### What landed
+
+- **Owned Linux PTY module** — `src/pty.rs` now allocates the master/slave pair
+  directly with `openpt`/`grantpt`/`unlockpt`/Linux `TIOCGPTPEER`, applies
+  `TIOCSWINSZ` through rustix termios, spawns the child as a session leader,
+  claims the slave side as the controlling terminal, and kills the child
+  process group on shutdown. Linux PTY-master `EIO` on slave close is normalized
+  to EOF at the OdyTTY reader seam.
+- **Stable session seam** — native mode, transcript smoke, and PTY TUI smoke
+  still use `PtySession::{spawn_*, resize, try_clone_reader, take_writer,
+  try_wait, wait, kill}`. The fixture harness now imports OdyTTY's own
+  `CommandBuilder` rather than a dependency type.
+- **Headless input path owned** — `src/app.rs` uses an OdyTTY termios raw-mode
+  guard, direct ANSI alternate-screen/bracketed-paste/cursor sequences, raw
+  stdin byte forwarding, resize polling via `tcgetwinsize`, and Ctrl-Q as the
+  local quit affordance. A small owned decoder recognizes host bracketed-paste
+  frames and re-encodes the payload according to the child terminal mode.
+- **Dependencies retired** — `crossterm` and `portable-pty` are removed from
+  `Cargo.toml`/`Cargo.lock`; remaining mentions are historical docs only.
+
+### Validation
+
+- `cargo fmt --check` clean.
+- `cargo test`: 389 lib tests + 10 pixel smoke + 6 PTY smoke + 10 transcript
+  smoke pass; the two live PTY tests remain ignored by default.
+- Opt-in live PTY checks pass when run explicitly:
+  `live_pty_printf_roundtrip` and
+  `native::tests::pty_output_pumps_into_terminal_snapshot`.
+- Native Wayland autoclose exits 0 at default settings and with
+  `ODYTTY_FONT_SIZE=18`.
+- Headless interactive sanity under a host PTY exits 0 via delayed Ctrl-Q.
+- Process scan after checks showed no lingering `odytty` process.
+
+### Notes
+
+rustix owns the PTY allocation and termios/winsize calls. Direct libc is used
+only for the Linux-specific controlling-terminal ioctl (`TIOCSCTTY`) and
+process-group signal, which rustix does not expose as focused helpers.
+
+---
+
 ## 2026-06-10 — Wide-glyph raster quality: 2-cell atlas slots (W1)
 
 First packet of the Visual Capability Parity plan section. W1 audits and fixes

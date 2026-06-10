@@ -5,6 +5,29 @@ sessions before broader product features. The first meaningful prototype is
 complete; see `DEVLOG.md` for the running record, `SPEC.md` for durable
 decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 
+## Stage 4.5: Foundation Ownership
+
+- [ ] Replace the `vte` parser with an OdyTTY-owned DEC ANSI state machine.
+  - [ ] PA1: parser skeleton with ground/escape/CSI/OSC states, mid-stream
+        UTF-8 decoding, an OdyTTY dispatch trait, and a differential oracle
+        harness against the existing fixture corpus.
+  - [ ] PA2: edge-case hardening for C1 controls, cancel/abort semantics,
+        parameter limits, OSC terminators, DCS/APC plumbing, malformed UTF-8,
+        and fuzzing.
+  - [ ] PA3: remove `vte` after the oracle suite is ported to golden fixtures.
+- [x] P0: replace `portable-pty` with an OdyTTY-owned Linux PTY layer.
+  - [x] PTY allocation uses `openpt`/`grantpt`/`unlockpt`/`TIOCGPTPEER`, sets
+        `TIOCSWINSZ`, spawns children as session leaders with a controlling
+        terminal, and normalizes Linux PTY-master EOF behavior.
+  - [x] The native and smoke paths keep the existing `PtySession` seam while
+        using OdyTTY's own command builder and reader/writer clones.
+- [x] Retire `crossterm` from the headless input path.
+  - [x] Headless interactive mode now owns raw-mode restore via termios, uses
+        ANSI screen control directly, forwards raw stdin bytes, and reserves
+        Ctrl-Q as the local quit affordance.
+- [ ] Graphics-protocol architecture lands on the owned DCS/APC parser plumbing
+      after PA2.
+
 ## Stage 1: Prototype Stabilization
 
 - [x] Add native font-size configuration with safe defaults, parsing, and

@@ -8,11 +8,12 @@ Odyssey Terminal is a reliable terminal emulator with an OdysseyOS visual identi
 
 First meaningful prototype reached on Linux/Hyprland. In place today: an
 OdyTTY-owned terminal core (grid, cursor, scrollback, alternate screen) driven by
-`vte` as a parser, a real PTY-backed shell path, broad escape-sequence
-compatibility, and a deterministic headless smoke suite. A native `winit` window
-opens on Wayland with a live `wgpu` (Vulkan) surface, renders readable
-monospaced text, handles keyboard input, resize, paste, mouse selection/copy,
-scrollback navigation, cursor rendering, and basic daily shell workflows.
+`vte` as a parser, an OdyTTY-owned Linux PTY-backed shell path, broad
+escape-sequence compatibility, and a deterministic headless smoke suite. A
+native `winit` window opens on Wayland with a live `wgpu` (Vulkan) surface,
+renders readable monospaced text, handles keyboard input, resize, paste, mouse
+selection/copy, scrollback navigation, cursor rendering, and basic daily shell
+workflows.
 
 The prototype also includes a small theme system and a disableable ambient
 scanline visual treatment selected with `ODYTTY_VISUAL=ambient`; unset,
@@ -33,12 +34,13 @@ Start with a narrow terminal-emulator prototype that proves the core rendering a
 
 Architecture should separate the terminal core from the Odyssey experience layer: shell process and PTY handling, escape-sequence parsing, input mapping, text layout, rendering, theme/effects, and settings should be distinct enough that visual experiments can change without destabilizing core behavior. The build should include a compatibility test path early, using existing terminal behavior as the baseline rather than inventing semantics.
 
-The project should pursue genuinely original terminal work rather than forking or skinning an existing terminal. The first spike should be Linux-first, written in Rust, and built around an OdyTTY-owned terminal model: use existing parser and systems crates where they are narrow tools, but do not delegate the product's terminal core to another terminal emulator. Use Ghostty and other mature terminals as behavior references, not implementation bases. Visual ambition should stay open, but every effect and workflow layer must be isolated from terminal correctness and remain bounded by readability and performance.
+The project should pursue genuinely original terminal work rather than forking or skinning an existing terminal. The first spike should be Linux-first, written in Rust, and built around an OdyTTY-owned terminal model and Linux PTY layer: use existing parser and systems crates where they are narrow tools, but do not delegate the product's terminal core to another terminal emulator. The parser dependency is a staged transition point, with an OdyTTY-owned VT parser planned before graphics protocols or richer byte-path features. Use Ghostty and other mature terminals as behavior references, not implementation bases. Visual ambition should stay open, but every effect and workflow layer must be isolated from terminal correctness and remain bounded by readability and performance.
 
 ## Project docs
 
 - [`DEVLOG.md`](DEVLOG.md) — running record of what has landed and current state.
-- [`TODO.md`](TODO.md) — milestone checklist toward the first prototype.
+- [`TODO.md`](TODO.md) — milestone checklist from prototype stabilization into
+  foundation ownership.
 - [`SPEC.md`](SPEC.md) — durable product and architecture decisions.
 - [`docs/runtime-knobs.md`](docs/runtime-knobs.md) — current native prototype
   settings and launch examples.

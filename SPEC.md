@@ -22,7 +22,7 @@ Start with a narrow terminal-emulator prototype that proves the core rendering a
 
 Architecture should separate the terminal core from the Odyssey experience layer: shell process and PTY handling, escape-sequence parsing, input mapping, text layout, rendering, theme/effects, and settings should be distinct enough that visual experiments can change without destabilizing core behavior. The build should include a compatibility test path early, using existing terminal behavior as the baseline rather than inventing semantics.
 
-The project should start from scratch as a Linux-first Rust terminal with a GPU-backed renderer and an OdyTTY-owned terminal model. Use narrow, purpose-built crates for parsing, PTY handling, windowing, text shaping, and rendering where they help, but do not delegate the product's terminal core to another terminal emulator. Use Ghostty and other mature terminals as behavior references, not implementation bases. Visual ambition should stay open, but every effect and workflow layer must be isolated from terminal correctness and remain bounded by readability and performance.
+The project should start from scratch as a Linux-first Rust terminal with a GPU-backed renderer, an OdyTTY-owned terminal model, and an OdyTTY-owned Linux PTY layer. Use narrow, purpose-built crates for parsing, windowing, text shaping, and rendering where they help, but do not delegate the product's terminal core to another terminal emulator. The current parser dependency is a staged replacement target; the owned VT parser should land before graphics protocols and richer byte-path features. Use Ghostty and other mature terminals as behavior references, not implementation bases. Visual ambition should stay open, but every effect and workflow layer must be isolated from terminal correctness and remain bounded by readability and performance.
 
 ## Scope
 
@@ -50,7 +50,7 @@ Smallest useful end-to-end slice: a single-window Odyssey Terminal opens the use
 
 ## Stack
 
-Start from scratch for the first spike, with a Linux-first Rust core and a GPU-backed rendering path. A strong early direction is Rust for the terminal model, PTY handling, input state, and settings; `vte` for escape-sequence parsing; Linux PTY support through a narrow crate or direct system bindings; `winit` for windowing; `wgpu` for rendering; and a CPU-shaped glyph atlas for sharp, predictable terminal text. Treat visual effects as a separate Odyssey layer on top of the core, not as part of terminal semantics.
+Start from scratch for the first spike, with a Linux-first Rust core and a GPU-backed rendering path. A strong early direction is Rust for the terminal model, owned Linux PTY handling, input state, and settings; `vte` temporarily for escape-sequence parsing while the owned parser is built; `winit` for windowing; `wgpu` for rendering; and a CPU-shaped glyph atlas for sharp, predictable terminal text. Treat visual effects as a separate Odyssey layer on top of the core, not as part of terminal semantics.
 
 Use existing terminal standards and behavior as compatibility references rather than as implementation bases. Ghostty should be the primary daily-driver behavior reference, with xterm/ECMA-style behavior as the lower-level compatibility baseline. Do not fork a terminal or embed another terminal emulator's core as the product path.
 
