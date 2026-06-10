@@ -12,6 +12,29 @@
 //! UTF-8 is decoded only in the Ground state; multi-byte codepoints split across
 //! `advance()` calls are completed via [`PartialUtf8`]. All other states process
 //! raw bytes, matching the canonical parser.
+//!
+//! ## C1 / UTF-8 precedence (PA2 decision)
+//!
+//! OdyTTY is a UTF-8 terminal: **UTF-8 decoding takes precedence and 8-bit C1
+//! sequence introduction is not supported**, matching vte/xterm UTF-8 mode. A
+//! lone `0x80..=0x9F` byte (an invalid UTF-8 lead) `execute`s as a C1 control;
+//! it does **not** introduce a sequence (`0x9B` is not CSI, `0x9D` not OSC,
+//! `0x9F` not APC, `0x9C` not ST). The 8-bit introducers exist only in legacy
+//! 8-bit / `S7C1T` modes OdyTTY never enters. A C1 codepoint arriving as valid
+//! 2-byte UTF-8 (`0xC2 0x8x`) follows the canonical rule (see [`Self::advance`]
+//! below): a continuation-path scalar `print`s, a whole-buffer Ground scalar
+//! `execute`s — both parsers agree, verified at every byte split.
+//!
+//! ## DCS / APC payload buffer policy (PA2 decision)
+//!
+//! **DCS is unbuffered streaming passthrough**: payload bytes flow
+//! `hook → put → unhook` straight to the consumer, so the parser holds no DCS
+//! buffer and imposes no DCS-side cap (buffering and limits are the consumer's
+//! responsibility). **APC is buffered** because [`VtDispatch::apc_dispatch`]
+//! delivers the whole payload at once (the Kitty-graphics landing pad); its
+//! buffer is bounded by [`MAX_APC_RAW`]. On overflow the parser stops buffering,
+//! marks the string overflowed, and **drops** the APC rather than dispatching a
+//! truncated payload. SOS/PM strings are discarded as in vte.
 
 use super::VtDispatch;
 use super::params::Params;
@@ -23,6 +46,15 @@ const MAX_INTERMEDIATES: usize = 2;
 const MAX_OSC_PARAMS: usize = 16;
 /// Soft cap on the OSC payload buffer, matching the canonical parser's default.
 const MAX_OSC_RAW: usize = 1024;
+/// Hard cap on a single APC string's buffered payload. APC is the only string
+/// the parser buffers whole (to deliver via [`VtDispatch::apc_dispatch`]); this
+/// bounds the memory an unterminated or hostile APC can consume. The cap is
+/// generous enough for realistic single APC payloads; the Kitty graphics
+/// protocol additionally chunks large transfers (`m=1`) into small per-APC
+/// pieces, so this is a DoS guard, not a per-image limit. An APC exceeding it is
+/// dropped, not truncated-and-dispatched (a corrupt partial payload is worse
+/// than none). Revisit when the graphics layer lands.
+const MAX_APC_RAW: usize = 1 << 20; // 1 MiB
 
 /// Parser states from the canonical DEC ANSI diagram.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +111,9 @@ pub struct OdyParser {
     apc_raw: Vec<u8>,
     /// Whether the active SOS/PM/APC string is specifically an APC string.
     apc_active: bool,
+    /// Set when the active APC payload exceeded [`MAX_APC_RAW`]; the string is
+    /// then dropped on terminate rather than dispatched truncated.
+    apc_overflow: bool,
     /// Carryover bytes of a UTF-8 codepoint split across `advance()` calls.
     partial: PartialUtf8,
 }
@@ -104,6 +139,7 @@ impl OdyParser {
             osc_num_params: 0,
             apc_raw: Vec::new(),
             apc_active: false,
+            apc_overflow: false,
             partial: PartialUtf8::default(),
         }
     }
@@ -486,17 +522,24 @@ impl OdyParser {
                 self.state = State::Ground;
             }
             0x1B => {
-                // ST start: surface a captured APC payload, then resume Escape so
-                // the trailing `\` dispatches exactly as the canonical parser.
-                if self.apc_active {
+                // ST start: surface a captured APC payload (unless it overflowed
+                // the cap, in which case it is dropped), then resume Escape so the
+                // trailing `\` dispatches exactly as the canonical parser.
+                if self.apc_active && !self.apc_overflow {
                     sink.apc_dispatch(&self.apc_raw);
                 }
                 self.reset_params();
                 self.state = State::Escape;
             }
             _ => {
-                if self.apc_active {
-                    self.apc_raw.push(byte);
+                if self.apc_active && !self.apc_overflow {
+                    if self.apc_raw.len() == MAX_APC_RAW {
+                        // Bound the buffer and drop (do not dispatch) this APC.
+                        self.apc_overflow = true;
+                        self.apc_raw = Vec::new();
+                    } else {
+                        self.apc_raw.push(byte);
+                    }
                 }
             }
         }
@@ -630,6 +673,7 @@ impl OdyParser {
     /// surfaces; SOS and PM payloads are discarded as in the canonical parser.
     fn enter_string(&mut self, apc: bool) {
         self.apc_active = apc;
+        self.apc_overflow = false;
         self.apc_raw.clear();
         self.state = State::SosPmApcString;
     }

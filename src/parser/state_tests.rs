@@ -274,6 +274,42 @@ fn apc_payload_is_surfaced() {
 }
 
 #[test]
+fn apc_under_cap_is_surfaced_whole() {
+    // A sizeable but in-bounds APC payload is delivered intact.
+    let mut input = b"\x1b_G".to_vec();
+    input.extend(std::iter::repeat(b'x').take(4096));
+    input.extend_from_slice(b"\x1b\\");
+    let actions = drive(&input);
+    match &actions[..] {
+        [Action::Apc(data), Action::Esc { byte: b'\\', .. }] => {
+            assert_eq!(data.len(), 1 + 4096, "payload = `G` + 4096 bytes");
+            assert_eq!(data[0], b'G');
+        }
+        other => panic!("expected one surfaced APC + ST esc, got {other:?}"),
+    }
+}
+
+#[test]
+fn apc_over_cap_is_dropped_not_truncated() {
+    // An APC payload past MAX_APC_RAW (1 MiB) must be DROPPED — no apc_dispatch,
+    // no truncated partial. The trailing ST `\` still dispatches as esc, and the
+    // parser returns cleanly to Ground (proven by the following printable).
+    let mut input = b"\x1b_G".to_vec();
+    input.extend(std::iter::repeat(b'y').take((1 << 20) + 16));
+    input.extend_from_slice(b"\x1b\\Z");
+    let actions = drive(&input);
+    assert!(
+        !actions.iter().any(|a| matches!(a, Action::Apc(_))),
+        "over-cap APC must not be dispatched: {actions:?}"
+    );
+    assert_eq!(
+        actions.last(),
+        Some(&Action::Print('Z')),
+        "parser recovers to Ground after a dropped APC"
+    );
+}
+
+#[test]
 fn sos_and_pm_strings_are_discarded() {
     // SOS (`ESC X`) and PM (`ESC ^`) payloads are not surfaced (no Apc action).
     assert_eq!(
