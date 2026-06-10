@@ -240,6 +240,20 @@ fn ensure_real_glyph(atlas: &mut GlyphAtlas, font: &FontVec, ch: char) -> bool {
     got.is_some() && got != fallback
 }
 
+/// A width-2 (East Asian) codepoint the loaded font has a real outline for, used
+/// to exercise the wide-slot raster path. Returns `None` on hosts without a
+/// CJK/fullwidth-capable font (the common case here), so the caller skips. Width
+/// is decided with the same `unicode-width` rule core uses for cell layout.
+fn find_supported_wide_glyph(atlas: &mut GlyphAtlas, font: &FontVec) -> Option<char> {
+    use unicode_width::UnicodeWidthChar;
+    let ranges = [0x4E00u32..=0x4F00, 0x3040..=0x30FF, 0xFF01..=0xFF60];
+    ranges
+        .into_iter()
+        .flatten()
+        .filter_map(char::from_u32)
+        .find(|&ch| UnicodeWidthChar::width(ch) == Some(2) && ensure_real_glyph(atlas, font, ch))
+}
+
 #[test]
 fn blank_cell_renders_pure_background() {
     let Some((_font, atlas)) = setup() else {
@@ -492,6 +506,70 @@ fn wide_char_spans_two_cells_without_double_draw() {
         cell_ink_count(&frame, 3, 0),
         0,
         "ink must not extend past the wide char's two-cell span"
+    );
+}
+
+#[test]
+fn wide_glyph_inks_across_the_seam_when_supported() {
+    // W1: with a CJK/fullwidth-capable font, a width-2 glyph rasterizes into a
+    // two-cell slot and inks across the cell seam — not clipped at the lead
+    // cell's right edge. Skips on hosts without such a font (the validation host
+    // here), where the always-running atlas unit test
+    // `rasterize_clip_width_relieves_wide_glyph_clipping` proves the mechanism.
+    let Some((font, mut atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let Some(wide) = find_supported_wide_glyph(&mut atlas, &font) else {
+        eprintln!("skipping: no wide (CJK/fullwidth) glyph in the loaded font");
+        return;
+    };
+
+    // Grid: wide lead at cols 0-1, a narrow neighbour at col 2, blank at col 3.
+    let mut term = Terminal::new(4, 1);
+    term.advance(b"\x1b[?25l");
+    term.advance(wide.to_string().as_bytes());
+    term.advance(b"M");
+    let snapshot = term.snapshot();
+    assert!(
+        snapshot.cells[1].wide_continuation,
+        "precondition: column 1 is a wide continuation spacer"
+    );
+    assert!(!snapshot.cells[2].wide_continuation && snapshot.cells[2].ch == 'M');
+
+    // Exactly one glyph quad for the wide pair (no continuation double-draw),
+    // plus one for the narrow neighbour = 2 glyph quads total.
+    let mut verts = Vec::new();
+    grid::build_vertices_with_cursor_into(&mut verts, &snapshot, &atlas, CursorStyle::Block);
+    let glyph_quads = verts
+        .chunks_exact(grid::VERTS_PER_QUAD)
+        .filter(|q| q[0].is_glyph > 0.5)
+        .count();
+    assert_eq!(
+        glyph_quads, 2,
+        "wide char + narrow neighbour must emit exactly two glyph quads"
+    );
+
+    let frame = composite(&snapshot, &atlas, CursorStyle::Block);
+    // Ink crosses the seam: BOTH the lead cell and the continuation cell carry
+    // real glyph ink (a clipped single-cell glyph would leave cell 1 near-empty).
+    let lead_ink = cell_ink_count(&frame, 0, 0);
+    let cont_ink = cell_ink_count(&frame, 1, 0);
+    assert!(lead_ink > 0, "wide glyph lead cell should hold ink");
+    assert!(
+        cont_ink > 0,
+        "wide glyph must ink across the seam into its continuation cell, not clip"
+    );
+    // Narrow neighbour unaffected: it has its own ink and the wide glyph does not
+    // bleed past its two-cell span into the trailing blank.
+    assert!(
+        cell_ink_count(&frame, 2, 0) > 0,
+        "narrow neighbour should render"
+    );
+    assert_eq!(
+        cell_ink_count(&frame, 3, 0),
+        0,
+        "ink must not extend past the wide span + neighbour"
     );
 }
 

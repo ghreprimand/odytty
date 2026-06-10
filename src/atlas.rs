@@ -61,6 +61,7 @@
 use std::collections::HashMap;
 
 use ab_glyph::{Font, FontVec, Glyph, PxScale, ScaleFont, point};
+use unicode_width::UnicodeWidthChar;
 
 /// First and last printable ASCII code points covered by the atlas.
 const FIRST_CHAR: u32 = 0x20;
@@ -99,6 +100,19 @@ struct Pen {
 /// Spaces and control characters render nothing.
 fn wants_glyph(ch: char) -> bool {
     ch != ' ' && !ch.is_control()
+}
+
+/// Number of terminal cells a glyph occupies horizontally: `2` for East Asian
+/// wide / fullwidth codepoints, `1` otherwise. The decision mirrors core's
+/// cell-layout rule exactly (`UnicodeWidthChar::width(ch) == Some(2)` in
+/// `screen.rs`/`reflow.rs`/`scrollback.rs`) so the render-side slot width never
+/// diverges from where core places the `wide_continuation` spacer.
+fn glyph_cells(ch: char) -> u32 {
+    if UnicodeWidthChar::width(ch) == Some(2) {
+        2
+    } else {
+        1
+    }
 }
 
 /// Whether the font maps `ch` to a real (non-`.notdef`) glyph. `ab_glyph`
@@ -207,6 +221,12 @@ pub struct GlyphAtlas {
     /// geometry. Invariant: `slot_ink.len() == next_slot`. Grows in lockstep
     /// with dynamic slot allocation.
     slot_ink: Vec<GlyphInk>,
+    /// Per-slot horizontal cell span (index == slot): `1` for normal glyphs,
+    /// `2` for a wide (East Asian) lead slot whose inner region and ink stretch
+    /// across two cells. Reserved/filler slots created by a wide allocation keep
+    /// span `1` (they are never looked up). Invariant: `slot_span.len() ==
+    /// slot_ink.len() == next_slot`.
+    slot_span: Vec<u8>,
     /// Atlas cells per row.
     cols: u32,
     /// Number of cell-rows currently allocated (grows in `ATLAS_GROW_ROWS`
@@ -271,6 +291,8 @@ impl GlyphAtlas {
         // bounds so a missing glyph renders exactly as before; ASCII slots record
         // their real ink as they are rasterized.
         let mut slot_ink = vec![GlyphInk::cell(cell); base_slots as usize];
+        // Base region is all single-cell (fallback box + printable ASCII).
+        let slot_span = vec![1u8; base_slots as usize];
 
         // Slot 0: synthesized hollow-box fallback, drawn the same for any font.
         let border = slot_border(cell);
@@ -288,8 +310,11 @@ impl GlyphAtlas {
                 ch,
                 &mut data,
                 width,
-                origin,
-                cell,
+                SlotRegion {
+                    origin,
+                    cell,
+                    outer_w: slot_w(cell),
+                },
             ) {
                 slot_ink[slot as usize] = ink;
             }
@@ -301,6 +326,7 @@ impl GlyphAtlas {
             data,
             cell,
             slot_ink,
+            slot_span,
             cols,
             capacity_rows,
             next_slot: base_slots,
@@ -354,10 +380,14 @@ impl GlyphAtlas {
         let border = slot_border(self.cell);
         let ix = ox + border;
         let iy = oy + border;
+        // Wide (East Asian) lead slots span two cells; their inner region is
+        // `span * cell.width` wide. `slot_offset` already places consecutive
+        // slots contiguously, so the reserved second cell sits immediately right.
+        let span = self.slot_span[slot as usize] as u32;
         [
             ix as f32 / self.width as f32,
             iy as f32 / self.height as f32,
-            (ix + self.cell.width) as f32 / self.width as f32,
+            (ix + span * self.cell.width) as f32 / self.width as f32,
             (iy + self.cell.height) as f32 / self.height as f32,
         ]
     }
@@ -460,7 +490,8 @@ impl GlyphAtlas {
             self.dynamic.insert((style, ch), FALLBACK_SLOT);
             return Some(self.slot_uv(FALLBACK_SLOT));
         }
-        let Some(slot) = self.allocate_slot() else {
+        let cells = glyph_cells(ch);
+        let Some(slot) = self.allocate_slots(cells) else {
             // Atlas is at its hard cap: degrade to the fallback box.
             self.dynamic.insert((style, ch), FALLBACK_SLOT);
             return Some(self.slot_uv(FALLBACK_SLOT));
@@ -475,29 +506,74 @@ impl GlyphAtlas {
             ch,
             &mut self.data,
             self.width,
-            origin,
-            self.cell,
+            SlotRegion {
+                origin,
+                cell: self.cell,
+                // Wide glyphs draw across `cells` contiguous slots; the clip
+                // extends over all of them so ink is never cropped at the edge.
+                outer_w: cells * slot_w(self.cell),
+            },
         )
         .unwrap_or_else(|| GlyphInk::cell(self.cell));
-        // Invariant: slot_ink is dense and slot == its index (slots allocate in
-        // order and never move).
-        debug_assert_eq!(self.slot_ink.len() as u32, slot);
-        self.slot_ink.push(ink);
+        // `allocate_slots` already pushed a dense placeholder for the lead (and
+        // every reserved/filler slot); overwrite the lead with the real ink.
+        self.slot_ink[slot as usize] = ink;
         self.dynamic.insert((style, ch), slot);
         self.revision += 1;
         self.dirty = true;
         Some(self.slot_uv(slot))
     }
 
-    /// Reserve the next dynamic slot, appending a page of rows (and zero-filling
-    /// the new pixels) when the current capacity is exhausted. Returns `None`
-    /// once [`MAX_ATLAS_SLOTS`] is reached. Existing slots never move, so UV
+    /// Reserve `span` consecutive dynamic slots in a single atlas row and return
+    /// the lead slot index, appending pages of rows (zero-filled) as capacity is
+    /// exhausted. Returns `None` once [`MAX_ATLAS_SLOTS`] would be exceeded.
+    ///
+    /// A `span == 2` (wide / East Asian) allocation never straddles a row
+    /// boundary: if the lead would land in the last column, one filler slot is
+    /// burned so the pair starts at column 0 of the next row, keeping the two
+    /// cells' inked region horizontally contiguous. Every consumed slot (filler +
+    /// lead + reserved) gets a dense placeholder `slot_ink`/`slot_span` entry —
+    /// the caller overwrites the lead's ink — so existing slots never move and UV
     /// rects handed out before a growth stay valid.
-    fn allocate_slot(&mut self) -> Option<u32> {
-        if self.next_slot >= MAX_ATLAS_SLOTS {
+    fn allocate_slots(&mut self, span: u32) -> Option<u32> {
+        debug_assert!(span >= 1);
+        // A wide pair must not wrap across a row: burn a filler slot first.
+        if span > 1 && self.next_slot % self.cols + span > self.cols {
+            self.push_placeholder_slot(1)?;
+        }
+        if self.next_slot + span > MAX_ATLAS_SLOTS {
             return None;
         }
-        let slot = self.next_slot;
+        let lead = self.next_slot;
+        self.grow_to_fit(lead + span - 1);
+        for i in 0..span {
+            // Lead carries the real span; reserved cells are never looked up.
+            let s = if i == 0 { span as u8 } else { 1 };
+            self.slot_ink.push(GlyphInk::cell(self.cell));
+            self.slot_span.push(s);
+        }
+        self.next_slot += span;
+        Some(lead)
+    }
+
+    /// Append a single dense placeholder slot with the given span (used for the
+    /// filler slot that a wide allocation burns to avoid a row wrap). Returns
+    /// `None` at the hard cap.
+    fn push_placeholder_slot(&mut self, span: u8) -> Option<()> {
+        if self.next_slot + 1 > MAX_ATLAS_SLOTS {
+            return None;
+        }
+        self.grow_to_fit(self.next_slot);
+        self.slot_ink.push(GlyphInk::cell(self.cell));
+        self.slot_span.push(span);
+        self.next_slot += 1;
+        Some(())
+    }
+
+    /// Grow `capacity_rows` (in [`ATLAS_GROW_ROWS`] pages) and the backing bitmap
+    /// so `slot` is addressable, zero-filling new pixels. Existing slots never
+    /// move. No-op when the slot already fits.
+    fn grow_to_fit(&mut self, slot: u32) {
         let needed_rows = slot / self.cols + 1;
         if needed_rows > self.capacity_rows {
             while needed_rows > self.capacity_rows {
@@ -508,8 +584,6 @@ impl GlyphAtlas {
             self.revision += 1;
             self.dirty = true;
         }
-        self.next_slot += 1;
-        Some(slot)
     }
 
     /// Monotonic revision, bumped on every pixel/dimension change.
@@ -580,15 +654,31 @@ fn slot_offset(slot: u32, cols: u32, cell: CellSize) -> (u32, u32) {
 /// box-drawing joins, descenders, italic side bearing) is preserved; only the
 /// outermost [`ATLAS_PAD`] bleed ring is kept transparent, and the clip keeps a
 /// glyph strictly out of its neighbors. The strongest value wins on any overlap.
+///
+/// Destination slot geometry for [`rasterize_glyph`].
+struct SlotRegion {
+    /// Outer top-left of the (lead) slot in atlas pixels.
+    origin: (u32, u32),
+    /// Shared per-cell metrics.
+    cell: CellSize,
+    /// Total horizontal extent in pixels — `slot_w(cell)` for a normal glyph,
+    /// `span * slot_w(cell)` for a wide one — i.e. the right clip edge.
+    outer_w: u32,
+}
+
 fn rasterize_glyph(
     font: &FontVec,
     pen: Pen,
     ch: char,
     data: &mut [u8],
     width: u32,
-    origin: (u32, u32),
-    cell: CellSize,
+    region: SlotRegion,
 ) -> Option<GlyphInk> {
+    let SlotRegion {
+        origin,
+        cell,
+        outer_w,
+    } = region;
     let (ox, oy) = origin;
     let scale = PxScale::from(pen.px);
     let glyph: Glyph = font
@@ -598,11 +688,14 @@ fn rasterize_glyph(
     let bounds = outline.px_bounds();
     // Cell inner origin, and the drawable region (cell + overflow margin) that
     // coverage may occupy, leaving the outer ATLAS_PAD bleed ring transparent.
+    // `outer_w` is the slot's total horizontal extent in pixels — `slot_w(cell)`
+    // for a normal glyph, `span * slot_w(cell)` for a wide (multi-cell) glyph —
+    // so the right clip extends across every reserved cell of a wide slot.
     let border = slot_border(cell) as i32;
     let inner_x = ox as i32 + border;
     let inner_y = oy as i32 + border;
     let x_lo = ox as i32 + ATLAS_PAD as i32;
-    let x_hi = (ox + slot_w(cell)) as i32 - ATLAS_PAD as i32;
+    let x_hi = (ox + outer_w) as i32 - ATLAS_PAD as i32;
     let y_lo = oy as i32 + ATLAS_PAD as i32;
     let y_hi = (oy + slot_h(cell)) as i32 - ATLAS_PAD as i32;
     let mut min_x = i32::MAX;
@@ -1378,5 +1471,190 @@ mod tests {
             }
             prev = Some(a.cell);
         }
+    }
+
+    // ----- W1: wide-glyph (East Asian width-2) atlas support -----
+
+    /// A width-2 codepoint the loaded font actually has an outline for. `None`
+    /// on hosts without a CJK/fullwidth-capable font (the common case here), so
+    /// dependent tests skip rather than fail.
+    fn wide_glyph_supported(font: &FontVec) -> Option<char> {
+        // CJK ideographs, hiragana/katakana, and fullwidth ASCII forms.
+        let ranges = [
+            0x4E00u32..=0x4F00, // CJK unified
+            0x3040..=0x30FF,    // kana
+            0xFF01..=0xFF60,    // fullwidth forms
+        ];
+        ranges
+            .into_iter()
+            .flatten()
+            .filter_map(char::from_u32)
+            .find(|&ch| glyph_cells(ch) == 2 && font_has_glyph(font, ch))
+    }
+
+    #[test]
+    fn glyph_cells_matches_core_width_rule() {
+        // Width-2 East Asian forms; width-1 everything else. Mirrors core's
+        // `UnicodeWidthChar::width(ch) == Some(2)` cell-layout decision.
+        for ch in ['世', '漢', '中', 'あ', '！', 'Ａ', '\u{3000}'] {
+            assert_eq!(glyph_cells(ch), 2, "{ch:?} should be a 2-cell glyph");
+        }
+        for ch in ['A', 'z', '0', 'é', '★', '─', ' '] {
+            assert_eq!(glyph_cells(ch), 1, "{ch:?} should be a 1-cell glyph");
+        }
+    }
+
+    #[test]
+    fn allocate_wide_slot_spans_two_cells_in_one_row() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let mut atlas = GlyphAtlas::build(&font, 24.0);
+        let lead = atlas.allocate_slots(2).expect("wide slot");
+        // Lead carries span 2; the reserved next slot carries span 1.
+        assert_eq!(atlas.slot_span[lead as usize], 2);
+        assert_eq!(atlas.slot_span[(lead + 1) as usize], 1);
+        // The pair is contiguous within one atlas row (no wrap).
+        assert_eq!(lead % atlas.cols + 1, (lead + 1) % atlas.cols);
+        assert_eq!(lead / atlas.cols, (lead + 1) / atlas.cols);
+        // slot_uv reports a 2-cell-wide inner rect for the lead.
+        let uv = atlas.slot_uv(lead);
+        let (ix, _) = inner_origin(&atlas, uv);
+        let right = (uv[2] * atlas.width as f32).round() as u32;
+        assert_eq!(right - ix, 2 * atlas.cell.width, "lead uv spans two cells");
+        // A normal single slot still reports one cell.
+        let narrow = atlas.allocate_slots(1).expect("narrow slot");
+        let nuv = atlas.slot_uv(narrow);
+        let (nix, _) = inner_origin(&atlas, nuv);
+        let nright = (nuv[2] * atlas.width as f32).round() as u32;
+        assert_eq!(nright - nix, atlas.cell.width);
+    }
+
+    #[test]
+    fn wide_allocation_burns_filler_to_avoid_row_wrap() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let mut atlas = GlyphAtlas::build(&font, 20.0);
+        // Advance allocation until the next slot is the last column of a row.
+        while atlas.next_slot % atlas.cols != atlas.cols - 1 {
+            atlas.allocate_slots(1).expect("narrow slot");
+        }
+        let before = atlas.next_slot;
+        let last_col_row = before / atlas.cols;
+        let lead = atlas.allocate_slots(2).expect("wide slot at row edge");
+        // The last-column slot was burned as a filler (span 1, never used) ...
+        assert_eq!(atlas.slot_span[before as usize], 1);
+        // ... and the wide pair starts at column 0 of the next row.
+        assert_eq!(lead % atlas.cols, 0);
+        assert_eq!(lead / atlas.cols, last_col_row + 1);
+        assert_eq!(atlas.slot_span[lead as usize], 2);
+        // The pair did not wrap.
+        assert_eq!(lead / atlas.cols, (lead + 1) / atlas.cols);
+    }
+
+    #[test]
+    fn rasterize_clip_width_relieves_wide_glyph_clipping() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        // Build a cell at one size, then rasterize a heavy glyph at DOUBLE the
+        // size so its natural ink exceeds a single cell — the same shape a real
+        // width-2 glyph takes relative to a single-cell slot. With a single-cell
+        // clip the ink is cropped; with a two-cell clip it is not.
+        let atlas = GlyphAtlas::build(&font, 16.0);
+        let cell = atlas.cell;
+        let big_px = 32.0_f32;
+        let stride = 8 * slot_w(cell); // ample horizontal room
+        let height = slot_h(cell);
+        let pen = Pen {
+            px: big_px,
+            baseline: cell.baseline as f32,
+        };
+        let raster = |outer_w: u32| -> Option<GlyphInk> {
+            let mut data = vec![0u8; (stride * height) as usize];
+            rasterize_glyph(
+                &font,
+                pen,
+                'W',
+                &mut data,
+                stride,
+                SlotRegion {
+                    origin: (0, 0),
+                    cell,
+                    outer_w,
+                },
+            )
+        };
+        let single = raster(slot_w(cell)).expect("single-clip ink");
+        let double = raster(2 * slot_w(cell)).expect("double-clip ink");
+        // The wider clip must never record less ink than the narrow one, and for
+        // an oversized glyph it records strictly more (the cropped right column
+        // is now kept).
+        assert!(
+            double.width >= single.width,
+            "wider clip ink {} should be >= narrow clip ink {}",
+            double.width,
+            single.width
+        );
+        assert!(
+            double.width > single.width,
+            "an oversized glyph should be clipped by the single-cell region \
+             (single={}, double={})",
+            single.width,
+            double.width
+        );
+    }
+
+    #[test]
+    fn ensure_wide_codepoint_consumes_two_slots_when_supported() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let Some(ch) = wide_glyph_supported(&font) else {
+            eprintln!("skipping: no wide (CJK/fullwidth) glyph in the loaded font");
+            return;
+        };
+        let mut atlas = GlyphAtlas::build(&font, 24.0);
+        let before = atlas.slot_count();
+        let uv = atlas.ensure(&font, ch).expect("wide glyph uv");
+        // Two slots consumed (lead + reserved continuation); slot is wide.
+        assert_eq!(
+            atlas.slot_count(),
+            before + 2,
+            "wide glyph reserves two slots"
+        );
+        let &slot = atlas
+            .dynamic
+            .get(&(FontStyle::Regular, ch))
+            .expect("resident");
+        assert_eq!(atlas.slot_span[slot as usize], 2);
+        // The lead UV spans two cells; the glyph quad bounds span ~two cells.
+        let (ix, _) = inner_origin(&atlas, uv);
+        let right = (uv[2] * atlas.width as f32).round() as u32;
+        assert_eq!(right - ix, 2 * atlas.cell.width);
+        let bounds = atlas.glyph_quad(ch).expect("wide bounds");
+        assert!(
+            bounds.width > atlas.cell.width,
+            "wide glyph ink {} should exceed one cell {}",
+            bounds.width,
+            atlas.cell.width
+        );
+        // Inked across both cells (real coverage past the first-cell boundary).
+        let (cx, cy) = inner_origin(&atlas, uv);
+        let mut right_cell_ink = 0u64;
+        for y in cy..cy + atlas.cell.height {
+            for x in cx + atlas.cell.width..cx + 2 * atlas.cell.width {
+                right_cell_ink += atlas.data[(y * atlas.width + x) as usize] as u64;
+            }
+        }
+        assert!(
+            right_cell_ink > 0,
+            "second cell of a wide glyph should hold ink"
+        );
     }
 }
