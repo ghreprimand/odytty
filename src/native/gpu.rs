@@ -206,6 +206,20 @@ pub(super) fn grow_vertex_buffer_capacity(current: u64, needed: u64) -> u64 {
     needed.max(minimum).next_power_of_two()
 }
 
+/// Fold the window scale factor into the logical font pixel size to get the
+/// physical size the glyph atlas is rasterized at.
+///
+/// The scale is clamped to `>= 1.0`: a sub-1.0 factor (rare fractional
+/// downscale output) would rasterize glyphs *below* their logical size and
+/// harm legibility, so the atlas is never built under 1x. The surface still
+/// maps to the display's real pixels via [`GpuState::resize`]; only the glyph
+/// rasterization density is floored. This is the documented HiDPI clamp (H1):
+/// keep-and-document was chosen over honoring sub-1.0 scales. The result is
+/// also floored at 1.0 px so a degenerate font size never yields a zero atlas.
+pub(super) fn physical_font_px(font_size_px: f32, scale: f32) -> f32 {
+    (font_size_px * scale.max(1.0)).max(1.0)
+}
+
 fn create_vertex_buffer(device: &wgpu::Device, capacity_bytes: u64) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("odytty-cell-vertices"),
@@ -234,6 +248,25 @@ pub(super) struct GpuState {
     /// Fonts used to populate the atlas dynamic region for regular and styled
     /// glyphs. Missing style faces intentionally fall back to the regular font.
     fonts: StyleFonts,
+    // The three fields below back the HiDPI rescale seam. They are read only by
+    // `set_scale`/`set_font_px`, which H2 (GPT) wires into the `ScaleFactorChanged`
+    // handler after this lands; until then the compiler sees them as unread.
+    // H2 removes these `allow(dead_code)` markers when it wires the seam.
+    /// Logical (unscaled) font size in pixels. Retained so a scale-factor change
+    /// can re-derive the physical rasterization size; a future live
+    /// `ODYTTY_FONT_SIZE` reload would update this then call [`Self::set_font_px`].
+    #[allow(dead_code)]
+    font_size_px: f32,
+    /// Current window scale factor, clamped to `>= 1.0` (see [`physical_font_px`]).
+    /// Retained so a repeated `ScaleFactorChanged` carrying an unchanged value is
+    /// a cheap no-op instead of a needless atlas rebuild.
+    #[allow(dead_code)]
+    scale: f32,
+    /// Physical pixel size the atlas is currently rasterized at
+    /// (`physical_font_px(font_size_px, scale)`). Tracked so [`Self::set_font_px`]
+    /// is idempotent on an unchanged size.
+    #[allow(dead_code)]
+    physical_px: f32,
     /// Surface clear color from the active theme (linear RGBA).
     clear_color: wgpu::Color,
     /// Ambient-effect uniform params `[strength, period_px]` ([0,_] == off).
@@ -262,7 +295,8 @@ impl GpuState {
         let effect = effect_params(visual);
         let text = text_params(options.text_gamma);
         let size = window.inner_size();
-        let scale = window.scale_factor() as f32;
+        let scale = (window.scale_factor() as f32).max(1.0);
+        let physical_px = physical_font_px(options.font_size_px, scale);
         // No display handle is supplied here: the default Linux backend is
         // Vulkan, which ignores it. (It only matters for GLES-on-Wayland.)
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -312,8 +346,7 @@ impl GpuState {
 
         // --- Glyph atlas: rasterize at physical pixels for crisp HiDPI text.
         let fonts = StyleFonts::load(options)?;
-        let mut atlas =
-            GlyphAtlas::build(fonts.regular_font(), options.font_size_px * scale.max(1.0));
+        let mut atlas = GlyphAtlas::build(fonts.regular_font(), physical_px);
         ensure_snapshot_glyphs(&mut atlas, &fonts, initial_snapshot);
         let atlas_texture = create_atlas_texture(&device, &queue, &atlas);
         // Nearest + clamp: glyph cells map 1:1 to pixels, so no filtering.
@@ -474,6 +507,9 @@ impl GpuState {
             vertex_count,
             atlas,
             fonts,
+            font_size_px: options.font_size_px,
+            scale,
+            physical_px,
             clear_color: theme_clear_color(&theme),
             effect,
             text,
@@ -491,6 +527,72 @@ impl GpuState {
             &self.atlas_texture,
             &self.atlas_sampler,
         );
+    }
+
+    /// The current per-cell pixel metrics. These change when the atlas is
+    /// rebuilt at a new scale, so callers that derive grid dimensions from the
+    /// cell size must re-read this after [`Self::set_scale`] reports a rebuild.
+    /// (Consumed by H2's resize handler; unused until then.)
+    #[allow(dead_code)]
+    pub(super) fn cell(&self) -> crate::atlas::CellSize {
+        self.atlas.cell
+    }
+
+    /// The clamped scale factor the atlas is currently rasterized for.
+    /// (Consumed by H2's resize handler; unused until then.)
+    #[allow(dead_code)]
+    pub(super) fn scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// Update the window scale factor, re-rasterizing the glyph atlas at the new
+    /// physical pixel size only when the clamped value actually changes.
+    ///
+    /// Idempotent on a repeated scale: `winit` emits `ScaleFactorChanged` for
+    /// some unrelated transitions, so an unchanged value returns `false`
+    /// immediately without touching the GPU. Sub-1.0 factors are clamped (see
+    /// [`physical_font_px`]). Returns `true` when a rebuild occurred so the
+    /// caller can republish [`Self::cell`] (cell metrics scale with density) and
+    /// rebuild its grid geometry.
+    ///
+    /// H2 (GPT) calls this from the `ScaleFactorChanged` handler; unused until
+    /// then, so it carries `allow(dead_code)` which H2 removes when wiring.
+    #[allow(dead_code)]
+    pub(super) fn set_scale(&mut self, scale: f32) -> bool {
+        let clamped = scale.max(1.0);
+        if (clamped - self.scale).abs() < f32::EPSILON {
+            return false;
+        }
+        self.scale = clamped;
+        self.set_font_px(physical_font_px(self.font_size_px, clamped))
+    }
+
+    /// Re-rasterize the glyph atlas at a new physical pixel size and recreate the
+    /// atlas texture + bind group, republishing [`Self::cell`].
+    ///
+    /// Scale-agnostic by design — the caller folds window scale into `px` (via
+    /// [`physical_font_px`]). Built deliberately reusable for a future live
+    /// `ODYTTY_FONT_SIZE` reload, which would update `font_size_px` and call this
+    /// directly. Idempotent on an unchanged size (returns `false`).
+    ///
+    /// Invalidation is by construction: a fresh [`GlyphAtlas::build`] has an
+    /// empty dynamic region, so no old-density slot can survive into the new
+    /// atlas (R1 invalidation requirement). Live non-ASCII glyphs repopulate at
+    /// the new size on the next [`Self::update_from_snapshot`] via
+    /// `ensure_snapshot_glyphs`. Returns `true` when a rebuild occurred.
+    pub(super) fn set_font_px(&mut self, px: f32) -> bool {
+        let px = px.max(1.0);
+        if (px - self.physical_px).abs() < f32::EPSILON {
+            return false;
+        }
+        self.physical_px = px;
+        let mut atlas = GlyphAtlas::build(self.fonts.regular_font(), px);
+        // The freshly built atlas is fully resident; clear its build-dirty flag
+        // since we re-upload the whole texture below rather than via take_dirty.
+        let _ = atlas.take_dirty();
+        self.atlas = atlas;
+        self.refresh_atlas_texture();
+        true
     }
 
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot.
@@ -643,4 +745,54 @@ pub(super) enum FrameOutcome {
     NeedsReconfigure,
     /// The frame was intentionally skipped (transient surface state).
     Skipped,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// At 1x scale the physical size equals the logical font size exactly:
+    /// today's non-HiDPI output is unchanged.
+    #[test]
+    fn physical_px_is_identity_at_unit_scale() {
+        assert_eq!(physical_font_px(16.0, 1.0), 16.0);
+        assert_eq!(physical_font_px(24.0, 1.0), 24.0);
+    }
+
+    /// Integer and common fractional scales fold deterministically with no
+    /// rounding inside the fold (the atlas does its own integer cell rounding).
+    #[test]
+    fn physical_px_folds_fractional_scales() {
+        assert_eq!(physical_font_px(16.0, 1.25), 20.0);
+        assert_eq!(physical_font_px(16.0, 1.5), 24.0);
+        assert_eq!(physical_font_px(16.0, 2.0), 32.0);
+    }
+
+    /// The fold is monotonic non-decreasing in scale: a larger scale never
+    /// yields a smaller physical size, so density tracks the display.
+    #[test]
+    fn physical_px_is_monotonic_in_scale() {
+        let mut prev = 0.0f32;
+        for &scale in &[1.0f32, 1.25, 1.5, 1.75, 2.0, 3.0] {
+            let px = physical_font_px(16.0, scale);
+            assert!(px >= prev, "px {px} should be >= previous {prev}");
+            prev = px;
+        }
+    }
+
+    /// Sub-1.0 scales are clamped to 1x: glyphs are never rasterized below
+    /// their logical size. This is the documented HiDPI sub-1.0 clamp (H1).
+    #[test]
+    fn physical_px_clamps_sub_unit_scale() {
+        assert_eq!(physical_font_px(16.0, 0.5), 16.0);
+        assert_eq!(physical_font_px(16.0, 0.0), 16.0);
+        assert_eq!(physical_font_px(16.0, -2.0), 16.0);
+    }
+
+    /// A degenerate logical size still yields a usable (>= 1 px) atlas size.
+    #[test]
+    fn physical_px_floors_at_one() {
+        assert!(physical_font_px(0.0, 1.0) >= 1.0);
+        assert!(physical_font_px(0.5, 1.0) >= 1.0);
+    }
 }

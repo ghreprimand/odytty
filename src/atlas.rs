@@ -1299,4 +1299,84 @@ mod tests {
         // Distinct slots => distinct UV rects.
         assert_ne!(regular.uv, bold.uv);
     }
+
+    /// Rebuilding the atlas at a larger physical size (the HiDPI rescale path:
+    /// `GpuState::set_font_px` constructs a fresh atlas) grows the cell metrics
+    /// and starts from a clean dynamic region — no slot from the old density can
+    /// survive. This is R1 invalidation by construction.
+    #[test]
+    fn rebuild_at_larger_size_grows_cell_and_drops_dynamic_slots() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        // Build at 1x-equivalent density and populate the dynamic region.
+        let mut small = GlyphAtlas::build(&font, 16.0);
+        if let Some(ch) = glyph_bearing_non_ascii(&font) {
+            small.ensure(&font, ch).expect("resident glyph");
+            assert!(
+                small.slot_count() > FIRST_DYNAMIC_SLOT,
+                "precondition: a dynamic slot was allocated"
+            );
+        }
+        let small_cell = small.cell;
+
+        // The rescale rebuild is a fresh build at 2x physical px.
+        let big = GlyphAtlas::build(&font, 32.0);
+
+        // Cell metrics scaled up with the density (no mixed-density reuse).
+        assert!(
+            big.cell.width > small_cell.width && big.cell.height > small_cell.height,
+            "rebuilt cell {:?} should exceed {:?}",
+            big.cell,
+            small_cell
+        );
+        // The rebuilt atlas has only its base region — zero stale dynamic slots.
+        assert_eq!(
+            big.slot_count(),
+            FIRST_DYNAMIC_SLOT,
+            "a fresh rebuild must carry no slots from the old density"
+        );
+        // Bitmap is sized to the new (larger) cell, not the old one.
+        assert_eq!(big.data.len(), (big.width * big.height) as usize);
+        assert!(big.width > small.width || big.height >= small.height);
+    }
+
+    /// Cell metrics are deterministic and seam-free across the fractional scales
+    /// `physical_font_px` produces from a 16 px logical size: integer (the type
+    /// guarantees this), positive, baseline within the cell, and monotonic
+    /// non-decreasing as density rises. Building twice at one size is identical.
+    #[test]
+    fn cell_metrics_deterministic_and_monotonic_across_scales() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        // 16 px logical at scales 1.0 / 1.25 / 1.5 / 2.0.
+        let sizes = [16.0f32, 20.0, 24.0, 32.0];
+        let mut prev: Option<CellSize> = None;
+        for &px in &sizes {
+            let a = GlyphAtlas::build(&font, px);
+            let b = GlyphAtlas::build(&font, px);
+            // Determinism: same px => byte-identical metrics and dimensions.
+            assert_eq!(a.cell, b.cell, "cell metrics must be deterministic at {px}");
+            assert_eq!(a.width, b.width);
+            assert_eq!(a.height, b.height);
+            // Seam-free: positive extents, baseline within the cell box.
+            assert!(a.cell.width > 0 && a.cell.height > 0);
+            assert!(a.cell.baseline > 0 && a.cell.baseline <= a.cell.height);
+            // Monotonic non-decreasing with density.
+            if let Some(p) = prev {
+                assert!(
+                    a.cell.width >= p.width
+                        && a.cell.height >= p.height
+                        && a.cell.baseline >= p.baseline,
+                    "cell {:?} at {px}px should be >= previous {:?}",
+                    a.cell,
+                    p
+                );
+            }
+            prev = Some(a.cell);
+        }
+    }
 }
