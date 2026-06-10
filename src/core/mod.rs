@@ -11,8 +11,10 @@
 //! - [`encoding`] — pure mouse-/focus-event byte encoders.
 //! - [`search`] — pure literal scrollback/screen search over the combined
 //!   buffer, reporting matches as absolute cell ranges.
+//! - [`reflow`] — resize re-wrapping and the width-unchanged fast path.
 
 mod encoding;
+mod reflow;
 mod screen;
 mod search;
 mod types;

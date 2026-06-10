@@ -7,6 +7,7 @@
 use unicode_width::UnicodeWidthChar;
 use vte::{Params, Perform};
 
+use super::reflow::{reflow_lines, resize_buffer_rows, resize_keep_width};
 use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
 use super::types::*;
 
@@ -22,13 +23,13 @@ use super::types::*;
 /// `Line` derefs to its `cells` vector, so existing `row[col]`, `row.iter()`,
 /// `row.get(..)`, and `row.resize(..)` call sites keep working unchanged.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Line {
-    cells: Vec<Cell>,
-    wrapped: bool,
+pub(in crate::core) struct Line {
+    pub(in crate::core) cells: Vec<Cell>,
+    pub(in crate::core) wrapped: bool,
 }
 impl Line {
     /// A row that ends a logical line (hard break / no continuation).
-    fn unwrapped(cells: Vec<Cell>) -> Self {
+    pub(in crate::core) fn unwrapped(cells: Vec<Cell>) -> Self {
         Self {
             cells,
             wrapped: false,
@@ -36,7 +37,7 @@ impl Line {
     }
 
     /// A row that soft-wraps into the next physical row.
-    fn wrapped(cells: Vec<Cell>) -> Self {
+    pub(in crate::core) fn wrapped(cells: Vec<Cell>) -> Self {
         Self {
             cells,
             wrapped: true,
@@ -178,17 +179,39 @@ impl Screen {
             self.cursor.column = self.cursor.column.min(dimensions.columns - 1);
 
             if let Some(mut primary) = self.primary_screen.take() {
-                let cursor = reflow_lines(
-                    &mut primary.scrollback,
-                    &mut primary.rows,
-                    dimensions,
-                    primary.cursor,
-                );
+                // The stored primary shares the (old) width; use the same
+                // width-unchanged fast path when columns are unchanged.
+                let cursor = if dimensions.columns == self.dimensions.columns {
+                    resize_keep_width(
+                        &mut primary.scrollback,
+                        &mut primary.rows,
+                        dimensions,
+                        primary.cursor,
+                    )
+                } else {
+                    reflow_lines(
+                        &mut primary.scrollback,
+                        &mut primary.rows,
+                        dimensions,
+                        primary.cursor,
+                    )
+                };
                 primary.cursor = cursor;
                 primary.pending_wrap = false;
                 primary.scroll_region = clamp_scroll_region(primary.scroll_region, dimensions);
                 self.primary_screen = Some(primary);
             }
+        } else if dimensions.columns == self.dimensions.columns {
+            // Width-unchanged fast path: re-wrapping at the same width reproduces
+            // the identical physical rows, so skip the O(cells) reflow and only
+            // re-window/re-cursor at O(rows). Byte-identical to `reflow_lines`
+            // for width-unchanged resizes (proven by `reflow_fast_path_tests`).
+            self.cursor = resize_keep_width(
+                &mut self.scrollback,
+                &mut self.rows,
+                dimensions,
+                self.cursor,
+            );
         } else {
             // Primary screen active: reflow visible + scrollback to the new width
             // so wrapped content is preserved across shrink/grow.
@@ -1324,7 +1347,7 @@ impl Terminal {
         self.screen.search(query, options)
     }
 }
-fn blank_row(columns: usize) -> Line {
+pub(in crate::core) fn blank_row(columns: usize) -> Line {
     Line::unwrapped(vec![Cell::blank(); columns])
 }
 fn blank_row_with_bg(columns: usize, background: Color) -> Line {
@@ -1358,233 +1381,6 @@ fn sanitize_wide_row(row: &mut [Cell], blank: Cell) {
                 row[index] = blank;
             }
         }
-    }
-}
-fn resize_buffer_rows(
-    rows: &mut Vec<Line>,
-    scrollback: &mut Vec<Line>,
-    dimensions: Dimensions,
-    discard_removed_rows: bool,
-) {
-    for row in rows.iter_mut() {
-        row.resize(dimensions.columns, Cell::blank());
-    }
-
-    if rows.len() > dimensions.rows {
-        let removed = rows.len() - dimensions.rows;
-        if discard_removed_rows {
-            rows.drain(0..removed);
-        } else {
-            scrollback.extend(rows.drain(0..removed));
-        }
-    }
-
-    rows.resize_with(dimensions.rows, || blank_row(dimensions.columns));
-}
-/// A logical line collected from soft-wrapped physical rows, plus the flat
-/// offset of the cursor within it (if the cursor was on one of those rows).
-struct LogicalLine {
-    cells: Vec<Cell>,
-    cursor_offset: Option<usize>,
-}
-/// Reflow the combined `scrollback` + `rows` buffer to `dimensions`, preserving
-/// content by rejoining soft-wrapped rows into logical lines and re-wrapping
-/// them to the new width. Replaces `scrollback` and `rows` in place and returns
-/// the cursor's new visible-grid position.
-///
-/// Policy (bounded first-prototype reflow):
-/// - Logical lines are formed by joining consecutive rows whose [`Line::wrapped`]
-///   marker is set; a hard line break (no marker) ends a logical line.
-/// - Trailing plain blanks are trimmed from each logical line before re-wrapping
-///   (but never past the cursor column), so a cleared-but-tall screen does not
-///   bloat into many blank rows on shrink.
-/// - Wide glyphs are kept whole: a wide pair never straddles the right edge.
-/// - The visible window is the bottom `dimensions.rows` rows of the reflowed
-///   buffer; everything above becomes scrollback. The cursor is mapped to its
-///   character's new location and clamped into the visible grid.
-fn reflow_lines(
-    scrollback: &mut Vec<Line>,
-    rows: &mut Vec<Line>,
-    dimensions: Dimensions,
-    cursor: Position,
-) -> Position {
-    let new_cols = dimensions.columns;
-    let new_rows = dimensions.rows;
-
-    // Combined buffer, oldest first. The cursor's absolute row is its visible
-    // row offset by the current scrollback height.
-    let cursor_abs_row = scrollback.len() + cursor.row;
-    let mut combined: Vec<Line> = Vec::with_capacity(scrollback.len() + rows.len());
-    combined.append(scrollback);
-    combined.append(rows);
-
-    // 1) Segment into logical lines, joining soft-wrapped rows and tracking the
-    //    cursor's flat offset within its logical line.
-    let mut logicals: Vec<LogicalLine> = Vec::new();
-    let mut current: Vec<Cell> = Vec::new();
-    let mut current_cursor: Option<usize> = None;
-    for (idx, line) in combined.iter().enumerate() {
-        if idx == cursor_abs_row {
-            current_cursor = Some(current.len() + cursor.column.min(line.cells.len()));
-        }
-        current.extend(line.cells.iter().copied());
-        if !line.wrapped {
-            logicals.push(LogicalLine {
-                cells: std::mem::take(&mut current),
-                cursor_offset: current_cursor.take(),
-            });
-        }
-    }
-    // Flush a trailing logical line whose last row was still marked wrapped.
-    if !current.is_empty() || current_cursor.is_some() {
-        logicals.push(LogicalLine {
-            cells: current,
-            cursor_offset: current_cursor,
-        });
-    }
-
-    // Drop trailing blank logical lines that are just unused grid padding below
-    // the content/cursor, so a partially-filled screen does not inflate the
-    // reflowed buffer (which would otherwise scroll content off the top). A line
-    // is kept if it holds the cursor or any non-blank cell; interior blank lines
-    // are preserved. (Trailing blank *output* lines collapse here — a bounded,
-    // documented reflow limitation.)
-    let plain = Cell::blank();
-    while logicals.len() > 1 {
-        let last = logicals.last().expect("non-empty");
-        let is_padding =
-            last.cursor_offset.is_none() && last.cells.iter().all(|cell| *cell == plain);
-        if is_padding {
-            logicals.pop();
-        } else {
-            break;
-        }
-    }
-
-    // 2) Re-wrap each logical line to the new width.
-    let mut new_combined: Vec<Line> = Vec::new();
-    let mut cursor_dest: Option<(usize, usize)> = None;
-
-    for logical in &logicals {
-        // Trim trailing plain blanks fully: the cursor is mapped separately
-        // (see below), so trailing blanks never need to be materialized as
-        // extra rows.
-        let mut keep = logical.cells.len();
-        while keep > 0 && logical.cells[keep - 1] == plain {
-            keep -= 1;
-        }
-        let cells = &logical.cells[..keep];
-        // Where the cursor sits within this logical line's content, clamped to
-        // the trimmed length (a cursor past the content lands at end-of-line).
-        let cursor_target = logical.cursor_offset.map(|off| off.min(keep));
-
-        let mut row_cells: Vec<Cell> = Vec::with_capacity(new_cols);
-        let mut produced_any = false;
-        let mut i = 0;
-        while i < cells.len() {
-            let cell = cells[i];
-            let is_wide_lead =
-                !cell.wide_continuation && UnicodeWidthChar::width(cell.ch) == Some(2);
-            // A wide glyph needs two columns; if the grid is too narrow to hold
-            // a pair, degrade it to width 1 (conservative wide-glyph handling).
-            let unit = if is_wide_lead && new_cols >= 2 { 2 } else { 1 };
-
-            // If a wide unit will not fit in the remaining columns, pad the row
-            // and wrap before placing it so the pair stays whole.
-            if unit == 2 && row_cells.len() + unit > new_cols && !row_cells.is_empty() {
-                while row_cells.len() < new_cols {
-                    row_cells.push(plain);
-                }
-                new_combined.push(Line::wrapped(std::mem::take(&mut row_cells)));
-                produced_any = true;
-                row_cells = Vec::with_capacity(new_cols);
-            }
-
-            // Cursor on a content cell: record its destination before placing.
-            if cursor_target == Some(i) {
-                cursor_dest = Some((new_combined.len(), row_cells.len()));
-            }
-
-            if unit == 2 {
-                row_cells.push(cell);
-                let cont = if i + 1 < cells.len() && cells[i + 1].wide_continuation {
-                    cells[i + 1]
-                } else {
-                    Cell::wide_spacer(cell.attrs)
-                };
-                row_cells.push(cont);
-                // Skip a real continuation cell if it followed the lead.
-                i += if i + 1 < cells.len() && cells[i + 1].wide_continuation {
-                    2
-                } else {
-                    1
-                };
-            } else {
-                // Drop an orphaned continuation cell (its lead was degraded).
-                if !cell.wide_continuation {
-                    row_cells.push(cell);
-                }
-                i += 1;
-            }
-
-            if row_cells.len() >= new_cols {
-                new_combined.push(Line::wrapped(std::mem::take(&mut row_cells)));
-                produced_any = true;
-                row_cells = Vec::with_capacity(new_cols);
-            }
-        }
-
-        // Cursor at end-of-content (just past the last char). Map it onto the
-        // last row of this logical line rather than spilling onto a new row, so
-        // a full line keeps the cursor at the right edge (pending-wrap), exactly
-        // as the pre-reflow grid did.
-        if cursor_target == Some(keep) {
-            if !row_cells.is_empty() {
-                // Partial final row: cursor sits just after the last char.
-                cursor_dest = Some((new_combined.len(), row_cells.len().min(new_cols - 1)));
-            } else if produced_any {
-                // The content exactly filled the last (still-wrapped) row.
-                cursor_dest = Some((new_combined.len() - 1, new_cols - 1));
-            } else {
-                // Empty logical line: cursor at the start of the blank row.
-                cursor_dest = Some((new_combined.len(), 0));
-            }
-        }
-
-        if !row_cells.is_empty() || !produced_any {
-            // Final (line-ending) row of this logical line.
-            while row_cells.len() < new_cols {
-                row_cells.push(plain);
-            }
-            new_combined.push(Line::unwrapped(row_cells));
-        } else if let Some(last) = new_combined.last_mut() {
-            // The line ended exactly on a wrap boundary: the last row is the
-            // logical line's terminator, not a continuation.
-            last.wrapped = false;
-        }
-    }
-
-    // 3) Split into scrollback + a bottom-anchored visible window.
-    let total = new_combined.len();
-    let visible_start = total.saturating_sub(new_rows);
-    let new_scrollback: Vec<Line> = new_combined.drain(0..visible_start).collect();
-    let mut visible = new_combined;
-    while visible.len() < new_rows {
-        visible.push(blank_row(new_cols));
-    }
-
-    *scrollback = new_scrollback;
-    *rows = visible;
-
-    match cursor_dest {
-        Some((abs_row, col)) => Position {
-            row: abs_row.saturating_sub(visible_start).min(new_rows - 1),
-            column: col.min(new_cols - 1),
-        },
-        None => Position {
-            row: cursor.row.min(new_rows - 1),
-            column: cursor.column.min(new_cols - 1),
-        },
     }
 }
 fn clamp_scroll_region(
