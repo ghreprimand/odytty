@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Core OSC title and mouse reporting state
+
+Stage 2 correctness work added the terminal-core side of window-title reporting
+and mouse tracking. This is the model and encoder layer only; wiring the native
+front end to emit mouse reports and apply the title is a later packet.
+
+### What landed
+
+- **OSC title (OSC 0/2)** — `osc_dispatch` now stores the window title; OSC 1
+  (icon name) is consumed without changing the title. `Terminal::title()` reads
+  the current title and `take_title_changed()` polls-and-clears a dirty flag.
+  An explicitly empty title is `Some("")`, distinct from never-set `None`;
+  embedded semicolons are preserved and invalid UTF-8 is replaced (no panic).
+- **Unknown OSC safety** — OSC 4/7/8/10/11/12/52/133 and friends are consumed
+  rather than printed, so payloads never leak into the grid.
+- **Mouse modes via DECSET/DECRST** — 9/1000/1002/1003 select a single
+  `MouseTracking` mode and 1005/1006/1015 select a single `MouseEncoding`, using
+  xterm shared-variable semantics (later DECSET wins; any tracking DECRST clears
+  tracking; any encoding DECRST resets to default). `Terminal::mouse_protocol()`
+  exposes the active mode/encoding.
+- **Pure encoders** — `encode_mouse_event(...)` produces exact report bytes for
+  legacy (with the 223 coordinate cap), UTF-8, SGR, and urxvt encodings, gated
+  by the active tracking mode.
+- **RIS** resets mouse state; the title persists across RIS.
+
+### Verified
+
+- 28 new deterministic tests cover title set/empty/UTF-8, OSC payload
+  containment, mode selection precedence, DECRST clearing, and every encoder
+  path. Full suite: 195 lib + 10 smoke pass; fmt and clippy clean (except the
+  pre-existing `Color` derive note).
+
+### Remaining
+
+- Native front end does not yet emit mouse reports or apply the OSC title to the
+  window; that wiring is the next native packet.
+
+---
+
 ## 2026-06-10 — Settings path and native font-size knob
 
 Stage 1 stabilization now has a minimal settings module that loads prototype

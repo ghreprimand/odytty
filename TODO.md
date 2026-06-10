@@ -26,7 +26,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
       regression.
 - [ ] Improve OSC support, including title handling and common shell/editor
       sequences.
+  - [x] Core: OSC 0/2 window-title capture with dirty flag; unknown OSC payloads
+        consumed (no grid leakage). Native title wiring still pending.
 - [ ] Add mouse reporting modes required by real TUIs.
+  - [x] Core: DECSET/DECRST tracking (9/1000/1002/1003) and encoding
+        (1005/1006/1015) state plus pure report encoders. Native emit pending.
 - [ ] Harden alternate-screen behavior with editors, pagers, and full-screen
       apps.
 - [ ] Improve Unicode, wide-character, combining-mark, and ambiguous-width
