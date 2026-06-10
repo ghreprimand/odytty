@@ -39,6 +39,46 @@ mouse-aware TUIs can receive pointer reports through the PTY.
 
 ---
 
+## 2026-06-10 — Wide-cell write/erase coherence
+
+Stage 2 Unicode hardening, first half: keep wide-character cell pairs coherent
+under overwrites, end-of-line wrapping, and erases. A wide glyph (East Asian
+Wide/Fullwidth, many emoji) occupies a printable lead cell plus a
+`wide_continuation` spacer; the model now guarantees no half-wide orphan ever
+survives an edit. Combining-mark attachment is the second half and lands in a
+follow-up packet (it needs a new `Cell` field, deferred to avoid colliding with
+concurrent native-layer work in the shared tree).
+
+### What landed
+
+- **Overwrite-half clears the pair** — `print_char` calls a new O(1)
+  `clear_wide_orphans` before writing: overwriting a wide lead clears its
+  continuation, overwriting a continuation clears its lead, and a new wide glyph
+  that straddles two existing pairs clears both dangling halves.
+- **No split across rows** — a wide glyph that does not fit in the last column
+  blanks the trailing cell and soft-wraps whole onto the next row (xterm
+  behavior), so resize can still rejoin the logical line.
+- **Erase coherence** — `erase_line_from_cursor`/`erase_line_to_cursor` now
+  sanitize wide pairs at the erase boundary; ICH/DCH/ECH already repaired pairs
+  via `sanitize_wide_row`. Cursor movement counts cells, not graphemes.
+- **Ambiguous width** stays narrow by default (a future setting, not built yet).
+
+### Verified
+
+- 7 new deterministic fixtures: overwrite-lead, overwrite-continuation,
+  straddle-two-pairs, wrap-at-boundary, erase-from/to-cursor orphan clears, and
+  alternate-screen coherence. Full suite: 206 lib + 10 smoke pass; fmt and
+  clippy clean (except the pre-existing `Color` derive note); native autoclose
+  smoke exit 0.
+
+### Remaining
+
+- Combining marks (zero-width, attach to the preceding cell's grapheme) land in
+  the follow-up C2b packet, sequenced after the native title/mouse wiring so the
+  `Cell` representation change does not break concurrent native edits.
+
+---
+
 ## 2026-06-10 — Core OSC title and mouse reporting state
 
 Stage 2 correctness work added the terminal-core side of window-title reporting

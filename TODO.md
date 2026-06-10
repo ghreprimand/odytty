@@ -38,6 +38,9 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
       apps.
 - [ ] Improve Unicode, wide-character, combining-mark, and ambiguous-width
       handling.
+  - [x] Core: wide-cell write/erase coherence — overwrite-half clears the pair,
+        wide glyph wraps whole at EOL, erase/ICH/DCH/ECH repair pairs. Ambiguous
+        width stays narrow (future setting). Combining-mark attach still pending.
 - [ ] Grow PTY-backed smoke coverage without making default tests flaky or slow.
 
 ## Stage 3: High-Quality Text And Rendering

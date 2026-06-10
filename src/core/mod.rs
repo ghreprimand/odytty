@@ -501,6 +501,27 @@ impl Screen {
         self.title_changed = true;
     }
 
+    /// Before overwriting `width` cells starting at `column` on `row`, blank any
+    /// wide-pair partner that sits OUTSIDE the overwrite span so no half-wide
+    /// orphan survives. A wide glyph is a lead cell (printable, width 2) plus a
+    /// `wide_continuation` spacer; overwriting one half must clear the other,
+    /// matching xterm. O(1): only the two span boundaries can orphan a partner.
+    fn clear_wide_orphans(&mut self, row: usize, column: usize, width: usize) {
+        let columns = self.dimensions.columns;
+        let blank = self.current_blank();
+        // Left boundary: the first overwritten cell is a continuation whose lead
+        // sits to its left, outside the span — blank the now-orphaned lead.
+        if column > 0 && column < columns && self.rows[row][column].wide_continuation {
+            self.rows[row][column - 1] = blank;
+        }
+        // Right boundary: the cell just past the span is a continuation whose
+        // lead is the last overwritten cell — blank the orphaned continuation.
+        let end = column + width;
+        if end < columns && self.rows[row][end].wide_continuation {
+            self.rows[row][end] = blank;
+        }
+    }
+
     fn print_char(&mut self, ch: char) {
         let width = UnicodeWidthChar::width(ch).unwrap_or(1);
         if width == 0 {
@@ -519,15 +540,27 @@ impl Screen {
         }
 
         if self.cursor.column + width > self.dimensions.columns {
-            // A wide glyph does not fit in the remaining columns; it continues
-            // the logical line on the next row (also a soft wrap).
-            self.rows[self.cursor.row].wrapped = true;
+            // A wide glyph does not fit in the remaining columns. xterm does not
+            // split it across rows: blank the trailing cell(s) and soft-wrap the
+            // glyph onto the next row, marking the row wrapped so resize rejoins
+            // the logical line.
+            let blank = self.current_blank();
+            let r = self.cursor.row;
+            let c = self.cursor.column;
+            self.clear_wide_orphans(r, c, self.dimensions.columns - c);
+            for col in c..self.dimensions.columns {
+                self.rows[r][col] = blank;
+            }
+            self.rows[r].wrapped = true;
             self.carriage_return();
             self.line_feed();
         }
 
         let row = self.cursor.row;
         let column = self.cursor.column;
+        // Overwriting either half of an existing wide pair must clear its
+        // partner so no half-wide orphan survives.
+        self.clear_wide_orphans(row, column, width);
         self.rows[row][column] = Cell {
             ch,
             attrs: self.current_attrs,
@@ -940,17 +973,25 @@ impl Screen {
 
     fn erase_line_from_cursor(&mut self) {
         let blank = self.current_blank();
+        let row = self.cursor.row;
         for column in self.cursor.column..self.dimensions.columns {
-            self.rows[self.cursor.row][column] = blank;
+            self.rows[row][column] = blank;
         }
+        // Erasing the lead-side boundary can orphan a wide pair (a continuation
+        // at the cursor whose lead is just left of it); repair the row.
+        sanitize_wide_row(&mut self.rows[row], blank);
         self.mark_dirty();
     }
 
     fn erase_line_to_cursor(&mut self) {
         let blank = self.current_blank();
+        let row = self.cursor.row;
         for column in 0..=self.cursor.column {
-            self.rows[self.cursor.row][column] = blank;
+            self.rows[row][column] = blank;
         }
+        // Erasing up to the cursor can orphan a wide lead at the cursor whose
+        // continuation sits just right of it; repair the row.
+        sanitize_wide_row(&mut self.rows[row], blank);
         self.mark_dirty();
     }
 
@@ -2799,6 +2840,129 @@ mod tests {
             (0..6).all(|c| !terminal.screen().cell(0, c).unwrap().wide_continuation),
             "no orphaned wide-continuation cells should remain"
         );
+    }
+
+    // --- Wide-cell write/erase coherence (C2) ---
+
+    #[test]
+    fn overwrite_wide_lead_with_narrow_clears_continuation() {
+        let mut terminal = Terminal::new(6, 1);
+        terminal.advance("世ab".as_bytes());
+        assert!(terminal.screen().cell(0, 1).unwrap().wide_continuation);
+
+        // Overwrite the wide lead (col 0) with a narrow char.
+        terminal.advance(b"\x1b[1;1HX");
+
+        assert_eq!(terminal.screen().cell(0, 0).unwrap().ch, 'X');
+        // The orphaned continuation spacer at col 1 must be cleared.
+        assert!(!terminal.screen().cell(0, 1).unwrap().wide_continuation);
+        assert_eq!(terminal.screen().cell(0, 1).unwrap().ch, ' ');
+        assert_eq!(terminal.screen().plain_text(), "X ab");
+    }
+
+    #[test]
+    fn overwrite_wide_continuation_with_narrow_clears_lead() {
+        let mut terminal = Terminal::new(6, 1);
+        terminal.advance("世ab".as_bytes());
+        assert_eq!(terminal.screen().cell(0, 0).unwrap().ch, '世');
+
+        // Overwrite the continuation half (col 1) with a narrow char.
+        terminal.advance(b"\x1b[1;2HX");
+
+        // The orphaned wide lead at col 0 must be cleared to a blank.
+        assert_eq!(terminal.screen().cell(0, 0).unwrap().ch, ' ');
+        assert!(!terminal.screen().cell(0, 0).unwrap().wide_continuation);
+        assert_eq!(terminal.screen().cell(0, 1).unwrap().ch, 'X');
+        assert_eq!(terminal.screen().plain_text(), " Xab");
+        assert!(
+            (0..6).all(|c| !terminal.screen().cell(0, c).unwrap().wide_continuation),
+            "no orphaned wide-continuation cells should remain"
+        );
+    }
+
+    #[test]
+    fn new_wide_over_two_wide_pairs_clears_far_orphan() {
+        let mut terminal = Terminal::new(6, 1);
+        // 世 at 0-1, 界 at 2-3, 'a' at 4.
+        terminal.advance("世界a".as_bytes());
+
+        // Write a fullwidth 'Ａ' (width 2) starting at col 1 (continuation of 世).
+        terminal.advance("\x1b[1;2HＡ".as_bytes());
+
+        // Left orphan: 世's lead at col 0 cleared. Far orphan: 界's continuation
+        // at col 3 cleared. New pair sits at cols 1-2.
+        assert_eq!(terminal.screen().cell(0, 0).unwrap().ch, ' ');
+        assert_eq!(terminal.screen().cell(0, 1).unwrap().ch, 'Ａ');
+        assert!(terminal.screen().cell(0, 2).unwrap().wide_continuation);
+        assert_eq!(terminal.screen().cell(0, 3).unwrap().ch, ' ');
+        assert!(!terminal.screen().cell(0, 3).unwrap().wide_continuation);
+        assert_eq!(terminal.screen().cell(0, 4).unwrap().ch, 'a');
+    }
+
+    #[test]
+    fn wide_char_at_line_end_wraps_without_splitting() {
+        let mut terminal = Terminal::new(3, 2);
+        // Fill cols 0,1 with narrow chars; cursor lands at col 2 (last column).
+        terminal.advance(b"ab");
+        // A wide glyph cannot fit in the single remaining column: it must wrap.
+        terminal.advance("世".as_bytes());
+
+        // Row 0 keeps "ab"; the trailing cell stays blank (no half-wide split).
+        assert_eq!(terminal.screen().cell(0, 0).unwrap().ch, 'a');
+        assert_eq!(terminal.screen().cell(0, 1).unwrap().ch, 'b');
+        assert_eq!(terminal.screen().cell(0, 2).unwrap().ch, ' ');
+        assert!(!terminal.screen().cell(0, 2).unwrap().wide_continuation);
+        // The wide glyph lands whole on row 1.
+        assert_eq!(terminal.screen().cell(1, 0).unwrap().ch, '世');
+        assert!(terminal.screen().cell(1, 1).unwrap().wide_continuation);
+    }
+
+    #[test]
+    fn erase_line_from_cursor_clears_orphaned_wide_lead() {
+        let mut terminal = Terminal::new(6, 1);
+        terminal.advance("ab世".as_bytes()); // 世 at cols 2-3
+        assert!(terminal.screen().cell(0, 3).unwrap().wide_continuation);
+
+        // Cursor onto the continuation half (col 3); erase from there to EOL.
+        terminal.advance(b"\x1b[1;4H\x1b[0K");
+
+        // The wide lead at col 2 is orphaned by the erase and must be cleared.
+        assert_eq!(terminal.screen().cell(0, 2).unwrap().ch, ' ');
+        assert!(
+            (0..6).all(|c| !terminal.screen().cell(0, c).unwrap().wide_continuation),
+            "no orphaned wide-continuation cells should remain"
+        );
+        assert_eq!(terminal.screen().plain_text(), "ab");
+    }
+
+    #[test]
+    fn erase_line_to_cursor_clears_orphaned_wide_continuation() {
+        let mut terminal = Terminal::new(6, 1);
+        terminal.advance("世ab".as_bytes()); // 世 at cols 0-1
+        assert!(terminal.screen().cell(0, 1).unwrap().wide_continuation);
+
+        // Cursor onto the wide lead (col 0); erase from start to cursor.
+        terminal.advance(b"\x1b[1;1H\x1b[1K");
+
+        // The continuation at col 1 is orphaned by the erase and must be cleared.
+        assert!(!terminal.screen().cell(0, 1).unwrap().wide_continuation);
+        assert_eq!(terminal.screen().cell(0, 1).unwrap().ch, ' ');
+        assert_eq!(terminal.screen().plain_text(), "  ab");
+    }
+
+    #[test]
+    fn wide_coherence_holds_on_alternate_screen() {
+        let mut terminal = Terminal::new(6, 1);
+        terminal.advance(b"\x1b[?1049h"); // enter alternate screen
+        terminal.advance("世ab".as_bytes());
+        assert!(terminal.screen().cell(0, 1).unwrap().wide_continuation);
+
+        // Overwrite-half coherence works identically on the alternate screen.
+        terminal.advance(b"\x1b[1;1HX");
+        assert!(!terminal.screen().cell(0, 1).unwrap().wide_continuation);
+
+        // Alternate screen never feeds scrollback.
+        assert_eq!(terminal.screen().scrollback_len(), 0);
     }
 
     // REP (CSI Ps b): repeat the last printed graphic char N times through normal
