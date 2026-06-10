@@ -95,6 +95,23 @@ fn font_has_glyph(font: &FontVec, ch: char) -> bool {
     font.glyph_id(ch).0 != 0
 }
 
+/// Font style variant for a glyph slot. Groundwork: keys the dynamic region by
+/// `(FontStyle, char)` so bold/italic glyphs can coexist with regular ones. The
+/// live render path resolves `Regular` only today; a future grid/gpu packet will
+/// call the `_styled` variants with the matching style font, purely additively.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum FontStyle {
+    /// Upright, regular weight — the only style rendered live today.
+    #[default]
+    Regular,
+    /// Bold weight.
+    Bold,
+    /// Italic / oblique.
+    Italic,
+    /// Bold italic.
+    BoldItalic,
+}
+
 /// Integer pixel metrics for one monospace cell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CellSize {
@@ -125,9 +142,11 @@ pub struct GlyphAtlas {
     capacity_rows: u32,
     /// Next free slot for dynamic insertion; also the current slot count.
     next_slot: u32,
-    /// Resident non-ASCII codepoints → slot index. A codepoint the font lacks
-    /// is cached here pointing at [`FALLBACK_SLOT`] so the decision is made once.
-    dynamic: HashMap<char, u32>,
+    /// Resident non-ASCII `(style, codepoint)` → slot index. A codepoint the
+    /// font lacks is cached pointing at [`FALLBACK_SLOT`] so the decision is made
+    /// once. Keyed by style so bold/italic variants get distinct slots; the live
+    /// render path only ever inserts [`FontStyle::Regular`] today.
+    dynamic: HashMap<(FontStyle, char), u32>,
     /// Physical pixel size new glyphs are rasterized at (matches the ASCII block).
     px: f32,
     /// Monotonic counter bumped whenever pixels or dimensions change. The native
@@ -219,11 +238,22 @@ impl GlyphAtlas {
     /// render a visible box rather than blank). Spaces and control characters
     /// return `None` (nothing is drawn).
     pub fn uv_rect(&self, ch: char) -> Option<[f32; 4]> {
+        self.uv_rect_styled(FontStyle::Regular, ch)
+    }
+
+    /// Style-aware immutable UV lookup (groundwork for attribute-driven
+    /// rendering). Identical to [`Self::uv_rect`] for [`FontStyle::Regular`].
+    ///
+    /// The prebuilt printable-ASCII block belongs to `Regular`; for any other
+    /// style, ASCII resolves through the dynamic region like every other glyph,
+    /// returning the resident `(style, ch)` slot if present and the fallback box
+    /// otherwise. Spaces and control characters return `None`.
+    pub fn uv_rect_styled(&self, style: FontStyle, ch: char) -> Option<[f32; 4]> {
         let code = ch as u32;
-        if (FIRST_CHAR..=LAST_CHAR).contains(&code) {
+        if style == FontStyle::Regular && (FIRST_CHAR..=LAST_CHAR).contains(&code) {
             return Some(self.slot_uv(code - FIRST_CHAR + 1));
         }
-        if let Some(&slot) = self.dynamic.get(&ch) {
+        if let Some(&slot) = self.dynamic.get(&(style, ch)) {
             return Some(self.slot_uv(slot));
         }
         if wants_glyph(ch) {
@@ -261,11 +291,29 @@ impl GlyphAtlas {
     ///   resolves to the fallback box and is cached so the decision is made once.
     /// - Spaces and control characters return `None`.
     pub fn ensure(&mut self, font: &FontVec, ch: char) -> Option<[f32; 4]> {
+        self.ensure_styled(font, FontStyle::Regular, ch)
+    }
+
+    /// Style-aware mutable insertion (groundwork for attribute-driven
+    /// rendering). Identical to [`Self::ensure`] for [`FontStyle::Regular`].
+    ///
+    /// A non-`Regular` style rasterizes `ch` from the supplied `font` into a
+    /// slot keyed by `(style, ch)`, so styled glyphs never collide with regular
+    /// ones. Until a future packet supplies a true bold/italic face, callers
+    /// pass the regular font, so a styled slot holds the regular outline; the
+    /// keying is what matters for groundwork. Growth, fallback, and the hard
+    /// slot cap behave exactly as in [`Self::ensure`].
+    pub fn ensure_styled(
+        &mut self,
+        font: &FontVec,
+        style: FontStyle,
+        ch: char,
+    ) -> Option<[f32; 4]> {
         let code = ch as u32;
-        if (FIRST_CHAR..=LAST_CHAR).contains(&code) {
+        if style == FontStyle::Regular && (FIRST_CHAR..=LAST_CHAR).contains(&code) {
             return Some(self.slot_uv(code - FIRST_CHAR + 1));
         }
-        if let Some(&slot) = self.dynamic.get(&ch) {
+        if let Some(&slot) = self.dynamic.get(&(style, ch)) {
             return Some(self.slot_uv(slot));
         }
         if !wants_glyph(ch) {
@@ -273,12 +321,12 @@ impl GlyphAtlas {
         }
         if !font_has_glyph(font, ch) {
             // Font lacks the glyph: cache the fallback decision, draw nothing new.
-            self.dynamic.insert(ch, FALLBACK_SLOT);
+            self.dynamic.insert((style, ch), FALLBACK_SLOT);
             return Some(self.slot_uv(FALLBACK_SLOT));
         }
         let Some(slot) = self.allocate_slot() else {
             // Atlas is at its hard cap: degrade to the fallback box.
-            self.dynamic.insert(ch, FALLBACK_SLOT);
+            self.dynamic.insert((style, ch), FALLBACK_SLOT);
             return Some(self.slot_uv(FALLBACK_SLOT));
         };
         let origin = slot_offset(slot, self.cols, self.cell);
@@ -294,7 +342,7 @@ impl GlyphAtlas {
             origin,
             self.cell,
         );
-        self.dynamic.insert(ch, slot);
+        self.dynamic.insert((style, ch), slot);
         self.revision += 1;
         self.dirty = true;
         Some(self.slot_uv(slot))
@@ -808,5 +856,86 @@ mod tests {
             }
         }
         assert!(below, "'g' descender should ink below the baseline");
+    }
+
+    /// The default `FontStyle` is `Regular`, and the regular styled lookups are
+    /// byte-for-byte the legacy ones, so existing native call sites are
+    /// unaffected by the `(style, char)` keying.
+    #[test]
+    fn regular_style_matches_legacy_lookup() {
+        assert_eq!(FontStyle::default(), FontStyle::Regular);
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let atlas = GlyphAtlas::build(&font, 24.0);
+        // ASCII, fallback, and control behave identically through both entry points.
+        assert_eq!(
+            atlas.uv_rect('A'),
+            atlas.uv_rect_styled(FontStyle::Regular, 'A')
+        );
+        assert_eq!(
+            atlas.uv_rect('\u{2603}'),
+            atlas.uv_rect_styled(FontStyle::Regular, '\u{2603}')
+        );
+        assert_eq!(
+            atlas.uv_rect('\n'),
+            atlas.uv_rect_styled(FontStyle::Regular, '\n')
+        );
+    }
+
+    /// A non-`Regular` style of a glyph-bearing codepoint lands in its own slot,
+    /// so styled variants never collide with the regular glyph.
+    #[test]
+    fn styled_glyph_gets_a_distinct_slot() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let Some(ch) = glyph_bearing_non_ascii(&font) else {
+            eprintln!("skipping: font has no non-ASCII glyph");
+            return;
+        };
+        let mut atlas = GlyphAtlas::build(&font, 24.0);
+        let regular = atlas
+            .ensure_styled(&font, FontStyle::Regular, ch)
+            .expect("regular uv");
+        let count_after_regular = atlas.slot_count();
+        let bold = atlas
+            .ensure_styled(&font, FontStyle::Bold, ch)
+            .expect("bold uv");
+        // Distinct style => distinct slot => distinct uv, and a new slot consumed.
+        assert_ne!(regular, bold, "bold must not reuse the regular slot");
+        assert!(
+            atlas.slot_count() > count_after_regular,
+            "bold should allocate"
+        );
+        // Re-resolving each style is a stable cache hit.
+        assert_eq!(atlas.uv_rect_styled(FontStyle::Regular, ch), Some(regular));
+        assert_eq!(atlas.uv_rect_styled(FontStyle::Bold, ch), Some(bold));
+    }
+
+    /// For a non-`Regular` style, even printable ASCII flows through the dynamic
+    /// region: the immutable lookup returns the fallback until `ensure_styled`
+    /// rasterizes it, after which both resolve to the same real slot.
+    #[test]
+    fn styled_ascii_uses_dynamic_region() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let mut atlas = GlyphAtlas::build(&font, 24.0);
+        let fallback = atlas.slot_uv(FALLBACK_SLOT);
+        // Bold 'A' is not prebuilt: immutable lookup is the fallback box.
+        assert_eq!(atlas.uv_rect_styled(FontStyle::Bold, 'A'), Some(fallback));
+        // Regular 'A' still resolves to its prebuilt slot, untouched.
+        assert_ne!(atlas.uv_rect('A'), Some(fallback));
+        // ensure_styled rasterizes a real bold-keyed slot, distinct from regular.
+        let bold_a = atlas
+            .ensure_styled(&font, FontStyle::Bold, 'A')
+            .expect("bold A uv");
+        assert_ne!(bold_a, fallback);
+        assert_ne!(Some(bold_a), atlas.uv_rect('A'));
+        assert_eq!(atlas.uv_rect_styled(FontStyle::Bold, 'A'), Some(bold_a));
     }
 }

@@ -14,7 +14,8 @@ cargo run -- --native
 | --- | --- | --- | --- |
 | `ODYTTY_FONT_SIZE` | Pixel size, clamped to `6.0..=72.0` | `14.0` | Controls native glyph rasterization, cell size, initial window size, and resize grid fitting. Invalid values fall back to `14.0` with one stderr warning. |
 | `ODYTTY_TEXT_GAMMA` | Floating-point gamma, clamped to `0.5..=3.0` | `1.4` | Adjusts glyph coverage in the shader for text weight/contrast. `1.0` is the exact legacy linear blend path. Invalid values fall back to `1.4` with one stderr warning. |
-| `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | Host monospace probe list | Overrides the probed Linux monospace font. |
+| `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | Host monospace probe list | Overrides the probed Linux monospace font. A missing or unparseable path no longer aborts startup: it logs one stderr notice and falls back to the probe list. |
+| `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | Host monospace probe list | Selects the regular face by family name or path. The match is validated as monospace; a proportional or unresolved value logs one stderr notice and falls back to the probe list, so a bad value never aborts startup. `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered but not yet rendered (groundwork). |
 | `ODYTTY_THEME` | `plain`, `odyssey`, `odyssey-noir` | `plain` | Selects default foreground/background and window clear color. Unknown values fall back to `plain`. |
 | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `off` | Enables or disables the optional presentation-only ambient effect. |
 | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
@@ -61,6 +62,13 @@ Run with an explicit font:
 
 ```sh
 ODYTTY_FONT=/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf cargo run -- --native
+```
+
+Run with a font family resolved by name (falls back to the default if it is not
+found or is not monospace):
+
+```sh
+ODYTTY_FONT_FAMILY="DejaVu Sans Mono" cargo run -- --native
 ```
 
 Run a non-interactive native lifecycle smoke check:

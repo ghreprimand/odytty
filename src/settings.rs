@@ -14,6 +14,7 @@ use crate::theme::{Theme, VisualEffect};
 pub const THEME_ENV: &str = "ODYTTY_THEME";
 pub const VISUAL_ENV: &str = "ODYTTY_VISUAL";
 pub const FONT_ENV: &str = "ODYTTY_FONT";
+pub const FONT_FAMILY_ENV: &str = "ODYTTY_FONT_FAMILY";
 pub const FONT_SIZE_ENV: &str = "ODYTTY_FONT_SIZE";
 pub const TEXT_GAMMA_ENV: &str = "ODYTTY_TEXT_GAMMA";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
@@ -31,6 +32,7 @@ pub struct Settings {
     pub theme: Theme,
     pub visual: VisualEffect,
     pub font_path: Option<PathBuf>,
+    pub font_family: Option<String>,
     pub font_size_px: f32,
     pub text_gamma: f32,
     pub native_autoclose: Option<Duration>,
@@ -42,6 +44,7 @@ impl Default for Settings {
             theme: Theme::PLAIN,
             visual: VisualEffect::Off,
             font_path: None,
+            font_family: None,
             font_size_px: DEFAULT_FONT_SIZE_PX,
             text_gamma: DEFAULT_TEXT_GAMMA,
             native_autoclose: None,
@@ -57,12 +60,17 @@ impl Settings {
             |message| {
                 eprintln!("odytty: {message}");
             },
+            |family| {
+                crate::text::resolve_font_family(family, &crate::text::font_search_dirs())
+                    .map(|m| m.regular)
+            },
         )
     }
 
     fn from_source(
         mut get: impl FnMut(&str) -> Option<OsString>,
         mut warn: impl FnMut(&str),
+        mut resolve_family: impl FnMut(&str) -> Option<PathBuf>,
     ) -> Self {
         let theme = get(THEME_ENV)
             .and_then(|value| value.into_string().ok())
@@ -72,7 +80,31 @@ impl Settings {
             .and_then(|value| value.into_string().ok())
             .map(|value| VisualEffect::from_name_or_default(&value))
             .unwrap_or(VisualEffect::Off);
-        let font_path = get(FONT_ENV).map(PathBuf::from);
+        // Direct path knob (ODYTTY_FONT) takes precedence over family lookup so
+        // an explicit file always wins. ODYTTY_FONT_FAMILY is resolved to a
+        // validated monospace path only when no direct path is given; resolution
+        // failure falls back to the embedded probe list (font_path = None) with
+        // one warning, so a bad family value never aborts startup.
+        let direct_path = get(FONT_ENV).map(PathBuf::from);
+        let font_family = get(FONT_FAMILY_ENV)
+            .and_then(|value| value.into_string().ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let font_path = if direct_path.is_some() {
+            direct_path
+        } else if let Some(family) = font_family.as_deref() {
+            match resolve_family(family) {
+                Some(path) => Some(path),
+                None => {
+                    warn(&format!(
+                        "{FONT_FAMILY_ENV}={family:?} did not resolve to a monospace font; using the default font"
+                    ));
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let font_size_px = parse_font_size(get(FONT_SIZE_ENV).as_deref(), &mut warn);
         let text_gamma = parse_text_gamma(get(TEXT_GAMMA_ENV).as_deref(), &mut warn);
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
@@ -81,6 +113,7 @@ impl Settings {
             theme,
             visual,
             font_path,
+            font_family,
             font_size_px,
             text_gamma,
             native_autoclose,
@@ -145,6 +178,15 @@ mod tests {
     use super::*;
 
     fn settings_from<const N: usize>(values: [(&str, &str); N]) -> (Settings, Vec<String>) {
+        // Default stub resolver: no family resolves. Family-resolution tests use
+        // `settings_from_resolving` to inject a deterministic resolver.
+        settings_from_resolving(values, |_| None)
+    }
+
+    fn settings_from_resolving<const N: usize>(
+        values: [(&str, &str); N],
+        resolve_family: impl FnMut(&str) -> Option<PathBuf>,
+    ) -> (Settings, Vec<String>) {
         let mut warnings = Vec::new();
         let settings = Settings::from_source(
             |key| {
@@ -154,6 +196,7 @@ mod tests {
                     .map(|(_, value)| OsString::from(value))
             },
             |message| warnings.push(message.to_owned()),
+            resolve_family,
         );
         (settings, warnings)
     }
@@ -240,5 +283,63 @@ mod tests {
         assert_eq!(large.text_gamma, MAX_TEXT_GAMMA);
         assert!(small_warnings.is_empty());
         assert!(large_warnings.is_empty());
+    }
+
+    #[test]
+    fn font_family_is_parsed_and_trimmed() {
+        let (settings, warnings) =
+            settings_from_resolving([(FONT_FAMILY_ENV, "  JetBrains Mono  ")], |family| {
+                assert_eq!(family, "JetBrains Mono");
+                Some(PathBuf::from("/fonts/JetBrainsMono-Regular.ttf"))
+            });
+        assert_eq!(settings.font_family.as_deref(), Some("JetBrains Mono"));
+        assert_eq!(
+            settings.font_path,
+            Some(PathBuf::from("/fonts/JetBrainsMono-Regular.ttf"))
+        );
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn direct_font_path_wins_over_family() {
+        let mut resolver_called = false;
+        let (settings, warnings) = settings_from_resolving(
+            [
+                (FONT_ENV, "/tmp/explicit.ttf"),
+                (FONT_FAMILY_ENV, "Some Family"),
+            ],
+            |_| {
+                resolver_called = true;
+                Some(PathBuf::from("/fonts/resolved.ttf"))
+            },
+        );
+        // Explicit path takes precedence; the family resolver is never consulted.
+        assert!(
+            !resolver_called,
+            "direct path must short-circuit resolution"
+        );
+        assert_eq!(settings.font_path, Some(PathBuf::from("/tmp/explicit.ttf")));
+        // The raw family string is still recorded for introspection.
+        assert_eq!(settings.font_family.as_deref(), Some("Some Family"));
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn unresolvable_family_falls_back_with_one_warning() {
+        let (settings, warnings) =
+            settings_from_resolving([(FONT_FAMILY_ENV, "No Such Mono")], |_| None);
+        // Falls back to the embedded probe list (None) rather than failing.
+        assert_eq!(settings.font_path, None);
+        assert_eq!(settings.font_family.as_deref(), Some("No Such Mono"));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains(FONT_FAMILY_ENV));
+    }
+
+    #[test]
+    fn empty_font_family_is_ignored() {
+        let (settings, warnings) = settings_from([(FONT_FAMILY_ENV, "   ")]);
+        assert_eq!(settings.font_family, None);
+        assert_eq!(settings.font_path, None);
+        assert!(warnings.is_empty());
     }
 }
