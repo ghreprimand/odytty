@@ -22,8 +22,8 @@
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::core::Snapshot;
-use crate::text::{self, GlyphAtlas};
+use crate::core::{Attrs, Snapshot};
+use crate::text::{self, FontStyle, GlyphAtlas};
 
 /// One vertex of a cell quad. Matches the `VsIn` layout in `cell.wgsl`.
 ///
@@ -60,6 +60,8 @@ impl Vertex {
 
 /// Number of vertices per quad (two triangles).
 pub const VERTS_PER_QUAD: usize = 6;
+const DIM_FOREGROUND_FACTOR: f32 = 0.5;
+const LINE_DECORATION_THICKNESS_DIVISOR: f32 = 16.0;
 
 /// A solid pixel-space overlay quad appended after terminal-cell geometry.
 ///
@@ -90,6 +92,49 @@ fn push_quad(out: &mut Vec<Vertex>, rect: [f32; 4], uv: [f32; 4], color: [f32; 4
 /// Append one solid, non-glyph quad to an existing vertex list.
 pub fn push_solid_quad(out: &mut Vec<Vertex>, quad: SolidQuad) {
     push_quad(out, quad.rect, [0.0, 0.0, 0.0, 0.0], quad.color, 0.0);
+}
+
+/// Pick the atlas style requested by terminal attributes.
+pub fn font_style_for_attrs(attrs: &Attrs) -> FontStyle {
+    match (attrs.bold, attrs.italic) {
+        (true, true) => FontStyle::BoldItalic,
+        (true, false) => FontStyle::Bold,
+        (false, true) => FontStyle::Italic,
+        (false, false) => FontStyle::Regular,
+    }
+}
+
+/// Apply SGR dim/faint to an effective foreground color.
+pub fn dim_color(mut color: [f32; 4]) -> [f32; 4] {
+    color[0] *= DIM_FOREGROUND_FACTOR;
+    color[1] *= DIM_FOREGROUND_FACTOR;
+    color[2] *= DIM_FOREGROUND_FACTOR;
+    color
+}
+
+fn line_decoration_thickness(cell_h: f32) -> f32 {
+    (cell_h / LINE_DECORATION_THICKNESS_DIVISOR)
+        .round()
+        .max(1.0)
+}
+
+/// Pixel-space underline rectangle for one cell.
+pub fn underline_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32, baseline: f32) -> [f32; 4] {
+    let thickness = line_decoration_thickness(cell_h);
+    let y = (y0 + baseline + thickness).min(y0 + cell_h - thickness);
+    [x0, y, x0 + cell_w, y + thickness]
+}
+
+/// Pixel-space strikethrough rectangle for one cell.
+///
+/// The line sits near the visual midline, derived from the atlas baseline so it
+/// stays stable across font sizes and faces without needing per-glyph metrics.
+pub fn strikethrough_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32, baseline: f32) -> [f32; 4] {
+    let thickness = line_decoration_thickness(cell_h);
+    let y = (y0 + baseline * 0.6)
+        .round()
+        .clamp(y0, y0 + cell_h - thickness);
+    [x0, y, x0 + cell_w, y + thickness]
 }
 
 /// Build the full vertex list for a snapshot against a glyph atlas.
@@ -140,6 +185,9 @@ pub fn build_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atlas: &G
             if cell.attrs.inverse {
                 std::mem::swap(&mut fg, &mut bg);
             }
+            if cell.attrs.dim {
+                fg = dim_color(fg);
+            }
 
             // A wide lead cell (next column is a continuation spacer) covers two
             // columns so the background has no gap under the glyph.
@@ -156,11 +204,44 @@ pub fn build_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atlas: &G
 
             push_quad(out, [x0, y0, x1, y1], [0.0, 0.0, 0.0, 0.0], bg, 0.0);
 
-            if cell.ch != ' '
-                && let Some(uv) = atlas.uv_rect(cell.ch)
+            if !cell.attrs.hidden
+                && cell.ch != ' '
+                && let Some(uv) = atlas.uv_rect_styled(font_style_for_attrs(&cell.attrs), cell.ch)
             {
                 // Glyph quad covers exactly one atlas cell (1:1 mapping).
                 push_quad(out, [x0, y0, x0 + cell_w, y1], uv, fg, 1.0);
+            }
+
+            if cell.attrs.underline {
+                push_solid_quad(
+                    out,
+                    SolidQuad {
+                        rect: underline_rect(
+                            x0,
+                            y0,
+                            cell_w * span,
+                            cell_h,
+                            atlas.cell.baseline as f32,
+                        ),
+                        color: fg,
+                    },
+                );
+            }
+
+            if cell.attrs.strikethrough {
+                push_solid_quad(
+                    out,
+                    SolidQuad {
+                        rect: strikethrough_rect(
+                            x0,
+                            y0,
+                            cell_w * span,
+                            cell_h,
+                            atlas.cell.baseline as f32,
+                        ),
+                        color: fg,
+                    },
+                );
             }
         }
     }
@@ -223,6 +304,9 @@ fn push_cursor(
     if cell.attrs.inverse {
         std::mem::swap(&mut fg, &mut bg);
     }
+    if cell.attrs.dim {
+        fg = dim_color(fg);
+    }
     let block_color = fg;
     let glyph_color = bg;
 
@@ -239,8 +323,9 @@ fn push_cursor(
         0.0,
     );
 
-    if cell.ch != ' '
-        && let Some(uv) = atlas.uv_rect(cell.ch)
+    if !cell.attrs.hidden
+        && cell.ch != ' '
+        && let Some(uv) = atlas.uv_rect_styled(font_style_for_attrs(&cell.attrs), cell.ch)
     {
         push_quad(out, [x0, y0, x1, y1], uv, glyph_color, 1.0);
     }
@@ -250,7 +335,7 @@ fn push_cursor(
 mod tests {
     use super::*;
     use crate::core::{Color, Terminal};
-    use crate::text::load_font;
+    use crate::text::{FontStyle, load_font};
 
     fn atlas() -> Option<GlyphAtlas> {
         let font = load_font().ok()?;
@@ -474,5 +559,135 @@ mod tests {
         let verts = build_vertices(&term.snapshot(), &atlas);
         let glyph = verts[VERTS_PER_QUAD].color;
         assert_eq!(glyph, text::foreground_linear(Color::Indexed(1)));
+    }
+
+    #[test]
+    fn attrs_select_expected_font_style() {
+        assert_eq!(font_style_for_attrs(&Attrs::default()), FontStyle::Regular);
+
+        let bold = Attrs {
+            bold: true,
+            ..Attrs::default()
+        };
+        assert_eq!(font_style_for_attrs(&bold), FontStyle::Bold);
+
+        let italic = Attrs {
+            italic: true,
+            ..Attrs::default()
+        };
+        assert_eq!(font_style_for_attrs(&italic), FontStyle::Italic);
+
+        let bold_italic = Attrs {
+            bold: true,
+            italic: true,
+            ..Attrs::default()
+        };
+        assert_eq!(font_style_for_attrs(&bold_italic), FontStyle::BoldItalic);
+    }
+
+    #[test]
+    fn styled_glyph_uses_styled_uv_rect() {
+        let Ok(font) = load_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let mut atlas = GlyphAtlas::build(&font, 24.0);
+        let expected = atlas
+            .ensure_styled(&font, FontStyle::Bold, 'B')
+            .expect("bold glyph uv");
+
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"\x1b[?25l\x1b[1mB");
+        let verts = build_vertices(&term.snapshot(), &atlas);
+
+        let glyph = verts[VERTS_PER_QUAD];
+        assert_eq!(glyph.is_glyph, 1.0);
+        assert_eq!(glyph.uv, [expected[0], expected[1]]);
+    }
+
+    #[test]
+    fn underline_attribute_appends_thin_solid_quad() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"\x1b[?25l\x1b[4mU");
+        let verts = build_vertices(&term.snapshot(), &atlas);
+
+        assert_eq!(verts.len(), 3 * VERTS_PER_QUAD);
+        let line = verts[2 * VERTS_PER_QUAD];
+        let expected = underline_rect(
+            0.0,
+            0.0,
+            atlas.cell.width as f32,
+            atlas.cell.height as f32,
+            atlas.cell.baseline as f32,
+        );
+        assert_eq!(line.is_glyph, 0.0);
+        assert_eq!(line.pos, [expected[0], expected[1]]);
+        assert_eq!(
+            line.color,
+            text::foreground_linear(Color::Default),
+            "underline uses the effective foreground"
+        );
+    }
+
+    #[test]
+    fn dim_attribute_scales_effective_foreground() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"\x1b[?25l\x1b[2;31mD");
+        let verts = build_vertices(&term.snapshot(), &atlas);
+
+        assert_eq!(
+            verts[VERTS_PER_QUAD].color,
+            dim_color(text::foreground_linear(Color::Indexed(1)))
+        );
+    }
+
+    #[test]
+    fn hidden_attribute_suppresses_glyph_quad() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"\x1b[?25l\x1b[8mH");
+        let verts = build_vertices(&term.snapshot(), &atlas);
+
+        assert_eq!(verts.len(), VERTS_PER_QUAD);
+        assert!(verts.iter().all(|v| v.is_glyph == 0.0));
+    }
+
+    #[test]
+    fn strikethrough_attribute_appends_thin_solid_quad() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"\x1b[?25l\x1b[9mS");
+        let verts = build_vertices(&term.snapshot(), &atlas);
+
+        assert_eq!(verts.len(), 3 * VERTS_PER_QUAD);
+        let line = verts[2 * VERTS_PER_QUAD];
+        let expected = strikethrough_rect(
+            0.0,
+            0.0,
+            atlas.cell.width as f32,
+            atlas.cell.height as f32,
+            atlas.cell.baseline as f32,
+        );
+        assert_eq!(line.is_glyph, 0.0);
+        assert_eq!(line.pos, [expected[0], expected[1]]);
+        assert_eq!(line.color, text::foreground_linear(Color::Default));
     }
 }

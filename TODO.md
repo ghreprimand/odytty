@@ -64,8 +64,9 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         `ODYTTY_FONT` paths fall back to the probe list with one notice rather
         than aborting startup. `ODYTTY_FONT` takes precedence. Dependency-free.
   - [x] Multi-style atlas groundwork: `FontStyle` enum + `(style, char)`-keyed
-        dynamic region with `uv_rect_styled`/`ensure_styled`; live path still
-        renders Regular only. Bold/italic faces discovered, not yet rendered.
+        dynamic region with `uv_rect_styled`/`ensure_styled`; native rendering
+        now consumes the styled path for bold/italic attrs, with regular-face
+        fallback when a style face is absent.
 - [ ] Validate HiDPI scale handling across window sizes and monitor scale
       factors.
 - [ ] Improve glyph atlas management, including cache growth, invalidation, and
@@ -88,8 +89,16 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         `1.4` is the tuned default for light-on-dark text weight.
   - [ ] Future native rendering work: optional subpixel AA and bearing-aware
         glyph geometry for true beyond-cell overflow.
-- [ ] Render text attributes cleanly at multiple sizes: bold, dim, italic,
+- [x] Render text attributes cleanly at multiple sizes: bold, dim, italic,
       underline, strikethrough, inverse, cursor, and selection.
+  - [x] Core attrs expose bold, dim, italic, underline, strikethrough, inverse,
+        hidden, foreground, and background; SGR 22 clears both bold and dim.
+  - [x] Native/grid path selects atlas `FontStyle` from bold/italic attrs,
+        scales dim foregrounds, suppresses hidden glyphs, keeps inverse/cursor/
+        selection behavior in the existing attr path, and draws underline +
+        strikethrough as metric-derived solid quads.
+  - [x] Bold/italic style faces are loaded when discovered; missing style faces
+        fall back to regular without synthetic emboldening.
 - [x] Profile redraw, scrolling, resize, and large-output performance.
   - [x] Headless `cargo bench --bench perf` harness (evidence-only). Hotspots:
         resize/reflow is O(total scrollback) (~46 ms at 50k lines; ~17 ms even

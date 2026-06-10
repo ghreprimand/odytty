@@ -10,8 +10,8 @@ use super::bindings::{
 };
 use super::clipboard::{ClipboardSlot, selected_clipboard_text, write_paste_text};
 use super::gpu::{
-    ViewportUniform, effect_params, ensure_snapshot_glyphs, grow_vertex_buffer_capacity,
-    text_params, theme_clear_color,
+    StyleFonts, ViewportUniform, effect_params, ensure_snapshot_glyphs,
+    grow_vertex_buffer_capacity, text_params, theme_clear_color,
 };
 use super::options::NativeOptions;
 use super::pty::PtyWriter;
@@ -25,7 +25,7 @@ use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, CellPoint};
 use crate::settings::{DEFAULT_FONT_SIZE_PX, DEFAULT_TEXT_GAMMA, Settings};
-use crate::text::{self, CellSize, GlyphAtlas};
+use crate::text::{self, CellSize, FontStyle, GlyphAtlas};
 use crate::theme::{Theme, VisualEffect};
 use std::time::{Duration, Instant};
 use winit::dpi::PhysicalPosition;
@@ -441,6 +441,7 @@ fn default_options_are_linux_first_monospace() {
 #[test]
 fn options_apply_runtime_font_settings() {
     let settings = Settings {
+        font_family: Some("Test Mono".to_owned()),
         font_path: Some(PathBuf::from("/tmp/ody.ttf")),
         font_size_px: 21.0,
         text_gamma: 1.25,
@@ -448,6 +449,7 @@ fn options_apply_runtime_font_settings() {
     };
     let options = NativeOptions::from_settings(&settings);
 
+    assert_eq!(options.font_family, "Test Mono");
     assert_eq!(options.font_path, Some(PathBuf::from("/tmp/ody.ttf")));
     assert_eq!(options.font_size_px, 21.0);
     assert_eq!(options.text_gamma, 1.25);
@@ -588,8 +590,9 @@ fn snapshot_glyph_ensure_populates_dynamic_non_ascii_slots() {
     let fallback = atlas.uv_rect(ch).expect("fallback uv");
     let line = ch.to_string();
     let snapshot = snapshot(&[line.as_str()], 1);
+    let fonts = StyleFonts::regular(font);
 
-    ensure_snapshot_glyphs(&mut atlas, &font, &snapshot);
+    ensure_snapshot_glyphs(&mut atlas, &fonts, &snapshot);
 
     assert!(
         atlas.take_dirty(),
@@ -598,10 +601,54 @@ fn snapshot_glyph_ensure_populates_dynamic_non_ascii_slots() {
     assert_eq!(atlas.uv_rect(ch), Some(expected_uv));
     assert_ne!(atlas.uv_rect(ch), Some(fallback));
 
-    ensure_snapshot_glyphs(&mut atlas, &font, &snapshot);
+    ensure_snapshot_glyphs(&mut atlas, &fonts, &snapshot);
     assert!(
         !atlas.take_dirty(),
         "resident glyph should not dirty atlas again"
+    );
+}
+
+#[test]
+fn snapshot_glyph_ensure_populates_styled_ascii_slots() {
+    let Ok(font) = text::load_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    let fallback = atlas
+        .uv_rect_styled(FontStyle::Bold, 'A')
+        .expect("styled fallback uv");
+    let mut terminal = Terminal::new(1, 1);
+    terminal.advance(b"\x1b[?25l\x1b[1mA");
+    let snapshot = terminal.snapshot();
+    let fonts = StyleFonts::regular(font);
+
+    ensure_snapshot_glyphs(&mut atlas, &fonts, &snapshot);
+
+    assert!(
+        atlas.take_dirty(),
+        "styled ASCII insertion should dirty atlas"
+    );
+    assert_ne!(atlas.uv_rect_styled(FontStyle::Bold, 'A'), Some(fallback));
+}
+
+#[test]
+fn snapshot_glyph_ensure_skips_hidden_cells() {
+    let Ok(font) = text::load_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    let mut terminal = Terminal::new(1, 1);
+    terminal.advance("\x1b[?25l\x1b[8mé".as_bytes());
+    let snapshot = terminal.snapshot();
+    let fonts = StyleFonts::regular(font);
+
+    ensure_snapshot_glyphs(&mut atlas, &fonts, &snapshot);
+
+    assert!(
+        !atlas.take_dirty(),
+        "hidden glyphs should not populate the dynamic atlas"
     );
 }
 

@@ -69,6 +69,10 @@ impl Default for NativeOptions {
 impl NativeOptions {
     pub fn from_settings(settings: &Settings) -> Self {
         Self {
+            font_family: settings
+                .font_family
+                .clone()
+                .unwrap_or_else(|| Self::default().font_family),
             font_path: settings.font_path.clone(),
             font_size_px: settings.font_size_px,
             text_gamma: settings.text_gamma,

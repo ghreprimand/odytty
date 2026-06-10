@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Native text attribute rendering
+
+N7 from the Stage 3 text-quality track. The renderer now consumes the styled
+atlas groundwork and draws common SGR text attributes through the existing quad
+pipeline without new shader work.
+
+### What landed
+
+- **Styled atlas consumption** — native keeps regular/bold/italic/bold-italic
+  font handles, falling back to regular when a style face is absent. The
+  per-frame atlas ensure path uses `ensure_styled`, and grid geometry selects
+  `FontStyle` from the cell's bold/italic attrs before requesting UVs.
+- **Shader-free attributes** — dim scales the effective foreground color,
+  hidden suppresses glyph quads, inverse keeps the existing foreground/background
+  swap, and underline/strikethrough draw thin solid quads derived from atlas
+  baseline/cell metrics.
+- **Core seam exception** — a small standalone pre-commit exposed `dim`,
+  `hidden`, and `strikethrough` in core attrs and wired SGR 2/8/9 plus resets
+  22/28/29. SGR 22 clears both bold and dim.
+
+### Verified
+
+- Added focused headless coverage for style selection, styled UV use, dim color
+  math, hidden glyph suppression, underline/strikethrough geometry, styled atlas
+  insertion, and hidden-cell atlas skipping.
+- Bold without a discovered bold face intentionally renders through the regular
+  font face for now; synthetic emboldening remains deferred.
+
+---
+
 ## 2026-06-10 — Configurable font family + multi-style atlas groundwork
 
 F1 from the Stage 3 text/rendering track, now that the settings path is stable.

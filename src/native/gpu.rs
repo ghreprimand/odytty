@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 
 use crate::core::Snapshot;
 use crate::grid::{self, SolidQuad, Vertex};
-use crate::text::{self, GlyphAtlas};
+use crate::text::{self, FontStyle, GlyphAtlas};
 use crate::theme::{Theme, VisualEffect};
 
 use winit::window::Window;
@@ -116,12 +116,80 @@ fn create_atlas_bind_group(
     })
 }
 
-pub(super) fn ensure_snapshot_glyphs(atlas: &mut GlyphAtlas, font: &FontVec, snapshot: &Snapshot) {
+#[derive(Debug, Clone)]
+pub(super) struct StyleFonts {
+    regular: Arc<FontVec>,
+    bold: Arc<FontVec>,
+    italic: Arc<FontVec>,
+    bold_italic: Arc<FontVec>,
+}
+
+impl StyleFonts {
+    pub(super) fn regular(font: FontVec) -> Self {
+        let font = Arc::new(font);
+        Self {
+            regular: font.clone(),
+            bold: font.clone(),
+            italic: font.clone(),
+            bold_italic: font,
+        }
+    }
+
+    fn load(options: &NativeOptions) -> Result<Self, NativeError> {
+        let regular = text::load_font_with_path(options.font_path.as_deref())
+            .map_err(|err| NativeError::Text(err.to_string()))?;
+        let mut fonts = Self::regular(regular);
+
+        if let Some(matched) =
+            text::resolve_font_family(&options.font_family, &text::font_search_dirs())
+        {
+            if let Some(font) = matched.bold.as_deref().and_then(load_optional_style_font) {
+                fonts.bold = Arc::new(font);
+            }
+            if let Some(font) = matched.italic.as_deref().and_then(load_optional_style_font) {
+                fonts.italic = Arc::new(font);
+            }
+            if let Some(font) = matched
+                .bold_italic
+                .as_deref()
+                .and_then(load_optional_style_font)
+            {
+                fonts.bold_italic = Arc::new(font);
+            }
+        }
+
+        Ok(fonts)
+    }
+
+    pub(super) fn font_for(&self, style: FontStyle) -> &FontVec {
+        match style {
+            FontStyle::Regular => &self.regular,
+            FontStyle::Bold => &self.bold,
+            FontStyle::Italic => &self.italic,
+            FontStyle::BoldItalic => &self.bold_italic,
+        }
+    }
+
+    fn regular_font(&self) -> &FontVec {
+        &self.regular
+    }
+}
+
+fn load_optional_style_font(path: &std::path::Path) -> Option<FontVec> {
+    text::load_font_at(path).ok()
+}
+
+pub(super) fn ensure_snapshot_glyphs(
+    atlas: &mut GlyphAtlas,
+    fonts: &StyleFonts,
+    snapshot: &Snapshot,
+) {
     for cell in &snapshot.cells {
-        if cell.wide_continuation || cell.ch.is_ascii() {
+        if cell.wide_continuation || cell.attrs.hidden {
             continue;
         }
-        let _ = atlas.ensure(font, cell.ch);
+        let style = grid::font_style_for_attrs(&cell.attrs);
+        let _ = atlas.ensure_styled(fonts.font_for(style), style, cell.ch);
     }
 }
 
@@ -163,8 +231,9 @@ pub(super) struct GpuState {
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
     pub(super) atlas: GlyphAtlas,
-    /// Font used to populate the atlas's dynamic non-ASCII region.
-    font: FontVec,
+    /// Fonts used to populate the atlas dynamic region for regular and styled
+    /// glyphs. Missing style faces intentionally fall back to the regular font.
+    fonts: StyleFonts,
     /// Surface clear color from the active theme (linear RGBA).
     clear_color: wgpu::Color,
     /// Ambient-effect uniform params `[strength, period_px]` ([0,_] == off).
@@ -242,10 +311,10 @@ impl GpuState {
         surface.configure(&device, &config);
 
         // --- Glyph atlas: rasterize at physical pixels for crisp HiDPI text.
-        let font = text::load_font_with_path(options.font_path.as_deref())
-            .map_err(|err| NativeError::Text(err.to_string()))?;
-        let mut atlas = GlyphAtlas::build(&font, options.font_size_px * scale.max(1.0));
-        ensure_snapshot_glyphs(&mut atlas, &font, initial_snapshot);
+        let fonts = StyleFonts::load(options)?;
+        let mut atlas =
+            GlyphAtlas::build(fonts.regular_font(), options.font_size_px * scale.max(1.0));
+        ensure_snapshot_glyphs(&mut atlas, &fonts, initial_snapshot);
         let atlas_texture = create_atlas_texture(&device, &queue, &atlas);
         // Nearest + clamp: glyph cells map 1:1 to pixels, so no filtering.
         let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -404,7 +473,7 @@ impl GpuState {
             vertices,
             vertex_count,
             atlas,
-            font,
+            fonts,
             clear_color: theme_clear_color(&theme),
             effect,
             text,
@@ -442,7 +511,7 @@ impl GpuState {
         snapshot: &Snapshot,
         overlays: &[SolidQuad],
     ) {
-        ensure_snapshot_glyphs(&mut self.atlas, &self.font, snapshot);
+        ensure_snapshot_glyphs(&mut self.atlas, &self.fonts, snapshot);
         if self.atlas.take_dirty() {
             self.refresh_atlas_texture();
         }
