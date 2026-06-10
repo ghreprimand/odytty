@@ -1,13 +1,19 @@
-use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 use arboard::Clipboard;
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
+))]
+use arboard::{GetExtLinux, LinuxClipboardKind, SetExtLinux};
 
 use crate::core::{Snapshot, Terminal};
-use crate::input;
 use crate::selection;
 
-use super::pty::PtyWriter;
+use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, spawn_chunked_pty_write};
+
+const BRACKETED_PASTE_START: &[u8] = b"\x1b[200~";
+const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
 
 pub(super) struct ClipboardSlot<T> {
     handle: Option<T>,
@@ -88,6 +94,60 @@ impl NativeClipboard {
             }
         }
     }
+
+    #[cfg(all(
+        unix,
+        not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
+    ))]
+    pub(super) fn read_primary_text(&mut self) -> Option<String> {
+        let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
+            Ok(clipboard) => clipboard,
+            Err(err) => {
+                eprintln!("odytty: primary selection unavailable for paste: {err}");
+                return None;
+            }
+        };
+
+        match clipboard
+            .get()
+            .clipboard(LinuxClipboardKind::Primary)
+            .text()
+        {
+            Ok(text) => Some(text),
+            Err(err) => {
+                eprintln!("odytty: primary selection paste failed: {err}");
+                self.slot.clear();
+                None
+            }
+        }
+    }
+
+    #[cfg(all(
+        unix,
+        not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
+    ))]
+    pub(super) fn write_primary_text(&mut self, text: &str) -> Option<()> {
+        let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
+            Ok(clipboard) => clipboard,
+            Err(err) => {
+                eprintln!("odytty: primary selection unavailable for copy: {err}");
+                return None;
+            }
+        };
+
+        match clipboard
+            .set()
+            .clipboard(LinuxClipboardKind::Primary)
+            .text(text.to_owned())
+        {
+            Ok(()) => Some(()),
+            Err(err) => {
+                eprintln!("odytty: primary selection copy failed: {err}");
+                self.slot.clear();
+                None
+            }
+        }
+    }
 }
 
 pub(super) fn selected_clipboard_text(
@@ -107,11 +167,71 @@ pub(super) fn write_paste_text(
         .lock()
         .map(|terminal| terminal.bracketed_paste_enabled())
         .unwrap_or(false);
-    let bytes = input::encode_paste(text, bracketed_paste);
+    let chunks = encode_paste_chunks(text, bracketed_paste, PASTE_CHUNK_SIZE);
+    spawn_chunked_pty_write(writer.clone(), chunks, "paste")
+}
 
-    if let Ok(mut writer) = writer.lock() {
-        writer.write_all(&bytes)?;
-        writer.flush()?;
+pub(super) fn encode_paste_chunks(
+    text: &str,
+    bracketed_paste: bool,
+    chunk_size: usize,
+) -> Vec<Vec<u8>> {
+    let chunk_size = chunk_size.max(1);
+    if bracketed_paste {
+        let mut chunks = Vec::new();
+        chunks.push(BRACKETED_PASTE_START.to_vec());
+        push_chunked(
+            &mut chunks,
+            &sanitize_bracketed_paste(text.as_bytes()),
+            chunk_size,
+        );
+        chunks.push(BRACKETED_PASTE_END.to_vec());
+        chunks
+    } else {
+        let normalized = normalize_plain_paste(text);
+        let mut chunks = Vec::new();
+        push_chunked(&mut chunks, &normalized, chunk_size);
+        chunks
     }
-    Ok(())
+}
+
+#[cfg(test)]
+pub(super) fn flatten_chunks(chunks: &[Vec<u8>]) -> Vec<u8> {
+    chunks.iter().flatten().copied().collect()
+}
+
+fn push_chunked(chunks: &mut Vec<Vec<u8>>, bytes: &[u8], chunk_size: usize) {
+    chunks.extend(bytes.chunks(chunk_size).map(<[u8]>::to_vec));
+}
+
+fn sanitize_bracketed_paste(text: &[u8]) -> Vec<u8> {
+    let mut output = Vec::with_capacity(text.len());
+    let mut index = 0;
+    while index < text.len() {
+        if text[index..].starts_with(BRACKETED_PASTE_END) {
+            index += BRACKETED_PASTE_END.len();
+        } else {
+            output.push(text[index]);
+            index += 1;
+        }
+    }
+    output
+}
+
+fn normalize_plain_paste(text: &str) -> Vec<u8> {
+    let mut output = Vec::with_capacity(text.len());
+    let mut bytes = text.as_bytes().iter().copied().peekable();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            b'\r' => {
+                if bytes.peek() == Some(&b'\n') {
+                    bytes.next();
+                }
+                output.push(b'\r');
+            }
+            b'\n' => output.push(b'\r'),
+            _ => output.push(byte),
+        }
+    }
+    output
 }

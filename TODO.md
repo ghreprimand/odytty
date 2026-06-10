@@ -138,6 +138,16 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         current viewport for highlight/copy.
 - [ ] Improve clipboard behavior, including large paste behavior, diagnostics,
       and primary selection if appropriate.
+  - [x] Large paste writes use a background PTY writer thread and 16 KiB chunks,
+        with one writer lock held for the whole paste to preserve byte order and
+        avoid event-loop blocking.
+  - [x] Bracketed paste emits one begin/end guard around the full payload and
+        strips embedded `ESC[201~` end markers from clipboard text.
+  - [x] Non-bracketed native paste normalizes LF, CRLF, and CR to terminal
+        carriage returns before writing.
+  - [x] Linux PRIMARY selection support uses `arboard`: local selection writes
+        PRIMARY when available, and middle-click paste reads PRIMARY through the
+        hardened native paste path.
 - [x] Add search in scrollback.
   - [x] Core engine in `src/core/search.rs`: literal case-sensitive/insensitive
         search over scrollback + screen, inclusive absolute-cell match ranges,

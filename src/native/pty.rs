@@ -27,6 +27,35 @@ pub(super) enum UserEvent {
 /// single PTY master.
 pub(super) type PtyWriter = Arc<Mutex<Box<dyn Write + Send>>>;
 
+pub(super) const PASTE_CHUNK_SIZE: usize = 16 * 1024;
+
+pub(super) fn spawn_chunked_pty_write(
+    writer: PtyWriter,
+    chunks: Vec<Vec<u8>>,
+    label: &'static str,
+) -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name(format!("odytty-{label}"))
+        .spawn(move || {
+            if let Err(err) = write_chunks_blocking(&writer, &chunks) {
+                eprintln!("odytty: {label} write failed: {err}");
+            }
+        })
+        .map(|_| ())
+}
+
+pub(super) fn write_chunks_blocking(writer: &PtyWriter, chunks: &[Vec<u8>]) -> std::io::Result<()> {
+    let Ok(mut writer) = writer.lock() else {
+        eprintln!("odytty: pty writer unavailable");
+        return Ok(());
+    };
+
+    for chunk in chunks {
+        writer.write_all(chunk)?;
+    }
+    writer.flush()
+}
+
 pub(super) fn spawn_pty_pump(
     mut reader: Box<dyn Read + Send>,
     writer: PtyWriter,

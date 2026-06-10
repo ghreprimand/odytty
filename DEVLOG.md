@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Native paste hardening
+
+D1 from the Stage 4 daily-driver track. Native paste is safer and more
+predictable for large payloads while preserving the bracketed-paste contract.
+
+### What landed
+
+- **Chunked paste writes** — native paste now encodes to 16 KiB chunks and
+  writes them on a background PTY writer thread. The writer lock is held for the
+  full paste so chunks cannot interleave with other PTY writes, but the window
+  event loop is not blocked by multi-MB clipboard payloads.
+- **Bracketed-paste invariants** — bracketed mode emits exactly one
+  `ESC[200~` opener and one `ESC[201~` closer around the full payload, never
+  per chunk. Embedded end markers inside clipboard text are stripped before
+  writing.
+- **Plain-paste line endings** — non-bracketed native paste normalizes LF,
+  CRLF, and CR to carriage return (`\r`), matching the terminal key path where
+  Enter sends CR.
+- **Primary selection** — on Linux, finishing a local text selection now writes
+  the selected text to PRIMARY when the clipboard backend supports it.
+  Middle-click reads PRIMARY and pastes it through the same hardened native
+  paste path, so bracketed-paste wrapping, sanitization, and chunking still
+  apply. Mouse-reporting remains ahead of local PRIMARY paste; Shift keeps the
+  local terminal behavior available while a TUI owns mouse input.
+
+### Verified
+
+- Added headless tests for chunk math, no data loss across chunks, single
+  bracketed-paste guards, embedded end-marker stripping, line-ending
+  normalization, and chunk writer flush behavior.
+- `write_paste_text()` is the single native paste path for regular clipboard
+  paste and PRIMARY middle-click paste.
+
+---
+
 ## 2026-06-10 — Bearing-aware glyph quad geometry (R3)
 
 R3 from the Stage 3 rendering track, building on the R2 rasterization-quality

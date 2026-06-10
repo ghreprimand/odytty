@@ -547,25 +547,41 @@ impl App {
     /// native-side: the selected text is derived from a snapshot copy and no
     /// terminal state is mutated.
     fn handle_copy_shortcut(&mut self) {
-        let Some(range) = self.selection.range() else {
+        let Some(text) = self.current_selection_text() else {
             return;
         };
-        let text = {
-            let terminal = self.terminal.lock().expect("terminal mutex");
-            let scrollback_len = terminal.screen().scrollback_len();
-            let Some(visible_range) = selection::visible_range_from_absolute(
-                range,
-                self.viewport.offset(),
-                scrollback_len,
-                self.grid,
-            ) else {
-                return;
-            };
-            let snapshot = terminal.snapshot_with_scrollback(self.viewport.offset());
-            selected_clipboard_text(&snapshot, visible_range)
-        };
-        let Some(text) = text else { return };
         let _ = self.clipboard.write_text(text.as_str());
+    }
+
+    fn current_selection_text(&self) -> Option<String> {
+        let Some(range) = self.selection.range() else {
+            return None;
+        };
+        let terminal = self.terminal.lock().expect("terminal mutex");
+        let scrollback_len = terminal.screen().scrollback_len();
+        let visible_range = selection::visible_range_from_absolute(
+            range,
+            self.viewport.offset(),
+            scrollback_len,
+            self.grid,
+        )?;
+        let snapshot = terminal.snapshot_with_scrollback(self.viewport.offset());
+        selected_clipboard_text(&snapshot, visible_range)
+    }
+
+    fn write_primary_selection(&mut self) {
+        let Some(text) = self.current_selection_text() else {
+            return;
+        };
+        let _ = self.clipboard.write_primary_text(text.as_str());
+    }
+
+    fn handle_primary_paste(&mut self) {
+        let Some(text) = self.clipboard.read_primary_text() else {
+            return;
+        };
+        self.return_to_live();
+        let _ = write_paste_text(&self.terminal, &self.writer, &text);
     }
 
     fn update_window_title(&mut self) {
@@ -778,6 +794,7 @@ impl App {
         if !self.selecting {
             return;
         }
+        self.write_primary_selection();
         self.selecting = false;
         self.last_selection_autoscroll = None;
         self.request_selection_redraw();
@@ -1043,6 +1060,10 @@ impl ApplicationHandler<UserEvent> for App {
                     match state {
                         ElementState::Pressed => self.begin_selection(),
                         ElementState::Released => self.finish_selection(),
+                    }
+                } else if button == WinitMouseButton::Middle {
+                    if state == ElementState::Pressed {
+                        self.handle_primary_paste();
                     }
                 }
             }

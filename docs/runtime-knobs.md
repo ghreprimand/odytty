@@ -55,6 +55,32 @@ sent to the PTY. Closing search restores the viewport offset that was active
 before search opened. Resizing the native window closes the search bar because
 reflow changes absolute match rows.
 
+## Native Clipboard And Paste
+
+Clipboard operations are non-fatal: backend failures are reported to stderr and
+the terminal keeps running.
+
+Native paste writes to the PTY on a background writer thread in 16 KiB chunks so
+large clipboard payloads do not block the window event loop. The writer lock is
+held for the whole paste, preserving byte order and preventing other PTY writes
+from interleaving with the payload.
+
+When bracketed paste mode is active, OdyTTY sends one `ESC[200~` opener, then
+the sanitized payload chunks, then one `ESC[201~` closer. Embedded `ESC[201~`
+sequences inside clipboard text are stripped so pasted content cannot close the
+guard early and inject live input.
+
+When bracketed paste mode is inactive, pasted line endings are normalized to
+terminal carriage returns before writing: LF, CRLF, and CR all become `\r`.
+This matches the native key path, where Enter sends carriage return.
+
+On Linux, local text selection writes the selected text to PRIMARY when the
+clipboard backend supports it. Middle-click reads PRIMARY and pastes through the
+same native paste path as `Ctrl+Shift+V`, so bracketed-paste wrapping,
+sanitization, line-ending normalization, and chunked PTY writes all still
+apply. When a TUI has enabled mouse reporting, mouse reports stay ahead of
+local middle-click paste; hold Shift to use local terminal mouse behavior.
+
 ## Examples
 
 Run with larger text:

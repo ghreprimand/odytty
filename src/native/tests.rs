@@ -8,13 +8,15 @@ use super::bindings::{
     is_copy_shortcut, is_paste_shortcut, is_scroll_down_key, is_scroll_up_key, map_named_key,
     map_winit_mouse_button, motion_report_button, wheel_report_button,
 };
-use super::clipboard::{ClipboardSlot, selected_clipboard_text, write_paste_text};
+use super::clipboard::{
+    ClipboardSlot, encode_paste_chunks, flatten_chunks, selected_clipboard_text,
+};
 use super::gpu::{
     StyleFonts, ViewportUniform, effect_params, ensure_snapshot_glyphs,
     grow_vertex_buffer_capacity, text_params, theme_clear_color,
 };
 use super::options::NativeOptions;
-use super::pty::PtyWriter;
+use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 use super::viewport::{Viewport, grid_dimensions_for, scroll_indicator_quad, wheel_lines};
 use crate::core::{
     Attrs, Cell, Dimensions, MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol,
@@ -1088,28 +1090,70 @@ fn recording_writer() -> RecordingWriterParts {
 }
 
 #[test]
-fn write_paste_text_sends_plain_clipboard_text() {
-    let terminal = Arc::new(Mutex::new(Terminal::new(10, 2)));
-    let (writer, bytes, flushes) = recording_writer();
+fn plain_paste_chunks_normalize_line_endings_to_carriage_return() {
+    let chunks = encode_paste_chunks("one\ntwo\r\nthree\rfour", false, PASTE_CHUNK_SIZE);
 
-    write_paste_text(&terminal, &writer, "plain\npaste").expect("paste write");
-
-    assert_eq!(&*bytes.lock().expect("bytes"), b"plain\npaste");
-    assert_eq!(*flushes.lock().expect("flushes"), 1);
+    assert_eq!(&flatten_chunks(&chunks), b"one\rtwo\rthree\rfour");
 }
 
 #[test]
-fn write_paste_text_uses_bracketed_paste_mode() {
-    let terminal = Arc::new(Mutex::new(Terminal::new(10, 2)));
-    terminal.lock().expect("terminal").advance(b"\x1b[?2004h");
-    let (writer, bytes, flushes) = recording_writer();
-
-    write_paste_text(&terminal, &writer, "safe\x1b[201~tail").expect("paste write");
+fn paste_chunks_split_large_plain_payload_without_data_loss() {
+    let chunks = encode_paste_chunks("abcdefghi", false, 3);
 
     assert_eq!(
-        &*bytes.lock().expect("bytes"),
-        b"\x1b[200~safetail\x1b[201~"
+        chunks,
+        vec![b"abc".to_vec(), b"def".to_vec(), b"ghi".to_vec()]
     );
+    assert_eq!(&flatten_chunks(&chunks), b"abcdefghi");
+}
+
+#[test]
+fn bracketed_paste_chunks_wrap_once_around_full_payload() {
+    let chunks = encode_paste_chunks("abcdefghi", true, 3);
+
+    assert_eq!(
+        chunks.first().map(Vec::as_slice),
+        Some(b"\x1b[200~".as_slice())
+    );
+    assert_eq!(
+        chunks.last().map(Vec::as_slice),
+        Some(b"\x1b[201~".as_slice())
+    );
+    assert_eq!(
+        chunks
+            .iter()
+            .filter(|chunk| chunk.as_slice() == b"\x1b[200~")
+            .count(),
+        1
+    );
+    assert_eq!(
+        chunks
+            .iter()
+            .filter(|chunk| chunk.as_slice() == b"\x1b[201~")
+            .count(),
+        1
+    );
+    assert_eq!(&flatten_chunks(&chunks), b"\x1b[200~abcdefghi\x1b[201~");
+}
+
+#[test]
+fn bracketed_paste_chunks_strip_embedded_end_marker_only_from_payload() {
+    let chunks = encode_paste_chunks("safe\x1b[201~tail\r\nkept", true, 4);
+
+    assert_eq!(
+        &flatten_chunks(&chunks),
+        b"\x1b[200~safetail\r\nkept\x1b[201~"
+    );
+}
+
+#[test]
+fn write_chunks_blocking_writes_all_chunks_and_flushes_once() {
+    let (writer, bytes, flushes) = recording_writer();
+    let chunks = vec![b"one".to_vec(), b"two".to_vec(), b"three".to_vec()];
+
+    write_chunks_blocking(&writer, &chunks).expect("chunk write");
+
+    assert_eq!(&*bytes.lock().expect("bytes"), b"onetwothree");
     assert_eq!(*flushes.lock().expect("flushes"), 1);
 }
 
