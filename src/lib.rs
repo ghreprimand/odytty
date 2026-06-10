@@ -1,4 +1,5 @@
 pub mod app;
+pub mod atlas;
 pub mod core;
 pub mod grid;
 pub mod input;

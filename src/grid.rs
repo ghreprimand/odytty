@@ -271,19 +271,47 @@ mod tests {
     }
 
     #[test]
-    fn non_ascii_cell_emits_no_glyph_quad() {
+    fn unsupported_printable_emits_fallback_glyph_quad() {
         let Some(atlas) = atlas() else {
             eprintln!("skipping: no system font available");
             return;
         };
-        // 'é' is printable but outside the atlas's ASCII range: background only.
-        // Cursor hidden so only the cell quad is counted.
+        // 'é' is printable but outside the atlas's pre-rasterized ASCII block:
+        // the renderer now draws the missing-glyph fallback box rather than
+        // leaving the cell blank. Cursor hidden so only cell + glyph are counted.
         let mut term = Terminal::new(1, 1);
         term.advance("\x1b[?25l".as_bytes());
         term.advance("é".as_bytes());
         let verts = build_vertices(&term.snapshot(), &atlas);
-        assert_eq!(verts.len(), VERTS_PER_QUAD);
-        assert!(verts.iter().all(|v| v.is_glyph == 0.0));
+        // One background quad plus one fallback-box glyph quad.
+        assert_eq!(verts.len(), 2 * VERTS_PER_QUAD);
+        let glyph = &verts[VERTS_PER_QUAD];
+        assert_eq!(glyph.is_glyph, 1.0);
+        // The glyph quad uses the shared fallback UV — identical for any other
+        // unsupported printable codepoint.
+        let fallback_uv = atlas.uv_rect('é').expect("fallback uv");
+        assert_eq!(glyph.uv, [fallback_uv[0], fallback_uv[1]]);
+        assert_eq!(atlas.uv_rect('é'), atlas.uv_rect('★'));
+    }
+
+    #[test]
+    fn wide_continuation_spacer_emits_nothing() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        // A wide character occupies a lead cell + a continuation spacer. The
+        // spacer must contribute no quad (no double-draw); the lead emits one
+        // background (spanning two columns) and one fallback-box glyph quad.
+        let mut term = Terminal::new(4, 1);
+        term.advance("\x1b[?25l".as_bytes());
+        term.advance("世".as_bytes());
+        let snapshot = term.snapshot();
+        // Confirm the second column really is a continuation spacer.
+        assert!(snapshot.cells[1].wide_continuation);
+        let verts = build_vertices(&snapshot, &atlas);
+        // lead: bg + fallback glyph; spacer: nothing; two blanks: bg each = 4 quads.
+        assert_eq!(verts.len(), 4 * VERTS_PER_QUAD);
     }
 
     #[test]

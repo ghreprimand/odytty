@@ -1,10 +1,10 @@
-//! CPU-side text rendering support: font loading, a monospace glyph atlas, and
-//! terminal color resolution.
+//! CPU-side text support: font loading and terminal color resolution.
 //!
 //! This module is deliberately GPU-agnostic so it can be unit-tested without a
-//! window or `wgpu` device. The native renderer (`crate::native`) uploads the
-//! atlas bitmap to a texture and uses [`GlyphAtlas::uv_rect`] plus the color
-//! helpers here to build per-cell quads.
+//! window or `wgpu` device. The monospace glyph atlas lives in [`crate::atlas`];
+//! its [`CellSize`]/[`GlyphAtlas`] types are re-exported here so existing
+//! `crate::text::…` call sites keep resolving. The native renderer uses the
+//! color helpers below plus the atlas to build per-cell quads.
 //!
 //! ## Font sourcing
 //!
@@ -14,27 +14,18 @@
 //! fully deterministic rendering is a deliberate later decision (it means
 //! committing a binary + its license to a public repo), so it is intentionally
 //! not done here.
-//!
-//! ## Atlas layout
-//!
-//! Printable ASCII (`0x20..=0x7E`) is rasterized into a single 8-bit coverage
-//! bitmap arranged as a fixed grid of equal cells. Every terminal cell maps 1:1
-//! onto one atlas cell of identical pixel size, so the renderer only needs the
-//! atlas-cell rectangle for a character — no per-glyph offset math downstream.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use ab_glyph::{Font, FontVec, Glyph, PxScale, ScaleFont, point};
+use ab_glyph::FontVec;
 
 use crate::core::Color;
 use crate::settings::FONT_ENV;
 
-/// First and last printable ASCII code points covered by the atlas.
-const FIRST_CHAR: u32 = 0x20;
-const LAST_CHAR: u32 = 0x7E;
-/// Number of atlas cells per row in the bitmap grid.
-const ATLAS_COLS: u32 = 16;
+/// The glyph atlas and its cell metrics live in [`crate::atlas`]; re-exported
+/// here so `crate::text::{CellSize, GlyphAtlas}` call sites keep resolving.
+pub use crate::atlas::{CellSize, GlyphAtlas};
 
 /// Errors from font loading.
 #[derive(Debug, thiserror::Error)]
@@ -101,123 +92,6 @@ pub fn load_font_at(path: &Path) -> Result<FontVec, TextError> {
         path: path.display().to_string(),
         source,
     })
-}
-
-/// Integer pixel metrics for one monospace cell.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CellSize {
-    /// Cell advance width in pixels.
-    pub width: u32,
-    /// Cell height (ascent + descent) in pixels.
-    pub height: u32,
-    /// Baseline offset from the cell top, in pixels.
-    pub baseline: u32,
-}
-
-/// A monospace glyph atlas: one coverage bitmap holding printable ASCII.
-#[derive(Debug, Clone)]
-pub struct GlyphAtlas {
-    /// Atlas bitmap width in pixels.
-    pub width: u32,
-    /// Atlas bitmap height in pixels.
-    pub height: u32,
-    /// Single-channel (R8) coverage data, row-major, length `width * height`.
-    pub data: Vec<u8>,
-    /// Per-cell pixel metrics shared by every glyph.
-    pub cell: CellSize,
-    /// Atlas cells per row.
-    cols: u32,
-}
-
-impl GlyphAtlas {
-    /// Rasterize printable ASCII at `px` pixels into a new atlas.
-    ///
-    /// `px` is the physical pixel size to rasterize at (caller multiplies the
-    /// logical font size by the window scale factor for crisp HiDPI text).
-    pub fn build(font: &FontVec, px: f32) -> Self {
-        let px = px.max(1.0);
-        let scale = PxScale::from(px);
-        let scaled = font.as_scaled(scale);
-
-        // Monospace: every glyph shares the advance of a representative glyph.
-        let advance = scaled.h_advance(font.glyph_id('M'));
-        let ascent = scaled.ascent();
-        let descent = scaled.descent(); // negative (below baseline)
-
-        let cell_w = advance.ceil().max(1.0) as u32;
-        let cell_h = (ascent - descent).ceil().max(1.0) as u32;
-        let baseline = ascent.round().max(0.0) as u32;
-        let cell = CellSize {
-            width: cell_w,
-            height: cell_h,
-            baseline,
-        };
-
-        let count = LAST_CHAR - FIRST_CHAR + 1;
-        let cols = ATLAS_COLS;
-        let rows = count.div_ceil(cols);
-        let width = cols * cell_w;
-        let height = rows * cell_h;
-        let mut data = vec![0u8; (width * height) as usize];
-
-        for code in FIRST_CHAR..=LAST_CHAR {
-            let ch = char::from_u32(code).unwrap_or(' ');
-            let index = code - FIRST_CHAR;
-            let ox = (index % cols) * cell_w;
-            let oy = (index / cols) * cell_h;
-
-            let glyph: Glyph = font
-                .glyph_id(ch)
-                .with_scale_and_position(scale, point(0.0, ascent));
-            let Some(outline) = font.outline_glyph(glyph) else {
-                continue; // e.g. space: no contours
-            };
-            let bounds = outline.px_bounds();
-            outline.draw(|gx, gy, coverage| {
-                let px_x = bounds.min.x + gx as f32;
-                let px_y = bounds.min.y + gy as f32;
-                if px_x < 0.0 || px_y < 0.0 {
-                    return;
-                }
-                let ax = ox + px_x as u32;
-                let ay = oy + px_y as u32;
-                if ax >= ox + cell_w || ay >= oy + cell_h {
-                    return; // clip to the glyph's own cell
-                }
-                let idx = (ay * width + ax) as usize;
-                let value = (coverage * 255.0).round().clamp(0.0, 255.0) as u8;
-                // Keep the strongest coverage if cells ever overlap.
-                if value > data[idx] {
-                    data[idx] = value;
-                }
-            });
-        }
-
-        Self {
-            width,
-            height,
-            data,
-            cell,
-            cols,
-        }
-    }
-
-    /// Normalized UV rectangle `[u0, v0, u1, v1]` for a character's atlas cell,
-    /// or `None` if the character is outside the covered ASCII range.
-    pub fn uv_rect(&self, ch: char) -> Option<[f32; 4]> {
-        let code = ch as u32;
-        if !(FIRST_CHAR..=LAST_CHAR).contains(&code) {
-            return None;
-        }
-        let index = code - FIRST_CHAR;
-        let cx = (index % self.cols) * self.cell.width;
-        let cy = (index / self.cols) * self.cell.height;
-        let u0 = cx as f32 / self.width as f32;
-        let v0 = cy as f32 / self.height as f32;
-        let u1 = (cx + self.cell.width) as f32 / self.width as f32;
-        let v1 = (cy + self.cell.height) as f32 / self.height as f32;
-        Some([u0, v0, u1, v1])
-    }
 }
 
 /// Default foreground (light gray) and background (near-black) in sRGB bytes.
@@ -350,10 +224,6 @@ pub fn background_linear(color: Color) -> [f32; 4] {
 mod tests {
     use super::*;
 
-    fn test_font() -> Option<FontVec> {
-        load_font().ok()
-    }
-
     #[test]
     fn srgb_endpoints_map_to_linear_endpoints() {
         assert_eq!(srgb_to_linear(0), 0.0);
@@ -383,22 +253,5 @@ mod tests {
         assert!((c[0] - 1.0).abs() < 1e-6);
         assert_eq!(c[1], 0.0);
         assert_eq!(c[3], 1.0);
-    }
-
-    #[test]
-    fn atlas_has_positive_metrics_and_glyph_coverage() {
-        let Some(font) = test_font() else {
-            eprintln!("skipping: no system font available");
-            return;
-        };
-        let atlas = GlyphAtlas::build(&font, 28.0);
-        assert!(atlas.cell.width > 0 && atlas.cell.height > 0);
-        assert!(atlas.cell.baseline <= atlas.cell.height);
-        assert_eq!(atlas.data.len(), (atlas.width * atlas.height) as usize);
-        // A glyph with ink (e.g. 'M') must produce non-zero coverage.
-        assert!(atlas.data.iter().any(|&v| v > 0));
-        // UV rects exist for printable ASCII and not for control chars.
-        assert!(atlas.uv_rect('A').is_some());
-        assert!(atlas.uv_rect('\n').is_none());
     }
 }
