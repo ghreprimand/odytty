@@ -213,6 +213,30 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [ ] Follow-up: encode modifiers for named keys such as `Ctrl+Arrow` using a
         documented xterm-compatible form.
 
+## Visual Capability Parity (Stage 6 parity half)
+
+Operator directive: visual capability parity with the strongest GPU terminals is
+a floor; surpassing it is the standing ambition.
+
+- [ ] Wide-glyph raster quality: double-width (CJK/wide) atlas slot sizing.
+  - [x] W1 audit: width-2 glyphs were clipped — a single-cell atlas slot caps
+        ink at `cell.width + overflow_margin` (~`cell.width + cell.height/4`),
+        losing the rightmost ~27% of a full-em width-2 glyph, and the slot is
+        physically too narrow to hold it. R3 bearing-aware quads did not help
+        (the clip is at raster time, in the slot).
+  - [x] W1 fix: width-2 codepoints (`UnicodeWidthChar::width == Some(2)`, the
+        same rule core uses) reserve two consecutive atlas slots in one row
+        (a filler slot avoids a row wrap), rasterize across the full 2-cell
+        drawable region, and report a 2-cell `slot_uv` / bearing-aware bounds.
+        Grid and native paths unchanged; box-drawing seams and bg-then-glyph
+        order preserved. Tests: font-independent clip-width proof (always runs)
+        + CJK-gated full-path + pixel_smoke seam-continuity / no-double-draw /
+        narrow-neighbour checks. Color emoji (RGBA atlas) remains out of scope.
+- [ ] Subpixel anti-aliasing behind a setting (R2 finding C).
+- [ ] Image/graphics protocol decision spike (Kitty graphics + Sixel) — sequenced
+      after the owned parser.
+- [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
+
 ## Archived First Prototype Checklist
 
 ## Core Readiness

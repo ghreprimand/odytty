@@ -7,6 +7,64 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Wide-glyph raster quality: 2-cell atlas slots (W1)
+
+First packet of the Visual Capability Parity plan section. W1 audits and fixes
+how East Asian width-2 glyphs (CJK, kana, fullwidth forms) rasterize into the
+glyph atlas.
+
+### Audit (evidence first)
+
+The atlas is a fixed grid of equal **single-cell** slots. `rasterize_glyph`
+clips every coverage sample to one slot's drawable region — the cell plus one
+`overflow_margin = max(cell.height/4, 2)` on each side. A width-2 glyph is
+designed to fill ~2 cells of advance, so at px=16 (cell 9×16) its ~18px ink is
+clipped at `cell.width + overflow_margin = 13px`, losing the rightmost ~27% —
+and the single slot's 17px drawable region is physically too narrow to hold the
+glyph at all. R3 (bearing-aware quads) widened the *emit* seam but not the atlas
+*slot*, so wide glyphs still clipped.
+
+### What landed
+
+- **Wide-aware atlas slots** — a width-2 codepoint (decided by
+  `UnicodeWidthChar::width(ch) == Some(2)`, byte-identical to core's
+  `screen.rs`/`reflow.rs`/`scrollback.rs` cell-layout rule) now reserves **two
+  consecutive grid slots in one atlas row** and rasterizes across the full
+  2-cell drawable region, so the ink is never cropped at the cell edge.
+- **No row wrap** — if the lead would land in the last atlas column, one filler
+  slot is burned so the pair starts at column 0 of the next row, keeping the
+  inked region horizontally contiguous. A new per-slot `slot_span` (1 or 2)
+  drives `slot_uv`'s 2-cell-wide inner rect; `slot_glyph_bounds` is unchanged in
+  shape (the recorded ink now legitimately spans two cells).
+- **Grid + native unchanged** — `build_vertices` already skips
+  `wide_continuation` spacers, doubles bg/underline/strikethrough width via
+  `span_of`, and sizes the glyph quad from `glyph_quad` bounds (now spanning both
+  cells). bg-then-glyph painter order and box-drawing seam continuity preserved.
+  The native path renders through `build_vertices*`, so the wide ink flows
+  through with zero `gpu.rs`/`app.rs` change.
+
+### Validation
+
+- 387 lib tests (+5 W1: width rule, wide-slot span/contiguity, row-wrap filler,
+  a font-independent rasterize clip-width proof that **always runs**, and a
+  CJK-gated full-path test) + 10 pixel_smoke (+1 skip-on-absent seam-continuity /
+  no-double-draw / narrow-neighbour check). `cargo fmt --check` clean; clippy
+  clean for atlas/grid/pixel_smoke (4 pre-existing lib warnings unchanged).
+  Native smoke exit 0 at default and `ODYTTY_FONT_SIZE=18`.
+- `atlas.rs` 1630 lines (under the 2000 modularity ceiling).
+
+### Gaps / out of scope (findings only)
+
+- **No CJK-capable font is installed on the validation host** (`fc-list :lang=ja`
+  / `:lang=zh` empty), so the CJK-gated tests skip here; the always-running
+  `rasterize_clip_width_relieves_wide_glyph_clipping` unit test proves the clip
+  mechanism font-independently. The fix takes effect the moment a CJK
+  `ODYTTY_FONT_FAMILY` is supplied.
+- **Color emoji** still needs an RGBA atlas (current atlas is R8 coverage);
+  emoji-as-text remain mono fallback/hollow box. Deferred by design.
+
+---
+
 ## 2026-06-10 — TUI mouse/keyboard interaction evidence (T1)
 
 T1 expands the PTY-backed smoke harness from alternate-screen restore checks
