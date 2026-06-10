@@ -18,3 +18,9 @@ unicode-width = "0.2.2"
 vte = "0.15.0"
 wgpu = "29.0.3"
 winit = "0.30.13"
+
+# Headless performance benchmarks (dependency-free custom harness). Run with
+# `cargo bench --bench perf`; excluded from `cargo test`.
+[[bench]]
+name = "perf"
+harness = false
