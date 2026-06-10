@@ -7,6 +7,63 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Configurable font family + multi-style atlas groundwork
+
+F1 from the Stage 3 text/rendering track, now that the settings path is stable.
+Adds a way to choose the terminal font by family name or path, with a fallback
+chain that can never break startup, plus the atlas groundwork a future
+attribute-rendering packet needs.
+
+### What landed
+
+- **`ODYTTY_FONT_FAMILY`** — accepts a font family name resolved by a
+  dependency-free system-font lookup across the standard Linux font directories
+  (and per-user dirs), or a direct `.ttf`/`.otf`/`.ttc` path. The resolved
+  regular face is validated as monospace (advance-width consistency); a
+  proportional or unresolved value falls back to the embedded probe list with
+  one stderr notice. `ODYTTY_FONT` (direct path) takes precedence when both are
+  set.
+- **Resilient font loading** — `load_font_with_path` no longer aborts startup on
+  a bad explicit path: it logs one notice and falls back to probing. A bad font
+  setting can degrade the look but never prevents launch.
+- **Multi-style atlas groundwork** — a `FontStyle` enum (`Regular`/`Bold`/
+  `Italic`/`BoldItalic`) and a `(style, char)`-keyed dynamic region. The live
+  render path (`uv_rect`/`ensure`) still resolves `Regular` only and keeps its
+  exact signatures, so native is untouched; new `uv_rect_styled`/`ensure_styled`
+  entry points exist for a later grid/gpu packet that threads cell attributes.
+  Bold/italic faces are discovered by filename convention but not yet loaded or
+  rendered.
+
+### Design notes
+
+- **No native edits.** Family resolution is funneled through the existing
+  `settings.font_path` the native layer already consumes, so this packet stays
+  entirely in `text.rs`/`atlas.rs`/`settings.rs` and avoids the concurrent
+  native scroll-indicator work. `CellSize`/`uv_rect` contract unchanged.
+- **Dependency-free** rather than pulling `fontconfig`/`fontdb`: a bounded
+  recursive directory scan with normalized name matching is sufficient for
+  groundwork and avoids adding a system dependency to the public repo. A richer
+  fontconfig-backed resolver is noted as a possible future upgrade.
+
+### Verified
+
+- 15 new headless tests (atlas style keying, name normalization/variant
+  classification, monospace validation, family + direct-path resolution with
+  fixture fonts, settings precedence, bad-path fallback). Integrated at HEAD:
+  304 lib + 2 PTY + 10 smoke pass, fmt clean, clippy clean except the
+  pre-existing derive lint. Native autoclose smoke exit 0 at default,
+  `ODYTTY_FONT_SIZE=18`, `ODYTTY_FONT_FAMILY="DejaVu Sans Mono"` (resolves
+  silently), and a nonsense family (falls back with one notice).
+
+### Known gaps
+
+- Bold/italic glyphs are groundwork only — discovered, not rendered, until a
+  future packet wires cell attributes through grid/gpu.
+- Ambiguous matching is filename-based; a fontconfig-backed lookup would handle
+  family aliases and language coverage more robustly.
+
+---
+
 ## 2026-06-10 — Native viewport scroll indicator
 
 Stage 4 daily-driver interaction packet. Scrolling into history now gives a

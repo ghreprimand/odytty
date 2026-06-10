@@ -57,7 +57,15 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 
 - [ ] Treat Ghostty-level visible text quality as the baseline target, not a
       stretch goal.
-- [ ] Add configurable font family after the settings path is stable.
+- [x] Add configurable font family after the settings path is stable.
+  - [x] `ODYTTY_FONT_FAMILY` resolves a monospace face by family name (system
+        font lookup across standard Linux dirs) or a direct `.ttf`/`.otf`/`.ttc`
+        path, validated as monospace; proportional/unresolved values and bad
+        `ODYTTY_FONT` paths fall back to the probe list with one notice rather
+        than aborting startup. `ODYTTY_FONT` takes precedence. Dependency-free.
+  - [x] Multi-style atlas groundwork: `FontStyle` enum + `(style, char)`-keyed
+        dynamic region with `uv_rect_styled`/`ensure_styled`; live path still
+        renders Regular only. Bold/italic faces discovered, not yet rendered.
 - [ ] Validate HiDPI scale handling across window sizes and monitor scale
       factors.
 - [ ] Improve glyph atlas management, including cache growth, invalidation, and
