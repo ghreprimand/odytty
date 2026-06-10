@@ -22,6 +22,7 @@
 
 use bytemuck::{Pod, Zeroable};
 
+use crate::atlas::GlyphBounds;
 use crate::core::{Attrs, Snapshot};
 use crate::text::{self, FontStyle, GlyphAtlas};
 
@@ -166,6 +167,7 @@ pub fn build_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atlas: &G
     let rows = snapshot.dimensions.rows;
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
+    let baseline = atlas.cell.baseline as f32;
 
     let needed = rows * cols * VERTS_PER_QUAD * 2;
     out.clear();
@@ -173,56 +175,77 @@ pub fn build_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atlas: &G
         out.reserve(needed - out.capacity());
     }
 
+    // Effective foreground/background after inverse + dim, and the column span of
+    // a wide lead cell. Computed identically in both passes.
+    let resolve = |cell: &crate::core::Cell| -> ([f32; 4], [f32; 4]) {
+        let mut fg = text::foreground_linear(cell.attrs.foreground);
+        let mut bg = text::background_linear(cell.attrs.background);
+        if cell.attrs.inverse {
+            std::mem::swap(&mut fg, &mut bg);
+        }
+        if cell.attrs.dim {
+            fg = dim_color(fg);
+        }
+        (fg, bg)
+    };
+    let span_of = |row: usize, col: usize| -> f32 {
+        if col + 1 < cols && snapshot.cells[row * cols + col + 1].wide_continuation {
+            2.0
+        } else {
+            1.0
+        }
+    };
+
+    // Pass 1: full-cell background quads only. Emitting every background before
+    // any glyph guarantees a later column's background can never paint over an
+    // earlier glyph's beyond-cell overflow ink.
     for row in 0..rows {
         for col in 0..cols {
             let cell = &snapshot.cells[row * cols + col];
             if cell.wide_continuation {
                 continue;
             }
-
-            let mut fg = text::foreground_linear(cell.attrs.foreground);
-            let mut bg = text::background_linear(cell.attrs.background);
-            if cell.attrs.inverse {
-                std::mem::swap(&mut fg, &mut bg);
-            }
-            if cell.attrs.dim {
-                fg = dim_color(fg);
-            }
-
-            // A wide lead cell (next column is a continuation spacer) covers two
-            // columns so the background has no gap under the glyph.
-            let span = if col + 1 < cols && snapshot.cells[row * cols + col + 1].wide_continuation {
-                2.0
-            } else {
-                1.0
-            };
-
+            let (_, bg) = resolve(cell);
+            let span = span_of(row, col);
             let x0 = col as f32 * cell_w;
             let y0 = row as f32 * cell_h;
-            let x1 = x0 + cell_w * span;
-            let y1 = y0 + cell_h;
+            push_quad(
+                out,
+                [x0, y0, x0 + cell_w * span, y0 + cell_h],
+                [0.0, 0.0, 0.0, 0.0],
+                bg,
+                0.0,
+            );
+        }
+    }
 
-            push_quad(out, [x0, y0, x1, y1], [0.0, 0.0, 0.0, 0.0], bg, 0.0);
+    // Pass 2: glyph quads (sized from bearing-aware atlas bounds, so overflow ink
+    // renders uncropped) plus underline/strikethrough decorations, all drawn over
+    // every background from pass 1.
+    for row in 0..rows {
+        for col in 0..cols {
+            let cell = &snapshot.cells[row * cols + col];
+            if cell.wide_continuation {
+                continue;
+            }
+            let (fg, _) = resolve(cell);
+            let span = span_of(row, col);
+            let x0 = col as f32 * cell_w;
+            let y0 = row as f32 * cell_h;
 
             if !cell.attrs.hidden
                 && cell.ch != ' '
-                && let Some(uv) = atlas.uv_rect_styled(font_style_for_attrs(&cell.attrs), cell.ch)
+                && let Some(bounds) =
+                    atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
             {
-                // Glyph quad covers exactly one atlas cell (1:1 mapping).
-                push_quad(out, [x0, y0, x0 + cell_w, y1], uv, fg, 1.0);
+                push_glyph_quad(out, x0, y0, bounds, fg);
             }
 
             if cell.attrs.underline {
                 push_solid_quad(
                     out,
                     SolidQuad {
-                        rect: underline_rect(
-                            x0,
-                            y0,
-                            cell_w * span,
-                            cell_h,
-                            atlas.cell.baseline as f32,
-                        ),
+                        rect: underline_rect(x0, y0, cell_w * span, cell_h, baseline),
                         color: fg,
                     },
                 );
@@ -232,13 +255,7 @@ pub fn build_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atlas: &G
                 push_solid_quad(
                     out,
                     SolidQuad {
-                        rect: strikethrough_rect(
-                            x0,
-                            y0,
-                            cell_w * span,
-                            cell_h,
-                            atlas.cell.baseline as f32,
-                        ),
+                        rect: strikethrough_rect(x0, y0, cell_w * span, cell_h, baseline),
                         color: fg,
                     },
                 );
@@ -247,6 +264,19 @@ pub fn build_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atlas: &G
     }
 
     push_cursor(out, snapshot, atlas, cell_w, cell_h);
+}
+
+/// Push a glyph quad sized and positioned from bearing-aware atlas bounds.
+///
+/// The cell's on-screen origin is `(x0, y0)`; the quad is offset and sized by the
+/// glyph's inked extent (1 atlas pixel == 1 physical screen pixel), so ink that
+/// overflows the cell box is drawn uncropped while backgrounds stay full-cell.
+fn push_glyph_quad(out: &mut Vec<Vertex>, x0: f32, y0: f32, bounds: GlyphBounds, color: [f32; 4]) {
+    let gx0 = x0 + bounds.offset_x as f32;
+    let gy0 = y0 + bounds.offset_y as f32;
+    let gx1 = gx0 + bounds.width as f32;
+    let gy1 = gy0 + bounds.height as f32;
+    push_quad(out, [gx0, gy0, gx1, gy1], bounds.uv, color, 1.0);
 }
 
 /// Rebuild the full vertex list and append presentation-only solid overlays.
@@ -325,9 +355,9 @@ fn push_cursor(
 
     if !cell.attrs.hidden
         && cell.ch != ' '
-        && let Some(uv) = atlas.uv_rect_styled(font_style_for_attrs(&cell.attrs), cell.ch)
+        && let Some(bounds) = atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
     {
-        push_quad(out, [x0, y0, x1, y1], uv, glyph_color, 1.0);
+        push_glyph_quad(out, x0, y0, bounds, glyph_color);
     }
 }
 
@@ -592,9 +622,12 @@ mod tests {
             return;
         };
         let mut atlas = GlyphAtlas::build(&font, 24.0);
-        let expected = atlas
+        atlas
             .ensure_styled(&font, FontStyle::Bold, 'B')
             .expect("bold glyph uv");
+        let expected = atlas
+            .glyph_quad_styled(FontStyle::Bold, 'B')
+            .expect("bold glyph quad");
 
         let mut term = Terminal::new(1, 1);
         term.advance(b"\x1b[?25l\x1b[1mB");
@@ -602,7 +635,69 @@ mod tests {
 
         let glyph = verts[VERTS_PER_QUAD];
         assert_eq!(glyph.is_glyph, 1.0);
-        assert_eq!(glyph.uv, [expected[0], expected[1]]);
+        assert_eq!(glyph.uv, [expected.uv[0], expected.uv[1]]);
+    }
+
+    /// Backgrounds are emitted in a separate pass before any glyph, so a
+    /// later cell's background can never paint over an earlier cell's overflow
+    /// ink. With cursor hidden, a 2-cell row of inked glyphs yields both
+    /// background quads first, then both glyph quads.
+    #[test]
+    fn backgrounds_are_batched_before_glyphs() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let mut term = Terminal::new(2, 1);
+        term.advance(b"\x1b[?25lHi");
+        let verts = build_vertices(&term.snapshot(), &atlas);
+        // Two backgrounds, then two glyphs.
+        assert_eq!(verts.len(), 4 * VERTS_PER_QUAD);
+        assert_eq!(verts[0].is_glyph, 0.0, "cell 0 background first");
+        assert_eq!(
+            verts[VERTS_PER_QUAD].is_glyph, 0.0,
+            "cell 1 background next"
+        );
+        assert_eq!(
+            verts[2 * VERTS_PER_QUAD].is_glyph,
+            1.0,
+            "glyphs only after all backgrounds"
+        );
+        assert_eq!(verts[3 * VERTS_PER_QUAD].is_glyph, 1.0);
+    }
+
+    /// A glyph quad is positioned and sized from the atlas's bearing-aware
+    /// bounds (offset from the cell origin + ink size), not the fixed cell rect.
+    #[test]
+    fn glyph_quad_uses_bearing_aware_bounds() {
+        let Ok(font) = load_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let atlas = GlyphAtlas::build(&font, 28.0);
+        let cell_w = atlas.cell.width as f32;
+        let cell_h = atlas.cell.height as f32;
+        let bounds = atlas.glyph_quad('g').expect("g bounds");
+
+        // Place 'g' at column 2, row 1 so the cell origin is non-zero.
+        let mut term = Terminal::new(4, 2);
+        term.advance(b"\x1b[?25l\x1b[2;3Hg");
+        let snapshot = term.snapshot();
+        let verts = build_vertices(&snapshot, &atlas);
+
+        // Find the single glyph quad (is_glyph == 1.0); its top-left vertex must
+        // sit at cell_origin + bounds.offset, with the bounds' UV.
+        let glyph_tl = verts
+            .iter()
+            .find(|v| v.is_glyph == 1.0)
+            .expect("one glyph quad");
+        let x0 = 2.0 * cell_w;
+        let y0 = 1.0 * cell_h;
+        assert_eq!(
+            glyph_tl.pos,
+            [x0 + bounds.offset_x as f32, y0 + bounds.offset_y as f32]
+        );
+        assert_eq!(glyph_tl.uv, [bounds.uv[0], bounds.uv[1]]);
     }
 
     #[test]

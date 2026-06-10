@@ -4,25 +4,38 @@
 //!
 //! This module is deliberately GPU-agnostic so it can be unit-tested without a
 //! window or `wgpu` device. The native renderer (`crate::native`) uploads the
-//! atlas bitmap to a texture and uses [`GlyphAtlas::uv_rect`] to build per-cell
-//! quads; font loading and color resolution live in [`crate::text`].
+//! atlas bitmap to a texture and uses [`GlyphAtlas::glyph_quad`] (bearing-aware
+//! geometry) to build per-cell quads; font loading and color resolution live in
+//! [`crate::text`].
 //!
 //! ## Atlas layout
 //!
 //! The bitmap is arranged as a fixed grid of equal slots (`ATLAS_COLS` per row).
-//! Every terminal cell maps 1:1 onto the **inner** `cell.width × cell.height`
-//! region of one slot, so the renderer only needs that rectangle for a
-//! character — no per-glyph offset math downstream.
+//! Every terminal cell maps onto the **inner** `cell.width × cell.height` region
+//! of one slot, and [`GlyphAtlas::uv_rect`] hands out exactly that rectangle.
 //!
-//! Each slot is surrounded by an [`ATLAS_PAD`]-pixel transparent **gutter**, so
-//! a slot occupies `(cell.width + 2·PAD) × (cell.height + 2·PAD)` pixels while
-//! [`GlyphAtlas::uv_rect`] still hands out only the inner rectangle. The gutter
-//! does two jobs: it stops bilinear sampling at non-integer scale factors from
-//! bleeding a neighbor's coverage into a glyph edge, and it absorbs the small
-//! amount of bearing-driven overflow (box-drawing joins that reach the cell
-//! edge, descenders at the bottom) that a hard clip to the cell box would crop.
-//! `cell.width`/`cell.height` are unchanged by the gutter, so per-cell layout
-//! (advance, line height) downstream is identical.
+//! Each slot reserves a border around its cell with two jobs (see
+//! [`slot_border`]): an [`ATLAS_PAD`]-pixel transparent **bleed gutter** on the
+//! outermost ring, and an inner **overflow margin** ([`overflow_margin`]) sized
+//! from the cell. So a slot occupies
+//! `(cell.width + 2·border) × (cell.height + 2·border)` pixels. The bleed gutter
+//! stops sampling at non-integer scale factors from reaching a neighbor's
+//! coverage; the overflow margin is drawable space into which glyph ink that
+//! genuinely extends past the cell box (powerline separators, italic side
+//! bearing, tall combining stacks, box-drawing joins, descenders) is rasterized
+//! instead of being hard-cropped. `cell.width`/`cell.height` are unchanged by
+//! the border, so per-cell layout (advance, line height) downstream is identical.
+//!
+//! ## Bearing-aware glyph geometry
+//!
+//! Rasterization records each slot's **inked pixel extent** relative to the
+//! cell's inner top-left. [`GlyphAtlas::glyph_quad`] returns that extent as a
+//! [`GlyphBounds`] (offset that may be negative, size that may exceed the cell,
+//! plus a UV rect covering exactly the ink), so the renderer can size a glyph
+//! quad to its real ink and draw overflow uncropped. The UV is derived on demand
+//! because the atlas height grows as dynamic glyphs are added (which would stale
+//! a stored normalized rect). The fallback box keeps full-cell bounds, so a
+//! missing glyph renders exactly as before.
 //!
 //! Slot 0 is a synthesized **missing-glyph fallback** (a hollow box). Slots
 //! `1..=95` hold printable ASCII (`0x20..=0x7E`), rasterized at build time.
@@ -123,6 +136,61 @@ pub struct CellSize {
     pub baseline: u32,
 }
 
+/// Bearing-aware quad geometry for one glyph, in atlas pixels.
+///
+/// `offset_x`/`offset_y` are the ink's top-left relative to the cell's top-left
+/// (the on-screen cell origin). They may be **negative** when ink starts left of
+/// or above the cell (left side bearing, tall diacritics); `width`/`height` may
+/// **exceed** the cell when ink overflows right or below (powerline separators,
+/// italic side bearing, descenders). `uv` is the normalized atlas rectangle
+/// `[u0, v0, u1, v1]` covering exactly the inked pixels.
+///
+/// Because 1 atlas pixel maps to 1 physical screen pixel, the renderer positions
+/// a glyph quad at `cell_origin + (offset_x, offset_y)` with size
+/// `(width, height)` and samples `uv`, drawing overflow ink uncropped while the
+/// cell's background quad stays full-cell.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GlyphBounds {
+    /// Horizontal ink offset from the cell's left edge, in pixels (may be < 0).
+    pub offset_x: i32,
+    /// Vertical ink offset from the cell's top edge, in pixels (may be < 0).
+    pub offset_y: i32,
+    /// Ink width in pixels (may exceed `cell.width`).
+    pub width: u32,
+    /// Ink height in pixels (may exceed `cell.height`).
+    pub height: u32,
+    /// Normalized UV rect `[u0, v0, u1, v1]` covering exactly the ink.
+    pub uv: [f32; 4],
+}
+
+/// Inked pixel extent of one glyph slot, relative to that slot's inner cell
+/// top-left. Stored per slot in [`GlyphAtlas::slot_ink`]; the public
+/// [`GlyphBounds`] (which adds a normalized UV) is derived from this on demand so
+/// it stays correct after the atlas grows in height (which changes the V
+/// denominator). `offset_*` may be negative and `width`/`height` may exceed the
+/// cell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct GlyphInk {
+    offset_x: i32,
+    offset_y: i32,
+    width: u32,
+    height: u32,
+}
+
+impl GlyphInk {
+    /// Default extent for a glyph with no recorded ink (or the fallback box):
+    /// exactly the cell, so a quad built from it matches the legacy full-cell
+    /// rectangle.
+    fn cell(cell: CellSize) -> Self {
+        Self {
+            offset_x: 0,
+            offset_y: 0,
+            width: cell.width,
+            height: cell.height,
+        }
+    }
+}
+
 /// A monospace glyph atlas: an 8-bit coverage bitmap with a fallback box, the
 /// printable-ASCII block, and a growable dynamic region for other codepoints.
 #[derive(Debug, Clone)]
@@ -135,6 +203,10 @@ pub struct GlyphAtlas {
     pub data: Vec<u8>,
     /// Per-cell pixel metrics shared by every glyph.
     pub cell: CellSize,
+    /// Per-slot inked pixel extent (index == slot), for bearing-aware quad
+    /// geometry. Invariant: `slot_ink.len() == next_slot`. Grows in lockstep
+    /// with dynamic slot allocation.
+    slot_ink: Vec<GlyphInk>,
     /// Atlas cells per row.
     cols: u32,
     /// Number of cell-rows currently allocated (grows in `ATLAS_GROW_ROWS`
@@ -195,16 +267,22 @@ impl GlyphAtlas {
         let height = capacity_rows * slot_h(cell);
         let mut data = vec![0u8; (width * height) as usize];
 
+        // Per-slot inked extent (index == slot). The fallback box keeps full-cell
+        // bounds so a missing glyph renders exactly as before; ASCII slots record
+        // their real ink as they are rasterized.
+        let mut slot_ink = vec![GlyphInk::cell(cell); base_slots as usize];
+
         // Slot 0: synthesized hollow-box fallback, drawn the same for any font.
+        let border = slot_border(cell);
         let (fox, foy) = slot_offset(FALLBACK_SLOT, cols, cell);
-        draw_fallback_box(&mut data, width, fox + ATLAS_PAD, foy + ATLAS_PAD, cell);
+        draw_fallback_box(&mut data, width, fox + border, foy + border, cell);
 
         // Slots 1..=95: printable ASCII at the build pixel size.
         for code in FIRST_CHAR..=LAST_CHAR {
             let ch = char::from_u32(code).unwrap_or(' ');
             let slot = code - FIRST_CHAR + 1;
             let origin = slot_offset(slot, cols, cell);
-            rasterize_glyph(
+            if let Some(ink) = rasterize_glyph(
                 font,
                 Pen { px, baseline },
                 ch,
@@ -212,7 +290,9 @@ impl GlyphAtlas {
                 width,
                 origin,
                 cell,
-            );
+            ) {
+                slot_ink[slot as usize] = ink;
+            }
         }
 
         Self {
@@ -220,6 +300,7 @@ impl GlyphAtlas {
             height,
             data,
             cell,
+            slot_ink,
             cols,
             capacity_rows,
             next_slot: base_slots,
@@ -270,14 +351,69 @@ impl GlyphAtlas {
     /// it from neighbor bleed.
     fn slot_uv(&self, slot: u32) -> [f32; 4] {
         let (ox, oy) = slot_offset(slot, self.cols, self.cell);
-        let ix = ox + ATLAS_PAD;
-        let iy = oy + ATLAS_PAD;
+        let border = slot_border(self.cell);
+        let ix = ox + border;
+        let iy = oy + border;
         [
             ix as f32 / self.width as f32,
             iy as f32 / self.height as f32,
             (ix + self.cell.width) as f32 / self.width as f32,
             (iy + self.cell.height) as f32 / self.height as f32,
         ]
+    }
+
+    /// Bearing-aware quad geometry for a printable codepoint (Regular style).
+    ///
+    /// The geometry counterpart to [`Self::uv_rect`]: where `uv_rect` returns the
+    /// fixed inner-cell rectangle, this returns the glyph's real inked extent
+    /// (offset + size relative to the cell, plus the matching UV), so the
+    /// renderer can draw ink that overflows the cell box uncropped. Resolution
+    /// matches `uv_rect`: ASCII and resident codepoints resolve to their slot,
+    /// other printables to the fallback box (full-cell bounds), spaces/controls
+    /// to `None`.
+    pub fn glyph_quad(&self, ch: char) -> Option<GlyphBounds> {
+        self.glyph_quad_styled(FontStyle::Regular, ch)
+    }
+
+    /// Style-aware bearing-aware quad geometry. The geometry counterpart to
+    /// [`Self::uv_rect_styled`]; see [`Self::glyph_quad`].
+    pub fn glyph_quad_styled(&self, style: FontStyle, ch: char) -> Option<GlyphBounds> {
+        let code = ch as u32;
+        if style == FontStyle::Regular && (FIRST_CHAR..=LAST_CHAR).contains(&code) {
+            return Some(self.slot_glyph_bounds(code - FIRST_CHAR + 1));
+        }
+        if let Some(&slot) = self.dynamic.get(&(style, ch)) {
+            return Some(self.slot_glyph_bounds(slot));
+        }
+        if wants_glyph(ch) {
+            return Some(self.slot_glyph_bounds(FALLBACK_SLOT));
+        }
+        None
+    }
+
+    /// Build the public [`GlyphBounds`] for a slot from its stored ink extent,
+    /// normalizing the UV against the current atlas dimensions (the V denominator
+    /// changes as the atlas grows, so this is computed on demand, never cached).
+    fn slot_glyph_bounds(&self, slot: u32) -> GlyphBounds {
+        let ink = self.slot_ink[slot as usize];
+        let (ox, oy) = slot_offset(slot, self.cols, self.cell);
+        let border = slot_border(self.cell) as i32;
+        let cell_x = ox as i32 + border;
+        let cell_y = oy as i32 + border;
+        let ix = cell_x + ink.offset_x;
+        let iy = cell_y + ink.offset_y;
+        GlyphBounds {
+            offset_x: ink.offset_x,
+            offset_y: ink.offset_y,
+            width: ink.width,
+            height: ink.height,
+            uv: [
+                ix as f32 / self.width as f32,
+                iy as f32 / self.height as f32,
+                (ix + ink.width as i32) as f32 / self.width as f32,
+                (iy + ink.height as i32) as f32 / self.height as f32,
+            ],
+        }
     }
 
     /// Resolve `ch` to a UV rect, rasterizing a real glyph into the dynamic
@@ -330,7 +466,7 @@ impl GlyphAtlas {
             return Some(self.slot_uv(FALLBACK_SLOT));
         };
         let origin = slot_offset(slot, self.cols, self.cell);
-        rasterize_glyph(
+        let ink = rasterize_glyph(
             font,
             Pen {
                 px: self.px,
@@ -341,7 +477,12 @@ impl GlyphAtlas {
             self.width,
             origin,
             self.cell,
-        );
+        )
+        .unwrap_or_else(|| GlyphInk::cell(self.cell));
+        // Invariant: slot_ink is dense and slot == its index (slots allocate in
+        // order and never move).
+        debug_assert_eq!(self.slot_ink.len() as u32, slot);
+        self.slot_ink.push(ink);
         self.dynamic.insert((style, ch), slot);
         self.revision += 1;
         self.dirty = true;
@@ -389,37 +530,56 @@ impl GlyphAtlas {
     }
 }
 
-/// Full slot width in pixels: the glyph cell plus its gutter on both sides.
-fn slot_w(cell: CellSize) -> u32 {
-    cell.width + 2 * ATLAS_PAD
+/// Drawable overflow margin in pixels around the cell, **inside** the bleed
+/// gutter. This is the room a glyph's ink may extend past the cell box (powerline
+/// separators that fill the advance, italic side bearing, tall accents,
+/// descenders) before the rasterizer clips it. Sized from the cell so it scales
+/// with the font size; a small floor keeps tiny cells usable.
+fn overflow_margin(cell: CellSize) -> u32 {
+    (cell.height / 4).max(2)
 }
 
-/// Full slot height in pixels: the glyph cell plus its gutter on both sides.
+/// Total border each side of a slot's cell: the transparent bleed gutter
+/// ([`ATLAS_PAD`]) plus the drawable [`overflow_margin`]. The cell's inner
+/// top-left within a slot is `(ox + slot_border, oy + slot_border)`.
+fn slot_border(cell: CellSize) -> u32 {
+    ATLAS_PAD + overflow_margin(cell)
+}
+
+/// Full slot width in pixels: the glyph cell plus its border on both sides.
+fn slot_w(cell: CellSize) -> u32 {
+    cell.width + 2 * slot_border(cell)
+}
+
+/// Full slot height in pixels: the glyph cell plus its border on both sides.
 fn slot_h(cell: CellSize) -> u32 {
-    cell.height + 2 * ATLAS_PAD
+    cell.height + 2 * slot_border(cell)
 }
 
 /// Pixel offset `(ox, oy)` of an atlas slot's **outer** top-left within the
-/// bitmap (the gutter corner). The glyph's inner origin is `(ox + ATLAS_PAD,
-/// oy + ATLAS_PAD)`.
+/// bitmap (the border corner). The cell's inner origin is
+/// `(ox + slot_border, oy + slot_border)`.
 fn slot_offset(slot: u32, cols: u32, cell: CellSize) -> (u32, u32) {
     ((slot % cols) * slot_w(cell), (slot / cols) * slot_h(cell))
 }
 
 /// Rasterize one glyph's coverage into the slot whose **outer** top-left is
-/// `origin`, positioning it on the shared integer `baseline`.
+/// `origin`, positioning it on the shared integer `baseline`, and return its
+/// inked pixel extent relative to the cell's inner top-left.
 ///
-/// Returns `true` if the font produced an outline for `ch` (even if it inked no
-/// pixels, e.g. a space), `false` if the font has no outline for it.
+/// Returns `None` if the font has no outline for `ch`, or an outline that inks
+/// no pixels (e.g. a space). The returned [`GlyphInk`] offsets may be negative
+/// (ink left of / above the cell) and its size may exceed the cell (ink right of
+/// / below it), which is what lets the renderer draw overflow uncropped.
 ///
-/// The glyph's pen is placed at the slot's inner origin `(ox + PAD, oy + PAD)`
-/// and on `baseline`, then each coverage sample is placed at the **nearest**
-/// atlas pixel (rounding, not truncation, for stable sub-pixel placement).
-/// Coverage may land anywhere inside the slot **including its gutter**, so a
-/// box-drawing stroke or descender that reaches the cell edge is preserved (and
-/// picked up by bilinear sampling at the inner edge) rather than hard-cropped;
-/// the clip to the slot bounds still keeps a glyph strictly out of its
-/// neighbors. The strongest value wins on any overlap.
+/// The glyph's pen is placed at the cell's inner origin `(ox + slot_border,
+/// oy + slot_border)` and on `baseline`, then each coverage sample is placed at
+/// the **nearest** atlas pixel (rounding, not truncation, for stable sub-pixel
+/// placement). Coverage may land anywhere in the drawable region — the cell plus
+/// its overflow margin — so ink genuinely past the cell box (powerline glyphs,
+/// box-drawing joins, descenders, italic side bearing) is preserved; only the
+/// outermost [`ATLAS_PAD`] bleed ring is kept transparent, and the clip keeps a
+/// glyph strictly out of its neighbors. The strongest value wins on any overlap.
 fn rasterize_glyph(
     font: &FontVec,
     pen: Pen,
@@ -428,39 +588,57 @@ fn rasterize_glyph(
     width: u32,
     origin: (u32, u32),
     cell: CellSize,
-) -> bool {
+) -> Option<GlyphInk> {
     let (ox, oy) = origin;
     let scale = PxScale::from(pen.px);
     let glyph: Glyph = font
         .glyph_id(ch)
         .with_scale_and_position(scale, point(0.0, pen.baseline));
-    let Some(outline) = font.outline_glyph(glyph) else {
-        return false;
-    };
+    let outline = font.outline_glyph(glyph)?;
     let bounds = outline.px_bounds();
-    // Inner glyph origin, and the inclusive slot bounds (inner cell + gutter)
-    // that coverage may occupy.
-    let inner_x = (ox + ATLAS_PAD) as i32;
-    let inner_y = (oy + ATLAS_PAD) as i32;
-    let x_lo = ox as i32;
-    let x_hi = (ox + slot_w(cell)) as i32;
-    let y_lo = oy as i32;
-    let y_hi = (oy + slot_h(cell)) as i32;
+    // Cell inner origin, and the drawable region (cell + overflow margin) that
+    // coverage may occupy, leaving the outer ATLAS_PAD bleed ring transparent.
+    let border = slot_border(cell) as i32;
+    let inner_x = ox as i32 + border;
+    let inner_y = oy as i32 + border;
+    let x_lo = ox as i32 + ATLAS_PAD as i32;
+    let x_hi = (ox + slot_w(cell)) as i32 - ATLAS_PAD as i32;
+    let y_lo = oy as i32 + ATLAS_PAD as i32;
+    let y_hi = (oy + slot_h(cell)) as i32 - ATLAS_PAD as i32;
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
     outline.draw(|gx, gy, coverage| {
+        let value = (coverage * 255.0).round().clamp(0.0, 255.0) as u8;
+        if value == 0 {
+            return; // uninked sample contributes no ink and no bounds
+        }
         // Round to the nearest atlas pixel (truncation drifts edges and can
         // drop a glyph's final row/column).
         let ax = inner_x + (bounds.min.x + gx as f32).round() as i32;
         let ay = inner_y + (bounds.min.y + gy as f32).round() as i32;
         if ax < x_lo || ax >= x_hi || ay < y_lo || ay >= y_hi {
-            return; // clip to this glyph's own slot (cell + its gutter)
+            return; // clip to this glyph's drawable region (cell + margin)
         }
         let idx = (ay as u32 * width + ax as u32) as usize;
-        let value = (coverage * 255.0).round().clamp(0.0, 255.0) as u8;
         if value > data[idx] {
             data[idx] = value;
         }
+        min_x = min_x.min(ax);
+        min_y = min_y.min(ay);
+        max_x = max_x.max(ax);
+        max_y = max_y.max(ay);
     });
-    true
+    if max_x < min_x {
+        return None; // outline produced no inked pixels in the drawable region
+    }
+    Some(GlyphInk {
+        offset_x: min_x - inner_x,
+        offset_y: min_y - inner_y,
+        width: (max_x - min_x + 1) as u32,
+        height: (max_y - min_y + 1) as u32,
+    })
 }
 
 /// Draw the synthesized missing-glyph fallback — a hollow rectangle inset from
@@ -719,9 +897,10 @@ mod tests {
         );
     }
 
-    /// The atlas bitmap reserves an `ATLAS_PAD` gutter around every slot, so the
-    /// bitmap is wider/taller than a gutterless pack and adjacent inner cells
-    /// are separated by `2·PAD` pixels — the guard against UV bleed.
+    /// The atlas bitmap reserves a border (bleed gutter + overflow margin) around
+    /// every slot, so the bitmap is wider/taller than a borderless pack and
+    /// adjacent inner cells are separated by `2·slot_border` pixels — the guard
+    /// against bleed plus the room for overflow ink.
     #[test]
     fn slots_carry_a_padding_gutter() {
         let Some(font) = test_font() else {
@@ -729,18 +908,21 @@ mod tests {
             return;
         };
         let atlas = GlyphAtlas::build(&font, 24.0);
-        // Bitmap dimensions account for the gutter on every slot (ATLAS_PAD >= 1
-        // is enforced at compile time).
-        assert_eq!(atlas.width, atlas.cols * (atlas.cell.width + 2 * ATLAS_PAD));
+        let border = slot_border(atlas.cell);
+        // The border is at least the bleed gutter and adds the overflow margin.
+        assert!(border >= ATLAS_PAD);
+        assert_eq!(border, ATLAS_PAD + overflow_margin(atlas.cell));
+        // Bitmap dimensions account for the full border on every slot.
+        assert_eq!(atlas.width, atlas.cols * (atlas.cell.width + 2 * border));
 
-        // Two horizontally-adjacent inner rects (slots 1 and 2) are separated by
-        // a full 2·PAD-pixel gutter, so bilinear sampling of one cannot reach the
-        // other's ink.
+        // Two horizontally-adjacent inner cells (slots 1 and 2) are separated by
+        // a full 2·border-pixel gap, so sampling one cannot reach the other's ink
+        // and each has room to overflow into its own margin.
         let a = atlas.slot_uv(1);
         let b = atlas.slot_uv(2);
         let a_right = (a[2] * atlas.width as f32).round() as i32;
         let b_left = (b[0] * atlas.width as f32).round() as i32;
-        assert_eq!(b_left - a_right, (2 * ATLAS_PAD) as i32);
+        assert_eq!(b_left - a_right, (2 * border) as i32);
     }
 
     /// Box-drawing strokes must reach the cell edges so adjacent cells join
@@ -937,5 +1119,184 @@ mod tests {
         assert_ne!(bold_a, fallback);
         assert_ne!(Some(bold_a), atlas.uv_rect('A'));
         assert_eq!(atlas.uv_rect_styled(FontStyle::Bold, 'A'), Some(bold_a));
+    }
+
+    /// Scan a slot's full drawable region for the tight bounding box of inked
+    /// pixels, returning `(min_x, min_y, max_x, max_y)` in absolute atlas pixels.
+    fn scan_slot_ink(atlas: &GlyphAtlas, slot: u32) -> Option<(i32, i32, i32, i32)> {
+        let (ox, oy) = slot_offset(slot, atlas.cols, atlas.cell);
+        let (sw, sh) = (slot_w(atlas.cell), slot_h(atlas.cell));
+        let (mut minx, mut miny, mut maxx, mut maxy) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+        for y in oy..oy + sh {
+            for x in ox..ox + sw {
+                if atlas.data[(y * atlas.width + x) as usize] > 0 {
+                    minx = minx.min(x as i32);
+                    miny = miny.min(y as i32);
+                    maxx = maxx.max(x as i32);
+                    maxy = maxy.max(y as i32);
+                }
+            }
+        }
+        (maxx >= minx).then_some((minx, miny, maxx, maxy))
+    }
+
+    /// The bearing-aware quad for a missing/unsupported glyph is the fallback
+    /// box, and its bounds are the full cell with a UV identical to `uv_rect` —
+    /// so missing glyphs render exactly as before (no regression).
+    #[test]
+    fn glyph_quad_fallback_is_full_cell_and_matches_uv_rect() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let atlas = GlyphAtlas::build(&font, 24.0);
+        let q = atlas.glyph_quad('é').expect("fallback quad");
+        assert_eq!((q.offset_x, q.offset_y), (0, 0));
+        assert_eq!((q.width, q.height), (atlas.cell.width, atlas.cell.height));
+        assert_eq!(q.uv, atlas.uv_rect('é').expect("fallback uv"));
+        // Control characters resolve to nothing through either entry point;
+        // space resolves to its (blank) ASCII slot exactly like `uv_rect`, and
+        // the grid skips it via the `ch != ' '` guard rather than a `None`.
+        assert!(atlas.glyph_quad('\n').is_none());
+        assert_eq!(atlas.uv_rect('\n'), None);
+        assert!(atlas.glyph_quad(' ').is_some());
+        assert!(atlas.uv_rect(' ').is_some());
+    }
+
+    /// A glyph's quad bounds are tight to its actual inked pixels: the UV rect
+    /// reconstructs the exact ink bounding box scanned from the bitmap, and the
+    /// reported offset/size match it relative to the cell origin.
+    #[test]
+    fn glyph_quad_bounds_track_actual_ink() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let atlas = GlyphAtlas::build(&font, 28.0);
+        let slot = 'g' as u32 - FIRST_CHAR + 1;
+        let (minx, miny, maxx, maxy) = scan_slot_ink(&atlas, slot).expect("'g' has ink");
+        let q = atlas.glyph_quad('g').expect("g quad");
+
+        // UV reconstructs the exact ink bounding box (inclusive max -> +1).
+        let ix = (q.uv[0] * atlas.width as f32).round() as i32;
+        let iy = (q.uv[1] * atlas.height as f32).round() as i32;
+        let ex = (q.uv[2] * atlas.width as f32).round() as i32;
+        let ey = (q.uv[3] * atlas.height as f32).round() as i32;
+        assert_eq!((ix, iy), (minx, miny), "uv top-left == ink top-left");
+        assert_eq!((ex, ey), (maxx + 1, maxy + 1), "uv extent == ink extent");
+        assert_eq!(q.width, (maxx - minx + 1) as u32);
+        assert_eq!(q.height, (maxy - miny + 1) as u32);
+
+        // Offset is the ink top-left relative to the cell's inner origin.
+        let (ox, oy) = slot_offset(slot, atlas.cols, atlas.cell);
+        let border = slot_border(atlas.cell) as i32;
+        assert_eq!(q.offset_x, minx - (ox as i32 + border));
+        assert_eq!(q.offset_y, miny - (oy as i32 + border));
+    }
+
+    /// Box-drawing strokes must join seamlessly across cells: the horizontal line
+    /// U+2500's quad spans the full cell width (its ink reaches both edges), so
+    /// adjacent cells' strokes meet flush rather than leaving a gutter.
+    #[test]
+    fn box_drawing_quad_spans_full_cell_width() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        if !font_has_glyph(&font, '\u{2500}') {
+            eprintln!("skipping: font lacks box-drawing glyph");
+            return;
+        }
+        let mut atlas = GlyphAtlas::build(&font, 28.0);
+        atlas.ensure(&font, '\u{2500}').expect("U+2500 uv");
+        let q = atlas.glyph_quad('\u{2500}').expect("U+2500 quad");
+        let cw = atlas.cell.width as i32;
+        // Ink starts at (or just past) the left edge and reaches the right edge:
+        // the quad spans the cell horizontally so neighbors join flush.
+        assert!(
+            q.offset_x <= 1,
+            "horizontal rule should start at the left edge"
+        );
+        assert!(
+            q.offset_x + q.width as i32 >= cw - 1,
+            "horizontal rule should reach the right edge"
+        );
+    }
+
+    /// At least one real glyph inks beyond the cell box, and its quad reports
+    /// that overflow (negative offset or size exceeding the cell) instead of
+    /// clipping to the cell — the core R3 capability. Best-effort across a broad
+    /// codepoint range; skipped only if the loaded font never overflows a cell.
+    #[test]
+    fn some_glyph_quad_overflows_the_cell() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let mut atlas = GlyphAtlas::build(&font, 28.0);
+        let cw = atlas.cell.width as i32;
+        let ch_h = atlas.cell.height as i32;
+        let exceeds = |q: &GlyphBounds| {
+            q.offset_x < 0
+                || q.offset_y < 0
+                || q.offset_x + q.width as i32 > cw
+                || q.offset_y + q.height as i32 > ch_h
+        };
+
+        // Printable ASCII first (already resident), then a sweep of common
+        // glyph-bearing codepoints (rasterized on demand) likely to overflow.
+        let ascii = (FIRST_CHAR..=LAST_CHAR).filter_map(char::from_u32);
+        let extras = (0x00A1u32..=0x2600).filter_map(char::from_u32);
+        let mut found = None;
+        for ch in ascii {
+            if let Some(q) = atlas.glyph_quad(ch)
+                && exceeds(&q)
+            {
+                found = Some((ch, q));
+                break;
+            }
+        }
+        if found.is_none() {
+            for ch in extras {
+                if !font_has_glyph(&font, ch) {
+                    continue;
+                }
+                atlas.ensure(&font, ch);
+                if let Some(q) = atlas.glyph_quad(ch)
+                    && exceeds(&q)
+                {
+                    found = Some((ch, q));
+                    break;
+                }
+            }
+        }
+
+        match found {
+            Some((ch, q)) => assert!(
+                exceeds(&q),
+                "glyph {ch:?} quad {q:?} should exceed the {cw}x{ch_h} cell"
+            ),
+            None => eprintln!("skipping: loaded font has no cell-overflowing glyph"),
+        }
+    }
+
+    /// `glyph_quad` resolution mirrors `uv_rect`: a resident styled glyph yields
+    /// its own slot's bounds, distinct from the regular glyph.
+    #[test]
+    fn styled_glyph_quad_resolves_styled_slot() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let mut atlas = GlyphAtlas::build(&font, 24.0);
+        atlas
+            .ensure_styled(&font, FontStyle::Bold, 'A')
+            .expect("bold A");
+        let regular = atlas.glyph_quad('A').expect("regular A quad");
+        let bold = atlas
+            .glyph_quad_styled(FontStyle::Bold, 'A')
+            .expect("bold A quad");
+        // Distinct slots => distinct UV rects.
+        assert_ne!(regular.uv, bold.uv);
     }
 }
