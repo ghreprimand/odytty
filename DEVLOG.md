@@ -32,6 +32,7 @@ loaded font can rasterize the codepoint.
   non-ASCII slot once and does not dirty the atlas again for resident glyphs.
 - `cargo test --lib` passes in the shared tree (`257` passed, `1` ignored;
   includes OPUS's in-flight core search tests).
+- `cargo fmt --check` passes for the whole repository.
 - Native autoclose smoke exits 0 at the default font size and with
   `ODYTTY_FONT_SIZE=18`.
 - A live native PTY smoke using a temporary shell that prints `é ─ Ω 世` exits 0,
@@ -41,9 +42,6 @@ loaded font can rasterize the codepoint.
 
 - Complex shaping remains out of scope: combining-mark composition, ligatures,
   stylistic sets, emoji policy, and font fallback are later text-quality work.
-- Whole-repo formatting is temporarily blocked by OPUS-owned in-flight
-  `src/core/search.rs` formatting; N3 native files were formatted separately and
-  the Director was notified.
 
 ---
 
