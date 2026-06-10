@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — PTY-backed alternate-screen smoke coverage
+
+Stage 2 evidence coverage now includes real editor/pager binaries running
+through a PTY and rendering into the owned terminal model. The tests focus on
+alternate-screen enter/exit behavior and primary-screen restoration without
+editing terminal-core semantics.
+
+### What landed
+
+- **`tests/pty_alt_screen_smoke.rs`** — new default-running integration smoke
+  harness for real PTY programs. It seeds the primary screen, spawns a bounded
+  PTY command, feeds output into `Terminal`, and writes
+  `Terminal::take_host_output()` replies back to the PTY so full-screen apps can
+  answer terminal queries.
+- **`less` smoke** — opens a generated fixed file, verifies alternate-screen
+  content hides the seeded primary screen, scrolls down/up, quits, and asserts
+  the primary marker returns with no pager content leaking.
+- **`vim` smoke** — launches `vim` with `-u NONE -U NONE -i NONE -n
+  --noplugin`, opens a generated fixed file, enters insert mode, types through
+  the PTY, quits without saving, asserts the primary marker returns, and checks
+  the file stayed unchanged.
+- **Hermetic behavior** — tests return early with a notice when `less` or `vim`
+  is absent, pin `TERM`/`LANG`/`LC_ALL`, use generated temp files, and poll for
+  expected screen state with deadlines instead of sleeping.
+
+### Remaining
+
+- `man` is not included yet; host manpage availability and pager configuration
+  add more nondeterminism than this default smoke packet should carry.
+
+### Verified
+
+- Targeted smoke: `cargo test --test pty_alt_screen_smoke` passes in about a
+  tenth of a second on the current host with both `less` and `vim` present.
+
+---
+
 ## 2026-06-10 — Combining marks attach to the preceding cell
 
 Stage 2 Unicode hardening, second half. Zero-width combining marks now attach to

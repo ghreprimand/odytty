@@ -36,6 +36,8 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         protocol, with Shift reserved for local selection/scrollback.
 - [ ] Harden alternate-screen behavior with editors, pagers, and full-screen
       apps.
+  - [x] PTY smoke: real `less` and `vim` enter alternate screen, accept basic
+        interaction, quit, and restore the seeded primary screen.
 - [ ] Improve Unicode, wide-character, combining-mark, and ambiguous-width
       handling.
   - [x] Core: wide-cell write/erase coherence — overwrite-half clears the pair,
@@ -44,7 +46,7 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] Core: zero-width combining marks attach to the preceding cell's grapheme
         (inline per-cell buffer, cap 2); safe no-op at line start. Renderer
         composition of marks is a later packet.
-- [ ] Grow PTY-backed smoke coverage without making default tests flaky or slow.
+- [x] Grow PTY-backed smoke coverage without making default tests flaky or slow.
 
 ## Stage 3: High-Quality Text And Rendering
 
