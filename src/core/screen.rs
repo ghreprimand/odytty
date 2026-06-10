@@ -904,13 +904,21 @@ impl Screen {
             match codes[index] {
                 0 => self.current_attrs = Attrs::default(),
                 1 => self.current_attrs.bold = true,
+                2 => self.current_attrs.dim = true,
                 3 => self.current_attrs.italic = true,
                 4 => self.current_attrs.underline = true,
                 7 => self.current_attrs.inverse = true,
-                22 => self.current_attrs.bold = false,
+                8 => self.current_attrs.hidden = true,
+                9 => self.current_attrs.strikethrough = true,
+                22 => {
+                    self.current_attrs.bold = false;
+                    self.current_attrs.dim = false;
+                }
                 23 => self.current_attrs.italic = false,
                 24 => self.current_attrs.underline = false,
                 27 => self.current_attrs.inverse = false,
+                28 => self.current_attrs.hidden = false,
+                29 => self.current_attrs.strikethrough = false,
                 30..=37 => {
                     self.current_attrs.foreground = Color::Indexed((codes[index] - 30) as u8)
                 }

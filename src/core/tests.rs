@@ -45,6 +45,56 @@ fn applies_basic_sgr_attributes() {
 }
 
 #[test]
+fn applies_extended_sgr_text_attributes() {
+    let mut terminal = Terminal::new(10, 2);
+
+    terminal.advance(b"\x1b[2;8;9mX\x1b[0mN");
+
+    let styled = terminal.screen().cell(0, 0).unwrap();
+    let normal = terminal.screen().cell(0, 1).unwrap();
+    assert_eq!(styled.ch, 'X');
+    assert!(styled.attrs.dim);
+    assert!(styled.attrs.hidden);
+    assert!(styled.attrs.strikethrough);
+    assert_eq!(normal.ch, 'N');
+    assert_eq!(normal.attrs, Attrs::default());
+}
+
+#[test]
+fn sgr_resets_text_attributes_independently() {
+    let mut terminal = Terminal::new(10, 2);
+
+    terminal.advance(b"\x1b[1;2;3;4;7;8;9mA\x1b[22;23;24;27;28;29mB");
+
+    let all = terminal.screen().cell(0, 0).unwrap();
+    assert!(all.attrs.bold);
+    assert!(all.attrs.dim);
+    assert!(all.attrs.italic);
+    assert!(all.attrs.underline);
+    assert!(all.attrs.inverse);
+    assert!(all.attrs.hidden);
+    assert!(all.attrs.strikethrough);
+
+    let reset = terminal.screen().cell(0, 1).unwrap();
+    assert_eq!(reset.attrs, Attrs::default());
+}
+
+#[test]
+fn sgr_22_clears_bold_and_dim_together() {
+    let mut terminal = Terminal::new(10, 2);
+
+    terminal.advance(b"\x1b[1;2mA\x1b[22mB");
+
+    let styled = terminal.screen().cell(0, 0).unwrap();
+    assert!(styled.attrs.bold);
+    assert!(styled.attrs.dim);
+
+    let reset = terminal.screen().cell(0, 1).unwrap();
+    assert!(!reset.attrs.bold);
+    assert!(!reset.attrs.dim);
+}
+
+#[test]
 fn responds_to_primary_device_attributes() {
     let mut terminal = Terminal::new(10, 2);
 

@@ -120,9 +120,12 @@ impl Default for Color {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Attrs {
     pub bold: bool,
+    pub dim: bool,
     pub italic: bool,
     pub underline: bool,
+    pub strikethrough: bool,
     pub inverse: bool,
+    pub hidden: bool,
     pub foreground: Color,
     pub background: Color,
 }
