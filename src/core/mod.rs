@@ -89,6 +89,10 @@ pub enum MouseButton {
     Right,
     WheelUp,
     WheelDown,
+    /// No button held. Used for any-event (1003) hover motion, which xterm
+    /// encodes with the "no button" code 3 plus the motion flag. Reported only
+    /// in any-event tracking; button-event (1002) drops no-button motion.
+    NoButton,
 }
 
 /// The kind of mouse event being reported.
@@ -324,6 +328,9 @@ pub struct Screen {
     title_changed: bool,
     /// Active mouse reporting protocol (tracking mode + wire encoding).
     mouse: MouseProtocol,
+    /// DECSET/DECRST 1004 focus reporting. When on, the front end emits
+    /// `ESC [ I` / `ESC [ O` on focus in/out. Off at power-on; RIS resets it.
+    focus_reporting: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -372,6 +379,7 @@ impl Screen {
             title: None,
             title_changed: false,
             mouse: MouseProtocol::default(),
+            focus_reporting: false,
         }
     }
 
@@ -557,6 +565,13 @@ impl Screen {
     /// The active mouse reporting protocol (tracking mode + encoding).
     pub fn mouse_protocol(&self) -> MouseProtocol {
         self.mouse
+    }
+
+    /// Whether DECSET 1004 focus reporting is enabled. When true, a front end
+    /// should emit `ESC [ I` on focus gain and `ESC [ O` on focus loss (see
+    /// [`encode_focus_event`]).
+    pub fn focus_reporting(&self) -> bool {
+        self.focus_reporting
     }
 
     fn set_title(&mut self, title: String) {
@@ -1169,6 +1184,8 @@ impl Screen {
                 1000 => self.set_mouse_tracking(MouseTracking::Normal, action),
                 1002 => self.set_mouse_tracking(MouseTracking::ButtonEvent, action),
                 1003 => self.set_mouse_tracking(MouseTracking::AnyEvent, action),
+                // 1004: focus reporting. DECSET enables, DECRST disables.
+                1004 => self.focus_reporting = action == 'h',
                 // Mouse encoding extensions (single active encoding; later
                 // DECSET wins, any DECRST returns to Default). See `MouseEncoding`.
                 1005 => self.set_mouse_encoding(MouseEncoding::Utf8, action),
@@ -1336,6 +1353,7 @@ impl Screen {
         // RIS returns mouse reporting to its power-on (off) state. The title is
         // a persistent window property and is intentionally left untouched.
         self.mouse = MouseProtocol::default();
+        self.focus_reporting = false;
         // RIS restores the default every-8 tab stops (DECSTR does not — see
         // soft_reset).
         self.tab_stops = default_tab_stops(self.dimensions.columns);
@@ -1514,6 +1532,11 @@ impl Terminal {
     /// The active mouse reporting protocol (tracking mode + encoding).
     pub fn mouse_protocol(&self) -> MouseProtocol {
         self.screen.mouse_protocol()
+    }
+
+    /// Whether DECSET 1004 focus reporting is enabled.
+    pub fn focus_reporting(&self) -> bool {
+        self.screen.focus_reporting()
     }
 
     pub fn screen(&self) -> &Screen {
@@ -1848,6 +1871,9 @@ fn mouse_button_code(button: MouseButton) -> u16 {
         MouseButton::Right => 2,
         MouseButton::WheelUp => 64,
         MouseButton::WheelDown => 65,
+        // xterm uses the "no button" code 3 for hover motion (same base value
+        // as a release, where the specific button is not distinguishable).
+        MouseButton::NoButton => 3,
     }
 }
 
@@ -1888,7 +1914,15 @@ pub fn encode_mouse_event(
                 return None;
             }
         }
-        MouseTracking::ButtonEvent | MouseTracking::AnyEvent => {}
+        MouseTracking::ButtonEvent => {
+            // Button-event (1002) reports motion only while a button is held;
+            // no-button hover motion is dropped.
+            if kind == MouseEventKind::Motion && button == MouseButton::NoButton {
+                return None;
+            }
+        }
+        // Any-event (1003) reports all motion, including no-button hover.
+        MouseTracking::AnyEvent => {}
     }
 
     // X10 carries no modifiers; every other mode folds them into Cb.
@@ -1904,6 +1938,21 @@ pub fn encode_mouse_event(
         MouseEncoding::Default => encode_mouse_legacy(button, kind, column, row, mod_bits, false),
         MouseEncoding::Utf8 => encode_mouse_legacy(button, kind, column, row, mod_bits, true),
     }
+}
+
+/// Encode a focus change for DECSET 1004 focus reporting: focus-in is `ESC [ I`
+/// and focus-out is `ESC [ O`. Returns `None` when `reporting` is off, so a
+/// front end can call this unconditionally on every window focus change and let
+/// the terminal state decide whether to emit anything. Pure: no terminal state.
+pub fn encode_focus_event(reporting: bool, focused: bool) -> Option<Vec<u8>> {
+    if !reporting {
+        return None;
+    }
+    Some(if focused {
+        vec![0x1b, b'[', b'I']
+    } else {
+        vec![0x1b, b'[', b'O']
+    })
 }
 
 /// Cb for the legacy/urxvt encodings: release collapses to button bits `3`
@@ -4078,5 +4127,158 @@ mod tests {
             .unwrap(),
             b"\x1b[35;200;100M"
         );
+    }
+
+    // --- C3: any-event hover motion (no button) ---
+
+    #[test]
+    fn encode_hover_motion_legacy_any_event() {
+        let p = proto(MouseTracking::AnyEvent, MouseEncoding::Default);
+        // No-button motion: legacy Cb = 3 (no button) + 32 (motion) = 35, then
+        // +32 offset = 67 ('C'). At (3,4): cx=35 ('#'), cy=36 ('$').
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::NoButton,
+                MouseEventKind::Motion,
+                3,
+                4,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[MC#$"
+        );
+    }
+
+    #[test]
+    fn encode_hover_motion_sgr_any_event() {
+        let p = proto(MouseTracking::AnyEvent, MouseEncoding::Sgr);
+        // SGR no-button motion: Cb = 3 + 32 = 35, terminator M.
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::NoButton,
+                MouseEventKind::Motion,
+                10,
+                20,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[<35;10;20M"
+        );
+    }
+
+    #[test]
+    fn encode_hover_motion_urxvt_any_event() {
+        let p = proto(MouseTracking::AnyEvent, MouseEncoding::Urxvt);
+        // urxvt no-button motion: Cb = 32 + 35 = 67, decimal.
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::NoButton,
+                MouseEventKind::Motion,
+                5,
+                6,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[67;5;6M"
+        );
+    }
+
+    #[test]
+    fn encode_hover_motion_utf8_matches_legacy_in_ascii_range() {
+        let p = proto(MouseTracking::AnyEvent, MouseEncoding::Utf8);
+        // UTF-8 (1005) hover in the ASCII range is byte-identical to legacy.
+        assert_eq!(
+            encode_mouse_event(
+                p,
+                MouseButton::NoButton,
+                MouseEventKind::Motion,
+                3,
+                4,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[MC#$"
+        );
+    }
+
+    #[test]
+    fn button_event_drops_no_button_motion_any_event_keeps_it() {
+        // 1002 reports motion only while a button is held: no-button hover drops.
+        let button_event = proto(MouseTracking::ButtonEvent, MouseEncoding::Sgr);
+        assert_eq!(
+            encode_mouse_event(
+                button_event,
+                MouseButton::NoButton,
+                MouseEventKind::Motion,
+                3,
+                4,
+                MouseModifiers::default()
+            ),
+            None
+        );
+        // A real button drag is still reported under 1002 (Cb=0+32=32).
+        assert_eq!(
+            encode_mouse_event(
+                button_event,
+                MouseButton::Left,
+                MouseEventKind::Motion,
+                3,
+                4,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[<32;3;4M"
+        );
+        // 1003 reports the same no-button hover that 1002 dropped.
+        let any_event = proto(MouseTracking::AnyEvent, MouseEncoding::Sgr);
+        assert_eq!(
+            encode_mouse_event(
+                any_event,
+                MouseButton::NoButton,
+                MouseEventKind::Motion,
+                3,
+                4,
+                MouseModifiers::default()
+            )
+            .unwrap(),
+            b"\x1b[<35;3;4M"
+        );
+    }
+
+    // --- C3: focus reporting (DECSET/DECRST 1004) ---
+
+    #[test]
+    fn focus_reporting_mode_set_and_reset() {
+        let mut terminal = Terminal::new(4, 1);
+        assert!(!terminal.focus_reporting());
+
+        terminal.advance(b"\x1b[?1004h");
+        assert!(terminal.focus_reporting());
+
+        terminal.advance(b"\x1b[?1004l");
+        assert!(!terminal.focus_reporting());
+    }
+
+    #[test]
+    fn ris_resets_focus_reporting() {
+        let mut terminal = Terminal::new(4, 1);
+        terminal.advance(b"\x1b[?1004h");
+        assert!(terminal.focus_reporting());
+
+        terminal.advance(b"\x1bc"); // RIS
+        assert!(!terminal.focus_reporting());
+    }
+
+    #[test]
+    fn encode_focus_event_gated_and_directional() {
+        // Disabled: nothing is emitted regardless of direction.
+        assert_eq!(encode_focus_event(false, true), None);
+        assert_eq!(encode_focus_event(false, false), None);
+        // Enabled: focus-in is ESC [ I, focus-out is ESC [ O.
+        assert_eq!(encode_focus_event(true, true).unwrap(), b"\x1b[I");
+        assert_eq!(encode_focus_event(true, false).unwrap(), b"\x1b[O");
     }
 }

@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Any-event hover motion and focus reporting
+
+Stage 2 mouse hardening. The core mouse encoder now produces correct no-button
+hover reports for any-event tracking (1003), and the model tracks focus
+reporting (1004) with pure focus-event encoders. Native wiring (emitting hover
+and focus events) is a follow-up; this is the model/encoder layer only.
+
+### What landed
+
+- **No-button hover motion** — `MouseButton` gains a `NoButton` variant
+  (encoded with xterm's "no button" base code 3). `encode_mouse_event` emits
+  hover motion across all encodings: legacy/UTF-8 `Cb = 3 + 32` (+32 offset),
+  SGR `CSI < 35 ; x ; y M`, urxvt `CSI 67 ; x ; y M`.
+- **Tracking gate** — any-event (1003) passes no-button hover; button-event
+  (1002) drops it while still reporting button-held drags. This lets the native
+  layer replace its placeholder `Left`-button hover with a true `NoButton`.
+- **Focus reporting (1004)** — DECSET/DECRST 1004 toggles a `focus_reporting`
+  flag exposed via `Terminal::focus_reporting()`. The pure
+  `encode_focus_event(reporting, focused)` returns `ESC [ I` on focus-in and
+  `ESC [ O` on focus-out, or `None` when reporting is off. RIS resets the flag.
+
+### Verified
+
+- 8 new fixtures: hover encoding in legacy/SGR/urxvt/UTF-8, the 1002-vs-1003
+  gate, focus set/reset, RIS reset, and the gated directional focus encoder.
+  Full suite: 220 lib + 10 smoke pass; fmt and clippy clean (except the
+  pre-existing `Color` derive note).
+
+### Remaining
+
+- Native emit of hover/focus events (swap the placeholder hover button, send
+  focus reports on window focus changes) is a native-layer follow-up.
+
+---
+
 ## 2026-06-10 — PTY-backed alternate-screen smoke coverage
 
 Stage 2 evidence coverage now includes real editor/pager binaries running

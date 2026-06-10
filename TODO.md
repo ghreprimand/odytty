@@ -34,6 +34,9 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         (1005/1006/1015) state plus pure report encoders.
   - [x] Native: route press/release/motion/wheel events through the active mouse
         protocol, with Shift reserved for local selection/scrollback.
+  - [x] Core: any-event (1003) no-button hover motion encoding (legacy/SGR/
+        urxvt/UTF-8); 1002 still drops no-button motion. Focus reporting (1004)
+        state + ESC[I/ESC[O encoders. Native emit pending.
 - [ ] Harden alternate-screen behavior with editors, pagers, and full-screen
       apps.
   - [x] PTY smoke: real `less` and `vim` enter alternate screen, accept basic
