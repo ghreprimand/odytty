@@ -7,6 +7,54 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Glyph atlas management: fallback box and dynamic cache
+
+Stage 3 high-quality-text work begins with the glyph atlas. The build-once
+ASCII grid grew into a managed atlas with a missing-glyph fallback, an
+on-demand dynamic region, and size-change invalidation. The atlas was also
+extracted from `text.rs` into its own `src/atlas.rs` module.
+
+### What landed
+
+- **New `src/atlas.rs` module** — the `GlyphAtlas`/`CellSize` types moved out of
+  `text.rs`, which now keeps only font loading and color resolution and
+  re-exports the atlas types so `native.rs`/`grid.rs` compile unchanged.
+- **Missing-glyph fallback** — slot 0 is a synthesized hollow box drawn
+  font-independently. `uv_rect()` resolves any unsupported *printable* codepoint
+  to it, so `é`, box-drawing, CJK, and emoji now render a visible box instead of
+  a blank cell. Spaces and control characters still draw nothing, and
+  wide-continuation spacer cells still emit no quad (no double-draw).
+- **Dynamic region with growth** — `ensure()` rasterizes a real non-ASCII glyph
+  into the next free slot, appending pages of rows when the region fills. There
+  is no eviction and existing slots never move, so UV rects handed out before a
+  growth stay valid. A hard slot cap bounds worst-case growth; beyond it new
+  glyphs degrade to the fallback box.
+- **Invalidation** — `build()` always returns a pristine single-size atlas, so a
+  font-size or future font-family change is a full rebuild with no mixed-size
+  glyphs. A `revision()` counter and `take_dirty()` flag mark when the texture
+  needs re-uploading.
+
+### Verified
+
+- Seven headless atlas tests (fallback visible-but-hollow, fallback selection,
+  `ensure` insert/cache/dirty, missing-glyph uses fallback without a slot,
+  growth preserves existing glyphs, rebuild invalidation) plus grid tests for
+  the fallback glyph quad and the wide-spacer no-double-draw rule.
+- Full suite green; formatting clean; native autoclose smoke exits 0 at the
+  default font size and at `ODYTTY_FONT_SIZE=18`.
+
+### Known gaps
+
+- The live render path uses the immutable `uv_rect()` (ASCII plus fallback
+  boxes from the startup texture). Wiring `ensure()` per non-ASCII cell and
+  re-uploading the texture on `take_dirty()` — the path that makes real
+  non-ASCII glyphs appear on screen — is a later native packet.
+- Rasterization quality (gamma-correct coverage blending, tall-glyph cell-clip,
+  `ascent.round()` baseline, no sub-pixel) is unchanged here and is the basis
+  for a later Stage 3 rasterization packet.
+
+---
+
 ## 2026-06-10 — Selection refinement and scrollback-aware ranges
 
 Stage 4 daily-driver interaction now has richer native selection behavior:

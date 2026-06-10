@@ -62,6 +62,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
       factors.
 - [ ] Improve glyph atlas management, including cache growth, invalidation, and
       missing-glyph behavior.
+  - [x] Atlas extracted to `src/atlas.rs`; missing-glyph fallback box, dynamic
+        glyph cache with page-append growth (no eviction), and full-rebuild
+        size invalidation with a `revision()`/`take_dirty()` re-upload signal.
+  - [ ] Wire `ensure()` per non-ASCII cell + texture re-upload on `take_dirty()`
+        in native so real non-ASCII glyphs render (currently fallback boxes).
 - [ ] Decide the shaping strategy for ligatures/stylistic sets behind settings
       while preserving cell correctness.
 - [ ] Improve rasterization quality: pixel alignment, baseline consistency,
