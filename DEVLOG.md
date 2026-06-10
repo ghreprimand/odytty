@@ -47,6 +47,47 @@ loaded font can rasterize the codepoint.
 
 ---
 
+## 2026-06-10 — Scrollback search engine
+
+Stage 4 search begins with a pure, rendering-free core engine that finds literal
+queries across the combined scrollback + visible buffer and reports matches as
+absolute cell ranges a front end can later highlight and jump to.
+
+### What landed
+
+- **New `src/core/search.rs` module** (with sibling `src/core/search_tests.rs`
+  per the modularity directive), re-exported from `core/mod.rs`.
+- **`search_rows(rows, query, options)`** returns every non-overlapping match in
+  reading order as an inclusive absolute-cell range (`AbsolutePoint { row,
+  column }`), using the same absolute-row convention as selection (row 0 =
+  oldest scrollback).
+- **Case-sensitive and case-insensitive** modes (per-`char` simple lowercase
+  fold, kept 1:1 so column mapping stays exact).
+- **Correctness across hard cases** — a match covering a wide glyph spans both
+  columns; combining marks fold into the base cell's grapheme; matches spanning
+  soft-wrapped rows report `start`/`end` on different absolute rows, while hard
+  line breaks never join.
+- **`find_next`/`find_prev`** walk matches from an absolute position with
+  wraparound. Trailing blank padding is trimmed; interior blanks preserved.
+- **Bridge** — `Screen::search` / `Terminal::search` assemble `scrollback ++
+  rows` and call the engine. No native/text/atlas edits.
+
+### Verified
+
+- 23 deterministic fixtures cover each behavior. 256 lib + 2 integration + 10
+  smoke tests pass (234 lib baseline + 23 new). `cargo fmt` clean; clippy clean
+  except the pre-existing core derive lint. All core files remain under ~2000
+  lines (search.rs 261, search_tests.rs 285).
+
+### Documented limitations
+
+- Per-`char` case fold (no `ß`→`ss`); no Unicode normalization (precomposed vs
+  decomposed are distinct); non-overlapping greedy matching; wide pairs never
+  straddle a wrap boundary. Native search UI (overlay, highlight, jump) is a
+  later packet.
+
+---
+
 ## 2026-06-10 — Native modularity split
 
 The native module has been mechanically split from one large `src/native.rs`
@@ -72,6 +113,38 @@ file into focused sibling modules under `src/native/`, with the public
 - `WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`
 
 All resulting native source files are below the ~2000-line modularity limit.
+
+---
+
+## 2026-06-10 — Core split: cohesive submodules under src/core/
+
+Stage 1.5 modularity continues. The 4284-line `src/core/mod.rs` was split into
+focused submodules — a pure mechanical reorganization with no behavior or API
+changes. Every move is verbatim and the full public surface is re-exported from
+`mod.rs`, so all call sites (`native`, `grid.rs`, lib re-exports) compile
+unchanged.
+
+### What landed
+
+- **`src/core/types.rs`** — data types: geometry, color, attributes, mouse
+  enums, `Cell`, `Snapshot`, `DirtyRegion`, `TerminalModel`.
+- **`src/core/screen.rs`** — `Line`, `Screen`, `Terminal`: the grid buffer,
+  resize/reflow, and parser dispatch.
+- **`src/core/encoding.rs`** — pure mouse and focus event encoders.
+- **`src/core/tests.rs`** + **`src/core/encoding_tests.rs`** — the 2186-line test
+  module split into Terminal/Screen-driven tests and encoder tests.
+- **`src/core/mod.rs`** — module declarations and `pub use` re-exports.
+- Two crate-internal visibility tweaks (`MAX_COMBINING`, `Cell::push_combining`
+  -> `pub(crate)`); no public API widened. All resulting files are under ~2000
+  lines.
+
+### Verified
+
+- 234 lib + 2 integration + 10 smoke tests — exactly the baseline, zero
+  test-count change. `cargo fmt` clean; clippy clean except the pre-existing core
+  derive lint (relocated to `types.rs`). Native Wayland autoclose smoke exits 0.
+  Verbatim-move check: only rustfmt reflow and one `MouseTracking` import line
+  differ from the original; zero logic changes.
 
 ---
 

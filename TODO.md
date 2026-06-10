@@ -92,6 +92,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 - [ ] Improve clipboard behavior, including large paste behavior, diagnostics,
       and primary selection if appropriate.
 - [ ] Add search in scrollback.
+  - [x] Core engine in `src/core/search.rs`: literal case-sensitive/insensitive
+        search over scrollback + screen, inclusive absolute-cell match ranges,
+        wide/combining-aware spans, soft-wrap-spanning matches, and next/prev
+        with wraparound. Native search UI (overlay, highlight, jump) is a later
+        packet.
 - [ ] Add viewport affordance such as a scrollbar or scroll position indicator.
 - [ ] Add configurable key bindings after settings are available.
 - [ ] Add cursor style and blink policy settings.
