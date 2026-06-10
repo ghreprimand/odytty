@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Settings path and native font-size knob
+
+Stage 1 stabilization now has a minimal settings module that loads prototype
+runtime knobs once at native startup. The native renderer can be launched with a
+configured font size without editing source code.
+
+### What landed
+
+- **`src/settings.rs`** — added typed `Settings` loaded from environment
+  variables. It currently covers `ODYTTY_THEME`, `ODYTTY_VISUAL`, `ODYTTY_FONT`,
+  `ODYTTY_FONT_SIZE`, and `ODYTTY_NATIVE_AUTOCLOSE_MS`.
+- **`ODYTTY_FONT_SIZE`** — new logical-pixel font-size knob. The default remains
+  `14.0`; valid values are clamped to `6.0..=72.0`; invalid values fall back to
+  the default with one stderr warning.
+- **`src/native.rs` / `src/text.rs` / `src/theme.rs`** — migrated native runtime
+  knobs through `Settings` instead of scattered environment reads. Font size now
+  flows into glyph atlas rasterization, cell metrics, initial window sizing, and
+  resize grid fitting.
+- **`docs/runtime-knobs.md`** — documented current prototype settings and launch
+  examples.
+
+### Verified
+
+- Focused settings and native option tests cover default, valid override,
+  invalid fallback, empty fallback, and clamp behavior.
+
+### Remaining stabilization work
+
+- The settings source is still environment variables, not a config file or UI.
+- Font family/path remains a file-path override; configurable font family is
+  still deferred until the settings path is more stable.
+
+---
+
 ## 2026-06-09 — First meaningful prototype reached
 
 OdyTTY now has the first meaningful prototype slice: a native Wayland window

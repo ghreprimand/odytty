@@ -48,6 +48,7 @@
 //! default backends (Vulkan on Linux), so the GPU path is Wayland-native too.
 
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -62,6 +63,7 @@ use crate::input::{self, Key, Modifiers};
 use crate::pty::PtySession;
 use crate::render::CellMetrics;
 use crate::selection::{self, CellPoint, SelectionState};
+use crate::settings::{DEFAULT_FONT_SIZE_PX, Settings};
 use crate::text::{self, CellSize, GlyphAtlas};
 use crate::theme::{Theme, VisualEffect};
 
@@ -71,13 +73,6 @@ use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{Window, WindowId};
-
-/// Environment variable that, when set to a positive integer of milliseconds,
-/// makes the native window auto-close after that delay. This exists so the
-/// open/close lifecycle can be exercised non-interactively (smoke checks, CI)
-/// without a human closing the window. It is a development affordance, not a
-/// product setting.
-const AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 
 /// Convert a theme's clear color (sRGB bytes) into a linear-RGBA `wgpu::Color`.
 ///
@@ -163,6 +158,8 @@ pub struct NativeOptions {
     /// Monospace font family request. `"monospace"` defers to the system's
     /// default fixed-width face for the first prototype.
     pub font_family: String,
+    /// Optional explicit font file from runtime settings.
+    pub font_path: Option<PathBuf>,
     /// Font size in logical pixels.
     pub font_size_px: f32,
 }
@@ -173,12 +170,21 @@ impl Default for NativeOptions {
             title: "OdyTTY".to_owned(),
             initial_grid: Dimensions::new(80, 24),
             font_family: "monospace".to_owned(),
-            font_size_px: 14.0,
+            font_path: None,
+            font_size_px: DEFAULT_FONT_SIZE_PX,
         }
     }
 }
 
 impl NativeOptions {
+    pub fn from_settings(settings: &Settings) -> Self {
+        Self {
+            font_path: settings.font_path.clone(),
+            font_size_px: settings.font_size_px,
+            ..Self::default()
+        }
+    }
+
     /// Approximate per-cell pixel metrics derived from the font size.
     ///
     /// These are deliberately coarse stand-ins for real font metrics: a typical
@@ -196,19 +202,6 @@ impl NativeOptions {
     pub fn window_logical_size(&self) -> (u32, u32) {
         let (w, h) = self.cell_metrics().surface_size(self.initial_grid);
         (w.ceil().max(1.0) as u32, h.ceil().max(1.0) as u32)
-    }
-}
-
-/// Parse the auto-close delay from the environment, if present and valid.
-///
-/// Returns `None` when the variable is unset, empty, non-numeric, or `0`.
-fn autoclose_from_env() -> Option<Duration> {
-    let raw = std::env::var(AUTOCLOSE_ENV).ok()?;
-    let ms: u64 = raw.trim().parse().ok()?;
-    if ms == 0 {
-        None
-    } else {
-        Some(Duration::from_millis(ms))
     }
 }
 
@@ -426,7 +419,8 @@ impl GpuState {
         surface.configure(&device, &config);
 
         // --- Glyph atlas: rasterize at physical pixels for crisp HiDPI text.
-        let font = text::load_font().map_err(|err| NativeError::Text(err.to_string()))?;
+        let font = text::load_font_with_path(options.font_path.as_deref())
+            .map_err(|err| NativeError::Text(err.to_string()))?;
         let atlas = GlyphAtlas::build(&font, options.font_size_px * scale.max(1.0));
 
         let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -1482,20 +1476,20 @@ fn spawn_pty_pump(
 ///
 /// The read+write loop is complete: PTY output flows shell → core → pixels, and
 /// keyboard input flows window → [`crate::input`] encoder → PTY → shell.
-pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
+pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), NativeError> {
     let event_loop = EventLoop::<UserEvent>::with_user_event()
         .build()
         .map_err(|err| NativeError::EventLoop(err.to_string()))?;
     event_loop.set_control_flow(ControlFlow::Wait);
 
-    // Select the presentation theme once (ODYTTY_THEME, default plain) and apply
-    // its default cell colors process-wide before any rendering. This only
+    // Select the presentation theme once via Settings and apply its default cell
+    // colors process-wide before any rendering. This only
     // affects how Color::Default paints; the terminal core is unaware of it.
-    let theme = Theme::from_env();
+    let theme = settings.theme;
     text::set_default_colors(theme.foreground, theme.background);
-    // Optional visual treatment (ODYTTY_VISUAL, default off). Presentation-only;
+    // Optional visual treatment, resolved by Settings. Presentation-only;
     // the terminal core is unaware of it and it is fully disableable.
-    let visual = VisualEffect::from_env();
+    let visual = settings.visual;
 
     // Shared terminal model, sized to the initial grid. The pump thread writes
     // to it; the UI thread snapshots from it.
@@ -1532,7 +1526,7 @@ pub fn run_native(options: NativeOptions) -> Result<(), NativeError> {
         terminal,
         writer,
         session.clone(),
-        autoclose_from_env(),
+        settings.native_autoclose,
     );
     let run_result = event_loop
         .run_app(&mut app)
@@ -1721,8 +1715,23 @@ mod tests {
         let options = NativeOptions::default();
         assert_eq!(options.initial_grid, Dimensions::new(80, 24));
         assert_eq!(options.font_family, "monospace");
-        assert!(options.font_size_px > 0.0);
+        assert_eq!(options.font_path, None);
+        assert_eq!(options.font_size_px, DEFAULT_FONT_SIZE_PX);
         assert_eq!(options.title, "OdyTTY");
+    }
+
+    #[test]
+    fn options_apply_runtime_font_settings() {
+        let settings = Settings {
+            font_path: Some(PathBuf::from("/tmp/ody.ttf")),
+            font_size_px: 21.0,
+            ..Settings::default()
+        };
+        let options = NativeOptions::from_settings(&settings);
+
+        assert_eq!(options.font_path, Some(PathBuf::from("/tmp/ody.ttf")));
+        assert_eq!(options.font_size_px, 21.0);
+        assert_eq!(options.initial_grid, NativeOptions::default().initial_grid);
     }
 
     #[test]

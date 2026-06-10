@@ -3,6 +3,7 @@ use odytty::app::run_interactive;
 use odytty::core::Terminal;
 use odytty::native::{NativeOptions, run_native};
 use odytty::pty::PtySession;
+use odytty::settings::Settings;
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
@@ -22,9 +23,9 @@ fn main() -> Result<()> {
 
     if args.first().map(String::as_str) == Some("--native") {
         // Opens a real native window and runs the event loop until the window is
-        // closed. GPU text rendering, PTY wiring, and input land in later
-        // packets; this path currently proves a clean open/close lifecycle.
-        run_native(NativeOptions::default())?;
+        // closed, with runtime settings loaded once for the native session.
+        let settings = Settings::from_env();
+        run_native(NativeOptions::from_settings(&settings), settings)?;
         return Ok(());
     }
 

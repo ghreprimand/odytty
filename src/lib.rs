@@ -6,5 +6,6 @@ pub mod native;
 pub mod pty;
 pub mod render;
 pub mod selection;
+pub mod settings;
 pub mod text;
 pub mod theme;

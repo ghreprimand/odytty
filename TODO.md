@@ -1,10 +1,71 @@
 # OdyTTY — TODO
 
-Milestone checklist toward the first meaningful prototype: a single-window,
-GPU-rendered terminal that opens a real shell, renders readable text, handles
-enough common terminal behavior for basic daily commands, supports resize and
-copy/paste basics, and includes one isolated Odyssey visual layer that can be
-disabled. See `DEVLOG.md` for current state and `SPEC.md` for durable decisions.
+Post-prototype checklist for making OdyTTY comfortable enough for repeated short
+sessions before broader product features. The first meaningful prototype is
+complete; see `DEVLOG.md` for the running record, `SPEC.md` for durable
+decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
+
+## Stage 1: Prototype Stabilization
+
+- [x] Add native font-size configuration with safe defaults, parsing, and
+      clamps.
+- [x] Establish a minimal settings/options path that can grow beyond ad hoc
+      environment variables.
+- [x] Document current runtime knobs and launch examples for the native
+      prototype.
+- [x] Keep default startup behavior unchanged unless a setting explicitly
+      overrides it.
+- [ ] Run a short manual session after stabilization changes and capture new
+      friction as concrete packets.
+
+## Stage 2: Terminal Correctness Hardening
+
+- [ ] Expand compatibility only from observed shell/TUI failures or clearly
+      documented standards gaps.
+- [ ] Add deterministic fixtures for every reproducible terminal-core
+      regression.
+- [ ] Improve OSC support, including title handling and common shell/editor
+      sequences.
+- [ ] Add mouse reporting modes required by real TUIs.
+- [ ] Harden alternate-screen behavior with editors, pagers, and full-screen
+      apps.
+- [ ] Improve Unicode, wide-character, combining-mark, and ambiguous-width
+      handling.
+- [ ] Grow PTY-backed smoke coverage without making default tests flaky or slow.
+
+## Stage 3: High-Quality Text And Rendering
+
+- [ ] Treat Ghostty-level visible text quality as the baseline target, not a
+      stretch goal.
+- [ ] Add configurable font family after the settings path is stable.
+- [ ] Validate HiDPI scale handling across window sizes and monitor scale
+      factors.
+- [ ] Improve glyph atlas management, including cache growth, invalidation, and
+      missing-glyph behavior.
+- [ ] Decide the shaping strategy for ligatures/stylistic sets behind settings
+      while preserving cell correctness.
+- [ ] Improve rasterization quality: pixel alignment, baseline consistency,
+      padding, gamma, blending, and contrast.
+- [ ] Render text attributes cleanly at multiple sizes: bold, dim, italic,
+      underline, strikethrough, inverse, cursor, and selection.
+- [ ] Profile redraw, scrolling, resize, and large-output performance.
+- [ ] Add visual regression screenshots or pixel-level smoke checks where
+      practical.
+
+## Stage 4: Daily-Driver Interaction
+
+- [ ] Refine selection: double-click word, line selection, drag beyond viewport,
+      and scrollback-aware ranges.
+- [ ] Improve clipboard behavior, including large paste behavior, diagnostics,
+      and primary selection if appropriate.
+- [ ] Add search in scrollback.
+- [ ] Add viewport affordance such as a scrollbar or scroll position indicator.
+- [ ] Add configurable key bindings after settings are available.
+- [ ] Add cursor style and blink policy settings.
+- [ ] Add window title and focus behavior.
+- [ ] Improve mouse and keyboard interaction in TUI apps.
+
+## Archived First Prototype Checklist
 
 ## Core Readiness
 

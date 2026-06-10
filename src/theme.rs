@@ -11,11 +11,11 @@
 //! ## Selection
 //!
 //! The active theme is chosen by name, defaulting to the [`plain`](Theme::PLAIN)
-//! baseline. [`Theme::from_env`] reads the `ODYTTY_THEME` environment variable;
-//! an unset, empty, or unrecognized value falls back to plain so the terminal is
-//! always readable regardless of configuration. [`Theme::from_name`] is the pure
-//! selector used by callers that already hold a name (and by tests), so theme
-//! resolution can be exercised without mutating process environment.
+//! baseline. The settings layer reads `ODYTTY_THEME`; an unset, empty, or
+//! unrecognized value falls back to plain so the terminal is always readable
+//! regardless of configuration. [`Theme::from_name`] is the pure selector used
+//! by callers that already hold a name (and by tests), so theme resolution can
+//! be exercised without mutating process environment.
 
 /// An sRGB color triple (8-bit per channel), matching the palette byte form used
 /// by the text renderer. Kept as a plain tuple so this module stays free of any
@@ -86,15 +86,6 @@ impl Theme {
     pub fn from_name_or_default(name: &str) -> Theme {
         Theme::from_name(name).unwrap_or(Theme::PLAIN)
     }
-
-    /// Select the theme named by the `ODYTTY_THEME` environment variable,
-    /// defaulting to the plain baseline when unset, empty, or unrecognized.
-    pub fn from_env() -> Theme {
-        match std::env::var("ODYTTY_THEME") {
-            Ok(value) => Theme::from_name_or_default(&value),
-            Err(_) => Theme::PLAIN,
-        }
-    }
 }
 
 impl Default for Theme {
@@ -149,15 +140,6 @@ impl VisualEffect {
     /// unknown or empty name.
     pub fn from_name_or_default(name: &str) -> VisualEffect {
         VisualEffect::from_name(name).unwrap_or(VisualEffect::Off)
-    }
-
-    /// Select the effect named by `ODYTTY_VISUAL`, defaulting to off when unset,
-    /// empty, or unrecognized.
-    pub fn from_env() -> VisualEffect {
-        match std::env::var("ODYTTY_VISUAL") {
-            Ok(value) => VisualEffect::from_name_or_default(&value),
-            Err(_) => VisualEffect::Off,
-        }
     }
 
     /// Whether any visual treatment is active.

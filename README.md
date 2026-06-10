@@ -16,9 +16,10 @@ scrollback navigation, cursor rendering, and basic daily shell workflows.
 
 The prototype also includes a small theme system and a disableable ambient
 scanline visual treatment selected with `ODYTTY_VISUAL=ambient`; unset,
-`off`, `none`, or `plain` keep the baseline renderer. Known gaps remain before
-daily-driver claims: no font-size configuration yet, no profiles or settings UI,
-basic selection only, no tabs/panes, and Linux-first validation only. See
+`off`, `none`, or `plain` keep the baseline renderer. A minimal settings path
+loads native runtime knobs such as `ODYTTY_FONT_SIZE` once at startup. Known gaps
+remain before daily-driver claims: no profiles or settings UI, basic selection
+only, no tabs/panes, and Linux-first validation only. See
 [`DEVLOG.md`](DEVLOG.md) for the running record and [`TODO.md`](TODO.md) for the
 milestone checklist.
 
@@ -39,6 +40,8 @@ The project should pursue genuinely original terminal work rather than forking o
 - [`DEVLOG.md`](DEVLOG.md) — running record of what has landed and current state.
 - [`TODO.md`](TODO.md) — milestone checklist toward the first prototype.
 - [`SPEC.md`](SPEC.md) — durable product and architecture decisions.
+- [`docs/runtime-knobs.md`](docs/runtime-knobs.md) — current native prototype
+  settings and launch examples.
 - [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) — staged roadmap
   from prototype stabilization through long-term product work.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — change, commit, and safety conventions.

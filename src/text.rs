@@ -9,8 +9,8 @@
 //! ## Font sourcing
 //!
 //! For this first prototype the font is loaded from the host at runtime: the
-//! `ODYTTY_FONT` environment variable wins if set, otherwise a small list of
-//! common Linux monospace paths is probed. Bundling a font into the repo for
+//! the settings layer can provide an explicit font path, otherwise a small list
+//! of common Linux monospace paths is probed. Bundling a font into the repo for
 //! fully deterministic rendering is a deliberate later decision (it means
 //! committing a binary + its license to a public repo), so it is intentionally
 //! not done here.
@@ -28,9 +28,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use ab_glyph::{Font, FontVec, Glyph, PxScale, ScaleFont, point};
 
 use crate::core::Color;
-
-/// Environment variable naming an explicit font file to load.
-pub const FONT_ENV: &str = "ODYTTY_FONT";
+use crate::settings::FONT_ENV;
 
 /// First and last printable ASCII code points covered by the atlas.
 const FIRST_CHAR: u32 = 0x20;
@@ -73,12 +71,18 @@ fn font_candidates() -> Vec<PathBuf> {
     .collect()
 }
 
-/// Load a monospace font: honor `ODYTTY_FONT`, else probe known paths.
+/// Load a monospace font from the host's default candidate list.
 pub fn load_font() -> Result<FontVec, TextError> {
-    if let Some(path) = std::env::var_os(FONT_ENV) {
-        let path = PathBuf::from(path);
-        return load_font_at(&path);
+    load_font_with_path(None)
+}
+
+/// Load a monospace font: honor an explicit settings path, else probe known
+/// paths.
+pub fn load_font_with_path(font_path: Option<&Path>) -> Result<FontVec, TextError> {
+    if let Some(path) = font_path {
+        return load_font_at(path);
     }
+
     for candidate in font_candidates() {
         if candidate.exists() {
             return load_font_at(&candidate);
