@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Cursor style + blink policy (C4)
+
+C4 spans the Stage 2 correctness track (DECSCUSR) and the Stage 4 daily-driver
+track (configurable cursor presentation). Applications can now choose the cursor
+shape and blink at runtime, and the host default policy is configurable.
+
+### What landed
+
+- **DECSCUSR (`CSI Ps SP q`)** — `Ps` 0 returns the cursor to the host default,
+  1/2 are blinking/steady block, 3/4 blinking/steady underline, 5/6
+  blinking/steady bar; odd values blink, even values are steady; unknown values
+  are ignored. A plain `q` without the SP intermediate is not DECSCUSR. `RIS`
+  and `DECSTR` reset the cursor to the host default policy.
+- **Core state** — `CursorStyle { Block, Underline, Bar }` is exported from
+  core. The screen tracks the effective cursor style/blink plus a host
+  `default_cursor_style`/`default_cursor_blink`. `Terminal::cursor_style()`,
+  `cursor_blinking()`, and `set_cursor_defaults()` expose the state. The
+  `Snapshot` struct is unchanged — the renderer reads style/blink through the
+  accessors, so no struct-field break reaches the native test/selection paths.
+- **Settings** — `ODYTTY_CURSOR_STYLE` (block|underline|bar) and
+  `ODYTTY_CURSOR_BLINK` (on|off|auto, default auto) set the host default policy;
+  DECSCUSR from applications overrides at runtime. Bad values warn once and fall
+  back, never fatal.
+- **Render** — `push_cursor` draws the three shapes through the existing quad
+  path: block is the unchanged inverse cell, underline is a thin foreground bar
+  at the cell bottom, bar is a thin foreground bar at the cell left. The
+  existing grid build entry points keep their signatures and default to Block.
+- **Blink** — a focus-aware `CursorBlinkState` driven from injected time blinks
+  only when the active style blinks *and* the window is focused; otherwise the
+  cursor is solid with no scheduled wake (no busy redraw). It toggles at ~530 ms
+  via `ControlFlow::WaitUntil` merged with the existing deadline set, and focus
+  loss forces the cursor solid.
+
+### Verified
+
+- 369 lib + 2 PTY + 10 smoke tests green (16 new C4 tests: DECSCUSR state
+  machine, settings parse/fallback, cursor quad geometry per style, blink phase
+  state machine).
+- Native autoclose smoke exit 0 at default, `ODYTTY_FONT_SIZE=18`,
+  `ODYTTY_CURSOR_STYLE=bar`, a garbage `ODYTTY_CURSOR_STYLE` (fallback path), and
+  `ODYTTY_CURSOR_BLINK=off`.
+
+---
+
 ## 2026-06-10 — Native paste hardening
 
 D1 from the Stage 4 daily-driver track. Native paste is safer and more

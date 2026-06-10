@@ -17,6 +17,8 @@ cargo run -- --native
 | `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | Host monospace probe list | Overrides the probed Linux monospace font. A missing or unparseable path no longer aborts startup: it logs one stderr notice and falls back to the probe list. |
 | `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | Host monospace probe list | Selects the regular face by family name or path. The match is validated as monospace; a proportional or unresolved value logs one stderr notice and falls back to the probe list, so a bad value never aborts startup. `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered and used for styled text when present, with regular-face fallback. |
 | `ODYTTY_KEYBINDS` | Comma- or semicolon-separated `chord=action` entries | unset | Rebinds native terminal-local actions only. Invalid entries log one stderr warning and are skipped; duplicate chords use the last valid entry. PTY key encoding is unchanged. |
+| `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `block` | Sets the host default cursor shape. Applications can override at runtime via DECSCUSR (`CSI Ps SP q`). Invalid values fall back to `block` with one stderr warning. |
+| `ODYTTY_CURSOR_BLINK` | `on`, `off`, `auto` | `auto` | Sets the host default cursor blink policy. `auto` blinks; DECSCUSR from applications overrides at runtime. Invalid values fall back to `auto` with one stderr warning. |
 | `ODYTTY_THEME` | `plain`, `odyssey`, `odyssey-noir` | `plain` | Selects default foreground/background and window clear color. Unknown values fall back to `plain`. |
 | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `off` | Enables or disables the optional presentation-only ambient effect. |
 | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
@@ -81,6 +83,22 @@ sanitization, line-ending normalization, and chunked PTY writes all still
 apply. When a TUI has enabled mouse reporting, mouse reports stay ahead of
 local middle-click paste; hold Shift to use local terminal mouse behavior.
 
+## Native Cursor
+
+The host default cursor shape and blink policy come from `ODYTTY_CURSOR_STYLE`
+and `ODYTTY_CURSOR_BLINK`. Applications can override both at runtime with
+DECSCUSR (`CSI Ps SP q`): `Ps` 0 returns to the host default, 1/2 select a
+blinking/steady block, 3/4 a blinking/steady underline, and 5/6 a
+blinking/steady bar. `RIS` and `DECSTR` reset the cursor to the host default
+policy.
+
+The three shapes render through the existing cell quad path: block is the
+inverse cell, underline is a thin bar at the cell bottom, and bar is a thin
+vertical bar at the cell left. Blink is focus-aware — the cursor only blinks
+when the active style blinks and the window is focused; otherwise it stays solid
+with no scheduled redraw, so an unfocused or non-blinking cursor never spins the
+event loop. Losing focus forces the cursor solid.
+
 ## Examples
 
 Run with larger text:
@@ -118,6 +136,12 @@ Run with remapped copy/paste shortcuts:
 
 ```sh
 ODYTTY_KEYBINDS="ctrl+shift+y=copy,ctrl+shift+p=paste" cargo run -- --native
+```
+
+Run with a non-blinking underline cursor:
+
+```sh
+ODYTTY_CURSOR_STYLE=underline ODYTTY_CURSOR_BLINK=off cargo run -- --native
 ```
 
 Run a non-interactive native lifecycle smoke check:

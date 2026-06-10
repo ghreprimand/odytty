@@ -170,7 +170,16 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] Unset preserves today's defaults exactly; valid entries override one
         action at a time; invalid entries log and skip; duplicate chords use
         the last valid binding. PTY input mapping remains unchanged.
-- [ ] Add cursor style and blink policy settings.
+- [x] Add cursor style and blink policy settings.
+  - [x] DECSCUSR (`CSI Ps SP q`) styles 0-6: host default, blinking/steady
+        block, blinking/steady underline, blinking/steady bar; `RIS`/`DECSTR`
+        reset to the host default.
+  - [x] `ODYTTY_CURSOR_STYLE` (block|underline|bar) and `ODYTTY_CURSOR_BLINK`
+        (on|off|auto, default auto) set the host default policy; DECSCUSR
+        overrides at runtime; bad values warn once and fall back.
+  - [x] Render the three cursor shapes through the existing quad path; blink is
+        focus-aware and busy-redraw-free (solid with no scheduled wake when the
+        style does not blink or the window is unfocused).
 - [ ] Add window title and focus behavior.
   - [x] Apply OSC title changes to the native window title.
   - [x] Emit DECSET 1004 focus-in/out reports from native window focus events.
