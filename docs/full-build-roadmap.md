@@ -13,14 +13,26 @@ to reach and then exceed within its own identity. Odyssey-specific visuals
 should make the terminal feel more intentional and alive without weakening
 trust.
 
+A second defining pillar is foundation ownership. OdyTTY's standard is that
+every byte from the PTY to the glyph quad passes exclusively through
+OdyTTY-owned code: the PTY layer, the escape-sequence parser, the terminal
+model, the renderer geometry, and the shaders. External crates are acceptable
+only below the product line — font rasterization, GPU API, windowing,
+clipboard transport, and Unicode character data — which is the same boundary
+the strongest independent terminals draw. Where the project currently leans on
+a crate inside that line, replacing it is roadmap work, not a settled
+trade-off.
+
 ## Current Baseline
 
 The first prototype is complete. OdyTTY can open a native Wayland window, run a
 real local shell, render GPU-backed monospaced text, handle keyboard input,
 resize, cursor rendering, scrollback navigation, paste, mouse selection/copy,
-and one disableable ambient visual treatment. The terminal core is owned by
-OdyTTY and uses `vte` as a parser rather than embedding another terminal
-emulator core.
+and one disableable ambient visual treatment. The terminal model — grid,
+scrollback, modes, attributes, reflow, search, selection, encoders — is owned
+by OdyTTY. The byte-level escape-sequence parser currently delegates to the
+`vte` crate behind a narrow callback seam; replacing it with an OdyTTY-owned
+parser is scheduled work (see Stage 4.5).
 
 The prototype proves the loop. It does not yet prove daily-driver quality.
 
@@ -135,6 +147,53 @@ Acceptance target:
 - OdyTTY supports the everyday terminal gestures users expect.
 - Short real sessions do not reveal obvious interaction friction.
 - Interaction features remain separated from terminal semantics.
+
+## Stage 4.5: Foundation Ownership
+
+Own the full byte path before building the features that sit on top of it.
+This stage exists because two pressures point at the same work: the project's
+ground-up identity, and concrete engineering needs. The Kitty graphics
+protocol is APC-based and the current parser dependency never surfaces APC
+sequences; Sixel is DCS-based and the current DCS handling is an unimplemented
+pass-through. Synchronized output, richer OSC support, and a deliberate
+malformed-input recovery policy all benefit from owning the byte-level layer.
+
+The replacement seam already exists: the terminal model consumes parser
+callbacks behind a single narrow trait boundary, so the parser is a
+replaceable part by design. The migration method is differential: the existing
+parser is kept as a development-only oracle, identical byte streams are fed to
+both parsers against cloned terminal models, and state is asserted identical
+across the full fixture and transcript corpus before the dependency is
+removed.
+
+Focus:
+
+- An OdyTTY-owned VT parser implementing the canonical DEC ANSI state machine:
+  ground/escape/CSI/OSC/DCS states, mid-stream UTF-8 decoding, C1 handling,
+  parameter limits, cancel/abort semantics, and OSC terminator variants.
+- Real DCS and APC support designed in from the start, so graphics protocols
+  land on an owned byte path rather than being bolted around a dependency.
+- A differential test harness against the outgoing parser plus a fuzzing
+  harness, retained as permanent fixtures after the swap.
+- An OdyTTY-owned Linux PTY layer (openpty, spawn, resize) replacing the
+  cross-platform PTY abstraction.
+- Retire the remaining terminal-adjacent convenience dependencies from the
+  input path so key handling uses the windowing layer's native types.
+- Update SPEC and README to state the ownership boundary plainly once it is
+  real.
+
+Explicit non-goals, recorded so the boundary is deliberate: font parsing and
+rasterization, GPU API, windowing, clipboard transport, and Unicode width
+tables stay external. These sit below the product line; re-owning them adds
+maintenance without adding identity or capability.
+
+Acceptance target:
+
+- Every byte from the PTY to the glyph quad passes exclusively through
+  OdyTTY-owned code.
+- The owned parser matches or exceeds the outgoing parser's behavior across
+  the full fixture corpus, with divergences documented as deliberate.
+- Graphics-protocol work can begin against owned APC/DCS plumbing.
 
 ## Stage 5: Settings And Profiles
 
@@ -277,16 +336,23 @@ Named here so they get decided deliberately rather than by default:
 
 ## Near-Term Recommendation
 
-The next active plan should cover stages 1 through 4:
+Stages 1 through 4 are substantially complete: settings, correctness
+hardening, text/rendering quality, and daily-driver interaction have all
+landed, with a small set of manual-validation and evidence-gated items
+remaining open. The next active plan should cover, in order of emphasis:
 
-- Prototype stabilization.
-- Terminal correctness hardening.
-- High-quality text and rendering.
-- Daily-driver interaction.
+- Stage 4.5 foundation ownership: the owned parser, the owned PTY layer, and
+  the input-path dependency retirement.
+- The remaining Stage 1–4 items: manual friction sessions, HiDPI manual
+  validation, alternate-screen and fixture work as evidence appears, and TUI
+  interaction polish.
+- Early Stage 6 parity-half work where it does not depend on the parser
+  (wide-glyph quality, subpixel anti-aliasing), and graphics-protocol work
+  once it can land on owned APC/DCS plumbing.
 
 Tabs, panes, profiles, plugins, AI features, heavy effects, packaging, and broad
 cross-platform work should remain deferred until this foundation is stronger.
 
-Stages 1 through 4 are the table stakes that make the rest safe to attempt.
+Stages 1 through 4.5 are the table stakes that make the rest safe to attempt.
 Stage 6 is where the project's central question gets answered, and the
 foundation work should be judged by how well it sets that stage up.

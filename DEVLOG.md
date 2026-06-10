@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Roadmap checkpoint: foundation ownership (own the parser)
+
+A second roadmap revision in the same direction-setting pass: OdyTTY commits
+to owning its full byte path. No code changes yet; this records the decision
+and the plan shape (`docs/full-build-roadmap.md`, new Stage 4.5).
+
+- **New pillar in the preamble**: every byte from the PTY to the glyph quad
+  should pass exclusively through OdyTTY-owned code — PTY layer, escape
+  parser, terminal model, renderer geometry, shaders. External crates remain
+  acceptable only below the product line (font rasterization, GPU API,
+  windowing, clipboard transport, Unicode data), the same boundary the
+  strongest independent terminals draw.
+- **New Stage 4.5: Foundation Ownership** — an OdyTTY-owned VT parser
+  implementing the canonical DEC ANSI state machine with real DCS and APC
+  support designed in; a differential test harness against `vte` as the
+  migration oracle plus fuzzing, retained after the swap; an owned Linux PTY
+  layer; input-path convenience-dependency retirement. Explicit non-goals
+  recorded: font parsing/rasterization, GPU, windowing, clipboard, and
+  Unicode width tables stay external by design.
+- **Why now, beyond identity**: the parity roadmap needs APC (Kitty graphics
+  protocol) and real DCS (Sixel), neither of which the current parser
+  dependency surfaces usefully. Owning the byte layer first means graphics
+  protocols land on OdyTTY plumbing instead of being bolted around a
+  dependency.
+- **Near-term recommendation updated**: Stages 1–4 are substantially
+  complete; the next phase leads with Stage 4.5, carries the remaining
+  Stage 1–4 manual/evidence-gated items, and continues early parity-half
+  work that does not depend on the parser.
+
 ## 2026-06-10 — Roadmap checkpoint: visual capability parity framing
 
 A comparison of OdyTTY against Ghostty's current feature surface prompted a
