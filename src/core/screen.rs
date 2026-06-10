@@ -8,6 +8,7 @@ use unicode_width::UnicodeWidthChar;
 use vte::{Params, Perform};
 
 use super::reflow::{reflow_lines, resize_buffer_rows, resize_keep_width};
+use super::scrollback::Scrollback;
 use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
 use super::types::*;
 
@@ -60,7 +61,7 @@ impl std::ops::DerefMut for Line {
 pub struct Screen {
     dimensions: Dimensions,
     rows: Vec<Line>,
-    scrollback: Vec<Line>,
+    scrollback: Scrollback,
     cursor: Position,
     cursor_visible: bool,
     pending_wrap: bool,
@@ -91,7 +92,7 @@ pub struct Screen {
 #[derive(Debug, Clone)]
 struct StoredScreen {
     rows: Vec<Line>,
-    scrollback: Vec<Line>,
+    scrollback: Scrollback,
     cursor: Position,
     pending_wrap: bool,
     saved_cursor: Option<SavedCursor>,
@@ -114,7 +115,7 @@ impl Screen {
         Self {
             dimensions,
             rows: vec![blank_row(dimensions.columns); dimensions.rows],
-            scrollback: Vec::new(),
+            scrollback: Scrollback::new(),
             cursor: Position::default(),
             cursor_visible: true,
             pending_wrap: false,
@@ -174,7 +175,12 @@ impl Screen {
         if self.primary_screen.is_some() {
             // Alternate screen active: truncate/pad the app-managed grid (it
             // repaints), but never feed the alternate buffer into scrollback.
-            resize_buffer_rows(&mut self.rows, &mut self.scrollback, dimensions, true);
+            resize_buffer_rows(
+                &mut self.rows,
+                self.scrollback.physical_mut(),
+                dimensions,
+                true,
+            );
             self.cursor.row = self.cursor.row.min(dimensions.rows - 1);
             self.cursor.column = self.cursor.column.min(dimensions.columns - 1);
 
@@ -183,14 +189,14 @@ impl Screen {
                 // width-unchanged fast path when columns are unchanged.
                 let cursor = if dimensions.columns == self.dimensions.columns {
                     resize_keep_width(
-                        &mut primary.scrollback,
+                        primary.scrollback.physical_mut(),
                         &mut primary.rows,
                         dimensions,
                         primary.cursor,
                     )
                 } else {
                     reflow_lines(
-                        &mut primary.scrollback,
+                        primary.scrollback.physical_mut(),
                         &mut primary.rows,
                         dimensions,
                         primary.cursor,
@@ -207,7 +213,7 @@ impl Screen {
             // re-window/re-cursor at O(rows). Byte-identical to `reflow_lines`
             // for width-unchanged resizes (proven by `reflow_fast_path_tests`).
             self.cursor = resize_keep_width(
-                &mut self.scrollback,
+                self.scrollback.physical_mut(),
                 &mut self.rows,
                 dimensions,
                 self.cursor,
@@ -216,7 +222,7 @@ impl Screen {
             // Primary screen active: reflow visible + scrollback to the new width
             // so wrapped content is preserved across shrink/grow.
             self.cursor = reflow_lines(
-                &mut self.scrollback,
+                self.scrollback.physical_mut(),
                 &mut self.rows,
                 dimensions,
                 self.cursor,
@@ -270,25 +276,26 @@ impl Screen {
     pub fn snapshot_with_scrollback(&self, offset_rows: usize) -> Snapshot {
         let height = self.dimensions.rows;
         let columns = self.dimensions.columns;
-        let scrollback_len = self.scrollback.len();
+        let scrollback = self.scrollback.physical();
+        let scrollback_len = scrollback.len();
         let offset = offset_rows.min(scrollback_len);
 
         if offset == 0 {
             return self.snapshot();
         }
 
-        // Combined buffer index of the row just below the viewport bottom.
+        // The viewport is `height` rows of the combined scrollback ++ live
+        // buffer whose bottom edge sits `offset` rows above the live bottom.
         let total = scrollback_len + height;
-        let window_end = total - offset;
-        let window_start = window_end - height;
+        let window_start = total - offset - height;
 
         let mut cells = Vec::with_capacity(height * columns);
-        for index in window_start..window_end {
-            let row = if index < scrollback_len {
-                &self.scrollback[index]
-            } else {
-                &self.rows[index - scrollback_len]
-            };
+        for row in scrollback
+            .iter()
+            .chain(self.rows.iter())
+            .skip(window_start)
+            .take(height)
+        {
             for column in 0..columns {
                 cells.push(row.get(column).copied().unwrap_or_else(Cell::blank));
             }
@@ -353,8 +360,8 @@ impl Screen {
     /// see [`super::search`] for the coordinate convention and limitations).
     /// Matches are returned in reading order, sorted ascending by `start`.
     pub fn search(&self, query: &str, options: SearchOptions) -> Vec<SearchMatch> {
-        let rows: Vec<SearchRow<'_>> = self
-            .scrollback
+        let scrollback = self.scrollback.physical();
+        let rows: Vec<SearchRow<'_>> = scrollback
             .iter()
             .chain(self.rows.iter())
             .map(|line| SearchRow {
@@ -555,7 +562,7 @@ impl Screen {
         let background = self.current_attrs.background;
 
         if self.primary_screen.is_none() {
-            self.scrollback.push(removed);
+            self.scrollback.push_row(removed);
         }
 
         self.rows
@@ -1078,7 +1085,7 @@ impl Screen {
                 &mut self.rows,
                 vec![blank_row(self.dimensions.columns); self.dimensions.rows],
             ),
-            scrollback: std::mem::take(&mut self.scrollback),
+            scrollback: std::mem::replace(&mut self.scrollback, Scrollback::new()),
             cursor: self.cursor,
             pending_wrap: self.pending_wrap,
             saved_cursor: self.saved_cursor,

@@ -16,11 +16,14 @@
 mod encoding;
 mod reflow;
 mod screen;
+mod scrollback;
 mod search;
 mod types;
 
 #[cfg(test)]
 mod encoding_tests;
+#[cfg(test)]
+mod scrollback_tests;
 #[cfg(test)]
 mod search_tests;
 #[cfg(test)]
