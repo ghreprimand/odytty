@@ -39,4 +39,6 @@ The project should pursue genuinely original terminal work rather than forking o
 - [`DEVLOG.md`](DEVLOG.md) — running record of what has landed and current state.
 - [`TODO.md`](TODO.md) — milestone checklist toward the first prototype.
 - [`SPEC.md`](SPEC.md) — durable product and architecture decisions.
+- [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) — staged roadmap
+  from prototype stabilization through long-term product work.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — change, commit, and safety conventions.
