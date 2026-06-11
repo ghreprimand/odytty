@@ -11,6 +11,7 @@ use crate::parser::{OdyParser, Params, VtDispatch};
 
 use super::graphics_routing::{self, DcsCapture, GraphicsStats};
 use super::hyperlink::{Hyperlink, HyperlinkTable};
+use super::kitty::{decode_base64_bytes, encode_base64_bytes};
 
 use super::reflow::resize_buffer_rows;
 use super::scrollback::{Scrollback, resize_lazy};
@@ -18,6 +19,8 @@ use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
 use super::types::*;
 
 mod ops;
+
+pub const OSC52_CLIPBOARD_MAX_BYTES: usize = 64 * 1024;
 
 /// One physical row of cells plus a soft-wrap marker.
 ///
@@ -87,6 +90,10 @@ pub struct Screen {
     dirty: DirtyRegion,
     render_revision: u64,
     host_output: Vec<u8>,
+    clipboard_requests: Vec<ClipboardRequest>,
+    osc52_read_enabled: bool,
+    base_colors: DynamicColors,
+    dynamic_colors: DynamicColors,
     last_graphic_char: Option<char>,
     tab_stops: Vec<bool>,
     /// Window title set via OSC 0/2. `None` until a title is set; `Some("")`
@@ -156,6 +163,14 @@ struct ScrollRegion {
     top: usize,
     bottom: usize,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DefaultColorSlot {
+    Foreground,
+    Background,
+    Cursor,
+}
+
 impl Screen {
     pub fn new(columns: usize, rows: usize) -> Self {
         let dimensions = Dimensions::new(columns, rows);
@@ -177,6 +192,10 @@ impl Screen {
             dirty: DirtyRegion::Full,
             render_revision: 0,
             host_output: Vec::new(),
+            clipboard_requests: Vec::new(),
+            osc52_read_enabled: false,
+            base_colors: DynamicColors::default(),
+            dynamic_colors: DynamicColors::default(),
             last_graphic_char: None,
             tab_stops: default_tab_stops(dimensions.columns),
             title: None,
@@ -246,6 +265,43 @@ impl Screen {
         self.render_revision
     }
 
+    pub fn dynamic_colors(&self) -> &DynamicColors {
+        &self.dynamic_colors
+    }
+
+    pub fn set_base_colors(
+        &mut self,
+        foreground: RgbColor,
+        background: RgbColor,
+        cursor: RgbColor,
+    ) {
+        self.base_colors.foreground = foreground;
+        self.base_colors.background = background;
+        self.base_colors.cursor = cursor;
+        self.dynamic_colors.foreground = foreground;
+        self.dynamic_colors.background = background;
+        self.dynamic_colors.cursor = cursor;
+        self.mark_dirty();
+    }
+
+    pub fn set_osc52_read_enabled(&mut self, enabled: bool) {
+        self.osc52_read_enabled = enabled;
+    }
+
+    pub fn take_clipboard_requests(&mut self) -> Vec<ClipboardRequest> {
+        std::mem::take(&mut self.clipboard_requests)
+    }
+
+    pub fn answer_clipboard_read(&mut self, selection: ClipboardSelection, text: &str) {
+        self.host_output.extend_from_slice(b"\x1b]52;");
+        self.host_output
+            .extend_from_slice(osc52_selection_bytes(selection));
+        self.host_output.push(b';');
+        self.host_output
+            .extend_from_slice(encode_base64_bytes(text.as_bytes()).as_bytes());
+        self.host_output.extend_from_slice(b"\x1b\\");
+    }
+
     /// DECSDM (private mode 80): when `true`, sixel images anchor at the cursor
     /// and the cursor does NOT move after display. When `false` (default),
     /// the cursor moves below the image.
@@ -282,6 +338,146 @@ impl Screen {
         self.cursor_style = style;
         self.cursor_blink = blink;
         self.mark_dirty();
+    }
+
+    fn osc_default_color(&mut self, params: &[&[u8]], slot: DefaultColorSlot) {
+        let Some(&value) = params.get(1) else {
+            return;
+        };
+        if value == b"?" {
+            self.host_output.extend_from_slice(b"\x1b]");
+            self.host_output
+                .extend_from_slice(default_color_osc_code(slot));
+            self.host_output.push(b';');
+            self.host_output
+                .extend_from_slice(format_xterm_rgb(self.default_color(slot)).as_bytes());
+            self.host_output.extend_from_slice(b"\x1b\\");
+            return;
+        }
+        let Some(color) = parse_xterm_rgb(value) else {
+            return;
+        };
+        match slot {
+            DefaultColorSlot::Foreground => self.dynamic_colors.foreground = color,
+            DefaultColorSlot::Background => self.dynamic_colors.background = color,
+            DefaultColorSlot::Cursor => self.dynamic_colors.cursor = color,
+        }
+        self.mark_dirty();
+    }
+
+    fn reset_default_color(&mut self, slot: DefaultColorSlot) {
+        match slot {
+            DefaultColorSlot::Foreground => {
+                self.dynamic_colors.foreground = self.base_colors.foreground;
+            }
+            DefaultColorSlot::Background => {
+                self.dynamic_colors.background = self.base_colors.background;
+            }
+            DefaultColorSlot::Cursor => {
+                self.dynamic_colors.cursor = self.base_colors.cursor;
+            }
+        }
+        self.mark_dirty();
+    }
+
+    fn default_color(&self, slot: DefaultColorSlot) -> RgbColor {
+        match slot {
+            DefaultColorSlot::Foreground => self.dynamic_colors.foreground,
+            DefaultColorSlot::Background => self.dynamic_colors.background,
+            DefaultColorSlot::Cursor => self.dynamic_colors.cursor,
+        }
+    }
+
+    fn osc_palette(&mut self, params: &[&[u8]]) {
+        for pair in params[1..].chunks(2) {
+            let [index, value] = pair else {
+                return;
+            };
+            let Ok(index) = std::str::from_utf8(index).unwrap_or("").parse::<u16>() else {
+                continue;
+            };
+            if index > 255 {
+                continue;
+            }
+            let index = index as u8;
+            if *value == b"?" {
+                self.host_output.extend_from_slice(b"\x1b]4;");
+                self.host_output
+                    .extend_from_slice(index.to_string().as_bytes());
+                self.host_output.push(b';');
+                self.host_output
+                    .extend_from_slice(format_xterm_rgb(self.palette_color(index)).as_bytes());
+                self.host_output.extend_from_slice(b"\x1b\\");
+            } else if let Some(color) = parse_xterm_rgb(value) {
+                self.dynamic_colors.palette[index as usize] = Some(color);
+                self.mark_dirty();
+            }
+        }
+    }
+
+    fn osc_reset_palette(&mut self, params: &[&[u8]]) {
+        if params.len() == 1 {
+            if self.dynamic_colors.palette.iter().any(Option::is_some) {
+                self.dynamic_colors.palette = [None; 256];
+                self.mark_dirty();
+            }
+            return;
+        }
+
+        let mut changed = false;
+        for raw in &params[1..] {
+            let Ok(index) = std::str::from_utf8(raw).unwrap_or("").parse::<u16>() else {
+                continue;
+            };
+            if index <= 255 {
+                changed |= self.dynamic_colors.palette[index as usize].take().is_some();
+            }
+        }
+        if changed {
+            self.mark_dirty();
+        }
+    }
+
+    fn palette_color(&self, index: u8) -> RgbColor {
+        self.dynamic_colors.palette[index as usize].unwrap_or_else(|| indexed_srgb(index))
+    }
+
+    fn osc_clipboard(&mut self, params: &[&[u8]]) {
+        let selectors = params
+            .get(1)
+            .copied()
+            .and_then(osc52_selections)
+            .unwrap_or_else(|| vec![ClipboardSelection::Clipboard]);
+        let Some(&payload) = params.get(2) else {
+            return;
+        };
+
+        if payload == b"?" {
+            if self.osc52_read_enabled {
+                self.clipboard_requests.extend(
+                    selectors
+                        .into_iter()
+                        .map(|selection| ClipboardRequest::Read { selection }),
+                );
+            }
+            return;
+        }
+
+        let Some(decoded) = decode_base64_bytes(payload, OSC52_CLIPBOARD_MAX_BYTES) else {
+            return;
+        };
+        let Ok(text) = String::from_utf8(decoded) else {
+            return;
+        };
+        self.clipboard_requests
+            .extend(
+                selectors
+                    .into_iter()
+                    .map(|selection| ClipboardRequest::Write {
+                        selection,
+                        text: text.clone(),
+                    }),
+            );
     }
 
     pub fn dimensions(&self) -> Dimensions {
@@ -380,6 +576,7 @@ impl Screen {
             dimensions: self.dimensions,
             cursor: self.cursor,
             cursor_visible: self.cursor_visible,
+            colors: self.dynamic_colors.clone(),
             cells: self
                 .rows
                 .iter()
@@ -444,6 +641,7 @@ impl Screen {
             dimensions: self.dimensions,
             cursor: self.cursor,
             cursor_visible: false,
+            colors: self.dynamic_colors.clone(),
             cells,
         }
     }
@@ -786,10 +984,10 @@ impl Screen {
     }
 
     /// OSC handler. Title controls (OSC 0/2) set the window title; OSC 8 opens
-    /// or closes hyperlink state for subsequently printed cells. Other OSCs (4
-    /// palette, 7 cwd, 10/11/12 colors, 52 clipboard, 133 shell integration, …)
-    /// are consumed safely here. Because OSC payloads never flow through
-    /// `print`, none of these can leak bytes into the grid.
+    /// or closes hyperlink state for subsequently printed cells; OSC 4/10/11/12
+    /// update/query runtime colors; OSC 52 queues clipboard requests for the
+    /// native layer. Unknown OSCs are consumed safely here. Because OSC payloads
+    /// never flow through `print`, none of these can leak bytes into the grid.
     fn dispatch_osc(&mut self, params: &[&[u8]], _bell_terminated: bool) {
         let Some(&ident) = params.first() else {
             return;
@@ -799,7 +997,16 @@ impl Screen {
             b"0" | b"2" => self.set_title(osc_string(&params[1..])),
             // OSC 1 = icon name only: consume without touching the window title.
             b"1" => {}
+            b"4" => self.osc_palette(params),
             b"8" => self.set_hyperlink(params),
+            b"10" => self.osc_default_color(params, DefaultColorSlot::Foreground),
+            b"11" => self.osc_default_color(params, DefaultColorSlot::Background),
+            b"12" => self.osc_default_color(params, DefaultColorSlot::Cursor),
+            b"52" => self.osc_clipboard(params),
+            b"104" => self.osc_reset_palette(params),
+            b"110" => self.reset_default_color(DefaultColorSlot::Foreground),
+            b"111" => self.reset_default_color(DefaultColorSlot::Background),
+            b"112" => self.reset_default_color(DefaultColorSlot::Cursor),
             _ => {}
         }
     }
@@ -994,6 +1201,27 @@ impl Terminal {
         std::mem::take(&mut self.screen.host_output)
     }
 
+    pub fn take_clipboard_requests(&mut self) -> Vec<ClipboardRequest> {
+        self.screen.take_clipboard_requests()
+    }
+
+    pub fn set_osc52_read_enabled(&mut self, enabled: bool) {
+        self.screen.set_osc52_read_enabled(enabled);
+    }
+
+    pub fn answer_clipboard_read(&mut self, selection: ClipboardSelection, text: &str) {
+        self.screen.answer_clipboard_read(selection, text);
+    }
+
+    pub fn set_base_colors(
+        &mut self,
+        foreground: RgbColor,
+        background: RgbColor,
+        cursor: RgbColor,
+    ) {
+        self.screen.set_base_colors(foreground, background, cursor);
+    }
+
     pub fn bracketed_paste_enabled(&self) -> bool {
         self.screen.bracketed_paste_enabled()
     }
@@ -1163,6 +1391,105 @@ fn osc_string(parts: &[&[u8]]) -> String {
     }
     String::from_utf8_lossy(&bytes).into_owned()
 }
+
+fn osc52_selections(raw: &[u8]) -> Option<Vec<ClipboardSelection>> {
+    if raw.is_empty() {
+        return Some(vec![ClipboardSelection::Clipboard]);
+    }
+    let mut selections = Vec::new();
+    for &byte in raw {
+        let selection = match byte {
+            b'c' => ClipboardSelection::Clipboard,
+            b'p' => ClipboardSelection::Primary,
+            _ => continue,
+        };
+        if !selections.contains(&selection) {
+            selections.push(selection);
+        }
+    }
+    (!selections.is_empty()).then_some(selections)
+}
+
+fn osc52_selection_bytes(selection: ClipboardSelection) -> &'static [u8] {
+    match selection {
+        ClipboardSelection::Clipboard => b"c",
+        ClipboardSelection::Primary => b"p",
+    }
+}
+
+fn parse_xterm_rgb(raw: &[u8]) -> Option<RgbColor> {
+    let raw = std::str::from_utf8(raw).ok()?;
+    let components = raw.strip_prefix("rgb:")?;
+    let mut parts = components.split('/');
+    let red = parse_xterm_rgb_component(parts.next()?)?;
+    let green = parse_xterm_rgb_component(parts.next()?)?;
+    let blue = parse_xterm_rgb_component(parts.next()?)?;
+    parts
+        .next()
+        .is_none()
+        .then(|| RgbColor::new(red, green, blue))
+}
+
+fn parse_xterm_rgb_component(component: &str) -> Option<u8> {
+    if component.is_empty() || component.len() > 4 {
+        return None;
+    }
+    let value = u32::from_str_radix(component, 16).ok()?;
+    let max = (1u32 << (component.len() * 4)) - 1;
+    Some(((value * 255 + max / 2) / max) as u8)
+}
+
+fn format_xterm_rgb(color: RgbColor) -> String {
+    format!(
+        "rgb:{:04x}/{:04x}/{:04x}",
+        color.red as u16 * 257,
+        color.green as u16 * 257,
+        color.blue as u16 * 257
+    )
+}
+
+fn default_color_osc_code(slot: DefaultColorSlot) -> &'static [u8] {
+    match slot {
+        DefaultColorSlot::Foreground => b"10",
+        DefaultColorSlot::Background => b"11",
+        DefaultColorSlot::Cursor => b"12",
+    }
+}
+
+fn indexed_srgb(index: u8) -> RgbColor {
+    let (red, green, blue) = match index {
+        0 => (0x00, 0x00, 0x00),
+        1 => (0xCD, 0x00, 0x00),
+        2 => (0x00, 0xCD, 0x00),
+        3 => (0xCD, 0xCD, 0x00),
+        4 => (0x00, 0x00, 0xEE),
+        5 => (0xCD, 0x00, 0xCD),
+        6 => (0x00, 0xCD, 0xCD),
+        7 => (0xE5, 0xE5, 0xE5),
+        8 => (0x7F, 0x7F, 0x7F),
+        9 => (0xFF, 0x00, 0x00),
+        10 => (0x00, 0xFF, 0x00),
+        11 => (0xFF, 0xFF, 0x00),
+        12 => (0x5C, 0x5C, 0xFF),
+        13 => (0xFF, 0x00, 0xFF),
+        14 => (0x00, 0xFF, 0xFF),
+        15 => (0xFF, 0xFF, 0xFF),
+        16..=231 => {
+            let i = index - 16;
+            let r = i / 36;
+            let g = (i % 36) / 6;
+            let b = i % 6;
+            let level = |v: u8| -> u8 { if v == 0 { 0 } else { 55 + v * 40 } };
+            (level(r), level(g), level(b))
+        }
+        232..=255 => {
+            let v = 8 + (index - 232) * 10;
+            (v, v, v)
+        }
+    };
+    RgbColor::new(red, green, blue)
+}
+
 /// Resolve a count/position CSI parameter, applying the ECMA-48 rule that an
 /// omitted *or zero* parameter means 1. The parser represents an omitted
 /// parameter as an explicit `0` (e.g. `ESC [ A` parses as a single `0` param),

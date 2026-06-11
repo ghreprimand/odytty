@@ -177,11 +177,11 @@ immediately. Env-pinned keys are preserved: any setting that was supplied via
 reload cannot override it.
 
 Reloadable settings: `theme`, `visual`, `font`, `font_family`, `font_size`,
-`text_gamma`, `subpixel`, `cursor_style`, `cursor_blink`, `keybinds`. Font
-path, family, size, and subpixel changes rebuild the glyph atlas and cell
-metrics, recompute the terminal grid, and push PTY `TIOCSWINSZ` through the
-same path used for HiDPI scale changes. A bad rewrite is a no-op; a deleted
-config file keeps the current settings; reload never panics.
+`text_gamma`, `subpixel`, `cursor_style`, `cursor_blink`, `keybinds`,
+`osc52_read`. Font path, family, size, and subpixel changes rebuild the glyph
+atlas and cell metrics, recompute the terminal grid, and push PTY `TIOCSWINSZ`
+through the same path used for HiDPI scale changes. A bad rewrite is a no-op; a
+deleted config file keeps the current settings; reload never panics.
 
 **Startup-only setting.** `native_autoclose_ms` is not reloadable. Changing a
 lifecycle smoke timer mid-session would make manual and automated test behavior
@@ -206,6 +206,30 @@ app calls `xdg-open` with the URI as a direct argument after verifying its
 scheme against an allowlist (`http`, `https`, `file`, `mailto`). No shell
 interpolation occurs. Links are never followed automatically; the allowlist
 check and the `xdg-open` call only happen on deliberate user action.
+
+### OSC 52 Clipboard
+
+OSC 52 clipboard writes (`ESC ] 52 ; selector ; base64 ST`) decode bounded
+UTF-8 text in the terminal core and surface a native clipboard request through
+an explicit queue. Selectors `c` and `p` target the regular clipboard and
+PRIMARY selection; an empty selector defaults to the regular clipboard. Decoded
+payloads are capped at 64 KiB and invalid base64 or non-UTF-8 payloads are
+dropped without grid leakage or a host reply.
+
+OSC 52 reads (`... ; ? ST`) are disabled by default because replying with
+clipboard contents lets a remote program exfiltrate local data. With the
+default `osc52_read = off`, the core queues no request and sends no reply.
+Only an explicit `osc52_read = on` / `ODYTTY_OSC52_READ=on` opt-in lets native
+clipboard reads produce an OSC 52 reply.
+
+### Dynamic Colors
+
+OdyTTY supports xterm-style runtime color controls: OSC 10/11/12 set and query
+default foreground, background, and cursor colors; OSC 4 sets and queries
+palette entries; OSC 104/110/111/112 reset palette/default overrides. Runtime
+colors live in terminal state and are included in render snapshots. The active
+theme remains the base presentation; resets return to that theme rather than
+rewriting the theme itself.
 
 ### Kitty Keyboard Protocol
 
@@ -257,9 +281,10 @@ its first stable layer.
 - Refined selection: double-click word, triple-click line, drag-scroll,
   scrollback-aware anchors
 - Clipboard hardening: chunked paste, bracketed-paste sanitization, PRIMARY
-  selection
+  selection, OSC 52 write support, and default-deny OSC 52 read policy
 - OSC 8 hyperlinks: hover underline, Ctrl+click open via `xdg-open`, scheme
   allowlist (`http`/`https`/`file`/`mailto`), never auto-opened from input
+- Dynamic colors: OSC 10/11/12, OSC 4 palette entries, and reset/query support
 - Right-edge scroll position indicator
 - Configurable cursor shapes and blink policy (DECSCUSR + settings)
 - Configurable terminal-local key bindings

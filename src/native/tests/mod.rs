@@ -70,6 +70,7 @@ pub(super) fn snapshot(lines: &[&str], columns: usize) -> Snapshot {
         dimensions: Dimensions::new(columns, rows),
         cursor: Position::default(),
         cursor_visible: true,
+        colors: crate::core::DynamicColors::default(),
         cells,
     }
 }

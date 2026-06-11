@@ -172,6 +172,66 @@ impl Default for Color {
         Self::Default
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RgbColor {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8,
+}
+
+impl RgbColor {
+    pub fn new(red: u8, green: u8, blue: u8) -> Self {
+        Self { red, green, blue }
+    }
+
+    pub fn tuple(self) -> (u8, u8, u8) {
+        (self.red, self.green, self.blue)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DynamicColors {
+    pub foreground: RgbColor,
+    pub background: RgbColor,
+    pub cursor: RgbColor,
+    pub palette: [Option<RgbColor>; 256],
+}
+
+impl DynamicColors {
+    pub fn palette_color(&self, index: u8) -> Option<RgbColor> {
+        self.palette[index as usize]
+    }
+}
+
+impl Default for DynamicColors {
+    fn default() -> Self {
+        Self {
+            foreground: RgbColor::new(0xCC, 0xCC, 0xCC),
+            background: RgbColor::new(0x0B, 0x0C, 0x10),
+            cursor: RgbColor::new(0xCC, 0xCC, 0xCC),
+            palette: [None; 256],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClipboardSelection {
+    Clipboard,
+    Primary,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClipboardRequest {
+    Write {
+        selection: ClipboardSelection,
+        text: String,
+    },
+    Read {
+        selection: ClipboardSelection,
+    },
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct Attrs {
     pub bold: bool,
@@ -321,12 +381,24 @@ pub enum CursorStyle {
     Bar,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Snapshot {
     pub dimensions: Dimensions,
     pub cursor: Position,
     pub cursor_visible: bool,
+    pub colors: DynamicColors,
     pub cells: Vec<Cell>,
+}
+
+impl std::fmt::Debug for Snapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Snapshot")
+            .field("dimensions", &self.dimensions)
+            .field("cursor", &self.cursor)
+            .field("cursor_visible", &self.cursor_visible)
+            .field("cells", &self.cells)
+            .finish()
+    }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirtyRegion {

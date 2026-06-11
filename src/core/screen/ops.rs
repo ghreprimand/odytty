@@ -900,6 +900,8 @@ impl Screen {
         self.current_attrs = Attrs::default();
         self.active_hyperlink = None;
         self.host_output.clear();
+        self.clipboard_requests.clear();
+        self.dynamic_colors = self.base_colors.clone();
         self.last_graphic_char = None;
         self.graphics.hard_reset();
         self.hyperlinks.clear();

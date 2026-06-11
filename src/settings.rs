@@ -34,6 +34,7 @@ pub const SUBPIXEL_ENV: &str = "ODYTTY_SUBPIXEL";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
 pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
+pub const OSC52_READ_ENV: &str = "ODYTTY_OSC52_READ";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
@@ -50,6 +51,7 @@ const SETTING_ENV_KEYS: &[&str] = &[
     KEYBINDS_ENV,
     CURSOR_STYLE_ENV,
     CURSOR_BLINK_ENV,
+    OSC52_READ_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 
@@ -189,6 +191,9 @@ pub struct Settings {
     pub cursor_style: CursorStyle,
     /// Default cursor blink policy applied at power-on (DECSCUSR can override).
     pub cursor_blink: CursorBlink,
+    /// Whether OSC 52 clipboard read/query replies are enabled. Off by default
+    /// to avoid silent clipboard exfiltration.
+    pub osc52_read: bool,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -205,6 +210,7 @@ impl Default for Settings {
             key_bindings: Vec::new(),
             cursor_style: CursorStyle::Block,
             cursor_blink: CursorBlink::Auto,
+            osc52_read: false,
             native_autoclose: None,
         }
     }
@@ -316,6 +322,12 @@ impl Settings {
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
         let cursor_blink = parse_cursor_blink_setting(get(CURSOR_BLINK_ENV).as_deref(), &mut warn);
+        let osc52_read = parse_bool_setting(
+            get(OSC52_READ_ENV).as_deref(),
+            OSC52_READ_ENV,
+            false,
+            &mut warn,
+        );
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -329,6 +341,7 @@ impl Settings {
             key_bindings,
             cursor_style,
             cursor_blink,
+            osc52_read,
             native_autoclose,
         }
     }
@@ -469,6 +482,30 @@ fn parse_autoclose(raw: Option<&OsStr>) -> Option<Duration> {
     let raw = raw?;
     let ms: u64 = raw.to_string_lossy().trim().parse().ok()?;
     (ms > 0).then_some(Duration::from_millis(ms))
+}
+
+fn parse_bool_setting(
+    raw: Option<&OsStr>,
+    env: &str,
+    default: bool,
+    warn: &mut impl FnMut(&str),
+) -> bool {
+    let Some(raw) = raw else {
+        return default;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return default;
+    }
+    match normalize_name(trimmed).as_str() {
+        "1" | "true" | "yes" | "on" | "enabled" | "enable" => true,
+        "0" | "false" | "no" | "off" | "disabled" | "disable" => false,
+        _ => {
+            warn(&format!("{env}={trimmed:?} is not on|off; using {default}"));
+            default
+        }
+    }
 }
 
 fn parse_key_bindings(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> Vec<KeyBindingOverride> {

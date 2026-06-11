@@ -23,7 +23,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::atlas::GlyphBounds;
-use crate::core::{Attrs, CursorStyle, Snapshot};
+use crate::core::{Attrs, Color, CursorStyle, DynamicColors, RgbColor, Snapshot};
 use crate::text::{self, FontStyle, GlyphAtlas};
 
 /// One vertex of a cell quad. Matches the `VsIn` layout in `cell.wgsl`.
@@ -200,8 +200,8 @@ pub fn build_cell_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atla
     // Effective foreground/background after inverse + dim, and the column span of
     // a wide lead cell. Computed identically in both passes.
     let resolve = |cell: &crate::core::Cell| -> ([f32; 4], [f32; 4]) {
-        let mut fg = text::foreground_linear(cell.attrs.foreground);
-        let mut bg = text::background_linear(cell.attrs.background);
+        let mut fg = foreground_linear(&snapshot.colors, cell.attrs.foreground);
+        let mut bg = background_linear(&snapshot.colors, cell.attrs.background);
         if cell.attrs.inverse {
             std::mem::swap(&mut fg, &mut bg);
         }
@@ -409,13 +409,10 @@ fn push_cursor(
     // Effective colors after the cell's own inverse attribute. For the block
     // cursor these are swapped again so the block reads as an inversion of the
     // cell; the bar/underline shapes draw in the effective foreground.
-    let mut fg = text::foreground_linear(cell.attrs.foreground);
-    let mut bg = text::background_linear(cell.attrs.background);
+    let mut fg = foreground_linear(&snapshot.colors, cell.attrs.foreground);
+    let mut bg = background_linear(&snapshot.colors, cell.attrs.background);
     if cell.attrs.inverse {
         std::mem::swap(&mut fg, &mut bg);
-    }
-    if cell.attrs.dim {
-        fg = dim_color(fg);
     }
 
     let x0 = col as f32 * cell_w;
@@ -423,7 +420,7 @@ fn push_cursor(
 
     match style {
         CursorStyle::Block => {
-            let block_color = fg;
+            let block_color = rgb_linear(snapshot.colors.cursor);
             let glyph_color = bg;
             push_quad(
                 out,
@@ -445,7 +442,7 @@ fn push_cursor(
                 out,
                 SolidQuad {
                     rect: cursor_underline_rect(x0, y0, cell_w, cell_h),
-                    color: fg,
+                    color: rgb_linear(snapshot.colors.cursor),
                 },
             );
         }
@@ -454,11 +451,48 @@ fn push_cursor(
                 out,
                 SolidQuad {
                     rect: cursor_bar_rect(x0, y0, cell_w, cell_h),
-                    color: fg,
+                    color: rgb_linear(snapshot.colors.cursor),
                 },
             );
         }
     }
+}
+
+fn foreground_linear(colors: &DynamicColors, color: Color) -> [f32; 4] {
+    match color {
+        Color::Default => rgb_linear(colors.foreground),
+        Color::Indexed(index) => rgb_linear(
+            colors
+                .palette_color(index)
+                .unwrap_or_else(|| rgb_from_tuple(text::indexed_srgb(index))),
+        ),
+        Color::Rgb(red, green, blue) => rgb_linear(RgbColor::new(red, green, blue)),
+    }
+}
+
+fn background_linear(colors: &DynamicColors, color: Color) -> [f32; 4] {
+    match color {
+        Color::Default => rgb_linear(colors.background),
+        Color::Indexed(index) => rgb_linear(
+            colors
+                .palette_color(index)
+                .unwrap_or_else(|| rgb_from_tuple(text::indexed_srgb(index))),
+        ),
+        Color::Rgb(red, green, blue) => rgb_linear(RgbColor::new(red, green, blue)),
+    }
+}
+
+fn rgb_linear(color: RgbColor) -> [f32; 4] {
+    [
+        text::srgb_to_linear(color.red),
+        text::srgb_to_linear(color.green),
+        text::srgb_to_linear(color.blue),
+        1.0,
+    ]
+}
+
+fn rgb_from_tuple(color: (u8, u8, u8)) -> RgbColor {
+    RgbColor::new(color.0, color.1, color.2)
 }
 
 #[cfg(test)]
@@ -526,6 +560,24 @@ mod tests {
         assert_eq!(inv_bg, text::foreground_linear(Color::Default));
         assert_eq!(inv_glyph, text::background_linear(Color::Default));
         assert_ne!(inv_bg, plain_bg);
+    }
+
+    #[test]
+    fn dynamic_colors_override_rendered_defaults_and_palette() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+
+        let mut term = Terminal::new(2, 1);
+        term.advance(b"\x1b[?25l\x1b]11;rgb:ffff/0000/0000\x1b\\ ");
+        let verts = build_vertices(&term.snapshot(), &atlas);
+        assert_eq!(verts[0].color, rgb_linear(RgbColor::new(255, 0, 0)));
+
+        let mut term = Terminal::new(2, 1);
+        term.advance(b"\x1b[?25l\x1b]4;1;rgb:0000/ffff/0000\x1b\\\x1b[41m ");
+        let verts = build_vertices(&term.snapshot(), &atlas);
+        assert_eq!(verts[0].color, rgb_linear(RgbColor::new(0, 255, 0)));
     }
 
     #[test]
@@ -643,6 +695,7 @@ mod tests {
                 column: 99,
             },
             cursor_visible: true,
+            colors: crate::core::DynamicColors::default(),
             cells,
         };
 

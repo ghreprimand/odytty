@@ -844,6 +844,35 @@ fn decode_base64(input: &[u8], max_decoded: usize) -> Result<Vec<u8>, KittyError
     Ok(out)
 }
 
+pub(crate) fn decode_base64_bytes(input: &[u8], max_decoded: usize) -> Option<Vec<u8>> {
+    decode_base64(input, max_decoded).ok()
+}
+
+pub(crate) fn encode_base64_bytes(input: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
+    for chunk in input.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = *chunk.get(1).unwrap_or(&0);
+        let b2 = *chunk.get(2).unwrap_or(&0);
+        let triple = ((b0 as u32) << 16) | ((b1 as u32) << 8) | b2 as u32;
+
+        out.push(ALPHABET[((triple >> 18) & 0x3f) as usize] as char);
+        out.push(ALPHABET[((triple >> 12) & 0x3f) as usize] as char);
+        if chunk.len() >= 2 {
+            out.push(ALPHABET[((triple >> 6) & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() == 3 {
+            out.push(ALPHABET[(triple & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
 fn base64_value(byte: u8) -> Option<u8> {
     match byte {
         b'A'..=b'Z' => Some(byte - b'A'),

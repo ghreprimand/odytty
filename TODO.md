@@ -106,6 +106,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] OSC 8 hyperlinks: core cell association and id dedup; native hover
         underline plus explicit Ctrl+click open with scheme allowlist and no
         shell interpolation.
+  - [x] OSC 52 clipboard write path with regular/PRIMARY selectors, bounded
+        base64 decoding, and default-deny read/query policy behind explicit
+        `osc52_read` opt-in.
+  - [x] Dynamic colors: OSC 10/11/12 default color set/query, OSC 4 palette
+        set/query, and OSC 104/110/111/112 reset behavior.
 - [x] Add mouse reporting modes required by real TUIs.
   - [x] Core: DECSET/DECRST tracking (9/1000/1002/1003) and encoding
         (1005/1006/1015) state plus pure report encoders.

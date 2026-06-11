@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — OSC 52 clipboard and dynamic colors (OSC1)
+
+OdyTTY now owns the clipboard and dynamic-color OSC paths that common shells,
+editors, and theme tools probe.
+
+- **OSC 52 write path.** `OSC 52 ; c/p ; base64` decodes bounded UTF-8 text in
+  core and queues an explicit native clipboard request. The native layer drains
+  those requests on the UI thread and routes `c` to the regular clipboard and
+  `p` to PRIMARY. Decoded payloads are capped at 64 KiB; invalid base64 and
+  non-UTF-8 payloads are dropped without grid leakage or a host reply.
+- **Default-deny OSC 52 reads.** `OSC 52 ; selector ; ?` queues nothing and
+  answers nothing by default. The new `osc52_read` / `ODYTTY_OSC52_READ` opt-in
+  enables read requests, and native replies only after reading the selected
+  clipboard slot. This keeps clipboard exfiltration behind an explicit policy.
+- **Dynamic colors.** OSC 10/11/12 set and query default foreground,
+  background, and cursor colors; OSC 4 sets and queries palette entries; OSC
+  104/110/111/112 reset runtime overrides. Render snapshots now carry the
+  effective color table so the theme remains the base and resets return to it.
+- **Coverage.** Added core fixtures for OSC 52 writes, default-off reads,
+  opt-in read replies, invalid/over-cap payloads, default color set/query/reset,
+  and palette set/query/reset. Added settings coverage for `osc52_read` and a
+  native clipboard selector mock test.
+
+---
+
 ## 2026-06-11 — Modularity split: native/tests.rs (M6)
 
 Mechanical split of `src/native/tests.rs` (1843 lines — the largest remaining

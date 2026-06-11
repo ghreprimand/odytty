@@ -7,7 +7,7 @@ use arboard::Clipboard;
 ))]
 use arboard::{GetExtLinux, LinuxClipboardKind, SetExtLinux};
 
-use crate::core::{Snapshot, Terminal};
+use crate::core::{ClipboardSelection, Snapshot, Terminal};
 use crate::selection;
 
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, spawn_chunked_pty_write};
@@ -56,8 +56,15 @@ pub(super) struct NativeClipboard {
     slot: ClipboardSlot<Clipboard>,
 }
 
-impl NativeClipboard {
-    pub(super) fn read_text(&mut self) -> Option<String> {
+pub(super) trait ClipboardSelectionIo {
+    fn read_clipboard_text(&mut self) -> Option<String>;
+    fn write_clipboard_text(&mut self, text: &str) -> Option<()>;
+    fn read_primary_selection_text(&mut self) -> Option<String>;
+    fn write_primary_selection_text(&mut self, text: &str) -> Option<()>;
+}
+
+impl ClipboardSelectionIo for NativeClipboard {
+    fn read_clipboard_text(&mut self) -> Option<String> {
         let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
             Ok(clipboard) => clipboard,
             Err(err) => {
@@ -76,7 +83,7 @@ impl NativeClipboard {
         }
     }
 
-    pub(super) fn write_text(&mut self, text: &str) -> Option<()> {
+    fn write_clipboard_text(&mut self, text: &str) -> Option<()> {
         let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
             Ok(clipboard) => clipboard,
             Err(err) => {
@@ -99,7 +106,7 @@ impl NativeClipboard {
         unix,
         not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
     ))]
-    pub(super) fn read_primary_text(&mut self) -> Option<String> {
+    fn read_primary_selection_text(&mut self) -> Option<String> {
         let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
             Ok(clipboard) => clipboard,
             Err(err) => {
@@ -126,7 +133,7 @@ impl NativeClipboard {
         unix,
         not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
     ))]
-    pub(super) fn write_primary_text(&mut self, text: &str) -> Option<()> {
+    fn write_primary_selection_text(&mut self, text: &str) -> Option<()> {
         let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
             Ok(clipboard) => clipboard,
             Err(err) => {
@@ -147,6 +154,45 @@ impl NativeClipboard {
                 None
             }
         }
+    }
+}
+
+impl NativeClipboard {
+    pub(super) fn read_text(&mut self) -> Option<String> {
+        self.read_clipboard_text()
+    }
+
+    pub(super) fn write_text(&mut self, text: &str) -> Option<()> {
+        self.write_clipboard_text(text)
+    }
+
+    pub(super) fn read_primary_text(&mut self) -> Option<String> {
+        self.read_primary_selection_text()
+    }
+
+    pub(super) fn write_primary_text(&mut self, text: &str) -> Option<()> {
+        self.write_primary_selection_text(text)
+    }
+}
+
+pub(super) fn write_clipboard_selection(
+    clipboard: &mut impl ClipboardSelectionIo,
+    selection: ClipboardSelection,
+    text: &str,
+) -> Option<()> {
+    match selection {
+        ClipboardSelection::Clipboard => clipboard.write_clipboard_text(text),
+        ClipboardSelection::Primary => clipboard.write_primary_selection_text(text),
+    }
+}
+
+pub(super) fn read_clipboard_selection(
+    clipboard: &mut impl ClipboardSelectionIo,
+    selection: ClipboardSelection,
+) -> Option<String> {
+    match selection {
+        ClipboardSelection::Clipboard => clipboard.read_clipboard_text(),
+        ClipboardSelection::Primary => clipboard.read_primary_selection_text(),
     }
 }
 
@@ -234,4 +280,52 @@ fn normalize_plain_paste(text: &str) -> Vec<u8> {
         }
     }
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Default)]
+    struct MockClipboard {
+        clipboard: Option<String>,
+        primary: Option<String>,
+    }
+
+    impl ClipboardSelectionIo for MockClipboard {
+        fn read_clipboard_text(&mut self) -> Option<String> {
+            self.clipboard.clone()
+        }
+
+        fn write_clipboard_text(&mut self, text: &str) -> Option<()> {
+            self.clipboard = Some(text.to_string());
+            Some(())
+        }
+
+        fn read_primary_selection_text(&mut self) -> Option<String> {
+            self.primary.clone()
+        }
+
+        fn write_primary_selection_text(&mut self, text: &str) -> Option<()> {
+            self.primary = Some(text.to_string());
+            Some(())
+        }
+    }
+
+    #[test]
+    fn clipboard_selection_helpers_route_to_mock_slots() {
+        let mut clipboard = MockClipboard::default();
+
+        write_clipboard_selection(&mut clipboard, ClipboardSelection::Clipboard, "regular");
+        write_clipboard_selection(&mut clipboard, ClipboardSelection::Primary, "primary");
+
+        assert_eq!(
+            read_clipboard_selection(&mut clipboard, ClipboardSelection::Clipboard).as_deref(),
+            Some("regular")
+        );
+        assert_eq!(
+            read_clipboard_selection(&mut clipboard, ClipboardSelection::Primary).as_deref(),
+            Some("primary")
+        );
+    }
 }

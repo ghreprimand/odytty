@@ -68,7 +68,7 @@ mod tests;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use crate::core::Terminal;
+use crate::core::{RgbColor, Terminal};
 use crate::pty::PtySession;
 use crate::settings::Settings;
 use crate::text;
@@ -94,6 +94,12 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // Shared terminal model, sized to the initial grid. The pump thread writes
     // to it; the UI thread snapshots from it.
     let mut model = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);
+    model.set_base_colors(
+        rgb(theme.foreground),
+        rgb(theme.background),
+        rgb(theme.foreground),
+    );
+    model.set_osc52_read_enabled(settings.osc52_read);
     // Apply the host default cursor shape/blink policy from settings before any
     // output. An application's DECSCUSR can still override this at runtime; RIS/
     // DECSTR return to it. Presentation policy only — the grid contents are
@@ -150,4 +156,8 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         return Err(err);
     }
     Ok(())
+}
+
+fn rgb(color: (u8, u8, u8)) -> RgbColor {
+    RgbColor::new(color.0, color.1, color.2)
 }

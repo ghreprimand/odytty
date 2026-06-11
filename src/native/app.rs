@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::core::{
-    Color, Dimensions, LinkId, MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol,
-    Snapshot, Terminal,
+    ClipboardRequest, Color, Dimensions, LinkId, MouseButton as CoreMouseButton, MouseEventKind,
+    MouseProtocol, RgbColor, Snapshot, Terminal,
 };
 use crate::input::{self, Key, KeyEventType, KeyModes, Modifiers};
 use crate::pty::PtySession;
@@ -29,7 +29,10 @@ use super::bindings::{
     map_keypad_physical_key, map_named_key, map_winit_mouse_button, motion_report_button,
     wheel_report_button,
 };
-use super::clipboard::{NativeClipboard, selected_clipboard_text, write_paste_text};
+use super::clipboard::{
+    NativeClipboard, read_clipboard_selection, selected_clipboard_text, write_clipboard_selection,
+    write_paste_text,
+};
 use super::gpu::{FrameOutcome, GpuState};
 use super::options::{NativeError, NativeOptions};
 use super::pty::{PtyWriter, UserEvent};
@@ -531,6 +534,42 @@ impl App {
         let _ = write_paste_text(&self.terminal, &self.writer, &text);
     }
 
+    fn handle_terminal_clipboard_requests(&mut self) {
+        let requests = self
+            .terminal
+            .lock()
+            .map(|mut terminal| terminal.take_clipboard_requests())
+            .unwrap_or_default();
+
+        for request in requests {
+            match request {
+                ClipboardRequest::Write { selection, text } => {
+                    let _ = write_clipboard_selection(&mut self.clipboard, selection, &text);
+                }
+                ClipboardRequest::Read { selection } => {
+                    if !self.settings.osc52_read {
+                        continue;
+                    }
+                    let Some(text) = read_clipboard_selection(&mut self.clipboard, selection)
+                    else {
+                        continue;
+                    };
+                    let host_output = self
+                        .terminal
+                        .lock()
+                        .map(|mut terminal| {
+                            terminal.answer_clipboard_read(selection, &text);
+                            terminal.take_host_output()
+                        })
+                        .unwrap_or_default();
+                    if !host_output.is_empty() {
+                        self.write_pty_bytes(&host_output);
+                    }
+                }
+            }
+        }
+    }
+
     fn update_window_title(&mut self) {
         let Some(window) = self.window.as_ref() else {
             return;
@@ -911,6 +950,12 @@ impl App {
         self.key_bindings = KeyBindings::from_overrides(&self.settings.key_bindings);
         text::set_default_colors(self.theme.foreground, self.theme.background);
         if let Ok(mut terminal) = self.terminal.lock() {
+            terminal.set_base_colors(
+                rgb(self.theme.foreground),
+                rgb(self.theme.background),
+                rgb(self.theme.foreground),
+            );
+            terminal.set_osc52_read_enabled(self.settings.osc52_read);
             terminal.set_cursor_defaults(
                 self.settings.cursor_style,
                 self.settings.cursor_blink.enabled(),
@@ -1062,6 +1107,7 @@ impl ApplicationHandler<UserEvent> for App {
                 self.update_control_flow_deadline(event_loop);
             }
             WindowEvent::RedrawRequested => {
+                self.handle_terminal_clipboard_requests();
                 self.update_window_title();
                 // Rebuild geometry at most once per redraw, no matter how many
                 // pump wakes coalesced into this frame. Snapshot under the lock,
@@ -1341,6 +1387,10 @@ impl ApplicationHandler<UserEvent> for App {
 
         self.update_control_flow_deadline(event_loop);
     }
+}
+
+fn rgb(color: (u8, u8, u8)) -> RgbColor {
+    RgbColor::new(color.0, color.1, color.2)
 }
 
 #[cfg(test)]

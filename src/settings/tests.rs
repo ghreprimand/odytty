@@ -567,6 +567,29 @@ fn garbage_cursor_blink_falls_back_with_one_warning() {
 }
 
 #[test]
+fn osc52_read_defaults_off_and_parses_explicit_opt_in() {
+    let (settings, warnings) = settings_from([]);
+    assert!(!settings.osc52_read);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from([(OSC52_READ_ENV, "on")]);
+    assert!(settings.osc52_read);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from_config_and_env("osc52_read = yes", []);
+    assert!(settings.osc52_read);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_osc52_read_falls_back_off_with_warning() {
+    let (settings, warnings) = settings_from([(OSC52_READ_ENV, "maybe")]);
+    assert!(!settings.osc52_read);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(OSC52_READ_ENV));
+}
+
+#[test]
 fn empty_cursor_settings_are_silent_defaults() {
     let (settings, warnings) = settings_from([(CURSOR_STYLE_ENV, "  "), (CURSOR_BLINK_ENV, "")]);
     assert_eq!(settings.cursor_style, CursorStyle::Block);
