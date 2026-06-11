@@ -16,6 +16,7 @@
 mod encoding;
 mod graphics_routing;
 mod kitty;
+mod kitty_transport;
 mod reflow;
 mod screen;
 mod scrollback;
@@ -36,6 +37,8 @@ mod graphics_tests;
 mod kitty_delete_tests;
 #[cfg(test)]
 mod kitty_tests;
+#[cfg(test)]
+mod kitty_transport_tests;
 #[cfg(test)]
 mod parser_oracle_tests;
 #[cfg(test)]

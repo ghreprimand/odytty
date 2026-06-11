@@ -261,15 +261,16 @@ fn kitty_png_header_rejects_oversized_dimensions_before_frame_decode() {
 }
 
 #[test]
-fn kitty_file_transmission_is_deferred_with_explicit_error() {
+fn kitty_file_transmission_rejects_invalid_path() {
+    // AAAA base64-decodes to three null bytes — rejected as an invalid path.
     let mut t = Terminal::new(20, 4);
     t.advance(b"\x1b_Gf=32,a=T,t=f,s=1,v=1;AAAA\x1b\\");
 
     assert!(t.visible_graphics(0).is_empty());
+    let resp = String::from_utf8(t.take_host_output()).unwrap();
     assert!(
-        String::from_utf8(t.take_host_output())
-            .unwrap()
-            .contains("unsupported-transmission")
+        resp.contains("EBADF") || resp.contains("EPERM") || resp.contains("EIO"),
+        "transport error in response: {resp}"
     );
 }
 

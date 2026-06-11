@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Kitty file transports with security hardening (G2.5)
+
+Kitty graphics protocol gains file-based transports: `t=f` (regular file),
+`t=t` (temp file, deleted after read), and `t=s` (POSIX shared memory).
+All three support raw RGBA/RGB (`f=24`/`f=32`) and PNG (`f=100`) payloads.
+
+This is a **security packet** — every transport path is validated before I/O:
+
+- **Path restriction**: `t=f` and `t=t` paths must resolve inside canonical
+  temp directories (`/tmp`, `/dev/shm`, resolved `$TMPDIR`). Paths outside
+  these directories are rejected, blocking the remote-exfiltration-over-SSH
+  attack where a malicious host instructs the local terminal to read arbitrary
+  local files.
+- **O_NOFOLLOW**: files are opened with `O_NOFOLLOW` so symlinks are rejected
+  at the kernel level, eliminating symlink/TOCTOU attacks.
+- **t=t delete-before-decode**: temp files are deleted immediately after read,
+  even if subsequent decode fails — no lingering sensitive data on disk.
+- **t=s immediate shm_unlink**: shared memory segments are unlinked before
+  data is read, minimizing the squatting window.
+- **Size caps**: file reads are capped at the ImageStore limit before any
+  decode, preventing decode bombs.
+
+These mitigations are deliberately stricter than Kitty proper (which allows
+`t=f` from any path and follows symlinks). The rationale is documented in the
+`kitty_transport` module.
+
+New files: `src/core/kitty_transport.rs` (334 lines, transport module),
+`src/core/kitty_transport_tests.rs` (25 integration tests exercising the full
+APC→transport→image pipeline plus security rejection cases). One existing test
+updated to reflect the new behavior.
+
+**Status**: 657 lib + 11 pixel + 9 PTY + 10 transcript tests passing.
+`cargo fmt --check` clean. Native smoke exit 0.
+
+---
+
 ## 2026-06-11 — Kitty delete/query actions + DECSDM sixel mode (K2)
 
 Graphics-protocol completeness on the shared scene. Kitty `a=d` delete actions

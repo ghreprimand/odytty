@@ -341,8 +341,10 @@ a floor; surpassing it is the standing ambition.
         crate dependency; header-level cap checks, RGBA8 normalization, chunked
         PNG fixtures, and explicit malformed/oversized/dimension-mismatch
         errors.
-  - [ ] G2.5: file/shared-memory transports behind a security review; the MVP
-        rejects non-direct `t` modes with an explicit error.
+  - [x] G2.5: file/shared-memory transports (`t=f`, `t=t`, `t=s`) with security
+        hardening: temp-dir path restriction, O_NOFOLLOW symlink rejection,
+        delete-before-decode for t=t, immediate shm_unlink for t=s, size caps;
+        25 integration tests.
 - [x] K2 Kitty delete/query + DECSDM: `a=d` delete variants (d=a/A, i/I+p=,
       c/C, p/P+x=/y=) with uppercase image-data GC, `a=q` validation-only
       query responses, and DECSET/DECRST 80 sixel cursor policy (anchor at

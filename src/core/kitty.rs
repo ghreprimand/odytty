@@ -1,14 +1,16 @@
-//! Kitty graphics protocol MVP: APC direct still-image transmit/display.
+//! Kitty graphics protocol: APC image transmit/display/delete/query.
 //!
-//! This module implements direct raw RGB/RGBA (`f=24`/`f=32`) and PNG
-//! (`f=100`) payloads used by the Stage 6 graphics ladder. PNG decode is
-//! intentionally constrained to the `png` crate's still-image path: grayscale,
+//! Supports direct raw RGB/RGBA (`f=24`/`f=32`), PNG (`f=100`), and
+//! file-based transports (`t=f`, `t=t`, `t=s`) with security hardening.
+//! PNG decode uses the `png` crate's still-image path: grayscale,
 //! grayscale+alpha, RGB, RGBA, and indexed images are normalized to 8-bit RGBA;
-//! 16-bit samples are stripped to 8-bit. File/shared-memory transmission still
-//! needs a security packet before it can be accepted.
+//! 16-bit samples are stripped to 8-bit.
+//!
+//! File transports are security-restricted — see `kitty_transport` module docs.
 
 use crate::graphics::{GraphicsProtocol, ImageScene, PlacementRequest};
 
+use super::kitty_transport;
 use super::types::CellMetrics;
 use std::io::Cursor;
 
@@ -84,6 +86,7 @@ pub(super) enum KittyError {
     InvalidPayload,
     PayloadTooLarge,
     StoreRejected,
+    TransportFailed(&'static str),
 }
 
 impl KittyError {
@@ -100,6 +103,7 @@ impl KittyError {
             KittyError::InvalidPayload => "invalid-payload",
             KittyError::PayloadTooLarge => "payload-too-large",
             KittyError::StoreRejected => "store-rejected",
+            KittyError::TransportFailed(msg) => msg,
         }
     }
 }
@@ -229,8 +233,35 @@ fn process_complete_command(
 ) -> Result<KittyOutcome, KittyError> {
     validate_supported_control(&command.control)?;
     let max_decoded = graphics.store().limits().max_decoded_bytes;
-    let decoded = decode_base64(&command.payload, max_decoded)?;
-    let (rgba, width, height) = rgba_from_payload(&command.control, decoded, max_decoded)?;
+
+    // Resolve the image payload depending on the transmission medium.
+    let image_bytes = match command.control.transmission.unwrap_or('d') {
+        'd' => {
+            // Direct: payload IS the base64-encoded image data.
+            decode_base64(&command.payload, max_decoded)?
+        }
+        'f' => {
+            // File: payload is base64-encoded file path; read from fs.
+            let path_bytes = decode_base64(&command.payload, 4096)?;
+            kitty_transport::read_file_transport(&path_bytes, max_decoded)
+                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))?
+        }
+        't' => {
+            // Temp file: like 'f' but delete after read.
+            let path_bytes = decode_base64(&command.payload, 4096)?;
+            kitty_transport::read_temp_transport(&path_bytes, max_decoded)
+                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))?
+        }
+        's' => {
+            // Shared memory: payload is base64-encoded shm name.
+            let name_bytes = decode_base64(&command.payload, 4096)?;
+            kitty_transport::read_shm_transport(&name_bytes, max_decoded)
+                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))?
+        }
+        _ => return Err(KittyError::UnsupportedTransmission),
+    };
+
+    let (rgba, width, height) = rgba_from_payload(&command.control, image_bytes, max_decoded)?;
     let insert = graphics
         .insert_rgba(command.control.image_id, width, height, rgba)
         .map_err(|_| KittyError::StoreRejected)?;
@@ -361,10 +392,13 @@ fn validate_supported_control(control: &ControlData) -> Result<(), KittyError> {
         _ => return Err(KittyError::UnsupportedFormat),
     }
     match control.transmission.unwrap_or('d') {
-        'd' => {}
+        'd' | 'f' | 't' | 's' => {}
         _ => return Err(KittyError::UnsupportedTransmission),
     }
+    // Raw pixel formats require explicit dimensions; PNG and file transports
+    // derive dimensions from the payload/file content.
     if matches!(control.format, Some(24 | 32))
+        && matches!(control.transmission.unwrap_or('d'), 'd')
         && (control.width.is_none() || control.height.is_none())
     {
         return Err(KittyError::MissingDimensions);
