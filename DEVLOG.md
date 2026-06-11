@@ -42,6 +42,79 @@ are dropped when they leave the visible placement set.
 
 ---
 
+## 2026-06-11 — Sixel terminal integration: DCS q → decode → placement (SX2)
+
+Wires the SX1 Sixel decoder into the G2.1 graphics scene, completing the
+full pipeline from a raw DCS `q` stream to a cell-anchored RGBA image
+placement visible to the GPU layer.
+
+### What landed
+
+- **Graphics routing module.** `src/core/graphics_routing.rs` extracts the
+  DCS hook/put/unhook dispatch and the Sixel decode pipeline from
+  `screen.rs` (which was at 1830 lines and is now 1792). `screen.rs` retains
+  thin forwarding methods; all new routing logic lives in the new module.
+- **End-to-end decode-and-place pipeline.** On `DCS q` unhook, the collected
+  payload is passed to `decode_sixel`; on success the RGBA bitmap is inserted
+  into the `ImageStore` and a cell-anchored placement is created via the G2.1
+  scene API. A provisional 8×16 px cell-size assumption is used for extent
+  calculation; the native render layer can override with actual glyph metrics.
+- **Cursor policy.** Cursor-below-image (xterm DECSDM-off default): after a
+  Sixel image the cursor moves to the row below the image at column 0.
+- **Error isolation.** Decode errors never disturb terminal state — the
+  payload is dropped, the error is counted in a `sixel_decode_errors()`
+  debug accessor, and the terminal continues normally.
+- **21 end-to-end tests.** Cover: DCS→placement wiring, cursor policy, decode
+  error isolation, alternate-screen isolation, ED/RIS clearing, store
+  eviction under Sixel spam, P2 transparency, multi-sequence ordering, and
+  the G2.1 regression guard.
+
+### Verification
+
+- `cargo test`: 582 lib + integration suites — all pass.
+- `cargo fmt --check`: clean.
+- Native autoclose smoke: exit 0 at default and `ODYTTY_FONT_SIZE=18`.
+- `screen.rs` line count confirmed under 2000 post-extraction.
+
+---
+
+## 2026-06-11 — Sixel DCS payload decoder (SX1)
+
+Implements the pure `decode_sixel(payload, background) -> Result<SixelImage, SixelError>`
+decoder covering the full Sixel data language. This is the first of two
+Sixel packets; it produces decoded RGBA bitmaps that SX2 places into the
+graphics scene.
+
+### What landed
+
+- **Full Sixel data language.** `src/graphics/sixel.rs` handles: raster
+  attribute headers, color introducers (both Pc;Pu;Px;Py;Pz RGB `2` and HLS
+  `1` forms), repeat introducer (`!count char`), carriage return and
+  new-band LF, and sixel data bytes (`0x3F`–`0x7E` mapping to 6-bit column
+  bitmasks).
+- **VT340-compatible 16-color default palette.** Covers the standard VT340
+  default set; applications that supply their own palette via color introducers
+  override entries freely.
+- **HLS-to-RGB conversion** matching the DEC VT340 specification.
+- **Hard caps.** Images exceeding 10,000 × 10,000 pixels or 40 MiB total
+  return `SixelError::TooLarge`; the decoder never allocates past the cap.
+- **Transparent background.** `P2=1` leaves unwritten pixels transparent
+  (alpha 0); `P2=0` or `P2=2` fills with the caller-supplied background.
+- **Robustness.** Malformed input never panics; unrecognized bytes are
+  skipped; partial/truncated payloads produce the pixels decoded so far.
+- **27 tests.** 11 golden pixel-exact cases, 7 robustness cases (malformed
+  color introducers, oversized images, truncated payload, garbage-only),
+  6 unit helpers (HLS conversion, repeat handling, palette init), and 2
+  fuzz drivers (deterministic byte-soup + structure-aware).
+
+### Verification
+
+- `cargo test`: all pass including the 27 new sixel tests.
+- `cargo fmt --check`: clean.
+- `src/graphics/sixel.rs` 552 lines, `src/graphics/sixel_tests.rs` 466 lines — both under the 2000-line limit.
+
+---
+
 ## 2026-06-11 — Shared graphics scene and parser routing seam (G2.1)
 
 Builds the renderer-independent graphics foundation on top of the owned

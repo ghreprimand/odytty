@@ -334,8 +334,17 @@ a floor; surpassing it is the standing ambition.
 - [ ] G2.2 Kitty direct still-image MVP: command parsing, chunk reassembly,
       direct RGBA/PNG payloads, ids/placements/deletes/query replies, and
       deterministic protocol fixtures.
-- [ ] SX1/G2.4 Sixel decoder and terminal integration: pure payload decoder
-      first, then shared-scene placement and cursor/scroll policy fixtures.
+- [x] SX1/SX2 Sixel decoder and terminal integration: pure payload decoder
+      then shared-scene placement and cursor/scroll policy.
+  - [x] SX1: `src/graphics/sixel.rs` — full Sixel data language (raster attrs,
+        RGB/HLS color introducers, repeat, CR/LF, 6-bit data bytes), VT340
+        16-color default palette, HLS-to-RGB, 40 MiB / 10 kpx hard caps,
+        P2 transparency, robustness against malformed input, 27 tests.
+  - [x] SX2: `src/core/graphics_routing.rs` — DCS hook/put/unhook routing
+        extracted from screen.rs; on DCS q unhook decode payload via SX1,
+        insert RGBA into ImageStore, create cell-anchored placement; cursor
+        moves to row below image (DECSDM-off); decode errors counted but
+        never disturb terminal state; 21 end-to-end tests.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
 
 ## Archived First Prototype Checklist
