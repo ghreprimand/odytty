@@ -385,6 +385,19 @@ a floor; surpassing it is the standing ambition.
         hardening: temp-dir path restriction, O_NOFOLLOW symlink rejection,
         delete-before-decode for t=t, immediate shm_unlink for t=s, size caps;
         25 integration tests.
+- [x] FZ1 graphics-surface fuzzing: deterministic never-panic + bounded-memory
+      harness (`src/core/graphics_fuzz_tests.rs`) over the whole Kitty/Sixel
+      display surface — structured APC `_G` control soup (overflow numerics,
+      duplicate/unknown keys, truncated base64, `m=` chunk abuse with
+      interleaved sequences, malformed terminators), SAFE transport-path fuzz
+      (nonexistent/traversal/over-long/NUL paths; self-created shm only),
+      bounded sixel-token + DCS fuzz, and a mixed graphics+text+control stream.
+      Invariants: no panic, store caps held, parser never wedges, text stays
+      coherent. Smoke tier in default `cargo test`; `#[ignore]` deep tier at
+      `ODYTTY_FUZZ_ITERS=40000` ran clean (120k+ iters, no defects). Two
+      bounded performance observations on `decode_sixel` routed to the director
+      (eager raster-canvas alloc; O(area) incremental-width re-layout) — both
+      cap-bounded, not panics.
 - [x] K3 Kitty placement surface: `p=` placement ids with multiple named
       placements per image and same-`(i,p)` replacement; `a=p` display of a
       previously transmitted image by protocol id; `z=` z-index with the

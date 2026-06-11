@@ -30,6 +30,8 @@ mod cursor_tests;
 #[cfg(test)]
 mod encoding_tests;
 #[cfg(test)]
+mod graphics_fuzz_tests;
+#[cfg(test)]
 mod graphics_routing_tests;
 #[cfg(test)]
 mod graphics_tests;

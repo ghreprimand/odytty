@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Graphics-surface fuzzing (FZ1)
+
+A deterministic never-panic + bounded-memory fuzz harness
+(`src/core/graphics_fuzz_tests.rs`) now covers the full Kitty/Sixel display
+surface that grew across G2.2→K3. It mirrors the parser-oracle fuzzers' house
+style: a tiny xorshift64 PRNG, `i * <odd> + <salt>` seeds so any failure
+reproduces, a bounded smoke tier in default `cargo test`, and an `#[ignore]`
+deep tier driven by `ODYTTY_FUZZ_ITERS`.
+
+Four generators feed the public `Terminal` boundary (and `decode_sixel`
+directly): a structured APC `_G` control soup (every real control key plus
+unknowns, overflow/garbage numerics, signed values, duplicate keys, truncated
+base64, `m=` chunking with unrelated sequences interleaved mid-transmission,
+and four terminator variants), a SAFE transport-path fuzzer (nonexistent,
+traversal, over-long, and NUL-embedded paths — never creating files outside a
+process-scoped name, never touching shm names it did not create and unlink), a
+bounded sixel token/DCS fuzzer, and a mixed graphics+text+control stream. The
+invariants asserted are deliberately structural, not pixel-exact: no panic, the
+image store never exceeds its (deliberately tiny) decoded-byte and image-count
+caps, the parser always returns to ground (a trailing sentinel glyph still
+reaches the grid), and text printed after arbitrary graphics control lands
+intact.
+
+The deep tier ran once locally at `ODYTTY_FUZZ_ITERS=40000` (the three looped
+fuzzers = 120k generated-stream iterations, plus the self-created-shm probe):
+all green, ~3 s, no panics and no cap violations.
+
+Two **bounded performance observations** on `decode_sixel` surfaced while
+sizing the fuzzer and were routed to the director rather than fixed in-packet
+(read-only fence; both are cap-bounded, not correctness or never-panic
+defects): a raster-attribute header eagerly allocates and zeroes the full
+declared canvas (a ~16-byte header up to the 40 M-pixel budget ≈ 144 MB), and
+incremental per-column width growth re-lays-out the whole RGBA buffer (O(area)
+per growth, quadratic for a wide incremental paint). The harness composes
+bounded sixel tokens so the deep tier explores parser logic at high volume; a
+separate small-count test probes the over-cap rejection path explicitly.
+
+`cargo test` 683 lib (+7 smoke, 5 ignored) + 19 pixel + 9 PTY + 10 transcript
+green; fmt clean; native autoclose smokes exit 0 at default and
+`ODYTTY_SUBPIXEL=rgb`. New file 685 lines.
+
+---
+
 ## 2026-06-11 — Perf bench health and post-P2 baseline (B2)
 
 The full `cargo bench --bench perf` harness briefly looked hung after P2-b
