@@ -7,6 +7,52 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — HiDPI scale validation: headless tests + manual matrix (H3)
+
+Closes the carried-forward Stage 3 HiDPI validation item. 11 headless tests
+pin the scale-factor handling seams (H1/H2) across the full matrix; a turnkey
+manual matrix doc covers what headless tests cannot.
+
+### What landed
+
+- **9 native-lane tests** (`src/native/tests.rs`): CellSize
+  integrality/positivity and monotonicity across 5 scales (1.0/1.25/1.5/1.75/2.0)
+  × 2 font sizes (default/18px); `grid_dimensions_for` consistency at 50
+  surface × scale combinations (including odd pixel dimensions); end-to-end
+  scale-change grid recomputation; `scale_factor_changed` no-op for all
+  repeated and sub-1.0 pairs; rebuild invalidation confirming no stale dynamic
+  slots survive a scale change; debounce final-scale-always-applies with a
+  3-step burst; 18px full-scale matrix.
+- **2 atlas-lane tests** (`src/atlas.rs`): UV seam-free at fractional scales
+  (adjacent slot gap = 2×border, all UVs in [0,1], non-degenerate); glyph quad
+  UV width/height consistency with reported ink size at every scale.
+- **Manual validation matrix** (`docs/hidpi-validation.md`): 23 test cells
+  across 5 sections — initial-launch correctness (A), live scale transitions (B),
+  fractional-scale rendering detail (C), TUI interaction at non-default scales
+  (D), and edge cases (E). Documents env overrides (`WINIT_X11_SCALE_FACTOR`,
+  `ODYTTY_FONT_SIZE`) and a pass/fail recording format.
+
+### Findings
+
+All H1/H2 seams confirmed correct (F1–F8). CellSize is integral by
+construction (`ceil().max(1.0) as u32`), monotonic in scale, and baseline stays
+within the cell box. `grid_dimensions_for` floor-divides correctly with no
+off-by-one. `scale_factor_changed` is idempotent. Atlas rebuild fully
+invalidates old-density slots by construction. The debounce state machine
+applies the final pending event. UV math is seam-free at all tested scales.
+Native smoke exits 0 at default, 18px, and 2× scale.
+
+F9 (informational): the pixel-smoke CPU compositor is scale-naive by design —
+the manual matrix covers visual validation at non-1× scales.
+
+### Verification
+
+- `cargo test`: all pass (512 lib + 11 h3 + integration suites).
+- `cargo fmt --check`: clean.
+- Native smoke exit 0: default, `ODYTTY_FONT_SIZE=18`, `WINIT_X11_SCALE_FACTOR=2`.
+
+---
+
 ## 2026-06-11 — OdyParser production cutover + vte removal (PA3)
 
 Completes the Stage 4.5 parser ownership packet. The production `Terminal`

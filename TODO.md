@@ -161,7 +161,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         size, drives `GpuState::set_scale`, re-reads rebuilt cell metrics, and
         feeds the existing debounced grid/PTY resize reset path. Headless tests
         cover debounce, metric recompute, and repeated-scale no-ops.
-  - [ ] H3: manual cross-scale validation matrix (operator session).
+  - [x] H3: headless scale-matrix tests (11 tests: CellSize integrality/
+        monotonicity across 5 scales × 2 font sizes, grid_dimensions_for at 50
+        combos, rebuild invalidation, debounce final-scale, UV seam-free at
+        fractional scales) + `docs/hidpi-validation.md` operator-runnable manual
+        matrix (23 cells across 5 sections). All H1/H2 seams confirmed correct.
 - [ ] Improve glyph atlas management, including cache growth, invalidation, and
       missing-glyph behavior.
   - [x] Atlas extracted to `src/atlas.rs`; missing-glyph fallback box, dynamic
