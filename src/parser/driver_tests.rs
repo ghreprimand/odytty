@@ -1,8 +1,11 @@
-//! Unit tests for the [`OdyParser`] state machine, driving a recording sink.
+//! Driver-level integration tests for [`OdyParser`] — feed bytes and assert
+//! the recorded [`VtDispatch`] action stream matches expectation. These
+//! exercise the full Layer 1 → Layer 2 → adapter path without comparing to
+//! `vte` (the differential oracle does that across the full corpus).
 
 use super::VtDispatch;
+use super::driver::OdyParser;
 use super::params::Params;
-use super::state::OdyParser;
 
 /// Every dispatch action, recorded in order, for assertions.
 #[derive(Debug, PartialEq, Eq)]
@@ -123,9 +126,20 @@ fn decodes_utf8_scalars() {
 }
 
 #[test]
-fn c1_from_utf8_executes() {
-    // U+0085 (NEL) is a C1 control; in Ground it executes as 0x85.
+fn c1_from_utf8_whole_executes() {
+    // U+0085 (NEL) decoded whole in Ground executes as 0x85.
     assert_eq!(drive("\u{0085}".as_bytes()), vec![Action::Execute(0x85)]);
+}
+
+#[test]
+fn c1_from_utf8_split_executes_uniform() {
+    // PA2-r uniform-execute policy: a C1 scalar arriving SPLIT across advance()
+    // calls also executes (not prints). Ledgered divergence from vte.
+    let mut rec = Recorder::default();
+    let mut parser = OdyParser::new();
+    parser.advance(&mut rec, &[0xC2]);
+    parser.advance(&mut rec, &[0x85]);
+    assert_eq!(rec.0, vec![Action::Execute(0x85)]);
 }
 
 #[test]
@@ -143,7 +157,7 @@ fn csi_cursor_up_carries_param() {
 
 #[test]
 fn bare_csi_yields_zero_param() {
-    // `ESC [ A` has no digits; the canonical parser materialises a single `0`.
+    // `ESC [ A` has no digits; materialises a single `0`.
     assert_eq!(
         drive(b"\x1b[A"),
         vec![Action::Csi {
@@ -157,7 +171,6 @@ fn bare_csi_yields_zero_param() {
 
 #[test]
 fn csi_private_marker_and_intermediate() {
-    // `ESC [ ? 1049 h` — private marker collected as an intermediate.
     assert_eq!(
         drive(b"\x1b[?1049h"),
         vec![Action::Csi {
@@ -167,7 +180,6 @@ fn csi_private_marker_and_intermediate() {
             action: 'h',
         }]
     );
-    // DECSCUSR `ESC [ 4 SP q` — space intermediate.
     assert_eq!(
         drive(b"\x1b[4 q"),
         vec![Action::Csi {
@@ -194,7 +206,6 @@ fn csi_subparams_via_colon() {
 
 #[test]
 fn esc_dispatch_simple() {
-    // ESC M (reverse index).
     assert_eq!(
         drive(b"\x1bM"),
         vec![Action::Esc {
@@ -214,7 +225,6 @@ fn osc_bel_and_st_terminators() {
             bell: true,
         }]
     );
-    // ST-terminated: the trailing `\` also fires an esc_dispatch, as in vte.
     assert_eq!(
         drive(b"\x1b]2;t\x1b\\"),
         vec![
@@ -233,8 +243,6 @@ fn osc_bel_and_st_terminators() {
 
 #[test]
 fn dcs_hook_put_unhook() {
-    // `ESC P 1;2 | a b ST`: hook with final byte `|`, payload via put, unhook,
-    // then the ST's `\` dispatches as esc.
     assert_eq!(
         drive(b"\x1bP1;2|ab\x1b\\"),
         vec![
@@ -258,8 +266,6 @@ fn dcs_hook_put_unhook() {
 
 #[test]
 fn apc_payload_is_surfaced() {
-    // APC string `ESC _ payload ST`: OdyParser surfaces the payload (vte drops
-    // it). The trailing `\` of ST still dispatches as esc, matching vte.
     assert_eq!(
         drive(b"\x1b_Gf=100;data\x1b\\"),
         vec![
@@ -275,7 +281,6 @@ fn apc_payload_is_surfaced() {
 
 #[test]
 fn apc_under_cap_is_surfaced_whole() {
-    // A sizeable but in-bounds APC payload is delivered intact.
     let mut input = b"\x1b_G".to_vec();
     input.extend(std::iter::repeat(b'x').take(4096));
     input.extend_from_slice(b"\x1b\\");
@@ -291,9 +296,6 @@ fn apc_under_cap_is_surfaced_whole() {
 
 #[test]
 fn apc_over_cap_is_dropped_not_truncated() {
-    // An APC payload past MAX_APC_RAW (1 MiB) must be DROPPED — no apc_dispatch,
-    // no truncated partial. The trailing ST `\` still dispatches as esc, and the
-    // parser returns cleanly to Ground (proven by the following printable).
     let mut input = b"\x1b_G".to_vec();
     input.extend(std::iter::repeat(b'y').take((1 << 20) + 16));
     input.extend_from_slice(b"\x1b\\Z");
@@ -311,7 +313,6 @@ fn apc_over_cap_is_dropped_not_truncated() {
 
 #[test]
 fn sos_and_pm_strings_are_discarded() {
-    // SOS (`ESC X`) and PM (`ESC ^`) payloads are not surfaced (no Apc action).
     assert_eq!(
         drive(b"\x1bXsos\x1b\\"),
         vec![Action::Esc {
@@ -332,7 +333,6 @@ fn sos_and_pm_strings_are_discarded() {
 
 #[test]
 fn excess_intermediates_set_ignore() {
-    // Three intermediates exceed the cap of two → ignore flag set.
     let actions = drive(b"\x1b[1 !#p");
     match &actions[..] {
         [Action::Csi { ignore, action, .. }] => {
@@ -345,7 +345,6 @@ fn excess_intermediates_set_ignore() {
 
 #[test]
 fn param_overflow_sets_ignore() {
-    // 40 params exceed the 32-slot cap → ignore flag set.
     let mut input = Vec::from(&b"\x1b["[..]);
     for i in 0..40 {
         if i > 0 {
@@ -363,7 +362,6 @@ fn param_overflow_sets_ignore() {
 
 #[test]
 fn can_aborts_sequence_to_ground() {
-    // CAN (0x18) mid-CSI aborts; the following 'm' prints in Ground.
     assert_eq!(
         drive(b"\x1b[31\x18m"),
         vec![Action::Execute(0x18), Action::Print('m')]
@@ -372,7 +370,6 @@ fn can_aborts_sequence_to_ground() {
 
 #[test]
 fn split_csi_across_advance_calls() {
-    // The same CSI fed as two chunks must dispatch once, identically.
     let mut rec = Recorder::default();
     let mut parser = OdyParser::new();
     parser.advance(&mut rec, b"\x1b[1");
@@ -385,5 +382,25 @@ fn split_csi_across_advance_calls() {
             ignore: false,
             action: 'H',
         }]
+    );
+}
+
+#[test]
+fn lone_c1_byte_executes() {
+    // 0x85 alone (invalid UTF-8 lead) executes as NEL, does NOT introduce.
+    assert_eq!(drive(b"\x85"), vec![Action::Execute(0x85)]);
+    // 0x9B alone (the would-be 8-bit CSI introducer) executes too.
+    assert_eq!(
+        drive(b"\x9bA"),
+        vec![Action::Execute(0x9B), Action::Print('A')]
+    );
+}
+
+#[test]
+fn invalid_utf8_emits_fffd() {
+    // 0xFE is never a valid UTF-8 lead → U+FFFD.
+    assert_eq!(
+        drive(b"\xfeA"),
+        vec![Action::Print('\u{FFFD}'), Action::Print('A')]
     );
 }

@@ -91,11 +91,30 @@ fn assert_parity(label: &str, cols: usize, rows: usize, input: &[u8]) {
     assert_screens_match(label, &vte_screen, &ody_screen);
 }
 
+/// Divergence ledger filter (PA2-r): whether splitting `input` at `sp` falls
+/// inside a C1-via-UTF-8 pair (`0xC2` lead, then `0x80..=0x9F` continuation).
+///
+/// Under the OdyTTY uniform-execute policy a C1 scalar arriving across two
+/// `advance()` calls EXECUTES (matching the whole-buffer case); `vte` PRINTS on
+/// the partial-completion path. This filter skips splits that land in exactly
+/// that one-byte-wide window; all other splits stay oracle-asserted.
+///
+/// The window is over-conservative — it skips splits that fall mid-OSC or
+/// mid-DCS payload (where the bytes are NOT processed in Ground), but the
+/// cost is at most a handful of skipped per-corpus splits, and over-skipping
+/// is always safe.
+fn split_in_c1_via_utf8(input: &[u8], sp: usize) -> bool {
+    sp > 0 && sp < input.len() && input[sp - 1] == 0xC2 && (0x80..=0x9F).contains(&input[sp])
+}
+
 /// Feed `input` split at **every** byte boundary and assert parity for each
 /// split — this is the split-UTF-8 / interrupted-sequence stress that proves the
 /// state carries correctly across `advance()` calls.
 fn assert_parity_all_splits(label: &str, cols: usize, rows: usize, input: &[u8]) {
     for split in 0..=input.len() {
+        if split_in_c1_via_utf8(input, split) {
+            continue;
+        }
         let (head, tail) = input.split_at(split);
         let vte_screen = run_vte(cols, rows, &[head, tail]);
         let ody_screen = run_ody(cols, rows, &[head, tail]);
@@ -422,6 +441,9 @@ fn oracle_fuzz_two_chunk_splits() {
             input.push(FUZZ_ALPHABET[idx]);
         }
         let sp = rng.below(input.len() + 1);
+        if split_in_c1_via_utf8(&input, sp) {
+            continue;
+        }
         fuzz_assert_split(seed, &input, sp);
     }
 }
@@ -536,6 +558,9 @@ fn oracle_fuzz_structure_aware() {
         }
         fuzz_assert_whole(seed, &input);
         let sp = rng.below(input.len() + 1);
+        if split_in_c1_via_utf8(&input, sp) {
+            continue;
+        }
         fuzz_assert_split(seed, &input, sp);
     }
 }

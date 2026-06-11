@@ -7,6 +7,130 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Clean-room VT parser state-core rebuild (PA2-r)
+
+Replaces the PA1 state core, which was operator-ruled too vte-derived
+(per-state-method decomposition, Ground-state bulk UTF-8 strategy re-typed
+from `vte` 0.15), with an OdyTTY-original two-layer pipeline written from
+primary specs only (vt100.net DEC ANSI diagram, ECMA-48, xterm `ctlseqs`).
+`vte` source was not consulted during the rebuild; the existing differential
+oracle continues as a black-box behavioral pin.
+
+### What landed
+
+- **Two-layer pipeline.** `src/parser/segmenter.rs` (Layer 1) owns Ground-state
+  text + ALL UTF-8 decoding (bulk ESC scan + bulk `from_utf8` validation +
+  `chars()` dispatch + the partial-codepoint carry across `advance()` calls).
+  `src/parser/machine.rs` (Layer 2) is an 8-bit-clean control automaton driven
+  by `classify(byte) -> ByteClass` (~13 classes) and a flat
+  `match (state, class) -> Action` discriminator.
+- **Pure action core + thin adapter.** `src/parser/action.rs` defines the
+  `Action` vocabulary the state machine emits; `src/parser/driver.rs`'s
+  `apply` is the only place actions become `VtDispatch` calls. The state
+  machine is sink-agnostic — ideal for component tests + oracle.
+- **OdyTTY-original `Params` storage.** Inline `[u16; 32]` + `u32` boundary
+  bitmap + `closed: bool` (allocation-free; group reconstruction is a bit-scan,
+  not a parallel array walk). Public surface (`iter`, `from_vte`) preserved.
+- **String-payload buffering caps.** OSC 128 KiB (raised from `vte`'s 1024 to
+  cover real OSC 52 clipboard / OSC 8 hyperlink payloads); APC 1 MiB
+  drop-not-truncate (the Kitty graphics landing pad); DCS streaming
+  passthrough (no parser buffer).
+- **Hot-path tightening.** `Machine::step` peels the `CsiParam` digit / `;`/`:`
+  / final byte fast path off the giant `(state, class)` match so heavy CSI
+  workloads stay inlineable; the driver short-circuits `Action::None` and
+  keeps state-transition cleanup to a single APC-cancel check per byte (every
+  OSC exit dispatches+clears via `apply`).
+
+### Operator-approved divergence ledger
+
+- **C1-via-UTF-8 uniform execute.** A validly-decoded C1 scalar
+  (`U+0080..=U+009F` via `0xC2 0x8x`) **executes** regardless of how its
+  bytes split across `advance()` calls. Removes the canonical "split prints,
+  whole executes" quirk; oracle filter skips split points falling between
+  `0xC2` and `0x80..=0x9F`.
+- **OSC cap window.** `vte` caps OSC at 1024 bytes; OdyTTY at 128 KiB.
+  Payloads between the two caps differ in dispatch outcome. The corpus and
+  fuzzers do not exercise this window; the policy gap is documented in
+  `src/parser/mod.rs` and not filtered in practice.
+
+### What is unchanged
+
+- `VtDispatch` trait surface (same method signatures + APC extension).
+- `Params::iter` / `from_vte` public surface.
+- Live production path: still `vte`; OdyParser stays dark behind the oracle
+  through PA2-r. PA3 retires `vte`.
+- `src/core/screen.rs` (the dispatch consumer): zero touch from this packet.
+
+### Validation
+
+- `cargo test`: 501 lib + 11 pixel smoke + 9 PTY + 10 transcript smoke — all
+  green. Lib test count grew by 56 vs the PA1+PA2 baseline (445) from new
+  component tests in `driver_tests`, `machine_tests`, `segmenter_tests`.
+- Differential oracle (`oracle_corpus_single_chunk`,
+  `oracle_corpus_all_byte_splits`, `oracle_corpus_narrow_grid_forces_wrap_and_scrollback`,
+  `oracle_apc_is_invisible_to_screen_state`, plus invariant tests): all green.
+- Deep fuzzer: `ODYTTY_FUZZ_ITERS=40000 cargo test --lib --release oracle_fuzz`
+  — all three differential fuzzers pass (byte-soup, two-chunk-splits,
+  structure-aware) with the C1-via-UTF-8 split filter applied.
+- `cargo fmt --check` clean.
+- Native smoke: `ODYTTY_NATIVE_AUTOCLOSE_MS=800 cargo run --release -- --native`
+  exits 0.
+- Parser-only feed bench (added in commit `97c0761` as the acceptance
+  reference; `benches/perf.rs`'s new "Parser-only feed throughput" section):
+
+  | Workload | PA1 (MB/s) | PA2-r (MB/s) | Δ |
+  |---|---|---|---|
+  | seq 1 100000 | ~2516 | ~2540 | +1% |
+  | plain ascii 50000 | ~2576 | ~2570 | -0% |
+  | heavy sgr 20000 | ~519 | ~600 | **+15%** |
+  | scroll churn 100000 | ~838 | ~840 | 0% |
+  | full repaint 20000 | ~2406 | ~2330 | -3% |
+
+  No meaningful regression; heavy CSI workloads improved.
+
+### File line counts (every module under the 2000-line directive)
+
+```
+ 70 src/parser/action.rs
+240 src/parser/driver.rs
+406 src/parser/driver_tests.rs
+696 src/parser/machine.rs
+116 src/parser/machine_tests.rs
+159 src/parser/mod.rs
+246 src/parser/params.rs
+112 src/parser/params_tests.rs
+272 src/parser/segmenter.rs
+139 src/parser/segmenter_tests.rs
+566 src/core/parser_oracle_tests.rs
+398 benches/perf.rs
+```
+
+### Follow-ups
+
+- **`print_str` bulk-print on `VtDispatch`** — deferred per director ruling.
+  The segmenter already emits text in `chars()` order; adding an additive
+  `print_str(&str)` method would let the bulk path call once per run instead
+  of once per scalar.
+- **PA3 — retire `vte` from the live path** — swap `Screen`'s production
+  parser from `vte::Parser` to `OdyParser`, move `vte` to dev-only for the
+  oracle, port the oracle to golden fixtures, and update `SPEC.md` / `README`
+  to record the ownership boundary.
+- **Partial-completion lost-scalar bug match.** `Segmenter::advance_partial`
+  matches `vte`'s observable semantics where a partial completion that lands
+  inside a `partial_buf` window also containing additional valid scalars
+  silently drops those intermediate scalars (up to 2 bytes lost per partial).
+  Documented in-code; the oracle pins this behaviour. Worth revisiting in
+  PA3 when the golden-fixture port lets us own the behaviour outright.
+
+### Notes
+
+- The PA1 vte-derivation provenance note in the old `state.rs` is gone; the
+  new module headers document the originality boundary and the divergence
+  ledger directly. Submodule docs cite primary specs only (vt100.net,
+  ECMA-48, xterm `ctlseqs`).
+
+---
+
 ## 2026-06-11 — Alt-screen findings follow-up (A2)
 
 Fixes the three core findings routed from the A1 hardening packet:

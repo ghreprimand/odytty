@@ -40,6 +40,34 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
     - [x] Three committed deterministic differential fuzzers (byte-soup,
           two-chunk split, structure-aware) with an `ODYTTY_FUZZ_ITERS` budget;
           120k iterations run zero-divergence against `vte`.
+  - [x] PA2-r: clean-room rebuild of the parser state core under the
+        originality contract — primary sources only (vt100.net DEC ANSI
+        diagram, ECMA-48, xterm `ctlseqs`), `vte` not consulted; differential
+        oracle stays green.
+    - [x] Two-layer pipeline: `src/parser/segmenter.rs` owns Ground +
+          ALL UTF-8 (bulk validation + `chars()` dispatch + partial-codepoint
+          carry); `src/parser/machine.rs` is an 8-bit-clean control automaton
+          driven by `classify(byte) -> ByteClass` (~13 classes) and a flat
+          `match (state, class) -> Action`. `src/parser/action.rs` keeps the
+          state machine sink-agnostic; `src/parser/driver.rs` is the thin
+          action→`VtDispatch` adapter.
+    - [x] `Params` reimplemented allocation-free: inline `[u16; 32]` + `u32`
+          boundary bitmap + `closed: bool`. Public surface (`iter`,
+          `from_vte`, `IntoIterator`) preserved verbatim.
+    - [x] String caps revised: OSC 128 KiB (raised from `vte`'s 1024 to
+          cover real OSC 52 / OSC 8 payloads); APC 1 MiB drop-not-truncate;
+          DCS streaming passthrough (no parser buffer).
+    - [x] Two operator-approved divergences ledgered with oracle filters in
+          `src/core/parser_oracle_tests.rs`: (1) C1-via-UTF-8 uniform-execute
+          (filter skips splits between `0xC2` and `0x80..=0x9F`); (2) OSC cap
+          window 1024..128 KiB (not exercised in practice).
+    - [x] Hot-path tightening: `Machine::step` peels the `CsiParam` digit /
+          `;`/`:` / final byte arm off the giant `(state, class)` match for
+          inlining; driver short-circuits `Action::None` and reduces
+          per-byte state-transition cleanup to one APC-cancel check.
+    - [x] Parser-only feed benches added (`benches/perf.rs`); PA1→PA2-r
+          deltas across five workloads land within noise on plain text and
+          improve heavy CSI by ~15%.
   - [ ] PA3: remove `vte` after the oracle suite is ported to golden fixtures.
 - [x] P0: replace `portable-pty` with an OdyTTY-owned Linux PTY layer.
   - [x] PTY allocation uses `openpt`/`grantpt`/`unlockpt`/`TIOCGPTPEER`, sets
