@@ -1,6 +1,8 @@
 # Example OdyTTY config.
 # Copy values into $XDG_CONFIG_HOME/odytty/odytty.conf or
 # ~/.config/odytty/odytty.conf.
+# Most values below reload live while the native window is running, unless the
+# matching ODYTTY_* environment variable was set at startup.
 
 font_size = 18
 font_family = DejaVu Sans Mono
@@ -13,4 +15,5 @@ cursor_blink = auto
 keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
 
 # Development smoke helper. Leave unset for normal interactive use.
+# Startup-only; changing it in a live config file has no effect.
 # native_autoclose_ms = 600

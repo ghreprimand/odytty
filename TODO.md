@@ -310,7 +310,19 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
       `key = value` plus `#` comments, uses a hand-rolled parser, mirrors every
       current `ODYTTY_*` knob, keeps malformed/missing/unreadable files
       non-fatal, and routes all values through the single `Settings` struct.
-- [ ] CF2 live config reload for settings with existing rebuild seams.
+- [x] CF2 live config reload for settings with existing rebuild seams.
+  - [x] Dependency-free mtime+size polling on the native event-loop wake path
+        with a bounded one-second cadence; no watcher thread or notify/inotify
+        dependency.
+  - [x] Startup env precedence remains pinned during reload: env-overridden
+        keys never change until restart, while config-sourced values can
+        refresh.
+  - [x] Reloadable values: theme, visual, font path/family/size, text gamma,
+        subpixel mode, cursor defaults, and key bindings. Font changes rebuild
+        the atlas, recompute the grid, and push PTY winsize through the same
+        path as HiDPI scale changes.
+  - [x] Robustness policy: invalid rewrites and deleted files leave the current
+        settings untouched; `native_autoclose_ms` remains startup-only.
 - [ ] Profiles and CLI config introspection.
 
 ## Visual Capability Parity (Stage 6 parity half)

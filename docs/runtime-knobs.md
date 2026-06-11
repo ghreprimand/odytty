@@ -1,7 +1,8 @@
 # OdyTTY Runtime Knobs
 
-OdyTTY loads runtime configuration once at native startup. Defaults are chosen
-to keep the no-config launch path stable:
+OdyTTY loads runtime configuration at native startup and polls the config file
+for live reloads while the native window is running. Defaults are chosen to keep
+the no-config launch path stable:
 
 ```sh
 cargo run -- --native
@@ -15,11 +16,17 @@ Configuration precedence is:
 3. Environment variables.
 
 Environment variables always win, so existing env-based launch scripts keep the
-same behavior. Missing config files are ignored. Unreadable or malformed config
-files print stderr warnings, skip bad lines, and keep good values.
+same behavior. Missing config files are ignored at startup. Unreadable or
+malformed startup config files print stderr warnings, skip bad lines, and keep
+good values.
 
-Live reload is not implemented yet; changing the config file requires restarting
-OdyTTY. Live reload is deferred to the CF2 settings packet.
+The native app polls the resolved config path about once per second on the
+existing event-loop wake path. No watcher thread and no `notify`/inotify
+dependency are used. On live reload, environment-overridden keys are pinned to
+their startup env values and never change until restart. A bad rewrite
+(malformed line, unknown key, invalid value, or unresolved font family) is a
+no-op: the current settings stay active. Deleting the config file also keeps
+the current settings until a later valid rewrite appears.
 
 ## Config File Format
 
@@ -57,6 +64,15 @@ are skipped with stderr warnings.
 | `theme` | `ODYTTY_THEME` | `plain`, `odyssey`, `odyssey-noir` | `plain` | Selects default foreground/background and window clear color. Unknown values fall back to `plain`. |
 | `visual` | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `off` | Enables or disables the optional presentation-only ambient effect. |
 | `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
+
+All settings above except `native_autoclose_ms` are live-reloadable from the
+config file when their environment variable was not set at startup. `font_size`,
+`font`, and `font_family` rebuild the glyph atlas, recompute the grid, and push
+the resulting PTY window size through the same path used for HiDPI scale
+changes. `subpixel` rebuilds the atlas and cell pipeline; it still falls back to
+grayscale if the adapter lacks dual-source blending. `native_autoclose_ms` is
+startup-only because changing the smoke-test exit timer mid-session would make
+manual and automated lifecycle behavior ambiguous.
 
 ## Native Shortcuts
 

@@ -63,6 +63,7 @@ mod image_layer_tests;
 mod tests;
 
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use crate::core::Terminal;
 use crate::pty::PtySession;
@@ -74,7 +75,6 @@ use winit::event_loop::{ControlFlow, EventLoop};
 pub use options::{NativeError, NativeOptions};
 
 use app::App;
-use bindings::KeyBindings;
 use pty::{PtyWriter, UserEvent, spawn_pty_pump};
 
 pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), NativeError> {
@@ -88,10 +88,6 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // affects how Color::Default paints; the terminal core is unaware of it.
     let theme = settings.theme;
     text::set_default_colors(theme.foreground, theme.background);
-    // Optional visual treatment, resolved by Settings. Presentation-only;
-    // the terminal core is unaware of it and it is fully disableable.
-    let visual = settings.visual;
-
     // Shared terminal model, sized to the initial grid. The pump thread writes
     // to it; the UI thread snapshots from it.
     let mut model = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);
@@ -125,13 +121,11 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
 
     let mut app = App::new(
         options,
-        theme,
-        visual,
         terminal,
         writer,
         session.clone(),
-        KeyBindings::from_overrides(&settings.key_bindings),
-        settings.native_autoclose,
+        settings.clone(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
     let run_result = event_loop
         .run_app(&mut app)

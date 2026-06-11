@@ -10,7 +10,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::atlas::SubpixelMode;
 use crate::core::CursorStyle;
@@ -29,6 +29,21 @@ pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
+pub const CONFIG_RELOAD_INTERVAL: Duration = Duration::from_secs(1);
+
+const SETTING_ENV_KEYS: &[&str] = &[
+    THEME_ENV,
+    VISUAL_ENV,
+    FONT_ENV,
+    FONT_FAMILY_ENV,
+    FONT_SIZE_ENV,
+    TEXT_GAMMA_ENV,
+    SUBPIXEL_ENV,
+    KEYBINDS_ENV,
+    CURSOR_STYLE_ENV,
+    CURSOR_BLINK_ENV,
+    NATIVE_AUTOCLOSE_ENV,
+];
 
 /// Default cursor blink policy (`ODYTTY_CURSOR_BLINK`). This is the host default
 /// applied at power-on and after DECSCUSR 0 / RIS / DECSTR; an application's
@@ -229,6 +244,26 @@ impl Settings {
         )
     }
 
+    fn from_env_snapshot_and_config(
+        env_values: &HashMap<&'static str, OsString>,
+        config: &ConfigValues,
+        mut warn: impl FnMut(String),
+    ) -> Self {
+        Self::from_source(
+            |key| {
+                env_values
+                    .get(key)
+                    .cloned()
+                    .or_else(|| config.get(key).cloned())
+            },
+            |message| warn(message.to_owned()),
+            |family| {
+                crate::text::resolve_font_family(family, &crate::text::font_search_dirs())
+                    .map(|m| m.regular)
+            },
+        )
+    }
+
     fn from_source(
         mut get: impl FnMut(&str) -> Option<OsString>,
         mut warn: impl FnMut(&str),
@@ -291,7 +326,7 @@ impl Settings {
     }
 }
 
-fn config_file_path() -> Option<PathBuf> {
+pub fn config_file_path() -> Option<PathBuf> {
     if let Some(base) = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
@@ -307,6 +342,191 @@ fn config_file_path() -> Option<PathBuf> {
                 .join(CONFIG_DIR_NAME)
                 .join(CONFIG_FILE_NAME)
         })
+}
+
+fn env_snapshot() -> HashMap<&'static str, OsString> {
+    SETTING_ENV_KEYS
+        .iter()
+        .filter_map(|&key| std::env::var_os(key).map(|value| (key, value)))
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ConfigFileFingerprint {
+    modified: SystemTime,
+    len: u64,
+}
+
+impl ConfigFileFingerprint {
+    fn read(path: &Path) -> io::Result<Option<Self>> {
+        match fs::metadata(path) {
+            Ok(metadata) => Ok(Some(Self {
+                modified: metadata.modified()?,
+                len: metadata.len(),
+            })),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConfigPollEvent {
+    Unchanged,
+    Changed,
+    Deleted,
+}
+
+/// Bounded mtime+size polling for the resolved config path.
+///
+/// It is intentionally dependency-free and time-injected so the native event
+/// loop can fold it into existing sleeps instead of adding a watcher thread.
+#[derive(Debug, Clone)]
+pub struct ConfigReloadPoller {
+    path: Option<PathBuf>,
+    interval: Duration,
+    next_poll: Instant,
+    last_seen: Option<ConfigFileFingerprint>,
+}
+
+impl ConfigReloadPoller {
+    fn new(path: Option<PathBuf>, now: Instant) -> Self {
+        let last_seen = path
+            .as_deref()
+            .and_then(|path| ConfigFileFingerprint::read(path).ok().flatten());
+        Self {
+            path,
+            interval: CONFIG_RELOAD_INTERVAL,
+            next_poll: now + CONFIG_RELOAD_INTERVAL,
+            last_seen,
+        }
+    }
+
+    pub fn deadline(&self) -> Option<Instant> {
+        self.path.as_ref().map(|_| self.next_poll)
+    }
+
+    fn poll(&mut self, now: Instant) -> io::Result<ConfigPollEvent> {
+        let path = self.path.clone();
+        self.poll_with(now, || match path.as_deref() {
+            Some(path) => ConfigFileFingerprint::read(path),
+            None => Ok(None),
+        })
+    }
+
+    fn poll_with(
+        &mut self,
+        now: Instant,
+        read_fingerprint: impl FnOnce() -> io::Result<Option<ConfigFileFingerprint>>,
+    ) -> io::Result<ConfigPollEvent> {
+        if self.path.is_none() || now < self.next_poll {
+            return Ok(ConfigPollEvent::Unchanged);
+        }
+        self.next_poll = now + self.interval;
+
+        let next_seen = read_fingerprint()?;
+        let event = match (self.last_seen, next_seen) {
+            (None, None) => ConfigPollEvent::Unchanged,
+            (Some(_), None) => ConfigPollEvent::Deleted,
+            (None, Some(_)) => ConfigPollEvent::Changed,
+            (Some(previous), Some(next)) if previous == next => ConfigPollEvent::Unchanged,
+            (Some(_), Some(_)) => ConfigPollEvent::Changed,
+        };
+        self.last_seen = next_seen;
+        Ok(event)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SettingsReloadOutcome {
+    Unchanged,
+    Deleted,
+    Reloaded(Settings),
+    Invalid { warnings: Vec<String> },
+    Unreadable { message: String },
+}
+
+/// Runtime config reloader that preserves startup env precedence exactly.
+#[derive(Debug, Clone)]
+pub struct SettingsReloader {
+    path: Option<PathBuf>,
+    env_values: HashMap<&'static str, OsString>,
+    poller: ConfigReloadPoller,
+}
+
+impl SettingsReloader {
+    pub fn for_current_process(now: Instant) -> Self {
+        let path = config_file_path();
+        Self::new(path, env_snapshot(), now)
+    }
+
+    fn new(
+        path: Option<PathBuf>,
+        env_values: HashMap<&'static str, OsString>,
+        now: Instant,
+    ) -> Self {
+        Self {
+            poller: ConfigReloadPoller::new(path.clone(), now),
+            path,
+            env_values,
+        }
+    }
+
+    pub fn deadline(&self) -> Option<Instant> {
+        self.poller.deadline()
+    }
+
+    pub fn poll(&mut self, now: Instant) -> SettingsReloadOutcome {
+        match self.poller.poll(now) {
+            Ok(ConfigPollEvent::Unchanged) => SettingsReloadOutcome::Unchanged,
+            Ok(ConfigPollEvent::Deleted) => SettingsReloadOutcome::Deleted,
+            Ok(ConfigPollEvent::Changed) => self.load_changed_config(),
+            Err(error) => SettingsReloadOutcome::Unreadable {
+                message: format!("could not stat config file: {error}"),
+            },
+        }
+    }
+
+    fn load_changed_config(&self) -> SettingsReloadOutcome {
+        let Some(path) = self.path.as_deref() else {
+            return SettingsReloadOutcome::Unchanged;
+        };
+
+        let mut warnings = Vec::new();
+        let contents = match fs::read_to_string(path) {
+            Ok(contents) => contents,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return SettingsReloadOutcome::Deleted;
+            }
+            Err(error) => {
+                return SettingsReloadOutcome::Unreadable {
+                    message: format!("could not read config file {}: {error}", path.display()),
+                };
+            }
+        };
+        let config = ConfigValues::parse(&contents, |message| {
+            warnings.push(format!("{}: {message}", path.display()));
+        });
+        let settings =
+            Settings::from_env_snapshot_and_config(&self.env_values, &config, |message| {
+                warnings.push(message)
+            });
+
+        if warnings.is_empty() {
+            SettingsReloadOutcome::Reloaded(settings)
+        } else {
+            SettingsReloadOutcome::Invalid { warnings }
+        }
+    }
+}
+
+pub fn apply_reloadable_values(current: &mut Settings, mut reloaded: Settings) -> bool {
+    reloaded.native_autoclose = current.native_autoclose;
+    if *current == reloaded {
+        return false;
+    }
+    *current = reloaded;
+    true
 }
 
 #[derive(Debug, Clone, Default)]
@@ -651,6 +871,15 @@ mod tests {
         (settings, warnings)
     }
 
+    fn env_map<const N: usize>(
+        values: [(&'static str, &str); N],
+    ) -> HashMap<&'static str, OsString> {
+        values
+            .into_iter()
+            .map(|(key, value)| (key, OsString::from(value)))
+            .collect()
+    }
+
     #[test]
     fn defaults_are_stable_without_env() {
         let (settings, warnings) = settings_from([]);
@@ -758,6 +987,109 @@ mod tests {
 
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn config_reload_poller_uses_injected_time_and_fingerprint_changes() {
+        let path = PathBuf::from("/tmp/odytty-test.conf");
+        let t0 = Instant::now();
+        let old = ConfigFileFingerprint {
+            modified: SystemTime::UNIX_EPOCH + Duration::from_secs(10),
+            len: 4,
+        };
+        let new = ConfigFileFingerprint {
+            modified: SystemTime::UNIX_EPOCH + Duration::from_secs(11),
+            len: 4,
+        };
+        let mut poller = ConfigReloadPoller {
+            path: Some(path),
+            interval: CONFIG_RELOAD_INTERVAL,
+            next_poll: t0 + CONFIG_RELOAD_INTERVAL,
+            last_seen: Some(old),
+        };
+
+        assert_eq!(
+            poller
+                .poll_with(t0 + Duration::from_millis(500), || Ok(Some(new)))
+                .unwrap(),
+            ConfigPollEvent::Unchanged
+        );
+        assert_eq!(poller.last_seen, Some(old));
+        assert_eq!(
+            poller
+                .poll_with(t0 + CONFIG_RELOAD_INTERVAL, || Ok(Some(new)))
+                .unwrap(),
+            ConfigPollEvent::Changed
+        );
+        assert_eq!(poller.last_seen, Some(new));
+        assert_eq!(
+            poller
+                .poll_with(t0 + CONFIG_RELOAD_INTERVAL * 2, || Ok(None))
+                .unwrap(),
+            ConfigPollEvent::Deleted
+        );
+        assert_eq!(poller.last_seen, None);
+    }
+
+    #[test]
+    fn config_reload_preserves_startup_env_precedence() {
+        let dir = std::env::temp_dir().join(format!("odytty-cf2-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("reload.conf");
+        fs::write(&path, "font_size = 16\ntheme = plain\n").unwrap();
+        let t0 = Instant::now();
+        let mut reloader =
+            SettingsReloader::new(Some(path.clone()), env_map([(FONT_SIZE_ENV, "21")]), t0);
+
+        fs::write(&path, "font_size = 32\ntheme = odyssey\n").unwrap();
+        let outcome = reloader.poll(t0 + CONFIG_RELOAD_INTERVAL);
+        let SettingsReloadOutcome::Reloaded(settings) = outcome else {
+            panic!("expected reload, got {outcome:?}");
+        };
+        assert_eq!(settings.font_size_px, 21.0);
+        assert_eq!(settings.theme, Theme::ODYSSEY);
+
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_dir(dir);
+    }
+
+    #[test]
+    fn apply_reloadable_values_ignores_native_autoclose_ms() {
+        let mut current = Settings {
+            theme: Theme::PLAIN,
+            native_autoclose: Some(Duration::from_millis(500)),
+            ..Settings::default()
+        };
+        let reloaded = Settings {
+            theme: Theme::ODYSSEY,
+            native_autoclose: Some(Duration::from_millis(9000)),
+            ..Settings::default()
+        };
+
+        assert!(apply_reloadable_values(&mut current, reloaded));
+        assert_eq!(current.theme, Theme::ODYSSEY);
+        assert_eq!(current.native_autoclose, Some(Duration::from_millis(500)));
+    }
+
+    #[test]
+    fn config_reload_rejects_bad_rewrite_without_candidate_settings() {
+        let dir = std::env::temp_dir().join(format!("odytty-cf2-bad-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("reload.conf");
+        fs::write(&path, "font_size = 16\n").unwrap();
+        let t0 = Instant::now();
+        let mut reloader = SettingsReloader::new(Some(path.clone()), HashMap::new(), t0);
+
+        fs::write(&path, "font_size = massive\n").unwrap();
+        let outcome = reloader.poll(t0 + CONFIG_RELOAD_INTERVAL);
+        let SettingsReloadOutcome::Invalid { warnings } = outcome else {
+            panic!("expected invalid rewrite, got {outcome:?}");
+        };
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains(FONT_SIZE_ENV));
+
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_dir(dir);
     }
 
     #[test]

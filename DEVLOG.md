@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Live config reload (CF2)
+
+Stage 5 config now reloads live in the native app. The resolved config path is
+polled at a bounded one-second cadence from the existing event-loop wake path,
+without a watcher thread or notify/inotify dependency. Runtime reload preserves
+the CF1 precedence contract exactly: any key supplied by `ODYTTY_*` at startup
+is pinned to that environment value until restart, and only config-sourced keys
+can change while the session is running.
+
+Reloadable settings are `theme`, `visual`, `font`, `font_family`, `font_size`,
+`text_gamma`, `subpixel`, `cursor_style`, `cursor_blink`, and `keybinds`.
+Theme and visual changes update presentation state; gamma updates the shader
+uniform; key bindings swap the native local-action map; cursor settings reset
+the host default cursor policy. Font path/family/size changes rebuild the glyph
+atlas, republish cell metrics, recompute the grid, and push PTY winsize through
+the same path used for HiDPI scale changes. Subpixel changes rebuild the atlas
+and cell pipeline, falling back to grayscale if the GPU lacks dual-source
+blending.
+
+Robustness policy is deliberately conservative: a bad rewrite is a no-op, a
+deleted config file keeps the current settings, and reload never panics.
+`native_autoclose_ms` remains startup-only because changing a lifecycle smoke
+timer mid-session would make manual and automated behavior ambiguous.
+
+Headless coverage added: time-injected poll cadence/change/deletion detection,
+startup-env precedence preservation across reload, reloadable application while
+ignoring `native_autoclose_ms`, and bad-rewrite no-op behavior.
+
+---
+
 ## 2026-06-11 — File-based configuration (CF1)
 
 Stage 5 now has its first stable config layer. `Settings::from_env()` loads
@@ -25,7 +55,8 @@ malformed lines, unknown keys, and invalid values warn to stderr and never abort
 startup.
 
 Docs now include the full key reference, examples, and
-`docs/odytty.conf.example`. Live reload is explicitly deferred to CF2.
+`docs/odytty.conf.example`. At landing time, live reload was left for the
+follow-up CF2 packet.
 
 Verification: 657 lib tests, 11 pixel-smoke, 9 PTY smoke, 10 transcript smoke,
 and doctests pass. Native autoclose smokes exit 0 at default, with a valid

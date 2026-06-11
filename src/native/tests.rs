@@ -877,13 +877,11 @@ fn resize_grid_is_idempotent_and_updates_model() {
     let pty = Arc::new(Mutex::new(session));
     let mut app = App::new(
         NativeOptions::default(),
-        Theme::default(),
-        VisualEffect::default(),
         terminal.clone(),
         writer,
         pty.clone(),
-        KeyBindings::default(),
-        None,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
 
     // 8x16 cell, 800x600 surface -> 100x37 grid: first apply changes state.

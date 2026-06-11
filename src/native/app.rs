@@ -11,7 +11,9 @@ use crate::graphics::{StoredImageId, VisiblePlacement};
 use crate::input::{self, Key, KeyModes, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker};
-use crate::settings::BindableAction;
+use crate::settings::{
+    BindableAction, Settings, SettingsReloadOutcome, SettingsReloader, apply_reloadable_values,
+};
 use crate::text::{self, CellSize};
 use crate::theme::{Theme, VisualEffect};
 
@@ -217,6 +219,8 @@ pub(super) struct App {
     /// PTY key encoding.
     super_key: bool,
     key_bindings: KeyBindings,
+    settings: Settings,
+    settings_reloader: SettingsReloader,
     /// Current selection anchored to absolute rows in the
     /// scrollback+visible-screen space. Native owns this UI state; the terminal
     /// core remains unaware of selections and clipboard operations.
@@ -269,15 +273,17 @@ pub(super) struct App {
 impl App {
     pub(super) fn new(
         options: NativeOptions,
-        theme: Theme,
-        visual: VisualEffect,
         terminal: Arc<Mutex<Terminal>>,
         writer: PtyWriter,
         pty: Arc<Mutex<PtySession>>,
-        key_bindings: KeyBindings,
-        autoclose: Option<Duration>,
+        settings: Settings,
+        settings_reloader: SettingsReloader,
     ) -> Self {
         let grid = options.initial_grid;
+        let theme = settings.theme;
+        let visual = settings.visual;
+        let key_bindings = KeyBindings::from_overrides(&settings.key_bindings);
+        let autoclose = settings.native_autoclose;
         Self {
             options,
             theme,
@@ -292,6 +298,8 @@ impl App {
             modifiers: Modifiers::default(),
             super_key: false,
             key_bindings,
+            settings,
+            settings_reloader,
             selection: AbsoluteSelectionState::default(),
             pointer_cell: None,
             selecting: false,
@@ -373,6 +381,7 @@ impl App {
             self.deadline,
             self.resize_debounce.deadline(),
             self.cursor_blink.deadline(),
+            self.settings_reloader.deadline(),
         ]
         .into_iter()
         .flatten()
@@ -885,6 +894,91 @@ impl App {
             window.request_redraw();
         }
     }
+
+    fn options_for_settings(&self, settings: &Settings) -> NativeOptions {
+        let parsed = NativeOptions::from_settings(settings);
+        NativeOptions {
+            title: self.options.title.clone(),
+            initial_grid: self.options.initial_grid,
+            font_family: parsed.font_family,
+            font_path: parsed.font_path,
+            font_size_px: parsed.font_size_px,
+            text_gamma: parsed.text_gamma,
+            subpixel: parsed.subpixel,
+        }
+    }
+
+    fn poll_config_reload(&mut self, now: Instant) {
+        match self.settings_reloader.poll(now) {
+            SettingsReloadOutcome::Unchanged | SettingsReloadOutcome::Deleted => {}
+            SettingsReloadOutcome::Reloaded(settings) => self.apply_reloaded_settings(settings),
+            SettingsReloadOutcome::Invalid { warnings } => {
+                for warning in warnings {
+                    eprintln!("odytty: config reload ignored: {warning}");
+                }
+            }
+            SettingsReloadOutcome::Unreadable { message } => {
+                eprintln!("odytty: config reload ignored: {message}");
+            }
+        }
+    }
+
+    fn apply_reloaded_settings(&mut self, reloaded: Settings) {
+        let mut next_settings = self.settings.clone();
+        if !apply_reloadable_values(&mut next_settings, reloaded) {
+            return;
+        }
+
+        let next_options = self.options_for_settings(&next_settings);
+        let text_rebuilt = match self.gpu.as_mut() {
+            Some(gpu) => match gpu.apply_text_options(&next_options) {
+                Ok(changed) => changed,
+                Err(err) => {
+                    eprintln!("odytty: config reload ignored: {err}");
+                    return;
+                }
+            },
+            None => false,
+        };
+
+        self.settings = next_settings;
+        self.options = next_options;
+        self.theme = self.settings.theme;
+        self.visual = self.settings.visual;
+        self.key_bindings = KeyBindings::from_overrides(&self.settings.key_bindings);
+        text::set_default_colors(self.theme.foreground, self.theme.background);
+        if let Ok(mut terminal) = self.terminal.lock() {
+            terminal.set_cursor_defaults(
+                self.settings.cursor_style,
+                self.settings.cursor_blink.enabled(),
+            );
+        }
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.set_theme(self.theme);
+            gpu.set_visual(self.visual);
+            gpu.set_text_gamma(self.settings.text_gamma);
+        }
+
+        if text_rebuilt {
+            let resize = self.gpu.as_ref().and_then(|gpu| {
+                let cell = gpu.cell();
+                if let Ok(mut terminal) = self.terminal.lock() {
+                    terminal.set_cell_metrics(cell.width, cell.height);
+                }
+                self.window
+                    .as_ref()
+                    .map(|window| pending_resize_for_surface(cell, window.inner_size()))
+            });
+            if let Some(resize) = resize {
+                self.apply_grid_resize(resize);
+            }
+        }
+
+        self.needs_rebuild = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
 }
 
 fn key_modes_from_core(modes: CoreKeyboardModes) -> KeyModes {
@@ -1239,6 +1333,8 @@ impl ApplicationHandler<UserEvent> for App {
                 window.request_redraw();
             }
         }
+
+        self.poll_config_reload(now);
 
         if let Some(deadline) = self.deadline
             && now >= deadline

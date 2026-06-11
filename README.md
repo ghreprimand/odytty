@@ -7,8 +7,8 @@ Odyssey Terminal is a reliable terminal emulator with an OdysseyOS visual identi
 ## Status
 
 Active development — well past first prototype, foundations complete. The focus
-now shifts toward expanding the Stage 5 configuration model, adding profiles,
-and progressive visual identity work.
+now shifts toward profiles, configuration introspection, and progressive visual
+identity work.
 
 ### What works today
 
@@ -79,13 +79,17 @@ and blink policy are configurable via settings and overridable per-application
 via DECSCUSR. Key bindings for terminal-local actions are configurable via
 `ODYTTY_KEYBINDS`.
 
-**Settings.** Runtime settings load once at native startup from built-in
-defaults, then `$XDG_CONFIG_HOME/odytty/odytty.conf` (or
+**Settings.** Runtime settings load at native startup from built-in defaults,
+then `$XDG_CONFIG_HOME/odytty/odytty.conf` (or
 `~/.config/odytty/odytty.conf`), then `ODYTTY_*` environment variables.
 Environment variables always win, so existing env-based launch scripts remain
 bit-exact. The config file is a simple `key = value` format with `#` comments;
-bad lines are warned and skipped without aborting startup. Live reload is
-deferred.
+bad lines are warned and skipped without aborting startup. The native app polls
+the config file about once per second for live reloads: env-overridden keys stay
+pinned until restart, deleted files keep the current settings, and invalid
+rewrites are ignored without changing the active session. Theme, visual,
+font size/family/path, text gamma, subpixel mode, cursor defaults, and key
+bindings reload live; the development-only autoclose timer is startup-only.
 
 **Performance.** Lazy scrollback re-wrap stores logical lines and defers deep
 re-wrap on width change (~46 ms → ~20 µs for 50k-line scrollback). A fast path
@@ -93,7 +97,7 @@ skips reflow entirely on height-only resize (~17 ms → ~58 µs). The vertex
 buffer is a reused CPU allocation with a grow-only GPU buffer. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 687 tests passing: 657 unit/integration, 11 pixel-smoke
+**Testing.** 692 tests passing: 662 unit/integration, 11 pixel-smoke
 (headless CPU compositor asserting structural raster invariants), 9 PTY
 alternate-screen smoke, and 10 transcript smoke. `cargo bench --bench perf`
 runs headless throughput
@@ -103,7 +107,7 @@ benchmarks for the terminal model and parser separately from the default suite.
 
 - Ligature/stylistic-set shaping is not implemented (strategy decided but
   implementation deferred).
-- Config live reload and profiles are not implemented.
+- Profiles and config introspection are not implemented.
 - No tabs, panes, sessions, profiles, or multiplexing.
 - Shell integration beyond basic PTY behavior is not implemented.
 - Linux-first only — no macOS or Windows support.

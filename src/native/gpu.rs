@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use ab_glyph::FontVec;
@@ -106,14 +107,6 @@ pub(super) fn effective_subpixel_mode(
     }
 }
 
-fn device_features_for_subpixel(mode: SubpixelMode) -> wgpu::Features {
-    if mode.enabled() {
-        wgpu::Features::DUAL_SOURCE_BLENDING
-    } else {
-        wgpu::Features::empty()
-    }
-}
-
 pub(super) fn blend_state_for_subpixel(mode: SubpixelMode) -> wgpu::BlendState {
     if mode.enabled() {
         wgpu::BlendState {
@@ -192,13 +185,15 @@ impl StyleFonts {
     }
 
     fn load(options: &NativeOptions) -> Result<Self, NativeError> {
-        let regular = text::load_font_with_path(options.font_path.as_deref())
+        Self::load_from(options.font_path.as_deref(), &options.font_family)
+    }
+
+    fn load_from(font_path: Option<&Path>, font_family: &str) -> Result<Self, NativeError> {
+        let regular = text::load_font_with_path(font_path)
             .map_err(|err| NativeError::Text(err.to_string()))?;
         let mut fonts = Self::regular(regular);
 
-        if let Some(matched) =
-            text::resolve_font_family(&options.font_family, &text::font_search_dirs())
-        {
+        if let Some(matched) = text::resolve_font_family(font_family, &text::font_search_dirs()) {
             if let Some(font) = matched.bold.as_deref().and_then(load_optional_style_font) {
                 fonts.bold = Arc::new(font);
             }
@@ -294,10 +289,79 @@ fn create_vertex_buffer(device: &wgpu::Device, capacity_bytes: u64) -> wgpu::Buf
     })
 }
 
+fn create_cell_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    bind_group_layout: &wgpu::BindGroupLayout,
+    subpixel: SubpixelMode,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("odytty-cell-shader"),
+        source: wgpu::ShaderSource::Wgsl(
+            if subpixel.enabled() {
+                include_str!("../shaders/cell_subpixel.wgsl")
+            } else {
+                include_str!("../shaders/cell.wgsl")
+            }
+            .into(),
+        ),
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("odytty-cell-pl"),
+        bind_group_layouts: &[Some(bind_group_layout)],
+        immediate_size: 0,
+    });
+    let vertex_attrs = wgpu::vertex_attr_array![
+        0 => Float32x2, // pos_px
+        1 => Float32x2, // uv
+        2 => Float32x4, // color
+        3 => Float32,   // is_glyph
+    ];
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("odytty-cell-pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &vertex_attrs,
+            }],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            // No culling: quad winding is not normalized in the geometry.
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                // Grayscale uses straight alpha. Subpixel uses dual-source
+                // blending so RGB coverage can modulate each color channel
+                // independently while the destination contributes
+                // `1.0 - coverage`.
+                blend: Some(blend_state_for_subpixel(subpixel)),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
 pub(super) struct GpuState {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
+    enabled_features: wgpu::Features,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -339,6 +403,8 @@ pub(super) struct GpuState {
     text: [f32; 4],
     /// Effective coverage path after adapter capability checks.
     subpixel: SubpixelMode,
+    font_path: Option<PathBuf>,
+    font_family: String,
     // Kept alive for the lifetime of the bind group; never read directly.
     atlas_texture: wgpu::Texture,
     atlas_sampler: wgpu::Sampler,
@@ -378,7 +444,8 @@ impl GpuState {
         .map_err(|err| NativeError::NoAdapter(err.to_string()))?;
 
         let adapter_features = adapter.features();
-        let subpixel = effective_subpixel_mode(options.subpixel, adapter_features);
+        let enabled_features = adapter_features & wgpu::Features::DUAL_SOURCE_BLENDING;
+        let subpixel = effective_subpixel_mode(options.subpixel, enabled_features);
         if options.subpixel.enabled() && !subpixel.enabled() {
             eprintln!(
                 "odytty: ODYTTY_SUBPIXEL requested but the GPU adapter lacks dual-source blending; using grayscale text"
@@ -387,7 +454,7 @@ impl GpuState {
 
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("odytty-device"),
-            required_features: device_features_for_subpixel(subpixel),
+            required_features: enabled_features,
             required_limits: wgpu::Limits::default(),
             experimental_features: wgpu::ExperimentalFeatures::disabled(),
             memory_hints: wgpu::MemoryHints::default(),
@@ -491,66 +558,7 @@ impl GpuState {
         let image_layer = ImageLayer::new(&device, config.format);
 
         // --- Render pipeline from the shared cell shader.
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("odytty-cell-shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                if subpixel.enabled() {
-                    include_str!("../shaders/cell_subpixel.wgsl")
-                } else {
-                    include_str!("../shaders/cell.wgsl")
-                }
-                .into(),
-            ),
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("odytty-cell-pl"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
-            immediate_size: 0,
-        });
-        let vertex_attrs = wgpu::vertex_attr_array![
-            0 => Float32x2, // pos_px
-            1 => Float32x2, // uv
-            2 => Float32x4, // color
-            3 => Float32,   // is_glyph
-        ];
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("odytty-cell-pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &vertex_attrs,
-                }],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                // No culling: quad winding is not normalized in the geometry.
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    // Grayscale uses straight alpha. Subpixel uses dual-source
-                    // blending so RGB coverage can modulate each color channel
-                    // independently while the destination contributes
-                    // `1.0 - coverage`.
-                    blend: Some(blend_state_for_subpixel(subpixel)),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let pipeline = create_cell_pipeline(&device, config.format, &bind_group_layout, subpixel);
 
         // Build the first vertex buffer from the initial (blank) snapshot. Live
         // PTY output replaces this content via `update_from_snapshot` as the
@@ -570,6 +578,7 @@ impl GpuState {
             surface,
             device,
             queue,
+            enabled_features,
             config,
             pipeline,
             bind_group_layout,
@@ -590,6 +599,8 @@ impl GpuState {
             effect,
             text,
             subpixel,
+            font_path: options.font_path.clone(),
+            font_family: options.font_family.clone(),
             atlas_texture,
             atlas_sampler,
         })
@@ -604,6 +615,17 @@ impl GpuState {
             &self.atlas_texture,
             &self.atlas_sampler,
         );
+    }
+
+    fn rebuild_atlas(&mut self) {
+        let mut atlas = GlyphAtlas::build_with_subpixel(
+            self.fonts.regular_font(),
+            self.physical_px,
+            self.subpixel,
+        );
+        let _ = atlas.take_dirty();
+        self.atlas = atlas;
+        self.refresh_atlas_texture();
     }
 
     /// The current per-cell pixel metrics. These change when the atlas is
@@ -655,14 +677,72 @@ impl GpuState {
             return false;
         }
         self.physical_px = px;
-        let mut atlas =
-            GlyphAtlas::build_with_subpixel(self.fonts.regular_font(), px, self.subpixel);
-        // The freshly built atlas is fully resident; clear its build-dirty flag
-        // since we re-upload the whole texture below rather than via take_dirty.
-        let _ = atlas.take_dirty();
-        self.atlas = atlas;
-        self.refresh_atlas_texture();
+        self.rebuild_atlas();
         true
+    }
+
+    pub(super) fn apply_text_options(
+        &mut self,
+        options: &NativeOptions,
+    ) -> Result<bool, NativeError> {
+        let next_subpixel = effective_subpixel_mode(options.subpixel, self.enabled_features);
+        if options.subpixel.enabled() && !next_subpixel.enabled() {
+            eprintln!(
+                "odytty: ODYTTY_SUBPIXEL requested but the GPU adapter lacks dual-source blending; using grayscale text"
+            );
+        }
+
+        let font_changed =
+            self.font_path != options.font_path || self.font_family != options.font_family;
+        let subpixel_changed = self.subpixel != next_subpixel;
+        let font_size_changed = (self.font_size_px - options.font_size_px).abs() >= f32::EPSILON;
+        if !font_changed && !subpixel_changed && !font_size_changed {
+            return Ok(false);
+        }
+
+        let next_fonts = if font_changed {
+            Some(StyleFonts::load_from(
+                options.font_path.as_deref(),
+                &options.font_family,
+            )?)
+        } else {
+            None
+        };
+
+        if let Some(fonts) = next_fonts {
+            self.fonts = fonts;
+            self.font_path = options.font_path.clone();
+            self.font_family = options.font_family.clone();
+        }
+        if subpixel_changed {
+            self.subpixel = next_subpixel;
+            self.pipeline = create_cell_pipeline(
+                &self.device,
+                self.config.format,
+                &self.bind_group_layout,
+                self.subpixel,
+            );
+        }
+        if font_size_changed {
+            self.font_size_px = options.font_size_px;
+            self.physical_px = physical_font_px(self.font_size_px, self.scale);
+        }
+        self.rebuild_atlas();
+        Ok(true)
+    }
+
+    pub(super) fn set_theme(&mut self, theme: Theme) {
+        self.clear_color = theme_clear_color(&theme);
+    }
+
+    pub(super) fn set_visual(&mut self, visual: VisualEffect) {
+        self.effect = effect_params(visual);
+        self.update_viewport();
+    }
+
+    pub(super) fn set_text_gamma(&mut self, text_gamma: f32) {
+        self.text = text_params(text_gamma);
+        self.update_viewport();
     }
 
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot.
