@@ -13,6 +13,19 @@
 //! `advance()` calls are completed via [`PartialUtf8`]. All other states process
 //! raw bytes, matching the canonical parser.
 //!
+//! ## Provenance (transitional)
+//!
+//! This first-generation state core was written for byte-identical parity with
+//! the `vte` crate (v0.15, MIT/Apache-2.0 — the Alacritty project's parser),
+//! and several of its internal strategies — the per-state method decomposition
+//! and the Ground-state bulk UTF-8 validation approach in particular — follow
+//! vte's design closely enough that this module should be read as derived from
+//! vte, with credit to its authors. A scheduled Foundation-Ownership packet
+//! replaces this state core with an original OdyTTY design built from the
+//! published specifications (the vt100.net DEC ANSI parser diagram, ECMA-48,
+//! and xterm's ctlseqs) under a documented clean-room process; the differential
+//! oracle against vte remains as a black-box behavioral check.
+//!
 //! ## C1 / UTF-8 precedence (PA2 decision)
 //!
 //! OdyTTY is a UTF-8 terminal: **UTF-8 decoding takes precedence and 8-bit C1
