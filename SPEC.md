@@ -187,6 +187,26 @@ config file keeps the current settings; reload never panics.
 lifecycle smoke timer mid-session would make manual and automated test behavior
 ambiguous.
 
+## Interaction Architecture
+
+### OSC 8 Hyperlinks
+
+OSC 8 (`ESC ] 8 ; params ; uri ST`) interns each unique `(uri, osc-id)` pair
+into a compact `HyperlinkTable` in the terminal core, assigning it a stable
+`LinkId` (`NonZeroU32`). Every printed cell records the active `LinkId` (or
+none); no URI string is stored per cell. URI payloads are capped at 2083 bytes;
+longer URIs are silently dropped so a hostile process cannot grow the table
+with arbitrarily large strings.
+
+The native layer tracks the hovered `LinkId` from cursor position. On hover,
+all visible cells sharing that id have their underline attribute set in the
+render snapshot — no change to the terminal model state. On explicit
+Ctrl+click (or Ctrl+Shift+click when mouse reporting is active), the native
+app calls `xdg-open` with the URI as a direct argument after verifying its
+scheme against an allowlist (`http`, `https`, `file`, `mailto`). No shell
+interpolation occurs. Links are never followed automatically; the allowlist
+check and the `xdg-open` call only happen on deliberate user action.
+
 ## Scope
 
 v0 is complete. Stages 1 through 4.5 are substantially complete. The parity
@@ -214,6 +234,8 @@ its first stable layer.
   scrollback-aware anchors
 - Clipboard hardening: chunked paste, bracketed-paste sanitization, PRIMARY
   selection
+- OSC 8 hyperlinks: hover underline, Ctrl+click open via `xdg-open`, scheme
+  allowlist (`http`/`https`/`file`/`mailto`), never auto-opened from input
 - Right-edge scroll position indicator
 - Configurable cursor shapes and blink policy (DECSCUSR + settings)
 - Configurable terminal-local key bindings

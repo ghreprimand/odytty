@@ -82,6 +82,15 @@ and blink policy are configurable via settings and overridable per-application
 via DECSCUSR. Key bindings for terminal-local actions are configurable via
 `ODYTTY_KEYBINDS`.
 
+**OSC 8 hyperlinks.** Shell output that emits OSC 8 link sequences (e.g. `ls
+--hyperlink`, `man` references, git output) renders with hover underline
+highlighting when the cursor moves over a linked cell. Ctrl+click (or
+Ctrl+Shift+click when mouse reporting is active) opens the link via `xdg-open`.
+The open action is gated behind a scheme allowlist (`http`, `https`, `file`,
+`mailto`) — the URI is passed directly as an argument with no shell
+interpolation. Links are never opened automatically from terminal input; the
+allowlist check only runs on an explicit user action.
+
 **Settings.** Runtime settings load at native startup from built-in defaults,
 then `$XDG_CONFIG_HOME/odytty/odytty.conf` (or
 `~/.config/odytty/odytty.conf`), then `ODYTTY_*` environment variables.
@@ -102,7 +111,7 @@ reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
 the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 714 tests passing: 676 unit/integration, 19 pixel-smoke
+**Testing.** 740 tests passing: 702 unit/integration, 19 pixel-smoke
 (headless CPU compositor asserting structural raster invariants for text
 rendering and graphics placement), 9 PTY alternate-screen smoke, and 10
 transcript smoke. `cargo bench --bench perf` runs headless throughput

@@ -180,6 +180,14 @@ pixels (~152 MiB RGBA). Malformed or truncated input never panics — unknown
 bytes are skipped and partial images are returned for whatever was decoded
 before a truncation.
 
+**Memory behavior.** Raster attribute declarations (`"Pan;Pad;Ph;Pv`) are
+cap-validated immediately but do not allocate the declared canvas — the pixel
+buffer fills lazily as sixel data is painted. A header-only stream returns an
+`Empty` result with zero pixel allocation. Row stride grows geometrically
+(amortized `O(area)`) so wide images decoded column-by-column do not incur
+`O(N²)` buffer re-layouts. The pixel and axis caps listed above are unchanged
+by these optimizations.
+
 ### DECSDM (private mode 80)
 
 DECSDM controls cursor behavior after a Sixel image is displayed.
