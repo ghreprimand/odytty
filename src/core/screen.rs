@@ -715,11 +715,12 @@ impl Screen {
 
         self.rows
             .push(blank_row_with_bg(self.dimensions.columns, background));
-        let scrollback_rows = if self.primary_screen.is_none() {
-            self.scrollback.physical_len(self.dimensions.columns)
-        } else {
-            0
-        };
+        let scrollback_rows =
+            if self.primary_screen.is_none() && !self.graphics.placements().is_empty() {
+                self.scrollback.physical_len(self.dimensions.columns)
+            } else {
+                0
+            };
         self.graphics.scroll_full_up(1, scrollback_rows);
         self.mark_dirty();
     }

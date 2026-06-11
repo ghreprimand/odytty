@@ -207,6 +207,10 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         resize/reflow is O(total scrollback) (~46 ms at 50k lines; ~17 ms even
         width-unchanged), `build_vertices` per-frame (~96 µs, 56× snapshot).
         Optimization packets ranked in findings.
+  - [x] Bench health follow-up (`B2`): feed rows now print progress before
+        timing, default workloads are bounded, legacy P1/P2-sized workloads are
+        available via `ODYTTY_PERF_PROFILE=legacy`, and text-only scrolls no
+        longer force lazy scrollback projection for graphics eviction.
   - [x] Native render-loop mitigation: reusable CPU vertex storage plus a
         grow-only GPU vertex buffer remove steady-state vertex-buffer
         allocation/recreation, and resize debounce coalesces drag bursts before

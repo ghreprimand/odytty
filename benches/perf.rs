@@ -12,12 +12,18 @@
 //! cargo bench --bench perf
 //! ```
 //!
+//! The default profile is bounded for routine acceptance runs. Set
+//! `ODYTTY_PERF_PROFILE=legacy` to run the original large P1/P2-sized workloads,
+//! or `ODYTTY_PERF_PROFILE=quick` for a short smoke. `ODYTTY_PERF_GEOMETRY_ONLY=1`
+//! skips feed/resize rows and uses the quick geometry profile.
+//!
 //! Each row reports wall-clock time for a fixed workload plus a derived rate
 //! (bytes/sec for feed workloads, ops/sec for snapshot/geometry workloads). The
 //! numbers are coarse single-process timings meant to rank hotspots and back
 //! optimization proposals, not micro-benchmark-grade statistics.
 
 use std::hint::black_box;
+use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
 use odytty::atlas::GlyphAtlas;
@@ -28,6 +34,83 @@ use odytty::text::load_font;
 
 const COLS: usize = 80;
 const ROWS: usize = 24;
+
+#[derive(Debug, Clone, Copy)]
+struct BenchProfile {
+    name: &'static str,
+    runs: u32,
+    seq_lines: usize,
+    plain_lines: usize,
+    heavy_sgr_lines: usize,
+    scroll_churn_iterations: usize,
+    repaint_frames: usize,
+    snapshot_lines: usize,
+    snapshot_ops: usize,
+    geometry_ops: usize,
+    deep_resize_ops: usize,
+    shallow_resize_ops: usize,
+}
+
+impl BenchProfile {
+    fn from_env() -> Self {
+        match std::env::var("ODYTTY_PERF_PROFILE").as_deref() {
+            Ok("legacy") => Self::legacy(),
+            Ok("quick") => Self::quick(),
+            _ => Self::default(),
+        }
+    }
+
+    fn default() -> Self {
+        Self {
+            name: "default",
+            runs: 3,
+            seq_lines: 10_000,
+            plain_lines: 5_000,
+            heavy_sgr_lines: 2_000,
+            scroll_churn_iterations: 10_000,
+            repaint_frames: 2_000,
+            snapshot_lines: 5_000,
+            snapshot_ops: 2_000,
+            geometry_ops: 2_000,
+            deep_resize_ops: 20,
+            shallow_resize_ops: 1_000,
+        }
+    }
+
+    fn quick() -> Self {
+        Self {
+            name: "quick",
+            runs: 2,
+            seq_lines: 2_000,
+            plain_lines: 1_000,
+            heavy_sgr_lines: 400,
+            scroll_churn_iterations: 2_000,
+            repaint_frames: 400,
+            snapshot_lines: ROWS,
+            snapshot_ops: 500,
+            geometry_ops: 500,
+            deep_resize_ops: 6,
+            shallow_resize_ops: 250,
+        }
+    }
+
+    fn legacy() -> Self {
+        Self {
+            name: "legacy",
+            runs: 5,
+            seq_lines: 100_000,
+            plain_lines: 50_000,
+            heavy_sgr_lines: 20_000,
+            scroll_churn_iterations: 100_000,
+            repaint_frames: 20_000,
+            snapshot_lines: 50_000,
+            snapshot_ops: 5_000,
+            geometry_ops: 5_000,
+            deep_resize_ops: 40,
+            shallow_resize_ops: 2_000,
+        }
+    }
+}
 
 /// Time `f` once, returning the elapsed duration. `f` returns a value that is
 /// black-boxed so the work cannot be optimized away.
@@ -51,6 +134,11 @@ fn best_of<T>(runs: u32, mut f: impl FnMut() -> T) -> Duration {
         }
     }
     best
+}
+
+fn start_row(name: &str) {
+    print!("{name:<34} running...\r");
+    let _ = io::stdout().flush();
 }
 
 fn secs(d: Duration) -> f64 {
@@ -260,34 +348,53 @@ fn main() {
         println!("(no system font found: geometry benchmarks will be skipped)\n");
     }
     let geometry_only = std::env::var_os("ODYTTY_PERF_GEOMETRY_ONLY").is_some();
+    let profile = if geometry_only {
+        BenchProfile::quick()
+    } else {
+        BenchProfile::from_env()
+    };
+    println!(
+        "profile: {} (best-of {} after one warm-up; set ODYTTY_PERF_PROFILE=legacy for pre-B2 sizes)\n",
+        profile.name, profile.runs,
+    );
 
     if !geometry_only {
         println!("== Feed throughput (parse + model update) ==");
 
-        // 1) Large numeric output (seq 1 100000).
-        let seq = gen_seq(100_000);
-        let d = best_of(5, || feed_all(black_box(&seq)));
-        report_feed("seq 1 100000", seq.len(), d);
+        // 1) Large numeric output.
+        let seq_name = format!("seq 1 {}", profile.seq_lines);
+        let seq = gen_seq(profile.seq_lines);
+        start_row(&seq_name);
+        let d = best_of(profile.runs, || feed_all(black_box(&seq)));
+        report_feed(&seq_name, seq.len(), d);
 
         // 2) Plain full-width ASCII lines (wrap/scroll heavy).
-        let plain = gen_plain(50_000);
-        let d = best_of(5, || feed_all(black_box(&plain)));
-        report_feed("plain ascii 50000 lines", plain.len(), d);
+        let plain_name = format!("plain ascii {} lines", profile.plain_lines);
+        let plain = gen_plain(profile.plain_lines);
+        start_row(&plain_name);
+        let d = best_of(profile.runs, || feed_all(black_box(&plain)));
+        report_feed(&plain_name, plain.len(), d);
 
         // 3) Heavy SGR (per-cell color changes).
-        let sgr = gen_heavy_sgr(20_000);
-        let d = best_of(5, || feed_all(black_box(&sgr)));
-        report_feed("heavy sgr 20000 lines", sgr.len(), d);
+        let sgr_name = format!("heavy sgr {} lines", profile.heavy_sgr_lines);
+        let sgr = gen_heavy_sgr(profile.heavy_sgr_lines);
+        start_row(&sgr_name);
+        let d = best_of(profile.runs, || feed_all(black_box(&sgr)));
+        report_feed(&sgr_name, sgr.len(), d);
 
         // 4) Scroll-region churn.
-        let churn = gen_scroll_region_churn(100_000);
-        let d = best_of(5, || feed_all(black_box(&churn)));
-        report_feed("scroll-region churn 100000", churn.len(), d);
+        let churn_name = format!("scroll-region churn {}", profile.scroll_churn_iterations);
+        let churn = gen_scroll_region_churn(profile.scroll_churn_iterations);
+        start_row(&churn_name);
+        let d = best_of(profile.runs, || feed_all(black_box(&churn)));
+        report_feed(&churn_name, churn.len(), d);
 
         // 5) Full-screen repaint pattern.
-        let repaint = gen_full_repaint(20_000);
-        let d = best_of(5, || feed_all(black_box(&repaint)));
-        report_feed("full repaint 20000 frames", repaint.len(), d);
+        let repaint_name = format!("full repaint {} frames", profile.repaint_frames);
+        let repaint = gen_full_repaint(profile.repaint_frames);
+        start_row(&repaint_name);
+        let d = best_of(profile.runs, || feed_all(black_box(&repaint)));
+        report_feed(&repaint_name, repaint.len(), d);
 
         // ---- Parser-only feed throughput (PA2-r baseline) ----
         //
@@ -299,20 +406,30 @@ fn main() {
         // benches so each row above pairs with one row below.
         println!("\n== Parser-only feed throughput (OdyParser + NullSink) ==");
 
-        let d = best_of(5, || parser_feed_all(black_box(&seq)));
-        report_feed("parser seq 1 100000", seq.len(), d);
+        let parser_seq_name = format!("parser seq 1 {}", profile.seq_lines);
+        start_row(&parser_seq_name);
+        let d = best_of(profile.runs, || parser_feed_all(black_box(&seq)));
+        report_feed(&parser_seq_name, seq.len(), d);
 
-        let d = best_of(5, || parser_feed_all(black_box(&plain)));
-        report_feed("parser plain ascii 50000", plain.len(), d);
+        let parser_plain_name = format!("parser plain ascii {}", profile.plain_lines);
+        start_row(&parser_plain_name);
+        let d = best_of(profile.runs, || parser_feed_all(black_box(&plain)));
+        report_feed(&parser_plain_name, plain.len(), d);
 
-        let d = best_of(5, || parser_feed_all(black_box(&sgr)));
-        report_feed("parser heavy sgr 20000", sgr.len(), d);
+        let parser_sgr_name = format!("parser heavy sgr {}", profile.heavy_sgr_lines);
+        start_row(&parser_sgr_name);
+        let d = best_of(profile.runs, || parser_feed_all(black_box(&sgr)));
+        report_feed(&parser_sgr_name, sgr.len(), d);
 
-        let d = best_of(5, || parser_feed_all(black_box(&churn)));
-        report_feed("parser scroll churn 100000", churn.len(), d);
+        let parser_churn_name = format!("parser scroll churn {}", profile.scroll_churn_iterations);
+        start_row(&parser_churn_name);
+        let d = best_of(profile.runs, || parser_feed_all(black_box(&churn)));
+        report_feed(&parser_churn_name, churn.len(), d);
 
-        let d = best_of(5, || parser_feed_all(black_box(&repaint)));
-        report_feed("parser full repaint 20000", repaint.len(), d);
+        let parser_repaint_name = format!("parser full repaint {}", profile.repaint_frames);
+        start_row(&parser_repaint_name);
+        let d = best_of(profile.runs, || parser_feed_all(black_box(&repaint)));
+        report_feed(&parser_repaint_name, repaint.len(), d);
     }
 
     println!("\n== Snapshot / repaint geometry (per-frame cost) ==");
@@ -320,12 +437,12 @@ fn main() {
     // Prepare a terminal with deep scrollback and content for snapshot tests.
     // Geometry-only mode is for packet acceptance quick checks, so it keeps the
     // same 80x24 frame shape while avoiding the full-suite deep scrollback setup.
-    let snapshot_lines = if geometry_only { ROWS } else { 50_000 };
-    let mut term = feed_all(&gen_plain(snapshot_lines));
+    let mut term = feed_all(&gen_plain(profile.snapshot_lines));
 
     // 6) snapshot() cost — the full Vec<Cell> rebuild done every frame.
-    let snap_ops = if geometry_only { 500 } else { 5_000 };
-    let d = best_of(5, || {
+    let snap_ops = profile.snapshot_ops;
+    start_row("snapshot()");
+    let d = best_of(profile.runs, || {
         for _ in 0..snap_ops {
             black_box(term.snapshot());
         }
@@ -333,7 +450,8 @@ fn main() {
     report_ops("snapshot()", snap_ops, d);
 
     // 7) snapshot_with_scrollback() at a mid offset (scrolled-back viewport).
-    let d = best_of(5, || {
+    start_row("snapshot_with_scrollback(1000)");
+    let d = best_of(profile.runs, || {
         for _ in 0..snap_ops {
             black_box(term.snapshot_with_scrollback(1000));
         }
@@ -344,8 +462,9 @@ fn main() {
     if let Some(font) = font.as_ref() {
         let atlas = GlyphAtlas::build(font, 28.0);
         let snapshot = term.snapshot();
-        let geo_ops = if geometry_only { 500 } else { 5_000 };
-        let d = best_of(5, || {
+        let geo_ops = profile.geometry_ops;
+        start_row("build_vertices()");
+        let d = best_of(profile.runs, || {
             for _ in 0..geo_ops {
                 black_box(build_vertices(black_box(&snapshot), black_box(&atlas)));
             }
@@ -353,8 +472,9 @@ fn main() {
         report_ops("build_vertices()", geo_ops, d);
 
         // 9) Combined per-frame: snapshot + build_vertices (what a redraw does).
-        let frame_ops = if geometry_only { 500 } else { 5_000 };
-        let d = best_of(5, || {
+        let frame_ops = profile.geometry_ops;
+        start_row("snapshot()+build_vertices()");
+        let d = best_of(profile.runs, || {
             for _ in 0..frame_ops {
                 let s = term.snapshot();
                 black_box(build_vertices(&s, &atlas));
@@ -365,7 +485,8 @@ fn main() {
         // 10) New P2-b retained-buffer pieces: full cell rebuild (heavy-output
         // frames still need this), and bounded cursor-tail refresh (blink-only
         // frames skip the cell walk and rewrite at most the cursor/overlay tail).
-        let d = best_of(5, || {
+        start_row("cell_vertices()+cursor_tail()");
+        let d = best_of(profile.runs, || {
             let mut vertices = Vec::new();
             for _ in 0..geo_ops {
                 odytty::grid::build_cell_vertices_into(
@@ -384,7 +505,8 @@ fn main() {
         });
         report_ops("cell_vertices()+cursor_tail()", geo_ops, d);
 
-        let d = best_of(5, || {
+        start_row("cursor_tail_only()");
+        let d = best_of(profile.runs, || {
             let mut cursor_tail = Vec::new();
             for _ in 0..geo_ops {
                 cursor_tail.clear();
@@ -399,7 +521,8 @@ fn main() {
         });
         report_ops("cursor_tail_only()", geo_ops, d);
 
-        let d = best_of(5, || {
+        start_row("snapshot()+cursor_tail_only()");
+        let d = best_of(profile.runs, || {
             let mut cursor_tail = Vec::new();
             for _ in 0..frame_ops {
                 let s = term.snapshot();
@@ -424,10 +547,11 @@ fn main() {
     println!("\n== Resize / reflow (deep scrollback) ==");
 
     // 10) Resize back and forth with deep scrollback (worst-case reflow). `term`
-    //     here carries ~50000 lines of scrollback from the snapshot setup above.
-    //     Deep-reflow ops are tens of ms each, so use a small op count.
-    let deep_ops = 40;
-    let d = best_of(3, || {
+    //     carries the profile's snapshot scrollback setup above. Deep-reflow ops
+    //     can be tens of ms each, so profiles use small op counts.
+    let deep_ops = profile.deep_resize_ops;
+    start_row("resize reflow (deep scrollback)");
+    let d = best_of(profile.runs, || {
         for i in 0..deep_ops {
             let w = if i % 2 == 0 { 100 } else { 60 };
             term.resize(w, ROWS);
@@ -438,8 +562,9 @@ fn main() {
     // 11) Same width-changing resize but with shallow scrollback, to show the
     //     reflow cost scales with total buffer depth (isolates the hotspot).
     let mut shallow = feed_all(&gen_plain(ROWS)); // ~one screen, little scrollback
-    let shallow_ops = 2_000;
-    let d = best_of(3, || {
+    let shallow_ops = profile.shallow_resize_ops;
+    start_row("resize reflow (shallow scrollback)");
+    let d = best_of(profile.runs, || {
         for i in 0..shallow_ops {
             let w = if i % 2 == 0 { 100 } else { 60 };
             shallow.resize(w, ROWS);
@@ -450,7 +575,8 @@ fn main() {
     // 12) Height-only resize with deep scrollback: width is unchanged, so a
     //     re-wrap is not logically required — this shows the headroom for a
     //     width-unchanged fast path (proposal, not done here).
-    let d = best_of(3, || {
+    start_row("resize reflow (height-only, deep)");
+    let d = best_of(profile.runs, || {
         for i in 0..deep_ops {
             let h = if i % 2 == 0 { ROWS } else { ROWS - 4 };
             term.resize(COLS, h);

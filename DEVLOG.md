@@ -7,6 +7,52 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Perf bench health and post-P2 baseline (B2)
+
+The full `cargo bench --bench perf` harness briefly looked hung after P2-b
+because the first integrated feed row (`seq`) did not print progress until its
+entire best-of run completed. Instrumenting the harness showed the real
+regression: text-only full-screen scrolls were calling `scrollback.physical_len`
+on every scrolled line solely to provide graphics-placement eviction bounds.
+With lazy logical scrollback, that forced repeated projection of all history.
+
+The fix is intentionally narrow: when the graphics scene has no placements,
+full-screen scroll skips the physical scrollback projection and passes a dummy
+eviction bound. Placement-bearing scrolls still compute the exact bound and keep
+the existing graphics behavior.
+
+`benches/perf.rs` now prints a flushed `running...` marker before each row and
+uses bounded default workloads (`ODYTTY_PERF_PROFILE=legacy` keeps the original
+large P1/P2 sizes; `quick` and geometry-only modes remain available). The
+default profile completes in about 7 seconds including compile on this machine;
+the legacy profile completed in about 21 seconds.
+
+Legacy-size post-fix baseline:
+
+| Workload | Post-B2 |
+|---|---:|
+| seq 1 100000 | 13.1 MB/s |
+| plain ascii 50000 lines | 76.8 MB/s |
+| heavy sgr 20000 lines | 309.0 MB/s |
+| scroll-region churn 100000 | 112.2 MB/s |
+| full repaint 20000 frames | 116.5 MB/s |
+| snapshot() | 5.8 us/op |
+| build_vertices() | 179.0 us/op |
+| snapshot()+build_vertices() | 186.7 us/op |
+| cursor_tail_only() | ~0.04 us/op |
+| snapshot()+cursor_tail_only() | 5.8 us/op |
+| resize reflow (deep scrollback) | 19.7 us/op |
+| resize reflow (shallow scrollback) | 12.6 us/op |
+| resize reflow (height-only, deep) | 6.2 us/op |
+
+Compared with the earlier P1/PA3 evidence, `seq` is back at the expected
+~13-14 MB/s range, heavy SGR remains healthy, and resize remains at the
+post-P1-b fast-path level. Plain ASCII and full repaint are lower in this run
+than the earlier PA3 table, so they remain useful watch rows for future perf
+work, but they no longer block the harness.
+
+---
+
 ## 2026-06-11 — Render invalidation and retained geometry (P2-b)
 
 The native redraw path now separates three frame classes:
