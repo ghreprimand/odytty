@@ -7,7 +7,63 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-06-11 — Kitty keyboard protocol progressive enhancement
+## 2026-06-11 — Modularity split: atlas.rs (M5)
+
+Mechanical split of `src/atlas.rs` (1910 lines, the file nearest the ~2000-line
+cap) into a directory module. Same pattern as M4: zero behavior/API/test-count
+change, verbatim line moves, visibility-only tweaks.
+
+- **`src/atlas.rs` → `src/atlas/` directory module.** Code half lands in
+  `src/atlas/mod.rs` (881 lines) — every type, `impl GlyphAtlas`, the free
+  raster/slot helpers, and the public API are byte-identical to before. Module
+  wiring (`pub mod atlas;` in `lib.rs`) is unchanged; `GlyphAtlas`/`FontStyle`/
+  `SubpixelMode`/`CellSize`/`GlyphBounds` public paths are identical.
+- **Tests → `src/atlas/tests/` (5 files).** The 30 `#[test]`s split thematically
+  into `metrics.rs` (build/channels/fallback/ensure/growth/rebuild),
+  `geometry.rs` (ink strokes/baseline/descender + styled slots),
+  `glyph_quad.rs` (bearing-aware quad geometry), and `scaling.rs` (rescale +
+  wide-glyph allocation + fractional-scale seams). `tests/mod.rs` retains the
+  shared imports and hoists the eight test helpers.
+- **Visibility tweak:** the eight hoisted test helpers (`test_font`,
+  `inner_origin`, `cell_ink`, `subpixel_cell_channels`, `glyph_bearing_non_ascii`,
+  `scan_slot_ink`, `wide_glyph_supported`, `physical_font_px`) were widened from
+  private `fn` to `pub(super) fn` so the theme submodules reach them. No method
+  changed external visibility.
+- **Verification.** `cargo test` green (atlas: 30 passed, unchanged; lib 721 incl.
+  GPT's concurrent uncommitted KB2 WIP; 19 pixel + 9 PTY + 10 transcript).
+  `cargo fmt --check` clean. Native autoclose smokes exit 0 at default and
+  `ODYTTY_SUBPIXEL=rgb ODYTTY_FONT_SIZE=18`. All `src/atlas/**` files under the
+  cap (largest `scaling.rs` at 326). A whitespace-normalized content diff confirms
+  the only changes are scaffolding (doc headers, `mod` decls, per-file
+  `use super::*`) and the eight `pub(super)` widenings — every test body line is
+  unchanged.
+
+---
+
+## 2026-06-11 — Kitty keyboard protocol completion (KB2)
+
+The native key path now completes the negotiated Kitty keyboard flags that were
+left as KB1 follow-up.
+
+- **Event types.** The source-agnostic encoder accepts press/repeat/release
+  event kinds. Flag `2` reports functional-key repeats and releases using the
+  Kitty modifier subfield (`:2` repeat, `:3` release); releases produce bytes
+  only when flag `2` is active. Text keys keep legacy repeat behavior unless
+  they are already in CSI-u/report-all form.
+- **Alternate keys.** Flag `4` adds shifted and base-layout key-code subfields
+  for CSI-u character events when OdyTTY can derive them from the existing
+  logical key.
+- **Associated text.** Flag `16`, when combined with report-all (`8`), appends
+  generated printable text code points as the third CSI-u parameter.
+- **Native events.** `winit` key repeat and release state now reaches the
+  shared encoder. Local OdyTTY shortcuts remain press-side handling; releases
+  are only forwarded when the terminal negotiated them.
+- **Compatibility.** `encode_key` remains the press-event compatibility wrapper.
+  Flag `0` legacy bytes and KB1's flags `1`/`8` press encodings stay unchanged.
+
+---
+
+## 2026-06-11 — Kitty keyboard protocol progressive enhancement (KB1)
 
 OdyTTY now implements the core Kitty keyboard protocol negotiation surface and
 uses it in the native key path.
@@ -24,8 +80,7 @@ uses it in the native key path.
   keybindings first, then consults the active Kitty flags before falling back to
   legacy DEC/xterm encoding. With no flags active, byte output is unchanged.
   The disambiguation flag (`1`) emits CSI-u for ambiguous control/Alt text and
-  named keys; the report-all flag (`8`) is wired through the same encoder. Event
-  type reporting (`2`) remains a follow-up.
+  named keys; the report-all flag (`8`) is wired through the same encoder.
 - **Tests.** New fixtures cover query bytes, set/add/remove, push/pop,
   stack-overflow eviction, alt-screen isolation, reset behavior, legacy
   bit-exactness with flags off, and representative CSI-u byte encodings.
