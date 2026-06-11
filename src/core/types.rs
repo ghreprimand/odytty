@@ -17,6 +17,42 @@ impl Dimensions {
         }
     }
 }
+
+/// Pixel dimensions of a single terminal cell, used by the graphics routing
+/// layer to compute cell-extent from pixel-sized images (e.g. Sixel/Kitty).
+///
+/// The headless default is 8×16 px (a common fixed-width cell metric). The
+/// native layer overrides this at startup and on every rescale/font rebuild
+/// via [`super::screen::Screen::set_cell_metrics`]. Values are clamped to
+/// `[1, 1024]` — zero is never stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CellMetrics {
+    pub width_px: u32,
+    pub height_px: u32,
+}
+
+impl CellMetrics {
+    /// Headless default: 8×16 px cell (matches the former provisional constants).
+    pub const DEFAULT: Self = Self {
+        width_px: 8,
+        height_px: 16,
+    };
+
+    /// Construct with clamping: each dimension is clamped to `[1, 1024]`.
+    pub fn new(width_px: u32, height_px: u32) -> Self {
+        Self {
+            width_px: width_px.clamp(1, 1024),
+            height_px: height_px.clamp(1, 1024),
+        }
+    }
+}
+
+impl Default for CellMetrics {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Position {
     pub row: usize,

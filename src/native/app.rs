@@ -333,6 +333,9 @@ impl App {
 
         if let Ok(mut terminal) = self.terminal.lock() {
             terminal.resize(new_grid.columns, new_grid.rows);
+            // Update cell metrics on every resize/rescale so new graphics
+            // placements use the current pixel cell size.
+            terminal.set_cell_metrics(cell.width, cell.height);
         }
         if let Ok(pty) = self.pty.lock() {
             let _ = pty.resize(new_grid);
@@ -941,7 +944,15 @@ impl ApplicationHandler<UserEvent> for App {
             self.theme,
             self.visual,
         ) {
-            Ok(gpu) => self.gpu = Some(gpu),
+            Ok(gpu) => {
+                // Push live cell pixel metrics to the terminal core so graphics
+                // placements (sixel/kitty) compute the correct cell extent.
+                let cell = gpu.cell();
+                if let Ok(mut term) = self.terminal.lock() {
+                    term.set_cell_metrics(cell.width, cell.height);
+                }
+                self.gpu = Some(gpu);
+            }
             Err(err) => {
                 self.fail(event_loop, err);
                 return;

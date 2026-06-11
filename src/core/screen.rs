@@ -108,6 +108,9 @@ pub struct Screen {
     graphics: ImageScene,
     dcs_capture: Option<DcsCapture>,
     graphics_stats: GraphicsStats,
+    /// Live cell pixel metrics for graphics extent calculation. Default 8×16;
+    /// the native layer overrides via [`Self::set_cell_metrics`].
+    cell_metrics: CellMetrics,
 }
 #[derive(Debug, Clone)]
 struct StoredScreen {
@@ -163,6 +166,7 @@ impl Screen {
             graphics: ImageScene::default(),
             dcs_capture: None,
             graphics_stats: GraphicsStats::default(),
+            cell_metrics: CellMetrics::default(),
         }
     }
 
@@ -176,6 +180,24 @@ impl Screen {
         self.default_cursor_blink = blink;
         self.cursor_style = style;
         self.cursor_blink = blink;
+    }
+
+    /// Set the live cell pixel metrics used by the graphics routing layer
+    /// (Sixel/Kitty extent calculation). The native layer calls this at startup
+    /// and on every rescale/font-size rebuild so new placements use the real
+    /// glyph cell size. Dimensions are clamped to `[1, 1024]` — zero is never
+    /// stored.
+    ///
+    /// Existing placements are **not** recomputed — they retain the extent
+    /// calculated at creation time. Only placements created after this call
+    /// use the updated metrics (new-placements-only policy, documented).
+    pub fn set_cell_metrics(&mut self, width_px: u32, height_px: u32) {
+        self.cell_metrics = CellMetrics::new(width_px, height_px);
+    }
+
+    /// Current cell pixel metrics. See [`Self::set_cell_metrics`].
+    pub fn cell_metrics(&self) -> CellMetrics {
+        self.cell_metrics
     }
 
     /// The cursor shape currently in effect (DECSCUSR or host default).
@@ -1343,6 +1365,7 @@ impl Screen {
         self.last_graphic_char = None;
         self.graphics.hard_reset();
         self.dcs_capture = None;
+        self.graphics_stats = GraphicsStats::default();
         // RIS returns mouse reporting to its power-on (off) state. The title is
         // a persistent window property and is intentionally left untouched.
         self.mouse = MouseProtocol::default();
@@ -1522,6 +1545,7 @@ impl Screen {
             self.cursor.column,
             self.dimensions.rows,
             self.dimensions.columns,
+            self.cell_metrics,
         ) {
             self.cursor.row = new_row;
             self.cursor.column = new_col;
@@ -1646,6 +1670,17 @@ impl Terminal {
     /// [`Screen::set_cursor_defaults`].
     pub fn set_cursor_defaults(&mut self, style: CursorStyle, blink: bool) {
         self.screen.set_cursor_defaults(style, blink);
+    }
+
+    /// Set the live cell pixel metrics for graphics extent calculation.
+    /// See [`Screen::set_cell_metrics`].
+    pub fn set_cell_metrics(&mut self, width_px: u32, height_px: u32) {
+        self.screen.set_cell_metrics(width_px, height_px);
+    }
+
+    /// Current cell pixel metrics. See [`Screen::cell_metrics`].
+    pub fn cell_metrics(&self) -> CellMetrics {
+        self.screen.cell_metrics()
     }
 
     pub fn screen(&self) -> &Screen {

@@ -14,26 +14,20 @@
 //! behavior (DECSDM off). DECSDM (scrolling mode) is noted as a finding but
 //! not implemented; virtually all modern sixel usage assumes DECSDM-off.
 //!
-//! # Cell-extent provisioning
+//! # Cell-extent calculation
 //!
 //! The G2.1 placement API requires cell-extent (`display_columns`,
-//! `display_rows`). The core has no access to actual pixel cell metrics (those
-//! live in the render layer), so we use a **provisional cell-size assumption**:
-//! 8×16 pixels. The render layer may override placement extent when uploading
-//! to GPU with actual glyph metrics; this is documented as the expected path.
-//! The constant is [`PROVISIONAL_CELL_WIDTH`] / [`PROVISIONAL_CELL_HEIGHT`].
+//! `display_rows`). The core receives live cell pixel metrics from the native
+//! layer via [`super::screen::Screen::set_cell_metrics`]; headless tests use
+//! the [`super::types::CellMetrics::DEFAULT`] (8×16 px). Extent is computed
+//! as `ceil(image_px / cell_px)` per axis, clamped to screen bounds.
 
 use crate::graphics::placement::MAX_RAW_GRAPHICS_BYTES;
 use crate::graphics::sixel::{SixelBackground, decode_sixel};
 use crate::graphics::{GraphicsProtocol, ImageScene, PlacementRequest};
 use crate::parser::Params;
 
-/// Provisional cell width in pixels for cell-extent calculation.
-/// The render layer should override with actual glyph metrics.
-pub(super) const PROVISIONAL_CELL_WIDTH: u32 = 8;
-
-/// Provisional cell height in pixels for cell-extent calculation.
-pub(super) const PROVISIONAL_CELL_HEIGHT: u32 = 16;
+use super::types::CellMetrics;
 
 /// In-progress DCS capture accumulator.
 #[derive(Debug, Clone)]
@@ -104,6 +98,7 @@ pub(super) fn dcs_unhook(
     cursor_col: usize,
     screen_rows: usize,
     screen_cols: usize,
+    cell_metrics: CellMetrics,
 ) -> Option<(usize, usize)> {
     if capture.overflowed {
         return None;
@@ -137,11 +132,11 @@ pub(super) fn dcs_unhook(
         }
     };
 
-    // Compute cell extent from pixel dimensions using provisional cell metrics.
+    // Compute cell extent from pixel dimensions using live cell metrics.
     let display_columns =
-        ((image.width + PROVISIONAL_CELL_WIDTH - 1) / PROVISIONAL_CELL_WIDTH) as usize;
+        ((image.width + cell_metrics.width_px - 1) / cell_metrics.width_px) as usize;
     let display_rows =
-        ((image.height + PROVISIONAL_CELL_HEIGHT - 1) / PROVISIONAL_CELL_HEIGHT) as usize;
+        ((image.height + cell_metrics.height_px - 1) / cell_metrics.height_px) as usize;
 
     // Clamp extent to screen bounds from anchor.
     let display_columns = display_columns

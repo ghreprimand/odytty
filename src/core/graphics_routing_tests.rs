@@ -23,6 +23,12 @@ fn solid_1x6_red() -> Vec<u8> {
     sixel_dcs("0;0", "#0;2;100;0;0~")
 }
 
+/// A 48×36 red block: 6 bands × 48 columns — larger image to demonstrate
+/// metric-sensitive extent differences.
+fn solid_48x36_red() -> Vec<u8> {
+    sixel_dcs("0;0", "#0;2;100;0;0!48~-!48~-!48~-!48~-!48~-!48~")
+}
+
 /// A 16×6 red block: repeat introducer `!16~` means 16 columns of all-on.
 fn solid_16x6_red() -> Vec<u8> {
     sixel_dcs("0;0", "#0;2;100;0;0!16~")
@@ -364,4 +370,108 @@ fn raw_sixel_command_recorded_alongside_placement() {
         &commands[0],
         crate::graphics::GraphicsCommand::SixelDcs { .. }
     ));
+}
+
+// ---------------------------------------------------------------------------
+// SX3: Live cell metrics — extent differs with different metrics
+// ---------------------------------------------------------------------------
+
+#[test]
+fn default_cell_metrics_are_8x16() {
+    let t = Terminal::new(80, 24);
+    let m = t.cell_metrics();
+    assert_eq!(m.width_px, 8);
+    assert_eq!(m.height_px, 16);
+}
+
+#[test]
+fn set_cell_metrics_changes_extent_calculation() {
+    // 48×36 image at default 8×16: ceil(48/8)=6 cols, ceil(36/16)=3 rows
+    let mut t1 = Terminal::new(80, 24);
+    t1.advance(&solid_48x36_red());
+    let p1 = &t1.visible_graphics(0)[0];
+    assert_eq!(p1.display_columns, 6);
+    assert_eq!(p1.display_rows, 3);
+
+    // Same image at 10×20: ceil(48/10)=5 cols, ceil(36/20)=2 rows
+    let mut t2 = Terminal::new(80, 24);
+    t2.set_cell_metrics(10, 20);
+    t2.advance(&solid_48x36_red());
+    let p2 = &t2.visible_graphics(0)[0];
+    assert_eq!(p2.display_columns, 5);
+    assert_eq!(p2.display_rows, 2);
+}
+
+#[test]
+fn cursor_below_image_differs_with_metrics() {
+    // 48×36: at 8×16 → 3 display rows → cursor at row 3
+    let mut t1 = Terminal::new(80, 24);
+    t1.advance(&solid_48x36_red());
+    assert_eq!(t1.screen().cursor().row, 3);
+
+    // Same at 10×20 → 2 display rows → cursor at row 2
+    let mut t2 = Terminal::new(80, 24);
+    t2.set_cell_metrics(10, 20);
+    t2.advance(&solid_48x36_red());
+    assert_eq!(t2.screen().cursor().row, 2);
+}
+
+#[test]
+fn set_cell_metrics_only_affects_new_placements() {
+    let mut t = Terminal::new(80, 24);
+    // First placement at default 8×16
+    t.advance(&solid_48x36_red());
+    let old = t.visible_graphics(0)[0].display_columns;
+    assert_eq!(old, 6); // ceil(48/8)
+
+    // Change metrics — old placement unchanged
+    t.set_cell_metrics(10, 20);
+    let still_old = t.visible_graphics(0)[0].display_columns;
+    assert_eq!(still_old, old, "existing placement not recomputed");
+
+    // New placement uses new metrics
+    t.advance(b"\x1b[5;1H"); // move cursor
+    t.advance(&solid_48x36_red());
+    let new = t.visible_graphics(0);
+    assert_eq!(new.len(), 2);
+    assert_eq!(new[1].display_columns, 5); // ceil(48/10)
+}
+
+#[test]
+fn cell_metrics_zero_clamped_to_one() {
+    let mut t = Terminal::new(80, 24);
+    t.set_cell_metrics(0, 0);
+    let m = t.cell_metrics();
+    assert_eq!(m.width_px, 1);
+    assert_eq!(m.height_px, 1);
+}
+
+#[test]
+fn cell_metrics_large_clamped_to_1024() {
+    let mut t = Terminal::new(80, 24);
+    t.set_cell_metrics(9999, 9999);
+    let m = t.cell_metrics();
+    assert_eq!(m.width_px, 1024);
+    assert_eq!(m.height_px, 1024);
+}
+
+#[test]
+fn cell_metrics_survive_ris() {
+    let mut t = Terminal::new(80, 24);
+    t.set_cell_metrics(12, 24);
+    // RIS resets terminal state but cell metrics are host-side — they persist.
+    t.advance(b"\x1bc");
+    assert_eq!(t.cell_metrics().width_px, 12);
+    assert_eq!(t.cell_metrics().height_px, 24);
+}
+
+#[test]
+fn small_image_with_large_cells() {
+    // 1×6 image at 100×100 cell: ceil(1/100)=1 col, ceil(6/100)=1 row
+    let mut t = Terminal::new(80, 24);
+    t.set_cell_metrics(100, 100);
+    t.advance(&solid_1x6_red());
+    let p = &t.visible_graphics(0)[0];
+    assert_eq!(p.display_columns, 1);
+    assert_eq!(p.display_rows, 1);
 }
