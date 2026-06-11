@@ -1,31 +1,12 @@
-//! Differential oracle: the OdyTTY-owned [`OdyParser`] vs the live `vte` parser.
+//! Golden and self-consistency coverage for the production OdyTTY parser.
 //!
-//! Both parsers drive a [`Screen`] (vte via [`vte::Perform`], OdyParser via
-//! [`crate::parser::VtDispatch`]). For every input in the corpus, identical byte
-//! streams are fed to each and the resulting terminal state is asserted
-//! byte-identical: dimensions, cursor position/style/blink, mouse + focus +
-//! bracketed-paste modes, title, scrollback depth, host-bound output (DA/DSR
-//! replies), and the full [`Snapshot`] at every scrollback offset.
-//!
-//! This is the same parity methodology as the P1-b reflow oracle: pin the new
-//! implementation to the proven one across a broad corpus, including adversarial
-//! generated streams and every byte-boundary split, before the new path goes
-//! live. The single intended divergence — OdyParser surfacing APC payloads that
-//! vte discards — is invisible here because [`Screen`] ignores `apc_dispatch`,
-//! so terminal state stays identical (a dedicated test asserts exactly that).
+//! PA3 removes `vte` from the repository, so parser regression value is retained
+//! in two ways: stable golden fingerprints for the curated corpus, and
+//! whole-vs-split feed equivalence for the corpus plus deterministic fuzzers.
 
 use super::screen::Screen;
 use crate::parser::OdyParser;
-
-/// Drive a fresh [`Screen`] with the `vte` parser over the given byte chunks.
-fn run_vte(cols: usize, rows: usize, chunks: &[&[u8]]) -> Screen {
-    let mut screen = Screen::new(cols, rows);
-    let mut parser = vte::Parser::new();
-    for chunk in chunks {
-        parser.advance(&mut screen, chunk);
-    }
-    screen
-}
+use std::fmt::Write as _;
 
 /// Drive a fresh [`Screen`] with the OdyTTY-owned parser over the same chunks.
 fn run_ody(cols: usize, rows: usize, chunks: &[&[u8]]) -> Screen {
@@ -35,6 +16,43 @@ fn run_ody(cols: usize, rows: usize, chunks: &[&[u8]]) -> Screen {
         parser.advance(&mut screen, chunk);
     }
     screen
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for &byte in bytes {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+fn screen_fingerprint(screen: &Screen) -> u64 {
+    let mut out = String::new();
+    write!(
+        &mut out,
+        "dim={:?};cursor={:?};style={:?};blink={:?};focus={:?};paste={:?};mouse={:?};title={:?};host={:02x?};scrollback={};",
+        screen.dimensions(),
+        screen.cursor(),
+        screen.cursor_style(),
+        screen.cursor_blinking(),
+        screen.focus_reporting(),
+        screen.bracketed_paste_enabled(),
+        screen.mouse_protocol(),
+        screen.title(),
+        screen.host_output_bytes(),
+        screen.scrollback_len(),
+    )
+    .expect("write fingerprint header");
+    for offset in 0..=screen.scrollback_len() {
+        write!(
+            &mut out,
+            "offset={offset};snapshot={:?};",
+            screen.snapshot_with_scrollback(offset)
+        )
+        .expect("write fingerprint snapshot");
+    }
+    fnv1a64(out.as_bytes())
 }
 
 /// Assert two screens are byte-identical across every observable axis.
@@ -84,41 +102,48 @@ fn assert_screens_match(label: &str, a: &Screen, b: &Screen) {
     }
 }
 
-/// Feed `input` as a single chunk and assert vte/OdyParser parity.
-fn assert_parity(label: &str, cols: usize, rows: usize, input: &[u8]) {
-    let vte_screen = run_vte(cols, rows, &[input]);
-    let ody_screen = run_ody(cols, rows, &[input]);
-    assert_screens_match(label, &vte_screen, &ody_screen);
+fn expected_hash(label: &str, cols: usize, rows: usize) -> Option<u64> {
+    if let Some(hash) = GOLDEN_EXTRA
+        .iter()
+        .find_map(|&(candidate, hash)| (candidate == label).then_some(hash))
+    {
+        return Some(hash);
+    }
+
+    let (label, table) = if cols == 4 && rows == 3 {
+        (label.strip_prefix("narrow:").unwrap_or(label), GOLDEN_4X3)
+    } else if cols == 20 && rows == 6 {
+        (label, GOLDEN_20X6)
+    } else {
+        return None;
+    };
+    table
+        .iter()
+        .find_map(|&(candidate, hash)| (candidate == label).then_some(hash))
 }
 
-/// Divergence ledger filter (PA2-r): whether splitting `input` at `sp` falls
-/// inside a C1-via-UTF-8 pair (`0xC2` lead, then `0x80..=0x9F` continuation).
-///
-/// Under the OdyTTY uniform-execute policy a C1 scalar arriving across two
-/// `advance()` calls EXECUTES (matching the whole-buffer case); `vte` PRINTS on
-/// the partial-completion path. This filter skips splits that land in exactly
-/// that one-byte-wide window; all other splits stay oracle-asserted.
-///
-/// The window is over-conservative — it skips splits that fall mid-OSC or
-/// mid-DCS payload (where the bytes are NOT processed in Ground), but the
-/// cost is at most a handful of skipped per-corpus splits, and over-skipping
-/// is always safe.
-fn split_in_c1_via_utf8(input: &[u8], sp: usize) -> bool {
-    sp > 0 && sp < input.len() && input[sp - 1] == 0xC2 && (0x80..=0x9F).contains(&input[sp])
+/// Feed `input` as a single chunk and assert the production parser's golden
+/// fingerprint for that corpus case.
+fn assert_parity(label: &str, cols: usize, rows: usize, input: &[u8]) {
+    let expected = expected_hash(label, cols, rows)
+        .unwrap_or_else(|| panic!("missing golden fingerprint for {label:?} at {cols}x{rows}"));
+    let screen = run_ody(cols, rows, &[input]);
+    assert_eq!(
+        screen_fingerprint(&screen),
+        expected,
+        "{label}: golden fingerprint"
+    );
 }
 
 /// Feed `input` split at **every** byte boundary and assert parity for each
 /// split — this is the split-UTF-8 / interrupted-sequence stress that proves the
 /// state carries correctly across `advance()` calls.
 fn assert_parity_all_splits(label: &str, cols: usize, rows: usize, input: &[u8]) {
+    let whole = run_ody(cols, rows, &[input]);
     for split in 0..=input.len() {
-        if split_in_c1_via_utf8(input, split) {
-            continue;
-        }
         let (head, tail) = input.split_at(split);
-        let vte_screen = run_vte(cols, rows, &[head, tail]);
-        let ody_screen = run_ody(cols, rows, &[head, tail]);
-        assert_screens_match(&format!("{label} split@{split}"), &vte_screen, &ody_screen);
+        let split_screen = run_ody(cols, rows, &[head, tail]);
+        assert_screens_match(&format!("{label} split@{split}"), &whole, &split_screen);
     }
 }
 
@@ -192,8 +217,8 @@ fn corpus() -> Vec<(&'static str, &'static [u8])> {
         // ---- PA2 edge-case hardening fixtures (each also gets all-byte-split
         // and narrow-grid coverage via the corpus harnesses) ----
         // C1 / UTF-8 precedence: lone 8-bit C1 bytes execute, do NOT introduce
-        // sequences; the same scalar via valid 2-byte UTF-8 follows the
-        // canonical print/execute rule. Verified identical to vte at every split.
+        // sequences; the same scalar via valid 2-byte UTF-8 executes uniformly
+        // no matter where input chunks split.
         ("c1_lone_nel_85", b"a\x85b"),
         ("c1_lone_ind_84", b"a\x84b"),
         ("c1_lone_ri_8d", b"top\r\nbot\x8dX"),
@@ -237,6 +262,220 @@ fn corpus() -> Vec<(&'static str, &'static [u8])> {
         ("param_private_then_params", b"\x1b[?25;1hX"),
     ]
 }
+
+const GOLDEN_20X6: &[(&str, u64)] = &[
+    ("plain_text", 0xaf8c5c6ae112ae30),
+    ("crlf_wrap", 0x6bb64974882e5b7c),
+    ("sgr_basic", 0xfc987a6fa40f856f),
+    ("sgr_many", 0x3cda0daf41d7d902),
+    ("sgr_256_fg", 0xe3fed1ab8489a1c7),
+    ("sgr_rgb_fg", 0x23765ea8a855fd19),
+    ("sgr_rgb_colon", 0x5c1071fc00a33a0a),
+    ("sgr_bright", 0x168ecf47219138af),
+    ("cursor_moves", 0x79d5d6776d0e0a81),
+    ("cup", 0x6e5a52d0e1e0656b),
+    ("cup_f", 0x234126dab1ff3c84),
+    ("bare_cuu_zero", 0x5fcc71c1c88de726),
+    ("erase_display", 0xe195d4820d949f62),
+    ("erase_line", 0xfc6ec1f1fe3228e6),
+    ("insert_delete_lines", 0x42198c1cc2bf9f9c),
+    ("insert_delete_chars", 0x3eaf4a930aef743d),
+    ("erase_chars", 0xdded85798fb7552f),
+    ("repeat_char", 0x5b5ab909d10bfeec),
+    ("ich_dch_ech", 0x1aef1994e0c0d614),
+    ("scroll_region", 0xd5371c76d10f0e7a),
+    ("scroll_up_down", 0x96a1cd8710df653d),
+    ("tab_stops", 0xf35f02d68ee72cb8),
+    ("save_restore_esc", 0x7bcbb78a30b9f72a),
+    ("save_restore_csi", 0x7bcbb78a30b9f72a),
+    ("reverse_index", 0x162ee79addb21c7e),
+    ("ris", 0xd366d06be41f1555),
+    ("decstr", 0x5c1071fc00a33a0a),
+    ("alt_screen", 0x273bda4137dd4b84),
+    ("bracketed_paste_on", 0x91bf5791ab2d954f),
+    ("bracketed_paste_off", 0x4f693af9bda968bc),
+    ("mouse_modes", 0x75fedc8601aa3e6a),
+    ("mouse_off", 0x4f693af9bda968bc),
+    ("focus_mode", 0x515fd887cfbf279b),
+    ("focus_mode_off", 0x4f693af9bda968bc),
+    ("device_attributes", 0xb9cf11cab30c6056),
+    ("dsr_cursor", 0xe3c3ad9a3731e730),
+    ("dsr_status", 0x03d4233a666a8db2),
+    ("decscusr_styles", 0x6a9a2cc57b426d34),
+    ("decscusr_reset", 0x4f693af9bda968bc),
+    ("osc_title_bel", 0x645765e3560c5dbf),
+    ("osc_title_st", 0x13e362f92c9a5b54),
+    ("osc_semicolons", 0x9ae4462aa3a076df),
+    ("osc_icon_only", 0x012ed35c2856f13d),
+    ("osc_ignored", 0x5c1071fc00a33a0a),
+    ("utf8_2byte", 0x12ade5aef402f67d),
+    ("utf8_3byte", 0x5c53cde9cfaf89e8),
+    ("utf8_4byte", 0x7bb8b0dd578a1eb2),
+    ("wide_cjk", 0x5e0416d16f9b0604),
+    ("wide_then_narrow", 0x28b2015ede08ec35),
+    ("combining", 0xa906ea362c5c2371),
+    ("c1_inline", 0xee8052834ba3cbef),
+    ("interrupted_csi", 0x5c1071fc00a33a0a),
+    ("csi_intermediate", 0x0ced54977e7f0884),
+    ("dcs_passthrough", 0xdec12423791734fd),
+    ("dcs_then_text", 0x3b149e020a04019c),
+    ("apc_kitty_like", 0x0a771084e0c3e88b),
+    ("sos_string", 0xeb1eb6caa213ea73),
+    ("pm_string", 0xeb1eb6caa213ea73),
+    ("lone_esc_then_text", 0x09315dc3619107c3),
+    ("can_aborts_csi", 0xfa06f1e85477aa39),
+    ("sub_aborts_csi", 0xfa06f1e85477aa39),
+    ("del_in_params", 0x5c5d837901374626),
+    ("backspace_tab_cr", 0xcef94312b9fc9c22),
+    ("form_feed_vt", 0xaf5db3cf76d315a6),
+    ("c1_lone_nel_85", 0xeb1eb6caa213ea73),
+    ("c1_lone_ind_84", 0xeb1eb6caa213ea73),
+    ("c1_lone_ri_8d", 0xfcf20d36a36ce2b0),
+    ("c1_8bit_csi_9b", 0xdd5d956a85575f21),
+    ("c1_8bit_osc_9d", 0x8aa35fbc1d9630bf),
+    ("c1_8bit_dcs_90", 0x58614ce00501da4e),
+    ("c1_8bit_apc_9f", 0x432f5894c66a9edc),
+    ("c1_8bit_st_9c", 0x5c1071fc00a33a0a),
+    ("c1_nel_via_utf8", 0xeb1eb6caa213ea73),
+    ("c1_all_via_utf8", 0x4f693af9bda968bc),
+    ("can_in_osc", 0x241a07d257b49458),
+    ("sub_in_osc", 0x241a07d257b49458),
+    ("can_in_dcs", 0x01ae555bdb01728a),
+    ("sub_in_dcs", 0x01ae555bdb01728a),
+    ("can_in_apc", 0x01ae555bdb01728a),
+    ("can_in_sos", 0x01ae555bdb01728a),
+    ("can_in_pm", 0x01ae555bdb01728a),
+    ("osc_esc_not_bs", 0x7ed0661ec86593b1),
+    ("dcs_esc_not_bs", 0xc1b4ace34cb43eaf),
+    ("apc_esc_not_bs", 0xc1b4ace34cb43eaf),
+    ("osc_st_8bit_9c", 0x4f693af9bda968bc),
+    ("osc_empty", 0x5c1071fc00a33a0a),
+    ("osc_no_semi", 0xdd8e3a1b536d23af),
+    ("osc_trailing_semi", 0xdd8e3a1b536d23af),
+    ("osc_embedded_c0", 0xd3d4a604993f7aa4),
+    ("param_colon_leading", 0x5c1071fc00a33a0a),
+    ("param_colon_trailing", 0x2ca75cd6a7af37e3),
+    ("param_colon_only", 0x5c1071fc00a33a0a),
+    ("param_semi_leading", 0x2ca75cd6a7af37e3),
+    ("param_semi_trailing", 0x5c1071fc00a33a0a),
+    ("param_many_colons", 0x2ca75cd6a7af37e3),
+    ("param_mixed_sep", 0x5e0599225639aa97),
+    ("param_huge_saturate", 0x5c1071fc00a33a0a),
+    ("param_private_then_params", 0x5c1071fc00a33a0a),
+];
+
+const GOLDEN_4X3: &[(&str, u64)] = &[
+    ("plain_text", 0x8bcc0ab23d0b896c),
+    ("crlf_wrap", 0x4d9887cf3e5a57a2),
+    ("sgr_basic", 0x0adc3e15606301f7),
+    ("sgr_many", 0x9c58d4e33a71e4c2),
+    ("sgr_256_fg", 0xba1d5d4cbddd25c5),
+    ("sgr_rgb_fg", 0x02f5a99fb0e83227),
+    ("sgr_rgb_colon", 0x1f230f3c45846c68),
+    ("sgr_bright", 0x854a645eff3a3e29),
+    ("cursor_moves", 0x232bd03f827f5693),
+    ("cup", 0x6f7b55150d5aa759),
+    ("cup_f", 0xd974a949610f58a2),
+    ("bare_cuu_zero", 0x953eda8f8849a178),
+    ("erase_display", 0x953eda8f8849a178),
+    ("erase_line", 0x4cafd415be1751e8),
+    ("insert_delete_lines", 0x64ab131a3c08bc25),
+    ("insert_delete_chars", 0x8815a70a0777eb54),
+    ("erase_chars", 0xa089f69e88ce9077),
+    ("repeat_char", 0x07da3eceef5b5020),
+    ("ich_dch_ech", 0x562144aa538e6e6e),
+    ("scroll_region", 0x383428f736454028),
+    ("scroll_up_down", 0x9fbdc37825ad17e7),
+    ("tab_stops", 0x951328373acab18c),
+    ("save_restore_esc", 0x452ae2ec83492b4e),
+    ("save_restore_csi", 0x452ae2ec83492b4e),
+    ("reverse_index", 0xa118af79cdbe509e),
+    ("ris", 0xda73a1dd5aba708f),
+    ("decstr", 0x1f230f3c45846c68),
+    ("alt_screen", 0xc5cbfcdfdfc2c406),
+    ("bracketed_paste_on", 0x422ffce71b8386f7),
+    ("bracketed_paste_off", 0xe76fa3b3bea28cac),
+    ("mouse_modes", 0x291e260f3f860818),
+    ("mouse_off", 0xe76fa3b3bea28cac),
+    ("focus_mode", 0xa0154c415e8d22db),
+    ("focus_mode_off", 0xe76fa3b3bea28cac),
+    ("device_attributes", 0xce0aed0f08b895b2),
+    ("dsr_cursor", 0x27175fb0bd3cfb2f),
+    ("dsr_status", 0x452c7d193886158e),
+    ("decscusr_styles", 0xc5a98797805180e0),
+    ("decscusr_reset", 0xe76fa3b3bea28cac),
+    ("osc_title_bel", 0xc1e7f497d2a44d45),
+    ("osc_title_st", 0xf34dc65f00659f70),
+    ("osc_semicolons", 0x6f8d582f3d60382f),
+    ("osc_icon_only", 0x5d8211f685624d51),
+    ("osc_ignored", 0x1f230f3c45846c68),
+    ("utf8_2byte", 0x7abcbe13e2a95caf),
+    ("utf8_3byte", 0x6f1b58acd81eecf9),
+    ("utf8_4byte", 0x3913d7b2b97002bf),
+    ("wide_cjk", 0x2035961e313893a0),
+    ("wide_then_narrow", 0x9eff6e9f65214525),
+    ("combining", 0x4e78c5dd9064a3e5),
+    ("c1_inline", 0x287089ba84365143),
+    ("interrupted_csi", 0x1f230f3c45846c68),
+    ("csi_intermediate", 0x69afa15e65228338),
+    ("dcs_passthrough", 0x988d45bd6d42e379),
+    ("dcs_then_text", 0x59fe9c04ee917252),
+    ("apc_kitty_like", 0xd8f97fb9e1d927e9),
+    ("sos_string", 0xc55a113490bc037b),
+    ("pm_string", 0xc55a113490bc037b),
+    ("lone_esc_then_text", 0xb5a603b924911987),
+    ("can_aborts_csi", 0xf5f3e287f0cb88e9),
+    ("sub_aborts_csi", 0xf5f3e287f0cb88e9),
+    ("del_in_params", 0xd909aae10e17d370),
+    ("backspace_tab_cr", 0xfc7301391c19cb4a),
+    ("form_feed_vt", 0x932e0b05b8453140),
+    ("c1_lone_nel_85", 0xc55a113490bc037b),
+    ("c1_lone_ind_84", 0xc55a113490bc037b),
+    ("c1_lone_ri_8d", 0x5748920046f01812),
+    ("c1_8bit_csi_9b", 0xd006071dbd4276c5),
+    ("c1_8bit_osc_9d", 0xed3f015dfd7d1f3b),
+    ("c1_8bit_dcs_90", 0xe81e0961aa00668a),
+    ("c1_8bit_apc_9f", 0x4697069abbb491ac),
+    ("c1_8bit_st_9c", 0x1f230f3c45846c68),
+    ("c1_nel_via_utf8", 0xc55a113490bc037b),
+    ("c1_all_via_utf8", 0xe76fa3b3bea28cac),
+    ("can_in_osc", 0xcdbbd33034bbed8c),
+    ("sub_in_osc", 0xcdbbd33034bbed8c),
+    ("can_in_dcs", 0x5e6431483660798e),
+    ("sub_in_dcs", 0x5e6431483660798e),
+    ("can_in_apc", 0x5e6431483660798e),
+    ("can_in_sos", 0x5e6431483660798e),
+    ("can_in_pm", 0x5e6431483660798e),
+    ("osc_esc_not_bs", 0x7c8a96dbaec72487),
+    ("dcs_esc_not_bs", 0x618b4606e996d88b),
+    ("apc_esc_not_bs", 0x618b4606e996d88b),
+    ("osc_st_8bit_9c", 0xe76fa3b3bea28cac),
+    ("osc_empty", 0x1f230f3c45846c68),
+    ("osc_no_semi", 0xf059a234a13a9c87),
+    ("osc_trailing_semi", 0xf059a234a13a9c87),
+    ("osc_embedded_c0", 0x87d1c8299b7d5f7e),
+    ("param_colon_leading", 0x1f230f3c45846c68),
+    ("param_colon_trailing", 0x71d90107a0afba61),
+    ("param_colon_only", 0x1f230f3c45846c68),
+    ("param_semi_leading", 0x71d90107a0afba61),
+    ("param_semi_trailing", 0x1f230f3c45846c68),
+    ("param_many_colons", 0x71d90107a0afba61),
+    ("param_mixed_sep", 0x1981f88165a6a5e5),
+    ("param_huge_saturate", 0x1f230f3c45846c68),
+    ("param_private_then_params", 0x1f230f3c45846c68),
+];
+
+const GOLDEN_EXTRA: &[(&str, u64)] = &[
+    ("sgr_storm", 0x5c1071fc00a33a0a),
+    ("excess_intermediate", 0x5c1071fc00a33a0a),
+    ("param_saturation", 0x5c1071fc00a33a0a),
+    ("invalid_utf8_high_bytes", 0xcf4c67d83d299d81),
+    ("invalid_utf8_bad_2byte", 0x689e4a3c0ba5a53f),
+    ("invalid_utf8_bad_3byte", 0xf71466cdc8930cbe),
+    ("invalid_utf8_truncated_4byte", 0x92b97d02641d508e),
+    ("invalid_utf8_stray_continuations", 0x4f693af9bda968bc),
+    ("apc_invisible", 0x8fef0629fc7763ff),
+];
 
 #[test]
 fn oracle_corpus_single_chunk() {
@@ -296,41 +535,41 @@ fn oracle_split_utf8_across_chunks() {
     for s in ["é", "→", "★", "世", "\u{1F600}", "café→★世\u{1F600}"] {
         let bytes = s.as_bytes();
         let chunks: Vec<&[u8]> = bytes.iter().map(std::slice::from_ref).collect();
-        let vte_screen = run_vte(12, 4, &chunks);
-        let ody_screen = run_ody(12, 4, &chunks);
-        assert_screens_match(&format!("byte_split:{s}"), &vte_screen, &ody_screen);
+        let whole = run_ody(12, 4, &[bytes]);
+        let split = run_ody(12, 4, &chunks);
+        assert_screens_match(&format!("byte_split:{s}"), &whole, &split);
     }
 }
 
 #[test]
 fn oracle_invalid_utf8_recovers_identically() {
-    for input in [
-        &b"abc\xff\xfedef"[..],
-        &b"\xc3\x28"[..],           // invalid 2-byte
-        &b"\xe2\x28\xa1"[..],       // invalid 3-byte
-        &b"valid\xf0\x9f text"[..], // truncated 4-byte mid-stream
-        &b"\x80\x81\x82"[..],       // stray continuation bytes
+    for (label, input) in [
+        ("invalid_utf8_high_bytes", &b"abc\xff\xfedef"[..]),
+        ("invalid_utf8_bad_2byte", &b"\xc3\x28"[..]),
+        ("invalid_utf8_bad_3byte", &b"\xe2\x28\xa1"[..]),
+        ("invalid_utf8_truncated_4byte", &b"valid\xf0\x9f text"[..]),
+        ("invalid_utf8_stray_continuations", &b"\x80\x81\x82"[..]),
     ] {
-        assert_parity("invalid_utf8", 20, 6, input);
-        assert_parity_all_splits("invalid_utf8", 8, 3, input);
+        assert_parity(label, 20, 6, input);
+        assert_parity_all_splits(label, 8, 3, input);
     }
 }
 
 #[test]
 fn oracle_apc_is_invisible_to_screen_state() {
-    // The one intended divergence: OdyParser surfaces APC via apc_dispatch, vte
-    // discards it. Screen ignores apc_dispatch, so terminal state is identical —
-    // an APC string embedded in normal output leaves the same grid in both.
+    // OdyParser surfaces APC via apc_dispatch. Screen ignores apc_dispatch today,
+    // so an APC string embedded in normal output remains invisible to the grid.
     let input = b"line1\r\n\x1b_Gf=100,s=10,v=10;BASE64PAYLOAD==\x1b\\line2";
     assert_parity("apc_invisible", 20, 6, input);
     assert_parity_all_splits("apc_invisible", 10, 4, input);
 }
 
-// ===================== PA2 differential fuzzers =====================
+// ===================== PA3 self-consistency fuzzers =====================
 //
-// Three committed, deterministic differential fuzzers that feed generated byte
-// streams to vte and OdyParser and assert byte-identical `Screen` state. A
-// divergence panics with the exact `seed`, making any failure reproducible.
+// Three committed, deterministic fuzzers that feed generated byte streams whole
+// and split across `advance()` boundaries, then assert byte-identical `Screen`
+// state. A divergence panics with the exact `seed`, making any failure
+// reproducible.
 //
 // Iteration count is `ODYTTY_FUZZ_ITERS` (default `DEFAULT_FUZZ_ITERS`, kept
 // small so default `cargo test` stays fast). A deep run mirroring the PA2
@@ -379,10 +618,11 @@ impl FuzzRng {
     }
 }
 
-/// Assert vte/OdyParser parity for `input` fed whole; panic carries `seed`.
+/// Assert whole-feed vs byte-split feed consistency; panic carries `seed`.
 fn fuzz_assert_whole(seed: u64, input: &[u8]) {
-    let v = run_vte(12, 4, &[input]);
-    let o = run_ody(12, 4, &[input]);
+    let chunks: Vec<&[u8]> = input.iter().map(std::slice::from_ref).collect();
+    let v = run_ody(12, 4, &[input]);
+    let o = run_ody(12, 4, &chunks);
     assert_screens_match(
         &format!("fuzz whole seed={seed} input={input:02x?}"),
         &v,
@@ -390,10 +630,10 @@ fn fuzz_assert_whole(seed: u64, input: &[u8]) {
     );
 }
 
-/// Assert vte/OdyParser parity for `input` fed as two chunks split at `sp`.
+/// Assert whole-feed vs two-chunk feed consistency for `input` split at `sp`.
 fn fuzz_assert_split(seed: u64, input: &[u8], sp: usize) {
     let (a, b) = input.split_at(sp);
-    let v = run_vte(12, 4, &[a, b]);
+    let v = run_ody(12, 4, &[input]);
     let o = run_ody(12, 4, &[a, b]);
     assert_screens_match(
         &format!("fuzz split seed={seed} sp={sp} input={input:02x?}"),
@@ -441,9 +681,6 @@ fn oracle_fuzz_two_chunk_splits() {
             input.push(FUZZ_ALPHABET[idx]);
         }
         let sp = rng.below(input.len() + 1);
-        if split_in_c1_via_utf8(&input, sp) {
-            continue;
-        }
         fuzz_assert_split(seed, &input, sp);
     }
 }
@@ -558,9 +795,6 @@ fn oracle_fuzz_structure_aware() {
         }
         fuzz_assert_whole(seed, &input);
         let sp = rng.below(input.len() + 1);
-        if split_in_c1_via_utf8(&input, sp) {
-            continue;
-        }
         fuzz_assert_split(seed, &input, sp);
     }
 }

@@ -1,6 +1,7 @@
 //! Component-level tests for [`super::segmenter`] — the Layer-1 Ground sweep
-//! and UTF-8 partial-codepoint carry in isolation. The differential oracle
-//! covers the full corpus + every byte split; these focus on specific cells.
+//! and UTF-8 partial-codepoint carry in isolation. Parser golden and
+//! self-consistency tests cover the full corpus + every byte split; these focus
+//! on specific cells.
 
 use super::VtDispatch;
 use super::params::Params;
@@ -126,6 +127,42 @@ fn partial_4byte_codepoint_carries_then_completes() {
     assert_eq!(r4, GroundResult::Drained);
     assert!(!s.has_partial());
     assert_eq!(r.prints, vec!['\u{1F600}']);
+}
+
+#[test]
+fn partial_completion_preserves_following_ascii() {
+    let mut s = Segmenter::new();
+    let mut r = Rec::default();
+    let (r1, c1) = s.run_ground(&mut r, &[0xC3]);
+    assert_eq!(r1, GroundResult::Drained);
+    assert_eq!(c1, 1);
+    assert!(s.has_partial());
+
+    let (r2, c2) = s.run_ground(&mut r, &[0xA9, b'A']);
+    assert_eq!(r2, GroundResult::Drained);
+    assert_eq!(c2, 2);
+    assert!(!s.has_partial());
+    assert_eq!(r.prints, vec!['é', 'A']);
+}
+
+#[test]
+fn partial_completion_preserves_following_partial_lead() {
+    let mut s = Segmenter::new();
+    let mut r = Rec::default();
+    let _ = s.run_ground(&mut r, &[0xC3]);
+    assert!(s.has_partial());
+
+    let (r2, c2) = s.run_ground(&mut r, &[0xA9, b'A', 0xC3]);
+    assert_eq!(r2, GroundResult::Drained);
+    assert_eq!(c2, 3);
+    assert!(s.has_partial());
+    assert_eq!(r.prints, vec!['é', 'A']);
+
+    let (r3, c3) = s.run_ground(&mut r, &[0xA9]);
+    assert_eq!(r3, GroundResult::Drained);
+    assert_eq!(c3, 1);
+    assert!(!s.has_partial());
+    assert_eq!(r.prints, vec!['é', 'A', 'é']);
 }
 
 #[test]

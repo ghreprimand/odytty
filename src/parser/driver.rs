@@ -4,8 +4,7 @@
 //!
 //! Public surface: [`OdyParser::new`] + [`OdyParser::advance`]. The shape is
 //! unchanged from the first-generation parser — `Screen` (the core dispatch
-//! consumer) and the differential oracle exercise the new internals with zero
-//! call-site changes.
+//! consumer) and parser fixtures exercise the internals through the same seam.
 //!
 //! ## Pipeline
 //!

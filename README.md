@@ -7,13 +7,12 @@ Odyssey Terminal is a reliable terminal emulator with an OdysseyOS visual identi
 ## Status
 
 First meaningful prototype reached on Linux/Hyprland. In place today: an
-OdyTTY-owned terminal core (grid, cursor, scrollback, alternate screen) driven by
-`vte` as a parser, an OdyTTY-owned Linux PTY-backed shell path, broad
-escape-sequence compatibility, and a deterministic headless smoke suite. A
-native `winit` window opens on Wayland with a live `wgpu` (Vulkan) surface,
-renders readable monospaced text, handles keyboard input, resize, paste, mouse
-selection/copy, scrollback navigation, cursor rendering, and basic daily shell
-workflows.
+OdyTTY-owned byte path from Linux PTY to VT parser to terminal screen model to
+glyph quads, broad escape-sequence compatibility, and a deterministic headless
+smoke suite. A native `winit` window opens on Wayland with a live `wgpu`
+(Vulkan) surface, renders readable monospaced text, handles keyboard input,
+resize, paste, mouse selection/copy, scrollback navigation, cursor rendering,
+and basic daily shell workflows.
 
 The prototype also includes a small theme system and a disableable ambient
 scanline visual treatment selected with `ODYTTY_VISUAL=ambient`; unset,
@@ -34,7 +33,7 @@ Start with a narrow terminal-emulator prototype that proves the core rendering a
 
 Architecture should separate the terminal core from the Odyssey experience layer: shell process and PTY handling, escape-sequence parsing, input mapping, text layout, rendering, theme/effects, and settings should be distinct enough that visual experiments can change without destabilizing core behavior. The build should include a compatibility test path early, using existing terminal behavior as the baseline rather than inventing semantics.
 
-The project should pursue genuinely original terminal work rather than forking or skinning an existing terminal. The first spike should be Linux-first, written in Rust, and built around an OdyTTY-owned terminal model and Linux PTY layer: use existing parser and systems crates where they are narrow tools, but do not delegate the product's terminal core to another terminal emulator. The parser dependency is a staged transition point, with an OdyTTY-owned VT parser planned before graphics protocols or richer byte-path features. Use Ghostty and other mature terminals as behavior references, not implementation bases. Visual ambition should stay open, but every effect and workflow layer must be isolated from terminal correctness and remain bounded by readability and performance.
+The project should pursue genuinely original terminal work rather than forking or skinning an existing terminal. The first spike is Linux-first, written in Rust, and built around OdyTTY-owned PTY, parser, terminal model, renderer geometry, and shader code. External crates remain intentional below-product-line dependencies for font rasterization, GPU API access, windowing, clipboard transport, and Unicode width data. Use Ghostty and other mature terminals as behavior references, not implementation bases. Visual ambition should stay open, but every effect and workflow layer must be isolated from terminal correctness and remain bounded by readability and performance.
 
 ## Project docs
 

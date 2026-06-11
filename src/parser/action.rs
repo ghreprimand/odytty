@@ -4,8 +4,8 @@
 //! returns one of these values per byte. The **driver** (in [`super::driver`])
 //! is the only place an action becomes a [`super::VtDispatch`] call. Splitting
 //! along the action boundary keeps the state machine sink-agnostic — ideal for
-//! component-level tests, fuzzers, and the differential oracle — and confines
-//! the I/O contract to one module.
+//! component-level tests, fuzzers, and golden fixtures — and confines the I/O
+//! contract to one module.
 //!
 //! ## Originality note
 //!

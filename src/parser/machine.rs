@@ -84,8 +84,7 @@ pub(crate) enum State {
     DcsIgnore,
     /// OSC payload accumulation (driver owns the buffer).
     OscString,
-    /// APC payload accumulation (driver owns the buffer; the OdyTTY-surfaced
-    /// path that `vte` discards).
+    /// APC payload accumulation (driver owns the buffer).
     ApcString,
     /// SOS / PM: payload silently discarded until terminator.
     DiscardString,

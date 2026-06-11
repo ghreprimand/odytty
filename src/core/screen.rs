@@ -1,13 +1,12 @@
 //! The owned terminal state machine: the [`Screen`] grid (primary + alternate),
-//! the [`Terminal`] facade that drives the `vte` parser, scrollback, scroll
+//! the [`Terminal`] facade that drives OdyTTY's owned parser, scrollback, scroll
 //! regions, resize reflow, and the CSI/OSC/SGR dispatch helpers. This is the
 //! bulk of the terminal core; it builds on [`super::types`] and is exercised by
 //! `super::tests`.
 
 use unicode_width::UnicodeWidthChar;
-use vte::Perform;
 
-use crate::parser::{Params, VtDispatch};
+use crate::parser::{OdyParser, Params, VtDispatch};
 
 use super::reflow::resize_buffer_rows;
 use super::scrollback::{Scrollback, resize_lazy};
@@ -208,8 +207,8 @@ impl Screen {
     }
 
     /// Pending host-bound responses (DA/DSR replies) accumulated by dispatch.
-    /// Exposed within the crate so the differential parser oracle can assert the
-    /// `vte` and OdyTTY-owned parsers drive identical host output. Test-only.
+    /// Exposed within the crate so parser golden fixtures can include host
+    /// output. Test-only.
     #[cfg(test)]
     pub(crate) fn host_output_bytes(&self) -> &[u8] {
         &self.host_output
@@ -1343,10 +1342,8 @@ impl TerminalModel for Screen {
     }
 }
 /// Shared dispatch logic for the terminal core, parameterised over the owned
-/// [`crate::parser::Params`] type. Both the live `vte`-driven [`Perform`] impl
-/// and the OdyTTY-owned [`VtDispatch`] impl funnel through these methods, so the
-/// two parsers produce byte-identical terminal state (asserted by the
-/// differential oracle) and there is exactly one copy of the dispatch behaviour.
+/// [`crate::parser::Params`] type. The OdyTTY-owned parser drives these methods
+/// through [`VtDispatch`], keeping byte parsing separate from terminal semantics.
 impl Screen {
     fn dispatch_print(&mut self, c: char) {
         self.print_char(c);
@@ -1436,44 +1433,11 @@ impl Screen {
     }
 }
 
-/// Live production seam: the `vte` parser drives the core via this impl. Each
-/// callback converts `vte`'s parameter list into the OdyTTY-owned [`Params`]
-/// (where applicable) and delegates to the shared `dispatch_*` logic above, so
-/// production behaviour is unchanged while `vte` remains the live parser.
-impl Perform for Screen {
-    fn print(&mut self, c: char) {
-        self.dispatch_print(c);
-    }
-
-    fn execute(&mut self, byte: u8) {
-        self.dispatch_execute(byte);
-    }
-
-    fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
-        self.dispatch_osc(params, bell_terminated);
-    }
-
-    fn csi_dispatch(
-        &mut self,
-        params: &vte::Params,
-        intermediates: &[u8],
-        ignore: bool,
-        action: char,
-    ) {
-        self.dispatch_csi(&Params::from_vte(params), intermediates, ignore, action);
-    }
-
-    fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
-        self.dispatch_esc(intermediates, ignore, byte);
-    }
-}
-
 /// OdyTTY-owned seam: the [`OdyParser`](crate::parser::OdyParser) drives the core
 /// through this impl. Parameters already arrive as the owned [`Params`], so the
-/// callbacks forward straight to the shared `dispatch_*` logic. Ships dark in
-/// PA1 (exercised only by the differential oracle); `hook`/`put`/`unhook` and
-/// `apc_dispatch` keep their no-op defaults until DCS/APC are wired in later
-/// packets, matching the current `vte`-path behaviour exactly.
+/// callbacks forward straight to the shared `dispatch_*` logic. `hook`/`put`/
+/// `unhook` and `apc_dispatch` keep their no-op defaults until graphics
+/// protocols consume DCS/APC in later packets.
 impl VtDispatch for Screen {
     fn print(&mut self, c: char) {
         self.dispatch_print(c);
@@ -1496,13 +1460,13 @@ impl VtDispatch for Screen {
     }
 }
 pub struct Terminal {
-    parser: vte::Parser,
+    parser: OdyParser,
     screen: Screen,
 }
 impl Terminal {
     pub fn new(columns: usize, rows: usize) -> Self {
         Self {
-            parser: vte::Parser::new(),
+            parser: OdyParser::new(),
             screen: Screen::new(columns, rows),
         }
     }
@@ -1641,10 +1605,10 @@ fn param_or(params: &Params, index: usize, default: usize) -> usize {
         .unwrap_or(default)
 }
 /// Reassemble an OSC string payload (everything after the numeric selector)
-/// into text. `vte` splits the OSC on every `;`, so a title containing a
-/// semicolon arrives as multiple parts; rejoin them with `;` to recover it.
-/// Invalid UTF-8 is replaced rather than rejected so a malformed title can
-/// never panic or desync the parser. An empty payload yields an empty string.
+/// into text. The parser splits OSC on `;`, so a title containing a semicolon
+/// arrives as multiple parts; rejoin them with `;` to recover it. Invalid UTF-8
+/// is replaced rather than rejected so a malformed title can never panic or
+/// desync the parser. An empty payload yields an empty string.
 fn osc_string(parts: &[&[u8]]) -> String {
     let mut bytes = Vec::new();
     for (index, part) in parts.iter().enumerate() {
@@ -1656,16 +1620,16 @@ fn osc_string(parts: &[&[u8]]) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 /// Resolve a count/position CSI parameter, applying the ECMA-48 rule that an
-/// omitted *or zero* parameter means 1. `vte` represents an omitted parameter
-/// as an explicit `0` (e.g. `ESC [ A` parses as a single `0` param), so the
-/// plain [`param_or`] with a default of 1 still yields 0 for these controls and
-/// turns a bare cursor move (CUU/CUD/CUF/CUB) into a no-op — the bug behind
-/// fish leaving stale completion rows on screen because its `ESC [ A` failed to
-/// return the cursor to the command line before `ESC [ J`. Use this for
-/// movement and count controls (A/B/C/D, S/T, ICH/IL/DL/DCH/ECH, REP) and for
-/// 1-based position controls (CHA/CUP/VPA). Mode-selector controls such as ED,
-/// EL, SGR, DSR, DA, and tab-clear keep [`param_or`] with a `0` default because
-/// a literal `0` there is a meaningful mode, not a count.
+/// omitted *or zero* parameter means 1. The parser represents an omitted
+/// parameter as an explicit `0` (e.g. `ESC [ A` parses as a single `0` param),
+/// so the plain [`param_or`] with a default of 1 still yields 0 for these
+/// controls and turns a bare cursor move (CUU/CUD/CUF/CUB) into a no-op — the
+/// bug behind fish leaving stale completion rows on screen because its `ESC [ A`
+/// failed to return the cursor to the command line before `ESC [ J`. Use this
+/// for movement and count controls (A/B/C/D, S/T, ICH/IL/DL/DCH/ECH, REP) and
+/// for 1-based position controls (CHA/CUP/VPA). Mode-selector controls such as
+/// ED, EL, SGR, DSR, DA, and tab-clear keep [`param_or`] with a `0` default
+/// because a literal `0` there is a meaningful mode, not a count.
 fn param_or_one(params: &Params, index: usize) -> usize {
     param_or(params, index, 1).max(1)
 }

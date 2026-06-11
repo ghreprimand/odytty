@@ -27,7 +27,7 @@
 //!   new parameter or continues the current one.
 //!
 //! Saturating-on-overflow arithmetic and the "32 slots → set `ignore`" rule
-//! match the canonical parser exactly; the differential oracle catches any drift.
+//! match the parser policy pinned by golden fixtures.
 //!
 //! ## Originality note
 //!
@@ -37,8 +37,8 @@
 //! a parallel `group_len_at` array): the new design is allocation-free, the
 //! boundary metadata is one machine word, and group reconstruction is a
 //! bit-scan rather than an array walk. The public surface (`iter`, `len`,
-//! `is_empty`, `from_vte`, `IntoIterator`) is preserved verbatim so `Screen`
-//! and the oracle do not change.
+//! `is_empty`, `iter`, `IntoIterator`) is deliberately small and owned by
+//! OdyTTY's parser/screen seam.
 
 /// Maximum number of flattened parameter slots (parameters + subparameters).
 /// The canonical DEC ANSI parameter cap; once full, the parser sets the
@@ -151,27 +151,6 @@ impl Params {
             params: self,
             cur: 0,
         }
-    }
-
-    /// Rebuild an owned [`Params`] from a `vte::Params`, preserving parameter
-    /// and subparameter grouping exactly. Used by the live (vte-driven) seam so
-    /// the shared core dispatch logic operates on the owned type while vte
-    /// remains the production parser until PA3.
-    pub fn from_vte(params: &vte::Params) -> Self {
-        let mut out = Self::new();
-        for group in params.iter() {
-            match group.split_last() {
-                Some((last, leading)) => {
-                    for &sub in leading {
-                        out.extend(sub);
-                    }
-                    out.push(*last);
-                }
-                // vte never yields an empty group, but stay total just in case.
-                None => out.push(0),
-            }
-        }
-        out
     }
 }
 

@@ -31,7 +31,7 @@ fn main() -> Result<()> {
 
     let mut terminal = Terminal::new(80, 24);
     terminal.advance(b"\x1b[1;36mOdyTTY\x1b[0m core skeleton\r\n");
-    terminal.advance(b"owned grid + vte parser are online\r\n");
+    terminal.advance(b"owned grid + owned parser are online\r\n");
 
     println!("{}", terminal.screen().plain_text());
     Ok(())

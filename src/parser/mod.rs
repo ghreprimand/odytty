@@ -1,17 +1,15 @@
 //! OdyTTY-owned VT parser (Stage 4.5 Foundation Ownership).
 //!
-//! This module is the OdyTTY-owned VT parser — the replacement for the `vte`
-//! dependency on the byte path from PTY to Screen. After PA3 retires `vte`
-//! entirely it becomes the sole parser; during PA2-r it ships dark behind the
-//! differential oracle while the live production path remains `vte`.
+//! This module is the OdyTTY-owned VT parser on the byte path from PTY to
+//! Screen. Since PA3 it is the sole production parser.
 //!
 //! ## Two-layer pipeline (PA2-r clean-room design)
 //!
 //! The PA2-r rebuild splits the parser into two clean layers along the
 //! text/control boundary, an OdyTTY-original structural choice taken from the
 //! primary specifications (vt100.net DEC ANSI parser diagram, ECMA-48, xterm
-//! `ctlseqs`). Neither `vte` nor Ghostty source was consulted during this
-//! rebuild; `vte` is retained strictly as a black-box behavioral oracle.
+//! `ctlseqs`). Neither the former parser dependency nor Ghostty source was
+//! consulted during this rebuild.
 //!
 //! ```text
 //! ┌───────────── Layer 1 (segmenter.rs) ─────────────┐
@@ -55,30 +53,23 @@
 //!   streaming passthrough (no parser buffer); APC bounded at 1 MiB
 //!   drop-not-truncate (the Kitty graphics landing pad).
 //!
-//! ## Divergence ledger
-//!
-//! The differential oracle stays byte-identical to `vte` driving the same
-//! [`crate::core::Screen`] at every chunk-split EXCEPT these two
-//! operator-approved divergences, ledgered with oracle filters (see
-//! `core::parser_oracle_tests`):
+//! ## OdyTTY policy ledger
 //!
 //! 1. **C1-via-UTF-8 uniform execute** — a validly-decoded C1 scalar
 //!    (`U+0080..=U+009F` via `0xC2 0x8x`) **executes** regardless of how its
-//!    bytes split across `advance()` calls. The canonical/`vte` behavior
-//!    prints on the partial-completion path and executes on the whole-buffer
-//!    path; OdyTTY makes the rule uniform. Real-world impact is negligible
-//!    (apps send NEL `U+0085` and friends as raw `0x85`, not as UTF-8). The
-//!    oracle filter skips split points falling between `0xC2` and `0x80..=0x9F`.
-//! 2. **OSC cap window** — `vte` caps OSC at 1024 bytes; OdyTTY at 128 KiB.
-//!    Payloads between the two caps differ in dispatch outcome. The corpus
-//!    and fuzzers avoid the 1024..128 KiB window so the oracle stays clean in
-//!    practice; the policy gap is documented but no input lands in it.
+//!    bytes split across `advance()` calls. This makes PTY chunking irrelevant
+//!    for these controls.
+//! 2. **Partial-completion no-byte-loss** — a completed UTF-8 scalar consumes
+//!    only the bytes required for that scalar; following valid bytes in the same
+//!    `advance()` chunk are processed normally.
+//! 3. **String caps** — OSC is bounded at 128 KiB, APC at 1 MiB, both
+//!    drop-not-truncate on overflow. DCS remains streaming passthrough with no
+//!    parser buffer.
 //!
 //! ## APC surfacing (Screen-invisible)
 //!
-//! OdyParser also surfaces APC strings via [`VtDispatch::apc_dispatch`] (`vte`
-//! discards them) — but `Screen` ignores `apc_dispatch`, so the oracle holds
-//! without filtering. A dedicated test asserts this invisibility.
+//! OdyParser surfaces APC strings via [`VtDispatch::apc_dispatch`]. `Screen`
+//! ignores `apc_dispatch` today; graphics-protocol work consumes it later.
 
 mod action;
 mod driver;
@@ -103,9 +94,8 @@ pub use params::{Params, ParamsIter};
 /// Each method corresponds to an action in the canonical DEC ANSI parser state
 /// diagram (<https://vt100.net/emu/dec_ansi_parser>) with one OdyTTY-owned
 /// extension: [`Self::apc_dispatch`], which surfaces Application Program
-/// Command payloads that `vte` discards. The trait shape (method signatures
-/// and semantics) is preserved verbatim from the first-generation parser so
-/// `Screen` and the differential oracle observe the same surface.
+/// Command payloads. The trait shape is the narrow parser/screen seam used by
+/// the production terminal core and parser fixtures.
 ///
 /// All methods default to no-ops, so an implementor overrides only the actions
 /// it cares about (the terminal core ignores DCS and APC today; those are
@@ -152,8 +142,7 @@ pub trait VtDispatch {
 
     /// An Application Program Command (`ESC _ … ST`) payload was received.
     ///
-    /// This is the OdyTTY-owned extension over `vte`, which discards APC
-    /// strings. The terminal core ignores it today; the graphics-protocol work
-    /// (Kitty) consumes it on owned plumbing in a later packet.
+    /// The terminal core ignores it today; the graphics-protocol work (Kitty)
+    /// consumes it on owned plumbing in a later packet.
     fn apc_dispatch(&mut self, _data: &[u8]) {}
 }

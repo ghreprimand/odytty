@@ -7,6 +7,64 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — OdyParser production cutover + vte removal (PA3)
+
+Completes the Stage 4.5 parser ownership packet. The production `Terminal`
+now feeds PTY bytes through OdyTTY's `OdyParser` via `VtDispatch`; the
+`vte::Perform` path and `vte` dependency are removed from production and Cargo.
+The owned byte path now covers PTY -> parser -> screen model -> renderer
+geometry/glyph quads.
+
+### What landed
+
+- **Production cutover.** `src/core/screen.rs` stores `OdyParser` in
+  `Terminal` and drives `parser.advance(&mut screen, bytes)` directly. The old
+  production `Perform` adapter is gone; `Screen` keeps only the owned
+  `VtDispatch` seam.
+- **Golden parser fixtures.** `src/core/parser_oracle_tests.rs` no longer
+  depends on an external parser. The curated corpus is pinned with compact
+  FNV-1a fingerprints over dimensions, cursor/style/blink, focus/mouse/paste
+  modes, title, host output, scrollback depth, and every
+  `snapshot_with_scrollback` offset at 20x6 and 4x3 grids.
+- **Self-consistency fuzzers.** The three fuzzers now assert whole-feed vs
+  split-feed equivalence for OdyParser itself, preserving split-boundary
+  protection after removing the differential oracle.
+- **No-byte-loss partial UTF-8 policy.** `Segmenter::advance_partial` now
+  consumes only the bytes needed for the completed scalar, then lets the Ground
+  sweep process following bytes. Focused tests pin `éA` and `éAé` split across
+  PTY chunk boundaries.
+- **Dependency removal.** `Cargo.toml` and `Cargo.lock` no longer contain
+  `vte`; `cargo tree` has no `vte` entry.
+- **Ownership-boundary docs.** `README.md`, `SPEC.md`, and `TODO.md` now state
+  the owned path and the explicit external boundaries: font rasterization, GPU
+  API, windowing, clipboard transport, and Unicode width data remain external
+  by design.
+
+### Benchmarks
+
+Baseline before cutover vs. after cutover, same `cargo bench --bench perf`
+workloads:
+
+| Workload | Before | After | Delta |
+|---|---:|---:|---:|
+| seq 1 100000 | 13.5 MB/s | 14.2 MB/s | +5% |
+| plain ascii 50000 lines | 106.6 MB/s | 104.4 MB/s | -2% |
+| heavy sgr 20000 lines | 241.7 MB/s | 294.6 MB/s | +22% |
+| scroll-region churn 100000 | 136.1 MB/s | 133.8 MB/s | -2% |
+| full repaint 20000 frames | 196.8 MB/s | 186.4 MB/s | -5% |
+
+Parser-only `OdyParser + NullSink` stayed broadly in the same range; scroll
+churn parser-only was noisier/slower in this run, while integrated churn stayed
+near parity.
+
+### Follow-ups
+
+- Graphics-protocol implementation can now build on owned APC/DCS plumbing
+  once a director assigns the next packet.
+- `print_str` remains a possible parser/screen hot-path improvement.
+
+---
+
 ## 2026-06-11 — Clean-room VT parser state-core rebuild (PA2-r)
 
 Replaces the PA1 state core, which was operator-ruled too vte-derived

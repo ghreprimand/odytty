@@ -19,15 +19,21 @@
 //! plain text its zero-branch route through the parser; non-ASCII scalars
 //! take a per-scalar careful decode.
 //!
-//! ## C1-via-UTF-8 uniform-execute (operator-approved divergence)
+//! ## C1-via-UTF-8 uniform-execute
 //!
 //! A validly-decoded C1 scalar (`U+0080..=U+009F` via `0xC2 0x8x`) **executes
 //! uniformly** regardless of how its bytes are split across `advance()` calls.
 //! That removes the canonical "split prints, whole executes" quirk so the
 //! observable behavior is the same whether the lead byte and continuation
-//! arrive together or across two calls. This is the only deliberate divergence
-//! from `vte` at the Ground/text layer; the differential oracle's expected-
-//! divergence filter targets exactly this case.
+//! arrive together or across two calls.
+//!
+//! ## Partial-completion no-byte-loss policy
+//!
+//! A pending partial UTF-8 scalar may complete at the head of a later `advance()`
+//! chunk that also contains following printable bytes. OdyTTY consumes only the
+//! bytes needed for the completed scalar, then lets the normal Ground sweep
+//! process the remaining bytes. This preserves arbitrary PTY chunk-boundary
+//! behavior: splitting `caféA` after `0xC3` still prints both `é` and `A`.
 //!
 //! ## Malformed UTF-8 policy
 //!
@@ -197,20 +203,12 @@ impl Segmenter {
             Err(err) => {
                 let valid = err.valid_up_to();
                 if valid > 0 {
-                    // The first valid scalar dispatches; subsequent valid
-                    // scalars inside `partial_buf[..valid]` (e.g. ASCII bytes
-                    // sandwiched between the completing continuation and a
-                    // trailing partial lead) are silently DROPPED — `consumed`
-                    // accounts for all of them so the main loop skips ahead.
-                    // This matches `vte`'s partial-completion semantics; the
-                    // differential oracle pins this exact behaviour and the
-                    // observable cost is bounded to ≤2 ASCII bytes per partial
-                    // completion (the partial buffer is 4 bytes total).
                     let s = std::str::from_utf8(&self.partial_buf[..valid]).expect("valid prefix");
                     let ch = s.chars().next().expect("non-empty");
+                    let used = ch.len_utf8();
                     self.partial_len = 0;
                     dispatch_scalar(sink, ch);
-                    PartialOutcome::Consumed(valid - old_len)
+                    PartialOutcome::Consumed(used - old_len)
                 } else {
                     match err.error_len() {
                         Some(invalid_len) => {

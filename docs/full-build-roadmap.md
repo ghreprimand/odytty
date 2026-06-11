@@ -28,11 +28,10 @@ trade-off.
 The first prototype is complete. OdyTTY can open a native Wayland window, run a
 real local shell, render GPU-backed monospaced text, handle keyboard input,
 resize, cursor rendering, scrollback navigation, paste, mouse selection/copy,
-and one disableable ambient visual treatment. The terminal model — grid,
-scrollback, modes, attributes, reflow, search, selection, encoders — is owned
-by OdyTTY. The byte-level escape-sequence parser currently delegates to the
-`vte` crate behind a narrow callback seam; replacing it with an OdyTTY-owned
-parser is scheduled work (see Stage 4.5).
+and one disableable ambient visual treatment. The byte path — Linux PTY,
+escape-sequence parser, terminal model, renderer geometry, and shaders — is
+owned by OdyTTY. External crates remain intentional for font rasterization, GPU
+API access, windowing, clipboard transport, and Unicode width data.
 
 The prototype proves the loop. It does not yet prove daily-driver quality.
 

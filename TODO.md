@@ -7,24 +7,23 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 
 ## Stage 4.5: Foundation Ownership
 
-- [ ] Replace the `vte` parser with an OdyTTY-owned DEC ANSI state machine.
+- [x] Replace the former parser dependency with an OdyTTY-owned DEC ANSI state
+      machine.
   - [x] PA1: parser skeleton with ground/escape/CSI/OSC states, mid-stream
-        UTF-8 decoding, an OdyTTY dispatch trait, and a differential oracle
-        harness against the existing fixture corpus.
-    - [x] `src/parser/` ships dark: `OdyParser` (14-state DEC ANSI machine,
+        UTF-8 decoding, an OdyTTY dispatch trait, and an oracle harness against
+        the existing fixture corpus during the transition.
+    - [x] `src/parser/` introduced `OdyParser` (14-state DEC ANSI machine,
           split-codepoint UTF-8, 32-slot param cap with saturating accumulate,
           2-byte intermediate cap), an owned `Params`, and a `VtDispatch` trait
-          mirroring the core's `vte::Perform` shape plus first-class
-          `apc_dispatch` (the capability `vte` never surfaces).
+          plus first-class `apc_dispatch`.
     - [x] Core seam additive + zero behaviour change: shared `dispatch_*`
-          helpers; live `impl Perform` (vte) and dark `impl VtDispatch`
-          (OdyParser) both delegate; `Terminal` still drives `vte`.
-    - [x] Differential oracle asserts byte-identical Screen state (snapshot at
-          every offset + cursor + style/blink + modes + title + host output)
+          helpers; the owned parser's `VtDispatch` path delegates into the same
+          terminal semantics.
+    - [x] The transition oracle asserted byte-identical Screen state (snapshot
+          at every offset + cursor + style/blink + modes + title + host output)
           across the corpus fed whole and at every byte split, plus SGR storms,
           excess intermediates, value saturation, invalid/split UTF-8, DCS, and
-          APC-invisibility. The one intended divergence (APC surfacing) is
-          documented and Screen-invisible.
+          APC-invisibility.
   - [x] PA2: edge-case hardening for C1 controls, cancel/abort semantics,
         parameter limits, OSC terminators, DCS/APC plumbing, malformed UTF-8,
         and fuzzing.
@@ -37,13 +36,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
           singles/introducers, C1-via-multibyte, abort-in-string-states, OSC
           terminator variants, param edge shapes), each also covered at every
           byte split and on a narrow grid.
-    - [x] Three committed deterministic differential fuzzers (byte-soup,
-          two-chunk split, structure-aware) with an `ODYTTY_FUZZ_ITERS` budget;
-          120k iterations run zero-divergence against `vte`.
+    - [x] Three committed deterministic parser fuzzers (byte-soup, two-chunk
+          split, structure-aware) with an `ODYTTY_FUZZ_ITERS` budget.
   - [x] PA2-r: clean-room rebuild of the parser state core under the
         originality contract — primary sources only (vt100.net DEC ANSI
-        diagram, ECMA-48, xterm `ctlseqs`), `vte` not consulted; differential
-        oracle stays green.
+        diagram, ECMA-48, xterm `ctlseqs`); transition oracle stayed green.
     - [x] Two-layer pipeline: `src/parser/segmenter.rs` owns Ground +
           ALL UTF-8 (bulk validation + `chars()` dispatch + partial-codepoint
           carry); `src/parser/machine.rs` is an 8-bit-clean control automaton
@@ -52,15 +49,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
           state machine sink-agnostic; `src/parser/driver.rs` is the thin
           action→`VtDispatch` adapter.
     - [x] `Params` reimplemented allocation-free: inline `[u16; 32]` + `u32`
-          boundary bitmap + `closed: bool`. Public surface (`iter`,
-          `from_vte`, `IntoIterator`) preserved verbatim.
-    - [x] String caps revised: OSC 128 KiB (raised from `vte`'s 1024 to
-          cover real OSC 52 / OSC 8 payloads); APC 1 MiB drop-not-truncate;
-          DCS streaming passthrough (no parser buffer).
-    - [x] Two operator-approved divergences ledgered with oracle filters in
-          `src/core/parser_oracle_tests.rs`: (1) C1-via-UTF-8 uniform-execute
-          (filter skips splits between `0xC2` and `0x80..=0x9F`); (2) OSC cap
-          window 1024..128 KiB (not exercised in practice).
+          boundary bitmap + `closed: bool`.
+    - [x] String caps revised: OSC 128 KiB; APC 1 MiB drop-not-truncate; DCS
+          streaming passthrough (no parser buffer).
+    - [x] OdyTTY parser policies pinned: C1-via-UTF-8 uniform-execute, OSC/APC
+          caps, and no-byte-loss partial UTF-8 completion.
     - [x] Hot-path tightening: `Machine::step` peels the `CsiParam` digit /
           `;`/`:` / final byte arm off the giant `(state, class)` match for
           inlining; driver short-circuits `Action::None` and reduces
@@ -68,7 +61,9 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
     - [x] Parser-only feed benches added (`benches/perf.rs`); PA1→PA2-r
           deltas across five workloads land within noise on plain text and
           improve heavy CSI by ~15%.
-  - [ ] PA3: remove `vte` after the oracle suite is ported to golden fixtures.
+  - [x] PA3: production cutover to `OdyParser`, remove `vte` from Cargo, port
+        the oracle suite to compact golden fingerprints and self-consistency
+        fuzzers, and update public ownership-boundary docs.
 - [x] P0: replace `portable-pty` with an OdyTTY-owned Linux PTY layer.
   - [x] PTY allocation uses `openpt`/`grantpt`/`unlockpt`/`TIOCGPTPEER`, sets
         `TIOCSWINSZ`, spawns children as session leaders with a controlling
@@ -332,7 +327,7 @@ a floor; surpassing it is the standing ambition.
 
 - [x] Confirm the stack and scope boundaries.
 - [x] Stand up the minimal runnable skeleton (owned core, PTY, render seam).
-- [x] Owned terminal model using `vte` as the parser.
+- [x] Owned terminal model and owned parser.
 - [x] PTY shell command path and host-terminal interactive mode.
 - [x] Core compatibility primitives: printing, cursor movement, SGR, erase,
       scrollback, alternate screen, save/restore, scroll regions, bracketed

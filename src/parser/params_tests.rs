@@ -77,25 +77,20 @@ fn clear_resets_to_empty() {
 }
 
 #[test]
-fn from_vte_preserves_grouping() {
-    // Drive a real vte parser and capture its Params via a tiny recorder, then
-    // round-trip through `from_vte` and assert identical grouping.
-    use vte::{Params as VteParams, Perform};
+fn grouping_matches_parser_sequences() {
+    use super::VtDispatch;
+    use super::driver::OdyParser;
 
     #[derive(Default)]
     struct Capture(Vec<Vec<Vec<u16>>>);
-    impl Perform for Capture {
-        fn csi_dispatch(&mut self, params: &VteParams, _: &[u8], _: bool, _: char) {
-            let owned = Params::from_vte(params);
-            self.0.push(groups(&owned));
-            // Cross-check the owned copy matches vte's own grouping.
-            let direct: Vec<Vec<u16>> = params.iter().map(<[u16]>::to_vec).collect();
-            assert_eq!(groups(&owned), direct, "from_vte must mirror vte grouping");
+    impl VtDispatch for Capture {
+        fn csi_dispatch(&mut self, params: &Params, _: &[u8], _: bool, _: char) {
+            self.0.push(groups(params));
         }
     }
 
     let mut cap = Capture::default();
-    let mut parser = vte::Parser::new();
+    let mut parser = OdyParser::new();
     parser.advance(
         &mut cap,
         b"\x1b[1;2;3m\x1b[38:2::10:20:30m\x1b[m\x1b[0;38;5;9m",

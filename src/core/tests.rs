@@ -160,9 +160,9 @@ fn ignores_private_dsr_request() {
 
 #[test]
 fn bare_cursor_moves_default_to_one() {
-    // ECMA-48: an omitted parameter on CUU/CUD/CUF/CUB means 1. `vte`
-    // delivers the omitted parameter as an explicit `0`, so the encoder
-    // must still treat it as 1 rather than as a zero-count no-op.
+    // ECMA-48: an omitted parameter on CUU/CUD/CUF/CUB means 1. The parser
+    // materializes the omitted parameter as an explicit `0`, so the encoder must
+    // still treat it as 1 rather than as a zero-count no-op.
     let mut terminal = Terminal::new(10, 10);
 
     terminal.advance(b"\x1b[5;5H"); // row 5, col 5 (1-based) -> index (4,4)
@@ -1694,7 +1694,7 @@ fn osc_empty_title_is_explicit_empty() {
 #[test]
 fn osc_title_preserves_embedded_semicolons() {
     let mut terminal = Terminal::new(40, 2);
-    // vte splits on ';'; the title must be rejoined intact.
+    // The parser splits on ';'; the title must be rejoined intact.
     terminal.advance(b"\x1b]2;a; b; c\x07");
     assert_eq!(terminal.title(), Some("a; b; c"));
 }

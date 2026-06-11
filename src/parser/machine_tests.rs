@@ -1,7 +1,7 @@
 //! Component-level tests for [`super::machine`] — the byte classifier and the
-//! state machine in isolation. The full transition matrix is verified by the
-//! differential oracle; these tests pin specific high-value cells so a
-//! component-level regression points at the right module.
+//! state machine in isolation. Parser golden/self-consistency tests exercise the
+//! broader corpus; these tests pin specific high-value cells so a component-
+//! level regression points at the right module.
 
 use super::action::Action;
 use super::machine::{ByteClass, Machine, State, classify};

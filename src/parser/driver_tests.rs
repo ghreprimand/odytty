@@ -1,7 +1,7 @@
 //! Driver-level integration tests for [`OdyParser`] — feed bytes and assert
 //! the recorded [`VtDispatch`] action stream matches expectation. These
-//! exercise the full Layer 1 → Layer 2 → adapter path without comparing to
-//! `vte` (the differential oracle does that across the full corpus).
+//! exercise the full Layer 1 → Layer 2 → adapter path; parser golden and
+//! self-consistency tests cover the full corpus.
 
 use super::VtDispatch;
 use super::driver::OdyParser;
@@ -134,7 +134,7 @@ fn c1_from_utf8_whole_executes() {
 #[test]
 fn c1_from_utf8_split_executes_uniform() {
     // PA2-r uniform-execute policy: a C1 scalar arriving SPLIT across advance()
-    // calls also executes (not prints). Ledgered divergence from vte.
+    // calls also executes (not prints), making chunking irrelevant.
     let mut rec = Recorder::default();
     let mut parser = OdyParser::new();
     parser.advance(&mut rec, &[0xC2]);
