@@ -40,11 +40,14 @@ language (RGB/HLS color introducers, repeat, raster attributes, VT340 16-color
 default palette), and SX2 integrates the decoder with the graphics scene via the
 owned DCS hook/put/unhook path. The GPU image layer (G2.3) renders visible
 placements as alpha-blended RGBA8 textured quads between cell backgrounds and
-glyphs. The Kitty graphics protocol MVP handles APC `_G` control parsing,
-base64 payload decode, direct raw RGB/RGBA transmission (`f=24`/`f=32`,
-`t=d`), PNG still-image transmission (`f=100`), chunked transfers
-(`m=1`/`m=0`), delete/query actions, and file/shared-memory transports
-(`t=f`/`t=t`/`t=s`) with conservative security restrictions. Kitty and Sixel
+glyphs. The Kitty graphics protocol handles APC `_G` control parsing, base64
+payload decode, direct raw RGB/RGBA transmission (`f=24`/`f=32`, `t=d`),
+PNG still-image transmission (`f=100`), chunked transfers (`m=1`/`m=0`),
+delete/query actions, and file/shared-memory transports (`t=f`/`t=t`/`t=s`)
+with conservative security restrictions. The full placement surface is
+supported: named placement ids (`p=`), display-stored-image commands (`a=p`),
+z-index ordering (`z=`), source-crop geometry (`x=`/`y=`/`w=`/`h=`),
+cell-box scaling, and sub-cell pixel offsets (`X=`/`Y=`). Kitty and Sixel
 both render through the same shared placement scene.
 
 **Text and rendering quality.** The `wgpu`/Vulkan surface rasterizes via
@@ -94,13 +97,15 @@ bindings reload live; the development-only autoclose timer is startup-only.
 **Performance.** Lazy scrollback re-wrap stores logical lines and defers deep
 re-wrap on width change (~46 ms → ~20 µs for 50k-line scrollback). A fast path
 skips reflow entirely on height-only resize (~17 ms → ~58 µs). The vertex
-buffer is a reused CPU allocation with a grow-only GPU buffer. Resize events
+buffer is a reused CPU allocation with a grow-only GPU buffer. Unchanged frames
+reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
+the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 692 tests passing: 662 unit/integration, 11 pixel-smoke
-(headless CPU compositor asserting structural raster invariants), 9 PTY
-alternate-screen smoke, and 10 transcript smoke. `cargo bench --bench perf`
-runs headless throughput
+**Testing.** 714 tests passing: 676 unit/integration, 19 pixel-smoke
+(headless CPU compositor asserting structural raster invariants for text
+rendering and graphics placement), 9 PTY alternate-screen smoke, and 10
+transcript smoke. `cargo bench --bench perf` runs headless throughput
 benchmarks for the terminal model and parser separately from the default suite.
 
 ### Remaining gaps
@@ -145,6 +150,8 @@ standing goal.
 - [`SPEC.md`](SPEC.md) — durable product and architecture decisions.
 - [`docs/runtime-knobs.md`](docs/runtime-knobs.md) — current native prototype
   settings and launch examples.
+- [`docs/odytty.conf.example`](docs/odytty.conf.example) — annotated example
+  config file; copy to `~/.config/odytty/odytty.conf` to use.
 - [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) — staged roadmap
   from prototype stabilization through long-term product work.
 - [`docs/graphics.md`](docs/graphics.md) — Kitty graphics protocol and Sixel
