@@ -25,8 +25,11 @@
 //! Every case skips gracefully (prints and returns) when no system font is
 //! available, matching the rest of the suite's hermeticity.
 
-use odytty::atlas::{GlyphAtlas, SubpixelMode};
+use odytty::atlas::{CellSize, GlyphAtlas, SubpixelMode};
 use odytty::core::{CursorStyle, Snapshot, Terminal};
+use odytty::graphics::{
+    GraphicsProtocol, ImageScene, PlacementRequest, SourceRect, StoredImageId, VisiblePlacement,
+};
 use odytty::grid::{self, Vertex};
 use odytty::text::{self, foreground_linear};
 
@@ -640,5 +643,557 @@ fn bar_cursor_inks_only_a_thin_left_stripe() {
     assert!(
         !differs(frame.pixel(right_x, mid_y), bg),
         "bar cursor must not fill the right side of the cell"
+    );
+}
+
+// ===========================================================================
+// V2: graphics-path compositor checks (Stage 6 hardening)
+//
+// Closes the gap flagged in K3: no headless test proved the GPU's
+// `draw_below`/`draw_above` z-order pipeline or the Kitty/Sixel placement
+// geometry end-to-end. This section extends the V1 CPU compositor to composite
+// `ImageScene::visible_placements()` into the same `Frame`, using the *exact*
+// ordering contract the GPU render pass uses (`gpu.rs::render`):
+//
+//     clear -> background cell quads -> z<0 images -> glyphs/decorations/cursor
+//           -> z>=0 images
+//
+// `background_vertex_count` in `gpu.rs` splits the grid vertex stream after the
+// one background quad per non-continuation cell; `grid::build_vertices_*` emits
+// those backgrounds first (pass 1) and glyphs/decorations after (pass 2), so the
+// same split index recovers the two segments here.
+//
+// `image_placement_quad` and `composite_image_quad` mirror, read-only, the
+// projection math in `src/native/image_layer.rs::placement_quad` and the
+// `Rgba8UnormSrgb` sample + `ALPHA_BLENDING` straight-alpha blend the GPU image
+// pipeline performs. If that source math changes, these geometry assertions are
+// the tripwire. Images are opaque in the structural cases so blending reduces to
+// replacement and assertions stay font/gamma independent.
+// ===========================================================================
+
+/// Read-only mirror of `image_layer::placement_quad`: projects a visible
+/// placement into a pixel-space `(rect, uv)` pair, returning `None` when the
+/// placement contributes nothing. Drawn 1:1 (no upscaling); an image larger than
+/// the `c x r` cell box is clipped to it, matching the GPU path.
+fn image_placement_quad(
+    p: &VisiblePlacement,
+    image_width: u32,
+    image_height: u32,
+    cell: CellSize,
+) -> Option<([f32; 4], [f32; 4])> {
+    if image_width == 0 || image_height == 0 || p.display_columns == 0 || p.display_rows == 0 {
+        return None;
+    }
+    let source_x = p.source.x.min(image_width);
+    let source_y = p.source.y.min(image_height);
+    let max_source_w = image_width.saturating_sub(source_x);
+    let max_source_h = image_height.saturating_sub(source_y);
+    if max_source_w == 0 || max_source_h == 0 {
+        return None;
+    }
+    let requested_source_w = if p.source.width == 0 {
+        max_source_w
+    } else {
+        p.source.width.min(max_source_w)
+    };
+    let requested_source_h = if p.source.height == 0 {
+        max_source_h
+    } else {
+        p.source.height.min(max_source_h)
+    };
+    let cell_extent_w = (p.display_columns as u32).saturating_mul(cell.width);
+    let cell_extent_h = (p.display_rows as u32).saturating_mul(cell.height);
+    let visible_w = requested_source_w.min(cell_extent_w);
+    let visible_h = requested_source_h.min(cell_extent_h);
+    if visible_w == 0 || visible_h == 0 {
+        return None;
+    }
+    let x0 = p.column as f32 * cell.width as f32 + p.pixel_offset_x as f32;
+    let y0 = p.row as f32 * cell.height as f32 + p.pixel_offset_y as f32;
+    let x1 = x0 + visible_w as f32;
+    let y1 = y0 + visible_h as f32;
+    let u0 = source_x as f32 / image_width as f32;
+    let v0 = source_y as f32 / image_height as f32;
+    let u1 = (source_x + visible_w) as f32 / image_width as f32;
+    let v1 = (source_y + visible_h) as f32 / image_height as f32;
+    Some(([x0, y0, x1, y1], [u0, v0, u1, v1]))
+}
+
+/// Composite one image quad into the frame with nearest-texel sampling, the
+/// `Rgba8UnormSrgb` sRGB->linear conversion the GPU sampler applies, and the
+/// straight-alpha blend of `wgpu::BlendState::ALPHA_BLENDING`.
+fn composite_image_quad(
+    frame: &mut Frame,
+    rgba: &[u8],
+    img_w: u32,
+    img_h: u32,
+    rect: [f32; 4],
+    uv: [f32; 4],
+) {
+    let [x0, y0, x1, y1] = rect;
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    let [u0, v0, u1, v1] = uv;
+    let px0 = x0.floor().max(0.0) as usize;
+    let py0 = y0.floor().max(0.0) as usize;
+    let px1 = (x1.ceil() as usize).min(frame.width);
+    let py1 = (y1.ceil() as usize).min(frame.height);
+
+    for py in py0..py1 {
+        let cy = py as f32 + 0.5;
+        if cy < y0 || cy >= y1 {
+            continue;
+        }
+        let fy = (cy - y0) / (y1 - y0);
+        let v = v0 + fy * (v1 - v0);
+        let ty = ((v * img_h as f32) as i64).clamp(0, img_h as i64 - 1) as usize;
+        for px in px0..px1 {
+            let cx = px as f32 + 0.5;
+            if cx < x0 || cx >= x1 {
+                continue;
+            }
+            let fx = (cx - x0) / (x1 - x0);
+            let u = u0 + fx * (u1 - u0);
+            let tx = ((u * img_w as f32) as i64).clamp(0, img_w as i64 - 1) as usize;
+            let idx = (ty * img_w as usize + tx) * 4;
+            let a = rgba[idx + 3] as f32 / 255.0;
+            if a <= 0.0 {
+                continue;
+            }
+            let src = [
+                text::srgb_to_linear(rgba[idx]),
+                text::srgb_to_linear(rgba[idx + 1]),
+                text::srgb_to_linear(rgba[idx + 2]),
+            ];
+            let d = py * frame.width + px;
+            let dst = frame.px[d];
+            frame.px[d] = [
+                src[0] * a + dst[0] * (1.0 - a),
+                src[1] * a + dst[1] * (1.0 - a),
+                src[2] * a + dst[2] * (1.0 - a),
+            ];
+        }
+    }
+}
+
+/// Composite the image layer for one z-segment: `below = true` keeps `z < 0`
+/// placements (drawn under glyphs), `below = false` keeps `z >= 0` (over
+/// glyphs). Placements arrive already sorted by `(z_index, generation)`, so
+/// iterating in order preserves equal-z stacking — same as `draw_filtered`.
+fn composite_image_layer(
+    frame: &mut Frame,
+    scene: &ImageScene,
+    placements: &[VisiblePlacement],
+    cell: CellSize,
+    below: bool,
+) {
+    for p in placements {
+        let keep = if below { p.z_index < 0 } else { p.z_index >= 0 };
+        if !keep {
+            continue;
+        }
+        let Some(img) = scene.store().get(p.image_id) else {
+            continue;
+        };
+        let Some((rect, uv)) = image_placement_quad(p, img.width, img.height, cell) else {
+            continue;
+        };
+        composite_image_quad(frame, &img.rgba, img.width, img.height, rect, uv);
+    }
+}
+
+/// Composite a snapshot AND a graphics scene into a `Frame`, mirroring the GPU
+/// render pass ordering exactly: backgrounds, then negative-z images, then
+/// glyphs/decorations/cursor, then non-negative-z images.
+fn composite_scene(
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    scene: &ImageScene,
+    offset_rows: usize,
+    cursor_style: CursorStyle,
+) -> Frame {
+    let cols = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    let cell_w = atlas.cell.width as usize;
+    let cell_h = atlas.cell.height as usize;
+    let width = cols * cell_w;
+    let height = rows * cell_h;
+
+    let mut frame = Frame {
+        width,
+        height,
+        px: vec![default_bg(); width * height],
+        cell_w,
+        cell_h,
+    };
+
+    let mut verts = Vec::new();
+    grid::build_vertices_with_cursor_into(&mut verts, snapshot, atlas, cursor_style);
+    let quads: Vec<&[Vertex]> = verts.chunks_exact(grid::VERTS_PER_QUAD).collect();
+
+    // The grid emits one background quad per non-continuation cell first; the
+    // remaining quads are glyphs/decorations/cursor. This is the same split
+    // `gpu.rs::background_vertex_count` uses to bracket the image layer.
+    let bg_quads = snapshot
+        .cells
+        .iter()
+        .filter(|cell| !cell.wide_continuation)
+        .count();
+    let split = bg_quads.min(quads.len());
+
+    let placements = scene.visible_placements(offset_rows, rows, cols);
+
+    for &q in &quads[..split] {
+        composite_quad(&mut frame, atlas, q);
+    }
+    composite_image_layer(&mut frame, scene, &placements, atlas.cell, true);
+    for &q in &quads[split..] {
+        composite_quad(&mut frame, atlas, q);
+    }
+    composite_image_layer(&mut frame, scene, &placements, atlas.cell, false);
+
+    frame
+}
+
+/// A blank grid with the cursor hidden, for image-geometry cases that need no
+/// glyph ink.
+fn blank_snapshot(cols: usize, rows: usize) -> Snapshot {
+    let mut term = Terminal::new(cols, rows);
+    term.advance(b"\x1b[?25l");
+    term.snapshot()
+}
+
+/// Build a solid-color RGBA8 buffer.
+fn solid_rgba(w: u32, h: u32, color: [u8; 4]) -> Vec<u8> {
+    let mut buf = Vec::with_capacity((w * h * 4) as usize);
+    for _ in 0..(w * h) {
+        buf.extend_from_slice(&color);
+    }
+    buf
+}
+
+/// Insert a solid-color image into the scene's store, returning its id.
+fn insert_solid(scene: &mut ImageScene, w: u32, h: u32, color: [u8; 4]) -> StoredImageId {
+    scene
+        .insert_rgba(None, w, h, solid_rgba(w, h, color))
+        .expect("insert solid image")
+        .id
+}
+
+/// Quantize an sRGB8 color the way the compositor stores it (sRGB->linear), so
+/// it can be compared against `cell_modal_color` / `quant3` results.
+fn linear_quant(color: [u8; 4]) -> [u8; 3] {
+    quant3([
+        text::srgb_to_linear(color[0]),
+        text::srgb_to_linear(color[1]),
+        text::srgb_to_linear(color[2]),
+    ])
+}
+
+#[test]
+fn negative_z_image_sits_under_glyph_ink() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // 'H' over a full-cell z=-1 image. Render order puts the image above the cell
+    // background but below the glyph: the cell's dominant color becomes the image
+    // color, yet glyph ink still shows where the strokes land.
+    let snapshot = row_snapshot(2, "H");
+    let red = [200u8, 30, 30, 255];
+    let mut scene = ImageScene::default();
+    let id = insert_solid(&mut scene, atlas.cell.width, atlas.cell.height, red);
+    scene.place(PlacementRequest::new(id, GraphicsProtocol::Kitty, 0, 0, 1, 1).with_z_index(-1));
+    let frame = composite_scene(&snapshot, &atlas, &scene, 0, CursorStyle::Block);
+
+    assert_eq!(
+        cell_modal_color(&frame, 0, 0),
+        linear_quant(red),
+        "z=-1 image should replace the cell background as the dominant color"
+    );
+    // Glyph ink overdraws the image somewhere in the cell (pixels differ from the
+    // pure image color).
+    let img_lin = [
+        text::srgb_to_linear(red[0]),
+        text::srgb_to_linear(red[1]),
+        text::srgb_to_linear(red[2]),
+    ];
+    let (x0, y0, x1, y1) = frame.cell_bounds(0, 0);
+    let glyph_over = (y0..y1)
+        .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+        .any(|(x, y)| differs(frame.pixel(x, y), img_lin));
+    assert!(
+        glyph_over,
+        "glyph ink must overdraw the z=-1 image where the strokes overlap"
+    );
+}
+
+#[test]
+fn non_negative_z_image_overdraws_glyph_ink() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // 'H' under a full-cell opaque z=0 image: the image is drawn after the glyph,
+    // so every pixel in the cell is exactly the image color.
+    let snapshot = row_snapshot(2, "H");
+    let blue = [20u8, 40, 200, 255];
+    let mut scene = ImageScene::default();
+    let id = insert_solid(&mut scene, atlas.cell.width, atlas.cell.height, blue);
+    scene.place(PlacementRequest::new(id, GraphicsProtocol::Kitty, 0, 0, 1, 1).with_z_index(0));
+    let frame = composite_scene(&snapshot, &atlas, &scene, 0, CursorStyle::Block);
+
+    let bq = linear_quant(blue);
+    let (x0, y0, x1, y1) = frame.cell_bounds(0, 0);
+    for y in y0..y1 {
+        for x in x0..x1 {
+            assert_eq!(
+                quant3(frame.pixel(x, y)),
+                bq,
+                "z>=0 opaque image must overdraw glyph ink at ({x},{y})"
+            );
+        }
+    }
+}
+
+#[test]
+fn equal_z_later_generation_draws_on_top() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // Two overlapping opaque images at the same z: the later-placed one (higher
+    // generation) wins. `visible_placements` sorts by (z, generation), so the
+    // compositor draws green last.
+    let snapshot = blank_snapshot(1, 1);
+    let red = [200u8, 30, 30, 255];
+    let green = [30u8, 200, 30, 255];
+    let mut scene = ImageScene::default();
+    let r = insert_solid(&mut scene, atlas.cell.width, atlas.cell.height, red);
+    let g = insert_solid(&mut scene, atlas.cell.width, atlas.cell.height, green);
+    scene.place(PlacementRequest::new(r, GraphicsProtocol::Kitty, 0, 0, 1, 1).with_z_index(0));
+    scene.place(PlacementRequest::new(g, GraphicsProtocol::Kitty, 0, 0, 1, 1).with_z_index(0));
+    let frame = composite_scene(&snapshot, &atlas, &scene, 0, CursorStyle::Block);
+
+    assert_eq!(
+        cell_modal_color(&frame, 0, 0),
+        linear_quant(green),
+        "equal-z placements stack by generation: the later one draws on top"
+    );
+}
+
+#[test]
+fn source_crop_shows_only_cropped_region() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // Image two cells wide: left half red, right half blue. Crop to the right
+    // (blue) half via source x/width; only blue should composite.
+    let cw = atlas.cell.width;
+    let ch = atlas.cell.height;
+    let red = [200u8, 30, 30, 255];
+    let blue = [20u8, 40, 200, 255];
+    let mut rgba = Vec::with_capacity((2 * cw * ch * 4) as usize);
+    for _y in 0..ch {
+        for x in 0..(2 * cw) {
+            rgba.extend_from_slice(if x < cw { &red } else { &blue });
+        }
+    }
+    let mut scene = ImageScene::default();
+    let id = scene
+        .insert_rgba(None, 2 * cw, ch, rgba)
+        .expect("insert image")
+        .id;
+    scene.place(
+        PlacementRequest::new(id, GraphicsProtocol::Kitty, 0, 0, 1, 1).with_source(SourceRect {
+            x: cw,
+            y: 0,
+            width: cw,
+            height: ch,
+        }),
+    );
+    let snapshot = blank_snapshot(2, 1);
+    let frame = composite_scene(&snapshot, &atlas, &scene, 0, CursorStyle::Block);
+
+    assert_eq!(
+        cell_modal_color(&frame, 0, 0),
+        linear_quant(blue),
+        "source crop should show only the blue (right) half"
+    );
+    let red_q = linear_quant(red);
+    let (x0, y0, x1, y1) = frame.cell_bounds(0, 0);
+    let red_present = (y0..y1)
+        .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+        .any(|(x, y)| quant3(frame.pixel(x, y)) == red_q);
+    assert!(
+        !red_present,
+        "the cropped-out red region must not render anywhere in the cell"
+    );
+}
+
+#[test]
+fn cell_box_scaling_fills_exact_rect() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // An image sized exactly 2x2 cells, placed with c=2/r=2, fills exactly that
+    // cell rect and no further.
+    let cw = atlas.cell.width;
+    let ch = atlas.cell.height;
+    let magenta = [200u8, 30, 200, 255];
+    let mut scene = ImageScene::default();
+    let id = insert_solid(&mut scene, 2 * cw, 2 * ch, magenta);
+    scene.place(PlacementRequest::new(
+        id,
+        GraphicsProtocol::Kitty,
+        0,
+        0,
+        2,
+        2,
+    ));
+    let snapshot = blank_snapshot(3, 3);
+    let frame = composite_scene(&snapshot, &atlas, &scene, 0, CursorStyle::Block);
+
+    let mq = linear_quant(magenta);
+    for row in 0..2 {
+        for col in 0..2 {
+            assert_eq!(
+                cell_modal_color(&frame, col, row),
+                mq,
+                "cell ({col},{row}) must be filled by the 2x2 image"
+            );
+        }
+    }
+    let bg = quant(text::background_linear(odytty::core::Color::Default));
+    assert_eq!(
+        cell_modal_color(&frame, 2, 0),
+        bg,
+        "the column past the c=2 extent must stay background"
+    );
+    assert_eq!(
+        cell_modal_color(&frame, 0, 2),
+        bg,
+        "the row past the r=2 extent must stay background"
+    );
+}
+
+#[test]
+fn pixel_offset_shifts_image_ink() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // A 4x4 image (smaller than a cell) shifted by X/Y within its anchor cell.
+    // The opaque block begins exactly at the pixel offset.
+    let green = [30u8, 200, 30, 255];
+    let mut scene = ImageScene::default();
+    let id = insert_solid(&mut scene, 4, 4, green);
+    let dx = 3i32;
+    let dy = 2i32;
+    scene.place(
+        PlacementRequest::new(id, GraphicsProtocol::Kitty, 0, 0, 1, 1).with_pixel_offset(dx, dy),
+    );
+    let snapshot = blank_snapshot(2, 1);
+    let frame = composite_scene(&snapshot, &atlas, &scene, 0, CursorStyle::Block);
+
+    let gq = linear_quant(green);
+    assert_eq!(
+        quant3(frame.pixel(dx as usize, dy as usize)),
+        gq,
+        "image ink should begin exactly at the (X,Y) pixel offset"
+    );
+    assert_eq!(
+        quant3(frame.pixel(dx as usize + 3, dy as usize)),
+        gq,
+        "the 4px-wide image should span from the offset"
+    );
+    let bg = quant(text::background_linear(odytty::core::Color::Default));
+    assert_eq!(
+        quant3(frame.pixel(dx as usize - 1, dy as usize)),
+        bg,
+        "pixels left of the X offset must stay background"
+    );
+}
+
+#[test]
+fn cell_anchored_placement_scrolls_with_offset() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // A placement anchored at row 0 follows its anchor line as the viewport
+    // scrolls: with a +1 scrollback offset it projects one row down.
+    let cyan = [30u8, 200, 200, 255];
+    let mut scene = ImageScene::default();
+    let id = insert_solid(&mut scene, atlas.cell.width, atlas.cell.height, cyan);
+    scene.place(PlacementRequest::new(
+        id,
+        GraphicsProtocol::Kitty,
+        0,
+        0,
+        1,
+        1,
+    ));
+    let snapshot = blank_snapshot(1, 3);
+    let cq = linear_quant(cyan);
+    let bg = quant(text::background_linear(odytty::core::Color::Default));
+
+    let f0 = composite_scene(&snapshot, &atlas, &scene, 0, CursorStyle::Block);
+    assert_eq!(cell_modal_color(&f0, 0, 0), cq, "offset 0: image at row 0");
+    assert_eq!(cell_modal_color(&f0, 0, 1), bg, "offset 0: row 1 blank");
+
+    let f1 = composite_scene(&snapshot, &atlas, &scene, 1, CursorStyle::Block);
+    assert_eq!(
+        cell_modal_color(&f1, 0, 1),
+        cq,
+        "offset 1: placement scrolls with its anchor to row 1"
+    );
+    assert_eq!(cell_modal_color(&f1, 0, 0), bg, "offset 1: row 0 blank");
+}
+
+#[test]
+fn sixel_decoded_placement_composites() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    use odytty::graphics::sixel::{SixelBackground, decode_sixel};
+    // Minimal sixel body: color 0 = red, paint a 6-wide run of full (6px) sixels.
+    let body = b"#0;2;100;0;0!6~";
+    let Ok(image) = decode_sixel(body, SixelBackground::Opaque) else {
+        eprintln!("skipping: sixel decode unavailable");
+        return;
+    };
+    if image.width == 0 || image.height == 0 {
+        eprintln!("skipping: empty sixel decode");
+        return;
+    }
+    let mut scene = ImageScene::default();
+    let id = scene
+        .insert_rgba(None, image.width, image.height, image.rgba)
+        .expect("store decoded sixel")
+        .id;
+    scene.place(PlacementRequest::new(
+        id,
+        GraphicsProtocol::Sixel,
+        0,
+        0,
+        1,
+        1,
+    ));
+    let snapshot = blank_snapshot(2, 1);
+    let frame = composite_scene(&snapshot, &atlas, &scene, 0, CursorStyle::Block);
+
+    assert!(
+        cell_ink_count(&frame, 0, 0) > 0,
+        "a decoded sixel placement should composite visible ink"
+    );
+    assert_eq!(
+        cell_ink_count(&frame, 1, 0),
+        0,
+        "sixel ink stays within its single display cell"
     );
 }
