@@ -50,10 +50,13 @@
 mod app;
 mod bindings;
 mod clipboard;
+mod cursor;
 mod gpu;
 mod image_layer;
 mod options;
 mod pty;
+mod render_helpers;
+mod resize;
 mod search_ui;
 mod viewport;
 

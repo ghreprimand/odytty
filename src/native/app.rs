@@ -1,13 +1,11 @@
-use std::collections::BTreeSet;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::core::{
-    Color, Dimensions, KeyboardModes as CoreKeyboardModes, MouseButton as CoreMouseButton,
-    MouseEventKind, MouseProtocol, Snapshot, Terminal,
+    Color, Dimensions, MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol, Snapshot,
+    Terminal,
 };
-use crate::graphics::{StoredImageId, VisiblePlacement};
 use crate::input::{self, Key, KeyModes, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker};
@@ -32,147 +30,20 @@ use super::bindings::{
 };
 use super::clipboard::{NativeClipboard, selected_clipboard_text, write_paste_text};
 use super::gpu::{FrameOutcome, GpuState};
-use super::image_layer::ImageUpload;
 use super::options::{NativeError, NativeOptions};
 use super::pty::{PtyWriter, UserEvent};
+use super::render_helpers::{image_uploads_for_visible, key_modes_from_core};
+
+pub(super) use super::cursor::{CURSOR_BLINK_INTERVAL, CursorBlinkState};
+pub(super) use super::resize::{
+    PendingResize, RESIZE_DEBOUNCE_INTERVAL, ResizeDebouncer, pending_resize_for_surface,
+    scale_factor_changed,
+};
 use super::search_ui::{SearchUi, apply_search_ui};
 use super::viewport::{
     SELECTION_AUTOSCROLL_INTERVAL, Viewport, grid_dimensions_for, scroll_indicator_quad,
     wheel_lines,
 };
-
-const RESIZE_DEBOUNCE_INTERVAL: Duration = Duration::from_millis(40);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct PendingResize {
-    pub(super) cell: CellSize,
-    pub(super) width_px: u32,
-    pub(super) height_px: u32,
-}
-
-pub(super) fn pending_resize_for_surface(cell: CellSize, size: PhysicalSize<u32>) -> PendingResize {
-    PendingResize {
-        cell,
-        width_px: size.width,
-        height_px: size.height,
-    }
-}
-
-pub(super) fn scale_factor_changed(current: f32, next: f32) -> bool {
-    (next.max(1.0) - current.max(1.0)).abs() >= f32::EPSILON
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct ResizeDebouncer {
-    interval: Duration,
-    pending: Option<PendingResize>,
-    deadline: Option<Instant>,
-    last_applied: Option<Instant>,
-}
-
-impl ResizeDebouncer {
-    pub(super) fn new(interval: Duration) -> Self {
-        Self {
-            interval,
-            pending: None,
-            deadline: None,
-            last_applied: None,
-        }
-    }
-
-    pub(super) fn record(&mut self, resize: PendingResize, now: Instant) -> Option<PendingResize> {
-        if self
-            .last_applied
-            .is_none_or(|last| now.saturating_duration_since(last) >= self.interval)
-        {
-            self.pending = None;
-            self.deadline = None;
-            self.last_applied = Some(now);
-            return Some(resize);
-        }
-
-        let deadline = self.last_applied.expect("checked") + self.interval;
-        self.pending = Some(resize);
-        self.deadline = Some(deadline);
-        None
-    }
-
-    pub(super) fn take_due(&mut self, now: Instant) -> Option<PendingResize> {
-        if self.deadline.is_some_and(|deadline| now >= deadline) {
-            self.deadline = None;
-            self.last_applied = Some(now);
-            return self.pending.take();
-        }
-        None
-    }
-
-    pub(super) fn deadline(&self) -> Option<Instant> {
-        self.deadline
-    }
-}
-
-/// Half-period of the cursor blink, i.e. the interval between on/off toggles.
-/// ~530ms matches the long-standing xterm/VT default cadence.
-const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(530);
-
-/// Drives the cursor blink on/off phase from injected time.
-///
-/// Policy (documented): the cursor only blinks when the active style requests it
-/// (DECSCUSR or the host default) **and** the window is focused. When either is
-/// false the cursor is held solid-on and no wake is scheduled, so an idle or
-/// unfocused window never spins the event loop. While blinking, [`Self::poll`]
-/// toggles at [`CURSOR_BLINK_INTERVAL`] and [`Self::deadline`] reports the next
-/// toggle instant for `ControlFlow::WaitUntil`, bounding the wake rate.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct CursorBlinkState {
-    interval: Duration,
-    on: bool,
-    next_toggle: Option<Instant>,
-}
-
-impl CursorBlinkState {
-    pub(super) fn new(interval: Duration) -> Self {
-        Self {
-            interval,
-            on: true,
-            next_toggle: None,
-        }
-    }
-
-    /// Update the blink phase for `now` and return whether the cursor is
-    /// currently visible (on-phase). Solid-on (and deadline cleared) whenever the
-    /// cursor is not blinking or the window is unfocused.
-    pub(super) fn poll(&mut self, now: Instant, blinking: bool, focused: bool) -> bool {
-        if !blinking || !focused {
-            self.on = true;
-            self.next_toggle = None;
-            return true;
-        }
-        match self.next_toggle {
-            None => {
-                self.on = true;
-                self.next_toggle = Some(now + self.interval);
-            }
-            Some(deadline) if now >= deadline => {
-                self.on = !self.on;
-                self.next_toggle = Some(now + self.interval);
-            }
-            Some(_) => {}
-        }
-        self.on
-    }
-
-    /// The next scheduled toggle instant, if the cursor is currently blinking.
-    pub(super) fn deadline(&self) -> Option<Instant> {
-        self.next_toggle
-    }
-
-    /// Whether a scheduled toggle is due at `now` (the loop should rebuild and
-    /// redraw so the phase flips).
-    pub(super) fn is_due(&self, now: Instant) -> bool {
-        self.next_toggle.is_some_and(|deadline| now >= deadline)
-    }
-}
 
 /// Application state driving the `winit` event loop.
 ///
@@ -979,34 +850,6 @@ impl App {
             window.request_redraw();
         }
     }
-}
-
-fn key_modes_from_core(modes: CoreKeyboardModes) -> KeyModes {
-    KeyModes {
-        application_cursor: modes.application_cursor,
-        application_keypad: modes.application_keypad,
-    }
-}
-
-fn image_uploads_for_visible(
-    terminal: &Terminal,
-    visible: &[VisiblePlacement],
-    cached: &BTreeSet<StoredImageId>,
-) -> Vec<ImageUpload> {
-    let mut requested = BTreeSet::new();
-    visible
-        .iter()
-        .filter(|placement| {
-            !cached.contains(&placement.image_id) && requested.insert(placement.image_id)
-        })
-        .filter_map(|placement| {
-            terminal
-                .graphics()
-                .store()
-                .get(placement.image_id)
-                .map(ImageUpload::from)
-        })
-        .collect()
 }
 
 impl ApplicationHandler<UserEvent> for App {

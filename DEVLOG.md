@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Preemptive settings/native modularity split
+
+The settings and native app modules were split before they approached the
+project's source-file size ceiling. `src/settings.rs` remains the public module
+root, while config-file parsing, live-reload polling, and settings tests now
+live in sibling `src/settings/` modules. Native event-loop behavior remains in
+`src/native/app.rs`, with resize debouncing, cursor blink timing, and render
+helper functions moved into focused native submodules.
+
+This is a mechanical organization change only: public settings imports and
+native app call sites are preserved, and behavior is intended to remain
+unchanged.
+
+---
+
 ## 2026-06-11 — Live config reload (CF2)
 
 Stage 5 config now reloads live in the native app. The resolved config path is
