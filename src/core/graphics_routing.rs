@@ -93,8 +93,9 @@ pub(super) fn dcs_put(capture: &mut DcsCapture, byte: u8) {
 /// mutated (caller should mark dirty). On success, returns the new cursor
 /// position `(row, col)` for the caller to apply.
 ///
-/// Cursor-below-image policy (xterm DECSDM-off default): cursor moves to
-/// the row immediately below the image, column 0.
+/// Cursor-below-image policy:
+/// - DECSDM off (default): cursor moves to the row below the image, column 0.
+/// - DECSDM on: cursor stays at its current position (image anchors at cursor).
 ///
 /// Decode errors never disturb terminal state — the payload is dropped and
 /// the error is counted in `stats`.
@@ -107,6 +108,7 @@ pub(super) fn dcs_unhook(
     screen_rows: usize,
     screen_cols: usize,
     cell_metrics: CellMetrics,
+    sixel_display_mode: bool,
 ) -> Option<(usize, usize)> {
     if capture.overflowed {
         return None;
@@ -162,7 +164,12 @@ pub(super) fn dcs_unhook(
         display_rows,
     ));
 
-    // Cursor-below-image: row immediately below the image, column 0.
+    // DECSDM on: cursor stays at its current position.
+    if sixel_display_mode {
+        return Some((cursor_row, cursor_col));
+    }
+
+    // DECSDM off (default): cursor moves to the row below the image, column 0.
     let image_bottom_row = cursor_row + display_rows;
     let new_row = image_bottom_row.min(screen_rows.saturating_sub(1));
     Some((new_row, 0))

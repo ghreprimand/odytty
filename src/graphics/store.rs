@@ -177,6 +177,11 @@ impl ImageStore {
         true
     }
 
+    /// Iterate over all stored image ids.
+    pub fn iter_ids(&self) -> impl Iterator<Item = StoredImageId> + '_ {
+        self.images.keys().copied()
+    }
+
     pub fn remove(&mut self, id: StoredImageId) -> Option<StoredImage> {
         self.lru.retain(|queued| *queued != id);
         let removed = self.images.remove(&id)?;

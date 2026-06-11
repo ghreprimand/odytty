@@ -111,6 +111,11 @@ pub struct Screen {
     /// Live cell pixel metrics for graphics extent calculation. Default 8×16;
     /// the native layer overrides via [`Self::set_cell_metrics`].
     cell_metrics: CellMetrics,
+    /// DECSDM (private mode 80): sixel display mode / sixel scrolling.
+    /// `false` (default, reset): after a sixel image the cursor moves to the
+    /// row below the image, column 0 (xterm DECSDM-off behavior).
+    /// `true` (set): sixel image anchors at the cursor; cursor does NOT move.
+    sixel_display_mode: bool,
 }
 #[derive(Debug, Clone)]
 struct StoredScreen {
@@ -167,6 +172,7 @@ impl Screen {
             dcs_capture: None,
             graphics_stats: GraphicsStats::default(),
             cell_metrics: CellMetrics::default(),
+            sixel_display_mode: false,
         }
     }
 
@@ -198,6 +204,13 @@ impl Screen {
     /// Current cell pixel metrics. See [`Self::set_cell_metrics`].
     pub fn cell_metrics(&self) -> CellMetrics {
         self.cell_metrics
+    }
+
+    /// DECSDM (private mode 80): when `true`, sixel images anchor at the cursor
+    /// and the cursor does NOT move after display. When `false` (default),
+    /// the cursor moves below the image.
+    pub fn sixel_display_mode(&self) -> bool {
+        self.sixel_display_mode
     }
 
     /// The cursor shape currently in effect (DECSCUSR or host default).
@@ -1113,6 +1126,11 @@ impl Screen {
                     self.cursor_visible = action == 'h';
                     self.mark_dirty();
                 }
+                // DECSDM (sixel display mode): set = cursor stays, reset =
+                // cursor moves below the image.
+                80 => {
+                    self.sixel_display_mode = action == 'h';
+                }
                 // Alternate-screen modes per xterm ctlseqs:
                 // 47: plain switch (no cursor save, no clear on enter or leave).
                 // 1047: switch; clear alt on leave (not on enter).
@@ -1377,6 +1395,7 @@ impl Screen {
         // RIS restores the default every-8 tab stops (DECSTR does not — see
         // soft_reset).
         self.tab_stops = default_tab_stops(self.dimensions.columns);
+        self.sixel_display_mode = false;
         self.mark_dirty();
     }
 
@@ -1400,6 +1419,7 @@ impl Screen {
         // DECSTR returns the cursor shape/blink to the host default policy.
         self.cursor_style = self.default_cursor_style;
         self.cursor_blink = self.default_cursor_blink;
+        self.sixel_display_mode = false;
         self.mark_dirty();
     }
 }
@@ -1546,6 +1566,7 @@ impl Screen {
             self.dimensions.rows,
             self.dimensions.columns,
             self.cell_metrics,
+            self.sixel_display_mode,
         ) {
             self.cursor.row = new_row;
             self.cursor.column = new_col;

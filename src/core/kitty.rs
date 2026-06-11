@@ -1,13 +1,16 @@
 //! Kitty graphics protocol MVP: APC direct still-image transmit/display.
 //!
-//! This module deliberately implements only the direct raw RGB/RGBA path used by
-//! the Stage 6 graphics ladder. Deferred surfaces are explicit: PNG (`f=100`)
-//! needs a decoder dependency decision, and file/shared-memory transmission
+//! This module implements direct raw RGB/RGBA (`f=24`/`f=32`) and PNG
+//! (`f=100`) payloads used by the Stage 6 graphics ladder. PNG decode is
+//! intentionally constrained to the `png` crate's still-image path: grayscale,
+//! grayscale+alpha, RGB, RGBA, and indexed images are normalized to 8-bit RGBA;
+//! 16-bit samples are stripped to 8-bit. File/shared-memory transmission still
 //! needs a security packet before it can be accepted.
 
 use crate::graphics::{GraphicsProtocol, ImageScene, PlacementRequest};
 
 use super::types::CellMetrics;
+use std::io::Cursor;
 
 const MAX_PENDING_ENCODED_BYTES: usize = 96 * 1024 * 1024;
 
@@ -43,6 +46,12 @@ pub(super) struct ControlData {
     pub(super) display_rows: Option<usize>,
     pub(super) cursor_movement: Option<u32>,
     pub(super) quiet: Option<u32>,
+    /// Delete specifier (`d=`): a/A/i/I/c/C/p/P
+    pub(super) delete_specifier: Option<char>,
+    /// Cell x (column) position for `d=p/P` (`x=`)
+    pub(super) cell_x: Option<usize>,
+    /// Cell y (row) position for `d=p/P` (`y=`)
+    pub(super) cell_y: Option<usize>,
 }
 
 impl ControlData {
@@ -68,8 +77,10 @@ pub(super) enum KittyError {
     MalformedControl,
     UnsupportedAction,
     UnsupportedFormat,
+    UnsupportedPngColor,
     UnsupportedTransmission,
     MissingDimensions,
+    DimensionMismatch,
     InvalidPayload,
     PayloadTooLarge,
     StoreRejected,
@@ -82,8 +93,10 @@ impl KittyError {
             KittyError::MalformedControl => "malformed-control",
             KittyError::UnsupportedAction => "unsupported-action",
             KittyError::UnsupportedFormat => "unsupported-format",
+            KittyError::UnsupportedPngColor => "unsupported-png-color",
             KittyError::UnsupportedTransmission => "unsupported-transmission",
             KittyError::MissingDimensions => "missing-dimensions",
+            KittyError::DimensionMismatch => "dimension-mismatch",
             KittyError::InvalidPayload => "invalid-payload",
             KittyError::PayloadTooLarge => "payload-too-large",
             KittyError::StoreRejected => "store-rejected",
@@ -183,15 +196,20 @@ fn handle_command(
         command
     };
 
-    process_complete_command(
-        graphics,
-        command,
-        cursor_row,
-        cursor_col,
-        screen_rows,
-        screen_cols,
-        cell_metrics,
-    )
+    // Dispatch by action type.
+    match command.control.action {
+        Some('d') => process_delete_command(graphics, &command.control, cursor_row, cursor_col),
+        Some('q') => process_query_command(graphics, command, cell_metrics),
+        _ => process_complete_command(
+            graphics,
+            command,
+            cursor_row,
+            cursor_col,
+            screen_rows,
+            screen_cols,
+            cell_metrics,
+        ),
+    }
 }
 
 fn merge_final_chunk_control(base: &mut ControlData, final_chunk: ControlData) {
@@ -212,7 +230,7 @@ fn process_complete_command(
     validate_supported_control(&command.control)?;
     let max_decoded = graphics.store().limits().max_decoded_bytes;
     let decoded = decode_base64(&command.payload, max_decoded)?;
-    let (rgba, width, height) = rgba_from_payload(&command.control, decoded)?;
+    let (rgba, width, height) = rgba_from_payload(&command.control, decoded, max_decoded)?;
     let insert = graphics
         .insert_rgba(command.control.image_id, width, height, rgba)
         .map_err(|_| KittyError::StoreRejected)?;
@@ -257,21 +275,98 @@ fn process_complete_command(
     })
 }
 
+// ---------------------------------------------------------------------------
+// Delete (a=d)
+// ---------------------------------------------------------------------------
+
+fn process_delete_command(
+    graphics: &mut ImageScene,
+    control: &ControlData,
+    cursor_row: usize,
+    cursor_col: usize,
+) -> Result<KittyOutcome, KittyError> {
+    let spec = control.delete_specifier.unwrap_or('a');
+    match spec {
+        'a' => graphics.delete_all_placements(),
+        'A' => graphics.delete_all_placements_and_free(),
+        'i' => {
+            let id = control.image_id.ok_or(KittyError::MalformedControl)?;
+            graphics.delete_by_image_id(id, control.placement_id);
+        }
+        'I' => {
+            let id = control.image_id.ok_or(KittyError::MalformedControl)?;
+            graphics.delete_by_image_id_and_free(id, control.placement_id);
+        }
+        'c' => graphics.delete_at_cursor(cursor_row, cursor_col, false),
+        'C' => graphics.delete_at_cursor(cursor_row, cursor_col, true),
+        'p' => {
+            let col = control.cell_x.unwrap_or(cursor_col);
+            let row = control.cell_y.unwrap_or(cursor_row);
+            graphics.delete_at_position(row, col, false);
+        }
+        'P' => {
+            let col = control.cell_x.unwrap_or(cursor_col);
+            let row = control.cell_y.unwrap_or(cursor_row);
+            graphics.delete_at_position(row, col, true);
+        }
+        _ => return Err(KittyError::UnsupportedAction),
+    }
+    let response = if control.suppress_response() {
+        Vec::new()
+    } else {
+        kitty_response(Some(control.response_prefix()), "OK")
+    };
+    Ok(KittyOutcome {
+        dirty: true,
+        cursor: None,
+        response,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Query (a=q)
+// ---------------------------------------------------------------------------
+
+fn process_query_command(
+    graphics: &mut ImageScene,
+    command: Command,
+    _cell_metrics: CellMetrics,
+) -> Result<KittyOutcome, KittyError> {
+    // Validate the image would be accepted without storing it.
+    validate_supported_control(&command.control)?;
+    let max_decoded = graphics.store().limits().max_decoded_bytes;
+    let decoded = decode_base64(&command.payload, max_decoded)?;
+    // Validate pixel dimensions / format match.
+    let _validated = rgba_from_payload(&command.control, decoded, max_decoded)?;
+
+    let response = if command.control.suppress_response() {
+        Vec::new()
+    } else {
+        kitty_response(Some(command.control.response_prefix()), "OK")
+    };
+    Ok(KittyOutcome {
+        dirty: false,
+        cursor: None,
+        response,
+    })
+}
+
 fn validate_supported_control(control: &ControlData) -> Result<(), KittyError> {
     match control.action.unwrap_or('t') {
-        't' | 'T' => {}
+        't' | 'T' | 'q' => {}
         _ => return Err(KittyError::UnsupportedAction),
     }
     match control.format {
-        Some(24 | 32) => {}
-        Some(100) => return Err(KittyError::UnsupportedFormat),
+        Some(24 | 32 | 100) => {}
         _ => return Err(KittyError::UnsupportedFormat),
     }
     match control.transmission.unwrap_or('d') {
         'd' => {}
         _ => return Err(KittyError::UnsupportedTransmission),
     }
-    if control.width.is_none() || control.height.is_none() {
+    if matches!(control.format, Some(24 | 32))
+        && (control.width.is_none() || control.height.is_none())
+    {
         return Err(KittyError::MissingDimensions);
     }
     Ok(())
@@ -302,18 +397,22 @@ fn display_rows(control: &ControlData, height: u32, cell_metrics: CellMetrics) -
 fn rgba_from_payload(
     control: &ControlData,
     decoded: Vec<u8>,
+    max_decoded: usize,
 ) -> Result<(Vec<u8>, u32, u32), KittyError> {
-    let width = control.width.ok_or(KittyError::MissingDimensions)?;
-    let height = control.height.ok_or(KittyError::MissingDimensions)?;
-    let pixels = width as usize * height as usize;
     match control.format {
         Some(32) => {
+            let width = control.width.ok_or(KittyError::MissingDimensions)?;
+            let height = control.height.ok_or(KittyError::MissingDimensions)?;
+            let pixels = pixel_count(width, height)?;
             if decoded.len() != pixels * 4 {
                 return Err(KittyError::InvalidPayload);
             }
             Ok((decoded, width, height))
         }
         Some(24) => {
+            let width = control.width.ok_or(KittyError::MissingDimensions)?;
+            let height = control.height.ok_or(KittyError::MissingDimensions)?;
+            let pixels = pixel_count(width, height)?;
             if decoded.len() != pixels * 3 {
                 return Err(KittyError::InvalidPayload);
             }
@@ -324,8 +423,138 @@ fn rgba_from_payload(
             }
             Ok((rgba, width, height))
         }
+        Some(100) => rgba_from_png(control, &decoded, max_decoded),
         _ => Err(KittyError::UnsupportedFormat),
     }
+}
+
+fn rgba_from_png(
+    control: &ControlData,
+    decoded: &[u8],
+    max_decoded: usize,
+) -> Result<(Vec<u8>, u32, u32), KittyError> {
+    let mut decoder = png::Decoder::new(Cursor::new(decoded));
+    decoder.set_ignore_text_chunk(true);
+    decoder.set_ignore_iccp_chunk(true);
+    decoder.set_transformations(
+        png::Transformations::normalize_to_color8() | png::Transformations::ALPHA,
+    );
+
+    let header = decoder
+        .read_header_info()
+        .map_err(|_| KittyError::InvalidPayload)?;
+    let width = header.width;
+    let height = header.height;
+    validate_png_header(
+        control,
+        header.color_type,
+        header.bit_depth,
+        width,
+        height,
+        max_decoded,
+    )?;
+
+    let mut reader = decoder
+        .read_info()
+        .map_err(|_| KittyError::InvalidPayload)?;
+    let output_size = reader
+        .output_buffer_size()
+        .ok_or(KittyError::PayloadTooLarge)?;
+    if output_size > max_decoded {
+        return Err(KittyError::PayloadTooLarge);
+    }
+
+    let mut buf = vec![0; output_size];
+    let output = reader
+        .next_frame(&mut buf)
+        .map_err(|_| KittyError::InvalidPayload)?;
+    let frame_bytes = &buf[..output.buffer_size()];
+    let rgba = png_frame_to_rgba(output.color_type, frame_bytes)?;
+    if rgba.len() > max_decoded {
+        return Err(KittyError::PayloadTooLarge);
+    }
+    Ok((rgba, output.width, output.height))
+}
+
+fn validate_png_header(
+    control: &ControlData,
+    color_type: png::ColorType,
+    bit_depth: png::BitDepth,
+    width: u32,
+    height: u32,
+    max_decoded: usize,
+) -> Result<(), KittyError> {
+    match color_type {
+        png::ColorType::Grayscale
+        | png::ColorType::Rgb
+        | png::ColorType::Indexed
+        | png::ColorType::GrayscaleAlpha
+        | png::ColorType::Rgba => {}
+    }
+    match bit_depth {
+        png::BitDepth::One
+        | png::BitDepth::Two
+        | png::BitDepth::Four
+        | png::BitDepth::Eight
+        | png::BitDepth::Sixteen => {}
+    }
+    if width == 0 || height == 0 {
+        return Err(KittyError::InvalidPayload);
+    }
+    if control.width.is_some_and(|expected| expected != width)
+        || control.height.is_some_and(|expected| expected != height)
+    {
+        return Err(KittyError::DimensionMismatch);
+    }
+    let pixels = pixel_count(width, height)?;
+    if pixels
+        .checked_mul(4)
+        .is_none_or(|bytes| bytes > max_decoded)
+    {
+        return Err(KittyError::PayloadTooLarge);
+    }
+    Ok(())
+}
+
+fn png_frame_to_rgba(color_type: png::ColorType, bytes: &[u8]) -> Result<Vec<u8>, KittyError> {
+    match color_type {
+        png::ColorType::Rgba => Ok(bytes.to_vec()),
+        png::ColorType::Rgb => {
+            let mut rgba = Vec::with_capacity(bytes.len() / 3 * 4);
+            for rgb in bytes.chunks_exact(3) {
+                rgba.extend_from_slice(rgb);
+                rgba.push(255);
+            }
+            if bytes.len() % 3 == 0 {
+                Ok(rgba)
+            } else {
+                Err(KittyError::InvalidPayload)
+            }
+        }
+        png::ColorType::Grayscale => Ok(bytes
+            .iter()
+            .flat_map(|gray| [*gray, *gray, *gray, 255])
+            .collect()),
+        png::ColorType::GrayscaleAlpha => {
+            let mut rgba = Vec::with_capacity(bytes.len() / 2 * 4);
+            for gray_alpha in bytes.chunks_exact(2) {
+                let gray = gray_alpha[0];
+                rgba.extend_from_slice(&[gray, gray, gray, gray_alpha[1]]);
+            }
+            if bytes.len() % 2 == 0 {
+                Ok(rgba)
+            } else {
+                Err(KittyError::InvalidPayload)
+            }
+        }
+        png::ColorType::Indexed => Err(KittyError::UnsupportedPngColor),
+    }
+}
+
+fn pixel_count(width: u32, height: u32) -> Result<usize, KittyError> {
+    (width as usize)
+        .checked_mul(height as usize)
+        .ok_or(KittyError::PayloadTooLarge)
 }
 
 fn kitty_response(control: Option<String>, status: &str) -> Vec<u8> {
@@ -388,6 +617,9 @@ fn parse_control(control: &[u8]) -> Result<ControlData, KittyError> {
             "r" => parsed.display_rows = parse_usize(value),
             "C" => parsed.cursor_movement = parse_u32(value),
             "q" => parsed.quiet = parse_u32(value),
+            "d" => parsed.delete_specifier = parse_char(value),
+            "x" => parsed.cell_x = parse_usize(value),
+            "y" => parsed.cell_y = parse_usize(value),
             _ => {}
         }
     }

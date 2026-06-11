@@ -269,6 +269,102 @@ impl ImageScene {
         self.active = ScreenBuffer::Primary;
     }
 
+    // -----------------------------------------------------------------------
+    // Kitty graphics protocol delete actions (a=d)
+    // -----------------------------------------------------------------------
+
+    /// `d=a` — delete all visible placements in the active buffer.
+    pub fn delete_all_placements(&mut self) {
+        self.clear_active();
+    }
+
+    /// `d=A` — delete all visible placements AND free images with no remaining
+    /// placements.
+    pub fn delete_all_placements_and_free(&mut self) {
+        self.clear_active();
+        self.gc_unreferenced_images();
+    }
+
+    /// `d=i` — delete placements referencing `image_id` (protocol id) in the
+    /// active buffer. If `placement_id` is `Some`, delete only that specific
+    /// placement.
+    pub fn delete_by_image_id(&mut self, image_id: u32, placement_id: Option<u32>) {
+        let active = self.active;
+        self.placements.retain(|p| {
+            if p.buffer != active {
+                return true;
+            }
+            let img_match = self
+                .store
+                .get(p.image_id)
+                .map_or(false, |img| img.protocol_id == Some(image_id));
+            if !img_match {
+                return true;
+            }
+            if let Some(pid) = placement_id {
+                p.id.0 != pid as u64
+            } else {
+                false
+            }
+        });
+    }
+
+    /// `d=I` — like `d=i` but also free image data when no placements remain.
+    pub fn delete_by_image_id_and_free(&mut self, image_id: u32, placement_id: Option<u32>) {
+        self.delete_by_image_id(image_id, placement_id);
+        self.gc_unreferenced_images();
+    }
+
+    /// `d=c` / `d=C` — delete placements whose anchor is at (`row`, `col`) in
+    /// the active buffer.
+    pub fn delete_at_cursor(&mut self, row: usize, col: usize, free_images: bool) {
+        let active = self.active;
+        self.placements.retain(|p| {
+            if p.buffer != active {
+                return true;
+            }
+            !(p.anchor.row == row as isize && p.anchor.column == col)
+        });
+        if free_images {
+            self.gc_unreferenced_images();
+        }
+    }
+
+    /// `d=p` / `d=P` — delete placements that intersect cell (`row`, `col`) in
+    /// the active buffer.
+    pub fn delete_at_position(&mut self, row: usize, col: usize, free_images: bool) {
+        let active = self.active;
+        self.placements.retain(|p| {
+            if p.buffer != active {
+                return true;
+            }
+            let r = p.anchor.row;
+            let c = p.anchor.column;
+            let intersects = row as isize >= r
+                && (row as isize) < r + p.display_rows as isize
+                && col >= c
+                && col < c + p.display_columns;
+            !intersects
+        });
+        if free_images {
+            self.gc_unreferenced_images();
+        }
+    }
+
+    /// Remove images from the store that have no placements referencing them.
+    fn gc_unreferenced_images(&mut self) {
+        let referenced: std::collections::HashSet<StoredImageId> =
+            self.placements.iter().map(|p| p.image_id).collect();
+        let all_ids: Vec<StoredImageId> = self
+            .store
+            .iter_ids()
+            .filter(|id| !referenced.contains(id))
+            .collect();
+        for id in all_ids {
+            self.store.remove(id);
+        }
+    }
+
     pub fn scroll_full_up(&mut self, count: usize, scrollback_rows: usize) {
         self.shift_rows(0, None, -(count as isize), true);
         self.evict_above_scrollback(scrollback_rows);
