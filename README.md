@@ -143,4 +143,7 @@ standing goal.
   settings and launch examples.
 - [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) — staged roadmap
   from prototype stabilization through long-term product work.
+- [`docs/graphics.md`](docs/graphics.md) — Kitty graphics protocol and Sixel
+  support: action/format/transport matrix, security posture, DECSDM, and
+  examples.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — change, commit, and safety conventions.
