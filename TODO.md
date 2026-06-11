@@ -343,6 +343,10 @@ a floor; surpassing it is the standing ambition.
         errors.
   - [ ] G2.5: file/shared-memory transports behind a security review; the MVP
         rejects non-direct `t` modes with an explicit error.
+- [x] K2 Kitty delete/query + DECSDM: `a=d` delete variants (d=a/A, i/I+p=,
+      c/C, p/P+x=/y=) with uppercase image-data GC, `a=q` validation-only
+      query responses, and DECSET/DECRST 80 sixel cursor policy (anchor at
+      cursor vs cursor-below) with RIS/DECSTR resets; 17 fixtures.
 - [x] SX3 live cell metrics: `Terminal::set_cell_metrics()` replaces the
       provisional 8×16 px cell in graphics extent/cursor math; native wires
       metrics at GPU init and on every grid resize; new-placements-only

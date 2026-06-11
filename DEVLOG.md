@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Kitty delete/query actions + DECSDM sixel mode (K2)
+
+Graphics-protocol completeness on the shared scene. Kitty `a=d` delete actions
+land with the spec's case semantics: `d=a/A` (all placements), `d=i/I` (by
+image id, optional `p=` placement id), `d=c/C` (placements intersecting the
+cursor cell), and `d=p/P` (placements intersecting a specific `x=`,`y=` cell)
+— lowercase deletes placements only, uppercase also frees image data once no
+placements reference it (`gc_unreferenced_images`). `a=q` query validates
+control data and payload and responds OK/error through the host-output seam
+without storing image data or creating placements.
+
+DECSDM (DECSET/DECRST 80) now controls sixel cursor policy: when set, sixel
+images anchor at the cursor and the cursor does not move; when reset (the
+default), the cursor moves to the row below the image as before. The mode
+resets on RIS/DECSTR like other modes. Seventeen fixtures cover every delete
+specifier, alt-screen isolation, query round-trips, and DECSDM set/reset
+behavior; 627 lib tests green.
+
 ## 2026-06-11 — Kitty PNG payload decode (G2.2b)
 
 Kitty graphics now accepts PNG still-image payloads (`f=100`) on the direct
