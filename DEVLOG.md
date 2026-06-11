@@ -33,6 +33,25 @@ bookkeeping across scrollback, search overlays, and image layering.
 
 ---
 
+## 2026-06-11 — Graphics-path pixel checks (V2)
+
+The headless CPU compositor (`tests/pixel_smoke.rs`) now composites the graphics
+layer, closing the K3 gap where no test exercised the `draw_below`/`draw_above`
+z-order pipeline or placement geometry end-to-end. It composites
+`ImageScene::visible_placements()` in the GPU render-pass order — background cell
+quads, then negative-z images, then glyphs/decorations/cursor, then
+non-negative-z images — splitting the grid vertex stream at the same
+background/glyph boundary `gpu.rs` uses. Image projection and the
+`Rgba8UnormSrgb` sample + straight-alpha blend are read-only mirrors of
+`image_layer::placement_quad`, so the geometry assertions trip if that math
+drifts. New fixtures cover z-order overdraw (both directions) and equal-z
+stable order, source-rect crop, c/r cell-box fill exactness, X/Y pixel offset,
+cell-anchored scroll, and a decoded-sixel placement. pixel_smoke 11 -> 19;
+`cargo test` 676 lib + 19 pixel + 9 PTY + 10 transcript green, fmt clean, native
+smokes exit 0 at default and `ODYTTY_SUBPIXEL=rgb`.
+
+---
+
 ## 2026-06-11 — Kitty placement surface (K3)
 
 The remaining non-animation Kitty graphics display surface landed on the

@@ -237,6 +237,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         box-drawing `U+2500` seam continuity, wide-char single-draw, bar-cursor
         stripe. Structural over byte-exact goldens for host-font portability;
         runs in the default suite. Optional hash-golden layer deferred.
+  - [x] V2: graphics-path pixel checks — the CPU compositor composites
+        `visible_placements()` in the GPU's bg -> z<0 -> glyphs -> z>=0 order;
+        fixtures assert z-order overdraw + equal-z generation order, source
+        crop, c/r cell-box fill, X/Y offset, anchor scroll, and a decoded-sixel
+        placement (11 -> 19 fixtures).
 
 ## Stage 4: Daily-Driver Interaction
 
