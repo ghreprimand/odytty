@@ -7,6 +7,52 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Sixel decoder memory-behavior hardening (SX4)
+
+Fixed the two bounded-but-real memory behaviors FZ1 surfaced in
+`decode_sixel`, both within the read-only caps (40 M pixels, 10 000/axis,
+reject pre-alloc) and preserving never-panic and every existing fixture.
+
+**Finding 1 — eager raster-canvas allocation.** `raster_attrs` (`"Pan;Pad;Ph;Pv`)
+used to allocate and zero the full declared canvas immediately, so a ~16-byte
+header could cost ~144 MB before any pixel arrived. It now only *records* the
+declared dimensions (validating them against the caps — over-cap still fails
+fast with `TooLarge`, no allocation). The buffer is allocated lazily as pixels
+are painted, and the declared size is honored once at `finish`. A header-only
+stream now has no painted data and returns `Empty` with zero pixel allocation.
+
+**Finding 2 — O(N²) incremental width growth.** The pixel buffer's row stride
+equalled the logical width, so each single-column width increase re-laid-out the
+entire buffer — quadratic for a wide incremental paint (e.g. `!9999~`). The
+decoder now separates physical capacity (`cap_w` row stride, `cap_h` rows, both
+grown *geometrically*) from the logical drawn extent. The stride changes only
+O(log W) times, so the row re-layout it triggers is amortized O(area). Geometric
+rounding is clamped so capacity never exceeds the pixel budget (tight fallback
+near the ceiling).
+
+Measured before/after (release build, standalone harness):
+
+| Scenario | Before | After |
+|---|---:|---:|
+| header-only `"1;1;6000;6000` ×200 | 18.7 ms/seq (144 MB ea.) | ~0.00002 ms/seq, zero alloc |
+| `!9999~` single repeat paint | 48.0 ms | 0.19 ms (~256×) |
+| normal 200×120 image ×200 | 0.033 ms/decode | 0.025 ms/decode (no regression) |
+
+Declared-size semantics are unchanged: the raster declaration is still
+authoritative (it pads a smaller drawn extent and crops a larger one), proven by
+the existing `golden_raster_attributes_declare_size` plus new SX4 fixtures
+(header-only no-alloc, declared-pads-drawn, large-repeat correctness,
+geometric-growth column preservation, multi-band height growth). A relaxed-token
+regression fuzzer (large repeats + wide-but-short rasters) was added to the FZ1
+harness now that the cliff is gone.
+
+`cargo test` 702 lib (incl. +5 sixel, +1 fuzz; combined with peer work on
+HEAD) + 19 pixel + 9 PTY + 10 transcript green; fmt clean; deep fuzz tier re-run
+once at `ODYTTY_FUZZ_ITERS=40000` (5 deep fuzzers, ~40 s, no panics); native
+smokes exit 0 at default and `ODYTTY_SUBPIXEL=rgb`. `sixel.rs` 611 lines.
+
+---
+
 ## 2026-06-11 — Graphics-surface fuzzing (FZ1)
 
 A deterministic never-panic + bounded-memory fuzz harness

@@ -140,12 +140,18 @@ const VT340_PALETTE: [[u8; 3]; 16] = [
 
 struct Decoder {
     /// Pixel buffer (RGBA8). Grows lazily — starts empty, allocated on first
-    /// sixel data or raster-attr declaration.
+    /// painted sixel. Its physical layout is `cap_w` (row stride) × `cap_h`
+    /// rows, both of which grow *geometrically* so that painting N columns
+    /// costs amortized O(area) instead of O(N²). Raster-attribute declarations
+    /// no longer pre-allocate — they only record `declared_w/declared_h` and
+    /// validate them against the caps (see `raster_attrs`).
     rgba: Vec<u8>,
-    /// Current buffer width (may grow as sixel data extends rightward).
-    width: u32,
-    /// Current buffer height (may grow as bands are added).
-    height: u32,
+    /// Physical buffer width = row stride in pixels (capacity, not the drawn
+    /// extent). Grows geometrically.
+    cap_w: u32,
+    /// Physical buffer height in rows (capacity, not the drawn extent). Grows
+    /// geometrically.
+    cap_h: u32,
     /// Declared width from raster attributes (0 = not declared).
     declared_w: u32,
     /// Declared height from raster attributes (0 = not declared).
@@ -162,8 +168,10 @@ struct Decoder {
     background: SixelBackground,
     /// Whether any sixel data byte has been painted (for Empty detection).
     has_data: bool,
-    /// Max x seen across all bands (tracks actual drawn width).
+    /// Max x+1 actually painted across all bands (drawn width).
     max_x: u32,
+    /// Max y+1 (band bottom) actually reached by painting (drawn height).
+    max_y: u32,
 }
 
 impl Decoder {
@@ -172,8 +180,8 @@ impl Decoder {
         palette.extend_from_slice(&VT340_PALETTE);
         Self {
             rgba: Vec::new(),
-            width: 0,
-            height: 0,
+            cap_w: 0,
+            cap_h: 0,
             declared_w: 0,
             declared_h: 0,
             x: 0,
@@ -183,42 +191,79 @@ impl Decoder {
             background,
             has_data: false,
             max_x: 0,
+            max_y: 0,
         }
     }
 
-    /// Ensure the pixel buffer covers at least (w, h). Grows width and/or
-    /// height, re-laying out rows when the width increases. Returns `Err` on
-    /// cap overflow.
-    fn ensure_size(&mut self, w: u32, h: u32) -> Result<(), SixelError> {
-        let new_w = w.max(self.width);
-        let new_h = h.max(self.height);
-        if new_w > MAX_WIDTH || new_h > MAX_HEIGHT {
+    /// Reject `(need_w, need_h)` if the *actual* drawn extent would exceed a
+    /// hard cap. Checked against the real need (not the rounded-up capacity), so
+    /// the cap semantics are identical to the pre-geometric decoder. No
+    /// allocation happens here.
+    fn check_caps(need_w: u32, need_h: u32) -> Result<(), SixelError> {
+        if need_w > MAX_WIDTH || need_h > MAX_HEIGHT {
             return Err(SixelError::TooLarge {
-                width: new_w,
-                height: new_h,
+                width: need_w,
+                height: need_h,
             });
         }
-        if (new_w as u64) * (new_h as u64) > MAX_PIXELS {
+        if (need_w as u64) * (need_h as u64) > MAX_PIXELS {
             return Err(SixelError::TooLarge {
-                width: new_w,
-                height: new_h,
+                width: need_w,
+                height: need_h,
             });
         }
-        if new_w == self.width && new_h == self.height {
+        Ok(())
+    }
+
+    /// Geometric capacity step: double `cap` toward `need`, clamped to `limit`.
+    fn grow_cap(cap: u32, need: u32, limit: u32) -> u32 {
+        let mut c = cap.max(1);
+        while c < need {
+            c = c.saturating_mul(2);
+        }
+        c.min(limit).max(need)
+    }
+
+    /// Ensure the physical buffer can hold a pixel at column < `need_w`, row <
+    /// `need_h`. Capacity grows geometrically in both axes; the row stride
+    /// (`cap_w`) only changes O(log W) times, so the row re-layout it triggers
+    /// is amortized O(area) over a full paint rather than O(W²). Returns `Err`
+    /// (without allocating) when the real need exceeds a cap.
+    fn ensure_capacity(&mut self, need_w: u32, need_h: u32) -> Result<(), SixelError> {
+        Self::check_caps(need_w, need_h)?;
+        if need_w <= self.cap_w && need_h <= self.cap_h {
             return Ok(());
         }
-        if self.width == 0 || self.height == 0 {
-            self.width = new_w;
-            self.height = new_h;
-            self.rgba.resize((new_w as usize) * (new_h as usize) * 4, 0);
+        let mut new_cap_w = Self::grow_cap(self.cap_w, need_w, MAX_WIDTH);
+        let mut new_cap_h = Self::grow_cap(self.cap_h, need_h, MAX_HEIGHT);
+        // Geometric rounding must never push the *capacity* past the pixel
+        // budget. If it would, fall back to the tight need (guaranteed in-budget
+        // because `check_caps` passed). Near the cap ceiling we lose the
+        // geometric slack — bounded and rare.
+        if (new_cap_w as u64) * (new_cap_h as u64) > MAX_PIXELS {
+            new_cap_w = need_w.max(self.cap_w.min(MAX_WIDTH));
+            new_cap_h = need_h.max(self.cap_h.min(MAX_HEIGHT));
+            if (new_cap_w as u64) * (new_cap_h as u64) > MAX_PIXELS {
+                new_cap_w = need_w;
+                new_cap_h = need_h;
+            }
+        }
+
+        if self.cap_w == 0 || self.cap_h == 0 {
+            // First allocation.
+            self.cap_w = new_cap_w;
+            self.cap_h = new_cap_h;
+            self.rgba
+                .resize((new_cap_w as usize) * (new_cap_h as usize) * 4, 0);
             return Ok(());
         }
-        if new_w > self.width {
-            // Width grew — re-layout existing rows into a wider buffer.
-            let old_w = self.width as usize;
-            let old_h = self.height as usize;
-            let nw = new_w as usize;
-            let nh = new_h as usize;
+        if new_cap_w > self.cap_w {
+            // Stride changed — re-layout existing rows into the wider buffer.
+            // Geometric growth bounds this to O(log W) occurrences.
+            let old_w = self.cap_w as usize;
+            let old_h = self.cap_h as usize;
+            let nw = new_cap_w as usize;
+            let nh = new_cap_h as usize;
             let mut buf = vec![0u8; nw * nh * 4];
             for row in 0..old_h {
                 let src = row * old_w * 4;
@@ -226,12 +271,13 @@ impl Decoder {
                 buf[dst..dst + old_w * 4].copy_from_slice(&self.rgba[src..src + old_w * 4]);
             }
             self.rgba = buf;
-            self.width = new_w;
-            self.height = nh as u32;
-        } else if new_h > self.height {
+            self.cap_w = new_cap_w;
+            self.cap_h = new_cap_h;
+        } else if new_cap_h > self.cap_h {
+            // Stride unchanged — appending zero rows needs no row movement.
             self.rgba
-                .resize((self.width as usize) * (new_h as usize) * 4, 0);
-            self.height = new_h;
+                .resize((self.cap_w as usize) * (new_cap_h as usize) * 4, 0);
+            self.cap_h = new_cap_h;
         }
         Ok(())
     }
@@ -239,18 +285,18 @@ impl Decoder {
     /// Paint one sixel column at (self.x, self.y). `bits` is the 6-bit value
     /// (sixel byte − 0x3F).
     fn paint_sixel(&mut self, bits: u8) -> Result<(), SixelError> {
-        self.has_data = true;
         let band_bottom = self.y + 6;
         let need_w = self.x + 1;
-        self.ensure_size(need_w, band_bottom)?;
+        self.ensure_capacity(need_w, band_bottom)?;
+        self.has_data = true;
         let [r, g, b] = self.current_rgb();
         for bit in 0..6u8 {
             let py = self.y + bit as u32;
-            if py >= self.height {
+            if py >= self.cap_h {
                 break;
             }
             if bits & (1 << bit) != 0 {
-                let idx = ((py as usize) * (self.width as usize) + (self.x as usize)) * 4;
+                let idx = ((py as usize) * (self.cap_w as usize) + (self.x as usize)) * 4;
                 if idx + 3 < self.rgba.len() {
                     self.rgba[idx] = r;
                     self.rgba[idx + 1] = g;
@@ -259,8 +305,11 @@ impl Decoder {
                 }
             }
         }
-        if self.x >= self.max_x {
+        if self.x + 1 > self.max_x {
             self.max_x = self.x + 1;
+        }
+        if band_bottom > self.max_y {
+            self.max_y = band_bottom;
         }
         self.x += 1;
         Ok(())
@@ -274,14 +323,21 @@ impl Decoder {
     }
 
     /// Parse and apply raster attributes: `"Pan;Pad;Ph;Pv`.
+    ///
+    /// Only *records* the declared image dimensions and validates them against
+    /// the caps — it does **not** allocate. A header-only DCS stream
+    /// (`"…Ph;Pv` with no sixel data) therefore costs nothing; the buffer is
+    /// allocated lazily as pixels are painted, and the declared size is honored
+    /// at `finish`. Over-cap declarations still fail fast with `TooLarge`,
+    /// matching the pre-lazy decoder, but without the eager canvas allocation.
     fn raster_attrs(&mut self, params: &[u32]) -> Result<(), SixelError> {
         if params.len() >= 4 {
             let w = params[2].min(MAX_WIDTH);
             let h = params[3].min(MAX_HEIGHT);
             if w > 0 && h > 0 {
+                Self::check_caps(w, h)?;
                 self.declared_w = w;
                 self.declared_h = h;
-                self.ensure_size(w, h)?;
             }
         }
         Ok(())
@@ -314,57 +370,63 @@ impl Decoder {
         self.color = reg;
     }
 
-    fn finish(mut self) -> Result<SixelImage, SixelError> {
+    fn finish(self) -> Result<SixelImage, SixelError> {
         if !self.has_data {
             return Err(SixelError::Empty);
         }
-        // Final dimensions: use declared raster size if present (clipped to
-        // buffer), otherwise the actually-drawn extent.
+        // Final dimensions: the declared raster size is authoritative when
+        // present (it both pads and crops the drawn extent); otherwise the
+        // actually-drawn extent. Both are cap-safe — declared dims passed
+        // `check_caps` in `raster_attrs`, and the drawn extent passed
+        // `check_caps` on every painted column — so the single output
+        // allocation below can never exceed the pixel budget.
         let final_w = if self.declared_w > 0 {
-            self.declared_w.min(self.width)
+            self.declared_w
         } else {
-            self.max_x.min(self.width).max(1)
+            self.max_x.max(1)
         };
         let final_h = if self.declared_h > 0 {
-            self.declared_h.min(self.height)
+            self.declared_h
         } else {
-            self.height
+            self.max_y.max(1)
         };
         if final_w == 0 || final_h == 0 {
             return Err(SixelError::Empty);
         }
 
-        // Opaque background: fill zero-alpha pixels with palette register 0.
+        let fw = final_w as usize;
+        let fh = final_h as usize;
+        let mut out = vec![0u8; fw * fh * 4];
+
+        // Copy the painted region (the overlap of the final dimensions with the
+        // physical capacity) row by row, translating from the capacity stride
+        // (`cap_w`) to the tight output stride (`final_w`).
+        let copy_w = final_w.min(self.cap_w) as usize;
+        let copy_h = final_h.min(self.cap_h) as usize;
+        if copy_w > 0 && copy_h > 0 && !self.rgba.is_empty() {
+            let stride = self.cap_w as usize;
+            for row in 0..copy_h {
+                let src = row * stride * 4;
+                let dst = row * fw * 4;
+                out[dst..dst + copy_w * 4].copy_from_slice(&self.rgba[src..src + copy_w * 4]);
+            }
+        }
+
+        // Opaque background: fill every still-transparent pixel (including the
+        // padded region when the declared size exceeds the drawn extent) with
+        // palette register 0.
         if self.background == SixelBackground::Opaque {
             let bg = self.palette.first().copied().unwrap_or([0, 0, 0]);
-            // Only fill within the final dimensions to avoid extra work.
-            for row in 0..final_h as usize {
-                let base = row * (self.width as usize) * 4;
-                for col in 0..final_w as usize {
-                    let idx = base + col * 4;
-                    if idx + 3 < self.rgba.len() && self.rgba[idx + 3] == 0 {
-                        self.rgba[idx] = bg[0];
-                        self.rgba[idx + 1] = bg[1];
-                        self.rgba[idx + 2] = bg[2];
-                        self.rgba[idx + 3] = 255;
-                    }
+            for px in out.chunks_exact_mut(4) {
+                if px[3] == 0 {
+                    px[0] = bg[0];
+                    px[1] = bg[1];
+                    px[2] = bg[2];
+                    px[3] = 255;
                 }
             }
         }
 
-        // Crop to final dimensions if smaller than buffer.
-        if final_w == self.width && final_h == self.height {
-            return Ok(SixelImage {
-                width: final_w,
-                height: final_h,
-                rgba: self.rgba,
-            });
-        }
-        let mut out = Vec::with_capacity((final_w as usize) * (final_h as usize) * 4);
-        for row in 0..final_h {
-            let src = (row as usize) * (self.width as usize) * 4;
-            out.extend_from_slice(&self.rgba[src..src + (final_w as usize) * 4]);
-        }
         Ok(SixelImage {
             width: final_w,
             height: final_h,

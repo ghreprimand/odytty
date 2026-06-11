@@ -401,6 +401,15 @@ a floor; surpassing it is the standing ambition.
       bounded performance observations on `decode_sixel` routed to the director
       (eager raster-canvas alloc; O(area) incremental-width re-layout) — both
       cap-bounded, not panics.
+  - [x] SX4 sixel memory-behavior hardening (fixes the two FZ1 findings):
+        `raster_attrs` no longer eagerly allocates the declared canvas — it
+        records + cap-validates the declared size and the buffer fills lazily
+        (header-only streams now cost zero, ~144 MB/seq → 0); the pixel buffer
+        separates geometric physical capacity (`cap_w` stride / `cap_h` rows)
+        from the drawn extent so incremental width growth is amortized O(area)
+        instead of O(N²) (`!9999~` 48 ms → 0.19 ms). Caps, never-panic, and
+        declared-size authority unchanged; +5 sixel fixtures + a relaxed-token
+        regression fuzzer; deep tier re-run at 40k clean.
 - [x] K3 Kitty placement surface: `p=` placement ids with multiple named
       placements per image and same-`(i,p)` replacement; `a=p` display of a
       previously transmitted image by protocol id; `z=` z-index with the

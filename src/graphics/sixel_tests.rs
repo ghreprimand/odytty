@@ -288,6 +288,99 @@ fn error_too_large_raster_attrs() {
 }
 
 // ---------------------------------------------------------------------------
+// SX4: lazy canvas sizing + geometric growth (memory-behavior hardening)
+// ---------------------------------------------------------------------------
+
+/// A header-only DCS stream (large raster declaration, NO sixel data) must not
+/// allocate the declared canvas. It has no painted pixels, so it decodes to
+/// `Empty` — and does so without materializing the ~144 MB the eager allocator
+/// used to. We can't assert allocation directly in a unit test, but `Empty`
+/// (not `TooLarge`, not `Ok`) confirms the no-data path runs before any buffer
+/// is produced.
+#[test]
+fn sx4_header_only_stream_allocates_nothing() {
+    // 6000x6000 = 36M px (under the 40M budget) but zero data.
+    let payload = b"\"1;1;6000;6000";
+    assert!(matches!(
+        decode_sixel(payload, SixelBackground::default()),
+        Err(SixelError::Empty)
+    ));
+}
+
+/// Declared raster size still establishes the reported image dimensions even
+/// when the drawn extent is much smaller — the lazy path pads up to the
+/// declared size at `finish` rather than pre-allocating. (Regression guard for
+/// the Finding-1 fix.)
+#[test]
+fn sx4_declared_size_pads_small_drawn_extent() {
+    // Declare 64x12 (two bands), paint a single 1-wide column in band 0.
+    let payload = b"\"1;1;64;12#1;2;0;100;0~";
+    let img = img(payload).unwrap();
+    assert_eq!(img.width, 64, "declared width is authoritative");
+    assert_eq!(img.height, 12, "declared height is authoritative");
+    // Drawn pixel present; padded region is opaque background (palette reg 0).
+    let green = [0, 255, 0, 255];
+    assert_eq!(pixel_at(&img, 0, 0), green, "drawn column present");
+    assert_opaque(&img); // opaque bg fills the padded area
+}
+
+/// A large single-repeat paint that historically triggered the O(N^2)
+/// width-growth re-layout now decodes correctly and within the caps. (Behavioral
+/// guard for the Finding-2 fix; the speed win is measured out-of-band.)
+#[test]
+fn sx4_large_repeat_paint_bounded_and_correct() {
+    // No raster declaration: drawn extent defines the size. !5000~ paints 5000
+    // columns of a single 6px band.
+    let payload = b"#1;2;100;0;0!5000~";
+    let img = img(payload).unwrap();
+    assert_eq!(img.width, 5000);
+    assert_eq!(img.height, 6);
+    assert!(img.width <= 10_000 && (img.width as u64) * (img.height as u64) <= 40_000_000);
+    // Endpoints painted with the selected color.
+    let red = [255, 0, 0, 255];
+    assert_eq!(pixel_at(&img, 0, 0), red);
+    assert_eq!(pixel_at(&img, 4999, 5), red);
+}
+
+/// Geometric width growth must not corrupt earlier columns when the row stride
+/// changes mid-paint. Paint distinct colors at increasing widths and verify the
+/// earliest column survives the re-layouts intact.
+#[test]
+fn sx4_geometric_growth_preserves_earlier_columns() {
+    // Column 0 red, then many green columns force several capacity doublings.
+    let payload = b"#1;2;100;0;0~#2;2;0;100;0!300~";
+    let img = img(payload).unwrap();
+    assert_eq!(img.width, 301);
+    assert_eq!(img.height, 6);
+    let red = [255, 0, 0, 255];
+    let green = [0, 255, 0, 255];
+    assert_eq!(pixel_at(&img, 0, 0), red, "column 0 survives re-layout");
+    assert_eq!(pixel_at(&img, 300, 0), green, "last column painted");
+    assert_eq!(pixel_at(&img, 150, 3), green, "mid column painted");
+}
+
+/// Multi-band paint without a declaration still grows height correctly under the
+/// geometric capacity scheme (drawn height = band count * 6).
+#[test]
+fn sx4_geometric_height_growth_multi_band() {
+    // 10 bands, 2 columns each → 2 x 60.
+    let mut payload = Vec::new();
+    payload.extend_from_slice(b"#3;2;0;0;100");
+    for band in 0..10 {
+        if band > 0 {
+            payload.push(b'-');
+        }
+        payload.extend_from_slice(b"!2~");
+    }
+    let img = img(&payload).unwrap();
+    assert_eq!(img.width, 2);
+    assert_eq!(img.height, 60);
+    let blue = [0, 0, 255, 255];
+    assert_eq!(pixel_at(&img, 0, 0), blue);
+    assert_eq!(pixel_at(&img, 1, 59), blue, "last band, last row painted");
+}
+
+// ---------------------------------------------------------------------------
 // Color conversion
 // ---------------------------------------------------------------------------
 

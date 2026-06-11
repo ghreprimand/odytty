@@ -502,6 +502,88 @@ fn graphics_fuzz_sixel_decode_deep() {
     run_sixel_decode(fuzz_iters());
 }
 
+/// SX4 regression: a sixel body generator with **relaxed** (large) repeat counts
+/// and raster headers — the exact shapes that used to make `decode_sixel`
+/// re-layout O(N^2) on incremental width. After the lazy-canvas +
+/// geometric-growth fix these run fast, so the fuzzer can exercise them at
+/// volume. The FZ1 generator keeps its small bounds for the broad logic sweep;
+/// this dedicated case probes the formerly-pathological *width* path.
+///
+/// Raster headers here keep one axis small on purpose. A header that declares a
+/// large canvas in *both* axes (e.g. 6000x6000) and then paints a pixel is not a
+/// pathology — it is a legitimately large image, and honoring it allocates the
+/// declared size *once* at `finish` (the lazy path's correct behavior). Doing
+/// that 40k times would be slow by design, not a regression; the over-cap
+/// rejection and the header-only no-alloc paths are covered by
+/// `graphics_fuzz_sixel_canvas_cap_rejected` and the sixel unit tests. So this
+/// fuzzer stresses the wide-but-short geometry (large width, tiny height) plus
+/// large repeats, which is exactly the quadratic-growth path the fix targets.
+fn fuzz_sixel_body_relaxed(rng: &mut FuzzRng) -> Vec<u8> {
+    let ntokens = rng.below(24);
+    let mut out = Vec::with_capacity(ntokens * 4);
+    for _ in 0..ntokens {
+        match rng.below(8) {
+            0 | 1 | 2 => out.push(0x3F + (rng.byte() % 0x40)),
+            // Large repeat: count up to ~12000 (clamped to MAX_WIDTH internally).
+            // This is the Finding-2 incremental-width cliff — now amortized.
+            3 | 4 => {
+                out.push(b'!');
+                out.extend_from_slice((rng.below(12_000)).to_string().as_bytes());
+                out.push(0x3F + (rng.byte() % 0x40));
+            }
+            // Wide-but-short raster header: width up to ~12000 (clamps to
+            // MAX_WIDTH), height 1..=12. Exercises the lazy declaration + wide
+            // geometric growth without declaring a near-cap canvas in both axes.
+            5 => {
+                out.extend_from_slice(b"\"1;1;");
+                out.extend_from_slice((1 + rng.below(12_000)).to_string().as_bytes());
+                out.push(b';');
+                out.extend_from_slice((1 + rng.below(12)).to_string().as_bytes());
+            }
+            6 => out.push(if rng.bool() { b'$' } else { b'-' }),
+            _ => out.push(rng.byte()),
+        }
+    }
+    out
+}
+
+#[test]
+fn graphics_fuzz_sixel_relaxed_tokens_smoke() {
+    run_sixel_relaxed(fuzz_iters());
+}
+
+#[test]
+#[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test -p odytty graphics_fuzz -- --ignored --nocapture"]
+fn graphics_fuzz_sixel_relaxed_tokens_deep() {
+    run_sixel_relaxed(fuzz_iters());
+}
+
+fn run_sixel_relaxed(iters: u64) {
+    const MAX_PIXELS: u64 = 40_000_000;
+    for i in 0..iters {
+        let seed = i.wrapping_mul(0x2545_F491_4F6C_DD1D).wrapping_add(0x5A4E);
+        let mut rng = FuzzRng::new(seed);
+        let body = fuzz_sixel_body_relaxed(&mut rng);
+        let bg = if rng.bool() {
+            SixelBackground::Opaque
+        } else {
+            SixelBackground::Transparent
+        };
+        // Large repeats / raster headers must stay bounded and never panic; the
+        // geometric-growth fix keeps this fast enough to run at volume.
+        if let Ok(image) = decode_sixel(&body, bg) {
+            let pixels = image.width as u64 * image.height as u64;
+            assert!(
+                image.width <= 10_000 && image.height <= 10_000 && pixels <= MAX_PIXELS,
+                "seed={seed}: relaxed sixel {}x{} exceeds caps",
+                image.width,
+                image.height
+            );
+            assert_eq!(image.rgba.len() as u64, pixels * 4, "seed={seed}: rgba len");
+        }
+    }
+}
+
 fn run_sixel_decode(iters: u64) {
     // Hard caps from sixel.rs: 10_000×10_000 dims, 40_000_000 pixel budget.
     const MAX_PIXELS: u64 = 40_000_000;
