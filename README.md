@@ -91,6 +91,22 @@ The open action is gated behind a scheme allowlist (`http`, `https`, `file`,
 interpolation. Links are never opened automatically from terminal input; the
 allowlist check only runs on an explicit user action.
 
+**Kitty keyboard protocol.** OdyTTY implements progressive keyboard enhancement
+as a negotiated overlay on the DEC/xterm key encoder. Applications enable
+enhancement by pushing flag values onto a per-screen stack: flag 1 (disambiguate)
+encodes ambiguous control/Alt and named keys as CSI-u sequences; flag 2
+(event types) adds repeat (`:2`) and release (`:3`) event subfields; flag 4
+(alternate keys) includes shifted and base-layout key-code subfields in CSI-u
+character events; flag 8 (report-all) extends encoding to ordinary printable
+keys and recovery keys; flag 16 (associated text) appends generated printable
+text as the third CSI-u parameter when combined with report-all. The stack is
+managed via `CSI > flags u` (push current flags and set new), `CSI < n u` (pop
+n saved states), `CSI = flags ; mode u` (set/OR/NAND the active flags), and
+`CSI ? u` (query — terminal responds `CSI ? flags u`). The stack is bounded at
+16 entries with oldest-entry eviction; `RIS` and `DECSTR` reset it. Primary and
+alternate screens maintain independent stacks. At flags 0 (no enhancement),
+OdyTTY emits byte-identical legacy key bytes.
+
 **Settings.** Runtime settings load at native startup from built-in defaults,
 then `$XDG_CONFIG_HOME/odytty/odytty.conf` (or
 `~/.config/odytty/odytty.conf`), then `ODYTTY_*` environment variables.
@@ -111,7 +127,7 @@ reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
 the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 740 tests passing: 702 unit/integration, 19 pixel-smoke
+**Testing.** 761 tests passing: 723 unit/integration, 19 pixel-smoke
 (headless CPU compositor asserting structural raster invariants for text
 rendering and graphics placement), 9 PTY alternate-screen smoke, and 10
 transcript smoke. `cargo bench --bench perf` runs headless throughput
