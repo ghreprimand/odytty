@@ -1,0 +1,16 @@
+# Example OdyTTY config.
+# Copy values into $XDG_CONFIG_HOME/odytty/odytty.conf or
+# ~/.config/odytty/odytty.conf.
+
+font_size = 18
+font_family = DejaVu Sans Mono
+theme = odyssey
+visual = ambient
+subpixel = off
+text_gamma = 1.4
+cursor_style = block
+cursor_blink = auto
+keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
+
+# Development smoke helper. Leave unset for normal interactive use.
+# native_autoclose_ms = 600

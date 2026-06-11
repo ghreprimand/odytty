@@ -1,28 +1,62 @@
 # OdyTTY Runtime Knobs
 
-OdyTTY is still a prototype, so runtime configuration currently comes from
-environment variables loaded once at native startup. Defaults are chosen to keep
-the no-env launch path stable:
+OdyTTY loads runtime configuration once at native startup. Defaults are chosen
+to keep the no-config launch path stable:
 
 ```sh
 cargo run -- --native
 ```
 
+Configuration precedence is:
+
+1. Built-in defaults.
+2. `$XDG_CONFIG_HOME/odytty/odytty.conf`, or
+   `~/.config/odytty/odytty.conf` when `XDG_CONFIG_HOME` is unset.
+3. Environment variables.
+
+Environment variables always win, so existing env-based launch scripts keep the
+same behavior. Missing config files are ignored. Unreadable or malformed config
+files print stderr warnings, skip bad lines, and keep good values.
+
+Live reload is not implemented yet; changing the config file requires restarting
+OdyTTY. Live reload is deferred to the CF2 settings packet.
+
+## Config File Format
+
+The config file is a simple dependency-free `key = value` format:
+
+```conf
+# ~/.config/odytty/odytty.conf
+font_size = 18
+font_family = DejaVu Sans Mono
+theme = odyssey
+visual = ambient
+subpixel = rgb
+text_gamma = 1.4
+cursor_style = bar
+cursor_blink = auto
+keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
+```
+
+Blank lines are ignored. `#` starts a comment, including after a value. Duplicate
+keys are allowed; the last valid value wins. Unknown keys and malformed lines
+are skipped with stderr warnings.
+
 ## Native Settings
 
-| Variable | Values | Default | Notes |
-| --- | --- | --- | --- |
-| `ODYTTY_FONT_SIZE` | Pixel size, clamped to `6.0..=72.0` | `14.0` | Controls native glyph rasterization, cell size, initial window size, and resize grid fitting. Invalid values fall back to `14.0` with one stderr warning. |
-| `ODYTTY_TEXT_GAMMA` | Floating-point gamma, clamped to `0.5..=3.0` | `1.4` | Adjusts glyph coverage in the shader for text weight/contrast. `1.0` is the exact legacy linear blend path. Invalid values fall back to `1.4` with one stderr warning. |
-| `ODYTTY_SUBPIXEL` | `off`, `rgb`, `bgr` | `off` | Enables optional RGB/BGR subpixel text coverage when the GPU supports dual-source blending. Unsupported adapters fall back to grayscale text with one stderr notice; startup never fails because of this setting. |
-| `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | Host monospace probe list | Overrides the probed Linux monospace font. A missing or unparseable path no longer aborts startup: it logs one stderr notice and falls back to the probe list. |
-| `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | Host monospace probe list | Selects the regular face by family name or path. The match is validated as monospace; a proportional or unresolved value logs one stderr notice and falls back to the probe list, so a bad value never aborts startup. `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered and used for styled text when present, with regular-face fallback. |
-| `ODYTTY_KEYBINDS` | Comma- or semicolon-separated `chord=action` entries | unset | Rebinds native terminal-local actions only. Invalid entries log one stderr warning and are skipped; duplicate chords use the last valid entry. PTY key encoding is unchanged. |
-| `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `block` | Sets the host default cursor shape. Applications can override at runtime via DECSCUSR (`CSI Ps SP q`). Invalid values fall back to `block` with one stderr warning. |
-| `ODYTTY_CURSOR_BLINK` | `on`, `off`, `auto` | `auto` | Sets the host default cursor blink policy. `auto` blinks; DECSCUSR from applications overrides at runtime. Invalid values fall back to `auto` with one stderr warning. |
-| `ODYTTY_THEME` | `plain`, `odyssey`, `odyssey-noir` | `plain` | Selects default foreground/background and window clear color. Unknown values fall back to `plain`. |
-| `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `off` | Enables or disables the optional presentation-only ambient effect. |
-| `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
+| Config key | Environment variable | Values | Default | Notes |
+| --- | --- | --- | --- | --- |
+| `font_size` | `ODYTTY_FONT_SIZE` | Pixel size, clamped to `6.0..=72.0` | `14.0` | Controls native glyph rasterization, cell size, initial window size, and resize grid fitting. Invalid values fall back to `14.0` with one stderr warning. |
+| `text_gamma` | `ODYTTY_TEXT_GAMMA` | Floating-point gamma, clamped to `0.5..=3.0` | `1.4` | Adjusts glyph coverage in the shader for text weight/contrast. `1.0` is the exact legacy linear blend path. Invalid values fall back to `1.4` with one stderr warning. |
+| `subpixel` | `ODYTTY_SUBPIXEL` | `off`, `rgb`, `bgr` | `off` | Enables optional RGB/BGR subpixel text coverage when the GPU supports dual-source blending. Unsupported adapters fall back to grayscale text with one stderr notice; startup never fails because of this setting. |
+| `font` | `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | Host monospace probe list | Overrides the probed Linux monospace font. A missing or unparseable path no longer aborts startup: it logs one stderr notice and falls back to the probe list. |
+| `font_family` | `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | Host monospace probe list | Selects the regular face by family name or path. The match is validated as monospace; a proportional or unresolved value logs one stderr notice and falls back to the probe list, so a bad value never aborts startup. `font` / `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered and used for styled text when present, with regular-face fallback. |
+| `keybinds` | `ODYTTY_KEYBINDS` | Comma- or semicolon-separated `chord=action` entries | unset | Rebinds native terminal-local actions only. Invalid entries log one stderr warning and are skipped; duplicate chords use the last valid entry. PTY key encoding is unchanged. |
+| `cursor_style` | `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `block` | Sets the host default cursor shape. Applications can override at runtime via DECSCUSR (`CSI Ps SP q`). Invalid values fall back to `block` with one stderr warning. |
+| `cursor_blink` | `ODYTTY_CURSOR_BLINK` | `on`, `off`, `auto` | `auto` | Sets the host default cursor blink policy. `auto` blinks; DECSCUSR from applications overrides at runtime. Invalid values fall back to `auto` with one stderr warning. |
+| `theme` | `ODYTTY_THEME` | `plain`, `odyssey`, `odyssey-noir` | `plain` | Selects default foreground/background and window clear color. Unknown values fall back to `plain`. |
+| `visual` | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `off` | Enables or disables the optional presentation-only ambient effect. |
+| `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
 
 ## Native Shortcuts
 

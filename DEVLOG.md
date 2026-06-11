@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — File-based configuration (CF1)
+
+Stage 5 now has its first stable config layer. `Settings::from_env()` loads
+`$XDG_CONFIG_HOME/odytty/odytty.conf` (falling back to
+`~/.config/odytty/odytty.conf`) before applying `ODYTTY_*` environment
+variables, so the precedence is built-in defaults < config file < environment.
+Existing env-based launch scripts remain bit-exact because env values always
+win, including empty override values.
+
+The config format is a dependency-free `key = value` parser with `#` comments.
+It mirrors every current runtime knob: `font_size`, `text_gamma`, `subpixel`,
+`font`, `font_family`, `keybinds`, `cursor_style`, `cursor_blink`, `theme`,
+`visual`, and `native_autoclose_ms`. Duplicate keys are allowed with
+last-value-wins behavior. Missing files are ignored; unreadable files,
+malformed lines, unknown keys, and invalid values warn to stderr and never abort
+startup.
+
+Docs now include the full key reference, examples, and
+`docs/odytty.conf.example`. Live reload is explicitly deferred to CF2.
+
+Verification: 657 lib tests, 11 pixel-smoke, 9 PTY smoke, 10 transcript smoke,
+and doctests pass. Native autoclose smokes exit 0 at default, with a valid
+config file, with a garbage config file that keeps valid lines, and with env
+values overriding config values.
+
+---
+
 ## 2026-06-11 — Kitty file transports with security hardening (G2.5)
 
 Kitty graphics protocol gains file-based transports: `t=f` (regular file),

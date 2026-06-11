@@ -301,6 +301,18 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] Follow-up: encode modifiers for named keys such as `Ctrl+Arrow` using a
         documented xterm-compatible form.
 
+## Stage 5: Settings and Profiles
+
+- [x] CF1 file-based configuration: load
+      `$XDG_CONFIG_HOME/odytty/odytty.conf` or
+      `~/.config/odytty/odytty.conf` once at native startup with precedence
+      defaults < config file < environment variables. The format is simple
+      `key = value` plus `#` comments, uses a hand-rolled parser, mirrors every
+      current `ODYTTY_*` knob, keeps malformed/missing/unreadable files
+      non-fatal, and routes all values through the single `Settings` struct.
+- [ ] CF2 live config reload for settings with existing rebuild seams.
+- [ ] Profiles and CLI config introspection.
+
 ## Visual Capability Parity (Stage 6 parity half)
 
 Operator directive: visual capability parity with the strongest GPU terminals is

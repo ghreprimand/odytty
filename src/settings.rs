@@ -1,12 +1,15 @@
 //! Runtime settings for the prototype.
 //!
-//! Today settings are sourced from environment variables, but the rest of the
-//! app consumes this typed struct. That keeps runtime configuration in one place
-//! so a config file can replace or augment the environment source later without
-//! pushing `std::env` reads through renderer and terminal code.
+//! Settings are sourced from a small config file and environment variables, but
+//! the rest of the app consumes this typed struct. That keeps runtime
+//! configuration in one place without pushing `std::env` or file reads through
+//! renderer and terminal code.
 
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
-use std::path::PathBuf;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::atlas::SubpixelMode;
@@ -24,6 +27,8 @@ pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
 pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
+pub const CONFIG_FILE_NAME: &str = "odytty.conf";
+pub const CONFIG_DIR_NAME: &str = "odytty";
 
 /// Default cursor blink policy (`ODYTTY_CURSOR_BLINK`). This is the host default
 /// applied at power-on and after DECSCUSR 0 / RIS / DECSTR; an application's
@@ -183,10 +188,37 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// Load settings from the current process environment.
+    /// Load settings from the config file, then overlay the current process
+    /// environment. Environment variables always win.
     pub fn from_env() -> Self {
+        Self::from_env_and_optional_config(config_file_path())
+    }
+
+    fn from_env_and_optional_config(config_path: Option<PathBuf>) -> Self {
+        let mut warnings = Vec::new();
+        let config = config_path
+            .as_deref()
+            .and_then(
+                |path| match ConfigValues::read(path, |message| warnings.push(message)) {
+                    Ok(values) => Some(values),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+                    Err(error) => {
+                        warnings.push(format!(
+                            "could not read config file {}: {error}",
+                            path.display()
+                        ));
+                        None
+                    }
+                },
+            )
+            .unwrap_or_default();
+
+        for warning in warnings {
+            eprintln!("odytty: {warning}");
+        }
+
         Self::from_source(
-            |key| std::env::var_os(key),
+            |key| std::env::var_os(key).or_else(|| config.get(key).cloned()),
             |message| {
                 eprintln!("odytty: {message}");
             },
@@ -256,6 +288,91 @@ impl Settings {
             cursor_blink,
             native_autoclose,
         }
+    }
+}
+
+fn config_file_path() -> Option<PathBuf> {
+    if let Some(base) = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return Some(base.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME));
+    }
+
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .map(|home| {
+            home.join(".config")
+                .join(CONFIG_DIR_NAME)
+                .join(CONFIG_FILE_NAME)
+        })
+}
+
+#[derive(Debug, Clone, Default)]
+struct ConfigValues {
+    values: HashMap<&'static str, OsString>,
+}
+
+impl ConfigValues {
+    fn read(path: &Path, mut warn: impl FnMut(String)) -> io::Result<Self> {
+        let contents = fs::read_to_string(path)?;
+        Ok(Self::parse(&contents, |message| {
+            warn(format!("{}: {message}", path.display()));
+        }))
+    }
+
+    fn parse(contents: &str, mut warn: impl FnMut(String)) -> Self {
+        let mut values = HashMap::new();
+        for (line_index, line) in contents.lines().enumerate() {
+            let line_number = line_index + 1;
+            let trimmed = line
+                .split_once('#')
+                .map(|(before_comment, _)| before_comment)
+                .unwrap_or(line)
+                .trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let Some((key_raw, value_raw)) = trimmed.split_once('=') else {
+                warn(format!(
+                    "line {line_number}: expected key = value; skipping"
+                ));
+                continue;
+            };
+            let key = key_raw.trim();
+            if key.is_empty() {
+                warn(format!("line {line_number}: empty key; skipping"));
+                continue;
+            }
+            let Some(env_key) = config_key_to_env(key) else {
+                warn(format!("line {line_number}: unknown key {key:?}; skipping"));
+                continue;
+            };
+            values.insert(env_key, OsString::from(value_raw.trim()));
+        }
+        Self { values }
+    }
+
+    fn get(&self, key: &str) -> Option<&OsString> {
+        self.values.get(key)
+    }
+}
+
+fn config_key_to_env(key: &str) -> Option<&'static str> {
+    match normalize_name(key).as_str() {
+        "theme" => Some(THEME_ENV),
+        "visual" => Some(VISUAL_ENV),
+        "font" => Some(FONT_ENV),
+        "fontfamily" => Some(FONT_FAMILY_ENV),
+        "fontsize" => Some(FONT_SIZE_ENV),
+        "textgamma" => Some(TEXT_GAMMA_ENV),
+        "subpixel" => Some(SUBPIXEL_ENV),
+        "keybinds" | "keybindings" => Some(KEYBINDS_ENV),
+        "cursorstyle" => Some(CURSOR_STYLE_ENV),
+        "cursorblink" => Some(CURSOR_BLINK_ENV),
+        "nativeautoclosems" => Some(NATIVE_AUTOCLOSE_ENV),
+        _ => None,
     }
 }
 
@@ -514,11 +631,132 @@ mod tests {
         (settings, warnings)
     }
 
+    fn settings_from_config_and_env<const N: usize>(
+        config_contents: &str,
+        env_values: [(&str, &str); N],
+    ) -> (Settings, Vec<String>) {
+        let mut warnings = Vec::new();
+        let config = ConfigValues::parse(config_contents, |message| warnings.push(message));
+        let settings = Settings::from_source(
+            |key| {
+                env_values
+                    .iter()
+                    .find(|(name, _)| *name == key)
+                    .map(|(_, value)| OsString::from(value))
+                    .or_else(|| config.get(key).cloned())
+            },
+            |message| warnings.push(message.to_owned()),
+            |_| None,
+        );
+        (settings, warnings)
+    }
+
     #[test]
     fn defaults_are_stable_without_env() {
         let (settings, warnings) = settings_from([]);
 
         assert_eq!(settings, Settings::default());
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn config_parser_accepts_comments_whitespace_and_duplicate_last_wins() {
+        let (settings, warnings) = settings_from_config_and_env(
+            r#"
+                # OdyTTY config
+                theme = odyssey
+                font_size = 17
+                font_size = 19
+                subpixel = bgr # inline comment
+                cursor_blink = off
+            "#,
+            [],
+        );
+
+        assert_eq!(settings.theme, Theme::ODYSSEY);
+        assert_eq!(settings.font_size_px, 19.0);
+        assert_eq!(settings.subpixel, SubpixelMode::Bgr);
+        assert_eq!(settings.cursor_blink, CursorBlink::Off);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn config_parser_warns_and_skips_bad_lines_but_keeps_good_values() {
+        let (settings, warnings) = settings_from_config_and_env(
+            r#"
+                font_size = 16
+                no separator
+                unknown_key = value
+                = value
+                text_gamma = bright
+            "#,
+            [],
+        );
+
+        assert_eq!(settings.font_size_px, 16.0);
+        assert_eq!(settings.text_gamma, DEFAULT_TEXT_GAMMA);
+        assert_eq!(warnings.len(), 4);
+        assert!(warnings[0].contains("expected key = value"));
+        assert!(warnings[1].contains("unknown key"));
+        assert!(warnings[2].contains("empty key"));
+        assert!(warnings[3].contains(TEXT_GAMMA_ENV));
+    }
+
+    #[test]
+    fn env_values_override_config_values() {
+        let (settings, warnings) = settings_from_config_and_env(
+            r#"
+                font_size = 16
+                text_gamma = 1.0
+                subpixel = rgb
+                cursor_style = underline
+            "#,
+            [
+                (FONT_SIZE_ENV, "21"),
+                (SUBPIXEL_ENV, "off"),
+                (CURSOR_STYLE_ENV, "bar"),
+            ],
+        );
+
+        assert_eq!(settings.font_size_px, 21.0);
+        assert_eq!(settings.text_gamma, 1.0);
+        assert_eq!(settings.subpixel, SubpixelMode::Off);
+        assert_eq!(settings.cursor_style, CursorStyle::Bar);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
+        let (settings, warnings) = settings_from_config_and_env(
+            r#"
+                font_size = 900
+                text_gamma = 0.1
+                keybinds = ctrl+shift+y=copy;alt+space=paste
+                cursor_blink = steady
+                native_autoclose_ms = 600
+            "#,
+            [],
+        );
+
+        assert_eq!(settings.font_size_px, MAX_FONT_SIZE_PX);
+        assert_eq!(settings.text_gamma, MIN_TEXT_GAMMA);
+        assert_eq!(settings.key_bindings.len(), 2);
+        assert_eq!(settings.cursor_blink, CursorBlink::Off);
+        assert_eq!(settings.native_autoclose, Some(Duration::from_millis(600)));
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn missing_config_file_is_a_nonfatal_not_found() {
+        let mut warnings = Vec::new();
+        let path = std::env::temp_dir().join(format!(
+            "odytty-missing-config-{}-cf1.conf",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&path);
+        let result = ConfigValues::read(&path, |message| warnings.push(message));
+
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::NotFound);
         assert!(warnings.is_empty());
     }
 

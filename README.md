@@ -7,8 +7,8 @@ Odyssey Terminal is a reliable terminal emulator with an OdysseyOS visual identi
 ## Status
 
 Active development — well past first prototype, foundations complete. The focus
-now shifts toward Kitty graphics protocol support, a file-based configuration
-layer (Stage 5), and progressive visual identity work.
+now shifts toward expanding the Stage 5 configuration model, adding profiles,
+and progressive visual identity work.
 
 ### What works today
 
@@ -42,9 +42,10 @@ owned DCS hook/put/unhook path. The GPU image layer (G2.3) renders visible
 placements as alpha-blended RGBA8 textured quads between cell backgrounds and
 glyphs. The Kitty graphics protocol MVP handles APC `_G` control parsing,
 base64 payload decode, direct raw RGB/RGBA transmission (`f=24`/`f=32`,
-`t=d`), chunked transfers (`m=1`/`m=0`), and transmit/transmit-and-display
-actions through the same shared placement scene as Sixel. PNG (`f=100`) and
-file/shared-memory transports are not yet supported.
+`t=d`), PNG still-image transmission (`f=100`), chunked transfers
+(`m=1`/`m=0`), delete/query actions, and file/shared-memory transports
+(`t=f`/`t=t`/`t=s`) with conservative security restrictions. Kitty and Sixel
+both render through the same shared placement scene.
 
 **Text and rendering quality.** The `wgpu`/Vulkan surface rasterizes via
 `ab_glyph` into a dynamic glyph atlas. Wide-glyph (CJK/width-2) atlas slots
@@ -78,13 +79,21 @@ and blink policy are configurable via settings and overridable per-application
 via DECSCUSR. Key bindings for terminal-local actions are configurable via
 `ODYTTY_KEYBINDS`.
 
+**Settings.** Runtime settings load once at native startup from built-in
+defaults, then `$XDG_CONFIG_HOME/odytty/odytty.conf` (or
+`~/.config/odytty/odytty.conf`), then `ODYTTY_*` environment variables.
+Environment variables always win, so existing env-based launch scripts remain
+bit-exact. The config file is a simple `key = value` format with `#` comments;
+bad lines are warned and skipped without aborting startup. Live reload is
+deferred.
+
 **Performance.** Lazy scrollback re-wrap stores logical lines and defers deep
 re-wrap on width change (~46 ms → ~20 µs for 50k-line scrollback). A fast path
 skips reflow entirely on height-only resize (~17 ms → ~58 µs). The vertex
 buffer is a reused CPU allocation with a grow-only GPU buffer. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 636 tests passing: 606 unit/integration, 11 pixel-smoke
+**Testing.** 687 tests passing: 657 unit/integration, 11 pixel-smoke
 (headless CPU compositor asserting structural raster invariants), 9 PTY
 alternate-screen smoke, and 10 transcript smoke. `cargo bench --bench perf`
 runs headless throughput
@@ -92,11 +101,9 @@ benchmarks for the terminal model and parser separately from the default suite.
 
 ### Remaining gaps
 
-- Kitty graphics: PNG (`f=100`) and file/shared-memory transports are not yet
-  supported (direct raw-pixel transmission only).
 - Ligature/stylistic-set shaping is not implemented (strategy decided but
   implementation deferred).
-- Configuration file (Stage 5): all settings are currently environment variables.
+- Config live reload and profiles are not implemented.
 - No tabs, panes, sessions, profiles, or multiplexing.
 - Shell integration beyond basic PTY behavior is not implemented.
 - Linux-first only — no macOS or Windows support.
