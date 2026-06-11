@@ -29,6 +29,20 @@ fn kitty_keyboard_set_add_and_remove_modes() {
 }
 
 #[test]
+fn kitty_keyboard_accepts_completion_flags() {
+    let mut terminal = Terminal::new(8, 2);
+
+    terminal.advance(b"\x1b[=22;1u");
+    assert_eq!(terminal.keyboard_modes().kitty_keyboard_flags, 22);
+
+    terminal.advance(b"\x1b[=9;2u");
+    assert_eq!(terminal.keyboard_modes().kitty_keyboard_flags, 31);
+
+    terminal.advance(b"\x1b[=18;3u");
+    assert_eq!(terminal.keyboard_modes().kitty_keyboard_flags, 13);
+}
+
+#[test]
 fn kitty_keyboard_push_and_pop_restore_flags() {
     let mut terminal = Terminal::new(8, 2);
 

@@ -7,7 +7,7 @@ use crate::core::{
     Color, Dimensions, LinkId, MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol,
     Snapshot, Terminal,
 };
-use crate::input::{self, Key, KeyModes, Modifiers};
+use crate::input::{self, Key, KeyEventType, KeyModes, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker};
 use crate::settings::{
@@ -295,60 +295,72 @@ impl App {
         event_loop.exit();
     }
 
-    /// Encode a pressed key and write its bytes to the PTY.
+    /// Encode a key event and write its bytes to the PTY.
     ///
     /// Maps the `winit` logical key (plus the cached [`Modifiers`]) onto the
     /// neutral [`Key`] model and defers byte production to the shared
     /// [`input::encode_key`]. Keys the prototype does not encode are dropped. The
     /// PTY writer is flushed after each write so the keystroke reaches the shell
     /// without buffering latency.
-    fn handle_key_press(&mut self, logical: WinitKey, physical: PhysicalKey) {
+    fn handle_key_event(
+        &mut self,
+        logical: WinitKey,
+        physical: PhysicalKey,
+        event_type: KeyEventType,
+    ) {
         let mods = self.modifiers;
         let key_modes = self.key_modes();
-        let action = self.key_bindings.action_for(&logical, mods, self.super_key);
-        if action == Some(BindableAction::Search) {
-            self.toggle_search();
-            return;
-        }
-        if self.search.is_open() {
-            self.handle_search_key(logical);
-            return;
-        }
-        match action {
-            Some(BindableAction::Copy) => {
-                self.handle_copy_shortcut();
+        if event_type != KeyEventType::Release {
+            let action = self.key_bindings.action_for(&logical, mods, self.super_key);
+            if action == Some(BindableAction::Search) {
+                self.toggle_search();
                 return;
             }
-            Some(BindableAction::Paste) => {
-                self.handle_paste_shortcut();
+            if self.search.is_open() {
+                self.handle_search_key(logical);
                 return;
             }
-            Some(BindableAction::ScrollPageUp) => {
-                self.scroll_viewport(self.page_lines() as isize);
-                return;
+            match action {
+                Some(BindableAction::Copy) => {
+                    self.handle_copy_shortcut();
+                    return;
+                }
+                Some(BindableAction::Paste) => {
+                    self.handle_paste_shortcut();
+                    return;
+                }
+                Some(BindableAction::ScrollPageUp) => {
+                    self.scroll_viewport(self.page_lines() as isize);
+                    return;
+                }
+                Some(BindableAction::ScrollPageDown) => {
+                    self.scroll_viewport(-(self.page_lines() as isize));
+                    return;
+                }
+                Some(BindableAction::Search) | None => {}
             }
-            Some(BindableAction::ScrollPageDown) => {
-                self.scroll_viewport(-(self.page_lines() as isize));
-                return;
-            }
-            Some(BindableAction::Search) | None => {}
         }
 
         let mut bytes = Vec::new();
         if let Some(key) = map_keypad_physical_key(physical) {
-            bytes = input::encode_key(key, mods, key_modes);
+            bytes = input::encode_key_event(key, mods, key_modes, event_type);
         } else {
             match logical {
                 // `Key::Character` may carry more than one char (composed input);
                 // encode each so multi-char text still reaches the shell intact.
                 WinitKey::Character(text) => {
                     for ch in text.chars() {
-                        bytes.extend_from_slice(&input::encode_key(Key::Char(ch), mods, key_modes));
+                        bytes.extend_from_slice(&input::encode_key_event(
+                            Key::Char(ch),
+                            mods,
+                            key_modes,
+                            event_type,
+                        ));
                     }
                 }
                 WinitKey::Named(named) => {
                     if let Some(key) = map_named_key(named, mods.shift) {
-                        bytes = input::encode_key(key, mods, key_modes);
+                        bytes = input::encode_key_event(key, mods, key_modes, event_type);
                     }
                 }
                 // Dead keys / unidentified: nothing to send.
@@ -1271,10 +1283,13 @@ impl ApplicationHandler<UserEvent> for App {
                     self.scroll_viewport(lines);
                 }
             }
-            // Only act on key-down (ignore key-up). Repeats are kept: holding a
-            // key should autorepeat into the shell like a real terminal.
-            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                self.handle_key_press(event.logical_key, event.physical_key);
+            WindowEvent::KeyboardInput { event, .. } => {
+                let event_type = match event.state {
+                    ElementState::Pressed if event.repeat => KeyEventType::Repeat,
+                    ElementState::Pressed => KeyEventType::Press,
+                    ElementState::Released => KeyEventType::Release,
+                };
+                self.handle_key_event(event.logical_key, event.physical_key, event_type);
             }
             _ => {}
         }

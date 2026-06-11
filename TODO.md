@@ -322,6 +322,9 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] Kitty keyboard protocol progressive enhancement: core flag
         stack/query state (`CSI >/< /=/? ... u`) plus native CSI-u encoding for
         disambiguation/report-all flags, preserving legacy bytes when inactive.
+  - [x] Kitty keyboard protocol completion: event-type repeat/release
+        subfields, alternate key fields, and associated text fields for the
+        negotiated flags.
 
 ## Stage 5: Settings and Profiles
 

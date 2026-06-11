@@ -223,8 +223,13 @@ The native layer still resolves terminal-local key bindings before encoding a
 key for the PTY. With no Kitty flags active, OdyTTY emits the exact legacy
 bytes. With disambiguation active, ambiguous control/Alt text and named keys
 use CSI-u forms with the Kitty `+1` modifier encoding; report-all uses the same
-encoder for ordinary text and recovery keys. Event-type reporting is a later
-extension.
+encoder for ordinary text and recovery keys. Event-type reporting uses the
+modifier subfield for repeat (`:2`) and release (`:3`) events, with release
+bytes emitted only when negotiated. Alternate-key reporting adds shifted and
+base-layout key-code subfields for character CSI-u events where OdyTTY can
+derive them from the logical key. Associated-text reporting appends printable
+generated text code points as the third CSI-u parameter when combined with
+report-all.
 
 ## Scope
 
@@ -260,7 +265,8 @@ its first stable layer.
 - Configurable terminal-local key bindings
 - Window title from OSC 0/2; DECSET 1004 focus reporting
 - Keyboard mode-awareness: DECCKM, keypad modes, modified named keys, Kitty
-  keyboard protocol disambiguation/report-all flags
+  keyboard protocol disambiguation, event-type, alternate-key, report-all, and
+  associated-text flags
 - Lazy scrollback re-wrap and resize fast paths
 - Theme system (plain baseline, Odyssey presets); optional ambient visual effect
 

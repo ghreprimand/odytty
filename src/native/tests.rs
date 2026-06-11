@@ -32,7 +32,7 @@ use crate::core::{
     MouseEventKind, MouseProtocol, MouseTracking, Position, Snapshot, Terminal,
 };
 use crate::grid::{SolidQuad, VERTS_PER_QUAD};
-use crate::input::{self, Key, Modifiers};
+use crate::input::{self, Key, KeyEventType, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, CellPoint};
 use crate::settings::{
@@ -1185,6 +1185,29 @@ fn key_modes_from_core_preserves_kitty_keyboard_flags() {
     assert!(modes.application_cursor);
     assert!(modes.application_keypad);
     assert_eq!(modes.kitty_keyboard_flags, 9);
+}
+
+#[test]
+fn mapped_named_key_release_uses_kitty_event_type_flag() {
+    let key = map_named_key(NamedKey::ArrowUp, false).expect("arrow maps");
+    let modes = input::KeyModes {
+        kitty_keyboard_flags: input::KITTY_REPORT_EVENT_TYPES,
+        ..input::KeyModes::default()
+    };
+
+    assert_eq!(
+        input::encode_key_event(key, Modifiers::NONE, modes, KeyEventType::Release),
+        b"\x1b[1;1:3A"
+    );
+    assert!(
+        input::encode_key_event(
+            key,
+            Modifiers::NONE,
+            input::KeyModes::default(),
+            KeyEventType::Release
+        )
+        .is_empty()
+    );
 }
 
 #[test]

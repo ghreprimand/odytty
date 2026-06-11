@@ -85,6 +85,14 @@ impl Modifiers {
     };
 }
 
+/// Kind of keyboard event being encoded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyEventType {
+    Press,
+    Repeat,
+    Release,
+}
+
 /// Terminal modes that affect keyboard encoding.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct KeyModes {
@@ -102,8 +110,12 @@ pub struct KeyModes {
 pub const KITTY_DISAMBIGUATE: u16 = 0b1;
 /// Kitty keyboard protocol flag: report press/repeat/release event types.
 pub const KITTY_REPORT_EVENT_TYPES: u16 = 0b10;
+/// Kitty keyboard protocol flag: add shifted and base-layout alternate keys.
+pub const KITTY_REPORT_ALTERNATE_KEYS: u16 = 0b100;
 /// Kitty keyboard protocol flag: report all keys as escape sequences.
 pub const KITTY_REPORT_ALL_KEYS: u16 = 0b1000;
+/// Kitty keyboard protocol flag: include generated text as code points.
+pub const KITTY_REPORT_ASSOCIATED_TEXT: u16 = 0b10000;
 
 /// Encode a key press into the bytes to write to the PTY.
 ///
@@ -114,8 +126,26 @@ pub const KITTY_REPORT_ALL_KEYS: u16 = 0b1000;
 /// the xterm modifier table instead. Ctrl turns [`Key::Char`] letters into
 /// control bytes and named keys into modified CSI forms.
 pub fn encode_key(key: Key, mods: Modifiers, modes: KeyModes) -> Vec<u8> {
-    if should_encode_kitty_key(key, mods, modes.kitty_keyboard_flags) {
-        return encode_kitty_key(key, mods, modes.kitty_keyboard_flags);
+    encode_key_event(key, mods, modes, KeyEventType::Press)
+}
+
+/// Encode a key event into the bytes to write to the PTY.
+///
+/// [`encode_key`] is the compatibility wrapper for press events. This variant
+/// exposes repeat/release so native front ends can honor Kitty's event-type
+/// progressive enhancement without changing legacy key behavior.
+pub fn encode_key_event(
+    key: Key,
+    mods: Modifiers,
+    modes: KeyModes,
+    event_type: KeyEventType,
+) -> Vec<u8> {
+    if should_encode_kitty_key(key, mods, modes.kitty_keyboard_flags, event_type) {
+        return encode_kitty_key(key, mods, modes.kitty_keyboard_flags, event_type);
+    }
+
+    if event_type == KeyEventType::Release {
+        return Vec::new();
     }
 
     let mut bytes = match key {
@@ -156,10 +186,50 @@ pub fn encode_key(key: Key, mods: Modifiers, modes: KeyModes) -> Vec<u8> {
     bytes
 }
 
-fn should_encode_kitty_key(key: Key, mods: Modifiers, flags: u16) -> bool {
+fn should_encode_kitty_key(
+    key: Key,
+    mods: Modifiers,
+    flags: u16,
+    event_type: KeyEventType,
+) -> bool {
+    if event_type == KeyEventType::Release {
+        if flags & KITTY_REPORT_EVENT_TYPES == 0 {
+            return false;
+        }
+        if matches!(key, Key::Enter | Key::Tab | Key::Backspace)
+            && flags & KITTY_REPORT_ALL_KEYS == 0
+        {
+            return false;
+        }
+        return flags & KITTY_REPORT_ALL_KEYS != 0
+            || is_kitty_escape_key(key, mods, flags)
+            || is_functional_event_key(key);
+    }
+
+    if event_type == KeyEventType::Repeat
+        && flags & KITTY_REPORT_EVENT_TYPES != 0
+        && (flags & KITTY_REPORT_ALL_KEYS != 0
+            || is_kitty_escape_key(key, mods, flags)
+            || is_functional_event_key(key))
+    {
+        return true;
+    }
+
     if flags & KITTY_REPORT_ALL_KEYS != 0 {
         return true;
     }
+    if flags & KITTY_DISAMBIGUATE == 0 {
+        return false;
+    }
+
+    is_kitty_escape_key(key, mods, flags)
+}
+
+fn is_functional_event_key(key: Key) -> bool {
+    !matches!(key, Key::Char(_) | Key::Enter | Key::Tab | Key::Backspace)
+}
+
+fn is_kitty_escape_key(key: Key, mods: Modifiers, flags: u16) -> bool {
     if flags & KITTY_DISAMBIGUATE == 0 {
         return false;
     }
@@ -174,65 +244,176 @@ fn should_encode_kitty_key(key: Key, mods: Modifiers, flags: u16) -> bool {
     }
 }
 
-fn encode_kitty_key(key: Key, mods: Modifiers, _flags: u16) -> Vec<u8> {
+fn encode_kitty_key(key: Key, mods: Modifiers, flags: u16, event_type: KeyEventType) -> Vec<u8> {
     let modifier = kitty_modifier(mods);
     match key {
-        Key::Left => encode_kitty_final_key(b'D', modifier),
-        Key::Right => encode_kitty_final_key(b'C', modifier),
-        Key::Up => encode_kitty_final_key(b'A', modifier),
-        Key::Down => encode_kitty_final_key(b'B', modifier),
-        Key::Home => encode_kitty_final_key(b'H', modifier),
-        Key::End => encode_kitty_final_key(b'F', modifier),
-        Key::PageUp => encode_kitty_tilde_key(5, modifier),
-        Key::PageDown => encode_kitty_tilde_key(6, modifier),
-        Key::Delete => encode_kitty_tilde_key(3, modifier),
-        Key::Insert => encode_kitty_tilde_key(2, modifier),
+        Key::Left => encode_kitty_final_key(b'D', modifier, flags, event_type),
+        Key::Right => encode_kitty_final_key(b'C', modifier, flags, event_type),
+        Key::Up => encode_kitty_final_key(b'A', modifier, flags, event_type),
+        Key::Down => encode_kitty_final_key(b'B', modifier, flags, event_type),
+        Key::Home => encode_kitty_final_key(b'H', modifier, flags, event_type),
+        Key::End => encode_kitty_final_key(b'F', modifier, flags, event_type),
+        Key::PageUp => encode_kitty_tilde_key(5, modifier, flags, event_type),
+        Key::PageDown => encode_kitty_tilde_key(6, modifier, flags, event_type),
+        Key::Delete => encode_kitty_tilde_key(3, modifier, flags, event_type),
+        Key::Insert => encode_kitty_tilde_key(2, modifier, flags, event_type),
         Key::BackTab => encode_kitty_codepoint_key(
-            9,
+            KittyKeyCode::new(9),
             kitty_modifier(Modifiers {
                 shift: true,
                 ..mods
             }),
+            flags,
+            event_type,
+            None,
         ),
-        Key::Tab => encode_kitty_codepoint_key(9, modifier),
-        Key::Enter => encode_kitty_codepoint_key(13, modifier),
-        Key::Backspace => encode_kitty_codepoint_key(127, modifier),
-        Key::Esc => encode_kitty_codepoint_key(27, modifier),
-        Key::KeypadDigit(digit) if digit <= 9 => {
-            encode_kitty_codepoint_key(57399 + digit as u32, modifier)
+        Key::Tab => {
+            encode_kitty_codepoint_key(KittyKeyCode::new(9), modifier, flags, event_type, None)
         }
-        Key::KeypadDecimal => encode_kitty_codepoint_key(57409, modifier),
-        Key::KeypadDivide => encode_kitty_codepoint_key(57410, modifier),
-        Key::KeypadMultiply => encode_kitty_codepoint_key(57411, modifier),
-        Key::KeypadSubtract => encode_kitty_codepoint_key(57412, modifier),
-        Key::KeypadAdd => encode_kitty_codepoint_key(57413, modifier),
-        Key::KeypadEnter => encode_kitty_codepoint_key(57414, modifier),
-        Key::Char(ch) => encode_kitty_codepoint_key(kitty_char_code(ch), modifier),
+        Key::Enter => {
+            encode_kitty_codepoint_key(KittyKeyCode::new(13), modifier, flags, event_type, None)
+        }
+        Key::Backspace => {
+            encode_kitty_codepoint_key(KittyKeyCode::new(127), modifier, flags, event_type, None)
+        }
+        Key::Esc => {
+            encode_kitty_codepoint_key(KittyKeyCode::new(27), modifier, flags, event_type, None)
+        }
+        Key::KeypadDigit(digit) if digit <= 9 => encode_kitty_codepoint_key(
+            KittyKeyCode::new(57399 + digit as u32),
+            modifier,
+            flags,
+            event_type,
+            None,
+        ),
+        Key::KeypadDecimal => {
+            encode_kitty_codepoint_key(KittyKeyCode::new(57409), modifier, flags, event_type, None)
+        }
+        Key::KeypadDivide => {
+            encode_kitty_codepoint_key(KittyKeyCode::new(57410), modifier, flags, event_type, None)
+        }
+        Key::KeypadMultiply => {
+            encode_kitty_codepoint_key(KittyKeyCode::new(57411), modifier, flags, event_type, None)
+        }
+        Key::KeypadSubtract => {
+            encode_kitty_codepoint_key(KittyKeyCode::new(57412), modifier, flags, event_type, None)
+        }
+        Key::KeypadAdd => {
+            encode_kitty_codepoint_key(KittyKeyCode::new(57413), modifier, flags, event_type, None)
+        }
+        Key::KeypadEnter => {
+            encode_kitty_codepoint_key(KittyKeyCode::new(57414), modifier, flags, event_type, None)
+        }
+        Key::Char(ch) => {
+            let key_code = KittyKeyCode::from_char(ch, mods, flags);
+            let associated_text = kitty_associated_text(ch, flags);
+            encode_kitty_codepoint_key(key_code, modifier, flags, event_type, associated_text)
+        }
         Key::KeypadDigit(_) => Vec::new(),
     }
 }
 
-fn encode_kitty_codepoint_key(codepoint: u32, modifier: u8) -> Vec<u8> {
-    if modifier == 1 {
-        format!("\x1b[{codepoint}u").into_bytes()
-    } else {
-        format!("\x1b[{codepoint};{modifier}u").into_bytes()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct KittyKeyCode {
+    primary: u32,
+    shifted: Option<u32>,
+    base_layout: Option<u32>,
+}
+
+impl KittyKeyCode {
+    fn new(primary: u32) -> Self {
+        Self {
+            primary,
+            shifted: None,
+            base_layout: None,
+        }
+    }
+
+    fn from_char(ch: char, mods: Modifiers, flags: u16) -> Self {
+        let primary = kitty_char_code(ch);
+        if flags & KITTY_REPORT_ALTERNATE_KEYS == 0 {
+            return Self::new(primary);
+        }
+
+        let shifted = mods.shift.then_some(ch as u32);
+        let base_layout = kitty_base_layout_code(ch);
+        Self {
+            primary,
+            shifted,
+            base_layout,
+        }
+    }
+
+    fn parameter(self) -> String {
+        match (self.shifted, self.base_layout) {
+            (Some(shifted), Some(base_layout)) => {
+                format!("{}:{shifted}:{base_layout}", self.primary)
+            }
+            (Some(shifted), None) => format!("{}:{shifted}", self.primary),
+            (None, Some(base_layout)) => format!("{}::{base_layout}", self.primary),
+            (None, None) => self.primary.to_string(),
+        }
     }
 }
 
-fn encode_kitty_final_key(final_byte: u8, modifier: u8) -> Vec<u8> {
-    if modifier == 1 {
+fn encode_kitty_codepoint_key(
+    key_code: KittyKeyCode,
+    modifier: u8,
+    flags: u16,
+    event_type: KeyEventType,
+    associated_text: Option<String>,
+) -> Vec<u8> {
+    let mut params = vec![key_code.parameter()];
+    let modifier_field = kitty_modifier_field(modifier, flags, event_type);
+    if modifier_field.is_some() || associated_text.is_some() {
+        params.push(modifier_field.unwrap_or_default());
+    }
+    if let Some(text) = associated_text {
+        params.push(text);
+    }
+    format!("\x1b[{}u", params.join(";")).into_bytes()
+}
+
+fn encode_kitty_final_key(
+    final_byte: u8,
+    modifier: u8,
+    flags: u16,
+    event_type: KeyEventType,
+) -> Vec<u8> {
+    let modifier_field = kitty_modifier_field(modifier, flags, event_type);
+    if modifier_field.is_none() {
         vec![b'\x1b', b'[', final_byte]
     } else {
-        format!("\x1b[1;{}{}", modifier, final_byte as char).into_bytes()
+        format!(
+            "\x1b[1;{}{}",
+            modifier_field.expect("modifier field"),
+            final_byte as char
+        )
+        .into_bytes()
     }
 }
 
-fn encode_kitty_tilde_key(code: u8, modifier: u8) -> Vec<u8> {
-    if modifier == 1 {
+fn encode_kitty_tilde_key(code: u8, modifier: u8, flags: u16, event_type: KeyEventType) -> Vec<u8> {
+    let modifier_field = kitty_modifier_field(modifier, flags, event_type);
+    if modifier_field.is_none() {
         format!("\x1b[{code}~").into_bytes()
     } else {
-        format!("\x1b[{code};{modifier}~").into_bytes()
+        format!("\x1b[{code};{}~", modifier_field.expect("modifier field")).into_bytes()
+    }
+}
+
+fn kitty_modifier_field(modifier: u8, flags: u16, event_type: KeyEventType) -> Option<String> {
+    let event_code = match event_type {
+        KeyEventType::Press => None,
+        KeyEventType::Repeat if flags & KITTY_REPORT_EVENT_TYPES != 0 => Some(2),
+        KeyEventType::Release if flags & KITTY_REPORT_EVENT_TYPES != 0 => Some(3),
+        KeyEventType::Repeat | KeyEventType::Release => None,
+    };
+
+    match (modifier, event_code) {
+        (1, None) => None,
+        (modifier, None) => Some(modifier.to_string()),
+        (modifier, Some(event_code)) => Some(format!("{modifier}:{event_code}")),
     }
 }
 
@@ -267,6 +448,25 @@ fn kitty_char_code(ch: char) -> u32 {
         _ => ch,
     };
     base as u32
+}
+
+fn kitty_base_layout_code(ch: char) -> Option<u32> {
+    let base = kitty_char_code(ch);
+    (base != ch as u32).then_some(base)
+}
+
+fn kitty_associated_text(ch: char, flags: u16) -> Option<String> {
+    if flags & (KITTY_REPORT_ALL_KEYS | KITTY_REPORT_ASSOCIATED_TEXT)
+        != (KITTY_REPORT_ALL_KEYS | KITTY_REPORT_ASSOCIATED_TEXT)
+    {
+        return None;
+    }
+    let codepoint = ch as u32;
+    if codepoint < 0x20 || (0x80..=0x9f).contains(&codepoint) {
+        None
+    } else {
+        Some(codepoint.to_string())
+    }
 }
 
 fn encode_cursor_key(final_byte: u8, mods: Modifiers, modes: KeyModes) -> Vec<u8> {
@@ -732,6 +932,192 @@ mod tests {
         assert_eq!(
             encode_key(Key::Backspace, Modifiers::NONE, modes),
             b"\x1b[127u"
+        );
+    }
+
+    #[test]
+    fn kitty_event_types_report_functional_repeat_and_release() {
+        let modes = KeyModes {
+            kitty_keyboard_flags: KITTY_REPORT_EVENT_TYPES,
+            ..KeyModes::default()
+        };
+
+        assert_eq!(
+            encode_key_event(Key::Up, Modifiers::NONE, modes, KeyEventType::Press),
+            b"\x1b[A"
+        );
+        assert_eq!(
+            encode_key_event(Key::Up, Modifiers::NONE, modes, KeyEventType::Repeat),
+            b"\x1b[1;1:2A"
+        );
+        assert_eq!(
+            encode_key_event(Key::Up, Modifiers::NONE, modes, KeyEventType::Release),
+            b"\x1b[1;1:3A"
+        );
+        assert_eq!(
+            encode_key_event(Key::Delete, Modifiers::NONE, modes, KeyEventType::Repeat),
+            b"\x1b[3;1:2~"
+        );
+    }
+
+    #[test]
+    fn kitty_release_events_require_event_type_flag() {
+        let modes = KeyModes {
+            kitty_keyboard_flags: KITTY_DISAMBIGUATE,
+            ..KeyModes::default()
+        };
+
+        assert!(
+            encode_key_event(Key::Up, Modifiers::NONE, modes, KeyEventType::Release).is_empty()
+        );
+        assert!(
+            encode_key_event(
+                Key::Char('i'),
+                Modifiers::CTRL,
+                modes,
+                KeyEventType::Release
+            )
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn kitty_event_types_for_text_require_report_all_or_disambiguation() {
+        let event_only = KeyModes {
+            kitty_keyboard_flags: KITTY_REPORT_EVENT_TYPES,
+            ..KeyModes::default()
+        };
+        let report_all = KeyModes {
+            kitty_keyboard_flags: KITTY_REPORT_EVENT_TYPES | KITTY_REPORT_ALL_KEYS,
+            ..KeyModes::default()
+        };
+        let disambiguate = KeyModes {
+            kitty_keyboard_flags: KITTY_REPORT_EVENT_TYPES | KITTY_DISAMBIGUATE,
+            ..KeyModes::default()
+        };
+
+        assert_eq!(
+            encode_key_event(
+                Key::Char('a'),
+                Modifiers::NONE,
+                event_only,
+                KeyEventType::Repeat
+            ),
+            b"a"
+        );
+        assert!(
+            encode_key_event(
+                Key::Char('a'),
+                Modifiers::NONE,
+                event_only,
+                KeyEventType::Release
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            encode_key_event(
+                Key::Char('a'),
+                Modifiers::NONE,
+                report_all,
+                KeyEventType::Repeat
+            ),
+            b"\x1b[97;1:2u"
+        );
+        assert_eq!(
+            encode_key_event(
+                Key::Char('a'),
+                Modifiers::NONE,
+                report_all,
+                KeyEventType::Release
+            ),
+            b"\x1b[97;1:3u"
+        );
+        assert_eq!(
+            encode_key_event(
+                Key::Char('i'),
+                Modifiers::CTRL,
+                disambiguate,
+                KeyEventType::Repeat
+            ),
+            b"\x1b[105;5:2u"
+        );
+    }
+
+    #[test]
+    fn kitty_alternate_keys_add_shifted_and_base_layout_fields() {
+        let modes = KeyModes {
+            kitty_keyboard_flags: KITTY_DISAMBIGUATE | KITTY_REPORT_ALTERNATE_KEYS,
+            ..KeyModes::default()
+        };
+
+        assert_eq!(
+            encode_key_event(
+                Key::Char('#'),
+                Modifiers {
+                    shift: true,
+                    alt: false,
+                    ctrl: true,
+                },
+                modes,
+                KeyEventType::Press
+            ),
+            b"\x1b[51:35:51;6u"
+        );
+        assert_eq!(
+            encode_key_event(
+                Key::Char('I'),
+                Modifiers {
+                    shift: true,
+                    alt: false,
+                    ctrl: true,
+                },
+                modes,
+                KeyEventType::Press
+            ),
+            b"\x1b[105:73:105;6u"
+        );
+    }
+
+    #[test]
+    fn kitty_associated_text_uses_third_parameter_with_report_all() {
+        let modes = KeyModes {
+            kitty_keyboard_flags: KITTY_REPORT_ALL_KEYS | KITTY_REPORT_ASSOCIATED_TEXT,
+            ..KeyModes::default()
+        };
+
+        assert_eq!(
+            encode_key_event(
+                Key::Char('A'),
+                Modifiers {
+                    shift: true,
+                    alt: false,
+                    ctrl: false,
+                },
+                modes,
+                KeyEventType::Press
+            ),
+            b"\x1b[97;2;65u"
+        );
+        assert_eq!(
+            encode_key_event(Key::Char('a'), Modifiers::NONE, modes, KeyEventType::Press),
+            b"\x1b[97;;97u"
+        );
+        assert_eq!(
+            encode_key_event(Key::Enter, Modifiers::NONE, modes, KeyEventType::Press),
+            b"\x1b[13u"
+        );
+    }
+
+    #[test]
+    fn kitty_associated_text_flag_alone_preserves_legacy_text() {
+        let modes = KeyModes {
+            kitty_keyboard_flags: KITTY_REPORT_ASSOCIATED_TEXT,
+            ..KeyModes::default()
+        };
+
+        assert_eq!(
+            encode_key_event(Key::Char('a'), Modifiers::NONE, modes, KeyEventType::Press),
+            b"a"
         );
     }
 
