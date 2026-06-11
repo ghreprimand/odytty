@@ -50,6 +50,30 @@ green; fmt clean; native autoclose smokes exit 0 at default and
 
 ---
 
+## 2026-06-11 — OSC 8 hyperlinks end to end (L1)
+
+OSC 8 hyperlinks now flow through the owned terminal model and native UI:
+
+- **Core link state** — OSC 8 open/close state is parsed, interned, and stamped
+  onto cells printed while a link is active. `id=` regions with the same URI
+  deduplicate to one link id, while link state remains independent of SGR so
+  `SGR 0` does not close a hyperlink. URI storage is capped at 2083 bytes.
+- **Persistence semantics** — because the link id is stored in cell attributes,
+  links naturally survive scrollback, resize/reflow, and alternate-screen
+  restore. RIS clears active link state, visible cells, and the link table.
+- **Native hover/action** — hovering a linked cell underlines all visible cells
+  with the same link id through the existing underline quad path. Ctrl+click
+  opens only explicitly hovered links via `xdg-open`, with direct argv passing,
+  no shell interpolation, no auto-open, and an action allowlist for
+  `http`, `https`, `file`, and `mailto`. When host mouse tracking is active,
+  link opening requires Shift+Ctrl so plain Ctrl+click still belongs to the TUI.
+
+Tests cover association, close behavior, `id=` dedup, SGR independence,
+oversized URI rejection, resize/reflow retention, alternate-screen restore,
+RIS clearing, hover-region underline, click gating, and scheme allowlisting.
+
+---
+
 ## 2026-06-11 — Perf bench health and post-P2 baseline (B2)
 
 The full `cargo bench --bench perf` harness briefly looked hung after P2-b

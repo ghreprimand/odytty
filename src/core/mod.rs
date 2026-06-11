@@ -15,6 +15,7 @@
 
 mod encoding;
 mod graphics_routing;
+mod hyperlink;
 mod kitty;
 mod kitty_transport;
 mod reflow;
@@ -51,12 +52,13 @@ mod search_tests;
 mod tests;
 
 pub use encoding::{encode_focus_event, encode_mouse_event};
+pub use hyperlink::{Hyperlink, MAX_URI_BYTES, uri_has_openable_scheme};
 pub use screen::{Screen, Terminal};
 pub use search::{
     AbsolutePoint, SearchMatch, SearchOptions, SearchRow, find_next, find_prev, search_rows,
 };
 pub use types::{
-    Attrs, Cell, Color, CursorStyle, Dimensions, DirtyRegion, KeyboardModes, MouseButton,
+    Attrs, Cell, Color, CursorStyle, Dimensions, DirtyRegion, KeyboardModes, LinkId, MouseButton,
     MouseEncoding, MouseEventKind, MouseModifiers, MouseProtocol, MouseTracking, Position,
     Snapshot, TerminalModel,
 };

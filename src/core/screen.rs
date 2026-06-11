@@ -10,6 +10,7 @@ use crate::graphics::{ImageScene, VisiblePlacement};
 use crate::parser::{OdyParser, Params, VtDispatch};
 
 use super::graphics_routing::{self, DcsCapture, GraphicsStats};
+use super::hyperlink::{Hyperlink, HyperlinkTable};
 
 use super::reflow::resize_buffer_rows;
 use super::scrollback::{Scrollback, resize_lazy};
@@ -77,6 +78,7 @@ pub struct Screen {
     origin_mode: bool,
     bracketed_paste: bool,
     current_attrs: Attrs,
+    active_hyperlink: Option<LinkId>,
     dirty: DirtyRegion,
     render_revision: u64,
     host_output: Vec<u8>,
@@ -107,6 +109,7 @@ pub struct Screen {
     /// Terminal-owned graphics scene: CPU images, cell placements, and raw
     /// graphics protocol payloads awaiting later decoders.
     graphics: ImageScene,
+    hyperlinks: HyperlinkTable,
     dcs_capture: Option<DcsCapture>,
     graphics_stats: GraphicsStats,
     /// Live cell pixel metrics for graphics extent calculation. Default 8×16;
@@ -129,6 +132,7 @@ struct StoredScreen {
     scroll_region: Option<ScrollRegion>,
     origin_mode: bool,
     current_attrs: Attrs,
+    active_hyperlink: Option<LinkId>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SavedCursor {
@@ -156,6 +160,7 @@ impl Screen {
             origin_mode: false,
             bracketed_paste: false,
             current_attrs: Attrs::default(),
+            active_hyperlink: None,
             dirty: DirtyRegion::Full,
             render_revision: 0,
             host_output: Vec::new(),
@@ -171,6 +176,7 @@ impl Screen {
             default_cursor_style: CursorStyle::default(),
             default_cursor_blink: true,
             graphics: ImageScene::default(),
+            hyperlinks: HyperlinkTable::default(),
             dcs_capture: None,
             graphics_stats: GraphicsStats::default(),
             cell_metrics: CellMetrics::default(),
@@ -503,6 +509,10 @@ impl Screen {
         self.focus_reporting
     }
 
+    pub fn hyperlink(&self, id: LinkId) -> Option<&Hyperlink> {
+        self.hyperlinks.get(id)
+    }
+
     /// Search the combined scrollback + visible buffer for `query`, returning
     /// every match as an absolute cell range (row `0` = oldest scrollback;
     /// see [`super::search`] for the coordinate convention and limitations).
@@ -523,6 +533,17 @@ impl Screen {
     fn set_title(&mut self, title: String) {
         self.title = Some(title);
         self.title_changed = true;
+    }
+
+    fn set_hyperlink(&mut self, params: &[&[u8]]) {
+        if params.len() < 3 {
+            return;
+        }
+        if params[2..].iter().all(|part| part.is_empty()) {
+            self.active_hyperlink = None;
+            return;
+        }
+        self.active_hyperlink = self.hyperlinks.open(params[1], &params[2..]);
     }
 
     /// Before overwriting `width` cells starting at `column` on `row`, blank any
@@ -612,10 +633,11 @@ impl Screen {
         // Overwriting either half of an existing wide pair must clear its
         // partner so no half-wide orphan survives.
         self.clear_wide_orphans(row, column, width);
-        self.rows[row][column] = Cell::new(ch, self.current_attrs);
+        let attrs = self.current_print_attrs();
+        self.rows[row][column] = Cell::new(ch, attrs);
 
         if width == 2 && column + 1 < self.dimensions.columns {
-            self.rows[row][column + 1] = Cell::wide_spacer(self.current_attrs);
+            self.rows[row][column + 1] = Cell::wide_spacer(attrs);
         }
 
         if self.cursor.column + width >= self.dimensions.columns {
@@ -1068,6 +1090,12 @@ impl Screen {
         blank_row_with_bg(self.dimensions.columns, self.current_attrs.background)
     }
 
+    fn current_print_attrs(&self) -> Attrs {
+        let mut attrs = self.current_attrs;
+        attrs.hyperlink = self.active_hyperlink;
+        attrs
+    }
+
     fn mark_dirty(&mut self) {
         self.dirty = DirtyRegion::Full;
         self.render_revision = self.render_revision.wrapping_add(1);
@@ -1312,6 +1340,7 @@ impl Screen {
             scroll_region: self.scroll_region,
             origin_mode: self.origin_mode,
             current_attrs: self.current_attrs,
+            active_hyperlink: self.active_hyperlink,
         };
 
         if clear_alt {
@@ -1351,6 +1380,7 @@ impl Screen {
                 self.pending_wrap = primary_screen.pending_wrap;
                 self.cursor_visible = primary_screen.cursor_visible;
                 self.current_attrs = primary_screen.current_attrs;
+                self.active_hyperlink = primary_screen.active_hyperlink;
             } else {
                 // Modes 47/1047: cursor stays where it is (clamped).
                 self.cursor.row = self.cursor.row.min(self.dimensions.rows - 1);
@@ -1359,6 +1389,7 @@ impl Screen {
                 // state that belongs to the primary, not the alt-screen app.
                 self.cursor_visible = primary_screen.cursor_visible;
                 self.current_attrs = primary_screen.current_attrs;
+                self.active_hyperlink = primary_screen.active_hyperlink;
             }
             self.saved_cursor = primary_screen.saved_cursor;
             self.scroll_region = primary_screen.scroll_region;
@@ -1401,9 +1432,11 @@ impl Screen {
         self.origin_mode = false;
         self.bracketed_paste = false;
         self.current_attrs = Attrs::default();
+        self.active_hyperlink = None;
         self.host_output.clear();
         self.last_graphic_char = None;
         self.graphics.hard_reset();
+        self.hyperlinks.clear();
         self.dcs_capture = None;
         self.graphics_stats = GraphicsStats::default();
         // RIS returns mouse reporting to its power-on (off) state. The title is
@@ -1436,6 +1469,7 @@ impl Screen {
         self.bracketed_paste = false;
         self.keyboard = KeyboardModes::default();
         self.current_attrs = Attrs::default();
+        self.active_hyperlink = None;
         self.host_output.clear();
         self.last_graphic_char = None;
         // DECSTR returns the cursor shape/blink to the host default policy.
@@ -1486,12 +1520,11 @@ impl Screen {
         }
     }
 
-    /// OSC handler. Only the title controls (OSC 0/2 set the window title; OSC 1
-    /// sets the icon name, which this model does not surface) are acted on; the
-    /// numeric the parser splits out as the first parameter selects them. Every
-    /// other OSC (4 palette, 7 cwd, 8 hyperlink, 10/11/12 colors, 52 clipboard,
-    /// 133 shell integration, …) is consumed safely here. Because OSC payloads
-    /// never flow through `print`, none of these can leak bytes into the grid.
+    /// OSC handler. Title controls (OSC 0/2) set the window title; OSC 8 opens
+    /// or closes hyperlink state for subsequently printed cells. Other OSCs (4
+    /// palette, 7 cwd, 10/11/12 colors, 52 clipboard, 133 shell integration, …)
+    /// are consumed safely here. Because OSC payloads never flow through
+    /// `print`, none of these can leak bytes into the grid.
     fn dispatch_osc(&mut self, params: &[&[u8]], _bell_terminated: bool) {
         let Some(&ident) = params.first() else {
             return;
@@ -1501,6 +1534,7 @@ impl Screen {
             b"0" | b"2" => self.set_title(osc_string(&params[1..])),
             // OSC 1 = icon name only: consume without touching the window title.
             b"1" => {}
+            b"8" => self.set_hyperlink(params),
             _ => {}
         }
     }
@@ -1713,6 +1747,10 @@ impl Terminal {
     /// Whether DECSET 1004 focus reporting is enabled.
     pub fn focus_reporting(&self) -> bool {
         self.screen.focus_reporting()
+    }
+
+    pub fn hyperlink(&self, id: LinkId) -> Option<&Hyperlink> {
+        self.screen.hyperlink(id)
     }
 
     /// The cursor shape currently in effect (DECSCUSR or host default).

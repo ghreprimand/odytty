@@ -101,6 +101,9 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] Core: OSC 0/2 window-title capture with dirty flag; unknown OSC payloads
         consumed (no grid leakage).
   - [x] Native: apply changed OSC window titles to the `winit` window.
+  - [x] OSC 8 hyperlinks: core cell association and id dedup; native hover
+        underline plus explicit Ctrl+click open with scheme allowlist and no
+        shell interpolation.
 - [x] Add mouse reporting modes required by real TUIs.
   - [x] Core: DECSET/DECRST tracking (9/1000/1002/1003) and encoding
         (1005/1006/1015) state plus pure report encoders.

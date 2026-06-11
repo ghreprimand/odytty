@@ -4,6 +4,8 @@
 //! and the mouse encoders build on; this module depends on nothing else in
 //! `core`.
 
+use std::num::NonZeroU32;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Dimensions {
     pub columns: usize,
@@ -164,7 +166,7 @@ impl Default for Color {
         Self::Default
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct Attrs {
     pub bold: bool,
     pub dim: bool,
@@ -175,6 +177,40 @@ pub struct Attrs {
     pub hidden: bool,
     pub foreground: Color,
     pub background: Color,
+    /// Interned OSC 8 hyperlink associated with this cell, if any.
+    pub hyperlink: Option<LinkId>,
+}
+
+impl std::fmt::Debug for Attrs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut attrs = f.debug_struct("Attrs");
+        attrs
+            .field("bold", &self.bold)
+            .field("dim", &self.dim)
+            .field("italic", &self.italic)
+            .field("underline", &self.underline)
+            .field("strikethrough", &self.strikethrough)
+            .field("inverse", &self.inverse)
+            .field("hidden", &self.hidden)
+            .field("foreground", &self.foreground)
+            .field("background", &self.background);
+        if let Some(hyperlink) = self.hyperlink {
+            attrs.field("hyperlink", &hyperlink);
+        }
+        attrs.finish()
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LinkId(NonZeroU32);
+
+impl LinkId {
+    pub(crate) fn new(id: NonZeroU32) -> Self {
+        Self(id)
+    }
+
+    pub fn get(self) -> u32 {
+        self.0.get()
+    }
 }
 /// Maximum zero-width combining marks stored per cell. Marks beyond this are
 /// dropped — a bounded limitation; common diacritics use one or two marks.

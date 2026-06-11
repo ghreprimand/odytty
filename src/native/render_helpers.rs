@@ -1,8 +1,12 @@
 use std::collections::BTreeSet;
 
-use crate::core::{CursorStyle, Dimensions, KeyboardModes as CoreKeyboardModes, Terminal};
+use crate::core::{
+    CursorStyle, Dimensions, KeyboardModes as CoreKeyboardModes, LinkId, Snapshot, Terminal,
+    uri_has_openable_scheme,
+};
 use crate::graphics::{StoredImageId, VisiblePlacement};
 use crate::input::KeyModes;
+use crate::input::Modifiers;
 use crate::selection::AbsoluteSelectionRange;
 use crate::text::CellSize;
 
@@ -35,6 +39,25 @@ pub(super) fn image_uploads_for_visible(
                 .map(ImageUpload::from)
         })
         .collect()
+}
+
+pub(super) fn apply_hyperlink_hover(snapshot: &mut Snapshot, hovered: Option<LinkId>) {
+    let Some(hovered) = hovered else {
+        return;
+    };
+    for cell in &mut snapshot.cells {
+        if cell.attrs.hyperlink == Some(hovered) {
+            cell.attrs.underline = true;
+        }
+    }
+}
+
+pub(super) fn hyperlink_action_allowed(mods: Modifiers, mouse_reporting_enabled: bool) -> bool {
+    mods.ctrl && (!mouse_reporting_enabled || mods.shift)
+}
+
+pub(super) fn openable_hyperlink_uri(uri: &str) -> bool {
+    uri_has_openable_scheme(uri)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,6 +93,7 @@ pub(super) struct RenderContentSignature {
     pub(super) cell: CellSize,
     pub(super) selection: Option<SelectionSignature>,
     pub(super) search: SearchRenderSignature,
+    pub(super) hovered_hyperlink: Option<LinkId>,
     pub(super) graphics: Vec<VisibleGraphicSignature>,
     pub(super) presentation_epoch: u64,
 }

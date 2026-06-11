@@ -1,10 +1,11 @@
 use std::io::Write;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::core::{
-    Color, Dimensions, MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol, Snapshot,
-    Terminal,
+    Color, Dimensions, LinkId, MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol,
+    Snapshot, Terminal,
 };
 use crate::input::{self, Key, KeyModes, Modifiers};
 use crate::pty::PtySession;
@@ -34,7 +35,8 @@ use super::options::{NativeError, NativeOptions};
 use super::pty::{PtyWriter, UserEvent};
 use super::render_helpers::{
     CursorRenderSignature, GeometryUpdate, RenderContentSignature, RenderSignature,
-    SelectionSignature, image_uploads_for_visible, key_modes_from_core, visible_graphics_signature,
+    SelectionSignature, apply_hyperlink_hover, hyperlink_action_allowed, image_uploads_for_visible,
+    key_modes_from_core, openable_hyperlink_uri, visible_graphics_signature,
 };
 
 pub(super) use super::cursor::{CURSOR_BLINK_INTERVAL, CursorBlinkState};
@@ -111,6 +113,8 @@ pub(super) struct App {
     /// button events do not carry coordinates, so press/release use this cached
     /// cell from the latest cursor movement.
     pointer_cell: Option<CellPoint>,
+    /// Hyperlink currently under the pointer in the visible viewport.
+    hovered_hyperlink: Option<LinkId>,
     /// Whether the left mouse button is currently extending a selection.
     selecting: bool,
     /// Same-cell click counter for double-click word and triple-click line
@@ -186,6 +190,7 @@ impl App {
             settings_reloader,
             selection: AbsoluteSelectionState::default(),
             pointer_cell: None,
+            hovered_hyperlink: None,
             selecting: false,
             clicks: ClickTracker::default(),
             last_selection_autoscroll: None,
@@ -242,6 +247,7 @@ impl App {
             self.last_selection_autoscroll = None;
             self.report_button = None;
             self.pointer_cell = None;
+            self.hovered_hyperlink = None;
             // Reflow changes the row/scrollback layout; return to the live
             // bottom so the offset is never stale against the new geometry.
             // Search closes because its absolute row matches were computed
@@ -544,6 +550,63 @@ impl App {
         self.mouse_reporting_enabled() && !self.modifiers.shift
     }
 
+    fn update_hover_hyperlink(&mut self) {
+        let hovered = self
+            .pointer_cell
+            .and_then(|point| self.visible_cell_hyperlink(point));
+        if self.hovered_hyperlink != hovered {
+            self.hovered_hyperlink = hovered;
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+    }
+
+    fn visible_cell_hyperlink(&self, point: CellPoint) -> Option<LinkId> {
+        if point.row >= self.grid.rows || point.column >= self.grid.columns {
+            return None;
+        }
+        let terminal = self.terminal.lock().ok()?;
+        let snapshot = terminal.snapshot_with_scrollback(self.viewport.offset());
+        snapshot
+            .cells
+            .get(point.row * snapshot.dimensions.columns + point.column)
+            .and_then(|cell| cell.attrs.hyperlink)
+    }
+
+    fn hovered_hyperlink_uri(&self) -> Option<String> {
+        let id = self.hovered_hyperlink?;
+        self.terminal
+            .lock()
+            .ok()?
+            .hyperlink(id)
+            .map(|link| link.uri.clone())
+    }
+
+    fn try_open_hovered_hyperlink(&mut self) -> bool {
+        if !hyperlink_action_allowed(self.modifiers, self.mouse_reporting_enabled()) {
+            return false;
+        }
+        let Some(uri) = self.hovered_hyperlink_uri() else {
+            return false;
+        };
+        if !openable_hyperlink_uri(&uri) {
+            return false;
+        }
+
+        // Security: OdyTTY never auto-opens OSC 8 links. A URI is opened only
+        // after explicit Ctrl+click, scheme allowlist filtering, and direct
+        // argv passing to xdg-open. No shell interpolation is involved.
+        let _ = Command::new("xdg-open")
+            .arg(uri)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        true
+    }
+
     fn write_pty_bytes(&self, bytes: &[u8]) {
         if let Ok(mut writer) = self.writer.lock() {
             let _ = writer.write_all(bytes);
@@ -615,6 +678,7 @@ impl App {
         };
         let point = selection::cell_at_physical(x_px, y_px, cell, self.grid);
         self.pointer_cell = Some(point);
+        self.update_hover_hyperlink();
         if self.selecting {
             self.autoscroll_selection_if_needed(y_px, cell);
             let scrollback_len = self.scrollback_len();
@@ -773,6 +837,9 @@ impl App {
     /// selections intact and request one rebuild/redraw so their visible
     /// intersection is recomputed.
     fn on_viewport_changed(&mut self) {
+        self.hovered_hyperlink = self
+            .pointer_cell
+            .and_then(|point| self.visible_cell_hyperlink(point));
         self.needs_rebuild = true;
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
@@ -1043,6 +1110,17 @@ impl ApplicationHandler<UserEvent> for App {
                     if !cursor_on {
                         snapshot.cursor_visible = false;
                     }
+                    self.hovered_hyperlink = self.pointer_cell.and_then(|point| {
+                        if point.row >= snapshot.dimensions.rows
+                            || point.column >= snapshot.dimensions.columns
+                        {
+                            return None;
+                        }
+                        snapshot
+                            .cells
+                            .get(point.row * snapshot.dimensions.columns + point.column)
+                            .and_then(|cell| cell.attrs.hyperlink)
+                    });
                     if let Some(range) = self.selection.range()
                         && let Some(visible_range) = selection::visible_range_from_absolute(
                             range,
@@ -1060,6 +1138,7 @@ impl ApplicationHandler<UserEvent> for App {
                         scrollback_len,
                         self.grid,
                     );
+                    apply_hyperlink_hover(&mut snapshot, self.hovered_hyperlink);
                     let color = self.scroll_indicator_color();
                     let overlay = self.gpu.as_ref().and_then(|gpu| {
                         scroll_indicator_quad(
@@ -1080,6 +1159,7 @@ impl ApplicationHandler<UserEvent> for App {
                             cell,
                             selection: self.selection.range().map(SelectionSignature::from),
                             search: self.search.render_signature(),
+                            hovered_hyperlink: self.hovered_hyperlink,
                             graphics: visible_graphics_signature(&visible_graphics),
                             presentation_epoch: self.presentation_epoch,
                         },
@@ -1166,7 +1246,11 @@ impl ApplicationHandler<UserEvent> for App {
 
                 if button == WinitMouseButton::Left {
                     match state {
-                        ElementState::Pressed => self.begin_selection(),
+                        ElementState::Pressed => {
+                            if !self.try_open_hovered_hyperlink() {
+                                self.begin_selection();
+                            }
+                        }
                         ElementState::Released => self.finish_selection(),
                     }
                 } else if button == WinitMouseButton::Middle {

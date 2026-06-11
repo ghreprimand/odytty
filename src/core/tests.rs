@@ -1744,6 +1744,133 @@ fn unknown_osc_sequences_are_consumed_without_corruption() {
     assert_eq!(terminal.title(), None);
 }
 
+#[test]
+fn osc8_hyperlink_associates_printed_cells_until_close() {
+    let mut terminal = Terminal::new(20, 2);
+    terminal.advance(b"\x1b]8;;https://example.com\x07AB\x1b]8;;\x07C");
+
+    let a = terminal.screen().cell(0, 0).unwrap();
+    let b = terminal.screen().cell(0, 1).unwrap();
+    let c = terminal.screen().cell(0, 2).unwrap();
+    assert_eq!(a.ch, 'A');
+    assert_eq!(a.attrs.hyperlink, b.attrs.hyperlink);
+    assert!(c.attrs.hyperlink.is_none());
+
+    let link = terminal
+        .hyperlink(a.attrs.hyperlink.expect("A has OSC 8 link"))
+        .expect("link table entry");
+    assert_eq!(link.uri, "https://example.com");
+}
+
+#[test]
+fn osc8_id_dedups_discontiguous_regions() {
+    let mut terminal = Terminal::new(20, 2);
+    terminal.advance(
+        b"\x1b]8;id=docs;https://example.com\x07A\x1b]8;;\x07 \
+          \x1b]8;id=docs;https://example.com\x07B\x1b]8;;\x07 \
+          \x1b]8;id=docs;https://example.org\x07C",
+    );
+
+    let a = terminal.screen().cell(0, 0).unwrap().attrs.hyperlink;
+    let b = terminal.screen().cell(0, 2).unwrap().attrs.hyperlink;
+    let c = terminal.screen().cell(0, 4).unwrap().attrs.hyperlink;
+    assert_eq!(a, b);
+    assert_ne!(a, c);
+}
+
+#[test]
+fn osc8_link_state_survives_sgr_reset_until_osc_close() {
+    let mut terminal = Terminal::new(20, 2);
+    terminal.advance(b"\x1b]8;;https://example.com\x07A\x1b[0mB\x1b]8;;\x07C");
+
+    let a = terminal.screen().cell(0, 0).unwrap().attrs.hyperlink;
+    let b = terminal.screen().cell(0, 1).unwrap().attrs.hyperlink;
+    let c = terminal.screen().cell(0, 2).unwrap().attrs.hyperlink;
+    assert_eq!(a, b);
+    assert!(a.is_some());
+    assert!(c.is_none());
+}
+
+#[test]
+fn osc8_uri_cap_ignores_oversized_link() {
+    let mut terminal = Terminal::new(20, 2);
+    let uri = "a".repeat(MAX_URI_BYTES + 1);
+    terminal.advance(format!("\x1b]8;;{uri}\x07A").as_bytes());
+
+    assert!(
+        terminal
+            .screen()
+            .cell(0, 0)
+            .unwrap()
+            .attrs
+            .hyperlink
+            .is_none()
+    );
+}
+
+#[test]
+fn osc8_link_refs_survive_resize_reflow() {
+    let mut terminal = Terminal::new(4, 2);
+    terminal.advance(b"\x1b]8;;https://example.com\x07abcdef");
+    terminal.resize(3, 3);
+
+    let linked = terminal
+        .snapshot()
+        .cells
+        .iter()
+        .filter(|cell| cell.ch != ' ')
+        .map(|cell| cell.attrs.hyperlink)
+        .collect::<Vec<_>>();
+    assert!(!linked.is_empty());
+    assert!(linked.iter().all(|id| id.is_some() && *id == linked[0]));
+}
+
+#[test]
+fn osc8_primary_link_state_restores_after_alternate_screen() {
+    let mut terminal = Terminal::new(10, 2);
+    terminal.advance(b"\x1b]8;;https://primary.example\x07P");
+    let primary = terminal.screen().cell(0, 0).unwrap().attrs.hyperlink;
+
+    terminal.advance(b"\x1b[?1049h\x1b]8;;https://alt.example\x07A");
+    let alt = terminal.screen().cell(0, 0).unwrap().attrs.hyperlink;
+    assert_ne!(primary, alt);
+
+    terminal.advance(b"\x1b[?1049lQ");
+    assert_eq!(
+        terminal.screen().cell(0, 0).unwrap().attrs.hyperlink,
+        primary
+    );
+    assert_eq!(
+        terminal.screen().cell(0, 1).unwrap().attrs.hyperlink,
+        primary
+    );
+}
+
+#[test]
+fn ris_clears_hyperlink_cells_and_table() {
+    let mut terminal = Terminal::new(10, 2);
+    terminal.advance(b"\x1b]8;;https://example.com\x07A");
+    let id = terminal
+        .screen()
+        .cell(0, 0)
+        .unwrap()
+        .attrs
+        .hyperlink
+        .unwrap();
+
+    terminal.advance(b"\x1bcB");
+    assert!(terminal.hyperlink(id).is_none());
+    assert!(
+        terminal
+            .screen()
+            .cell(0, 0)
+            .unwrap()
+            .attrs
+            .hyperlink
+            .is_none()
+    );
+}
+
 // === Mouse mode tracking ===
 
 #[test]
