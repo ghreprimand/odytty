@@ -39,11 +39,12 @@ fn kitty_apc_payloads_route_to_graphics_scene_without_printing() {
 }
 
 #[test]
-fn sixel_dcs_payloads_route_to_graphics_scene_without_decoding() {
+fn sixel_dcs_routes_and_decodes_with_cursor_advance() {
     let mut terminal = Terminal::new(20, 3);
 
     terminal.advance(b"\x1bP1;2q????\x1b\\done");
 
+    // Raw command is recorded (G2.1 routing).
     let commands = terminal.graphics().raw_commands();
     assert_eq!(commands.len(), 1);
     assert!(matches!(
@@ -51,7 +52,9 @@ fn sixel_dcs_payloads_route_to_graphics_scene_without_decoding() {
         GraphicsCommand::SixelDcs { raw_body, payload_start, p2 }
             if raw_body == b"1;2q????" && *payload_start == 4 && *p2 == Some(2)
     ));
-    assert_eq!(terminal.screen().plain_text(), "done\n\n");
+    // SX2 decode + cursor-below-image: cursor moved down 1 row, then "done"
+    // prints starting at (1, 0).
+    assert_eq!(terminal.screen().plain_text(), "\ndone\n");
 }
 
 #[test]

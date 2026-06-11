@@ -14,6 +14,7 @@
 //! - [`reflow`] — resize re-wrapping and the width-unchanged fast path.
 
 mod encoding;
+mod graphics_routing;
 mod reflow;
 mod screen;
 mod scrollback;
@@ -26,6 +27,8 @@ mod alt_screen_tests;
 mod cursor_tests;
 #[cfg(test)]
 mod encoding_tests;
+#[cfg(test)]
+mod graphics_routing_tests;
 #[cfg(test)]
 mod graphics_tests;
 #[cfg(test)]

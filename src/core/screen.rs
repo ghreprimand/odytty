@@ -9,6 +9,8 @@ use unicode_width::UnicodeWidthChar;
 use crate::graphics::{ImageScene, VisiblePlacement};
 use crate::parser::{OdyParser, Params, VtDispatch};
 
+use super::graphics_routing::{self, DcsCapture, GraphicsStats};
+
 use super::reflow::resize_buffer_rows;
 use super::scrollback::{Scrollback, resize_lazy};
 use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
@@ -105,6 +107,7 @@ pub struct Screen {
     /// graphics protocol payloads awaiting later decoders.
     graphics: ImageScene,
     dcs_capture: Option<DcsCapture>,
+    graphics_stats: GraphicsStats,
 }
 #[derive(Debug, Clone)]
 struct StoredScreen {
@@ -127,13 +130,6 @@ struct SavedCursor {
 struct ScrollRegion {
     top: usize,
     bottom: usize,
-}
-#[derive(Debug, Clone)]
-struct DcsCapture {
-    body: Vec<u8>,
-    payload_start: usize,
-    p2: Option<u16>,
-    overflowed: bool,
 }
 impl Screen {
     pub fn new(columns: usize, rows: usize) -> Self {
@@ -166,6 +162,7 @@ impl Screen {
             default_cursor_blink: true,
             graphics: ImageScene::default(),
             dcs_capture: None,
+            graphics_stats: GraphicsStats::default(),
         }
     }
 
@@ -393,6 +390,11 @@ impl Screen {
     pub fn visible_graphics(&self, offset_rows: usize) -> Vec<VisiblePlacement> {
         self.graphics
             .visible_placements(offset_rows, self.dimensions.rows, self.dimensions.columns)
+    }
+
+    /// Number of sixel decode failures since power-on (debug diagnostic).
+    pub fn sixel_decode_errors(&self) -> u64 {
+        self.graphics_stats.sixel_decode_errors
     }
 
     pub fn plain_text(&self) -> String {
@@ -1499,31 +1501,12 @@ impl Screen {
         ignore: bool,
         action: char,
     ) {
-        self.dcs_capture = None;
-        if ignore || !intermediates.is_empty() || action != 'q' {
-            return;
-        }
-
-        let mut body = serialize_dcs_params(params);
-        let p2 = dcs_param(params, 1);
-        body.push(action as u8);
-        let payload_start = body.len();
-        self.dcs_capture = Some(DcsCapture {
-            body,
-            payload_start,
-            p2,
-            overflowed: false,
-        });
+        self.dcs_capture = graphics_routing::dcs_hook(params, intermediates, ignore, action);
     }
 
     fn dispatch_dcs_put(&mut self, byte: u8) {
-        let Some(capture) = self.dcs_capture.as_mut() else {
-            return;
-        };
-        if capture.body.len() < crate::graphics::placement::MAX_RAW_GRAPHICS_BYTES {
-            capture.body.push(byte);
-        } else {
-            capture.overflowed = true;
+        if let Some(capture) = self.dcs_capture.as_mut() {
+            graphics_routing::dcs_put(capture, byte);
         }
     }
 
@@ -1531,17 +1514,24 @@ impl Screen {
         let Some(capture) = self.dcs_capture.take() else {
             return;
         };
-        if !capture.overflowed
-            && self
-                .graphics
-                .record_sixel_dcs(&capture.body, capture.payload_start, capture.p2)
-        {
+        if let Some((new_row, new_col)) = graphics_routing::dcs_unhook(
+            capture,
+            &mut self.graphics,
+            &mut self.graphics_stats,
+            self.cursor.row,
+            self.cursor.column,
+            self.dimensions.rows,
+            self.dimensions.columns,
+        ) {
+            self.cursor.row = new_row;
+            self.cursor.column = new_col;
+            self.pending_wrap = false;
             self.mark_dirty();
         }
     }
 
     fn dispatch_apc(&mut self, data: &[u8]) {
-        if self.graphics.record_kitty_apc(data) {
+        if graphics_routing::apc_dispatch(&mut self.graphics, data) {
             self.mark_dirty();
         }
     }
@@ -1798,33 +1788,4 @@ fn parse_extended_color(codes: &[u16]) -> Option<(Color, usize)> {
         )),
         _ => None,
     }
-}
-
-fn serialize_dcs_params(params: &Params) -> Vec<u8> {
-    let groups: Vec<&[u16]> = params.iter().collect();
-    if groups.is_empty() || (groups.len() == 1 && groups[0] == [0]) {
-        return Vec::new();
-    }
-
-    let mut out = Vec::new();
-    for (group_index, group) in groups.iter().enumerate() {
-        if group_index > 0 {
-            out.push(b';');
-        }
-        for (sub_index, value) in group.iter().enumerate() {
-            if sub_index > 0 {
-                out.push(b':');
-            }
-            out.extend_from_slice(value.to_string().as_bytes());
-        }
-    }
-    out
-}
-
-fn dcs_param(params: &Params, index: usize) -> Option<u16> {
-    let groups: Vec<&[u16]> = params.iter().collect();
-    if groups.len() == 1 && groups[0] == [0] {
-        return None;
-    }
-    groups.get(index).and_then(|group| group.first()).copied()
 }
