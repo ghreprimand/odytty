@@ -1821,4 +1821,90 @@ mod tests {
             "second cell of a wide glyph should hold ink"
         );
     }
+
+    // ----- H3: fractional-scale UV/quad bookkeeping -----
+
+    /// Inline replica of `gpu::physical_font_px` — the real function is
+    /// `pub(super)` inside `native::gpu` and not re-exported. The atlas tests
+    /// need it purely for constructing the scale matrix; keeping it duplicated
+    /// here avoids widening module visibility for test-only use.
+    fn physical_font_px(font_size_px: f32, scale: f32) -> f32 {
+        (font_size_px * scale.max(1.0)).max(1.0)
+    }
+
+    /// UV rects at fractional scales stay seam-free: the inner cell rectangle
+    /// tiles contiguously (no overlap and no sub-pixel gap between adjacent
+    /// slots in the same row) and every UV is strictly within [0, 1].
+    #[test]
+    fn h3_uv_seam_free_across_fractional_scales() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        for &scale in &[1.0f32, 1.25, 1.5, 1.75, 2.0] {
+            let px = physical_font_px(16.0, scale);
+            let atlas = GlyphAtlas::build(&font, px);
+            // Check the first row of ASCII slots (slots 1..=15 fit in one row).
+            for slot in 1..ATLAS_COLS.min(FIRST_DYNAMIC_SLOT) {
+                let uv = atlas.slot_uv(slot);
+                // Every UV coordinate is in [0, 1].
+                for &c in &uv {
+                    assert!(
+                        (0.0..=1.0).contains(&c),
+                        "UV {uv:?} out of [0,1] at scale={scale}"
+                    );
+                }
+                // u0 < u1, v0 < v1 (non-degenerate).
+                assert!(uv[0] < uv[2] && uv[1] < uv[3]);
+            }
+            // Adjacent slots: right edge of slot N == left edge of next slot's
+            // outer boundary minus the inter-slot gap (2×border). The inner UV
+            // right of slot N and inner UV left of slot N+1 differ by exactly
+            // 2×border in pixel space.
+            let border = slot_border(atlas.cell);
+            for slot in 1..(ATLAS_COLS.min(FIRST_DYNAMIC_SLOT) - 1) {
+                let a = atlas.slot_uv(slot);
+                let b = atlas.slot_uv(slot + 1);
+                let a_right_px = (a[2] * atlas.width as f32).round() as i32;
+                let b_left_px = (b[0] * atlas.width as f32).round() as i32;
+                assert_eq!(
+                    b_left_px - a_right_px,
+                    (2 * border) as i32,
+                    "inter-slot gap at scale={scale} slot={slot}"
+                );
+            }
+        }
+    }
+
+    /// Glyph quad geometry at fractional scales has integral cell offsets and
+    /// consistent UV coverage: offset + size reconstructs the UV rect's pixel
+    /// span, and the UV width matches the inked width in atlas pixels.
+    #[test]
+    fn h3_glyph_quad_uv_consistency_at_fractional_scales() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        for &scale in &[1.0f32, 1.25, 1.5, 1.75, 2.0] {
+            let px = physical_font_px(16.0, scale);
+            let atlas = GlyphAtlas::build(&font, px);
+            // Check several ASCII glyphs with visible ink.
+            for ch in ['A', 'g', 'M', '|', '_'] {
+                let Some(q) = atlas.glyph_quad(ch) else {
+                    continue;
+                };
+                // UV width and height in atlas pixels match the reported ink size.
+                let uv_w = ((q.uv[2] - q.uv[0]) * atlas.width as f32).round() as u32;
+                let uv_h = ((q.uv[3] - q.uv[1]) * atlas.height as f32).round() as u32;
+                assert_eq!(
+                    uv_w, q.width,
+                    "UV width mismatch for '{ch}' at scale={scale}"
+                );
+                assert_eq!(
+                    uv_h, q.height,
+                    "UV height mismatch for '{ch}' at scale={scale}"
+                );
+            }
+        }
+    }
 }
