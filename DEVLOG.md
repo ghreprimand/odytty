@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Modularity split: native/tests.rs (M6)
+
+Mechanical split of `src/native/tests.rs` (1843 lines — the largest remaining
+file after M4/M5, and now unblocked since native work settled) into a
+`src/native/tests/` directory module. Same pattern as M4/M5: zero
+behavior/API/test-count change, verbatim line moves, two documented mechanical
+adjustments only.
+
+- **`src/native/tests.rs` → `src/native/tests/` (6 files).** The file was the
+  whole `native::tests` module body, so all 83 `#[test]`s move at column 0 with
+  no dedent. They split thematically: `viewport.rs` (scroll/indicator, resize &
+  scale debounce, wheel/scroll keys), `input_keys.rs` (mouse/focus/title reports
+  and key-binding/key-mapping), `gpu_render.rs` (native options, GPU params,
+  render signature/hyperlink, snapshot glyphs), `clipboard_paste.rs` (clipboard
+  slot, paste-chunk encoding, PTY writer), and `grid_scale.rs` (grid dimensions
+  and the HiDPI H3 scale matrix). `tests/mod.rs` retains the shared import block
+  and the two cross-cutting helpers.
+- **Adjustment 1 — visibility:** the two cross-cutting helpers `snapshot` and
+  `cell` were hoisted to `tests/mod.rs` and widened private `fn` → `pub(super)
+  fn` so the theme submodules reach them. Local helpers (`search_sig`/
+  `render_sig`, the `RecordingWriter` cluster) stayed with their only callers.
+- **Adjustment 2 — import path:** the one mid-file `use super::gpu::
+  physical_font_px;` (H3-only) became `use super::super::gpu::physical_font_px;`
+  in `grid_scale.rs`, since the test sub-module is now one level deeper — the
+  same precedent M4 set with `chars_unicode.rs`'s `use super::super::types::…`.
+- **Wiring unchanged.** `src/native/mod.rs`'s `#[cfg(test)] mod tests;` resolves
+  to the directory transparently — no edit needed.
+- **Verification.** `cargo test` green: native::tests 82 passed + 1 ignored = 83
+  (unchanged); full lib 733; 19 pixel + 9 PTY + 10 transcript. `cargo fmt
+  --check` clean. Native autoclose smokes exit 0 at default and
+  `ODYTTY_SUBPIXEL=rgb ODYTTY_FONT_SIZE=18`. All `src/native/tests/**` files
+  under the cap (largest `gpu_render.rs` at 471). A whitespace-normalized
+  content diff confirms the only changes are scaffolding (doc headers, `mod`
+  decls, per-file `use super::*`), the two `pub(super)` widenings, and the one
+  `super::super` path fix — every test body line is unchanged.
+
+---
+
 ## 2026-06-11 — Terminal reporting surface (RQ1)
 
 OdyTTY now answers the terminal identity and state probes that modern shells,
