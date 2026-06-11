@@ -331,9 +331,20 @@ a floor; surpassing it is the standing ambition.
       alpha-blended RGBA8 textured quads between cell backgrounds and glyphs,
       with lazy image-id uploads, visible-set cache eviction, scrollback-aware
       placement geometry, and headless geometry/cache tests.
-- [ ] G2.2 Kitty direct still-image MVP: command parsing, chunk reassembly,
-      direct RGBA/PNG payloads, ids/placements/deletes/query replies, and
-      deterministic protocol fixtures.
+- [x] G2.2 Kitty direct still-image MVP: `src/core/kitty.rs` — APC `_G`
+      control parsing, in-tree base64 decoder, direct raw RGB/RGBA
+      transmit/display (`a=t`/`a=T`, `f=24`/`f=32`, `t=d`), chunk reassembly
+      with caps, image/placement ids, Kitty OK/error responses via the
+      host-output seam, cursor policy (`C=1`), quiet mode, and deterministic
+      protocol fixtures including robustness cases.
+  - [ ] G2.2b: PNG (`f=100`) payload decode (likely a constrained `png` crate
+        dependency).
+  - [ ] G2.5: file/shared-memory transports behind a security review; the MVP
+        rejects non-direct `t` modes with an explicit error.
+- [x] SX3 live cell metrics: `Terminal::set_cell_metrics()` replaces the
+      provisional 8×16 px cell in graphics extent/cursor math; native wires
+      metrics at GPU init and on every grid resize; new-placements-only
+      recompute policy.
 - [x] SX1/SX2 Sixel decoder and terminal integration: pure payload decoder
       then shared-scene placement and cursor/scroll policy.
   - [x] SX1: `src/graphics/sixel.rs` — full Sixel data language (raster attrs,

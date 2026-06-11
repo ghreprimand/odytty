@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Kitty graphics protocol MVP: APC direct still images (G2.2)
+
+OdyTTY now speaks the Kitty graphics protocol for direct still-image
+transmission. `src/core/kitty.rs` parses APC `_G<control>;<payload>` commands
+(key=value control data, in-tree base64 decoder — no new dependency), handles
+`a=t` transmit and `a=T` transmit-and-display for raw RGB/RGBA pixel data
+(`f=24`/`f=32`) over direct transmission (`t=d`), reassembles chunked
+transfers (`m=1`/`m=0`) under an accumulation cap, and honors image ids,
+placement ids, `c`/`r` cell extents, `C` cursor policy, and `q` quiet levels.
+Display goes through the same shared `ImageScene` placement path as Sixel, and
+protocol replies (`_G…;OK` / explicit errors) return through the existing
+host-output seam. PNG (`f=100`) and file/shared-memory transports are
+explicitly rejected for now: PNG is deferred to a follow-up with a constrained
+decoder dependency, and non-direct transports wait for a security-reviewed
+packet.
+
+Verification: 606 lib tests (17 Kitty-focused), 11 pixel-smoke, 9 PTY, 10
+transcript, fmt clean, native autoclose smoke exit 0 at default and
+`ODYTTY_SUBPIXEL=rgb`. Robustness fixtures cover malformed control data,
+truncated/oversized payloads, RIS chunk reset, alt-screen isolation, and
+eviction.
+
+## 2026-06-11 — Live cell metrics in graphics routing (SX3)
+
+Graphics extent and cursor math no longer assume a provisional 8×16 px cell.
+`CellMetrics` (clamped to [1, 1024] px per axis) lives on the terminal model;
+the native layer pushes real glyph-derived cell dimensions at GPU init and on
+every grid resize, so Sixel placements span the correct number of cells at any
+font size or display scale. Existing placements keep their original extent
+(new-placements-only policy), and metrics survive RIS like other host-side
+properties. Eight new fixtures cover extent at differing metrics,
+cursor-below-image placement, clamping, and metrics-change behavior.
+
+---
+
 ## 2026-06-11 — Native GPU image layer for graphics placements (G2.3)
 
 Connects the G2.1 terminal-owned graphics scene to the native renderer. Images

@@ -40,8 +40,11 @@ language (RGB/HLS color introducers, repeat, raster attributes, VT340 16-color
 default palette), and SX2 integrates the decoder with the graphics scene via the
 owned DCS hook/put/unhook path. The GPU image layer (G2.3) renders visible
 placements as alpha-blended RGBA8 textured quads between cell backgrounds and
-glyphs. Kitty APC routing is wired; the Kitty direct still-image MVP is in
-progress.
+glyphs. The Kitty graphics protocol MVP handles APC `_G` control parsing,
+base64 payload decode, direct raw RGB/RGBA transmission (`f=24`/`f=32`,
+`t=d`), chunked transfers (`m=1`/`m=0`), and transmit/transmit-and-display
+actions through the same shared placement scene as Sixel. PNG (`f=100`) and
+file/shared-memory transports are not yet supported.
 
 **Text and rendering quality.** The `wgpu`/Vulkan surface rasterizes via
 `ab_glyph` into a dynamic glyph atlas. Wide-glyph (CJK/width-2) atlas slots
@@ -81,14 +84,16 @@ skips reflow entirely on height-only resize (~17 ms → ~58 µs). The vertex
 buffer is a reused CPU allocation with a grow-only GPU buffer. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 612 tests passing: 582 unit/integration, 11 HiDPI headless, 9
-pixel-smoke (headless CPU compositor asserting structural raster invariants),
-and 10 PTY integration. `cargo bench --bench perf` runs headless throughput
+**Testing.** 636 tests passing: 606 unit/integration, 11 pixel-smoke
+(headless CPU compositor asserting structural raster invariants), 9 PTY
+alternate-screen smoke, and 10 transcript smoke. `cargo bench --bench perf`
+runs headless throughput
 benchmarks for the terminal model and parser separately from the default suite.
 
 ### Remaining gaps
 
-- Kitty direct still-image MVP is not yet complete.
+- Kitty graphics: PNG (`f=100`) and file/shared-memory transports are not yet
+  supported (direct raw-pixel transmission only).
 - Ligature/stylistic-set shaping is not implemented (strategy decided but
   implementation deferred).
 - Configuration file (Stage 5): all settings are currently environment variables.
