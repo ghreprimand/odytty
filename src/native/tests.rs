@@ -15,8 +15,8 @@ use super::clipboard::{
     ClipboardSlot, encode_paste_chunks, flatten_chunks, selected_clipboard_text,
 };
 use super::gpu::{
-    StyleFonts, ViewportUniform, effect_params, ensure_snapshot_glyphs,
-    grow_vertex_buffer_capacity, text_params, theme_clear_color,
+    StyleFonts, ViewportUniform, blend_state_for_subpixel, effect_params, effective_subpixel_mode,
+    ensure_snapshot_glyphs, grow_vertex_buffer_capacity, text_params, theme_clear_color,
 };
 use super::options::NativeOptions;
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
@@ -33,7 +33,7 @@ use crate::settings::{
     BindableAction, DEFAULT_FONT_SIZE_PX, DEFAULT_TEXT_GAMMA, KeyBindingKey, KeyBindingModifiers,
     KeyBindingOverride, KeyChord, Settings,
 };
-use crate::text::{self, CellSize, FontStyle, GlyphAtlas};
+use crate::text::{self, CellSize, FontStyle, GlyphAtlas, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};
 use std::time::{Duration, Instant};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -500,6 +500,7 @@ fn default_options_are_linux_first_monospace() {
     assert_eq!(options.font_path, None);
     assert_eq!(options.font_size_px, DEFAULT_FONT_SIZE_PX);
     assert_eq!(options.text_gamma, DEFAULT_TEXT_GAMMA);
+    assert_eq!(options.subpixel, SubpixelMode::Off);
     assert_eq!(options.title, "OdyTTY");
 }
 
@@ -510,6 +511,7 @@ fn options_apply_runtime_font_settings() {
         font_path: Some(PathBuf::from("/tmp/ody.ttf")),
         font_size_px: 21.0,
         text_gamma: 1.25,
+        subpixel: SubpixelMode::Bgr,
         ..Settings::default()
     };
     let options = NativeOptions::from_settings(&settings);
@@ -518,7 +520,35 @@ fn options_apply_runtime_font_settings() {
     assert_eq!(options.font_path, Some(PathBuf::from("/tmp/ody.ttf")));
     assert_eq!(options.font_size_px, 21.0);
     assert_eq!(options.text_gamma, 1.25);
+    assert_eq!(options.subpixel, SubpixelMode::Bgr);
     assert_eq!(options.initial_grid, NativeOptions::default().initial_grid);
+}
+
+#[test]
+fn subpixel_mode_requires_dual_source_feature() {
+    assert_eq!(
+        effective_subpixel_mode(SubpixelMode::Rgb, wgpu::Features::DUAL_SOURCE_BLENDING),
+        SubpixelMode::Rgb
+    );
+    assert_eq!(
+        effective_subpixel_mode(SubpixelMode::Bgr, wgpu::Features::empty()),
+        SubpixelMode::Off
+    );
+    assert_eq!(
+        effective_subpixel_mode(SubpixelMode::Off, wgpu::Features::empty()),
+        SubpixelMode::Off
+    );
+}
+
+#[test]
+fn subpixel_blend_uses_second_source_for_rgb_weights() {
+    let gray = blend_state_for_subpixel(SubpixelMode::Off);
+    assert_eq!(gray.color.src_factor, wgpu::BlendFactor::SrcAlpha);
+    assert_eq!(gray.color.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
+
+    let subpixel = blend_state_for_subpixel(SubpixelMode::Rgb);
+    assert_eq!(subpixel.color.src_factor, wgpu::BlendFactor::Src1);
+    assert_eq!(subpixel.color.dst_factor, wgpu::BlendFactor::OneMinusSrc1);
 }
 
 #[test]

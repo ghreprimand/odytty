@@ -25,7 +25,7 @@ use crate::settings::FONT_ENV;
 
 /// The glyph atlas and its cell metrics live in [`crate::atlas`]; re-exported
 /// here so `crate::text::{CellSize, GlyphAtlas}` call sites keep resolving.
-pub use crate::atlas::{CellSize, FontStyle, GlyphAtlas};
+pub use crate::atlas::{CellSize, FontStyle, GlyphAtlas, SubpixelMode};
 
 /// Errors from font loading.
 #[derive(Debug, thiserror::Error)]

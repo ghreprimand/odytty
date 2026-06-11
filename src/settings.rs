@@ -9,6 +9,7 @@ use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::atlas::SubpixelMode;
 use crate::core::CursorStyle;
 use crate::theme::{Theme, VisualEffect};
 
@@ -18,6 +19,7 @@ pub const FONT_ENV: &str = "ODYTTY_FONT";
 pub const FONT_FAMILY_ENV: &str = "ODYTTY_FONT_FAMILY";
 pub const FONT_SIZE_ENV: &str = "ODYTTY_FONT_SIZE";
 pub const TEXT_GAMMA_ENV: &str = "ODYTTY_TEXT_GAMMA";
+pub const SUBPIXEL_ENV: &str = "ODYTTY_SUBPIXEL";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
 pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
@@ -153,6 +155,7 @@ pub struct Settings {
     pub font_family: Option<String>,
     pub font_size_px: f32,
     pub text_gamma: f32,
+    pub subpixel: SubpixelMode,
     pub key_bindings: Vec<KeyBindingOverride>,
     /// Default cursor shape applied at power-on (DECSCUSR can override).
     pub cursor_style: CursorStyle,
@@ -170,6 +173,7 @@ impl Default for Settings {
             font_family: None,
             font_size_px: DEFAULT_FONT_SIZE_PX,
             text_gamma: DEFAULT_TEXT_GAMMA,
+            subpixel: SubpixelMode::Off,
             key_bindings: Vec::new(),
             cursor_style: CursorStyle::Block,
             cursor_blink: CursorBlink::Auto,
@@ -233,6 +237,7 @@ impl Settings {
         };
         let font_size_px = parse_font_size(get(FONT_SIZE_ENV).as_deref(), &mut warn);
         let text_gamma = parse_text_gamma(get(TEXT_GAMMA_ENV).as_deref(), &mut warn);
+        let subpixel = parse_subpixel(get(SUBPIXEL_ENV).as_deref(), &mut warn);
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
         let cursor_blink = parse_cursor_blink_setting(get(CURSOR_BLINK_ENV).as_deref(), &mut warn);
@@ -245,6 +250,7 @@ impl Settings {
             font_family,
             font_size_px,
             text_gamma,
+            subpixel,
             key_bindings,
             cursor_style,
             cursor_blink,
@@ -341,6 +347,29 @@ fn parse_text_gamma(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     };
 
     parsed.clamp(MIN_TEXT_GAMMA, MAX_TEXT_GAMMA)
+}
+
+fn parse_subpixel(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> SubpixelMode {
+    let Some(raw) = raw else {
+        return SubpixelMode::Off;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return SubpixelMode::Off;
+    }
+
+    match normalize_name(trimmed).as_str() {
+        "off" | "none" | "false" | "0" => SubpixelMode::Off,
+        "rgb" => SubpixelMode::Rgb,
+        "bgr" => SubpixelMode::Bgr,
+        _ => {
+            warn(&format!(
+                "{SUBPIXEL_ENV}={trimmed:?} is not off|rgb|bgr; using off"
+            ));
+            SubpixelMode::Off
+        }
+    }
 }
 
 fn parse_autoclose(raw: Option<&OsStr>) -> Option<Duration> {
@@ -501,6 +530,7 @@ mod tests {
             (FONT_ENV, "/tmp/ody.ttf"),
             (FONT_SIZE_ENV, "18.5"),
             (TEXT_GAMMA_ENV, "1.25"),
+            (SUBPIXEL_ENV, "rgb"),
             (NATIVE_AUTOCLOSE_ENV, "750"),
         ]);
 
@@ -509,6 +539,7 @@ mod tests {
         assert_eq!(settings.font_path, Some(PathBuf::from("/tmp/ody.ttf")));
         assert_eq!(settings.font_size_px, 18.5);
         assert_eq!(settings.text_gamma, 1.25);
+        assert_eq!(settings.subpixel, SubpixelMode::Rgb);
         assert_eq!(settings.native_autoclose, Some(Duration::from_millis(750)));
         assert!(warnings.is_empty());
     }
@@ -567,6 +598,32 @@ mod tests {
         assert_eq!(large.text_gamma, MAX_TEXT_GAMMA);
         assert!(small_warnings.is_empty());
         assert!(large_warnings.is_empty());
+    }
+
+    #[test]
+    fn subpixel_defaults_off_and_parses_orders() {
+        let (default, default_warnings) = settings_from([]);
+        let (rgb, rgb_warnings) = settings_from([(SUBPIXEL_ENV, " RGB ")]);
+        let (bgr, bgr_warnings) = settings_from([(SUBPIXEL_ENV, "bgr")]);
+        let (off, off_warnings) = settings_from([(SUBPIXEL_ENV, "none")]);
+
+        assert_eq!(default.subpixel, SubpixelMode::Off);
+        assert_eq!(rgb.subpixel, SubpixelMode::Rgb);
+        assert_eq!(bgr.subpixel, SubpixelMode::Bgr);
+        assert_eq!(off.subpixel, SubpixelMode::Off);
+        assert!(default_warnings.is_empty());
+        assert!(rgb_warnings.is_empty());
+        assert!(bgr_warnings.is_empty());
+        assert!(off_warnings.is_empty());
+    }
+
+    #[test]
+    fn garbage_subpixel_falls_back_with_one_warning() {
+        let (settings, warnings) = settings_from([(SUBPIXEL_ENV, "pentile")]);
+
+        assert_eq!(settings.subpixel, SubpixelMode::Off);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains(SUBPIXEL_ENV));
     }
 
     #[test]

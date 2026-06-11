@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use crate::atlas::SubpixelMode;
 use crate::core::Dimensions;
 use crate::render::CellMetrics;
 use crate::settings::{DEFAULT_FONT_SIZE_PX, Settings};
@@ -51,6 +52,9 @@ pub struct NativeOptions {
     /// Glyph coverage gamma used by the cell shader. `1.0` is the legacy
     /// linear blend path; higher values give light-on-dark text more weight.
     pub text_gamma: f32,
+    /// Optional RGB/BGR subpixel text coverage. Defaults off for exact
+    /// grayscale output compatibility.
+    pub subpixel: SubpixelMode,
 }
 
 impl Default for NativeOptions {
@@ -62,6 +66,7 @@ impl Default for NativeOptions {
             font_path: None,
             font_size_px: DEFAULT_FONT_SIZE_PX,
             text_gamma: crate::settings::DEFAULT_TEXT_GAMMA,
+            subpixel: SubpixelMode::Off,
         }
     }
 }
@@ -76,6 +81,7 @@ impl NativeOptions {
             font_path: settings.font_path.clone(),
             font_size_px: settings.font_size_px,
             text_gamma: settings.text_gamma,
+            subpixel: settings.subpixel,
             ..Self::default()
         }
     }

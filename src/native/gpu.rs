@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 
 use crate::core::{CursorStyle, Snapshot};
 use crate::grid::{self, SolidQuad, Vertex};
-use crate::text::{self, FontStyle, GlyphAtlas};
+use crate::text::{self, FontStyle, GlyphAtlas, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};
 
 use winit::window::Window;
@@ -52,6 +52,10 @@ fn create_atlas_texture(
     queue: &wgpu::Queue,
     atlas: &GlyphAtlas,
 ) -> wgpu::Texture {
+    let format = match atlas.subpixel_mode() {
+        SubpixelMode::Off => wgpu::TextureFormat::R8Unorm,
+        SubpixelMode::Rgb | SubpixelMode::Bgr => wgpu::TextureFormat::Rgba8Unorm,
+    };
     let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("odytty-atlas"),
         size: wgpu::Extent3d {
@@ -62,7 +66,7 @@ fn create_atlas_texture(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::R8Unorm,
+        format,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -76,7 +80,7 @@ fn create_atlas_texture(
         &atlas.data,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(atlas.width),
+            bytes_per_row: Some(atlas.bytes_per_row()),
             rows_per_image: Some(atlas.height),
         },
         wgpu::Extent3d {
@@ -86,6 +90,55 @@ fn create_atlas_texture(
         },
     );
     atlas_texture
+}
+
+pub(super) fn effective_subpixel_mode(
+    requested: SubpixelMode,
+    features: wgpu::Features,
+) -> SubpixelMode {
+    if requested.enabled() && features.contains(wgpu::Features::DUAL_SOURCE_BLENDING) {
+        requested
+    } else {
+        SubpixelMode::Off
+    }
+}
+
+fn device_features_for_subpixel(mode: SubpixelMode) -> wgpu::Features {
+    if mode.enabled() {
+        wgpu::Features::DUAL_SOURCE_BLENDING
+    } else {
+        wgpu::Features::empty()
+    }
+}
+
+pub(super) fn blend_state_for_subpixel(mode: SubpixelMode) -> wgpu::BlendState {
+    if mode.enabled() {
+        wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Src1,
+                dst_factor: wgpu::BlendFactor::OneMinusSrc1,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            },
+        }
+    } else {
+        wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            },
+        }
+    }
 }
 
 fn create_atlas_bind_group(
@@ -270,6 +323,8 @@ pub(super) struct GpuState {
     effect: [f32; 2],
     /// Glyph coverage gamma uniform. `1.0` is the exact legacy output path.
     text: [f32; 4],
+    /// Effective coverage path after adapter capability checks.
+    subpixel: SubpixelMode,
     // Kept alive for the lifetime of the bind group; never read directly.
     atlas_texture: wgpu::Texture,
     atlas_sampler: wgpu::Sampler,
@@ -308,9 +363,17 @@ impl GpuState {
         }))
         .map_err(|err| NativeError::NoAdapter(err.to_string()))?;
 
+        let adapter_features = adapter.features();
+        let subpixel = effective_subpixel_mode(options.subpixel, adapter_features);
+        if options.subpixel.enabled() && !subpixel.enabled() {
+            eprintln!(
+                "odytty: ODYTTY_SUBPIXEL requested but the GPU adapter lacks dual-source blending; using grayscale text"
+            );
+        }
+
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("odytty-device"),
-            required_features: wgpu::Features::empty(),
+            required_features: device_features_for_subpixel(subpixel),
             required_limits: wgpu::Limits::default(),
             experimental_features: wgpu::ExperimentalFeatures::disabled(),
             memory_hints: wgpu::MemoryHints::default(),
@@ -342,7 +405,8 @@ impl GpuState {
 
         // --- Glyph atlas: rasterize at physical pixels for crisp HiDPI text.
         let fonts = StyleFonts::load(options)?;
-        let mut atlas = GlyphAtlas::build(fonts.regular_font(), physical_px);
+        let mut atlas =
+            GlyphAtlas::build_with_subpixel(fonts.regular_font(), physical_px, subpixel);
         ensure_snapshot_glyphs(&mut atlas, &fonts, initial_snapshot);
         let atlas_texture = create_atlas_texture(&device, &queue, &atlas);
         // Nearest + clamp: glyph cells map 1:1 to pixels, so no filtering.
@@ -414,7 +478,14 @@ impl GpuState {
         // --- Render pipeline from the shared cell shader.
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("odytty-cell-shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/cell.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                if subpixel.enabled() {
+                    include_str!("../shaders/cell_subpixel.wgsl")
+                } else {
+                    include_str!("../shaders/cell.wgsl")
+                }
+                .into(),
+            ),
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("odytty-cell-pl"),
@@ -453,20 +524,11 @@ impl GpuState {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    // Straight-alpha blend so glyph coverage composites over the
-                    // already-drawn background quad of the same cell.
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                    }),
+                    // Grayscale uses straight alpha. Subpixel uses dual-source
+                    // blending so RGB coverage can modulate each color channel
+                    // independently while the destination contributes
+                    // `1.0 - coverage`.
+                    blend: Some(blend_state_for_subpixel(subpixel)),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -509,6 +571,7 @@ impl GpuState {
             clear_color: theme_clear_color(&theme),
             effect,
             text,
+            subpixel,
             atlas_texture,
             atlas_sampler,
         })
@@ -574,7 +637,8 @@ impl GpuState {
             return false;
         }
         self.physical_px = px;
-        let mut atlas = GlyphAtlas::build(self.fonts.regular_font(), px);
+        let mut atlas =
+            GlyphAtlas::build_with_subpixel(self.fonts.regular_font(), px, self.subpixel);
         // The freshly built atlas is fully resident; clear its build-dirty flag
         // since we re-upload the whole texture below rather than via take_dirty.
         let _ = atlas.take_dirty();

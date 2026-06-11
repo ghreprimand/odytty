@@ -14,6 +14,7 @@ cargo run -- --native
 | --- | --- | --- | --- |
 | `ODYTTY_FONT_SIZE` | Pixel size, clamped to `6.0..=72.0` | `14.0` | Controls native glyph rasterization, cell size, initial window size, and resize grid fitting. Invalid values fall back to `14.0` with one stderr warning. |
 | `ODYTTY_TEXT_GAMMA` | Floating-point gamma, clamped to `0.5..=3.0` | `1.4` | Adjusts glyph coverage in the shader for text weight/contrast. `1.0` is the exact legacy linear blend path. Invalid values fall back to `1.4` with one stderr warning. |
+| `ODYTTY_SUBPIXEL` | `off`, `rgb`, `bgr` | `off` | Enables optional RGB/BGR subpixel text coverage when the GPU supports dual-source blending. Unsupported adapters fall back to grayscale text with one stderr notice; startup never fails because of this setting. |
 | `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | Host monospace probe list | Overrides the probed Linux monospace font. A missing or unparseable path no longer aborts startup: it logs one stderr notice and falls back to the probe list. |
 | `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | Host monospace probe list | Selects the regular face by family name or path. The match is validated as monospace; a proportional or unresolved value logs one stderr notice and falls back to the probe list, so a bad value never aborts startup. `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered and used for styled text when present, with regular-face fallback. |
 | `ODYTTY_KEYBINDS` | Comma- or semicolon-separated `chord=action` entries | unset | Rebinds native terminal-local actions only. Invalid entries log one stderr warning and are skipped; duplicate chords use the last valid entry. PTY key encoding is unchanged. |
@@ -112,6 +113,20 @@ Run with the legacy text coverage blend:
 ```sh
 ODYTTY_TEXT_GAMMA=1.0 cargo run -- --native
 ```
+
+Run with RGB subpixel text coverage when supported by the GPU:
+
+```sh
+ODYTTY_SUBPIXEL=rgb cargo run -- --native
+```
+
+`ODYTTY_SUBPIXEL=bgr` is for panels with the opposite stripe order. Subpixel
+coverage uses the same glyph geometry as grayscale text, including wide
+two-cell atlas slots and bearing-aware overflow quads. The atlas texture stores
+RGBA coverage instead of R8 coverage when enabled, so glyph coverage memory is
+roughly 4x the grayscale atlas for the same slot count. `ODYTTY_TEXT_GAMMA`
+still applies before compositing: grayscale corrects one coverage channel,
+while subpixel corrects the red, green, and blue coverage channels independently.
 
 Run with an Odyssey theme and ambient visual treatment:
 

@@ -25,7 +25,7 @@
 //! Every case skips gracefully (prints and returns) when no system font is
 //! available, matching the rest of the suite's hermeticity.
 
-use odytty::atlas::GlyphAtlas;
+use odytty::atlas::{GlyphAtlas, SubpixelMode};
 use odytty::core::{CursorStyle, Snapshot, Terminal};
 use odytty::grid::{self, Vertex};
 use odytty::text::{self, foreground_linear};
@@ -136,8 +136,10 @@ fn composite_quad(frame: &mut Frame, atlas: &GlyphAtlas, quad: &[Vertex]) {
             if cx < x0 || cx >= x1 {
                 continue;
             }
-            // Alpha: opaque for solids; coverage-modulated for glyphs (the
-            // shader's default path multiplies color.a by the R8 coverage).
+            // Alpha/coverage: opaque for solids; coverage-modulated for glyphs.
+            // The grayscale default returns the same scalar for RGB. Subpixel
+            // atlases return independent RGB coverage, matching the dual-source
+            // shader's per-channel destination weights.
             let alpha = if is_glyph {
                 let u0 = tl.uv[0];
                 let v0 = tl.uv[1];
@@ -151,21 +153,37 @@ fn composite_quad(frame: &mut Frame, atlas: &GlyphAtlas, quad: &[Vertex]) {
                     ((u * atlas.width as f32) as i64).clamp(0, atlas.width as i64 - 1) as usize;
                 let ay =
                     ((v * atlas.height as f32) as i64).clamp(0, atlas.height as i64 - 1) as usize;
-                let coverage = atlas.data[ay * atlas.width as usize + ax] as f32 / 255.0;
-                color_a * coverage
+                atlas_coverage_rgb(atlas, ax, ay).map(|coverage| color_a * coverage)
             } else {
-                color_a
+                [color_a; 3]
             };
-            if alpha <= 0.0 {
+            if alpha.iter().all(|&a| a <= 0.0) {
                 continue;
             }
             let idx = py * frame.width + px;
             let dst = frame.px[idx];
             frame.px[idx] = [
-                color[0] * alpha + dst[0] * (1.0 - alpha),
-                color[1] * alpha + dst[1] * (1.0 - alpha),
-                color[2] * alpha + dst[2] * (1.0 - alpha),
+                color[0] * alpha[0] + dst[0] * (1.0 - alpha[0]),
+                color[1] * alpha[1] + dst[1] * (1.0 - alpha[1]),
+                color[2] * alpha[2] + dst[2] * (1.0 - alpha[2]),
             ];
+        }
+    }
+}
+
+fn atlas_coverage_rgb(atlas: &GlyphAtlas, x: usize, y: usize) -> [f32; 3] {
+    match atlas.subpixel_mode() {
+        SubpixelMode::Off => {
+            let coverage = atlas.data[y * atlas.width as usize + x] as f32 / 255.0;
+            [coverage; 3]
+        }
+        SubpixelMode::Rgb | SubpixelMode::Bgr => {
+            let idx = (y * atlas.width as usize + x) * 4;
+            [
+                atlas.data[idx] as f32 / 255.0,
+                atlas.data[idx + 1] as f32 / 255.0,
+                atlas.data[idx + 2] as f32 / 255.0,
+            ]
         }
     }
 }
@@ -174,6 +192,12 @@ fn composite_quad(frame: &mut Frame, atlas: &GlyphAtlas, quad: &[Vertex]) {
 fn setup() -> Option<(FontVec, GlyphAtlas)> {
     let font = text::load_font().ok()?;
     let atlas = GlyphAtlas::build(&font, PX);
+    Some((font, atlas))
+}
+
+fn setup_subpixel() -> Option<(FontVec, GlyphAtlas)> {
+    let font = text::load_font().ok()?;
+    let atlas = GlyphAtlas::build_with_subpixel(&font, PX, SubpixelMode::Rgb);
     Some((font, atlas))
 }
 
@@ -299,6 +323,26 @@ fn known_glyph_inks_within_its_cell() {
         cell_ink_count(&frame, 3, 0),
         0,
         "rightmost cell must stay blank"
+    );
+}
+
+#[test]
+fn subpixel_atlas_composites_known_glyph() {
+    let Some((_font, atlas)) = setup_subpixel() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let snapshot = row_snapshot(4, "H");
+    let frame = composite(&snapshot, &atlas, CursorStyle::Block);
+
+    assert!(
+        cell_ink_count(&frame, 0, 0) > 0,
+        "subpixel atlas should leave visible ink in the glyph cell"
+    );
+    assert_eq!(
+        cell_ink_count(&frame, 3, 0),
+        0,
+        "subpixel glyph coverage must not bleed into distant blank cells"
     );
 }
 

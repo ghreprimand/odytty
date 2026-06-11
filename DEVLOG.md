@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Optional subpixel text anti-aliasing (SP1)
+
+SP1 adds the parity-track subpixel AA escape hatch behind an explicit setting,
+keeping the default grayscale renderer as the stable bit-for-bit compatibility
+path.
+
+### What landed
+
+- **`ODYTTY_SUBPIXEL=off|rgb|bgr`.** The setting defaults to `off`; invalid
+  values fall back to `off` with one warning.
+- **Subpixel atlas storage.** Opt-in subpixel mode builds the same slot geometry
+  as the grayscale atlas, but stores RGBA coverage so red, green, and blue
+  coverage can differ. The grayscale R8 atlas path is untouched when the setting
+  is off.
+- **Dual-source GPU path.** Native startup requests
+  `wgpu::Features::DUAL_SOURCE_BLENDING` only when subpixel mode is requested
+  and the adapter supports it. Unsupported adapters print one notice and keep
+  running with grayscale text.
+- **Gamma composition.** `ODYTTY_TEXT_GAMMA` applies before compositing in both
+  paths: one corrected coverage channel for grayscale, independent RGB coverage
+  correction for subpixel.
+- **Coverage checks.** Settings, atlas bookkeeping, GPU blend selection, and
+  pixel-smoke composition all have targeted tests. Existing structural pixel
+  checks still use the default-off grayscale atlas.
+
+### Known gaps
+
+- This is still a monochrome glyph atlas. Color emoji and graphics protocols
+  remain separate future work on the owned parser/APC/DCS plumbing.
+- Actual visual benefit depends on panel stripe order and adapter support for
+  dual-source blending; `off` remains the conservative default.
+
+---
+
 ## 2026-06-10 — Mode-aware TUI keyboard encoding (I1)
 
 I1 closes the routed T1 keyboard findings by making OdyTTY's key encoder aware

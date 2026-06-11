@@ -60,7 +60,7 @@
 
 use std::collections::HashMap;
 
-use ab_glyph::{Font, FontVec, Glyph, PxScale, ScaleFont, point};
+use ab_glyph::{Font, FontVec, PxScale, ScaleFont, point};
 use unicode_width::UnicodeWidthChar;
 
 /// First and last printable ASCII code points covered by the atlas.
@@ -150,6 +150,28 @@ pub struct CellSize {
     pub baseline: u32,
 }
 
+/// Atlas coverage storage and subpixel channel order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SubpixelMode {
+    /// Single-channel grayscale coverage. This is the stable default path.
+    #[default]
+    Off,
+    /// RGB stripe order: red, green, blue from left to right.
+    Rgb,
+    /// BGR stripe order: blue, green, red from left to right.
+    Bgr,
+}
+
+impl SubpixelMode {
+    pub fn enabled(self) -> bool {
+        !matches!(self, Self::Off)
+    }
+
+    pub fn bytes_per_pixel(self) -> u32 {
+        if self.enabled() { 4 } else { 1 }
+    }
+}
+
 /// Bearing-aware quad geometry for one glyph, in atlas pixels.
 ///
 /// `offset_x`/`offset_y` are the ink's top-left relative to the cell's top-left
@@ -213,7 +235,10 @@ pub struct GlyphAtlas {
     pub width: u32,
     /// Atlas bitmap height in pixels.
     pub height: u32,
-    /// Single-channel (R8) coverage data, row-major, length `width * height`.
+    /// Coverage data, row-major. Grayscale atlases store R8 coverage
+    /// (`width * height` bytes). Subpixel atlases store RGBA8 coverage
+    /// (`width * height * 4` bytes), with RGB carrying per-channel coverage and
+    /// alpha set opaque.
     pub data: Vec<u8>,
     /// Per-cell pixel metrics shared by every glyph.
     pub cell: CellSize,
@@ -246,6 +271,8 @@ pub struct GlyphAtlas {
     revision: u64,
     /// Set when `data`/dimensions changed since the last [`Self::take_dirty`].
     dirty: bool,
+    /// Coverage storage mode. `Off` preserves the original R8 atlas exactly.
+    subpixel: SubpixelMode,
 }
 
 impl GlyphAtlas {
@@ -254,6 +281,13 @@ impl GlyphAtlas {
     /// `px` is the physical pixel size to rasterize at (caller multiplies the
     /// logical font size by the window scale factor for crisp HiDPI text).
     pub fn build(font: &FontVec, px: f32) -> Self {
+        Self::build_with_subpixel(font, px, SubpixelMode::Off)
+    }
+
+    /// Rasterize printable ASCII into a new atlas with the requested coverage
+    /// storage. Subpixel modes keep the same atlas dimensions and slot geometry
+    /// as grayscale but store RGB stripe coverage in an RGBA8 bitmap.
+    pub fn build_with_subpixel(font: &FontVec, px: f32, subpixel: SubpixelMode) -> Self {
         let px = px.max(1.0);
         let scale = PxScale::from(px);
         let scaled = font.as_scaled(scale);
@@ -285,7 +319,7 @@ impl GlyphAtlas {
         let capacity_rows = base_slots.div_ceil(cols);
         let width = cols * slot_w(cell);
         let height = capacity_rows * slot_h(cell);
-        let mut data = vec![0u8; (width * height) as usize];
+        let mut data = vec![0u8; (width * height * subpixel.bytes_per_pixel()) as usize];
 
         // Per-slot inked extent (index == slot). The fallback box keeps full-cell
         // bounds so a missing glyph renders exactly as before; ASCII slots record
@@ -297,7 +331,7 @@ impl GlyphAtlas {
         // Slot 0: synthesized hollow-box fallback, drawn the same for any font.
         let border = slot_border(cell);
         let (fox, foy) = slot_offset(FALLBACK_SLOT, cols, cell);
-        draw_fallback_box(&mut data, width, fox + border, foy + border, cell);
+        draw_fallback_box(&mut data, width, subpixel, fox + border, foy + border, cell);
 
         // Slots 1..=95: printable ASCII at the build pixel size.
         for code in FIRST_CHAR..=LAST_CHAR {
@@ -310,6 +344,7 @@ impl GlyphAtlas {
                 ch,
                 &mut data,
                 width,
+                subpixel,
                 SlotRegion {
                     origin,
                     cell,
@@ -334,6 +369,7 @@ impl GlyphAtlas {
             px,
             revision: 0,
             dirty: false,
+            subpixel,
         }
     }
 
@@ -506,6 +542,7 @@ impl GlyphAtlas {
             ch,
             &mut self.data,
             self.width,
+            self.subpixel,
             SlotRegion {
                 origin,
                 cell: self.cell,
@@ -580,7 +617,10 @@ impl GlyphAtlas {
                 self.capacity_rows += ATLAS_GROW_ROWS;
             }
             self.height = self.capacity_rows * slot_h(self.cell);
-            self.data.resize((self.width * self.height) as usize, 0);
+            self.data.resize(
+                (self.width * self.height * self.subpixel.bytes_per_pixel()) as usize,
+                0,
+            );
             self.revision += 1;
             self.dirty = true;
         }
@@ -601,6 +641,16 @@ impl GlyphAtlas {
     /// for tests asserting growth and fallback-without-allocation behavior.
     pub fn slot_count(&self) -> u32 {
         self.next_slot
+    }
+
+    /// Coverage storage mode.
+    pub fn subpixel_mode(&self) -> SubpixelMode {
+        self.subpixel
+    }
+
+    /// Bytes in one atlas row, for GPU upload.
+    pub fn bytes_per_row(&self) -> u32 {
+        self.width * self.subpixel.bytes_per_pixel()
     }
 }
 
@@ -672,6 +722,7 @@ fn rasterize_glyph(
     ch: char,
     data: &mut [u8],
     width: u32,
+    subpixel: SubpixelMode,
     region: SlotRegion,
 ) -> Option<GlyphInk> {
     let SlotRegion {
@@ -681,11 +732,9 @@ fn rasterize_glyph(
     } = region;
     let (ox, oy) = origin;
     let scale = PxScale::from(pen.px);
-    let glyph: Glyph = font
-        .glyph_id(ch)
-        .with_scale_and_position(scale, point(0.0, pen.baseline));
-    let outline = font.outline_glyph(glyph)?;
-    let bounds = outline.px_bounds();
+    if !font_has_glyph(font, ch) {
+        return None;
+    }
     // Cell inner origin, and the drawable region (cell + overflow margin) that
     // coverage may occupy, leaving the outer ATLAS_PAD bleed ring transparent.
     // `outer_w` is the slot's total horizontal extent in pixels — `slot_w(cell)`
@@ -702,27 +751,46 @@ fn rasterize_glyph(
     let mut min_y = i32::MAX;
     let mut max_x = i32::MIN;
     let mut max_y = i32::MIN;
-    outline.draw(|gx, gy, coverage| {
-        let value = (coverage * 255.0).round().clamp(0.0, 255.0) as u8;
-        if value == 0 {
-            return; // uninked sample contributes no ink and no bounds
+    let mut draw_sample = |shift_x: f32, channel: Option<usize>| {
+        let glyph = font
+            .glyph_id(ch)
+            .with_scale_and_position(scale, point(shift_x, pen.baseline));
+        let Some(outline) = font.outline_glyph(glyph) else {
+            return;
+        };
+        let bounds = outline.px_bounds();
+        outline.draw(|gx, gy, coverage| {
+            let value = (coverage * 255.0).round().clamp(0.0, 255.0) as u8;
+            if value == 0 {
+                return; // uninked sample contributes no ink and no bounds
+            }
+            // Round to the nearest atlas pixel (truncation drifts edges and can
+            // drop a glyph's final row/column).
+            let ax = inner_x + (bounds.min.x + gx as f32).round() as i32;
+            let ay = inner_y + (bounds.min.y + gy as f32).round() as i32;
+            if ax < x_lo || ax >= x_hi || ay < y_lo || ay >= y_hi {
+                return; // clip to this glyph's drawable region (cell + margin)
+            }
+            write_coverage(data, width, subpixel, ax as u32, ay as u32, channel, value);
+            min_x = min_x.min(ax);
+            min_y = min_y.min(ay);
+            max_x = max_x.max(ax);
+            max_y = max_y.max(ay);
+        });
+    };
+    match subpixel {
+        SubpixelMode::Off => draw_sample(0.0, None),
+        SubpixelMode::Rgb => {
+            draw_sample(-1.0 / 3.0, Some(0));
+            draw_sample(0.0, Some(1));
+            draw_sample(1.0 / 3.0, Some(2));
         }
-        // Round to the nearest atlas pixel (truncation drifts edges and can
-        // drop a glyph's final row/column).
-        let ax = inner_x + (bounds.min.x + gx as f32).round() as i32;
-        let ay = inner_y + (bounds.min.y + gy as f32).round() as i32;
-        if ax < x_lo || ax >= x_hi || ay < y_lo || ay >= y_hi {
-            return; // clip to this glyph's drawable region (cell + margin)
+        SubpixelMode::Bgr => {
+            draw_sample(-1.0 / 3.0, Some(2));
+            draw_sample(0.0, Some(1));
+            draw_sample(1.0 / 3.0, Some(0));
         }
-        let idx = (ay as u32 * width + ax as u32) as usize;
-        if value > data[idx] {
-            data[idx] = value;
-        }
-        min_x = min_x.min(ax);
-        min_y = min_y.min(ay);
-        max_x = max_x.max(ax);
-        max_y = max_y.max(ay);
-    });
+    }
     if max_x < min_x {
         return None; // outline produced no inked pixels in the drawable region
     }
@@ -734,15 +802,56 @@ fn rasterize_glyph(
     })
 }
 
+fn write_coverage(
+    data: &mut [u8],
+    width: u32,
+    subpixel: SubpixelMode,
+    ax: u32,
+    ay: u32,
+    channel: Option<usize>,
+    value: u8,
+) {
+    let base = (ay * width + ax) as usize * subpixel.bytes_per_pixel() as usize;
+    match subpixel {
+        SubpixelMode::Off => {
+            if value > data[base] {
+                data[base] = value;
+            }
+        }
+        SubpixelMode::Rgb | SubpixelMode::Bgr => {
+            let channel = channel.unwrap_or(1).min(2);
+            if value > data[base + channel] {
+                data[base + channel] = value;
+            }
+            data[base + 3] = 255;
+        }
+    }
+}
+
 /// Draw the synthesized missing-glyph fallback — a hollow rectangle inset from
 /// the cell edges — into the atlas cell at `(ox, oy)`. Font-independent so the
 /// fallback looks the same regardless of which font is loaded.
-fn draw_fallback_box(data: &mut [u8], width: u32, ox: u32, oy: u32, cell: CellSize) {
+fn draw_fallback_box(
+    data: &mut [u8],
+    width: u32,
+    subpixel: SubpixelMode,
+    ox: u32,
+    oy: u32,
+    cell: CellSize,
+) {
     let cw = cell.width;
     let ch = cell.height;
     let mut set = |x: u32, y: u32| {
         if x < cw && y < ch {
-            data[((oy + y) * width + ox + x) as usize] = 255;
+            match subpixel {
+                SubpixelMode::Off => {
+                    data[((oy + y) * width + ox + x) as usize] = 255;
+                }
+                SubpixelMode::Rgb | SubpixelMode::Bgr => {
+                    let idx = ((oy + y) * width + ox + x) as usize * 4;
+                    data[idx..idx + 4].copy_from_slice(&[255, 255, 255, 255]);
+                }
+            }
         }
     };
     if cw < 3 || ch < 3 {
@@ -800,6 +909,20 @@ mod tests {
         sum
     }
 
+    fn subpixel_cell_channels(atlas: &GlyphAtlas, uv: [f32; 4]) -> [u64; 4] {
+        let (cx, cy) = inner_origin(atlas, uv);
+        let mut sum = [0u64; 4];
+        for y in cy..cy + atlas.cell.height {
+            for x in cx..cx + atlas.cell.width {
+                let idx = ((y * atlas.width + x) * 4) as usize;
+                for c in 0..4 {
+                    sum[c] += atlas.data[idx + c] as u64;
+                }
+            }
+        }
+        sum
+    }
+
     /// A non-ASCII codepoint the loaded font actually has an outline for, used
     /// to exercise the dynamic region. `None` if none is found (unusual).
     fn glyph_bearing_non_ascii(font: &FontVec) -> Option<char> {
@@ -823,6 +946,46 @@ mod tests {
         // UV rects exist for printable ASCII and not for control chars.
         assert!(atlas.uv_rect('A').is_some());
         assert!(atlas.uv_rect('\n').is_none());
+    }
+
+    #[test]
+    fn default_atlas_stays_single_channel() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let atlas = GlyphAtlas::build(&font, 24.0);
+
+        assert_eq!(atlas.subpixel_mode(), SubpixelMode::Off);
+        assert_eq!(atlas.bytes_per_row(), atlas.width);
+        assert_eq!(atlas.data.len(), (atlas.width * atlas.height) as usize);
+    }
+
+    #[test]
+    fn subpixel_atlas_stores_rgb_coverage_without_geometry_change() {
+        let Some(font) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let gray = GlyphAtlas::build(&font, 24.0);
+        let rgb = GlyphAtlas::build_with_subpixel(&font, 24.0, SubpixelMode::Rgb);
+
+        assert_eq!(rgb.subpixel_mode(), SubpixelMode::Rgb);
+        assert_eq!(rgb.cell, gray.cell);
+        assert_eq!(rgb.width, gray.width);
+        assert_eq!(rgb.height, gray.height);
+        assert_eq!(rgb.bytes_per_row(), rgb.width * 4);
+        assert_eq!(rgb.data.len(), (rgb.width * rgb.height * 4) as usize);
+
+        let channels = subpixel_cell_channels(&rgb, rgb.uv_rect('M').unwrap());
+        assert!(
+            channels[0] > 0 && channels[1] > 0 && channels[2] > 0,
+            "RGB subpixel atlas should populate all color channels: {channels:?}"
+        );
+        assert!(
+            channels[3] > 0,
+            "subpixel atlas should mark inked texels with opaque alpha"
+        );
     }
 
     #[test]
@@ -1582,6 +1745,7 @@ mod tests {
                 'W',
                 &mut data,
                 stride,
+                SubpixelMode::Off,
                 SlotRegion {
                     origin: (0, 0),
                     cell,

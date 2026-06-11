@@ -152,7 +152,9 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         `glyph_quad` sizes each glyph quad to its real ink so overflow renders
         uncropped, with a two-pass (backgrounds-then-glyphs) emission so neighbor
         backgrounds never erase overflow ink.
-  - [ ] Future native rendering work: optional subpixel AA.
+  - [x] Optional subpixel AA: `ODYTTY_SUBPIXEL=rgb|bgr` builds an RGBA coverage
+        atlas and uses dual-source blending when the adapter supports it;
+        unsupported adapters fall back to grayscale with one stderr notice.
 - [x] Render text attributes cleanly at multiple sizes: bold, dim, italic,
       underline, strikethrough, inverse, cursor, and selection.
   - [x] Core attrs expose bold, dim, italic, underline, strikethrough, inverse,
@@ -281,7 +283,7 @@ a floor; surpassing it is the standing ambition.
         order preserved. Tests: font-independent clip-width proof (always runs)
         + CJK-gated full-path + pixel_smoke seam-continuity / no-double-draw /
         narrow-neighbour checks. Color emoji (RGBA atlas) remains out of scope.
-- [ ] Subpixel anti-aliasing behind a setting (R2 finding C).
+- [x] Subpixel anti-aliasing behind a setting (R2 finding C).
 - [ ] Image/graphics protocol decision spike (Kitty graphics + Sixel) — sequenced
       after the owned parser.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
