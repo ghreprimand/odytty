@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Kitty placement surface (K3)
+
+The remaining non-animation Kitty graphics display surface landed on the
+existing G2.2/K2/G2.5 base, all on OdyTTY-owned plumbing.
+
+- **Placement ids (`p=`).** Placements now carry the protocol-level image id
+  (`i=`) and placement id (`p=`). Multiple named placements of one image
+  coexist; re-placing the same `(image id, placement id)` in the active buffer
+  replaces the previous placement, matching Kitty's spec. Un-numbered
+  placements still accumulate.
+- **Display existing image (`a=p`).** An already-transmitted image can be
+  displayed by protocol id without re-sending pixels — the natural reading of
+  "multiple placements per image" and the basis for icat-style reuse.
+- **z-index (`z=`).** Placements sort by `(z_index, generation)` in the scene.
+  The GPU image layer splits its draw into `draw_below` (z<0) and `draw_above`
+  (z≥0), and the render pass now emits the canonical order: background cell
+  quads → negative-z images → glyphs → non-negative-z images. (The single
+  pre-K3 image draw also left the text pipeline unbound before the foreground
+  glyph pass — that is now re-bound between segments.)
+- **Source crop (`x/y/w/h`) and pixel offset (`X/Y`).** Parsed into the
+  placement's source rectangle and anchor-cell pixel offset; the GPU geometry
+  path already honored both, so this wired the parser end through.
+- **Cell-box scaling (`c/r`).** Display columns/rows scale to the requested
+  cell box using live `CellMetrics`; the default extent now derives from the
+  visible source region when a crop is set.
+- **Out of scope, documented.** Animation (`a=f`/`a=a`) returns
+  `unsupported-action`; the Unicode-placeholder key (`U=1`) is ignored and the
+  image places at the cursor as usual.
+- **Bug fix.** `d=i,p=` previously matched the internal auto-increment
+  placement id rather than the protocol `p=`, so delete-by-placement could
+  never target the right placement. It now matches the protocol id; a
+  regression fixture proves it with `p=` values chosen to defeat a coincidental
+  internal-id match.
+
+Verified: `cargo fmt --check` clean; `cargo test` green at 673 lib (+12 K3
+fixtures) + 11 pixel + 9 PTY + 10 transcript; native autoclose smoke exits 0 at
+default and with `ODYTTY_SUBPIXEL=rgb ODYTTY_FONT_SIZE=18`. All touched files
+stay well under the 2000-line ceiling (largest: `kitty.rs` 871).
+
+---
+
 ## 2026-06-11 — Preemptive settings/native modularity split
 
 The settings and native app modules were split before they approached the

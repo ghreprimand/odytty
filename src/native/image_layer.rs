@@ -164,6 +164,7 @@ struct ImageDraw {
     image_id: StoredImageId,
     first_vertex: u32,
     vertex_count: u32,
+    z_index: i32,
 }
 
 pub(super) struct ImageLayer {
@@ -348,6 +349,7 @@ impl ImageLayer {
                 image_id: placement.image_id,
                 first_vertex,
                 vertex_count: 6,
+                z_index: placement.z_index,
             });
         }
 
@@ -361,17 +363,46 @@ impl ImageLayer {
         }
     }
 
-    pub(super) fn draw<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
+    /// Draw placements with negative z-index (below text).
+    ///
+    /// Kitty's canonical render order is:
+    ///   background cell quads -> negative-z images -> glyphs -> non-negative-z
+    ///   images.
+    /// The GPU caller (`gpu.rs`) brackets the glyph draw with [`draw_below`]
+    /// then [`draw_above`] so negative-z graphics sit under the text and
+    /// zero/positive-z graphics sit over it. Equal-z placements keep insertion
+    /// order, which the core already sorts by `(z_index, generation)`.
+    pub(super) fn draw_below<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
+        self.draw_filtered(pass, |z| z < 0);
+    }
+
+    /// Draw placements with zero or positive z-index (above text).
+    pub(super) fn draw_above<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
+        self.draw_filtered(pass, |z| z >= 0);
+    }
+
+    fn draw_filtered<'pass>(
+        &'pass self,
+        pass: &mut wgpu::RenderPass<'pass>,
+        keep: impl Fn(i32) -> bool,
+    ) {
         if self.draws.is_empty() {
             return;
         }
-        pass.set_pipeline(&self.pipeline);
-        pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+        let mut pipeline_bound = false;
         for draw in &self.draws {
+            if !keep(draw.z_index) {
+                continue;
+            }
             let Some(cached) = self.textures.get(&draw.image_id) else {
                 continue;
             };
             let _ = cached.generation;
+            if !pipeline_bound {
+                pass.set_pipeline(&self.pipeline);
+                pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+                pipeline_bound = true;
+            }
             pass.set_bind_group(0, &cached.bind_group, &[]);
             pass.draw(
                 draw.first_vertex..draw.first_vertex + draw.vertex_count,

@@ -369,6 +369,15 @@ a floor; surpassing it is the standing ambition.
         hardening: temp-dir path restriction, O_NOFOLLOW symlink rejection,
         delete-before-decode for t=t, immediate shm_unlink for t=s, size caps;
         25 integration tests.
+- [x] K3 Kitty placement surface: `p=` placement ids with multiple named
+      placements per image and same-`(i,p)` replacement; `a=p` display of a
+      previously transmitted image by protocol id; `z=` z-index with the
+      canonical bg → negative-z → glyphs → non-negative-z render order in the
+      GPU image layer; `x/y/w/h` source-rect crop; `c/r` cell-box scaling via
+      live CellMetrics; `X/Y` pixel offset within the anchor cell; animation
+      (`a=f/a=a`) and Unicode placeholders (`U=1`) out of scope (rejected /
+      ignored, documented). Fixed a pre-existing `d=i,p=` bug (matched the
+      internal placement id instead of the protocol `p=`); 12 fixtures.
 - [x] K2 Kitty delete/query + DECSDM: `a=d` delete variants (d=a/A, i/I+p=,
       c/C, p/P+x=/y=) with uppercase image-data GC, `a=q` validation-only
       query responses, and DECSET/DECRST 80 sixel cursor policy (anchor at

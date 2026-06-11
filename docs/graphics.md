@@ -15,8 +15,10 @@ draw order (cell backgrounds → images → glyphs).
 |------|---------|--------|
 | `t`  | Transmit — store image without displaying it | ✅ supported |
 | `T`  | Transmit and display — store and place at cursor | ✅ supported |
+| `p`  | Display a previously transmitted image (by `i=`) without re-sending pixels | ✅ supported |
 | `d`  | Delete placements (see delete specifiers below) | ✅ supported |
 | `q`  | Query — validate control data and payload, no storage | ✅ supported |
+| `f`, `a` | Animation frame transmit / control | ❌ rejected (`unsupported-action`) |
 
 | `f=` | Format | Status |
 |------|--------|--------|
@@ -48,12 +50,25 @@ rejected with an explicit error response; incomplete state is cleared.
 
 - **`i=`** — image id assigned by the application. If omitted, one is
   auto-assigned.
-- **`p=`** — placement id. Tracked in `a=T`, `a=d` per-id deletes, and
-  responses.
-- **`c=`/`r=`** — display width in columns / height in rows. If omitted,
-  cell extents are derived from the image pixel dimensions and the current
-  cell size.
-- **`C=1`** — suppress cursor movement after `a=T`. Default (`C=0` or
+- **`p=`** — placement id. A single image may have several named placements at
+  once; re-using the same `(i=, p=)` in the active screen buffer replaces the
+  previous placement rather than adding a second one. Placements without a `p=`
+  always accumulate. Tracked in `a=T`/`a=p`, honored by `a=d` per-id deletes,
+  and echoed in responses.
+- **`c=`/`r=`** — display width in columns / height in rows (cell-box scaling).
+  If omitted, cell extents are derived from the visible image region (the
+  source crop when set, otherwise the full image) and the current cell size.
+- **`x=`/`y=`/`w=`/`h=`** — source-rectangle crop, in pixels, into the
+  transmitted image (left, top, width, height). A zero or omitted width/height
+  means "use the rest of the image." On a placement command these are pixel
+  coordinates; on a delete command (`d=p`/`d=P`) `x=`/`y=` are instead cell
+  coordinates.
+- **`X=`/`Y=`** — pixel offset of the image within its anchor cell.
+- **`z=`** — placement z-index (signed). Negative-z placements render beneath
+  the text layer; zero/positive-z placements render above it. The full render
+  order is: background cell colors → negative-z images → glyphs → non-negative-z
+  images. Placements with equal z-index keep transmission order.
+- **`C=1`** — suppress cursor movement after `a=T`/`a=p`. Default (`C=0` or
   absent): cursor moves to the row below the image at column 0.
 
 ### Quiet modes
@@ -78,13 +93,11 @@ stored image data once no remaining placements reference the image.
 
 ### What is not yet supported
 
-- **Animation** — only still images; multi-frame APC sequences are not
-  handled.
+- **Animation** — only still images. Animation actions (`a=f`, `a=a`) are
+  rejected with an `unsupported-action` response.
 - **Unicode placeholder rendering** — image positioning via special Unicode
-  codepoints in the cell grid.
-- **z-index, source-rect crop, and scale parameters** — the placement scene
-  layer tracks these fields internally, but wiring them through the protocol
-  control parser is in active development.
+  codepoints in the cell grid. The placeholder key (`U=1`) is ignored and the
+  image is placed at the cursor as usual.
 
 ---
 

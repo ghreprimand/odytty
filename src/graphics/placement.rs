@@ -53,6 +53,14 @@ pub struct PlacementRequest {
     pub pixel_offset_x: i32,
     pub pixel_offset_y: i32,
     pub z_index: i32,
+    /// Protocol-level image id (Kitty `i=`); `None` for protocols without one
+    /// (e.g. Sixel). Used together with `protocol_placement_id` to identify a
+    /// placement for replacement and delete-by-placement semantics.
+    pub protocol_image_id: Option<u32>,
+    /// Protocol-level placement id (Kitty `p=`); `None` when unspecified. A new
+    /// placement with the same `(protocol_image_id, protocol_placement_id)` in
+    /// the active buffer replaces the existing one (Kitty spec behavior).
+    pub protocol_placement_id: Option<u32>,
 }
 
 impl PlacementRequest {
@@ -82,7 +90,39 @@ impl PlacementRequest {
             pixel_offset_x: 0,
             pixel_offset_y: 0,
             z_index: 0,
+            protocol_image_id: None,
+            protocol_placement_id: None,
         }
+    }
+
+    /// Set the source crop rectangle (Kitty `x/y/w/h`, pixels).
+    pub fn with_source(mut self, source: SourceRect) -> Self {
+        self.source = source;
+        self
+    }
+
+    /// Set the pixel offset within the anchor cell (Kitty `X/Y`).
+    pub fn with_pixel_offset(mut self, x: i32, y: i32) -> Self {
+        self.pixel_offset_x = x;
+        self.pixel_offset_y = y;
+        self
+    }
+
+    /// Set the placement z-index (Kitty `z=`).
+    pub fn with_z_index(mut self, z_index: i32) -> Self {
+        self.z_index = z_index;
+        self
+    }
+
+    /// Set the protocol-level image and placement ids (Kitty `i=`/`p=`).
+    pub fn with_protocol_ids(
+        mut self,
+        protocol_image_id: Option<u32>,
+        protocol_placement_id: Option<u32>,
+    ) -> Self {
+        self.protocol_image_id = protocol_image_id;
+        self.protocol_placement_id = protocol_placement_id;
+        self
     }
 }
 
@@ -98,6 +138,8 @@ pub struct ImagePlacement {
     pub pixel_offset_x: i32,
     pub pixel_offset_y: i32,
     pub z_index: i32,
+    pub protocol_image_id: Option<u32>,
+    pub protocol_placement_id: Option<u32>,
     pub generation: u64,
     buffer: ScreenBuffer,
 }
@@ -186,6 +228,20 @@ impl ImageScene {
             return None;
         }
 
+        // Kitty replacement semantics: a new placement with the same
+        // (protocol image id, protocol placement id) in the active buffer
+        // replaces the previous one. Only applies when a placement id was
+        // explicitly given; un-numbered placements always accumulate.
+        if let Some(placement_id) = request.protocol_placement_id {
+            let active = self.active;
+            let image_id = request.protocol_image_id;
+            self.placements.retain(|placement| {
+                !(placement.buffer == active
+                    && placement.protocol_placement_id == Some(placement_id)
+                    && placement.protocol_image_id == image_id)
+            });
+        }
+
         self.store.touch(request.image_id);
         let id = PlacementId(self.next_placement_id);
         self.next_placement_id += 1;
@@ -202,10 +258,26 @@ impl ImageScene {
             pixel_offset_x: request.pixel_offset_x,
             pixel_offset_y: request.pixel_offset_y,
             z_index: request.z_index,
+            protocol_image_id: request.protocol_image_id,
+            protocol_placement_id: request.protocol_placement_id,
             generation,
             buffer: self.active,
         });
         Some(id)
+    }
+
+    /// Resolve a stored image by its protocol-level image id (Kitty `i=`),
+    /// preferring the most recently inserted match. Used by `a=p` to display a
+    /// previously transmitted image without re-sending pixel data.
+    pub fn find_by_protocol_id(&self, protocol_id: u32) -> Option<StoredImageId> {
+        self.store
+            .iter_ids()
+            .filter(|id| {
+                self.store
+                    .get(*id)
+                    .is_some_and(|image| image.protocol_id == Some(protocol_id))
+            })
+            .max_by_key(|id| self.store.get(*id).map(|image| image.generation))
     }
 
     pub fn placements(&self) -> &[ImagePlacement] {
@@ -285,26 +357,24 @@ impl ImageScene {
         self.gc_unreferenced_images();
     }
 
-    /// `d=i` — delete placements referencing `image_id` (protocol id) in the
-    /// active buffer. If `placement_id` is `Some`, delete only that specific
-    /// placement.
+    /// `d=i` — delete placements referencing `image_id` (Kitty protocol id) in
+    /// the active buffer. If `placement_id` is `Some`, delete only the placement
+    /// with that protocol-level placement id (Kitty `p=`); otherwise delete all
+    /// placements of the image.
     pub fn delete_by_image_id(&mut self, image_id: u32, placement_id: Option<u32>) {
         let active = self.active;
         self.placements.retain(|p| {
             if p.buffer != active {
                 return true;
             }
-            let img_match = self
-                .store
-                .get(p.image_id)
-                .map_or(false, |img| img.protocol_id == Some(image_id));
-            if !img_match {
+            if p.protocol_image_id != Some(image_id) {
                 return true;
             }
-            if let Some(pid) = placement_id {
-                p.id.0 != pid as u64
-            } else {
-                false
+            // Keep placements whose protocol placement id differs from the
+            // requested one; with no placement id all matches are removed.
+            match placement_id {
+                Some(pid) => p.protocol_placement_id != Some(pid),
+                None => false,
             }
         });
     }

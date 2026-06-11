@@ -50,10 +50,24 @@ pub(super) struct ControlData {
     pub(super) quiet: Option<u32>,
     /// Delete specifier (`d=`): a/A/i/I/c/C/p/P
     pub(super) delete_specifier: Option<char>,
-    /// Cell x (column) position for `d=p/P` (`x=`)
-    pub(super) cell_x: Option<usize>,
-    /// Cell y (row) position for `d=p/P` (`y=`)
-    pub(super) cell_y: Option<usize>,
+    /// `x=` value. Kitty overloads this key by action: on a delete command
+    /// (`a=d`, `d=p/P`) it is the target cell **column**; on a placement
+    /// command (`a=p/T`) it is the source-rectangle left edge in **pixels**.
+    /// Stored raw and interpreted at the use site.
+    pub(super) x: Option<u32>,
+    /// `y=` value. Like `x=`: cell **row** for deletes, source-rect top edge in
+    /// **pixels** for placements.
+    pub(super) y: Option<u32>,
+    /// Source-rectangle width in pixels (`w=`), placement crop.
+    pub(super) source_w: Option<u32>,
+    /// Source-rectangle height in pixels (`h=`), placement crop.
+    pub(super) source_h: Option<u32>,
+    /// Pixel offset of the image within the anchor cell, x axis (`X=`).
+    pub(super) offset_x: Option<i32>,
+    /// Pixel offset of the image within the anchor cell, y axis (`Y=`).
+    pub(super) offset_y: Option<i32>,
+    /// Placement z-index (`z=`), signed; negative renders under text.
+    pub(super) z_index: Option<i32>,
 }
 
 impl ControlData {
@@ -204,6 +218,16 @@ fn handle_command(
     match command.control.action {
         Some('d') => process_delete_command(graphics, &command.control, cursor_row, cursor_col),
         Some('q') => process_query_command(graphics, command, cell_metrics),
+        Some('p') => process_display_command(
+            graphics,
+            command,
+            cursor_row,
+            cursor_col,
+            screen_rows,
+            screen_cols,
+            cell_metrics,
+        ),
+        Some('f') | Some('a') => Err(KittyError::UnsupportedAction),
         _ => process_complete_command(
             graphics,
             command,
@@ -269,29 +293,20 @@ fn process_complete_command(
     let mut dirty = true;
     let mut cursor = None;
     if command.control.action == Some('T') {
-        let display_columns = display_columns(
+        let (placed, new_cursor) = place_image(
+            graphics,
             &command.control,
+            insert.id,
             width,
+            height,
+            cursor_row,
             cursor_col,
+            screen_rows,
             screen_cols,
             cell_metrics,
         );
-        let display_rows = display_rows(&command.control, height, cell_metrics);
-        let placed = graphics.place(PlacementRequest::new(
-            insert.id,
-            GraphicsProtocol::Kitty,
-            cursor_row,
-            cursor_col,
-            display_columns,
-            display_rows,
-        ));
-        dirty = placed.is_some();
-        if command.control.cursor_movement == Some(1) {
-            let row = cursor_row
-                .saturating_add(display_rows)
-                .min(screen_rows.saturating_sub(1));
-            cursor = Some((row, 0));
-        }
+        dirty = placed;
+        cursor = new_cursor;
     }
 
     let response = if command.control.suppress_response() {
@@ -304,6 +319,117 @@ fn process_complete_command(
         cursor,
         response,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Display previously transmitted image (a=p)
+// ---------------------------------------------------------------------------
+
+/// `a=p` — display an image already in the store, addressed by its protocol
+/// image id (`i=`), without re-transmitting pixel data. Required for icat-style
+/// reuse and for placing multiple named placements (`p=`) of one image.
+fn process_display_command(
+    graphics: &mut ImageScene,
+    command: Command,
+    cursor_row: usize,
+    cursor_col: usize,
+    screen_rows: usize,
+    screen_cols: usize,
+    cell_metrics: CellMetrics,
+) -> Result<KittyOutcome, KittyError> {
+    let protocol_id = command
+        .control
+        .image_id
+        .ok_or(KittyError::MalformedControl)?;
+    let stored_id = graphics
+        .find_by_protocol_id(protocol_id)
+        .ok_or(KittyError::StoreRejected)?;
+    let (width, height) = graphics
+        .store()
+        .get(stored_id)
+        .map(|image| (image.width, image.height))
+        .ok_or(KittyError::StoreRejected)?;
+
+    let (placed, cursor) = place_image(
+        graphics,
+        &command.control,
+        stored_id,
+        width,
+        height,
+        cursor_row,
+        cursor_col,
+        screen_rows,
+        screen_cols,
+        cell_metrics,
+    );
+
+    let response = if command.control.suppress_response() {
+        Vec::new()
+    } else {
+        kitty_response(Some(command.control.response_prefix()), "OK")
+    };
+    Ok(KittyOutcome {
+        dirty: placed,
+        cursor,
+        response,
+    })
+}
+
+/// Build and apply a placement from the control data for a resolved stored
+/// image. Returns whether the scene changed and the optional new cursor
+/// position (when `C=1` is absent and the default cursor-advance applies).
+#[allow(clippy::too_many_arguments)]
+fn place_image(
+    graphics: &mut ImageScene,
+    control: &ControlData,
+    stored_id: crate::graphics::StoredImageId,
+    width: u32,
+    height: u32,
+    cursor_row: usize,
+    cursor_col: usize,
+    screen_rows: usize,
+    screen_cols: usize,
+    cell_metrics: CellMetrics,
+) -> (bool, Option<(usize, usize)>) {
+    // Placement path: x/y/w/h are the source crop rectangle in pixels. A zero
+    // width/height means "use the rest of the image" (handled downstream).
+    let source = crate::graphics::SourceRect {
+        x: control.x.unwrap_or(0),
+        y: control.y.unwrap_or(0),
+        width: control.source_w.unwrap_or(0),
+        height: control.source_h.unwrap_or(0),
+    };
+    // Default display extent derives from the visible source region when a crop
+    // is set, otherwise the full image.
+    let effective_w = control.source_w.unwrap_or(width).min(width).max(1);
+    let effective_h = control.source_h.unwrap_or(height).min(height).max(1);
+    let display_columns =
+        display_columns(control, effective_w, cursor_col, screen_cols, cell_metrics);
+    let display_rows = display_rows(control, effective_h, cell_metrics);
+
+    let request = PlacementRequest::new(
+        stored_id,
+        GraphicsProtocol::Kitty,
+        cursor_row,
+        cursor_col,
+        display_columns,
+        display_rows,
+    )
+    .with_source(source)
+    .with_pixel_offset(control.offset_x.unwrap_or(0), control.offset_y.unwrap_or(0))
+    .with_z_index(control.z_index.unwrap_or(0))
+    .with_protocol_ids(control.image_id, control.placement_id);
+
+    let placed = graphics.place(request).is_some();
+    let cursor = if control.cursor_movement == Some(1) {
+        let row = cursor_row
+            .saturating_add(display_rows)
+            .min(screen_rows.saturating_sub(1));
+        Some((row, 0))
+    } else {
+        None
+    };
+    (placed, cursor)
 }
 
 // ---------------------------------------------------------------------------
@@ -331,13 +457,15 @@ fn process_delete_command(
         'c' => graphics.delete_at_cursor(cursor_row, cursor_col, false),
         'C' => graphics.delete_at_cursor(cursor_row, cursor_col, true),
         'p' => {
-            let col = control.cell_x.unwrap_or(cursor_col);
-            let row = control.cell_y.unwrap_or(cursor_row);
+            // Delete path: x/y are cell coordinates (column/row), not pixels.
+            let col = control.x.map(|v| v as usize).unwrap_or(cursor_col);
+            let row = control.y.map(|v| v as usize).unwrap_or(cursor_row);
             graphics.delete_at_position(row, col, false);
         }
         'P' => {
-            let col = control.cell_x.unwrap_or(cursor_col);
-            let row = control.cell_y.unwrap_or(cursor_row);
+            // Delete path: x/y are cell coordinates (column/row), not pixels.
+            let col = control.x.map(|v| v as usize).unwrap_or(cursor_col);
+            let row = control.y.map(|v| v as usize).unwrap_or(cursor_row);
             graphics.delete_at_position(row, col, true);
         }
         _ => return Err(KittyError::UnsupportedAction),
@@ -652,8 +780,13 @@ fn parse_control(control: &[u8]) -> Result<ControlData, KittyError> {
             "C" => parsed.cursor_movement = parse_u32(value),
             "q" => parsed.quiet = parse_u32(value),
             "d" => parsed.delete_specifier = parse_char(value),
-            "x" => parsed.cell_x = parse_usize(value),
-            "y" => parsed.cell_y = parse_usize(value),
+            "x" => parsed.x = parse_u32(value),
+            "y" => parsed.y = parse_u32(value),
+            "w" => parsed.source_w = parse_u32(value),
+            "h" => parsed.source_h = parse_u32(value),
+            "X" => parsed.offset_x = parse_i32(value),
+            "Y" => parsed.offset_y = parse_i32(value),
+            "z" => parsed.z_index = parse_i32(value),
             _ => {}
         }
     }
@@ -661,6 +794,10 @@ fn parse_control(control: &[u8]) -> Result<ControlData, KittyError> {
 }
 
 fn parse_u32(value: &str) -> Option<u32> {
+    value.parse().ok()
+}
+
+fn parse_i32(value: &str) -> Option<i32> {
     value.parse().ok()
 }
 

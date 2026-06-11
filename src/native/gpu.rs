@@ -890,17 +890,25 @@ impl GpuState {
                 multiview_mask: None,
             });
             if self.vertex_count > 0 {
+                let background_count = self.background_vertex_count.min(self.vertex_count);
+                // Canonical Kitty render order: background cell quads ->
+                // negative-z images -> glyphs -> non-negative-z images. The
+                // image layer binds its own pipeline/buffer, so the text
+                // pipeline is re-bound before each glyph-quad segment.
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &self.bind_group, &[]);
                 pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-                let background_count = self.background_vertex_count.min(self.vertex_count);
                 if background_count > 0 {
                     pass.draw(0..background_count, 0..1);
                 }
-                self.image_layer.draw(&mut pass);
+                self.image_layer.draw_below(&mut pass);
                 if background_count < self.vertex_count {
+                    pass.set_pipeline(&self.pipeline);
+                    pass.set_bind_group(0, &self.bind_group, &[]);
+                    pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
                     pass.draw(background_count..self.vertex_count, 0..1);
                 }
+                self.image_layer.draw_above(&mut pass);
             }
         }
         self.queue.submit(std::iter::once(encoder.finish()));
