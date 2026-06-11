@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Modularity split: `core/screen.rs` + `core/tests.rs` (M4)
+
+Preemptive modularity split ahead of the next core packet, per the standing
+operator directive (source files under ~2000 lines). Both files were within
+~70 lines of the cap. Pure mechanical reorganization: **zero behavior change,
+zero public-API change, zero test-count change** — moves not rewrites, with a
+handful of private→`pub(super)` visibility widenings noted below.
+
+**`src/core/screen.rs` (1929) → `src/core/screen/` directory module.**
+The 1334-line `impl Screen` block was split: the constructor, accessors,
+snapshot, printing/tab/line-feed methods, plus the struct defs, `Line`/`Deref`
+impls, `TerminalModel`/`VtDispatch` impls, `Terminal`, and free helpers stay in
+`mod.rs` (1179); the scrolling, line/char insert-delete, erase, cursor-motion,
+mode-setting, and reset methods moved verbatim into a private `ops`
+submodule (`ops.rs`, 761). Methods relocated into `ops` were widened from
+private `fn` to `pub(super) fn` so the parent module's retained callers still
+reach them (descendant→ancestor private access already covers the reverse
+direction); no method changed its external visibility.
+
+**`src/core/tests.rs` (1953) → `src/core/tests/` directory module.**
+The 122 `#[test]`s split into five cohesive sibling files — `sgr_cursor`,
+`erase_scroll`, `chars_unicode`, `repeat_tab_reflow`, `reset_osc_mouse` (all
+325–429 lines) — each `use super::*;`. The cross-cutting
+`assert_blank_with_background` helper moved to `mod.rs` as `pub(super)`; the
+group-local `snapshot_rows`/`tab_to`/`visible_text` helpers stayed with their
+tests.
+
+`cargo test` 707 lib (122 core tests preserved exactly) + 19 pixel + 9 PTY + 10
+transcript green; `cargo fmt --check` clean; native autoclose smokes exit 0 at
+default and `ODYTTY_SUBPIXEL=rgb ODYTTY_FONT_SIZE=18`. Largest resulting file is
+`screen/mod.rs` at 1179 lines (was 1929). Scoped to `src/core/**` per the packet
+fence. Follow-up: `src/native/tests.rs` (1807) is approaching the cap and is the
+next split candidate, deferred here because native is outside this packet's
+fence and carries concurrent work.
+
+---
+
 ## 2026-06-11 — Sixel decoder memory-behavior hardening (SX4)
 
 Fixed the two bounded-but-real memory behaviors FZ1 surfaced in

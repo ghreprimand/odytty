@@ -1,0 +1,325 @@
+//! Core behavioral tests (M4 mechanical split from core/tests.rs).
+
+use super::*;
+
+#[test]
+fn prints_plain_text_into_owned_grid() {
+    let mut terminal = Terminal::new(10, 3);
+
+    terminal.advance(b"hello\r\nody");
+
+    assert_eq!(terminal.screen().plain_text(), "hello\nody\n");
+    assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 3 });
+}
+
+#[test]
+fn applies_basic_sgr_attributes() {
+    let mut terminal = Terminal::new(10, 2);
+
+    terminal.advance(b"\x1b[1;31mR\x1b[0mN");
+
+    let red = terminal.screen().cell(0, 0).unwrap();
+    let normal = terminal.screen().cell(0, 1).unwrap();
+    assert_eq!(red.ch, 'R');
+    assert!(red.attrs.bold);
+    assert_eq!(red.attrs.foreground, Color::Indexed(1));
+    assert_eq!(normal.ch, 'N');
+    assert_eq!(normal.attrs, Attrs::default());
+}
+
+#[test]
+fn applies_extended_sgr_text_attributes() {
+    let mut terminal = Terminal::new(10, 2);
+
+    terminal.advance(b"\x1b[2;8;9mX\x1b[0mN");
+
+    let styled = terminal.screen().cell(0, 0).unwrap();
+    let normal = terminal.screen().cell(0, 1).unwrap();
+    assert_eq!(styled.ch, 'X');
+    assert!(styled.attrs.dim);
+    assert!(styled.attrs.hidden);
+    assert!(styled.attrs.strikethrough);
+    assert_eq!(normal.ch, 'N');
+    assert_eq!(normal.attrs, Attrs::default());
+}
+
+#[test]
+fn sgr_resets_text_attributes_independently() {
+    let mut terminal = Terminal::new(10, 2);
+
+    terminal.advance(b"\x1b[1;2;3;4;7;8;9mA\x1b[22;23;24;27;28;29mB");
+
+    let all = terminal.screen().cell(0, 0).unwrap();
+    assert!(all.attrs.bold);
+    assert!(all.attrs.dim);
+    assert!(all.attrs.italic);
+    assert!(all.attrs.underline);
+    assert!(all.attrs.inverse);
+    assert!(all.attrs.hidden);
+    assert!(all.attrs.strikethrough);
+
+    let reset = terminal.screen().cell(0, 1).unwrap();
+    assert_eq!(reset.attrs, Attrs::default());
+}
+
+#[test]
+fn sgr_22_clears_bold_and_dim_together() {
+    let mut terminal = Terminal::new(10, 2);
+
+    terminal.advance(b"\x1b[1;2mA\x1b[22mB");
+
+    let styled = terminal.screen().cell(0, 0).unwrap();
+    assert!(styled.attrs.bold);
+    assert!(styled.attrs.dim);
+
+    let reset = terminal.screen().cell(0, 1).unwrap();
+    assert!(!reset.attrs.bold);
+    assert!(!reset.attrs.dim);
+}
+
+#[test]
+fn responds_to_primary_device_attributes() {
+    let mut terminal = Terminal::new(10, 2);
+
+    terminal.advance(b"\x1b[c");
+
+    assert_eq!(terminal.take_host_output(), b"\x1b[?1;2c");
+    assert!(terminal.take_host_output().is_empty());
+}
+
+#[test]
+fn reports_cursor_position_for_dsr_6n() {
+    let mut terminal = Terminal::new(20, 5);
+
+    // Move the cursor to row 3, column 5 (1-based H), then request DSR 6n.
+    terminal.advance(b"\x1b[3;5H\x1b[6n");
+
+    // Reply is the cursor position report, 1-based: ESC [ row ; col R.
+    assert_eq!(terminal.take_host_output(), b"\x1b[3;5R");
+    assert!(terminal.take_host_output().is_empty());
+}
+
+#[test]
+fn dsr_6n_tracks_cursor_after_printing() {
+    let mut terminal = Terminal::new(20, 5);
+
+    // Print four glyphs on the top row; cursor sits at column 5 (1-based).
+    terminal.advance(b"less\x1b[6n");
+
+    assert_eq!(terminal.take_host_output(), b"\x1b[1;5R");
+}
+
+#[test]
+fn dsr_6n_honors_origin_mode_region() {
+    let mut terminal = Terminal::new(20, 10);
+
+    // DECSTBM rows 3..=8 (1-based), enable DECOM, home within the region,
+    // then ask for the cursor position: row must be region-relative (1).
+    terminal.advance(b"\x1b[3;8r\x1b[?6h\x1b[H\x1b[6n");
+
+    assert_eq!(terminal.take_host_output(), b"\x1b[1;1R");
+}
+
+#[test]
+fn responds_to_dsr_5n_status() {
+    let mut terminal = Terminal::new(10, 2);
+
+    terminal.advance(b"\x1b[5n");
+
+    // 5n -> terminal OK (ESC [ 0 n).
+    assert_eq!(terminal.take_host_output(), b"\x1b[0n");
+    assert!(terminal.take_host_output().is_empty());
+}
+
+#[test]
+fn ignores_private_dsr_request() {
+    let mut terminal = Terminal::new(10, 2);
+
+    // DECDSR (private marker) is not answered by the plain DSR path.
+    terminal.advance(b"\x1b[?6n");
+
+    assert!(terminal.take_host_output().is_empty());
+}
+
+#[test]
+fn bare_cursor_moves_default_to_one() {
+    // ECMA-48: an omitted parameter on CUU/CUD/CUF/CUB means 1. The parser
+    // materializes the omitted parameter as an explicit `0`, so the encoder must
+    // still treat it as 1 rather than as a zero-count no-op.
+    let mut terminal = Terminal::new(10, 10);
+
+    terminal.advance(b"\x1b[5;5H"); // row 5, col 5 (1-based) -> index (4,4)
+    assert_eq!(terminal.screen().cursor(), Position { row: 4, column: 4 });
+
+    terminal.advance(b"\x1b[A"); // bare CUU -> up 1
+    assert_eq!(terminal.screen().cursor(), Position { row: 3, column: 4 });
+    terminal.advance(b"\x1b[B"); // bare CUD -> down 1
+    assert_eq!(terminal.screen().cursor(), Position { row: 4, column: 4 });
+    terminal.advance(b"\x1b[C"); // bare CUF -> right 1
+    assert_eq!(terminal.screen().cursor(), Position { row: 4, column: 5 });
+    terminal.advance(b"\x1b[D"); // bare CUB -> left 1
+    assert_eq!(terminal.screen().cursor(), Position { row: 4, column: 4 });
+}
+
+#[test]
+fn zero_count_cursor_moves_are_treated_as_one() {
+    // A literal `0` count is equivalent to an omitted one for these moves.
+    let mut terminal = Terminal::new(10, 10);
+
+    terminal.advance(b"\x1b[5;5H\x1b[0A");
+    assert_eq!(terminal.screen().cursor(), Position { row: 3, column: 4 });
+}
+
+#[test]
+fn completion_pager_redraw_clears_stale_rows() {
+    // Distilled from a captured fish completion redraw: the shell prints the
+    // command line, drops to the row below to list candidates, returns to
+    // the command line with a bare CUU, then narrows the prefix and issues
+    // ED-to-end-of-screen (ESC [ J) to wipe the old candidate rows. If the
+    // bare CUU is a no-op the cursor never returns to the command line, so
+    // ESC [ J clears from the wrong row and the candidates linger. This is
+    // the operator-reported "stale completion text" regression.
+    let mut terminal = Terminal::new(40, 6);
+
+    // Command line on row 0, then candidates on row 1.
+    terminal.advance(b"> less build\r\nBackups/ Bonnie build.sh busy.log");
+    // Return to the command line: CR + bare CUU.
+    terminal.advance(b"\r\x1b[A");
+    assert_eq!(terminal.screen().cursor().row, 0);
+
+    // Narrow the prefix: echo a char, then clear to end of screen.
+    terminal.advance(b"\x1b[12C u\x1b[J");
+
+    let text = terminal.screen().plain_text();
+    assert!(
+        !text.contains("Backups/") && !text.contains("busy.log"),
+        "stale completion candidates remained:\n{text}"
+    );
+}
+
+#[test]
+fn saves_and_restores_cursor_with_escape_sequences() {
+    let mut terminal = Terminal::new(8, 2);
+
+    terminal.advance(b"abc\x1b7XX\x1b8Z");
+
+    assert_eq!(terminal.screen().plain_text(), "abcZX\n");
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 4 });
+}
+
+#[test]
+fn saves_and_restores_cursor_with_csi_sequences() {
+    let mut terminal = Terminal::new(8, 2);
+
+    terminal.advance(b"abc\x1b[sXX\x1b[uZ");
+
+    assert_eq!(terminal.screen().plain_text(), "abcZX\n");
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 4 });
+}
+
+#[test]
+fn isolates_alternate_screen_from_primary_screen() {
+    let mut terminal = Terminal::new(8, 3);
+
+    terminal.advance(b"PRI\x1b[?1049hALT\x1b[?1049lMARY");
+
+    assert_eq!(terminal.screen().plain_text(), "PRIMARY\n\n");
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 7 });
+}
+
+#[test]
+fn scroll_region_scrolls_only_inside_margins() {
+    let mut terminal = Terminal::new(8, 4);
+
+    terminal.advance(b"top\r\none\r\ntwo\r\nbot");
+    terminal.advance(b"\x1b[2;3r\x1b[3;1H\nX");
+
+    assert_eq!(terminal.screen().plain_text(), "top\ntwo\nX\nbot");
+    assert_eq!(terminal.screen().scrollback_len(), 0);
+}
+
+#[test]
+fn tracks_bracketed_paste_mode() {
+    let mut terminal = Terminal::new(8, 2);
+
+    assert!(!terminal.bracketed_paste_enabled());
+
+    terminal.advance(b"\x1b[?2004h");
+    assert!(terminal.bracketed_paste_enabled());
+
+    terminal.advance(b"\x1b[?2004l");
+    assert!(!terminal.bracketed_paste_enabled());
+}
+
+#[test]
+fn tracks_keyboard_application_modes() {
+    let mut terminal = Terminal::new(8, 2);
+
+    assert_eq!(terminal.keyboard_modes(), KeyboardModes::default());
+
+    terminal.advance(b"\x1b[?1h");
+    assert_eq!(
+        terminal.keyboard_modes(),
+        KeyboardModes {
+            application_cursor: true,
+            application_keypad: false,
+        }
+    );
+
+    terminal.advance(b"\x1b=");
+    assert_eq!(
+        terminal.keyboard_modes(),
+        KeyboardModes {
+            application_cursor: true,
+            application_keypad: true,
+        }
+    );
+
+    terminal.advance(b"\x1b[?1l");
+    assert_eq!(
+        terminal.keyboard_modes(),
+        KeyboardModes {
+            application_cursor: false,
+            application_keypad: true,
+        }
+    );
+
+    terminal.advance(b"\x1b>");
+    assert_eq!(terminal.keyboard_modes(), KeyboardModes::default());
+}
+
+#[test]
+fn applies_multiple_dec_private_modes_in_one_sequence() {
+    let mut terminal = Terminal::new(8, 2);
+
+    terminal.advance(b"\x1b[?25;2004l");
+
+    assert!(!terminal.snapshot().cursor_visible);
+    assert!(!terminal.bracketed_paste_enabled());
+
+    terminal.advance(b"\x1b[?25;2004h");
+
+    assert!(terminal.snapshot().cursor_visible);
+    assert!(terminal.bracketed_paste_enabled());
+}
+
+#[test]
+fn line_feed_at_screen_bottom_outside_active_region_does_not_scroll_full_screen() {
+    let mut terminal = Terminal::new(8, 4);
+
+    terminal.advance(b"head\r\none\r\ntwo\r\nfoot");
+    terminal.advance(b"\x1b[2;3r\x1b[4;1H\nZ");
+
+    assert_eq!(terminal.screen().plain_text(), "head\none\ntwo\nZoot");
+    assert_eq!(terminal.screen().scrollback_len(), 0);
+}
+
+#[test]
+fn handles_cursor_movement_and_erase_line() {
+    let mut terminal = Terminal::new(8, 2);
+
+    terminal.advance(b"abcdef\x1b[3D\x1b[KZ");
+
+    assert_eq!(terminal.screen().plain_text(), "abcZ\n");
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 4 });
+}

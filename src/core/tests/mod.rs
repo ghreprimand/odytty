@@ -1,0 +1,30 @@
+//! Behavioral tests for the terminal core: printing, SGR, cursor movement,
+//! erase/scroll, alternate screen, scrollback/reflow, OSC titles, mouse-mode
+//! tracking, wide/combining Unicode. Drives the public `Terminal`/`Screen` API
+//! plus the crate-internal `MAX_COMBINING` bound.
+
+use super::*;
+
+mod chars_unicode;
+mod erase_scroll;
+mod repeat_tab_reflow;
+mod reset_osc_mouse;
+mod sgr_cursor;
+
+pub(super) fn assert_blank_with_background(
+    terminal: &Terminal,
+    row: usize,
+    column: usize,
+    background: Color,
+) {
+    let cell = terminal.screen().cell(row, column).unwrap();
+    assert_eq!(cell.ch, ' ');
+    assert_eq!(
+        cell.attrs,
+        Attrs {
+            background,
+            ..Attrs::default()
+        }
+    );
+    assert!(!cell.wide_continuation);
+}
