@@ -6,6 +6,7 @@
 
 use unicode_width::UnicodeWidthChar;
 
+use crate::graphics::{ImageScene, VisiblePlacement};
 use crate::parser::{OdyParser, Params, VtDispatch};
 
 use super::reflow::resize_buffer_rows;
@@ -100,6 +101,10 @@ pub struct Screen {
     default_cursor_style: CursorStyle,
     /// Host default cursor blink policy, applied alongside `default_cursor_style`.
     default_cursor_blink: bool,
+    /// Terminal-owned graphics scene: CPU images, cell placements, and raw
+    /// graphics protocol payloads awaiting later decoders.
+    graphics: ImageScene,
+    dcs_capture: Option<DcsCapture>,
 }
 #[derive(Debug, Clone)]
 struct StoredScreen {
@@ -122,6 +127,13 @@ struct SavedCursor {
 struct ScrollRegion {
     top: usize,
     bottom: usize,
+}
+#[derive(Debug, Clone)]
+struct DcsCapture {
+    body: Vec<u8>,
+    payload_start: usize,
+    p2: Option<u16>,
+    overflowed: bool,
 }
 impl Screen {
     pub fn new(columns: usize, rows: usize) -> Self {
@@ -152,6 +164,8 @@ impl Screen {
             cursor_blink: true,
             default_cursor_style: CursorStyle::default(),
             default_cursor_blink: true,
+            graphics: ImageScene::default(),
+            dcs_capture: None,
         }
     }
 
@@ -284,6 +298,8 @@ impl Screen {
         self.pending_wrap = false;
         self.resize_tab_stops(dimensions.columns);
         self.scroll_region = clamp_scroll_region(self.scroll_region, dimensions);
+        self.graphics
+            .resize(self.dimensions.rows, self.dimensions.columns);
         self.mark_dirty();
     }
 
@@ -358,6 +374,25 @@ impl Screen {
             cursor_visible: false,
             cells,
         }
+    }
+
+    /// Terminal-owned graphics state. Render integration is intentionally
+    /// separate; this lets tests and future render packets inspect placements
+    /// without changing the text [`Snapshot`] surface.
+    pub fn graphics(&self) -> &ImageScene {
+        &self.graphics
+    }
+
+    pub fn graphics_mut(&mut self) -> &mut ImageScene {
+        &mut self.graphics
+    }
+
+    /// Graphics placements visible in the current viewport. `offset_rows`
+    /// follows [`Self::snapshot_with_scrollback`]: `0` is the live screen,
+    /// positive values page upward into scrollback.
+    pub fn visible_graphics(&self, offset_rows: usize) -> Vec<VisiblePlacement> {
+        self.graphics
+            .visible_placements(offset_rows, self.dimensions.rows, self.dimensions.columns)
     }
 
     pub fn plain_text(&self) -> String {
@@ -623,6 +658,12 @@ impl Screen {
 
         self.rows
             .push(blank_row_with_bg(self.dimensions.columns, background));
+        let scrollback_rows = if self.primary_screen.is_none() {
+            self.scrollback.physical_len(self.dimensions.columns)
+        } else {
+            0
+        };
+        self.graphics.scroll_full_up(1, scrollback_rows);
         self.mark_dirty();
     }
 
@@ -634,6 +675,7 @@ impl Screen {
                 region.bottom,
                 blank_row_with_bg(self.dimensions.columns, background),
             );
+            self.graphics.scroll_region_up(region.top, region.bottom, 1);
             self.mark_dirty();
         }
     }
@@ -653,6 +695,7 @@ impl Screen {
                 blank_row_with_bg(self.dimensions.columns, background),
             );
         }
+        self.graphics.scroll_region_up(top, bottom, count);
         self.mark_dirty();
     }
 
@@ -669,6 +712,7 @@ impl Screen {
             self.rows
                 .insert(top, blank_row_with_bg(self.dimensions.columns, background));
         }
+        self.graphics.scroll_region_down(top, bottom, count);
         self.mark_dirty();
     }
 
@@ -692,6 +736,7 @@ impl Screen {
             self.rows.remove(bottom);
             self.rows
                 .insert(top, blank_row_with_bg(self.dimensions.columns, background));
+            self.graphics.scroll_region_down(top, bottom, 1);
         } else {
             self.cursor.row = self.cursor.row.saturating_sub(1);
         }
@@ -717,6 +762,8 @@ impl Screen {
             );
         }
 
+        self.graphics
+            .scroll_region_down(self.cursor.row, bottom, count);
         self.cursor.column = 0;
         self.pending_wrap = false;
         self.mark_dirty();
@@ -741,6 +788,8 @@ impl Screen {
             );
         }
 
+        self.graphics
+            .scroll_region_up(self.cursor.row, bottom, count);
         self.cursor.column = 0;
         self.pending_wrap = false;
         self.mark_dirty();
@@ -907,6 +956,13 @@ impl Screen {
             }
             _ => {}
         }
+        self.graphics.erase_display(
+            mode,
+            self.cursor.row,
+            self.cursor.column,
+            self.dimensions.rows,
+            self.dimensions.columns,
+        );
         self.mark_dirty();
     }
 
@@ -1202,6 +1258,7 @@ impl Screen {
         self.scroll_region = None;
         self.origin_mode = false;
         self.primary_screen = Some(primary_screen);
+        self.graphics.enter_alternate(clear_alt);
         self.mark_dirty();
     }
 
@@ -1242,6 +1299,7 @@ impl Screen {
             self.saved_cursor = primary_screen.saved_cursor;
             self.scroll_region = primary_screen.scroll_region;
             self.origin_mode = primary_screen.origin_mode;
+            self.graphics.leave_alternate();
             self.mark_dirty();
         }
     }
@@ -1281,6 +1339,8 @@ impl Screen {
         self.current_attrs = Attrs::default();
         self.host_output.clear();
         self.last_graphic_char = None;
+        self.graphics.hard_reset();
+        self.dcs_capture = None;
         // RIS returns mouse reporting to its power-on (off) state. The title is
         // a persistent window property and is intentionally left untouched.
         self.mouse = MouseProtocol::default();
@@ -1431,13 +1491,67 @@ impl Screen {
             _ => {}
         }
     }
+
+    fn dispatch_dcs_hook(
+        &mut self,
+        params: &Params,
+        intermediates: &[u8],
+        ignore: bool,
+        action: char,
+    ) {
+        self.dcs_capture = None;
+        if ignore || !intermediates.is_empty() || action != 'q' {
+            return;
+        }
+
+        let mut body = serialize_dcs_params(params);
+        let p2 = dcs_param(params, 1);
+        body.push(action as u8);
+        let payload_start = body.len();
+        self.dcs_capture = Some(DcsCapture {
+            body,
+            payload_start,
+            p2,
+            overflowed: false,
+        });
+    }
+
+    fn dispatch_dcs_put(&mut self, byte: u8) {
+        let Some(capture) = self.dcs_capture.as_mut() else {
+            return;
+        };
+        if capture.body.len() < crate::graphics::placement::MAX_RAW_GRAPHICS_BYTES {
+            capture.body.push(byte);
+        } else {
+            capture.overflowed = true;
+        }
+    }
+
+    fn dispatch_dcs_unhook(&mut self) {
+        let Some(capture) = self.dcs_capture.take() else {
+            return;
+        };
+        if !capture.overflowed
+            && self
+                .graphics
+                .record_sixel_dcs(&capture.body, capture.payload_start, capture.p2)
+        {
+            self.mark_dirty();
+        }
+    }
+
+    fn dispatch_apc(&mut self, data: &[u8]) {
+        if self.graphics.record_kitty_apc(data) {
+            self.mark_dirty();
+        }
+    }
 }
 
 /// OdyTTY-owned seam: the [`OdyParser`](crate::parser::OdyParser) drives the core
 /// through this impl. Parameters already arrive as the owned [`Params`], so the
-/// callbacks forward straight to the shared `dispatch_*` logic. `hook`/`put`/
-/// `unhook` and `apc_dispatch` keep their no-op defaults until graphics
-/// protocols consume DCS/APC in later packets.
+/// callbacks forward straight to the shared `dispatch_*` logic. DCS/APC
+/// graphics payloads are recognized and handed to the graphics scene as raw
+/// bytes; protocol decoding remains in later graphics packets.
 impl VtDispatch for Screen {
     fn print(&mut self, c: char) {
         self.dispatch_print(c);
@@ -1457,6 +1571,22 @@ impl VtDispatch for Screen {
 
     fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
         self.dispatch_esc(intermediates, ignore, byte);
+    }
+
+    fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        self.dispatch_dcs_hook(params, intermediates, ignore, action);
+    }
+
+    fn put(&mut self, byte: u8) {
+        self.dispatch_dcs_put(byte);
+    }
+
+    fn unhook(&mut self) {
+        self.dispatch_dcs_unhook();
+    }
+
+    fn apc_dispatch(&mut self, data: &[u8]) {
+        self.dispatch_apc(data);
     }
 }
 pub struct Terminal {
@@ -1532,6 +1662,14 @@ impl Terminal {
         &self.screen
     }
 
+    pub fn graphics(&self) -> &ImageScene {
+        self.screen.graphics()
+    }
+
+    pub fn graphics_mut(&mut self) -> &mut ImageScene {
+        self.screen.graphics_mut()
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         self.screen.snapshot()
     }
@@ -1541,6 +1679,10 @@ impl Terminal {
     /// clamping, cursor, and alternate-screen policy.
     pub fn snapshot_with_scrollback(&self, offset_rows: usize) -> Snapshot {
         self.screen.snapshot_with_scrollback(offset_rows)
+    }
+
+    pub fn visible_graphics(&self, offset_rows: usize) -> Vec<VisiblePlacement> {
+        self.screen.visible_graphics(offset_rows)
     }
 
     /// Search the combined scrollback + visible buffer for `query`. See
@@ -1656,4 +1798,33 @@ fn parse_extended_color(codes: &[u16]) -> Option<(Color, usize)> {
         )),
         _ => None,
     }
+}
+
+fn serialize_dcs_params(params: &Params) -> Vec<u8> {
+    let groups: Vec<&[u16]> = params.iter().collect();
+    if groups.is_empty() || (groups.len() == 1 && groups[0] == [0]) {
+        return Vec::new();
+    }
+
+    let mut out = Vec::new();
+    for (group_index, group) in groups.iter().enumerate() {
+        if group_index > 0 {
+            out.push(b';');
+        }
+        for (sub_index, value) in group.iter().enumerate() {
+            if sub_index > 0 {
+                out.push(b':');
+            }
+            out.extend_from_slice(value.to_string().as_bytes());
+        }
+    }
+    out
+}
+
+fn dcs_param(params: &Params, index: usize) -> Option<u16> {
+    let groups: Vec<&[u16]> = params.iter().collect();
+    if groups.len() == 1 && groups[0] == [0] {
+        return None;
+    }
+    groups.get(index).and_then(|group| group.first()).copied()
 }

@@ -321,8 +321,17 @@ a floor; surpassing it is the standing ambition.
         + CJK-gated full-path + pixel_smoke seam-continuity / no-double-draw /
         narrow-neighbour checks. Color emoji (RGBA atlas) remains out of scope.
 - [x] Subpixel anti-aliasing behind a setting (R2 finding C).
-- [ ] Image/graphics protocol decision spike (Kitty graphics + Sixel) — sequenced
-      after the owned parser.
+- [x] Image/graphics protocol decision spike (Kitty graphics + Sixel) —
+      sequenced after the owned parser.
+- [x] G2.1 shared graphics scene: terminal-owned RGBA image store, bounded
+      memory/eviction, cell-anchored placement model, primary/alternate
+      isolation, scroll/clear/resize/reset hooks, visible-placement accessor,
+      and raw Kitty APC / Sixel DCS routing seam.
+- [ ] G2.2 Kitty direct still-image MVP: command parsing, chunk reassembly,
+      direct RGBA/PNG payloads, ids/placements/deletes/query replies, and
+      deterministic protocol fixtures.
+- [ ] SX1/G2.4 Sixel decoder and terminal integration: pure payload decoder
+      first, then shared-scene placement and cursor/scroll policy fixtures.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
 
 ## Archived First Prototype Checklist

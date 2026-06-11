@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Shared graphics scene and parser routing seam (G2.1)
+
+Builds the renderer-independent graphics foundation on top of the owned
+APC/DCS parser plumbing. This packet does not decode Kitty or Sixel payloads
+and does not touch the GPU; it gives later protocol and render packets a
+bounded store, a cell-anchored placement scene, and raw protocol handoff events.
+
+### What landed
+
+- **ImageStore.** `src/graphics/store.rs` stores normalized RGBA8 CPU images
+  behind OdyTTY-internal ids, enforces decoded-byte and image-count caps, and
+  evicts least-recently-used images when inserts exceed limits.
+- **Placement scene.** `src/graphics/placement.rs` tracks cell-anchored image
+  placements with source/display rectangles, pixel offsets, z-index,
+  generation, protocol, and primary/alternate buffer identity. Placements
+  scroll with terminal content and project into scrollback viewports.
+- **Terminal lifecycle hooks.** `Screen` now carries an `ImageScene` and updates
+  it for full/region scrolls, IL/DL, ED, RIS, resize, and alternate-screen
+  entry/exit. Existing text `Snapshot` users are unchanged; render packets can
+  call `visible_graphics(offset_rows)`.
+- **Raw protocol routing.** Kitty APC payloads beginning with `G` and Sixel
+  DCS `q` streams are recognized through `VtDispatch` and recorded as raw
+  graphics commands. The Sixel event keeps a canonical raw DCS body plus the
+  payload-start offset and P2 parameter for the SX1 decoder contract.
+
+### Verification
+
+- Focused graphics tests: store caps/eviction, raw APC/DCS routing, scrollback
+  projection, ED2 clear, alternate-screen isolation, and RIS cleanup.
+- Full-suite and smoke verification recorded in the packet completion report.
+
+---
+
 ## 2026-06-11 — HiDPI scale validation: headless tests + manual matrix (H3)
 
 Closes the carried-forward Stage 3 HiDPI validation item. 11 headless tests
