@@ -39,7 +39,7 @@ pub use search::{
     AbsolutePoint, SearchMatch, SearchOptions, SearchRow, find_next, find_prev, search_rows,
 };
 pub use types::{
-    Attrs, Cell, Color, CursorStyle, Dimensions, DirtyRegion, MouseButton, MouseEncoding,
-    MouseEventKind, MouseModifiers, MouseProtocol, MouseTracking, Position, Snapshot,
-    TerminalModel,
+    Attrs, Cell, Color, CursorStyle, Dimensions, DirtyRegion, KeyboardModes, MouseButton,
+    MouseEncoding, MouseEventKind, MouseModifiers, MouseProtocol, MouseTracking, Position,
+    Snapshot, TerminalModel,
 };

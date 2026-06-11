@@ -77,6 +77,17 @@ impl MouseProtocol {
         self.tracking != MouseTracking::Off
     }
 }
+/// Keyboard modes that affect the byte sequences a front end should send for
+/// cursor and keypad keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct KeyboardModes {
+    /// DECCKM (`CSI ? 1 h/l`): unmodified cursor keys use application SS3
+    /// forms while enabled.
+    pub application_cursor: bool,
+    /// DECKPAM/DECKPNM (`ESC =` / `ESC >`): keypad keys use application keypad
+    /// SS3 forms while enabled.
+    pub application_keypad: bool,
+}
 /// A mouse button (or wheel direction) for [`encode_mouse_event`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseButton {

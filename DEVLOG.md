@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-10 — Mode-aware TUI keyboard encoding (I1)
+
+I1 closes the routed T1 keyboard findings by making OdyTTY's key encoder aware
+of terminal-requested cursor/keypad modes and xterm-style named-key modifiers.
+
+### What landed
+
+- **Core keyboard mode state.** The terminal model now tracks DECCKM
+  application-cursor mode (`CSI ? 1 h/l`) and keypad application mode
+  (`ESC =` / `ESC >`) with public accessors. Both modes reset on RIS and
+  DECSTR.
+- **Mode-aware input encoder.** `input::encode_key` now accepts a small mode
+  context. Unmodified arrows/Home/End switch to SS3 forms under DECCKM, keypad
+  keys switch to application keypad SS3 forms under DECKPAM, and modified
+  arrows/Home/End/Delete/PageUp/PageDown use the xterm `CSI 1;<mod>` or
+  `CSI code;<mod>~` table.
+- **Native keypad identity.** The native layer preserves winit physical keypad
+  keys where available, so keypad application mode applies only to keys the
+  front end can actually distinguish. The headless interactive path remains raw
+  byte forwarding and has no symbolic key-encoding step.
+- **T1 finding flipped.** The PTY smoke harness now derives encoder modes from
+  live `Terminal::keyboard_modes()` state and asserts the corrected DECCKM,
+  keypad, and Ctrl-arrow byte sequences.
+
+### Validation
+
+- Focused encoder/core/native/PTY checks covered application cursor/keypad
+  state, RIS/DECSTR reset, modified named keys, native keypad mapping, and the
+  flipped T1 assertion.
+
+---
+
 ## 2026-06-10 — Parser edge-case hardening + differential fuzzers (PA2)
 
 Second Foundation-Ownership parser packet. Hardens the OdyTTY-owned VT parser's

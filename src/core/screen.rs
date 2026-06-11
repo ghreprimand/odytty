@@ -87,6 +87,8 @@ pub struct Screen {
     title_changed: bool,
     /// Active mouse reporting protocol (tracking mode + wire encoding).
     mouse: MouseProtocol,
+    /// Active keyboard reporting modes (DECCKM cursor keys and DECKPAM keypad).
+    keyboard: KeyboardModes,
     /// DECSET/DECRST 1004 focus reporting. When on, the front end emits
     /// `ESC [ I` / `ESC [ O` on focus in/out. Off at power-on; RIS resets it.
     focus_reporting: bool,
@@ -143,6 +145,7 @@ impl Screen {
             title: None,
             title_changed: false,
             mouse: MouseProtocol::default(),
+            keyboard: KeyboardModes::default(),
             focus_reporting: false,
             cursor_style: CursorStyle::default(),
             cursor_blink: true,
@@ -393,6 +396,11 @@ impl Screen {
     /// The active mouse reporting protocol (tracking mode + encoding).
     pub fn mouse_protocol(&self) -> MouseProtocol {
         self.mouse
+    }
+
+    /// Keyboard modes that affect front-end key encoding.
+    pub fn keyboard_modes(&self) -> KeyboardModes {
+        self.keyboard
     }
 
     /// Whether DECSET 1004 focus reporting is enabled. When true, a front end
@@ -1011,6 +1019,9 @@ impl Screen {
 
         for mode in private_mode_params(params) {
             match mode {
+                1 => {
+                    self.keyboard.application_cursor = action == 'h';
+                }
                 6 => {
                     // DECOM: toggling origin mode homes the cursor to the
                     // (region-relative when on, screen when off) origin.
@@ -1206,6 +1217,7 @@ impl Screen {
         // RIS returns mouse reporting to its power-on (off) state. The title is
         // a persistent window property and is intentionally left untouched.
         self.mouse = MouseProtocol::default();
+        self.keyboard = KeyboardModes::default();
         self.focus_reporting = false;
         // RIS returns the cursor shape/blink to the host default policy.
         self.cursor_style = self.default_cursor_style;
@@ -1229,6 +1241,7 @@ impl Screen {
         self.scroll_region = None;
         self.origin_mode = false;
         self.bracketed_paste = false;
+        self.keyboard = KeyboardModes::default();
         self.current_attrs = Attrs::default();
         self.host_output.clear();
         self.last_graphic_char = None;
@@ -1348,6 +1361,8 @@ impl Screen {
             b'M' => self.reverse_index(),
             b'c' => self.hard_reset(),
             b'H' => self.set_tab_stop(),
+            b'=' => self.keyboard.application_keypad = true,
+            b'>' => self.keyboard.application_keypad = false,
             _ => {}
         }
     }
@@ -1453,6 +1468,11 @@ impl Terminal {
     /// The active mouse reporting protocol (tracking mode + encoding).
     pub fn mouse_protocol(&self) -> MouseProtocol {
         self.screen.mouse_protocol()
+    }
+
+    /// Keyboard modes that affect front-end key encoding.
+    pub fn keyboard_modes(&self) -> KeyboardModes {
+        self.screen.keyboard_modes()
     }
 
     /// Whether DECSET 1004 focus reporting is enabled.

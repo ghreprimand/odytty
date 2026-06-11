@@ -7,8 +7,9 @@ use super::app::{
 };
 use super::bindings::{
     KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
-    is_copy_shortcut, is_paste_shortcut, is_scroll_down_key, is_scroll_up_key, map_named_key,
-    map_winit_mouse_button, motion_report_button, wheel_report_button,
+    is_copy_shortcut, is_paste_shortcut, is_scroll_down_key, is_scroll_up_key,
+    map_keypad_physical_key, map_named_key, map_winit_mouse_button, motion_report_button,
+    wheel_report_button,
 };
 use super::clipboard::{
     ClipboardSlot, encode_paste_chunks, flatten_chunks, selected_clipboard_text,
@@ -37,7 +38,7 @@ use crate::theme::{Theme, VisualEffect};
 use std::time::{Duration, Instant};
 use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{MouseButton as WinitMouseButton, MouseScrollDelta};
-use winit::keyboard::{Key as WinitKey, NamedKey};
+use winit::keyboard::{Key as WinitKey, KeyCode, NamedKey, PhysicalKey};
 
 fn snapshot(lines: &[&str], columns: usize) -> Snapshot {
     let rows = lines.len();
@@ -901,10 +902,29 @@ fn named_keys_map_to_neutral_model() {
 }
 
 #[test]
+fn keypad_physical_keys_map_to_neutral_model() {
+    assert_eq!(
+        map_keypad_physical_key(PhysicalKey::Code(KeyCode::Numpad1)),
+        Some(Key::KeypadDigit(1))
+    );
+    assert_eq!(
+        map_keypad_physical_key(PhysicalKey::Code(KeyCode::NumpadEnter)),
+        Some(Key::KeypadEnter)
+    );
+    assert_eq!(
+        map_keypad_physical_key(PhysicalKey::Code(KeyCode::Digit1)),
+        None
+    );
+}
+
+#[test]
 fn space_named_key_encodes_nul_under_ctrl() {
     // Full path: Space named key -> neutral Key -> shared encoder, with Ctrl.
     let key = map_named_key(NamedKey::Space, false).expect("space maps");
-    assert_eq!(input::encode_key(key, Modifiers::CTRL), vec![0]);
+    assert_eq!(
+        input::encode_key(key, Modifiers::CTRL, input::KeyModes::default()),
+        vec![0]
+    );
 }
 
 #[test]

@@ -14,10 +14,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
 use odytty::core::{
-    Dimensions, MouseButton, MouseEncoding, MouseEventKind, MouseModifiers, MouseProtocol,
-    MouseTracking, Terminal, encode_mouse_event,
+    Dimensions, KeyboardModes as CoreKeyboardModes, MouseButton, MouseEncoding, MouseEventKind,
+    MouseModifiers, MouseProtocol, MouseTracking, Terminal, encode_mouse_event,
 };
-use odytty::input::{self, Key, Modifiers};
+use odytty::input::{self, Key, KeyModes, Modifiers};
 use odytty::pty::{CommandBuilder, PtySession};
 
 const COLUMNS: usize = 80;
@@ -113,7 +113,11 @@ impl PtyHarness {
     }
 
     fn write_key(&mut self, key: Key, mods: Modifiers) -> Result<Vec<u8>> {
-        let bytes = input::encode_key(key, mods);
+        let bytes = input::encode_key(
+            key,
+            mods,
+            key_modes_from_core(self.terminal.keyboard_modes()),
+        );
         if bytes.is_empty() {
             bail!("key {key:?} with modifiers {mods:?} produced no PTY bytes");
         }
@@ -236,6 +240,13 @@ impl PtyHarness {
     fn captured_tail(&self) -> String {
         let start = self.captured.len().saturating_sub(512);
         String::from_utf8_lossy(&self.captured[start..]).into_owned()
+    }
+}
+
+fn key_modes_from_core(modes: CoreKeyboardModes) -> KeyModes {
+    KeyModes {
+        application_cursor: modes.application_cursor,
+        application_keypad: modes.application_keypad,
     }
 }
 
@@ -615,25 +626,19 @@ fn bash_readline_accepts_basic_navigation_and_delete_keys() -> Result<()> {
 fn keyboard_encoder_findings_for_application_modes_and_ctrl_arrows() {
     let mut terminal = Terminal::new(COLUMNS, ROWS);
     terminal.advance(b"\x1b[?1h\x1b=");
+    let modes = key_modes_from_core(terminal.keyboard_modes());
 
     assert_eq!(
-        input::encode_key(Key::Up, Modifiers::NONE),
-        b"\x1b[A",
-        "current encoder is stateless and does not switch to SS3 under DECCKM"
-    );
-    assert_ne!(
-        input::encode_key(Key::Up, Modifiers::NONE),
-        b"\x1bOA",
-        "DECCKM application-cursor bytes are a routed follow-up finding"
+        input::encode_key(Key::Up, Modifiers::NONE, modes),
+        b"\x1bOA"
     );
     assert_eq!(
-        input::encode_key(Key::Right, Modifiers::CTRL),
-        b"\x1b[C",
-        "current encoder drops Ctrl on named keys"
-    );
-    assert_ne!(
-        input::encode_key(Key::Right, Modifiers::CTRL),
+        input::encode_key(Key::Right, Modifiers::CTRL, modes),
         b"\x1b[1;5C",
-        "xterm-style Ctrl-arrow modifier bytes are a routed follow-up finding"
+        "xterm-style modifiers take precedence over unmodified SS3 cursor forms"
+    );
+    assert_eq!(
+        input::encode_key(Key::KeypadDigit(1), Modifiers::NONE, modes),
+        b"\x1bOq"
     );
 }

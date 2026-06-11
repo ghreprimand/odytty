@@ -10,7 +10,7 @@ use crate::settings::{
 };
 
 use winit::event::{MouseButton as WinitMouseButton, MouseScrollDelta};
-use winit::keyboard::{Key as WinitKey, NamedKey};
+use winit::keyboard::{Key as WinitKey, KeyCode, NamedKey, PhysicalKey};
 
 use super::viewport::wheel_lines;
 
@@ -279,6 +279,31 @@ pub(super) fn map_named_key(named: NamedKey, shift: bool) -> Option<Key> {
         NamedKey::Insert => Key::Insert,
         NamedKey::Escape => Key::Esc,
         NamedKey::Space => Key::Char(' '),
+        _ => return None,
+    })
+}
+
+/// Translate a `winit` physical key into the neutral keypad identities that
+/// logical keys cannot preserve. Returns `None` for non-keypad keys so callers
+/// can fall back to logical-key mapping.
+pub(super) fn map_keypad_physical_key(physical: PhysicalKey) -> Option<Key> {
+    Some(match physical {
+        PhysicalKey::Code(KeyCode::Numpad0) => Key::KeypadDigit(0),
+        PhysicalKey::Code(KeyCode::Numpad1) => Key::KeypadDigit(1),
+        PhysicalKey::Code(KeyCode::Numpad2) => Key::KeypadDigit(2),
+        PhysicalKey::Code(KeyCode::Numpad3) => Key::KeypadDigit(3),
+        PhysicalKey::Code(KeyCode::Numpad4) => Key::KeypadDigit(4),
+        PhysicalKey::Code(KeyCode::Numpad5) => Key::KeypadDigit(5),
+        PhysicalKey::Code(KeyCode::Numpad6) => Key::KeypadDigit(6),
+        PhysicalKey::Code(KeyCode::Numpad7) => Key::KeypadDigit(7),
+        PhysicalKey::Code(KeyCode::Numpad8) => Key::KeypadDigit(8),
+        PhysicalKey::Code(KeyCode::Numpad9) => Key::KeypadDigit(9),
+        PhysicalKey::Code(KeyCode::NumpadDecimal) => Key::KeypadDecimal,
+        PhysicalKey::Code(KeyCode::NumpadAdd) => Key::KeypadAdd,
+        PhysicalKey::Code(KeyCode::NumpadSubtract) => Key::KeypadSubtract,
+        PhysicalKey::Code(KeyCode::NumpadMultiply) => Key::KeypadMultiply,
+        PhysicalKey::Code(KeyCode::NumpadDivide) => Key::KeypadDivide,
+        PhysicalKey::Code(KeyCode::NumpadEnter) => Key::KeypadEnter,
         _ => return None,
     })
 }

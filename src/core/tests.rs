@@ -269,6 +269,43 @@ fn tracks_bracketed_paste_mode() {
 }
 
 #[test]
+fn tracks_keyboard_application_modes() {
+    let mut terminal = Terminal::new(8, 2);
+
+    assert_eq!(terminal.keyboard_modes(), KeyboardModes::default());
+
+    terminal.advance(b"\x1b[?1h");
+    assert_eq!(
+        terminal.keyboard_modes(),
+        KeyboardModes {
+            application_cursor: true,
+            application_keypad: false,
+        }
+    );
+
+    terminal.advance(b"\x1b=");
+    assert_eq!(
+        terminal.keyboard_modes(),
+        KeyboardModes {
+            application_cursor: true,
+            application_keypad: true,
+        }
+    );
+
+    terminal.advance(b"\x1b[?1l");
+    assert_eq!(
+        terminal.keyboard_modes(),
+        KeyboardModes {
+            application_cursor: false,
+            application_keypad: true,
+        }
+    );
+
+    terminal.advance(b"\x1b>");
+    assert_eq!(terminal.keyboard_modes(), KeyboardModes::default());
+}
+
+#[test]
 fn applies_multiple_dec_private_modes_in_one_sequence() {
     let mut terminal = Terminal::new(8, 2);
 
@@ -1544,6 +1581,7 @@ fn hard_reset_restores_power_on_state() {
     // saved cursor, attrs, bracketed paste, hidden cursor, pending DA reply.
     terminal.advance(b"a\r\nb\r\nc\r\nd"); // forces a scrollback line
     terminal.advance(b"\x1b[?2004h"); // bracketed paste on
+    terminal.advance(b"\x1b[?1h\x1b="); // keyboard application modes on
     terminal.advance(b"\x1b[?25l"); // cursor hidden
     terminal.advance(b"\x1b[2;3r"); // scroll region
     terminal.advance(b"\x1b7"); // save cursor
@@ -1557,6 +1595,7 @@ fn hard_reset_restores_power_on_state() {
     assert_eq!(terminal.screen().scrollback_len(), 0);
     assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
     assert!(!terminal.bracketed_paste_enabled());
+    assert_eq!(terminal.keyboard_modes(), KeyboardModes::default());
     assert!(terminal.take_host_output().is_empty());
 
     // Power-on attrs: text printed after RIS carries default attributes.
@@ -1581,6 +1620,7 @@ fn soft_reset_keeps_cells_but_resets_modes() {
     terminal.advance(b"old\r\nkeep\r\ntwo\r\nthree"); // visible content + scrollback
     assert_eq!(terminal.screen().scrollback_len(), 1);
     terminal.advance(b"\x1b[?2004h"); // bracketed paste on
+    terminal.advance(b"\x1b[?1h\x1b="); // keyboard application modes on
     terminal.advance(b"\x1b[?25l"); // cursor hidden
     terminal.advance(b"\x1b[2;3r"); // scroll region
     terminal.advance(b"\x1b7"); // save cursor
@@ -1594,6 +1634,7 @@ fn soft_reset_keeps_cells_but_resets_modes() {
 
     // Modes reset.
     assert!(!terminal.bracketed_paste_enabled());
+    assert_eq!(terminal.keyboard_modes(), KeyboardModes::default());
     assert!(terminal.snapshot().cursor_visible);
     assert!(terminal.take_host_output().is_empty());
 

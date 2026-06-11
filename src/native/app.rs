@@ -3,10 +3,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::core::{
-    Color, Dimensions, MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol, Snapshot,
-    Terminal,
+    Color, Dimensions, KeyboardModes as CoreKeyboardModes, MouseButton as CoreMouseButton,
+    MouseEventKind, MouseProtocol, Snapshot, Terminal,
 };
-use crate::input::{self, Key, Modifiers};
+use crate::input::{self, Key, KeyModes, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker};
 use crate::settings::BindableAction;
@@ -17,13 +17,14 @@ use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
-use winit::keyboard::Key as WinitKey;
 use winit::keyboard::NamedKey;
+use winit::keyboard::{Key as WinitKey, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 use super::bindings::{
     KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
-    map_named_key, map_winit_mouse_button, motion_report_button, wheel_report_button,
+    map_keypad_physical_key, map_named_key, map_winit_mouse_button, motion_report_button,
+    wheel_report_button,
 };
 use super::clipboard::{NativeClipboard, selected_clipboard_text, write_paste_text};
 use super::gpu::{FrameOutcome, GpuState};
@@ -396,8 +397,9 @@ impl App {
     /// [`input::encode_key`]. Keys the prototype does not encode are dropped. The
     /// PTY writer is flushed after each write so the keystroke reaches the shell
     /// without buffering latency.
-    fn handle_key_press(&mut self, logical: WinitKey) {
+    fn handle_key_press(&mut self, logical: WinitKey, physical: PhysicalKey) {
         let mods = self.modifiers;
+        let key_modes = self.key_modes();
         let action = self.key_bindings.action_for(&logical, mods, self.super_key);
         if action == Some(BindableAction::Search) {
             self.toggle_search();
@@ -428,21 +430,25 @@ impl App {
         }
 
         let mut bytes = Vec::new();
-        match logical {
-            // `Key::Character` may carry more than one char (composed input);
-            // encode each so multi-char text still reaches the shell intact.
-            WinitKey::Character(text) => {
-                for ch in text.chars() {
-                    bytes.extend_from_slice(&input::encode_key(Key::Char(ch), mods));
+        if let Some(key) = map_keypad_physical_key(physical) {
+            bytes = input::encode_key(key, mods, key_modes);
+        } else {
+            match logical {
+                // `Key::Character` may carry more than one char (composed input);
+                // encode each so multi-char text still reaches the shell intact.
+                WinitKey::Character(text) => {
+                    for ch in text.chars() {
+                        bytes.extend_from_slice(&input::encode_key(Key::Char(ch), mods, key_modes));
+                    }
                 }
-            }
-            WinitKey::Named(named) => {
-                if let Some(key) = map_named_key(named, mods.shift) {
-                    bytes = input::encode_key(key, mods);
+                WinitKey::Named(named) => {
+                    if let Some(key) = map_named_key(named, mods.shift) {
+                        bytes = input::encode_key(key, mods, key_modes);
+                    }
                 }
+                // Dead keys / unidentified: nothing to send.
+                _ => {}
             }
-            // Dead keys / unidentified: nothing to send.
-            _ => {}
         }
 
         if bytes.is_empty() {
@@ -455,6 +461,13 @@ impl App {
             let _ = writer.write_all(&bytes);
             let _ = writer.flush();
         }
+    }
+
+    fn key_modes(&self) -> KeyModes {
+        self.terminal
+            .lock()
+            .map(|terminal| key_modes_from_core(terminal.keyboard_modes()))
+            .unwrap_or_default()
     }
 
     fn toggle_search(&mut self) {
@@ -868,6 +881,13 @@ impl App {
     }
 }
 
+fn key_modes_from_core(modes: CoreKeyboardModes) -> KeyModes {
+    KeyModes {
+        application_cursor: modes.application_cursor,
+        application_keypad: modes.application_keypad,
+    }
+}
+
 impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -1121,7 +1141,7 @@ impl ApplicationHandler<UserEvent> for App {
             // Only act on key-down (ignore key-up). Repeats are kept: holding a
             // key should autorepeat into the shell like a real terminal.
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
-                self.handle_key_press(event.logical_key);
+                self.handle_key_press(event.logical_key, event.physical_key);
             }
             _ => {}
         }

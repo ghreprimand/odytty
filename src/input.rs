@@ -7,8 +7,8 @@
 //! deliberately free of windowing and GPU dependencies.
 //!
 //! The byte sequences match the common DEC/xterm conventions a PTY shell
-//! expects: `\r` for Enter, `0x7f` for Backspace, `ESC [ A..D` for arrows,
-//! control bytes for Ctrl-letter, and an `ESC` prefix for Alt-modified keys.
+//! expects: `\r` for Enter, `0x7f` for Backspace, DEC/xterm cursor-key forms,
+//! control bytes for Ctrl-letter, and xterm modifier encodings for named keys.
 //! Quit/close affordances are intentionally *not* modeled here — those are an
 //! interactive-front-end concern (e.g. the headless debug mode's Ctrl-Q); the
 //! encoder only ever produces the bytes a real terminal would send.
@@ -39,6 +39,15 @@ pub enum Key {
     Delete,
     Insert,
     Esc,
+    /// Numeric keypad digit, distinguishable only when the front end exposes a
+    /// physical keypad key.
+    KeypadDigit(u8),
+    KeypadDecimal,
+    KeypadAdd,
+    KeypadSubtract,
+    KeypadMultiply,
+    KeypadDivide,
+    KeypadEnter,
 }
 
 /// Active modifier keys at the time of the press.
@@ -76,31 +85,48 @@ impl Modifiers {
     };
 }
 
+/// Terminal modes that affect keyboard encoding.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct KeyModes {
+    /// DECCKM: cursor keys use application SS3 forms when no xterm modifiers are
+    /// present.
+    pub application_cursor: bool,
+    /// DECKPAM/DECKPNM: keypad keys use application keypad SS3 forms.
+    pub application_keypad: bool,
+}
+
 /// Encode a key press into the bytes to write to the PTY.
 ///
 /// Returns an empty vector when the key produces no output (e.g. a bare
 /// Ctrl with a character that has no control mapping); callers should treat an
-/// empty result as "ignore". An Alt modifier prefixes the sequence with `ESC`,
-/// matching xterm's meta-sends-escape convention. Ctrl applies only to
-/// [`Key::Char`] (turning a letter into its control byte); named keys ignore
-/// Ctrl here.
-pub fn encode_key(key: Key, mods: Modifiers) -> Vec<u8> {
+/// empty result as "ignore". Alt prefixes printable characters with `ESC`,
+/// matching xterm's meta-sends-escape convention; named keys carry Alt through
+/// the xterm modifier table instead. Ctrl turns [`Key::Char`] letters into
+/// control bytes and named keys into modified CSI forms.
+pub fn encode_key(key: Key, mods: Modifiers, modes: KeyModes) -> Vec<u8> {
     let mut bytes = match key {
         Key::Backspace => vec![0x7f],
         Key::Enter => b"\r".to_vec(),
-        Key::Left => b"\x1b[D".to_vec(),
-        Key::Right => b"\x1b[C".to_vec(),
-        Key::Up => b"\x1b[A".to_vec(),
-        Key::Down => b"\x1b[B".to_vec(),
-        Key::Home => b"\x1b[H".to_vec(),
-        Key::End => b"\x1b[F".to_vec(),
-        Key::PageUp => b"\x1b[5~".to_vec(),
-        Key::PageDown => b"\x1b[6~".to_vec(),
+        Key::Left => encode_cursor_key(b'D', mods, modes),
+        Key::Right => encode_cursor_key(b'C', mods, modes),
+        Key::Up => encode_cursor_key(b'A', mods, modes),
+        Key::Down => encode_cursor_key(b'B', mods, modes),
+        Key::Home => encode_cursor_key(b'H', mods, modes),
+        Key::End => encode_cursor_key(b'F', mods, modes),
+        Key::PageUp => encode_tilde_key(5, mods),
+        Key::PageDown => encode_tilde_key(6, mods),
         Key::Tab => b"\t".to_vec(),
         Key::BackTab => b"\x1b[Z".to_vec(),
-        Key::Delete => b"\x1b[3~".to_vec(),
-        Key::Insert => b"\x1b[2~".to_vec(),
+        Key::Delete => encode_tilde_key(3, mods),
+        Key::Insert => encode_tilde_key(2, mods),
         Key::Esc => b"\x1b".to_vec(),
+        Key::KeypadDigit(digit) => encode_keypad_digit(digit, modes),
+        Key::KeypadDecimal => encode_keypad(b".", b"n", modes),
+        Key::KeypadAdd => encode_keypad(b"+", b"k", modes),
+        Key::KeypadSubtract => encode_keypad(b"-", b"m", modes),
+        Key::KeypadMultiply => encode_keypad(b"*", b"j", modes),
+        Key::KeypadDivide => encode_keypad(b"/", b"o", modes),
+        Key::KeypadEnter => encode_keypad(b"\r", b"M", modes),
         Key::Char(ch) if mods.ctrl => ctrl_char(ch).map_or_else(Vec::new, |byte| vec![byte]),
         Key::Char(ch) => ch.to_string().into_bytes(),
     };
@@ -109,11 +135,61 @@ pub fn encode_key(key: Key, mods: Modifiers) -> Vec<u8> {
         return bytes;
     }
 
-    if mods.alt {
+    if mods.alt && matches!(key, Key::Char(_)) {
         bytes.insert(0, b'\x1b');
     }
 
     bytes
+}
+
+fn encode_cursor_key(final_byte: u8, mods: Modifiers, modes: KeyModes) -> Vec<u8> {
+    if let Some(modifier) = xterm_modifier(mods) {
+        format!("\x1b[1;{}{}", modifier, final_byte as char).into_bytes()
+    } else if modes.application_cursor {
+        vec![b'\x1b', b'O', final_byte]
+    } else {
+        vec![b'\x1b', b'[', final_byte]
+    }
+}
+
+fn encode_tilde_key(code: u8, mods: Modifiers) -> Vec<u8> {
+    if let Some(modifier) = xterm_modifier(mods) {
+        format!("\x1b[{};{}~", code, modifier).into_bytes()
+    } else {
+        format!("\x1b[{}~", code).into_bytes()
+    }
+}
+
+fn xterm_modifier(mods: Modifiers) -> Option<u8> {
+    let mut modifier = 1;
+    if mods.shift {
+        modifier += 1;
+    }
+    if mods.alt {
+        modifier += 2;
+    }
+    if mods.ctrl {
+        modifier += 4;
+    }
+
+    (modifier != 1).then_some(modifier)
+}
+
+fn encode_keypad_digit(digit: u8, modes: KeyModes) -> Vec<u8> {
+    if digit > 9 {
+        return Vec::new();
+    }
+    encode_keypad(&[b'0' + digit], &[b'p' + digit], modes)
+}
+
+fn encode_keypad(normal: &[u8], application_final: &[u8], modes: KeyModes) -> Vec<u8> {
+    if modes.application_keypad {
+        let mut bytes = b"\x1bO".to_vec();
+        bytes.extend_from_slice(application_final);
+        bytes
+    } else {
+        normal.to_vec()
+    }
 }
 
 /// Map a character to its ASCII control byte, if one exists.
@@ -177,49 +253,224 @@ mod tests {
 
     #[test]
     fn encodes_printable_chars() {
-        assert_eq!(encode_key(Key::Char('a'), Modifiers::NONE), b"a");
-        assert_eq!(encode_key(Key::Char('Z'), Modifiers::NONE), b"Z");
-        assert_eq!(encode_key(Key::Char('@'), Modifiers::NONE), b"@");
+        assert_eq!(
+            encode_key(Key::Char('a'), Modifiers::NONE, KeyModes::default()),
+            b"a"
+        );
+        assert_eq!(
+            encode_key(Key::Char('Z'), Modifiers::NONE, KeyModes::default()),
+            b"Z"
+        );
+        assert_eq!(
+            encode_key(Key::Char('@'), Modifiers::NONE, KeyModes::default()),
+            b"@"
+        );
     }
 
     #[test]
     fn encodes_enter_and_backspace() {
-        assert_eq!(encode_key(Key::Enter, Modifiers::NONE), b"\r");
-        assert_eq!(encode_key(Key::Backspace, Modifiers::NONE), vec![0x7f]);
+        assert_eq!(
+            encode_key(Key::Enter, Modifiers::NONE, KeyModes::default()),
+            b"\r"
+        );
+        assert_eq!(
+            encode_key(Key::Backspace, Modifiers::NONE, KeyModes::default()),
+            vec![0x7f]
+        );
     }
 
     #[test]
     fn encodes_arrows_and_named_keys() {
-        assert_eq!(encode_key(Key::Up, Modifiers::NONE), b"\x1b[A");
-        assert_eq!(encode_key(Key::Down, Modifiers::NONE), b"\x1b[B");
-        assert_eq!(encode_key(Key::Right, Modifiers::NONE), b"\x1b[C");
-        assert_eq!(encode_key(Key::Left, Modifiers::NONE), b"\x1b[D");
-        assert_eq!(encode_key(Key::Home, Modifiers::NONE), b"\x1b[H");
-        assert_eq!(encode_key(Key::End, Modifiers::NONE), b"\x1b[F");
-        assert_eq!(encode_key(Key::Delete, Modifiers::NONE), b"\x1b[3~");
-        assert_eq!(encode_key(Key::BackTab, Modifiers::NONE), b"\x1b[Z");
+        assert_eq!(
+            encode_key(Key::Up, Modifiers::NONE, KeyModes::default()),
+            b"\x1b[A"
+        );
+        assert_eq!(
+            encode_key(Key::Down, Modifiers::NONE, KeyModes::default()),
+            b"\x1b[B"
+        );
+        assert_eq!(
+            encode_key(Key::Right, Modifiers::NONE, KeyModes::default()),
+            b"\x1b[C"
+        );
+        assert_eq!(
+            encode_key(Key::Left, Modifiers::NONE, KeyModes::default()),
+            b"\x1b[D"
+        );
+        assert_eq!(
+            encode_key(Key::Home, Modifiers::NONE, KeyModes::default()),
+            b"\x1b[H"
+        );
+        assert_eq!(
+            encode_key(Key::End, Modifiers::NONE, KeyModes::default()),
+            b"\x1b[F"
+        );
+        assert_eq!(
+            encode_key(Key::Delete, Modifiers::NONE, KeyModes::default()),
+            b"\x1b[3~"
+        );
+        assert_eq!(
+            encode_key(Key::BackTab, Modifiers::NONE, KeyModes::default()),
+            b"\x1b[Z"
+        );
     }
 
     #[test]
     fn encodes_control_letters() {
         // Ctrl-C -> 0x03, Ctrl-D -> 0x04.
-        assert_eq!(encode_key(Key::Char('c'), Modifiers::CTRL), vec![3]);
-        assert_eq!(encode_key(Key::Char('d'), Modifiers::CTRL), vec![4]);
+        assert_eq!(
+            encode_key(Key::Char('c'), Modifiers::CTRL, KeyModes::default()),
+            vec![3]
+        );
+        assert_eq!(
+            encode_key(Key::Char('d'), Modifiers::CTRL, KeyModes::default()),
+            vec![4]
+        );
         // Case-insensitive.
-        assert_eq!(encode_key(Key::Char('C'), Modifiers::CTRL), vec![3]);
+        assert_eq!(
+            encode_key(Key::Char('C'), Modifiers::CTRL, KeyModes::default()),
+            vec![3]
+        );
     }
 
     #[test]
     fn ctrl_without_mapping_is_ignored() {
         // A digit has no control byte; encode produces nothing (ignore).
-        assert!(encode_key(Key::Char('1'), Modifiers::CTRL).is_empty());
+        assert!(encode_key(Key::Char('1'), Modifiers::CTRL, KeyModes::default()).is_empty());
     }
 
     #[test]
     fn alt_prefixes_escape() {
-        assert_eq!(encode_key(Key::Char('b'), Modifiers::ALT), b"\x1bb");
-        // Alt also prefixes named-key sequences.
-        assert_eq!(encode_key(Key::Left, Modifiers::ALT), b"\x1b\x1b[D");
+        assert_eq!(
+            encode_key(Key::Char('b'), Modifiers::ALT, KeyModes::default()),
+            b"\x1bb"
+        );
+        assert_eq!(
+            encode_key(Key::Left, Modifiers::ALT, KeyModes::default()),
+            b"\x1b[1;3D"
+        );
+    }
+
+    #[test]
+    fn application_cursor_mode_uses_ss3_for_unmodified_cursor_keys() {
+        let modes = KeyModes {
+            application_cursor: true,
+            application_keypad: false,
+        };
+
+        assert_eq!(encode_key(Key::Up, Modifiers::NONE, modes), b"\x1bOA");
+        assert_eq!(encode_key(Key::Down, Modifiers::NONE, modes), b"\x1bOB");
+        assert_eq!(encode_key(Key::Right, Modifiers::NONE, modes), b"\x1bOC");
+        assert_eq!(encode_key(Key::Left, Modifiers::NONE, modes), b"\x1bOD");
+        assert_eq!(encode_key(Key::Home, Modifiers::NONE, modes), b"\x1bOH");
+        assert_eq!(encode_key(Key::End, Modifiers::NONE, modes), b"\x1bOF");
+    }
+
+    #[test]
+    fn modified_named_keys_use_xterm_modifier_table() {
+        assert_eq!(
+            encode_key(Key::Right, Modifiers::CTRL, KeyModes::default()),
+            b"\x1b[1;5C"
+        );
+        assert_eq!(
+            encode_key(
+                Key::Left,
+                Modifiers {
+                    shift: true,
+                    alt: true,
+                    ctrl: true,
+                },
+                KeyModes::default()
+            ),
+            b"\x1b[1;8D"
+        );
+        assert_eq!(
+            encode_key(
+                Key::Delete,
+                Modifiers {
+                    shift: true,
+                    alt: false,
+                    ctrl: true,
+                },
+                KeyModes::default()
+            ),
+            b"\x1b[3;6~"
+        );
+        assert_eq!(
+            encode_key(
+                Key::PageDown,
+                Modifiers {
+                    shift: false,
+                    alt: true,
+                    ctrl: true,
+                },
+                KeyModes::default()
+            ),
+            b"\x1b[6;7~"
+        );
+    }
+
+    #[test]
+    fn application_keypad_mode_uses_ss3_keypad_forms() {
+        let modes = KeyModes {
+            application_cursor: false,
+            application_keypad: true,
+        };
+
+        assert_eq!(
+            encode_key(Key::KeypadDigit(0), Modifiers::NONE, modes),
+            b"\x1bOp"
+        );
+        assert_eq!(
+            encode_key(Key::KeypadDigit(9), Modifiers::NONE, modes),
+            b"\x1bOy"
+        );
+        assert_eq!(
+            encode_key(Key::KeypadDecimal, Modifiers::NONE, modes),
+            b"\x1bOn"
+        );
+        assert_eq!(
+            encode_key(Key::KeypadAdd, Modifiers::NONE, modes),
+            b"\x1bOk"
+        );
+        assert_eq!(
+            encode_key(Key::KeypadSubtract, Modifiers::NONE, modes),
+            b"\x1bOm"
+        );
+        assert_eq!(
+            encode_key(Key::KeypadMultiply, Modifiers::NONE, modes),
+            b"\x1bOj"
+        );
+        assert_eq!(
+            encode_key(Key::KeypadDivide, Modifiers::NONE, modes),
+            b"\x1bOo"
+        );
+        assert_eq!(
+            encode_key(Key::KeypadEnter, Modifiers::NONE, modes),
+            b"\x1bOM"
+        );
+    }
+
+    #[test]
+    fn normal_keypad_mode_sends_numeric_payloads() {
+        let modes = KeyModes::default();
+
+        assert_eq!(
+            encode_key(Key::KeypadDigit(2), Modifiers::NONE, modes),
+            b"2"
+        );
+        assert_eq!(encode_key(Key::KeypadDecimal, Modifiers::NONE, modes), b".");
+        assert_eq!(encode_key(Key::KeypadAdd, Modifiers::NONE, modes), b"+");
+        assert_eq!(
+            encode_key(Key::KeypadSubtract, Modifiers::NONE, modes),
+            b"-"
+        );
+        assert_eq!(
+            encode_key(Key::KeypadMultiply, Modifiers::NONE, modes),
+            b"*"
+        );
+        assert_eq!(encode_key(Key::KeypadDivide, Modifiers::NONE, modes), b"/");
+        assert_eq!(encode_key(Key::KeypadEnter, Modifiers::NONE, modes), b"\r");
     }
 
     #[test]
