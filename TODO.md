@@ -97,10 +97,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         RIS/DECSTR inside alt, resize + primary reflow, modal-state persistence).
   - [x] A1: PTY smoke for nano, htop, and git-log-pager alt-screen restore.
   - [x] A1: modes 47/1047/1048 now handled (previously silently ignored).
-  - [ ] Refine 47/1047 semantics to match xterm: no cursor save on 47, clear-on-
-        leave for 1047 (low impact — 1049 is dominant; finding F2).
-  - [ ] Save/restore `cursor_visible` and `current_attrs` in StoredScreen
-        (findings F3/F4).
+  - [x] A2-F2: distinct 47/1047/1049 semantics per xterm ctlseqs — parameterized
+        enter/leave, 1049 dispatches DECSC/DECRC, 47/1047 no cursor save/restore.
+  - [x] A2-F3: `cursor_visible` saved/restored in StoredScreen.
+  - [x] A2-F4: `current_attrs` saved/restored in StoredScreen.
+  - [x] A2: 11 new fixtures pinning per-mode cursor, cursor_visible, and attrs.
 - [ ] Improve Unicode, wide-character, combining-mark, and ambiguous-width
       handling.
   - [x] Core: wide-cell write/erase coherence — overwrite-half clears the pair,

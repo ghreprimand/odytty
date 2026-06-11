@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Alt-screen findings follow-up (A2)
+
+Fixes the three core findings routed from the A1 hardening packet:
+distinct per-mode semantics for modes 47/1047/1049, and save/restore of
+`cursor_visible` and `current_attrs` through alt-screen transitions.
+
+### What landed
+
+- **F2: Distinct 47/1047/1049 semantics.** `enter_alternate_screen` and
+  `leave_alternate_screen` now accept flags that express the per-mode
+  differences from xterm ctlseqs: mode 1049 saves cursor (DECSC) + clears +
+  homes on enter, restores cursor (DECRC) on leave; modes 47/1047 do NOT
+  save/restore cursor and do NOT clear or home on enter. Mode 1049's set
+  dispatches DECSC before entering, and reset dispatches DECRC after leaving,
+  making it the 1048+1047 combo described in the spec.
+- **F3: `cursor_visible` in StoredScreen.** Primary's cursor visibility is
+  saved on alt-enter and restored on alt-leave, so hiding the cursor on
+  primary before entering alt works correctly.
+- **F4: `current_attrs` in StoredScreen.** Primary's SGR attributes are saved
+  on alt-enter and restored on alt-leave, preventing attrs set in alt from
+  leaking into post-alt primary output.
+- **11 new fixtures** pinning per-mode cursor behavior (47/1047 don't
+  home/restore cursor), cursor_visible save/restore (three tests), and
+  current_attrs save/restore (three tests), plus one test confirming 1049's
+  DECSC-on-enter behavior.
+
+### Validation
+
+- `cargo test`: 502 lib tests, 11 pixel smoke, 9 PTY alt-screen, 10
+  transcript smoke — all green.
+- `cargo fmt --check` clean on all touched files.
+- Native smoke (`ODYTTY_NATIVE_AUTOCLOSE_MS=800`): exits 0.
+- All files under 2000 lines.
+
+---
+
 ## 2026-06-11 — Alternate-screen hardening (A1)
 
 Adds the mode-matrix fixtures and PTY smoke coverage that the carried-forward

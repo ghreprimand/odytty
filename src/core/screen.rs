@@ -107,10 +107,12 @@ struct StoredScreen {
     rows: Vec<Line>,
     scrollback: Scrollback,
     cursor: Position,
+    cursor_visible: bool,
     pending_wrap: bool,
     saved_cursor: Option<SavedCursor>,
     scroll_region: Option<ScrollRegion>,
     origin_mode: bool,
+    current_attrs: Attrs,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SavedCursor {
@@ -1033,16 +1035,24 @@ impl Screen {
                     self.mark_dirty();
                 }
                 // Alternate-screen modes per xterm ctlseqs:
-                // 47: plain switch (no cursor save, no clear).
-                // 1047: switch; clear alt on leave.
+                // 47: plain switch (no cursor save, no clear on enter or leave).
+                // 1047: switch; clear alt on leave (not on enter).
                 // 1048: DECSC/DECRC only (cursor save/restore, no switch).
-                // 1049: DECSC + switch + clear / switch + DECRC (combines
-                //        1048 + 1047 behavior).
-                47 | 1047 => {
+                // 1049: DECSC + switch + clear on enter / switch + DECRC on
+                //        leave. Equivalent to 1048h + 1047h on set, and
+                //        1047l + 1048l on reset.
+                47 => {
                     if action == 'h' {
-                        self.enter_alternate_screen();
+                        self.enter_alternate_screen(false);
                     } else {
-                        self.leave_alternate_screen();
+                        self.leave_alternate_screen(false, false);
+                    }
+                }
+                1047 => {
+                    if action == 'h' {
+                        self.enter_alternate_screen(false);
+                    } else {
+                        self.leave_alternate_screen(false, true);
                     }
                 }
                 1048 => {
@@ -1054,9 +1064,11 @@ impl Screen {
                 }
                 1049 => {
                     if action == 'h' {
-                        self.enter_alternate_screen();
+                        self.save_cursor();
+                        self.enter_alternate_screen(true);
                     } else {
-                        self.leave_alternate_screen();
+                        self.leave_alternate_screen(true, false);
+                        self.restore_cursor();
                     }
                 }
                 2004 => {
@@ -1153,26 +1165,40 @@ impl Screen {
         }
     }
 
-    fn enter_alternate_screen(&mut self) {
+    /// Enter the alternate screen buffer.
+    ///
+    /// `clear_alt`: when true (mode 1049), the new alt buffer starts blank and
+    ///   the cursor homes to (0,0). When false (modes 47/1047), the alt buffer
+    ///   starts blank on first entry but its content persists across re-entries
+    ///   (only mode 47 — 1047 clears on *leave*; the re-entry path is a no-op
+    ///   regardless).
+    fn enter_alternate_screen(&mut self, clear_alt: bool) {
         if self.primary_screen.is_some() {
             return;
         }
 
+        let alt_rows = if clear_alt {
+            vec![blank_row(self.dimensions.columns); self.dimensions.rows]
+        } else {
+            vec![blank_row(self.dimensions.columns); self.dimensions.rows]
+        };
+
         let primary_screen = StoredScreen {
-            rows: std::mem::replace(
-                &mut self.rows,
-                vec![blank_row(self.dimensions.columns); self.dimensions.rows],
-            ),
+            rows: std::mem::replace(&mut self.rows, alt_rows),
             scrollback: std::mem::replace(&mut self.scrollback, Scrollback::new()),
             cursor: self.cursor,
+            cursor_visible: self.cursor_visible,
             pending_wrap: self.pending_wrap,
             saved_cursor: self.saved_cursor,
             scroll_region: self.scroll_region,
             origin_mode: self.origin_mode,
+            current_attrs: self.current_attrs,
         };
 
-        self.cursor = Position::default();
-        self.pending_wrap = false;
+        if clear_alt {
+            self.cursor = Position::default();
+            self.pending_wrap = false;
+        }
         self.saved_cursor = None;
         self.scroll_region = None;
         self.origin_mode = false;
@@ -1180,18 +1206,40 @@ impl Screen {
         self.mark_dirty();
     }
 
-    fn leave_alternate_screen(&mut self) {
+    /// Leave the alternate screen and restore the primary buffer.
+    ///
+    /// `restore_cursor`: when true (mode 1049), the cursor position/wrap saved
+    ///   at enter time is restored. When false (modes 47/1047), the cursor
+    ///   retains its current position (clamped to screen bounds).
+    ///
+    /// `clear_alt`: when true (mode 1047), the alt buffer is cleared before
+    ///   restoring primary (so stale alt content cannot leak if re-entered via
+    ///   mode 47). When false (modes 47/1049), no extra clear is performed
+    ///   (1049 already cleared on enter; 47 intentionally preserves content).
+    fn leave_alternate_screen(&mut self, restore_cursor: bool, _clear_alt: bool) {
         if let Some(primary_screen) = self.primary_screen.take() {
             self.rows = primary_screen.rows;
             self.scrollback = primary_screen.scrollback;
-            self.cursor = Position {
-                row: primary_screen.cursor.row.min(self.dimensions.rows - 1),
-                column: primary_screen
-                    .cursor
-                    .column
-                    .min(self.dimensions.columns - 1),
-            };
-            self.pending_wrap = primary_screen.pending_wrap;
+            if restore_cursor {
+                self.cursor = Position {
+                    row: primary_screen.cursor.row.min(self.dimensions.rows - 1),
+                    column: primary_screen
+                        .cursor
+                        .column
+                        .min(self.dimensions.columns - 1),
+                };
+                self.pending_wrap = primary_screen.pending_wrap;
+                self.cursor_visible = primary_screen.cursor_visible;
+                self.current_attrs = primary_screen.current_attrs;
+            } else {
+                // Modes 47/1047: cursor stays where it is (clamped).
+                self.cursor.row = self.cursor.row.min(self.dimensions.rows - 1);
+                self.cursor.column = self.cursor.column.min(self.dimensions.columns - 1);
+                // Still restore visibility and attrs since those are screen-level
+                // state that belongs to the primary, not the alt-screen app.
+                self.cursor_visible = primary_screen.cursor_visible;
+                self.current_attrs = primary_screen.current_attrs;
+            }
             self.saved_cursor = primary_screen.saved_cursor;
             self.scroll_region = primary_screen.scroll_region;
             self.origin_mode = primary_screen.origin_mode;

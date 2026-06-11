@@ -1,14 +1,18 @@
 //! Deterministic mode-matrix fixtures for alternate-screen behavior.
 //!
-//! Covers DECSET/DECRST modes 47, 1047, 1048, 1049 per xterm ctlseqs:
+//! Covers DECSET/DECRST modes 47, 1047, 1048, 1049 per xterm ctlseqs with
+//! **distinct per-mode semantics**:
 //!
-//! - **1049**: save cursor (DECSC), switch to alt buffer, clear alt on enter;
-//!   switch to primary, restore cursor (DECRC) on leave.
+//! - **1049**: save cursor (DECSC) + switch + clear alt on enter;
+//!   switch to primary + restore cursor (DECRC) on leave. Equivalent to
+//!   `1048h; 1047h` on set and `1047l; 1048l` on reset.
 //! - **1048**: cursor save/restore only (DECSC/DECRC), no screen switching.
-//! - **1047**: switch alt buffer; clear alt on leave.
-//! - **47**: plain alt buffer switch, no cursor save, no clear.
+//! - **1047**: switch alt buffer; NO clear on enter; clear alt on leave.
+//! - **47**: plain alt buffer switch, no cursor save, no clear on enter or
+//!   leave. Cursor position is NOT restored on leave.
 //!
-//! Also covers: ED 2 in alt screen, scrollback isolation, re-entrancy,
+//! Also covers: cursor_visible + current_attrs StoredScreen save/restore
+//! (F3/F4), ED 2 in alt screen, scrollback isolation, re-entrancy,
 //! DECSC/DECRC interaction, RIS/DECSTR inside alt, resize in alt + primary
 //! reflow on return.
 //!
@@ -254,9 +258,6 @@ fn mode_47_enters_alt_screen() {
     terminal.advance(b"primary");
 
     terminal.advance(b"\x1b[?47h");
-
-    // After DECSET 47, we should be on an alt screen: primary content hidden.
-    // DECRST 47 returns to primary.
     terminal.advance(b"alt stuff");
     terminal.advance(b"\x1b[?47l");
 
@@ -268,19 +269,44 @@ fn mode_47_enters_alt_screen() {
 
 #[test]
 fn mode_47_does_not_clear_alt_on_enter() {
-    // Mode 47 does not clear the alt buffer on entry (unlike 1049).
-    // If we enter alt, write, leave, then re-enter, previous alt content
-    // might still be there (implementation-dependent, but the key point is
-    // that 47 does not explicitly clear on enter).
+    // Mode 47 does not clear on entry (unlike 1049). The alt buffer starts
+    // blank on first use but the key distinction is: it does not explicitly
+    // home the cursor on entry.
     let mut terminal = Terminal::new(10, 3);
     terminal.advance(b"primary");
 
     terminal.advance(b"\x1b[?47h");
-    // We're now on alt. Content should be blank (fresh alt buffer first time).
-    // Write something.
     terminal.advance(b"alt mark");
-    terminal.advance(b"\x1b[?47l"); // back to primary
+    terminal.advance(b"\x1b[?47l");
     assert!(terminal.screen().plain_text().contains("primary"));
+}
+
+#[test]
+fn mode_47_does_not_restore_cursor_on_leave() {
+    // Mode 47 does NOT save/restore cursor: the cursor retains whatever
+    // position the alt-screen app left it in (clamped to bounds).
+    let mut terminal = Terminal::new(10, 3);
+    terminal.advance(b"\x1b[1;5H"); // cursor at (0, 4) on primary
+
+    terminal.advance(b"\x1b[?47h");
+    terminal.advance(b"\x1b[3;1H"); // move cursor to (2, 0) on alt
+    terminal.advance(b"\x1b[?47l");
+
+    // Cursor should be at (2, 0), NOT restored to (0, 4).
+    assert_eq!(terminal.screen().cursor(), Position { row: 2, column: 0 });
+}
+
+#[test]
+fn mode_47_does_not_home_cursor_on_enter() {
+    // Mode 47 does not clear or home cursor on enter (unlike 1049).
+    // The cursor carries its primary position into the alt buffer.
+    let mut terminal = Terminal::new(10, 3);
+    terminal.advance(b"\x1b[2;5H"); // cursor at (1, 4)
+
+    terminal.advance(b"\x1b[?47h");
+
+    // Cursor should NOT be homed to (0,0). Mode 47 preserves cursor position.
+    assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 4 });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -300,6 +326,32 @@ fn mode_1047_enters_and_leaves_alt() {
         terminal.screen().plain_text().contains("primary"),
         "primary content must be restored after DECRST 1047"
     );
+}
+
+#[test]
+fn mode_1047_does_not_restore_cursor_on_leave() {
+    // Like mode 47, mode 1047 does NOT pair with cursor save/restore.
+    let mut terminal = Terminal::new(10, 3);
+    terminal.advance(b"\x1b[1;5H"); // cursor at (0, 4)
+
+    terminal.advance(b"\x1b[?1047h");
+    terminal.advance(b"\x1b[3;1H"); // move cursor to (2, 0)
+    terminal.advance(b"\x1b[?1047l");
+
+    // Cursor should NOT be restored.
+    assert_eq!(terminal.screen().cursor(), Position { row: 2, column: 0 });
+}
+
+#[test]
+fn mode_1047_does_not_home_cursor_on_enter() {
+    // 1047 does not clear or home cursor on enter.
+    let mut terminal = Terminal::new(10, 3);
+    terminal.advance(b"\x1b[2;5H"); // cursor at (1, 4)
+
+    terminal.advance(b"\x1b[?1047h");
+
+    // Cursor should carry over from primary.
+    assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 4 });
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -509,4 +561,168 @@ fn focus_reporting_persists_through_alt_roundtrip() {
 
     terminal.advance(b"\x1b[?1049l");
     assert!(terminal.focus_reporting());
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// F3: cursor_visible saved/restored with StoredScreen
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn cursor_visible_restored_after_alt_roundtrip_1049() {
+    let mut terminal = Terminal::new(10, 3);
+    // Hide cursor on primary.
+    terminal.advance(b"\x1b[?25l");
+    assert!(!terminal.snapshot().cursor_visible);
+
+    terminal.advance(b"\x1b[?1049h");
+    // Alt screen should start with default cursor visibility (visible).
+    // Show cursor explicitly to change state.
+    terminal.advance(b"\x1b[?25h");
+    assert!(terminal.snapshot().cursor_visible);
+
+    terminal.advance(b"\x1b[?1049l");
+    // Primary cursor visibility should be restored: hidden.
+    assert!(
+        !terminal.snapshot().cursor_visible,
+        "cursor_visible should be restored to primary state (hidden) after leaving alt"
+    );
+}
+
+#[test]
+fn cursor_visible_hidden_in_alt_does_not_leak_to_primary() {
+    let mut terminal = Terminal::new(10, 3);
+    // Cursor visible on primary (default).
+    assert!(terminal.snapshot().cursor_visible);
+
+    terminal.advance(b"\x1b[?1049h");
+    // Hide cursor while in alt.
+    terminal.advance(b"\x1b[?25l");
+    assert!(!terminal.snapshot().cursor_visible);
+
+    terminal.advance(b"\x1b[?1049l");
+    // Primary's cursor should be visible (its original state).
+    assert!(
+        terminal.snapshot().cursor_visible,
+        "hiding cursor in alt should not affect primary cursor visibility"
+    );
+}
+
+#[test]
+fn cursor_visible_restored_after_alt_roundtrip_47() {
+    // Mode 47 also restores cursor_visible (screen-level state from primary).
+    let mut terminal = Terminal::new(10, 3);
+    terminal.advance(b"\x1b[?25l"); // hide on primary
+    assert!(!terminal.snapshot().cursor_visible);
+
+    terminal.advance(b"\x1b[?47h");
+    terminal.advance(b"\x1b[?25h"); // show in alt
+    assert!(terminal.snapshot().cursor_visible);
+
+    terminal.advance(b"\x1b[?47l");
+    assert!(
+        !terminal.snapshot().cursor_visible,
+        "mode 47 leave should restore primary cursor_visible"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// F4: current_attrs (SGR state) saved/restored with StoredScreen
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn current_attrs_restored_after_alt_roundtrip_1049() {
+    let mut terminal = Terminal::new(10, 3);
+    // Set bold red attrs on primary.
+    terminal.advance(b"\x1b[1;31m");
+
+    terminal.advance(b"\x1b[?1049h");
+    // Change attrs in alt to something different.
+    terminal.advance(b"\x1b[0;32m"); // green, not bold
+
+    terminal.advance(b"\x1b[?1049l");
+    // Print a char: it should carry the primary's bold-red attrs.
+    // Cursor is at (0, 0) — DECRC restored to the position at enter time.
+    terminal.advance(b"X");
+
+    let cell = terminal.screen().cell(0, 0).unwrap();
+    assert_eq!(cell.ch, 'X');
+    assert!(
+        cell.attrs.bold,
+        "bold should be restored from primary state after leaving alt"
+    );
+    assert_eq!(
+        cell.attrs.foreground,
+        Color::Indexed(1),
+        "foreground color should be restored from primary state (red, idx 1)"
+    );
+}
+
+#[test]
+fn current_attrs_changed_in_alt_does_not_leak_to_primary() {
+    let mut terminal = Terminal::new(10, 3);
+    // Default attrs on primary.
+    terminal.advance(b"\x1b[?1049h");
+    // Set bold + underline + blue in alt.
+    terminal.advance(b"\x1b[1;4;34m");
+
+    terminal.advance(b"\x1b[?1049l");
+    // Print a char on primary: should have default attrs.
+    terminal.advance(b"Y");
+
+    let cell = terminal.screen().cell(0, 0).unwrap();
+    assert_eq!(cell.ch, 'Y');
+    assert_eq!(
+        cell.attrs,
+        Attrs::default(),
+        "attrs changed in alt should not leak to primary"
+    );
+}
+
+#[test]
+fn current_attrs_restored_after_alt_roundtrip_47() {
+    // Mode 47 also restores current_attrs.
+    let mut terminal = Terminal::new(10, 3);
+    terminal.advance(b"\x1b[3;33m"); // italic yellow
+
+    terminal.advance(b"\x1b[?47h");
+    terminal.advance(b"\x1b[0m"); // reset in alt
+
+    terminal.advance(b"\x1b[?47l");
+    terminal.advance(b"Z");
+
+    let cell = terminal.screen().cell(0, 0).unwrap();
+    assert_eq!(cell.ch, 'Z');
+    assert!(
+        cell.attrs.italic,
+        "italic should be restored from primary after mode 47 leave"
+    );
+    assert_eq!(
+        cell.attrs.foreground,
+        Color::Indexed(3),
+        "foreground (yellow, idx 3) should be restored after mode 47 leave"
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Mode 1049 distinct: DECSC on enter, DECRC on leave
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn mode_1049_saves_cursor_via_decsc_on_enter() {
+    // Mode 1049 set is equivalent to "DECSC; enter alt; clear alt".
+    // The DECSC happens before entering alt, so the saved cursor belongs to
+    // the primary saved-cursor slot and can be queried after leaving.
+    let mut terminal = Terminal::new(10, 3);
+    terminal.advance(b"\x1b[2;6H"); // cursor at (1, 5)
+
+    terminal.advance(b"\x1b[?1049h");
+
+    // Alt starts clear with cursor at origin.
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 0 });
+
+    terminal.advance(b"\x1b[3;3H"); // move in alt
+    terminal.advance(b"\x1b[?1049l");
+
+    // DECRC restores the saved cursor from DECSC at enter time: (1, 5).
+    assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 5 });
 }
