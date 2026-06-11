@@ -25,16 +25,6 @@ geometry, and shaders are OdyTTY-originated code. The Odyssey experience layer
 experiments must not destabilize terminal correctness and must be
 off-switch-able at all times.
 
-The owned byte path is now real: `src/pty.rs` owns the Linux PTY
-(openpt/grantpt/unlockpt/TIOCGPTPEER via `rustix`); `src/parser/` holds the
-clean-room OdyParser (two-layer DEC ANSI pipeline built from primary
-specifications — vt100.net diagram, ECMA-48, xterm `ctlseqs`); `src/core/`
-holds the terminal screen model; `src/grid.rs` builds renderer geometry; the
-shaders live in `src/native/gpu.rs`. External crates remain intentional
-below-product-line tools: `ab_glyph` for font rasterization, `wgpu` for GPU API
-access, `winit` for windowing, `arboard` for clipboard transport, and
-`unicode-width` for character cell widths. They do not own terminal semantics.
-
 Ghostty and other mature terminals are compatibility references, not
 implementation sources. Visual ambition stays open, but every effect and
 workflow layer must be isolated from terminal correctness and bounded by
@@ -42,46 +32,177 @@ readability and performance.
 
 ## Ownership Boundary
 
-The ownership boundary is drawn at the same line the strongest independent
-terminals draw. OdyTTY owns:
+Every byte from the PTY to the glyph quad passes through OdyTTY-owned code.
+The owned path is not aspirational — it is in production.
 
-- Linux PTY allocation, child spawn, resize, and I/O (`src/pty.rs`)
-- The VT escape-sequence parser (`src/parser/`)
-- The terminal state machine: screen grid, scrollback, alternate screen, scroll
-  regions, resize/reflow, all escape-sequence semantics (`src/core/`)
-- Renderer geometry and vertex layout (`src/grid.rs`)
-- The GPU shader pipeline (`src/native/gpu.rs`)
-- The graphics protocol decode and placement pipeline (`src/graphics/`,
-  `src/core/graphics_routing.rs`)
+### What OdyTTY owns
 
-OdyTTY deliberately does not own:
+**Linux PTY layer** (`src/pty.rs`). PTY allocation via `openpt`/`grantpt`/
+`unlockpt`/`TIOCGPTPEER` through `rustix`. Child spawn as a new session leader
+with a controlling terminal. `TIOCSWINSZ` resize. Nonblocking reader and writer
+via file-descriptor clones. Child reaping on drop. All PTY semantics are
+OdyTTY's own code; `portable-pty` and `crossterm` are gone from the dependency
+tree.
 
-- Font file parsing and glyph rasterization (`ab_glyph`)
-- GPU API and device management (`wgpu`)
-- Window creation and event loop (`winit`)
-- Clipboard transport (`arboard`)
-- Unicode character-width tables (`unicode-width`)
+**VT parser** (`src/parser/`). A clean-room two-layer pipeline built solely
+from primary specifications (vt100.net DEC ANSI state diagram, ECMA-48, xterm
+`ctlseqs`). Neither `vte` source nor other terminal implementations were
+consulted during design or implementation. `vte` is absent from `Cargo.toml`
+and `Cargo.lock`; the owned parser is the sole production parser.
 
-This boundary is deliberate, not a trade-off pending revisitation. These crates
-sit below the product line; re-owning them would add maintenance without adding
-identity or capability.
+- **Layer 1 — segmenter** (`src/parser/segmenter.rs`). Walks input in Ground
+  state, splits maximal printable-text runs from single control scalars/bytes,
+  and owns all UTF-8 decoding — including partial-codepoint carry across
+  arbitrary `advance()` chunk boundaries. C1 scalars arriving via the two-byte
+  UTF-8 encoding execute uniformly regardless of chunk splits.
+- **Layer 2 — control state machine** (`src/parser/machine.rs`). A byte-only
+  automaton driven by `classify(byte) → ByteClass` (~13 classes) and a single
+  flat `match (state, class) → Action` discriminator. Not a per-state-method
+  decomposition; not a `[state][256]` data table. UTF-8 is absent because
+  Layer 1 resolved it.
+- **Action vocabulary** (`src/parser/action.rs`). Pure values emitted by the
+  state machine, keeping it sink-agnostic.
+- **Driver** (`src/parser/driver.rs`). Stitches Layer 1 and Layer 2, buffers
+  OSC (128 KiB cap) and APC (1 MiB cap, drop-not-truncate), and adapts the
+  action stream to the `VtDispatch` sink. DCS payloads pass through as a
+  streaming hook/put/unhook sequence without buffering in the parser.
+
+**Terminal state machine** (`src/core/`). Screen grid (primary + alternate),
+lazy scrollback with logical-line storage, scroll regions, resize/reflow, all
+VT sequence semantics. The `Screen` type implements `VtDispatch` and is the
+parser's sole sink. The core module never imports windowing, GPU, or rendering
+code.
+
+**Renderer geometry** (`src/grid.rs`). Builds the CPU vertex buffer consumed by
+the GPU pipeline: background quads, per-glyph quads with bearing-aware ink
+bounds, underline/strikethrough quads, cursor quads, search/selection highlights.
+Wide-glyph (width-2) quads span two cell columns.
+
+**GPU shader pipeline** (`src/native/gpu.rs`). The `wgpu` render pass, pipeline
+descriptor, vertex/uniform layout, and WGSL shader source. Text coverage
+correction (gamma uniform) and optional dual-source blending for subpixel AA
+live here.
+
+**Graphics protocol decode and placement pipeline** (`src/graphics/`,
+`src/core/graphics_routing.rs`). See the Graphics Architecture section.
+
+### What OdyTTY deliberately does not own
+
+These sit below the product line. Re-owning them would add maintenance burden
+without adding identity or capability. The boundary is a deliberate design
+decision, not a trade-off pending revisitation.
+
+| Concern | Crate |
+|---------|-------|
+| Font file parsing and glyph rasterization | `ab_glyph` |
+| GPU API and device management | `wgpu` |
+| Window creation and event loop | `winit` |
+| Clipboard transport | `arboard` |
+| Unicode character-width tables | `unicode-width` |
+
+## Graphics Architecture
+
+Kitty graphics protocol and Sixel both land on OdyTTY-owned APC/DCS plumbing.
+Because OdyTTY owns its parser, APC strings (Kitty) and DCS hook/put/unhook
+sequences (Sixel) surface to the terminal core as first-class events. No
+external parser dependency is needed.
+
+**ImageStore** (`src/graphics/store.rs`). A bounded LRU store for decoded
+RGBA8 images keyed by OdyTTY-internal ids. Default limits: 64 MiB decoded
+bytes and 1024 images. Insertions evict least-recently-used records until the
+new image fits. The store is renderer-independent — decoded pixel data lives in
+CPU memory until the GPU image layer uploads it.
+
+**Placement scene** (`src/graphics/placement.rs`). Cell-anchored placement
+records associating a stored image with a terminal grid position, source
+rectangle, display cell dimensions, anchor pixel offset, z-index, and
+generation counter. Placements scroll with terminal content and project into
+the scrollback viewport. Primary and alternate screens maintain independent
+placement scenes; alternate-screen entry does not disturb primary placements.
+
+**Render order** (canonical, implemented in `src/native/gpu.rs`):
+1. Cell background quads (all cells)
+2. Negative-z image placements (`z < 0`) — appear behind text
+3. Glyph, decoration, cursor, and overlay quads
+4. Non-negative-z image placements (`z ≥ 0`) — appear in front of text
+
+This is the order specified by the Kitty graphics protocol. Placements with
+equal z-index keep transmission order within each draw segment. The text
+pipeline is re-bound between the two image segments so the render pass is
+always in a defined state when switching between image and cell geometry.
+
+**Kitty graphics protocol.** Actions `a=t` (transmit), `a=T` (transmit and
+display), `a=p` (display existing by id), `a=d` (delete), and `a=q` (query)
+are supported. Formats `f=24` (raw RGB), `f=32` (raw RGBA), and `f=100` (PNG
+still image) are supported. Transports `t=d` (direct), `t=f` (file), `t=t`
+(temp file), and `t=s` (POSIX shared memory) are supported; file transports
+carry security restrictions documented in `docs/graphics.md`. Chunked transfer
+(`m=1`/`m=0`) is supported under a 96 MiB encoded-payload cap. Placement ids,
+z-index, source-rectangle crop, cell-box scaling, and anchor pixel offset are
+all wired through. Animation (`a=f`, `a=a`) and Unicode placeholder rendering
+(`U=1`) are not supported.
+
+**Sixel.** The complete DCS `q` data language is supported: raster attributes,
+RGB and HLS color introducers, repeat introducer, VT340 16-color default
+palette, transparent background (`P2=1`). DECSDM (private mode 80) controls
+cursor-after-sixel behavior: reset (default) moves cursor to the row below the
+image; set keeps the cursor in place. Hard caps: 10,000 × 10,000 pixels or
+40 million total pixels.
+
+**iTerm2 protocol.** Deferred indefinitely. No current code handles it.
+
+See `docs/graphics.md` for user-facing protocol detail, security rationale, and
+examples.
+
+## Configuration Architecture
+
+Settings follow a three-level precedence chain, lowest to highest:
+
+1. **Built-in defaults** — compiled-in values for every setting.
+2. **Config file** — `$XDG_CONFIG_HOME/odytty/odytty.conf` (falling back to
+   `~/.config/odytty/odytty.conf`). A missing or unreadable file is silently
+   skipped; malformed lines and unknown keys warn to stderr and are skipped.
+3. **Environment variables** (`ODYTTY_*`) — always win over both defaults and
+   the config file.
+
+The config format is a dependency-free `key = value` text file with `#`
+comments, mirroring every runtime knob. See `docs/runtime-knobs.md` for the
+full key reference and `docs/odytty.conf.example` for an annotated example.
+
+**Live reload.** The native app polls the resolved config path at a one-second
+cadence from the existing event-loop wake path, without a watcher thread or
+`inotify` dependency. When the file changes, new settings are applied
+immediately. Env-pinned keys are preserved: any setting that was supplied via
+`ODYTTY_*` at startup is held at that value for the session lifetime; live
+reload cannot override it.
+
+Reloadable settings: `theme`, `visual`, `font`, `font_family`, `font_size`,
+`text_gamma`, `subpixel`, `cursor_style`, `cursor_blink`, `keybinds`. Font
+path, family, size, and subpixel changes rebuild the glyph atlas and cell
+metrics, recompute the terminal grid, and push PTY `TIOCSWINSZ` through the
+same path used for HiDPI scale changes. A bad rewrite is a no-op; a deleted
+config file keeps the current settings; reload never panics.
+
+**Startup-only setting.** `native_autoclose_ms` is not reloadable. Changing a
+lifecycle smoke timer mid-session would make manual and automated test behavior
+ambiguous.
 
 ## Scope
 
-v0 is complete. The prototype proved the core loop: a native window opens a real
-local shell, renders GPU-backed monospaced text, handles keyboard input, resize,
-paste, mouse selection/copy, scrollback navigation, and cursor rendering.
-
-Stages 1 through 4.5 are substantially complete. The parity half of Stage 6 is
-substantially complete. The current focus is completing the Kitty graphics
-protocol MVP and moving toward Stage 5 (file-based configuration).
+v0 is complete. Stages 1 through 4.5 are substantially complete. The parity
+half of Stage 6 (graphics protocols, wide glyphs, subpixel AA, text quality) is
+substantially complete. Stage 5 (file-based configuration with live reload) has
+its first stable layer.
 
 **In scope and delivered:**
 - Owned Linux PTY layer and owned VT parser (clean-room from primary specs)
+- File-based configuration with live reload; env always wins
 - Broad escape-sequence compatibility (SGR, alternate screen, mouse modes,
   wide characters, combining marks, and more)
-- Sixel graphics: full decoder, terminal integration, GPU image rendering
-- Kitty APC routing seam in place; direct still-image MVP in progress
+- Kitty graphics protocol: `a=t/T/p/d/q`, `f=24/32/100`, `t=d/f/t/s`,
+  chunked transfer, placement ids, z-index, source crop, cell scaling, pixel
+  offset, delete specifiers
+- Sixel graphics: full decoder, terminal integration, DECSDM, GPU image rendering
 - HiDPI-correct text rasterization across scale factors
 - Wide-glyph 2-cell atlas slots; bearing-aware glyph quad geometry
 - Optional subpixel anti-aliasing and tunable text gamma/contrast
@@ -102,22 +223,23 @@ protocol MVP and moving toward Stage 5 (file-based configuration).
 - Theme system (plain baseline, Odyssey presets); optional ambient visual effect
 
 **Out of scope until foundations are stronger:**
+- Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering
+- iTerm2 graphics protocol
 - Ligature/stylistic-set shaping (strategy decided; implementation deferred
   until a specific trigger condition is met)
-- File-based configuration (Stage 5)
-- Tabs, panes, sessions, profiles, and multiplexing (Stage 7)
+- Tabs, panes, sessions, profiles, and multiplexing
 - Shell integration beyond basic PTY behavior
 - Plugin systems, AI features, command palettes, rich dashboards, or nonstandard
   terminal semantics
 - Heavy animation or effects that compromise readability or latency
 - Broad cross-platform support beyond Linux-first validation
-- Packaging, CI, release builds (Stage 8)
+- Packaging, CI, release builds
 
 ## Stack
 
 The stack is: Rust, Linux-first, `winit` (windowing), `wgpu` (GPU/Vulkan),
 `ab_glyph` (font rasterization), `unicode-width` (cell widths), `arboard`
-(clipboard), `rustix` (PTY/termios).
+(clipboard), `rustix` (PTY/termios), `png` (PNG decode for Kitty `f=100`).
 
 The terminal core is a distinct boundary from the native app. The `core` module
 never imports windowing, GPU, or rendering code; it consumes VT bytes via the
