@@ -1555,7 +1555,23 @@ impl Screen {
     }
 
     fn dispatch_apc(&mut self, data: &[u8]) {
-        if graphics_routing::apc_dispatch(&mut self.graphics, data) {
+        let outcome = graphics_routing::apc_dispatch(
+            &mut self.graphics,
+            &mut self.graphics_stats,
+            &mut self.host_output,
+            data,
+            self.cursor.row,
+            self.cursor.column,
+            self.dimensions.rows,
+            self.dimensions.columns,
+            self.cell_metrics,
+        );
+        if let Some((row, column)) = outcome.cursor {
+            self.cursor.row = row;
+            self.cursor.column = column;
+            self.pending_wrap = false;
+        }
+        if outcome.dirty || outcome.cursor.is_some() {
             self.mark_dirty();
         }
     }

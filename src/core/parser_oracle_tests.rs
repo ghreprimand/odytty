@@ -319,7 +319,7 @@ const GOLDEN_20X6: &[(&str, u64)] = &[
     ("csi_intermediate", 0x0ced54977e7f0884),
     ("dcs_passthrough", 0xdec12423791734fd),
     ("dcs_then_text", 0x3b149e020a04019c),
-    ("apc_kitty_like", 0x0a771084e0c3e88b),
+    ("apc_kitty_like", 0x57587d4bae4cb065),
     ("sos_string", 0xeb1eb6caa213ea73),
     ("pm_string", 0xeb1eb6caa213ea73),
     ("lone_esc_then_text", 0x09315dc3619107c3),
@@ -420,7 +420,7 @@ const GOLDEN_4X3: &[(&str, u64)] = &[
     ("csi_intermediate", 0x69afa15e65228338),
     ("dcs_passthrough", 0x988d45bd6d42e379),
     ("dcs_then_text", 0x59fe9c04ee917252),
-    ("apc_kitty_like", 0xd8f97fb9e1d927e9),
+    ("apc_kitty_like", 0x40009b91ec4f2ebf),
     ("sos_string", 0xc55a113490bc037b),
     ("pm_string", 0xc55a113490bc037b),
     ("lone_esc_then_text", 0xb5a603b924911987),
@@ -474,7 +474,7 @@ const GOLDEN_EXTRA: &[(&str, u64)] = &[
     ("invalid_utf8_bad_3byte", 0xf71466cdc8930cbe),
     ("invalid_utf8_truncated_4byte", 0x92b97d02641d508e),
     ("invalid_utf8_stray_continuations", 0x4f693af9bda968bc),
-    ("apc_invisible", 0x8fef0629fc7763ff),
+    ("apc_nonprinting", 0x53b449eddae93049),
 ];
 
 #[test]
@@ -556,12 +556,13 @@ fn oracle_invalid_utf8_recovers_identically() {
 }
 
 #[test]
-fn oracle_apc_is_invisible_to_screen_state() {
-    // OdyParser surfaces APC via apc_dispatch. Screen ignores apc_dispatch today,
-    // so an APC string embedded in normal output remains invisible to the grid.
+fn oracle_apc_is_nonprinting_to_grid() {
+    // OdyParser surfaces APC via apc_dispatch. Kitty graphics commands now
+    // update graphics/host-output state, but the payload remains invisible to
+    // the text grid.
     let input = b"line1\r\n\x1b_Gf=100,s=10,v=10;BASE64PAYLOAD==\x1b\\line2";
-    assert_parity("apc_invisible", 20, 6, input);
-    assert_parity_all_splits("apc_invisible", 10, 4, input);
+    assert_parity("apc_nonprinting", 20, 6, input);
+    assert_parity_all_splits("apc_nonprinting", 10, 4, input);
 }
 
 // ===================== PA3 self-consistency fuzzers =====================

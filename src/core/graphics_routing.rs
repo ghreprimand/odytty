@@ -27,6 +27,7 @@ use crate::graphics::sixel::{SixelBackground, decode_sixel};
 use crate::graphics::{GraphicsProtocol, ImageScene, PlacementRequest};
 use crate::parser::Params;
 
+use super::kitty::{self, KittyState};
 use super::types::CellMetrics;
 
 /// In-progress DCS capture accumulator.
@@ -42,6 +43,13 @@ pub(super) struct DcsCapture {
 #[derive(Debug, Clone, Default)]
 pub(super) struct GraphicsStats {
     pub sixel_decode_errors: u64,
+    pub kitty: KittyState,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ApcOutcome {
+    pub dirty: bool,
+    pub cursor: Option<(usize, usize)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -160,9 +168,41 @@ pub(super) fn dcs_unhook(
     Some((new_row, 0))
 }
 
-/// Handle an APC payload. Returns `true` if the graphics scene was mutated.
-pub(super) fn apc_dispatch(graphics: &mut ImageScene, data: &[u8]) -> bool {
-    graphics.record_kitty_apc(data)
+/// Handle an APC payload. Kitty graphics commands are decoded into the image
+/// scene; unknown APC payloads retain the historical raw-recording behavior.
+pub(super) fn apc_dispatch(
+    graphics: &mut ImageScene,
+    stats: &mut GraphicsStats,
+    host_output: &mut Vec<u8>,
+    data: &[u8],
+    cursor_row: usize,
+    cursor_col: usize,
+    screen_rows: usize,
+    screen_cols: usize,
+    cell_metrics: CellMetrics,
+) -> ApcOutcome {
+    match kitty::handle_apc(
+        &mut stats.kitty,
+        graphics,
+        data,
+        cursor_row,
+        cursor_col,
+        screen_rows,
+        screen_cols,
+        cell_metrics,
+    ) {
+        Ok(outcome) => {
+            host_output.extend_from_slice(&outcome.response);
+            ApcOutcome {
+                dirty: outcome.dirty,
+                cursor: outcome.cursor,
+            }
+        }
+        Err(_) => ApcOutcome {
+            dirty: graphics.record_kitty_apc(data),
+            cursor: None,
+        },
+    }
 }
 
 // ---------------------------------------------------------------------------
