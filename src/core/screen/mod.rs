@@ -96,6 +96,10 @@ pub struct Screen {
     mouse: MouseProtocol,
     /// Active keyboard reporting modes (DECCKM cursor keys and DECKPAM keypad).
     keyboard: KeyboardModes,
+    /// Saved Kitty keyboard protocol flags for CSI > / CSI <. Bounded in
+    /// `ops.rs`; kept per active screen so alternate-screen apps cannot leak
+    /// their negotiated keyboard protocol into the primary prompt.
+    kitty_keyboard_stack: Vec<u16>,
     /// DECSET/DECRST 1004 focus reporting. When on, the front end emits
     /// `ESC [ I` / `ESC [ O` on focus in/out. Off at power-on; RIS resets it.
     focus_reporting: bool,
@@ -135,6 +139,8 @@ struct StoredScreen {
     origin_mode: bool,
     current_attrs: Attrs,
     active_hyperlink: Option<LinkId>,
+    kitty_keyboard_flags: u16,
+    kitty_keyboard_stack: Vec<u16>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SavedCursor {
@@ -172,6 +178,7 @@ impl Screen {
             title_changed: false,
             mouse: MouseProtocol::default(),
             keyboard: KeyboardModes::default(),
+            kitty_keyboard_stack: Vec::new(),
             focus_reporting: false,
             cursor_style: CursorStyle::default(),
             cursor_blink: true,
@@ -821,6 +828,10 @@ impl Screen {
             'q' if intermediates == b" " => self.set_cursor_style(param_or(params, 0, 0)),
             'r' => self.set_scroll_region(params),
             's' => self.save_cursor(),
+            'u' if intermediates == b"?" => self.kitty_keyboard_query(params, intermediates),
+            'u' if intermediates == b">" => self.kitty_keyboard_push(params, intermediates),
+            'u' if intermediates == b"<" => self.kitty_keyboard_pop(params, intermediates),
+            'u' if intermediates == b"=" => self.kitty_keyboard_set(params, intermediates),
             'u' => self.restore_cursor(),
             _ => {}
         }

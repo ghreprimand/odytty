@@ -319,6 +319,9 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         cursor mode and keypad mode (`ESC[?1h`, `ESC=`).
   - [x] Follow-up: encode modifiers for named keys such as `Ctrl+Arrow` using a
         documented xterm-compatible form.
+  - [x] Kitty keyboard protocol progressive enhancement: core flag
+        stack/query state (`CSI >/< /=/? ... u`) plus native CSI-u encoding for
+        disambiguation/report-all flags, preserving legacy bytes when inactive.
 
 ## Stage 5: Settings and Profiles
 

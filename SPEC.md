@@ -207,6 +207,25 @@ scheme against an allowlist (`http`, `https`, `file`, `mailto`). No shell
 interpolation occurs. Links are never followed automatically; the allowlist
 check and the `xdg-open` call only happen on deliberate user action.
 
+### Kitty Keyboard Protocol
+
+OdyTTY implements the Kitty keyboard protocol as a progressive enhancement on
+top of its existing DEC/xterm key encoder. The terminal core tracks active
+keyboard protocol flags per screen buffer: `CSI > flags u` pushes the current
+flags and applies a new set, `CSI < n u` pops saved states, `CSI = flags ;
+mode u` sets/adds/removes flags, and `CSI ? u` replies with `CSI ? flags u` on
+the host-output path. The stack is bounded at 16 entries with oldest-entry
+eviction, and `RIS`/`DECSTR` reset it. Primary and alternate screen maintain
+separate Kitty keyboard flag stacks so full-screen TUIs cannot leak negotiated
+keyboard behavior back to the shell prompt.
+
+The native layer still resolves terminal-local key bindings before encoding a
+key for the PTY. With no Kitty flags active, OdyTTY emits the exact legacy
+bytes. With disambiguation active, ambiguous control/Alt text and named keys
+use CSI-u forms with the Kitty `+1` modifier encoding; report-all uses the same
+encoder for ordinary text and recovery keys. Event-type reporting is a later
+extension.
+
 ## Scope
 
 v0 is complete. Stages 1 through 4.5 are substantially complete. The parity
@@ -240,7 +259,8 @@ its first stable layer.
 - Configurable cursor shapes and blink policy (DECSCUSR + settings)
 - Configurable terminal-local key bindings
 - Window title from OSC 0/2; DECSET 1004 focus reporting
-- Keyboard mode-awareness: DECCKM, keypad modes, modified named keys
+- Keyboard mode-awareness: DECCKM, keypad modes, modified named keys, Kitty
+  keyboard protocol disambiguation/report-all flags
 - Lazy scrollback re-wrap and resize fast paths
 - Theme system (plain baseline, Odyssey presets); optional ambient visual effect
 

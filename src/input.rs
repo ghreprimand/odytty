@@ -93,7 +93,17 @@ pub struct KeyModes {
     pub application_cursor: bool,
     /// DECKPAM/DECKPNM: keypad keys use application keypad SS3 forms.
     pub application_keypad: bool,
+    /// Kitty keyboard protocol progressive enhancement flags active for this
+    /// screen. Zero preserves the legacy DEC/xterm encoder byte-for-byte.
+    pub kitty_keyboard_flags: u16,
 }
+
+/// Kitty keyboard protocol flag: send ambiguous keys as CSI-u forms.
+pub const KITTY_DISAMBIGUATE: u16 = 0b1;
+/// Kitty keyboard protocol flag: report press/repeat/release event types.
+pub const KITTY_REPORT_EVENT_TYPES: u16 = 0b10;
+/// Kitty keyboard protocol flag: report all keys as escape sequences.
+pub const KITTY_REPORT_ALL_KEYS: u16 = 0b1000;
 
 /// Encode a key press into the bytes to write to the PTY.
 ///
@@ -104,6 +114,10 @@ pub struct KeyModes {
 /// the xterm modifier table instead. Ctrl turns [`Key::Char`] letters into
 /// control bytes and named keys into modified CSI forms.
 pub fn encode_key(key: Key, mods: Modifiers, modes: KeyModes) -> Vec<u8> {
+    if should_encode_kitty_key(key, mods, modes.kitty_keyboard_flags) {
+        return encode_kitty_key(key, mods, modes.kitty_keyboard_flags);
+    }
+
     let mut bytes = match key {
         Key::Backspace => vec![0x7f],
         Key::Enter => b"\r".to_vec(),
@@ -140,6 +154,119 @@ pub fn encode_key(key: Key, mods: Modifiers, modes: KeyModes) -> Vec<u8> {
     }
 
     bytes
+}
+
+fn should_encode_kitty_key(key: Key, mods: Modifiers, flags: u16) -> bool {
+    if flags & KITTY_REPORT_ALL_KEYS != 0 {
+        return true;
+    }
+    if flags & KITTY_DISAMBIGUATE == 0 {
+        return false;
+    }
+
+    match key {
+        // The Kitty spec keeps these recoverable in disambiguation-only mode so
+        // users can still type `reset` after a crashed app leaves the flag set.
+        Key::Enter | Key::Tab | Key::Backspace => false,
+        Key::Char(_) => mods.ctrl || mods.alt,
+        Key::Esc | Key::BackTab => true,
+        _ => true,
+    }
+}
+
+fn encode_kitty_key(key: Key, mods: Modifiers, _flags: u16) -> Vec<u8> {
+    let modifier = kitty_modifier(mods);
+    match key {
+        Key::Left => encode_kitty_final_key(b'D', modifier),
+        Key::Right => encode_kitty_final_key(b'C', modifier),
+        Key::Up => encode_kitty_final_key(b'A', modifier),
+        Key::Down => encode_kitty_final_key(b'B', modifier),
+        Key::Home => encode_kitty_final_key(b'H', modifier),
+        Key::End => encode_kitty_final_key(b'F', modifier),
+        Key::PageUp => encode_kitty_tilde_key(5, modifier),
+        Key::PageDown => encode_kitty_tilde_key(6, modifier),
+        Key::Delete => encode_kitty_tilde_key(3, modifier),
+        Key::Insert => encode_kitty_tilde_key(2, modifier),
+        Key::BackTab => encode_kitty_codepoint_key(
+            9,
+            kitty_modifier(Modifiers {
+                shift: true,
+                ..mods
+            }),
+        ),
+        Key::Tab => encode_kitty_codepoint_key(9, modifier),
+        Key::Enter => encode_kitty_codepoint_key(13, modifier),
+        Key::Backspace => encode_kitty_codepoint_key(127, modifier),
+        Key::Esc => encode_kitty_codepoint_key(27, modifier),
+        Key::KeypadDigit(digit) if digit <= 9 => {
+            encode_kitty_codepoint_key(57399 + digit as u32, modifier)
+        }
+        Key::KeypadDecimal => encode_kitty_codepoint_key(57409, modifier),
+        Key::KeypadDivide => encode_kitty_codepoint_key(57410, modifier),
+        Key::KeypadMultiply => encode_kitty_codepoint_key(57411, modifier),
+        Key::KeypadSubtract => encode_kitty_codepoint_key(57412, modifier),
+        Key::KeypadAdd => encode_kitty_codepoint_key(57413, modifier),
+        Key::KeypadEnter => encode_kitty_codepoint_key(57414, modifier),
+        Key::Char(ch) => encode_kitty_codepoint_key(kitty_char_code(ch), modifier),
+        Key::KeypadDigit(_) => Vec::new(),
+    }
+}
+
+fn encode_kitty_codepoint_key(codepoint: u32, modifier: u8) -> Vec<u8> {
+    if modifier == 1 {
+        format!("\x1b[{codepoint}u").into_bytes()
+    } else {
+        format!("\x1b[{codepoint};{modifier}u").into_bytes()
+    }
+}
+
+fn encode_kitty_final_key(final_byte: u8, modifier: u8) -> Vec<u8> {
+    if modifier == 1 {
+        vec![b'\x1b', b'[', final_byte]
+    } else {
+        format!("\x1b[1;{}{}", modifier, final_byte as char).into_bytes()
+    }
+}
+
+fn encode_kitty_tilde_key(code: u8, modifier: u8) -> Vec<u8> {
+    if modifier == 1 {
+        format!("\x1b[{code}~").into_bytes()
+    } else {
+        format!("\x1b[{code};{modifier}~").into_bytes()
+    }
+}
+
+fn kitty_modifier(mods: Modifiers) -> u8 {
+    1 + u8::from(mods.shift) + (u8::from(mods.alt) << 1) + (u8::from(mods.ctrl) << 2)
+}
+
+fn kitty_char_code(ch: char) -> u32 {
+    let base = match ch {
+        'A'..='Z' => ch.to_ascii_lowercase(),
+        ')' => '0',
+        '!' => '1',
+        '@' => '2',
+        '#' => '3',
+        '$' => '4',
+        '%' => '5',
+        '^' => '6',
+        '&' => '7',
+        '*' => '8',
+        '(' => '9',
+        '~' => '`',
+        '_' => '-',
+        '+' => '=',
+        '{' => '[',
+        '}' => ']',
+        '|' => '\\',
+        ':' => ';',
+        '"' => '\'',
+        '<' => ',',
+        '>' => '.',
+        '?' => '/',
+        _ => ch,
+    };
+    base as u32
 }
 
 fn encode_cursor_key(final_byte: u8, mods: Modifiers, modes: KeyModes) -> Vec<u8> {
@@ -356,6 +483,7 @@ mod tests {
         let modes = KeyModes {
             application_cursor: true,
             application_keypad: false,
+            ..KeyModes::default()
         };
 
         assert_eq!(encode_key(Key::Up, Modifiers::NONE, modes), b"\x1bOA");
@@ -415,6 +543,7 @@ mod tests {
         let modes = KeyModes {
             application_cursor: false,
             application_keypad: true,
+            ..KeyModes::default()
         };
 
         assert_eq!(
@@ -479,6 +608,131 @@ mod tests {
         assert_eq!(ctrl_char(' '), Some(0));
         assert_eq!(ctrl_char('a'), Some(1));
         assert_eq!(ctrl_char('1'), None);
+    }
+
+    #[test]
+    fn kitty_flags_zero_preserves_legacy_bytes() {
+        let legacy_modes = KeyModes::default();
+        let kitty_zero = KeyModes {
+            kitty_keyboard_flags: 0,
+            ..KeyModes::default()
+        };
+
+        let cases = [
+            (Key::Char('c'), Modifiers::CTRL),
+            (Key::Char('b'), Modifiers::ALT),
+            (Key::Up, Modifiers::NONE),
+            (
+                Key::Left,
+                Modifiers {
+                    shift: true,
+                    alt: true,
+                    ctrl: true,
+                },
+            ),
+            (Key::Enter, Modifiers::NONE),
+            (Key::BackTab, Modifiers::NONE),
+        ];
+
+        for (key, mods) in cases {
+            assert_eq!(
+                encode_key(key, mods, kitty_zero),
+                encode_key(key, mods, legacy_modes),
+                "{key:?} {mods:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn kitty_disambiguate_encodes_ambiguous_text_keys() {
+        let modes = KeyModes {
+            kitty_keyboard_flags: KITTY_DISAMBIGUATE,
+            ..KeyModes::default()
+        };
+
+        assert_eq!(
+            encode_key(Key::Char('i'), Modifiers::CTRL, modes),
+            b"\x1b[105;5u"
+        );
+        assert_eq!(
+            encode_key(
+                Key::Char('I'),
+                Modifiers {
+                    shift: true,
+                    alt: false,
+                    ctrl: true,
+                },
+                modes
+            ),
+            b"\x1b[105;6u"
+        );
+        assert_eq!(
+            encode_key(Key::Char('['), Modifiers::ALT, modes),
+            b"\x1b[91;3u"
+        );
+        assert_eq!(
+            encode_key(
+                Key::Char('#'),
+                Modifiers {
+                    shift: true,
+                    alt: false,
+                    ctrl: true,
+                },
+                modes
+            ),
+            b"\x1b[51;6u"
+        );
+    }
+
+    #[test]
+    fn kitty_disambiguate_keeps_recovery_keys_legacy() {
+        let modes = KeyModes {
+            kitty_keyboard_flags: KITTY_DISAMBIGUATE,
+            ..KeyModes::default()
+        };
+
+        assert_eq!(encode_key(Key::Enter, Modifiers::NONE, modes), b"\r");
+        assert_eq!(encode_key(Key::Tab, Modifiers::NONE, modes), b"\t");
+        assert_eq!(
+            encode_key(Key::Backspace, Modifiers::NONE, modes),
+            vec![0x7f]
+        );
+    }
+
+    #[test]
+    fn kitty_disambiguate_overrides_application_cursor_for_named_keys() {
+        let modes = KeyModes {
+            application_cursor: true,
+            kitty_keyboard_flags: KITTY_DISAMBIGUATE,
+            ..KeyModes::default()
+        };
+
+        assert_eq!(encode_key(Key::Up, Modifiers::NONE, modes), b"\x1b[A");
+        assert_eq!(encode_key(Key::Right, Modifiers::CTRL, modes), b"\x1b[1;5C");
+        assert_eq!(
+            encode_key(Key::BackTab, Modifiers::NONE, modes),
+            b"\x1b[9;2u"
+        );
+        assert_eq!(encode_key(Key::Esc, Modifiers::NONE, modes), b"\x1b[27u");
+    }
+
+    #[test]
+    fn kitty_report_all_keys_encodes_text_and_recovery_keys() {
+        let modes = KeyModes {
+            kitty_keyboard_flags: KITTY_REPORT_ALL_KEYS,
+            ..KeyModes::default()
+        };
+
+        assert_eq!(
+            encode_key(Key::Char('a'), Modifiers::NONE, modes),
+            b"\x1b[97u"
+        );
+        assert_eq!(encode_key(Key::Enter, Modifiers::NONE, modes), b"\x1b[13u");
+        assert_eq!(encode_key(Key::Tab, Modifiers::NONE, modes), b"\x1b[9u");
+        assert_eq!(
+            encode_key(Key::Backspace, Modifiers::NONE, modes),
+            b"\x1b[127u"
+        );
     }
 
     #[test]

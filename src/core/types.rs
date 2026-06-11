@@ -125,6 +125,12 @@ pub struct KeyboardModes {
     /// DECKPAM/DECKPNM (`ESC =` / `ESC >`): keypad keys use application keypad
     /// SS3 forms while enabled.
     pub application_keypad: bool,
+    /// Kitty keyboard protocol flags active on the current screen buffer.
+    ///
+    /// Zero preserves legacy DEC/xterm key encoding. Nonzero values are set by
+    /// Kitty's CSI-u keyboard protocol controls and consumed by front ends when
+    /// encoding key presses.
+    pub kitty_keyboard_flags: u16,
 }
 /// A mouse button (or wheel direction) for [`encode_mouse_event`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

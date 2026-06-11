@@ -6,6 +6,11 @@
 
 use super::*;
 
+/// Kitty keyboard protocol stack cap. Kitty allows terminals to cap the stack;
+/// when full, OdyTTY evicts the oldest saved entry and keeps the most recent
+/// states so nested TUIs can unwind deterministically without unbounded memory.
+const KITTY_KEYBOARD_STACK_LIMIT: usize = 16;
+
 impl Screen {
     pub(super) fn scroll_up_full(&mut self) {
         let removed = self.rows.remove(0);
@@ -535,6 +540,54 @@ impl Screen {
         };
     }
 
+    pub(super) fn kitty_keyboard_query(&mut self, params: &Params, intermediates: &[u8]) {
+        if intermediates != b"?" || param_or(params, 0, 0) != 0 {
+            return;
+        }
+        let flags = self.keyboard.kitty_keyboard_flags;
+        self.host_output
+            .extend_from_slice(format!("\x1b[?{flags}u").as_bytes());
+    }
+
+    pub(super) fn kitty_keyboard_push(&mut self, params: &Params, intermediates: &[u8]) {
+        if intermediates != b">" {
+            return;
+        }
+        if self.kitty_keyboard_stack.len() == KITTY_KEYBOARD_STACK_LIMIT {
+            self.kitty_keyboard_stack.remove(0);
+        }
+        self.kitty_keyboard_stack
+            .push(self.keyboard.kitty_keyboard_flags);
+        self.keyboard.kitty_keyboard_flags = param_or(params, 0, 0).min(u16::MAX as usize) as u16;
+    }
+
+    pub(super) fn kitty_keyboard_pop(&mut self, params: &Params, intermediates: &[u8]) {
+        if intermediates != b"<" {
+            return;
+        }
+        let count = param_or_one(params, 0);
+        for _ in 0..count {
+            let Some(flags) = self.kitty_keyboard_stack.pop() else {
+                self.keyboard.kitty_keyboard_flags = 0;
+                return;
+            };
+            self.keyboard.kitty_keyboard_flags = flags;
+        }
+    }
+
+    pub(super) fn kitty_keyboard_set(&mut self, params: &Params, intermediates: &[u8]) {
+        if intermediates != b"=" {
+            return;
+        }
+        let flags = param_or(params, 0, 0).min(u16::MAX as usize) as u16;
+        match param_or(params, 1, 1) {
+            1 => self.keyboard.kitty_keyboard_flags = flags,
+            2 => self.keyboard.kitty_keyboard_flags |= flags,
+            3 => self.keyboard.kitty_keyboard_flags &= !flags,
+            _ => {}
+        }
+    }
+
     pub(super) fn device_attributes(&mut self, params: &Params, intermediates: &[u8]) {
         if intermediates.is_empty() && param_or(params, 0, 0) == 0 {
             self.host_output.extend_from_slice(b"\x1b[?1;2c");
@@ -621,7 +674,10 @@ impl Screen {
             origin_mode: self.origin_mode,
             current_attrs: self.current_attrs,
             active_hyperlink: self.active_hyperlink,
+            kitty_keyboard_flags: self.keyboard.kitty_keyboard_flags,
+            kitty_keyboard_stack: std::mem::take(&mut self.kitty_keyboard_stack),
         };
+        self.keyboard.kitty_keyboard_flags = 0;
 
         if clear_alt {
             self.cursor = Position::default();
@@ -674,6 +730,8 @@ impl Screen {
             self.saved_cursor = primary_screen.saved_cursor;
             self.scroll_region = primary_screen.scroll_region;
             self.origin_mode = primary_screen.origin_mode;
+            self.keyboard.kitty_keyboard_flags = primary_screen.kitty_keyboard_flags;
+            self.kitty_keyboard_stack = primary_screen.kitty_keyboard_stack;
             self.graphics.leave_alternate();
             self.mark_dirty();
         }
@@ -723,6 +781,7 @@ impl Screen {
         // a persistent window property and is intentionally left untouched.
         self.mouse = MouseProtocol::default();
         self.keyboard = KeyboardModes::default();
+        self.kitty_keyboard_stack.clear();
         self.focus_reporting = false;
         // RIS returns the cursor shape/blink to the host default policy.
         self.cursor_style = self.default_cursor_style;
@@ -748,6 +807,7 @@ impl Screen {
         self.origin_mode = false;
         self.bracketed_paste = false;
         self.keyboard = KeyboardModes::default();
+        self.kitty_keyboard_stack.clear();
         self.current_attrs = Attrs::default();
         self.active_hyperlink = None;
         self.host_output.clear();

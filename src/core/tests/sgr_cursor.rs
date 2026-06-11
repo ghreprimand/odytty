@@ -263,6 +263,7 @@ fn tracks_keyboard_application_modes() {
         KeyboardModes {
             application_cursor: true,
             application_keypad: false,
+            ..KeyboardModes::default()
         }
     );
 
@@ -272,6 +273,7 @@ fn tracks_keyboard_application_modes() {
         KeyboardModes {
             application_cursor: true,
             application_keypad: true,
+            ..KeyboardModes::default()
         }
     );
 
@@ -281,6 +283,7 @@ fn tracks_keyboard_application_modes() {
         KeyboardModes {
             application_cursor: false,
             application_keypad: true,
+            ..KeyboardModes::default()
         }
     );
 

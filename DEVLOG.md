@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Kitty keyboard protocol progressive enhancement
+
+OdyTTY now implements the core Kitty keyboard protocol negotiation surface and
+uses it in the native key path.
+
+- **Core flag state.** `CSI > flags u` pushes the active keyboard-protocol
+  flags and applies a new set; `CSI < n u` pops saved states (default one);
+  `CSI = flags ; mode u` sets/adds/removes flags (`mode` 1/2/3); `CSI ? u`
+  replies `CSI ? flags u` via the existing host-output seam. Stack depth is
+  capped at 16 entries with oldest-entry eviction.
+- **Screen isolation and reset.** Kitty keyboard flags/stacks are isolated
+  between primary and alternate screen, and both `RIS` and `DECSTR` reset them.
+  Legacy DECCKM/keypad modes keep their existing behavior.
+- **Native encoding.** The native key path still consumes terminal-local
+  keybindings first, then consults the active Kitty flags before falling back to
+  legacy DEC/xterm encoding. With no flags active, byte output is unchanged.
+  The disambiguation flag (`1`) emits CSI-u for ambiguous control/Alt text and
+  named keys; the report-all flag (`8`) is wired through the same encoder. Event
+  type reporting (`2`) remains a follow-up.
+- **Tests.** New fixtures cover query bytes, set/add/remove, push/pop,
+  stack-overflow eviction, alt-screen isolation, reset behavior, legacy
+  bit-exactness with flags off, and representative CSI-u byte encodings.
+
+---
+
 ## 2026-06-11 — Modularity split: `core/screen.rs` + `core/tests.rs` (M4)
 
 Preemptive modularity split ahead of the next core packet, per the standing

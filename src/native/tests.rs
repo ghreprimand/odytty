@@ -23,13 +23,13 @@ use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 use super::render_helpers::{
     CursorRenderSignature, GeometryUpdate, RenderContentSignature, RenderSignature,
     SelectionSignature, VisibleGraphicSignature, apply_hyperlink_hover, hyperlink_action_allowed,
-    openable_hyperlink_uri,
+    key_modes_from_core, openable_hyperlink_uri,
 };
 use super::search_ui::SearchRenderSignature;
 use super::viewport::{Viewport, grid_dimensions_for, scroll_indicator_quad, wheel_lines};
 use crate::core::{
-    Attrs, Cell, Dimensions, MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol,
-    MouseTracking, Position, Snapshot, Terminal,
+    Attrs, Cell, Dimensions, KeyboardModes as CoreKeyboardModes, MouseButton as CoreMouseButton,
+    MouseEventKind, MouseProtocol, MouseTracking, Position, Snapshot, Terminal,
 };
 use crate::grid::{SolidQuad, VERTS_PER_QUAD};
 use crate::input::{self, Key, Modifiers};
@@ -1172,6 +1172,19 @@ fn space_named_key_encodes_nul_under_ctrl() {
         input::encode_key(key, Modifiers::CTRL, input::KeyModes::default()),
         vec![0]
     );
+}
+
+#[test]
+fn key_modes_from_core_preserves_kitty_keyboard_flags() {
+    let modes = key_modes_from_core(CoreKeyboardModes {
+        application_cursor: true,
+        application_keypad: true,
+        kitty_keyboard_flags: 9,
+    });
+
+    assert!(modes.application_cursor);
+    assert!(modes.application_keypad);
+    assert_eq!(modes.kitty_keyboard_flags, 9);
 }
 
 #[test]

@@ -7,6 +7,7 @@ use super::*;
 
 mod chars_unicode;
 mod erase_scroll;
+mod kitty_keyboard;
 mod repeat_tab_reflow;
 mod reset_osc_mouse;
 mod sgr_cursor;
