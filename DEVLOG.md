@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Native GPU image layer for graphics placements (G2.3)
+
+Connects the G2.1 terminal-owned graphics scene to the native renderer. Images
+now have a native-side GPU path: visible placements are projected into textured
+quads, missing RGBA8 images upload lazily by image id, and stale image textures
+are dropped when they leave the visible placement set.
+
+### What landed
+
+- **Image layer module.** `src/native/image_layer.rs` owns placement-to-pixel
+  geometry, visible-id cache planning, RGBA8 texture upload, and the image
+  render pipeline. The pipeline uses alpha blending so transparent Sixel/Kitty
+  pixels can composite with cell backgrounds.
+- **Draw order split.** `GpuState` now draws terminal cell backgrounds first,
+  then image quads, then the remaining glyph/decor/cursor/overlay vertices, so
+  text stays readable over graphics.
+- **Native handoff.** The app snapshots visible graphics and clones only
+  missing image records while holding the terminal lock, then releases the lock
+  before any `wgpu` texture work.
+- **Resize behavior.** Image textures survive surface resize and scale-factor
+  changes; image geometry is rebuilt from the latest cell metrics.
+
+### Verification
+
+- Headless image-layer tests cover cell-anchor geometry, source cropping,
+  scrollback-projected rows, visible-id deduplication, and cache upload/evict
+  planning.
+- Clean-worktree verification: full `cargo test`, `cargo fmt --check`, native
+  autoclose smoke, and native autoclose smoke with `ODYTTY_SUBPIXEL=rgb`.
+- SX2 terminal integration was still in progress during this packet, so the
+  graphics render path was verified through hand-built visible placements rather
+  than a live Sixel printf in the native window.
+
+---
+
 ## 2026-06-11 — Shared graphics scene and parser routing seam (G2.1)
 
 Builds the renderer-independent graphics foundation on top of the owned

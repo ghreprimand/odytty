@@ -51,11 +51,14 @@ mod app;
 mod bindings;
 mod clipboard;
 mod gpu;
+mod image_layer;
 mod options;
 mod pty;
 mod search_ui;
 mod viewport;
 
+#[cfg(test)]
+mod image_layer_tests;
 #[cfg(test)]
 mod tests;
 

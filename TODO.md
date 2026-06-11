@@ -327,6 +327,10 @@ a floor; surpassing it is the standing ambition.
       memory/eviction, cell-anchored placement model, primary/alternate
       isolation, scroll/clear/resize/reset hooks, visible-placement accessor,
       and raw Kitty APC / Sixel DCS routing seam.
+- [x] G2.3 native GPU image layer: visible scene placements render as
+      alpha-blended RGBA8 textured quads between cell backgrounds and glyphs,
+      with lazy image-id uploads, visible-set cache eviction, scrollback-aware
+      placement geometry, and headless geometry/cache tests.
 - [ ] G2.2 Kitty direct still-image MVP: command parsing, chunk reassembly,
       direct RGBA/PNG payloads, ids/placements/deletes/query replies, and
       deterministic protocol fixtures.

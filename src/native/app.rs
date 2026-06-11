@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -6,6 +7,7 @@ use crate::core::{
     Color, Dimensions, KeyboardModes as CoreKeyboardModes, MouseButton as CoreMouseButton,
     MouseEventKind, MouseProtocol, Snapshot, Terminal,
 };
+use crate::graphics::{StoredImageId, VisiblePlacement};
 use crate::input::{self, Key, KeyModes, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker};
@@ -28,6 +30,7 @@ use super::bindings::{
 };
 use super::clipboard::{NativeClipboard, selected_clipboard_text, write_paste_text};
 use super::gpu::{FrameOutcome, GpuState};
+use super::image_layer::ImageUpload;
 use super::options::{NativeError, NativeOptions};
 use super::pty::{PtyWriter, UserEvent};
 use super::search_ui::{SearchUi, apply_search_ui};
@@ -888,6 +891,27 @@ fn key_modes_from_core(modes: CoreKeyboardModes) -> KeyModes {
     }
 }
 
+fn image_uploads_for_visible(
+    terminal: &Terminal,
+    visible: &[VisiblePlacement],
+    cached: &BTreeSet<StoredImageId>,
+) -> Vec<ImageUpload> {
+    let mut requested = BTreeSet::new();
+    visible
+        .iter()
+        .filter(|placement| {
+            !cached.contains(&placement.image_id) && requested.insert(placement.image_id)
+        })
+        .filter_map(|placement| {
+            terminal
+                .graphics()
+                .store()
+                .get(placement.image_id)
+                .map(ImageUpload::from)
+        })
+        .collect()
+}
+
 impl ApplicationHandler<UserEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -984,6 +1008,7 @@ impl ApplicationHandler<UserEvent> for App {
                 });
 
                 if let Some(resize) = resize {
+                    self.needs_rebuild = true;
                     self.record_pending_resize(resize, Instant::now());
                 }
                 if let Some(window) = self.window.as_ref() {
@@ -997,7 +1022,19 @@ impl ApplicationHandler<UserEvent> for App {
                 // pump wakes coalesced into this frame. Snapshot under the lock,
                 // then drop it before touching the GPU.
                 if self.needs_rebuild {
-                    let (mut snapshot, scrollback_len, cursor_style, cursor_blinking) = {
+                    let cached_image_ids = self
+                        .gpu
+                        .as_ref()
+                        .map(GpuState::cached_image_ids)
+                        .unwrap_or_default();
+                    let (
+                        mut snapshot,
+                        scrollback_len,
+                        cursor_style,
+                        cursor_blinking,
+                        visible_graphics,
+                        image_uploads,
+                    ) = {
                         let terminal = self.terminal.lock().expect("terminal mutex");
                         let scrollback_len = terminal.screen().scrollback_len();
                         // "Stay scrolled": as new output grows scrollback while
@@ -1011,11 +1048,20 @@ impl ApplicationHandler<UserEvent> for App {
                         if self.search.is_open() {
                             self.search.refresh(&terminal);
                         }
+                        let offset = self.viewport.offset();
+                        let visible_graphics = terminal.visible_graphics(offset);
+                        let image_uploads = image_uploads_for_visible(
+                            &terminal,
+                            &visible_graphics,
+                            &cached_image_ids,
+                        );
                         (
-                            terminal.snapshot_with_scrollback(self.viewport.offset()),
+                            terminal.snapshot_with_scrollback(offset),
                             scrollback_len,
                             terminal.cursor_style(),
                             terminal.cursor_blinking(),
+                            visible_graphics,
+                            image_uploads,
                         )
                     };
                     // Blink phase: hide the cursor during the off-phase. Only the
@@ -1054,6 +1100,7 @@ impl ApplicationHandler<UserEvent> for App {
                         )
                     });
                     if let Some(gpu) = self.gpu.as_mut() {
+                        gpu.update_image_layer(&visible_graphics, &image_uploads);
                         if let Some(overlay) = overlay {
                             gpu.update_from_snapshot_with_overlays(
                                 &snapshot,

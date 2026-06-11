@@ -1,15 +1,18 @@
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use ab_glyph::FontVec;
 use wgpu::util::DeviceExt;
 
 use crate::core::{CursorStyle, Snapshot};
+use crate::graphics::{StoredImageId, VisiblePlacement};
 use crate::grid::{self, SolidQuad, Vertex};
 use crate::text::{self, FontStyle, GlyphAtlas, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};
 
 use winit::window::Window;
 
+use super::image_layer::{ImageLayer, ImageUpload};
 use super::options::{NativeError, NativeOptions};
 
 pub(super) fn theme_clear_color(theme: &Theme) -> wgpu::Color {
@@ -250,6 +253,15 @@ fn vertex_bytes_len(vertices: &[Vertex]) -> u64 {
     std::mem::size_of_val(vertices) as u64
 }
 
+fn background_vertex_count(snapshot: &Snapshot) -> u32 {
+    let cells = snapshot
+        .cells
+        .iter()
+        .filter(|cell| !cell.wide_continuation)
+        .count();
+    (cells * grid::VERTS_PER_QUAD) as u32
+}
+
 pub(super) fn grow_vertex_buffer_capacity(current: u64, needed: u64) -> u64 {
     if needed <= current {
         return current;
@@ -295,6 +307,8 @@ pub(super) struct GpuState {
     vertex_buf_capacity_bytes: u64,
     vertices: Vec<Vertex>,
     vertex_count: u32,
+    background_vertex_count: u32,
+    image_layer: ImageLayer,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
     pub(super) atlas: GlyphAtlas,
@@ -474,6 +488,7 @@ impl GpuState {
             &atlas_sampler,
         );
         let _ = atlas.take_dirty();
+        let image_layer = ImageLayer::new(&device, config.format);
 
         // --- Render pipeline from the shared cell shader.
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -544,6 +559,7 @@ impl GpuState {
         let mut vertices = Vec::new();
         grid::build_vertices_into(&mut vertices, initial_snapshot, &atlas);
         let vertex_count = vertices.len() as u32;
+        let background_vertex_count = background_vertex_count(initial_snapshot);
         let vertex_buf_capacity_bytes = grow_vertex_buffer_capacity(0, vertex_bytes_len(&vertices));
         let vertex_buf = create_vertex_buffer(&device, vertex_buf_capacity_bytes);
         if vertex_count > 0 {
@@ -563,6 +579,8 @@ impl GpuState {
             vertex_buf_capacity_bytes,
             vertices,
             vertex_count,
+            background_vertex_count,
+            image_layer,
             atlas,
             fonts,
             font_size_px: options.font_size_px,
@@ -658,6 +676,25 @@ impl GpuState {
         self.update_from_snapshot_with_overlays(snapshot, cursor_style, &[]);
     }
 
+    pub(super) fn cached_image_ids(&self) -> BTreeSet<StoredImageId> {
+        self.image_layer.cached_ids()
+    }
+
+    pub(super) fn update_image_layer(
+        &mut self,
+        placements: &[VisiblePlacement],
+        uploads: &[ImageUpload],
+    ) {
+        self.image_layer.update(
+            &self.device,
+            &self.queue,
+            &self.viewport_buf,
+            placements,
+            uploads,
+            self.atlas.cell,
+        );
+    }
+
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot plus
     /// presentation-only solid overlays, drawing the cursor in `cursor_style`.
     pub(super) fn update_from_snapshot_with_overlays(
@@ -678,6 +715,7 @@ impl GpuState {
             overlays,
         );
         self.vertex_count = self.vertices.len() as u32;
+        self.background_vertex_count = background_vertex_count(snapshot).min(self.vertex_count);
         let needed = vertex_bytes_len(&self.vertices);
         let capacity = grow_vertex_buffer_capacity(self.vertex_buf_capacity_bytes, needed);
         if capacity != self.vertex_buf_capacity_bytes {
@@ -775,7 +813,14 @@ impl GpuState {
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &self.bind_group, &[]);
                 pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-                pass.draw(0..self.vertex_count, 0..1);
+                let background_count = self.background_vertex_count.min(self.vertex_count);
+                if background_count > 0 {
+                    pass.draw(0..background_count, 0..1);
+                }
+                self.image_layer.draw(&mut pass);
+                if background_count < self.vertex_count {
+                    pass.draw(background_count..self.vertex_count, 0..1);
+                }
             }
         }
         self.queue.submit(std::iter::once(encoder.finish()));
