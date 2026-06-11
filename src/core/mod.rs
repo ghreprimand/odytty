@@ -21,6 +21,8 @@ mod search;
 mod types;
 
 #[cfg(test)]
+mod alt_screen_tests;
+#[cfg(test)]
 mod cursor_tests;
 #[cfg(test)]
 mod encoding_tests;

@@ -642,3 +642,209 @@ fn keyboard_encoder_findings_for_application_modes_and_ctrl_arrows() {
         b"\x1bOq"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// A1 expansion: nano, htop, pager-in-pager
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn nano_enter_edit_quit_restores_primary_screen() -> Result<()> {
+    let Some(nano) = skip_missing("nano") else {
+        return Ok(());
+    };
+
+    let temp = TempDir::new("nano-smoke")?;
+    let file = temp.path().join("nano-input.txt");
+    fs::write(&file, "odytty-nano-original\n")
+        .with_context(|| format!("write {}", file.display()))?;
+
+    let primary_marker = "PRIMARY-BEFORE-NANO";
+    let mut command = CommandBuilder::new(nano.to_string_lossy().into_owned());
+    fixed_env(&mut command);
+    command.env("HOME", temp.path().to_string_lossy().into_owned());
+    // Disable nanorc so behavior is predictable.
+    command.arg("--ignorercfiles");
+    command.arg(file.to_string_lossy().into_owned());
+
+    let mut harness = PtyHarness::spawn(command, primary_marker)?;
+
+    // Wait for nano to show the file content on the alt screen.
+    harness.poll_until("nano initial screen", SHORT_WAIT, |terminal| {
+        let text = terminal.screen().plain_text();
+        text.contains("odytty-nano-original") && !text.contains(primary_marker)
+    })?;
+
+    // Type some text.
+    harness.write_input(b"odytty typed in nano")?;
+    harness.poll_until("nano shows typed text", SHORT_WAIT, |terminal| {
+        terminal
+            .screen()
+            .plain_text()
+            .contains("odytty typed in nano")
+    })?;
+
+    // Exit without saving: Ctrl-X, then N (don't save).
+    harness.write_input(b"\x18")?; // Ctrl-X
+    harness.poll_until("nano save prompt", SHORT_WAIT, |terminal| {
+        let text = terminal.screen().plain_text().to_lowercase();
+        text.contains("save") || text.contains("modified")
+    })?;
+    harness.write_input(b"N")?; // Don't save
+
+    // Wait for nano to exit and primary screen to be restored.
+    harness.poll_until("nano restores primary screen", SHORT_WAIT, |terminal| {
+        let text = terminal.screen().plain_text();
+        text.contains(primary_marker) && !text.contains("odytty typed in nano")
+    })?;
+    harness.wait_for_exit(EXIT_WAIT)?;
+    assert_primary_restored(&harness.terminal, primary_marker, "odytty typed in nano");
+
+    // File should be unmodified since we chose not to save.
+    let final_file =
+        fs::read_to_string(&file).with_context(|| format!("read {}", file.display()))?;
+    assert_eq!(final_file, "odytty-nano-original\n");
+
+    Ok(())
+}
+
+#[test]
+fn htop_enters_and_exits_alt_screen() -> Result<()> {
+    let Some(htop) = skip_missing("htop") else {
+        return Ok(());
+    };
+
+    let primary_marker = "PRIMARY-BEFORE-HTOP";
+    let mut command = CommandBuilder::new(htop.to_string_lossy().into_owned());
+    fixed_env(&mut command);
+    // Disable htoprc by pointing HOME to a temp dir.
+    let temp = TempDir::new("htop-smoke")?;
+    command.env("HOME", temp.path().to_string_lossy().into_owned());
+
+    let mut harness = PtyHarness::spawn(command, primary_marker)?;
+
+    // Wait for htop to start showing system info (alt screen).
+    harness.poll_until("htop initial screen", SHORT_WAIT, |terminal| {
+        let text = terminal.screen().plain_text().to_lowercase();
+        !text.contains(primary_marker)
+            && (text.contains("cpu") || text.contains("mem") || text.contains("pid"))
+    })?;
+
+    // Confirm we're on alt screen: no scrollback.
+    assert_eq!(
+        harness.terminal.screen().scrollback_len(),
+        0,
+        "htop should run on alternate screen with no scrollback"
+    );
+
+    // Quit htop with 'q'.
+    harness.write_input(b"q")?;
+
+    harness.poll_until("htop restores primary screen", SHORT_WAIT, |terminal| {
+        terminal.screen().plain_text().contains(primary_marker)
+    })?;
+    harness.wait_for_exit(EXIT_WAIT)?;
+    assert_primary_restored(&harness.terminal, primary_marker, "PID");
+
+    Ok(())
+}
+
+#[test]
+fn git_log_pager_restores_primary_screen() -> Result<()> {
+    // Git log uses a pager (less by default) to display output. This tests
+    // a common pager-driven alt-screen scenario. We create a temp git repo
+    // with commits to generate enough output.
+    let Some(_git) = skip_missing("git") else {
+        return Ok(());
+    };
+    let Some(_less) = skip_missing("less") else {
+        return Ok(());
+    };
+
+    let temp = TempDir::new("git-pager-smoke")?;
+
+    // Initialize a repo and create some commits.
+    let git_init = ProcessCommand::new("git")
+        .arg("init")
+        .current_dir(temp.path())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("HOME", temp.path().to_string_lossy().as_ref())
+        .output()?;
+    if !git_init.status.success() {
+        eprintln!(
+            "skipping git pager smoke: git init failed: {}",
+            String::from_utf8_lossy(&git_init.stderr)
+        );
+        return Ok(());
+    }
+
+    // Configure git user for commits.
+    for (key, val) in [("user.name", "OdyTTY Test"), ("user.email", "test@odytty")] {
+        ProcessCommand::new("git")
+            .args(["config", key, val])
+            .current_dir(temp.path())
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("HOME", temp.path().to_string_lossy().as_ref())
+            .output()?;
+    }
+
+    // Create enough commits to overflow the terminal and trigger the pager.
+    for i in 1..=30 {
+        let file = temp.path().join(format!("file-{i}.txt"));
+        fs::write(&file, format!("odytty-git-pager-commit-{i:03}\n"))?;
+        ProcessCommand::new("git")
+            .args(["add", "."])
+            .current_dir(temp.path())
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("HOME", temp.path().to_string_lossy().as_ref())
+            .output()?;
+        ProcessCommand::new("git")
+            .args(["commit", "-m", &format!("odytty-git-pager-commit-{i:03}")])
+            .current_dir(temp.path())
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("HOME", temp.path().to_string_lossy().as_ref())
+            .output()?;
+    }
+
+    let primary_marker = "PRIMARY-BEFORE-GIT-LOG";
+    let mut command = CommandBuilder::new("git".to_string());
+    fixed_env(&mut command);
+    command.env("GIT_CONFIG_NOSYSTEM", "1");
+    command.env("HOME", temp.path().to_string_lossy().into_owned());
+    command.env("GIT_PAGER", "less -R");
+    // Git defaults LESS=FRX; -X disables smcup/rmcup (alt screen). Override
+    // to FR so less uses the alternate screen as it would in a modern terminal.
+    command.env("LESS", "FR");
+    command.env("LESSHISTFILE", "/dev/null");
+    command.arg("-C");
+    command.arg(temp.path().to_string_lossy().into_owned());
+    command.arg("log");
+    command.arg("--oneline");
+
+    let mut harness = PtyHarness::spawn(command, primary_marker)?;
+
+    // Wait for the pager to show git log output.
+    harness.poll_until("git log pager shows commits", SHORT_WAIT, |terminal| {
+        let text = terminal.screen().plain_text();
+        text.contains("odytty-git-pager-commit-") && !text.contains(primary_marker)
+    })?;
+
+    // Quit the pager.
+    harness.write_input(b"q")?;
+
+    harness.poll_until(
+        "git log pager restores primary screen",
+        SHORT_WAIT,
+        |terminal| {
+            let text = terminal.screen().plain_text();
+            text.contains(primary_marker) && !text.contains("odytty-git-pager-commit-")
+        },
+    )?;
+    harness.wait_for_exit(EXIT_WAIT)?;
+    assert_primary_restored(
+        &harness.terminal,
+        primary_marker,
+        "odytty-git-pager-commit-",
+    );
+
+    Ok(())
+}

@@ -88,10 +88,19 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         state + ESC[I/ESC[O encoders.
   - [x] Native: emit no-button hover motion for any-event tracking and send
         focus-in/out reports to the PTY when 1004 is enabled.
-- [ ] Harden alternate-screen behavior with editors, pagers, and full-screen
+- [x] Harden alternate-screen behavior with editors, pagers, and full-screen
       apps.
   - [x] PTY smoke: real `less` and `vim` enter alternate screen, accept basic
         interaction, quit, and restore the seeded primary screen.
+  - [x] A1: 30 deterministic mode-matrix fixtures (1049, 1048, 47, 1047, ED 2/3
+        in alt, scrollback isolation, re-entrancy, DECSC/DECRC interaction,
+        RIS/DECSTR inside alt, resize + primary reflow, modal-state persistence).
+  - [x] A1: PTY smoke for nano, htop, and git-log-pager alt-screen restore.
+  - [x] A1: modes 47/1047/1048 now handled (previously silently ignored).
+  - [ ] Refine 47/1047 semantics to match xterm: no cursor save on 47, clear-on-
+        leave for 1047 (low impact — 1049 is dominant; finding F2).
+  - [ ] Save/restore `cursor_visible` and `current_attrs` in StoredScreen
+        (findings F3/F4).
 - [ ] Improve Unicode, wide-character, combining-mark, and ambiguous-width
       handling.
   - [x] Core: wide-cell write/erase coherence — overwrite-half clears the pair,

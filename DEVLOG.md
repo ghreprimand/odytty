@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Alternate-screen hardening (A1)
+
+Adds the mode-matrix fixtures and PTY smoke coverage that the carried-forward
+"harden alternate-screen behavior" plan item calls for. Also fixes the missing
+DECSET/DECRST modes 47, 1047, and 1048 so the two-step `1048h; 1047h / 1047l;
+1048l` pattern used by less, tmux, and screen actually works.
+
+### What landed
+
+- **30 deterministic mode-matrix fixtures** in `src/core/alt_screen_tests.rs`:
+  mode 1049 (enter/leave, cursor save/restore, scrollback isolation, re-entrancy,
+  DECSC/DECRC interaction, RIS/DECSTR inside alt, resize + primary reflow),
+  mode 1048 (cursor only), modes 47 and 1047 (alt switch), ED 2/ED 3 in alt,
+  resize in alt, and modal-state persistence (bracketed paste, mouse, focus
+  reporting) through alt roundtrips.
+- **3 new PTY smoke tests**: nano enter/edit/quit restores primary; htop
+  enter/exit alt screen; git log pager (less -R) restores primary.
+- **Modes 47, 1047, 1048 now handled** in `set_cursor_mode` (~15 lines):
+  47|1047 route to `enter/leave_alternate_screen`, 1048 routes to
+  `save/restore_cursor`.
+
+### Known gaps (routed findings)
+
+- Modes 47 and 1047 currently use the same implementation as 1049 (save cursor
+  + clear on entry). The xterm spec defines distinct semantics: 47 should not
+  save/restore cursor or clear, and 1047 should clear only on leave.
+  Low practical impact since 1049 is the dominant mode; listed as finding F2.
+- `cursor_visible` and `current_attrs` are not saved/restored in `StoredScreen`.
+  Minor practical impact; findings F3 and F4.
+- Git's default `LESS=FRX` disables alt screen; this is expected git behavior
+  (documented as F7).
+
+### Validation
+
+- `cargo test --lib -- --skip parser`: 431 passed, 1 ignored.
+- `cargo test --test pty_alt_screen_smoke`: 9 passed.
+- `cargo test --test transcript_smoke`: 10 passed, 1 ignored.
+- `cargo fmt --check` clean on all touched files.
+- Native smoke (`ODYTTY_NATIVE_AUTOCLOSE_MS=800`): exits 0.
+- All files under 2000 lines.
+
+---
+
 ## 2026-06-10 — Optional subpixel text anti-aliasing (SP1)
 
 SP1 adds the parity-track subpixel AA escape hatch behind an explicit setting,

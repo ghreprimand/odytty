@@ -1032,6 +1032,26 @@ impl Screen {
                     self.cursor_visible = action == 'h';
                     self.mark_dirty();
                 }
+                // Alternate-screen modes per xterm ctlseqs:
+                // 47: plain switch (no cursor save, no clear).
+                // 1047: switch; clear alt on leave.
+                // 1048: DECSC/DECRC only (cursor save/restore, no switch).
+                // 1049: DECSC + switch + clear / switch + DECRC (combines
+                //        1048 + 1047 behavior).
+                47 | 1047 => {
+                    if action == 'h' {
+                        self.enter_alternate_screen();
+                    } else {
+                        self.leave_alternate_screen();
+                    }
+                }
+                1048 => {
+                    if action == 'h' {
+                        self.save_cursor();
+                    } else {
+                        self.restore_cursor();
+                    }
+                }
                 1049 => {
                     if action == 'h' {
                         self.enter_alternate_screen();
