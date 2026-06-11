@@ -10,6 +10,9 @@ use super::*;
 /// when full, OdyTTY evicts the oldest saved entry and keeps the most recent
 /// states so nested TUIs can unwind deterministically without unbounded memory.
 const KITTY_KEYBOARD_STACK_LIMIT: usize = 16;
+const ODYTTY_DA2_TERMINAL_TYPE: usize = 65;
+const ODYTTY_DA2_VERSION: usize = 1;
+const ODYTTY_DA2_ROM: usize = 0;
 
 impl Screen {
     pub(super) fn scroll_up_full(&mut self) {
@@ -457,6 +460,17 @@ impl Screen {
                     self.origin_mode = action == 'h';
                     self.move_to_origin(1, 1);
                 }
+                7 => {
+                    self.auto_wrap = action == 'h';
+                    self.pending_wrap = false;
+                }
+                // ATT610/xterm cursor blink mode. OdyTTY already owns cursor
+                // blink state for DECSCUSR; expose the DECSET/DECRST alias so
+                // mode reports reflect a real setting rather than a stub.
+                12 => {
+                    self.cursor_blink = action == 'h';
+                    self.mark_dirty();
+                }
                 25 => {
                     self.cursor_visible = action == 'h';
                     self.mark_dirty();
@@ -521,6 +535,98 @@ impl Screen {
                 1015 => self.set_mouse_encoding(MouseEncoding::Urxvt, action),
                 _ => {}
             }
+        }
+    }
+
+    /// DECRQM (`CSI Ps $ p`, `CSI ? Ps $ p`): report whether an ANSI or DEC
+    /// private mode is set. OdyTTY reports every DECSET/DECRST mode it owns;
+    /// known-but-unsupported modes are "permanently reset" and unknown modes
+    /// are "not recognized", matching the xterm/VT convention.
+    pub(super) fn request_mode_report(&mut self, params: &Params, intermediates: &[u8]) {
+        let Some(mode) = params
+            .iter()
+            .next()
+            .and_then(|param| param.first())
+            .copied()
+        else {
+            return;
+        };
+        let private = intermediates == b"?$";
+        let status = if private {
+            self.dec_private_mode_report(mode)
+        } else {
+            self.ansi_mode_report(mode)
+        };
+        if private {
+            self.host_output
+                .extend_from_slice(format!("\x1b[?{mode};{status}$y").as_bytes());
+        } else {
+            self.host_output
+                .extend_from_slice(format!("\x1b[{mode};{status}$y").as_bytes());
+        }
+    }
+
+    fn ansi_mode_report(&self, mode: u16) -> u8 {
+        match mode {
+            // IRM (insert/replace mode) is known but not implemented; OdyTTY
+            // permanently uses replace-mode editing semantics.
+            4 => 4,
+            _ => 0,
+        }
+    }
+
+    fn dec_private_mode_report(&self, mode: u16) -> u8 {
+        match mode {
+            1 => mode_status(self.keyboard.application_cursor),
+            6 => mode_status(self.origin_mode),
+            7 => mode_status(self.auto_wrap),
+            12 => mode_status(self.cursor_blink),
+            25 => mode_status(self.cursor_visible),
+            47 | 1047 | 1049 => mode_status(self.primary_screen.is_some()),
+            // 1048 is an action-style save/restore mode; report whether a
+            // saved cursor exists rather than pretending the mode is unknown.
+            1048 => mode_status(self.saved_cursor.is_some()),
+            80 => mode_status(self.sixel_display_mode),
+            9 => mode_status(self.mouse.tracking == MouseTracking::X10),
+            1000 => mode_status(self.mouse.tracking == MouseTracking::Normal),
+            1002 => mode_status(self.mouse.tracking == MouseTracking::ButtonEvent),
+            1003 => mode_status(self.mouse.tracking == MouseTracking::AnyEvent),
+            1004 => mode_status(self.focus_reporting),
+            1005 => mode_status(self.mouse.encoding == MouseEncoding::Utf8),
+            1006 => mode_status(self.mouse.encoding == MouseEncoding::Sgr),
+            1015 => mode_status(self.mouse.encoding == MouseEncoding::Urxvt),
+            2004 => mode_status(self.bracketed_paste),
+            // Known xterm private modes that OdyTTY does not implement.
+            1001 | 1007 | 1016 => 4,
+            _ => 0,
+        }
+    }
+
+    /// XTWINOPS reports only. Manipulation requests are intentionally ignored:
+    /// core cannot move/resize/iconify a host window. Title push/pop (22/23)
+    /// are also ignored; OdyTTY stores one current title, not an xterm title
+    /// stack.
+    pub(super) fn window_ops_report(&mut self, params: &Params) {
+        match param_or(params, 0, 0) {
+            14 => {
+                let height = self.dimensions.rows as u32 * self.cell_metrics.height_px;
+                let width = self.dimensions.columns as u32 * self.cell_metrics.width_px;
+                self.host_output
+                    .extend_from_slice(format!("\x1b[4;{height};{width}t").as_bytes());
+            }
+            16 => {
+                let height = self.cell_metrics.height_px;
+                let width = self.cell_metrics.width_px;
+                self.host_output
+                    .extend_from_slice(format!("\x1b[6;{height};{width}t").as_bytes());
+            }
+            18 => {
+                let height = self.dimensions.rows;
+                let width = self.dimensions.columns;
+                self.host_output
+                    .extend_from_slice(format!("\x1b[8;{height};{width}t").as_bytes());
+            }
+            _ => {}
         }
     }
 
@@ -591,7 +697,26 @@ impl Screen {
     pub(super) fn device_attributes(&mut self, params: &Params, intermediates: &[u8]) {
         if intermediates.is_empty() && param_or(params, 0, 0) == 0 {
             self.host_output.extend_from_slice(b"\x1b[?1;2c");
+        } else if intermediates == b">" && param_or(params, 0, 0) == 0 {
+            self.host_output.extend_from_slice(
+                format!(
+                    "\x1b[>{};{};{}c",
+                    ODYTTY_DA2_TERMINAL_TYPE, ODYTTY_DA2_VERSION, ODYTTY_DA2_ROM
+                )
+                .as_bytes(),
+            );
         }
+    }
+
+    /// XTVERSION (`CSI > 0 q`): report the terminal implementation name and
+    /// package version as a DCS payload.
+    pub(super) fn xtversion_report(&mut self, params: &Params) {
+        if param_or(params, 0, 0) != 0 {
+            return;
+        }
+        self.host_output.extend_from_slice(
+            format!("\x1bP>|OdyTTY {}\x1b\\", env!("CARGO_PKG_VERSION")).as_bytes(),
+        );
     }
 
     /// DSR (ESC [ Ps n): answer the host status queries that line editors rely
@@ -672,6 +797,7 @@ impl Screen {
             saved_cursor: self.saved_cursor,
             scroll_region: self.scroll_region,
             origin_mode: self.origin_mode,
+            auto_wrap: self.auto_wrap,
             current_attrs: self.current_attrs,
             active_hyperlink: self.active_hyperlink,
             kitty_keyboard_flags: self.keyboard.kitty_keyboard_flags,
@@ -730,6 +856,7 @@ impl Screen {
             self.saved_cursor = primary_screen.saved_cursor;
             self.scroll_region = primary_screen.scroll_region;
             self.origin_mode = primary_screen.origin_mode;
+            self.auto_wrap = primary_screen.auto_wrap;
             self.keyboard.kitty_keyboard_flags = primary_screen.kitty_keyboard_flags;
             self.kitty_keyboard_stack = primary_screen.kitty_keyboard_stack;
             self.graphics.leave_alternate();
@@ -768,6 +895,7 @@ impl Screen {
         self.saved_cursor = None;
         self.scroll_region = None;
         self.origin_mode = false;
+        self.auto_wrap = true;
         self.bracketed_paste = false;
         self.current_attrs = Attrs::default();
         self.active_hyperlink = None;
@@ -805,6 +933,7 @@ impl Screen {
         self.saved_cursor = None;
         self.scroll_region = None;
         self.origin_mode = false;
+        self.auto_wrap = true;
         self.bracketed_paste = false;
         self.keyboard = KeyboardModes::default();
         self.kitty_keyboard_stack.clear();
@@ -818,4 +947,8 @@ impl Screen {
         self.sixel_display_mode = false;
         self.mark_dirty();
     }
+}
+
+fn mode_status(set: bool) -> u8 {
+    if set { 1 } else { 2 }
 }

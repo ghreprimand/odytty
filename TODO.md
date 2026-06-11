@@ -94,6 +94,8 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 
 - [ ] Expand compatibility only from observed shell/TUI failures or clearly
       documented standards gaps.
+  - [x] Core reporting probes: DECRQM/DECRPM, XTWINOPS size reports, Secondary
+        DA, and XTVERSION.
 - [ ] Add deterministic fixtures for every reproducible terminal-core
       regression.
 - [ ] Improve OSC support, including title handling and common shell/editor

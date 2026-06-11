@@ -78,6 +78,9 @@ pub struct Screen {
     /// DECOM (origin mode, private mode 6). When set, CUP/HVP/VPA addressing is
     /// relative to the active scroll region top and constrained within it.
     origin_mode: bool,
+    /// DECAWM (private mode 7). When set, printing past the right edge wraps to
+    /// the next row; when reset, the rightmost cell is overwritten in place.
+    auto_wrap: bool,
     bracketed_paste: bool,
     current_attrs: Attrs,
     active_hyperlink: Option<LinkId>,
@@ -137,6 +140,7 @@ struct StoredScreen {
     saved_cursor: Option<SavedCursor>,
     scroll_region: Option<ScrollRegion>,
     origin_mode: bool,
+    auto_wrap: bool,
     current_attrs: Attrs,
     active_hyperlink: Option<LinkId>,
     kitty_keyboard_flags: u16,
@@ -166,6 +170,7 @@ impl Screen {
             primary_screen: None,
             scroll_region: None,
             origin_mode: false,
+            auto_wrap: true,
             bracketed_paste: false,
             current_attrs: Attrs::default(),
             active_hyperlink: None,
@@ -620,7 +625,7 @@ impl Screen {
             self.pending_wrap = false;
         }
 
-        if self.cursor.column + width > self.dimensions.columns {
+        if self.auto_wrap && self.cursor.column + width > self.dimensions.columns {
             // A wide glyph does not fit in the remaining columns. xterm does not
             // split it across rows: blank the trailing cell(s) and soft-wrap the
             // glyph onto the next row, marking the row wrapped so resize rejoins
@@ -649,9 +654,12 @@ impl Screen {
             self.rows[row][column + 1] = Cell::wide_spacer(attrs);
         }
 
-        if self.cursor.column + width >= self.dimensions.columns {
+        if self.auto_wrap && self.cursor.column + width >= self.dimensions.columns {
             self.cursor.column = self.dimensions.columns - 1;
             self.pending_wrap = true;
+        } else if self.cursor.column + width >= self.dimensions.columns {
+            self.cursor.column = self.dimensions.columns - 1;
+            self.pending_wrap = false;
         } else {
             self.cursor.column += width;
         }
@@ -824,10 +832,15 @@ impl Screen {
             'g' => self.clear_tab_stop(param_or(params, 0, 0)),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
             'm' => self.apply_sgr(params),
+            'p' if intermediates == b"$" || intermediates == b"?$" => {
+                self.request_mode_report(params, intermediates)
+            }
             'p' if intermediates == b"!" => self.soft_reset(),
+            'q' if intermediates == b">" => self.xtversion_report(params),
             'q' if intermediates == b" " => self.set_cursor_style(param_or(params, 0, 0)),
             'r' => self.set_scroll_region(params),
             's' => self.save_cursor(),
+            't' if intermediates.is_empty() => self.window_ops_report(params),
             'u' if intermediates == b"?" => self.kitty_keyboard_query(params, intermediates),
             'u' if intermediates == b">" => self.kitty_keyboard_push(params, intermediates),
             'u' if intermediates == b"<" => self.kitty_keyboard_pop(params, intermediates),

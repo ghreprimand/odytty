@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Terminal reporting surface (RQ1)
+
+OdyTTY now answers the terminal identity and state probes that modern shells,
+editors, and compatibility shims commonly use before enabling optional terminal
+features.
+
+- **DECRQM/DECRPM.** `CSI Ps $ p` and `CSI ? Ps $ p` respond through the
+  existing host-output seam. DEC private reports cover every mode currently
+  owned by `set_cursor_mode`: application cursor (`1`), origin (`6`), autowrap
+  (`7`), cursor blink (`12`), cursor visibility (`25`), sixel display mode
+  (`80`), alternate-screen modes (`47/1047/1048/1049`), mouse tracking
+  (`9/1000/1002/1003`), focus (`1004`), mouse encodings (`1005/1006/1015`),
+  and bracketed paste (`2004`). Known-but-unsupported modes report
+  permanently reset; unknown modes report unrecognized.
+- **Explicit mode state.** DECAWM (`?7`) is now an owned mode instead of an
+  implicit always-on behavior, and `?12` maps onto the existing cursor blink
+  policy. Resets restore autowrap on and blink to the host default path.
+- **XTWINOPS reports.** Query-only `CSI 14 t`, `CSI 16 t`, and `CSI 18 t`
+  report text-area pixels, cell pixels, and character dimensions from the live
+  `CellMetrics`. Headless runs use the documented 8x16 default until the native
+  layer supplies real metrics. Manipulation operations and title stack
+  push/pop are intentionally ignored in core.
+- **Identity probes.** Secondary DA (`CSI > c`) reports an OdyTTY VT525-class
+  identity tuple, and XTVERSION (`CSI > 0 q`) returns a DCS payload with the
+  OdyTTY package version.
+
+---
+
 ## 2026-06-11 — Modularity split: atlas.rs (M5)
 
 Mechanical split of `src/atlas.rs` (1910 lines, the file nearest the ~2000-line
