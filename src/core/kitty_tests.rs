@@ -33,6 +33,29 @@ fn rgba_2x1() -> Vec<u8> {
     vec![255, 0, 0, 255, 0, 255, 0, 128]
 }
 
+fn png_rgba_2x1() -> Vec<u8> {
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, 2, 1);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&rgba_2x1()).unwrap();
+    }
+    out
+}
+
+fn png_header_with_large_dimensions(width: u32, height: u32) -> Vec<u8> {
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let _writer = encoder.write_header().unwrap();
+    }
+    out
+}
+
 #[test]
 fn parses_control_and_payload_without_new_dependencies() {
     let (control, payload) =
@@ -149,15 +172,91 @@ fn kitty_invalid_payload_returns_error_and_no_placement() {
 }
 
 #[test]
-fn kitty_png_is_deferred_with_explicit_error() {
+fn kitty_png_transmit_and_display_decodes_to_rgba8() {
     let mut t = Terminal::new(20, 4);
-    t.advance(b"\x1b_Gf=100,a=T,t=d,s=1,v=1;AAAA\x1b\\");
+    t.advance(&kitty_apc("f=100,a=T,t=d,s=2,v=1,i=11", &png_rgba_2x1()));
+
+    let visible = t.visible_graphics(0);
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].protocol, GraphicsProtocol::Kitty);
+    assert_eq!(visible[0].display_columns, 1);
+    assert_eq!(visible[0].display_rows, 1);
+    let image = t.graphics().store().get(visible[0].image_id).unwrap();
+    assert_eq!(image.protocol_id, Some(11));
+    assert_eq!(image.width, 2);
+    assert_eq!(image.height, 1);
+    assert_eq!(image.rgba, rgba_2x1());
+    assert_eq!(t.take_host_output(), b"\x1b_Gi=11;OK\x1b\\");
+}
+
+#[test]
+fn kitty_png_chunked_transmission_accumulates_until_final_chunk() {
+    let mut t = Terminal::new(20, 4);
+    let encoded = b64(&png_rgba_2x1());
+    let split = encoded.len() / 2;
+    let first = format!("\x1b_Gf=100,a=T,t=d,i=12,m=1;{}\x1b\\", &encoded[..split]);
+    let second = format!("\x1b_Gm=0;{}\x1b\\", &encoded[split..]);
+
+    t.advance(first.as_bytes());
+    assert!(t.visible_graphics(0).is_empty());
+    assert_eq!(t.take_host_output(), b"\x1b_Gi=12;OK\x1b\\");
+
+    t.advance(second.as_bytes());
+    assert_eq!(t.visible_graphics(0).len(), 1);
+    let image = t
+        .graphics()
+        .store()
+        .get(t.visible_graphics(0)[0].image_id)
+        .unwrap();
+    assert_eq!(image.rgba, rgba_2x1());
+    assert_eq!(t.take_host_output(), b"\x1b_Gi=12;OK\x1b\\");
+}
+
+#[test]
+fn kitty_png_dimension_mismatch_returns_explicit_error() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=100,a=T,t=d,s=3,v=1", &png_rgba_2x1()));
 
     assert!(t.visible_graphics(0).is_empty());
     assert!(
         String::from_utf8(t.take_host_output())
             .unwrap()
-            .contains("unsupported-format")
+            .contains("dimension-mismatch")
+    );
+}
+
+#[test]
+fn kitty_malformed_png_returns_error_and_no_placement() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=100,a=T,t=d", b"not a png"));
+
+    assert!(t.visible_graphics(0).is_empty());
+    assert!(
+        String::from_utf8(t.take_host_output())
+            .unwrap()
+            .contains("invalid-payload")
+    );
+}
+
+#[test]
+fn kitty_png_header_rejects_oversized_dimensions_before_frame_decode() {
+    let mut t = Terminal::new(20, 4);
+    let limits = ImageStoreLimits {
+        max_decoded_bytes: 1024,
+        max_images: 4,
+    };
+    *t.graphics_mut() = crate::graphics::ImageScene::new(limits);
+
+    t.advance(&kitty_apc(
+        "f=100,a=T,t=d",
+        &png_header_with_large_dimensions(10_000, 10_000),
+    ));
+
+    assert!(t.visible_graphics(0).is_empty());
+    assert!(
+        String::from_utf8(t.take_host_output())
+            .unwrap()
+            .contains("payload-too-large")
     );
 }
 

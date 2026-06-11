@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Kitty PNG payload decode (G2.2b)
+
+Kitty graphics now accepts PNG still-image payloads (`f=100`) on the direct
+APC transmit path. The decoder is a direct `png` crate dependency, constrained
+to still images and normalized to RGBA8 before insertion into the shared
+`ImageScene`. Header dimensions are checked against the image-store cap before
+frame allocation, optional `s=`/`v=` dimensions must match the PNG header, and
+malformed, truncated, or oversized PNG payloads return explicit Kitty errors
+without creating placements.
+
+Supported PNG inputs are grayscale, grayscale+alpha, RGB, RGBA, and indexed
+images after the decoder's normalize-to-8-bit transformations; 16-bit samples
+are stripped to 8-bit. File and shared-memory Kitty transports remain deferred
+to a security-reviewed packet.
+
 ## 2026-06-11 — Kitty graphics protocol MVP: APC direct still images (G2.2)
 
 OdyTTY now speaks the Kitty graphics protocol for direct still-image

@@ -337,8 +337,10 @@ a floor; surpassing it is the standing ambition.
       with caps, image/placement ids, Kitty OK/error responses via the
       host-output seam, cursor policy (`C=1`), quiet mode, and deterministic
       protocol fixtures including robustness cases.
-  - [ ] G2.2b: PNG (`f=100`) payload decode (likely a constrained `png` crate
-        dependency).
+  - [x] G2.2b: PNG (`f=100`) payload decode via a constrained direct `png`
+        crate dependency; header-level cap checks, RGBA8 normalization, chunked
+        PNG fixtures, and explicit malformed/oversized/dimension-mismatch
+        errors.
   - [ ] G2.5: file/shared-memory transports behind a security review; the MVP
         rejects non-direct `t` modes with an explicit error.
 - [x] SX3 live cell metrics: `Terminal::set_cell_metrics()` replaces the

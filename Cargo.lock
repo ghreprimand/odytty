@@ -1326,6 +1326,7 @@ dependencies = [
  "arboard",
  "bytemuck",
  "libc",
+ "png",
  "pollster",
  "rustix 1.1.4",
  "thiserror 2.0.18",

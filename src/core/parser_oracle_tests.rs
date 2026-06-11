@@ -319,7 +319,7 @@ const GOLDEN_20X6: &[(&str, u64)] = &[
     ("csi_intermediate", 0x0ced54977e7f0884),
     ("dcs_passthrough", 0xdec12423791734fd),
     ("dcs_then_text", 0x3b149e020a04019c),
-    ("apc_kitty_like", 0x57587d4bae4cb065),
+    ("apc_kitty_like", 0x70d388a6c1cb0dee),
     ("sos_string", 0xeb1eb6caa213ea73),
     ("pm_string", 0xeb1eb6caa213ea73),
     ("lone_esc_then_text", 0x09315dc3619107c3),
@@ -420,7 +420,7 @@ const GOLDEN_4X3: &[(&str, u64)] = &[
     ("csi_intermediate", 0x69afa15e65228338),
     ("dcs_passthrough", 0x988d45bd6d42e379),
     ("dcs_then_text", 0x59fe9c04ee917252),
-    ("apc_kitty_like", 0x40009b91ec4f2ebf),
+    ("apc_kitty_like", 0x768735d728322b2a),
     ("sos_string", 0xc55a113490bc037b),
     ("pm_string", 0xc55a113490bc037b),
     ("lone_esc_then_text", 0xb5a603b924911987),
@@ -474,7 +474,7 @@ const GOLDEN_EXTRA: &[(&str, u64)] = &[
     ("invalid_utf8_bad_3byte", 0xf71466cdc8930cbe),
     ("invalid_utf8_truncated_4byte", 0x92b97d02641d508e),
     ("invalid_utf8_stray_continuations", 0x4f693af9bda968bc),
-    ("apc_nonprinting", 0x53b449eddae93049),
+    ("apc_nonprinting", 0xd1c420ec078b85a2),
 ];
 
 #[test]
