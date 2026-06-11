@@ -1,6 +1,7 @@
 pub mod app;
 pub mod atlas;
 pub mod core;
+pub mod graphics;
 pub mod grid;
 pub mod input;
 pub mod native;
