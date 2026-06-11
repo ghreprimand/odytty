@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 use odytty::atlas::GlyphAtlas;
 use odytty::core::Terminal;
 use odytty::grid::build_vertices;
+use odytty::parser::{OdyParser, Params, VtDispatch};
 use odytty::text::load_font;
 
 const COLS: usize = 80;
@@ -187,6 +188,71 @@ fn feed_all(bytes: &[u8]) -> Terminal {
     term
 }
 
+/// No-op [`VtDispatch`] sink: every callback discards its arguments. Used by
+/// the parser-only feed benches to isolate parser throughput from `Screen` work
+/// (the live `Terminal::advance` path combines both costs).
+struct NullSink {
+    /// A black-boxed counter so the optimizer cannot prove the callbacks are
+    /// dead code and elide the dispatches entirely.
+    n: u64,
+}
+
+impl NullSink {
+    fn new() -> Self {
+        Self { n: 0 }
+    }
+}
+
+impl VtDispatch for NullSink {
+    fn print(&mut self, c: char) {
+        self.n = self.n.wrapping_add(c as u64);
+    }
+    fn execute(&mut self, byte: u8) {
+        self.n = self.n.wrapping_add(byte as u64);
+    }
+    fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        self.n = self.n.wrapping_add(params.len() as u64);
+        self.n = self.n.wrapping_add(intermediates.len() as u64);
+        self.n = self.n.wrapping_add(ignore as u64);
+        self.n = self.n.wrapping_add(action as u64);
+    }
+    fn esc_dispatch(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
+        self.n = self.n.wrapping_add(intermediates.len() as u64);
+        self.n = self.n.wrapping_add(ignore as u64);
+        self.n = self.n.wrapping_add(byte as u64);
+    }
+    fn osc_dispatch(&mut self, params: &[&[u8]], bell_terminated: bool) {
+        self.n = self.n.wrapping_add(params.len() as u64);
+        self.n = self.n.wrapping_add(bell_terminated as u64);
+    }
+    fn hook(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        self.n = self.n.wrapping_add(params.len() as u64);
+        self.n = self.n.wrapping_add(intermediates.len() as u64);
+        self.n = self.n.wrapping_add(ignore as u64);
+        self.n = self.n.wrapping_add(action as u64);
+    }
+    fn put(&mut self, byte: u8) {
+        self.n = self.n.wrapping_add(byte as u64);
+    }
+    fn unhook(&mut self) {
+        self.n = self.n.wrapping_add(1);
+    }
+    fn apc_dispatch(&mut self, data: &[u8]) {
+        self.n = self.n.wrapping_add(data.len() as u64);
+    }
+}
+
+/// Drive [`OdyParser`] over `bytes` in 64 KiB chunks against a [`NullSink`].
+/// Isolates parser feed-throughput (no `Screen` work).
+fn parser_feed_all(bytes: &[u8]) -> u64 {
+    let mut sink = NullSink::new();
+    let mut parser = OdyParser::new();
+    for chunk in bytes.chunks(64 * 1024) {
+        parser.advance(&mut sink, chunk);
+    }
+    sink.n
+}
+
 fn main() {
     println!("odytty perf — {COLS}x{ROWS} grid, best-of timings\n");
     let font = load_font().ok();
@@ -220,6 +286,31 @@ fn main() {
     let repaint = gen_full_repaint(20_000);
     let d = best_of(5, || feed_all(black_box(&repaint)));
     report_feed("full repaint 20000 frames", repaint.len(), d);
+
+    // ---- Parser-only feed throughput (PA2-r baseline) ----
+    //
+    // Drives the OdyTTY-owned [`OdyParser`] directly against a no-op
+    // [`VtDispatch`] sink, isolating parser cost from `Screen` updates. These
+    // numbers are the acceptance reference for the PA2-r clean-room rebuild —
+    // captured before the rebuild lands and again after, with the gap reported
+    // in the completion notes. The five workloads mirror the integrated feed
+    // benches so each row above pairs with one row below.
+    println!("\n== Parser-only feed throughput (OdyParser + NullSink) ==");
+
+    let d = best_of(5, || parser_feed_all(black_box(&seq)));
+    report_feed("parser seq 1 100000", seq.len(), d);
+
+    let d = best_of(5, || parser_feed_all(black_box(&plain)));
+    report_feed("parser plain ascii 50000", plain.len(), d);
+
+    let d = best_of(5, || parser_feed_all(black_box(&sgr)));
+    report_feed("parser heavy sgr 20000", sgr.len(), d);
+
+    let d = best_of(5, || parser_feed_all(black_box(&churn)));
+    report_feed("parser scroll churn 100000", churn.len(), d);
+
+    let d = best_of(5, || parser_feed_all(black_box(&repaint)));
+    report_feed("parser full repaint 20000", repaint.len(), d);
 
     println!("\n== Snapshot / repaint geometry (per-frame cost) ==");
 
