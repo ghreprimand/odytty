@@ -6,22 +6,100 @@ Odyssey Terminal is a reliable terminal emulator with an OdysseyOS visual identi
 
 ## Status
 
-First meaningful prototype reached on Linux/Hyprland. In place today: an
-OdyTTY-owned byte path from Linux PTY to VT parser to terminal screen model to
-glyph quads, broad escape-sequence compatibility, and a deterministic headless
-smoke suite. A native `winit` window opens on Wayland with a live `wgpu`
-(Vulkan) surface, renders readable monospaced text, handles keyboard input,
-resize, paste, mouse selection/copy, scrollback navigation, cursor rendering,
-and basic daily shell workflows.
+Active development — well past first prototype, foundations complete. The focus
+now shifts toward Kitty graphics protocol support, a file-based configuration
+layer (Stage 5), and progressive visual identity work.
 
-The prototype also includes a small theme system and a disableable ambient
-scanline visual treatment selected with `ODYTTY_VISUAL=ambient`; unset,
-`off`, `none`, or `plain` keep the baseline renderer. A minimal settings path
-loads native runtime knobs such as `ODYTTY_FONT_SIZE` once at startup. Known gaps
-remain before daily-driver claims: no profiles or settings UI, basic selection
-only, no tabs/panes, and Linux-first validation only. See
-[`DEVLOG.md`](DEVLOG.md) for the running record and [`TODO.md`](TODO.md) for the
-milestone checklist.
+### What works today
+
+**Owned byte path.** Every byte from the PTY to the glyph quad passes through
+OdyTTY-owned code. The PTY layer uses Linux `openpt`/`grantpt`/`unlockpt` via
+`rustix`, spawning children as session leaders with a controlling terminal.
+The VT parser (`src/parser/`) is a clean-room two-layer pipeline built from
+primary specifications (vt100.net DEC ANSI diagram, ECMA-48, xterm `ctlseqs`):
+a ground-state text/UTF-8 segmenter plus an 8-bit-clean 14-state control
+automaton. The terminal model (`src/core/`), renderer geometry (`src/grid.rs`),
+and shaders are entirely OdyTTY-owned. External crates are intentional
+below-product-line tools — `ab_glyph` (font rasterization), `wgpu` (GPU API),
+`winit` (windowing), `arboard` (clipboard), `unicode-width` — and do not own
+terminal semantics.
+
+**Terminal compatibility.** Sequences confirmed across the fixture suite: SGR
+(all standard attributes, 256-color, truecolor), cursor movement and position
+reporting, scroll regions (DECSTBM, DECOM), alternate screen (modes
+47/1047/1048/1049 with correct per-mode cursor save/restore semantics), mouse
+reporting (modes 9/1000/1002/1003 with encodings 1005/1006/1015/legacy), focus
+reporting (DECSET 1004), DECSCUSR cursor-style overrides, OSC 0/2 window title,
+wide-character handling (width-2 CJK/emoji, combining marks, overwrite-half
+coherence), ICH/DCH/ECH/REP, tab stops, BCE, RI, SU/SD, IL/DL, RIS/DECSTR,
+DA, and bracketed paste.
+
+**Graphics.** Sixel DCS streams (`DCS q`) are fully decoded and placed as
+cell-anchored RGBA images: the SX1 decoder handles the complete Sixel data
+language (RGB/HLS color introducers, repeat, raster attributes, VT340 16-color
+default palette), and SX2 integrates the decoder with the graphics scene via the
+owned DCS hook/put/unhook path. The GPU image layer (G2.3) renders visible
+placements as alpha-blended RGBA8 textured quads between cell backgrounds and
+glyphs. Kitty APC routing is wired; the Kitty direct still-image MVP is in
+progress.
+
+**Text and rendering quality.** The `wgpu`/Vulkan surface rasterizes via
+`ab_glyph` into a dynamic glyph atlas. Wide-glyph (CJK/width-2) atlas slots
+span two physical cells so East Asian glyphs render without clipping.
+Bearing-aware quad geometry sizes each glyph to its real ink bounds so italic
+side-bearings and tall glyphs render uncropped. Backgrounds render before glyphs
+so wide-character overflow ink is never erased by a neighbor's background.
+Optional subpixel AA (`ODYTTY_SUBPIXEL=rgb|bgr`) uses dual-source blending when
+the GPU supports it. A tunable gamma/contrast uniform (`ODYTTY_TEXT_GAMMA`,
+default 1.4) corrects coverage weight for dark-background readability. Bold,
+italic, and bold-italic atlas slots load discovered style faces; missing style
+faces fall back to regular without synthetic emboldening. Underline and
+strikethrough render as metric-derived solid quads. Dim, inverse, and hidden
+are handled in the vertex path.
+
+**HiDPI.** `GpuState` retains logical font size and current scale factor and
+rebuilds the atlas on change. `ScaleFactorChanged` is wired with debounce,
+recomputes cell metrics, and drives the grid resize path. 11 headless tests
+cover CellSize correctness, grid recompute, debounce, UV seam-freedom, and
+rebuild invalidation. See `docs/hidpi-validation.md` for the operator-runnable
+manual matrix.
+
+**Daily-driver interaction.** Search (`Ctrl+Shift+F`) runs across scrollback
+and screen with next/prev navigation and visible match highlights. Selection
+supports double-click word, triple-click line, drag-scroll at viewport edges,
+and scrollback-aware absolute row anchors. Clipboard uses chunked background
+writes for large pastes, bracketed-paste sanitization, line-ending normalization,
+and Linux PRIMARY selection for middle-click paste. A right-edge scroll indicator
+shows viewport position when scrolled back. Cursor shapes (block, underline, bar)
+and blink policy are configurable via settings and overridable per-application
+via DECSCUSR. Key bindings for terminal-local actions are configurable via
+`ODYTTY_KEYBINDS`.
+
+**Performance.** Lazy scrollback re-wrap stores logical lines and defers deep
+re-wrap on width change (~46 ms → ~20 µs for 50k-line scrollback). A fast path
+skips reflow entirely on height-only resize (~17 ms → ~58 µs). The vertex
+buffer is a reused CPU allocation with a grow-only GPU buffer. Resize events
+are debounced to avoid per-frame reflow during drag.
+
+**Testing.** 612 tests passing: 582 unit/integration, 11 HiDPI headless, 9
+pixel-smoke (headless CPU compositor asserting structural raster invariants),
+and 10 PTY integration. `cargo bench --bench perf` runs headless throughput
+benchmarks for the terminal model and parser separately from the default suite.
+
+### Remaining gaps
+
+- Kitty direct still-image MVP is not yet complete.
+- Ligature/stylistic-set shaping is not implemented (strategy decided but
+  implementation deferred).
+- Configuration file (Stage 5): all settings are currently environment variables.
+- No tabs, panes, sessions, profiles, or multiplexing.
+- Shell integration beyond basic PTY behavior is not implemented.
+- Linux-first only — no macOS or Windows support.
+- Side-by-side visual comparison with Ghostty at matched font/size has not been
+  done; visible text quality gaps may still exist.
+
+See [`DEVLOG.md`](DEVLOG.md) for the running record and [`TODO.md`](TODO.md) for
+the milestone checklist.
 
 ## Why build it
 
@@ -29,11 +107,19 @@ Odyssey Terminal is worth exploring because the terminal is a daily operating su
 
 ## Build direction
 
-Start with a narrow terminal-emulator prototype that proves the core rendering and interaction loop before committing to a full product direction. The first slice should open a real shell, handle common terminal I/O correctly, render readable text at speed, support copy/paste and resizing, and expose a small Odyssey-themed visual layer such as theme presets, subtle motion, or optional background/effect treatments. Keep effects strictly behind performance and readability boundaries so the project can test visual identity without masking terminal correctness.
+The project owns its full byte path by design. The terminal core (PTY, parser,
+screen model), renderer geometry, and shaders are OdyTTY-originated code;
+external crates handle font rasterization, GPU API access, windowing, clipboard
+transport, and Unicode character data — the same boundary the strongest
+independent terminals draw. Architecture keeps the terminal core separate from
+the Odyssey experience layer so visual experiments do not destabilize terminal
+correctness.
 
-Architecture should separate the terminal core from the Odyssey experience layer: shell process and PTY handling, escape-sequence parsing, input mapping, text layout, rendering, theme/effects, and settings should be distinct enough that visual experiments can change without destabilizing core behavior. The build should include a compatibility test path early, using existing terminal behavior as the baseline rather than inventing semantics.
-
-The project should pursue genuinely original terminal work rather than forking or skinning an existing terminal. The first spike is Linux-first, written in Rust, and built around OdyTTY-owned PTY, parser, terminal model, renderer geometry, and shader code. External crates remain intentional below-product-line dependencies for font rasterization, GPU API access, windowing, clipboard transport, and Unicode width data. Use Ghostty and other mature terminals as behavior references, not implementation bases. Visual ambition should stay open, but every effect and workflow layer must be isolated from terminal correctness and remain bounded by readability and performance.
+The build is Linux-first, written in Rust, GPU-backed (`wgpu`/Vulkan), and
+validated against xterm/Ghostty/Konsole behavior as compatibility references —
+not implementation sources. Visual capability parity with the strongest GPU
+terminals is a floor; surpassing it within OdyTTY's visual identity is the
+standing goal.
 
 ## Project docs
 

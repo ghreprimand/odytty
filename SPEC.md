@@ -18,40 +18,116 @@ Odyssey Terminal is worth exploring because the terminal is a daily operating su
 
 ## Build Direction
 
-Start with a narrow terminal-emulator prototype that proves the core rendering and interaction loop before committing to a full product direction. The first slice should open a real shell, handle common terminal I/O correctly, render readable text at speed, support copy/paste and resizing, and expose a small Odyssey-themed visual layer such as theme presets, subtle motion, or optional background/effect treatments. Keep effects strictly behind performance and readability boundaries so the project can test visual identity without masking terminal correctness.
+The project owns its full byte path from PTY to glyph quad. Shell process and
+PTY handling, escape-sequence parsing, input mapping, text layout, renderer
+geometry, and shaders are OdyTTY-originated code. The Odyssey experience layer
+(themes, visual effects, and identity treatments) sits above that core; visual
+experiments must not destabilize terminal correctness and must be
+off-switch-able at all times.
 
-Architecture should separate the terminal core from the Odyssey experience layer: shell process and PTY handling, escape-sequence parsing, input mapping, text layout, rendering, theme/effects, and settings should be distinct enough that visual experiments can change without destabilizing core behavior. The build should include a compatibility test path early, using existing terminal behavior as the baseline rather than inventing semantics.
+The owned byte path is now real: `src/pty.rs` owns the Linux PTY
+(openpt/grantpt/unlockpt/TIOCGPTPEER via `rustix`); `src/parser/` holds the
+clean-room OdyParser (two-layer DEC ANSI pipeline built from primary
+specifications — vt100.net diagram, ECMA-48, xterm `ctlseqs`); `src/core/`
+holds the terminal screen model; `src/grid.rs` builds renderer geometry; the
+shaders live in `src/native/gpu.rs`. External crates remain intentional
+below-product-line tools: `ab_glyph` for font rasterization, `wgpu` for GPU API
+access, `winit` for windowing, `arboard` for clipboard transport, and
+`unicode-width` for character cell widths. They do not own terminal semantics.
 
-The project should start from scratch as a Linux-first Rust terminal with a GPU-backed renderer and an OdyTTY-owned byte path: Linux PTY, VT parser, terminal screen model, renderer geometry, and shaders. External dependencies are deliberate below-product-line tools for font rasterization, GPU API access, windowing, clipboard transport, and Unicode width data; they should not own terminal semantics. Use Ghostty and other mature terminals as behavior references, not implementation bases. Visual ambition should stay open, but every effect and workflow layer must be isolated from terminal correctness and remain bounded by readability and performance.
+Ghostty and other mature terminals are compatibility references, not
+implementation sources. Visual ambition stays open, but every effect and
+workflow layer must be isolated from terminal correctness and bounded by
+readability and performance.
+
+## Ownership Boundary
+
+The ownership boundary is drawn at the same line the strongest independent
+terminals draw. OdyTTY owns:
+
+- Linux PTY allocation, child spawn, resize, and I/O (`src/pty.rs`)
+- The VT escape-sequence parser (`src/parser/`)
+- The terminal state machine: screen grid, scrollback, alternate screen, scroll
+  regions, resize/reflow, all escape-sequence semantics (`src/core/`)
+- Renderer geometry and vertex layout (`src/grid.rs`)
+- The GPU shader pipeline (`src/native/gpu.rs`)
+- The graphics protocol decode and placement pipeline (`src/graphics/`,
+  `src/core/graphics_routing.rs`)
+
+OdyTTY deliberately does not own:
+
+- Font file parsing and glyph rasterization (`ab_glyph`)
+- GPU API and device management (`wgpu`)
+- Window creation and event loop (`winit`)
+- Clipboard transport (`arboard`)
+- Unicode character-width tables (`unicode-width`)
+
+This boundary is deliberate, not a trade-off pending revisitation. These crates
+sit below the product line; re-owning them would add maintenance without adding
+identity or capability.
 
 ## Scope
 
-v0 should be a narrow, from-scratch terminal prototype that can open a real local shell and prove the basic daily loop: launch, type commands, render output clearly, scroll, copy/paste, resize, and apply one small Odyssey visual layer without breaking readability or speed.
+v0 is complete. The prototype proved the core loop: a native window opens a real
+local shell, renders GPU-backed monospaced text, handles keyboard input, resize,
+paste, mouse selection/copy, scrollback navigation, and cursor rendering.
 
-In scope:
-- Local PTY-backed shell session
-- Basic keyboard input and command output rendering
-- Common ANSI escape handling sufficient for ordinary shell use
-- Readable text rendering with stable cursor, selection, scrolling, and resize behavior
-- Copy/paste support
-- A small theme system with 2-3 Odyssey-style presets
-- One optional visual experiment, such as subtle background treatment, cursor motion, or restrained panel glow
-- Simple settings for theme/effect enablement
-- Early compatibility checks against known terminal behavior
+Stages 1 through 4.5 are substantially complete. The parity half of Stage 6 is
+substantially complete. The current focus is completing the Kitty graphics
+protocol MVP and moving toward Stage 5 (file-based configuration).
 
-Out of scope for v0:
-- Tabs, panes, sessions, profiles, remote connections, terminal multiplexing, and shell integration features
-- Plugin systems, AI features, command palettes, rich dashboards, or nonstandard terminal semantics
-- Heavy animation, effects that reduce legibility, or visual features tied into terminal correctness
-- Full cross-platform polish beyond the initial target environment
-- Replacing Ghostty/Konsole as a daily driver before compatibility and performance are proven
+**In scope and delivered:**
+- Owned Linux PTY layer and owned VT parser (clean-room from primary specs)
+- Broad escape-sequence compatibility (SGR, alternate screen, mouse modes,
+  wide characters, combining marks, and more)
+- Sixel graphics: full decoder, terminal integration, GPU image rendering
+- Kitty APC routing seam in place; direct still-image MVP in progress
+- HiDPI-correct text rasterization across scale factors
+- Wide-glyph 2-cell atlas slots; bearing-aware glyph quad geometry
+- Optional subpixel anti-aliasing and tunable text gamma/contrast
+- Configurable font family and bold/italic style faces
+- Full text attribute rendering: bold, dim, italic, underline, strikethrough,
+  inverse, hidden
+- Scrollback search with match navigation and highlights
+- Refined selection: double-click word, triple-click line, drag-scroll,
+  scrollback-aware anchors
+- Clipboard hardening: chunked paste, bracketed-paste sanitization, PRIMARY
+  selection
+- Right-edge scroll position indicator
+- Configurable cursor shapes and blink policy (DECSCUSR + settings)
+- Configurable terminal-local key bindings
+- Window title from OSC 0/2; DECSET 1004 focus reporting
+- Keyboard mode-awareness: DECCKM, keypad modes, modified named keys
+- Lazy scrollback re-wrap and resize fast paths
+- Theme system (plain baseline, Odyssey presets); optional ambient visual effect
 
-Smallest useful end-to-end slice: a single-window Odyssey Terminal opens the user’s shell, runs common commands reliably, supports text selection/copy/paste and resizing, renders output fast and legibly, and lets the user toggle between a plain baseline theme and one Odyssey visual treatment to judge whether the identity layer adds value without getting in the way.
+**Out of scope until foundations are stronger:**
+- Ligature/stylistic-set shaping (strategy decided; implementation deferred
+  until a specific trigger condition is met)
+- File-based configuration (Stage 5)
+- Tabs, panes, sessions, profiles, and multiplexing (Stage 7)
+- Shell integration beyond basic PTY behavior
+- Plugin systems, AI features, command palettes, rich dashboards, or nonstandard
+  terminal semantics
+- Heavy animation or effects that compromise readability or latency
+- Broad cross-platform support beyond Linux-first validation
+- Packaging, CI, release builds (Stage 8)
 
 ## Stack
 
-Start from scratch for the first spike, with a Linux-first Rust core and a GPU-backed rendering path. The product-owned path is Rust for PTY handling, the VT parser, terminal model, input state, settings, renderer geometry, and shaders; `winit` handles windowing, `wgpu` handles GPU access, font crates handle rasterization, and Unicode data crates handle character width. Treat visual effects as a separate Odyssey layer on top of the core, not as part of terminal semantics.
+The stack is: Rust, Linux-first, `winit` (windowing), `wgpu` (GPU/Vulkan),
+`ab_glyph` (font rasterization), `unicode-width` (cell widths), `arboard`
+(clipboard), `rustix` (PTY/termios).
 
-Use existing terminal standards and behavior as compatibility references rather than as implementation bases. Ghostty should be the primary daily-driver behavior reference, with xterm/ECMA-style behavior as the lower-level compatibility baseline. Do not fork a terminal or embed another terminal emulator's core as the product path.
+The terminal core is a distinct boundary from the native app. The `core` module
+never imports windowing, GPU, or rendering code; it consumes VT bytes via the
+owned parser and exposes a `Snapshot` for the renderer to consume. The native
+module owns the `winit` event loop, `wgpu` surface, glyph atlas, grid vertex
+builder, and image layer, consuming core snapshots through a narrow seam.
 
-The native app is a distinct boundary from the terminal core. Windowing (`winit`), GPU surface/rendering (`wgpu`), the glyph atlas/text renderer, and grid presentation live behind a `native` module seam that consumes the owned core's snapshot and never holds terminal semantics. The renderer and any later Odyssey visual layer must be replaceable without touching core correctness. The native window and renderer are built incrementally: the `winit`/`wgpu` dependencies are added with the packet that implements the window, so the dependency tree only carries code that is actually exercised. The first prototype's text path is a single monospace font with a CPU-rasterized glyph atlas and no complex shaping (no ligatures or BiDi); per-character cell width comes from `unicode-width`, consistent with the core.
+Text is cell-based: each codepoint occupies one or two columns (`unicode-width`
+consistent with core), and all coordinate systems are per-cell. The glyph atlas
+uses one monospace face for regular text, with bold/italic/bold-italic faces
+loaded when discovered by filename convention. Ligatures and complex shaping are
+not implemented; each atlas entry is a single character rasterized into its cell
+or two-cell slot.

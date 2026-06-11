@@ -12,6 +12,19 @@ decisions.
   Odyssey visual/experience layer. Visual experiments must not destabilize core
   behavior.
 - Prefer adding deterministic tests for new terminal behavior over manual checks.
+- Keep source files under approximately 2000 lines. Prefer new focused modules
+  over growing large files; extract large test suites into sibling test files
+  named `{module}_tests.rs`.
+
+## Ownership boundary
+
+Every byte from the PTY to the glyph quad passes through OdyTTY-owned code.
+Changes to `src/pty.rs`, `src/parser/`, `src/core/`, `src/grid.rs`, and the
+GPU shaders in `src/native/gpu.rs` must preserve that boundary — no new
+terminal-semantic dependencies belong inside it. External crates for font
+rasterization, GPU API, windowing, clipboard transport, and Unicode width data
+are acceptable below the product line but must not own terminal semantics. See
+`SPEC.md` for the full ownership boundary statement.
 
 ## Pre-commit gate
 
@@ -20,8 +33,8 @@ Before every commit, run through this gate and stop if anything is unclear:
 1. **Inspect the staged diff.** Review exactly what is staged
    (`git diff --cached`); stage only the files the change intends.
 2. **Run the relevant tests.** For core or harness changes, run `cargo test`.
-   The default suite is deterministic and host-independent; the live-PTY smoke
-   test stays `#[ignore]`d (`cargo test -- --ignored` to run it explicitly).
+   The default suite is deterministic and host-independent; PTY smoke tests are
+   `#[ignore]`d by default (`cargo test -- --ignored` to run them explicitly).
 3. **Check formatting:** `cargo fmt --check`.
 4. **Check whitespace:** `git diff --cached --check` (no trailing whitespace or
    conflict markers).
@@ -47,7 +60,19 @@ configuration. If anything looks ambiguous, stop and confirm before committing.
 - Write clear commit messages describing what changed and why.
 - Push after each completed packet, once the tree is clean, `cargo test` and
   `cargo fmt --check` pass, public docs and `DEVLOG.md` match the state of the
-  project, and tracked content has been scanned for secrets or local-only data.
-  Frequent pushed commits are preferred so the public history is a living record
-  of development; the public-repo safety boundary is the gate, not deliberate
-  infrequency.
+  project, and tracked/staged content has been scanned for secrets or local-only
+  data. Frequent pushed commits are preferred so the public history is a living
+  record of development; the public-repo safety boundary is the gate, not
+  deliberate infrequency.
+
+## Performance benchmarks
+
+Performance benchmarks live in `benches/perf.rs` and are excluded from the
+default `cargo test` run. Run them with:
+
+```sh
+cargo bench --bench perf
+```
+
+Any change to the terminal core or parser that might affect throughput should
+include a before/after bench comparison in the commit message or linked notes.

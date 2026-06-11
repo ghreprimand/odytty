@@ -19,21 +19,49 @@ OdyTTY-owned code: the PTY layer, the escape-sequence parser, the terminal
 model, the renderer geometry, and the shaders. External crates are acceptable
 only below the product line — font rasterization, GPU API, windowing,
 clipboard transport, and Unicode character data — which is the same boundary
-the strongest independent terminals draw. Where the project currently leans on
-a crate inside that line, replacing it is roadmap work, not a settled
-trade-off.
+the strongest independent terminals draw. This ownership boundary is now real:
+the owned PTY layer and the clean-room VT parser are in production; `vte`,
+`portable-pty`, and `crossterm` have been removed from the dependency tree.
 
 ## Current Baseline
 
-The first prototype is complete. OdyTTY can open a native Wayland window, run a
-real local shell, render GPU-backed monospaced text, handle keyboard input,
-resize, cursor rendering, scrollback navigation, paste, mouse selection/copy,
-and one disableable ambient visual treatment. The byte path — Linux PTY,
-escape-sequence parser, terminal model, renderer geometry, and shaders — is
-owned by OdyTTY. External crates remain intentional for font rasterization, GPU
-API access, windowing, clipboard transport, and Unicode width data.
+Stages 1 through 4.5 are substantially complete and the parity half of Stage 6
+is substantially complete.
 
-The prototype proves the loop. It does not yet prove daily-driver quality.
+OdyTTY opens a native Wayland window, runs a real local shell, and renders
+GPU-backed monospaced text via `wgpu`/Vulkan. The full owned byte path is real
+and in production: the Linux PTY layer uses `rustix` directly; the VT parser is
+a clean-room two-layer DEC ANSI pipeline built from primary specifications;
+the terminal model, renderer geometry, and shaders are OdyTTY-originated.
+`vte`, `portable-pty`, and `crossterm` have been removed from the dependency
+tree; the owned path is the only path.
+
+The daily interaction layer is complete: scrollback search, refined selection
+(double-click word, triple-click line, drag-scroll, scrollback-aware anchors),
+clipboard hardening (chunked paste, bracketed-paste sanitization, PRIMARY
+selection), a right-edge scroll indicator, configurable cursor shapes and blink
+policy, configurable key bindings, and focus/title reporting.
+
+Text quality covers: bearing-aware glyph quads, wide-glyph 2-cell atlas slots
+for CJK/width-2 glyphs, bold/italic style faces, underline/strikethrough/dim/
+inverse/hidden attribute rendering, optional subpixel anti-aliasing, tunable
+text gamma/contrast, HiDPI scale-factor tracking with debounced rebuild, and
+a headless CPU compositor for structural pixel assertions.
+
+Graphics protocol work is substantially done: the Sixel decoder and terminal
+integration are complete (full data language, GPU image rendering). The Kitty
+APC routing seam is in place; the Kitty direct still-image MVP is in progress.
+
+Performance: lazy scrollback re-wrap (~2300× faster width-changed deep resize),
+width-unchanged fast path (~293× faster height-only resize), vertex buffer
+reuse, and resize debounce.
+
+All settings are currently environment variables loaded once at startup. There is
+no file-based configuration yet (Stage 5).
+
+The foundation is strong enough to support Stage 5 (configuration), the Kitty
+graphics MVP, a side-by-side visual comparison against Ghostty, and eventually
+the identity half of Stage 6.
 
 ## Stage 1: Prototype Stabilization
 
@@ -335,23 +363,32 @@ Named here so they get decided deliberately rather than by default:
 
 ## Near-Term Recommendation
 
-Stages 1 through 4 are substantially complete: settings, correctness
-hardening, text/rendering quality, and daily-driver interaction have all
-landed, with a small set of manual-validation and evidence-gated items
-remaining open. The next active plan should cover, in order of emphasis:
+Stages 1 through 4.5 are complete. The parity half of Stage 6 is substantially
+complete. The recommended focus order is:
 
-- Stage 4.5 foundation ownership: the owned parser, the owned PTY layer, and
-  the input-path dependency retirement.
-- The remaining Stage 1–4 items: manual friction sessions, HiDPI manual
-  validation, alternate-screen and fixture work as evidence appears, and TUI
-  interaction polish.
-- Early Stage 6 parity-half work where it does not depend on the parser
-  (wide-glyph quality, subpixel anti-aliasing), and graphics-protocol work
-  once it can land on owned APC/DCS plumbing.
+1. **Kitty direct still-image MVP.** The APC routing seam and graphics scene are
+   in place; the command parsing, chunk reassembly, RGBA/PNG decode, placement,
+   and query-reply protocol need to be implemented to close the graphics
+   protocol parity gap.
+
+2. **Side-by-side visual comparison vs Ghostty.** Verify at matched font size
+   and scale that no visible text quality gaps remain. Findings feed into
+   targeted rendering fixes or the shaping work below.
+
+3. **Stage 5: file-based configuration.** The current environment-variable
+   settings path is a prototype convenience. A proper config file format,
+   validation, defaults, and eventually live reload are the next product layer.
+
+4. **Ligature/stylistic-set shaping.** Deferred until a side-by-side comparison
+   confirms it is a visible gap. When that trigger is met, the shaping strategy
+   document (stored in the workflow artifacts) describes the recommended
+   implementation path.
+
+5. **Remaining Stage 6 identity half.** Theme presets, palette work, cursor and
+   selection treatments distinctive to OdysseyOS, and bounded optional motion
+   effects — after parity is confirmed and the config layer exists to gate them.
 
 Tabs, panes, profiles, plugins, AI features, heavy effects, packaging, and broad
-cross-platform work should remain deferred until this foundation is stronger.
-
-Stages 1 through 4.5 are the table stakes that make the rest safe to attempt.
-Stage 6 is where the project's central question gets answered, and the
-foundation work should be judged by how well it sets that stage up.
+cross-platform work should remain deferred. Stage 6 is where the project's
+central question gets answered; the foundation built through Stages 1–4.5 is
+what makes that exploration safe.
