@@ -1,6 +1,6 @@
 use crate::core::{
-    Attrs, Cell, Color, Dimensions, SearchMatch, SearchOptions, Snapshot, Terminal, find_next,
-    find_prev,
+    AbsolutePoint, Attrs, Cell, Color, Dimensions, SearchMatch, SearchOptions, Snapshot, Terminal,
+    find_next, find_prev,
 };
 use crate::selection::{self, AbsoluteCellPoint, AbsoluteSelectionRange, SelectionRange};
 
@@ -94,12 +94,57 @@ impl SearchUi {
             .map(|current| viewport_offset_for_match(current.start.row, scrollback_len, dimensions))
     }
 
+    pub(super) fn render_signature(&self) -> SearchRenderSignature {
+        SearchRenderSignature {
+            open: self.open,
+            query: self.query.clone(),
+            matches: self
+                .matches
+                .iter()
+                .map(SearchMatchSignature::from)
+                .collect(),
+            current: self.current.map(SearchMatchSignature::from),
+        }
+    }
+
     fn current_index(&self) -> Option<usize> {
         let current = self.current?;
         self.matches
             .iter()
             .position(|m| *m == current)
             .map(|i| i + 1)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SearchRenderSignature {
+    pub(super) open: bool,
+    pub(super) query: String,
+    pub(super) matches: Vec<SearchMatchSignature>,
+    pub(super) current: Option<SearchMatchSignature>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct SearchMatchSignature {
+    pub(super) start: (usize, usize),
+    pub(super) end: (usize, usize),
+}
+
+impl From<&SearchMatch> for SearchMatchSignature {
+    fn from(value: &SearchMatch) -> Self {
+        Self::from(*value)
+    }
+}
+
+impl From<SearchMatch> for SearchMatchSignature {
+    fn from(value: SearchMatch) -> Self {
+        fn point(value: AbsolutePoint) -> (usize, usize) {
+            (value.row, value.column)
+        }
+        Self {
+            start: point(value.start),
+            end: point(value.end),
+        }
     }
 }
 

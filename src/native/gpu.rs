@@ -370,7 +370,9 @@ pub(super) struct GpuState {
     vertex_buf: wgpu::Buffer,
     vertex_buf_capacity_bytes: u64,
     vertices: Vec<Vertex>,
+    cursor_vertices: Vec<Vertex>,
     vertex_count: u32,
+    cell_vertex_count: u32,
     background_vertex_count: u32,
     image_layer: ImageLayer,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
@@ -565,7 +567,9 @@ impl GpuState {
         // pump thread advances the shared terminal. A >=1x1 grid always emits at
         // least one background quad, so this buffer is never zero-sized.
         let mut vertices = Vec::new();
-        grid::build_vertices_into(&mut vertices, initial_snapshot, &atlas);
+        grid::build_cell_vertices_into(&mut vertices, initial_snapshot, &atlas);
+        let cell_vertex_count = vertices.len() as u32;
+        grid::append_cursor_vertices(&mut vertices, initial_snapshot, &atlas, CursorStyle::Block);
         let vertex_count = vertices.len() as u32;
         let background_vertex_count = background_vertex_count(initial_snapshot);
         let vertex_buf_capacity_bytes = grow_vertex_buffer_capacity(0, vertex_bytes_len(&vertices));
@@ -587,7 +591,9 @@ impl GpuState {
             vertex_buf,
             vertex_buf_capacity_bytes,
             vertices,
+            cursor_vertices: Vec::new(),
             vertex_count,
+            cell_vertex_count,
             background_vertex_count,
             image_layer,
             atlas,
@@ -787,13 +793,13 @@ impl GpuState {
         if self.atlas.take_dirty() {
             self.refresh_atlas_texture();
         }
-        grid::build_vertices_with_overlays_and_cursor_into(
-            &mut self.vertices,
-            snapshot,
-            &self.atlas,
-            cursor_style,
-            overlays,
-        );
+        grid::build_cell_vertices_into(&mut self.vertices, snapshot, &self.atlas);
+        self.cell_vertex_count = self.vertices.len() as u32;
+        grid::append_cursor_vertices(&mut self.vertices, snapshot, &self.atlas, cursor_style);
+        self.vertices.reserve(overlays.len() * grid::VERTS_PER_QUAD);
+        for &overlay in overlays {
+            grid::push_solid_quad(&mut self.vertices, overlay);
+        }
         self.vertex_count = self.vertices.len() as u32;
         self.background_vertex_count = background_vertex_count(snapshot).min(self.vertex_count);
         let needed = vertex_bytes_len(&self.vertices);
@@ -805,6 +811,54 @@ impl GpuState {
         if self.vertex_count > 0 {
             self.queue
                 .write_buffer(&self.vertex_buf, 0, bytemuck::cast_slice(&self.vertices));
+        }
+    }
+
+    pub(super) fn update_cursor_and_overlays(
+        &mut self,
+        snapshot: &Snapshot,
+        cursor_style: CursorStyle,
+        overlays: &[SolidQuad],
+    ) {
+        self.cursor_vertices.clear();
+        grid::append_cursor_vertices(
+            &mut self.cursor_vertices,
+            snapshot,
+            &self.atlas,
+            cursor_style,
+        );
+        self.cursor_vertices
+            .reserve(overlays.len() * grid::VERTS_PER_QUAD);
+        for &overlay in overlays {
+            grid::push_solid_quad(&mut self.cursor_vertices, overlay);
+        }
+
+        let cell_vertices = self.cell_vertex_count as usize;
+        let needed_vertices = cell_vertices + self.cursor_vertices.len();
+        let needed = (needed_vertices * std::mem::size_of::<Vertex>()) as u64;
+        let capacity = grow_vertex_buffer_capacity(self.vertex_buf_capacity_bytes, needed);
+        if capacity != self.vertex_buf_capacity_bytes {
+            self.vertex_buf = create_vertex_buffer(&self.device, capacity);
+            self.vertex_buf_capacity_bytes = capacity;
+            if cell_vertices > 0 {
+                self.queue.write_buffer(
+                    &self.vertex_buf,
+                    0,
+                    bytemuck::cast_slice(&self.vertices[..cell_vertices]),
+                );
+            }
+        }
+
+        self.vertices.truncate(cell_vertices);
+        self.vertices.extend_from_slice(&self.cursor_vertices);
+        self.vertex_count = self.vertices.len() as u32;
+        if !self.cursor_vertices.is_empty() {
+            let offset = (cell_vertices * std::mem::size_of::<Vertex>()) as u64;
+            self.queue.write_buffer(
+                &self.vertex_buf,
+                offset,
+                bytemuck::cast_slice(&self.cursor_vertices),
+            );
         }
     }
 

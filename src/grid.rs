@@ -175,6 +175,16 @@ pub fn build_vertices_with_cursor_into(
     atlas: &GlyphAtlas,
     cursor_style: CursorStyle,
 ) {
+    build_cell_vertices_into(out, snapshot, atlas);
+    append_cursor_vertices(out, snapshot, atlas, cursor_style);
+}
+
+/// Rebuild only the terminal cell geometry, excluding cursor and overlays.
+///
+/// Native uses this for retained-buffer rendering: the cell segment is rebuilt
+/// only when terminal/UI content changes, while cursor blink can refresh the
+/// bounded cursor tail without walking every cell.
+pub fn build_cell_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atlas: &GlyphAtlas) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
     let cell_w = atlas.cell.width as f32;
@@ -274,7 +284,21 @@ pub fn build_vertices_with_cursor_into(
             }
         }
     }
+}
 
+/// Append only cursor geometry for `snapshot` and `cursor_style`.
+///
+/// The cursor emits at most two quads (block over a printable glyph) or one quad
+/// for underline/bar styles, so callers can update this segment without a full
+/// cell rebuild when only blink phase changes.
+pub fn append_cursor_vertices(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cursor_style: CursorStyle,
+) {
+    let cell_w = atlas.cell.width as f32;
+    let cell_h = atlas.cell.height as f32;
     push_cursor(out, snapshot, atlas, cell_w, cell_h, cursor_style);
 }
 

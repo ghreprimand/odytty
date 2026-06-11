@@ -221,6 +221,13 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         ~46 ms → ~20 µs (~2300×); height-only deep ~58 µs → ~6.6 µs. Proven
         byte/coordinate-identical to eager reflow by a 900-scenario differential
         parity sweep; zero `Snapshot`/`TerminalModel` API change.
+  - [x] Render invalidation split (`P2-b`): core exposes a monotonic render
+        revision, native keys retained buffers by terminal revision + viewport
+        + selection/search + cursor phase + visible graphics + presentation
+        epoch, retained frames skip geometry rebuilds, and blink-only frames
+        rewrite only the bounded cursor/overlay tail. Region-level row
+        granularity remains deferred until evidence justifies the added
+        complexity.
 - [x] Add visual regression screenshots or pixel-level smoke checks where
       practical.
   - [x] V1: `tests/pixel_smoke.rs` — a headless CPU compositor rasterizes the

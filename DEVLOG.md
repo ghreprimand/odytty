@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-11 — Render invalidation and retained geometry (P2-b)
+
+The native redraw path now separates three frame classes:
+
+- **Retained frames**: when the terminal render revision and all UI/presentation
+  inputs are unchanged, the renderer skips `build_vertices` and re-submits the
+  retained GPU buffers.
+- **Cursor-only frames**: blink phase changes rebuild only the bounded
+  cursor/overlay tail and upload that vertex-buffer range; the cell geometry
+  segment is retained.
+- **Full frames**: PTY output, viewport scrolling, selection, search overlay
+  state, config/theme/font presentation changes, and visible graphics changes
+  still force a full geometry rebuild.
+
+The invalidation matrix is explicit in code and tests: terminal render
+revision, viewport offset and scrollback length, grid/cell metrics, absolute
+selection, search query/matches/current result, cursor phase/style, visible
+graphics generation, and native presentation epoch. Title-only OSC changes do
+not bump the terminal render revision because they do not change cell pixels.
+
+Region-level row dirtying remains deferred. The frame-level split and
+cursor-tail path cover the observed idle/blink hotspot without adding row-range
+bookkeeping across scrollback, search overlays, and image layering.
+
+---
+
 ## 2026-06-11 — Kitty placement surface (K3)
 
 The remaining non-animation Kitty graphics display surface landed on the

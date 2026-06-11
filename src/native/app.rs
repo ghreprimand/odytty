@@ -32,7 +32,10 @@ use super::clipboard::{NativeClipboard, selected_clipboard_text, write_paste_tex
 use super::gpu::{FrameOutcome, GpuState};
 use super::options::{NativeError, NativeOptions};
 use super::pty::{PtyWriter, UserEvent};
-use super::render_helpers::{image_uploads_for_visible, key_modes_from_core};
+use super::render_helpers::{
+    CursorRenderSignature, GeometryUpdate, RenderContentSignature, RenderSignature,
+    SelectionSignature, image_uploads_for_visible, key_modes_from_core, visible_graphics_signature,
+};
 
 pub(super) use super::cursor::{CURSOR_BLINK_INTERVAL, CursorBlinkState};
 pub(super) use super::resize::{
@@ -69,6 +72,14 @@ pub(super) struct App {
     /// Set when the pump thread reports new output; the next `RedrawRequested`
     /// rebuilds the vertex buffer once (coalescing many wakes into one rebuild).
     needs_rebuild: bool,
+    /// Signature of the geometry currently uploaded to the retained GPU vertex
+    /// buffer. Used to distinguish full rebuilds, bounded cursor-tail updates,
+    /// and retained-buffer redraws.
+    last_render_signature: Option<RenderSignature>,
+    /// Native presentation epoch for pixel-affecting state outside the terminal
+    /// core revision: theme/default-color changes, atlas/font changes, and
+    /// other settings that make identical snapshots build different vertices.
+    presentation_epoch: u64,
     /// The shared PTY writer. Key presses are encoded to bytes and written here,
     /// completing the read+write loop with the pump thread that owns the reader.
     writer: PtyWriter,
@@ -163,6 +174,8 @@ impl App {
             gpu: None,
             terminal,
             needs_rebuild: true,
+            last_render_signature: None,
+            presentation_epoch: 0,
             writer,
             pty,
             grid,
@@ -845,6 +858,9 @@ impl App {
             }
         }
 
+        self.last_render_signature = None;
+        self.presentation_epoch = self.presentation_epoch.wrapping_add(1);
+
         self.needs_rebuild = true;
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
@@ -957,6 +973,8 @@ impl ApplicationHandler<UserEvent> for App {
 
                 if let Some(resize) = resize {
                     self.needs_rebuild = true;
+                    self.last_render_signature = None;
+                    self.presentation_epoch = self.presentation_epoch.wrapping_add(1);
                     self.record_pending_resize(resize, Instant::now());
                 }
                 if let Some(window) = self.window.as_ref() {
@@ -970,6 +988,9 @@ impl ApplicationHandler<UserEvent> for App {
                 // pump wakes coalesced into this frame. Snapshot under the lock,
                 // then drop it before touching the GPU.
                 if self.needs_rebuild {
+                    let Some(cell) = self.gpu.as_ref().map(GpuState::cell) else {
+                        return;
+                    };
                     let cached_image_ids = self
                         .gpu
                         .as_ref()
@@ -980,6 +1001,7 @@ impl ApplicationHandler<UserEvent> for App {
                         scrollback_len,
                         cursor_style,
                         cursor_blinking,
+                        terminal_revision,
                         visible_graphics,
                         image_uploads,
                     ) = {
@@ -1008,6 +1030,7 @@ impl ApplicationHandler<UserEvent> for App {
                             scrollback_len,
                             terminal.cursor_style(),
                             terminal.cursor_blinking(),
+                            terminal.render_revision(),
                             visible_graphics,
                             image_uploads,
                         )
@@ -1047,18 +1070,49 @@ impl ApplicationHandler<UserEvent> for App {
                             color,
                         )
                     });
+                    let overlays = overlay.into_iter().collect::<Vec<_>>();
+                    let signature = RenderSignature {
+                        content: RenderContentSignature {
+                            terminal_revision,
+                            viewport_offset: self.viewport.offset(),
+                            scrollback_len,
+                            grid: self.grid,
+                            cell,
+                            selection: self.selection.range().map(SelectionSignature::from),
+                            search: self.search.render_signature(),
+                            graphics: visible_graphics_signature(&visible_graphics),
+                            presentation_epoch: self.presentation_epoch,
+                        },
+                        cursor: CursorRenderSignature {
+                            visible: snapshot.cursor_visible,
+                            style: cursor_style,
+                        },
+                    };
+                    let update = RenderSignature::update_from(
+                        self.last_render_signature.as_ref(),
+                        &signature,
+                    );
                     if let Some(gpu) = self.gpu.as_mut() {
-                        gpu.update_image_layer(&visible_graphics, &image_uploads);
-                        if let Some(overlay) = overlay {
-                            gpu.update_from_snapshot_with_overlays(
-                                &snapshot,
-                                cursor_style,
-                                std::slice::from_ref(&overlay),
-                            );
-                        } else {
-                            gpu.update_from_snapshot(&snapshot, cursor_style);
+                        match update {
+                            GeometryUpdate::Full => {
+                                gpu.update_image_layer(&visible_graphics, &image_uploads);
+                                if overlays.is_empty() {
+                                    gpu.update_from_snapshot(&snapshot, cursor_style);
+                                } else {
+                                    gpu.update_from_snapshot_with_overlays(
+                                        &snapshot,
+                                        cursor_style,
+                                        &overlays,
+                                    );
+                                }
+                            }
+                            GeometryUpdate::CursorOnly => {
+                                gpu.update_cursor_and_overlays(&snapshot, cursor_style, &overlays);
+                            }
+                            GeometryUpdate::Retained => {}
                         }
                     }
+                    self.last_render_signature = Some(signature);
                     self.needs_rebuild = false;
                 }
                 let Some(gpu) = self.gpu.as_mut() else {

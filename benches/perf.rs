@@ -21,7 +21,7 @@ use std::hint::black_box;
 use std::time::{Duration, Instant};
 
 use odytty::atlas::GlyphAtlas;
-use odytty::core::Terminal;
+use odytty::core::{CursorStyle, Terminal};
 use odytty::grid::build_vertices;
 use odytty::parser::{OdyParser, Params, VtDispatch};
 use odytty::text::load_font;
@@ -259,66 +259,72 @@ fn main() {
     if font.is_none() {
         println!("(no system font found: geometry benchmarks will be skipped)\n");
     }
+    let geometry_only = std::env::var_os("ODYTTY_PERF_GEOMETRY_ONLY").is_some();
 
-    println!("== Feed throughput (parse + model update) ==");
+    if !geometry_only {
+        println!("== Feed throughput (parse + model update) ==");
 
-    // 1) Large numeric output (seq 1 100000).
-    let seq = gen_seq(100_000);
-    let d = best_of(5, || feed_all(black_box(&seq)));
-    report_feed("seq 1 100000", seq.len(), d);
+        // 1) Large numeric output (seq 1 100000).
+        let seq = gen_seq(100_000);
+        let d = best_of(5, || feed_all(black_box(&seq)));
+        report_feed("seq 1 100000", seq.len(), d);
 
-    // 2) Plain full-width ASCII lines (wrap/scroll heavy).
-    let plain = gen_plain(50_000);
-    let d = best_of(5, || feed_all(black_box(&plain)));
-    report_feed("plain ascii 50000 lines", plain.len(), d);
+        // 2) Plain full-width ASCII lines (wrap/scroll heavy).
+        let plain = gen_plain(50_000);
+        let d = best_of(5, || feed_all(black_box(&plain)));
+        report_feed("plain ascii 50000 lines", plain.len(), d);
 
-    // 3) Heavy SGR (per-cell color changes).
-    let sgr = gen_heavy_sgr(20_000);
-    let d = best_of(5, || feed_all(black_box(&sgr)));
-    report_feed("heavy sgr 20000 lines", sgr.len(), d);
+        // 3) Heavy SGR (per-cell color changes).
+        let sgr = gen_heavy_sgr(20_000);
+        let d = best_of(5, || feed_all(black_box(&sgr)));
+        report_feed("heavy sgr 20000 lines", sgr.len(), d);
 
-    // 4) Scroll-region churn.
-    let churn = gen_scroll_region_churn(100_000);
-    let d = best_of(5, || feed_all(black_box(&churn)));
-    report_feed("scroll-region churn 100000", churn.len(), d);
+        // 4) Scroll-region churn.
+        let churn = gen_scroll_region_churn(100_000);
+        let d = best_of(5, || feed_all(black_box(&churn)));
+        report_feed("scroll-region churn 100000", churn.len(), d);
 
-    // 5) Full-screen repaint pattern.
-    let repaint = gen_full_repaint(20_000);
-    let d = best_of(5, || feed_all(black_box(&repaint)));
-    report_feed("full repaint 20000 frames", repaint.len(), d);
+        // 5) Full-screen repaint pattern.
+        let repaint = gen_full_repaint(20_000);
+        let d = best_of(5, || feed_all(black_box(&repaint)));
+        report_feed("full repaint 20000 frames", repaint.len(), d);
 
-    // ---- Parser-only feed throughput (PA2-r baseline) ----
-    //
-    // Drives the OdyTTY-owned [`OdyParser`] directly against a no-op
-    // [`VtDispatch`] sink, isolating parser cost from `Screen` updates. These
-    // numbers are the acceptance reference for the PA2-r clean-room rebuild —
-    // captured before the rebuild lands and again after, with the gap reported
-    // in the completion notes. The five workloads mirror the integrated feed
-    // benches so each row above pairs with one row below.
-    println!("\n== Parser-only feed throughput (OdyParser + NullSink) ==");
+        // ---- Parser-only feed throughput (PA2-r baseline) ----
+        //
+        // Drives the OdyTTY-owned [`OdyParser`] directly against a no-op
+        // [`VtDispatch`] sink, isolating parser cost from `Screen` updates. These
+        // numbers are the acceptance reference for the PA2-r clean-room rebuild —
+        // captured before the rebuild lands and again after, with the gap reported
+        // in the completion notes. The five workloads mirror the integrated feed
+        // benches so each row above pairs with one row below.
+        println!("\n== Parser-only feed throughput (OdyParser + NullSink) ==");
 
-    let d = best_of(5, || parser_feed_all(black_box(&seq)));
-    report_feed("parser seq 1 100000", seq.len(), d);
+        let d = best_of(5, || parser_feed_all(black_box(&seq)));
+        report_feed("parser seq 1 100000", seq.len(), d);
 
-    let d = best_of(5, || parser_feed_all(black_box(&plain)));
-    report_feed("parser plain ascii 50000", plain.len(), d);
+        let d = best_of(5, || parser_feed_all(black_box(&plain)));
+        report_feed("parser plain ascii 50000", plain.len(), d);
 
-    let d = best_of(5, || parser_feed_all(black_box(&sgr)));
-    report_feed("parser heavy sgr 20000", sgr.len(), d);
+        let d = best_of(5, || parser_feed_all(black_box(&sgr)));
+        report_feed("parser heavy sgr 20000", sgr.len(), d);
 
-    let d = best_of(5, || parser_feed_all(black_box(&churn)));
-    report_feed("parser scroll churn 100000", churn.len(), d);
+        let d = best_of(5, || parser_feed_all(black_box(&churn)));
+        report_feed("parser scroll churn 100000", churn.len(), d);
 
-    let d = best_of(5, || parser_feed_all(black_box(&repaint)));
-    report_feed("parser full repaint 20000", repaint.len(), d);
+        let d = best_of(5, || parser_feed_all(black_box(&repaint)));
+        report_feed("parser full repaint 20000", repaint.len(), d);
+    }
 
     println!("\n== Snapshot / repaint geometry (per-frame cost) ==");
 
     // Prepare a terminal with deep scrollback and content for snapshot tests.
-    let mut term = feed_all(&gen_plain(50_000));
+    // Geometry-only mode is for packet acceptance quick checks, so it keeps the
+    // same 80x24 frame shape while avoiding the full-suite deep scrollback setup.
+    let snapshot_lines = if geometry_only { ROWS } else { 50_000 };
+    let mut term = feed_all(&gen_plain(snapshot_lines));
 
     // 6) snapshot() cost — the full Vec<Cell> rebuild done every frame.
-    let snap_ops = 5_000;
+    let snap_ops = if geometry_only { 500 } else { 5_000 };
     let d = best_of(5, || {
         for _ in 0..snap_ops {
             black_box(term.snapshot());
@@ -338,7 +344,7 @@ fn main() {
     if let Some(font) = font.as_ref() {
         let atlas = GlyphAtlas::build(font, 28.0);
         let snapshot = term.snapshot();
-        let geo_ops = 5_000;
+        let geo_ops = if geometry_only { 500 } else { 5_000 };
         let d = best_of(5, || {
             for _ in 0..geo_ops {
                 black_box(build_vertices(black_box(&snapshot), black_box(&atlas)));
@@ -347,7 +353,7 @@ fn main() {
         report_ops("build_vertices()", geo_ops, d);
 
         // 9) Combined per-frame: snapshot + build_vertices (what a redraw does).
-        let frame_ops = 5_000;
+        let frame_ops = if geometry_only { 500 } else { 5_000 };
         let d = best_of(5, || {
             for _ in 0..frame_ops {
                 let s = term.snapshot();
@@ -355,6 +361,64 @@ fn main() {
             }
         });
         report_ops("snapshot()+build_vertices()", frame_ops, d);
+
+        // 10) New P2-b retained-buffer pieces: full cell rebuild (heavy-output
+        // frames still need this), and bounded cursor-tail refresh (blink-only
+        // frames skip the cell walk and rewrite at most the cursor/overlay tail).
+        let d = best_of(5, || {
+            let mut vertices = Vec::new();
+            for _ in 0..geo_ops {
+                odytty::grid::build_cell_vertices_into(
+                    black_box(&mut vertices),
+                    black_box(&snapshot),
+                    black_box(&atlas),
+                );
+                odytty::grid::append_cursor_vertices(
+                    black_box(&mut vertices),
+                    black_box(&snapshot),
+                    black_box(&atlas),
+                    CursorStyle::Block,
+                );
+                black_box(&vertices);
+            }
+        });
+        report_ops("cell_vertices()+cursor_tail()", geo_ops, d);
+
+        let d = best_of(5, || {
+            let mut cursor_tail = Vec::new();
+            for _ in 0..geo_ops {
+                cursor_tail.clear();
+                odytty::grid::append_cursor_vertices(
+                    black_box(&mut cursor_tail),
+                    black_box(&snapshot),
+                    black_box(&atlas),
+                    CursorStyle::Block,
+                );
+                black_box(&cursor_tail);
+            }
+        });
+        report_ops("cursor_tail_only()", geo_ops, d);
+
+        let d = best_of(5, || {
+            let mut cursor_tail = Vec::new();
+            for _ in 0..frame_ops {
+                let s = term.snapshot();
+                cursor_tail.clear();
+                odytty::grid::append_cursor_vertices(
+                    &mut cursor_tail,
+                    &s,
+                    &atlas,
+                    CursorStyle::Block,
+                );
+                black_box(&cursor_tail);
+            }
+        });
+        report_ops("snapshot()+cursor_tail_only()", frame_ops, d);
+    }
+
+    if geometry_only {
+        println!("\ndone.");
+        return;
     }
 
     println!("\n== Resize / reflow (deep scrollback) ==");

@@ -20,6 +20,11 @@ use super::gpu::{
 };
 use super::options::NativeOptions;
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
+use super::render_helpers::{
+    CursorRenderSignature, GeometryUpdate, RenderContentSignature, RenderSignature,
+    SelectionSignature, VisibleGraphicSignature,
+};
+use super::search_ui::SearchRenderSignature;
 use super::viewport::{Viewport, grid_dimensions_for, scroll_indicator_quad, wheel_lines};
 use crate::core::{
     Attrs, Cell, Dimensions, MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol,
@@ -645,6 +650,172 @@ fn build_vertices_into_reuses_existing_vec_capacity() {
 
     assert!(!vertices.is_empty());
     assert_eq!(vertices.capacity(), original_capacity);
+}
+
+fn search_sig(query: &str) -> SearchRenderSignature {
+    SearchRenderSignature {
+        open: !query.is_empty(),
+        query: query.to_owned(),
+        matches: Vec::new(),
+        current: None,
+    }
+}
+
+fn render_sig() -> RenderSignature {
+    RenderSignature {
+        content: RenderContentSignature {
+            terminal_revision: 1,
+            viewport_offset: 0,
+            scrollback_len: 0,
+            grid: Dimensions::new(4, 2),
+            cell: CellSize {
+                width: 10,
+                height: 20,
+                baseline: 15,
+            },
+            selection: None,
+            search: search_sig(""),
+            graphics: Vec::new(),
+            presentation_epoch: 0,
+        },
+        cursor: CursorRenderSignature {
+            visible: true,
+            style: crate::core::CursorStyle::Block,
+        },
+    }
+}
+
+#[test]
+fn render_signature_update_matrix_covers_pixel_invalidators() {
+    let base = render_sig();
+    assert_eq!(
+        RenderSignature::update_from(None, &base),
+        GeometryUpdate::Full
+    );
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &base),
+        GeometryUpdate::Retained
+    );
+
+    let mut cursor = base.clone();
+    cursor.cursor.visible = false;
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &cursor),
+        GeometryUpdate::CursorOnly
+    );
+
+    let mut pty_output = base.clone();
+    pty_output.content.terminal_revision += 1;
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &pty_output),
+        GeometryUpdate::Full
+    );
+
+    let mut scroll = base.clone();
+    scroll.content.viewport_offset = 1;
+    scroll.content.scrollback_len = 4;
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &scroll),
+        GeometryUpdate::Full
+    );
+
+    let mut selection = base.clone();
+    selection.content.selection = Some(SelectionSignature {
+        start: (0, 0),
+        end: (0, 2),
+    });
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &selection),
+        GeometryUpdate::Full
+    );
+
+    let mut search = base.clone();
+    search.content.search = search_sig("needle");
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &search),
+        GeometryUpdate::Full
+    );
+
+    let mut config_reload = base.clone();
+    config_reload.content.presentation_epoch += 1;
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &config_reload),
+        GeometryUpdate::Full
+    );
+
+    let mut image = base.clone();
+    image.content.graphics = vec![VisibleGraphicSignature {
+        id: 1,
+        image_id: 2,
+        row: 0,
+        column: 1,
+        source: (0, 0, 10, 10),
+        display_columns: 1,
+        display_rows: 1,
+        pixel_offset_x: 0,
+        pixel_offset_y: 0,
+        z_index: -1,
+        generation: 7,
+    }];
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &image),
+        GeometryUpdate::Full
+    );
+}
+
+#[test]
+fn cursor_blink_tail_is_bounded_after_cell_geometry() {
+    let Ok(font) = text::load_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let atlas = GlyphAtlas::build(&font, 24.0);
+    let mut snapshot = snapshot(&["A"], 1);
+    let mut vertices = Vec::new();
+
+    crate::grid::build_cell_vertices_into(&mut vertices, &snapshot, &atlas);
+    let cell_vertices = vertices.len();
+    crate::grid::append_cursor_vertices(
+        &mut vertices,
+        &snapshot,
+        &atlas,
+        crate::core::CursorStyle::Block,
+    );
+    let cursor_vertices = vertices.len() - cell_vertices;
+
+    assert!(
+        cursor_vertices <= VERTS_PER_QUAD * 2,
+        "block cursor emits at most a block plus glyph redraw"
+    );
+
+    snapshot.cursor_visible = false;
+    let mut hidden_tail = Vec::new();
+    crate::grid::append_cursor_vertices(
+        &mut hidden_tail,
+        &snapshot,
+        &atlas,
+        crate::core::CursorStyle::Block,
+    );
+    assert!(hidden_tail.is_empty(), "blink-off cursor emits no tail");
+}
+
+#[test]
+fn terminal_render_revision_tracks_visible_pixels_not_title() {
+    let mut terminal = Terminal::new(4, 2);
+    let initial = terminal.render_revision();
+
+    terminal.advance(b"\x1b]2;title\x07");
+    assert_eq!(
+        terminal.render_revision(),
+        initial,
+        "OSC title does not affect cell pixels"
+    );
+
+    terminal.advance(b"x");
+    assert!(
+        terminal.render_revision() > initial,
+        "printing visible text bumps render revision"
+    );
 }
 
 #[test]

@@ -78,6 +78,7 @@ pub struct Screen {
     bracketed_paste: bool,
     current_attrs: Attrs,
     dirty: DirtyRegion,
+    render_revision: u64,
     host_output: Vec<u8>,
     last_graphic_char: Option<char>,
     tab_stops: Vec<bool>,
@@ -156,6 +157,7 @@ impl Screen {
             bracketed_paste: false,
             current_attrs: Attrs::default(),
             dirty: DirtyRegion::Full,
+            render_revision: 0,
             host_output: Vec::new(),
             last_graphic_char: None,
             tab_stops: default_tab_stops(dimensions.columns),
@@ -182,10 +184,17 @@ impl Screen {
     /// them immediately as the current effective cursor since no application has
     /// issued DECSCUSR yet. Intended to be called once at startup before output.
     pub fn set_cursor_defaults(&mut self, style: CursorStyle, blink: bool) {
+        let changed = self.default_cursor_style != style
+            || self.default_cursor_blink != blink
+            || self.cursor_style != style
+            || self.cursor_blink != blink;
         self.default_cursor_style = style;
         self.default_cursor_blink = blink;
         self.cursor_style = style;
         self.cursor_blink = blink;
+        if changed {
+            self.mark_dirty();
+        }
     }
 
     /// Set the live cell pixel metrics used by the graphics routing layer
@@ -204,6 +213,17 @@ impl Screen {
     /// Current cell pixel metrics. See [`Self::set_cell_metrics`].
     pub fn cell_metrics(&self) -> CellMetrics {
         self.cell_metrics
+    }
+
+    /// Monotonic counter for visible terminal-state changes.
+    ///
+    /// The native renderer uses this as an additive invalidation seam: every
+    /// path that calls [`Self::mark_dirty`] changes the text/graphics/cursor
+    /// pixels that a future snapshot can produce. Title-only and host-response
+    /// changes deliberately do not bump it because they do not affect the cell
+    /// framebuffer.
+    pub fn render_revision(&self) -> u64 {
+        self.render_revision
     }
 
     /// DECSDM (private mode 80): when `true`, sixel images anchor at the cursor
@@ -1049,6 +1069,7 @@ impl Screen {
 
     fn mark_dirty(&mut self) {
         self.dirty = DirtyRegion::Full;
+        self.render_revision = self.render_revision.wrapping_add(1);
     }
 
     fn apply_sgr(&mut self, params: &Params) {
@@ -1701,6 +1722,12 @@ impl Terminal {
     /// Whether the cursor's blink policy is currently enabled.
     pub fn cursor_blinking(&self) -> bool {
         self.screen.cursor_blinking()
+    }
+
+    /// Monotonic counter for visible terminal-state changes. See
+    /// [`Screen::render_revision`].
+    pub fn render_revision(&self) -> u64 {
+        self.screen.render_revision()
     }
 
     /// Set the host default cursor shape and blink policy (from settings). See
