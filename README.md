@@ -195,15 +195,19 @@ reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
 the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 845 tests passing: 792 unit/integration, 23 pixel-smoke
-(headless CPU compositor asserting structural raster invariants for text
-rendering and graphics placement), 11 protocol-fuzz smoke (never-panic,
-bounded-host-output, post-RIS, and grid-self-consistency invariants across seven
-fuzzed surfaces: extended underline SGR, Kitty keyboard protocol stack,
-synchronized output mode 2026, OSC 52 / dynamic colors, DECRQM / XTWINOPS, DCS
-query reports (XTGETTCAP / DECRQSS), and DEC rectangle / selective-erase ops),
-9 PTY alternate-screen smoke, and 10 transcript smoke. Deep fuzz tiers are
-`#[ignore]`-gated and run via
+**Testing.** 856 tests passing: 792 unit/integration, 11 mouse-protocol
+(hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
+SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
+stripping, protocol-specific release encoding, and motion gating for
+normal/button-event/any-event modes; run via
+`cargo test --test mouse_protocol`), 23 pixel-smoke (headless CPU compositor
+asserting structural raster invariants for text rendering and graphics
+placement), 11 protocol-fuzz smoke (never-panic, bounded-host-output, post-RIS,
+and grid-self-consistency invariants across seven fuzzed surfaces: extended
+underline SGR, Kitty keyboard protocol stack, synchronized output mode 2026, OSC
+52 / dynamic colors, DECRQM / XTWINOPS, DCS query reports (XTGETTCAP / DECRQSS),
+and DEC rectangle / selective-erase ops), 9 PTY alternate-screen smoke, and 10
+transcript smoke. Deep fuzz tiers are `#[ignore]`-gated and run via
 `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
 EM2 added three hermetic emoji-probe tests (fixed representative-sequence list,
 bounded filename discovery in a temp directory, and non-color format detection
@@ -216,13 +220,13 @@ surface rows: DECFRA full-page fill (~2.3 µs/op, ~1.2 ns/cell), DECCRA
 overlapping copy (~3.0 µs/op), DECSERA mixed-protection erase (~5.5 µs/op),
 and an SGR colon-subparam storm (`4:n` + `58:2:r:g:b` per cell) that
 exercises the extended-underline parse path the semicolon heavy-SGR row never
-reaches. A per-cell size diagnostic prints `Cell 44 B / Attrs 28 B` at the
-B3 baseline; `Attrs` grew after B2 (US1 added underline style, colon underline
-color, and blink; RC1 added per-cell protection). A flagged finding: the
-scroll-heavy `seq` workload measured ~23% below the B2 baseline; leading
-hypothesis is the larger `Cell` inflating per-char print writes and per-scroll
-row memmove traffic. A cell-shrink spike (PERF1 — bitflags for bool attrs,
-niche for optional colors) is in progress. Three profiles are selectable via
+reaches. A per-cell size diagnostic prints `Cell 36 B / Attrs 20 B` at the current
+baseline; `Attrs` was 28 B after B2/B3 (`Attrs` held eight `bool` fields after
+US1 and RC1 growth) and is now 20 B after PERF1b packed those eight bools into
+a private `u16` flags field. `Cell` correspondingly dropped from 44 B to 36 B.
+PERF1b resolved the flagged B3 seq regression: the scroll-heavy `seq` row
+recovered from 9.6 to 11.9 MB/s (+24% on the legacy profile), and no bench row
+regressed. Three profiles are selectable via
 `ODYTTY_PERF_PROFILE`: `default` (bounded, routine acceptance runs), `legacy`
 (pre-B2 workload sizes), and `quick` (smoke); see
 [`docs/runtime-knobs.md`](docs/runtime-knobs.md).

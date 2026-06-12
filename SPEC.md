@@ -358,6 +358,12 @@ its first stable layer.
 - Right-edge scroll position indicator
 - Configurable cursor shapes and blink policy (DECSCUSR + settings)
 - Configurable terminal-local key bindings
+- Mouse reporting: tracking modes 9 (X10), 1000 (normal), 1002 (button-event),
+  1003 (any-event), focus reporting (1004); encodings 1005 (UTF-8 coordinate
+  extension), 1006 (SGR decimal), 1015 (urxvt decimal); legacy byte protocol
+  as default. Only one tracking mode and one encoding mode are active at a time;
+  `DECRST` clears back to the default. SGR-pixel mode 1016 is the known gap —
+  it requires a native cell-to-pixel coordinate seam; MS1 is in progress.
 - Window title from OSC 0/2; DECSET 1004 focus reporting
 - Synchronized output (DEC private mode 2026): presentation hold with 150 ms
   safety timeout; cursor blink live during hold
@@ -414,6 +420,18 @@ bold-italic by composing both. Real faces always take precedence; synthesis
 activates only for genuinely absent slots. Ligatures and complex shaping are not
 implemented; each atlas entry is a single character rasterized into its cell
 or two-cell slot.
+
+`Attrs` stores its eight boolean display flags (bold, dim, italic, underline,
+blink, strikethrough, inverse, hidden) in a single private `flags: u16`
+bitfield. The public API is `&self` getters (`bold()` … `hidden()`) and `&mut
+self` setters (`set_bold()` … `set_hidden()`). `protected` and
+`wide_continuation` remain public `bool` fields on `Cell` because they do not
+benefit from the same packing (`Cell` is 36 B with or without them). The
+hand-written `Debug` impl reads through the getters and emits the same field
+names and values as the previous `#[derive(Debug)]` output, so parser-oracle
+golden fixtures do not need to change when the representation does — the same
+rationale that governs the `protected`-omit and `blink:false`-omit golden
+decisions elsewhere.
 
 **Color emoji (EM1 decision record).** The accepted direction is a separate
 premultiplied-RGBA color-glyph path, distinct from the current monochrome
