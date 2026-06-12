@@ -136,6 +136,9 @@ pub struct Screen {
     /// row below the image, column 0 (xterm DECSDM-off behavior).
     /// `true` (set): sixel image anchors at the cursor; cursor does NOT move.
     sixel_display_mode: bool,
+    /// DECSET/DECRST 2026 synchronized output. When set, front ends should keep
+    /// feeding the model but may defer presenting new grid content until reset.
+    synchronized_output: bool,
 }
 #[derive(Debug, Clone)]
 struct StoredScreen {
@@ -214,6 +217,7 @@ impl Screen {
             graphics_stats: GraphicsStats::default(),
             cell_metrics: CellMetrics::default(),
             sixel_display_mode: false,
+            synchronized_output: false,
         }
     }
 
@@ -307,6 +311,13 @@ impl Screen {
     /// the cursor moves below the image.
     pub fn sixel_display_mode(&self) -> bool {
         self.sixel_display_mode
+    }
+
+    /// DECSET 2026 synchronized-output mode. The core owns the mode state and
+    /// DECRQM/RIS/DECSTR behavior; native presentation owns the safety timeout
+    /// so a crashed app cannot freeze the visible frame.
+    pub fn synchronized_output_enabled(&self) -> bool {
+        self.synchronized_output
     }
 
     /// The cursor shape currently in effect (DECSCUSR or host default).
@@ -1269,6 +1280,11 @@ impl Terminal {
     /// [`Screen::render_revision`].
     pub fn render_revision(&self) -> u64 {
         self.screen.render_revision()
+    }
+
+    /// Whether DECSET 2026 synchronized output is currently enabled.
+    pub fn synchronized_output_enabled(&self) -> bool {
+        self.screen.synchronized_output_enabled()
     }
 
     /// Set the host default cursor shape and blink policy (from settings). See

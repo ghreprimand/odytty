@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 — Synchronized output mode 2026 (SU1)
+
+OdyTTY now supports DEC private mode 2026 for synchronized output, letting TUI
+apps batch screen updates without exposing partial redraws.
+
+- **Core mode ownership.** `DECSET/DECRST 2026` toggles a terminal-core mode bit,
+  `DECRQM ?2026` reports live state, and both RIS and DECSTR return the mode to
+  reset. The mode is exposed through the narrow `Terminal` facade so presentation
+  code can observe it without owning terminal semantics.
+- **Native presentation hold.** While mode 2026 is set, the native renderer keeps
+  ingesting PTY output and processing input/window events but defers uploading
+  newer grid content. A `DECRST 2026` release presents the coalesced latest model
+  state on the next redraw.
+- **Safety timeout.** The native presenter releases a held frame after 150 ms if
+  an app sets mode 2026 and never resets it. The timeout lives in the presentation
+  layer because it is a display-safety policy, not a terminal semantic; after
+  timeout, presentation remains released until the app resets and starts a later
+  synchronized batch.
+- **Coverage.** Added core fixtures for set/reset/report/RIS/DECSTR and native
+  time-injected state-machine tests for hold, release, and timeout behavior.
+
+---
+
 ## 2026-06-12 — Synthetic bold + italic fallback (SB1)
 
 When a font family ships no real Bold or Italic face, OdyTTY now synthesizes one

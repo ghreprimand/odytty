@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use super::app::{
-    App, PendingResize, ResizeDebouncer, pending_resize_for_surface, scale_factor_changed,
+    App, PendingResize, ResizeDebouncer, SYNCHRONIZED_OUTPUT_TIMEOUT, SynchronizedOutputHold,
+    pending_resize_for_surface, scale_factor_changed,
 };
 use super::bindings::{
     KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
@@ -50,6 +51,7 @@ mod clipboard_paste;
 mod gpu_render;
 mod grid_scale;
 mod input_keys;
+mod synchronized_output;
 mod viewport;
 
 pub(super) fn snapshot(lines: &[&str], columns: usize) -> Snapshot {

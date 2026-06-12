@@ -14,6 +14,7 @@ fn decrqm_reports_default_dec_mode_inventory() {
     terminal.advance(b"\x1b[?25$p");
     terminal.advance(b"\x1b[?1006$p");
     terminal.advance(b"\x1b[?1007$p");
+    terminal.advance(b"\x1b[?2026$p");
     terminal.advance(b"\x1b[?4242$p");
 
     assert_eq!(
@@ -25,6 +26,7 @@ fn decrqm_reports_default_dec_mode_inventory() {
           \x1b[?25;1$y\
           \x1b[?1006;2$y\
           \x1b[?1007;4$y\
+          \x1b[?2026;2$y\
           \x1b[?4242;0$y"
     );
 }
@@ -42,6 +44,7 @@ fn decrqm_reports_live_dec_mode_state() {
     terminal.advance(b"\x1b[?1006h\x1b[?1006$p");
     terminal.advance(b"\x1b[?1004h\x1b[?1004$p");
     terminal.advance(b"\x1b[?2004h\x1b[?2004$p");
+    terminal.advance(b"\x1b[?2026h\x1b[?2026$p");
     terminal.advance(b"\x1b[?80h\x1b[?80$p");
 
     assert_eq!(
@@ -55,8 +58,27 @@ fn decrqm_reports_live_dec_mode_state() {
           \x1b[?1006;1$y\
           \x1b[?1004;1$y\
           \x1b[?2004;1$y\
+          \x1b[?2026;1$y\
           \x1b[?80;1$y"
     );
+}
+
+#[test]
+fn synchronized_output_mode_resets_on_decrst_ris_and_decstr() {
+    let mut terminal = Terminal::new(10, 4);
+
+    assert!(!terminal.synchronized_output_enabled());
+
+    terminal.advance(b"\x1b[?2026h");
+    assert!(terminal.synchronized_output_enabled());
+    terminal.advance(b"\x1b[?2026l");
+    assert!(!terminal.synchronized_output_enabled());
+
+    terminal.advance(b"\x1b[?2026h\x1bc");
+    assert!(!terminal.synchronized_output_enabled());
+
+    terminal.advance(b"\x1b[?2026h\x1b[!p");
+    assert!(!terminal.synchronized_output_enabled());
 }
 
 #[test]

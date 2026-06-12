@@ -550,6 +550,9 @@ impl Screen {
                 2004 => {
                     self.bracketed_paste = action == 'h';
                 }
+                2026 => {
+                    self.synchronized_output = action == 'h';
+                }
                 // Mouse tracking modes (single active mode; later DECSET wins,
                 // any DECRST returns to Off). See `MouseTracking`.
                 9 => self.set_mouse_tracking(MouseTracking::X10, action),
@@ -626,6 +629,7 @@ impl Screen {
             1006 => mode_status(self.mouse.encoding == MouseEncoding::Sgr),
             1015 => mode_status(self.mouse.encoding == MouseEncoding::Urxvt),
             2004 => mode_status(self.bracketed_paste),
+            2026 => mode_status(self.synchronized_output),
             // Known xterm private modes that OdyTTY does not implement.
             1001 | 1007 | 1016 => 4,
             _ => 0,
@@ -950,6 +954,7 @@ impl Screen {
         // soft_reset).
         self.tab_stops = default_tab_stops(self.dimensions.columns);
         self.sixel_display_mode = false;
+        self.synchronized_output = false;
         self.mark_dirty();
     }
 
@@ -977,6 +982,7 @@ impl Screen {
         self.cursor_style = self.default_cursor_style;
         self.cursor_blink = self.default_cursor_blink;
         self.sixel_display_mode = false;
+        self.synchronized_output = false;
         self.mark_dirty();
     }
 }

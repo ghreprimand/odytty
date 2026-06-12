@@ -53,6 +53,51 @@ use super::viewport::{
     wheel_lines,
 };
 
+pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(150);
+
+/// Native presenter policy for DECSET 2026 synchronized output.
+///
+/// The terminal core owns the mode bit. The native layer owns the safety policy:
+/// once a hold is observed, grid-content uploads are deferred for at most 150 ms
+/// so a crashed application that never sends DECRST 2026 cannot leave the
+/// display frozen indefinitely. After the timeout, presentation is released
+/// until the application resets the mode and starts a later synchronized batch.
+#[derive(Debug, Default)]
+pub(super) struct SynchronizedOutputHold {
+    active_since: Option<Instant>,
+    timed_out: bool,
+}
+
+impl SynchronizedOutputHold {
+    pub(super) fn should_hold(&mut self, enabled: bool, now: Instant) -> bool {
+        if !enabled {
+            self.active_since = None;
+            self.timed_out = false;
+            return false;
+        }
+
+        let active_since = *self.active_since.get_or_insert(now);
+        if self.timed_out {
+            return false;
+        }
+        if now.saturating_duration_since(active_since) >= SYNCHRONIZED_OUTPUT_TIMEOUT {
+            self.timed_out = true;
+            return false;
+        }
+        true
+    }
+
+    pub(super) fn deadline(&self) -> Option<Instant> {
+        (!self.timed_out)
+            .then_some(self.active_since?)
+            .map(|active_since| active_since + SYNCHRONIZED_OUTPUT_TIMEOUT)
+    }
+
+    pub(super) fn is_due(&self, now: Instant) -> bool {
+        self.deadline().is_some_and(|deadline| now >= deadline)
+    }
+}
+
 /// Application state driving the `winit` event loop.
 ///
 /// The window is created lazily on `resumed` per `winit`'s portability
@@ -85,6 +130,16 @@ pub(super) struct App {
     /// core revision: theme/default-color changes, atlas/font changes, and
     /// other settings that make identical snapshots build different vertices.
     presentation_epoch: u64,
+    /// DECSET 2026 presentation hold state. While active, terminal model/input
+    /// keep advancing, but new grid-content uploads are delayed until DECRST or
+    /// this state machine's timeout releases the hold.
+    synchronized_output_hold: SynchronizedOutputHold,
+    /// Last uploaded content snapshot before cursor blink visibility was
+    /// applied. This lets cursor-only redraws continue during a synchronized
+    /// output hold without exposing newer terminal grid content.
+    last_presented_snapshot: Option<Snapshot>,
+    last_presented_cursor_style: crate::core::CursorStyle,
+    last_presented_cursor_blinking: bool,
     /// The shared PTY writer. Key presses are encoded to bytes and written here,
     /// completing the read+write loop with the pump thread that owns the reader.
     writer: PtyWriter,
@@ -183,6 +238,10 @@ impl App {
             needs_rebuild: true,
             last_render_signature: None,
             presentation_epoch: 0,
+            synchronized_output_hold: SynchronizedOutputHold::default(),
+            last_presented_snapshot: None,
+            last_presented_cursor_style: crate::core::CursorStyle::default(),
+            last_presented_cursor_blinking: true,
             writer,
             pty,
             grid,
@@ -275,6 +334,7 @@ impl App {
             self.resize_debounce.deadline(),
             self.cursor_blink.deadline(),
             self.settings_reloader.deadline(),
+            self.synchronized_output_hold.deadline(),
         ]
         .into_iter()
         .flatten()
@@ -990,6 +1050,45 @@ impl App {
             window.request_redraw();
         }
     }
+
+    fn update_held_cursor_frame(&mut self, now: Instant) -> bool {
+        let Some(mut snapshot) = self.last_presented_snapshot.clone() else {
+            return false;
+        };
+        let Some(previous_signature) = self.last_render_signature.clone() else {
+            return false;
+        };
+
+        let cursor_on =
+            self.cursor_blink
+                .poll(now, self.last_presented_cursor_blinking, self.focused);
+        if !cursor_on {
+            snapshot.cursor_visible = false;
+        }
+
+        let signature = RenderSignature {
+            content: previous_signature.content,
+            cursor: CursorRenderSignature {
+                visible: snapshot.cursor_visible,
+                style: self.last_presented_cursor_style,
+            },
+        };
+        let update = RenderSignature::update_from(self.last_render_signature.as_ref(), &signature);
+        if let Some(gpu) = self.gpu.as_mut() {
+            match update {
+                GeometryUpdate::Full | GeometryUpdate::CursorOnly => {
+                    gpu.update_cursor_and_overlays(
+                        &snapshot,
+                        self.last_presented_cursor_style,
+                        &[],
+                    );
+                }
+                GeometryUpdate::Retained => {}
+            }
+        }
+        self.last_render_signature = Some(signature);
+        true
+    }
 }
 
 impl ApplicationHandler<UserEvent> for App {
@@ -1028,6 +1127,7 @@ impl ApplicationHandler<UserEvent> for App {
                 if let Ok(mut term) = self.terminal.lock() {
                     term.set_cell_metrics(cell.width, cell.height);
                 }
+                self.last_presented_snapshot = Some(initial_snapshot.clone());
                 self.gpu = Some(gpu);
             }
             Err(err) => {
@@ -1113,145 +1213,170 @@ impl ApplicationHandler<UserEvent> for App {
                 // pump wakes coalesced into this frame. Snapshot under the lock,
                 // then drop it before touching the GPU.
                 if self.needs_rebuild {
-                    let Some(cell) = self.gpu.as_ref().map(GpuState::cell) else {
-                        return;
-                    };
-                    let cached_image_ids = self
-                        .gpu
-                        .as_ref()
-                        .map(GpuState::cached_image_ids)
-                        .unwrap_or_default();
-                    let (
-                        mut snapshot,
-                        scrollback_len,
-                        cursor_style,
-                        cursor_blinking,
-                        terminal_revision,
-                        visible_graphics,
-                        image_uploads,
-                    ) = {
-                        let terminal = self.terminal.lock().expect("terminal mutex");
-                        let scrollback_len = terminal.screen().scrollback_len();
-                        // "Stay scrolled": as new output grows scrollback while
-                        // the user is scrolled back, anchor the view to the same
-                        // absolute rows instead of letting it scroll away. Only
-                        // explicit input (handle_key_press/paste) returns to live.
-                        let added = scrollback_len.saturating_sub(self.last_scrollback_len);
-                        self.viewport.anchor_after_growth(added, scrollback_len);
-                        self.last_scrollback_len = scrollback_len;
-                        self.viewport.clamp(scrollback_len);
-                        if self.search.is_open() {
-                            self.search.refresh(&terminal);
-                        }
-                        let offset = self.viewport.offset();
-                        let visible_graphics = terminal.visible_graphics(offset);
-                        let image_uploads = image_uploads_for_visible(
-                            &terminal,
-                            &visible_graphics,
-                            &cached_image_ids,
-                        );
-                        (
-                            terminal.snapshot_with_scrollback(offset),
+                    let now = Instant::now();
+                    let synchronized_output = self
+                        .terminal
+                        .lock()
+                        .map(|terminal| terminal.synchronized_output_enabled())
+                        .unwrap_or(false);
+                    if self
+                        .synchronized_output_hold
+                        .should_hold(synchronized_output, now)
+                    {
+                        let _ = self.update_held_cursor_frame(now);
+                    } else {
+                        let Some(cell) = self.gpu.as_ref().map(GpuState::cell) else {
+                            return;
+                        };
+                        let cached_image_ids = self
+                            .gpu
+                            .as_ref()
+                            .map(GpuState::cached_image_ids)
+                            .unwrap_or_default();
+                        let (
+                            mut snapshot,
                             scrollback_len,
-                            terminal.cursor_style(),
-                            terminal.cursor_blinking(),
-                            terminal.render_revision(),
+                            cursor_style,
+                            cursor_blinking,
+                            terminal_revision,
                             visible_graphics,
                             image_uploads,
-                        )
-                    };
-                    // Blink phase: hide the cursor during the off-phase. Only the
-                    // live view (offset 0) shows a cursor; the blink driver holds
-                    // it solid when not blinking or unfocused.
-                    let now = Instant::now();
-                    let cursor_on = self.cursor_blink.poll(now, cursor_blinking, self.focused);
-                    if !cursor_on {
-                        snapshot.cursor_visible = false;
-                    }
-                    self.hovered_hyperlink = self.pointer_cell.and_then(|point| {
-                        if point.row >= snapshot.dimensions.rows
-                            || point.column >= snapshot.dimensions.columns
-                        {
-                            return None;
+                        ) = {
+                            let terminal = self.terminal.lock().expect("terminal mutex");
+                            let scrollback_len = terminal.screen().scrollback_len();
+                            // "Stay scrolled": as new output grows scrollback while
+                            // the user is scrolled back, anchor the view to the same
+                            // absolute rows instead of letting it scroll away. Only
+                            // explicit input (handle_key_press/paste) returns to live.
+                            let added = scrollback_len.saturating_sub(self.last_scrollback_len);
+                            self.viewport.anchor_after_growth(added, scrollback_len);
+                            self.last_scrollback_len = scrollback_len;
+                            self.viewport.clamp(scrollback_len);
+                            if self.search.is_open() {
+                                self.search.refresh(&terminal);
+                            }
+                            let offset = self.viewport.offset();
+                            let visible_graphics = terminal.visible_graphics(offset);
+                            let image_uploads = image_uploads_for_visible(
+                                &terminal,
+                                &visible_graphics,
+                                &cached_image_ids,
+                            );
+                            (
+                                terminal.snapshot_with_scrollback(offset),
+                                scrollback_len,
+                                terminal.cursor_style(),
+                                terminal.cursor_blinking(),
+                                terminal.render_revision(),
+                                visible_graphics,
+                                image_uploads,
+                            )
+                        };
+                        // Blink phase: hide the cursor during the off-phase. Only the
+                        // live view (offset 0) shows a cursor; the blink driver holds
+                        // it solid when not blinking or unfocused.
+                        let base_cursor_visible = snapshot.cursor_visible;
+                        let cursor_on = self.cursor_blink.poll(now, cursor_blinking, self.focused);
+                        if !cursor_on {
+                            snapshot.cursor_visible = false;
                         }
-                        snapshot
-                            .cells
-                            .get(point.row * snapshot.dimensions.columns + point.column)
-                            .and_then(|cell| cell.attrs.hyperlink)
-                    });
-                    if let Some(range) = self.selection.range()
-                        && let Some(visible_range) = selection::visible_range_from_absolute(
-                            range,
+                        self.hovered_hyperlink = self.pointer_cell.and_then(|point| {
+                            if point.row >= snapshot.dimensions.rows
+                                || point.column >= snapshot.dimensions.columns
+                            {
+                                return None;
+                            }
+                            snapshot
+                                .cells
+                                .get(point.row * snapshot.dimensions.columns + point.column)
+                                .and_then(|cell| cell.attrs.hyperlink)
+                        });
+                        if let Some(range) = self.selection.range()
+                            && let Some(visible_range) = selection::visible_range_from_absolute(
+                                range,
+                                self.viewport.offset(),
+                                scrollback_len,
+                                self.grid,
+                            )
+                        {
+                            selection::apply_highlight(&mut snapshot, visible_range);
+                        }
+                        apply_search_ui(
+                            &mut snapshot,
+                            &self.search,
                             self.viewport.offset(),
                             scrollback_len,
                             self.grid,
-                        )
-                    {
-                        selection::apply_highlight(&mut snapshot, visible_range);
-                    }
-                    apply_search_ui(
-                        &mut snapshot,
-                        &self.search,
-                        self.viewport.offset(),
-                        scrollback_len,
-                        self.grid,
-                    );
-                    apply_hyperlink_hover(&mut snapshot, self.hovered_hyperlink);
-                    let color = self.scroll_indicator_color();
-                    let overlay = self.gpu.as_ref().and_then(|gpu| {
-                        scroll_indicator_quad(
-                            self.viewport.offset(),
-                            scrollback_len,
-                            self.grid,
-                            gpu.cell(),
-                            color,
-                        )
-                    });
-                    let overlays = overlay.into_iter().collect::<Vec<_>>();
-                    let signature = RenderSignature {
-                        content: RenderContentSignature {
-                            terminal_revision,
-                            viewport_offset: self.viewport.offset(),
-                            scrollback_len,
-                            grid: self.grid,
-                            cell,
-                            selection: self.selection.range().map(SelectionSignature::from),
-                            search: self.search.render_signature(),
-                            hovered_hyperlink: self.hovered_hyperlink,
-                            graphics: visible_graphics_signature(&visible_graphics),
-                            presentation_epoch: self.presentation_epoch,
-                        },
-                        cursor: CursorRenderSignature {
-                            visible: snapshot.cursor_visible,
-                            style: cursor_style,
-                        },
-                    };
-                    let update = RenderSignature::update_from(
-                        self.last_render_signature.as_ref(),
-                        &signature,
-                    );
-                    if let Some(gpu) = self.gpu.as_mut() {
-                        match update {
-                            GeometryUpdate::Full => {
-                                gpu.update_image_layer(&visible_graphics, &image_uploads);
-                                if overlays.is_empty() {
-                                    gpu.update_from_snapshot(&snapshot, cursor_style);
-                                } else {
-                                    gpu.update_from_snapshot_with_overlays(
+                        );
+                        apply_hyperlink_hover(&mut snapshot, self.hovered_hyperlink);
+                        let content_snapshot = {
+                            let mut content_snapshot = snapshot.clone();
+                            content_snapshot.cursor_visible = base_cursor_visible;
+                            content_snapshot
+                        };
+                        let color = self.scroll_indicator_color();
+                        let overlay = self.gpu.as_ref().and_then(|gpu| {
+                            scroll_indicator_quad(
+                                self.viewport.offset(),
+                                scrollback_len,
+                                self.grid,
+                                gpu.cell(),
+                                color,
+                            )
+                        });
+                        let overlays = overlay.into_iter().collect::<Vec<_>>();
+                        let signature = RenderSignature {
+                            content: RenderContentSignature {
+                                terminal_revision,
+                                viewport_offset: self.viewport.offset(),
+                                scrollback_len,
+                                grid: self.grid,
+                                cell,
+                                selection: self.selection.range().map(SelectionSignature::from),
+                                search: self.search.render_signature(),
+                                hovered_hyperlink: self.hovered_hyperlink,
+                                graphics: visible_graphics_signature(&visible_graphics),
+                                presentation_epoch: self.presentation_epoch,
+                            },
+                            cursor: CursorRenderSignature {
+                                visible: snapshot.cursor_visible,
+                                style: cursor_style,
+                            },
+                        };
+                        let update = RenderSignature::update_from(
+                            self.last_render_signature.as_ref(),
+                            &signature,
+                        );
+                        if let Some(gpu) = self.gpu.as_mut() {
+                            match update {
+                                GeometryUpdate::Full => {
+                                    gpu.update_image_layer(&visible_graphics, &image_uploads);
+                                    if overlays.is_empty() {
+                                        gpu.update_from_snapshot(&snapshot, cursor_style);
+                                    } else {
+                                        gpu.update_from_snapshot_with_overlays(
+                                            &snapshot,
+                                            cursor_style,
+                                            &overlays,
+                                        );
+                                    }
+                                }
+                                GeometryUpdate::CursorOnly => {
+                                    gpu.update_cursor_and_overlays(
                                         &snapshot,
                                         cursor_style,
                                         &overlays,
                                     );
                                 }
+                                GeometryUpdate::Retained => {}
                             }
-                            GeometryUpdate::CursorOnly => {
-                                gpu.update_cursor_and_overlays(&snapshot, cursor_style, &overlays);
-                            }
-                            GeometryUpdate::Retained => {}
                         }
+                        self.last_render_signature = Some(signature);
+                        self.last_presented_snapshot = Some(content_snapshot);
+                        self.last_presented_cursor_style = cursor_style;
+                        self.last_presented_cursor_blinking = cursor_blinking;
+                        self.needs_rebuild = false;
                     }
-                    self.last_render_signature = Some(signature);
-                    self.needs_rebuild = false;
                 }
                 let Some(gpu) = self.gpu.as_mut() else {
                     return;
@@ -1370,6 +1495,13 @@ impl ApplicationHandler<UserEvent> for App {
         // A due cursor-blink toggle rebuilds once so the phase flips; the rebuild
         // path polls the blink driver and advances it.
         if self.cursor_blink.is_due(now) {
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+
+        if self.synchronized_output_hold.is_due(now) {
             self.needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();
