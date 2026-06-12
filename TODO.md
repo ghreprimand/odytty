@@ -121,6 +121,10 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         state + ESC[I/ESC[O encoders.
   - [x] Native: emit no-button hover motion for any-event tracking and send
         focus-in/out reports to the PTY when 1004 is enabled.
+  - [x] MP1: hermetic integration coverage inventories mouse modes
+        9/1000/1002/1003/1004/1005/1006/1015/1016, pins exact report bytes
+        across legacy/UTF-8/SGR/urxvt encodings, and records 1016 SGR-pixel as
+        the remaining parity gap.
 - [x] Harden alternate-screen behavior with editors, pagers, and full-screen
       apps.
   - [x] PTY smoke: real `less` and `vim` enter alternate screen, accept basic

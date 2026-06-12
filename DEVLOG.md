@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 -- Mouse protocol completeness evidence (MP1)
+
+Added a hermetic integration-test packet for OdyTTY's current mouse reporting
+surface, with no `src/` edits.
+
+- **Inventory pinned.** DECRQM coverage now records the implemented modes:
+  tracking `9/1000/1002/1003`, focus `1004`, and encodings
+  `1005/1006/1015`; mode `1016` is pinned as known-but-unsupported.
+- **Exact report bytes.** `tests/mouse_protocol.rs` checks legacy byte
+  boundaries, UTF-8 coordinate extension, SGR and urxvt decimal coordinates,
+  wheel reports, modifier folding, X10 modifier stripping, protocol-specific
+  release encoding, and motion gating for normal/button-event/any-event modes.
+- **Cleanup behavior.** The fixtures cover single-active tracking/encoding
+  priority plus `DECRST` and `RIS` cleanup for mouse and focus reporting.
+- **Finding.** No defects were found in implemented modes. SGR-pixel mode
+  `1016` remains the real parity gap and needs a later native cell-to-pixel
+  coordinate seam before it can be implemented cleanly.
+- **Run.** `cargo test --test mouse_protocol --quiet`; included in default
+  `cargo test`.
+
 ## 2026-06-12 -- Emoji font discovery + swash proof (EM2)
 
 Starts the accepted color-emoji ladder without touching the live renderer.
