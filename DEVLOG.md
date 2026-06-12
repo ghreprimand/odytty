@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 — Fuzz the DEC rectangle / selective-erase surface (FZ4)
+
+The protocol fuzzer (`tests/protocol_fuzz.rs`) now covers the RC1 rectangle
+surface — the newest and most overlap-sensitive core code. Public-facade-only,
+no `core` edits.
+
+- **New generators.** DECCRA (`$v`), DECFRA (`$x`), DECERA (`$z`), and DECSERA
+  (`${`) with random/degenerate/inverted/out-of-bounds coordinates (edge-biased,
+  including u32-overflow); DECSCA protect/clear interleaved with
+  DECSED/DECSEL/ED/EL so the protection matrix is read under churn; DECOM,
+  scroll-region (DECSTBM), and alternate-screen flips that drive coordinate
+  translation; and CJK/emoji wide glyphs (`gen_wide_seed`) printed at fuzzed
+  origins so rectangle edges bisect wide pairs.
+- **New invariant — grid self-consistency.** A snapshot scan
+  (`assert_grid_consistent`) asserts the wide-glyph pairing contract after every
+  op: a `wide_continuation` spacer always follows a width-2 head (no orphaned
+  continuations, none at column 0), every wide head has its continuation and
+  never sits in the final column, and the cursor stays in bounds. This directly
+  exercises the rectangle sanitize-on-slice path. Identifies wide heads via the
+  existing `unicode-width` dependency.
+- **RC2 attribute-rectangle ops.** RC2 (DECCARA `$r`, DECRARA `$t`, DECSACE
+  `* x`) landed just before this commit, so FZ4 also generates them: fuzzed
+  rectangle coordinates with SGR-subset and garbage `Pm` attribute lists and
+  fuzzed DECSACE extents. These mutate cell attributes only — never the glyph or
+  its width — so the grid-consistency invariant still applies and is asserted.
+- **Three new smoke/deep test pairs.** Rectangle soup (grid-consistent after
+  every burst + after-RIS, both 24×6 and 20×8 grids; includes the RC2 attribute
+  ops), wide-glyph slicing (print CJK across an edge, then slice and verify no
+  orphaned continuation), and DECCRA copy churn under DECOM/region translation.
+  Rect ops and wide seeding are also folded into the existing cross-surface
+  mixed-soup fuzzer, which now asserts grid consistency per burst too.
+- **Result.** No defects found. Deep tier at 40k iters/fuzzer is green against
+  the RC2 HEAD (11 fuzzers, zero panics, zero grid-consistency violations, zero
+  post-RIS drift). `cargo test` lib 789, pixel_smoke 23, protocol_fuzz 11
+  (+11 deep `#[ignore]`), pty 9, transcript 10; `cargo fmt --check` clean;
+  `protocol_fuzz.rs` 1314 lines (< 2000). Deep run:
+  `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
+
+---
+
 ## 2026-06-12 — Rectangle attribute operations (RC2)
 
 The RC1 rectangle surface now includes the deferred VT420 attribute-rectangle

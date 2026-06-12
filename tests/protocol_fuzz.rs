@@ -21,6 +21,11 @@
 //!    payloads that trip the 4096-byte cap, DECRQSS interleaved with SGR churn
 //!    so the `m` round-trip runs under load, and DCS streams aborted mid-flight
 //!    by CAN/SUB/ESC or split across `advance` feed boundaries.
+//! 7. **DEC rectangle / selective-erase ops** (RC1, FZ4): DECCRA/DECFRA/DECERA/
+//!    DECSERA with random/degenerate/inverted/out-of-bounds coordinates, DECSCA
+//!    protection toggled and interleaved with DECSED/DECSEL/ED/EL, DECOM and
+//!    scroll-region churn, CJK wide glyphs placed across rectangle edges, and
+//!    alternate-screen flips mid-sequence.
 //!
 //! ## Invariants (self-consistency form, mirroring the parser-oracle fuzzers)
 //!
@@ -33,6 +38,11 @@
 //!   observable mode/attr state (mouse, keyboard, synchronized output, focus,
 //!   bracketed paste) to its power-on defaults, discards pending host output,
 //!   and leaves the parser able to print.
+//! - **Grid self-consistency (FZ4).** After any rectangle/erase op the snapshot
+//!   grid is well-formed: a `wide_continuation` spacer always follows a wide
+//!   head (no orphaned continuations, none at column 0), every wide head has its
+//!   continuation and never sits in the last column, and the cursor stays in
+//!   bounds.
 //!
 //! ## Tiers
 //!
@@ -45,6 +55,7 @@
 //! ```
 
 use odytty::core::{KeyboardModes, MouseProtocol, Terminal};
+use unicode_width::UnicodeWidthChar;
 
 // ---------------------------------------------------------------------------
 // Determinism scaffolding (house style shared with the FZ1 graphics fuzzer)
@@ -164,6 +175,77 @@ fn assert_consistent_after_ris(seed: u64, t: &mut Terminal) {
 /// fixed-size replies emitted for tiny inputs.
 fn host_output_cap(input_len: usize) -> usize {
     64 * input_len + 4096
+}
+
+/// Grid self-consistency scan (FZ4). Walk the snapshot and assert the
+/// wide-glyph pairing invariant and cursor bounds:
+///
+/// - the cell buffer is exactly `rows × columns`,
+/// - the cursor row is in bounds and the column never exceeds the width
+///   (a pending-wrap cursor may rest at `column == columns`),
+/// - every `wide_continuation` spacer sits at column > 0 and immediately
+///   follows a wide head (a non-continuation cell whose `ch` has display
+///   width 2) — so there are no orphaned continuations, and
+/// - every wide head is followed by its continuation spacer and never sits in
+///   the final column.
+///
+/// Rectangle ops sanitize sliced wide pairs to blanks, so this must hold after
+/// arbitrary DECCRA/DECFRA/DECERA/DECSERA churn over rows carrying CJK glyphs.
+fn assert_grid_consistent(seed: u64, t: &Terminal) {
+    let snap = t.snapshot();
+    let cols = snap.dimensions.columns;
+    let rows = snap.dimensions.rows;
+    assert_eq!(
+        snap.cells.len(),
+        rows * cols,
+        "seed={seed}: cell buffer {} != rows*cols {}*{}",
+        snap.cells.len(),
+        rows,
+        cols
+    );
+    assert!(
+        snap.cursor.row < rows.max(1),
+        "seed={seed}: cursor row {} out of bounds (rows={rows})",
+        snap.cursor.row
+    );
+    assert!(
+        snap.cursor.column <= cols,
+        "seed={seed}: cursor column {} exceeds width {cols}",
+        snap.cursor.column
+    );
+    for r in 0..rows {
+        let row = &snap.cells[r * cols..(r + 1) * cols];
+        for (c, cell) in row.iter().enumerate() {
+            if cell.wide_continuation {
+                assert!(
+                    c > 0,
+                    "seed={seed}: wide_continuation at column 0, row {r} (orphaned spacer)"
+                );
+                let left = &row[c - 1];
+                assert!(
+                    !left.wide_continuation,
+                    "seed={seed}: back-to-back wide_continuation at row {r} col {c}"
+                );
+                assert!(
+                    UnicodeWidthChar::width(left.ch) == Some(2),
+                    "seed={seed}: wide_continuation at row {r} col {c} not preceded by a \
+                     width-2 head (left ch={:?})",
+                    left.ch
+                );
+            } else if UnicodeWidthChar::width(cell.ch) == Some(2) {
+                assert!(
+                    c + 1 < cols,
+                    "seed={seed}: wide head {:?} in final column {c}, row {r}",
+                    cell.ch
+                );
+                assert!(
+                    row[c + 1].wide_continuation,
+                    "seed={seed}: wide head {:?} at row {r} col {c} lacks a continuation spacer",
+                    cell.ch
+                );
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -521,6 +603,165 @@ fn feed_split(rng: &mut FuzzRng, t: &mut Terminal, bytes: &[u8]) {
     }
 }
 
+/// A rectangle/coordinate parameter biased toward the edges that stress
+/// clamping: empty (default), 0, 1, small in-bounds, near the 24×6/20×8 grid
+/// bounds, and far out-of-bounds extremes (including u32-overflow).
+fn rect_coord(rng: &mut FuzzRng) -> String {
+    match rng.below(9) {
+        0 => String::new(), // omitted → DEC default
+        1 => "0".to_string(),
+        2 => "1".to_string(),
+        3 => (1 + rng.below(8)).to_string(),
+        4 => (1 + rng.below(30)).to_string(),
+        5 => "24".to_string(),
+        6 => (200 + rng.below(2000)).to_string(),
+        7 => "4294967296".to_string(),
+        _ => fuzz_num(rng),
+    }
+}
+
+/// Append a `;`-separated list of `n` rectangle coordinates.
+fn push_coords(rng: &mut FuzzRng, s: &mut String, n: usize) {
+    for k in 0..n {
+        if k > 0 {
+            s.push(';');
+        }
+        s.push_str(&rect_coord(rng));
+    }
+}
+
+/// (7a) A DEC rectangle op: DECCRA (`$v`), DECFRA (`$x`), DECERA (`$z`), or
+/// DECSERA (`${`). Coordinates are deliberately random/degenerate/inverted/
+/// out-of-bounds so clamping, ordering, and overlap paths all get exercised.
+fn gen_rect_op(rng: &mut FuzzRng) -> Vec<u8> {
+    let mut s = String::from("\x1b[");
+    match rng.below(4) {
+        0 => {
+            // DECCRA: src Pt;Pl;Pb;Pr;Pp ; dst Pdt;Pdl;Pdp — up to 8 params.
+            let n = 5 + rng.below(4);
+            push_coords(rng, &mut s, n);
+            s.push_str("$v");
+        }
+        1 => {
+            // DECFRA: Pch ; Pt;Pl;Pb;Pr — leading fill char param.
+            // Bias Pch toward printable, control, and wide code points.
+            let ch = match rng.below(4) {
+                0 => 65 + rng.below(26),     // 'A'..'Z'
+                1 => rng.below(32),          // control range (filtered to space)
+                2 => 0x4e00 + rng.below(64), // CJK (wide; filtered to space by fill)
+                _ => rng.below(0x110000),    // anything, incl. non-scalar ranges
+            };
+            s.push_str(&ch.to_string());
+            s.push(';');
+            push_coords(rng, &mut s, 4);
+            s.push_str("$x");
+        }
+        2 => {
+            push_coords(rng, &mut s, 4);
+            s.push_str("$z"); // DECERA
+        }
+        _ => {
+            push_coords(rng, &mut s, 4);
+            s.push_str("${"); // DECSERA
+        }
+    }
+    s.into_bytes()
+}
+
+/// A `;`-separated SGR attribute list for DECCARA/DECRARA `Pm`, drawing from
+/// the DEC subset (bold/underline/blink/inverse and their resets) plus garbage
+/// codes so out-of-subset values exercise the ignore path.
+fn push_attr_list(rng: &mut FuzzRng, s: &mut String) {
+    let codes = ["0", "1", "4", "5", "7", "22", "24", "25", "27"];
+    let n = rng.below(5);
+    for k in 0..n {
+        if k > 0 {
+            s.push(';');
+        }
+        if rng.below(4) == 0 {
+            s.push_str(&fuzz_num(rng)); // garbage / out-of-subset
+        } else {
+            s.push_str(rng.pick(&codes));
+        }
+    }
+}
+
+/// (7a') RC2 attribute-rectangle ops: DECSACE extent select (`CSI Ps * x`),
+/// DECCARA change-attrs (`CSI Pt;Pl;Pb;Pr;Pm $ r`), and DECRARA reverse-attrs
+/// (`CSI Pt;Pl;Pb;Pr;Pm $ t`). These mutate cell attributes only — never the
+/// glyph or its width — so the grid-consistency invariant must still hold.
+fn gen_rect_attr_op(rng: &mut FuzzRng) -> Vec<u8> {
+    let mut s = String::from("\x1b[");
+    match rng.below(3) {
+        0 => {
+            // DECSACE: 0/1 = stream, 2 = rectangle; fuzz beyond the range too.
+            s.push_str(&rect_coord(rng));
+            s.push_str("*x");
+        }
+        1 => {
+            push_coords(rng, &mut s, 4);
+            s.push(';');
+            push_attr_list(rng, &mut s);
+            s.push_str("$r"); // DECCARA
+        }
+        _ => {
+            push_coords(rng, &mut s, 4);
+            s.push(';');
+            push_attr_list(rng, &mut s);
+            s.push_str("$t"); // DECRARA
+        }
+    }
+    s.into_bytes()
+}
+
+/// (7b) Protection + erase interplay: DECSCA on/off and the selective/regular
+/// display+line erases that read the protection matrix.
+fn gen_protection_erase(rng: &mut FuzzRng) -> Vec<u8> {
+    match rng.below(8) {
+        0 => b"\x1b[1\"q".to_vec(), // DECSCA protect
+        1 => b"\x1b[0\"q".to_vec(), // DECSCA off
+        2 => b"\x1b[2\"q".to_vec(), // DECSCA off (alt)
+        3 => b"\x1b[?0J".to_vec(),  // DECSED below
+        4 => b"\x1b[?2J".to_vec(),  // DECSED all
+        5 => b"\x1b[?1K".to_vec(),  // DECSEL to cursor
+        6 => b"\x1b[0J".to_vec(),   // regular ED
+        _ => b"\x1b[2K".to_vec(),   // regular EL
+    }
+}
+
+/// (7c) Rectangle context churn: DECOM origin toggle, scroll-region (DECSTBM)
+/// changes, and alternate-screen flips — all interacting with rect coordinate
+/// translation.
+fn gen_rect_context(rng: &mut FuzzRng) -> Vec<u8> {
+    match rng.below(7) {
+        0 => b"\x1b[?6h".to_vec(), // DECOM on
+        1 => b"\x1b[?6l".to_vec(), // DECOM off
+        2 => {
+            // DECSTBM scroll region with fuzzed bounds.
+            let mut s = String::from("\x1b[");
+            push_coords(rng, &mut s, 2);
+            s.push('r');
+            return s.into_bytes();
+        }
+        3 => b"\x1b[?1049h".to_vec(), // enter alt screen
+        4 => b"\x1b[?1049l".to_vec(), // leave alt screen
+        5 => b"\x1b[?47h".to_vec(),   // legacy alt screen
+        _ => b"\x1b[?47l".to_vec(),
+    }
+}
+
+/// (7d) Seed the grid with wide CJK / emoji glyphs and cursor moves so a
+/// following rectangle edge can slice a wide pair, exercising the sanitize path.
+fn gen_wide_seed(rng: &mut FuzzRng) -> Vec<u8> {
+    let mut s = String::from("\x1b[");
+    // Cursor position (CUP) to a fuzzed cell, then print wide glyphs.
+    push_coords(rng, &mut s, 2);
+    s.push('H');
+    let glyphs = ["世界", "你好", "한글", "日本語", "🌍🚀", "ＡＢ", "漢字"];
+    s.push_str(rng.pick(&glyphs));
+    s.into_bytes()
+}
+
 /// Occasional resets / text interleaved into a stream so surface state mixes
 /// with hard/soft resets and ordinary printing.
 fn gen_interleave(rng: &mut FuzzRng) -> Vec<u8> {
@@ -539,7 +780,7 @@ fn gen_mixed_stream(rng: &mut FuzzRng) -> Vec<u8> {
     let mut out = Vec::new();
     let chunks = 1 + rng.below(10);
     for _ in 0..chunks {
-        let part = match rng.below(8) {
+        let part = match rng.below(10) {
             0 => gen_underline_sgr(rng),
             1 => gen_kitty_keyboard(rng),
             2 => gen_mode_2026(rng),
@@ -547,6 +788,8 @@ fn gen_mixed_stream(rng: &mut FuzzRng) -> Vec<u8> {
             4 => gen_decrqm_xtwinops(rng),
             5 => gen_dcs_query(rng),
             6 => gen_dcs_interrupted(rng),
+            7 => gen_rect_op(rng),
+            8 => gen_wide_seed(rng),
             _ => gen_interleave(rng),
         };
         out.extend_from_slice(&part);
@@ -571,6 +814,8 @@ fn run_mixed_soup(iters: u64) {
             // irrelevant to the invariants.
             let _ = t.take_host_output();
             let _ = t.take_clipboard_requests();
+            // The grid stays well-formed even with rect/wide ops in the mix.
+            assert_grid_consistent(seed, &t);
         }
         assert_consistent_after_ris(seed, &mut t);
     }
@@ -917,4 +1162,153 @@ fn protocol_fuzz_decrqss_sgr_churn_smoke() {
 #[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture"]
 fn protocol_fuzz_decrqss_sgr_churn_deep() {
     run_decrqss_sgr_churn(fuzz_iters());
+}
+
+// ---------------------------------------------------------------------------
+// (I) DEC rectangle / selective-erase soup: never-panic + grid self-consistency
+//     after every op, then after-RIS consistency
+// ---------------------------------------------------------------------------
+
+/// Build one mixed rectangle-surface stream: rect ops, protection/erase,
+/// context churn (DECOM/region/alt-screen), and wide-glyph seeding.
+fn gen_rect_stream(rng: &mut FuzzRng) -> Vec<u8> {
+    let mut out = Vec::new();
+    let chunks = 1 + rng.below(8);
+    for _ in 0..chunks {
+        let part = match rng.below(7) {
+            0 => gen_rect_op(rng),
+            1 => gen_protection_erase(rng),
+            2 => gen_rect_context(rng),
+            3 => gen_wide_seed(rng),
+            4 => gen_wide_seed(rng),
+            5 => gen_rect_attr_op(rng),
+            _ => gen_interleave(rng),
+        };
+        out.extend_from_slice(&part);
+    }
+    out
+}
+
+fn run_rect_soup(iters: u64) {
+    for i in 0..iters {
+        let seed = seed_for(i, 0xF209);
+        let mut rng = FuzzRng::new(seed);
+        // Mix the two grid shapes the suite uses elsewhere so wide glyphs land
+        // at different parity offsets relative to rectangle edges.
+        let (cols, rows) = if rng.bool() { (24, 6) } else { (20, 8) };
+        let mut t = Terminal::new(cols, rows);
+        let bursts = 1 + rng.below(6);
+        for _ in 0..bursts {
+            let stream = gen_rect_stream(&mut rng);
+            if rng.bool() {
+                feed_split(&mut rng, &mut t, &stream);
+            } else {
+                t.advance(&stream);
+            }
+            let _ = t.take_host_output();
+            // Grid must be well-formed after every burst of rectangle churn.
+            assert_grid_consistent(seed, &t);
+        }
+        assert_consistent_after_ris(seed, &mut t);
+        // Grid is also well-formed immediately after the hard reset.
+        assert_grid_consistent(seed, &t);
+    }
+}
+
+#[test]
+fn protocol_fuzz_rect_soup_smoke() {
+    run_rect_soup(fuzz_iters());
+}
+
+#[test]
+#[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture"]
+fn protocol_fuzz_rect_soup_deep() {
+    run_rect_soup(fuzz_iters());
+}
+
+// ---------------------------------------------------------------------------
+// (J) Wide-glyph rectangle slicing: print CJK across a rectangle edge, then run
+//     an op whose boundary bisects the pair — the sanitize path must never
+//     leave an orphaned continuation
+// ---------------------------------------------------------------------------
+
+fn run_rect_wide_slice(iters: u64) {
+    for i in 0..iters {
+        let seed = seed_for(i, 0xF20A);
+        let mut rng = FuzzRng::new(seed);
+        let mut t = Terminal::new(24, 6);
+        let rounds = 1 + rng.below(12);
+        for _ in 0..rounds {
+            // Fill a row region with wide glyphs at fuzzed origins so pairs
+            // straddle many column parities.
+            for _ in 0..(1 + rng.below(4)) {
+                t.advance(&gen_wide_seed(&mut rng));
+            }
+            // Now slice with a rect op (often DECERA/DECSERA/DECFRA, which
+            // mutate cells and must sanitize sliced wide pairs).
+            t.advance(&gen_rect_op(&mut rng));
+            let _ = t.take_host_output();
+            assert_grid_consistent(seed, &t);
+        }
+        assert_not_wedged(seed, &mut t);
+        assert_consistent_after_ris(seed, &mut t);
+    }
+}
+
+#[test]
+fn protocol_fuzz_rect_wide_slice_smoke() {
+    run_rect_wide_slice(fuzz_iters());
+}
+
+#[test]
+#[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture"]
+fn protocol_fuzz_rect_wide_slice_deep() {
+    run_rect_wide_slice(fuzz_iters());
+}
+
+// ---------------------------------------------------------------------------
+// (K) DECCRA copy churn under DECOM/region translation: repeated overlapping
+//     copies must stay panic-free and grid-consistent, and never wedge
+// ---------------------------------------------------------------------------
+
+fn run_rect_copy_churn(iters: u64) {
+    for i in 0..iters {
+        let seed = seed_for(i, 0xF20B);
+        let mut rng = FuzzRng::new(seed);
+        let mut t = Terminal::new(20, 8);
+        // Seed content so copies move real glyphs (incl. wide) around.
+        t.advance(b"\x1b[H");
+        for _ in 0..(2 + rng.below(6)) {
+            t.advance(&gen_wide_seed(&mut rng));
+        }
+        let ops = 1 + rng.below(30);
+        for _ in 0..ops {
+            // Toggle origin/region between copies so coordinate translation
+            // varies under the DECCRA path.
+            if rng.below(3) == 0 {
+                t.advance(&gen_rect_context(&mut rng));
+            }
+            // DECCRA specifically (overlap-safe copy).
+            let mut s = String::from("\x1b[");
+            let n = 5 + rng.below(4);
+            push_coords(&mut rng, &mut s, n);
+            s.push_str("$v");
+            t.advance(s.as_bytes());
+            let _ = t.take_host_output();
+            assert_grid_consistent(seed, &t);
+        }
+        assert_not_wedged(seed, &mut t);
+        assert_consistent_after_ris(seed, &mut t);
+    }
+}
+
+#[test]
+fn protocol_fuzz_rect_copy_churn_smoke() {
+    run_rect_copy_churn(fuzz_iters());
+}
+
+#[test]
+#[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture"]
+fn protocol_fuzz_rect_copy_churn_deep() {
+    run_rect_copy_churn(fuzz_iters());
 }
