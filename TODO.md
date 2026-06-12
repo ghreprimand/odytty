@@ -451,6 +451,21 @@ a floor; surpassing it is the standing ambition.
         insert RGBA into ImageStore, create cell-anchored placement; cursor
         moves to row below image (DECSDM-off); decode errors counted but
         never disturb terminal state; 21 end-to-end tests.
+- [ ] Color emoji — RGBA color-glyph path, `swash` shaping/rasterization,
+      Noto Color Emoji CBDT/CBLC on Linux, VS15/VS16 presentation,
+      ZWJ/cluster support; COLR v1 and SVG-in-OT deferred but
+      architecturally permitted.
+  - [ ] EM2: `swash` dependency and fontconfig emoji font discovery — in flight.
+  - [ ] EM3: RGBA color-glyph atlas (`ColorGlyphAtlas`) and dedicated
+        shader/draw segment; premultiplied-RGBA source pixels, no SGR
+        foreground tint.
+  - [ ] EM4: Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 presentation,
+        wide-cell placement, and graceful no-font degradation.
+  - [ ] EM5: emoji clusters — flags, keycaps, skin-tone modifiers, ZWJ
+        sequences; regression fixtures per category; defined fallback for
+        unsupported clusters.
+  - [ ] EM6: COLR/CPAL and alternate color-font formats; SVG-in-OT via
+        `resvg` if real installed-font evidence requires it.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
 
 ## Archived First Prototype Checklist

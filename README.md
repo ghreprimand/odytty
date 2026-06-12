@@ -201,7 +201,21 @@ query reports (XTGETTCAP / DECRQSS), and DEC rectangle / selective-erase ops),
 `#[ignore]`-gated and run via
 `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
 `cargo bench --bench perf` runs headless throughput benchmarks for the
-terminal model and parser separately from the default suite.
+terminal model and parser separately from the default suite. B3 added four
+surface rows: DECFRA full-page fill (~2.3 µs/op, ~1.2 ns/cell), DECCRA
+overlapping copy (~3.0 µs/op), DECSERA mixed-protection erase (~5.5 µs/op),
+and an SGR colon-subparam storm (`4:n` + `58:2:r:g:b` per cell) that
+exercises the extended-underline parse path the semicolon heavy-SGR row never
+reaches. A per-cell size diagnostic prints `Cell 44 B / Attrs 28 B` at the
+B3 baseline; `Attrs` grew after B2 (US1 added underline style, colon underline
+color, and blink; RC1 added per-cell protection). A flagged finding: the
+scroll-heavy `seq` workload measured ~23% below the B2 baseline; leading
+hypothesis is the larger `Cell` inflating per-char print writes and per-scroll
+row memmove traffic. A cell-shrink spike (PERF1 — bitflags for bool attrs,
+niche for optional colors) is in progress. Three profiles are selectable via
+`ODYTTY_PERF_PROFILE`: `default` (bounded, routine acceptance runs), `legacy`
+(pre-B2 workload sizes), and `quick` (smoke); see
+[`docs/runtime-knobs.md`](docs/runtime-knobs.md).
 
 ### Remaining gaps
 

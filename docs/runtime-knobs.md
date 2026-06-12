@@ -218,3 +218,13 @@ Run a non-interactive native lifecycle smoke check:
 ```sh
 ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native
 ```
+
+## Benchmark Environment Variables
+
+These variables control the `cargo bench --bench perf` harness only. They have
+no effect on the native app or `cargo test`.
+
+| Variable | Values | Default | Notes |
+| --- | --- | --- | --- |
+| `ODYTTY_PERF_PROFILE` | `default`, `legacy`, `quick` | `default` | Selects the bench workload profile. `default` is bounded for routine acceptance runs. `legacy` restores the pre-B2 large workloads (~10× per row) for historical comparison against older baselines. `quick` is a short smoke pass. |
+| `ODYTTY_PERF_GEOMETRY_ONLY` | Any non-empty value | unset | Skips feed and resize rows; runs only snapshot and vertex-geometry benches at the `quick` profile scale. Useful for isolated render-path timing. |

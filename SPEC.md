@@ -412,3 +412,27 @@ bold-italic by composing both. Real faces always take precedence; synthesis
 activates only for genuinely absent slots. Ligatures and complex shaping are not
 implemented; each atlas entry is a single character rasterized into its cell
 or two-cell slot.
+
+**Color emoji (EM1 decision record).** The accepted direction is a separate
+premultiplied-RGBA color-glyph path, distinct from the current monochrome
+coverage shader. `swash` is chosen for emoji shaping and rasterization: it
+covers CBDT/CBLC bitmap strikes (Noto Color Emoji's format on Linux),
+COLR/CPAL, and sbix, while providing full cluster shaping — VS15/VS16
+selectors, modifier sequences, ZWJ sequences, flags, and keycaps. Font
+rasterization remains external per the project boundary; atlas management,
+placement, blending policy, fallback routing, and terminal-cell behavior are
+OdyTTY-owned. A dedicated `ColorGlyphAtlas` stores premultiplied-RGBA source
+pixels keyed by shaped cluster, font identity, and physical cell size alongside
+the existing coverage atlas. Emoji cells sample source pixels directly and are
+never tinted by SGR foreground color. Font discovery probes fontconfig for
+Noto Color Emoji, Noto Emoji, or the `emoji` generic family; an explicit
+per-session setting is planned as a follow-up. VS15 (`U+FE0E`) forces the text
+path; VS16 (`U+FE0F`) forces the emoji path; characters with
+`Emoji_Presentation` default to emoji; others default to text. RGI clusters
+are treated as atomic if `swash` shapes them to a single color glyph;
+unsupported clusters degrade per-codepoint to the existing fallback path.
+Draw order: cell backgrounds → below-text images → coverage glyphs and line
+decorations → color emoji glyphs → cursor and overlays. COLR v1 and SVG-in-OT
+are deferred but architecturally permitted; the boundary rule (rasterization
+external, placement owned) applies to those paths as well. Implementation
+ladder EM2–EM6 is tracked in `TODO.md`.
