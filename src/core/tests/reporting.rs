@@ -229,11 +229,23 @@ fn decrqss_reports_cursor_style_and_scroll_region() {
 }
 
 #[test]
-fn decrqss_rejects_unimplemented_or_unknown_selectors() {
+fn decrqss_reports_decsca() {
     let mut terminal = Terminal::new(10, 4);
 
     terminal.advance(b"\x1bP$q\"q\x1b\\");
+    terminal.advance(b"\x1b[1\"q\x1bP$q\"q\x1b\\");
+
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1bP1$r0\"q\x1b\\\x1bP1$r1\"q\x1b\\"
+    );
+}
+
+#[test]
+fn decrqss_rejects_unknown_selectors() {
+    let mut terminal = Terminal::new(10, 4);
+
     terminal.advance(b"\x1bP$qx\x1b\\");
 
-    assert_eq!(terminal.take_host_output(), b"\x1bP0$r\x1b\\\x1bP0$r\x1b\\");
+    assert_eq!(terminal.take_host_output(), b"\x1bP0$r\x1b\\");
 }

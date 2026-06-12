@@ -320,7 +320,7 @@ impl LinkId {
 /// Maximum zero-width combining marks stored per cell. Marks beyond this are
 /// dropped — a bounded limitation; common diacritics use one or two marks.
 pub(crate) const MAX_COMBINING: usize = 2;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Cell {
     /// Base character of the cell's grapheme cluster. Width 1, or width 2 for a
     /// wide lead; a `wide_continuation` spacer carries `' '`. The renderer draws
@@ -328,6 +328,9 @@ pub struct Cell {
     /// [`Cell::combining`] / [`Cell::grapheme`].
     pub ch: char,
     pub attrs: Attrs,
+    /// DEC character-protection attribute (DECSCA). Selective erases skip
+    /// protected cells; regular erase operations still replace them.
+    pub protected: bool,
     /// True for the trailing spacer cell of a wide (two-column) glyph.
     pub wide_continuation: bool,
     /// Zero-width combining marks attached to `ch`, in arrival order. Unused
@@ -336,15 +339,36 @@ pub struct Cell {
     combining: [char; MAX_COMBINING],
     combining_len: u8,
 }
+impl std::fmt::Debug for Cell {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut cell = f.debug_struct("Cell");
+        cell.field("ch", &self.ch).field("attrs", &self.attrs);
+        if self.protected {
+            cell.field("protected", &self.protected);
+        }
+        cell.field("wide_continuation", &self.wide_continuation)
+            .field("combining", &self.combining)
+            .field("combining_len", &self.combining_len)
+            .finish()
+    }
+}
 impl Cell {
     /// A single-width cell carrying `ch` with `attrs` and no combining marks.
     pub fn new(ch: char, attrs: Attrs) -> Self {
         Self {
             ch,
             attrs,
+            protected: false,
             wide_continuation: false,
             combining: ['\0'; MAX_COMBINING],
             combining_len: 0,
+        }
+    }
+
+    pub(crate) fn new_protected(ch: char, attrs: Attrs, protected: bool) -> Self {
+        Self {
+            protected,
+            ..Self::new(ch, attrs)
         }
     }
 
@@ -353,9 +377,17 @@ impl Cell {
         Self {
             ch: ' ',
             attrs,
+            protected: false,
             wide_continuation: true,
             combining: ['\0'; MAX_COMBINING],
             combining_len: 0,
+        }
+    }
+
+    pub(crate) fn wide_spacer_protected(attrs: Attrs, protected: bool) -> Self {
+        Self {
+            protected,
+            ..Self::wide_spacer(attrs)
         }
     }
 

@@ -20,6 +20,7 @@ use super::types::*;
 
 mod ops;
 mod query;
+mod rect;
 
 pub const OSC52_CLIPBOARD_MAX_BYTES: usize = 64 * 1024;
 
@@ -87,6 +88,7 @@ pub struct Screen {
     auto_wrap: bool,
     bracketed_paste: bool,
     current_attrs: Attrs,
+    current_protected: bool,
     active_hyperlink: Option<LinkId>,
     dirty: DirtyRegion,
     render_revision: u64,
@@ -154,6 +156,7 @@ struct StoredScreen {
     origin_mode: bool,
     auto_wrap: bool,
     current_attrs: Attrs,
+    current_protected: bool,
     active_hyperlink: Option<LinkId>,
     kitty_keyboard_flags: u16,
     kitty_keyboard_stack: Vec<u16>,
@@ -193,6 +196,7 @@ impl Screen {
             auto_wrap: true,
             bracketed_paste: false,
             current_attrs: Attrs::default(),
+            current_protected: false,
             active_hyperlink: None,
             dirty: DirtyRegion::Full,
             render_revision: 0,
@@ -860,10 +864,10 @@ impl Screen {
         // partner so no half-wide orphan survives.
         self.clear_wide_orphans(row, column, width);
         let attrs = self.current_print_attrs();
-        self.rows[row][column] = Cell::new(ch, attrs);
+        self.rows[row][column] = Cell::new_protected(ch, attrs, self.current_protected);
 
         if width == 2 && column + 1 < self.dimensions.columns {
-            self.rows[row][column + 1] = Cell::wide_spacer(attrs);
+            self.rows[row][column + 1] = Cell::wide_spacer_protected(attrs, self.current_protected);
         }
 
         if self.auto_wrap && self.cursor.column + width >= self.dimensions.columns {
@@ -1041,8 +1045,10 @@ impl Screen {
             'T' => self.scroll_region_down(param_or_one(params, 0)),
             '@' => self.insert_chars(param_or_one(params, 0)),
             'b' => self.repeat_char(param_or_one(params, 0)),
-            'J' => self.erase_display(param_or(params, 0, 0)),
-            'K' => self.erase_line(param_or(params, 0, 0)),
+            'J' if intermediates == b"?" => self.selective_erase_display(param_or(params, 0, 0)),
+            'J' if intermediates.is_empty() => self.erase_display(param_or(params, 0, 0)),
+            'K' if intermediates == b"?" => self.selective_erase_line(param_or(params, 0, 0)),
+            'K' if intermediates.is_empty() => self.erase_line(param_or(params, 0, 0)),
             'L' => self.insert_lines(param_or_one(params, 0)),
             'M' => self.delete_lines(param_or_one(params, 0)),
             'P' => self.delete_chars(param_or_one(params, 0)),
@@ -1058,6 +1064,7 @@ impl Screen {
             }
             'p' if intermediates == b"!" => self.soft_reset(),
             'q' if intermediates == b">" => self.xtversion_report(params),
+            'q' if intermediates == b"\"" => self.set_char_protection(param_or(params, 0, 0)),
             'q' if intermediates == b" " => self.set_cursor_style(param_or(params, 0, 0)),
             'r' => self.set_scroll_region(params),
             's' => self.save_cursor(),
@@ -1067,6 +1074,10 @@ impl Screen {
             'u' if intermediates == b"<" => self.kitty_keyboard_pop(params, intermediates),
             'u' if intermediates == b"=" => self.kitty_keyboard_set(params, intermediates),
             'u' => self.restore_cursor(),
+            'v' if intermediates == b"$" => self.copy_rect(params),
+            'x' if intermediates == b"$" => self.fill_rect(params),
+            'z' if intermediates == b"$" => self.erase_rect(params),
+            '{' if intermediates == b"$" => self.selective_erase_rect(params),
             _ => {}
         }
     }

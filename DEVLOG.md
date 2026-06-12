@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 — DEC rectangle operations and selective erase (RC1)
+
+OdyTTY now owns the VT400 DEC rectangle surface needed by parity-minded TUIs:
+character protection, selective erase, rectangular copy/fill/erase, and DECRQSS
+reporting for the live protection state.
+
+- **Protection and selective erase.** `DECSCA` (`CSI Ps " q`) now tracks the
+  current character-protection attribute, applies it to printed and
+  rectangle-filled cells, and resets it on RIS/DECSTR. `DECSED`/`DECSEL`
+  (`CSI ? Ps J/K`) erase only unprotected visible cells; regular ED/EL still
+  erase protected cells.
+- **Rectangles.** `DECCRA`, `DECFRA`, `DECERA`, and `DECSERA` are implemented in
+  `src/core/screen/rect.rs`, with inclusive 1-based coordinates, visible-page
+  clamping, DECOM row-origin interaction, overlap-safe copy, BCE-aware blanks,
+  and no-ops for degenerate rectangles. Page parameters are accepted but ignored
+  because OdyTTY exposes one page.
+- **Wide-cell policy.** Rectangle writes sanitize affected rows after mutation:
+  if a rectangle edge slices a wide pair, the pair is blanked rather than
+  leaving a lead/continuation orphan, matching the existing half-overwrite
+  policy for normal printing and erase.
+- **Reporting and follow-up.** DECRQSS now answers the DECSCA selector (`"q`).
+  DECSACE/DECCARA/DECRARA remain the natural follow-up rectangle-attribute
+  packet rather than being folded into this surface.
+- **Coverage.** Added core fixtures for protected/unprotected selective erase,
+  regular erase overriding protection, fill attrs/protection, DECERA/DECSERA
+  matrices, copy overlap in all four directions, origin-mode clamping,
+  degenerate no-ops, wide-pair edge cleanup, and DECRQSS DECSCA.
+
+---
+
 ## 2026-06-12 — Protocol-surface fuzz expansion (FZ2)
 
 The deterministic never-panic fuzz harness now covers the five control-sequence

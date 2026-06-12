@@ -113,6 +113,7 @@ impl Screen {
                 "{} q",
                 cursor_style_code(self.cursor_style, self.cursor_blink)
             )),
+            b"\"q" => Some(format!("{}\"q", if self.current_protected { 1 } else { 0 })),
             b"r" => {
                 let (top, bottom) = self.effective_region();
                 Some(format!("{};{}r", top + 1, bottom + 1))

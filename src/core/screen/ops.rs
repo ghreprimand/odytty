@@ -833,6 +833,7 @@ impl Screen {
             origin_mode: self.origin_mode,
             auto_wrap: self.auto_wrap,
             current_attrs: self.current_attrs,
+            current_protected: self.current_protected,
             active_hyperlink: self.active_hyperlink,
             kitty_keyboard_flags: self.keyboard.kitty_keyboard_flags,
             kitty_keyboard_stack: std::mem::take(&mut self.kitty_keyboard_stack),
@@ -876,6 +877,7 @@ impl Screen {
                 self.pending_wrap = primary_screen.pending_wrap;
                 self.cursor_visible = primary_screen.cursor_visible;
                 self.current_attrs = primary_screen.current_attrs;
+                self.current_protected = primary_screen.current_protected;
                 self.active_hyperlink = primary_screen.active_hyperlink;
             } else {
                 // Modes 47/1047: cursor stays where it is (clamped).
@@ -885,6 +887,7 @@ impl Screen {
                 // state that belongs to the primary, not the alt-screen app.
                 self.cursor_visible = primary_screen.cursor_visible;
                 self.current_attrs = primary_screen.current_attrs;
+                self.current_protected = primary_screen.current_protected;
                 self.active_hyperlink = primary_screen.active_hyperlink;
             }
             self.saved_cursor = primary_screen.saved_cursor;
@@ -932,6 +935,7 @@ impl Screen {
         self.auto_wrap = true;
         self.bracketed_paste = false;
         self.current_attrs = Attrs::default();
+        self.current_protected = false;
         self.active_hyperlink = None;
         self.host_output.clear();
         self.clipboard_requests.clear();
@@ -976,6 +980,7 @@ impl Screen {
         self.keyboard = KeyboardModes::default();
         self.kitty_keyboard_stack.clear();
         self.current_attrs = Attrs::default();
+        self.current_protected = false;
         self.active_hyperlink = None;
         self.host_output.clear();
         self.last_graphic_char = None;
