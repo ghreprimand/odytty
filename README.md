@@ -25,7 +25,8 @@ below-product-line tools — `ab_glyph` (font rasterization), `wgpu` (GPU API),
 terminal semantics.
 
 **Terminal compatibility.** Sequences confirmed across the fixture suite: SGR
-(all standard attributes, 256-color, truecolor), cursor movement and position
+(all standard attributes, 256-color, truecolor; colon-form `38:2::r:g:b` and
+`48:2::r:g:b` truecolor also accepted alongside semicolon form), cursor movement and position
 reporting, scroll regions (DECSTBM, DECOM), alternate screen (modes
 47/1047/1048/1049 with correct per-mode cursor save/restore semantics), mouse
 reporting (modes 9/1000/1002/1003 with encodings 1005/1006/1015/legacy), focus
@@ -58,11 +59,21 @@ side-bearings and tall glyphs render uncropped. Backgrounds render before glyphs
 so wide-character overflow ink is never erased by a neighbor's background.
 Optional subpixel AA (`ODYTTY_SUBPIXEL=rgb|bgr`) uses dual-source blending when
 the GPU supports it. A tunable gamma/contrast uniform (`ODYTTY_TEXT_GAMMA`,
-default 1.4) corrects coverage weight for dark-background readability. Bold,
-italic, and bold-italic atlas slots load discovered style faces; missing style
-faces fall back to regular without synthetic emboldening. Underline and
-strikethrough render as metric-derived solid quads. Dim, inverse, and hidden
-are handled in the vertex path.
+default 1.4) corrects coverage weight for dark-background readability. Bold, italic, and bold-italic atlas slots load
+discovered style faces. When a requested face is absent OdyTTY synthesizes it:
+italic is drawn with a ~12° horizontal shear (tan 12° ≈ 0.2126, applied per
+raster row relative to the baseline); bold is rendered by double-striking at a
+small rightward embolden offset; bold-italic composes both. Real loaded faces
+always win — synthesis is active only for absent slots, so a font family with
+all four weights renders those exactly. Extended underline styles are fully
+decoded and rendered: `SGR 4` / `4:1` straight; `4:2` double (two parallel
+solid quads); `4:3` curly (stepped square-wave approximation within the cell
+height); `4:4` dotted; `4:5` dashed; `4:0` or `SGR 24` clears the style.
+Underline color is set via `SGR 58` in either semicolon (`58;2;r;g;b`,
+`58;5;n`) or colon (`58:2::r:g:b`, `58:5:n`) form and cleared with `SGR 59`;
+without an explicit color the effective foreground is used. Strikethrough
+renders as a metric-derived solid quad. Dim, inverse, and hidden are handled
+in the vertex path.
 
 **HiDPI.** `GpuState` retains logical font size and current scale factor and
 rebuilds the atlas on change. `ScaleFactorChanged` is wired with debounce,
@@ -141,7 +152,7 @@ reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
 the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 781 tests passing: 743 unit/integration, 19 pixel-smoke
+**Testing.** 800 tests passing: 760 unit/integration, 21 pixel-smoke
 (headless CPU compositor asserting structural raster invariants for text
 rendering and graphics placement), 9 PTY alternate-screen smoke, and 10
 transcript smoke. `cargo bench --bench perf` runs headless throughput

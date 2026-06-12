@@ -75,8 +75,14 @@ code.
 
 **Renderer geometry** (`src/grid.rs`). Builds the CPU vertex buffer consumed by
 the GPU pipeline: background quads, per-glyph quads with bearing-aware ink
-bounds, underline/strikethrough quads, cursor quads, search/selection highlights.
-Wide-glyph (width-2) quads span two cell columns.
+bounds, underline/strikethrough/decoration quads, cursor quads, search/selection
+highlights. Wide-glyph (width-2) quads span two cell columns. Extended underline
+decoration is rendered per-cell from the `UnderlineStyle` enum (`None`,
+`Straight`, `Double`, `Curly`, `Dotted`, `Dashed`): double emits two parallel
+quads offset by a fraction of cell height; curly emits a stepped square-wave
+approximation confined within the cell. Underline color is taken from the cell's
+`underline_color` attribute when set, or falls back to the effective foreground;
+this is resolved in the vertex builder, not in the shader.
 
 **GPU shader pipeline** (`src/native/gpu.rs`). The `wgpu` render pass, pipeline
 descriptor, vertex/uniform layout, and WGSL shader source. Text coverage
@@ -265,8 +271,9 @@ its first stable layer.
 **In scope and delivered:**
 - Owned Linux PTY layer and owned VT parser (clean-room from primary specs)
 - File-based configuration with live reload; env always wins
-- Broad escape-sequence compatibility (SGR, alternate screen, mouse modes,
-  wide characters, combining marks, and more)
+- Broad escape-sequence compatibility (SGR including 256-color, truecolor
+  semicolon and colon forms (`38:2::r:g:b`, `48:2::r:g:b`), alternate screen,
+  mouse modes, wide characters, combining marks, and more)
 - Kitty graphics protocol: `a=t/T/p/d/q`, `f=24/32/100`, `t=d/f/t/s`,
   chunked transfer, placement ids, z-index, source crop, cell scaling, pixel
   offset, delete specifiers
@@ -274,9 +281,11 @@ its first stable layer.
 - HiDPI-correct text rasterization across scale factors
 - Wide-glyph 2-cell atlas slots; bearing-aware glyph quad geometry
 - Optional subpixel anti-aliasing and tunable text gamma/contrast
-- Configurable font family and bold/italic style faces
-- Full text attribute rendering: bold, dim, italic, underline, strikethrough,
-  inverse, hidden
+- Configurable font family and bold/italic style faces with synthetic fallback
+  (double-strike bold, 12° shear italic) when real faces are absent
+- Full text attribute rendering: bold, dim, italic, extended underline styles
+  (`SGR 4:0`–`4:5`, straight/double/curly/dotted/dashed), underline color
+  (`SGR 58`/`59`, colon and semicolon forms), strikethrough, inverse, hidden
 - Scrollback search with match navigation and highlights
 - Refined selection: double-click word, triple-click line, drag-scroll,
   scrollback-aware anchors
@@ -323,6 +332,12 @@ builder, and image layer, consuming core snapshots through a narrow seam.
 Text is cell-based: each codepoint occupies one or two columns (`unicode-width`
 consistent with core), and all coordinate systems are per-cell. The glyph atlas
 uses one monospace face for regular text, with bold/italic/bold-italic faces
-loaded when discovered by filename convention. Ligatures and complex shaping are
-not implemented; each atlas entry is a single character rasterized into its cell
+loaded when discovered by filename convention. When a style face is absent,
+`StyleFonts::synthetic_mask()` derives a per-face synthesis flag by comparing
+loaded `Arc` identities; `GlyphAtlas::set_synthetic_styles` receives those bits
+and applies a `SynthTransform` during rasterization — italic via horizontal
+shear (tan 12° ≈ 0.2126), bold via double-strike at a sub-pixel embolden offset,
+bold-italic by composing both. Real faces always take precedence; synthesis
+activates only for genuinely absent slots. Ligatures and complex shaping are not
+implemented; each atlas entry is a single character rasterized into its cell
 or two-cell slot.
