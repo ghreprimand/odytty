@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 — Protocol-surface fuzz expansion (FZ2)
+
+The deterministic never-panic fuzz harness now covers the five control-sequence
+surfaces that landed since FZ1 (which fuzzes the graphics display path). A new
+integration fuzzer, `tests/protocol_fuzz.rs`, drives the public `Terminal`
+facade only — no crate internals — so it sits alongside the other integration
+smokes.
+
+- **Surfaces.** Extended underline SGR colon subparams (US1: `4:n`, `58:2:r:g:b`,
+  `58:5:idx`, truncated/over-long colon forms), Kitty keyboard push/pop/set/query
+  (KB1/KB2) interleaved with RIS/DECSTR, mode 2026 set/reset/DECRQM interleaving
+  (SU1), OSC 52 payloads with oversized/invalid base64 and `?` query floods plus
+  OSC 4/10/11/12 color garbage (OSC1), and DECRQM across the mode table with
+  XTWINOPS window-op reports (RQ1).
+- **Invariants.** Never panic; pending host output stays bounded under a query
+  flood (a no-drain flood is held under a linear cap, and a single drain empties
+  the buffer — verifying the cap/drain policy with no amplification); and the
+  observable mode/attr state (mouse, keyboard incl. Kitty flags, synchronized
+  output, focus, bracketed paste) returns to power-on defaults after RIS, which
+  also discards pending host output and leaves the parser able to print.
+- **Tiers.** Five fast smoke tests run in the default `cargo test`; five matching
+  `#[ignore]` deep tests sweep at `ODYTTY_FUZZ_ITERS` (default 200), e.g.
+  `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
+- **Result.** No defects found. Deep tier re-run once at 40k iterations (5
+  fuzzers, ~4 s) with no panics, no cap violations, no post-RIS inconsistency.
+  Verified `cargo test` (lib 773, pixel_smoke 23, protocol_fuzz 5+5 deep, pty 9,
+  transcript 10) and `cargo fmt --check` clean. Follow-up noted for routing: the
+  RQ2 DCS query surface (XTGETTCAP `+q`, DECRQSS `$q`) landed concurrently and is
+  a natural next fuzz target.
+
+---
+
 ## 2026-06-12 — XTGETTCAP and DECRQSS query surface (RQ2)
 
 OdyTTY now answers the DCS-based query surface that feature-probing TUIs use
