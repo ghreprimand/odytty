@@ -63,6 +63,7 @@ are skipped with stderr warnings.
 | `cursor_blink` | `ODYTTY_CURSOR_BLINK` | `on`, `off`, `auto` | `auto` | Sets the host default cursor blink policy. `auto` blinks; DECSCUSR from applications overrides at runtime. Invalid values fall back to `auto` with one stderr warning. |
 | `theme` | `ODYTTY_THEME` | `plain`, `odyssey`, `odyssey-noir` | `plain` | Selects default foreground/background and window clear color. Unknown values fall back to `plain`. |
 | `visual` | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `off` | Enables or disables the optional presentation-only ambient effect. |
+| `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` | Enables OSC 52 clipboard read replies. Off by default: a terminal that replies to read requests allows any remote program to exfiltrate local clipboard contents. Set to `on` only in trusted sessions. Config-file aliases: `osc52read`, `allowosc52read`, `clipboardread`. |
 | `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
 
 All settings above except `native_autoclose_ms` are live-reloadable from the

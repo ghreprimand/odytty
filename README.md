@@ -107,6 +107,20 @@ n saved states), `CSI = flags ; mode u` (set/OR/NAND the active flags), and
 alternate screens maintain independent stacks. At flags 0 (no enhancement),
 OdyTTY emits byte-identical legacy key bytes.
 
+**OSC 52 clipboard and dynamic colors.** Shell programs can write to the
+clipboard via `OSC 52 ; selector ; base64 ST`: OdyTTY decodes the base64
+payload (cap 64 KiB decoded), validates UTF-8, and routes the write to the
+host clipboard through an explicit queue. Selectors `c` and `p` target the
+regular clipboard and PRIMARY selection; an empty selector defaults to `c`.
+Clipboard read (`... ; ? ST`) is disabled by default — a terminal that replies
+to read requests lets any remote program exfiltrate local clipboard contents,
+so the default `osc52_read = off` queues no request and sends no reply. Only
+an explicit `osc52_read = on` / `ODYTTY_OSC52_READ=on` opt-in enables read
+replies. Dynamic color controls are fully supported: `OSC 10`/`11`/`12` set
+and query default foreground, background, and cursor colors; `OSC 4` sets and
+queries individual palette entries; `OSC 104`/`110`/`111`/`112` reset the
+palette and default-color overrides back to the active theme baseline.
+
 **Settings.** Runtime settings load at native startup from built-in defaults,
 then `$XDG_CONFIG_HOME/odytty/odytty.conf` (or
 `~/.config/odytty/odytty.conf`), then `ODYTTY_*` environment variables.
@@ -127,7 +141,7 @@ reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
 the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 761 tests passing: 723 unit/integration, 19 pixel-smoke
+**Testing.** 781 tests passing: 743 unit/integration, 19 pixel-smoke
 (headless CPU compositor asserting structural raster invariants for text
 rendering and graphics placement), 9 PTY alternate-screen smoke, and 10
 transcript smoke. `cargo bench --bench perf` runs headless throughput
