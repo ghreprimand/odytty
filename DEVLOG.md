@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 — Fuzz the DCS query surface: XTGETTCAP + DECRQSS (FZ3)
+
+The protocol fuzzer (`tests/protocol_fuzz.rs`) now covers the RQ2 DCS query
+surface, closing the gap FZ2 flagged when XTGETTCAP/DECRQSS landed. Same
+public-facade-only discipline as FZ2 — no crate internals, no `core` edits.
+
+- **New generators.** `DCS + q …` XTGETTCAP with hex cap-name lists (valid
+  `TN`/`Co`/`RGB`, valid-hex-but-unknown names, malformed/odd-length hex,
+  truncated nibbles, `;;` floods, and oversized runs that trip the 4096-byte
+  payload cap) and `DCS $ q …` DECRQSS (valid `m` / ` q` / `r` selectors plus
+  garbage, leading-zero, empty, and trailing-junk variants).
+- **Interruption + split feeds.** DCS streams aborted mid-payload by
+  CAN/SUB/ESC/BEL/NUL, and a `feed_split` helper that delivers any sequence in
+  randomly sized chunks so a DCS straddles multiple `advance` calls.
+- **Three new smoke/deep test pairs.** DCS query soup (never-panic +
+  after-RIS consistency), DCS query flood (bounded `host_output` under a
+  no-drain flood, single-drain-empties), and DECRQSS-under-SGR-churn (the `m`
+  round-trip exercised under state mutation, replies bounded). DCS is also
+  folded into the existing mixed-soup and query-flood fuzzers.
+- **Invariants unchanged:** never-panic, host_output linear in bytes fed
+  (`64·input + 4096`), and full power-on reset after RIS.
+- **Result.** No defects found. Deep tier at 40k iters/fuzzer is green against
+  the RC1 HEAD (8 fuzzers, ~141s, zero panics / zero cap violations / zero
+  post-RIS drift). `cargo test` lib 782, pixel_smoke 23, protocol_fuzz 8
+  (+8 deep `#[ignore]`), pty 9, transcript 10; `cargo fmt --check` clean;
+  `protocol_fuzz.rs` 920 lines. Deep run:
+  `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
+
+---
+
 ## 2026-06-12 — DEC rectangle operations and selective erase (RC1)
 
 OdyTTY now owns the VT400 DEC rectangle surface needed by parity-minded TUIs:

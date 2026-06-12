@@ -15,6 +15,12 @@
 //!    invalid base64 plus `?` query floods, and `OSC 4/10/11/12` color garbage.
 //! 5. **DECRQM / XTWINOPS probes** (RQ1): `CSI ? Ps $ p` / `CSI Ps $ p` across
 //!    the mode table and `CSI Ps ; … t` window-op reports.
+//! 6. **DCS query reports** (RQ2): `DCS + q … ST` XTGETTCAP (hex cap-name
+//!    lists) and `DCS $ q … ST` DECRQSS (SGR `m`, cursor ` q`, region `r`
+//!    selectors), including malformed/truncated hex, `;`-floods, oversized
+//!    payloads that trip the 4096-byte cap, DECRQSS interleaved with SGR churn
+//!    so the `m` round-trip runs under load, and DCS streams aborted mid-flight
+//!    by CAN/SUB/ESC or split across `advance` feed boundaries.
 //!
 //! ## Invariants (self-consistency form, mirroring the parser-oracle fuzzers)
 //!
@@ -387,6 +393,134 @@ fn gen_decrqm_xtwinops(rng: &mut FuzzRng) -> Vec<u8> {
     s.into_bytes()
 }
 
+/// Append `bytes` as a lowercase ASCII-hex string (the XTGETTCAP cap-name
+/// encoding). Used to build both well-formed and (by mixing in stray nibbles
+/// elsewhere) malformed hex name lists.
+fn hex_encode(bytes: &[u8], out: &mut String) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for &b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+}
+
+/// Build an XTGETTCAP hex cap-name list body (the bytes between `DCS + q` and
+/// `ST`): a `;`-separated mix of valid known names, valid-hex-but-unknown
+/// names, malformed/odd-length hex, truncated single nibbles, empty names, and
+/// an occasional oversized run that trips the 4096-byte payload cap.
+fn build_xtgettcap_body(rng: &mut FuzzRng, s: &mut String) {
+    let names = 1 + rng.below(6);
+    for k in 0..names {
+        if k > 0 {
+            s.push(';');
+        }
+        match rng.below(8) {
+            0 => hex_encode(b"TN", s),  // known: term name
+            1 => hex_encode(b"Co", s),  // known: color count
+            2 => hex_encode(b"RGB", s), // known: direct color
+            3 => {
+                // Valid hex that decodes to an unknown capability name.
+                hex_encode(rng.pick(&[&b"ZZ"[..], b"bce", b"colors", b"kbs"]), s);
+            }
+            4 => {
+                // Malformed: odd-length and/or non-hex characters.
+                let n = rng.below(9);
+                for _ in 0..n {
+                    s.push(*rng.pick(&['0', '1', '9', 'a', 'f', 'g', 'z', 'G', ' ']));
+                }
+            }
+            5 => s.push(*rng.pick(&['a', '5', 'f'])), // truncated single nibble
+            6 => {}                                   // empty name (`;;` flood)
+            _ => {
+                // Oversized run to trip the MAX_DCS_QUERY_BYTES overflow path.
+                let n = 2000 + rng.below(3000);
+                for _ in 0..n {
+                    s.push(*rng.pick(&['0', '1', '2', 'a', 'b', 'c']));
+                }
+            }
+        }
+    }
+}
+
+/// Build a DECRQSS selector body (between `DCS $ q` and `ST`): the valid `m`
+/// (SGR), ` q` (cursor style), and `r` (scroll region) selectors plus garbage,
+/// leading-zero, empty, and valid-with-trailing-junk variants.
+fn build_decrqss_body(rng: &mut FuzzRng, s: &mut String) {
+    match rng.below(7) {
+        0 => s.push('m'),
+        1 => s.push_str(" q"),
+        2 => s.push('r'),
+        3 => {
+            // Garbage selector soup.
+            let n = 1 + rng.below(5);
+            for _ in 0..n {
+                s.push(*rng.pick(&['x', '1', '$', ' ', 'm', 'q', 'r', '?', ';']));
+            }
+        }
+        4 => s.push_str("0m"), // leading-zero variant
+        5 => {}                // empty selector
+        _ => {
+            // Valid selector with trailing junk.
+            s.push_str(rng.pick(&[" q", "m", "r"]));
+            s.push(*rng.pick(&[';', ' ', 'x']));
+        }
+    }
+}
+
+/// Append a DCS terminator: a proper ST (`ESC \`) most of the time, otherwise a
+/// CAN/SUB abort or a lone ESC that aborts the string by starting a new escape.
+fn push_dcs_end(rng: &mut FuzzRng, out: &mut Vec<u8>) {
+    match rng.below(6) {
+        0 | 1 | 2 => out.extend_from_slice(b"\x1b\\"), // ST
+        3 => out.push(0x18),                           // CAN — abort
+        4 => out.push(0x1a),                           // SUB — abort
+        _ => out.push(0x1b),                           // lone ESC — abort via new escape
+    }
+}
+
+/// (6) A complete-ish DCS query: XTGETTCAP (`DCS + q …`) or DECRQSS
+/// (`DCS $ q …`), terminated by ST or an abort control.
+fn gen_dcs_query(rng: &mut FuzzRng) -> Vec<u8> {
+    let xtgettcap = rng.bool();
+    let mut body = String::new();
+    let intro: &[u8] = if xtgettcap {
+        build_xtgettcap_body(rng, &mut body);
+        b"\x1bP+q"
+    } else {
+        build_decrqss_body(rng, &mut body);
+        b"\x1bP$q"
+    };
+    let mut out = Vec::from(intro);
+    out.extend_from_slice(body.as_bytes());
+    push_dcs_end(rng, &mut out);
+    out
+}
+
+/// A DCS query with an abort/control byte injected into the middle of the
+/// payload (CAN/SUB/ESC/BEL/NUL) — exercises mid-string interruption.
+fn gen_dcs_interrupted(rng: &mut FuzzRng) -> Vec<u8> {
+    let mut q = gen_dcs_query(rng);
+    if q.len() > 4 {
+        let pos = 4 + rng.below(q.len() - 4);
+        let ctrl = *rng.pick(&[0x18u8, 0x1a, 0x1b, 0x07, 0x00]);
+        q.insert(pos, ctrl);
+    }
+    q
+}
+
+/// Feed `bytes` to the terminal in randomly sized small chunks, so a DCS (or
+/// any) sequence is split across `advance` feed boundaries. All bytes are
+/// delivered; only the chunking varies.
+fn feed_split(rng: &mut FuzzRng, t: &mut Terminal, bytes: &[u8]) {
+    let mut idx = 0;
+    while idx < bytes.len() {
+        let remaining = bytes.len() - idx;
+        let take = 1 + rng.below(remaining.min(6));
+        t.advance(&bytes[idx..idx + take]);
+        idx += take;
+    }
+}
+
 /// Occasional resets / text interleaved into a stream so surface state mixes
 /// with hard/soft resets and ordinary printing.
 fn gen_interleave(rng: &mut FuzzRng) -> Vec<u8> {
@@ -405,12 +539,14 @@ fn gen_mixed_stream(rng: &mut FuzzRng) -> Vec<u8> {
     let mut out = Vec::new();
     let chunks = 1 + rng.below(10);
     for _ in 0..chunks {
-        let part = match rng.below(6) {
+        let part = match rng.below(8) {
             0 => gen_underline_sgr(rng),
             1 => gen_kitty_keyboard(rng),
             2 => gen_mode_2026(rng),
             3 => gen_osc(rng),
             4 => gen_decrqm_xtwinops(rng),
+            5 => gen_dcs_query(rng),
+            6 => gen_dcs_interrupted(rng),
             _ => gen_interleave(rng),
         };
         out.extend_from_slice(&part);
@@ -465,10 +601,11 @@ fn run_query_flood_bounded(iters: u64) {
         let mut input_len = 0usize;
         let queries = 1 + rng.below(200);
         for _ in 0..queries {
-            let q = match rng.below(4) {
+            let q = match rng.below(5) {
                 0 => gen_decrqm_xtwinops(&mut rng),
                 1 => gen_mode_2026(&mut rng),
                 2 => gen_kitty_keyboard(&mut rng),
+                3 => gen_dcs_query(&mut rng),
                 // Color queries return their spec on host_output directly.
                 _ => {
                     let mut s: Vec<u8> = Vec::from(&b"\x1b]"[..]);
@@ -628,4 +765,156 @@ fn protocol_fuzz_mode_2026_interleave_smoke() {
 #[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture"]
 fn protocol_fuzz_mode_2026_interleave_deep() {
     run_mode_2026_interleave(fuzz_iters());
+}
+
+// ---------------------------------------------------------------------------
+// (F) DCS query soup never-panic + after-RIS consistency, including aborts and
+//     feed-boundary splits
+// ---------------------------------------------------------------------------
+
+fn run_dcs_query_soup(iters: u64) {
+    for i in 0..iters {
+        let seed = seed_for(i, 0xF206);
+        let mut rng = FuzzRng::new(seed);
+        let mut t = Terminal::new(24, 6);
+        let bursts = 1 + rng.below(6);
+        for _ in 0..bursts {
+            let n = 1 + rng.below(8);
+            for _ in 0..n {
+                let part = match rng.below(4) {
+                    0 => gen_dcs_query(&mut rng),
+                    1 => gen_dcs_interrupted(&mut rng),
+                    2 => gen_interleave(&mut rng),
+                    // Mix SGR churn in so a following DECRQSS `m` query reflects
+                    // mutated state.
+                    _ => gen_underline_sgr(&mut rng),
+                };
+                // Half the time deliver the bytes split across feed boundaries,
+                // so a DCS can straddle multiple `advance` calls.
+                if rng.bool() {
+                    feed_split(&mut rng, &mut t, &part);
+                } else {
+                    t.advance(&part);
+                }
+            }
+            let _ = t.take_host_output();
+        }
+        assert_consistent_after_ris(seed, &mut t);
+    }
+}
+
+#[test]
+fn protocol_fuzz_dcs_query_soup_smoke() {
+    run_dcs_query_soup(fuzz_iters());
+}
+
+#[test]
+#[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture"]
+fn protocol_fuzz_dcs_query_soup_deep() {
+    run_dcs_query_soup(fuzz_iters());
+}
+
+// ---------------------------------------------------------------------------
+// (G) DCS query flood cannot grow host_output unbounded (no draining)
+// ---------------------------------------------------------------------------
+
+fn run_dcs_query_flood_bounded(iters: u64) {
+    for i in 0..iters {
+        let seed = seed_for(i, 0xF207);
+        let mut rng = FuzzRng::new(seed);
+        let mut t = Terminal::new(24, 6);
+        // Never drain during the flood: each XTGETTCAP cap-name and DECRQSS
+        // selector yields at most one bounded DCS reply (and oversized payloads
+        // suppress the report via the 4096-byte cap), so total host_output must
+        // stay linear in the bytes fed.
+        let mut input_len = 0usize;
+        let queries = 1 + rng.below(200);
+        for _ in 0..queries {
+            let q = if rng.below(4) == 0 {
+                gen_dcs_interrupted(&mut rng)
+            } else {
+                gen_dcs_query(&mut rng)
+            };
+            input_len += q.len();
+            t.advance(&q);
+        }
+        let out = t.take_host_output();
+        assert!(
+            out.len() <= host_output_cap(input_len),
+            "seed={seed}: DCS host_output {} exceeded linear cap {} for {} input bytes \
+             (possible unbounded amplification)",
+            out.len(),
+            host_output_cap(input_len),
+            input_len
+        );
+        assert!(
+            t.take_host_output().is_empty(),
+            "seed={seed}: DCS host_output not empty immediately after drain"
+        );
+    }
+}
+
+#[test]
+fn protocol_fuzz_dcs_query_flood_bounded_smoke() {
+    run_dcs_query_flood_bounded(fuzz_iters());
+}
+
+#[test]
+#[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture"]
+fn protocol_fuzz_dcs_query_flood_bounded_deep() {
+    run_dcs_query_flood_bounded(fuzz_iters());
+}
+
+// ---------------------------------------------------------------------------
+// (H) DECRQSS round-trips under SGR churn stay bounded and never wedge
+// ---------------------------------------------------------------------------
+
+fn run_decrqss_sgr_churn(iters: u64) {
+    for i in 0..iters {
+        let seed = seed_for(i, 0xF208);
+        let mut rng = FuzzRng::new(seed);
+        let mut t = Terminal::new(20, 4);
+        let n = 1 + rng.below(40);
+        for _ in 0..n {
+            // Mutate SGR/region state, then read it back via DECRQSS so the
+            // `m` / ` q` / `r` report runs against churning state.
+            t.advance(&gen_underline_sgr(&mut rng));
+            t.advance(b"\x1b[1;3;7;38:5:5m");
+            if rng.bool() {
+                // Also move the scroll region so the `r` selector varies.
+                t.advance(b"\x1b[2;3r");
+            }
+            let query: &[u8] = rng.pick(&[
+                &b"\x1bP$qm\x1b\\"[..],
+                b"\x1bP$q q\x1b\\",
+                b"\x1bP$qr\x1b\\",
+            ]);
+            if rng.bool() {
+                feed_split(&mut rng, &mut t, query);
+            } else {
+                t.advance(query);
+            }
+            let out = t.take_host_output();
+            assert!(
+                out.len() <= host_output_cap(query.len()),
+                "seed={seed}: DECRQSS reply {} exceeded bound {} (selector len {})",
+                out.len(),
+                host_output_cap(query.len()),
+                query.len()
+            );
+        }
+        assert_not_wedged(seed, &mut t);
+        assert_consistent_after_ris(seed, &mut t);
+    }
+}
+
+#[test]
+fn protocol_fuzz_decrqss_sgr_churn_smoke() {
+    run_decrqss_sgr_churn(fuzz_iters());
+}
+
+#[test]
+#[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture"]
+fn protocol_fuzz_decrqss_sgr_churn_deep() {
+    run_decrqss_sgr_churn(fuzz_iters());
 }
