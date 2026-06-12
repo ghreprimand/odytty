@@ -88,12 +88,46 @@ const FIRST_DYNAMIC_SLOT: u32 = LAST_CHAR - FIRST_CHAR + 2;
 // The gutter must be at least one pixel for the bleed guard to hold.
 const _: () = assert!(ATLAS_PAD >= 1);
 
+/// Shear ratio for synthetic italic: `tan(12deg)`. A sample `dy` pixels above
+/// the baseline is shifted right by `ITALIC_SHEAR * dy` pixels (below-baseline
+/// rows shift left), producing a standard ~12-degree oblique from an upright
+/// outline when no real italic face exists.
+const ITALIC_SHEAR: f32 = 0.2126;
+
 /// Rasterization scale and shared baseline for one glyph. The `baseline` is the
 /// single per-atlas value (see [`GlyphAtlas::build`]) every glyph is placed on.
 #[derive(Clone, Copy)]
 struct Pen {
     px: f32,
     baseline: f32,
+}
+
+/// Synthetic-style transform applied while rasterizing an outline, used as a
+/// fallback when the font family has no real face for a requested style. Both
+/// fields default to "off" ([`SynthTransform::none`]); the real-face path and
+/// [`FontStyle::Regular`] always use that, so a present face is never altered.
+///
+/// - `embolden_px > 0` synthesizes **bold** by double-striking each coverage
+///   sample a second time shifted right by that many pixels (max-combined into
+///   the atlas), thickening horizontal weight while leaving verticals, the
+///   baseline, and metrics untouched.
+/// - `shear != 0.0` synthesizes **italic** by shifting each sample horizontally
+///   in proportion to its height above the baseline (see [`ITALIC_SHEAR`]).
+///
+/// Bold-italic composes both (shear, then double-strike). The smear and shear
+/// land in the slot's overflow margin and are clamped by the rasterizer's clip,
+/// so synthesis never changes the cell advance or leaks into a neighbor slot.
+#[derive(Clone, Copy, Default)]
+struct SynthTransform {
+    embolden_px: u32,
+    shear: f32,
+}
+
+impl SynthTransform {
+    /// No synthesis: a real face (or `Regular`) is rendered as-is.
+    fn none() -> Self {
+        Self::default()
+    }
 }
 
 /// Whether a character should resolve to a drawn glyph (real or fallback box).
@@ -273,6 +307,15 @@ pub struct GlyphAtlas {
     dirty: bool,
     /// Coverage storage mode. `Off` preserves the original R8 atlas exactly.
     subpixel: SubpixelMode,
+    /// Synthetic-style mask: bit 0 = Bold, bit 1 = Italic, bit 2 = BoldItalic.
+    /// A set bit means the font family has **no real face** for that style, so
+    /// glyphs rasterized for it get the matching [`SynthTransform`] (emboldening
+    /// and/or shear) instead of a plain Regular copy. Default `0` (no synthesis)
+    /// preserves the original behavior exactly. The native layer sets this right
+    /// after [`Self::build`] from `Arc` identity of its loaded faces; it only
+    /// affects glyphs rasterized *after* it is set, which on the live path is all
+    /// of them (the dynamic region is empty at build time).
+    synthetic: u8,
 }
 
 impl GlyphAtlas {
@@ -350,6 +393,7 @@ impl GlyphAtlas {
                     cell,
                     outer_w: slot_w(cell),
                 },
+                SynthTransform::none(),
             ) {
                 slot_ink[slot as usize] = ink;
             }
@@ -370,6 +414,7 @@ impl GlyphAtlas {
             revision: 0,
             dirty: false,
             subpixel,
+            synthetic: 0,
         }
     }
 
@@ -533,6 +578,7 @@ impl GlyphAtlas {
             return Some(self.slot_uv(FALLBACK_SLOT));
         };
         let origin = slot_offset(slot, self.cols, self.cell);
+        let synth = self.synth_for(style);
         let ink = rasterize_glyph(
             font,
             Pen {
@@ -550,6 +596,7 @@ impl GlyphAtlas {
                 // extends over all of them so ink is never cropped at the edge.
                 outer_w: cells * slot_w(self.cell),
             },
+            synth,
         )
         .unwrap_or_else(|| GlyphInk::cell(self.cell));
         // `allocate_slots` already pushed a dense placeholder for the lead (and
@@ -648,6 +695,52 @@ impl GlyphAtlas {
         self.subpixel
     }
 
+    /// Declare which styles have **no real face** and must be synthesized from
+    /// the Regular outline. `bold`/`italic`/`bold_italic` are `true` when the
+    /// loaded font family lacks that face, so glyphs rasterized for it should be
+    /// emboldened and/or sheared rather than rendered as a plain Regular copy.
+    ///
+    /// The native layer computes these from `Arc` identity of its loaded faces
+    /// (a style slot still pointing at the Regular `Arc` means no real face) and
+    /// calls this **immediately after** [`Self::build`], before any styled glyph
+    /// is inserted. The mask only governs glyphs rasterized after it is set;
+    /// because a font change rebuilds the atlas from scratch, swapping in a real
+    /// face clears the corresponding bit and the synthetic slots vanish with the
+    /// old atlas — invalidation is by construction, exactly like every other
+    /// dynamic slot. Calling this is idempotent and never rewrites existing
+    /// pixels, so the live path sets it once on a freshly built (empty-dynamic)
+    /// atlas.
+    pub fn set_synthetic_styles(&mut self, bold: bool, italic: bool, bold_italic: bool) {
+        self.synthetic = (bold as u8) | ((italic as u8) << 1) | ((bold_italic as u8) << 2);
+    }
+
+    /// The [`SynthTransform`] to apply when rasterizing `style`. Returns the
+    /// identity transform for [`FontStyle::Regular`] and for any style whose
+    /// synthetic bit is clear (a real face is present); otherwise the matching
+    /// emboldening (bold) and/or shear (italic), sized from the build pixel size.
+    fn synth_for(&self, style: FontStyle) -> SynthTransform {
+        let bit = match style {
+            FontStyle::Regular => return SynthTransform::none(),
+            FontStyle::Bold => 0,
+            FontStyle::Italic => 1,
+            FontStyle::BoldItalic => 2,
+        };
+        if self.synthetic & (1 << bit) == 0 {
+            return SynthTransform::none();
+        }
+        let bold = matches!(style, FontStyle::Bold | FontStyle::BoldItalic);
+        let italic = matches!(style, FontStyle::Italic | FontStyle::BoldItalic);
+        SynthTransform {
+            // 1px at typical sizes, 2px on large HiDPI cells; never 0 when bold.
+            embolden_px: if bold {
+                (self.px / 24.0).round().max(1.0) as u32
+            } else {
+                0
+            },
+            shear: if italic { ITALIC_SHEAR } else { 0.0 },
+        }
+    }
+
     /// Bytes in one atlas row, for GPU upload.
     pub fn bytes_per_row(&self) -> u32 {
         self.width * self.subpixel.bytes_per_pixel()
@@ -705,6 +798,15 @@ fn slot_offset(slot: u32, cols: u32, cell: CellSize) -> (u32, u32) {
 /// outermost [`ATLAS_PAD`] bleed ring is kept transparent, and the clip keeps a
 /// glyph strictly out of its neighbors. The strongest value wins on any overlap.
 ///
+/// When `synth` is non-identity (no real face for the requested style), the
+/// upright Regular outline is transformed at coverage-write time: a per-sample
+/// horizontal **shear** for synthetic italic and a rightward **double-strike**
+/// for synthetic bold (see [`SynthTransform`]). Both effects are tracked by the
+/// same `min/max` ink bounds, so the returned [`GlyphInk`] reports the real
+/// (sheared/widened) extent and the renderer draws it uncropped; the existing
+/// drawable-region clip keeps the synthesis inside the slot. Synthesis never
+/// changes the cell advance.
+///
 /// Destination slot geometry for [`rasterize_glyph`].
 struct SlotRegion {
     /// Outer top-left of the (lead) slot in atlas pixels.
@@ -724,6 +826,7 @@ fn rasterize_glyph(
     width: u32,
     subpixel: SubpixelMode,
     region: SlotRegion,
+    synth: SynthTransform,
 ) -> Option<GlyphInk> {
     let SlotRegion {
         origin,
@@ -766,16 +869,38 @@ fn rasterize_glyph(
             }
             // Round to the nearest atlas pixel (truncation drifts edges and can
             // drop a glyph's final row/column).
-            let ax = inner_x + (bounds.min.x + gx as f32).round() as i32;
             let ay = inner_y + (bounds.min.y + gy as f32).round() as i32;
-            if ax < x_lo || ax >= x_hi || ay < y_lo || ay >= y_hi {
-                return; // clip to this glyph's drawable region (cell + margin)
+            if ay < y_lo || ay >= y_hi {
+                return; // clip vertically (rows are unaffected by synthesis)
             }
-            write_coverage(data, width, subpixel, ax as u32, ay as u32, channel, value);
-            min_x = min_x.min(ax);
-            min_y = min_y.min(ay);
-            max_x = max_x.max(ax);
-            max_y = max_y.max(ay);
+            // Synthetic italic: shift this sample horizontally in proportion to
+            // its height above the baseline. `pen.baseline` is the baseline in
+            // the same absolute pixel space as `bounds`, so the unrounded glyph
+            // y gives a smooth oblique. Rounding to whole atlas pixels introduces
+            // minor stair-stepping along near-horizontal edges — acceptable for a
+            // fallback face that exists only when no real italic is installed.
+            let shear_dx = if synth.shear != 0.0 {
+                let gy_abs = bounds.min.y + gy as f32;
+                (synth.shear * (pen.baseline - gy_abs)).round() as i32
+            } else {
+                0
+            };
+            let base_ax = inner_x + (bounds.min.x + gx as f32).round() as i32 + shear_dx;
+            // Synthetic bold: strike a second time shifted right by `embolden_px`
+            // (max-combined by `write_coverage`), thickening horizontal weight
+            // without touching verticals, the baseline, or the cell advance.
+            let strikes = if synth.embolden_px > 0 { 2 } else { 1 };
+            for s in 0..strikes {
+                let ax = base_ax + s * synth.embolden_px as i32;
+                if ax < x_lo || ax >= x_hi {
+                    continue; // clip horizontally to the drawable region
+                }
+                write_coverage(data, width, subpixel, ax as u32, ay as u32, channel, value);
+                min_x = min_x.min(ax);
+                min_y = min_y.min(ay);
+                max_x = max_x.max(ax);
+                max_y = max_y.max(ay);
+            }
         });
     };
     match subpixel {

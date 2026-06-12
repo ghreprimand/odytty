@@ -25,7 +25,7 @@
 //! Every case skips gracefully (prints and returns) when no system font is
 //! available, matching the rest of the suite's hermeticity.
 
-use odytty::atlas::{CellSize, GlyphAtlas, SubpixelMode};
+use odytty::atlas::{CellSize, FontStyle, GlyphAtlas, SubpixelMode};
 use odytty::core::{CursorStyle, Snapshot, Terminal};
 use odytty::graphics::{
     GraphicsProtocol, ImageScene, PlacementRequest, SourceRect, StoredImageId, VisiblePlacement,
@@ -213,6 +213,25 @@ fn row_snapshot(cols: usize, text: &str) -> Snapshot {
     term.snapshot()
 }
 
+/// Like [`row_snapshot`] but applies an SGR prefix (e.g. `b"\x1b[1m"` for bold,
+/// `b"\x1b[3m"` for italic) so the cells carry the corresponding attribute and
+/// the grid resolves them through the matching [`FontStyle`].
+fn styled_row_snapshot(cols: usize, sgr: &[u8], text: &str) -> Snapshot {
+    let mut term = Terminal::new(cols, 1);
+    term.advance(b"\x1b[?25l");
+    term.advance(sgr);
+    term.advance(text.as_bytes());
+    term.snapshot()
+}
+
+/// Resolve every char of `text` into the atlas at the given style, so the
+/// immutable composite lookup finds resident slots instead of the fallback box.
+fn ensure_styled_row(atlas: &mut GlyphAtlas, font: &FontVec, style: FontStyle, text: &str) {
+    for ch in text.chars() {
+        let _ = atlas.ensure_styled(font, style, ch);
+    }
+}
+
 /// Count inked pixels (differ from the default background) inside a cell.
 fn cell_ink_count(frame: &Frame, col: usize, row: usize) -> usize {
     let bg = default_bg();
@@ -226,6 +245,40 @@ fn cell_ink_count(frame: &Frame, col: usize, row: usize) -> usize {
         }
     }
     n
+}
+
+/// Mean inked-pixel x (cell-local) in the top quarter of row 0 minus that in
+/// the bottom quarter, aggregated over `cols` cells. Positive means the ink
+/// above the baseline sits right of the ink below it — the signature of a
+/// right-leaning oblique. `None` if either band has no ink to measure.
+fn row_top_minus_bottom_centroid(frame: &Frame, cols: usize) -> Option<f64> {
+    let bg = default_bg();
+    let (mut top_sum, mut top_n) = (0f64, 0u64);
+    let (mut bot_sum, mut bot_n) = (0f64, 0u64);
+    for c in 0..cols {
+        let (x0, y0, x1, y1) = frame.cell_bounds(c, 0);
+        let q = ((y1 - y0) / 4).max(1);
+        for y in y0..y0 + q {
+            for x in x0..x1 {
+                if differs(frame.pixel(x, y), bg) {
+                    top_sum += (x - x0) as f64;
+                    top_n += 1;
+                }
+            }
+        }
+        for y in (y1 - q)..y1 {
+            for x in x0..x1 {
+                if differs(frame.pixel(x, y), bg) {
+                    bot_sum += (x - x0) as f64;
+                    bot_n += 1;
+                }
+            }
+        }
+    }
+    if top_n == 0 || bot_n == 0 {
+        return None;
+    }
+    Some(top_sum / top_n as f64 - bot_sum / bot_n as f64)
 }
 
 /// The modal (most common) quantized color inside a cell — dominated by the
@@ -346,6 +399,81 @@ fn subpixel_atlas_composites_known_glyph() {
         cell_ink_count(&frame, 3, 0),
         0,
         "subpixel glyph coverage must not bleed into distant blank cells"
+    );
+}
+
+/// End-to-end: with synthetic bold enabled and only a Regular face, a bold row
+/// composites strictly more ink than the same row in Regular — the emboldening
+/// reaches the rendered frame through the real grid → atlas → composite path.
+#[test]
+fn synthetic_bold_row_inks_heavier_than_regular() {
+    let Some((font, mut atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    atlas.set_synthetic_styles(true, false, false);
+    let text = "MMMM";
+    let cols = text.len();
+
+    ensure_styled_row(&mut atlas, &font, FontStyle::Regular, text);
+    ensure_styled_row(&mut atlas, &font, FontStyle::Bold, text);
+
+    let regular = composite(&row_snapshot(cols, text), &atlas, CursorStyle::Block);
+    let bold = composite(
+        &styled_row_snapshot(cols, b"\x1b[1m", text),
+        &atlas,
+        CursorStyle::Block,
+    );
+
+    let reg_ink: usize = (0..cols).map(|c| cell_ink_count(&regular, c, 0)).sum();
+    let bold_ink: usize = (0..cols).map(|c| cell_ink_count(&bold, c, 0)).sum();
+    assert!(reg_ink > 0, "regular row should ink");
+    assert!(
+        bold_ink > reg_ink,
+        "synthetic bold row should ink heavier (bold={bold_ink}, regular={reg_ink})"
+    );
+}
+
+/// End-to-end: a synthetic-italic row leans right above the baseline. Comparing
+/// the inked-pixel centroid of the cell's top quarter against its bottom quarter
+/// (summed across the row) shows the top sitting clearly right of the bottom,
+/// whereas a Regular row of the same text shows a much smaller delta.
+#[test]
+fn synthetic_italic_row_leans_right() {
+    let Some((font, mut atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    atlas.set_synthetic_styles(false, true, false);
+    // A single tall glyph: no neighbor cell for sheared overhang to bleed into,
+    // so the top-vs-bottom centroid cleanly reflects the shear.
+    let text = "I";
+    let cols = text.len();
+
+    ensure_styled_row(&mut atlas, &font, FontStyle::Regular, text);
+    ensure_styled_row(&mut atlas, &font, FontStyle::Italic, text);
+
+    let regular = composite(&row_snapshot(cols, text), &atlas, CursorStyle::Block);
+    let italic = composite(
+        &styled_row_snapshot(cols, b"\x1b[3m", text),
+        &atlas,
+        CursorStyle::Block,
+    );
+
+    let ital_delta = row_top_minus_bottom_centroid(&italic, cols);
+    let reg_delta = row_top_minus_bottom_centroid(&regular, cols);
+    let (Some(ital_delta), Some(reg_delta)) = (ital_delta, reg_delta) else {
+        eprintln!("skipping: row inked too sparsely to measure lean");
+        return;
+    };
+    assert!(
+        ital_delta > reg_delta,
+        "synthetic italic should lean further right at top than regular \
+         (italic={ital_delta:.2}, regular={reg_delta:.2})"
+    );
+    assert!(
+        ital_delta > 0.0,
+        "synthetic italic top should lean right of its bottom (delta={ital_delta:.2})"
     );
 }
 

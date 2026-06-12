@@ -221,6 +221,20 @@ impl StyleFonts {
         }
     }
 
+    /// Which styles have **no real face** loaded and must be synthesized from the
+    /// Regular outline. Returns `(bold, italic, bold_italic)`, each `true` when
+    /// that style slot is still the very same `Arc` as Regular — which is exactly
+    /// the state [`StyleFonts::regular`] leaves a slot in until `load_from`
+    /// replaces it with a real face from disk. Drives
+    /// [`GlyphAtlas::set_synthetic_styles`].
+    pub(super) fn synthetic_mask(&self) -> (bool, bool, bool) {
+        (
+            Arc::ptr_eq(&self.regular, &self.bold),
+            Arc::ptr_eq(&self.regular, &self.italic),
+            Arc::ptr_eq(&self.regular, &self.bold_italic),
+        )
+    }
+
     fn regular_font(&self) -> &FontVec {
         &self.regular
     }
@@ -490,6 +504,8 @@ impl GpuState {
         let fonts = StyleFonts::load(options)?;
         let mut atlas =
             GlyphAtlas::build_with_subpixel(fonts.regular_font(), physical_px, subpixel);
+        let (synth_bold, synth_italic, synth_bold_italic) = fonts.synthetic_mask();
+        atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
         ensure_snapshot_glyphs(&mut atlas, &fonts, initial_snapshot);
         let atlas_texture = create_atlas_texture(&device, &queue, &atlas);
         // Nearest + clamp: glyph cells map 1:1 to pixels, so no filtering.
@@ -629,6 +645,8 @@ impl GpuState {
             self.physical_px,
             self.subpixel,
         );
+        let (synth_bold, synth_italic, synth_bold_italic) = self.fonts.synthetic_mask();
+        atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
         let _ = atlas.take_dirty();
         self.atlas = atlas;
         self.refresh_atlas_texture();

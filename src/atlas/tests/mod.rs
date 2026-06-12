@@ -9,6 +9,7 @@ mod geometry;
 mod glyph_quad;
 mod metrics;
 mod scaling;
+mod synthetic;
 
 pub(super) fn test_font() -> Option<FontVec> {
     load_font().ok()

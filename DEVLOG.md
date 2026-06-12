@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 — Synthetic bold + italic fallback (SB1)
+
+When a font family ships no real Bold or Italic face, OdyTTY now synthesizes one
+from the Regular outline instead of rendering plain Regular, so bold and italic
+stay visually distinct on style-poor fonts. Real faces always win.
+
+- **Synthesis transforms.** A new atlas `SynthTransform` is applied at
+  coverage-write time inside `rasterize_glyph`: synthetic **bold** is a
+  horizontal double-strike (a second strike offset right by
+  `max(1, round(px/24))` pixels, max-combined), thickening horizontal weight
+  while leaving verticals, the baseline, and the cell advance untouched;
+  synthetic **italic** is a baseline-relative shear of `tan(12deg) ~= 0.213`,
+  leaning rows above the baseline right. Bold-italic composes both. The ink
+  bounds track the smear/shear so `GlyphBounds` reports the true extent and the
+  renderer draws it uncropped; the existing drawable-region clip keeps synthesis
+  inside the slot, including two-cell wide slots.
+- **Style mask.** `GlyphAtlas::set_synthetic_styles(bold, italic, bold_italic)`
+  stores a 3-bit mask that `ensure_styled` consults per style; the default of 0
+  (no synthesis) preserves prior behavior exactly. The native layer derives the
+  mask from `Arc` identity of its loaded faces — a style slot still aliased to
+  the Regular `Arc` means no real face — and sets it after each atlas build, so a
+  font change that swaps in a real face clears the bit and the synthetic slots
+  vanish with the rebuilt atlas. Invalidation is by construction.
+- **Coverage.** Six atlas tests (ink-difference for bold/italic/bold-italic,
+  real-face no-regression with the mask clear, mask-clear invalidation, and a
+  wide-glyph clip clamp) plus two `pixel_smoke` end-to-end tests (bold row inks
+  heavier; italic row leans right) through the real grid -> atlas -> composite
+  path. `cargo test` lib 760 + pixel 21 + PTY/transcript green; `cargo fmt
+  --check` clean.
+- **Default on.** Synthesis fires whenever a real face is absent. A user-facing
+  kill switch belongs in the settings path and is recorded as a follow-up.
+
+---
+
 ## 2026-06-12 — Extended underline styles (US1)
 
 OdyTTY now carries underline style and underline color as owned terminal
