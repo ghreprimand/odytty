@@ -89,6 +89,17 @@ descriptor, vertex/uniform layout, and WGSL shader source. Text coverage
 correction (gamma uniform) and optional dual-source blending for subpixel AA
 live here.
 
+**DCS query surface** (`src/core/screen/query.rs`). XTGETTCAP (`DCS +q`)
+and DECRQSS (`DCS $q`) capture ride the same parser hook/put/unhook seam used
+for graphics DCS payloads — no parser changes required. `dcs_query_hook`
+dispatches on the intermediate byte (`+` vs `$`) and returns a typed
+`DcsQueryCapture`; `dcs_query_put` buffers bytes up to 4 KiB; the screen
+dispatches the result via `dispatch_dcs_query`. XTGETTCAP answers only the
+conservative truth set the terminal can currently claim (`TN`, `Co`, `RGB`);
+unknown names receive the xterm invalid response. DECRQSS reports live SGR
+(including extended underline styles and underline color), DECSCUSR, and
+DECSTBM; unimplemented selectors respond invalid per xterm convention.
+
 **Graphics protocol decode and placement pipeline** (`src/graphics/`,
 `src/core/graphics_routing.rs`). See the Graphics Architecture section.
 
@@ -323,6 +334,10 @@ its first stable layer.
 - Keyboard mode-awareness: DECCKM, keypad modes, modified named keys, Kitty
   keyboard protocol disambiguation, event-type, alternate-key, report-all, and
   associated-text flags
+- Terminal capability queries: XTGETTCAP (conservative truth set: `TN`,
+  `Co=256`, `RGB=1`; unknown names → xterm invalid response) and DECRQSS (live
+  SGR including extended underlines + underline color, DECSCUSR, DECSTBM;
+  unimplemented selectors → invalid per xterm)
 - Lazy scrollback re-wrap and resize fast paths
 - Theme system (plain baseline, Odyssey presets); optional ambient visual effect
 

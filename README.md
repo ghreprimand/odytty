@@ -33,7 +33,13 @@ reporting (modes 9/1000/1002/1003 with encodings 1005/1006/1015/legacy), focus
 reporting (DECSET 1004), DECSCUSR cursor-style overrides, OSC 0/2 window title,
 wide-character handling (width-2 CJK/emoji, combining marks, overwrite-half
 coherence), ICH/DCH/ECH/REP, tab stops, BCE, RI, SU/SD, IL/DL, RIS/DECSTR,
-DA, and bracketed paste.
+DA, and bracketed paste. Terminal capability queries: XTGETTCAP (`DCS +q … ST`)
+answers the conservative truth set OdyTTY can currently claim — `TN=xterm-256color`,
+`Co=256`, `RGB=1`; unknown or unsupported capability names receive the
+xterm-style invalid response rather than a guessed value. DECRQSS (`DCS $q … ST`)
+reports live state: SGR including all extended underline styles (`4:2`–`4:5`) and
+underline color (`58:…`), DECSCUSR cursor style, and DECSTBM scroll margins;
+unimplemented selectors respond invalid per xterm convention.
 
 **Graphics.** Sixel DCS streams (`DCS q`) are fully decoded and placed as
 cell-anchored RGBA images: the SX1 decoder handles the complete Sixel data
@@ -164,11 +170,17 @@ reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
 the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 808 tests passing: 766 unit/integration, 23 pixel-smoke
+**Testing.** 820 tests passing: 773 unit/integration, 23 pixel-smoke
 (headless CPU compositor asserting structural raster invariants for text
-rendering and graphics placement), 9 PTY alternate-screen smoke, and 10
-transcript smoke. `cargo bench --bench perf` runs headless throughput
-benchmarks for the terminal model and parser separately from the default suite.
+rendering and graphics placement), 5 protocol-fuzz smoke (never-panic,
+bounded-host-output, and post-RIS invariants across five fuzzed surfaces:
+extended underline SGR, Kitty keyboard protocol stack, synchronized output
+mode 2026, OSC 52 / dynamic colors, and DECRQM / XTWINOPS), 9 PTY
+alternate-screen smoke, and 10 transcript smoke. Deep fuzz tiers are
+`#[ignore]`-gated and run via
+`ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
+`cargo bench --bench perf` runs headless throughput benchmarks for the
+terminal model and parser separately from the default suite.
 
 ### Remaining gaps
 
