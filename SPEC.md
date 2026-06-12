@@ -98,7 +98,22 @@ dispatches the result via `dispatch_dcs_query`. XTGETTCAP answers only the
 conservative truth set the terminal can currently claim (`TN`, `Co`, `RGB`);
 unknown names receive the xterm invalid response. DECRQSS reports live SGR
 (including extended underline styles and underline color), DECSCUSR, and
-DECSTBM; unimplemented selectors respond invalid per xterm convention.
+DECSTBM and DECSCA protection state (`"q`); unimplemented selectors respond
+invalid per xterm convention.
+
+**Rectangle operations** (`src/core/screen/rect.rs`). DECCRA, DECFRA, DECERA,
+and DECSERA are implemented. DECCRA uses a snapshot-copy strategy: the source
+cells are copied into a temporary buffer before the destination write, so
+overlapping regions produce correct results without requiring a scratch page.
+Rectangle coordinates are 1-based, inclusive, and clamp to the visible page.
+With DECOM active, row coordinates are relative to the active vertical scroll
+margins; columns remain screen-relative (horizontal margins are not implemented).
+After every rectangle write, affected rows are sanitized via `sanitize_wide_row`:
+any wide glyph whose pair is severed at a rectangle boundary has both cells
+replaced with the current blank, preventing orphan continuation cells. The `Cell`
+protection bit is set by DECSCA (`CSI Ps " q`): Ps=1 protects, Ps=0/2 clears.
+The bit is omitted from `Cell`'s `Debug` output when `false` so existing oracle
+golden fixtures remain stable across code changes that add new cells.
 
 **Graphics protocol decode and placement pipeline** (`src/graphics/`,
 `src/core/graphics_routing.rs`). See the Graphics Architecture section.
@@ -336,8 +351,11 @@ its first stable layer.
   associated-text flags
 - Terminal capability queries: XTGETTCAP (conservative truth set: `TN`,
   `Co=256`, `RGB=1`; unknown names → xterm invalid response) and DECRQSS (live
-  SGR including extended underlines + underline color, DECSCUSR, DECSTBM;
-  unimplemented selectors → invalid per xterm)
+  SGR including extended underlines + underline color, DECSCUSR `" q`, DECSCA
+  `"q`, DECSTBM; unimplemented selectors → invalid per xterm)
+- Rectangle operations: DECCRA (snapshot-copy, overlap-safe), DECFRA, DECERA,
+  DECSERA; DECSCA character protection; DECSED/DECSEL selective erase;
+  wide-pair edge sanitization
 - Lazy scrollback re-wrap and resize fast paths
 - Theme system (plain baseline, Odyssey presets); optional ambient visual effect
 
