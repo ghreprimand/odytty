@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 — XTGETTCAP and DECRQSS query surface (RQ2)
+
+OdyTTY now answers the DCS-based query surface that feature-probing TUIs use
+after basic mode reports: XTGETTCAP for conservative terminal capabilities and
+DECRQSS for current terminal state strings.
+
+- **XTGETTCAP.** `DCS + q ... ST` now decodes semicolon-separated hex names,
+  ignores malformed hex fields, and replies for the conservative truth set
+  OdyTTY can currently claim: `TN=xterm-256color`, `Co=256`, and `RGB=1`.
+  Unknown valid names receive the xterm-style negative response instead of a
+  guessed terminfo value.
+- **DECRQSS.** `DCS $ q ... ST` reports live SGR (`m`), DECSCUSR cursor style
+  (` q`), and DECSTBM scroll margins (`r`) as status strings; unsupported
+  selectors such as DECSCA are reported invalid until the corresponding state is
+  implemented.
+- **Coverage.** Added core fixtures for known/unknown/malformed XTGETTCAP,
+  DECRQSS SGR round-trip including extended underline style and underline color,
+  cursor style, scroll margins, and invalid selectors.
+
+---
+
 ## 2026-06-12 — Synthetic-styles kill switch (SB2)
 
 The synthetic bold/italic fallback (SB1) is now gated by a runtime setting, so

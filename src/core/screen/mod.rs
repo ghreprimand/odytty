@@ -19,6 +19,7 @@ use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
 use super::types::*;
 
 mod ops;
+mod query;
 
 pub const OSC52_CLIPBOARD_MAX_BYTES: usize = 64 * 1024;
 
@@ -127,6 +128,7 @@ pub struct Screen {
     graphics: ImageScene,
     hyperlinks: HyperlinkTable,
     dcs_capture: Option<DcsCapture>,
+    dcs_query: Option<query::DcsQueryCapture>,
     graphics_stats: GraphicsStats,
     /// Live cell pixel metrics for graphics extent calculation. Default 8×16;
     /// the native layer overrides via [`Self::set_cell_metrics`].
@@ -214,6 +216,7 @@ impl Screen {
             graphics: ImageScene::default(),
             hyperlinks: HyperlinkTable::default(),
             dcs_capture: None,
+            dcs_query: None,
             graphics_stats: GraphicsStats::default(),
             cell_metrics: CellMetrics::default(),
             sixel_display_mode: false,
@@ -1092,16 +1095,27 @@ impl Screen {
         ignore: bool,
         action: char,
     ) {
-        self.dcs_capture = graphics_routing::dcs_hook(params, intermediates, ignore, action);
+        self.dcs_query = query::dcs_query_hook(intermediates, ignore, action);
+        if self.dcs_query.is_none() {
+            self.dcs_capture = graphics_routing::dcs_hook(params, intermediates, ignore, action);
+        }
     }
 
     fn dispatch_dcs_put(&mut self, byte: u8) {
+        if let Some(capture) = self.dcs_query.as_mut() {
+            query::dcs_query_put(capture, byte);
+            return;
+        }
         if let Some(capture) = self.dcs_capture.as_mut() {
             graphics_routing::dcs_put(capture, byte);
         }
     }
 
     fn dispatch_dcs_unhook(&mut self) {
+        if let Some(capture) = self.dcs_query.take() {
+            self.dispatch_dcs_query(capture);
+            return;
+        }
         let Some(capture) = self.dcs_capture.take() else {
             return;
         };

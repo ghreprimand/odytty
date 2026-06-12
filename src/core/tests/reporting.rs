@@ -174,3 +174,66 @@ fn responds_to_xtversion() {
 
     assert_eq!(terminal.take_host_output(), expected);
 }
+
+#[test]
+fn xtgettcap_reports_known_and_unknown_capabilities() {
+    let mut terminal = Terminal::new(10, 4);
+
+    terminal.advance(b"\x1bP+q544e;436f;524742;5858\x1b\\");
+
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1bP1+r544e=787465726d2d323536636f6c6f72\x1b\\\
+          \x1bP1+r436f=323536\x1b\\\
+          \x1bP1+r524742=31\x1b\\\
+          \x1bP0+r\x1b\\"
+    );
+}
+
+#[test]
+fn xtgettcap_ignores_malformed_hex_names() {
+    let mut terminal = Terminal::new(10, 4);
+
+    terminal.advance(b"\x1bP+q544;zzzz;544e\x1b\\");
+
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1bP1+r544e=787465726d2d323536636f6c6f72\x1b\\"
+    );
+}
+
+#[test]
+fn decrqss_reports_sgr_with_extended_underline_color() {
+    let mut terminal = Terminal::new(10, 4);
+
+    terminal.advance(b"\x1b[1;3;4:5;7;9;38:2::10:20:30;48;5;42;58:5:77m");
+    terminal.advance(b"\x1bP$qm\x1b\\");
+
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1bP1$r1;3;4:5;7;9;38:2::10:20:30;48:5:42;58:5:77m\x1b\\"
+    );
+}
+
+#[test]
+fn decrqss_reports_cursor_style_and_scroll_region() {
+    let mut terminal = Terminal::new(10, 6);
+
+    terminal.advance(b"\x1b[5 q\x1bP$q q\x1b\\");
+    terminal.advance(b"\x1b[2;5r\x1bP$qr\x1b\\");
+
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1bP1$r5 q\x1b\\\x1bP1$r2;5r\x1b\\"
+    );
+}
+
+#[test]
+fn decrqss_rejects_unimplemented_or_unknown_selectors() {
+    let mut terminal = Terminal::new(10, 4);
+
+    terminal.advance(b"\x1bP$q\"q\x1b\\");
+    terminal.advance(b"\x1bP$qx\x1b\\");
+
+    assert_eq!(terminal.take_host_output(), b"\x1bP0$r\x1b\\\x1bP0$r\x1b\\");
+}

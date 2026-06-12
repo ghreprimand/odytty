@@ -940,6 +940,7 @@ impl Screen {
         self.graphics.hard_reset();
         self.hyperlinks.clear();
         self.dcs_capture = None;
+        self.dcs_query = None;
         self.graphics_stats = GraphicsStats::default();
         // RIS returns mouse reporting to its power-on (off) state. The title is
         // a persistent window property and is intentionally left untouched.
