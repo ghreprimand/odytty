@@ -115,6 +115,21 @@ protection bit is set by DECSCA (`CSI Ps " q`): Ps=1 protects, Ps=0/2 clears.
 The bit is omitted from `Cell`'s `Debug` output when `false` so existing oracle
 golden fixtures remain stable across code changes that add new cells.
 
+DECCARA and DECRARA apply attribute changes to a rectangle (or stream extent
+per DECSACE). `RectAttrMask` collects the requested SGR codes: `change_rect_attr_mask`
+builds a set/clear mask for DECCARA (0 resets all four, 1/4/5/7 set bold/
+underline/blink/inverse, 22/24/25/27 clear them); `reverse_rect_attr_mask`
+builds a toggle mask for DECRARA (0 toggles all, 1/4/5/7 each flip their bit).
+Both operate on bold, plain underline, blink, and inverse only; `4:x` extended
+underline subparameters are silently ignored per xterm; the DECSCA protection
+bit is never touched by either op per xterm convention. DECSACE (`CSI Ps * x`)
+selects stream (Ps=0/1) or exact-rectangle (Ps=2) extent for subsequent DECCARA/
+DECRARA calls. The `rect_attr_extent` field lives on each `Screen`; it is carried
+across alternate-screen entry and exit (same extent restored), and both RIS and
+DECSTR reset it to `Stream` (the default). The `blink` field added to `Attrs`
+by RC2 follows the same `Debug` omission policy as `protected`: `Attrs::fmt`
+omits `blink: false` so oracle golden fixtures remain stable.
+
 **Graphics protocol decode and placement pipeline** (`src/graphics/`,
 `src/core/graphics_routing.rs`). See the Graphics Architecture section.
 
@@ -354,8 +369,9 @@ its first stable layer.
   SGR including extended underlines + underline color, DECSCUSR `" q`, DECSCA
   `"q`, DECSTBM; unimplemented selectors → invalid per xterm)
 - Rectangle operations: DECCRA (snapshot-copy, overlap-safe), DECFRA, DECERA,
-  DECSERA; DECSCA character protection; DECSED/DECSEL selective erase;
-  wide-pair edge sanitization
+  DECSERA; DECCARA/DECRARA attribute rectangle ops (bold, underline, blink,
+  inverse; stream and exact extents via DECSACE); DECSCA character protection;
+  DECSED/DECSEL selective erase; wide-pair edge sanitization
 - Lazy scrollback re-wrap and resize fast paths
 - Theme system (plain baseline, Odyssey presets); optional ambient visual effect
 

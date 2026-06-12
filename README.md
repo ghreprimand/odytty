@@ -49,6 +49,17 @@ DECSED (`CSI ? J`) and DECSEL (`CSI ? K`) perform selective erase of unprotected
 cells in display/line respectively — regular ED and EL still erase all cells
 regardless of protection. Any rectangle operation that clips a wide glyph at its
 edge blanks the complete pair rather than leaving an orphan continuation cell.
+DECCARA (`CSI Pt;Pl;Pb;Pr;Pm $ r`) changes presentation attributes in a
+rectangle: SGR 0 resets all four, 1 sets bold, 4 sets underline, 5 sets blink,
+7 sets inverse, 22 clears bold, 24 clears underline, 25 clears blink, 27 clears
+inverse; `4:x` extended underline subparameters are ignored in the rect path per
+xterm behavior. DECRARA (`CSI Pt;Pl;Pb;Pr;Pm $ t`) toggles: 0 toggles all four,
+1/4/5/7 toggle their respective attribute; protection is not modified by either
+op per xterm convention. DECSACE (`CSI Ps * x`) selects the extent: Ps=0/1
+chooses stream mode (first row from left coordinate to right edge, middle rows
+full-width, last row from column 0 to right coordinate), Ps=2 chooses exact
+rectangle. The `blink` cell attribute (SGR 5/25) is now storable and is
+round-tripped by DECRQSS `m`.
 
 **Graphics.** Sixel DCS streams (`DCS q`) are fully decoded and placed as
 cell-anchored RGBA images: the SX1 decoder handles the complete Sixel data
@@ -179,14 +190,15 @@ reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
 the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 832 tests passing: 782 unit/integration, 23 pixel-smoke
+**Testing.** 842 tests passing: 789 unit/integration, 23 pixel-smoke
 (headless CPU compositor asserting structural raster invariants for text
-rendering and graphics placement), 8 protocol-fuzz smoke (never-panic,
-bounded-host-output, and post-RIS invariants across six fuzzed surfaces:
-extended underline SGR, Kitty keyboard protocol stack, synchronized output
-mode 2026, OSC 52 / dynamic colors, DECRQM / XTWINOPS, and DCS query reports
-(XTGETTCAP / DECRQSS)), 9 PTY alternate-screen smoke, and 10 transcript smoke.
-Deep fuzz tiers are `#[ignore]`-gated and run via
+rendering and graphics placement), 11 protocol-fuzz smoke (never-panic,
+bounded-host-output, post-RIS, and grid-self-consistency invariants across seven
+fuzzed surfaces: extended underline SGR, Kitty keyboard protocol stack,
+synchronized output mode 2026, OSC 52 / dynamic colors, DECRQM / XTWINOPS, DCS
+query reports (XTGETTCAP / DECRQSS), and DEC rectangle / selective-erase ops),
+9 PTY alternate-screen smoke, and 10 transcript smoke. Deep fuzz tiers are
+`#[ignore]`-gated and run via
 `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
 `cargo bench --bench perf` runs headless throughput benchmarks for the
 terminal model and parser separately from the default suite.
