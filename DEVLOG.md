@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 -- Emoji font discovery + swash proof (EM2)
+
+Starts the accepted color-emoji ladder without touching the live renderer.
+
+- **Dependency choice.** Adds `swash 0.2.9` with default features. That is the
+  current crates.io release, MIT/Apache-2.0, and keeps the next EM packets on
+  the same crate surface for shaping plus color bitmap/outline rasterization.
+- **New renderer-free boundary.** `src/emoji/` owns the EM2 probe surface:
+  discover Noto Color Emoji through `fc-match` when available, fall back to a
+  bounded Linux font-dir scan, load the face as a borrowed `swash::FontRef`, and
+  report advertised color formats (`CBDT`/`CBLC`, `sbix`, `COLR`/`CPAL`, `SVG `).
+- **Representative swash proof.** The probe shapes single-codepoint emoji,
+  VS15/VS16 pairs, a skin-tone sequence, a flag, a keycap, and a ZWJ family,
+  recording glyph ids, cluster count/shape, fallback outcome, and whether any
+  shaped glyph has a color bitmap strike or color outline.
+- **Hermetic tests.** Default tests cover the fixed sequence list, bounded
+  filename discovery, and non-color outline font format detection. The
+  host-dependent Noto Color Emoji probe is `#[ignore]` and exits cleanly when the
+  font is absent, so default `cargo test` stays deterministic.
+- **Fence preserved.** No `src/core/**`, `benches/perf.rs`, atlas, grid, GPU, or
+  shader changes. EM3 remains the first renderer/atlas packet.
+
 ## 2026-06-12 — Bench refresh: post-RC1/RC2 baseline + rect rows (B3)
 
 The `cargo bench --bench perf` table predated US1/SU1/RQ2/RC1/RC2. Refreshed it

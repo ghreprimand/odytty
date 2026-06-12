@@ -362,6 +362,23 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 Operator directive: visual capability parity with the strongest GPU terminals is
 a floor; surpassing it is the standing ambition.
 
+- [ ] Add color emoji rendering on the accepted EM ladder.
+  - [x] EM1: decision spike selected `swash`, a separate premultiplied-RGBA
+        emoji atlas/draw segment, Linux Noto Color Emoji CBDT/CBLC first,
+        VS15/VS16 + degradation in the first implementation packet, and
+        deferred-not-blocked COLR v1 / SVG-in-OT support.
+  - [x] EM2: renderer-free emoji font discovery + swash proof module.
+        `src/emoji/` discovers Noto Color Emoji via fontconfig or bounded
+        search, records advertised color glyph formats, and shapes
+        representative single, variation-selector, skin-tone, flag, keycap,
+        and ZWJ-family sequences. Host-dependent Noto fixture is ignored when
+        absent; no atlas/GPU path changes yet.
+  - [ ] EM3: separate RGBA color glyph atlas and shader path.
+  - [ ] EM4: Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 policy.
+  - [ ] EM5: emoji cluster coverage for flags, keycaps, skin tones, and common
+        ZWJ sequences.
+  - [ ] EM6: scalable color font expansion (COLR/CPAL first, SVG-in-OT only
+        from evidence).
 - [ ] Wide-glyph raster quality: double-width (CJK/wide) atlas slot sizing.
   - [x] W1 audit: width-2 glyphs were clipped — a single-cell atlas slot caps
         ink at `cell.width + overflow_margin` (~`cell.width + cell.height/4`),
