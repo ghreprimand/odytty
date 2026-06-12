@@ -232,12 +232,25 @@ pub enum ClipboardRequest {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UnderlineStyle {
+    #[default]
+    None,
+    Straight,
+    Double,
+    Curly,
+    Dotted,
+    Dashed,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct Attrs {
     pub bold: bool,
     pub dim: bool,
     pub italic: bool,
     pub underline: bool,
+    pub underline_style: UnderlineStyle,
+    pub underline_color: Option<Color>,
     pub strikethrough: bool,
     pub inverse: bool,
     pub hidden: bool,
@@ -260,10 +273,36 @@ impl std::fmt::Debug for Attrs {
             .field("hidden", &self.hidden)
             .field("foreground", &self.foreground)
             .field("background", &self.background);
+        match self.effective_underline_style() {
+            UnderlineStyle::None | UnderlineStyle::Straight => {}
+            style => {
+                attrs.field("underline_style", &style);
+            }
+        }
+        if let Some(underline_color) = self.underline_color {
+            attrs.field("underline_color", &underline_color);
+        }
         if let Some(hyperlink) = self.hyperlink {
             attrs.field("hyperlink", &hyperlink);
         }
         attrs.finish()
+    }
+}
+
+impl Attrs {
+    pub fn effective_underline_style(&self) -> UnderlineStyle {
+        if !self.underline {
+            UnderlineStyle::None
+        } else if self.underline_style == UnderlineStyle::None {
+            UnderlineStyle::Straight
+        } else {
+            self.underline_style
+        }
+    }
+
+    pub(crate) fn set_underline_style(&mut self, style: UnderlineStyle) {
+        self.underline = style != UnderlineStyle::None;
+        self.underline_style = style;
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

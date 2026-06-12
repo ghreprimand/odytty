@@ -390,17 +390,48 @@ impl Screen {
     }
 
     pub(super) fn apply_sgr(&mut self, params: &Params) {
-        let codes = sgr_codes(params);
-        let codes = if codes.is_empty() { vec![0] } else { codes };
+        let groups = sgr_params(params);
+        if groups.is_empty() {
+            self.current_attrs = Attrs::default();
+            return;
+        }
+
         let mut index = 0;
 
-        while index < codes.len() {
-            match codes[index] {
+        while index < groups.len() {
+            let group = groups[index];
+            let Some(code) = group.first().copied() else {
+                index += 1;
+                continue;
+            };
+
+            match code {
                 0 => self.current_attrs = Attrs::default(),
                 1 => self.current_attrs.bold = true,
                 2 => self.current_attrs.dim = true,
                 3 => self.current_attrs.italic = true,
-                4 => self.current_attrs.underline = true,
+                4 => match group {
+                    [_] => self
+                        .current_attrs
+                        .set_underline_style(UnderlineStyle::Straight),
+                    [_, 0] => self.current_attrs.set_underline_style(UnderlineStyle::None),
+                    [_, 1] => self
+                        .current_attrs
+                        .set_underline_style(UnderlineStyle::Straight),
+                    [_, 2] => self
+                        .current_attrs
+                        .set_underline_style(UnderlineStyle::Double),
+                    [_, 3] => self
+                        .current_attrs
+                        .set_underline_style(UnderlineStyle::Curly),
+                    [_, 4] => self
+                        .current_attrs
+                        .set_underline_style(UnderlineStyle::Dotted),
+                    [_, 5] => self
+                        .current_attrs
+                        .set_underline_style(UnderlineStyle::Dashed),
+                    _ => {}
+                },
                 7 => self.current_attrs.inverse = true,
                 8 => self.current_attrs.hidden = true,
                 9 => self.current_attrs.strikethrough = true,
@@ -409,34 +440,33 @@ impl Screen {
                     self.current_attrs.dim = false;
                 }
                 23 => self.current_attrs.italic = false,
-                24 => self.current_attrs.underline = false,
+                24 => self.current_attrs.set_underline_style(UnderlineStyle::None),
                 27 => self.current_attrs.inverse = false,
                 28 => self.current_attrs.hidden = false,
                 29 => self.current_attrs.strikethrough = false,
-                30..=37 => {
-                    self.current_attrs.foreground = Color::Indexed((codes[index] - 30) as u8)
-                }
+                30..=37 => self.current_attrs.foreground = Color::Indexed((code - 30) as u8),
                 39 => self.current_attrs.foreground = Color::Default,
-                40..=47 => {
-                    self.current_attrs.background = Color::Indexed((codes[index] - 40) as u8)
-                }
+                40..=47 => self.current_attrs.background = Color::Indexed((code - 40) as u8),
                 49 => self.current_attrs.background = Color::Default,
                 90..=97 => {
-                    self.current_attrs.foreground = Color::Indexed((codes[index] - 90 + 8) as u8);
+                    self.current_attrs.foreground = Color::Indexed((code - 90 + 8) as u8);
                 }
                 100..=107 => {
-                    self.current_attrs.background = Color::Indexed((codes[index] - 100 + 8) as u8);
+                    self.current_attrs.background = Color::Indexed((code - 100 + 8) as u8);
                 }
-                38 | 48 => {
-                    if let Some((color, consumed)) = parse_extended_color(&codes[index..]) {
-                        if codes[index] == 38 {
+                38 | 48 | 58 => {
+                    if let Some((color, consumed)) = parse_extended_color(&groups[index..]) {
+                        if code == 38 {
                             self.current_attrs.foreground = color;
-                        } else {
+                        } else if code == 48 {
                             self.current_attrs.background = color;
+                        } else {
+                            self.current_attrs.underline_color = Some(color);
                         }
                         index += consumed - 1;
                     }
                 }
+                59 => self.current_attrs.underline_color = None,
                 _ => {}
             }
 

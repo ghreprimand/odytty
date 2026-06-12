@@ -61,4 +61,5 @@ pub use types::{
     Attrs, Cell, ClipboardRequest, ClipboardSelection, Color, CursorStyle, Dimensions, DirtyRegion,
     DynamicColors, KeyboardModes, LinkId, MouseButton, MouseEncoding, MouseEventKind,
     MouseModifiers, MouseProtocol, MouseTracking, Position, RgbColor, Snapshot, TerminalModel,
+    UnderlineStyle,
 };

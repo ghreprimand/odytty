@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 — Extended underline styles (US1)
+
+OdyTTY now carries underline style and underline color as owned terminal
+attributes instead of collapsing every underline into a single boolean render
+path.
+
+- **SGR style parsing.** `SGR 4` remains a straight underline and `SGR 24`
+  turns underline off. The colon subparameter forms `4:0` through `4:5` now map
+  to off, straight, double, curly, dotted, and dashed underline respectively;
+  malformed underline subparams are ignored instead of being flattened into
+  plain underline.
+- **Underline color.** `SGR 58` sets underline color through the same extended
+  color parser as foreground/background, with both semicolon and colon forms
+  supported. `SGR 59` clears it, and `SGR 0` / resets return attributes to the
+  default state.
+- **Quad renderer styles.** The existing grid quad path renders straight,
+  double, dotted, dashed, and stepped curly underlines without shader changes.
+  Dotted uses one painted square followed by one square gap; dashed uses six
+  thickness units painted followed by three units of gap. Unset underline color
+  falls back to the effective foreground.
+- **Coverage.** Added core SGR fixtures for the style matrix, malformed
+  subparams, underline color set/reset, and renderer geometry tests for each
+  underline style. Production library/binary checks pass; unit-test execution
+  is currently blocked by a concurrent atlas test signature mismatch outside
+  this packet.
+
+---
+
 ## 2026-06-11 — OSC 52 clipboard and dynamic colors (OSC1)
 
 OdyTTY now owns the clipboard and dynamic-color OSC paths that common shells,

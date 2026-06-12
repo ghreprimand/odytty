@@ -23,7 +23,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::atlas::GlyphBounds;
-use crate::core::{Attrs, Color, CursorStyle, DynamicColors, RgbColor, Snapshot};
+use crate::core::{Attrs, Color, CursorStyle, DynamicColors, RgbColor, Snapshot, UnderlineStyle};
 use crate::text::{self, FontStyle, GlyphAtlas};
 
 /// One vertex of a cell quad. Matches the `VsIn` layout in `cell.wgsl`.
@@ -124,6 +124,121 @@ pub fn underline_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32, baseline: f32)
     let thickness = line_decoration_thickness(cell_h);
     let y = (y0 + baseline + thickness).min(y0 + cell_h - thickness);
     [x0, y, x0 + cell_w, y + thickness]
+}
+
+fn push_segmented_line(
+    out: &mut Vec<Vertex>,
+    rect: [f32; 4],
+    color: [f32; 4],
+    painted: f32,
+    gap: f32,
+) {
+    let [x0, y0, x1, y1] = rect;
+    let painted = painted.max(1.0);
+    let gap = gap.max(1.0);
+    let mut x = x0;
+    while x < x1 {
+        let end = (x + painted).min(x1);
+        if end > x {
+            push_solid_quad(
+                out,
+                SolidQuad {
+                    rect: [x, y0, end, y1],
+                    color,
+                },
+            );
+        }
+        x += painted + gap;
+    }
+}
+
+fn push_double_underline(
+    out: &mut Vec<Vertex>,
+    x0: f32,
+    y0: f32,
+    cell_w: f32,
+    cell_h: f32,
+    baseline: f32,
+    color: [f32; 4],
+) {
+    let lower = underline_rect(x0, y0, cell_w, cell_h, baseline);
+    let thickness = lower[3] - lower[1];
+    let upper_y = (lower[1] - thickness * 2.0).max(y0);
+    push_solid_quad(
+        out,
+        SolidQuad {
+            rect: [lower[0], upper_y, lower[2], upper_y + thickness],
+            color,
+        },
+    );
+    push_solid_quad(out, SolidQuad { rect: lower, color });
+}
+
+fn push_curly_underline(
+    out: &mut Vec<Vertex>,
+    x0: f32,
+    y0: f32,
+    cell_w: f32,
+    cell_h: f32,
+    baseline: f32,
+    color: [f32; 4],
+) {
+    let base = underline_rect(x0, y0, cell_w, cell_h, baseline);
+    let thickness = base[3] - base[1];
+    let step = (thickness * 2.0).max(2.0);
+    let upper_y = (base[1] - thickness).max(y0);
+    let lower_y = (base[1] + thickness).min(y0 + cell_h - thickness);
+    let mut x = base[0];
+    let mut high = true;
+
+    // Curly underline uses a small stepped square-wave approximation. It stays
+    // in the existing solid-quad path while keeping the visual distinct from
+    // straight, dashed, and dotted styles.
+    while x < base[2] {
+        let end = (x + step).min(base[2]);
+        let y = if high { upper_y } else { lower_y };
+        push_solid_quad(
+            out,
+            SolidQuad {
+                rect: [x, y, end, y + thickness],
+                color,
+            },
+        );
+        x = end;
+        high = !high;
+    }
+}
+
+fn push_underline_decoration(
+    out: &mut Vec<Vertex>,
+    style: UnderlineStyle,
+    x0: f32,
+    y0: f32,
+    cell_w: f32,
+    cell_h: f32,
+    baseline: f32,
+    color: [f32; 4],
+) {
+    let rect = underline_rect(x0, y0, cell_w, cell_h, baseline);
+    let thickness = rect[3] - rect[1];
+    match style {
+        UnderlineStyle::None => {}
+        UnderlineStyle::Straight => push_solid_quad(out, SolidQuad { rect, color }),
+        UnderlineStyle::Double => {
+            push_double_underline(out, x0, y0, cell_w, cell_h, baseline, color)
+        }
+        UnderlineStyle::Curly => push_curly_underline(out, x0, y0, cell_w, cell_h, baseline, color),
+        UnderlineStyle::Dotted => {
+            // One painted square, one square gap. The dot size follows line
+            // thickness so small fonts stay crisp.
+            push_segmented_line(out, rect, color, thickness, thickness)
+        }
+        UnderlineStyle::Dashed => {
+            // Six thickness units painted, three units gap. This is long enough
+            // to read as a dash on small cells without spanning whole words.
+            push_segmented_line(out, rect, color, thickness * 6.0, thickness * 3.0)
+        }
+    }
 }
 
 /// Pixel-space strikethrough rectangle for one cell.
@@ -263,13 +378,21 @@ pub fn build_cell_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atla
                 push_glyph_quad(out, x0, y0, bounds, fg);
             }
 
-            if cell.attrs.underline {
-                push_solid_quad(
+            let underline_style = cell.attrs.effective_underline_style();
+            if underline_style != UnderlineStyle::None {
+                let underline_color = cell
+                    .attrs
+                    .underline_color
+                    .map_or(fg, |color| foreground_linear(&snapshot.colors, color));
+                push_underline_decoration(
                     out,
-                    SolidQuad {
-                        rect: underline_rect(x0, y0, cell_w * span, cell_h, baseline),
-                        color: fg,
-                    },
+                    underline_style,
+                    x0,
+                    y0,
+                    cell_w * span,
+                    cell_h,
+                    baseline,
+                    underline_color,
                 );
             }
 
@@ -504,6 +627,28 @@ mod tests {
     fn atlas() -> Option<GlyphAtlas> {
         let font = load_font().ok()?;
         Some(GlyphAtlas::build(&font, 24.0))
+    }
+
+    fn quad_rect(verts: &[Vertex], quad_index: usize) -> [f32; 4] {
+        let start = quad_index * VERTS_PER_QUAD;
+        let quad = &verts[start..start + VERTS_PER_QUAD];
+        let x0 = quad
+            .iter()
+            .map(|vertex| vertex.pos[0])
+            .fold(f32::INFINITY, f32::min);
+        let y0 = quad
+            .iter()
+            .map(|vertex| vertex.pos[1])
+            .fold(f32::INFINITY, f32::min);
+        let x1 = quad
+            .iter()
+            .map(|vertex| vertex.pos[0])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let y1 = quad
+            .iter()
+            .map(|vertex| vertex.pos[1])
+            .fold(f32::NEG_INFINITY, f32::max);
+        [x0, y0, x1, y1]
     }
 
     #[test]
@@ -880,6 +1025,105 @@ mod tests {
             text::foreground_linear(Color::Default),
             "underline uses the effective foreground"
         );
+    }
+
+    #[test]
+    fn underline_color_uses_sgr_58_when_set() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"\x1b[?25l\x1b[58;5;2;4mU");
+        let snapshot = term.snapshot();
+        let verts = build_vertices(&snapshot, &atlas);
+
+        assert_eq!(verts.len(), 3 * VERTS_PER_QUAD);
+        let line = verts[2 * VERTS_PER_QUAD];
+        assert_eq!(
+            line.color,
+            foreground_linear(&snapshot.colors, Color::Indexed(2))
+        );
+    }
+
+    #[test]
+    fn double_underline_appends_two_solid_quads() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"\x1b[?25l\x1b[4:2mD");
+        let verts = build_vertices(&term.snapshot(), &atlas);
+
+        assert_eq!(verts.len(), 4 * VERTS_PER_QUAD);
+        let upper = quad_rect(&verts, 2);
+        let lower = quad_rect(&verts, 3);
+        let expected_lower = underline_rect(
+            0.0,
+            0.0,
+            atlas.cell.width as f32,
+            atlas.cell.height as f32,
+            atlas.cell.baseline as f32,
+        );
+        assert_eq!(lower, expected_lower);
+        assert!(upper[1] < lower[1]);
+        assert_eq!(upper[3] - upper[1], lower[3] - lower[1]);
+    }
+
+    #[test]
+    fn dotted_underline_emits_gapped_dot_quads() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"\x1b[?25l\x1b[4:4mO");
+        let verts = build_vertices(&term.snapshot(), &atlas);
+        let decoration_quads = verts.len() / VERTS_PER_QUAD - 2;
+
+        assert!(decoration_quads >= 2);
+        let first = quad_rect(&verts, 2);
+        let second = quad_rect(&verts, 3);
+        assert!(second[0] > first[2], "dots are separated by a gap");
+        assert_eq!(first[3] - first[1], first[2] - first[0]);
+    }
+
+    #[test]
+    fn dashed_underline_emits_segmented_quads() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+
+        let mut term = Terminal::new(2, 1);
+        term.advance("\x1b[?25l\x1b[4:5m表".as_bytes());
+        let verts = build_vertices(&term.snapshot(), &atlas);
+        let first_dash = quad_rect(&verts, 2);
+
+        assert!(verts.len() > 3 * VERTS_PER_QUAD);
+        assert!(first_dash[2] - first_dash[0] < atlas.cell.width as f32 * 2.0);
+    }
+
+    #[test]
+    fn curly_underline_emits_stepped_quads() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+
+        let mut term = Terminal::new(2, 1);
+        term.advance("\x1b[?25l\x1b[4:3m表".as_bytes());
+        let verts = build_vertices(&term.snapshot(), &atlas);
+        let decoration_quads = verts.len() / VERTS_PER_QUAD - 2;
+
+        assert!(decoration_quads >= 2);
+        let first = quad_rect(&verts, 2);
+        let second = quad_rect(&verts, 3);
+        assert_ne!(first[1], second[1], "curly style alternates y positions");
     }
 
     #[test]

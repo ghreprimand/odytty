@@ -1507,24 +1507,71 @@ fn param_or_one(params: &Params, index: usize) -> usize {
 fn private_mode_params(params: &Params) -> impl Iterator<Item = u16> + '_ {
     params.iter().filter_map(|param| param.first().copied())
 }
-fn sgr_codes(params: &Params) -> Vec<u16> {
+fn is_sgr_private_marker(value: u16) -> bool {
+    value == b'?' as u16 || value == b'>' as u16 || value == b'<' as u16 || value == b'=' as u16
+}
+
+fn sgr_params(params: &Params) -> Vec<&[u16]> {
     params
         .iter()
-        .filter_map(|param| param.first().copied())
-        .filter(|value| ![b'?' as u16, b'>' as u16, b'<' as u16, b'=' as u16].contains(value))
+        .filter(|param| {
+            param
+                .first()
+                .is_some_and(|value| !is_sgr_private_marker(*value))
+        })
         .collect()
 }
-fn parse_extended_color(codes: &[u16]) -> Option<(Color, usize)> {
-    match codes {
-        [_, 5, index, ..] => Some((Color::Indexed((*index).min(255) as u8), 3)),
-        [_, 2, red, green, blue, ..] => Some((
+
+fn clamp_u8(value: u16) -> u8 {
+    value.min(255) as u8
+}
+
+fn parse_colon_extended_color(param: &[u16]) -> Option<Color> {
+    match param {
+        [_, 5, index] => Some(Color::Indexed(clamp_u8(*index))),
+        [_, 2, red, green, blue] => Some(Color::Rgb(
+            clamp_u8(*red),
+            clamp_u8(*green),
+            clamp_u8(*blue),
+        )),
+        // Xterm accepts an optional color-space id in colon truecolor form:
+        // `38:2:<space>:r:g:b`. The parser stores a missing field as zero, so
+        // `38:2::10:20:30` arrives as `[38, 2, 0, 10, 20, 30]`.
+        [_, 2, _color_space, red, green, blue] => Some(Color::Rgb(
+            clamp_u8(*red),
+            clamp_u8(*green),
+            clamp_u8(*blue),
+        )),
+        _ => None,
+    }
+}
+
+fn parse_semicolon_extended_color(params: &[&[u16]]) -> Option<(Color, usize)> {
+    let single = |index: usize| -> Option<u16> {
+        params
+            .get(index)
+            .and_then(|param| (param.len() == 1).then_some(param[0]))
+    };
+
+    match single(1)? {
+        5 => Some((Color::Indexed(clamp_u8(single(2)?)), 3)),
+        2 => Some((
             Color::Rgb(
-                (*red).min(255) as u8,
-                (*green).min(255) as u8,
-                (*blue).min(255) as u8,
+                clamp_u8(single(2)?),
+                clamp_u8(single(3)?),
+                clamp_u8(single(4)?),
             ),
             5,
         )),
         _ => None,
+    }
+}
+
+fn parse_extended_color(params: &[&[u16]]) -> Option<(Color, usize)> {
+    let first = params.first()?;
+    if first.len() > 1 {
+        parse_colon_extended_color(first).map(|color| (color, 1))
+    } else {
+        parse_semicolon_extended_color(params)
     }
 }

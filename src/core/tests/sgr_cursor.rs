@@ -54,6 +54,10 @@ fn sgr_resets_text_attributes_independently() {
     assert!(all.attrs.dim);
     assert!(all.attrs.italic);
     assert!(all.attrs.underline);
+    assert_eq!(
+        all.attrs.effective_underline_style(),
+        UnderlineStyle::Straight
+    );
     assert!(all.attrs.inverse);
     assert!(all.attrs.hidden);
     assert!(all.attrs.strikethrough);
@@ -75,6 +79,120 @@ fn sgr_22_clears_bold_and_dim_together() {
     let reset = terminal.screen().cell(0, 1).unwrap();
     assert!(!reset.attrs.bold);
     assert!(!reset.attrs.dim);
+}
+
+#[test]
+fn sgr_underline_subparams_select_styles() {
+    let cases = [
+        (b"\x1b[4mS".as_slice(), UnderlineStyle::Straight, true),
+        (b"\x1b[4:0mN".as_slice(), UnderlineStyle::None, false),
+        (b"\x1b[4:1mS".as_slice(), UnderlineStyle::Straight, true),
+        (b"\x1b[4:2mD".as_slice(), UnderlineStyle::Double, true),
+        (b"\x1b[4:3mC".as_slice(), UnderlineStyle::Curly, true),
+        (b"\x1b[4:4mO".as_slice(), UnderlineStyle::Dotted, true),
+        (b"\x1b[4:5mA".as_slice(), UnderlineStyle::Dashed, true),
+    ];
+
+    for (input, style, underlined) in cases {
+        let mut terminal = Terminal::new(1, 1);
+        terminal.advance(input);
+        let cell = terminal.screen().cell(0, 0).unwrap();
+        assert_eq!(cell.attrs.underline, underlined, "{input:?}");
+        assert_eq!(cell.attrs.effective_underline_style(), style, "{input:?}");
+    }
+}
+
+#[test]
+fn sgr_underline_subparams_reject_malformed_styles() {
+    let mut terminal = Terminal::new(2, 1);
+
+    terminal.advance(b"\x1b[4:9mA\x1b[4:1:2mB");
+
+    let bad_value = terminal.screen().cell(0, 0).unwrap();
+    let too_many = terminal.screen().cell(0, 1).unwrap();
+    assert!(!bad_value.attrs.underline);
+    assert_eq!(
+        bad_value.attrs.effective_underline_style(),
+        UnderlineStyle::None
+    );
+    assert!(!too_many.attrs.underline);
+    assert_eq!(
+        too_many.attrs.effective_underline_style(),
+        UnderlineStyle::None
+    );
+}
+
+#[test]
+fn sgr_24_turns_underline_off_without_clearing_color() {
+    let mut terminal = Terminal::new(2, 1);
+
+    terminal.advance(b"\x1b[58;5;42;4mA\x1b[24mB");
+
+    let underlined = terminal.screen().cell(0, 0).unwrap();
+    let off = terminal.screen().cell(0, 1).unwrap();
+    assert_eq!(underlined.attrs.underline_color, Some(Color::Indexed(42)));
+    assert_eq!(off.attrs.underline_color, Some(Color::Indexed(42)));
+    assert_eq!(off.attrs.effective_underline_style(), UnderlineStyle::None);
+}
+
+#[test]
+fn sgr_underline_color_supports_semicolon_and_colon_forms() {
+    let mut terminal = Terminal::new(4, 1);
+
+    terminal.advance(
+        b"\x1b[58;5;123;4mA\
+          \x1b[58;2;10;20;30mB\
+          \x1b[58:2::1:2:3mC\
+          \x1b[59mD",
+    );
+
+    let indexed = terminal.screen().cell(0, 0).unwrap();
+    let semicolon_rgb = terminal.screen().cell(0, 1).unwrap();
+    let colon_rgb = terminal.screen().cell(0, 2).unwrap();
+    let reset = terminal.screen().cell(0, 3).unwrap();
+    assert_eq!(indexed.attrs.underline_color, Some(Color::Indexed(123)));
+    assert_eq!(
+        semicolon_rgb.attrs.underline_color,
+        Some(Color::Rgb(10, 20, 30))
+    );
+    assert_eq!(colon_rgb.attrs.underline_color, Some(Color::Rgb(1, 2, 3)));
+    assert_eq!(reset.attrs.underline_color, None);
+}
+
+#[test]
+fn sgr_underline_color_rejects_malformed_subparams() {
+    let mut terminal = Terminal::new(2, 1);
+
+    terminal.advance(b"\x1b[58:9:77;4mA\x1b[58:2:1:2;4mB");
+
+    let bad_mode = terminal.screen().cell(0, 0).unwrap();
+    let short_rgb = terminal.screen().cell(0, 1).unwrap();
+    assert_eq!(bad_mode.attrs.underline_color, None);
+    assert_eq!(short_rgb.attrs.underline_color, None);
+    assert_eq!(
+        bad_mode.attrs.effective_underline_style(),
+        UnderlineStyle::Straight
+    );
+    assert_eq!(
+        short_rgb.attrs.effective_underline_style(),
+        UnderlineStyle::Straight
+    );
+}
+
+#[test]
+fn sgr_reset_clears_underline_style_and_color() {
+    let mut terminal = Terminal::new(2, 1);
+
+    terminal.advance(b"\x1b[58:5:77;4:5mA\x1b[0mB");
+
+    let styled = terminal.screen().cell(0, 0).unwrap();
+    let reset = terminal.screen().cell(0, 1).unwrap();
+    assert_eq!(
+        styled.attrs.effective_underline_style(),
+        UnderlineStyle::Dashed
+    );
+    assert_eq!(styled.attrs.underline_color, Some(Color::Indexed(77)));
+    assert_eq!(reset.attrs, Attrs::default());
 }
 
 #[test]
