@@ -6,8 +6,9 @@ use ab_glyph::FontVec;
 use wgpu::util::DeviceExt;
 
 use crate::core::{CursorStyle, Snapshot};
+use crate::emoji::ColorGlyphAtlas;
 use crate::graphics::{StoredImageId, VisiblePlacement};
-use crate::grid::{self, SolidQuad, Vertex};
+use crate::grid::{self, ColorGlyphRun, ColorGlyphVertex, SolidQuad, Vertex};
 use crate::text::{self, FontStyle, GlyphAtlas, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};
 
@@ -96,6 +97,47 @@ fn create_atlas_texture(
     atlas_texture
 }
 
+fn create_color_atlas_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    atlas: &ColorGlyphAtlas,
+) -> wgpu::Texture {
+    let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("odytty-color-glyph-atlas"),
+        size: wgpu::Extent3d {
+            width: atlas.width,
+            height: atlas.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &atlas_texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &atlas.data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(atlas.width * 4),
+            rows_per_image: Some(atlas.height),
+        },
+        wgpu::Extent3d {
+            width: atlas.width,
+            height: atlas.height,
+            depth_or_array_layers: 1,
+        },
+    );
+    atlas_texture
+}
+
 pub(super) fn effective_subpixel_mode(
     requested: SubpixelMode,
     features: wgpu::Features,
@@ -137,6 +179,21 @@ pub(super) fn blend_state_for_subpixel(mode: SubpixelMode) -> wgpu::BlendState {
     }
 }
 
+pub(super) fn blend_state_for_color_glyphs() -> wgpu::BlendState {
+    wgpu::BlendState {
+        color: wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::One,
+            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+            operation: wgpu::BlendOperation::Add,
+        },
+        alpha: wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::One,
+            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+            operation: wgpu::BlendOperation::Add,
+        },
+    }
+}
+
 fn create_atlas_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
@@ -147,6 +204,34 @@ fn create_atlas_bind_group(
     let atlas_view = atlas_texture.create_view(&wgpu::TextureViewDescriptor::default());
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("odytty-cell-bg"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: viewport_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&atlas_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(atlas_sampler),
+            },
+        ],
+    })
+}
+
+fn create_color_atlas_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    viewport_buf: &wgpu::Buffer,
+    atlas_texture: &wgpu::Texture,
+    atlas_sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    let atlas_view = atlas_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("odytty-color-glyph-bg"),
         layout,
         entries: &[
             wgpu::BindGroupEntry {
@@ -316,6 +401,15 @@ fn create_vertex_buffer(device: &wgpu::Device, capacity_bytes: u64) -> wgpu::Buf
     })
 }
 
+fn create_color_glyph_vertex_buffer(device: &wgpu::Device, capacity_bytes: u64) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("odytty-color-glyph-vertices"),
+        size: capacity_bytes.max(std::mem::size_of::<ColorGlyphVertex>() as u64),
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 fn create_cell_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
@@ -384,6 +478,59 @@ fn create_cell_pipeline(
     })
 }
 
+fn create_color_glyph_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    bind_group_layout: &wgpu::BindGroupLayout,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("odytty-color-glyph-shader"),
+        source: wgpu::ShaderSource::Wgsl(COLOR_GLYPH_SHADER.into()),
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("odytty-color-glyph-pl"),
+        bind_group_layouts: &[Some(bind_group_layout)],
+        immediate_size: 0,
+    });
+    let vertex_attrs = wgpu::vertex_attr_array![
+        0 => Float32x2, // pos_px
+        1 => Float32x2, // uv
+    ];
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("odytty-color-glyph-pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<ColorGlyphVertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &vertex_attrs,
+            }],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(blend_state_for_color_glyphs()),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
 pub(super) struct GpuState {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -391,20 +538,28 @@ pub(super) struct GpuState {
     enabled_features: wgpu::Features,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    color_glyph_pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
+    color_glyph_bind_group_layout: wgpu::BindGroupLayout,
+    color_glyph_bind_group: wgpu::BindGroup,
     viewport_buf: wgpu::Buffer,
     vertex_buf: wgpu::Buffer,
     vertex_buf_capacity_bytes: u64,
+    color_glyph_vertex_buf: wgpu::Buffer,
+    color_glyph_vertex_buf_capacity_bytes: u64,
     vertices: Vec<Vertex>,
     cursor_vertices: Vec<Vertex>,
+    color_glyph_vertices: Vec<ColorGlyphVertex>,
     vertex_count: u32,
     cell_vertex_count: u32,
     background_vertex_count: u32,
+    color_glyph_vertex_count: u32,
     image_layer: ImageLayer,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
     pub(super) atlas: GlyphAtlas,
+    color_glyph_atlas: ColorGlyphAtlas,
     /// Fonts used to populate the atlas dynamic region for regular and styled
     /// glyphs. Missing style faces intentionally fall back to the regular font.
     fonts: StyleFonts,
@@ -444,6 +599,8 @@ pub(super) struct GpuState {
     // Kept alive for the lifetime of the bind group; never read directly.
     atlas_texture: wgpu::Texture,
     atlas_sampler: wgpu::Sampler,
+    color_glyph_atlas_texture: wgpu::Texture,
+    color_glyph_atlas_sampler: wgpu::Sampler,
 }
 
 impl GpuState {
@@ -594,11 +751,65 @@ impl GpuState {
             &atlas_texture,
             &atlas_sampler,
         );
+        let color_glyph_atlas = ColorGlyphAtlas::new(atlas.cell);
+        let color_glyph_atlas_texture =
+            create_color_atlas_texture(&device, &queue, &color_glyph_atlas);
+        let color_glyph_atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("odytty-color-glyph-atlas-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+        let color_glyph_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("odytty-color-glyph-bgl"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        let color_glyph_bind_group = create_color_atlas_bind_group(
+            &device,
+            &color_glyph_bind_group_layout,
+            &viewport_buf,
+            &color_glyph_atlas_texture,
+            &color_glyph_atlas_sampler,
+        );
         let _ = atlas.take_dirty();
         let image_layer = ImageLayer::new(&device, config.format);
 
         // --- Render pipeline from the shared cell shader.
         let pipeline = create_cell_pipeline(&device, config.format, &bind_group_layout, subpixel);
+        let color_glyph_pipeline =
+            create_color_glyph_pipeline(&device, config.format, &color_glyph_bind_group_layout);
 
         // Build the first vertex buffer from the initial (blank) snapshot. Live
         // PTY output replaces this content via `update_from_snapshot` as the
@@ -615,6 +826,9 @@ impl GpuState {
         if vertex_count > 0 {
             queue.write_buffer(&vertex_buf, 0, bytemuck::cast_slice(&vertices));
         }
+        let color_glyph_vertex_buf_capacity_bytes = std::mem::size_of::<ColorGlyphVertex>() as u64;
+        let color_glyph_vertex_buf =
+            create_color_glyph_vertex_buffer(&device, color_glyph_vertex_buf_capacity_bytes);
 
         Ok(Self {
             surface,
@@ -623,18 +837,26 @@ impl GpuState {
             enabled_features,
             config,
             pipeline,
+            color_glyph_pipeline,
             bind_group_layout,
             bind_group,
+            color_glyph_bind_group_layout,
+            color_glyph_bind_group,
             viewport_buf,
             vertex_buf,
             vertex_buf_capacity_bytes,
+            color_glyph_vertex_buf,
+            color_glyph_vertex_buf_capacity_bytes,
             vertices,
             cursor_vertices: Vec::new(),
+            color_glyph_vertices: Vec::new(),
             vertex_count,
             cell_vertex_count,
             background_vertex_count,
+            color_glyph_vertex_count: 0,
             image_layer,
             atlas,
+            color_glyph_atlas,
             fonts,
             font_size_px: options.font_size_px,
             scale,
@@ -648,6 +870,8 @@ impl GpuState {
             font_family: options.font_family.clone(),
             atlas_texture,
             atlas_sampler,
+            color_glyph_atlas_texture,
+            color_glyph_atlas_sampler,
         })
     }
 
@@ -659,6 +883,18 @@ impl GpuState {
             &self.viewport_buf,
             &self.atlas_texture,
             &self.atlas_sampler,
+        );
+    }
+
+    fn refresh_color_glyph_atlas_texture(&mut self) {
+        self.color_glyph_atlas_texture =
+            create_color_atlas_texture(&self.device, &self.queue, &self.color_glyph_atlas);
+        self.color_glyph_bind_group = create_color_atlas_bind_group(
+            &self.device,
+            &self.color_glyph_bind_group_layout,
+            &self.viewport_buf,
+            &self.color_glyph_atlas_texture,
+            &self.color_glyph_atlas_sampler,
         );
     }
 
@@ -674,6 +910,8 @@ impl GpuState {
         let _ = atlas.take_dirty();
         self.atlas = atlas;
         self.refresh_atlas_texture();
+        self.color_glyph_atlas = ColorGlyphAtlas::new(self.atlas.cell);
+        self.refresh_color_glyph_atlas_texture();
     }
 
     /// The current per-cell pixel metrics. These change when the atlas is
@@ -845,6 +1083,7 @@ impl GpuState {
         if self.atlas.take_dirty() {
             self.refresh_atlas_texture();
         }
+        self.rebuild_color_glyph_segment(snapshot, &[]);
         grid::build_cell_vertices_into(&mut self.vertices, snapshot, &self.atlas);
         self.cell_vertex_count = self.vertices.len() as u32;
         grid::append_cursor_vertices(&mut self.vertices, snapshot, &self.atlas, cursor_style);
@@ -863,6 +1102,35 @@ impl GpuState {
         if self.vertex_count > 0 {
             self.queue
                 .write_buffer(&self.vertex_buf, 0, bytemuck::cast_slice(&self.vertices));
+        }
+    }
+
+    fn rebuild_color_glyph_segment(&mut self, snapshot: &Snapshot, runs: &[ColorGlyphRun]) {
+        if self.color_glyph_atlas.take_dirty() {
+            self.refresh_color_glyph_atlas_texture();
+        }
+        grid::build_color_glyph_vertices_into(
+            &mut self.color_glyph_vertices,
+            snapshot,
+            &self.color_glyph_atlas,
+            runs,
+        );
+        self.color_glyph_vertex_count = self.color_glyph_vertices.len() as u32;
+
+        let needed = std::mem::size_of_val(self.color_glyph_vertices.as_slice()) as u64;
+        if needed > self.color_glyph_vertex_buf_capacity_bytes {
+            self.color_glyph_vertex_buf_capacity_bytes = needed.next_power_of_two();
+            self.color_glyph_vertex_buf = create_color_glyph_vertex_buffer(
+                &self.device,
+                self.color_glyph_vertex_buf_capacity_bytes,
+            );
+        }
+        if !self.color_glyph_vertices.is_empty() {
+            self.queue.write_buffer(
+                &self.color_glyph_vertex_buf,
+                0,
+                bytemuck::cast_slice(&self.color_glyph_vertices),
+            );
         }
     }
 
@@ -997,10 +1265,12 @@ impl GpuState {
             });
             if self.vertex_count > 0 {
                 let background_count = self.background_vertex_count.min(self.vertex_count);
+                let cell_count = self.cell_vertex_count.min(self.vertex_count);
                 // Canonical Kitty render order: background cell quads ->
-                // negative-z images -> glyphs -> non-negative-z images. The
-                // image layer binds its own pipeline/buffer, so the text
-                // pipeline is re-bound before each glyph-quad segment.
+                // negative-z images -> coverage glyphs/decorations -> color
+                // glyphs -> cursor/overlays -> non-negative-z images. The image
+                // and color-glyph layers bind their own pipelines/buffers, so
+                // the text pipeline is re-bound before each cell-vertex segment.
                 pass.set_pipeline(&self.pipeline);
                 pass.set_bind_group(0, &self.bind_group, &[]);
                 pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
@@ -1008,11 +1278,23 @@ impl GpuState {
                     pass.draw(0..background_count, 0..1);
                 }
                 self.image_layer.draw_below(&mut pass);
-                if background_count < self.vertex_count {
+                if background_count < cell_count {
                     pass.set_pipeline(&self.pipeline);
                     pass.set_bind_group(0, &self.bind_group, &[]);
                     pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-                    pass.draw(background_count..self.vertex_count, 0..1);
+                    pass.draw(background_count..cell_count, 0..1);
+                }
+                if self.color_glyph_vertex_count > 0 {
+                    pass.set_pipeline(&self.color_glyph_pipeline);
+                    pass.set_bind_group(0, &self.color_glyph_bind_group, &[]);
+                    pass.set_vertex_buffer(0, self.color_glyph_vertex_buf.slice(..));
+                    pass.draw(0..self.color_glyph_vertex_count, 0..1);
+                }
+                if cell_count < self.vertex_count {
+                    pass.set_pipeline(&self.pipeline);
+                    pass.set_bind_group(0, &self.bind_group, &[]);
+                    pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+                    pass.draw(cell_count..self.vertex_count, 0..1);
                 }
                 self.image_layer.draw_above(&mut pass);
             }
@@ -1027,6 +1309,48 @@ impl GpuState {
         }
     }
 }
+
+const COLOR_GLYPH_SHADER: &str = r#"
+struct Viewport {
+    size: vec2<f32>,
+    effect: vec2<f32>,
+    text: vec4<f32>,
+};
+
+@group(0) @binding(0)
+var<uniform> viewport: Viewport;
+@group(0) @binding(1)
+var color_glyph_tex: texture_2d<f32>;
+@group(0) @binding(2)
+var color_glyph_sampler: sampler;
+
+struct VsIn {
+    @location(0) pos_px: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+};
+
+struct VsOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_main(input: VsIn) -> VsOut {
+    var out: VsOut;
+    let ndc = vec2<f32>(
+        (input.pos_px.x / viewport.size.x) * 2.0 - 1.0,
+        1.0 - (input.pos_px.y / viewport.size.y) * 2.0,
+    );
+    out.pos = vec4<f32>(ndc, 0.0, 1.0);
+    out.uv = input.uv;
+    return out;
+}
+
+@fragment
+fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
+    return textureSample(color_glyph_tex, color_glyph_sampler, input.uv);
+}
+"#;
 
 /// What the event loop should do after a frame attempt.
 pub(super) enum FrameOutcome {

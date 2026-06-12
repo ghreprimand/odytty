@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 -- Color glyph atlas and RGBA draw segment (EM3)
+
+Landed the first renderer-side color emoji foundation without decoding real
+emoji fonts yet.
+
+- **Separate atlas.** `src/emoji/` now exposes a `ColorGlyphAtlas` for
+  premultiplied `Rgba8Unorm` source pixels. Entries are keyed by shaped font /
+  glyph-or-cluster identity plus physical size and scale, never by `char`, so
+  EM4 can plug in swash shaping without changing the renderer seam.
+- **Dedicated draw segment.** Native owns a separate RGBA texture, vertex
+  buffer, shader, and premultiplied-alpha blend state. The render order is now
+  backgrounds -> below images -> coverage glyphs/decorations -> color glyphs ->
+  cursor/overlays -> above images.
+- **Synthetic proof only.** No color font rasterization is live yet. The segment
+  is structurally integrated and currently empty until EM4 supplies shaped runs.
+  Tests use synthetic RGBA glyphs to prove UV bookkeeping, dirty revision,
+  premultiplied validation, z-order, and the 2-cell wide lead contract.
+- **Selection policy.** Selection/search backgrounds are painted before the
+  color-glyph segment, so emoji pixels are not SGR-tinted or recolored; opaque
+  emoji pixels remain unchanged while transparent edges blend over the selected
+  background.
+
 ## 2026-06-12 -- Pack Attrs bools into a u16, shrink the cell (PERF1b)
 
 Acted on the PERF1 finding that B3's -23% `seq` regression was driven by

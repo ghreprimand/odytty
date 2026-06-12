@@ -16,8 +16,9 @@ use super::clipboard::{
     ClipboardSlot, encode_paste_chunks, flatten_chunks, selected_clipboard_text,
 };
 use super::gpu::{
-    StyleFonts, ViewportUniform, blend_state_for_subpixel, effect_params, effective_subpixel_mode,
-    ensure_snapshot_glyphs, grow_vertex_buffer_capacity, text_params, theme_clear_color,
+    StyleFonts, ViewportUniform, blend_state_for_color_glyphs, blend_state_for_subpixel,
+    effect_params, effective_subpixel_mode, ensure_snapshot_glyphs, grow_vertex_buffer_capacity,
+    text_params, theme_clear_color,
 };
 use super::options::NativeOptions;
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};

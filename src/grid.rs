@@ -24,6 +24,7 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::atlas::GlyphBounds;
 use crate::core::{Attrs, Color, CursorStyle, DynamicColors, RgbColor, Snapshot, UnderlineStyle};
+use crate::emoji::{ColorGlyphAtlas, ColorGlyphKey};
 use crate::text::{self, FontStyle, GlyphAtlas};
 
 /// One vertex of a cell quad. Matches the `VsIn` layout in `cell.wgsl`.
@@ -74,6 +75,33 @@ pub struct SolidQuad {
     pub color: [f32; 4],
 }
 
+/// One vertex of a premultiplied-RGBA color glyph quad.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
+pub struct ColorGlyphVertex {
+    /// Position in physical pixels, origin top-left.
+    pub pos: [f32; 2],
+    /// Color glyph atlas UV coordinates.
+    pub uv: [f32; 2],
+}
+
+impl ColorGlyphVertex {
+    fn new(pos: [f32; 2], uv: [f32; 2]) -> Self {
+        Self { pos, uv }
+    }
+}
+
+/// A shaped color glyph placed on a snapshot lead cell.
+///
+/// The key comes from shaping/rasterization, not from the cell's `char`; EM3
+/// tests supply synthetic keys and EM4 will supply real swash glyph/cluster ids.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ColorGlyphRun {
+    pub row: usize,
+    pub column: usize,
+    pub key: ColorGlyphKey,
+}
+
 /// Push a pixel-space rectangle as two triangles into `out`.
 ///
 /// `rect` is `[x0, y0, x1, y1]` in pixels; `uv` is `[u0, v0, u1, v1]`. For
@@ -93,6 +121,73 @@ fn push_quad(out: &mut Vec<Vertex>, rect: [f32; 4], uv: [f32; 4], color: [f32; 4
 /// Append one solid, non-glyph quad to an existing vertex list.
 pub fn push_solid_quad(out: &mut Vec<Vertex>, quad: SolidQuad) {
     push_quad(out, quad.rect, [0.0, 0.0, 0.0, 0.0], quad.color, 0.0);
+}
+
+fn push_color_glyph_quad(out: &mut Vec<ColorGlyphVertex>, rect: [f32; 4], uv: [f32; 4]) {
+    let [x0, y0, x1, y1] = rect;
+    let [u0, v0, u1, v1] = uv;
+    let tl = ColorGlyphVertex::new([x0, y0], [u0, v0]);
+    let tr = ColorGlyphVertex::new([x1, y0], [u1, v0]);
+    let bl = ColorGlyphVertex::new([x0, y1], [u0, v1]);
+    let br = ColorGlyphVertex::new([x1, y1], [u1, v1]);
+    out.extend_from_slice(&[tl, bl, tr, tr, bl, br]);
+}
+
+/// Build the dedicated color-glyph vertex segment for shaped runs.
+///
+/// Color glyphs draw after coverage glyphs/decorations and before cursor/
+/// overlays. Selection and search backgrounds are therefore already painted
+/// under the unchanged premultiplied RGBA pixels. A 2-cell color glyph emits
+/// exactly one quad from the lead cell; a run pointing at a continuation spacer
+/// emits nothing.
+pub fn build_color_glyph_vertices_into(
+    out: &mut Vec<ColorGlyphVertex>,
+    snapshot: &Snapshot,
+    atlas: &ColorGlyphAtlas,
+    runs: &[ColorGlyphRun],
+) {
+    out.clear();
+    out.reserve(runs.len() * VERTS_PER_QUAD);
+
+    let cols = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    let cell_w = atlas.cell.width as f32;
+    let cell_h = atlas.cell.height as f32;
+
+    for run in runs {
+        if run.row >= rows || run.column >= cols {
+            continue;
+        }
+        let idx = run.row * cols + run.column;
+        let cell = &snapshot.cells[idx];
+        if cell.wide_continuation || cell.attrs.hidden() {
+            continue;
+        }
+
+        let Some(bounds) = atlas.lookup(run.key) else {
+            continue;
+        };
+        let width_cells = bounds.width_cells as usize;
+        if width_cells == 0 || run.column + width_cells > cols {
+            continue;
+        }
+        if width_cells == 2 && !snapshot.cells[idx + 1].wide_continuation {
+            continue;
+        }
+
+        let x0 = run.column as f32 * cell_w;
+        let y0 = run.row as f32 * cell_h;
+        push_color_glyph_quad(
+            out,
+            [
+                x0,
+                y0,
+                x0 + bounds.pixel_width as f32,
+                y0 + bounds.pixel_height as f32,
+            ],
+            bounds.uv,
+        );
+    }
 }
 
 /// Pick the atlas style requested by terminal attributes.

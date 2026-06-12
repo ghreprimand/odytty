@@ -27,10 +27,11 @@
 
 use odytty::atlas::{CellSize, FontStyle, GlyphAtlas, SubpixelMode};
 use odytty::core::{CursorStyle, Snapshot, Terminal};
+use odytty::emoji::{ColorGlyphAtlas, ColorGlyphId, ColorGlyphKey};
 use odytty::graphics::{
     GraphicsProtocol, ImageScene, PlacementRequest, SourceRect, StoredImageId, VisiblePlacement,
 };
-use odytty::grid::{self, Vertex};
+use odytty::grid::{self, ColorGlyphRun, ColorGlyphVertex, Vertex};
 use odytty::text::{self, foreground_linear};
 
 use ab_glyph::FontVec;
@@ -1009,6 +1010,85 @@ fn composite_image_layer(
     }
 }
 
+fn color_key(id: u32) -> ColorGlyphKey {
+    ColorGlyphKey::new(1, ColorGlyphId::Glyph(id), PX, 1.0)
+}
+
+fn premul_solid(cell: CellSize, width_cells: u8, rgba: [u8; 4]) -> Vec<u8> {
+    let pixels = cell.width as usize * width_cells as usize * cell.height as usize;
+    std::iter::repeat_n(rgba, pixels).flatten().collect()
+}
+
+fn composite_color_glyph_quad(
+    frame: &mut Frame,
+    atlas: &ColorGlyphAtlas,
+    quad: &[ColorGlyphVertex],
+) {
+    let tl = &quad[0];
+    let br = &quad[5];
+    let x0 = tl.pos[0];
+    let y0 = tl.pos[1];
+    let x1 = br.pos[0];
+    let y1 = br.pos[1];
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+
+    let px0 = x0.floor().max(0.0) as usize;
+    let py0 = y0.floor().max(0.0) as usize;
+    let px1 = (x1.ceil() as usize).min(frame.width);
+    let py1 = (y1.ceil() as usize).min(frame.height);
+
+    for py in py0..py1 {
+        let cy = py as f32 + 0.5;
+        if cy < y0 || cy >= y1 {
+            continue;
+        }
+        for px in px0..px1 {
+            let cx = px as f32 + 0.5;
+            if cx < x0 || cx >= x1 {
+                continue;
+            }
+            let fx = (cx - x0) / (x1 - x0);
+            let fy = (cy - y0) / (y1 - y0);
+            let u = tl.uv[0] + fx * (br.uv[0] - tl.uv[0]);
+            let v = tl.uv[1] + fy * (br.uv[1] - tl.uv[1]);
+            let ax = ((u * atlas.width as f32) as i64).clamp(0, atlas.width as i64 - 1) as usize;
+            let ay = ((v * atlas.height as f32) as i64).clamp(0, atlas.height as i64 - 1) as usize;
+            let idx = (ay * atlas.width as usize + ax) * 4;
+            let src = [
+                atlas.data[idx] as f32 / 255.0,
+                atlas.data[idx + 1] as f32 / 255.0,
+                atlas.data[idx + 2] as f32 / 255.0,
+            ];
+            let alpha = atlas.data[idx + 3] as f32 / 255.0;
+            if alpha <= 0.0 {
+                continue;
+            }
+            let dst_idx = py * frame.width + px;
+            let dst = frame.px[dst_idx];
+            frame.px[dst_idx] = [
+                src[0] + dst[0] * (1.0 - alpha),
+                src[1] + dst[1] * (1.0 - alpha),
+                src[2] + dst[2] * (1.0 - alpha),
+            ];
+        }
+    }
+}
+
+fn composite_color_glyphs(
+    frame: &mut Frame,
+    snapshot: &Snapshot,
+    atlas: &ColorGlyphAtlas,
+    runs: &[ColorGlyphRun],
+) {
+    let mut verts = Vec::new();
+    grid::build_color_glyph_vertices_into(&mut verts, snapshot, atlas, runs);
+    for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
+        composite_color_glyph_quad(frame, atlas, quad);
+    }
+}
+
 /// Composite a snapshot AND a graphics scene into a `Frame`, mirroring the GPU
 /// render pass ordering exactly: backgrounds, then negative-z images, then
 /// glyphs/decorations/cursor, then non-negative-z images.
@@ -1057,6 +1137,57 @@ fn composite_scene(
     for &q in &quads[split..] {
         composite_quad(&mut frame, atlas, q);
     }
+    composite_image_layer(&mut frame, scene, &placements, atlas.cell, false);
+
+    frame
+}
+
+/// Composite the V2 graphics path plus EM3's dedicated color-glyph segment:
+/// backgrounds, below-images, coverage glyphs/decorations, color glyphs,
+/// cursor/overlays, then above-images.
+fn composite_scene_with_color_glyphs(
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    scene: &ImageScene,
+    color_atlas: &ColorGlyphAtlas,
+    color_runs: &[ColorGlyphRun],
+    offset_rows: usize,
+    cursor_style: CursorStyle,
+) -> Frame {
+    let cols = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    let cell_w = atlas.cell.width as usize;
+    let cell_h = atlas.cell.height as usize;
+    let width = cols * cell_w;
+    let height = rows * cell_h;
+
+    let mut frame = Frame {
+        width,
+        height,
+        px: vec![default_bg(); width * height],
+        cell_w,
+        cell_h,
+    };
+
+    let mut verts = Vec::new();
+    grid::build_vertices_with_cursor_into(&mut verts, snapshot, atlas, cursor_style);
+    let quads: Vec<&[Vertex]> = verts.chunks_exact(grid::VERTS_PER_QUAD).collect();
+    let bg_quads = snapshot
+        .cells
+        .iter()
+        .filter(|cell| !cell.wide_continuation)
+        .count();
+    let split = bg_quads.min(quads.len());
+    let placements = scene.visible_placements(offset_rows, rows, cols);
+
+    for &q in &quads[..split] {
+        composite_quad(&mut frame, atlas, q);
+    }
+    composite_image_layer(&mut frame, scene, &placements, atlas.cell, true);
+    for &q in &quads[split..] {
+        composite_quad(&mut frame, atlas, q);
+    }
+    composite_color_glyphs(&mut frame, snapshot, color_atlas, color_runs);
     composite_image_layer(&mut frame, scene, &placements, atlas.cell, false);
 
     frame
@@ -1161,6 +1292,124 @@ fn non_negative_z_image_overdraws_glyph_ink() {
             );
         }
     }
+}
+
+#[test]
+fn color_glyph_segment_sits_between_coverage_text_and_above_images() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let snapshot = row_snapshot(1, "H");
+    let mut scene = ImageScene::default();
+    let mut color_atlas = ColorGlyphAtlas::new(atlas.cell);
+    let key = color_key(10);
+    let red = [1.0, 0.0, 0.0];
+    let blue = [0, 0, 255, 255];
+    color_atlas
+        .insert_premultiplied(key, 1, &premul_solid(atlas.cell, 1, [255, 0, 0, 255]))
+        .expect("insert synthetic color glyph");
+
+    let red_frame = composite_scene_with_color_glyphs(
+        &snapshot,
+        &atlas,
+        &scene,
+        &color_atlas,
+        &[ColorGlyphRun {
+            row: 0,
+            column: 0,
+            key,
+        }],
+        0,
+        CursorStyle::Block,
+    );
+    let (x0, y0, x1, y1) = red_frame.cell_bounds(0, 0);
+    for y in y0..y1 {
+        for x in x0..x1 {
+            assert_eq!(
+                quant3(red_frame.pixel(x, y)),
+                quant3(red),
+                "opaque color glyph should overdraw coverage text at ({x},{y})"
+            );
+        }
+    }
+
+    let id = insert_solid(&mut scene, atlas.cell.width, atlas.cell.height, blue);
+    scene.place(PlacementRequest::new(id, GraphicsProtocol::Kitty, 0, 0, 1, 1).with_z_index(0));
+    let blue_frame = composite_scene_with_color_glyphs(
+        &snapshot,
+        &atlas,
+        &scene,
+        &color_atlas,
+        &[ColorGlyphRun {
+            row: 0,
+            column: 0,
+            key,
+        }],
+        0,
+        CursorStyle::Block,
+    );
+    for y in y0..y1 {
+        for x in x0..x1 {
+            assert_eq!(
+                quant3(blue_frame.pixel(x, y)),
+                [0, 0, 255],
+                "z>=0 image should overdraw the color glyph at ({x},{y})"
+            );
+        }
+    }
+}
+
+#[test]
+fn wide_color_glyph_lead_emits_one_two_cell_quad() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut term = Terminal::new(3, 1);
+    term.advance(b"\x1b[?25l");
+    term.advance("🔥X".as_bytes());
+    let snapshot = term.snapshot();
+    assert!(
+        snapshot.cells[1].wide_continuation,
+        "fixture emoji should occupy a wide lead plus continuation"
+    );
+
+    let mut color_atlas = ColorGlyphAtlas::new(atlas.cell);
+    let key = color_key(11);
+    color_atlas
+        .insert_premultiplied(key, 2, &premul_solid(atlas.cell, 2, [0, 180, 60, 255]))
+        .expect("insert wide synthetic color glyph");
+
+    let mut verts = Vec::new();
+    grid::build_color_glyph_vertices_into(
+        &mut verts,
+        &snapshot,
+        &color_atlas,
+        &[
+            ColorGlyphRun {
+                row: 0,
+                column: 0,
+                key,
+            },
+            ColorGlyphRun {
+                row: 0,
+                column: 1,
+                key,
+            },
+        ],
+    );
+
+    assert_eq!(
+        verts.len(),
+        grid::VERTS_PER_QUAD,
+        "wide lead emits one quad; continuation run emits nothing"
+    );
+    assert_eq!(verts[0].pos, [0.0, 0.0]);
+    assert_eq!(
+        verts[5].pos,
+        [atlas.cell.width as f32 * 2.0, atlas.cell.height as f32]
+    );
 }
 
 #[test]

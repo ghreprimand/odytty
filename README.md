@@ -23,11 +23,13 @@ and shaders are entirely OdyTTY-owned. External crates are intentional
 below-product-line tools — `ab_glyph` (font rasterization for normal text),
 `swash` (emoji shaping/rasterization and color-font probe; normal text remains on
 `ab_glyph`), `wgpu` (GPU API), `winit` (windowing), `arboard` (clipboard),
-`unicode-width` — and do not own terminal semantics. The emoji discovery probe
-(`src/emoji/`) is renderer-free: it calls `fc-match` directly for Noto Color
-Emoji, falls back to a bounded filesystem scan (depth 6, 20 000-file cap) when
-fontconfig is absent or returns a non-matching font, and returns `None` cleanly
-when Noto Color Emoji is not installed so the rest of the stack is not affected.
+`unicode-width` — and do not own terminal semantics. The EM2 emoji discovery
+helpers call `fc-match` directly for Noto Color Emoji, fall back to a bounded
+filesystem scan (depth 6, 20 000-file cap) when fontconfig is absent or returns
+a non-matching font, and return `None` cleanly when Noto Color Emoji is not
+installed so the rest of the stack is not affected. The EM3 color-glyph atlas is
+OdyTTY-owned renderer plumbing; real emoji font rasterization remains delegated
+to `swash` in the next packet.
 
 **Terminal compatibility.** Sequences confirmed across the fixture suite: SGR
 (all standard attributes, 256-color, truecolor; colon-form `38:2::r:g:b` and

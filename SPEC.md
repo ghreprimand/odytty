@@ -457,9 +457,9 @@ are deferred but architecturally permitted; the boundary rule (rasterization
 external, placement owned) applies to those paths as well. Implementation
 ladder EM2–EM6 is tracked in `TODO.md`.
 
-**EM2 (delivered).** `src/emoji/` is a renderer-free probe module — it imports
-no atlas, GPU, shader, or core terminal code. Discovery runs in two stages.
-First, `fc-match -f '%{file}\n%{family}' 'Noto Color Emoji'` is invoked
+**EM2 (delivered).** The first `src/emoji/` packet was a renderer-free probe
+module: no atlas, GPU, shader, or core terminal code. Discovery runs in two
+stages. First, `fc-match -f '%{file}\n%{family}' 'Noto Color Emoji'` is invoked
 directly; the returned path and family string are checked against a strict
 identity predicate (normalized filename or family must contain `notocoloremoji`),
 so generic fontconfig substitution fonts are rejected. If fontconfig is
@@ -470,10 +470,22 @@ filename stem. When no Noto Color Emoji is found, the module returns `None` and
 all downstream code skips the emoji path without error. On a successful find,
 the module loads the face as a borrowed `swash::FontRef` and probes: detected
 color-table set (CBDT/CBLC, sbix, COLR/CPAL, SVG), OpenType family name string,
-and per representative-sequence records — shaped glyph ids, cluster structure
+and per representative-sequence records: shaped glyph ids, cluster structure
 (source byte range, advance, ligature/complex flags), and per-sequence fallback
 outcome (`Resolved` when any shaped glyph id is non-zero, `MissingGlyph`
 otherwise). Default tests are hermetic (temp-dir filename discovery, fixed
 sequence list, non-color format detection for a monospace outline font). The
 host-dependent full probe is `#[ignore]`-gated and runs via
 `cargo test emoji -- --ignored`; it exits cleanly when the font is absent.
+
+**EM3 (delivered).** `src/emoji/color_atlas.rs` adds the OdyTTY-owned
+`ColorGlyphAtlas`: a grow-only `Rgba8Unorm` atlas for premultiplied source
+pixels, keyed by `(font identity, glyph-or-cluster id, physical px size,
+scale)` rather than by character. Slots span one or two terminal cells; wide
+color glyphs draw once from the lead cell and continuation cells emit nothing.
+The native renderer owns a dedicated color-glyph texture, vertex buffer, WGSL
+shader, and premultiplied-alpha blend state. The segment currently receives no
+live runs until EM4 supplies decoded swash glyphs, but synthetic tests pin the
+atlas bookkeeping, UVs, dirty revision, pass ordering, and wide-cell contract.
+Selection/search backgrounds render under color glyphs; OdyTTY does not tint or
+recolor source emoji pixels with SGR foreground colors.

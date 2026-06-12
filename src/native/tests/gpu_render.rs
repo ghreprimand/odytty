@@ -62,6 +62,14 @@ fn subpixel_blend_uses_second_source_for_rgb_weights() {
 }
 
 #[test]
+fn color_glyph_blend_uses_premultiplied_source_alpha() {
+    let blend = blend_state_for_color_glyphs();
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::One);
+    assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
+    assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::One);
+}
+
+#[test]
 fn cell_metrics_scale_with_font_size() {
     let options = NativeOptions {
         font_size_px: 20.0,

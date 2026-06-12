@@ -114,6 +114,12 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
 - [x] Add mouse reporting modes required by real TUIs.
   - [x] Core: DECSET/DECRST tracking (9/1000/1002/1003) and encoding
         (1005/1006/1015) state plus pure report encoders.
+  - [x] MS1: SGR-pixel mode 1016 core half — DECSET/DECRST 1016 selects the
+        `SgrPixel` encoding on the single-active axis, DECRQM reports it
+        set/reset, and a pure `encode_mouse_event_pixel` seam emits
+        `CSI < Cb ; Px ; Py M|m` from caller-owned 1-based pixel coordinates
+        (core never derives pixels from cells; the native pixel seam is a
+        follow-up packet).
   - [x] Native: route press/release/motion/wheel events through the active mouse
         protocol, with Shift reserved for local selection/scrollback.
   - [x] Core: any-event (1003) no-button hover motion encoding (legacy/SGR/
@@ -123,8 +129,8 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         focus-in/out reports to the PTY when 1004 is enabled.
   - [x] MP1: hermetic integration coverage inventories mouse modes
         9/1000/1002/1003/1004/1005/1006/1015/1016, pins exact report bytes
-        across legacy/UTF-8/SGR/urxvt encodings, and records 1016 SGR-pixel as
-        the remaining parity gap.
+        across legacy/UTF-8/SGR/urxvt encodings, and identified 1016 SGR-pixel
+        as the parity gap closed core-side by MS1.
 - [x] Harden alternate-screen behavior with editors, pagers, and full-screen
       apps.
   - [x] PTY smoke: real `less` and `vim` enter alternate screen, accept basic
@@ -384,7 +390,11 @@ a floor; surpassing it is the standing ambition.
         representative single, variation-selector, skin-tone, flag, keycap,
         and ZWJ-family sequences. Host-dependent Noto fixture is ignored when
         absent; no atlas/GPU path changes yet.
-  - [ ] EM3: separate RGBA color glyph atlas and shader path.
+  - [x] EM3: separate RGBA color glyph atlas and shader path.
+        `ColorGlyphAtlas` stores premultiplied synthetic RGBA glyphs keyed by
+        shaped font/glyph-or-cluster identity, and native now has a dedicated
+        color-glyph pass ordered after coverage glyphs/decorations and before
+        cursor/overlays. Real color font decoding remains EM4.
   - [ ] EM4: Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 policy.
   - [ ] EM5: emoji cluster coverage for flags, keycaps, skin tones, and common
         ZWJ sequences.

@@ -1,8 +1,11 @@
-//! Color emoji discovery and swash proof-of-capability helpers.
+//! Color emoji discovery, swash proof-of-capability helpers, and atlas plumbing.
 //!
-//! This module is intentionally renderer-free. It answers whether a host has a
-//! usable emoji face, which color font formats the face exposes, and how swash
-//! shapes representative emoji sequences. EM3 owns atlas and draw-path wiring.
+//! The EM2 probe surface answers whether a host has a usable emoji face, which
+//! color font formats the face exposes, and how swash shapes representative
+//! emoji sequences. EM3 adds the OdyTTY-owned premultiplied RGBA atlas contract;
+//! real color font decoding still lands later.
+
+mod color_atlas;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -11,6 +14,10 @@ use swash::scale::ScaleContext;
 use swash::shape::{Direction, ShapeContext};
 use swash::text::Script;
 use swash::{CacheKey, FontRef, GlyphId, StringId, tag_from_bytes};
+
+pub use color_atlas::{
+    ColorGlyphAtlas, ColorGlyphAtlasError, ColorGlyphBounds, ColorGlyphId, ColorGlyphKey,
+};
 
 const NOTO_COLOR_EMOJI: &str = "Noto Color Emoji";
 const EMOJI_PROBE_SIZE: f32 = 128.0;
