@@ -49,6 +49,13 @@ struct BenchProfile {
     geometry_ops: usize,
     deep_resize_ops: usize,
     shallow_resize_ops: usize,
+    /// B3 rectangle-surface workloads: DECFRA full-screen fills, DECCRA
+    /// overlapping copies, DECSERA mixed-protection erases, and an SGR storm
+    /// using colon subparameters (the US1 extended-underline parse path).
+    rect_fill_ops: usize,
+    rect_copy_ops: usize,
+    rect_serase_ops: usize,
+    sgr_subparam_lines: usize,
 }
 
 impl BenchProfile {
@@ -74,6 +81,10 @@ impl BenchProfile {
             geometry_ops: 2_000,
             deep_resize_ops: 20,
             shallow_resize_ops: 1_000,
+            rect_fill_ops: 2_000,
+            rect_copy_ops: 2_000,
+            rect_serase_ops: 2_000,
+            sgr_subparam_lines: 2_000,
         }
     }
 
@@ -91,6 +102,10 @@ impl BenchProfile {
             geometry_ops: 500,
             deep_resize_ops: 6,
             shallow_resize_ops: 250,
+            rect_fill_ops: 400,
+            rect_copy_ops: 400,
+            rect_serase_ops: 400,
+            sgr_subparam_lines: 400,
         }
     }
 
@@ -108,6 +123,10 @@ impl BenchProfile {
             geometry_ops: 5_000,
             deep_resize_ops: 40,
             shallow_resize_ops: 2_000,
+            rect_fill_ops: 20_000,
+            rect_copy_ops: 20_000,
+            rect_serase_ops: 20_000,
+            sgr_subparam_lines: 20_000,
         }
     }
 }
@@ -265,6 +284,103 @@ fn gen_full_repaint(frames: usize) -> Vec<u8> {
     s.into_bytes()
 }
 
+/// DECFRA full-screen fill (`CSI Pch;Pt;Pl;Pb;Pr $ x`) repeated `ops` times,
+/// rotating the fill character so each op writes every cell of the 80×24 page.
+/// Exercises the rectangle fill path and the per-cell write cost (including the
+/// grown `Cell`/`Attrs`) at full-page scale.
+fn gen_rect_fill(ops: usize) -> Vec<u8> {
+    let mut s = String::new();
+    for i in 0..ops {
+        let ch = b'A' + (i % 26) as u8;
+        s.push_str("\x1b[");
+        s.push_str(itoa(ch as usize).as_str());
+        s.push_str(";1;1;");
+        s.push_str(itoa(ROWS).as_str());
+        s.push(';');
+        s.push_str(itoa(COLS).as_str());
+        s.push_str("$x");
+    }
+    s.into_bytes()
+}
+
+/// DECCRA overlapping copy (`CSI Pt;Pl;Pb;Pr;Pp;Pdt;Pdl;Pdp $ v`) repeated
+/// `ops` times. The source and destination rectangles overlap horizontally, so
+/// the overlap-safe snapshot-copy path runs every iteration. A one-time seed
+/// fills the page first so the copies move real content.
+fn gen_rect_copy(ops: usize) -> Vec<u8> {
+    let mut s = String::new();
+    // Seed: fill the whole page once (DECFRA 'X').
+    s.push_str("\x1b[");
+    s.push_str(itoa(b'X' as usize).as_str());
+    s.push_str(";1;1;");
+    s.push_str(itoa(ROWS).as_str());
+    s.push(';');
+    s.push_str(itoa(COLS).as_str());
+    s.push_str("$x");
+    // Copy src cols 1..=40 over all rows to a dest starting at col 20 (overlap).
+    let src = format!("1;1;{ROWS};40;1;");
+    for _ in 0..ops {
+        s.push_str("\x1b[");
+        s.push_str(&src);
+        s.push_str("1;20;1$v");
+    }
+    s.into_bytes()
+}
+
+/// DECSERA mixed-protection erase repeated `ops` times. Each iteration marks the
+/// whole page protected (DECSCA + DECFRA), punches an unprotected sub-rectangle,
+/// then DECSERA-erases the page — so the protection-aware selective erase walks
+/// a mixed protection matrix every time.
+fn gen_rect_serase(ops: usize) -> Vec<u8> {
+    let mut s = String::new();
+    let full = format!("1;1;{ROWS};{COLS}");
+    for _ in 0..ops {
+        // Protect on, fill page protected.
+        s.push_str("\x1b[1\"q\x1b[");
+        s.push_str(itoa(b'P' as usize).as_str());
+        s.push(';');
+        s.push_str(&full);
+        s.push_str("$x");
+        // Protect off, fill an inner rectangle unprotected.
+        s.push_str("\x1b[0\"q\x1b[");
+        s.push_str(itoa(b'u' as usize).as_str());
+        s.push_str(";6;20;18;60$x");
+        // Selectively erase the whole page (only the unprotected inner clears).
+        s.push_str("\x1b[");
+        s.push_str(&full);
+        s.push_str("${");
+    }
+    s.into_bytes()
+}
+
+/// SGR storm using colon subparameters: every cell is preceded by an extended
+/// underline style (`4:3`) and a colon-form underline color (`58:2:r:g:b`),
+/// exercising the US1 subparam parse path that the semicolon-only `heavy sgr`
+/// bench does not reach.
+fn gen_sgr_subparam(lines: usize) -> Vec<u8> {
+    let mut s = String::new();
+    for row in 0..lines {
+        for col in 0..COLS {
+            let r = ((row + col) % 256) as u8;
+            let g = ((row * 3 + col) % 256) as u8;
+            let b = ((row + col * 7) % 256) as u8;
+            // 4:<style> extended underline, then 58:2:r:g:b colon underline color.
+            s.push_str("\x1b[4:");
+            s.push_str(itoa((1 + (row + col) % 5) as usize).as_str());
+            s.push_str(";58:2:");
+            s.push_str(itoa(r as usize).as_str());
+            s.push(':');
+            s.push_str(itoa(g as usize).as_str());
+            s.push(':');
+            s.push_str(itoa(b as usize).as_str());
+            s.push('m');
+            s.push((b'A' + ((row + col) % 26) as u8) as char);
+        }
+        s.push_str("\x1b[0m\r\n");
+    }
+    s.into_bytes()
+}
+
 // --- Benchmarks -------------------------------------------------------------
 
 /// Feed `bytes` into a fresh terminal in realistic 64 KiB chunks.
@@ -358,6 +474,17 @@ fn main() {
         profile.name, profile.runs,
     );
 
+    // Struct-size diagnostic (B3): the per-cell footprint sets the floor for
+    // scroll/fill/copy memory traffic. `Attrs` grew after B2 (US1 added
+    // underline style + colon underline color + blink; cells carry DECSCA
+    // protection), so this row documents the size that backs the scroll-heavy
+    // `seq` watch row.
+    println!(
+        "struct sizes: Cell {} B, Attrs {} B (size_of)\n",
+        std::mem::size_of::<odytty::core::Cell>(),
+        std::mem::size_of::<odytty::core::Attrs>(),
+    );
+
     if !geometry_only {
         println!("== Feed throughput (parse + model update) ==");
 
@@ -430,6 +557,38 @@ fn main() {
         start_row(&parser_repaint_name);
         let d = best_of(profile.runs, || parser_feed_all(black_box(&repaint)));
         report_feed(&parser_repaint_name, repaint.len(), d);
+
+        // ---- Rectangle / protection surface throughput (B3) ----
+        //
+        // RC1/RC2 added DECFRA/DECCRA/DECERA/DECSERA and the DECSCA protection
+        // matrix; US1 added colon-subparam SGR. These rows exercise those paths
+        // at full-page scale so future regressions in the rectangle ops or the
+        // extended-SGR parser are visible against a recorded baseline.
+        println!("\n== Rectangle / protection / extended-SGR throughput (B3) ==");
+
+        let fill_name = format!("decfra fill {} ops", profile.rect_fill_ops);
+        let fill = gen_rect_fill(profile.rect_fill_ops);
+        start_row(&fill_name);
+        let d = best_of(profile.runs, || feed_all(black_box(&fill)));
+        report_feed(&fill_name, fill.len(), d);
+
+        let copy_name = format!("deccra copy {} ops", profile.rect_copy_ops);
+        let copy = gen_rect_copy(profile.rect_copy_ops);
+        start_row(&copy_name);
+        let d = best_of(profile.runs, || feed_all(black_box(&copy)));
+        report_feed(&copy_name, copy.len(), d);
+
+        let serase_name = format!("decsera mixed-prot {} ops", profile.rect_serase_ops);
+        let serase = gen_rect_serase(profile.rect_serase_ops);
+        start_row(&serase_name);
+        let d = best_of(profile.runs, || feed_all(black_box(&serase)));
+        report_feed(&serase_name, serase.len(), d);
+
+        let sub_name = format!("sgr subparam storm {} lines", profile.sgr_subparam_lines);
+        let sub = gen_sgr_subparam(profile.sgr_subparam_lines);
+        start_row(&sub_name);
+        let d = best_of(profile.runs, || feed_all(black_box(&sub)));
+        report_feed(&sub_name, sub.len(), d);
     }
 
     println!("\n== Snapshot / repaint geometry (per-frame cost) ==");

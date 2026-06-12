@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 — Bench refresh: post-RC1/RC2 baseline + rect rows (B3)
+
+The `cargo bench --bench perf` table predated US1/SU1/RQ2/RC1/RC2. Refreshed it
+against the B2 baseline, added rectangle-surface rows, and recorded a per-cell
+size diagnostic. Benches only (`benches/perf.rs`); no `src/` changes.
+
+- **New diagnostic.** `struct sizes: Cell 44 B, Attrs 28 B` — `Attrs` grew since
+  B2 (US1 added underline style + colon underline color + blink; RC1 added a
+  `protected` bool to `Cell`).
+- **New rows.** DECFRA full-page fill (~2.3 µs/op, ~1.2 ns/cell), DECCRA
+  overlapping copy (~3.0 µs/op), DECSERA mixed-protection erase (~5.5 µs/op),
+  and an SGR-subparam storm (`4:n` + `58:2:r:g:b` per cell) that exercises the
+  US1 colon parse path the semicolon `heavy sgr` row never reaches.
+- **Finding — `seq` −23% (flagged).** The scroll-heaviest workload dropped from
+  B2's 13.1 to ~10.1 MB/s (stable across 3 runs); `heavy sgr` −9% is consistent.
+  Leading hypothesis: the larger `Cell` (44 B) inflates per-char print writes
+  and per-scroll row memmoves. Findings-only — a fix touches fenced `src/` and
+  exceeds the in-packet budget; recommended follow-up is a cell-shrink spike
+  (bitflags for the bool attrs, a niche for `Option<Color>`, or cold-field side
+  storage).
+- **Cleared suspect.** The colon-subparam parse path is healthy — 348 MB/s,
+  *higher* per-byte than semicolon `heavy sgr` (280 MB/s).
+- **Otherwise flat-to-improved:** `snapshot()` improved to 2.2 µs/op,
+  `build_vertices`/`scroll-region churn`/resize rows flat within noise. Full
+  table and hypotheses in the workflow artifact `b3-bench-refresh.md`.
+- **Run:** `cargo bench --bench perf` (default) or
+  `ODYTTY_PERF_PROFILE=legacy cargo bench --bench perf` (pre-B2 sizes). Excluded
+  from `cargo test`. `cargo fmt --check` clean.
+
+---
+
 ## 2026-06-12 — Fuzz the DEC rectangle / selective-erase surface (FZ4)
 
 The protocol fuzzer (`tests/protocol_fuzz.rs`) now covers the RC1 rectangle
