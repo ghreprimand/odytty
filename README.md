@@ -65,7 +65,9 @@ italic is drawn with a ~12° horizontal shear (tan 12° ≈ 0.2126, applied per
 raster row relative to the baseline); bold is rendered by double-striking at a
 small rightward embolden offset; bold-italic composes both. Real loaded faces
 always win — synthesis is active only for absent slots, so a font family with
-all four weights renders those exactly. Extended underline styles are fully
+all four weights renders those exactly. Synthesis can be disabled with
+`ODYTTY_SYNTHETIC_STYLES=off` (config key `synthetic_styles = off`); see
+`docs/runtime-knobs.md` for the full knob reference. Extended underline styles are fully
 decoded and rendered: `SGR 4` / `4:1` straight; `4:2` double (two parallel
 solid quads); `4:3` curly (stepped square-wave approximation within the cell
 height); `4:4` dotted; `4:5` dashed; `4:0` or `SGR 24` clears the style.
@@ -118,6 +120,16 @@ n saved states), `CSI = flags ; mode u` (set/OR/NAND the active flags), and
 alternate screens maintain independent stacks. At flags 0 (no enhancement),
 OdyTTY emits byte-identical legacy key bytes.
 
+**Synchronized output.** OdyTTY supports DEC private mode 2026
+(`DECSET/DECRST ?2026h/l`) for tear-free batch redraws. While the mode is set,
+the native layer defers GPU content uploads so the display is not updated
+mid-frame, letting TUIs (e.g. tmux, `lazygit`) compose a full screen update
+before it becomes visible. A 150 ms safety timeout (`SYNCHRONIZED_OUTPUT_TIMEOUT`)
+releases the hold automatically — a crashed application that never sends the
+DECRST cannot leave the window frozen indefinitely. Cursor blink continues live
+during the hold via a lightweight cursor-only redraw path, so the cursor
+animates smoothly even while grid content is deferred.
+
 **OSC 52 clipboard and dynamic colors.** Shell programs can write to the
 clipboard via `OSC 52 ; selector ; base64 ST`: OdyTTY decodes the base64
 payload (cap 64 KiB decoded), validates UTF-8, and routes the write to the
@@ -152,7 +164,7 @@ reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
 the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 800 tests passing: 760 unit/integration, 21 pixel-smoke
+**Testing.** 808 tests passing: 766 unit/integration, 23 pixel-smoke
 (headless CPU compositor asserting structural raster invariants for text
 rendering and graphics placement), 9 PTY alternate-screen smoke, and 10
 transcript smoke. `cargo bench --bench perf` runs headless throughput

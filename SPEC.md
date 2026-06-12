@@ -261,6 +261,26 @@ derive them from the logical key. Associated-text reporting appends printable
 generated text code points as the third CSI-u parameter when combined with
 report-all.
 
+### Synchronized Output (DEC Private Mode 2026)
+
+DEC private mode 2026 (`DECSET ?2026h` / `DECRST ?2026l`) is tracked as a
+boolean field on the terminal screen; `RIS` and `DECSTR` both reset it to off.
+`DECRQM` (`CSI ? 2026 $ p`) reports the current mode status through the normal
+mode-query path in `src/core/screen/ops.rs`.
+
+The native layer owns the presentation-hold policy. `SynchronizedOutputHold`
+(`src/native/app.rs`) monitors the core mode flag and, while it is set, defers
+GPU content uploads — the terminal model continues to advance and process PTY
+bytes without interruption, but grid snapshots are not uploaded or rendered.
+After `SYNCHRONIZED_OUTPUT_TIMEOUT` (150 ms, `src/native/app.rs:56`), the hold
+is released unconditionally and will not re-engage until the application resets
+the mode and sets it again. The timeout deadline is registered with the event
+loop so the release fires promptly at the deadline without additional polling.
+A crashed application that never sends the DECRST therefore cannot freeze the
+display for longer than 150 ms. Cursor blink remains live during the hold: the
+hold path calls `update_held_cursor_frame`, which re-renders the cursor blink
+delta against the last presented snapshot without touching grid content.
+
 ## Scope
 
 v0 is complete. Stages 1 through 4.5 are substantially complete. The parity
@@ -298,6 +318,8 @@ its first stable layer.
 - Configurable cursor shapes and blink policy (DECSCUSR + settings)
 - Configurable terminal-local key bindings
 - Window title from OSC 0/2; DECSET 1004 focus reporting
+- Synchronized output (DEC private mode 2026): presentation hold with 150 ms
+  safety timeout; cursor blink live during hold
 - Keyboard mode-awareness: DECCKM, keypad modes, modified named keys, Kitty
   keyboard protocol disambiguation, event-type, alternate-key, report-all, and
   associated-text flags
