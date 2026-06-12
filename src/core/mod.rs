@@ -51,7 +51,7 @@ mod search_tests;
 #[cfg(test)]
 mod tests;
 
-pub use encoding::{encode_focus_event, encode_mouse_event};
+pub use encoding::{encode_focus_event, encode_mouse_event, encode_mouse_event_pixel};
 pub use hyperlink::{Hyperlink, MAX_URI_BYTES, uri_has_openable_scheme};
 pub use screen::{Screen, Terminal};
 pub use search::{

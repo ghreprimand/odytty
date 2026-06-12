@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 -- SGR-pixel mouse reporting, core half (MS1)
+
+Closed the mode 1016 parity gap MP1 documented, on the core side. SGR-pixel is
+the same wire shape as SGR (1006) but reports 1-based *pixel* coordinates
+instead of cells; the native pixel seam is a deliberate follow-up packet.
+
+- **Encoding axis.** Added `MouseEncoding::SgrPixel`. DECSET/DECRST 1016 selects
+  it on the existing single-active encoding axis (a later DECSET wins; any
+  DECRST returns to `Default`), exactly like 1005/1006/1015. RIS already resets
+  `self.mouse`, so 1016 cleanup needed no new code.
+- **DECRQM.** 1016 moved out of the "known but unimplemented" arm (status 4) and
+  now reports set/reset (1/2) from the active encoding, matching the other
+  mouse modes.
+- **Pixel encoder seam.** New pure `encode_mouse_event_pixel(protocol, button,
+  kind, px, py, mods)` emits `CSI < Cb ; Px ; Py M|m` from caller-owned 1-based
+  pixel coordinates, sharing one tracking-gate helper with `encode_mouse_event`
+  so gating/modifier folding stay identical. Core never derives pixels from
+  cells: the front end owns `CellMetrics` and passes the pixel position in. The
+  entry returns `None` when the active encoding is not 1016, so a front end
+  calls it only on the pixel path.
+- **Transitional policy (documented).** Until the native pixel seam lands, the
+  cell-based `encode_mouse_event` treats `SgrPixel` as a pass-through: it emits
+  the SGR-pixel wire shape with whatever coordinates it was given rather than
+  dropping every event while 1016 is active. This is an explicit, honest policy,
+  not a cell->pixel invention.
+- **Tests.** Flipped MP1's three "1016 unsupported" assertions to
+  supported-core-side, extended the single-active and RIS/DECRST cleanup
+  fixtures to cover 1016, and added pixel-encoder coverage (press/release/wheel/
+  held-motion, boundary pixel (1,1), large coords, modifier folding, the
+  not-1016 `None` guard, and the cell-path pass-through). Lib 792 -> 798,
+  `mouse_protocol` 11 -> 12.
+- **Verification.** Full lib + integration suites green, oracle goldens
+  byte-identical (a new encoding variant changes no existing fixture output),
+  deep protocol fuzz clean, `cargo fmt` clean, all touched files < 2000 lines.
+  Gates were run in an isolated worktree at committed HEAD because a peer's
+  concurrent emoji WIP was mid-flight in the shared tree.
+
 ## 2026-06-12 -- Color glyph atlas and RGBA draw segment (EM3)
 
 Landed the first renderer-side color emoji foundation without decoding real

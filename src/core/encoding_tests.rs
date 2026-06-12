@@ -450,3 +450,201 @@ fn encode_focus_event_gated_and_directional() {
     assert_eq!(encode_focus_event(true, true).unwrap(), b"\x1b[I");
     assert_eq!(encode_focus_event(true, false).unwrap(), b"\x1b[O");
 }
+
+// === SGR-pixel (1016) encoder ===
+
+#[test]
+fn encode_mouse_pixel_press_release_carry_button() {
+    let p = proto(MouseTracking::Normal, MouseEncoding::SgrPixel);
+    // Left press at pixel (640, 384): same SGR shape, pixel coordinates.
+    assert_eq!(
+        encode_mouse_event_pixel(
+            p,
+            MouseButton::Left,
+            MouseEventKind::Press,
+            640,
+            384,
+            MouseModifiers::default()
+        )
+        .unwrap(),
+        b"\x1b[<0;640;384M"
+    );
+    // Right release: Cb=2 preserved, lowercase `m` terminator (button reported).
+    assert_eq!(
+        encode_mouse_event_pixel(
+            p,
+            MouseButton::Right,
+            MouseEventKind::Release,
+            640,
+            384,
+            MouseModifiers::default()
+        )
+        .unwrap(),
+        b"\x1b[<2;640;384m"
+    );
+}
+
+#[test]
+fn encode_mouse_pixel_boundary_and_large_coordinates_with_modifiers() {
+    let p = proto(MouseTracking::Normal, MouseEncoding::SgrPixel);
+    // Boundary pixel (1,1): xterm reports 1-based pixels, so the minimum is 1.
+    assert_eq!(
+        encode_mouse_event_pixel(
+            p,
+            MouseButton::Left,
+            MouseEventKind::Press,
+            1,
+            1,
+            MouseModifiers::default()
+        )
+        .unwrap(),
+        b"\x1b[<0;1;1M"
+    );
+    // Large coordinates have no 223 cap; modifiers fold into Cb. Ctrl(16)=16.
+    let mods = MouseModifiers {
+        shift: false,
+        alt: false,
+        ctrl: true,
+    };
+    assert_eq!(
+        encode_mouse_event_pixel(
+            p,
+            MouseButton::Left,
+            MouseEventKind::Press,
+            3840,
+            2160,
+            mods
+        )
+        .unwrap(),
+        b"\x1b[<16;3840;2160M"
+    );
+}
+
+#[test]
+fn encode_mouse_pixel_wheel_and_motion_set_expected_bits() {
+    let p = proto(MouseTracking::ButtonEvent, MouseEncoding::SgrPixel);
+    // Wheel-up sets bit 6 (64).
+    assert_eq!(
+        encode_mouse_event_pixel(
+            p,
+            MouseButton::WheelUp,
+            MouseEventKind::Press,
+            100,
+            200,
+            MouseModifiers::default()
+        )
+        .unwrap(),
+        b"\x1b[<64;100;200M"
+    );
+    // Held-button motion sets bit 5 (32) on top of the button code.
+    assert_eq!(
+        encode_mouse_event_pixel(
+            p,
+            MouseButton::Left,
+            MouseEventKind::Motion,
+            100,
+            200,
+            MouseModifiers::default()
+        )
+        .unwrap(),
+        b"\x1b[<32;100;200M"
+    );
+}
+
+#[test]
+fn encode_mouse_pixel_returns_none_when_encoding_is_not_sgr_pixel() {
+    // The pixel entry is only valid on the 1016 path; for any other active
+    // encoding it returns None so a front end never emits pixel bytes by accident.
+    for encoding in [
+        MouseEncoding::Default,
+        MouseEncoding::Utf8,
+        MouseEncoding::Sgr,
+        MouseEncoding::Urxvt,
+    ] {
+        let p = proto(MouseTracking::Normal, encoding);
+        assert_eq!(
+            encode_mouse_event_pixel(
+                p,
+                MouseButton::Left,
+                MouseEventKind::Press,
+                10,
+                10,
+                MouseModifiers::default()
+            ),
+            None
+        );
+    }
+}
+
+#[test]
+fn encode_mouse_pixel_honors_tracking_gate() {
+    // Tracking off: nothing is reported.
+    let off = proto(MouseTracking::Off, MouseEncoding::SgrPixel);
+    assert_eq!(
+        encode_mouse_event_pixel(
+            off,
+            MouseButton::Left,
+            MouseEventKind::Press,
+            5,
+            5,
+            MouseModifiers::default()
+        ),
+        None
+    );
+    // X10: presses only, modifiers stripped (Ctrl ignored -> Cb=0).
+    let x10 = proto(MouseTracking::X10, MouseEncoding::SgrPixel);
+    let ctrl = MouseModifiers {
+        shift: false,
+        alt: false,
+        ctrl: true,
+    };
+    assert_eq!(
+        encode_mouse_event_pixel(x10, MouseButton::Left, MouseEventKind::Press, 5, 5, ctrl)
+            .unwrap(),
+        b"\x1b[<0;5;5M"
+    );
+    assert_eq!(
+        encode_mouse_event_pixel(
+            x10,
+            MouseButton::Left,
+            MouseEventKind::Release,
+            5,
+            5,
+            MouseModifiers::default()
+        ),
+        None
+    );
+    // Normal tracking drops motion.
+    let normal = proto(MouseTracking::Normal, MouseEncoding::SgrPixel);
+    assert_eq!(
+        encode_mouse_event_pixel(
+            normal,
+            MouseButton::NoButton,
+            MouseEventKind::Motion,
+            5,
+            5,
+            MouseModifiers::default()
+        ),
+        None
+    );
+}
+
+#[test]
+fn encode_mouse_event_cell_path_passes_through_for_sgr_pixel() {
+    // Without the native pixel seam, the cell-based entry emits the SGR-pixel
+    // wire shape with the coordinates it was given (transitional pass-through),
+    // never silently dropping events while 1016 is active.
+    let p = proto(MouseTracking::Normal, MouseEncoding::SgrPixel);
+    assert_eq!(
+        encode_mouse_event(
+            p,
+            MouseButton::Left,
+            MouseEventKind::Press,
+            7,
+            3,
+            MouseModifiers::default()
+        )
+        .unwrap(),
+        b"\x1b[<0;7;3M"
+    );
+}

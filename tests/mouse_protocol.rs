@@ -5,7 +5,7 @@
 
 use odytty::core::{
     MouseButton, MouseEncoding, MouseEventKind, MouseModifiers, MouseProtocol, MouseTracking,
-    Terminal, encode_focus_event, encode_mouse_event,
+    Terminal, encode_focus_event, encode_mouse_event, encode_mouse_event_pixel,
 };
 
 fn proto(tracking: MouseTracking, encoding: MouseEncoding) -> MouseProtocol {
@@ -56,7 +56,7 @@ fn decrqm_inventory_covers_mouse_tracking_focus_and_encoding_modes() {
           \x1b[?1005;2$y\
           \x1b[?1006;2$y\
           \x1b[?1015;2$y\
-          \x1b[?1016;4$y"
+          \x1b[?1016;2$y"
     );
 
     terminal.advance(b"\x1b[?1002h\x1b[?1004h\x1b[?1006h");
@@ -75,7 +75,7 @@ fn decrqm_inventory_covers_mouse_tracking_focus_and_encoding_modes() {
           \x1b[?1005;2$y\
           \x1b[?1006;1$y\
           \x1b[?1015;2$y\
-          \x1b[?1016;4$y"
+          \x1b[?1016;2$y"
     );
 }
 
@@ -89,8 +89,12 @@ fn mouse_tracking_and_encoding_priority_are_single_active_axes() {
     terminal.advance(b"\x1b[?1002l");
     assert_eq!(terminal.mouse_protocol().tracking, MouseTracking::Off);
 
-    terminal.advance(b"\x1b[?1005h\x1b[?1006h\x1b[?1015h");
-    assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::Urxvt);
+    terminal.advance(b"\x1b[?1005h\x1b[?1006h\x1b[?1015h\x1b[?1016h");
+    assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::SgrPixel);
+
+    // Setting an earlier extension wins again — last DECSET on the axis wins.
+    terminal.advance(b"\x1b[?1006h");
+    assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::Sgr);
 
     terminal.advance(b"\x1b[?1006l");
     assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::Default);
@@ -114,6 +118,27 @@ fn ris_and_decrst_cleanup_mouse_state() {
     terminal.advance(b"\x1b[?1002h\x1b[?1004h\x1b[?1015h\x1bc");
     assert_eq!(terminal.mouse_protocol(), MouseProtocol::default());
     assert!(!terminal.focus_reporting());
+
+    // RIS also clears an active SGR-pixel (1016) encoding back to default.
+    terminal.advance(b"\x1b[?1003h\x1b[?1016h");
+    assert_eq!(
+        terminal.mouse_protocol(),
+        proto(MouseTracking::AnyEvent, MouseEncoding::SgrPixel)
+    );
+    terminal.advance(b"\x1bc");
+    assert_eq!(terminal.mouse_protocol(), MouseProtocol::default());
+
+    // DECRST 1016 returns the encoding axis to default without touching tracking.
+    terminal.advance(b"\x1b[?1000h\x1b[?1016h");
+    assert_eq!(
+        terminal.mouse_protocol(),
+        proto(MouseTracking::Normal, MouseEncoding::SgrPixel)
+    );
+    terminal.advance(b"\x1b[?1016l");
+    assert_eq!(
+        terminal.mouse_protocol(),
+        proto(MouseTracking::Normal, MouseEncoding::Default)
+    );
 }
 
 #[test]
@@ -372,11 +397,88 @@ fn focus_reporting_uses_mode_1004_and_is_not_mouse_tracking() {
 }
 
 #[test]
-fn sgr_pixel_mode_1016_is_reported_unsupported_and_does_not_change_protocol() {
+fn sgr_pixel_mode_1016_selects_pixel_encoding_and_decrqm_reports_it() {
+    // MS1 flips MP1's "1016 unsupported" assertion: 1016 is now a supported
+    // encoding format on the core side (the native pixel seam is a follow-up).
     let mut terminal = Terminal::new(10, 4);
 
+    // DECSET 1016 selects the SGR-pixel encoding; DECRQM now reports it set (1)
+    // rather than the previous permanently-reset (4).
     terminal.advance(b"\x1b[?1016h\x1b[?1016$p");
+    assert_eq!(terminal.take_host_output(), b"\x1b[?1016;1$y");
+    assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::SgrPixel);
 
-    assert_eq!(terminal.take_host_output(), b"\x1b[?1016;4$y");
-    assert_eq!(terminal.mouse_protocol(), MouseProtocol::default());
+    // DECRST 1016 returns to the default encoding; DECRQM reports reset (2).
+    terminal.advance(b"\x1b[?1016l\x1b[?1016$p");
+    assert_eq!(terminal.take_host_output(), b"\x1b[?1016;2$y");
+    assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::Default);
+}
+
+#[test]
+fn sgr_pixel_encoder_emits_pixel_coordinate_reports() {
+    // The pixel encoder takes caller-owned 1-based pixel coordinates and emits
+    // the SGR wire shape; core never derives pixels from cells.
+    let protocol = proto(MouseTracking::ButtonEvent, MouseEncoding::SgrPixel);
+
+    // Press at pixel (1,1) — the 1-based boundary.
+    assert_eq!(
+        encode_mouse_event_pixel(
+            protocol,
+            MouseButton::Left,
+            MouseEventKind::Press,
+            1,
+            1,
+            MouseModifiers::default()
+        )
+        .as_deref(),
+        Some(b"\x1b[<0;1;1M".as_slice())
+    );
+
+    // Held-button motion at a large pixel coordinate with Shift(4)+Alt(8)=12,
+    // plus the motion bit 32 -> Cb = 44.
+    let mods = MouseModifiers {
+        shift: true,
+        alt: true,
+        ctrl: false,
+    };
+    assert_eq!(
+        encode_mouse_event_pixel(
+            protocol,
+            MouseButton::Left,
+            MouseEventKind::Motion,
+            1920,
+            1080,
+            mods
+        )
+        .as_deref(),
+        Some(b"\x1b[<44;1920;1080M".as_slice())
+    );
+
+    // Right release reports the button with the lowercase `m` terminator.
+    assert_eq!(
+        encode_mouse_event_pixel(
+            protocol,
+            MouseButton::Right,
+            MouseEventKind::Release,
+            640,
+            480,
+            MouseModifiers::default()
+        )
+        .as_deref(),
+        Some(b"\x1b[<2;640;480m".as_slice())
+    );
+
+    // The pixel entry returns None when the active encoding is not 1016.
+    let sgr_cells = proto(MouseTracking::ButtonEvent, MouseEncoding::Sgr);
+    assert_eq!(
+        encode_mouse_event_pixel(
+            sgr_cells,
+            MouseButton::Left,
+            MouseEventKind::Press,
+            10,
+            10,
+            MouseModifiers::default()
+        ),
+        None
+    );
 }

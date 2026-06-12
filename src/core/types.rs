@@ -83,8 +83,8 @@ pub enum MouseTracking {
     AnyEvent,
 }
 /// How mouse coordinates and buttons are encoded on the wire, selected via
-/// DECSET/DECRST of the private modes 1005/1006/1015. As with tracking, xterm
-/// keeps a single active encoding: a later DECSET wins and a DECRST of any
+/// DECSET/DECRST of the private modes 1005/1006/1015/1016. As with tracking,
+/// xterm keeps a single active encoding: a later DECSET wins and a DECRST of any
 /// extension returns to [`Default`](Self::Default).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MouseEncoding {
@@ -100,6 +100,12 @@ pub enum MouseEncoding {
     Sgr,
     /// Mode 1015 (urxvt): `CSI Cb ; Cx ; Cy M` with decimal values.
     Urxvt,
+    /// Mode 1016 (SGR-pixel): identical wire shape to [`Sgr`](Self::Sgr) —
+    /// `CSI < Cb ; Px ; Py M|m` — but the coordinates are 1-based physical
+    /// pixels rather than cells. Core never derives pixels from cells: the
+    /// front end supplies pixel coordinates through
+    /// [`encode_mouse_event_pixel`](crate::core::encode_mouse_event_pixel).
+    SgrPixel,
 }
 /// The active mouse reporting protocol: which events to report and how to
 /// encode them. Exposed so a front end can decide what to send without

@@ -45,8 +45,62 @@ pub fn encode_mouse_event(
     row: usize,
     mods: MouseModifiers,
 ) -> Option<Vec<u8>> {
-    // Gate on what the active tracking mode reports.
-    match protocol.tracking {
+    let mod_bits = mouse_tracking_gate(protocol.tracking, button, kind, mods)?;
+
+    match protocol.encoding {
+        MouseEncoding::Sgr => Some(encode_mouse_sgr(button, kind, column, row, mod_bits)),
+        // SgrPixel (1016) shares the SGR wire shape and differs only in the
+        // *units* of the coordinates. The cell-based entry has only cell
+        // coordinates, so it emits the SGR-pixel shape with the coordinates it
+        // was given — a transitional pass-through, not a cell→pixel invention.
+        // A front end that wants true pixel coordinates routes 1016 through
+        // [`encode_mouse_event_pixel`]; until the native pixel seam lands this
+        // keeps 1016 from silently dropping every event.
+        MouseEncoding::SgrPixel => Some(encode_mouse_sgr(button, kind, column, row, mod_bits)),
+        MouseEncoding::Urxvt => Some(encode_mouse_urxvt(button, kind, column, row, mod_bits)),
+        MouseEncoding::Default => encode_mouse_legacy(button, kind, column, row, mod_bits, false),
+        MouseEncoding::Utf8 => encode_mouse_legacy(button, kind, column, row, mod_bits, true),
+    }
+}
+/// Encode a mouse event for SGR-pixel reporting (DECSET 1016) from caller-owned
+/// pixel coordinates. Emits the same `CSI < Cb ; Px ; Py M|m` wire shape as SGR
+/// (1006) — including the lowercase `m` release terminator that preserves the
+/// button code — but `px`/`py` are 1-based physical pixel coordinates supplied
+/// by the front end. Core never converts cells to pixels: the front end owns
+/// the cell→pixel metric (`CellMetrics`) and passes the pixel position here.
+///
+/// Returns `None` when the active encoding is not [`MouseEncoding::SgrPixel`]
+/// (so a front end can call this only on the 1016 path) or when the active
+/// tracking gate drops the event — identical gating to [`encode_mouse_event`]
+/// (X10 reports presses only and strips modifiers; normal drops motion;
+/// button-event drops no-button hover; any-event reports all motion).
+pub fn encode_mouse_event_pixel(
+    protocol: MouseProtocol,
+    button: MouseButton,
+    kind: MouseEventKind,
+    px: usize,
+    py: usize,
+    mods: MouseModifiers,
+) -> Option<Vec<u8>> {
+    if protocol.encoding != MouseEncoding::SgrPixel {
+        return None;
+    }
+    let mod_bits = mouse_tracking_gate(protocol.tracking, button, kind, mods)?;
+    Some(encode_mouse_sgr(button, kind, px, py, mod_bits))
+}
+/// Apply the active tracking mode's reporting gate and compute the modifier
+/// bits to fold into Cb. Returns `None` when the tracking mode would not report
+/// this event, so every encoder (cell and pixel) shares identical gating:
+/// X10 reports presses only and carries no modifiers; normal drops motion;
+/// button-event (1002) drops no-button hover but keeps held-button motion;
+/// any-event (1003) reports all motion.
+fn mouse_tracking_gate(
+    tracking: MouseTracking,
+    button: MouseButton,
+    kind: MouseEventKind,
+    mods: MouseModifiers,
+) -> Option<u16> {
+    match tracking {
         MouseTracking::Off => return None,
         MouseTracking::X10 => {
             if kind != MouseEventKind::Press {
@@ -59,29 +113,19 @@ pub fn encode_mouse_event(
             }
         }
         MouseTracking::ButtonEvent => {
-            // Button-event (1002) reports motion only while a button is held;
-            // no-button hover motion is dropped.
             if kind == MouseEventKind::Motion && button == MouseButton::NoButton {
                 return None;
             }
         }
-        // Any-event (1003) reports all motion, including no-button hover.
         MouseTracking::AnyEvent => {}
     }
 
     // X10 carries no modifiers; every other mode folds them into Cb.
-    let mod_bits = if protocol.tracking == MouseTracking::X10 {
+    Some(if tracking == MouseTracking::X10 {
         0
     } else {
         mouse_modifier_bits(mods)
-    };
-
-    match protocol.encoding {
-        MouseEncoding::Sgr => Some(encode_mouse_sgr(button, kind, column, row, mod_bits)),
-        MouseEncoding::Urxvt => Some(encode_mouse_urxvt(button, kind, column, row, mod_bits)),
-        MouseEncoding::Default => encode_mouse_legacy(button, kind, column, row, mod_bits, false),
-        MouseEncoding::Utf8 => encode_mouse_legacy(button, kind, column, row, mod_bits, true),
-    }
+    })
 }
 /// Encode a focus change for DECSET 1004 focus reporting: focus-in is `ESC [ I`
 /// and focus-out is `ESC [ O`. Returns `None` when `reporting` is off, so a
@@ -112,9 +156,11 @@ fn legacy_cb(button: MouseButton, kind: MouseEventKind, mod_bits: u16) -> u16 {
     };
     base + mod_bits + motion
 }
-/// SGR (1006): `CSI < Cb ; Cx ; Cy M|m`. Cb keeps the real button code even on
-/// release (the release is conveyed by the lowercase `m` terminator), so SGR is
-/// the only encoding that reports which button was released.
+/// SGR (1006) and SGR-pixel (1016): `CSI < Cb ; Cx ; Cy M|m`. Cb keeps the real
+/// button code even on release (the release is conveyed by the lowercase `m`
+/// terminator), so SGR is the only family that reports which button was
+/// released. The wire shape is identical for both modes; the caller decides
+/// whether `column`/`row` carry cell (1006) or pixel (1016) coordinates.
 fn encode_mouse_sgr(
     button: MouseButton,
     kind: MouseEventKind,

@@ -568,6 +568,11 @@ impl Screen {
                 1005 => self.set_mouse_encoding(MouseEncoding::Utf8, action),
                 1006 => self.set_mouse_encoding(MouseEncoding::Sgr, action),
                 1015 => self.set_mouse_encoding(MouseEncoding::Urxvt, action),
+                // 1016 (SGR-pixel) shares the single-active encoding axis with
+                // 1005/1006/1015: a later DECSET wins, any DECRST returns to
+                // Default. It differs only in coordinate units (pixels), which
+                // the front end supplies; core stores the format selection.
+                1016 => self.set_mouse_encoding(MouseEncoding::SgrPixel, action),
                 _ => {}
             }
         }
@@ -630,10 +635,11 @@ impl Screen {
             1005 => mode_status(self.mouse.encoding == MouseEncoding::Utf8),
             1006 => mode_status(self.mouse.encoding == MouseEncoding::Sgr),
             1015 => mode_status(self.mouse.encoding == MouseEncoding::Urxvt),
+            1016 => mode_status(self.mouse.encoding == MouseEncoding::SgrPixel),
             2004 => mode_status(self.bracketed_paste),
             2026 => mode_status(self.synchronized_output),
             // Known xterm private modes that OdyTTY does not implement.
-            1001 | 1007 | 1016 => 4,
+            1001 | 1007 => 4,
             _ => 0,
         }
     }
