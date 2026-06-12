@@ -354,7 +354,7 @@ impl RectAttrMask {
 
     fn apply(self, attrs: &mut Attrs) {
         if let Some(bold) = self.bold {
-            attrs.bold = bold;
+            attrs.set_bold(bold);
         }
         if let Some(underline) = self.underline {
             attrs.set_underline_style(if underline {
@@ -364,16 +364,16 @@ impl RectAttrMask {
             });
         }
         if let Some(blink) = self.blink {
-            attrs.blink = blink;
+            attrs.set_blink(blink);
         }
         if let Some(inverse) = self.inverse {
-            attrs.inverse = inverse;
+            attrs.set_inverse(inverse);
         }
     }
 
     fn toggle(self, attrs: &mut Attrs) {
         if self.bold.is_some() {
-            attrs.bold = !attrs.bold;
+            attrs.set_bold(!attrs.bold());
         }
         if self.underline.is_some() {
             let underline = attrs.effective_underline_style() == UnderlineStyle::None;
@@ -384,10 +384,10 @@ impl RectAttrMask {
             });
         }
         if self.blink.is_some() {
-            attrs.blink = !attrs.blink;
+            attrs.set_blink(!attrs.blink());
         }
         if self.inverse.is_some() {
-            attrs.inverse = !attrs.inverse;
+            attrs.set_inverse(!attrs.inverse());
         }
     }
 }

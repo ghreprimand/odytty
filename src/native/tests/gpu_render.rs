@@ -286,10 +286,10 @@ fn hyperlink_hover_underlines_every_visible_cell_with_link() {
 
     apply_hyperlink_hover(&mut snapshot, id);
 
-    assert!(snapshot.cells[0].attrs.underline);
-    assert!(snapshot.cells[1].attrs.underline);
-    assert!(!snapshot.cells[2].attrs.underline);
-    assert!(!snapshot.cells[3].attrs.underline);
+    assert!(snapshot.cells[0].attrs.underline());
+    assert!(snapshot.cells[1].attrs.underline());
+    assert!(!snapshot.cells[2].attrs.underline());
+    assert!(!snapshot.cells[3].attrs.underline());
 }
 
 #[test]

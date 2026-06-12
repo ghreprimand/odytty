@@ -52,7 +52,7 @@ fn repeat_char_preserves_current_attrs() {
 
     let original = terminal.screen().cell(0, 0).unwrap();
     assert_eq!(original.ch, 'r');
-    assert!(original.attrs.bold);
+    assert!(original.attrs.bold());
     assert_eq!(original.attrs.foreground, Color::Indexed(1));
 
     for column in 1..3 {

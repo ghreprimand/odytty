@@ -23,12 +23,8 @@ pub(super) fn assert_blank_with_background(
 ) {
     let cell = terminal.screen().cell(row, column).unwrap();
     assert_eq!(cell.ch, ' ');
-    assert_eq!(
-        cell.attrs,
-        Attrs {
-            background,
-            ..Attrs::default()
-        }
-    );
+    let mut expected = Attrs::default();
+    expected.background = background;
+    assert_eq!(cell.attrs, expected);
     assert!(!cell.wide_continuation);
 }

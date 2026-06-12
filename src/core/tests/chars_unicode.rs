@@ -88,7 +88,7 @@ fn delete_chars_preserves_attrs_of_shifted_cells() {
     // Shifted X/Y keep their bold-red attrs.
     let x = terminal.screen().cell(0, 0).unwrap();
     assert_eq!(x.ch, 'X');
-    assert!(x.attrs.bold);
+    assert!(x.attrs.bold());
     assert_eq!(x.attrs.foreground, Color::Indexed(1));
 }
 

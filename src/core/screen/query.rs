@@ -138,13 +138,13 @@ fn xtgettcap_value(name: &[u8]) -> Option<&'static [u8]> {
 fn sgr_state_params(attrs: Attrs) -> String {
     let mut params = Vec::new();
 
-    if attrs.bold {
+    if attrs.bold() {
         params.push("1".to_string());
     }
-    if attrs.dim {
+    if attrs.dim() {
         params.push("2".to_string());
     }
-    if attrs.italic {
+    if attrs.italic() {
         params.push("3".to_string());
     }
     match attrs.effective_underline_style() {
@@ -155,16 +155,16 @@ fn sgr_state_params(attrs: Attrs) -> String {
         UnderlineStyle::Dotted => params.push("4:4".to_string()),
         UnderlineStyle::Dashed => params.push("4:5".to_string()),
     }
-    if attrs.blink {
+    if attrs.blink() {
         params.push("5".to_string());
     }
-    if attrs.inverse {
+    if attrs.inverse() {
         params.push("7".to_string());
     }
-    if attrs.hidden {
+    if attrs.hidden() {
         params.push("8".to_string());
     }
-    if attrs.strikethrough {
+    if attrs.strikethrough() {
         params.push("9".to_string());
     }
     push_color_params(&mut params, 38, attrs.foreground);

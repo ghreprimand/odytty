@@ -97,7 +97,7 @@ pub fn push_solid_quad(out: &mut Vec<Vertex>, quad: SolidQuad) {
 
 /// Pick the atlas style requested by terminal attributes.
 pub fn font_style_for_attrs(attrs: &Attrs) -> FontStyle {
-    match (attrs.bold, attrs.italic) {
+    match (attrs.bold(), attrs.italic()) {
         (true, true) => FontStyle::BoldItalic,
         (true, false) => FontStyle::Bold,
         (false, true) => FontStyle::Italic,
@@ -261,7 +261,7 @@ pub fn strikethrough_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32, baseline: 
 /// Rules:
 /// - `wide_continuation` spacer cells are skipped; a wide lead cell's
 ///   background spans both columns so there is no gap.
-/// - `attrs.inverse` swaps foreground and background before emitting.
+/// - `attrs.inverse()` swaps foreground and background before emitting.
 /// - A foreground quad is emitted only for a printable, inked glyph: the
 ///   character is not a space and the atlas has a UV rect for it (printable
 ///   ASCII). Control/non-ASCII cells emit background only.
@@ -317,10 +317,10 @@ pub fn build_cell_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atla
     let resolve = |cell: &crate::core::Cell| -> ([f32; 4], [f32; 4]) {
         let mut fg = foreground_linear(&snapshot.colors, cell.attrs.foreground);
         let mut bg = background_linear(&snapshot.colors, cell.attrs.background);
-        if cell.attrs.inverse {
+        if cell.attrs.inverse() {
             std::mem::swap(&mut fg, &mut bg);
         }
-        if cell.attrs.dim {
+        if cell.attrs.dim() {
             fg = dim_color(fg);
         }
         (fg, bg)
@@ -370,7 +370,7 @@ pub fn build_cell_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atla
             let x0 = col as f32 * cell_w;
             let y0 = row as f32 * cell_h;
 
-            if !cell.attrs.hidden
+            if !cell.attrs.hidden()
                 && cell.ch != ' '
                 && let Some(bounds) =
                     atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
@@ -396,7 +396,7 @@ pub fn build_cell_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atla
                 );
             }
 
-            if cell.attrs.strikethrough {
+            if cell.attrs.strikethrough() {
                 push_solid_quad(
                     out,
                     SolidQuad {
@@ -534,7 +534,7 @@ fn push_cursor(
     // cell; the bar/underline shapes draw in the effective foreground.
     let mut fg = foreground_linear(&snapshot.colors, cell.attrs.foreground);
     let mut bg = background_linear(&snapshot.colors, cell.attrs.background);
-    if cell.attrs.inverse {
+    if cell.attrs.inverse() {
         std::mem::swap(&mut fg, &mut bg);
     }
 
@@ -552,7 +552,7 @@ fn push_cursor(
                 block_color,
                 0.0,
             );
-            if !cell.attrs.hidden
+            if !cell.attrs.hidden()
                 && cell.ch != ' '
                 && let Some(bounds) =
                     atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
@@ -893,23 +893,17 @@ mod tests {
     fn attrs_select_expected_font_style() {
         assert_eq!(font_style_for_attrs(&Attrs::default()), FontStyle::Regular);
 
-        let bold = Attrs {
-            bold: true,
-            ..Attrs::default()
-        };
+        let mut bold = Attrs::default();
+        bold.set_bold(true);
         assert_eq!(font_style_for_attrs(&bold), FontStyle::Bold);
 
-        let italic = Attrs {
-            italic: true,
-            ..Attrs::default()
-        };
+        let mut italic = Attrs::default();
+        italic.set_italic(true);
         assert_eq!(font_style_for_attrs(&italic), FontStyle::Italic);
 
-        let bold_italic = Attrs {
-            bold: true,
-            italic: true,
-            ..Attrs::default()
-        };
+        let mut bold_italic = Attrs::default();
+        bold_italic.set_bold(true);
+        bold_italic.set_italic(true);
         assert_eq!(font_style_for_attrs(&bold_italic), FontStyle::BoldItalic);
     }
 

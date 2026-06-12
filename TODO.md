@@ -225,6 +225,13 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         timing, default workloads are bounded, legacy P1/P2-sized workloads are
         available via `ODYTTY_PERF_PROFILE=legacy`, and text-only scrolls no
         longer force lazy scrollback projection for graphics eviction.
+  - [x] Bench refresh + cell-footprint fix (`B3`/`PERF1`/`PERF1b`): `B3` added
+        rect/SGR-subparam rows + a `size_of` diagnostic and flagged a -23% `seq`
+        regression from `Cell` growth; `PERF1` root-caused it to per-cell write /
+        blank-row fill cost (not scroll memmove); `PERF1b` packed `Attrs`'s eight
+        `bool` fields into a private `u16` (Attrs 28->20 B, Cell 44->36 B),
+        recovering `seq` +24% with parser-oracle goldens unchanged. Public
+        `bold`..`hidden` fields became getters/setters.
   - [x] Native render-loop mitigation: reusable CPU vertex storage plus a
         grow-only GPU vertex buffer remove steady-state vertex-buffer
         allocation/recreation, and resize debounce coalesces drag bursts before

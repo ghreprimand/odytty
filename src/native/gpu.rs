@@ -263,7 +263,7 @@ pub(super) fn ensure_snapshot_glyphs(
     snapshot: &Snapshot,
 ) {
     for cell in &snapshot.cells {
-        if cell.wide_continuation || cell.attrs.hidden {
+        if cell.wide_continuation || cell.attrs.hidden() {
             continue;
         }
         let style = grid::font_style_for_attrs(&cell.attrs);

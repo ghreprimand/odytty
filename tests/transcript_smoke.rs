@@ -111,8 +111,8 @@ fn clear_screen_uses_active_background_color() {
             assert_eq!(cell.ch, ' ');
             assert_eq!(cell.attrs.background, Color::Indexed(4));
             assert_eq!(cell.attrs.foreground, Color::Default);
-            assert!(!cell.attrs.bold);
-            assert!(!cell.attrs.underline);
+            assert!(!cell.attrs.bold());
+            assert!(!cell.attrs.underline());
         }
     }
 }

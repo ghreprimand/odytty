@@ -647,7 +647,7 @@ fn current_attrs_restored_after_alt_roundtrip_1049() {
     let cell = terminal.screen().cell(0, 0).unwrap();
     assert_eq!(cell.ch, 'X');
     assert!(
-        cell.attrs.bold,
+        cell.attrs.bold(),
         "bold should be restored from primary state after leaving alt"
     );
     assert_eq!(
@@ -693,7 +693,7 @@ fn current_attrs_restored_after_alt_roundtrip_47() {
     let cell = terminal.screen().cell(0, 0).unwrap();
     assert_eq!(cell.ch, 'Z');
     assert!(
-        cell.attrs.italic,
+        cell.attrs.italic(),
         "italic should be restored from primary after mode 47 leave"
     );
     assert_eq!(

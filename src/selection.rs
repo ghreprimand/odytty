@@ -355,7 +355,7 @@ pub fn apply_highlight(snapshot: &mut Snapshot, range: SelectionRange) {
         };
         let offset = row * snapshot.dimensions.columns;
         for cell in &mut snapshot.cells[offset + start_column..=offset + end_column] {
-            cell.attrs.inverse = true;
+            cell.attrs.set_inverse(true);
         }
     }
 }
@@ -458,12 +458,12 @@ mod tests {
 
         apply_highlight(&mut snapshot, range);
 
-        assert!(!snapshot.cells[1].attrs.inverse);
-        assert!(snapshot.cells[2].attrs.inverse);
-        assert!(snapshot.cells[3].attrs.inverse);
-        assert!(snapshot.cells[4].attrs.inverse);
-        assert!(snapshot.cells[5].attrs.inverse);
-        assert!(!snapshot.cells[6].attrs.inverse);
+        assert!(!snapshot.cells[1].attrs.inverse());
+        assert!(snapshot.cells[2].attrs.inverse());
+        assert!(snapshot.cells[3].attrs.inverse());
+        assert!(snapshot.cells[4].attrs.inverse());
+        assert!(snapshot.cells[5].attrs.inverse());
+        assert!(!snapshot.cells[6].attrs.inverse());
     }
 
     #[test]

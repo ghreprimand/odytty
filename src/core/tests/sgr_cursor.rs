@@ -21,7 +21,7 @@ fn applies_basic_sgr_attributes() {
     let red = terminal.screen().cell(0, 0).unwrap();
     let normal = terminal.screen().cell(0, 1).unwrap();
     assert_eq!(red.ch, 'R');
-    assert!(red.attrs.bold);
+    assert!(red.attrs.bold());
     assert_eq!(red.attrs.foreground, Color::Indexed(1));
     assert_eq!(normal.ch, 'N');
     assert_eq!(normal.attrs, Attrs::default());
@@ -36,10 +36,10 @@ fn applies_extended_sgr_text_attributes() {
     let styled = terminal.screen().cell(0, 0).unwrap();
     let normal = terminal.screen().cell(0, 1).unwrap();
     assert_eq!(styled.ch, 'X');
-    assert!(styled.attrs.dim);
-    assert!(styled.attrs.blink);
-    assert!(styled.attrs.hidden);
-    assert!(styled.attrs.strikethrough);
+    assert!(styled.attrs.dim());
+    assert!(styled.attrs.blink());
+    assert!(styled.attrs.hidden());
+    assert!(styled.attrs.strikethrough());
     assert_eq!(normal.ch, 'N');
     assert_eq!(normal.attrs, Attrs::default());
 }
@@ -51,18 +51,18 @@ fn sgr_resets_text_attributes_independently() {
     terminal.advance(b"\x1b[1;2;3;4;5;7;8;9mA\x1b[22;23;24;25;27;28;29mB");
 
     let all = terminal.screen().cell(0, 0).unwrap();
-    assert!(all.attrs.bold);
-    assert!(all.attrs.dim);
-    assert!(all.attrs.italic);
-    assert!(all.attrs.underline);
+    assert!(all.attrs.bold());
+    assert!(all.attrs.dim());
+    assert!(all.attrs.italic());
+    assert!(all.attrs.underline());
     assert_eq!(
         all.attrs.effective_underline_style(),
         UnderlineStyle::Straight
     );
-    assert!(all.attrs.blink);
-    assert!(all.attrs.inverse);
-    assert!(all.attrs.hidden);
-    assert!(all.attrs.strikethrough);
+    assert!(all.attrs.blink());
+    assert!(all.attrs.inverse());
+    assert!(all.attrs.hidden());
+    assert!(all.attrs.strikethrough());
 
     let reset = terminal.screen().cell(0, 1).unwrap();
     assert_eq!(reset.attrs, Attrs::default());
@@ -75,12 +75,12 @@ fn sgr_22_clears_bold_and_dim_together() {
     terminal.advance(b"\x1b[1;2mA\x1b[22mB");
 
     let styled = terminal.screen().cell(0, 0).unwrap();
-    assert!(styled.attrs.bold);
-    assert!(styled.attrs.dim);
+    assert!(styled.attrs.bold());
+    assert!(styled.attrs.dim());
 
     let reset = terminal.screen().cell(0, 1).unwrap();
-    assert!(!reset.attrs.bold);
-    assert!(!reset.attrs.dim);
+    assert!(!reset.attrs.bold());
+    assert!(!reset.attrs.dim());
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn sgr_underline_subparams_select_styles() {
         let mut terminal = Terminal::new(1, 1);
         terminal.advance(input);
         let cell = terminal.screen().cell(0, 0).unwrap();
-        assert_eq!(cell.attrs.underline, underlined, "{input:?}");
+        assert_eq!(cell.attrs.underline(), underlined, "{input:?}");
         assert_eq!(cell.attrs.effective_underline_style(), style, "{input:?}");
     }
 }
@@ -112,12 +112,12 @@ fn sgr_underline_subparams_reject_malformed_styles() {
 
     let bad_value = terminal.screen().cell(0, 0).unwrap();
     let too_many = terminal.screen().cell(0, 1).unwrap();
-    assert!(!bad_value.attrs.underline);
+    assert!(!bad_value.attrs.underline());
     assert_eq!(
         bad_value.attrs.effective_underline_style(),
         UnderlineStyle::None
     );
-    assert!(!too_many.attrs.underline);
+    assert!(!too_many.attrs.underline());
     assert_eq!(
         too_many.attrs.effective_underline_style(),
         UnderlineStyle::None

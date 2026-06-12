@@ -48,7 +48,7 @@ pub(super) fn apply_hyperlink_hover(snapshot: &mut Snapshot, hovered: Option<Lin
     };
     for cell in &mut snapshot.cells {
         if cell.attrs.hyperlink == Some(hovered) {
-            cell.attrs.underline = true;
+            cell.attrs.set_underline(true);
         }
     }
 }

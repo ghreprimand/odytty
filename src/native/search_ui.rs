@@ -221,11 +221,11 @@ fn apply_match_highlight(snapshot: &mut Snapshot, range: SelectionRange, current
         let offset = row * snapshot.dimensions.columns;
         for cell in &mut snapshot.cells[offset + start_column..=offset + end_column] {
             if current {
-                cell.attrs.inverse = false;
+                cell.attrs.set_inverse(false);
                 cell.attrs.foreground = Color::Indexed(0);
                 cell.attrs.background = Color::Indexed(11);
             } else {
-                cell.attrs.inverse = true;
+                cell.attrs.set_inverse(true);
             }
         }
     }
@@ -274,12 +274,11 @@ fn write_overlay_text(snapshot: &mut Snapshot, row: usize, text: &str, attrs: At
 }
 
 fn search_bar_attrs() -> Attrs {
-    Attrs {
-        inverse: true,
-        foreground: Color::Default,
-        background: Color::Default,
-        ..Attrs::default()
-    }
+    let mut attrs = Attrs::default();
+    attrs.foreground = Color::Default;
+    attrs.background = Color::Default;
+    attrs.set_inverse(true);
+    attrs
 }
 
 #[cfg(test)]
@@ -378,6 +377,6 @@ mod tests {
         assert_eq!(terminal.snapshot(), original);
         assert_eq!(snapshot.cells[20].ch, ' ');
         assert_eq!(snapshot.cells[21].ch, 'S');
-        assert!(snapshot.cells[21].attrs.inverse);
+        assert!(snapshot.cells[21].attrs.inverse());
     }
 }

@@ -407,9 +407,9 @@ impl Screen {
 
             match code {
                 0 => self.current_attrs = Attrs::default(),
-                1 => self.current_attrs.bold = true,
-                2 => self.current_attrs.dim = true,
-                3 => self.current_attrs.italic = true,
+                1 => self.current_attrs.set_bold(true),
+                2 => self.current_attrs.set_dim(true),
+                3 => self.current_attrs.set_italic(true),
                 4 => match group {
                     [_] => self
                         .current_attrs
@@ -432,20 +432,20 @@ impl Screen {
                         .set_underline_style(UnderlineStyle::Dashed),
                     _ => {}
                 },
-                5 => self.current_attrs.blink = true,
-                7 => self.current_attrs.inverse = true,
-                8 => self.current_attrs.hidden = true,
-                9 => self.current_attrs.strikethrough = true,
+                5 => self.current_attrs.set_blink(true),
+                7 => self.current_attrs.set_inverse(true),
+                8 => self.current_attrs.set_hidden(true),
+                9 => self.current_attrs.set_strikethrough(true),
                 22 => {
-                    self.current_attrs.bold = false;
-                    self.current_attrs.dim = false;
+                    self.current_attrs.set_bold(false);
+                    self.current_attrs.set_dim(false);
                 }
-                23 => self.current_attrs.italic = false,
+                23 => self.current_attrs.set_italic(false),
                 24 => self.current_attrs.set_underline_style(UnderlineStyle::None),
-                25 => self.current_attrs.blink = false,
-                27 => self.current_attrs.inverse = false,
-                28 => self.current_attrs.hidden = false,
-                29 => self.current_attrs.strikethrough = false,
+                25 => self.current_attrs.set_blink(false),
+                27 => self.current_attrs.set_inverse(false),
+                28 => self.current_attrs.set_hidden(false),
+                29 => self.current_attrs.set_strikethrough(false),
                 30..=37 => self.current_attrs.foreground = Color::Indexed((code - 30) as u8),
                 39 => self.current_attrs.foreground = Color::Default,
                 40..=47 => self.current_attrs.background = Color::Indexed((code - 40) as u8),

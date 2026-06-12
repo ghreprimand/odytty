@@ -31,7 +31,7 @@ fn assert_bold_mask(terminal: &Terminal, expected: impl Fn(usize, usize) -> bool
     for row in 0..terminal.screen().dimensions().rows {
         for column in 0..terminal.screen().dimensions().columns {
             assert_eq!(
-                terminal.screen().cell(row, column).unwrap().attrs.bold,
+                terminal.screen().cell(row, column).unwrap().attrs.bold(),
                 expected(row, column),
                 "row {row}, column {column}"
             );
@@ -202,10 +202,10 @@ fn deccara_changes_supported_attrs_and_resets_them_individually() {
     for row in 0..2 {
         for column in 0..4 {
             let attrs = cell_attrs(&terminal, row, column);
-            assert!(attrs.bold);
+            assert!(attrs.bold());
             assert_eq!(attrs.effective_underline_style(), UnderlineStyle::Straight);
-            assert!(attrs.blink);
-            assert!(attrs.inverse);
+            assert!(attrs.blink());
+            assert!(attrs.inverse());
         }
     }
 
@@ -241,7 +241,7 @@ fn deccara_and_decrara_ignore_decsca_protection() {
     for column in 0..2 {
         let cell = terminal.screen().cell(0, column).unwrap();
         assert!(cell.protected);
-        assert!(cell.attrs.bold);
+        assert!(cell.attrs.bold());
     }
 
     terminal.advance(b"\x1b[1;1;1;2;1$t");
@@ -249,7 +249,7 @@ fn deccara_and_decrara_ignore_decsca_protection() {
     for column in 0..2 {
         let cell = terminal.screen().cell(0, column).unwrap();
         assert!(cell.protected);
-        assert!(!cell.attrs.bold);
+        assert!(!cell.attrs.bold());
     }
 }
 
@@ -277,9 +277,9 @@ fn deccara_changes_wide_pair_attrs_per_cell_without_splitting() {
     terminal.advance(b"\x1b[2*x\x1b[1;3;1;3;1$r");
 
     assert_eq!(row_text(&terminal, 0), "a世 b ");
-    assert!(!terminal.screen().cell(0, 1).unwrap().attrs.bold);
+    assert!(!terminal.screen().cell(0, 1).unwrap().attrs.bold());
     assert!(terminal.screen().cell(0, 2).unwrap().wide_continuation);
-    assert!(terminal.screen().cell(0, 2).unwrap().attrs.bold);
+    assert!(terminal.screen().cell(0, 2).unwrap().attrs.bold());
 }
 
 #[test]

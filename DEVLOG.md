@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 -- Pack Attrs bools into a u16, shrink the cell (PERF1b)
+
+Acted on the PERF1 finding that B3's -23% `seq` regression was driven by
+`sizeof(Cell)` growth (US1 underline styles/colors + RC1 protection). Packed
+`Attrs`'s eight `bool` fields into a single private `flags: u16` bitfield.
+
+- **Layout.** `Attrs` 28->20 B, `Cell` 44->36 B (the `size_of` bench diagnostic
+  reads 36/20). The mechanism PERF1 root-caused: per-cell print writes and
+  `blank_row_with_bg` fills scale with the cell size; scrolling moves `Line`
+  headers, not cell payloads, so the cost was in writes and full-grid clones.
+- **Result (legacy bench, before->after).** `seq` 9.6->11.9 MB/s (**+24%**,
+  fully recovering the regression); plain-ascii +16%; heavy-sgr +7%; the rect
+  ops (DECFRA/DECCRA/DECSERA) +9..14%; sgr-subparam +12%; `snapshot()`
+  2.4->1.7 us/op (-29%). Parser-only rows flat, as expected — parsing is
+  size-independent. No row regressed.
+- **API change (deliberate).** The public `bold`..`hidden` `bool` fields are now
+  `&self` getters (`bold()`..`hidden()`) plus setters (`set_bold(..)`..). `flags`
+  is private. `protected`/`wide_continuation` stay public `bool`s (they do not
+  ride the win — `Cell` is 36 B either way). Other `Attrs` fields are unchanged.
+  ~104 read/write sites migrated across core/native/tests; five `Attrs { .. }`
+  literals converted to construct-then-mutate.
+- **Correctness preserved.** The hand-written `Debug` impls now read via the
+  getters but emit identical field names/values, so the parser-oracle goldens do
+  not churn. Verified: `cargo test --lib` 792 passed; integration mouse 11 /
+  pixel 23 / protocol_fuzz 11 / pty 9 / transcript 10; deep fuzz at
+  `ODYTTY_FUZZ_ITERS=40000` (protocol 11, lib oracle+graphics 7) zero panics;
+  `cargo fmt --check` clean.
+
 ## 2026-06-12 -- Mouse protocol completeness evidence (MP1)
 
 Added a hermetic integration-test packet for OdyTTY's current mouse reporting

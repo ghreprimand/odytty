@@ -245,16 +245,16 @@ pub enum UnderlineStyle {
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub struct Attrs {
-    pub bold: bool,
-    pub dim: bool,
-    pub italic: bool,
-    pub underline: bool,
+    /// Packed boolean SGR attributes — bold, dim, italic, underline, blink,
+    /// strikethrough, inverse, hidden — one bit each (see the `F_*` masks).
+    /// Private so the storage can evolve; read/written through the generated
+    /// getters (`bold()`…`hidden()`) and setters (`set_bold(..)`…). Packing the
+    /// eight former `bool` fields into a single `u16` keeps `Attrs` at 20 bytes
+    /// (was 28) and `Cell` at 36 (was 44), which the perf benches showed costs
+    /// per-cell write/blank-row throughput on scroll-heavy feeds.
+    flags: u16,
     pub underline_style: UnderlineStyle,
     pub underline_color: Option<Color>,
-    pub blink: bool,
-    pub strikethrough: bool,
-    pub inverse: bool,
-    pub hidden: bool,
     pub foreground: Color,
     pub background: Color,
     /// Interned OSC 8 hyperlink associated with this cell, if any.
@@ -265,17 +265,17 @@ impl std::fmt::Debug for Attrs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut attrs = f.debug_struct("Attrs");
         attrs
-            .field("bold", &self.bold)
-            .field("dim", &self.dim)
-            .field("italic", &self.italic)
-            .field("underline", &self.underline)
-            .field("strikethrough", &self.strikethrough)
-            .field("inverse", &self.inverse)
-            .field("hidden", &self.hidden)
+            .field("bold", &self.bold())
+            .field("dim", &self.dim())
+            .field("italic", &self.italic())
+            .field("underline", &self.underline())
+            .field("strikethrough", &self.strikethrough())
+            .field("inverse", &self.inverse())
+            .field("hidden", &self.hidden())
             .field("foreground", &self.foreground)
             .field("background", &self.background);
-        if self.blink {
-            attrs.field("blink", &self.blink);
+        if self.blink() {
+            attrs.field("blink", &self.blink());
         }
         match self.effective_underline_style() {
             UnderlineStyle::None | UnderlineStyle::Straight => {}
@@ -294,8 +294,105 @@ impl std::fmt::Debug for Attrs {
 }
 
 impl Attrs {
+    const F_BOLD: u16 = 1 << 0;
+    const F_DIM: u16 = 1 << 1;
+    const F_ITALIC: u16 = 1 << 2;
+    const F_UNDERLINE: u16 = 1 << 3;
+    const F_BLINK: u16 = 1 << 4;
+    const F_STRIKETHROUGH: u16 = 1 << 5;
+    const F_INVERSE: u16 = 1 << 6;
+    const F_HIDDEN: u16 = 1 << 7;
+
+    #[inline]
+    fn flag(&self, mask: u16) -> bool {
+        self.flags & mask != 0
+    }
+
+    #[inline]
+    fn set_flag(&mut self, mask: u16, value: bool) {
+        if value {
+            self.flags |= mask;
+        } else {
+            self.flags &= !mask;
+        }
+    }
+
+    #[inline]
+    pub fn bold(&self) -> bool {
+        self.flag(Self::F_BOLD)
+    }
+    #[inline]
+    pub fn set_bold(&mut self, value: bool) {
+        self.set_flag(Self::F_BOLD, value);
+    }
+
+    #[inline]
+    pub fn dim(&self) -> bool {
+        self.flag(Self::F_DIM)
+    }
+    #[inline]
+    pub fn set_dim(&mut self, value: bool) {
+        self.set_flag(Self::F_DIM, value);
+    }
+
+    #[inline]
+    pub fn italic(&self) -> bool {
+        self.flag(Self::F_ITALIC)
+    }
+    #[inline]
+    pub fn set_italic(&mut self, value: bool) {
+        self.set_flag(Self::F_ITALIC, value);
+    }
+
+    /// Whether the underline bit is set. Most callers want
+    /// [`Self::effective_underline_style`], which also folds in the line style.
+    #[inline]
+    pub fn underline(&self) -> bool {
+        self.flag(Self::F_UNDERLINE)
+    }
+    #[inline]
+    pub fn set_underline(&mut self, value: bool) {
+        self.set_flag(Self::F_UNDERLINE, value);
+    }
+
+    #[inline]
+    pub fn blink(&self) -> bool {
+        self.flag(Self::F_BLINK)
+    }
+    #[inline]
+    pub fn set_blink(&mut self, value: bool) {
+        self.set_flag(Self::F_BLINK, value);
+    }
+
+    #[inline]
+    pub fn strikethrough(&self) -> bool {
+        self.flag(Self::F_STRIKETHROUGH)
+    }
+    #[inline]
+    pub fn set_strikethrough(&mut self, value: bool) {
+        self.set_flag(Self::F_STRIKETHROUGH, value);
+    }
+
+    #[inline]
+    pub fn inverse(&self) -> bool {
+        self.flag(Self::F_INVERSE)
+    }
+    #[inline]
+    pub fn set_inverse(&mut self, value: bool) {
+        self.set_flag(Self::F_INVERSE, value);
+    }
+
+    #[inline]
+    pub fn hidden(&self) -> bool {
+        self.flag(Self::F_HIDDEN)
+    }
+    #[inline]
+    pub fn set_hidden(&mut self, value: bool) {
+        self.set_flag(Self::F_HIDDEN, value);
+    }
+
     pub fn effective_underline_style(&self) -> UnderlineStyle {
-        if !self.underline {
+        if !self.underline() {
             UnderlineStyle::None
         } else if self.underline_style == UnderlineStyle::None {
             UnderlineStyle::Straight
@@ -305,7 +402,7 @@ impl Attrs {
     }
 
     pub(crate) fn set_underline_style(&mut self, style: UnderlineStyle) {
-        self.underline = style != UnderlineStyle::None;
+        self.set_underline(style != UnderlineStyle::None);
         self.underline_style = style;
     }
 }
