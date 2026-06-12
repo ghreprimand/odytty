@@ -155,6 +155,9 @@ fn sgr_state_params(attrs: Attrs) -> String {
         UnderlineStyle::Dotted => params.push("4:4".to_string()),
         UnderlineStyle::Dashed => params.push("4:5".to_string()),
     }
+    if attrs.blink {
+        params.push("5".to_string());
+    }
     if attrs.inverse {
         params.push("7".to_string());
     }

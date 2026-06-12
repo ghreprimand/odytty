@@ -206,12 +206,12 @@ fn xtgettcap_ignores_malformed_hex_names() {
 fn decrqss_reports_sgr_with_extended_underline_color() {
     let mut terminal = Terminal::new(10, 4);
 
-    terminal.advance(b"\x1b[1;3;4:5;7;9;38:2::10:20:30;48;5;42;58:5:77m");
+    terminal.advance(b"\x1b[1;3;4:5;5;7;9;38:2::10:20:30;48;5;42;58:5:77m");
     terminal.advance(b"\x1bP$qm\x1b\\");
 
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1bP1$r1;3;4:5;7;9;38:2::10:20:30;48:5:42;58:5:77m\x1b\\"
+        b"\x1bP1$r1;3;4:5;5;7;9;38:2::10:20:30;48:5:42;58:5:77m\x1b\\"
     );
 }
 

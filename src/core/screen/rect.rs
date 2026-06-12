@@ -5,6 +5,13 @@
 //! columns remain screen-relative because OdyTTY does not implement horizontal
 //! margins yet. Any rectangle write sanitizes affected rows so a rectangle edge
 //! that slices a wide glyph clears the pair instead of leaving an orphan.
+//!
+//! DECSACE controls only DECCARA/DECRARA here. In exact mode, attributes apply
+//! to the selected rectangle. In stream mode, coordinates name a wrapped stream:
+//! the first row from the left coordinate to the right edge, middle rows fully,
+//! and the last row from column 0 to the right coordinate. OdyTTY does not track
+//! xterm's uninitialized-cell distinction, so stream mode applies to blank cells
+//! too.
 
 use unicode_width::UnicodeWidthChar;
 
@@ -18,6 +25,14 @@ struct Rect {
     right: usize,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct RectAttrMask {
+    bold: Option<bool>,
+    underline: Option<bool>,
+    blink: Option<bool>,
+    inverse: Option<bool>,
+}
+
 impl Rect {
     fn width(self) -> usize {
         self.right - self.left + 1
@@ -25,6 +40,16 @@ impl Rect {
 
     fn height(self) -> usize {
         self.bottom - self.top + 1
+    }
+
+    fn row_bounds(self, extent: RectAttributeExtent, row: usize, columns: usize) -> (usize, usize) {
+        match extent {
+            RectAttributeExtent::Exact => (self.left, self.right),
+            RectAttributeExtent::Stream if self.top == self.bottom => (self.left, self.right),
+            RectAttributeExtent::Stream if row == self.top => (self.left, columns - 1),
+            RectAttributeExtent::Stream if row == self.bottom => (0, self.right),
+            RectAttributeExtent::Stream => (0, columns - 1),
+        }
     }
 }
 
@@ -35,6 +60,16 @@ impl Screen {
         match mode {
             0 | 2 => self.current_protected = false,
             1 => self.current_protected = true,
+            _ => {}
+        }
+    }
+
+    /// DECSACE (`CSI Ps * x`): select the extent used by DECCARA/DECRARA.
+    /// Ps=0/1 choose stream mode; Ps=2 chooses exact rectangle mode.
+    pub(super) fn set_rect_attr_extent(&mut self, mode: usize) {
+        match mode {
+            0 | 1 => self.rect_attr_extent = RectAttributeExtent::Stream,
+            2 => self.rect_attr_extent = RectAttributeExtent::Exact,
             _ => {}
         }
     }
@@ -164,6 +199,35 @@ impl Screen {
         self.erase_rect_inner(rect, true);
     }
 
+    /// DECCARA (`CSI Pt;Pl;Pb;Pr;Pm $ r`): change selected presentation
+    /// attributes inside the current DECSACE extent. The DEC/xterm subset
+    /// supported here is bold, plain underline, blink, and inverse. Extended
+    /// underline subparameters (`4:x`) are intentionally ignored in this path.
+    pub(super) fn change_rect_attrs(&mut self, params: &Params) {
+        let Some(rect) = self.rect_from_params(params, 0) else {
+            return;
+        };
+        let mask = change_rect_attr_mask(params);
+        if mask.is_empty() {
+            return;
+        }
+        self.apply_rect_attr_mask(rect, |attrs| mask.apply(attrs));
+    }
+
+    /// DECRARA (`CSI Pt;Pl;Pb;Pr;Pm $ t`): toggle selected presentation
+    /// attributes inside the current DECSACE extent. Applying the same toggle
+    /// sequence twice restores the original attributes.
+    pub(super) fn reverse_rect_attrs(&mut self, params: &Params) {
+        let Some(rect) = self.rect_from_params(params, 0) else {
+            return;
+        };
+        let mask = reverse_rect_attr_mask(params);
+        if mask.is_empty() {
+            return;
+        }
+        self.apply_rect_attr_mask(rect, |attrs| mask.toggle(attrs));
+    }
+
     fn erase_rect_inner(&mut self, rect: Rect, selective: bool) {
         let blank = self.current_blank();
         for row in rect.top..=rect.bottom {
@@ -173,6 +237,18 @@ impl Screen {
                 }
             }
             sanitize_wide_row(&mut self.rows[row], blank);
+        }
+        self.pending_wrap = false;
+        self.mark_dirty();
+    }
+
+    fn apply_rect_attr_mask(&mut self, rect: Rect, mut apply: impl FnMut(&mut Attrs)) {
+        for row in rect.top..=rect.bottom {
+            let (left, right) =
+                rect.row_bounds(self.rect_attr_extent, row, self.dimensions.columns);
+            for column in left..=right {
+                apply(&mut self.rows[row][column].attrs);
+            }
         }
         self.pending_wrap = false;
         self.mark_dirty();
@@ -253,4 +329,104 @@ fn rect_param_or(params: &Params, index: usize, default: usize) -> usize {
 
 fn one_based_to_index(value: usize, limit: usize) -> usize {
     value.saturating_sub(1).min(limit - 1)
+}
+
+impl RectAttrMask {
+    fn all_on() -> Self {
+        Self {
+            bold: Some(true),
+            underline: Some(true),
+            blink: Some(true),
+            inverse: Some(true),
+        }
+    }
+
+    fn all_toggle() -> Self {
+        Self::all_on()
+    }
+
+    fn is_empty(self) -> bool {
+        self.bold.is_none()
+            && self.underline.is_none()
+            && self.blink.is_none()
+            && self.inverse.is_none()
+    }
+
+    fn apply(self, attrs: &mut Attrs) {
+        if let Some(bold) = self.bold {
+            attrs.bold = bold;
+        }
+        if let Some(underline) = self.underline {
+            attrs.set_underline_style(if underline {
+                UnderlineStyle::Straight
+            } else {
+                UnderlineStyle::None
+            });
+        }
+        if let Some(blink) = self.blink {
+            attrs.blink = blink;
+        }
+        if let Some(inverse) = self.inverse {
+            attrs.inverse = inverse;
+        }
+    }
+
+    fn toggle(self, attrs: &mut Attrs) {
+        if self.bold.is_some() {
+            attrs.bold = !attrs.bold;
+        }
+        if self.underline.is_some() {
+            let underline = attrs.effective_underline_style() == UnderlineStyle::None;
+            attrs.set_underline_style(if underline {
+                UnderlineStyle::Straight
+            } else {
+                UnderlineStyle::None
+            });
+        }
+        if self.blink.is_some() {
+            attrs.blink = !attrs.blink;
+        }
+        if self.inverse.is_some() {
+            attrs.inverse = !attrs.inverse;
+        }
+    }
+}
+
+fn change_rect_attr_mask(params: &Params) -> RectAttrMask {
+    let mut mask = RectAttrMask::default();
+    for group in sgr_params(params).into_iter().skip(4) {
+        match group {
+            [0] => {
+                mask.bold = Some(false);
+                mask.underline = Some(false);
+                mask.blink = Some(false);
+                mask.inverse = Some(false);
+            }
+            [1] => mask.bold = Some(true),
+            [4] => mask.underline = Some(true),
+            [5] => mask.blink = Some(true),
+            [7] => mask.inverse = Some(true),
+            [22] => mask.bold = Some(false),
+            [24] => mask.underline = Some(false),
+            [25] => mask.blink = Some(false),
+            [27] => mask.inverse = Some(false),
+            _ => {}
+        }
+    }
+    mask
+}
+
+fn reverse_rect_attr_mask(params: &Params) -> RectAttrMask {
+    let mut mask = RectAttrMask::default();
+    for group in sgr_params(params).into_iter().skip(4) {
+        match group {
+            [0] => mask = RectAttrMask::all_toggle(),
+            [1] => mask.bold = Some(true),
+            [4] => mask.underline = Some(true),
+            [5] => mask.blink = Some(true),
+            [7] => mask.inverse = Some(true),
+            _ => {}
+        }
+    }
+    mask
 }

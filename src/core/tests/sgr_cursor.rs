@@ -31,12 +31,13 @@ fn applies_basic_sgr_attributes() {
 fn applies_extended_sgr_text_attributes() {
     let mut terminal = Terminal::new(10, 2);
 
-    terminal.advance(b"\x1b[2;8;9mX\x1b[0mN");
+    terminal.advance(b"\x1b[2;5;8;9mX\x1b[0mN");
 
     let styled = terminal.screen().cell(0, 0).unwrap();
     let normal = terminal.screen().cell(0, 1).unwrap();
     assert_eq!(styled.ch, 'X');
     assert!(styled.attrs.dim);
+    assert!(styled.attrs.blink);
     assert!(styled.attrs.hidden);
     assert!(styled.attrs.strikethrough);
     assert_eq!(normal.ch, 'N');
@@ -47,7 +48,7 @@ fn applies_extended_sgr_text_attributes() {
 fn sgr_resets_text_attributes_independently() {
     let mut terminal = Terminal::new(10, 2);
 
-    terminal.advance(b"\x1b[1;2;3;4;7;8;9mA\x1b[22;23;24;27;28;29mB");
+    terminal.advance(b"\x1b[1;2;3;4;5;7;8;9mA\x1b[22;23;24;25;27;28;29mB");
 
     let all = terminal.screen().cell(0, 0).unwrap();
     assert!(all.attrs.bold);
@@ -58,6 +59,7 @@ fn sgr_resets_text_attributes_independently() {
         all.attrs.effective_underline_style(),
         UnderlineStyle::Straight
     );
+    assert!(all.attrs.blink);
     assert!(all.attrs.inverse);
     assert!(all.attrs.hidden);
     assert!(all.attrs.strikethrough);

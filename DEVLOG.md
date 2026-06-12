@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 — Rectangle attribute operations (RC2)
+
+The RC1 rectangle surface now includes the deferred VT420 attribute-rectangle
+controls: DECCARA, DECRARA, and DECSACE.
+
+- **Attribute rectangles.** `DECCARA` (`CSI Pt;Pl;Pb;Pr;Pm $ r`) changes the
+  DEC/xterm-compatible attribute set OdyTTY models for this control: bold,
+  plain underline, blink, and inverse. `DECRARA` (`CSI Pt;Pl;Pb;Pr;Pm $ t`)
+  toggles the same set; applying the same toggle twice restores the original
+  cell attributes.
+- **Extent mode.** `DECSACE` (`CSI Ps * x`) selects stream extent (`0`/`1`,
+  default) or exact rectangle extent (`2`) for DECCARA/DECRARA only, and resets
+  to stream on RIS/DECSTR. Stream mode treats the coordinates as a wrapped
+  start-to-end span across visible rows; exact mode leaves cells outside the
+  rectangle untouched.
+- **Policy choices.** DECOM affects the row coordinates just like RC1 rectangle
+  operations. DECCARA/DECRARA ignore DECSCA protection. Underline subparameters
+  such as `4:3` are ignored here; only plain SGR `4` participates. Attribute
+  changes are per-cell, so touching one half of a wide pair does not split or
+  sanitize the glyph pair.
+- **Blink attribute.** The core `Attrs` model now carries SGR blink (`5`/`25`)
+  so rectangle attributes can represent the full accepted set. `Attrs::Debug`
+  omits `blink: false`, preserving parser-oracle golden fingerprints while
+  still surfacing true blink state.
+- **Coverage.** Added fixtures for DECCARA/DECRARA × stream/exact × DECOM,
+  reset handling, individual attr resets, DECRARA double-application identity,
+  protected-cell interaction, underline-subparam rejection, per-cell wide-pair
+  behavior, and DECRQSS SGR reporting with blink.
+
+---
+
 ## 2026-06-12 — Fuzz the DCS query surface: XTGETTCAP + DECRQSS (FZ3)
 
 The protocol fuzzer (`tests/protocol_fuzz.rs`) now covers the RQ2 DCS query

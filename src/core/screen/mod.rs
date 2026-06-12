@@ -89,6 +89,7 @@ pub struct Screen {
     bracketed_paste: bool,
     current_attrs: Attrs,
     current_protected: bool,
+    rect_attr_extent: RectAttributeExtent,
     active_hyperlink: Option<LinkId>,
     dirty: DirtyRegion,
     render_revision: u64,
@@ -157,6 +158,7 @@ struct StoredScreen {
     auto_wrap: bool,
     current_attrs: Attrs,
     current_protected: bool,
+    rect_attr_extent: RectAttributeExtent,
     active_hyperlink: Option<LinkId>,
     kitty_keyboard_flags: u16,
     kitty_keyboard_stack: Vec<u16>,
@@ -170,6 +172,13 @@ struct SavedCursor {
 struct ScrollRegion {
     top: usize,
     bottom: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum RectAttributeExtent {
+    #[default]
+    Stream,
+    Exact,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -197,6 +206,7 @@ impl Screen {
             bracketed_paste: false,
             current_attrs: Attrs::default(),
             current_protected: false,
+            rect_attr_extent: RectAttributeExtent::default(),
             active_hyperlink: None,
             dirty: DirtyRegion::Full,
             render_revision: 0,
@@ -1066,15 +1076,18 @@ impl Screen {
             'q' if intermediates == b">" => self.xtversion_report(params),
             'q' if intermediates == b"\"" => self.set_char_protection(param_or(params, 0, 0)),
             'q' if intermediates == b" " => self.set_cursor_style(param_or(params, 0, 0)),
+            'r' if intermediates == b"$" => self.change_rect_attrs(params),
             'r' => self.set_scroll_region(params),
             's' => self.save_cursor(),
             't' if intermediates.is_empty() => self.window_ops_report(params),
+            't' if intermediates == b"$" => self.reverse_rect_attrs(params),
             'u' if intermediates == b"?" => self.kitty_keyboard_query(params, intermediates),
             'u' if intermediates == b">" => self.kitty_keyboard_push(params, intermediates),
             'u' if intermediates == b"<" => self.kitty_keyboard_pop(params, intermediates),
             'u' if intermediates == b"=" => self.kitty_keyboard_set(params, intermediates),
             'u' => self.restore_cursor(),
             'v' if intermediates == b"$" => self.copy_rect(params),
+            'x' if intermediates == b"*" => self.set_rect_attr_extent(param_or(params, 0, 0)),
             'x' if intermediates == b"$" => self.fill_rect(params),
             'z' if intermediates == b"$" => self.erase_rect(params),
             '{' if intermediates == b"$" => self.selective_erase_rect(params),

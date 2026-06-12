@@ -432,6 +432,7 @@ impl Screen {
                         .set_underline_style(UnderlineStyle::Dashed),
                     _ => {}
                 },
+                5 => self.current_attrs.blink = true,
                 7 => self.current_attrs.inverse = true,
                 8 => self.current_attrs.hidden = true,
                 9 => self.current_attrs.strikethrough = true,
@@ -441,6 +442,7 @@ impl Screen {
                 }
                 23 => self.current_attrs.italic = false,
                 24 => self.current_attrs.set_underline_style(UnderlineStyle::None),
+                25 => self.current_attrs.blink = false,
                 27 => self.current_attrs.inverse = false,
                 28 => self.current_attrs.hidden = false,
                 29 => self.current_attrs.strikethrough = false,
@@ -834,6 +836,7 @@ impl Screen {
             auto_wrap: self.auto_wrap,
             current_attrs: self.current_attrs,
             current_protected: self.current_protected,
+            rect_attr_extent: self.rect_attr_extent,
             active_hyperlink: self.active_hyperlink,
             kitty_keyboard_flags: self.keyboard.kitty_keyboard_flags,
             kitty_keyboard_stack: std::mem::take(&mut self.kitty_keyboard_stack),
@@ -878,6 +881,7 @@ impl Screen {
                 self.cursor_visible = primary_screen.cursor_visible;
                 self.current_attrs = primary_screen.current_attrs;
                 self.current_protected = primary_screen.current_protected;
+                self.rect_attr_extent = primary_screen.rect_attr_extent;
                 self.active_hyperlink = primary_screen.active_hyperlink;
             } else {
                 // Modes 47/1047: cursor stays where it is (clamped).
@@ -888,6 +892,7 @@ impl Screen {
                 self.cursor_visible = primary_screen.cursor_visible;
                 self.current_attrs = primary_screen.current_attrs;
                 self.current_protected = primary_screen.current_protected;
+                self.rect_attr_extent = primary_screen.rect_attr_extent;
                 self.active_hyperlink = primary_screen.active_hyperlink;
             }
             self.saved_cursor = primary_screen.saved_cursor;
@@ -936,6 +941,7 @@ impl Screen {
         self.bracketed_paste = false;
         self.current_attrs = Attrs::default();
         self.current_protected = false;
+        self.rect_attr_extent = RectAttributeExtent::default();
         self.active_hyperlink = None;
         self.host_output.clear();
         self.clipboard_requests.clear();
@@ -981,6 +987,7 @@ impl Screen {
         self.kitty_keyboard_stack.clear();
         self.current_attrs = Attrs::default();
         self.current_protected = false;
+        self.rect_attr_extent = RectAttributeExtent::default();
         self.active_hyperlink = None;
         self.host_output.clear();
         self.last_graphic_char = None;

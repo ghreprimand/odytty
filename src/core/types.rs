@@ -251,6 +251,7 @@ pub struct Attrs {
     pub underline: bool,
     pub underline_style: UnderlineStyle,
     pub underline_color: Option<Color>,
+    pub blink: bool,
     pub strikethrough: bool,
     pub inverse: bool,
     pub hidden: bool,
@@ -273,6 +274,9 @@ impl std::fmt::Debug for Attrs {
             .field("hidden", &self.hidden)
             .field("foreground", &self.foreground)
             .field("background", &self.background);
+        if self.blink {
+            attrs.field("blink", &self.blink);
+        }
         match self.effective_underline_style() {
             UnderlineStyle::None | UnderlineStyle::Straight => {}
             style => {
