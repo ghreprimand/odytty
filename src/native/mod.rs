@@ -91,6 +91,11 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // affects how Color::Default paints; the terminal core is unaware of it.
     let theme = settings.theme;
     text::set_default_colors(theme.foreground, theme.background);
+    // Publish the synthetic-styles kill switch process-wide before the GPU
+    // surface (and its glyph atlas) is built on resume, so a launch-time
+    // `synthetic_styles = off` is honored from the first frame. The config
+    // reload path republishes it on change (see `apply_reloadable_values`).
+    crate::settings::set_synthetic_styles_enabled(settings.synthetic_styles);
     // Shared terminal model, sized to the initial grid. The pump thread writes
     // to it; the UI thread snapshots from it.
     let mut model = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);

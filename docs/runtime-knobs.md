@@ -64,6 +64,7 @@ are skipped with stderr warnings.
 | `theme` | `ODYTTY_THEME` | `plain`, `odyssey`, `odyssey-noir` | `plain` | Selects default foreground/background and window clear color. Unknown values fall back to `plain`. |
 | `visual` | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `off` | Enables or disables the optional presentation-only ambient effect. |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` | Enables OSC 52 clipboard read replies. Off by default: a terminal that replies to read requests allows any remote program to exfiltrate local clipboard contents. Set to `on` only in trusted sessions. Config-file aliases: `osc52read`, `allowosc52read`, `clipboardread`. |
+| `synthetic_styles` | `ODYTTY_SYNTHETIC_STYLES` | `on`, `off` | `on` | Controls whether the renderer synthesizes missing bold/italic faces from the regular outline (double-strike emboldening + oblique shear). When `off`, styled cells render as plain regular glyphs wherever no real bold/italic face is loaded; a real face always wins regardless. Purely presentational — never affects cell semantics or selection. Invalid values fall back to `on` with one stderr warning. Config-file aliases: `syntheticstyles`, `synthstyles`, `syntheticfonts`. |
 | `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
 
 All settings above except `native_autoclose_ms` are live-reloadable from the
@@ -71,7 +72,9 @@ config file when their environment variable was not set at startup. `font_size`,
 `font`, and `font_family` rebuild the glyph atlas, recompute the grid, and push
 the resulting PTY window size through the same path used for HiDPI scale
 changes. `subpixel` rebuilds the atlas and cell pipeline; it still falls back to
-grayscale if the adapter lacks dual-source blending. `native_autoclose_ms` is
+grayscale if the adapter lacks dual-source blending. `synthetic_styles` rebuilds
+the glyph atlas through the same font-change seam so a toggle re-rasterizes (or
+drops) the synthesized bold/italic slots without a restart. `native_autoclose_ms` is
 startup-only because changing the smoke-test exit timer mid-session would make
 manual and automated lifecycle behavior ambiguous.
 

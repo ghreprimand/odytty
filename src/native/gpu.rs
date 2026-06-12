@@ -244,6 +244,19 @@ fn load_optional_style_font(path: &std::path::Path) -> Option<FontVec> {
     text::load_font_at(path).ok()
 }
 
+/// Apply the synthetic-styles kill switch to a font set's natural synthesis
+/// mask. When synthesis is `enabled`, returns [`StyleFonts::synthetic_mask`]
+/// unchanged (each style true only when it has no real face). When disabled,
+/// every bit is forced off so [`GlyphAtlas::set_synthetic_styles`] performs no
+/// emboldening or shear and styled cells fall back to plain regular glyphs.
+fn masked_synthetic(fonts: &StyleFonts, enabled: bool) -> (bool, bool, bool) {
+    if enabled {
+        fonts.synthetic_mask()
+    } else {
+        (false, false, false)
+    }
+}
+
 pub(super) fn ensure_snapshot_glyphs(
     atlas: &mut GlyphAtlas,
     fonts: &StyleFonts,
@@ -419,6 +432,13 @@ pub(super) struct GpuState {
     text: [f32; 4],
     /// Effective coverage path after adapter capability checks.
     subpixel: SubpixelMode,
+    /// Last-applied value of the process-wide synthetic-styles kill switch
+    /// ([`crate::settings::synthetic_styles_enabled`]). Retained so
+    /// [`Self::apply_text_options`] can detect a live toggle and rebuild the
+    /// atlas through the existing font-change seam; when `false`, the atlas
+    /// synthetic mask is forced off so styled cells render as plain regular
+    /// glyphs.
+    synthetic_enabled: bool,
     font_path: Option<PathBuf>,
     font_family: String,
     // Kept alive for the lifetime of the bind group; never read directly.
@@ -504,7 +524,9 @@ impl GpuState {
         let fonts = StyleFonts::load(options)?;
         let mut atlas =
             GlyphAtlas::build_with_subpixel(fonts.regular_font(), physical_px, subpixel);
-        let (synth_bold, synth_italic, synth_bold_italic) = fonts.synthetic_mask();
+        let synthetic_enabled = crate::settings::synthetic_styles_enabled();
+        let (synth_bold, synth_italic, synth_bold_italic) =
+            masked_synthetic(&fonts, synthetic_enabled);
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
         ensure_snapshot_glyphs(&mut atlas, &fonts, initial_snapshot);
         let atlas_texture = create_atlas_texture(&device, &queue, &atlas);
@@ -621,6 +643,7 @@ impl GpuState {
             effect,
             text,
             subpixel,
+            synthetic_enabled,
             font_path: options.font_path.clone(),
             font_family: options.font_family.clone(),
             atlas_texture,
@@ -645,7 +668,8 @@ impl GpuState {
             self.physical_px,
             self.subpixel,
         );
-        let (synth_bold, synth_italic, synth_bold_italic) = self.fonts.synthetic_mask();
+        let (synth_bold, synth_italic, synth_bold_italic) =
+            masked_synthetic(&self.fonts, self.synthetic_enabled);
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
         let _ = atlas.take_dirty();
         self.atlas = atlas;
@@ -720,7 +744,14 @@ impl GpuState {
             self.font_path != options.font_path || self.font_family != options.font_family;
         let subpixel_changed = self.subpixel != next_subpixel;
         let font_size_changed = (self.font_size_px - options.font_size_px).abs() >= f32::EPSILON;
-        if !font_changed && !subpixel_changed && !font_size_changed {
+        // The synthetic-styles kill switch is published process-wide (it cannot
+        // ride `NativeOptions`, whose construction literals live in fenced
+        // files). A live toggle reuses this font-change rebuild seam: the synth
+        // mask is baked into atlas slots, so a redraw alone cannot un-bake it —
+        // the atlas must rebuild.
+        let synthetic_now = crate::settings::synthetic_styles_enabled();
+        let synthetic_changed = synthetic_now != self.synthetic_enabled;
+        if !font_changed && !subpixel_changed && !font_size_changed && !synthetic_changed {
             return Ok(false);
         }
 
@@ -750,6 +781,9 @@ impl GpuState {
         if font_size_changed {
             self.font_size_px = options.font_size_px;
             self.physical_px = physical_font_px(self.font_size_px, self.scale);
+        }
+        if synthetic_changed {
+            self.synthetic_enabled = synthetic_now;
         }
         self.rebuild_atlas();
         Ok(true)

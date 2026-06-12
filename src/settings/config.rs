@@ -6,8 +6,8 @@ use std::path::Path;
 
 use super::{
     CURSOR_BLINK_ENV, CURSOR_STYLE_ENV, FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV, KEYBINDS_ENV,
-    NATIVE_AUTOCLOSE_ENV, OSC52_READ_ENV, SUBPIXEL_ENV, TEXT_GAMMA_ENV, THEME_ENV, VISUAL_ENV,
-    normalize_name,
+    NATIVE_AUTOCLOSE_ENV, OSC52_READ_ENV, SUBPIXEL_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV,
+    THEME_ENV, VISUAL_ENV, normalize_name,
 };
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
@@ -72,6 +72,7 @@ fn config_key_to_env(key: &str) -> Option<&'static str> {
         "cursorstyle" => Some(CURSOR_STYLE_ENV),
         "cursorblink" => Some(CURSOR_BLINK_ENV),
         "osc52read" | "allowosc52read" | "clipboardread" => Some(OSC52_READ_ENV),
+        "syntheticstyles" | "synthstyles" | "syntheticfonts" => Some(SYNTHETIC_STYLES_ENV),
         "nativeautoclosems" => Some(NATIVE_AUTOCLOSE_ENV),
         _ => None,
     }

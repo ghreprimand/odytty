@@ -35,6 +35,7 @@ pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
 pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
 pub const OSC52_READ_ENV: &str = "ODYTTY_OSC52_READ";
+pub const SYNTHETIC_STYLES_ENV: &str = "ODYTTY_SYNTHETIC_STYLES";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
@@ -52,8 +53,32 @@ const SETTING_ENV_KEYS: &[&str] = &[
     CURSOR_STYLE_ENV,
     CURSOR_BLINK_ENV,
     OSC52_READ_ENV,
+    SYNTHETIC_STYLES_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
+
+/// Runtime flag mirroring [`Settings::synthetic_styles`], published process-wide
+/// so the GPU renderer can read it without threading `Settings` through the
+/// `NativeOptions` seam (whose construction literals live in another worker's
+/// fenced files). Defaults to `true` (synthesis on); the native entry point
+/// publishes the resolved setting at startup and the config-reload path
+/// republishes it on change. This mirrors the existing process-global pattern
+/// used for default cell colors ([`crate::text::set_default_colors`]).
+static SYNTHETIC_STYLES_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+
+/// Publish the synthetic-styles kill switch so the renderer's atlas-build path
+/// can gate font synthesis. Called at startup and whenever the config reloads.
+pub fn set_synthetic_styles_enabled(enabled: bool) {
+    SYNTHETIC_STYLES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Read the published synthetic-styles flag. `true` means synthesize missing
+/// bold/italic faces from the regular outline; `false` forces the atlas mask off
+/// so styled cells render as plain regular glyphs.
+pub fn synthetic_styles_enabled() -> bool {
+    SYNTHETIC_STYLES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 /// Default cursor blink policy (`ODYTTY_CURSOR_BLINK`). This is the host default
 /// applied at power-on and after DECSCUSR 0 / RIS / DECSTR; an application's
@@ -194,6 +219,11 @@ pub struct Settings {
     /// Whether OSC 52 clipboard read/query replies are enabled. Off by default
     /// to avoid silent clipboard exfiltration.
     pub osc52_read: bool,
+    /// Whether the renderer synthesizes missing bold/italic faces from the
+    /// regular outline (double-strike embolden + shear). On by default; turning
+    /// it off makes styled cells render as plain regular glyphs when no real
+    /// face is loaded. Purely presentational — never affects cell semantics.
+    pub synthetic_styles: bool,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -211,6 +241,7 @@ impl Default for Settings {
             cursor_style: CursorStyle::Block,
             cursor_blink: CursorBlink::Auto,
             osc52_read: false,
+            synthetic_styles: true,
             native_autoclose: None,
         }
     }
@@ -328,6 +359,12 @@ impl Settings {
             false,
             &mut warn,
         );
+        let synthetic_styles = parse_bool_setting(
+            get(SYNTHETIC_STYLES_ENV).as_deref(),
+            SYNTHETIC_STYLES_ENV,
+            true,
+            &mut warn,
+        );
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -342,6 +379,7 @@ impl Settings {
             cursor_style,
             cursor_blink,
             osc52_read,
+            synthetic_styles,
             native_autoclose,
         }
     }

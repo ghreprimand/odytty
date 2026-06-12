@@ -590,6 +590,66 @@ fn garbage_osc52_read_falls_back_off_with_warning() {
 }
 
 #[test]
+fn synthetic_styles_defaults_on_and_parses_off() {
+    let (settings, warnings) = settings_from([]);
+    assert!(settings.synthetic_styles);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from([(SYNTHETIC_STYLES_ENV, "off")]);
+    assert!(!settings.synthetic_styles);
+    assert!(warnings.is_empty());
+
+    // Config-file aliases map onto the same setting.
+    let (settings, warnings) = settings_from_config_and_env("synthetic_styles = no", []);
+    assert!(!settings.synthetic_styles);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from_config_and_env("synthstyles = off", []);
+    assert!(!settings.synthetic_styles);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_synthetic_styles_falls_back_on_with_warning() {
+    let (settings, warnings) = settings_from([(SYNTHETIC_STYLES_ENV, "maybe")]);
+    assert!(settings.synthetic_styles);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(SYNTHETIC_STYLES_ENV));
+}
+
+#[test]
+fn apply_reloadable_values_publishes_synthetic_styles_global() {
+    // The kill switch is reloadable: applying a reload that flips it updates the
+    // Settings and republishes the process-wide flag the renderer reads on its
+    // next atlas-build. Restore the default afterward so the shared global does
+    // not leak into other tests.
+    let restore = synthetic_styles_enabled();
+
+    set_synthetic_styles_enabled(true);
+    let mut current = Settings {
+        synthetic_styles: true,
+        ..Settings::default()
+    };
+    let reloaded_off = Settings {
+        synthetic_styles: false,
+        ..Settings::default()
+    };
+    assert!(apply_reloadable_values(&mut current, reloaded_off));
+    assert!(!current.synthetic_styles);
+    assert!(!synthetic_styles_enabled());
+
+    let reloaded_on = Settings {
+        synthetic_styles: true,
+        ..Settings::default()
+    };
+    assert!(apply_reloadable_values(&mut current, reloaded_on));
+    assert!(current.synthetic_styles);
+    assert!(synthetic_styles_enabled());
+
+    set_synthetic_styles_enabled(restore);
+}
+
+#[test]
 fn empty_cursor_settings_are_silent_defaults() {
     let (settings, warnings) = settings_from([(CURSOR_STYLE_ENV, "  "), (CURSOR_BLINK_ENV, "")]);
     assert_eq!(settings.cursor_style, CursorStyle::Block);

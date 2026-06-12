@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 — Synthetic-styles kill switch (SB2)
+
+The synthetic bold/italic fallback (SB1) is now gated by a runtime setting, so
+the synthesis can be disabled wherever a user prefers plain regular glyphs for
+unstyled-face cells.
+
+- **Setting.** `synthetic_styles` (`ODYTTY_SYNTHETIC_STYLES`, `on`/`off`, default
+  `on`) joins the typed `Settings`, with config-file aliases `syntheticstyles`,
+  `synthstyles`, `syntheticfonts`. Invalid values fall back to `on` with one
+  stderr warning, matching the other boolean knobs.
+- **Live reload.** The kill switch is reloadable. Because `NativeOptions` cannot
+  carry it (its construction literals live in files owned by a concurrent
+  packet), the resolved value is published to a process-wide flag — the same
+  pattern already used for default cell colors — at startup and on every config
+  reload. The renderer reads the flag when (re)building the glyph atlas.
+- **Wiring.** When the switch is off, the two atlas-build sites force the
+  synthetic mask to `(false, false, false)`, so styled cells rasterize straight
+  from the regular outline with no emboldening or shear. A live toggle is picked
+  up by the existing `apply_text_options` font-change seam, which rebuilds the
+  atlas — a redraw alone cannot un-bake already-synthesized slots. A real bold or
+  italic face always wins regardless of the switch.
+- **Coverage.** Settings tests cover default/parse/alias and the reload-publishes
+  -global path; pixel-smoke tests assert mask-off renders bold identically to
+  regular and that toggling the mask gates bold weight end-to-end. Verified
+  `cargo test` (lib 766, pixel_smoke 23, pty 9, transcript 10) and `cargo fmt
+  --check` clean. Native autoclose smokes (including
+  `ODYTTY_SYNTHETIC_STYLES=off`) require a display and are run by the reviewer.
+
+---
+
 ## 2026-06-12 — Synchronized output mode 2026 (SU1)
 
 OdyTTY now supports DEC private mode 2026 for synchronized output, letting TUI
