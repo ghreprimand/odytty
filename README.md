@@ -20,9 +20,14 @@ primary specifications (vt100.net DEC ANSI diagram, ECMA-48, xterm `ctlseqs`):
 a ground-state text/UTF-8 segmenter plus an 8-bit-clean 14-state control
 automaton. The terminal model (`src/core/`), renderer geometry (`src/grid.rs`),
 and shaders are entirely OdyTTY-owned. External crates are intentional
-below-product-line tools — `ab_glyph` (font rasterization), `wgpu` (GPU API),
-`winit` (windowing), `arboard` (clipboard), `unicode-width` — and do not own
-terminal semantics.
+below-product-line tools — `ab_glyph` (font rasterization for normal text),
+`swash` (emoji shaping/rasterization and color-font probe; normal text remains on
+`ab_glyph`), `wgpu` (GPU API), `winit` (windowing), `arboard` (clipboard),
+`unicode-width` — and do not own terminal semantics. The emoji discovery probe
+(`src/emoji/`) is renderer-free: it calls `fc-match` directly for Noto Color
+Emoji, falls back to a bounded filesystem scan (depth 6, 20 000-file cap) when
+fontconfig is absent or returns a non-matching font, and returns `None` cleanly
+when Noto Color Emoji is not installed so the rest of the stack is not affected.
 
 **Terminal compatibility.** Sequences confirmed across the fixture suite: SGR
 (all standard attributes, 256-color, truecolor; colon-form `38:2::r:g:b` and
@@ -190,7 +195,7 @@ reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
 the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 842 tests passing: 789 unit/integration, 23 pixel-smoke
+**Testing.** 845 tests passing: 792 unit/integration, 23 pixel-smoke
 (headless CPU compositor asserting structural raster invariants for text
 rendering and graphics placement), 11 protocol-fuzz smoke (never-panic,
 bounded-host-output, post-RIS, and grid-self-consistency invariants across seven
@@ -200,6 +205,11 @@ query reports (XTGETTCAP / DECRQSS), and DEC rectangle / selective-erase ops),
 9 PTY alternate-screen smoke, and 10 transcript smoke. Deep fuzz tiers are
 `#[ignore]`-gated and run via
 `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
+EM2 added three hermetic emoji-probe tests (fixed representative-sequence list,
+bounded filename discovery in a temp directory, and non-color format detection
+for outline fonts); the host-dependent full probe against an installed Noto Color
+Emoji is `#[ignore]`-gated and runs via
+`cargo test emoji -- --ignored`.
 `cargo bench --bench perf` runs headless throughput benchmarks for the
 terminal model and parser separately from the default suite. B3 added four
 surface rows: DECFRA full-page fill (~2.3 µs/op, ~1.2 ns/cell), DECCRA

@@ -391,8 +391,10 @@ its first stable layer.
 ## Stack
 
 The stack is: Rust, Linux-first, `winit` (windowing), `wgpu` (GPU/Vulkan),
-`ab_glyph` (font rasterization), `unicode-width` (cell widths), `arboard`
-(clipboard), `rustix` (PTY/termios), `png` (PNG decode for Kitty `f=100`).
+`ab_glyph` (font rasterization for normal text), `swash` (emoji font discovery,
+shaping, and color-font probe — emoji/color-font path only; normal text stays on
+`ab_glyph`), `unicode-width` (cell widths), `arboard` (clipboard), `rustix`
+(PTY/termios), `png` (PNG decode for Kitty `f=100`).
 
 The terminal core is a distinct boundary from the native app. The `core` module
 never imports windowing, GPU, or rendering code; it consumes VT bytes via the
@@ -436,3 +438,24 @@ decorations → color emoji glyphs → cursor and overlays. COLR v1 and SVG-in-O
 are deferred but architecturally permitted; the boundary rule (rasterization
 external, placement owned) applies to those paths as well. Implementation
 ladder EM2–EM6 is tracked in `TODO.md`.
+
+**EM2 (delivered).** `src/emoji/` is a renderer-free probe module — it imports
+no atlas, GPU, shader, or core terminal code. Discovery runs in two stages.
+First, `fc-match -f '%{file}\n%{family}' 'Noto Color Emoji'` is invoked
+directly; the returned path and family string are checked against a strict
+identity predicate (normalized filename or family must contain `notocoloremoji`),
+so generic fontconfig substitution fonts are rejected. If fontconfig is
+unavailable or returns a non-matching result, a bounded directory scan covers
+`/usr/share/fonts`, `/usr/local/share/fonts`, `~/.local/share/fonts`, and
+`~/.fonts` at maximum depth 6 and a 20 000-file cap, matching by normalized
+filename stem. When no Noto Color Emoji is found, the module returns `None` and
+all downstream code skips the emoji path without error. On a successful find,
+the module loads the face as a borrowed `swash::FontRef` and probes: detected
+color-table set (CBDT/CBLC, sbix, COLR/CPAL, SVG), OpenType family name string,
+and per representative-sequence records — shaped glyph ids, cluster structure
+(source byte range, advance, ligature/complex flags), and per-sequence fallback
+outcome (`Resolved` when any shaped glyph id is non-zero, `MissingGlyph`
+otherwise). Default tests are hermetic (temp-dir filename discovery, fixed
+sequence list, non-color format detection for a monospace outline font). The
+host-dependent full probe is `#[ignore]`-gated and runs via
+`cargo test emoji -- --ignored`; it exits cleanly when the font is absent.
