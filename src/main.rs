@@ -5,10 +5,17 @@ use odytty::native::{NativeOptions, run_native};
 use odytty::pty::PtySession;
 use odytty::settings::Settings;
 
+mod cli;
+
 fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let args = std::env::args().skip(1).collect::<Vec<_>>();
+    if let Some(output) = cli::output_for_args(&args) {
+        print!("{output}");
+        return Ok(());
+    }
+
     if args.first().map(String::as_str) == Some("--dump-command") {
         let command = args
             .get(1)
