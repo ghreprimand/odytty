@@ -241,6 +241,10 @@ mod tests {
         ColorGlyphKey::new(7, ColorGlyphId::Glyph(id), 16.0, 1.0)
     }
 
+    fn cluster_key(id: u32) -> ColorGlyphKey {
+        ColorGlyphKey::new(7, ColorGlyphId::Cluster(u64::from(id)), 16.0, 1.0)
+    }
+
     fn rgba(width_cells: u8, color: [u8; 4]) -> Vec<u8> {
         let len = cell().width as usize * width_cells as usize * cell().height as usize;
         std::iter::repeat_n(color, len).flatten().collect()
@@ -300,6 +304,51 @@ mod tests {
             .expect("second");
         assert_eq!(first, second);
         assert_eq!(atlas.revision(), 1);
+        assert!(!atlas.take_dirty());
+    }
+
+    #[test]
+    fn capacity_is_bounded_and_full_does_not_overwrite_existing_slots() {
+        let mut atlas = ColorGlyphAtlas::new(cell());
+        let first_key = cluster_key(0);
+        atlas
+            .insert_premultiplied(first_key, 1, &rgba(1, [10, 20, 30, 255]))
+            .expect("first slot");
+
+        for id in 1..MAX_COLOR_GLYPH_SLOTS {
+            atlas
+                .insert_premultiplied(cluster_key(id), 1, &rgba(1, [1, 2, 3, 255]))
+                .expect("slot before cap");
+        }
+
+        let final_key = cluster_key(MAX_COLOR_GLYPH_SLOTS - 1);
+        let final_bounds = atlas.lookup(final_key).expect("final slot lookup");
+        assert_eq!(atlas.slots.len(), MAX_COLOR_GLYPH_SLOTS as usize);
+        assert_eq!(atlas.next_slot, MAX_COLOR_GLYPH_SLOTS);
+        assert_eq!(atlas.capacity_rows, MAX_COLOR_GLYPH_SLOTS / ATLAS_COLS);
+        assert_eq!(atlas.height, atlas.capacity_rows * cell().height);
+        assert_eq!(atlas.data.len(), (atlas.width * atlas.height * 4) as usize);
+        assert_eq!(atlas.revision(), u64::from(MAX_COLOR_GLYPH_SLOTS));
+        let first_after_growth = atlas.lookup(first_key).expect("first slot lookup");
+        assert_eq!(first_after_growth.pixel_width, cell().width);
+        assert_eq!(&atlas.data[..4], &[10, 20, 30, 255]);
+        assert_eq!(final_bounds.pixel_width, cell().width);
+        assert!(final_bounds.uv[2] <= 1.0);
+        assert!(final_bounds.uv[3] <= 1.0);
+
+        assert!(atlas.take_dirty());
+        let overflow_key = cluster_key(MAX_COLOR_GLYPH_SLOTS);
+        let err = atlas
+            .insert_premultiplied(overflow_key, 1, &rgba(1, [4, 5, 6, 255]))
+            .expect_err("cap returns Full");
+        assert_eq!(err, ColorGlyphAtlasError::Full);
+        assert_eq!(atlas.lookup(overflow_key), None);
+        assert_eq!(atlas.lookup(first_key), Some(first_after_growth));
+        assert_eq!(&atlas.data[..4], &[10, 20, 30, 255]);
+        assert_eq!(atlas.lookup(final_key), Some(final_bounds));
+        assert_eq!(atlas.slots.len(), MAX_COLOR_GLYPH_SLOTS as usize);
+        assert_eq!(atlas.next_slot, MAX_COLOR_GLYPH_SLOTS);
+        assert_eq!(atlas.revision(), u64::from(MAX_COLOR_GLYPH_SLOTS));
         assert!(!atlas.take_dirty());
     }
 }

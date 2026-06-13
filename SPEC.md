@@ -477,7 +477,7 @@ Draw order: cell backgrounds → below-text images → coverage glyphs and line
 decorations → color emoji glyphs → cursor and overlays. COLR v1 and SVG-in-OT
 are deferred but architecturally permitted; the boundary rule (rasterization
 external, placement owned) applies to those paths as well. Implementation
-ladder EM2–EM6 is tracked in `TODO.md`.
+ladder EM2–EM7 is tracked in `TODO.md`.
 
 **EM2 (delivered).** The first `src/emoji/` packet was a renderer-free probe
 module: no atlas, GPU, shader, or core terminal code. Discovery runs in two
@@ -537,3 +537,13 @@ using a one- or two-cell atlas slot while recording every source column whose
 foreground should be suppressed. If shaping or color bitmap rasterization does
 not resolve, no cluster run is emitted; the existing per-cell coverage/color
 fallback remains visible.
+
+**EM6 capacity audit (delivered).** `ColorGlyphAtlas` capacity is bounded and
+corruption-safe as implemented. The atlas starts at 16 columns by four rows,
+grows in four-row chunks, and caps at 4096 resident color glyph/cluster slots.
+At the cap, a new insertion returns `ColorGlyphAtlasError::Full`; existing
+slots stay lookupable, no slot is overwritten, `revision` is unchanged, and a
+failed insert does not mark the atlas dirty. The renderer therefore degrades by
+omitting the new color run and leaving fallback rendering visible. No eviction
+policy is added until observed workloads prove 4096 resident color glyphs is too
+small.

@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Color glyph atlas capacity audit (EM6)
+
+Audited the live color-emoji atlas capacity model before changing policy. The
+current implementation is already bounded and corruption-safe, so no eviction
+mechanism was added.
+
+- **Capacity model.** `ColorGlyphAtlas` starts as a 16-column texture with four
+  rows of slots, grows in four-row chunks, and stops at 4096 resident color
+  glyph/cluster slots. Growth resizes the texture backing store; it does not
+  append unbounded pages.
+- **Full behavior.** Once the cap is reached, inserting a new key returns
+  `ColorGlyphAtlasError::Full`. Existing slots remain resident and lookupable,
+  no slot is overwritten, `revision` does not advance, and the dirty flag stays
+  clear after the failed insert.
+- **Policy decision.** Because the current behavior is bounded and degrades by
+  omitting a color run rather than blanking the cell, deterministic eviction is
+  not needed for this packet.
+- **Tests.** Added a unit test that fills all 4096 cluster slots, verifies final
+  texture dimensions and slot count, then proves overflow fails without
+  corrupting the first or last resident slot.
+
 ## 2026-06-13 -- Multi-codepoint emoji cluster rendering (EM5)
 
 Extended the live color-emoji path from single terminal-cell graphemes to

@@ -417,7 +417,11 @@ a floor; surpassing it is the standing ambition.
         ZWJ sequences. The renderer reconstructs bounded clusters from the
         snapshot, keys atlas entries by full cluster, emits one color glyph when
         Noto resolves a single bitmap, and falls back visibly otherwise.
-  - [ ] EM6: scalable color font expansion (COLR/CPAL first, SVG-in-OT only
+  - [x] EM6: ColorGlyphAtlas capacity audit. The atlas is already bounded at
+        4096 resident glyph/cluster slots, grows in fixed row chunks, returns
+        `Full` without overwrite or dirtying at capacity, and leaves fallback
+        rendering visible; no eviction added without observed need.
+  - [ ] EM7: scalable color font expansion (COLR/CPAL first, SVG-in-OT only
         from evidence).
 - [ ] Wide-glyph raster quality: double-width (CJK/wide) atlas slot sizing.
   - [x] W1 audit: width-2 glyphs were clipped — a single-cell atlas slot caps
@@ -521,7 +525,10 @@ a floor; surpassing it is the standing ambition.
   - [x] EM5: emoji clusters — flags, keycaps, skin-tone modifiers, ZWJ
         sequences; regression fixtures per category; defined fallback for
         unsupported clusters.
-  - [ ] EM6: COLR/CPAL and alternate color-font formats; SVG-in-OT via
+  - [x] EM6: ColorGlyphAtlas capacity audit; bounded growth to 4096 slots,
+        deterministic `Full` at cap, and no slot overwrite or dirtying on
+        overflow.
+  - [ ] EM7: COLR/CPAL and alternate color-font formats; SVG-in-OT via
         `resvg` if real installed-font evidence requires it.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
 
