@@ -32,6 +32,7 @@ fn settings_from_resolving<const N: usize>(
         },
         |message| warnings.push(message.to_owned()),
         resolve_family,
+        |_| None,
     );
     (settings, warnings)
 }
@@ -51,6 +52,7 @@ fn settings_from_config_and_env<const N: usize>(
                 .or_else(|| config.get(key).cloned())
         },
         |message| warnings.push(message.to_owned()),
+        |_| None,
         |_| None,
     );
     (settings, warnings)
@@ -696,4 +698,101 @@ fn empty_cursor_settings_are_silent_defaults() {
     assert_eq!(settings.cursor_style, CursorStyle::Block);
     assert_eq!(settings.cursor_blink, CursorBlink::Auto);
     assert!(warnings.is_empty());
+}
+
+// --- ODYTTY_THEME file resolution (TH2) ---------------------------------
+
+/// Build settings with an injected `read_theme` resolver (no real filesystem).
+fn settings_from_theme(
+    theme_value: &str,
+    read_theme: impl FnMut(&str) -> Option<String>,
+) -> (Settings, Vec<String>) {
+    let value = OsString::from(theme_value);
+    let mut warnings = Vec::new();
+    let settings = Settings::from_source(
+        |key| (key == THEME_ENV).then(|| value.clone()),
+        |message| warnings.push(message.to_owned()),
+        |_| None,
+        read_theme,
+    );
+    (settings, warnings)
+}
+
+#[test]
+fn builtin_theme_name_does_not_consult_theme_files() {
+    // A built-in name resolves to its const without touching `read_theme`.
+    let (settings, warnings) = settings_from_theme("odyssey", |_| {
+        panic!("read_theme must not be called for built-ins")
+    });
+    assert_eq!(settings.theme, Theme::ODYSSEY);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn user_theme_file_contents_resolve_through_spec() {
+    let theme_file = "name = Mine\nbackground = #010203\ncolor1 = #112233\ncursor = #445566\n";
+    let (settings, warnings) = settings_from_theme("mine", |value| {
+        assert_eq!(value, "mine");
+        Some(theme_file.to_string())
+    });
+    assert!(warnings.is_empty(), "warnings: {warnings:?}");
+    assert_eq!(settings.theme.background, (0x01, 0x02, 0x03));
+    assert_eq!(settings.theme.palette[1], (0x11, 0x22, 0x33));
+    assert_eq!(settings.theme.cursor, (0x44, 0x55, 0x66));
+    // A user theme projects to the static placeholder name.
+    assert_eq!(settings.theme.name, "custom");
+    // Unspecified slots keep the plain baseline.
+    assert_eq!(settings.theme.foreground, Theme::PLAIN.foreground);
+}
+
+#[test]
+fn unresolvable_theme_value_falls_back_to_plain_with_warning() {
+    let (settings, warnings) = settings_from_theme("does-not-exist", |_| None);
+    assert_eq!(settings.theme, Theme::PLAIN);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(THEME_ENV));
+    assert!(warnings[0].contains("does-not-exist"));
+}
+
+#[test]
+fn malformed_theme_file_warns_but_still_loads_valid_lines() {
+    // A bad line inside the theme file warns but never aborts; valid lines
+    // around it still apply, and the result is a usable theme (never a crash).
+    let theme_file = "background = #010203\nbroken line without equals\ncolor2 = nothex\n";
+    let (settings, warnings) = settings_from_theme("partial", |_| Some(theme_file.to_string()));
+    assert_eq!(settings.theme.background, (0x01, 0x02, 0x03));
+    assert_eq!(settings.theme.palette[2], Theme::PLAIN.palette[2]);
+    assert_eq!(warnings.len(), 2);
+    assert!(warnings.iter().all(|w| w.contains("theme \"partial\"")));
+}
+
+#[test]
+fn resolve_theme_file_reads_path_like_values() {
+    let dir = std::env::temp_dir().join(format!("odytty-th2-path-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("custom.theme");
+    fs::write(&path, "background = #0a0b0c\n").unwrap();
+
+    // A `.theme` path is read directly (theme_dir irrelevant).
+    let contents = resolve_theme_file(path.to_str().unwrap(), None);
+    assert_eq!(contents.as_deref(), Some("background = #0a0b0c\n"));
+
+    let _ = fs::remove_file(&path);
+    let _ = fs::remove_dir(&dir);
+}
+
+#[test]
+fn resolve_theme_file_looks_up_names_in_theme_dir() {
+    let dir = std::env::temp_dir().join(format!("odytty-th2-dir-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("solar.theme"), "background = #112233\n").unwrap();
+
+    // A bare name resolves to `<dir>/<name>.theme`.
+    let contents = resolve_theme_file("solar", Some(dir.as_path()));
+    assert_eq!(contents.as_deref(), Some("background = #112233\n"));
+    // An unknown name resolves to nothing.
+    assert_eq!(resolve_theme_file("missing", Some(dir.as_path())), None);
+
+    let _ = fs::remove_file(dir.join("solar.theme"));
+    let _ = fs::remove_dir(&dir);
 }

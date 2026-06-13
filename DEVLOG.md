@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Theme schema + serialization (TH2)
+
+- Added a dependency-free theme file format (`src/theme/spec.rs`): a `ThemeSpec`
+  authoring model that is a superset of the runtime theme — the full color
+  payload (default fg/bg, window clear, the 16-color ANSI palette, and the
+  semantic roles cursor/selection/search/border/inactive) plus a light/dark
+  `appearance` flag, optional `font_family`/`font_size` hints, and a bundled
+  `visual` effect profile. The extra fields are parsed, serialized, and
+  round-tripped now but not yet applied at runtime — they exist so the settings
+  panel, theme picker, and visual engine can consume them without a later format
+  change.
+- Format mirrors `odytty.conf`: line-oriented `key = value`, `#` comments,
+  case/punctuation-insensitive keys, colors as `#RRGGBB`/`#RGB`. Unknown keys
+  warn but never abort; a malformed value leaves that one field at its default;
+  missing keys keep the `plain` baseline, so partial themes are valid. Built-ins
+  and user files share one parse → project path, and every built-in is proven to
+  survive serialize → parse → project to its exact colors (round-trip is a fixed
+  point). The runtime `Theme` is unchanged (still `Copy`); only the color
+  payload projects across.
+- `ODYTTY_THEME` now resolves user themes as well as built-ins: a built-in name
+  wins, otherwise the value is read as a path (`/…` or `*.theme`) or looked up in
+  `<config>/odytty/themes/` as `<name>.theme` then `<name>`. An unknown or
+  unreadable value falls back to `plain` with one warning — a bad theme never
+  aborts startup. Resolution flows through the existing settings/reload seam, so
+  switching themes live works like every other setting. New `docs/themes.md`
+  documents the format; `theme.rs` split into a `src/theme/` directory module.
+- Verified: `cargo fmt --check` clean; full suite green (lib +22 theme/settings
+  tests, pixel-smoke 25 unchanged = default path byte-identical); whitespace and
+  secret scans clean. Native theme-file smokes (`ODYTTY_THEME=odyssey`, a user
+  `.theme` path, and a garbage value) are the reviewer's to run.
+
 ## 2026-06-13 -- RV5 native activation + sRGB fallback guard
 
 - Wired `ODYTTY_STEM_DARKEN` into the native renderer: startup and live reload

@@ -17,6 +17,10 @@
 //! by callers that already hold a name (and by tests), so theme resolution can
 //! be exercised without mutating process environment.
 
+mod spec;
+
+pub use spec::{Appearance, ThemeSpec};
+
 /// An sRGB color triple (8-bit per channel), matching the palette byte form used
 /// by the text renderer. Kept as a plain tuple so this module stays free of any
 /// rendering-backend types.
@@ -223,6 +227,15 @@ impl VisualEffect {
     /// unknown or empty name.
     pub fn from_name_or_default(name: &str) -> VisualEffect {
         VisualEffect::from_name(name).unwrap_or(VisualEffect::Off)
+    }
+
+    /// Canonical lowercase token used when serializing a theme's bundled
+    /// effect profile. The inverse of [`from_name`](Self::from_name).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            VisualEffect::Off => "off",
+            VisualEffect::Ambient => "ambient",
+        }
     }
 
     /// Whether any visual treatment is active.

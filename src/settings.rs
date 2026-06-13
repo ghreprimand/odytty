@@ -11,9 +11,11 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use std::path::Path;
+
 use crate::atlas::SubpixelMode;
 use crate::core::CursorStyle;
-use crate::theme::{Theme, VisualEffect};
+use crate::theme::{Theme, ThemeSpec, VisualEffect};
 
 mod config;
 mod reload;
@@ -40,6 +42,8 @@ pub const SYNTHETIC_STYLES_ENV: &str = "ODYTTY_SYNTHETIC_STYLES";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
+/// Subdirectory of the config dir where user theme files (`*.theme`) live.
+pub const THEME_DIR_NAME: &str = "themes";
 pub const CONFIG_RELOAD_INTERVAL: Duration = Duration::from_secs(1);
 
 const SETTING_ENV_KEYS: &[&str] = &[
@@ -308,6 +312,7 @@ impl Settings {
                 crate::text::resolve_font_family(family, &crate::text::font_search_dirs())
                     .map(|m| m.regular)
             },
+            |value| resolve_theme_file(value, theme_dir_path().as_deref()),
         )
     }
 
@@ -328,6 +333,7 @@ impl Settings {
                 crate::text::resolve_font_family(family, &crate::text::font_search_dirs())
                     .map(|m| m.regular)
             },
+            |value| resolve_theme_file(value, theme_dir_path().as_deref()),
         )
     }
 
@@ -335,11 +341,35 @@ impl Settings {
         mut get: impl FnMut(&str) -> Option<OsString>,
         mut warn: impl FnMut(&str),
         mut resolve_family: impl FnMut(&str) -> Option<PathBuf>,
+        mut read_theme: impl FnMut(&str) -> Option<String>,
     ) -> Self {
-        let theme = get(THEME_ENV)
+        // ODYTTY_THEME resolution: a built-in name resolves to its const; any
+        // other value is treated as a user theme (a path, or a name found in
+        // the user theme dir) loaded via `read_theme` and parsed through the
+        // shared `ThemeSpec` path. A missing/garbage value falls back to plain
+        // with a warning — startup never fails from a bad theme setting.
+        let theme = match get(THEME_ENV)
             .and_then(|value| value.into_string().ok())
-            .map(|value| Theme::from_name_or_default(&value))
-            .unwrap_or(Theme::PLAIN);
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+        {
+            None => Theme::PLAIN,
+            Some(value) => {
+                if let Some(builtin) = Theme::from_name(&value) {
+                    builtin
+                } else if let Some(contents) = read_theme(&value) {
+                    let spec = ThemeSpec::parse(&contents, |message| {
+                        warn(&format!("theme {value:?}: {message}"))
+                    });
+                    spec.to_theme()
+                } else {
+                    warn(&format!(
+                        "{THEME_ENV}={value:?} is not a built-in theme or a readable theme file; using plain"
+                    ));
+                    Theme::PLAIN
+                }
+            }
+        };
         let visual = get(VISUAL_ENV)
             .and_then(|value| value.into_string().ok())
             .map(|value| VisualEffect::from_name_or_default(&value))
@@ -425,6 +455,53 @@ pub fn config_file_path() -> Option<PathBuf> {
                 .join(CONFIG_DIR_NAME)
                 .join(CONFIG_FILE_NAME)
         })
+}
+
+/// Resolved user theme directory (`<config-dir>/odytty/themes`), mirroring
+/// [`config_file_path`]'s base-directory rules. `ODYTTY_THEME` values that are
+/// not built-in names are looked up here (by `<name>.theme` or `<name>`).
+pub fn theme_dir_path() -> Option<PathBuf> {
+    if let Some(base) = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return Some(base.join(CONFIG_DIR_NAME).join(THEME_DIR_NAME));
+    }
+
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .map(|home| {
+            home.join(".config")
+                .join(CONFIG_DIR_NAME)
+                .join(THEME_DIR_NAME)
+        })
+}
+
+/// Read a user theme file for an `ODYTTY_THEME` value that is not a built-in
+/// name. Resolution order:
+///
+/// 1. A path-like value (contains a separator or ends in `.theme`) is read
+///    directly.
+/// 2. Otherwise the value is looked up in `theme_dir` as `<value>.theme` and
+///    then `<value>`.
+///
+/// Returns the file contents, or `None` when nothing resolves (caller falls
+/// back to plain). All IO errors are swallowed into `None` — a bad theme value
+/// must never abort startup.
+fn resolve_theme_file(value: &str, theme_dir: Option<&Path>) -> Option<String> {
+    let looks_like_path = value.contains('/') || value.ends_with(".theme");
+    if looks_like_path {
+        if let Ok(contents) = std::fs::read_to_string(Path::new(value)) {
+            return Some(contents);
+        }
+    }
+    let dir = theme_dir?;
+    let named = dir.join(format!("{value}.theme"));
+    if let Ok(contents) = std::fs::read_to_string(&named) {
+        return Some(contents);
+    }
+    std::fs::read_to_string(dir.join(value)).ok()
 }
 
 /// Parse `ODYTTY_CURSOR_STYLE`, falling back to the default block shape with one
