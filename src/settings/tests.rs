@@ -342,6 +342,80 @@ fn config_reload_rejects_bad_rewrite_without_candidate_settings() {
 }
 
 #[test]
+fn writeback_preserves_comments_unknown_keys_and_roundtrips_edits() {
+    let dir = temp_test_dir("writeback-roundtrip");
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(CONFIG_FILE_NAME);
+    let original = "\
+# hand-written header
+
+unknown_future = keep-me
+font_size = 16 # inline survives
+font = fonts/OldMono.ttf
+theme = plain
+";
+    fs::write(&path, original).unwrap();
+    let (base, _warnings) = settings_from_config_and_env(original, []);
+    assert_eq!(base.font_size_px, 16.0);
+    assert_eq!(base.font_path, Some(PathBuf::from("fonts/OldMono.ttf")));
+    assert_eq!(base.theme, Theme::PLAIN);
+
+    let mut edits = SettingsEditOverlay::new(&base);
+    edits.apply_raw("font_size", "22").unwrap();
+    edits.apply_raw("theme", "odyssey").unwrap();
+    edits.apply_raw("font", "").unwrap();
+    let result = write_settings_changes_to_path(&path, &edits.changes()).unwrap();
+    assert_eq!(result.changed, 3);
+
+    let saved = fs::read_to_string(&path).unwrap();
+    assert!(saved.contains("# hand-written header"));
+    assert!(saved.contains("\n\nunknown_future = keep-me"));
+    assert!(saved.contains("# inline survives"));
+    assert!(saved.contains("font_size = 22 # inline survives"));
+    assert!(saved.contains("# disabled by OdyTTY settings panel: font = fonts/OldMono.ttf"));
+    assert!(!saved.contains("/home/"));
+
+    let (reloaded, _warnings) = settings_from_config_and_env(&saved, []);
+    assert_eq!(reloaded.font_size_px, 22.0);
+    assert_eq!(reloaded.theme, Theme::ODYSSEY);
+    assert_eq!(reloaded.font_path, None);
+
+    let _ = fs::remove_file(path);
+    let _ = fs::remove_dir(dir);
+}
+
+#[test]
+fn writeback_creates_missing_config_atomically_in_injected_dir() {
+    let dir = temp_test_dir("writeback-create");
+    let path = dir.join("nested").join(CONFIG_FILE_NAME);
+    let changes = [SettingEdit {
+        key: "visual",
+        env: VISUAL_ENV,
+        value: "ambient".to_owned(),
+    }];
+
+    let result = write_settings_changes_to_path(&path, &changes).unwrap();
+    assert_eq!(result.path, path);
+    assert_eq!(result.changed, 1);
+
+    let saved = fs::read_to_string(&path).unwrap();
+    assert!(saved.starts_with("# OdyTTY settings panel\n"));
+    assert!(saved.contains("visual = ambient\n"));
+    assert!(!saved.contains("/home/"));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+    }
+
+    let _ = fs::remove_file(path);
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 fn valid_values_resolve_to_typed_settings() {
     let (settings, warnings) = settings_from([
         (THEME_ENV, "odyssey"),
@@ -361,6 +435,10 @@ fn valid_values_resolve_to_typed_settings() {
     assert_eq!(settings.subpixel, SubpixelMode::Rgb);
     assert_eq!(settings.native_autoclose, Some(Duration::from_millis(750)));
     assert!(warnings.is_empty());
+}
+
+fn temp_test_dir(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("odytty-{name}-{}", std::process::id()))
 }
 
 #[test]

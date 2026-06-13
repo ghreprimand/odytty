@@ -1,4 +1,4 @@
-use crate::settings::{SettingInfo, SettingKind, Settings, SettingsEditOverlay};
+use crate::settings::{SettingEdit, SettingInfo, SettingKind, Settings, SettingsEditOverlay};
 
 use super::overlay::OverlayInput;
 
@@ -39,6 +39,7 @@ pub(super) struct SettingsPanelLine {
 pub(super) enum SettingsPanelOutcome {
     Consumed,
     Apply(Settings),
+    Save(Vec<SettingEdit>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,6 +99,17 @@ impl SettingsPanel {
         self.clamp();
     }
 
+    pub(super) fn save_succeeded(&mut self, changed: usize) {
+        self.edits.mark_saved();
+        self.entries = self.edits.settings().setting_info();
+        self.message = Some(format!("Saved {changed} setting change(s) to odytty.conf."));
+        self.clamp();
+    }
+
+    pub(super) fn save_failed(&mut self, message: String) {
+        self.message = Some(format!("Save failed: {message}"));
+    }
+
     pub(super) fn is_editing(&self) -> bool {
         self.editing.is_some()
     }
@@ -119,6 +131,7 @@ impl SettingsPanel {
             OverlayInput::Left => return self.step_or_cycle_selected(-1),
             OverlayInput::Right => return self.step_or_cycle_selected(1),
             OverlayInput::Activate => return self.activate_selected(),
+            OverlayInput::Save => return self.save_changes(),
             OverlayInput::Char(' ') => return self.activate_selected(),
             _ => {}
         }
@@ -254,6 +267,16 @@ impl SettingsPanel {
                 let next = if entry.value == "on" { "off" } else { "on" };
                 self.commit_value(entry.key, next)
             }
+            SettingKind::Enum if entry.key == "theme" => {
+                self.editing = Some(RowEdit {
+                    key: entry.key,
+                    buffer: entry.value,
+                });
+                self.message = Some(
+                    "Editing: type a built-in theme, user theme name, or theme path.".to_owned(),
+                );
+                SettingsPanelOutcome::Consumed
+            }
             SettingKind::Enum => self.cycle_selected(1),
             SettingKind::Number | SettingKind::String | SettingKind::Path | SettingKind::List => {
                 self.editing = Some(RowEdit {
@@ -349,6 +372,15 @@ impl SettingsPanel {
         }
     }
 
+    fn save_changes(&mut self) -> SettingsPanelOutcome {
+        let changes = self.edits.changes();
+        if changes.is_empty() {
+            self.message = Some("No unsaved setting changes.".to_owned());
+            return SettingsPanelOutcome::Consumed;
+        }
+        SettingsPanelOutcome::Save(changes)
+    }
+
     fn selected_entry(&self) -> Option<&SettingInfo> {
         self.entries.get(self.selected)
     }
@@ -399,7 +431,7 @@ fn setting_detail(entry: &SettingInfo) -> String {
     if !entry.reloadable {
         detail.push_str(" Startup-only.");
     } else {
-        detail.push_str(" Enter edits/applies; Esc cancels an edit.");
+        detail.push_str(" Enter edits/applies; Ctrl+S saves; Esc cancels an edit.");
     }
     detail
 }
@@ -537,6 +569,29 @@ mod tests {
     }
 
     #[test]
+    fn save_reports_changes_and_success_clears_diff() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "visual");
+        let SettingsPanelOutcome::Apply(_) = panel.handle_input(OverlayInput::Right) else {
+            panic!("expected enum cycle to apply");
+        };
+
+        let SettingsPanelOutcome::Save(changes) = panel.handle_input(OverlayInput::Save) else {
+            panic!("expected save request");
+        };
+        assert_eq!(changes.len(), 1);
+        panel.save_succeeded(changes.len());
+        let signature = panel.render_signature();
+        assert_eq!(signature.changed_count, 0);
+        assert!(
+            signature
+                .message
+                .as_deref()
+                .is_some_and(|message| message.contains("Saved 1"))
+        );
+    }
+
+    #[test]
     fn enum_cycle_applies_next_value() {
         let mut panel = SettingsPanel::new(&Settings::default());
         select_key(&mut panel, "visual");
@@ -546,6 +601,18 @@ mod tests {
         };
         assert_eq!(settings.visual.as_str(), "ambient");
         assert_eq!(panel.render_signature().changed_count, 1);
+    }
+
+    #[test]
+    fn theme_enter_starts_text_edit_for_user_theme_paths() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "theme");
+
+        assert_eq!(
+            panel.handle_input(OverlayInput::Activate),
+            SettingsPanelOutcome::Consumed
+        );
+        assert_eq!(panel.render_signature().editing_key, Some("theme"));
     }
 
     #[test]

@@ -201,9 +201,10 @@ in-window overlay framework have all landed.
 - **Theme library and in-app picker** — a curated set of built-in themes
   covering a wider light + dark range beyond the three current built-ins
   (`plain`, `odyssey`, `odyssey-noir`), and a live in-app theme picker.
-- **In-app settings panel** — the in-window overlay framework is in place;
-  a keyboard-driven settings editor (font, theme, cursor, keybinds) with
-  live apply and write-back to `odytty.conf` is the next step.
+- **In-app settings panel** — `Ctrl+Shift+,` opens a keyboard-driven settings
+  editor for font, theme, cursor, keybinds, and other runtime knobs. Edits apply
+  live, and `Ctrl+S` writes changed rows back to `odytty.conf` without
+  destroying comments or unknown keys.
 - **Atmospheric effects (opt-in)** — bloom/phosphor glow, CRT/retro profile,
   subtle cursor motion; all off by default, perf- and readability-gated.
 - **Nerd-font / symbol fallback** for modern prompt icons.

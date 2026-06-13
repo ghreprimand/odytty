@@ -50,6 +50,14 @@ Blank lines are ignored. `#` starts a comment, including after a value. Duplicat
 keys are allowed; the last valid value wins. Unknown keys and malformed lines
 are skipped with stderr warnings.
 
+The in-app settings panel writes back to this same file on explicit save
+(`Ctrl+S` while the panel is open). Writeback is preservation-first: comments,
+blank lines, key order, and unknown/future keys remain in place; only changed
+keys are rewritten. Changed keys that are not already present are appended under
+an `# OdyTTY settings panel` section. Saves use a temporary file in the same
+directory and rename it over the target, so OdyTTY never truncates
+`odytty.conf` in place.
+
 ## Native Settings
 
 | Config key | Environment variable | Values | Default | Notes |
@@ -88,6 +96,7 @@ manual and automated lifecycle behavior ambiguous.
 | --- | --- |
 | `Ctrl+Shift+F` | Open or close the scrollback search bar. Search is case-insensitive by default. |
 | `Ctrl+Shift+,` | Open or close the settings panel. The panel lists every runtime setting with its current value and help text; editable reloadable rows apply live. |
+| `Ctrl+S` while the settings panel is open | Save the panel's live-applied setting changes to `odytty.conf`. |
 | `Enter` while searching | Jump to the next match, wrapping at the end. |
 | `Shift+Enter` while searching | Jump to the previous match, wrapping at the start. |
 | `Backspace` while searching | Edit the query. |
@@ -118,13 +127,14 @@ and frees `Ctrl+Shift+C` to reach the PTY path.
 When the settings panel is open, keyboard input is consumed by the panel rather
 than sent to the PTY. `Up`/`Down`, `PageUp`/`PageDown`, `Home`, and `End`
 navigate the rows. Reloadable rows are editable: `Enter` starts or commits a
-text/number edit, toggles booleans, and cycles enums; `Left`/`Right` cycle enum
-values or nudge numeric values; `Backspace` edits a text buffer. `Esc` cancels
-an in-progress row edit, or closes the panel when no row edit is active.
-Committed edits apply live through the same reload path as `odytty.conf`.
-The panel does not write configuration yet; UX2-c will add persistence to
-`odytty.conf`. `native_autoclose_ms` remains startup-only and is shown as
-non-editable.
+text/number edit, toggles booleans, and cycles most enums; the theme row uses
+`Enter` for a text edit so built-in names, user theme names, and theme paths are
+all reachable. `Left`/`Right` cycle enum values or nudge numeric values;
+`Backspace` edits a text buffer. `Esc` cancels an in-progress row edit, or
+closes the panel when no row edit is active. Committed edits apply live through
+the same reload path as `odytty.conf`; `Ctrl+S` persists the current unsaved
+diff to the config file. `native_autoclose_ms` remains startup-only and is shown
+as non-editable.
 
 When the search bar is open, keyboard input is consumed by search rather than
 sent to the PTY. Closing search restores the viewport offset that was active

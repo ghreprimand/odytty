@@ -61,8 +61,17 @@ impl OverlayUi {
             input => match self.panel.handle_input(input) {
                 SettingsPanelOutcome::Consumed => OverlayOutcome::Consumed,
                 SettingsPanelOutcome::Apply(settings) => OverlayOutcome::ApplySettings(settings),
+                SettingsPanelOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
             },
         }
+    }
+
+    pub(super) fn save_succeeded(&mut self, changed: usize) {
+        self.panel.save_succeeded(changed);
+    }
+
+    pub(super) fn save_failed(&mut self, message: String) {
+        self.panel.save_failed(message);
     }
 
     pub(super) fn render_signature(&self) -> OverlayRenderSignature {
@@ -78,6 +87,7 @@ pub(super) enum OverlayOutcome {
     Consumed,
     Close,
     ApplySettings(Settings),
+    SaveSettings(Vec<crate::settings::SettingEdit>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +101,7 @@ pub(super) enum OverlayInput {
     Left,
     Right,
     Activate,
+    Save,
     Backspace,
     Close,
     Char(char),
@@ -118,6 +129,9 @@ pub(super) fn overlay_input_from_winit(
         WinitKey::Named(NamedKey::ArrowRight) => Some(OverlayInput::Right),
         WinitKey::Named(NamedKey::Enter) => Some(OverlayInput::Activate),
         WinitKey::Named(NamedKey::Backspace) => Some(OverlayInput::Backspace),
+        WinitKey::Character(text) if mods.ctrl && !mods.alt && text.eq_ignore_ascii_case("s") => {
+            Some(OverlayInput::Save)
+        }
         WinitKey::Named(NamedKey::Space) if !mods.ctrl && !mods.alt => {
             Some(OverlayInput::Char(' '))
         }
@@ -309,6 +323,16 @@ mod tests {
         assert_eq!(
             overlay_input_from_winit(&WinitKey::Named(NamedKey::End), Modifiers::default()),
             Some(OverlayInput::End)
+        );
+        assert_eq!(
+            overlay_input_from_winit(
+                &WinitKey::Character("s".into()),
+                Modifiers {
+                    ctrl: true,
+                    ..Modifiers::default()
+                }
+            ),
+            Some(OverlayInput::Save)
         );
     }
 

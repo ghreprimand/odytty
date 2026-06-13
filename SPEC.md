@@ -222,6 +222,13 @@ The config format is a dependency-free `key = value` text file with `#`
 comments, mirroring every runtime knob. See `docs/runtime-knobs.md` for the
 full key reference and `docs/odytty.conf.example` for an annotated example.
 
+**In-app writeback.** The settings panel is a presentation-only overlay until
+the user explicitly saves. `Ctrl+S` writes only changed rows back to the
+resolved config file, preserving comments, blank lines, key order, and
+unknown/future keys. Missing changed keys are appended under an OdyTTY settings
+section. Saves use a same-directory temporary file followed by rename; OdyTTY
+does not truncate the config file in place.
+
 **Live reload.** The native app polls the resolved config path at a one-second
 cadence from the existing event-loop wake path, without a watcher thread or
 `inotify` dependency. When the file changes, new settings are applied

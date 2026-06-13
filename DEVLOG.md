@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Settings panel writeback (UX2-c)
+
+- Added explicit settings-panel persistence: while the panel is open,
+  `Ctrl+S` writes the live-applied edit diff back to the resolved
+  `odytty.conf` path. A successful save clears the unsaved-change marker; a
+  write failure is reported in-panel and does not crash the terminal or roll
+  back the already live-applied settings.
+- Added a preservation-first config writeback module. It keeps user comments,
+  blank lines, key order, and unknown/future keys intact; only changed keys are
+  rewritten in place. Missing changed keys are appended under a small
+  OdyTTY-owned section, and cleared optional keys are commented out so reloads
+  return to defaults without resurrecting earlier duplicate values.
+- Writes are atomic: OdyTTY creates the config directory if needed, writes a
+  temp file in the same directory, syncs it, and renames it over the target
+  instead of truncating in place. Tests cover comment/unknown-key preservation,
+  missing-file creation, permissions, and reload equivalence through the same
+  settings parser used by startup and live reload.
+
 ## 2026-06-13 -- Built-in theme library (TH3)
 
 - Expanded the built-in theme set from the original three to a curated library

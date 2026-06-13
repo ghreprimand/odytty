@@ -13,6 +13,7 @@ use crate::pty::PtySession;
 use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker};
 use crate::settings::{
     BindableAction, Settings, SettingsReloadOutcome, SettingsReloader, apply_reloadable_values,
+    write_settings_changes_to_path,
 };
 use crate::text::{self, CellSize};
 use crate::theme::{Theme, VisualEffect};
@@ -499,6 +500,7 @@ impl App {
             OverlayOutcome::Consumed => {}
             OverlayOutcome::Close => self.overlay.close(),
             OverlayOutcome::ApplySettings(settings) => self.apply_overlay_settings(settings),
+            OverlayOutcome::SaveSettings(changes) => self.save_overlay_settings(&changes),
         }
         self.request_selection_redraw();
     }
@@ -742,6 +744,18 @@ impl App {
 
     fn apply_overlay_settings(&mut self, reloaded: Settings) {
         self.apply_settings_through_reload_seam(reloaded, SettingsApplySource::OverlayEdit);
+    }
+
+    fn save_overlay_settings(&mut self, changes: &[crate::settings::SettingEdit]) {
+        let Some(path) = self.settings_reloader.config_path() else {
+            self.overlay
+                .save_failed("could not resolve odytty.conf path".to_owned());
+            return;
+        };
+        match write_settings_changes_to_path(path, changes) {
+            Ok(result) => self.overlay.save_succeeded(result.changed),
+            Err(error) => self.overlay.save_failed(error.to_string()),
+        }
     }
 
     fn apply_settings_through_reload_seam(

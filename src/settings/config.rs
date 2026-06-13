@@ -59,7 +59,7 @@ impl ConfigValues {
     }
 }
 
-fn config_key_to_env(key: &str) -> Option<&'static str> {
+pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
     match normalize_name(key).as_str() {
         "theme" => Some(THEME_ENV),
         "visual" => Some(VISUAL_ENV),
@@ -75,6 +75,26 @@ fn config_key_to_env(key: &str) -> Option<&'static str> {
         "osc52read" | "allowosc52read" | "clipboardread" => Some(OSC52_READ_ENV),
         "syntheticstyles" | "synthstyles" | "syntheticfonts" => Some(SYNTHETIC_STYLES_ENV),
         "nativeautoclosems" => Some(NATIVE_AUTOCLOSE_ENV),
+        _ => None,
+    }
+}
+
+pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
+    match env {
+        THEME_ENV => Some("theme"),
+        VISUAL_ENV => Some("visual"),
+        FONT_ENV => Some("font"),
+        FONT_FAMILY_ENV => Some("font_family"),
+        FONT_SIZE_ENV => Some("font_size"),
+        TEXT_GAMMA_ENV => Some("text_gamma"),
+        STEM_DARKEN_ENV => Some("stem_darken"),
+        SUBPIXEL_ENV => Some("subpixel"),
+        KEYBINDS_ENV => Some("keybinds"),
+        CURSOR_STYLE_ENV => Some("cursor_style"),
+        CURSOR_BLINK_ENV => Some("cursor_blink"),
+        OSC52_READ_ENV => Some("osc52_read"),
+        SYNTHETIC_STYLES_ENV => Some("synthetic_styles"),
+        NATIVE_AUTOCLOSE_ENV => Some("native_autoclose_ms"),
         _ => None,
     }
 }

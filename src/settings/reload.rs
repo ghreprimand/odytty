@@ -138,6 +138,10 @@ impl SettingsReloader {
         self.poller.deadline()
     }
 
+    pub fn config_path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
     pub fn poll(&mut self, now: Instant) -> SettingsReloadOutcome {
         match self.poller.poll(now) {
             Ok(ConfigPollEvent::Unchanged) => SettingsReloadOutcome::Unchanged,

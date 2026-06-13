@@ -19,12 +19,17 @@ use crate::theme::{Theme, ThemeSpec, VisualEffect};
 
 mod config;
 mod reload;
+mod writeback;
 
 pub use reload::{
     ConfigReloadPoller, SettingsReloadOutcome, SettingsReloader, apply_reloadable_values,
 };
+pub use writeback::{
+    ConfigWritebackError, ConfigWritebackResult, write_settings_changes,
+    write_settings_changes_to_path,
+};
 
-use config::ConfigValues;
+use config::{ConfigValues, env_to_config_key};
 
 pub const THEME_ENV: &str = "ODYTTY_THEME";
 pub const VISUAL_ENV: &str = "ODYTTY_VISUAL";
@@ -782,6 +787,10 @@ impl SettingsEditOverlay {
         self.changes().len()
     }
 
+    pub fn mark_saved(&mut self) {
+        self.base_values = self.values.clone();
+    }
+
     pub fn apply_raw(
         &mut self,
         key: &'static str,
@@ -843,23 +852,7 @@ fn clears_setting(key: &str, value: &str) -> bool {
 }
 
 fn setting_key_for_env(env: &str) -> Option<&'static str> {
-    match env {
-        THEME_ENV => Some("theme"),
-        VISUAL_ENV => Some("visual"),
-        FONT_ENV => Some("font"),
-        FONT_FAMILY_ENV => Some("font_family"),
-        FONT_SIZE_ENV => Some("font_size"),
-        TEXT_GAMMA_ENV => Some("text_gamma"),
-        STEM_DARKEN_ENV => Some("stem_darken"),
-        SUBPIXEL_ENV => Some("subpixel"),
-        KEYBINDS_ENV => Some("keybinds"),
-        CURSOR_STYLE_ENV => Some("cursor_style"),
-        CURSOR_BLINK_ENV => Some("cursor_blink"),
-        OSC52_READ_ENV => Some("osc52_read"),
-        SYNTHETIC_STYLES_ENV => Some("synthetic_styles"),
-        NATIVE_AUTOCLOSE_ENV => Some("native_autoclose_ms"),
-        _ => None,
-    }
+    env_to_config_key(env)
 }
 
 fn key_bindings_edit_value(bindings: &[KeyBindingOverride]) -> String {

@@ -403,6 +403,15 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         file writeback happens in this slice.
   - [x] Edits are tracked as a diff over the loaded settings so UX2-c can
         serialize only changed rows; reverting a row clears it from the diff.
+- [x] UX2-c atomic settings writeback.
+  - [x] `Ctrl+S` in the settings panel persists the live-applied diff to the
+        same `odytty.conf` path used by startup/live reload.
+  - [x] Writeback preserves comments, blank lines, key order, and unknown or
+        future keys; only changed keys are rewritten, and missing changed keys
+        are appended under an OdyTTY settings-panel section.
+  - [x] Saves use a same-directory temp file plus rename, create the config
+        directory when missing, and surface non-fatal in-panel errors on write
+        failure.
 - [ ] Profiles and CLI config introspection.
 
 ## Visual Capability Parity (Stage 6 parity half)
