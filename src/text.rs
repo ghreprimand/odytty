@@ -463,13 +463,25 @@ fn ansi_srgb(index: u8) -> (u8, u8, u8) {
 ///
 /// The surface uses an sRGB texture format, which applies the linear→sRGB
 /// transfer on write, so shader inputs must be linear.
+///
+/// This is a thin façade over [`crate::color::srgb_to_linear`], which is the
+/// single source of truth for the transfer (RV3). The value is byte-identical
+/// to the historical inline formula, so `native::gpu`, `grid`, and every other
+/// caller see no change.
 pub fn srgb_to_linear(byte: u8) -> f32 {
-    let c = byte as f32 / 255.0;
-    if c <= 0.04045 {
-        c / 12.92
-    } else {
-        ((c + 0.055) / 1.055).powf(2.4)
-    }
+    crate::color::srgb_to_linear(byte)
+}
+
+/// Perceptually dim a linear-RGBA color, preserving alpha (RV3).
+///
+/// This is the render-facing adapter over [`crate::color::dim_perceptual`]:
+/// SGR dim/faint should scale OKLab lightness rather than naively halving each
+/// linear channel, which keeps dimmed text legible and hue-stable. `amount` is
+/// in `[0, 1]`; `0.0` returns the input unchanged (exact identity), so the
+/// default/plain path stays byte-identical until a caller opts in.
+pub fn dim_linear_rgba(color: [f32; 4], amount: f32) -> [f32; 4] {
+    let [r, g, b] = crate::color::dim_perceptual([color[0], color[1], color[2]], amount);
+    [r, g, b, color[3]]
 }
 
 /// Linear-RGBA (opaque) for an sRGB triple.
@@ -535,6 +547,32 @@ mod tests {
     fn srgb_endpoints_map_to_linear_endpoints() {
         assert_eq!(srgb_to_linear(0), 0.0);
         assert!((srgb_to_linear(255) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn srgb_to_linear_delegates_byte_identically() {
+        // The façade must equal the historical inline formula for every byte,
+        // so native/grid callers see no change (RV3 passthrough guarantee).
+        for byte in 0u16..=255 {
+            let byte = byte as u8;
+            let c = byte as f32 / 255.0;
+            let inline = if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            };
+            assert_eq!(srgb_to_linear(byte), inline);
+        }
+    }
+
+    #[test]
+    fn dim_linear_rgba_zero_is_identity_and_preserves_alpha() {
+        let c = [0.4, 0.55, 0.2, 0.8];
+        assert_eq!(dim_linear_rgba(c, 0.0), c);
+        // Non-zero amount darkens the color channels but keeps alpha intact.
+        let dimmed = dim_linear_rgba(c, 0.5);
+        assert_eq!(dimmed[3], 0.8);
+        assert!(dimmed[0] < c[0] && dimmed[1] < c[1] && dimmed[2] < c[2]);
     }
 
     #[test]
