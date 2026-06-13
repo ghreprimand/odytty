@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = plain
+appearance = dark
+
+foreground = #cccccc
+background = #0b0c10
+clear = #0b0c10
+
+cursor = #cccccc
+selection = #333a47
+search = #5c501f
+border = #2a2c33
+inactive = #666666
+
+color0 = #000000
+color1 = #cd0000
+color2 = #00cd00
+color3 = #cdcd00
+color4 = #0000ee
+color5 = #cd00cd
+color6 = #00cdcd
+color7 = #e5e5e5
+color8 = #7f7f7f
+color9 = #ff0000
+color10 = #00ff00
+color11 = #ffff00
+color12 = #5c5cff
+color13 = #ff00ff
+color14 = #00ffff
+color15 = #ffffff

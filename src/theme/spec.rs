@@ -158,6 +158,19 @@ impl ThemeSpec {
         let name = Theme::from_name(&self.name)
             .map(|builtin| builtin.name)
             .unwrap_or("custom");
+        self.to_theme_with_name(name)
+    }
+
+    /// Project this spec's color payload into a [`Theme`] with an explicit
+    /// `&'static` name, bypassing the [`Theme::from_name`] lookup that
+    /// [`to_theme`](Self::to_theme) uses to derive the name.
+    ///
+    /// This is the projection the built-in registry uses: it owns the canonical
+    /// name for each embedded theme, and resolving it through `from_name` while
+    /// the registry is still being built would re-enter the lazy initializer.
+    /// Taking the name as a parameter keeps the registry's parse → project path
+    /// free of that cycle while sharing the exact same color projection.
+    pub fn to_theme_with_name(&self, name: &'static str) -> Theme {
         Theme {
             name,
             foreground: self.foreground,

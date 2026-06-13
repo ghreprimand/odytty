@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Built-in theme library (TH3)
+
+- Expanded the built-in theme set from the original three to a curated library
+  of 15 themes: the `plain` default plus four Odyssey-identity themes
+  (`odyssey`, `odyssey-noir`, the new light `odyssey-light`, and the
+  high-contrast `odyssey-aurora`) and ten community themes (`solarized-dark`,
+  `solarized-light`, `gruvbox-dark`, `nord`, `dracula`, `tokyo-night`,
+  `catppuccin-mocha`, `catppuccin-latte`, `one-dark`, `monokai`). The library
+  spans dark and light appearances.
+- Every built-in is authored as a `.theme` file and loaded through the same
+  parser a user theme uses — there is no privileged construction path, so the
+  file format is exercised by the library on every startup. `plain`, `odyssey`,
+  and `odyssey-noir` are validated to match their existing in-code constants
+  byte-for-byte, and `plain`'s palette is pinned identical to the historical
+  ANSI table, so the default appearance is unchanged.
+- Added a WCAG contrast helper (`theme::contrast_ratio` / `relative_luminance`)
+  and a library-authoring readability floor of 4.0 contrast that every built-in
+  is tested against. The floor sits just under WCAG AA 4.5 so faithful
+  community palettes (Solarized sits on the boundary) keep their authentic
+  values. This is a library-authoring check, not a render-time guarantee; the
+  same helper seeds the upcoming per-user minimum-contrast enforcement (RV1).
+- Theme-library tests added (built-ins resolve by name, full roster present,
+  unique names, bright row differs from normal, appearance flag matches
+  background luminance, every built-in parses warning-free and clears the
+  contrast floor, core themes match their consts, plain palette byte-identical,
+  contrast helper symmetry/unity/extremes). Lib tests 890 → 903; integration
+  green, pixel-smoke 25 unchanged (default path byte-identical).
+
 ## 2026-06-13 -- Editable settings panel live-apply (UX2-b)
 
 - Turned the settings panel from display-only into a live editor. Rows now use

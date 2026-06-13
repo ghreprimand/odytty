@@ -17,9 +17,23 @@
 //! by callers that already hold a name (and by tests), so theme resolution can
 //! be exercised without mutating process environment.
 
+mod builtins;
+mod contrast;
 mod spec;
 
+pub use builtins::{all, names};
+pub use contrast::{contrast_ratio, relative_luminance};
 pub use spec::{Appearance, ThemeSpec};
+
+/// Minimum default foreground/background contrast ratio (WCAG) every built-in
+/// theme is validated against. Set just below the strict WCAG AA normal-text
+/// threshold (4.5) so the canonical low-contrast community palettes (notably
+/// Solarized, which sits intentionally around 4.1–4.8 to reduce eye strain)
+/// remain authentic, while still rejecting any theme whose body text would be
+/// genuinely illegible. RV1 (minimum-contrast guarantee) will let users enforce
+/// a stricter floor at render time; this is the authoring gate for the bundled
+/// library.
+pub const MIN_CONTRAST: f64 = 4.0;
 
 /// An sRGB color triple (8-bit per channel), matching the palette byte form used
 /// by the text renderer. Kept as a plain tuple so this module stays free of any
@@ -156,16 +170,21 @@ impl Theme {
         inactive: (0x55, 0x5C, 0x58),
     };
 
-    /// Every built-in theme, in selection-listing order (baseline first).
+    /// The const core themes, authored directly in source. These are the parse
+    /// default ([`PLAIN`](Self::PLAIN) seeds [`ThemeSpec`] defaults) and the
+    /// fallback baselines; the *full* built-in library — including these three,
+    /// re-parsed from their embedded `.theme` files, plus the community palettes
+    /// — is [`Theme::all`]. The two are pinned equal by test.
     pub const ALL: [Theme; 3] = [Theme::PLAIN, Theme::ODYSSEY, Theme::ODYSSEY_NOIR];
 
-    /// Resolve a theme by name. Matching is case-insensitive and ignores
-    /// surrounding whitespace. Returns `None` for an unknown name so callers can
-    /// decide their own fallback; use [`Theme::from_name_or_default`] for the
+    /// Resolve a theme by name against the full built-in library
+    /// ([`Theme::all`]). Matching is case-insensitive and ignores surrounding
+    /// whitespace. Returns `None` for an unknown name so callers can decide
+    /// their own fallback; use [`Theme::from_name_or_default`] for the
     /// plain-fallback convenience.
     pub fn from_name(name: &str) -> Option<Theme> {
         let key = name.trim().to_ascii_lowercase();
-        Theme::ALL.into_iter().find(|theme| theme.name == key)
+        all().iter().copied().find(|theme| theme.name == key)
     }
 
     /// Resolve a theme by name, falling back to the [`plain`](Theme::PLAIN)

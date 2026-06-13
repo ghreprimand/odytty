@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-aurora
+appearance = dark
+
+foreground = #eaf2ff
+background = #06101f
+clear = #030a14
+
+cursor = #5db4ff
+selection = #14304f
+search = #4a3d12
+border = #16263e
+inactive = #5a6e8a
+
+color0 = #0e1b2e
+color1 = #ff5d7a
+color2 = #5dffa6
+color3 = #ffd45d
+color4 = #5db4ff
+color5 = #c98aff
+color6 = #5deaff
+color7 = #cdd9ec
+color8 = #2a3b54
+color9 = #ff859b
+color10 = #8bffc2
+color11 = #ffe48b
+color12 = #8bcaff
+color13 = #dcb0ff
+color14 = #8bf2ff
+color15 = #f4f9ff

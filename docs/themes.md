@@ -8,8 +8,10 @@ border/inactive). A theme is selected with the `theme` setting
 
 There are two kinds of theme:
 
-- **Built-in themes**, selected by name: `plain` (the default — pixel-identical
-  to the pre-theme appearance), `odyssey`, and `odyssey-noir`.
+- **Built-in themes**, selected by name — `plain` (the default —
+  pixel-identical to the pre-theme appearance) plus a curated library of
+  Odyssey-identity and community themes (see [Built-in theme
+  library](#built-in-theme-library)).
 - **User theme files**, written in the dependency-free theme file format
   described below and dropped into your theme directory (or referenced by path).
 
@@ -24,8 +26,8 @@ theme = odyssey            # a built-in name
 
 Resolution order for the `theme` value:
 
-1. If it matches a built-in name (`plain`, `odyssey`, `odyssey-noir`), the
-   built-in is used.
+1. If it matches a built-in name (any theme in the [library](#built-in-theme-library)),
+   the built-in is used.
 2. Otherwise, if it looks like a path (contains `/` or ends in `.theme`), that
    file is read directly.
 3. Otherwise it is looked up in the user theme directory as
@@ -51,6 +53,45 @@ takes effect on the next reload poll, the same way every other setting reloads
 — no restart needed. (Editing the *contents* of an already-selected theme file
 is picked up the next time the config file itself changes; touch
 `odytty.conf` to force a re-read.)
+
+## Built-in theme library
+
+OdyTTY ships a curated library of built-in themes, selectable by name with no
+file needed. Every built-in is authored in the theme file format and loaded
+through the same parser as a user theme — there is no privileged construction
+path — so the file format is exercised by the library on every startup.
+
+| Name | Appearance | Family |
+| --- | --- | --- |
+| `plain` | dark | OdyTTY default (pixel-identical to the pre-theme look) |
+| `odyssey` | dark | Odyssey identity |
+| `odyssey-noir` | dark | Odyssey identity (deep, low-key) |
+| `odyssey-light` | light | Odyssey identity (light) |
+| `odyssey-aurora` | dark | Odyssey identity (high-contrast) |
+| `solarized-dark` | dark | Community |
+| `solarized-light` | light | Community |
+| `gruvbox-dark` | dark | Community |
+| `nord` | dark | Community |
+| `dracula` | dark | Community |
+| `tokyo-night` | dark | Community |
+| `catppuccin-mocha` | dark | Community |
+| `catppuccin-latte` | light | Community |
+| `one-dark` | dark | Community |
+| `monokai` | dark | Community |
+
+### Readability validation
+
+Every built-in's default foreground/background pair is checked against a
+minimum WCAG perceptual contrast ratio at build/test time. OdyTTY uses a floor
+of **4.0** — just under the WCAG AA 4.5 threshold so that faithful community
+palettes (Solarized in particular sits right at the boundary: ~4.1 light,
+~4.75 dark) keep their authentic values rather than being silently retuned.
+
+This is a *library-authoring* floor, not a render-time guarantee. Per-user
+render-time contrast enforcement — a configurable minimum that lifts low-contrast
+text from *any* app or theme — is the job of the upcoming minimum-contrast
+feature (RV1), which builds on the same contrast helper
+(`theme::contrast_ratio`) used to validate the library here.
 
 ## File format
 

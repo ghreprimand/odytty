@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-noir
+appearance = dark
+
+foreground = #ced6d2
+background = #050708
+clear = #020304
+
+cursor = #ced6d2
+selection = #222826
+search = #3e3920
+border = #1a1e1c
+inactive = #555c58
+
+color0 = #0a0c0d
+color1 = #c96a6a
+color2 = #9ab58e
+color3 = #c6b786
+color4 = #849cb0
+color5 = #a990b5
+color6 = #88b0ae
+color7 = #b8c0bc
+color8 = #3a3f3d
+color9 = #dd8686
+color10 = #b4cea6
+color11 = #ddce9e
+color12 = #9eb6ca
+color13 = #c3aace
+color14 = #a2c9c7
+color15 = #e6ece8
