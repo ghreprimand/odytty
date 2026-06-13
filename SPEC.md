@@ -462,6 +462,10 @@ its first stable layer.
   (e.g. open-new-tab-in-same-directory) is a deliberate follow-up packet (SI2).
   OSC 6 is accepted-and-ignored.
 
+- Post-process pipeline foundation (VE1-a): lazy offscreen render target +
+  fullscreen-triangle passthrough composite; default path stays
+  direct-to-swapchain (byte-identical); GPU readback smoke guards the seam
+
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering
 - iTerm2 graphics protocol
@@ -474,6 +478,77 @@ its first stable layer.
 - Heavy animation or effects that compromise readability or latency
 - Broad cross-platform support beyond Linux-first validation
 - Packaging, CI, release builds
+
+## Post-Process Pipeline Architecture
+
+*Source: `src/native/gpu.rs` (`PostProcessResources`, `post_active`,
+`draw_scene`, `encode_scene_pass`, `encode_composite_pass`),
+`src/shaders/composite.wgsl`, `tests/gpu_composite_smoke.rs`.*
+
+### Design invariant — dormant by default
+
+The renderer carries a **lazy post-process scaffold**: an offscreen render
+target, a nearest-clamp sampler, and a fullscreen-triangle composite pipeline.
+By default the pipeline is **dormant**: `post_active()` returns `false`, the
+`PostProcessResources` are `None`, no offscreen texture is allocated, and
+rendering writes directly to the swapchain surface. The direct path and the
+offscreen path share one scene-draw sequence (`draw_scene()` /
+`encode_scene_pass()`); the branch point is a single `if post_active()` in the
+`render()` method. When dormant, the renderer is byte-identical to the
+pre-pipeline renderer.
+
+A GPU readback smoke (`tests/gpu_composite_smoke.rs`,
+`passthrough_composite_matches_direct_render_bytes`) renders the same checker
+scene both direct-to-swapchain and through offscreen→composite and asserts
+exact byte equality. This test is adapter-gated and runs in the default suite;
+it guards the passthrough seam against regressions as effects land.
+
+### Tier-3 sequencing decision
+
+Tier-3 atmospheric effects land in this order:
+
+1. **VE1-a (landed):** offscreen scaffold + passthrough composite, sRGB-8
+   intermediate. Default dormant; zero visible change. Foundation for all
+   subsequent effects.
+2. **VE1-b (in flight):** move the offscreen intermediate to a linear
+   `Rgba16Float` format with a filterable-format probe and graceful auto-disable
+   on adapters that cannot support it. This is a **hard prerequisite for bloom
+   (VE2)**: an sRGB-8 intermediate clamps all values at 1.0 and quantizes,
+   destroying the HDR overshoot (>1.0 linear) that additive glow needs.
+   The composite pass performs the final linear→sRGB encode at store time;
+   the swapchain surface stays `Rgba8UnormSrgb`.
+3. **VE2 (planned):** bloom / phosphor glow (threshold + separable blur +
+   additive composite). Requires VE1-b HDR intermediates.
+4. **VE3 (planned):** CRT / retro profile (scanlines, vignette, optional
+   curvature / chromatic aberration).
+
+VE4 (cursor motion trail / new-output fade) and VE5 (GPU quality + per-effect
+settings panel controls) follow after VE2/VE3 are proven.
+
+### Readability-gate architecture — durable design rule
+
+The **RV1 minimum-contrast floor** (`enforce_min_contrast`,
+`src/color.rs:enforce_min_contrast`) runs at **CPU color-resolve time** — the
+last step of the per-cell resolve closure inside `build_cell_vertices_with_focus_dim_into`
+— before the vertex buffer is written and long before any GPU scene or
+post-process pass executes. There is no within-frame feedback path from the GPU
+composite back to the CPU resolve step.
+
+**Consequence (binding design rule):** post-process effects **cannot** rely on
+the RV1 floor to clean up legibility after the fact. Every Tier-3 effect must
+be **structurally unable** to harm body-text legibility by construction:
+
+- **Bloom / additive glow:** threshold is auto-derived to lie strictly above
+  the luminance of normal body text, so body text is never in the bright set
+  that glow acts on. Composition is additive (never replace), so background
+  regions brighten but existing foreground coverage is only increased, not
+  reduced.
+- **CRT scanlines / vignette:** modulate brightness uniformly; paired with
+  an intensity cap that keeps the worst-case dimming above the body-text
+  legibility floor. The user-configured `min_contrast` floor is the explicit
+  safety net at the CPU level; effects must not require it.
+- Any new Tier-3 effect must document its structural legibility guarantee
+  before landing.
 
 ## Stack
 
