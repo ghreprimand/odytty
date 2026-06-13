@@ -76,7 +76,7 @@ rejected with an explicit error response; incomplete state is cleared.
 | `q=` | Behavior |
 |------|----------|
 | `0` or absent | Send `OK` or error response for every command |
-| `1` | Suppress `OK` responses; send errors |
+| `1` | Parsed but treated identically to `q=0` — all responses sent |
 | `2` | Suppress all responses (both `OK` and errors) |
 
 ### Delete specifiers (`a=d`)
