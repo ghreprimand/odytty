@@ -26,12 +26,15 @@
 //! available, matching the rest of the suite's hermeticity.
 
 use odytty::atlas::{CellSize, FontStyle, GlyphAtlas, SubpixelMode};
-use odytty::core::{CursorStyle, Snapshot, Terminal};
+use odytty::core::{
+    Attrs, Cell, Color, CursorStyle, Dimensions, Position, RgbColor, Snapshot, Terminal,
+};
 use odytty::emoji::{ColorGlyphAtlas, ColorGlyphId, ColorGlyphKey};
 use odytty::graphics::{
     GraphicsProtocol, ImageScene, PlacementRequest, SourceRect, StoredImageId, VisiblePlacement,
 };
 use odytty::grid::{self, ColorGlyphRun, ColorGlyphVertex, Vertex};
+use odytty::selection::{self, CellPoint, SelectionRange, SelectionStyle};
 use odytty::text::{self, foreground_linear};
 
 use ab_glyph::FontVec;
@@ -312,6 +315,10 @@ fn quant(c: [f32; 4]) -> [u8; 3] {
     quant3([c[0], c[1], c[2]])
 }
 
+fn frames_match(a: &Frame, b: &Frame) -> bool {
+    a.width == b.width && a.height == b.height && a.px == b.px
+}
+
 /// Resolve a non-ASCII char into the atlas, returning `false` when the font
 /// lacks it (so the caller skips). Detected by comparing the ensured UV against
 /// the fallback box that an unmistakably-absent private-use codepoint yields.
@@ -583,6 +590,125 @@ fn inverse_swaps_foreground_and_background_fill() {
         cell_modal_color(&inverse, 0, 0),
         fg,
         "inverse cell fill should be the foreground color"
+    );
+}
+
+#[test]
+fn themed_selection_is_default_style_and_off_path_matches_legacy_inverse() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let range = SelectionRange {
+        start: CellPoint { row: 0, column: 1 },
+        end: CellPoint { row: 0, column: 1 },
+    };
+    let mut legacy = row_snapshot(3, "abc");
+    selection::apply_highlight(&mut legacy, range, None);
+    let mut off = row_snapshot(3, "abc");
+    selection::apply_highlight(&mut off, range, None);
+    let mut themed = row_snapshot(3, "abc");
+    let themed_fill = [0x24, 0x33, 0x52];
+    selection::apply_highlight(
+        &mut themed,
+        range,
+        Some(SelectionStyle {
+            fill: themed_fill,
+            fg: [0xEA, 0xEE, 0xF4],
+        }),
+    );
+
+    let legacy_frame = composite(&legacy, &atlas, CursorStyle::Block);
+    let off_frame = composite(&off, &atlas, CursorStyle::Block);
+    let themed_frame = composite(&themed, &atlas, CursorStyle::Block);
+
+    assert!(
+        frames_match(&legacy_frame, &off_frame),
+        "themed_ui_roles=off must reproduce the historical inverse selection path exactly"
+    );
+    assert!(
+        !frames_match(&legacy_frame, &themed_frame),
+        "default themed selection should visibly differ from the legacy inverse path"
+    );
+    assert_eq!(
+        cell_modal_color(&themed_frame, 1, 0),
+        quant(text::background_linear(Color::Rgb(
+            themed_fill[0],
+            themed_fill[1],
+            themed_fill[2]
+        ))),
+        "themed selection should use the semantic role fill"
+    );
+}
+
+#[test]
+fn themed_cursor_default_differs_and_off_path_matches_foreground_cursor() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let fg = RgbColor::new(0xCC, 0xCC, 0xCC);
+    let bg = RgbColor::new(0x0B, 0x0C, 0x10);
+    let themed_cursor = RgbColor::new(0x4C, 0xD9, 0x9F);
+    let cursor_snapshot = |cursor| {
+        let mut term = Terminal::new(1, 1);
+        term.set_base_colors(fg, bg, cursor);
+        term.snapshot()
+    };
+
+    let legacy_frame = composite(&cursor_snapshot(fg), &atlas, CursorStyle::Block);
+    let off_frame = composite(&cursor_snapshot(fg), &atlas, CursorStyle::Block);
+    let themed_frame = composite(&cursor_snapshot(themed_cursor), &atlas, CursorStyle::Block);
+
+    assert!(
+        frames_match(&legacy_frame, &off_frame),
+        "themed_ui_roles=off must reproduce the historical foreground cursor exactly"
+    );
+    assert!(
+        !frames_match(&legacy_frame, &themed_frame),
+        "default themed cursor should visibly differ from the legacy foreground cursor"
+    );
+}
+
+#[test]
+fn legacy_search_colors_remain_black_on_yellow_and_inverse() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut cells = "al al"
+        .chars()
+        .map(|ch| Cell::new(ch, Attrs::default()))
+        .collect::<Vec<_>>();
+    cells.resize(5, Cell::blank());
+    // Active search match: historical black-on-yellow.
+    for cell in &mut cells[0..=1] {
+        cell.attrs.set_inverse(false);
+        cell.attrs.foreground = Color::Indexed(0);
+        cell.attrs.background = Color::Indexed(11);
+    }
+    // Non-active search match: historical inverse.
+    for cell in &mut cells[3..=4] {
+        cell.attrs.set_inverse(true);
+    }
+    let snapshot = Snapshot {
+        dimensions: Dimensions::new(5, 1),
+        cursor: Position::default(),
+        cursor_visible: false,
+        colors: Default::default(),
+        cells,
+    };
+    let frame = composite(&snapshot, &atlas, CursorStyle::Block);
+
+    assert_eq!(
+        cell_modal_color(&frame, 0, 0),
+        quant(text::background_linear(Color::Indexed(11))),
+        "legacy active search match should keep yellow fill"
+    );
+    assert_eq!(
+        cell_modal_color(&frame, 3, 0),
+        quant(foreground_linear(Color::Default)),
+        "legacy non-active search match should keep inverse fill"
     );
 }
 

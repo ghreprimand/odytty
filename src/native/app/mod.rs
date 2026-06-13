@@ -179,12 +179,11 @@ pub(super) struct App {
     /// scrollback+visible-screen space. Native owns this UI state; the terminal
     /// core remains unaware of selections and clipboard operations.
     selection: AbsoluteSelectionState,
-    /// ID1 opt-in: when set, the authored theme `cursor`/`selection`/`search`
-    /// roles drive the cursor color and selection/search highlight fills (with
+    /// ID1: when set, the authored theme `cursor`/`selection`/`search` roles
+    /// drive cursor color and selection/search highlight fills (with
     /// RV1-floored foregrounds) instead of the historical inverse / hardcoded
-    /// treatments. Default off keeps the plain render pixel-identical. Sourced
-    /// from `ODYTTY_THEMED_UI_ROLES` for now (interim until a settings knob is
-    /// added once `settings.rs` frees up); presentation-only.
+    /// treatments. Default-on by operator decision; `themed_ui_roles = off`
+    /// restores the legacy rendering path.
     themed_ui_roles: bool,
     /// Most recent pointer position mapped to a terminal cell. `winit` mouse
     /// button events do not carry coordinates, so press/release use this cached
@@ -257,6 +256,7 @@ impl App {
         let visual = settings.visual;
         let key_bindings = KeyBindings::from_overrides(&settings.key_bindings);
         let autoclose = settings.native_autoclose;
+        let themed_ui_roles = settings.themed_ui_roles;
         let overlay = OverlayUi::new(&settings);
         Self {
             options,
@@ -281,7 +281,7 @@ impl App {
             settings,
             settings_reloader,
             selection: AbsoluteSelectionState::default(),
-            themed_ui_roles: themed_ui_roles_from_env(),
+            themed_ui_roles,
             pointer_cell: None,
             pointer_px: None,
             hovered_hyperlink: None,
@@ -859,6 +859,7 @@ impl App {
         self.options = next_options;
         self.theme = self.settings.theme;
         self.visual = self.settings.visual;
+        self.themed_ui_roles = self.settings.themed_ui_roles;
         self.key_bindings = KeyBindings::from_overrides(&self.settings.key_bindings);
         match source {
             SettingsApplySource::ConfigReload => self.overlay.refresh_settings(&self.settings),
@@ -922,7 +923,7 @@ impl App {
     }
 
     /// ID1: themed selection treatment, or `None` (today's inverse) when the
-    /// opt-in is off. The fill is the theme `selection` role verbatim; the
+    /// operator opts out. The fill is the theme `selection` role verbatim; the
     /// foreground is the theme foreground floored over that fill through the
     /// RV1 minimum-contrast machinery, so it stays legible at the active
     /// `min_contrast` (identity at the default 1.0).
@@ -940,7 +941,7 @@ impl App {
     }
 
     /// ID1: themed search-highlight treatment, or `None` (today's inverse /
-    /// black-on-yellow) when the opt-in is off. Non-active matches use the
+    /// black-on-yellow) when the operator opts out. Non-active matches use the
     /// theme `search` role; the active match uses a brightened OKLab derivative
     /// of it. Both foregrounds are RV1-floored over their fills.
     fn themed_search_style(&self) -> Option<SearchStyle> {
@@ -1452,26 +1453,9 @@ fn rgb(color: (u8, u8, u8)) -> RgbColor {
     RgbColor::new(color.0, color.1, color.2)
 }
 
-/// Environment variable that opts into the ID1 themed cursor/selection/search
-/// roles. Interim gate until a first-class settings knob is added once
-/// `settings.rs` frees up; recognized values are `1`/`true`/`on`/`yes`.
-const THEMED_UI_ROLES_ENV: &str = "ODYTTY_THEMED_UI_ROLES";
-
 /// How far the active search match is brightened toward white (OKLab mix) from
 /// the `search` role, so it reads as distinct from non-active matches.
 const SEARCH_ACTIVE_BRIGHTEN: f32 = 0.35;
-
-fn themed_ui_roles_from_env() -> bool {
-    std::env::var(THEMED_UI_ROLES_ENV)
-        .ok()
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "on" | "yes"
-            )
-        })
-        .unwrap_or(false)
-}
 
 fn srgb_tuple_to_linear(color: (u8, u8, u8)) -> crate::color::LinearRgb {
     [

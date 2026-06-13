@@ -115,7 +115,11 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     model.set_base_colors(
         rgb(theme.foreground),
         rgb(theme.background),
-        rgb(theme.foreground),
+        rgb(if settings.themed_ui_roles {
+            theme.cursor
+        } else {
+            theme.foreground
+        }),
     );
     model.set_osc52_read_enabled(settings.osc52_read);
     // Apply the host default cursor shape/blink policy from settings before any

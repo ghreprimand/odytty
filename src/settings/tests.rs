@@ -10,6 +10,7 @@ use crate::atlas::SubpixelMode;
 use crate::core::CursorStyle;
 use crate::theme::Theme;
 
+use super::config::{config_key_to_env, env_to_config_key};
 use super::reload::{ConfigFileFingerprint, ConfigPollEvent};
 use super::*;
 
@@ -96,6 +97,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "subpixel",
             "synthetic_styles",
             "geometric_boxdraw",
+            "themed_ui_roles",
             "cursor_style",
             "cursor_blink",
             "keybinds",
@@ -883,6 +885,58 @@ fn garbage_geometric_boxdraw_falls_back_off_with_warning() {
     assert!(!settings.geometric_boxdraw);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(GEOMETRIC_BOXDRAW_ENV));
+}
+
+#[test]
+fn themed_ui_roles_defaults_on_and_parses_off() {
+    let (settings, warnings) = settings_from([]);
+    assert!(settings.themed_ui_roles);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from([(THEMED_UI_ROLES_ENV, "off")]);
+    assert!(!settings.themed_ui_roles);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from_config_and_env("themed_ui_roles = false", []);
+    assert!(!settings.themed_ui_roles);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from_config_and_env("themedroles = no", []);
+    assert!(!settings.themed_ui_roles);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from_config_and_env("uiroles = 0", []);
+    assert!(!settings.themed_ui_roles);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn themed_ui_roles_round_trips_through_config_key_mapping() {
+    assert_eq!(
+        config_key_to_env("themed_ui_roles"),
+        Some(THEMED_UI_ROLES_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(THEMED_UI_ROLES_ENV),
+        Some("themed_ui_roles")
+    );
+
+    let settings = Settings {
+        themed_ui_roles: false,
+        ..Settings::default()
+    };
+    assert_eq!(
+        settings.to_edit_values().get(THEMED_UI_ROLES_ENV),
+        Some(&"off".to_owned())
+    );
+}
+
+#[test]
+fn garbage_themed_ui_roles_falls_back_on_with_warning() {
+    let (settings, warnings) = settings_from([(THEMED_UI_ROLES_ENV, "maybe")]);
+    assert!(settings.themed_ui_roles);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(THEMED_UI_ROLES_ENV));
 }
 
 #[test]

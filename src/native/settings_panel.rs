@@ -587,6 +587,29 @@ mod tests {
     }
 
     #[test]
+    fn themed_ui_roles_row_is_documented_and_editable() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "themed_ui_roles");
+        let lines = panel.visible_lines(80, 80);
+        let text = lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("Themed UI roles: on"));
+        assert!(text.contains(crate::settings::THEMED_UI_ROLES_ENV));
+        assert!(text.contains("legacy foreground cursor"));
+
+        let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Activate)
+        else {
+            panic!("expected bool toggle to apply");
+        };
+        assert!(!settings.themed_ui_roles);
+        assert_eq!(panel.render_signature().changed_count, 1);
+    }
+
+    #[test]
     fn save_reports_changes_and_success_clears_diff() {
         let mut panel = SettingsPanel::new(&Settings::default());
         select_key(&mut panel, "visual");

@@ -46,6 +46,7 @@ pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
 pub const OSC52_READ_ENV: &str = "ODYTTY_OSC52_READ";
 pub const SYNTHETIC_STYLES_ENV: &str = "ODYTTY_SYNTHETIC_STYLES";
 pub const GEOMETRIC_BOXDRAW_ENV: &str = "ODYTTY_GEOMETRIC_BOXDRAW";
+pub const THEMED_UI_ROLES_ENV: &str = "ODYTTY_THEMED_UI_ROLES";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
@@ -69,6 +70,7 @@ const SETTING_ENV_KEYS: &[&str] = &[
     OSC52_READ_ENV,
     SYNTHETIC_STYLES_ENV,
     GEOMETRIC_BOXDRAW_ENV,
+    THEMED_UI_ROLES_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 
@@ -374,6 +376,11 @@ pub struct Settings {
     /// from the font (RV2). Off by default; the font path is byte-identical to
     /// before. Purely presentational — never affects cell semantics.
     pub geometric_boxdraw: bool,
+    /// Whether semantic theme roles drive native cursor, selection, and search
+    /// highlight colors. On by default by operator decision; turning it off
+    /// restores the historical foreground cursor, inverse selection, and
+    /// black-on-yellow active search treatment.
+    pub themed_ui_roles: bool,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -395,6 +402,7 @@ impl Default for Settings {
             osc52_read: false,
             synthetic_styles: true,
             geometric_boxdraw: false,
+            themed_ui_roles: true,
             native_autoclose: None,
         }
     }
@@ -547,6 +555,18 @@ impl Settings {
                 name: "Geometric box-drawing",
                 value: bool_display(self.geometric_boxdraw).to_owned(),
                 description: GEOMETRIC_BOXDRAW_DESC,
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Theme",
+                key: "themed_ui_roles",
+                env: THEMED_UI_ROLES_ENV,
+                name: "Themed UI roles",
+                value: bool_display(self.themed_ui_roles).to_owned(),
+                description: "Uses theme cursor, selection, and search semantic colors in native UI overlays. Off restores the legacy foreground cursor, inverse selection, and black-on-yellow active search match.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
@@ -794,6 +814,12 @@ impl Settings {
             false,
             &mut warn,
         );
+        let themed_ui_roles = parse_bool_setting(
+            get(THEMED_UI_ROLES_ENV).as_deref(),
+            THEMED_UI_ROLES_ENV,
+            true,
+            &mut warn,
+        );
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -812,6 +838,7 @@ impl Settings {
             osc52_read,
             synthetic_styles,
             geometric_boxdraw,
+            themed_ui_roles,
             native_autoclose,
         }
     }
@@ -847,6 +874,10 @@ impl Settings {
         values.insert(
             GEOMETRIC_BOXDRAW_ENV,
             bool_display(self.geometric_boxdraw).to_owned(),
+        );
+        values.insert(
+            THEMED_UI_ROLES_ENV,
+            bool_display(self.themed_ui_roles).to_owned(),
         );
         if let Some(duration) = self.native_autoclose {
             values.insert(NATIVE_AUTOCLOSE_ENV, duration.as_millis().to_string());
