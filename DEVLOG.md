@@ -24,6 +24,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
   remain supported through the settings panel's text edit path; enumerating user
   theme directories is left as a follow-up.
 
+## 2026-06-13 -- Perceptual color pipeline (RV3)
+
+- New `src/color.rs`: a dependency-free perceptual-color foundation. The sRGB
+  transfer now lives here as the single source of truth (`text::srgb_to_linear`
+  delegates, byte-identical); added OKLab and OKLCH conversions (Ottosson's
+  published matrices), perceptual dim (scale toward black in OKLab, preserving
+  hue), and linear/OKLab interpolation (`mix_linear`, `mix_oklab`, `fade`).
+- `text.rs` gains `dim_linear_rgba`, the render-facing dim adapter; `amount = 0`
+  is an exact identity, so the default path is byte-identical until a caller
+  opts in. Foundational for RV1 (min-contrast) and later visual effects.
+- All pure functions, unit-tested against reference values and round-trip
+  accuracy. No application site changed this packet: default/plain output is
+  byte-identical and pixel-smoke 25 stays green. Activating perceptual SGR dim
+  is a follow-up one-liner in the renderer plus a dim fixture.
+- State: 925 lib tests; integration unchanged. fmt/diff/leak clean.
+
 ## 2026-06-13 -- Settings panel writeback (UX2-c)
 
 - Added explicit settings-panel persistence: while the panel is open,

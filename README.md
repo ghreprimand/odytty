@@ -234,7 +234,7 @@ panel plus live theme picker have all landed.
 
 ## Testing
 
-**Testing.** 984 tests passing: 909 unit/integration, 12 mouse-protocol
+**Testing.** 1008 tests passing: 933 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
