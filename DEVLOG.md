@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Theme palette foundation: full ANSI palette + semantic roles (TH1)
+
+Epic A anchor. The `Theme` struct grew from three colors (foreground /
+background / clear) into a full appearance profile, and the render path's
+indexed-color resolution became theme-driven — all without touching the
+renderer or any native code.
+
+- `src/theme.rs`: `Theme` now carries the 16-color ANSI palette (indices 0–7
+  normal, 8–15 bright) plus semantic-role colors — `cursor`, `selection`,
+  `search`, and reserved `border` / `inactive` (authored now, consumed by later
+  cursor/selection/chrome packets). The three built-ins (`plain`, `odyssey`,
+  `odyssey-noir`) are authored with full palettes; `plain`'s palette is the
+  historical xterm table byte-for-byte, so selecting `plain` (or no theme) is
+  pixel-identical to before.
+- `src/text.rs`: generalized the existing runtime default-color override seam
+  (`set_default_colors`) to the full ANSI palette. New `set_ansi_palette` plus
+  a `DEFAULT_ANSI_SRGB` constant (the historical 0–15 values, now the single
+  source of truth); `indexed_srgb(0..=15)` reads the active palette override,
+  while the computed 6×6×6 cube and grayscale ramp (16–255) stay fixed.
+- OSC-4 precedence preserved structurally: the render path
+  (`grid::foreground_linear`, untouched) consults the core dynamic palette
+  first and only falls back to `text::indexed_srgb` when no app override is set,
+  so per-app dynamic colors still beat the theme. The existing
+  `dynamic_colors_override_rendered_defaults_and_palette` grid test guards this.
+- Tests: `plain` palette byte-identical to the historical table (pixel-identity
+  guard); `DEFAULT_ANSI_SRGB` pinned to literal historical values; the palette
+  override seam resolves indexed colors and leaves the cube/grayscale untouched;
+  every built-in carries a full 16-entry palette + semantic roles. Verified in
+  isolation at HEAD: lib 840 (834 + 6), integration battery green (pixel-smoke
+  25 unchanged), `cargo fmt --check` clean, `git diff --check` clean.
+- Follow-up flagged to the director: wiring non-plain palettes into a live
+  window needs one native call-site (`text::set_ansi_palette(&theme.palette)`
+  next to the existing `set_default_colors` calls in `src/native/mod.rs` and
+  `src/native/app/mod.rs`) — left to the native owner per the fence; the seam
+  is ready.
+
+---
+
 ## 2026-06-13 -- Split native app.rs into a directory module (MS3)
 
 Pure mechanical modularity refactor: `src/native/app.rs` had reached 1815 lines

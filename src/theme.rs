@@ -22,10 +22,24 @@
 /// rendering-backend types.
 pub type Srgb = (u8, u8, u8);
 
-/// A presentation theme: default cell colors plus the window clear color.
+/// A presentation theme: a full appearance profile — default cell colors, the
+/// window clear color, the 16-color ANSI palette, and semantic role colors.
 ///
 /// Colors are sRGB bytes. Rendering converts them to linear space at the
 /// boundary; this module stays backend-agnostic on purpose.
+///
+/// ## Palette and roles
+///
+/// [`palette`](Self::palette) carries the 16 standard ANSI colors (indices 0–7
+/// normal, 8–15 bright) used to resolve `Color::Indexed(0..=15)` in the
+/// renderer; the theme layer feeds it to [`crate::text::set_ansi_palette`] at
+/// startup. Per-app OSC-4 dynamic-color overrides still win over the theme (the
+/// render path consults the core dynamic palette first). The semantic-role
+/// colors ([`cursor`](Self::cursor), [`selection`](Self::selection),
+/// [`search`](Self::search), and the reserved [`border`](Self::border) /
+/// [`inactive`](Self::inactive)) describe how presentation chrome should be
+/// painted; consumers land in later packets (cursor/selection/search treatments,
+/// window chrome), so `border`/`inactive` are authored now but not yet read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     /// Stable identifier, also the `ODYTTY_THEME` value that selects it.
@@ -37,36 +51,105 @@ pub struct Theme {
     /// Color the window surface is cleared to before cells are drawn. Usually
     /// equal to `background`, but kept separate so a theme can frame the grid.
     pub clear: Srgb,
+    /// The 16 standard ANSI colors: indices 0–7 normal, 8–15 bright. Resolves
+    /// `Color::Indexed(0..=15)` in the renderer. For [`PLAIN`](Self::PLAIN) this
+    /// is byte-identical to the historical xterm table.
+    pub palette: [Srgb; 16],
+    /// Cursor color (semantic role). Consumed by cursor treatments (ID1).
+    pub cursor: Srgb,
+    /// Selection background (semantic role). Consumed by selection rendering.
+    pub selection: Srgb,
+    /// Search-highlight background (semantic role).
+    pub search: Srgb,
+    /// Border / frame color (semantic role; reserved, not yet rendered).
+    pub border: Srgb,
+    /// Inactive / dimmed color (semantic role; reserved, not yet rendered).
+    pub inactive: Srgb,
 }
 
 impl Theme {
     /// Plain baseline. Matches the renderer's historical hardcoded defaults so
     /// selecting `plain` (or providing no/invalid `ODYTTY_THEME`) reproduces the
-    /// pre-theme appearance exactly.
+    /// pre-theme appearance exactly. Its palette is the historical xterm table
+    /// ([`crate::text::DEFAULT_ANSI_SRGB`]) byte-for-byte.
     pub const PLAIN: Theme = Theme {
         name: "plain",
         foreground: (0xCC, 0xCC, 0xCC),
         background: (0x0B, 0x0C, 0x10),
         clear: (0x0B, 0x0C, 0x10),
+        palette: crate::text::DEFAULT_ANSI_SRGB,
+        cursor: (0xCC, 0xCC, 0xCC),
+        selection: (0x33, 0x3A, 0x47),
+        search: (0x5C, 0x50, 0x1F),
+        border: (0x2A, 0x2C, 0x33),
+        inactive: (0x66, 0x66, 0x66),
     };
 
     /// Odyssey default: a deep blue-black field with cool off-white text. The
     /// clear color is a touch darker than the cell background so the grid reads
-    /// as a panel floating on the surface.
+    /// as a panel floating on the surface. The ANSI palette is cool-leaning and
+    /// tuned for legibility on the dark blue field.
     pub const ODYSSEY: Theme = Theme {
         name: "odyssey",
         foreground: (0xD6, 0xDE, 0xF4),
         background: (0x0C, 0x12, 0x24),
         clear: (0x07, 0x0B, 0x18),
+        palette: [
+            (0x12, 0x18, 0x2A), // 0  black (lifted from bg)
+            (0xE0, 0x6B, 0x74), // 1  red
+            (0x98, 0xC3, 0x79), // 2  green
+            (0xE5, 0xC0, 0x7B), // 3  yellow
+            (0x61, 0xAF, 0xEF), // 4  blue
+            (0xC6, 0x8A, 0xEE), // 5  magenta
+            (0x56, 0xB6, 0xC2), // 6  cyan
+            (0xC5, 0xCD, 0xE0), // 7  white
+            (0x3A, 0x44, 0x5E), // 8  bright black
+            (0xFF, 0x8B, 0x92), // 9  bright red
+            (0xB6, 0xE3, 0x99), // 10 bright green
+            (0xFF, 0xD9, 0x9A), // 11 bright yellow
+            (0x7F, 0xC1, 0xFF), // 12 bright blue
+            (0xD8, 0xA6, 0xFF), // 13 bright magenta
+            (0x7A, 0xD4, 0xDF), // 14 bright cyan
+            (0xF0, 0xF4, 0xFF), // 15 bright white
+        ],
+        cursor: (0x86, 0xC1, 0xFF),
+        selection: (0x24, 0x33, 0x52),
+        search: (0x4A, 0x40, 0x18),
+        border: (0x1B, 0x24, 0x3E),
+        inactive: (0x5A, 0x64, 0x80),
     };
 
     /// Odyssey Noir: a near-black, low-chroma variant for high-contrast text on
-    /// a very dark field.
+    /// a very dark field. The ANSI palette is desaturated to keep the monochrome
+    /// feel while staying readable.
     pub const ODYSSEY_NOIR: Theme = Theme {
         name: "odyssey-noir",
         foreground: (0xCE, 0xD6, 0xD2),
         background: (0x05, 0x07, 0x08),
         clear: (0x02, 0x03, 0x04),
+        palette: [
+            (0x0A, 0x0C, 0x0D), // 0  black
+            (0xC9, 0x6A, 0x6A), // 1  red
+            (0x9A, 0xB5, 0x8E), // 2  green
+            (0xC6, 0xB7, 0x86), // 3  yellow
+            (0x84, 0x9C, 0xB0), // 4  blue
+            (0xA9, 0x90, 0xB5), // 5  magenta
+            (0x88, 0xB0, 0xAE), // 6  cyan
+            (0xB8, 0xC0, 0xBC), // 7  white
+            (0x3A, 0x3F, 0x3D), // 8  bright black
+            (0xDD, 0x86, 0x86), // 9  bright red
+            (0xB4, 0xCE, 0xA6), // 10 bright green
+            (0xDD, 0xCE, 0x9E), // 11 bright yellow
+            (0x9E, 0xB6, 0xCA), // 12 bright blue
+            (0xC3, 0xAA, 0xCE), // 13 bright magenta
+            (0xA2, 0xC9, 0xC7), // 14 bright cyan
+            (0xE6, 0xEC, 0xE8), // 15 bright white
+        ],
+        cursor: (0xCE, 0xD6, 0xD2),
+        selection: (0x22, 0x28, 0x26),
+        search: (0x3E, 0x39, 0x20),
+        border: (0x1A, 0x1E, 0x1C),
+        inactive: (0x55, 0x5C, 0x58),
     };
 
     /// Every built-in theme, in selection-listing order (baseline first).
@@ -221,6 +304,51 @@ mod tests {
         // renderer's documented defaults.
         assert_eq!(Theme::PLAIN.foreground, crate::text::DEFAULT_FG_SRGB);
         assert_eq!(Theme::PLAIN.background, crate::text::DEFAULT_BG_SRGB);
+    }
+
+    #[test]
+    fn plain_palette_is_historical_xterm_table_byte_identical() {
+        // The core pixel-identity guarantee: selecting `plain` (or no theme)
+        // must resolve indexed colors exactly as the pre-theme renderer did.
+        assert_eq!(Theme::PLAIN.palette, crate::text::DEFAULT_ANSI_SRGB);
+    }
+
+    #[test]
+    fn every_theme_carries_a_full_palette_and_roles() {
+        // Each built-in authors all 16 ANSI entries plus its semantic roles;
+        // this catches a half-authored theme. Role colors must be present (the
+        // struct guarantees that), so we assert distinctness from a sentinel to
+        // prove they were intentionally set rather than left at a placeholder.
+        for theme in Theme::ALL {
+            assert_eq!(theme.palette.len(), 16, "{} palette", theme.name);
+            // Bright variants should not all collapse to their normal
+            // counterparts (a sign of an unfinished palette).
+            assert_ne!(
+                &theme.palette[0..8],
+                &theme.palette[8..16],
+                "{} bright row duplicates normal row",
+                theme.name
+            );
+        }
+    }
+
+    #[test]
+    fn non_plain_palettes_differ_from_plain() {
+        // Authored themes must actually recolor the ANSI palette (otherwise
+        // they would render indexed colors identically to plain).
+        assert_ne!(Theme::ODYSSEY.palette, Theme::PLAIN.palette);
+        assert_ne!(Theme::ODYSSEY_NOIR.palette, Theme::PLAIN.palette);
+    }
+
+    #[test]
+    fn semantic_roles_are_readable_from_the_theme() {
+        // Semantic-role fields resolve to the authored theme values.
+        let t = Theme::ODYSSEY;
+        assert_eq!(t.cursor, (0x86, 0xC1, 0xFF));
+        assert_eq!(t.selection, (0x24, 0x33, 0x52));
+        assert_eq!(t.search, (0x4A, 0x40, 0x18));
+        assert_eq!(t.border, (0x1B, 0x24, 0x3E));
+        assert_eq!(t.inactive, (0x5A, 0x64, 0x80));
     }
 
     #[test]

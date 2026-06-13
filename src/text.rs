@@ -347,6 +347,33 @@ fn collect_font_files(dirs: &[PathBuf]) -> Vec<PathBuf> {
 pub const DEFAULT_FG_SRGB: (u8, u8, u8) = (0xCC, 0xCC, 0xCC);
 pub const DEFAULT_BG_SRGB: (u8, u8, u8) = (0x0B, 0x0C, 0x10);
 
+/// The historical xterm sRGB values for the 16 standard ANSI colors (indices
+/// 0–7 normal, 8–15 bright). This is the *baseline* (plain theme) palette and
+/// the source of truth pinned by tests: selecting `plain` (or no theme) renders
+/// indexed colors byte-identically to the pre-theme appearance. The active ANSI
+/// palette used to resolve [`Color::Indexed`] in the 0–15 range is overridable
+/// at runtime via [`set_ansi_palette`]; the theme layer sets it once at startup.
+/// The 256-color cube and grayscale ramp (indices 16–255) are computed and are
+/// not theme-overridable.
+pub const DEFAULT_ANSI_SRGB: [(u8, u8, u8); 16] = [
+    (0x00, 0x00, 0x00), // 0  black
+    (0xCD, 0x00, 0x00), // 1  red
+    (0x00, 0xCD, 0x00), // 2  green
+    (0xCD, 0xCD, 0x00), // 3  yellow
+    (0x00, 0x00, 0xEE), // 4  blue
+    (0xCD, 0x00, 0xCD), // 5  magenta
+    (0x00, 0xCD, 0xCD), // 6  cyan
+    (0xE5, 0xE5, 0xE5), // 7  white
+    (0x7F, 0x7F, 0x7F), // 8  bright black
+    (0xFF, 0x00, 0x00), // 9  bright red
+    (0x00, 0xFF, 0x00), // 10 bright green
+    (0xFF, 0xFF, 0x00), // 11 bright yellow
+    (0x5C, 0x5C, 0xFF), // 12 bright blue
+    (0xFF, 0x00, 0xFF), // 13 bright magenta
+    (0x00, 0xFF, 0xFF), // 14 bright cyan
+    (0xFF, 0xFF, 0xFF), // 15 bright white
+];
+
 /// Pack an sRGB triple into a `u32` for atomic storage (`0x00RRGGBB`).
 const fn pack_srgb(c: (u8, u8, u8)) -> u32 {
     ((c.0 as u32) << 16) | ((c.1 as u32) << 8) | (c.2 as u32)
@@ -368,6 +395,31 @@ fn unpack_srgb(v: u32) -> (u8, u8, u8) {
 static DEFAULT_FG: AtomicU32 = AtomicU32::new(pack_srgb(DEFAULT_FG_SRGB));
 static DEFAULT_BG: AtomicU32 = AtomicU32::new(pack_srgb(DEFAULT_BG_SRGB));
 
+/// Active 16-color ANSI palette for resolving `Color::Indexed(0..=15)`,
+/// overridable by the theme layer. Stored as packed sRGB so resolution stays
+/// lock-free, mirroring [`DEFAULT_FG`]/[`DEFAULT_BG`]. Presentation-only: this
+/// changes how indexed colors paint, never what the terminal core stores. The
+/// initial values are the historical xterm table ([`DEFAULT_ANSI_SRGB`]), so an
+/// un-themed renderer is byte-identical to the pre-theme appearance.
+static ANSI_PALETTE: [AtomicU32; 16] = [
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[0])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[1])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[2])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[3])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[4])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[5])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[6])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[7])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[8])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[9])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[10])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[11])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[12])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[13])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[14])),
+    AtomicU32::new(pack_srgb(DEFAULT_ANSI_SRGB[15])),
+];
+
 /// Override the default foreground/background used to resolve `Color::Default`.
 ///
 /// Called once at native startup by the theme layer. Affects only rendering;
@@ -378,12 +430,33 @@ pub fn set_default_colors(foreground: (u8, u8, u8), background: (u8, u8, u8)) {
     DEFAULT_BG.store(pack_srgb(background), Ordering::Relaxed);
 }
 
+/// Override the 16-color ANSI palette used to resolve `Color::Indexed(0..=15)`.
+///
+/// Called once at native startup by the theme layer (alongside
+/// [`set_default_colors`]). Affects only rendering — the terminal model is
+/// unaware of it — and is layered *below* any per-app OSC-4 dynamic-color
+/// override: the render path consults the core dynamic palette first and only
+/// falls back to [`indexed_srgb`] (which reads this override) when no app
+/// override is set, so OSC-4 always wins over the theme. Passing
+/// [`DEFAULT_ANSI_SRGB`] restores the plain appearance.
+pub fn set_ansi_palette(palette: &[(u8, u8, u8); 16]) {
+    for (slot, &color) in ANSI_PALETTE.iter().zip(palette.iter()) {
+        slot.store(pack_srgb(color), Ordering::Relaxed);
+    }
+}
+
 fn default_fg_srgb() -> (u8, u8, u8) {
     unpack_srgb(DEFAULT_FG.load(Ordering::Relaxed))
 }
 
 fn default_bg_srgb() -> (u8, u8, u8) {
     unpack_srgb(DEFAULT_BG.load(Ordering::Relaxed))
+}
+
+/// The active sRGB bytes for a standard ANSI color index (0–15), reading the
+/// runtime palette override.
+fn ansi_srgb(index: u8) -> (u8, u8, u8) {
+    unpack_srgb(ANSI_PALETTE[index as usize].load(Ordering::Relaxed))
 }
 
 /// Convert one sRGB channel byte to a linear float in `[0, 1]`.
@@ -410,25 +483,15 @@ fn linear_rgba(srgb: (u8, u8, u8)) -> [f32; 4] {
 }
 
 /// The sRGB bytes for an xterm 256-color palette index.
+///
+/// Indices 0–15 (the standard ANSI colors) read the active theme palette via
+/// the [`set_ansi_palette`] override seam; with no override applied they return
+/// the historical xterm values ([`DEFAULT_ANSI_SRGB`]). The 256-color cube and
+/// grayscale ramp (16–255) are computed and not theme-overridable.
 pub fn indexed_srgb(index: u8) -> (u8, u8, u8) {
     match index {
-        // 16 standard ANSI colors.
-        0 => (0x00, 0x00, 0x00),
-        1 => (0xCD, 0x00, 0x00),
-        2 => (0x00, 0xCD, 0x00),
-        3 => (0xCD, 0xCD, 0x00),
-        4 => (0x00, 0x00, 0xEE),
-        5 => (0xCD, 0x00, 0xCD),
-        6 => (0x00, 0xCD, 0xCD),
-        7 => (0xE5, 0xE5, 0xE5),
-        8 => (0x7F, 0x7F, 0x7F),
-        9 => (0xFF, 0x00, 0x00),
-        10 => (0x00, 0xFF, 0x00),
-        11 => (0xFF, 0xFF, 0x00),
-        12 => (0x5C, 0x5C, 0xFF),
-        13 => (0xFF, 0x00, 0xFF),
-        14 => (0x00, 0xFF, 0xFF),
-        15 => (0xFF, 0xFF, 0xFF),
+        // 16 standard ANSI colors — theme-overridable.
+        0..=15 => ansi_srgb(index),
         // 6x6x6 color cube.
         16..=231 => {
             let i = index - 16;
@@ -489,6 +552,66 @@ mod tests {
             assert!(v >= last);
             last = v;
         }
+    }
+
+    /// Serializes the few tests that mutate the process-global ANSI palette
+    /// override, so they cannot observe each other's writes when run in
+    /// parallel. Held across set → assert → restore.
+    static PALETTE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn default_ansi_palette_pins_historical_xterm_table() {
+        // Byte-identity regression guard: the baseline ANSI palette must equal
+        // the historical xterm 0–15 values exactly, so selecting `plain` (or no
+        // theme) is pixel-identical to the pre-theme renderer. These literals
+        // are the source of truth — duplicated here on purpose so a careless
+        // edit to DEFAULT_ANSI_SRGB is caught.
+        let historical: [(u8, u8, u8); 16] = [
+            (0x00, 0x00, 0x00),
+            (0xCD, 0x00, 0x00),
+            (0x00, 0xCD, 0x00),
+            (0xCD, 0xCD, 0x00),
+            (0x00, 0x00, 0xEE),
+            (0xCD, 0x00, 0xCD),
+            (0x00, 0xCD, 0xCD),
+            (0xE5, 0xE5, 0xE5),
+            (0x7F, 0x7F, 0x7F),
+            (0xFF, 0x00, 0x00),
+            (0x00, 0xFF, 0x00),
+            (0xFF, 0xFF, 0x00),
+            (0x5C, 0x5C, 0xFF),
+            (0xFF, 0x00, 0xFF),
+            (0x00, 0xFF, 0xFF),
+            (0xFF, 0xFF, 0xFF),
+        ];
+        assert_eq!(DEFAULT_ANSI_SRGB, historical);
+    }
+
+    #[test]
+    fn indexed_srgb_resolves_ansi_range_from_palette_override() {
+        let _guard = PALETTE_LOCK.lock().unwrap();
+        // Default (no override): indices 0–15 equal the historical table.
+        set_ansi_palette(&DEFAULT_ANSI_SRGB);
+        for i in 0..16u8 {
+            assert_eq!(indexed_srgb(i), DEFAULT_ANSI_SRGB[i as usize]);
+        }
+
+        // Apply a distinct palette and confirm indexed_srgb reflects it for the
+        // 0–15 range while the computed cube/grayscale stay untouched.
+        let mut themed = DEFAULT_ANSI_SRGB;
+        for (i, slot) in themed.iter_mut().enumerate() {
+            *slot = (i as u8, 0x40, 0x80);
+        }
+        set_ansi_palette(&themed);
+        for i in 0..16u8 {
+            assert_eq!(indexed_srgb(i), (i, 0x40, 0x80));
+        }
+        // Cube origin and a grayscale step are computed, not overridable.
+        assert_eq!(indexed_srgb(16), (0, 0, 0));
+        assert_eq!(indexed_srgb(231), (255, 255, 255));
+
+        // Restore the baseline so other tests see the historical palette.
+        set_ansi_palette(&DEFAULT_ANSI_SRGB);
     }
 
     #[test]
