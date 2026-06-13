@@ -54,6 +54,7 @@ pub(super) enum ThemePickerOutcome {
     Consumed,
     Preview(Theme),
     Persist(Vec<SettingEdit>),
+    OpenBuilder(Theme),
     Cancel(Theme),
 }
 
@@ -103,6 +104,11 @@ impl ThemePicker {
             OverlayInput::Home => self.set_selection(0),
             OverlayInput::End => self.set_selection(self.entries.len().saturating_sub(1)),
             OverlayInput::Activate => return self.persist_selected(),
+            OverlayInput::Char('b') | OverlayInput::Char('B') => {
+                if let Some(theme) = self.selected_theme() {
+                    return ThemePickerOutcome::OpenBuilder(theme);
+                }
+            }
             OverlayInput::Close => return ThemePickerOutcome::Cancel(self.original),
             _ => return ThemePickerOutcome::Consumed,
         }
@@ -167,7 +173,7 @@ impl ThemePicker {
         let mut lines = Vec::new();
         lines.push(ThemePickerLine {
             text: ellipsize(
-                "  Theme library - arrows preview, Enter saves, Esc cancels",
+                "  Theme library - arrows preview, Enter saves, B edits, Esc cancels",
                 body_width,
             ),
             focused: false,

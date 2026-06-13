@@ -41,6 +41,7 @@ pub(super) enum SettingsPanelOutcome {
     Apply(Settings),
     Save(Vec<SettingEdit>),
     OpenThemePicker,
+    OpenThemeBuilder,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,6 +134,14 @@ impl SettingsPanel {
             OverlayInput::Right => return self.step_or_cycle_selected(1),
             OverlayInput::Activate => return self.activate_selected(),
             OverlayInput::Save => return self.save_changes(),
+            OverlayInput::Char('b') | OverlayInput::Char('B')
+                if self
+                    .selected_entry()
+                    .is_some_and(|entry| entry.key == "theme") =>
+            {
+                self.message = Some("Opening theme builder.".to_owned());
+                return SettingsPanelOutcome::OpenThemeBuilder;
+            }
             OverlayInput::Char(' ') => return self.activate_selected(),
             _ => {}
         }
@@ -632,6 +641,17 @@ mod tests {
         assert_eq!(
             panel.handle_input(OverlayInput::Right),
             SettingsPanelOutcome::OpenThemePicker
+        );
+    }
+
+    #[test]
+    fn theme_row_b_opens_builder() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "theme");
+
+        assert_eq!(
+            panel.handle_input(OverlayInput::Char('b')),
+            SettingsPanelOutcome::OpenThemeBuilder
         );
     }
 

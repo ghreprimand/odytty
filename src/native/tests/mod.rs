@@ -30,6 +30,7 @@ use super::render_helpers::{
 };
 use super::search_ui::SearchRenderSignature;
 use super::settings_panel::SettingsPanelSignature;
+use super::theme_builder::ThemeBuilderSignature;
 use super::theme_picker::ThemePickerSignature;
 use super::viewport::{Viewport, grid_dimensions_for, scroll_indicator_quad, wheel_lines};
 use crate::core::{

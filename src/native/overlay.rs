@@ -1,12 +1,16 @@
 use crate::core::{Attrs, Cell, Color, Snapshot};
 use crate::input::Modifiers;
 use crate::settings::Settings;
-use crate::theme::Theme;
+use crate::theme::{Srgb, Theme};
 
 use unicode_width::UnicodeWidthChar;
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
 use super::settings_panel::{SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature};
+use super::theme_builder::{
+    ThemeBuilder, ThemeBuilderLine, ThemeBuilderOutcome, ThemeBuilderSaveRequest,
+    ThemeBuilderSignature,
+};
 use super::theme_picker::{ThemePicker, ThemePickerLine, ThemePickerOutcome, ThemePickerSignature};
 
 #[derive(Debug, Clone)]
@@ -16,6 +20,7 @@ pub(super) struct OverlayUi {
     settings: Settings,
     panel: SettingsPanel,
     theme_picker: ThemePicker,
+    theme_builder: ThemeBuilder,
 }
 
 impl Default for OverlayUi {
@@ -32,6 +37,7 @@ impl OverlayUi {
             settings: settings.clone(),
             panel: SettingsPanel::new(settings),
             theme_picker: ThemePicker::new(settings),
+            theme_builder: ThemeBuilder::new(settings),
         }
     }
 
@@ -43,6 +49,7 @@ impl OverlayUi {
         self.settings = settings.clone();
         self.panel.refresh(settings);
         self.theme_picker.refresh(settings);
+        self.theme_builder.refresh(settings);
     }
 
     pub(super) fn apply_settings(&mut self, settings: &Settings) {
@@ -69,6 +76,13 @@ impl OverlayUi {
         self.open = true;
     }
 
+    pub(super) fn open_theme_builder(&mut self, settings: &Settings) {
+        self.settings = settings.clone();
+        self.theme_builder.open(settings);
+        self.mode = OverlayMode::ThemeBuilder;
+        self.open = true;
+    }
+
     pub(super) fn toggle_settings(&mut self) {
         if self.open && self.mode == OverlayMode::Settings {
             self.close();
@@ -78,8 +92,10 @@ impl OverlayUi {
     }
 
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> OverlayOutcome {
-        if self.mode == OverlayMode::ThemePicker {
-            return self.handle_theme_picker_input(input);
+        match self.mode {
+            OverlayMode::ThemePicker => return self.handle_theme_picker_input(input),
+            OverlayMode::ThemeBuilder => return self.handle_theme_builder_input(input),
+            OverlayMode::Settings => {}
         }
 
         match input {
@@ -89,6 +105,7 @@ impl OverlayUi {
                 SettingsPanelOutcome::Apply(settings) => OverlayOutcome::ApplySettings(settings),
                 SettingsPanelOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
                 SettingsPanelOutcome::OpenThemePicker => OverlayOutcome::OpenThemePicker,
+                SettingsPanelOutcome::OpenThemeBuilder => OverlayOutcome::OpenThemeBuilder,
             },
         }
     }
@@ -100,6 +117,7 @@ impl OverlayUi {
                 self.theme_picker.save_succeeded(changed);
                 self.close();
             }
+            OverlayMode::ThemeBuilder => {}
         }
     }
 
@@ -107,7 +125,18 @@ impl OverlayUi {
         match self.mode {
             OverlayMode::Settings => self.panel.save_failed(message),
             OverlayMode::ThemePicker => self.theme_picker.save_failed(message),
+            OverlayMode::ThemeBuilder => self.theme_builder.save_failed(message),
         }
+    }
+
+    pub(super) fn theme_builder_save_succeeded(
+        &mut self,
+        saved_name: &str,
+        path: &std::path::Path,
+        changed: usize,
+    ) {
+        self.theme_builder.save_succeeded(saved_name, path, changed);
+        self.close();
     }
 
     pub(super) fn render_signature(&self) -> OverlayRenderSignature {
@@ -116,6 +145,7 @@ impl OverlayUi {
             mode: self.mode,
             panel: self.panel.render_signature(),
             theme_picker: self.theme_picker.render_signature(),
+            theme_builder: self.theme_builder.render_signature(),
         }
     }
 
@@ -128,7 +158,32 @@ impl OverlayUi {
                 OverlayOutcome::ApplySettings(settings)
             }
             ThemePickerOutcome::Persist(changes) => OverlayOutcome::SaveSettings(changes),
+            ThemePickerOutcome::OpenBuilder(theme) => {
+                let settings = self.settings_with_theme(theme);
+                self.settings = settings.clone();
+                self.theme_builder.open(&settings);
+                self.mode = OverlayMode::ThemeBuilder;
+                OverlayOutcome::ApplySettings(settings)
+            }
             ThemePickerOutcome::Cancel(theme) => {
+                let settings = self.settings_with_theme(theme);
+                self.settings = settings.clone();
+                self.close();
+                OverlayOutcome::ApplySettings(settings)
+            }
+        }
+    }
+
+    fn handle_theme_builder_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match self.theme_builder.handle_input(input) {
+            ThemeBuilderOutcome::Consumed => OverlayOutcome::Consumed,
+            ThemeBuilderOutcome::Preview(theme) => {
+                let settings = self.settings_with_theme(theme);
+                self.settings = settings.clone();
+                OverlayOutcome::ApplySettings(settings)
+            }
+            ThemeBuilderOutcome::Save(request) => OverlayOutcome::SaveTheme(request),
+            ThemeBuilderOutcome::Cancel(theme) => {
                 let settings = self.settings_with_theme(theme);
                 self.settings = settings.clone();
                 self.close();
@@ -149,14 +204,17 @@ pub(super) enum OverlayOutcome {
     Consumed,
     Close,
     OpenThemePicker,
+    OpenThemeBuilder,
     ApplySettings(Settings),
     SaveSettings(Vec<crate::settings::SettingEdit>),
+    SaveTheme(ThemeBuilderSaveRequest),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum OverlayMode {
     Settings,
     ThemePicker,
+    ThemeBuilder,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,6 +240,7 @@ pub(super) struct OverlayRenderSignature {
     pub(super) mode: OverlayMode,
     pub(super) panel: SettingsPanelSignature,
     pub(super) theme_picker: ThemePickerSignature,
+    pub(super) theme_builder: ThemeBuilderSignature,
 }
 
 pub(super) fn overlay_input_from_winit(
@@ -225,10 +284,12 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
     let title = match overlay.mode {
         OverlayMode::Settings => "OdyTTY Settings",
         OverlayMode::ThemePicker => "OdyTTY Themes",
+        OverlayMode::ThemeBuilder => "OdyTTY Theme Builder",
     };
     let width = match overlay.mode {
         OverlayMode::Settings => overlay.panel.desired_width(columns),
         OverlayMode::ThemePicker => overlay.theme_picker.desired_width(columns),
+        OverlayMode::ThemeBuilder => overlay.theme_builder.desired_width(columns),
     }
     .max(36)
     .min(columns);
@@ -260,7 +321,14 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
         } else {
             panel_attrs()
         };
-        write_text(snapshot, y, left + 2, body_width, &row.text, attrs);
+        let text_column = if let Some(color) = row.swatch {
+            draw_swatch(snapshot, y, left + 2, color);
+            left + 5
+        } else {
+            left + 2
+        };
+        let text_width = body_width.saturating_sub(text_column.saturating_sub(left + 2));
+        write_text(snapshot, y, text_column, text_width, &row.text, attrs);
     }
 }
 
@@ -279,6 +347,12 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
+            OverlayMode::ThemeBuilder => self
+                .theme_builder
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
         }
     }
 }
@@ -287,6 +361,7 @@ impl OverlayUi {
 struct OverlayLine {
     text: String,
     focused: bool,
+    swatch: Option<Srgb>,
 }
 
 impl From<super::settings_panel::SettingsPanelLine> for OverlayLine {
@@ -294,6 +369,7 @@ impl From<super::settings_panel::SettingsPanelLine> for OverlayLine {
         Self {
             text: line.text,
             focused: line.focused,
+            swatch: None,
         }
     }
 }
@@ -303,6 +379,17 @@ impl From<ThemePickerLine> for OverlayLine {
         Self {
             text: line.text,
             focused: line.focused,
+            swatch: None,
+        }
+    }
+}
+
+impl From<ThemeBuilderLine> for OverlayLine {
+    fn from(line: ThemeBuilderLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: line.swatch,
         }
     }
 }
@@ -379,6 +466,16 @@ fn write_text(
         }
         x += width;
     }
+}
+
+fn draw_swatch(snapshot: &mut Snapshot, row: usize, column: usize, color: Srgb) {
+    if row >= snapshot.dimensions.rows || column + 1 >= snapshot.dimensions.columns {
+        return;
+    }
+    let mut attrs = Attrs::default();
+    attrs.background = Color::Rgb(color.0, color.1, color.2);
+    write_cell(snapshot, row, column, ' ', attrs);
+    write_cell(snapshot, row, column + 1, ' ', attrs);
 }
 
 fn write_cell(snapshot: &mut Snapshot, row: usize, column: usize, ch: char, attrs: Attrs) {

@@ -60,6 +60,7 @@ mod render_helpers;
 mod resize;
 mod search_ui;
 mod settings_panel;
+mod theme_builder;
 mod theme_picker;
 mod viewport;
 

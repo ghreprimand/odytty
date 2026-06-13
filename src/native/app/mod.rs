@@ -12,8 +12,8 @@ use crate::input::{self, Key, KeyEventType, KeyModes, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker};
 use crate::settings::{
-    BindableAction, Settings, SettingsReloadOutcome, SettingsReloader, apply_reloadable_values,
-    write_settings_changes_to_path,
+    BindableAction, SettingEdit, Settings, SettingsReloadOutcome, SettingsReloader, THEME_ENV,
+    apply_reloadable_values, write_settings_changes_to_path,
 };
 use crate::text::{self, CellSize};
 use crate::theme::{Theme, VisualEffect};
@@ -44,6 +44,7 @@ use super::render_helpers::{
     SelectionSignature, apply_hyperlink_hover, hyperlink_action_allowed, image_uploads_for_visible,
     key_modes_from_core, openable_hyperlink_uri, visible_graphics_signature,
 };
+use super::theme_builder::{save_theme_to_dir, user_theme_dir_for_config};
 
 pub(super) use super::cursor::{CURSOR_BLINK_INTERVAL, CursorBlinkState};
 pub(super) use super::resize::{
@@ -508,6 +509,17 @@ impl App {
         self.request_selection_redraw();
     }
 
+    fn open_theme_builder_overlay(&mut self) {
+        if self.search.is_open() {
+            self.close_search(true);
+        }
+        self.selection.clear();
+        self.selecting = false;
+        self.last_selection_autoscroll = None;
+        self.overlay.open_theme_builder(&self.settings);
+        self.request_selection_redraw();
+    }
+
     fn handle_overlay_key(&mut self, logical: &WinitKey) {
         let Some(input) = overlay_input_from_winit(logical, self.modifiers) else {
             self.request_selection_redraw();
@@ -518,8 +530,10 @@ impl App {
             OverlayOutcome::Consumed => {}
             OverlayOutcome::Close => self.overlay.close(),
             OverlayOutcome::OpenThemePicker => self.open_theme_picker_overlay(),
+            OverlayOutcome::OpenThemeBuilder => self.open_theme_builder_overlay(),
             OverlayOutcome::ApplySettings(settings) => self.apply_overlay_settings(settings),
             OverlayOutcome::SaveSettings(changes) => self.save_overlay_settings(&changes),
+            OverlayOutcome::SaveTheme(request) => self.save_overlay_theme(request),
         }
         self.request_selection_redraw();
     }
@@ -773,6 +787,40 @@ impl App {
         };
         match write_settings_changes_to_path(path, changes) {
             Ok(result) => self.overlay.save_succeeded(result.changed),
+            Err(error) => self.overlay.save_failed(error.to_string()),
+        }
+    }
+
+    fn save_overlay_theme(&mut self, request: super::theme_builder::ThemeBuilderSaveRequest) {
+        let Some(config_path) = self.settings_reloader.config_path() else {
+            self.overlay
+                .save_failed("could not resolve odytty.conf path".to_owned());
+            return;
+        };
+        let Some(theme_dir) = user_theme_dir_for_config(config_path) else {
+            self.overlay
+                .save_failed("could not resolve theme directory".to_owned());
+            return;
+        };
+        let saved_name = request.name.clone();
+        let path = match save_theme_to_dir(&theme_dir, &request) {
+            Ok(path) => path,
+            Err(error) => {
+                self.overlay
+                    .save_failed(format!("could not write theme file: {error}"));
+                return;
+            }
+        };
+        let changes = [SettingEdit {
+            key: "theme",
+            env: THEME_ENV,
+            value: saved_name.clone(),
+        }];
+        match write_settings_changes_to_path(config_path, &changes) {
+            Ok(result) => {
+                self.overlay
+                    .theme_builder_save_succeeded(&saved_name, &path, result.changed)
+            }
             Err(error) => self.overlay.save_failed(error.to_string()),
         }
     }

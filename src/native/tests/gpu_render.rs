@@ -194,6 +194,13 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
             message: None,
             entries: Vec::new(),
         },
+        theme_builder: ThemeBuilderSignature {
+            original: "plain",
+            selected: 0,
+            scroll: 0,
+            editing: None,
+            message: None,
+        },
     }
 }
 
