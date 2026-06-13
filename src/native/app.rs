@@ -4,8 +4,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::core::{
-    ClipboardRequest, Color, Dimensions, LinkId, MouseButton as CoreMouseButton, MouseEventKind,
-    MouseProtocol, RgbColor, Snapshot, Terminal,
+    ClipboardRequest, Color, Dimensions, LinkId, MouseButton as CoreMouseButton, MouseEncoding,
+    MouseEventKind, MouseModifiers, MouseProtocol, RgbColor, Snapshot, Terminal,
+    encode_mouse_event_pixel,
 };
 use crate::input::{self, Key, KeyEventType, KeyModes, Modifiers};
 use crate::pty::PtySession;
@@ -171,6 +172,13 @@ pub(super) struct App {
     /// button events do not carry coordinates, so press/release use this cached
     /// cell from the latest cursor movement.
     pointer_cell: Option<CellPoint>,
+    /// Most recent pointer position in physical pixels (the raw `winit`
+    /// `CursorMoved` coordinates), cached alongside `pointer_cell`. SGR-pixel
+    /// mouse reporting (DECSET 1016) needs true pixel coordinates, which the
+    /// cell cache cannot reconstruct; button/wheel events carry no coordinates
+    /// so they reuse this cached position. `None` until the first cursor move
+    /// and after a resize (geometry changed).
+    pointer_px: Option<(f64, f64)>,
     /// Hyperlink currently under the pointer in the visible viewport.
     hovered_hyperlink: Option<LinkId>,
     /// Whether the left mouse button is currently extending a selection.
@@ -252,6 +260,7 @@ impl App {
             settings_reloader,
             selection: AbsoluteSelectionState::default(),
             pointer_cell: None,
+            pointer_px: None,
             hovered_hyperlink: None,
             selecting: false,
             clicks: ClickTracker::default(),
@@ -309,6 +318,7 @@ impl App {
             self.last_selection_autoscroll = None;
             self.report_button = None;
             self.pointer_cell = None;
+            self.pointer_px = None;
             self.hovered_hyperlink = None;
             // Reflow changes the row/scrollback layout; return to the live
             // bottom so the offset is never stale against the new geometry.
@@ -727,17 +737,49 @@ impl App {
 
     fn send_mouse_report(&mut self, button: CoreMouseButton, kind: MouseEventKind) -> bool {
         let protocol = self.mouse_protocol();
-        let Some(point) = self.pointer_cell else {
-            return false;
+        // SGR-pixel (1016) reports true 1-based physical pixel coordinates; every
+        // other encoding (legacy/UTF-8/SGR/urxvt) reports cells. Only 1016 takes
+        // the pixel seam — the cell path is untouched for all other modes.
+        let bytes = if protocol.encoding == MouseEncoding::SgrPixel {
+            self.encode_pixel_mouse_report(protocol, button, kind)
+        } else {
+            self.pointer_cell.and_then(|point| {
+                encode_native_mouse_report(protocol, point, button, kind, self.modifiers)
+            })
         };
-        let Some(bytes) = encode_native_mouse_report(protocol, point, button, kind, self.modifiers)
-        else {
+        let Some(bytes) = bytes else {
             return false;
         };
 
         self.return_to_live();
         self.write_pty_bytes(&bytes);
         true
+    }
+
+    /// Encode an SGR-pixel (1016) mouse report from the cached physical pointer
+    /// position. Returns `None` until a cursor position and GPU cell metrics are
+    /// available, or when the active tracking gate drops the event (the core
+    /// encoder applies the same gating as the cell path). The grid is drawn at
+    /// the window origin, so the cached physical position is already
+    /// grid-relative; [`pixel_coords_for_report`] floors it to a 1-based pixel
+    /// and clamps to the grid's pixel extent.
+    fn encode_pixel_mouse_report(
+        &self,
+        protocol: MouseProtocol,
+        button: CoreMouseButton,
+        kind: MouseEventKind,
+    ) -> Option<Vec<u8>> {
+        let (x_px, y_px) = self.pointer_px?;
+        let cell = self.gpu.as_ref().map(GpuState::cell)?;
+        let (px, py) = pixel_coords_for_report(x_px, y_px, cell, self.grid);
+        let mods = MouseModifiers {
+            // Shift stays reserved for local selection while reporting is active,
+            // matching the cell path's modifier policy.
+            shift: false,
+            alt: self.modifiers.alt,
+            ctrl: self.modifiers.ctrl,
+        };
+        encode_mouse_event_pixel(protocol, button, kind, px, py, mods)
     }
 
     fn send_mouse_motion_report(&mut self) {
@@ -789,6 +831,7 @@ impl App {
         };
         let point = selection::cell_at_physical(x_px, y_px, cell, self.grid);
         self.pointer_cell = Some(point);
+        self.pointer_px = Some((x_px, y_px));
         self.update_hover_hyperlink();
         if self.selecting {
             self.autoscroll_selection_if_needed(y_px, cell);
@@ -1525,12 +1568,191 @@ fn rgb(color: (u8, u8, u8)) -> RgbColor {
     RgbColor::new(color.0, color.1, color.2)
 }
 
+/// Convert a physical cursor pixel position to 1-based terminal pixel
+/// coordinates for SGR-pixel (1016) mouse reporting, clamped to the grid's
+/// pixel extent.
+///
+/// `x_px`/`y_px` are the raw `winit` `CursorMoved` coordinates, which are
+/// already physical pixels and already relative to the grid (the grid is drawn
+/// at the window origin with no inset), so this needs no scale-factor multiply —
+/// `CellSize` is likewise physical-pixel sized. The result floors to an integer
+/// pixel and shifts to the 1-based convention the protocol uses. A cursor left
+/// of or above the grid clamps to pixel 1; a cursor at or past the right/bottom
+/// edge (e.g. while dragging outside the window) clamps to the last in-grid
+/// pixel, mirroring how [`selection::cell_at_physical`] saturates the cell path.
+fn pixel_coords_for_report(
+    x_px: f64,
+    y_px: f64,
+    cell: CellSize,
+    dims: Dimensions,
+) -> (usize, usize) {
+    let max_px = (dims.columns as u32)
+        .saturating_mul(cell.width.max(1))
+        .max(1);
+    let max_py = (dims.rows as u32).saturating_mul(cell.height.max(1)).max(1);
+    let px = (x_px.max(0.0) as u32).min(max_px - 1) as usize + 1;
+    let py = (y_px.max(0.0) as u32).min(max_py - 1) as usize + 1;
+    (px, py)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::MouseTracking;
 
     fn blink() -> CursorBlinkState {
         CursorBlinkState::new(Duration::from_millis(500))
+    }
+
+    // --- MS2: SGR-pixel (1016) native pixel seam ---
+
+    fn cell_8x16() -> CellSize {
+        CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        }
+    }
+
+    #[test]
+    fn pixel_coords_origin_maps_to_one_based() {
+        // Cursor at the top-left physical pixel maps to (1, 1): the protocol is
+        // 1-based and the grid sits at the window origin (no inset to subtract).
+        let dims = Dimensions::new(80, 24);
+        assert_eq!(pixel_coords_for_report(0.0, 0.0, cell_8x16(), dims), (1, 1));
+    }
+
+    #[test]
+    fn pixel_coords_floor_then_one_base() {
+        // Sub-pixel fractions floor; 10.9px -> pixel index 10 -> 1-based 11.
+        let dims = Dimensions::new(80, 24);
+        assert_eq!(
+            pixel_coords_for_report(10.9, 33.2, cell_8x16(), dims),
+            (11, 34)
+        );
+    }
+
+    #[test]
+    fn pixel_coords_are_independent_of_cell_size() {
+        // The pixel path reports raw physical pixels, NOT cells: the same cursor
+        // position yields the same pixel coords regardless of cell metrics
+        // (a larger cell only changes the clamp extent, not the mapping).
+        let dims = Dimensions::new(80, 24);
+        let small = CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        };
+        let large = CellSize {
+            width: 20,
+            height: 40,
+            baseline: 30,
+        };
+        assert_eq!(
+            pixel_coords_for_report(100.0, 100.0, small, dims),
+            pixel_coords_for_report(100.0, 100.0, large, dims)
+        );
+    }
+
+    #[test]
+    fn pixel_coords_clamp_negative_to_one() {
+        // A cursor left of / above the grid (negative physical coords during a
+        // drag) saturates to pixel 1, mirroring cell_at_physical's max(0.0).
+        let dims = Dimensions::new(80, 24);
+        assert_eq!(
+            pixel_coords_for_report(-50.0, -5.0, cell_8x16(), dims),
+            (1, 1)
+        );
+    }
+
+    #[test]
+    fn pixel_coords_clamp_to_grid_extent() {
+        // Grid is 80x24 cells of 8x16 px = 640x384 px. A cursor at or beyond the
+        // bottom-right edge clamps to the last in-grid pixel (640, 384).
+        let dims = Dimensions::new(80, 24);
+        assert_eq!(
+            pixel_coords_for_report(640.0, 384.0, cell_8x16(), dims),
+            (640, 384)
+        );
+        assert_eq!(
+            pixel_coords_for_report(9999.0, 9999.0, cell_8x16(), dims),
+            (640, 384)
+        );
+    }
+
+    #[test]
+    fn pixel_coords_last_in_grid_pixel_is_not_clamped() {
+        // 639.0px -> index 639 -> 1-based 640, the max; still inside the grid so
+        // it is reported as-is (the clamp only bites at/after the extent).
+        let dims = Dimensions::new(80, 24);
+        assert_eq!(
+            pixel_coords_for_report(639.0, 383.0, cell_8x16(), dims),
+            (640, 384)
+        );
+    }
+
+    #[test]
+    fn sgr_pixel_encoder_emits_pixel_wire_shape() {
+        // The 1016 seam feeds computed pixel coords to the core encoder, which
+        // emits the SGR wire shape with those pixel values (here 101;201).
+        let protocol = MouseProtocol {
+            tracking: MouseTracking::Normal,
+            encoding: MouseEncoding::SgrPixel,
+        };
+        let dims = Dimensions::new(80, 24);
+        let (px, py) = pixel_coords_for_report(100.0, 200.0, cell_8x16(), dims);
+        let mods = MouseModifiers {
+            shift: false,
+            alt: false,
+            ctrl: false,
+        };
+        let bytes = encode_mouse_event_pixel(
+            protocol,
+            CoreMouseButton::Left,
+            MouseEventKind::Press,
+            px,
+            py,
+            mods,
+        )
+        .expect("1016 press encodes");
+        assert_eq!(bytes, b"\x1b[<0;101;201M");
+    }
+
+    #[test]
+    fn pixel_encoder_guard_rejects_non_1016_encodings() {
+        // The pixel encoder only fires for SgrPixel; for every other encoding it
+        // returns None, so send_mouse_report's branch leaves the cell path
+        // authoritative for legacy/UTF-8/SGR/urxvt.
+        let dims = Dimensions::new(80, 24);
+        let (px, py) = pixel_coords_for_report(100.0, 200.0, cell_8x16(), dims);
+        let mods = MouseModifiers {
+            shift: false,
+            alt: false,
+            ctrl: false,
+        };
+        for encoding in [
+            MouseEncoding::Default,
+            MouseEncoding::Utf8,
+            MouseEncoding::Sgr,
+            MouseEncoding::Urxvt,
+        ] {
+            let protocol = MouseProtocol {
+                tracking: MouseTracking::Normal,
+                encoding,
+            };
+            assert!(
+                encode_mouse_event_pixel(
+                    protocol,
+                    CoreMouseButton::Left,
+                    MouseEventKind::Press,
+                    px,
+                    py,
+                    mods,
+                )
+                .is_none(),
+                "encoding {encoding:?} must not take the pixel seam"
+            );
+        }
     }
 
     #[test]
