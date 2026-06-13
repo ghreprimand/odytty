@@ -36,7 +36,7 @@ to `swash` in the next packet.
 `48:2::r:g:b` truecolor also accepted alongside semicolon form), cursor movement and position
 reporting, scroll regions (DECSTBM, DECOM), alternate screen (modes
 47/1047/1048/1049 with correct per-mode cursor save/restore semantics), mouse
-reporting (modes 9/1000/1002/1003 with encodings 1005/1006/1015/legacy), focus
+reporting (modes 9/1000/1002/1003 with encodings 1005/1006/1015/1016/legacy), focus
 reporting (DECSET 1004), DECSCUSR cursor-style overrides, OSC 0/2 window title,
 wide-character handling (width-2 CJK/emoji, combining marks, overwrite-half
 coherence), ICH/DCH/ECH/REP, tab stops, BCE, RI, SU/SD, IL/DL, RIS/DECSTR,
@@ -197,14 +197,18 @@ reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
 the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 856 tests passing: 792 unit/integration, 11 mouse-protocol
+**Testing.** 870 tests passing: 803 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
-stripping, protocol-specific release encoding, and motion gating for
-normal/button-event/any-event modes; run via
-`cargo test --test mouse_protocol`), 23 pixel-smoke (headless CPU compositor
+stripping, protocol-specific release encoding, motion gating for
+normal/button-event/any-event modes, and SGR-pixel (1016) encoder coverage —
+press/release/wheel/motion with 1-based pixel coordinates, boundary at `(1,1)`,
+large coordinate values, modifier folding, not-1016 guard, and cell-path
+pass-through; run via
+`cargo test --test mouse_protocol`), 25 pixel-smoke (headless CPU compositor
 asserting structural raster invariants for text rendering and graphics
-placement), 11 protocol-fuzz smoke (never-panic, bounded-host-output, post-RIS,
+placement; EM3 added two: color-glyph segment draw ordering between coverage
+text and above-image layers, and wide color glyph lead-cell quad emission), 11 protocol-fuzz smoke (never-panic, bounded-host-output, post-RIS,
 and grid-self-consistency invariants across seven fuzzed surfaces: extended
 underline SGR, Kitty keyboard protocol stack, synchronized output mode 2026, OSC
 52 / dynamic colors, DECRQM / XTWINOPS, DCS query reports (XTGETTCAP / DECRQSS),

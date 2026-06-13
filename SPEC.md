@@ -362,8 +362,11 @@ its first stable layer.
   1003 (any-event), focus reporting (1004); encodings 1005 (UTF-8 coordinate
   extension), 1006 (SGR decimal), 1015 (urxvt decimal); legacy byte protocol
   as default. Only one tracking mode and one encoding mode are active at a time;
-  `DECRST` clears back to the default. SGR-pixel mode 1016 is the known gap —
-  it requires a native cell-to-pixel coordinate seam; MS1 is in progress.
+  `DECRST` clears back to the default. SGR-pixel encoding (mode 1016) is
+  supported core-side as of MS1: `DECSET`/`DECRST`/`DECRQM` are wired, and a
+  pure pixel encoder emits `CSI < Cb ; Px ; Py M|m` from caller-owned 1-based
+  pixel coordinates; the native pixel seam (cell-to-pixel coordinate delivery
+  from the renderer) is the remaining gap and is tracked as MS2.
 - Window title from OSC 0/2; DECSET 1004 focus reporting
 - Synchronized output (DEC private mode 2026): presentation hold with 150 ms
   safety timeout; cursor blink live during hold

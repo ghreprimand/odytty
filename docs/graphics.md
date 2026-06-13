@@ -242,3 +242,24 @@ For a quick terminal test:
 ```sh
 img2sixel --width=200 /path/to/image.png
 ```
+
+---
+
+## Color emoji segment
+
+The native renderer owns a dedicated draw segment for premultiplied-RGBA color
+glyphs, sitting between the coverage-text/decorations segment and the above-image
+layer. The segment is backed by `src/emoji/color_atlas.rs` (`ColorGlyphAtlas`):
+a grow-only `Rgba8Unorm` atlas keyed by `(font identity, glyph-or-cluster id,
+physical px size, scale)` rather than by character — correct for ZWJ sequences,
+flags, keycap sequences, and variation-selector clusters that resolve to a single
+shaped output regardless of their Unicode scalar count.
+
+Wide color glyphs (emoji that span two terminal cells) draw once from the lead
+cell; the continuation cell emits no geometry. Selection and search backgrounds
+render under the color-glyph segment so OdyTTY does not tint or recolor source
+emoji pixels with the active SGR foreground color.
+
+**Status (EM3).** The segment is structurally integrated and verified by pixel-smoke
+tests but currently receives no live runs: real emoji font rasterization (swash
+shaping, CBDT/CBLC or COLR decode, atlas upload) is a follow-up packet (EM4).
