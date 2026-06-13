@@ -223,7 +223,7 @@ in-window overlay framework have all landed.
 
 ## Testing
 
-**Testing.** 957 tests passing: 882 unit/integration, 12 mouse-protocol
+**Testing.** 959 tests passing: 884 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
