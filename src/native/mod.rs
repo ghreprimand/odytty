@@ -92,6 +92,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // affects how Color::Default paints; the terminal core is unaware of it.
     let theme = settings.theme;
     text::set_default_colors(theme.foreground, theme.background);
+    text::set_ansi_palette(&theme.palette);
     // Publish the synthetic-styles kill switch process-wide before the GPU
     // surface (and its glyph atlas) is built on resume, so a launch-time
     // `synthetic_styles = off` is honored from the first frame. The config

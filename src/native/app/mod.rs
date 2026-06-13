@@ -752,6 +752,7 @@ impl App {
         self.visual = self.settings.visual;
         self.key_bindings = KeyBindings::from_overrides(&self.settings.key_bindings);
         text::set_default_colors(self.theme.foreground, self.theme.background);
+        text::set_ansi_palette(&self.theme.palette);
         if let Ok(mut terminal) = self.terminal.lock() {
             terminal.set_base_colors(
                 rgb(self.theme.foreground),
