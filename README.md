@@ -198,7 +198,7 @@ reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
 the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 870 tests passing: 803 unit/integration, 12 mouse-protocol
+**Testing.** 895 tests passing: 825 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -213,8 +213,10 @@ text and above-image layers, and wide color glyph lead-cell quad emission), 11 p
 and grid-self-consistency invariants across seven fuzzed surfaces: extended
 underline SGR, Kitty keyboard protocol stack, synchronized output mode 2026, OSC
 52 / dynamic colors, DECRQM / XTWINOPS, DCS query reports (XTGETTCAP / DECRQSS),
-and DEC rectangle / selective-erase ops), 9 PTY alternate-screen smoke, and 10
-transcript smoke. Deep fuzz tiers are `#[ignore]`-gated and run via
+and DEC rectangle / selective-erase ops), 9 PTY alternate-screen smoke, 10
+transcript smoke, and 3 emoji pixel-smoke (real Noto color-emoji composition:
+VS15/VS16 presentation policy and monochrome-foreground suppression for resident
+color-emoji cells). Deep fuzz tiers are `#[ignore]`-gated and run via
 `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
 EM2 added three hermetic emoji-probe tests (fixed representative-sequence list,
 bounded filename discovery in a temp directory, and non-color format detection
