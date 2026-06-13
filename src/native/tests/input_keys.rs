@@ -181,6 +181,33 @@ fn key_modes_from_core_preserves_kitty_keyboard_flags() {
 }
 
 #[test]
+fn overlay_shortcut_is_ctrl_shift_comma_only() {
+    let key = WinitKey::Character(",".into());
+    let mods = Modifiers {
+        ctrl: true,
+        shift: true,
+        alt: false,
+    };
+
+    assert!(is_overlay_shortcut(&key, mods, false));
+    assert!(!is_overlay_shortcut(&key, mods, true));
+    assert!(!is_overlay_shortcut(
+        &WinitKey::Character(".".into()),
+        mods,
+        false
+    ));
+    assert!(!is_overlay_shortcut(
+        &key,
+        Modifiers {
+            ctrl: true,
+            shift: false,
+            alt: false,
+        },
+        false
+    ));
+}
+
+#[test]
 fn mapped_named_key_release_uses_kitty_event_type_flag() {
     let key = map_named_key(NamedKey::ArrowUp, false).expect("arrow maps");
     let modes = input::KeyModes {

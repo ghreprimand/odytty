@@ -27,8 +27,8 @@ use winit::window::{Window, WindowId};
 
 use super::bindings::{
     KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
-    map_keypad_physical_key, map_named_key, map_winit_mouse_button, motion_report_button,
-    wheel_report_button,
+    is_overlay_shortcut, map_keypad_physical_key, map_named_key, map_winit_mouse_button,
+    motion_report_button, wheel_report_button,
 };
 use super::clipboard::{
     NativeClipboard, read_clipboard_selection, selected_clipboard_text, write_clipboard_selection,
@@ -36,6 +36,7 @@ use super::clipboard::{
 };
 use super::gpu::{FrameOutcome, GpuState};
 use super::options::{NativeError, NativeOptions};
+use super::overlay::{OverlayOutcome, OverlayUi, apply_overlay, overlay_input_from_winit};
 use super::pty::{PtyWriter, UserEvent};
 use super::render_helpers::{
     CursorRenderSignature, GeometryUpdate, RenderContentSignature, RenderSignature,
@@ -200,6 +201,9 @@ pub(super) struct App {
     /// Native scrollback search state. It is UI-only: queries and highlights
     /// mutate snapshot copies, never terminal-core state.
     search: SearchUi,
+    /// Native in-window overlay state. It is presentation-only: widgets
+    /// composite into snapshot copies and never mutate terminal state or PTY.
+    overlay: OverlayUi,
     /// Viewport offset to restore when the search bar closes. Search result
     /// navigation is temporary UI movement; closing search returns to the view
     /// the operator was inspecting before opening the bar.
@@ -270,6 +274,7 @@ impl App {
             report_button: None,
             viewport: Viewport::default(),
             search: SearchUi::default(),
+            overlay: OverlayUi::default(),
             search_restore_viewport: None,
             last_scrollback_len: 0,
             clipboard: NativeClipboard::default(),
@@ -386,6 +391,14 @@ impl App {
         let mods = self.modifiers;
         let key_modes = self.key_modes();
         if event_type != KeyEventType::Release {
+            if is_overlay_shortcut(&logical, mods, self.super_key) {
+                self.toggle_overlay();
+                return;
+            }
+            if self.overlay.is_open() {
+                self.handle_overlay_key(&logical);
+                return;
+            }
             let action = self.key_bindings.action_for(&logical, mods, self.super_key);
             if action == Some(BindableAction::Search) {
                 self.toggle_search();
@@ -414,6 +427,9 @@ impl App {
                 }
                 Some(BindableAction::Search) | None => {}
             }
+        }
+        if self.overlay.is_open() {
+            return;
         }
 
         let mut bytes = Vec::new();
@@ -455,6 +471,30 @@ impl App {
         }
     }
 
+    fn toggle_overlay(&mut self) {
+        if self.search.is_open() {
+            self.close_search(true);
+        }
+        self.selection.clear();
+        self.selecting = false;
+        self.last_selection_autoscroll = None;
+        self.overlay.toggle();
+        self.request_selection_redraw();
+    }
+
+    fn handle_overlay_key(&mut self, logical: &WinitKey) {
+        let Some(input) = overlay_input_from_winit(logical, self.modifiers) else {
+            self.request_selection_redraw();
+            return;
+        };
+
+        match self.overlay.handle_input(input) {
+            OverlayOutcome::Consumed => {}
+            OverlayOutcome::Close => self.overlay.close(),
+        }
+        self.request_selection_redraw();
+    }
+
     fn key_modes(&self) -> KeyModes {
         self.terminal
             .lock()
@@ -463,6 +503,10 @@ impl App {
     }
 
     fn toggle_search(&mut self) {
+        if self.overlay.is_open() {
+            self.overlay.close();
+            self.request_selection_redraw();
+        }
         if self.search.is_open() {
             self.close_search(true);
         } else {
@@ -1007,6 +1051,7 @@ impl ApplicationHandler<UserEvent> for App {
                             scrollback_len,
                             self.grid,
                         );
+                        apply_overlay(&mut snapshot, &self.overlay);
                         apply_hyperlink_hover(&mut snapshot, self.hovered_hyperlink);
                         let content_snapshot = {
                             let mut content_snapshot = snapshot.clone();
@@ -1033,6 +1078,7 @@ impl ApplicationHandler<UserEvent> for App {
                                 cell,
                                 selection: self.selection.range().map(SelectionSignature::from),
                                 search: self.search.render_signature(),
+                                overlay: self.overlay.render_signature(),
                                 hovered_hyperlink: self.hovered_hyperlink,
                                 graphics: visible_graphics_signature(&visible_graphics),
                                 presentation_epoch: self.presentation_epoch,

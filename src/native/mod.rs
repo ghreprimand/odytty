@@ -54,6 +54,7 @@ mod cursor;
 mod gpu;
 mod image_layer;
 mod options;
+mod overlay;
 mod pty;
 mod render_helpers;
 mod resize;

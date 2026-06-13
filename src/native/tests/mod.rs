@@ -8,7 +8,7 @@ use super::app::{
 };
 use super::bindings::{
     KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
-    is_copy_shortcut, is_paste_shortcut, is_scroll_down_key, is_scroll_up_key,
+    is_copy_shortcut, is_overlay_shortcut, is_paste_shortcut, is_scroll_down_key, is_scroll_up_key,
     map_keypad_physical_key, map_named_key, map_winit_mouse_button, motion_report_button,
     wheel_report_button,
 };
@@ -21,6 +21,7 @@ use super::gpu::{
     text_params, theme_clear_color,
 };
 use super::options::NativeOptions;
+use super::overlay::{OverlayPanelSignature, OverlayRenderSignature};
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 use super::render_helpers::{
     CursorRenderSignature, GeometryUpdate, RenderContentSignature, RenderSignature,

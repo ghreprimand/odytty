@@ -11,6 +11,7 @@ use crate::selection::AbsoluteSelectionRange;
 use crate::text::CellSize;
 
 use super::image_layer::ImageUpload;
+use super::overlay::OverlayRenderSignature;
 use super::search_ui::SearchRenderSignature;
 
 pub(super) fn key_modes_from_core(modes: CoreKeyboardModes) -> KeyModes {
@@ -94,6 +95,7 @@ pub(super) struct RenderContentSignature {
     pub(super) cell: CellSize,
     pub(super) selection: Option<SelectionSignature>,
     pub(super) search: SearchRenderSignature,
+    pub(super) overlay: OverlayRenderSignature,
     pub(super) hovered_hyperlink: Option<LinkId>,
     pub(super) graphics: Vec<VisibleGraphicSignature>,
     pub(super) presentation_epoch: u64,

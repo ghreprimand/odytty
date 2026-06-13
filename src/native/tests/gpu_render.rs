@@ -174,6 +174,16 @@ fn search_sig(query: &str) -> SearchRenderSignature {
     }
 }
 
+fn overlay_sig(open: bool) -> OverlayRenderSignature {
+    OverlayRenderSignature {
+        open,
+        panel: OverlayPanelSignature {
+            focus: 0,
+            rows: Vec::new(),
+        },
+    }
+}
+
 fn render_sig() -> RenderSignature {
     RenderSignature {
         content: RenderContentSignature {
@@ -188,6 +198,7 @@ fn render_sig() -> RenderSignature {
             },
             selection: None,
             search: search_sig(""),
+            overlay: overlay_sig(false),
             hovered_hyperlink: None,
             graphics: Vec::new(),
             presentation_epoch: 0,
@@ -247,6 +258,13 @@ fn render_signature_update_matrix_covers_pixel_invalidators() {
     search.content.search = search_sig("needle");
     assert_eq!(
         RenderSignature::update_from(Some(&base), &search),
+        GeometryUpdate::Full
+    );
+
+    let mut overlay = base.clone();
+    overlay.content.overlay = overlay_sig(true);
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &overlay),
         GeometryUpdate::Full
     );
 

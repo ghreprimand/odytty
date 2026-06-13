@@ -134,6 +134,15 @@ pub(super) fn chord_from_winit(
     })
 }
 
+/// Native-only default overlay chord for UX1. This deliberately stays outside
+/// the settings keybinding table until UX2 expands bindable actions.
+pub(super) fn is_overlay_shortcut(logical: &WinitKey, mods: Modifiers, super_key: bool) -> bool {
+    let WinitKey::Character(text) = logical else {
+        return false;
+    };
+    text == "," && mods.ctrl && mods.shift && !mods.alt && !super_key
+}
+
 fn binding_named_key(named: NamedKey) -> Option<KeyBindingNamedKey> {
     Some(match named {
         NamedKey::Enter => KeyBindingNamedKey::Enter,
