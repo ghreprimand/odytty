@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 -- OSC 7 working-directory tracking, core half (SI1)
+
+Added shell working-directory tracking via OSC 7 (`file://host/path`) on the
+terminal core. This is the first shell-integration parity rung; the native
+consumer (e.g. open-new-tab-in-same-directory) is a deliberate follow-up.
+
+- **Parsing.** `parse_osc7_cwd` reassembles the payload (rejoining on `;` so a
+  path with a semicolon survives the OSC split), requires the `file://` scheme
+  (ASCII case-insensitive), splits the authority from the path, and
+  percent-decodes the path. The decoded path is stored as advisory string
+  state; the core performs **no** filesystem access.
+- **Hostname policy.** Only an empty host or `localhost` (case-insensitive) is
+  accepted. A foreign host names a path on another machine the core cannot
+  resolve without `gethostname` (a syscall it deliberately avoids to stay
+  deterministic and filesystem-free), so foreign-host OSC 7 is ignored rather
+  than stored as a misleading local path. Hostname matching is left to a future
+  front-end layer without changing this contract.
+- **Robustness.** Non-`file://` URLs, a missing path, a malformed percent-escape
+  (truncated or non-hex), and a decoded NUL (`%00`) all ignore the OSC 7 and
+  leave the cwd unchanged. Surviving non-UTF-8 bytes are replaced lossily.
+  Oversized payloads are already bounded by the parser's 128 KiB OSC cap. OSC 7
+  emits no response (no amplification), and the payload never leaks into the
+  grid. OSC 6 is accepted-and-ignored.
+- **RIS semantics.** The reported cwd survives RIS: it reflects the foreground
+  process's state, not resettable terminal state — RIS resets the terminal, not
+  the shell, so the last reported cwd stays valid. Mirrors the title decision.
+- **API.** `Terminal`/`Screen` expose `current_working_directory()` and a
+  `take_working_directory_changed()` poll flag, paralleling the title accessors.
+- **Tests.** 19 new lib tests in `src/core/tests/osc_cwd.rs` covering parse,
+  store, host policy, percent-decode edges, NUL/malformed rejection, UTF-8
+  lossy, semicolon paths, no-leak, no-response, oversized-no-panic, OSC 6, and
+  RIS survival. Verified: lib 822, integration (12 mouse / 25 pixel / 11
+  protocol / 9 PTY / 10 transcript), 40k deep fuzz clean, oracle goldens
+  byte-identical, `cargo fmt --check` clean. (Verified in an isolated worktree
+  at HEAD because a peer's unrelated WIP was mid-flight in the shared tree.)
+
 ## 2026-06-12 -- Live Noto color emoji rendering (EM4)
 
 Activated the color-glyph path with real Noto Color Emoji CBDT/CBLC bitmaps.

@@ -9,6 +9,7 @@ mod chars_unicode;
 mod erase_scroll;
 mod kitty_keyboard;
 mod osc_clipboard_colors;
+mod osc_cwd;
 mod rect;
 mod repeat_tab_reflow;
 mod reporting;

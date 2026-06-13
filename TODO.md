@@ -111,6 +111,13 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         `osc52_read` opt-in.
   - [x] Dynamic colors: OSC 10/11/12 default color set/query, OSC 4 palette
         set/query, and OSC 104/110/111/112 reset behavior.
+  - [x] SI1: OSC 7 working-directory tracking core half — parse
+        `file://host/path`, percent-decode the path, accept empty/`localhost`
+        hosts (foreign hosts ignored), store advisory cwd string state with a
+        `take_working_directory_changed` poll flag, and survive RIS. Malformed
+        URLs / truncated escapes / `%00` / oversized payloads are ignored
+        non-panicking; OSC 7 emits no response and never leaks into the grid.
+        OSC 6 accepted-and-ignored. Native consumer is a follow-up packet.
 - [x] Add mouse reporting modes required by real TUIs.
   - [x] Core: DECSET/DECRST tracking (9/1000/1002/1003) and encoding
         (1005/1006/1015) state plus pure report encoders.

@@ -960,6 +960,10 @@ impl Screen {
         self.graphics_stats = GraphicsStats::default();
         // RIS returns mouse reporting to its power-on (off) state. The title is
         // a persistent window property and is intentionally left untouched.
+        // The OSC 7 working directory is likewise left untouched: it reflects
+        // the foreground process's state, not resettable terminal state. RIS
+        // resets the terminal, not the shell, so the last reported cwd stays
+        // valid; clearing it would discard correct information.
         self.mouse = MouseProtocol::default();
         self.keyboard = KeyboardModes::default();
         self.kitty_keyboard_stack.clear();

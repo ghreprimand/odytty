@@ -106,6 +106,17 @@ pub struct Screen {
     /// Set whenever the title changes; cleared by `take_title_changed` so a
     /// front end can poll without re-applying an unchanged title.
     title_changed: bool,
+    /// Working directory reported via OSC 7 (`file://host/path`). `None` until a
+    /// well-formed OSC 7 sets it. Stores the percent-decoded path only; the host
+    /// is validated (empty / "localhost") then dropped. The core performs NO
+    /// filesystem access — this is advisory string state for the front end (e.g.
+    /// open-new-tab-in-same-directory). See [`parse_osc7_cwd`] for the parse and
+    /// hostname policy.
+    working_directory: Option<String>,
+    /// Set whenever the working directory changes; cleared by
+    /// [`Screen::take_working_directory_changed`] so a front end can poll once
+    /// per frame without re-reading an unchanged value.
+    working_directory_changed: bool,
     /// Active mouse reporting protocol (tracking mode + wire encoding).
     mouse: MouseProtocol,
     /// Active keyboard reporting modes (DECCKM cursor keys and DECKPAM keypad).
@@ -219,6 +230,8 @@ impl Screen {
             tab_stops: default_tab_stops(dimensions.columns),
             title: None,
             title_changed: false,
+            working_directory: None,
+            working_directory_changed: false,
             mouse: MouseProtocol::default(),
             keyboard: KeyboardModes::default(),
             kitty_keyboard_stack: Vec::new(),
@@ -732,6 +745,21 @@ impl Screen {
         std::mem::take(&mut self.title_changed)
     }
 
+    /// The current working directory reported via OSC 7, or `None` if none has
+    /// been reported. The value is the percent-decoded path component of the
+    /// last well-formed `file://host/path` URL (the host is validated then
+    /// dropped). Advisory only — the core never touches the filesystem.
+    pub fn current_working_directory(&self) -> Option<&str> {
+        self.working_directory.as_deref()
+    }
+
+    /// Return whether the working directory changed since the last call and
+    /// clear the flag. Mirrors [`Screen::take_title_changed`] so a front end can
+    /// poll once per frame and react (e.g. retitle a tab) only on change.
+    pub fn take_working_directory_changed(&mut self) -> bool {
+        std::mem::take(&mut self.working_directory_changed)
+    }
+
     /// The active mouse reporting protocol (tracking mode + encoding).
     pub fn mouse_protocol(&self) -> MouseProtocol {
         self.mouse
@@ -773,6 +801,11 @@ impl Screen {
     fn set_title(&mut self, title: String) {
         self.title = Some(title);
         self.title_changed = true;
+    }
+
+    fn set_working_directory(&mut self, cwd: String) {
+        self.working_directory = Some(cwd);
+        self.working_directory_changed = true;
     }
 
     fn set_hyperlink(&mut self, params: &[&[u8]]) {
@@ -1025,6 +1058,16 @@ impl Screen {
             b"0" | b"2" => self.set_title(osc_string(&params[1..])),
             // OSC 1 = icon name only: consume without touching the window title.
             b"1" => {}
+            // OSC 6 = report/set the per-document file URL (iTerm2 extension).
+            // Accepted-and-ignored: OdyTTY tracks working directory via OSC 7
+            // only, and OSC 6 carries no directory semantics we act on.
+            b"6" => {}
+            // OSC 7 = report the current working directory as a file:// URL.
+            b"7" => {
+                if let Some(cwd) = parse_osc7_cwd(&params[1..]) {
+                    self.set_working_directory(cwd);
+                }
+            }
             b"4" => self.osc_palette(params),
             b"8" => self.set_hyperlink(params),
             b"10" => self.osc_default_color(params, DefaultColorSlot::Foreground),
@@ -1285,6 +1328,17 @@ impl Terminal {
         self.screen.take_title_changed()
     }
 
+    /// The current working directory reported via OSC 7, or `None` if unset.
+    pub fn current_working_directory(&self) -> Option<&str> {
+        self.screen.current_working_directory()
+    }
+
+    /// Whether the working directory changed since the last poll; clears the
+    /// flag.
+    pub fn take_working_directory_changed(&mut self) -> bool {
+        self.screen.take_working_directory_changed()
+    }
+
     /// The active mouse reporting protocol (tracking mode + encoding).
     pub fn mouse_protocol(&self) -> MouseProtocol {
         self.screen.mouse_protocol()
@@ -1444,6 +1498,101 @@ fn osc_string(parts: &[&[u8]]) -> String {
         bytes.extend_from_slice(part);
     }
     String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// Parse an OSC 7 payload (`file://host/path`) into a working-directory path.
+///
+/// Returns the percent-decoded path on success, or `None` when the OSC 7 should
+/// be ignored (the working directory is then left unchanged). The parser never
+/// panics, never emits a response, and never touches the filesystem.
+///
+/// ## Hostname policy
+///
+/// Only an empty host or `localhost` (ASCII case-insensitive) is accepted; any
+/// other host causes the OSC 7 to be ignored. Rationale: a `file://` URL with a
+/// foreign host names a path on *another* machine. The core cannot tell whether
+/// that host is the local machine (resolving it would need `gethostname`, a
+/// syscall the core deliberately avoids to stay deterministic and
+/// filesystem-free), and silently storing a remote path as if it were local
+/// would mislead front-end consumers such as "open new tab in same directory".
+/// Ignoring is the conservative call; matching a real hostname is a front-end
+/// concern and can layer on later without changing this contract.
+///
+/// ## Robustness policy
+///
+/// - Non-`file://` URLs are ignored (OdyTTY tracks file URLs only).
+/// - A missing path (no `/` after the authority) is ignored.
+/// - A malformed percent-escape (`%` without two following hex digits, or a
+///   trailing/truncated `%`) ignores the whole OSC 7 rather than guessing.
+/// - A decoded NUL byte (`%00`) is rejected: NUL can never appear in a valid
+///   path and accepting it risks truncation bugs downstream.
+/// - Surviving non-UTF-8 bytes are replaced lossily so a malformed path can
+///   never desync the parser.
+fn parse_osc7_cwd(parts: &[&[u8]]) -> Option<String> {
+    // Rejoin on ';' to recover a URL whose path contains a semicolon (the OSC
+    // parser splits payloads on ';'). Work on raw bytes so percent-decoding
+    // sees the exact wire form before any UTF-8 interpretation.
+    let mut raw = Vec::new();
+    for (index, part) in parts.iter().enumerate() {
+        if index > 0 {
+            raw.push(b';');
+        }
+        raw.extend_from_slice(part);
+    }
+
+    // Require the file:// scheme (scheme is case-insensitive per RFC 3986).
+    const SCHEME: &[u8] = b"file://";
+    if raw.len() < SCHEME.len() || !raw[..SCHEME.len()].eq_ignore_ascii_case(SCHEME) {
+        return None;
+    }
+    let after_scheme = &raw[SCHEME.len()..];
+
+    // Authority runs up to the first '/', which also begins the path. A URL
+    // with no path component carries no directory and is ignored.
+    let slash = after_scheme.iter().position(|&b| b == b'/')?;
+    let host = &after_scheme[..slash];
+    let path = &after_scheme[slash..];
+
+    if !host.is_empty() && !host.eq_ignore_ascii_case(b"localhost") {
+        return None;
+    }
+
+    let decoded = percent_decode_path(path)?;
+    Some(String::from_utf8_lossy(&decoded).into_owned())
+}
+
+/// Percent-decode a path's bytes. Returns `None` on a malformed escape or a
+/// decoded NUL byte (see [`parse_osc7_cwd`] robustness policy).
+fn percent_decode_path(path: &[u8]) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(path.len());
+    let mut i = 0;
+    while i < path.len() {
+        let byte = path[i];
+        if byte == b'%' {
+            // Need exactly two hex digits following the '%'.
+            let hi = path.get(i + 1).and_then(hex_value)?;
+            let lo = path.get(i + 2).and_then(hex_value)?;
+            let decoded = (hi << 4) | lo;
+            if decoded == 0 {
+                return None;
+            }
+            out.push(decoded);
+            i += 3;
+        } else {
+            out.push(byte);
+            i += 1;
+        }
+    }
+    Some(out)
+}
+
+fn hex_value(byte: &u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn osc52_selections(raw: &[u8]) -> Option<Vec<ClipboardSelection>> {
