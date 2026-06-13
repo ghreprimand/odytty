@@ -169,10 +169,13 @@ Theme and appearance system section below and `docs/themes.md` for details.
 
 ## Visual-enhancement direction
 
-> **Tier 1 (Readability-first) is substantially delivered** as of the current
-> HEAD — RV3, RV1, and RV2 are live. Tiers 2 and 3 remain planned / in
-> progress. Sub-sections marked **(landed)** are grounded in source; all other
-> items are design intent, not yet built.
+> **Tier 1 (Readability-first) is fully delivered** as of the current HEAD —
+> RV1, RV2, RV3, RV5, and RV6 are all live. **Tier 2 is partially delivered** —
+> ID1-a (themed cursor/selection/search roles, default on) and ID2 (focus
+> dimming) have landed; ID1 full glow/easing, ID3, and ID4 remain open. **Tier
+> 3** (atmospheric post-process) remains in design. Sub-sections marked
+> **(landed)** are grounded in source; all other items are design intent, not
+> yet built.
 
 The enhancement work is organized into three tiers, ordered by risk and
 default-on policy.
@@ -200,11 +203,11 @@ Features in this tier help reading as well as looking better; they are the
 highest-priority additions.
 
 - **Perceptual color pipeline (RV3, landed):** linear-space blending is active
-  in the render path; OKLab/OKLCH helpers (`dim_perceptual`, `mix_oklab`) are
-  in place and back the minimum-contrast lift. Equal numeric steps produce equal
-  perceived steps for color selection blends and the contrast floor. The SGR
-  dim-text path currently applies a linear-space scale; adopting the perceptual
-  dim there is a tracked follow-up.
+  in the render path; OKLab/OKLCH helpers (`dim_perceptual`, `mix_oklab`,
+  `src/color.rs`) are used throughout — by the minimum-contrast lift, by SGR
+  dim-text (hue-preserving, calibrated to match the perceived brightness of the
+  prior linear ×0.5), and by the ID2 focus-dim step. Equal numeric steps produce
+  equal perceived steps for dim, selection blends, and the contrast floor.
 - **Minimum-contrast guarantee (RV1, landed):** configurable perceptual fg/bg
   contrast floor applied at render time (`ODYTTY_MIN_CONTRAST`, `min_contrast`).
   Value `1.0` = exact passthrough (default). The floor is measured via WCAG
@@ -216,20 +219,37 @@ highest-priority additions.
   `ODYTTY_GEOMETRIC_BOXDRAW` / `geometric_boxdraw`; default on.
 - **Smooth scrolling (RV4):** interpolated viewport movement within a strict
   bounded latency budget; instant/off mode preserved and default-safe.
-- **Stem darkening for light-on-dark text (RV5):** compensate for irradiation
-  thinning at small sizes; tunable, default-on with off switch.
-- **Nerd-font / symbol fallback (RV6):** automatic PUA glyph fallback for
-  modern prompt icons.
+- **Stem darkening for light-on-dark text (RV5, landed):** a coverage boost that
+  keeps glyph stroke weight on light-on-dark displays. `ODYTTY_STEM_DARKEN` /
+  `stem_darken`, range `0.0`–`1.0`, default `0.0` (off). Applied at
+  rasterization time (`src/atlas/mod.rs`); `0.0` is the byte-identical
+  passthrough.
+- **Nerd-font / symbol fallback (RV6, landed):** automatic PUA glyph fallback
+  for modern prompt icons (starship, powerlevel10k, eza). `symbol_fallback`
+  setting / `ODYTTY_SYMBOL_FALLBACK` env var enables the secondary symbol-font
+  face; `symbol_font` / `ODYTTY_SYMBOL_FONT` specifies the face path (or uses
+  automatic font search). Default off.
 
 ### Tier 2 — Identity and depth
 
 Distinctive treatments that direct attention without harming legibility.
 
-- **Cursor and selection treatments (ID1):** themed smooth cursor with optional
-  soft glow, theme-colored selection vs raw inverse, emphasized current search
-  match, cursor-position easing. Depends on full theme semantic roles.
-- **Focus dimming (ID2):** subtle window dim when unfocused; bounded, never
-  harms legibility.
+- **Cursor and selection treatments (ID1, partially landed):** themed
+  cursor/selection/search semantic roles are delivered (ID1-a, landed): when
+  `themed_ui_roles` is on (default), the cursor uses the theme cursor color,
+  selections use the theme selection color, and search highlights use the theme
+  search color rather than raw cell inversion. `ODYTTY_THEMED_UI_ROLES=off`
+  restores the classic inversion behavior. Remaining ID1 work: optional soft
+  glow on cursor, cursor-position easing.
+- **Focus dimming (ID2, landed):** dims the whole grid — both text foreground
+  and background — perceptually in OKLab while the window is unfocused, so it
+  recedes visually without color shifts. `ODYTTY_FOCUS_DIM` / `focus_dim`,
+  range `0.0`–`1.0`, default `0.0` (off); recommended range `0.15`–`0.30` for
+  a subtle recede. Applied in the grid resolve closure *after* SGR-dim and
+  *before* the RV1 floor, so legibility is preserved by construction — the RV1
+  floor sees the dimmed background and re-lifts text if needed. Focused frames
+  are never dimmed: the effective amount is always `0.0` when focused, keeping
+  focused frames byte-identical to the unfocused-off path.
 - **Background treatments (ID3):** optional gradient/vignette/image background
   and blur-behind transparency, each with automatic readability-preserving dim.
 - **Window chrome / padding identity (ID4):** themed padding and optional thin
