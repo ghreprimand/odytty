@@ -219,11 +219,12 @@ highest-priority additions.
   `ODYTTY_GEOMETRIC_BOXDRAW` / `geometric_boxdraw`; default on.
 - **Smooth scrolling (RV4):** interpolated viewport movement within a strict
   bounded latency budget; instant/off mode preserved and default-safe.
-- **Stem darkening for light-on-dark text (RV5, landed):** a coverage boost that
-  keeps glyph stroke weight on light-on-dark displays. `ODYTTY_STEM_DARKEN` /
-  `stem_darken`, range `0.0`–`1.0`, default `0.0` (off). Applied at
-  rasterization time (`src/atlas/mod.rs`); `0.0` is the byte-identical
-  passthrough.
+- **Stem darkening for light-on-dark text (RV5, landed, default-on):** a coverage
+  boost that keeps glyph stroke weight on light-on-dark displays.
+  `ODYTTY_STEM_DARKEN` / `stem_darken`, range `0.0`–`1.0`, default `0.2` (a
+  conservative on-by-default boost for crisper text). Applied at rasterization
+  time (`src/atlas/mod.rs`); `0.0` is the byte-identical opt-out to the classic
+  raster.
 - **Nerd-font / symbol fallback (RV6, landed):** automatic PUA glyph fallback
   for modern prompt icons (starship, powerlevel10k, eza). `symbol_fallback`
   setting / `ODYTTY_SYMBOL_FALLBACK` env var enables the secondary symbol-font

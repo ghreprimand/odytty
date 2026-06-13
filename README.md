@@ -250,7 +250,7 @@ default-off / focused frames byte-identical.
 
 ## Testing
 
-**Testing.** 1099 tests passing: 1010 unit/integration, 12 mouse-protocol
+**Testing.** 1102 tests passing: 1010 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -277,10 +277,13 @@ transcript smoke, 8 emoji pixel-smoke (real Noto color-emoji composition,
 VS15/VS16 presentation policy, multi-codepoint cluster stitching/fallback, and
 monochrome-foreground suppression for resident color-emoji cells), 3 CLI
 introspection (theme enumeration, config-dump formatting, and a spawned
-`--show-config` over a temp config), and 1 GPU composite smoke (renders a tiny
-scene direct-to-swapchain vs. through the VE1-a offscreen→composite seam and
+`--show-config` over a temp config), 1 GPU composite smoke (renders a tiny
+scene direct-to-swapchain vs. through the offscreen→composite seam and
 asserts byte-equality, guarding the dormant post-process foundation;
-adapter-gated). Deep fuzz
+adapter-gated), and 3 stem-raster smoke (proving RV5 stem-darkening is wired
+through the live glyph-atlas raster: the default-on boost raises midtone
+coverage monotonically with the `0`/`255` endpoints pinned, and the `0.0`
+opt-out restores the classic raster byte-for-byte). Deep fuzz
 tiers are `#[ignore]`-gated and run via
 `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
 EM2 added three hermetic emoji-probe tests (fixed representative-sequence list,

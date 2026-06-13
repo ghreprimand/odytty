@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- RV5 stem-darkening ships default-on
+
+- Stem darkening now defaults to a conservative `0.2` (was `0.0`/off): light-on-
+  dark body text holds stroke weight out of the box for crisper text, with
+  `stem_darken = 0.0` as a byte-identical opt-out to the classic raster. The live
+  propagation (native startup/reload + atlas rebuild) was already in place; only
+  the `Settings` default changed. The atlas's internal atomic still initializes
+  to `0.0`, so the off path remains the true sentinel.
+- New `tests/stem_raster_smoke.rs` proves the boost is wired through the real
+  atlas raster (not just the pure function): at the default strength a freshly
+  built glyph atlas's coverage bytes rise monotonically vs the `0.0` baseline
+  with the `0`/`255` endpoints pinned, and rebuilding at `0.0` restores the
+  classic bytes exactly. Isolated in its own integration binary so the process-
+  global strength cannot perturb sibling tests.
+- Verified: `cargo fmt --check` clean, full `cargo test` green (lib 1010 +
+  integration 92, including the 3 new stem-raster checks), native smokes exit 0
+  with the default-on path and the `ODYTTY_STEM_DARKEN=0.0` opt-out.
+
+## 2026-06-13 -- VE1-b: HDR linear offscreen (Rgba16Float) for post-process
+
+- Switched the dormant post-process intermediate from the sRGB swapchain format
+  to linear `Rgba16Float`, so HDR overshoot (linear values above `1.0`) survives
+  for the additive bloom work to come. The composite pass leaves the sRGB encode
+  to the swapchain store, keeping "encode to sRGB exactly once, at the end."
+- The renderer now probes adapter format support up front
+  (`RENDER_ATTACHMENT | TEXTURE_BINDING` + filterable) and gracefully disables
+  post-process allocation with a single stderr notice when filterable HDR render
+  targets are unavailable — the weak-adapter path, mirroring the subpixel
+  dual-source fallback.
+- The default renderer path is unchanged: `post_active()` stays false, the
+  composite stays passthrough/Nearest, and frames render directly to the sRGB
+  swapchain with no offscreen allocation.
+- The composite smoke now covers direct sRGB output vs. `Rgba16Float`
+  offscreen → passthrough composite → sRGB, asserting exact byte equality for a
+  0/1 checker scene (exactly representable in f16, so the seam stays byte-exact).
+- Verified: `cargo fmt --check` clean, full `cargo test` green, the HDR probe
+  succeeded on the build host (adapter available), native smokes exit 0.
+
 ## 2026-06-13 -- VE1-a: post-process foundation (offscreen target + passthrough composite)
 
 - Wired a lazy post-process scaffold into the native GPU renderer: an offscreen

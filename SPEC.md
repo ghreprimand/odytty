@@ -443,8 +443,10 @@ its first stable layer.
     via WCAG relative luminance; the lift is applied by bisecting OKLab lightness
     while preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
   - **Stem darkening** (`ODYTTY_STEM_DARKEN`, `stem_darken`): a coverage boost
-    that keeps glyph stroke weight on light-on-dark displays. Default `0.0`
-    (off); range `0.0`–`1.0`. Applied at rasterization time (`src/atlas/mod.rs`).
+    that keeps glyph stroke weight on light-on-dark displays. Default `0.2` (on,
+    a conservative boost for crisper text); range `0.0`–`1.0`, where `0.0` is the
+    byte-identical opt-out to the classic raster. Applied at rasterization time
+    (`src/atlas/mod.rs`).
 - Shell working-directory tracking: OSC 7 (`file://host/path`) is parsed and
   stored as advisory string state on the terminal core (`Screen::current_working_directory`,
   `Screen::take_working_directory_changed`). The parser requires the `file://`
