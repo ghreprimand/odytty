@@ -6,7 +6,7 @@ use ab_glyph::FontVec;
 use wgpu::util::DeviceExt;
 
 use crate::core::{CursorStyle, Snapshot};
-use crate::emoji::ColorGlyphAtlas;
+use crate::emoji::{ColorGlyphAtlas, EmojiRasterizer};
 use crate::graphics::{StoredImageId, VisiblePlacement};
 use crate::grid::{self, ColorGlyphRun, ColorGlyphVertex, SolidQuad, Vertex};
 use crate::text::{self, FontStyle, GlyphAtlas, SubpixelMode};
@@ -347,8 +347,26 @@ pub(super) fn ensure_snapshot_glyphs(
     fonts: &StyleFonts,
     snapshot: &Snapshot,
 ) {
-    for cell in &snapshot.cells {
+    ensure_snapshot_glyphs_excluding_color_runs(atlas, fonts, snapshot, &[]);
+}
+
+pub(super) fn ensure_snapshot_glyphs_excluding_color_runs(
+    atlas: &mut GlyphAtlas,
+    fonts: &StyleFonts,
+    snapshot: &Snapshot,
+    color_runs: &[ColorGlyphRun],
+) {
+    let cols = snapshot.dimensions.columns;
+    for (idx, cell) in snapshot.cells.iter().enumerate() {
+        let row = idx / cols;
+        let column = idx % cols;
         if cell.wide_continuation || cell.attrs.hidden() {
+            continue;
+        }
+        if color_runs
+            .iter()
+            .any(|run| run.row == row && run.column == column)
+        {
             continue;
         }
         let style = grid::font_style_for_attrs(&cell.attrs);
@@ -560,6 +578,7 @@ pub(super) struct GpuState {
     /// live PTY output arrives.
     pub(super) atlas: GlyphAtlas,
     color_glyph_atlas: ColorGlyphAtlas,
+    emoji_rasterizer: EmojiRasterizer,
     /// Fonts used to populate the atlas dynamic region for regular and styled
     /// glyphs. Missing style faces intentionally fall back to the regular font.
     fonts: StyleFonts,
@@ -751,7 +770,10 @@ impl GpuState {
             &atlas_texture,
             &atlas_sampler,
         );
-        let color_glyph_atlas = ColorGlyphAtlas::new(atlas.cell);
+        let mut color_glyph_atlas = ColorGlyphAtlas::new(atlas.cell);
+        let mut emoji_rasterizer = EmojiRasterizer::discover();
+        let initial_color_glyph_runs =
+            emoji_rasterizer.build_color_glyph_runs(initial_snapshot, &mut color_glyph_atlas);
         let color_glyph_atlas_texture =
             create_color_atlas_texture(&device, &queue, &color_glyph_atlas);
         let color_glyph_atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -816,7 +838,12 @@ impl GpuState {
         // pump thread advances the shared terminal. A >=1x1 grid always emits at
         // least one background quad, so this buffer is never zero-sized.
         let mut vertices = Vec::new();
-        grid::build_cell_vertices_into(&mut vertices, initial_snapshot, &atlas);
+        grid::build_cell_vertices_with_color_glyph_runs_into(
+            &mut vertices,
+            initial_snapshot,
+            &atlas,
+            &initial_color_glyph_runs,
+        );
         let cell_vertex_count = vertices.len() as u32;
         grid::append_cursor_vertices(&mut vertices, initial_snapshot, &atlas, CursorStyle::Block);
         let vertex_count = vertices.len() as u32;
@@ -826,9 +853,28 @@ impl GpuState {
         if vertex_count > 0 {
             queue.write_buffer(&vertex_buf, 0, bytemuck::cast_slice(&vertices));
         }
-        let color_glyph_vertex_buf_capacity_bytes = std::mem::size_of::<ColorGlyphVertex>() as u64;
+        let mut color_glyph_vertices = Vec::new();
+        grid::build_color_glyph_vertices_into(
+            &mut color_glyph_vertices,
+            initial_snapshot,
+            &color_glyph_atlas,
+            &initial_color_glyph_runs,
+        );
+        let color_glyph_vertex_count = color_glyph_vertices.len() as u32;
+        let initial_color_glyph_bytes =
+            std::mem::size_of_val(color_glyph_vertices.as_slice()) as u64;
+        let color_glyph_vertex_buf_capacity_bytes = initial_color_glyph_bytes
+            .next_power_of_two()
+            .max(std::mem::size_of::<ColorGlyphVertex>() as u64);
         let color_glyph_vertex_buf =
             create_color_glyph_vertex_buffer(&device, color_glyph_vertex_buf_capacity_bytes);
+        if color_glyph_vertex_count > 0 {
+            queue.write_buffer(
+                &color_glyph_vertex_buf,
+                0,
+                bytemuck::cast_slice(&color_glyph_vertices),
+            );
+        }
 
         Ok(Self {
             surface,
@@ -849,14 +895,15 @@ impl GpuState {
             color_glyph_vertex_buf_capacity_bytes,
             vertices,
             cursor_vertices: Vec::new(),
-            color_glyph_vertices: Vec::new(),
+            color_glyph_vertices,
             vertex_count,
             cell_vertex_count,
             background_vertex_count,
-            color_glyph_vertex_count: 0,
+            color_glyph_vertex_count,
             image_layer,
             atlas,
             color_glyph_atlas,
+            emoji_rasterizer,
             fonts,
             font_size_px: options.font_size_px,
             scale,
@@ -1079,12 +1126,25 @@ impl GpuState {
         cursor_style: CursorStyle,
         overlays: &[SolidQuad],
     ) {
-        ensure_snapshot_glyphs(&mut self.atlas, &self.fonts, snapshot);
+        let color_glyph_runs = self
+            .emoji_rasterizer
+            .build_color_glyph_runs(snapshot, &mut self.color_glyph_atlas);
+        ensure_snapshot_glyphs_excluding_color_runs(
+            &mut self.atlas,
+            &self.fonts,
+            snapshot,
+            &color_glyph_runs,
+        );
         if self.atlas.take_dirty() {
             self.refresh_atlas_texture();
         }
-        self.rebuild_color_glyph_segment(snapshot, &[]);
-        grid::build_cell_vertices_into(&mut self.vertices, snapshot, &self.atlas);
+        self.rebuild_color_glyph_segment(snapshot, &color_glyph_runs);
+        grid::build_cell_vertices_with_color_glyph_runs_into(
+            &mut self.vertices,
+            snapshot,
+            &self.atlas,
+            &color_glyph_runs,
+        );
         self.cell_vertex_count = self.vertices.len() as u32;
         grid::append_cursor_vertices(&mut self.vertices, snapshot, &self.atlas, cursor_style);
         self.vertices.reserve(overlays.len() * grid::VERTS_PER_QUAD);

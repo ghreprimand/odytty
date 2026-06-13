@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-12 -- Live Noto color emoji rendering (EM4)
+
+Activated the color-glyph path with real Noto Color Emoji CBDT/CBLC bitmaps.
+
+- **Live shaping/rasterization.** `src/emoji/` now owns an `EmojiRasterizer`
+  that discovers Noto Color Emoji, shapes eligible cell graphemes with `swash`,
+  renders CBDT/CBLC color bitmaps, premultiplies them, and inserts them into
+  `ColorGlyphAtlas`.
+- **Presentation policy.** VS15 (`U+FE0E`) stays on the text/coverage path;
+  VS16 (`U+FE0F`) and default emoji-presentation characters use the color path
+  when a resident color bitmap is available. Missing fonts, missing glyphs, or
+  unsupported clusters degrade to the existing coverage/fallback path instead
+  of blanking the cell.
+- **Renderer hookup.** Native computes color glyph runs per snapshot, uploads
+  dirty color-atlas pixels, builds the dedicated RGBA segment, and suppresses
+  the monochrome foreground quad only for resident color emoji cells so fallback
+  boxes do not show through transparent bitmap corners.
+- **Tests.** Added deterministic presentation/degradation coverage plus a
+  sibling `emoji_pixel_smoke` integration test for real emoji pixels, VS15/VS16,
+  and foreground suppression. Host-dependent Noto tests skip cleanly when the
+  face is unavailable.
+
 ## 2026-06-12 -- SGR-pixel mouse reporting, core half (MS1)
 
 Closed the mode 1016 parity gap MP1 documented, on the core side. SGR-pixel is

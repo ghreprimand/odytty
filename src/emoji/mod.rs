@@ -2,10 +2,11 @@
 //!
 //! The EM2 probe surface answers whether a host has a usable emoji face, which
 //! color font formats the face exposes, and how swash shapes representative
-//! emoji sequences. EM3 adds the OdyTTY-owned premultiplied RGBA atlas contract;
-//! real color font decoding still lands later.
+//! emoji sequences. EM3 added the OdyTTY-owned premultiplied RGBA atlas
+//! contract; EM4 turns Noto Color Emoji CBDT/CBLC glyphs into live atlas runs.
 
 mod color_atlas;
+mod render;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,6 +19,7 @@ use swash::{CacheKey, FontRef, GlyphId, StringId, tag_from_bytes};
 pub use color_atlas::{
     ColorGlyphAtlas, ColorGlyphAtlasError, ColorGlyphBounds, ColorGlyphId, ColorGlyphKey,
 };
+pub use render::{EmojiPresentation, EmojiRasterizer, build_color_glyph_runs, emoji_presentation};
 
 const NOTO_COLOR_EMOJI: &str = "Noto Color Emoji";
 const EMOJI_PROBE_SIZE: f32 = 128.0;
@@ -70,6 +72,10 @@ impl EmojiFont {
             offset: self.offset,
             key: self.key,
         }
+    }
+
+    pub fn font_id(&self) -> u64 {
+        self.key.value()
     }
 }
 

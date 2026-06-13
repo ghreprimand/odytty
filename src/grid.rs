@@ -395,6 +395,22 @@ pub fn build_vertices_with_cursor_into(
 /// only when terminal/UI content changes, while cursor blink can refresh the
 /// bounded cursor tail without walking every cell.
 pub fn build_cell_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atlas: &GlyphAtlas) {
+    build_cell_vertices_with_color_glyph_runs_into(out, snapshot, atlas, &[]);
+}
+
+/// Build terminal-cell vertices while suppressing the monochrome foreground
+/// glyph for cells that will be covered by a live color glyph run.
+///
+/// Backgrounds and text decorations are still emitted. This keeps selection,
+/// search, underline, and strikethrough layers below/around the color bitmap
+/// while preventing fallback boxes from showing through transparent emoji
+/// pixels.
+pub fn build_cell_vertices_with_color_glyph_runs_into(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    color_runs: &[ColorGlyphRun],
+) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
     let cell_w = atlas.cell.width as f32;
@@ -467,6 +483,7 @@ pub fn build_cell_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atla
 
             if !cell.attrs.hidden()
                 && cell.ch != ' '
+                && !has_color_glyph_run(color_runs, row, col)
                 && let Some(bounds) =
                     atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
             {
@@ -502,6 +519,11 @@ pub fn build_cell_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atla
             }
         }
     }
+}
+
+fn has_color_glyph_run(runs: &[ColorGlyphRun], row: usize, column: usize) -> bool {
+    runs.iter()
+        .any(|run| run.row == row && run.column == column)
 }
 
 /// Append only cursor geometry for `snapshot` and `cursor_style`.

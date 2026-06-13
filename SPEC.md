@@ -492,3 +492,17 @@ live runs until EM4 supplies decoded swash glyphs, but synthetic tests pin the
 atlas bookkeeping, UVs, dirty revision, pass ordering, and wide-cell contract.
 Selection/search backgrounds render under color glyphs; OdyTTY does not tint or
 recolor source emoji pixels with SGR foreground colors.
+
+**EM4 (delivered).** `src/emoji/render.rs` activates the first live color emoji
+path for Linux Noto Color Emoji CBDT/CBLC bitmaps. `EmojiRasterizer` discovers
+the Noto face, shapes each eligible terminal-cell grapheme with `swash`, renders
+single-glyph color bitmaps with best-fit strike selection, scales/centers them
+into the one- or two-cell atlas slot, and premultiplies RGBA before insertion.
+VS15 (`U+FE0E`) forces the text/coverage path; VS16 (`U+FE0F`) and default
+emoji-presentation codepoints request color. The native renderer computes runs
+from the snapshot before coverage-atlas insertion, skips normal monochrome
+foreground quads only for resident color runs, uploads dirty color-atlas pixels,
+and draws the dedicated color segment in the EM3 order. If discovery, shaping,
+bitmap rendering, or atlas insertion fails, no color run is emitted and the
+existing coverage/fallback path remains visible. Multi-codepoint RGI stitching
+such as flags, keycaps, skin-tone modifiers, and ZWJ families remains EM5.

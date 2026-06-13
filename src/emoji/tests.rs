@@ -2,9 +2,13 @@ use std::path::{Path, PathBuf};
 
 use swash::{FontRef, tag_from_bytes};
 
+use crate::atlas::CellSize;
+use crate::core::Terminal;
+
 use super::{
-    ColorGlyphFormat, EmojiFont, EmojiSequenceKind, color_formats, discover_noto_color_emoji,
-    discover_noto_color_emoji_in, probe_font, representative_sequences, summarize_report,
+    ColorGlyphAtlas, ColorGlyphFormat, EmojiFont, EmojiPresentation, EmojiRasterizer,
+    EmojiSequenceKind, color_formats, discover_noto_color_emoji, discover_noto_color_emoji_in,
+    emoji_presentation, probe_font, representative_sequences, summarize_report,
 };
 
 #[test]
@@ -70,6 +74,70 @@ fn color_format_detection_is_empty_for_monospace_outline_font() {
 }
 
 #[test]
+fn presentation_policy_respects_variation_selectors() {
+    assert_eq!(
+        emoji_presentation("\u{2764}\u{FE0E}"),
+        EmojiPresentation::Text
+    );
+    assert_eq!(
+        emoji_presentation("\u{2764}\u{FE0F}"),
+        EmojiPresentation::Color
+    );
+    assert_eq!(emoji_presentation("\u{1F525}"), EmojiPresentation::Color);
+    assert_eq!(emoji_presentation("A"), EmojiPresentation::Text);
+}
+
+#[test]
+fn missing_emoji_font_degrades_to_coverage_path() {
+    let mut terminal = Terminal::new(2, 1);
+    terminal.advance("\u{1F525}".as_bytes());
+    let snapshot = terminal.snapshot();
+    let mut atlas = ColorGlyphAtlas::new(cell());
+    let mut rasterizer = EmojiRasterizer::new(None);
+
+    let runs = rasterizer.build_color_glyph_runs(&snapshot, &mut atlas);
+
+    assert!(runs.is_empty(), "no font means no color run");
+    assert!(
+        !atlas.take_dirty(),
+        "fallback path must not dirty color atlas"
+    );
+}
+
+#[test]
+fn host_noto_color_emoji_rasterizes_fire_into_premultiplied_atlas() {
+    let Some(found) = discover_noto_color_emoji() else {
+        eprintln!("Noto Color Emoji not found; host-dependent raster test skipped");
+        return;
+    };
+    let font = EmojiFont::load(found.path).expect("load discovered emoji font");
+    let mut rasterizer = EmojiRasterizer::from_font(font);
+    let mut terminal = Terminal::new(2, 1);
+    terminal.advance(b"\x1b[?25l");
+    terminal.advance("\u{1F525}".as_bytes());
+    let snapshot = terminal.snapshot();
+    let mut atlas = ColorGlyphAtlas::new(cell());
+
+    let runs = rasterizer.build_color_glyph_runs(&snapshot, &mut atlas);
+
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].row, 0);
+    assert_eq!(runs[0].column, 0);
+    assert!(atlas.take_dirty(), "real bitmap insert should dirty atlas");
+    assert!(
+        atlas.data.chunks_exact(4).any(|px| px[3] > 0),
+        "rendered emoji should write non-transparent pixels"
+    );
+    assert!(
+        atlas
+            .data
+            .chunks_exact(4)
+            .all(|px| px[0] <= px[3] && px[1] <= px[3] && px[2] <= px[3]),
+        "atlas stores premultiplied source pixels"
+    );
+}
+
+#[test]
 #[ignore = "requires host Noto Color Emoji; run with `cargo test emoji -- --ignored`"]
 fn host_noto_color_emoji_probe_records_shape_and_color_metadata() {
     let Some(found) = discover_noto_color_emoji() else {
@@ -114,6 +182,14 @@ fn unique_temp_dir(prefix: &str) -> PathBuf {
         .as_nanos();
     path.push(format!("{prefix}-{}-{nanos}", std::process::id()));
     path
+}
+
+fn cell() -> CellSize {
+    CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    }
 }
 
 fn first_system_font() -> Option<&'static Path> {

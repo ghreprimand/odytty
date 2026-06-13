@@ -395,7 +395,12 @@ a floor; surpassing it is the standing ambition.
         shaped font/glyph-or-cluster identity, and native now has a dedicated
         color-glyph pass ordered after coverage glyphs/decorations and before
         cursor/overlays. Real color font decoding remains EM4.
-  - [ ] EM4: Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 policy.
+  - [x] EM4: Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 policy.
+        `EmojiRasterizer` shapes eligible cell graphemes with `swash`, renders
+        color bitmaps into the premultiplied atlas, drives live color-glyph
+        runs, keeps VS15 on coverage, sends VS16/default emoji to color when
+        resident, and degrades to coverage/fallback when the color path cannot
+        resolve a bitmap.
   - [ ] EM5: emoji cluster coverage for flags, keycaps, skin tones, and common
         ZWJ sequences.
   - [ ] EM6: scalable color font expansion (COLR/CPAL first, SVG-in-OT only

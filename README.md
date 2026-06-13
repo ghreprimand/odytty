@@ -27,9 +27,10 @@ below-product-line tools — `ab_glyph` (font rasterization for normal text),
 helpers call `fc-match` directly for Noto Color Emoji, fall back to a bounded
 filesystem scan (depth 6, 20 000-file cap) when fontconfig is absent or returns
 a non-matching font, and return `None` cleanly when Noto Color Emoji is not
-installed so the rest of the stack is not affected. The EM3 color-glyph atlas is
-OdyTTY-owned renderer plumbing; real emoji font rasterization remains delegated
-to `swash` in the next packet.
+installed so the rest of the stack is not affected. The EM3/EM4 color-glyph
+atlas and placement path are OdyTTY-owned renderer plumbing; Noto Color Emoji
+CBDT/CBLC shaping and bitmap rasterization are delegated to `swash`, with
+VS15/VS16 policy and fallback routing owned by OdyTTY.
 
 **Terminal compatibility.** Sequences confirmed across the fixture suite: SGR
 (all standard attributes, 256-color, truecolor; colon-form `38:2::r:g:b` and
