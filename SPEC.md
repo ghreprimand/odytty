@@ -424,7 +424,8 @@ its first stable layer.
   unknown keys untouched; same-directory atomic rename). Live theme picker
   (UX3): `Ctrl+Shift+T` lists built-ins, previews each theme on arrow
   navigation, persists the selected built-in with `Enter`, and restores the
-  originally active theme with `Esc`. Custom theme builder (TH4) remains ahead.
+  originally active theme with `Esc`. Custom theme builder (TH4) has landed:
+  clone/tweak/author with live preview, saved to a user `.theme` file.
 - Readability pipeline: all visual enhancements are off by default, behind
   explicit settings, with a pixel-identical plain/fast path that bypasses
   extras. Three delivered knobs:

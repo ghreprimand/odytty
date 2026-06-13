@@ -213,19 +213,24 @@ panel plus live theme picker, the in-app custom theme builder, and CLI config
 introspection have all landed. The minimum-contrast readability floor
 (`min_contrast` / `ODYTTY_MIN_CONTRAST`) and geometric box-drawing/block/Powerline
 rendering (`geometric_boxdraw` / `ODYTTY_GEOMETRIC_BOXDRAW`) are wired into the
-live renderer, each default-off / pixel-identical until enabled.
+live renderer, each default-off / pixel-identical until enabled. Themed
+cursor/selection/search roles (`themed_ui_roles`) are live and default-on, so a
+theme's authored selection and cursor colors drive the UI out of the box;
+`themed_ui_roles = off` restores the classic inverse rendering. A symbol /
+Nerd-font fallback for Private-Use-Area prompt icons is wired into the live
+atlas, opt-in via `ODYTTY_SYMBOL_FALLBACK` (default-off / byte-identical until
+enabled).
 
 ### On the horizon
 
-- **Readability-first rendering** — smooth scrolling and Nerd-font symbol
-  fallback are next. (The perceptual color pipeline backs linear-space blending;
-  the minimum-contrast floor (`ODYTTY_MIN_CONTRAST`) and geometric
-  box-drawing (`ODYTTY_GEOMETRIC_BOXDRAW`) are now live in the renderer, and
-  stem darkening (`ODYTTY_STEM_DARKEN`) is available — all default off /
-  passthrough.)
+- **Readability-first rendering** — smooth scrolling is next. (The perceptual
+  color pipeline backs linear-space blending; the minimum-contrast floor
+  (`ODYTTY_MIN_CONTRAST`) and geometric box-drawing (`ODYTTY_GEOMETRIC_BOXDRAW`)
+  are now live in the renderer, the symbol / Nerd-font fallback
+  (`ODYTTY_SYMBOL_FALLBACK`) is wired into the atlas, and stem darkening
+  (`ODYTTY_STEM_DARKEN`) is available — all default off / passthrough.)
 - **Atmospheric effects (opt-in)** — bloom/phosphor glow, CRT/retro profile,
   subtle cursor motion; all off by default, perf- and readability-gated.
-- **Nerd-font / symbol fallback** for modern prompt icons.
 - **Ligature / stylistic-set shaping** (strategy decided, implementation
   deferred).
 - **Shell integration** — native working-directory consumer (OSC 7 core
@@ -241,7 +246,7 @@ live renderer, each default-off / pixel-identical until enabled.
 
 ## Testing
 
-**Testing.** 1067 tests passing: 985 unit/integration, 12 mouse-protocol
+**Testing.** 1083 tests passing: 998 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -249,10 +254,12 @@ normal/button-event/any-event modes, and SGR-pixel (1016) encoder coverage —
 press/release/wheel/motion with 1-based pixel coordinates, boundary at `(1,1)`,
 large coordinate values, modifier folding, not-1016 guard, and cell-path
 pass-through; run via
-`cargo test --test mouse_protocol`), 25 pixel-smoke (headless CPU compositor
+`cargo test --test mouse_protocol`), 28 pixel-smoke (headless CPU compositor
 asserting structural raster invariants for text rendering and graphics
-placement; EM3 added two: color-glyph segment draw ordering between coverage
-text and above-image layers, and wide color glyph lead-cell quad emission), 4
+placement; EM3 added two — color-glyph segment draw ordering between coverage
+text and above-image layers, and wide color glyph lead-cell quad emission — and
+ID1 default-on added three covering the now-default themed selection/cursor
+colors plus the `themed_ui_roles = off` legacy inverse parity), 4
 box-drawing pixel-smoke (geometric box/block/Powerline: corner↔line seam, cross
 join, full-block solidity, and the off/on distinction), 11 protocol-fuzz smoke (never-panic, bounded-host-output, post-RIS,
 and grid-self-consistency invariants across seven fuzzed surfaces: extended

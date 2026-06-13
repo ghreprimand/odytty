@@ -7,6 +7,76 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- RV6: symbol / Nerd-font fallback chain for PUA prompt icons (opt-in)
+
+- Prompt frameworks (starship, powerlevel10k, eza) draw their icons from the
+  Unicode Private Use Area, which a plain monospace body font has no outline
+  for and renders as the hollow-box tofu glyph. RV6 adds a symbol/Nerd-font
+  fallback so those icons can render, gated and off by default.
+- New pure `src/atlas/fallback.rs`: `is_symbol_codepoint` classifies a
+  codepoint as a PUA prompt icon by whole-PUA membership (BMP PUA
+  `U+E000..=U+F8FF` for the classic Nerd sets; Supplementary PUA-A
+  `U+F0000..=U+FFFFD` for Material Design icons). Plane-16 PUA-B is excluded so
+  the replacement codepoint `U+10FFFD` keeps its hollow-box behavior. A
+  documented `NERD_FONT_RANGES` table maps the per-set sub-ranges.
+- `atlas/mod.rs`: the atlas gains an optional `Arc<FontVec>` fallback
+  (`set_fallback_font`). `ensure_styled` consults it only when the primary font
+  lacks the glyph, the codepoint is a PUA symbol, and the fallback face actually
+  has it; otherwise the historical hollow-box slot is used. Default `None`
+  preserves the pre-RV6 missing-glyph path byte-for-byte.
+- `text.rs`: `resolve_symbol_font` locates a symbol font — an explicit
+  `ODYTTY_SYMBOL_FONT` path, else a search of the font dirs for a "Symbols Nerd
+  Font" / "* Nerd Font" file, preferring the dedicated symbols-only face.
+- `native/gpu.rs`: resolves and installs the fallback on the atlas at build and
+  rebuild, gated by `ODYTTY_SYMBOL_FALLBACK` (interim env gate; a first-class
+  settings knob is a tracked follow-up while `settings.rs` was held by another
+  lane).
+- Verified: lib +9 (PUA classifier; atlas seam: default-safe with no fallback,
+  fallback-lacks-glyph, primary-covered-PUA, cross-font rasterization;
+  symbol-font resolution preference), full integration battery green,
+  pixel-smoke unchanged at default (the proof the plain path is pixel-identical),
+  `cargo fmt --check` clean, no machine paths, all files < 2000 lines.
+- Known gaps: the enable gate is the interim env var (first-class setting is the
+  next packet now that `settings.rs` is free); fallback glyphs use the primary
+  cell metrics (per-font scale normalization is a possible refinement).
+
+---
+
+## 2026-06-13 -- ID1 default-on: themed cursor/selection/search roles ship on by default
+
+- Operator decision: a theme's authored `cursor` / `selection` / `search`
+  colors should drive the UI out of the box, not the legacy invert trick. ID1-a
+  wired the colors behind an interim env gate (default off, to keep the plain
+  path pixel-identical); this packet promotes that gate to a first-class
+  `themed_ui_roles` setting, defaulting **on**.
+- The setting is live-reloadable, editable in the settings panel (with help
+  text), persisted through `odytty.conf` (with `themedroles` / `uiroles`
+  aliases), and documented with `ODYTTY_THEMED_UI_ROLES` as its env override.
+- Startup now uses the theme cursor role from the first frame (`native/mod.rs`
+  base cursor color follows `themed_ui_roles`), closing the previous gap where
+  the themed cursor only appeared after the first reload.
+- `themed_ui_roles = off` preserves the legacy foreground cursor, inverse
+  selection, and black-on-yellow / inverse search rendering path, with
+  pixel-smoke coverage proving the off-path matches the historical pixels
+  exactly. Three new pixel-smoke baselines cover the now-default themed
+  selection/cursor plus the opt-out parity.
+- Verified: `cargo fmt --check` clean; full battery green; default and
+  `ODYTTY_THEMED_UI_ROLES=0` native smokes exit 0.
+
+---
+
+## 2026-06-13 -- Docs: visual-architecture accuracy pass + SPEC TH4 fix
+
+- `docs/visual-architecture.md`: dropped the stale "planned / not yet built"
+  framing now that Tier 1 (RV3 linear-space + OKLab helpers, RV1 min-contrast
+  floor, RV2 geometric box-drawing) is delivered, and reframed the theme and
+  in-app UX sections from "remaining / will expose" to the delivered TH1–TH4 /
+  UX1–UX3 surface. Tiers 2 and 3 left as planned (correct — not yet built).
+- `SPEC.md`: corrected a stale "Custom theme builder (TH4) remains ahead" line
+  that contradicted the rest of the paragraph — TH4 shipped.
+
+---
+
 ## 2026-06-13 -- ID1-a: wire authored cursor/selection/search theme roles (opt-in)
 
 - The theme files already author `cursor`/`selection`/`search` semantic roles,
