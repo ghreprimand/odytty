@@ -607,6 +607,11 @@ a floor; surpassing it is the standing ambition.
       selection color, and search highlight uses the theme search color rather
       than raw cell inversion. `ODYTTY_THEMED_UI_ROLES=off` restores the
       classic inversion behavior.
+- [x] ID2 focus dimming (`focus_dim` / `ODYTTY_FOCUS_DIM`, default 0.0 = off):
+      perceptually dims the whole grid (text + background) in OKLab while the
+      window is unfocused so it recedes; the dim runs before the RV1 floor so
+      text stays legible. Focused frames are byte-identical to the pre-feature
+      renderer.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
 
 ## Archived First Prototype Checklist

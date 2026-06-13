@@ -220,7 +220,10 @@ theme's authored selection and cursor colors drive the UI out of the box;
 Nerd-font fallback for Private-Use-Area prompt icons is wired into the live
 atlas behind the `symbol_fallback` setting (with an optional `symbol_font`
 path; `ODYTTY_SYMBOL_FALLBACK` / `ODYTTY_SYMBOL_FONT` remain as env overrides),
-default-off / byte-identical until enabled.
+default-off / byte-identical until enabled. Focus dimming (`focus_dim` /
+`ODYTTY_FOCUS_DIM`) perceptually dims the whole grid while the window is
+unfocused so it recedes, with the contrast floor keeping text legible;
+default-off / focused frames byte-identical.
 
 ### On the horizon
 
@@ -247,7 +250,7 @@ default-off / byte-identical until enabled.
 
 ## Testing
 
-**Testing.** 1090 tests passing: 1004 unit/integration, 12 mouse-protocol
+**Testing.** 1098 tests passing: 1010 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -260,8 +263,10 @@ asserting structural raster invariants for text rendering and graphics
 placement; EM3 added two — color-glyph segment draw ordering between coverage
 text and above-image layers, and wide color glyph lead-cell quad emission —
 ID1 default-on added three covering the now-default themed selection/cursor
-colors plus the `themed_ui_roles = off` legacy inverse parity, and RV3-dim
-added one asserting the perceptual dim delta stays confined to dim cells), 4
+colors plus the `themed_ui_roles = off` legacy inverse parity, RV3-dim added
+one asserting the perceptual dim delta stays confined to dim cells, and ID2
+added two — a focus-dim-off identity gate and an unfocused-dimmed baseline that
+recedes while still clearing a raised contrast floor), 4
 box-drawing pixel-smoke (geometric box/block/Powerline: corner↔line seam, cross
 join, full-block solidity, and the off/on distinction), 11 protocol-fuzz smoke (never-panic, bounded-host-output, post-RIS,
 and grid-self-consistency invariants across seven fuzzed surfaces: extended

@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- ID2: focus dimming when the window is unfocused (opt-in)
+
+- Added a `focus_dim` knob (`ODYTTY_FOCUS_DIM`, 0.0–1.0, default 0.0 = off) that
+  dims the whole grid — text and background together — perceptually in OKLab
+  while the window is unfocused, so it recedes and the focused window stands out.
+- The dim is applied at color-resolution time in the grid resolve closure, after
+  the SGR-dim attribute and before the RV1 minimum-contrast floor, so the floor
+  re-lifts text against the dimmed background and legibility is preserved by
+  construction. The native layer passes the effective amount
+  (`focused ? 0.0 : focus_dim`) down the snapshot-update path; the focused window
+  is never dimmed, so focused frames stay byte-identical to the pre-feature
+  renderer, and `0.0` is an exact no-op.
+- A focus transition now bumps the presentation epoch so the cell geometry (not
+  just the cursor) rebuilds — the load-bearing fix that makes the dim actually
+  apply on focus changes, harmless at `0.0` (the rebuilt vertices are identical).
+- Knob wired through the full settings convention: env var, config-key alias
+  `unfocuseddim`, in-app settings panel (with help text), and runtime-knobs docs.
+- Verified: `cargo test` lib 1010 + full integration green (pixel-smoke 31,
+  adding an off-path identity gate and an unfocused-dimmed baseline that recedes
+  and still clears a raised contrast floor), `cargo fmt --check` clean.
+
+---
+
+## 2026-06-13 -- Docs: CONTRIBUTING.md freshness pass
+
+- Brought the contributor guide current: a module map covering all nine source
+  lanes (parser, core, grid, text/atlas, native, theme, settings, color, pty)
+  with responsibilities; the test-battery shape (~1098 tests, the integration
+  bucket names, the byte-identical-plain-path pixel-smoke discipline, the deep
+  fuzz command); the visual-enhancement contribution rules (off-by-default,
+  pixel-identical plain bypass, perf-gated, RV1 floor as the safety net) plus the
+  Tier 1/2/3 model; the four-step `.theme` authoring recipe; and pre-commit gate
+  updates (deep fuzz for parser/core/graphics, the 2000-line cap, no
+  Co-Authored-By trailers).
+
+---
+
 ## 2026-06-13 -- RV6-SETTINGS: symbol fallback promoted to first-class settings
 
 - RV6 landed the symbol/Nerd-font fallback behind an interim `ODYTTY_SYMBOL_FALLBACK`
