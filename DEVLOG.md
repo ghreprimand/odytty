@@ -7,6 +7,54 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Minimum-contrast guarantee (RV1)
+
+- New `color::enforce_min_contrast`: lifts a cell's foreground until its WCAG
+  contrast against the background meets a configurable floor, adjusting only
+  perceptual (OKLab) lightness so hue is preserved. Builds directly on the RV3
+  pipeline and the TH3 contrast helper. Already-legible text is untouched, the
+  fg/bg polarity is kept, the result is idempotent, and an unreachable ratio
+  (mid-grey background) degrades to a best-effort most-contrasting shade.
+- New `min_contrast` setting (`ODYTTY_MIN_CONTRAST`, default `1.0`, range
+  `1.0..=21.0`) with overlay help text; `1.0` is an exact passthrough so the
+  default render is byte-identical. `text::enforce_contrast_rgba` is the gated
+  render seam over a lock-free global, mirroring the palette seams.
+- Biggest Tier-1 reading win: no app can force illegibly low-contrast text once
+  a floor is set. Default-off this packet; activating it in the renderer is a
+  flagged follow-up plus a non-default pixel fixture.
+- State: 948 lib tests; integration unchanged incl. pixel-smoke 25.
+  fmt/diff/leak clean.
+
+## 2026-06-13 -- Odyssey theme library expansion (12 originals, 15 -> 27)
+
+- Added 12 original Odyssey-family built-in themes — `odyssey-deepspace`,
+  `-nebula`, `-solar`, `-abyss`, `-ember`, `-glacier`, `-meridian`, `-voyager`,
+  `-pulsar`, `-dawn-light`, `-sandstone-light`, `-graphite` — on cosmos/voyage
+  motifs. Each is authored as a dependency-free `.theme` file loaded through the
+  same parse path as user themes, registered in the built-in roster, and listed
+  in `docs/themes.md`.
+- All 12 clear the library WCAG contrast floor (independently verified,
+  11.46–15.50) and are covered by the existing parse/round-trip, contrast-floor,
+  appearance, and native-smoke tests; the roster-size assertion moved 15 -> 27.
+
+## 2026-06-13 -- CLI config introspection (CFG1)
+
+- Added headless `--list-themes` and `--show-config` flags that print and exit
+  without opening a window. `--list-themes` emits the built-in library as stable
+  machine-friendly rows (name, light/dark appearance, family). `--show-config`
+  loads the same effective settings path as native startup and prints sorted
+  `key=value` output for scripting and debugging. `--list-fonts` remains
+  deferred until the text/font lane is free.
+- New `src/cli.rs` keeps the logic pure and testable; `src/main.rs` dispatches
+  the flags ahead of the dump/interactive/native branches.
+
+## 2026-06-13 -- Graphics documentation audit (DOC2)
+
+- Audited `docs/graphics.md` (Kitty graphics + Sixel support matrix) against the
+  source and corrected one inaccuracy: Kitty quiet-mode `q=1` is parsed but has
+  no distinct code path, so it behaves identically to `q=0` (all responses
+  sent); only `q=2` suppresses. Every other capability claim verified accurate.
+
 ## 2026-06-13 -- Live theme picker (UX3)
 
 - Added a native theme picker opened by the bindable `theme-picker` action

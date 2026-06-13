@@ -189,6 +189,11 @@ ODYTTY_FONT_FAMILY="DejaVu Sans Mono" cargo run -- --native
 ODYTTY_SUBPIXEL=rgb cargo run -- --native
 ```
 
+CLI helpers (print and exit, no window): `odytty --list-themes` lists the
+built-in themes as stable `name`/appearance/family rows; `odytty --show-config`
+prints the effective merged configuration (defaults + `odytty.conf` +
+environment overrides) as sorted `key=value` lines for scripts and debugging.
+
 ---
 
 ## Status
@@ -202,16 +207,17 @@ non-negotiable floor.
 
 Everything in the Features section above. The full owned byte path is real and
 in production. Color emoji, Kitty graphics, Sixel, the Kitty keyboard protocol,
-SGR-pixel mouse, the theme palette and user theme file format, the 15-theme
-built-in library, the in-window overlay framework, and the in-app settings
-panel plus live theme picker have all landed.
+SGR-pixel mouse, the theme palette and user theme file format, the 27-theme
+built-in library, the in-window overlay framework, the in-app settings
+panel plus live theme picker, and CLI config introspection have all landed.
 
 ### On the horizon
 
-- **Readability-first rendering** — perceptual color pipeline, minimum-contrast
-  guarantee, geometric box-drawing/Powerline rendering at exact cell size,
-  smooth scrolling. (Stem darkening is available now as `ODYTTY_STEM_DARKEN`;
-  default off.)
+- **Readability-first rendering** — geometric box-drawing/Powerline rendering
+  at exact cell size, smooth scrolling, and Nerd-font symbol fallback. (The
+  perceptual color pipeline now backs blending internally; a minimum-contrast
+  floor is available as `ODYTTY_MIN_CONTRAST` and stem darkening as
+  `ODYTTY_STEM_DARKEN`, both default off / passthrough.)
 - **Custom theme builder** — an in-terminal theme editor for cloning or
   authoring themes from scratch (TH4), building on the live picker and settings
   overlay.
@@ -227,14 +233,13 @@ panel plus live theme picker have all landed.
 
 - No tabs, panes, sessions, or multiplexing.
 - Linux-first; no macOS or Windows support.
-- Config introspection (`--list-themes`, `--show-config`) not yet implemented.
 - Shell integration beyond OSC 7 cwd core not yet implemented.
 
 ---
 
 ## Testing
 
-**Testing.** 1008 tests passing: 933 unit/integration, 12 mouse-protocol
+**Testing.** 1026 tests passing: 948 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -250,9 +255,11 @@ and grid-self-consistency invariants across seven fuzzed surfaces: extended
 underline SGR, Kitty keyboard protocol stack, synchronized output mode 2026, OSC
 52 / dynamic colors, DECRQM / XTWINOPS, DCS query reports (XTGETTCAP / DECRQSS),
 and DEC rectangle / selective-erase ops), 9 PTY alternate-screen smoke, 10
-transcript smoke, and 8 emoji pixel-smoke (real Noto color-emoji composition,
+transcript smoke, 8 emoji pixel-smoke (real Noto color-emoji composition,
 VS15/VS16 presentation policy, multi-codepoint cluster stitching/fallback, and
-monochrome-foreground suppression for resident color-emoji cells). Deep fuzz
+monochrome-foreground suppression for resident color-emoji cells), and 3 CLI
+introspection (theme enumeration, config-dump formatting, and a spawned
+`--show-config` over a temp config). Deep fuzz
 tiers are `#[ignore]`-gated and run via
 `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
 EM2 added three hermetic emoji-probe tests (fixed representative-sequence list,
