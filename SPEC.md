@@ -383,6 +383,22 @@ its first stable layer.
   DECSED/DECSEL selective erase; wide-pair edge sanitization
 - Lazy scrollback re-wrap and resize fast paths
 - Theme system (plain baseline, Odyssey presets); optional ambient visual effect
+- Shell working-directory tracking: OSC 7 (`file://host/path`) is parsed and
+  stored as advisory string state on the terminal core (`Screen::current_working_directory`,
+  `Screen::take_working_directory_changed`). The parser requires the `file://`
+  scheme (case-insensitive), splits the authority, and percent-decodes the path.
+  Only an empty host or `localhost` (case-insensitive) is accepted; foreign hosts
+  are ignored rather than stored as misleading local paths — resolving a real
+  hostname would require `gethostname`, a syscall the core deliberately avoids
+  to stay deterministic and filesystem-free. Robustness: non-`file://` URLs,
+  missing path, malformed or truncated percent-escapes, and decoded NUL (`%00`)
+  all ignore the OSC and leave the stored path unchanged; non-UTF-8 bytes are
+  replaced lossily; payloads are bounded by the parser's 128 KiB OSC cap. No
+  response is emitted and no filesystem access occurs. RIS leaves the stored
+  path untouched (it reflects the foreground process's state, not resettable
+  terminal state — mirroring the title decision). The native consumer
+  (e.g. open-new-tab-in-same-directory) is a deliberate follow-up packet (SI2).
+  OSC 6 is accepted-and-ignored.
 
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering

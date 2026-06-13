@@ -249,17 +249,50 @@ img2sixel --width=200 /path/to/image.png
 
 The native renderer owns a dedicated draw segment for premultiplied-RGBA color
 glyphs, sitting between the coverage-text/decorations segment and the above-image
-layer. The segment is backed by `src/emoji/color_atlas.rs` (`ColorGlyphAtlas`):
-a grow-only `Rgba8Unorm` atlas keyed by `(font identity, glyph-or-cluster id,
-physical px size, scale)` rather than by character — correct for ZWJ sequences,
-flags, keycap sequences, and variation-selector clusters that resolve to a single
-shaped output regardless of their Unicode scalar count.
+layer.
 
-Wide color glyphs (emoji that span two terminal cells) draw once from the lead
-cell; the continuation cell emits no geometry. Selection and search backgrounds
-render under the color-glyph segment so OdyTTY does not tint or recolor source
-emoji pixels with the active SGR foreground color.
+### Live pipeline (EM4)
 
-**Status (EM3).** The segment is structurally integrated and verified by pixel-smoke
-tests but currently receives no live runs: real emoji font rasterization (swash
-shaping, CBDT/CBLC or COLR decode, atlas upload) is a follow-up packet (EM4).
+**Presentation policy.** For each terminal cell, `src/emoji/render.rs` decides
+whether a grapheme should render as a color glyph or fall through to the
+monochrome coverage path:
+
+- **VS15 (`U+FE0E`)** anywhere in the grapheme → text presentation forced.
+- **VS16 (`U+FE0F`)** anywhere in the grapheme → color presentation forced.
+- No variation selector → color if any codepoint has the Unicode
+  `Emoji_Presentation` default (ranges `U+1F000`–`U+1FAFF`,
+  `U+1FC00`–`U+1FFFD`, `U+2600`–`U+26FF`, `U+2700`–`U+27BF`); text otherwise.
+
+**Shaping.** Eligible graphemes are shaped with `swash` using Script=Common,
+Direction=LTR, and the cell height as the pixel size. The shaper must produce
+exactly one glyph id; if it produces zero (missing glyph) or more than one
+(ligature sequence not yet handled), the cell falls back to the monochrome
+coverage path without error.
+
+**Rasterization.** `swash` renders the glyph using `Source::ColorBitmap` with
+`StrikeWith::BestFit`, requesting the CBDT/CBLC strike closest to the cell
+height. The returned image must have `Content::Color`; a monochrome strike
+causes the cell to fall back silently. The rendered bitmap is scaled and
+centered into the atlas slot using nearest-neighbour downscale (aspect-ratio
+preserving, letterboxed), then straight-alpha is converted to premultiplied RGBA
+before upload.
+
+**Atlas.** `ColorGlyphAtlas` (`src/emoji/color_atlas.rs`) is a grow-only
+`Rgba8Unorm` atlas keyed by `(font identity, glyph-or-cluster id, physical px
+size, scale)` — not by Unicode scalar — so ZWJ sequences, flags, keycap
+sequences, and variation-selector variants are each cached by their shaped glyph
+identity regardless of their codepoint count.
+
+**Wide glyphs.** If the cell to the right carries a wide-continuation marker,
+the lead cell's slot spans two cell widths. The continuation cell emits no
+geometry; the atlas UV covers the full two-cell-wide bitmap in one quad.
+
+**Monochrome suppression.** When a cell has a live color glyph run, the
+monochrome coverage foreground quad is suppressed (`src/grid.rs`:
+`build_cell_vertices_with_color_glyph_runs_into`). Backgrounds, decorations
+(underline, strikethrough), and selection/search highlights are still emitted
+so SGR styling layers correctly around the color bitmap without tinting it.
+
+**Degradation.** If Noto Color Emoji is not installed, `EmojiRasterizer::discover()`
+returns `None` and the rasterizer emits no color glyph runs; all emoji cells
+fall through to the monochrome coverage path and remain readable.
