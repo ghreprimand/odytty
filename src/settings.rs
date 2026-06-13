@@ -95,6 +95,28 @@ pub fn synthetic_styles_enabled() -> bool {
     SYNTHETIC_STYLES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Runtime flag mirroring [`Settings::geometric_boxdraw`], published
+/// process-wide so the GPU renderer can apply it to every rebuilt glyph atlas
+/// without threading `Settings` through the native options seam. Defaults to
+/// `false`, preserving the font-rasterized plain path unless explicitly
+/// enabled.
+static GEOMETRIC_BOXDRAW_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Publish the geometric box-drawing switch so the renderer's atlas-build path
+/// can enable pixel geometry for box/block/Powerline glyphs. Called at startup
+/// and whenever the config reloads.
+pub fn set_geometric_boxdraw_enabled(enabled: bool) {
+    GEOMETRIC_BOXDRAW_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Read the published geometric box-drawing flag. `false` is exact passthrough
+/// to font glyph rasterization; `true` enables atlas-owned geometry for covered
+/// codepoints.
+pub fn geometric_boxdraw_enabled() -> bool {
+    GEOMETRIC_BOXDRAW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Default cursor blink policy (`ODYTTY_CURSOR_BLINK`). This is the host default
 /// applied at power-on and after DECSCUSR 0 / RIS / DECSTR; an application's
 /// DECSCUSR can still override it at runtime.

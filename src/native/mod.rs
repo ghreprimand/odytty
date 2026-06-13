@@ -106,6 +106,9 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // `synthetic_styles = off` is honored from the first frame. The config
     // reload path republishes it on change (see `apply_reloadable_values`).
     crate::settings::set_synthetic_styles_enabled(settings.synthetic_styles);
+    // Publish the RV2 geometric box-drawing switch before the atlas is built;
+    // the reload path republishes it and the renderer rebuilds when it flips.
+    crate::settings::set_geometric_boxdraw_enabled(settings.geometric_boxdraw);
     // Shared terminal model, sized to the initial grid. The pump thread writes
     // to it; the UI thread snapshots from it.
     let mut model = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);

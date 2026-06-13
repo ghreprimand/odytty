@@ -623,6 +623,11 @@ pub(super) struct GpuState {
     /// synthetic mask is forced off so styled cells render as plain regular
     /// glyphs.
     synthetic_enabled: bool,
+    /// Last-applied value of the process-wide geometric box-drawing switch.
+    /// Retained so [`Self::apply_text_options`] can detect a live toggle and
+    /// rebuild the atlas; geometry slots are atlas-owned, so flipping the setting
+    /// must not wait for unrelated font changes.
+    geometric_enabled: bool,
     font_path: Option<PathBuf>,
     font_family: String,
     // Kept alive for the lifetime of the bind group; never read directly.
@@ -716,6 +721,8 @@ impl GpuState {
         let (synth_bold, synth_italic, synth_bold_italic) =
             masked_synthetic(&fonts, synthetic_enabled);
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
+        let geometric_enabled = crate::settings::geometric_boxdraw_enabled();
+        atlas.set_geometric_boxdraw(geometric_enabled);
         ensure_snapshot_glyphs(&mut atlas, &fonts, initial_snapshot);
         let atlas_texture = create_atlas_texture(&device, &queue, &atlas);
         // Nearest + clamp: glyph cells map 1:1 to pixels, so no filtering.
@@ -926,6 +933,7 @@ impl GpuState {
             subpixel,
             stem_darken,
             synthetic_enabled,
+            geometric_enabled,
             font_path: options.font_path.clone(),
             font_family: options.font_family.clone(),
             atlas_texture,
@@ -967,6 +975,7 @@ impl GpuState {
         let (synth_bold, synth_italic, synth_bold_italic) =
             masked_synthetic(&self.fonts, self.synthetic_enabled);
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
+        atlas.set_geometric_boxdraw(self.geometric_enabled);
         let _ = atlas.take_dirty();
         self.atlas = atlas;
         self.refresh_atlas_texture();
@@ -1051,11 +1060,14 @@ impl GpuState {
         // the atlas must rebuild.
         let synthetic_now = crate::settings::synthetic_styles_enabled();
         let synthetic_changed = synthetic_now != self.synthetic_enabled;
+        let geometric_now = crate::settings::geometric_boxdraw_enabled();
+        let geometric_changed = geometric_now != self.geometric_enabled;
         if !font_changed
             && !subpixel_changed
             && !font_size_changed
             && !stem_darken_changed
             && !synthetic_changed
+            && !geometric_changed
         {
             return Ok(false);
         }
@@ -1092,6 +1104,9 @@ impl GpuState {
         }
         if synthetic_changed {
             self.synthetic_enabled = synthetic_now;
+        }
+        if geometric_changed {
+            self.geometric_enabled = geometric_now;
         }
         atlas::set_stem_darken(stem_darken);
         self.rebuild_atlas();
