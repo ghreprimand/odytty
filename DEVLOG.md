@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Theme library to 53 (26 community / light / retro)
+
+- Added 26 more built-in themes, taking the library from 27 to 53. Batches:
+  10 dark community classics (everforest-dark, kanagawa, rose-pine, ayu-mirage,
+  night-owl, palenight, github-dark, zenburn, oceanic-next, iceberg-dark),
+  8 light themes (github-light, gruvbox-light, one-light, ayu-light,
+  rose-pine-dawn, tokyo-night-day, papercolor-light, everforest-light), and
+  8 retro / phosphor profiles (green-phosphor, amber-crt, ibm-5151, dos-cga,
+  apple-ii-green, commodore-64, hercules-amber, vt220-green).
+- Each is an attributed `.theme` file (license header per palette; community
+  palettes credited, hardware-inspired retro palettes marked "inspired by" with
+  vendor names noted as trademarks, no endorsement implied) loaded through the
+  same parse path as user themes. The roster-size assertion moved 27 -> 53.
+- Every palette clears the library WCAG contrast floor — independently
+  re-validated from the committed files (lowest tokyo-night-day 4.52,
+  commodore-64 4.62; deliberately faithful, the same posture as Solarized).
+  Covered by the existing parse/round-trip, contrast-floor, and appearance
+  tests; the retro phosphor profiles will pair with the future CRT effect.
+
+## 2026-06-13 -- SPEC architecture refresh (DOC3)
+
+- Brought `SPEC.md` current with the readability pipeline (perceptual color,
+  configurable minimum-contrast floor, stem darkening — all default-safe behind
+  the standing off-by-default visual gate), CLI introspection
+  (`--list-themes` / `--show-config`), the theme system described
+  architecturally rather than by a pinned count, and the corrected reloadable
+  settings list (`stem_darken`, `min_contrast`).
+
 ## 2026-06-13 -- Minimum-contrast guarantee (RV1)
 
 - New `color::enforce_min_contrast`: lifts a cell's foreground until its WCAG

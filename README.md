@@ -207,7 +207,7 @@ non-negotiable floor.
 
 Everything in the Features section above. The full owned byte path is real and
 in production. Color emoji, Kitty graphics, Sixel, the Kitty keyboard protocol,
-SGR-pixel mouse, the theme palette and user theme file format, the 27-theme
+SGR-pixel mouse, the theme palette and user theme file format, the 53-theme
 built-in library, the in-window overlay framework, the in-app settings
 panel plus live theme picker, and CLI config introspection have all landed.
 
