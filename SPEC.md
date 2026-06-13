@@ -238,7 +238,7 @@ reload cannot override it.
 
 Reloadable settings: `theme`, `visual`, `font`, `font_family`, `font_size`,
 `text_gamma`, `subpixel`, `cursor_style`, `cursor_blink`, `keybinds`,
-`osc52_read`. Font path, family, size, and subpixel changes rebuild the glyph
+`osc52_read`, `stem_darken`, `min_contrast`. Font path, family, size, and subpixel changes rebuild the glyph
 atlas and cell metrics, recompute the terminal grid, and push PTY `TIOCSWINSZ`
 through the same path used for HiDPI scale changes. A bad rewrite is a no-op; a
 deleted config file keeps the current settings; reload never panics.
@@ -246,6 +246,14 @@ deleted config file keeps the current settings; reload never panics.
 **Startup-only setting.** `native_autoclose_ms` is not reloadable. Changing a
 lifecycle smoke timer mid-session would make manual and automated test behavior
 ambiguous.
+
+**CLI introspection.** Two startup flags (`src/cli.rs`) print information and
+exit without opening a window: `--list-themes` prints the names of all
+available built-in themes; `--show-config` prints the active settings resolved
+from defaults, config file, and environment, together with per-setting
+descriptions. Both are driven by the same `SettingInfo` table used by the
+in-app settings panel, so they stay in sync with the runtime knob surface
+automatically.
 
 ## Interaction Architecture
 
@@ -399,15 +407,12 @@ its first stable layer.
   DECSED/DECSEL selective erase; wide-pair edge sanitization
 - Lazy scrollback re-wrap and resize fast paths
 - Theme system: full 16-color ANSI palette + semantic roles (cursor, selection,
-  search highlight, reserved border/inactive) per theme; 15 contrast-validated
-  built-in themes (`plain`, `odyssey`, `odyssey-noir`, `odyssey-light`,
-  `odyssey-aurora`, `solarized-dark`, `solarized-light`, `gruvbox-dark`, `nord`,
-  `dracula`, `tokyo-night`, `catppuccin-mocha`, `catppuccin-latte`, `one-dark`,
-  `monokai`); user theme files in a dependency-free `key = value` format (see
-  `docs/themes.md`) resolved from the user theme directory or by path;
-  `ODYTTY_THEME` accepts a built-in name, directory-relative name, or file path;
-  OSC-4 / OSC-10/11/12 dynamic overrides layer on top with correct precedence;
-  optional ambient scanline visual effect
+  search highlight, reserved border/inactive) per theme; a curated,
+  contrast-validated built-in library plus user `.theme` files through one
+  shared dependency-free parse path (see [`docs/themes.md`](docs/themes.md) for
+  the current roster and file format); `ODYTTY_THEME` accepts a built-in name,
+  directory-relative name, or file path; OSC-4 / OSC-10/11/12 dynamic overrides
+  layer on top with correct precedence; optional ambient scanline visual effect
 - In-window overlay framework (`src/native/overlay.rs`): a native multi-row
   panel layer rendered through the existing cell path — text fields, lists,
   toggles, keyboard-driven navigation; presentation-only, never mutates terminal
@@ -420,6 +425,22 @@ its first stable layer.
   (UX3): `Ctrl+Shift+T` lists built-ins, previews each theme on arrow
   navigation, persists the selected built-in with `Enter`, and restores the
   originally active theme with `Esc`. Custom theme builder (TH4) remains ahead.
+- Readability pipeline: all visual enhancements are off by default, behind
+  explicit settings, with a pixel-identical plain/fast path that bypasses
+  extras. Three delivered knobs:
+  - **Perceptual color pipeline** (`src/color.rs`): linear-space blending and
+    dim/fade operations work in OKLab / OKLCH so that equal numeric steps
+    produce equal perceived steps. Used by the dim-text path and any future
+    color-mixing operations.
+  - **Minimum-contrast floor** (`ODYTTY_MIN_CONTRAST`, `min_contrast`): a
+    configurable WCAG contrast ratio floor between foreground and background,
+    applied at render time. Default `1.0` is exact passthrough (no lift); higher
+    values lift underpowered foregrounds toward legibility. The floor is measured
+    via WCAG relative luminance; the lift is applied by bisecting OKLab lightness
+    while preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
+  - **Stem darkening** (`ODYTTY_STEM_DARKEN`, `stem_darken`): a coverage boost
+    that keeps glyph stroke weight on light-on-dark displays. Default `0.0`
+    (off); range `0.0`–`1.0`. Applied at rasterization time (`src/atlas/mod.rs`).
 - Shell working-directory tracking: OSC 7 (`file://host/path`) is parsed and
   stored as advisory string state on the terminal core (`Screen::current_working_directory`,
   `Screen::take_working_directory_changed`). The parser requires the `file://`
