@@ -218,8 +218,9 @@ cursor/selection/search roles (`themed_ui_roles`) are live and default-on, so a
 theme's authored selection and cursor colors drive the UI out of the box;
 `themed_ui_roles = off` restores the classic inverse rendering. A symbol /
 Nerd-font fallback for Private-Use-Area prompt icons is wired into the live
-atlas, opt-in via `ODYTTY_SYMBOL_FALLBACK` (default-off / byte-identical until
-enabled).
+atlas behind the `symbol_fallback` setting (with an optional `symbol_font`
+path; `ODYTTY_SYMBOL_FALLBACK` / `ODYTTY_SYMBOL_FONT` remain as env overrides),
+default-off / byte-identical until enabled.
 
 ### On the horizon
 
@@ -227,7 +228,7 @@ enabled).
   color pipeline backs linear-space blending; the minimum-contrast floor
   (`ODYTTY_MIN_CONTRAST`) and geometric box-drawing (`ODYTTY_GEOMETRIC_BOXDRAW`)
   are now live in the renderer, the symbol / Nerd-font fallback
-  (`ODYTTY_SYMBOL_FALLBACK`) is wired into the atlas, and stem darkening
+  (`symbol_fallback`) is wired into the atlas, and stem darkening
   (`ODYTTY_STEM_DARKEN`) is available — all default off / passthrough.)
 - **Atmospheric effects (opt-in)** — bloom/phosphor glow, CRT/retro profile,
   subtle cursor motion; all off by default, perf- and readability-gated.
@@ -246,7 +247,7 @@ enabled).
 
 ## Testing
 
-**Testing.** 1083 tests passing: 998 unit/integration, 12 mouse-protocol
+**Testing.** 1090 tests passing: 1004 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -254,12 +255,13 @@ normal/button-event/any-event modes, and SGR-pixel (1016) encoder coverage —
 press/release/wheel/motion with 1-based pixel coordinates, boundary at `(1,1)`,
 large coordinate values, modifier folding, not-1016 guard, and cell-path
 pass-through; run via
-`cargo test --test mouse_protocol`), 28 pixel-smoke (headless CPU compositor
+`cargo test --test mouse_protocol`), 29 pixel-smoke (headless CPU compositor
 asserting structural raster invariants for text rendering and graphics
 placement; EM3 added two — color-glyph segment draw ordering between coverage
-text and above-image layers, and wide color glyph lead-cell quad emission — and
+text and above-image layers, and wide color glyph lead-cell quad emission —
 ID1 default-on added three covering the now-default themed selection/cursor
-colors plus the `themed_ui_roles = off` legacy inverse parity), 4
+colors plus the `themed_ui_roles = off` legacy inverse parity, and RV3-dim
+added one asserting the perceptual dim delta stays confined to dim cells), 4
 box-drawing pixel-smoke (geometric box/block/Powerline: corner↔line seam, cross
 join, full-block solidity, and the off/on distinction), 11 protocol-fuzz smoke (never-panic, bounded-host-output, post-RIS,
 and grid-self-consistency invariants across seven fuzzed surfaces: extended

@@ -432,9 +432,10 @@ its first stable layer.
   - **Perceptual color pipeline** (`src/color.rs`): linear-space blending is
     active in the render path, and OKLab / OKLCH dim/fade/mix helpers
     (`dim_perceptual`, `mix_oklab`) are in place so equal numeric steps can
-    produce equal perceived steps. These back the minimum-contrast lift below;
-    the live SGR dim-text path still applies a linear-space scale, and adopting
-    the perceptual dim there is a tracked follow-up (RV3).
+    produce equal perceived steps. These back the minimum-contrast lift below,
+    and the live SGR dim/faint text path now dims through `dim_perceptual`
+    (OKLab, hue-preserving), calibrated to match the prior linear-space
+    halving's perceived brightness.
   - **Minimum-contrast floor** (`ODYTTY_MIN_CONTRAST`, `min_contrast`): a
     configurable WCAG contrast ratio floor between foreground and background,
     applied at render time. Default `1.0` is exact passthrough (no lift); higher

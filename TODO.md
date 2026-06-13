@@ -595,13 +595,13 @@ a floor; surpassing it is the standing ambition.
       startup and live reload before glyph-atlas rasterization; default `0.0`
       remains the byte-identical passthrough. Native now also warns if the GPU
       surface falls back to a non-sRGB format.
-- [ ] RV6 symbol / Nerd-font fallback chain for PUA prompt icons (starship,
+- [x] RV6 symbol / Nerd-font fallback chain for PUA prompt icons (starship,
       powerlevel10k, eza).
-  - [x] Core wiring landed: the fallback path is live and env-gated via
-        `ODYTTY_SYMBOL_FALLBACK`; automatic font search or a user-specified
-        font path via `ODYTTY_SYMBOL_FONT` cover common Nerd-font installs.
-  - [ ] First-class `symbol_fallback` / `symbol_font` settings knob with
-        in-panel control (RV6-SETTINGS, in flight).
+  - [x] Core wiring landed: the fallback path is live; automatic font search or
+        a user-specified font path cover common Nerd-font installs.
+  - [x] First-class `symbol_fallback` / `symbol_font` settings knob with
+        in-panel control, config round-trip, and help text; `ODYTTY_SYMBOL_FALLBACK`
+        / `ODYTTY_SYMBOL_FONT` remain as env overrides.
 - [x] ID1-a themed cursor, selection, and search roles (`themed_ui_roles`,
       default on): cursor uses the theme cursor color, selection uses the theme
       selection color, and search highlight uses the theme search color rather

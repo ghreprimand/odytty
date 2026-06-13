@@ -7,6 +7,55 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- RV6-SETTINGS: symbol fallback promoted to first-class settings
+
+- RV6 landed the symbol/Nerd-font fallback behind an interim `ODYTTY_SYMBOL_FALLBACK`
+  env gate. This packet promotes it to first-class runtime settings so it ships
+  behind a real knob with overlay help text, not just an env var.
+- New `symbol_fallback` (bool, default off) and `symbol_font` (optional path;
+  empty / `auto` = automatic discovery) settings: parsed, round-tripped through
+  `odytty.conf`, surfaced in the settings panel with help text, and
+  introspectable. Config aliases include `symbolfont` / `symbolfontpath` /
+  `nerdfontpath`.
+- `native/gpu.rs` now resolves *effective* values as env-over-setting
+  (`ODYTTY_SYMBOL_FALLBACK` / `ODYTTY_SYMBOL_FONT` still win when set, else the
+  setting), and re-resolves + rebuilds the atlas fallback slots on a live
+  settings change — toggling in the panel takes effect without a restart. The
+  startup/reload publish path (`native/mod.rs`, `settings/reload.rs`) carries the
+  new settings to the GPU layer like the synthetic-styles / geometric-boxdraw
+  globals.
+- Verified: `cargo fmt --check` clean; full battery green (settings 69, panel
+  15); pixel-smoke unchanged at default (default-off = byte-identical); native
+  smokes for the setting path (temp `XDG_CONFIG_HOME` config) and the env
+  override both exit 0; files < 2000 lines.
+
+---
+
+## 2026-06-13 -- RV3-DIM-FOLLOWUP: SGR-dim uses OKLab dim_perceptual
+
+- The live SGR-dim/faint resolve step still halved the foreground per-channel
+  in linear space, even though RV3's perceptual pipeline (OKLab
+  `dim_perceptual`) had superseded that model everywhere else — the gap SPEC.md
+  carried an honesty note about. The resolve site now dims perceptually.
+- `grid.rs` `dim_color`: dims via `color::dim_perceptual` at an amount of
+  `1 - 0.5^(1/3) ≈ 0.2063`, calibrated so the perceived brightness matches the
+  historical linear ×0.5 (OKLab lightness scales as the cube root of linear
+  luminance, making the parity amount constant across colors). Hue-preserving
+  and chroma-aware, where the old per-channel scale could skew hue. Same
+  signature, alpha preserved.
+- RV1 ordering preserved: the resolve closure runs dim *before*
+  `enforce_contrast_rgba`, so at `min_contrast = 1.0` the dim shows through and
+  a raised floor re-lifts the dimmed foreground.
+- Pixel impact is confined to SGR-dim cells (an explicit attribute, not the
+  plain path): a new pixel-smoke test renders a plain cell beside a dim cell and
+  asserts the plain cell is byte-identical to an all-plain reference while only
+  the dim cell changes. A new grid unit test pins the amount choice (brightness
+  parity with the old halving + hue preservation).
+- Verified: `cargo test` lib +1, pixel-smoke +1 (29), full battery green,
+  `cargo fmt --check` clean, no machine paths, all files < 2000 lines.
+
+---
+
 ## 2026-06-13 -- RV6: symbol / Nerd-font fallback chain for PUA prompt icons (opt-in)
 
 - Prompt frameworks (starship, powerlevel10k, eza) draw their icons from the
