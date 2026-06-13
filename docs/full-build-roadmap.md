@@ -7,11 +7,10 @@ justify itself.
 
 The core rule stays the same: terminal correctness, readable text, predictable
 input, and stable performance outrank visual novelty. At the same time, visual
-quality is a defining pillar of the product, not decoration. OdyTTY treats the
-visible rendering capability of the strongest modern GPU terminals as a floor
-to reach and then exceed within its own identity. Odyssey-specific visuals
-should make the terminal feel more intentional and alive without weakening
-trust.
+quality is a defining pillar of the product, not decoration. OdyTTY aims to be
+a distinctive, well-crafted terminal with features and a visual identity that
+stand on their own merits. Odyssey-specific visuals should make the terminal
+feel more intentional and alive without weakening trust.
 
 A second defining pillar is foundation ownership. OdyTTY's standard is that
 every byte from the PTY to the glyph quad passes exclusively through
@@ -60,8 +59,7 @@ All settings are currently environment variables loaded once at startup. There i
 no file-based configuration yet (Stage 5).
 
 The foundation is strong enough to support Stage 5 (configuration), the Kitty
-graphics MVP, a side-by-side visual comparison against Ghostty, and eventually
-the identity half of Stage 6.
+graphics MVP, and the identity and visual-enhancement half of Stage 6.
 
 ## Stage 1: Prototype Stabilization
 
@@ -110,16 +108,13 @@ Acceptance target:
 
 ## Stage 3: High-Quality Text And Rendering
 
-Text quality should be a major product pillar, not a minor renderer detail.
-Ghostty sets the strongest modern baseline: text feels sharp, stable,
-well-spaced, and pleasant for long sessions. For OdyTTY that baseline is the
-floor, not the finish line. Meet it first, then keep pushing wherever
-measurable rendering quality allows.
-
-The goal is not to copy Ghostty's implementation. The goal is to hold OdyTTY to
-the same user-visible standard: text should look professionally rendered at
-normal terminal sizes, on HiDPI displays, during scrolling, under color themes,
-and inside dense TUI screens.
+Text quality is a major product pillar, not a minor renderer detail. Text
+should look professionally rendered at normal terminal sizes — sharp, stable,
+well-spaced, and pleasant for long sessions. It should hold up on HiDPI
+displays, during scrolling, under color themes, and inside dense TUI screens.
+Mature terminals (xterm, Konsole, and others) serve as compatibility references;
+text quality comparisons against them are useful calibration, not the finish
+line.
 
 Focus:
 

@@ -2,11 +2,17 @@
 
 ## The Spark
 
-In the spirit of OdysseyOS, I feel like I need my own terminal: Odyssey Terminal. Ghostty is the mark right now, but I want to explore whether we can make something more visually interesting, flashy, and pretty while still being reliable and solid.
+OdysseyOS needs its own terminal — one that carries its own visual identity
+and has features worth having, built from the ground up rather than skinned
+from something else. The open questions that drive the project: can a terminal
+emulator add richer visual effects, better themes, a stronger sense of identity,
+and features that make command-line work feel more alive — while staying fast,
+correct, and trustworthy for real daily use?
 
-The open questions are part of the idea: what would make Odyssey Terminal stand out from terminals like Ghostty or Konsole? Is it richer visual effects, better themes and color schemes, a stronger sense of identity, or features that make the terminal feel more alive without getting in the way?
-
-The project should pursue genuinely original terminal work rather than forking or skinning an existing terminal. If that path cannot produce something interesting, useful, and reliable enough to justify itself, the project should be scrapped or rethought instead of becoming a themed version of another terminal.
+The project pursues genuinely original terminal work. If that path cannot
+produce something interesting, useful, and reliable enough to justify itself,
+it should be rethought rather than becoming a re-skinned version of another
+terminal.
 
 ## Concept
 
@@ -385,7 +391,10 @@ its first stable layer.
   inverse; stream and exact extents via DECSACE); DECSCA character protection;
   DECSED/DECSEL selective erase; wide-pair edge sanitization
 - Lazy scrollback re-wrap and resize fast paths
-- Theme system (plain baseline, Odyssey presets); optional ambient visual effect
+- Theme system: full 16-color ANSI palette + semantic roles (cursor, selection,
+  search highlight, reserved border/inactive) per theme; `plain`, `odyssey`, and
+  `odyssey-noir` built-ins; OSC-4 / OSC-10/11/12 dynamic overrides layer on top;
+  optional ambient scanline visual effect
 - Shell working-directory tracking: OSC 7 (`file://host/path`) is parsed and
   stored as advisory string state on the terminal core (`Screen::current_working_directory`,
   `Screen::take_working_directory_changed`). The parser requires the `file://`

@@ -117,15 +117,25 @@ up to a cap of 4096 slots (`MAX_COLOR_GLYPH_SLOTS`).
 `src/grid.rs` (`foreground_linear`, `background_linear`), `src/text.rs`
 (`indexed_srgb`, `srgb_to_linear`).*
 
-### Theme (fg / bg / clear)
+### Theme (TH1 landed)
 
-`Theme` carries three sRGB triples: `foreground`, `background`, and `clear`.
-At startup the native layer calls `text::set_default_colors(fg, bg)` to
-publish the theme defaults as process-global atomics, and passes `clear` to
+*Source: `src/theme.rs` (TH1, commit `fa857f0`).*
+
+`Theme` now carries the full 16-color ANSI palette (indices 0–7 normal, 8–15
+bright), semantic-role colors (cursor, selection, search highlight, reserved
+border/inactive), and the three original sRGB triples (foreground, background,
+clear). At startup the native layer calls `text::set_ansi_palette` to publish
+the theme's 16-color palette alongside the default fg/bg, and passes `clear` to
 `gpu.rs` as the wgpu surface clear color.
 
-Three built-in themes exist today: `plain` (`#CCCCCC` / `#0B0C10`), `odyssey`,
-and `odyssey-noir`. Unknown names fall back to `plain`.
+Three built-in themes: `plain` (`#CCCCCC` / `#0B0C10`, palette reproduces the
+historical xterm table byte-for-byte), `odyssey`, and `odyssey-noir`. Unknown
+names fall back to `plain`.
+
+The indexed-color resolution chain is now theme-driven for indices 0–15:
+`text::indexed_srgb(0..=15)` reads the published theme palette override before
+falling back to the built-in constant table; cube (16–231) and grayscale
+(232–255) entries are unchanged.
 
 ### Dynamic color overrides (OSC 10/11/12, OSC 4)
 
@@ -151,10 +161,9 @@ attribute; the sRGB swapchain surface applies the linear→sRGB transfer on
 write, so no explicit gamma correction is needed in the output path (only the
 glyph-coverage gamma matters for text rendering).
 
-**The Theme struct today carries only fg/bg/clear.** Indexed-color defaults,
-semantic roles (cursor, selection, search highlight, border), and visual-effect
-profiles are not yet part of the theme. This is the gap the palette-foundation
-work addresses.
+**TH1 closed the fg/bg/clear-only limitation.** The palette and semantic roles
+are now live in the theme. Theme file format, curated theme library, and the
+live in-app editor are the remaining steps in the theme epic.
 
 ---
 
@@ -236,13 +245,12 @@ pass) that does not exist yet.
 
 ### Theme and appearance system
 
-The current `Theme` struct holds only `fg/bg/clear`. The planned extension adds
-the full 16 + bright ANSI palette plus semantic roles (cursor, selection, search
-highlight, border, inactive) as first-class theme fields. The renderer will
-resolve indexed and default colors from the active theme rather than the fixed
-xterm-256 table; OSC-4 / dynamic-color overrides layer on top with correct
-precedence. Theme files, a curated built-in library, and a live in-app editor
-are downstream of this foundation.
+**TH1 has landed** (commit `fa857f0`): `Theme` now carries the full 16-color
+ANSI palette plus semantic roles (cursor, selection, search, reserved
+border/inactive). The indexed-color render path is theme-driven; OSC-4 /
+dynamic-color overrides layer on top with correct precedence. Remaining: theme
+file format (TH2), curated built-in theme library (TH3), and a live in-app
+theme editor (TH4).
 
 ### In-app configuration UX
 
