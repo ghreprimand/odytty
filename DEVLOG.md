@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- VE1-a: post-process foundation (offscreen target + passthrough composite)
+
+- Wired a lazy post-process scaffold into the native GPU renderer: an offscreen
+  render target/view/bind group, a nearest-clamp sampler, and a fullscreen-
+  triangle composite pipeline whose shader is pass-through only. This is the
+  foundation the Tier-3 atmospheric work (bloom, CRT, glow) will build on.
+- The default path is unchanged and stays direct-to-swapchain: `post_active()`
+  returns false, the offscreen resources are `None`, and no offscreen allocation
+  or extra pass occurs until a future effect activates the branch. VE1-a ships
+  zero visible change by design — it is pure plumbing.
+- Scene draw ordering was extracted into `draw_scene()` / `encode_scene_pass()`
+  so the direct path and the dormant offscreen path share one sequence, leaving
+  a single seam for future effects to hook.
+- A new GPU readback smoke renders the same tiny checker scene both directly and
+  through offscreen→composite and asserts byte-equality, guarding the passthrough
+  seam against regressions as effects land. The test is adapter-gated; on this
+  host the adapter was available and it ran (not skipped).
+- Verified: `cargo fmt --check` clean, full `cargo test` green (lib 1010 +
+  integration 89, including the new GPU composite smoke; pixel-smoke unchanged
+  at 31), native smokes exit 0 across theme/contrast/box-draw/roles/focus
+  variants. A follow-up (VE1-b) will move the offscreen intermediate to a linear
+  `Rgba16Float` format so HDR overshoot survives for bloom; the sRGB-8 target
+  here is sufficient for the passthrough foundation but not for additive glow.
+
+## 2026-06-13 -- Test maintenance: pixel_smoke modularized
+
+- Split the `pixel_smoke` integration test (1911 lines, near the source cap)
+  into a single-binary submodule layout (`tests/pixel_smoke/main.rs` plus
+  `harness`, `graphics_harness`, and six themed test modules), each comfortably
+  under the cap. No behavior change — the 31 checks are relocated verbatim, the
+  binary keeps its name, and the count is unchanged.
+
 ## 2026-06-13 -- ID2: focus dimming when the window is unfocused (opt-in)
 
 - Added a `focus_dim` knob (`ODYTTY_FOCUS_DIM`, 0.0–1.0, default 0.0 = off) that
