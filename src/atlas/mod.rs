@@ -59,10 +59,13 @@
 //! and the future font-family setting.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use ab_glyph::{Font, FontVec, PxScale, ScaleFont, point};
 use unicode_width::UnicodeWidthChar;
+
+pub mod fallback;
 
 /// First and last printable ASCII code points covered by the atlas.
 const FIRST_CHAR: u32 = 0x20;
@@ -326,6 +329,17 @@ pub struct GlyphAtlas {
     /// after [`Self::build`] and rebuilds the atlas when the setting changes, so
     /// the dynamic region never holds a stale mix of geometric and font glyphs.
     geometric: bool,
+    /// Optional symbol / Nerd-font fallback (RV6). When set, a printable
+    /// codepoint the **primary** font lacks is rasterized from this font
+    /// instead of the hollow-box tofu slot — but only when
+    /// [`fallback::is_symbol_codepoint`] classifies it as a PUA icon **and**
+    /// this fallback font actually has the glyph. `None` (the default, and the
+    /// state on any freshly built atlas) preserves the historical missing-glyph
+    /// path byte-for-byte. Held as an `Arc` so the per-glyph lookup can clone a
+    /// handle and rasterize without conflicting with the `&mut self` bitmap
+    /// borrow. The native layer resolves and sets it after build, mirroring the
+    /// synthetic-styles / geometric switches.
+    fallback: Option<Arc<FontVec>>,
 }
 
 impl GlyphAtlas {
@@ -426,6 +440,7 @@ impl GlyphAtlas {
             subpixel,
             synthetic: 0,
             geometric: false,
+            fallback: None,
         }
     }
 
@@ -581,10 +596,22 @@ impl GlyphAtlas {
         // Powerline codepoints are rasterized from cell-aligned geometry instead
         // of the font glyph — and render even if the font lacks the codepoint.
         let geometric = self.geometric && crate::boxdraw::covers(ch);
+        // RV6: when the primary font lacks the glyph, a symbol/Nerd fallback
+        // font (if configured) rasterizes PUA prompt icons instead of tofu.
+        // `None` here means either no fallback is set, the codepoint is not a
+        // symbol, or the fallback also lacks it — all of which fall through to
+        // the historical hollow-box slot, keeping the default path identical.
+        let mut symbol_font: Option<Arc<FontVec>> = None;
         if !geometric && !font_has_glyph(font, ch) {
-            // Font lacks the glyph: cache the fallback decision, draw nothing new.
-            self.dynamic.insert((style, ch), FALLBACK_SLOT);
-            return Some(self.slot_uv(FALLBACK_SLOT));
+            match self.symbol_fallback(ch) {
+                Some(fb) => symbol_font = Some(fb),
+                None => {
+                    // Font lacks the glyph and no fallback applies: cache the
+                    // fallback decision, draw nothing new.
+                    self.dynamic.insert((style, ch), FALLBACK_SLOT);
+                    return Some(self.slot_uv(FALLBACK_SLOT));
+                }
+            }
         }
         // Geometric glyphs are always single-cell (box/block/Powerline).
         let cells = if geometric { 1 } else { glyph_cells(ch) };
@@ -608,9 +635,15 @@ impl GlyphAtlas {
             )
             .unwrap_or_else(|| GlyphInk::cell(self.cell))
         } else {
-            let synth = self.synth_for(style);
+            // A symbol fallback glyph renders from the fallback face with no
+            // synthetic transform (icons are not emboldened/sheared); otherwise
+            // the primary font and the style's synthetic mask apply as usual.
+            let (raster_font, synth): (&FontVec, SynthTransform) = match symbol_font.as_deref() {
+                Some(fb) => (fb, SynthTransform::none()),
+                None => (font, self.synth_for(style)),
+            };
             rasterize_glyph(
-                font,
+                raster_font,
                 Pen {
                     px: self.px,
                     baseline: self.cell.baseline as f32,
@@ -758,6 +791,37 @@ impl GlyphAtlas {
     /// rebuilds when the setting toggles (resident slots are never rewritten).
     pub fn set_geometric_boxdraw(&mut self, on: bool) {
         self.geometric = on;
+    }
+
+    /// Install (or clear) the symbol / Nerd-font fallback (RV6).
+    ///
+    /// When `Some`, a printable codepoint the **primary** font lacks is
+    /// rasterized from this font — but only when
+    /// [`fallback::is_symbol_codepoint`] classifies it as a PUA prompt icon and
+    /// this font actually has the glyph; otherwise the historical hollow-box
+    /// slot is used. `None` (the default) restores the pre-feature missing-glyph
+    /// path exactly, so a build with no fallback is byte-identical to the
+    /// minimal renderer.
+    ///
+    /// Like [`Self::set_synthetic_styles`] / [`Self::set_geometric_boxdraw`],
+    /// this only governs glyphs rasterized after it is set; the native layer
+    /// installs it on a freshly built atlas and reinstalls it after a rebuild,
+    /// so the dynamic region never mixes resolved and unresolved fallbacks.
+    pub fn set_fallback_font(&mut self, font: Option<Arc<FontVec>>) {
+        self.fallback = font;
+    }
+
+    /// The fallback font to rasterize `ch` from when the primary lacks it, or
+    /// `None` to keep the hollow-box behavior. Returns the configured fallback
+    /// only when `ch` is a PUA symbol codepoint and the fallback face actually
+    /// has a glyph for it.
+    fn symbol_fallback(&self, ch: char) -> Option<Arc<FontVec>> {
+        let fb = self.fallback.as_ref()?;
+        if fallback::is_symbol_codepoint(ch) && font_has_glyph(fb, ch) {
+            Some(Arc::clone(fb))
+        } else {
+            None
+        }
     }
 
     /// The [`SynthTransform`] to apply when rasterizing `style`. Returns the

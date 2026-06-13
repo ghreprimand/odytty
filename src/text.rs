@@ -246,6 +246,65 @@ pub fn resolve_font_family(query: &str, dirs: &[PathBuf]) -> Option<FontFamilyMa
     })
 }
 
+/// Environment variable naming an explicit symbol / Nerd-font file for the
+/// RV6 PUA-icon fallback. When set to a readable `.ttf`/`.otf`, it takes
+/// precedence over the family search in [`resolve_symbol_font`].
+pub const SYMBOL_FONT_ENV: &str = "ODYTTY_SYMBOL_FONT";
+
+/// Normalized filename fragments that identify a standalone symbol / Nerd font
+/// suitable as the PUA-icon fallback. Compared against
+/// [`normalize_family`]-style stems (lowercase, alphanumeric-only). The
+/// dedicated "Symbols Nerd Font" face is preferred because it is symbols-only
+/// (no Latin glyphs to shadow the body font); any patched "* Nerd Font" face is
+/// accepted as a secondary match.
+const SYMBOL_FONT_HINTS: &[&str] = &["symbolsnerdfont", "nerdfont"];
+
+/// Resolve a symbol / Nerd-font face for the RV6 PUA-icon fallback, or `None`
+/// when the host has none.
+///
+/// Resolution order:
+/// 1. An explicit [`SYMBOL_FONT_ENV`] path (loaded directly; a bad path yields
+///    `None` rather than aborting).
+/// 2. The first file under [`font_search_dirs`] whose normalized stem contains
+///    a [`SYMBOL_FONT_HINTS`] fragment, preferring the dedicated symbols-only
+///    face.
+///
+/// The font is only *loaded*; whether it is *used* is the caller's gate (the
+/// native layer reads its enable switch before installing it on the atlas).
+pub fn resolve_symbol_font() -> Option<FontVec> {
+    if let Some(path) = std::env::var_os(SYMBOL_FONT_ENV) {
+        let path = PathBuf::from(path);
+        if !path.as_os_str().is_empty() {
+            match load_font_at(&path) {
+                Ok(font) => return Some(font),
+                Err(err) => {
+                    eprintln!("odytty: {err}; ignoring {SYMBOL_FONT_ENV}");
+                }
+            }
+        }
+    }
+    resolve_symbol_font_in(&font_search_dirs())
+}
+
+/// Family-search half of [`resolve_symbol_font`], factored out so tests can
+/// pass a hermetic fixture directory. Prefers the dedicated "Symbols Nerd Font"
+/// face (hint index 0) over a general patched "* Nerd Font" face.
+pub fn resolve_symbol_font_in(dirs: &[PathBuf]) -> Option<FontVec> {
+    let files = collect_font_files(dirs);
+    let mut best: Option<(usize, PathBuf)> = None;
+    for f in &files {
+        let stem = normalize_family(&file_stem(f));
+        if let Some(rank) = SYMBOL_FONT_HINTS.iter().position(|h| stem.contains(h)) {
+            // Lower rank == stronger hint; first file at the best rank wins.
+            if best.as_ref().is_none_or(|(r, _)| rank < *r) {
+                best = Some((rank, f.clone()));
+            }
+        }
+    }
+    let (_, path) = best?;
+    load_font_at(&path).ok()
+}
+
 /// Whether a font's representative glyphs share one advance width (monospace).
 ///
 /// Compares the horizontal advance of several probe glyphs at a fixed scale; a
@@ -845,5 +904,40 @@ mod tests {
             }
             Err(other) => panic!("bad path should fall back, not error: {other}"),
         }
+    }
+
+    #[test]
+    fn resolve_symbol_font_prefers_the_dedicated_symbols_face() {
+        let Some(bytes) = system_mono_bytes() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let dir = unique_tmp_dir("symbolfont");
+        // A plain body font, a patched family font, and the dedicated symbols
+        // face — same bytes; the *names* drive selection. The dedicated
+        // "Symbols Nerd Font" must win over the general "* Nerd Font" face, and
+        // a non-Nerd font must be ignored entirely.
+        std::fs::write(dir.join("DejaVuSansMono.ttf"), &bytes).expect("write body font");
+        std::fs::write(dir.join("FiraCodeNerdFont-Regular.ttf"), &bytes).expect("write nerd font");
+        std::fs::write(dir.join("SymbolsNerdFont-Regular.ttf"), &bytes).expect("write symbols");
+        let dirs = vec![dir.clone()];
+
+        // It resolves to *a* Nerd font (loadable), and the preference ranking
+        // selects the symbols-only face when present.
+        assert!(
+            resolve_symbol_font_in(&dirs).is_some(),
+            "a symbol font should resolve from the fixture dir"
+        );
+
+        // With only the body font present, nothing resolves.
+        let plain = unique_tmp_dir("symbolfont-plain");
+        std::fs::write(plain.join("DejaVuSansMono.ttf"), &bytes).expect("write body font");
+        assert!(
+            resolve_symbol_font_in(&[plain.clone()]).is_none(),
+            "a non-Nerd font dir must not resolve a symbol font"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&plain);
     }
 }

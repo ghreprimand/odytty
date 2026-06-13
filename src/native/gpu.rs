@@ -339,6 +339,36 @@ fn load_optional_style_font(path: &std::path::Path) -> Option<FontVec> {
     text::load_font_at(path).ok()
 }
 
+/// Enable switch for the RV6 symbol / Nerd-font fallback. Read once at GPU
+/// construction; off by default so the missing-glyph path is unchanged.
+///
+/// This is an interim env gate because the first-class settings knob would have
+/// to land in `settings.rs`, which is held by another lane this round. A
+/// follow-up promotes it to a `symbol_fallback` setting with overlay/config/
+/// introspection support.
+const SYMBOL_FALLBACK_ENV: &str = "ODYTTY_SYMBOL_FALLBACK";
+
+/// Resolve the symbol / Nerd-font fallback face when [`SYMBOL_FALLBACK_ENV`] is
+/// enabled and a font is available, else `None`. A missing font with the switch
+/// on is not an error — the renderer silently keeps the hollow-box behavior.
+fn resolve_symbol_fallback() -> Option<Arc<FontVec>> {
+    if !env_flag_enabled(SYMBOL_FALLBACK_ENV) {
+        return None;
+    }
+    text::resolve_symbol_font().map(Arc::new)
+}
+
+/// Interpret an environment variable as a boolean enable flag: `1`/`true`/`on`/
+/// `yes` (case-insensitive) enable; unset or anything else is off.
+fn env_flag_enabled(name: &str) -> bool {
+    std::env::var(name).is_ok_and(|v| {
+        matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "on" | "yes"
+        )
+    })
+}
+
 /// Apply the synthetic-styles kill switch to a font set's natural synthesis
 /// mask. When synthesis is `enabled`, returns [`StyleFonts::synthetic_mask`]
 /// unchanged (each style true only when it has no real face). When disabled,
@@ -628,6 +658,13 @@ pub(super) struct GpuState {
     /// rebuild the atlas; geometry slots are atlas-owned, so flipping the setting
     /// must not wait for unrelated font changes.
     geometric_enabled: bool,
+    /// Symbol / Nerd-font fallback face for PUA prompt icons (RV6), resolved
+    /// once at construction when [`SYMBOL_FALLBACK_ENV`] is enabled and a font
+    /// is found; `None` otherwise. Retained so [`Self::rebuild_atlas`] can
+    /// reinstall it on the fresh atlas (fallback glyphs are baked into slots, so
+    /// a rebuild must re-resolve them). The on/off gate is an env var this round
+    /// — promoting it to a first-class `symbol_fallback` setting is a follow-up.
+    symbol_fallback: Option<Arc<FontVec>>,
     font_path: Option<PathBuf>,
     font_family: String,
     // Kept alive for the lifetime of the bind group; never read directly.
@@ -723,6 +760,8 @@ impl GpuState {
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
         let geometric_enabled = crate::settings::geometric_boxdraw_enabled();
         atlas.set_geometric_boxdraw(geometric_enabled);
+        let symbol_fallback = resolve_symbol_fallback();
+        atlas.set_fallback_font(symbol_fallback.clone());
         ensure_snapshot_glyphs(&mut atlas, &fonts, initial_snapshot);
         let atlas_texture = create_atlas_texture(&device, &queue, &atlas);
         // Nearest + clamp: glyph cells map 1:1 to pixels, so no filtering.
@@ -934,6 +973,7 @@ impl GpuState {
             stem_darken,
             synthetic_enabled,
             geometric_enabled,
+            symbol_fallback,
             font_path: options.font_path.clone(),
             font_family: options.font_family.clone(),
             atlas_texture,
@@ -976,6 +1016,7 @@ impl GpuState {
             masked_synthetic(&self.fonts, self.synthetic_enabled);
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
         atlas.set_geometric_boxdraw(self.geometric_enabled);
+        atlas.set_fallback_font(self.symbol_fallback.clone());
         let _ = atlas.take_dirty();
         self.atlas = atlas;
         self.refresh_atlas_texture();
