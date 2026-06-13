@@ -365,8 +365,11 @@ its first stable layer.
   `DECRST` clears back to the default. SGR-pixel encoding (mode 1016) is
   supported core-side as of MS1: `DECSET`/`DECRST`/`DECRQM` are wired, and a
   pure pixel encoder emits `CSI < Cb ; Px ; Py M|m` from caller-owned 1-based
-  pixel coordinates; the native pixel seam (cell-to-pixel coordinate delivery
-  from the renderer) is the remaining gap and is tracked as MS2.
+  pixel coordinates. As of MS2 the native pixel seam is closed end-to-end: when
+  1016 is active the native mouse handler routes true 1-based physical pixel
+  coordinates (floored from the winit cursor position, clamped to the grid
+  pixel extent) to the core pixel encoder, while every other encoding keeps the
+  cell path.
 - Window title from OSC 0/2; DECSET 1004 focus reporting
 - Synchronized output (DEC private mode 2026): presentation hold with 150 ms
   safety timeout; cursor blink live during hold

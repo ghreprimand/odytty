@@ -127,6 +127,11 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         `CSI < Cb ; Px ; Py M|m` from caller-owned 1-based pixel coordinates
         (core never derives pixels from cells; the native pixel seam is a
         follow-up packet).
+  - [x] MS2: SGR-pixel mode 1016 native pixel seam — the native mouse handler
+        routes true 1-based physical pixel coordinates (floored from the winit
+        cursor position, clamped to the grid pixel extent) to the core pixel
+        encoder when 1016 is active; all other encodings keep the cell path.
+        Cursor-outside-grid saturates to the nearest edge pixel.
   - [x] Native: route press/release/motion/wheel events through the active mouse
         protocol, with Shift reserved for local selection/scrollback.
   - [x] Core: any-event (1003) no-button hover motion encoding (legacy/SGR/

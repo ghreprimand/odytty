@@ -32,6 +32,26 @@ bounded multi-codepoint clusters.
   ZWJ-family cluster rendering, keycap fallback-or-color behavior, no-font
   fallback visibility, and multi-source-cell foreground suppression.
 
+## 2026-06-13 -- SGR-pixel mouse reporting, native pixel seam (MS2)
+
+Completed mouse mode 1016 end-to-end. MS1 landed the core pixel encoder and
+DECSET/DECRST/DECRQM wiring but the native layer still passed cell coordinates
+through for 1016; MS2 routes true 1-based physical pixel coordinates.
+
+- Native caches the raw physical pointer position (winit `CursorMoved` coords)
+  alongside the pointer cell, cleared on resize; coordinate-less button/wheel
+  events reuse it like the cell path.
+- `send_mouse_report` branches on the active encoding: `SgrPixel` (1016)
+  computes 1-based pixel coords and calls the core pixel encoder; legacy/UTF-8/
+  SGR/urxvt keep the unchanged cell path.
+- The grid draws at the window origin and winit coords are already physical
+  pixels in `CellSize` units, so the mapping floors to 1-based with no scale
+  multiply, clamped to the grid pixel extent. A cursor outside the grid during
+  a drag saturates to the nearest edge pixel, mirroring the cell path.
+- Shift stays reserved for local selection. 8 headless unit tests (origin,
+  floor/1-based, cell-size independence, negative + extent clamp, wire shape,
+  not-1016 guard).
+
 ## 2026-06-12 -- OSC 7 working-directory tracking, core half (SI1)
 
 Added shell working-directory tracking via OSC 7 (`file://host/path`) on the
