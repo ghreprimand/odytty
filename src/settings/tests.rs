@@ -94,6 +94,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "text_gamma",
             "stem_darken",
             "min_contrast",
+            "focus_dim",
             "subpixel",
             "synthetic_styles",
             "geometric_boxdraw",
@@ -116,6 +117,10 @@ fn setting_info_covers_every_field_with_descriptions() {
     assert!(
         info.iter()
             .any(|row| row.key == "min_contrast" && row.range == Some("1.0..=21.0"))
+    );
+    assert!(
+        info.iter()
+            .any(|row| row.key == "focus_dim" && row.range == Some("0.0..=1.0"))
     );
 }
 
@@ -588,6 +593,53 @@ fn min_contrast_clamps_to_supported_range() {
     assert_eq!(large.min_contrast, MAX_MIN_CONTRAST);
     assert!(small_warnings.is_empty());
     assert!(large_warnings.is_empty());
+}
+
+#[test]
+fn focus_dim_defaults_to_off() {
+    let (settings, warnings) = settings_from([]);
+    assert_eq!(settings.focus_dim, DEFAULT_FOCUS_DIM);
+    assert_eq!(settings.focus_dim, 0.0);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn focus_dim_parses_a_valid_value() {
+    let (settings, warnings) = settings_from([(FOCUS_DIM_ENV, "0.25")]);
+    assert_eq!(settings.focus_dim, 0.25);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn empty_focus_dim_falls_back_without_warning() {
+    let (settings, warnings) = settings_from([(FOCUS_DIM_ENV, "  ")]);
+    assert_eq!(settings.focus_dim, DEFAULT_FOCUS_DIM);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_focus_dim_falls_back_with_one_warning() {
+    let (settings, warnings) = settings_from([(FOCUS_DIM_ENV, "lots")]);
+    assert_eq!(settings.focus_dim, DEFAULT_FOCUS_DIM);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(FOCUS_DIM_ENV));
+}
+
+#[test]
+fn focus_dim_clamps_to_unit_range() {
+    let (small, small_warnings) = settings_from([(FOCUS_DIM_ENV, "-0.5")]);
+    let (large, large_warnings) = settings_from([(FOCUS_DIM_ENV, "4")]);
+    assert_eq!(small.focus_dim, MIN_FOCUS_DIM);
+    assert_eq!(large.focus_dim, MAX_FOCUS_DIM);
+    assert!(small_warnings.is_empty());
+    assert!(large_warnings.is_empty());
+}
+
+#[test]
+fn focus_dim_round_trips_through_config_key_mapping() {
+    assert_eq!(config_key_to_env("focus_dim"), Some(FOCUS_DIM_ENV));
+    assert_eq!(config_key_to_env("unfocuseddim"), Some(FOCUS_DIM_ENV));
+    assert_eq!(env_to_config_key(FOCUS_DIM_ENV), Some("focus_dim"));
 }
 
 #[test]

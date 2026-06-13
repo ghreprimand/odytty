@@ -470,6 +470,7 @@ fn number_step(key: &str) -> f32 {
         "font_size" => 1.0,
         "text_gamma" => 0.1,
         "stem_darken" => 0.05,
+        "focus_dim" => 0.05,
         _ => 1.0,
     }
 }

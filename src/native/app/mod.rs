@@ -1275,17 +1275,33 @@ impl ApplicationHandler<UserEvent> for App {
                             self.last_render_signature.as_ref(),
                             &signature,
                         );
+                        // ID2 focus dimming: dim the whole grid only while the
+                        // window is unfocused. The focused window is never dimmed
+                        // (amount 0.0), so focused frames stay byte-identical; the
+                        // knob defaults to 0.0, which is also a no-op. grid.rs does
+                        // the perceptual math; the native layer only decides the
+                        // effective amount here.
+                        let focus_dim = if self.focused {
+                            0.0
+                        } else {
+                            self.settings.focus_dim
+                        };
                         if let Some(gpu) = self.gpu.as_mut() {
                             match update {
                                 GeometryUpdate::Full => {
                                     gpu.update_image_layer(&visible_graphics, &image_uploads);
                                     if overlays.is_empty() {
-                                        gpu.update_from_snapshot(&snapshot, cursor_style);
+                                        gpu.update_from_snapshot(
+                                            &snapshot,
+                                            cursor_style,
+                                            focus_dim,
+                                        );
                                     } else {
                                         gpu.update_from_snapshot_with_overlays(
                                             &snapshot,
                                             cursor_style,
                                             &overlays,
+                                            focus_dim,
                                         );
                                     }
                                 }
@@ -1332,6 +1348,14 @@ impl ApplicationHandler<UserEvent> for App {
                 // Force the cursor solid-on immediately on focus loss (and
                 // resume blinking on focus gain) by rebuilding next frame.
                 self.needs_rebuild = true;
+                // ID2 focus dimming: a focus transition changes the effective
+                // focus-dim amount applied to every cell, so the cell geometry
+                // (not just the cursor) must be rebuilt. Bump the presentation
+                // epoch — folded into the content render signature — so this
+                // frame resolves to a Full geometry update rather than a
+                // CursorOnly/Retained one. Harmless when focus_dim is off (the
+                // rebuilt vertices are byte-identical).
+                self.presentation_epoch = self.presentation_epoch.wrapping_add(1);
                 if let Some(window) = self.window.as_ref() {
                     window.request_redraw();
                 }

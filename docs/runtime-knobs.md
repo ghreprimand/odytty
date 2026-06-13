@@ -42,6 +42,7 @@ subpixel = rgb
 text_gamma = 1.4
 stem_darken = 0.0
 min_contrast = 1.0
+focus_dim = 0.0
 geometric_boxdraw = off
 symbol_fallback = off
 symbol_font =
@@ -71,6 +72,7 @@ directory and rename it over the target, so OdyTTY never truncates
 | `text_gamma` | `ODYTTY_TEXT_GAMMA` | Floating-point gamma, clamped to `0.5..=3.0` | `1.4` | Adjusts glyph coverage in the shader for text weight/contrast. `1.0` is the exact legacy linear blend path. Invalid values fall back to `1.4` with one stderr warning. |
 | `stem_darken` | `ODYTTY_STEM_DARKEN` | Floating-point strength, clamped to `0.0..=1.0` | `0.0` | Stem darkening (RV5): a raster-time coverage boost so light-on-dark body text holds weight at small sizes. `0.0` disables it and is pixel-identical to the pre-feature renderer; `1.0` is the strongest boost. Applied to anti-aliased glyph edges/thin stems only — fully-covered and fully-uncovered pixels are never moved. Default off pending a perceptual eyeball pass; `0.4`–`0.6` is the recommended starting range. Invalid values fall back to `0.0` with one stderr warning. |
 | `min_contrast` | `ODYTTY_MIN_CONTRAST` | Floating-point WCAG ratio, clamped to `1.0..=21.0` | `1.0` | Minimum contrast guarantee (RV1): lifts each cell's foreground until its WCAG contrast against the background meets at least this ratio, so low-contrast apps stay legible. `1.0` disables the floor and is pixel-identical to the pre-feature renderer; `4.5` is the WCAG AA body-text threshold and `7.0` is AAA. The lift moves only perceptual (OKLab) lightness, preserving hue; against a near-mid-grey background where the ratio is unreachable it makes a best-effort move to the most-contrasting shade. Invalid values fall back to `1.0` with one stderr warning. |
+| `focus_dim` | `ODYTTY_FOCUS_DIM` | Floating-point amount, clamped to `0.0..=1.0` | `0.0` | Focus dimming (ID2): while the window is unfocused, dims the whole grid — both text and background — so it recedes visually and the focused window stands out. `0.0` disables it and is pixel-identical to the pre-feature renderer (focused and unfocused frames are byte-identical); `0.15`–`0.30` is a subtle recede. The dim is perceptual (OKLab), preserving hue, and is applied before the `min_contrast` floor so text stays legible against the dimmed background. The focused window is never dimmed regardless of this value. Invalid values fall back to `0.0` with one stderr warning. Config-file aliases: `unfocuseddim`. |
 | `subpixel` | `ODYTTY_SUBPIXEL` | `off` (also `none`), `rgb`, `bgr` | `off` | Enables optional RGB/BGR subpixel text coverage when the GPU supports dual-source blending. Unsupported adapters fall back to grayscale text with one stderr notice; startup never fails because of this setting. |
 | `font` | `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | Host monospace probe list | Overrides the probed Linux monospace font. A missing or unparseable path no longer aborts startup: it logs one stderr notice and falls back to the probe list. |
 | `font_family` | `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | Host monospace probe list | Selects the regular face by family name or path. The match is validated as monospace; a proportional or unresolved value logs one stderr notice and falls back to the probe list, so a bad value never aborts startup. `font` / `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered and used for styled text when present, with regular-face fallback. |
@@ -98,7 +100,10 @@ drops) the synthesized bold/italic slots without a restart. `stem_darken` also
 rebuilds the glyph atlas (the boost is baked into coverage at raster time), so a
 change re-rasterizes every slot at the new strength. `min_contrast` applies at
 color-resolution time (no atlas rebuild), so a change takes effect on the next
-frame. `geometric_boxdraw` rebuilds the glyph atlas through the same font-change
+frame. `focus_dim` likewise applies at color-resolution time (no atlas rebuild)
+and only while the window is unfocused, so a change takes effect on the next
+unfocused frame; a focus gain/loss forces a full geometry rebuild so the dim
+appears and clears immediately. `geometric_boxdraw` rebuilds the glyph atlas through the same font-change
 seam so a toggle re-rasterizes the covered codepoints geometrically (or restores
 their font glyphs) without a restart. `symbol_fallback` and `symbol_font` also
 rebuild the glyph atlas through that seam: toggling the fallback or changing the

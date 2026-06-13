@@ -449,11 +449,36 @@ pub fn build_cell_vertices_into(out: &mut Vec<Vertex>, snapshot: &Snapshot, atla
 /// search, underline, and strikethrough layers below/around the color bitmap
 /// while preventing fallback boxes from showing through transparent emoji
 /// pixels.
+///
+/// This is the focus-agnostic entry (the focused window). Callers that render an
+/// unfocused window with ID2 focus dimming use
+/// [`build_cell_vertices_with_focus_dim_into`]; this wrapper forwards a `0.0`
+/// amount, which is an exact no-op, so the focused path stays byte-identical.
 pub fn build_cell_vertices_with_color_glyph_runs_into(
     out: &mut Vec<Vertex>,
     snapshot: &Snapshot,
     atlas: &GlyphAtlas,
     color_runs: &[ColorGlyphRun],
+) {
+    build_cell_vertices_with_focus_dim_into(out, snapshot, atlas, color_runs, 0.0);
+}
+
+/// Build terminal-cell vertices (as
+/// [`build_cell_vertices_with_color_glyph_runs_into`]) while applying the ID2
+/// focus-dimming amount.
+///
+/// `focus_dim` is the perceptual amount applied to every cell's foreground *and*
+/// background before the RV1 minimum-contrast floor, so the whole window recedes
+/// while it is unfocused without losing legibility. The native layer passes
+/// `0.0` while the window is focused (and always when the `focus_dim` knob is
+/// off), which short-circuits to an exact no-op so focused frames stay
+/// byte-identical to the pre-feature renderer.
+pub fn build_cell_vertices_with_focus_dim_into(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    color_runs: &[ColorGlyphRun],
+    focus_dim: f32,
 ) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
@@ -477,6 +502,17 @@ pub fn build_cell_vertices_with_color_glyph_runs_into(
         }
         if cell.attrs.dim() {
             fg = dim_color(fg);
+        }
+        // ID2 focus dimming: while the window is unfocused, recede the whole
+        // cell — both foreground and background — perceptually in OKLab so hue
+        // is preserved and relative contrast stays roughly stable. Applied after
+        // the SGR-dim attribute and before the RV1 floor so legibility wins by
+        // construction (the floor sees the dimmed background and re-lifts text
+        // above the configured ratio). `focus_dim == 0.0` (focused, or the knob
+        // off) is skipped entirely, keeping focused frames byte-identical.
+        if focus_dim > 0.0 {
+            fg = text::dim_linear_rgba(fg, focus_dim);
+            bg = text::dim_linear_rgba(bg, focus_dim);
         }
         // RV1 minimum-contrast floor: lift the foreground until it meets the
         // configured WCAG ratio against this cell's background. Applied last so

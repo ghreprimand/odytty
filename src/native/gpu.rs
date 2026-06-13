@@ -1212,8 +1212,13 @@ impl GpuState {
     /// the buffer per coalesced update is cheap and avoids tracking capacity.
     /// The caller must already hold the snapshot by value — the terminal mutex
     /// is dropped before this runs so the lock is never held across GPU calls.
-    pub(super) fn update_from_snapshot(&mut self, snapshot: &Snapshot, cursor_style: CursorStyle) {
-        self.update_from_snapshot_with_overlays(snapshot, cursor_style, &[]);
+    pub(super) fn update_from_snapshot(
+        &mut self,
+        snapshot: &Snapshot,
+        cursor_style: CursorStyle,
+        focus_dim: f32,
+    ) {
+        self.update_from_snapshot_with_overlays(snapshot, cursor_style, &[], focus_dim);
     }
 
     pub(super) fn cached_image_ids(&self) -> BTreeSet<StoredImageId> {
@@ -1242,6 +1247,7 @@ impl GpuState {
         snapshot: &Snapshot,
         cursor_style: CursorStyle,
         overlays: &[SolidQuad],
+        focus_dim: f32,
     ) {
         let color_glyph_runs = self
             .emoji_rasterizer
@@ -1256,11 +1262,12 @@ impl GpuState {
             self.refresh_atlas_texture();
         }
         self.rebuild_color_glyph_segment(snapshot, &color_glyph_runs);
-        grid::build_cell_vertices_with_color_glyph_runs_into(
+        grid::build_cell_vertices_with_focus_dim_into(
             &mut self.vertices,
             snapshot,
             &self.atlas,
             &color_glyph_runs,
+            focus_dim,
         );
         self.cell_vertex_count = self.vertices.len() as u32;
         grid::append_cursor_vertices(&mut self.vertices, snapshot, &self.atlas, cursor_style);

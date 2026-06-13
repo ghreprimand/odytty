@@ -112,6 +112,41 @@ fn composite(snapshot: &Snapshot, atlas: &GlyphAtlas, cursor_style: CursorStyle)
     frame
 }
 
+/// Composite a frame driving the ID2 focus-dim amount through the real geometry
+/// path — the same `build_cell_vertices_with_color_glyph_runs_into` seam the
+/// native renderer uses for an unfocused window. `focus_dim == 0.0` reproduces
+/// the focused render byte-for-byte (the off-path gate).
+fn composite_focus_dim(
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cursor_style: CursorStyle,
+    focus_dim: f32,
+) -> Frame {
+    let cols = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    let cell_w = atlas.cell.width as usize;
+    let cell_h = atlas.cell.height as usize;
+    let width = cols * cell_w;
+    let height = rows * cell_h;
+
+    let mut frame = Frame {
+        width,
+        height,
+        px: vec![default_bg(); width * height],
+        cell_w,
+        cell_h,
+    };
+
+    let mut verts = Vec::new();
+    grid::build_cell_vertices_with_focus_dim_into(&mut verts, snapshot, atlas, &[], focus_dim);
+    grid::append_cursor_vertices(&mut verts, snapshot, atlas, cursor_style);
+
+    for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
+        composite_quad(&mut frame, atlas, quad);
+    }
+    frame
+}
+
 /// Composite one axis-aligned quad (background, glyph, or solid decoration).
 fn composite_quad(frame: &mut Frame, atlas: &GlyphAtlas, quad: &[Vertex]) {
     let tl = &quad[0];
@@ -782,6 +817,74 @@ fn perceptual_dim_delta_is_confined_to_dim_cells() {
     assert!(
         dim_lum < plain_lum,
         "dim cell luminance {dim_lum} should drop below plain {plain_lum}"
+    );
+}
+
+/// ID2 off-path gate: driving the focus-dim seam at `0.0` (the focused window,
+/// and the knob default) is byte-identical to the standard focused render, so a
+/// focused frame is pixel-identical to the pre-feature renderer.
+#[test]
+fn focus_dim_off_is_pixel_identical_to_focused() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let snapshot = row_snapshot(4, "Mix!");
+    let focused = composite(&snapshot, &atlas, CursorStyle::Block);
+    let off = composite_focus_dim(&snapshot, &atlas, CursorStyle::Block, 0.0);
+    assert!(
+        frames_match(&focused, &off),
+        "focus_dim=0.0 must be byte-identical to the focused render"
+    );
+}
+
+/// ID2 unfocused baseline: a non-zero focus-dim recedes the whole grid — both
+/// the background fill and the glyph ink lose luminance — and the dim is applied
+/// before the RV1 floor, so at a raised minimum contrast the text still clears
+/// the floor against the dimmed background (legibility wins by construction).
+#[test]
+fn unfocused_focus_dim_recedes_grid_and_floor_keeps_text_legible() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let snapshot = row_snapshot(4, "Mix!");
+    let focused = composite(&snapshot, &atlas, CursorStyle::Block);
+    let unfocused = composite_focus_dim(&snapshot, &atlas, CursorStyle::Block, 0.3);
+
+    // (a) The unfocused frame must differ from the focused one, and its total
+    // luminance must drop — the whole window (text + background) recedes.
+    let mut any_diff = false;
+    let (mut focused_lum, mut unfocused_lum) = (0.0f32, 0.0f32);
+    for y in 0..focused.height {
+        for x in 0..focused.width {
+            let (f, u) = (focused.pixel(x, y), unfocused.pixel(x, y));
+            any_diff |= differs(f, u);
+            focused_lum += luminance(f);
+            unfocused_lum += luminance(u);
+        }
+    }
+    assert!(any_diff, "unfocused frame must differ from focused");
+    assert!(
+        unfocused_lum < focused_lum,
+        "unfocused total luminance {unfocused_lum} should drop below focused {focused_lum}"
+    );
+
+    // (b) The dim runs before the RV1 floor: dimming both fg and bg perceptually,
+    // then enforcing a raised contrast ratio, must still clear that ratio against
+    // the dimmed background. Exercised at the color layer (lock-free) so the
+    // process-global min_contrast floor is not mutated under parallel tests.
+    let amount = 0.3;
+    let fg = [0.30f32, 0.30, 0.30]; // low-contrast light grey…
+    let bg = [0.05f32, 0.05, 0.05]; // …on a near-black background.
+    let dim_fg = odytty::color::dim_perceptual(fg, amount);
+    let dim_bg = odytty::color::dim_perceptual(bg, amount);
+    let ratio = 4.5; // WCAG AA body-text floor.
+    let floored = odytty::color::enforce_min_contrast(dim_fg, dim_bg, ratio);
+    let achieved = odytty::color::wcag_contrast(floored, dim_bg);
+    assert!(
+        achieved + 1e-3 >= ratio,
+        "floored contrast {achieved} should clear the raised floor {ratio}"
     );
 }
 

@@ -39,6 +39,7 @@ pub const FONT_SIZE_ENV: &str = "ODYTTY_FONT_SIZE";
 pub const TEXT_GAMMA_ENV: &str = "ODYTTY_TEXT_GAMMA";
 pub const STEM_DARKEN_ENV: &str = "ODYTTY_STEM_DARKEN";
 pub const MIN_CONTRAST_ENV: &str = "ODYTTY_MIN_CONTRAST";
+pub const FOCUS_DIM_ENV: &str = "ODYTTY_FOCUS_DIM";
 pub const SUBPIXEL_ENV: &str = "ODYTTY_SUBPIXEL";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
@@ -65,6 +66,7 @@ const SETTING_ENV_KEYS: &[&str] = &[
     TEXT_GAMMA_ENV,
     STEM_DARKEN_ENV,
     MIN_CONTRAST_ENV,
+    FOCUS_DIM_ENV,
     SUBPIXEL_ENV,
     KEYBINDS_ENV,
     CURSOR_STYLE_ENV,
@@ -247,6 +249,25 @@ pub const MIN_CONTRAST_DESC: &str = "Minimum contrast: lifts foreground text so 
      Accepts 1.0–21.0; 1.0 is off (no change), 4.5 is the WCAG AA body-text \
      threshold, 7.0 is AAA. Hue is preserved. Default 1.0.";
 
+/// Focus dimming amount (`ODYTTY_FOCUS_DIM`): how much the whole grid (both text
+/// and background) recedes perceptually while the window is unfocused (ID2). The
+/// dim runs at color-resolution time before the RV1 minimum-contrast floor, so
+/// legibility is preserved by construction. `0.0` disables it and is
+/// pixel-identical to the pre-feature renderer; higher values dim further. The
+/// focused window is never dimmed regardless of this value, so focused frames
+/// stay byte-identical to today.
+pub const DEFAULT_FOCUS_DIM: f32 = 0.0;
+pub const MIN_FOCUS_DIM: f32 = 0.0;
+pub const MAX_FOCUS_DIM: f32 = 1.0;
+
+/// Human-readable help for the focus-dimming knob (ID2), shown in the in-app
+/// settings panel. Follows the every-knob-carries-a-description convention.
+pub const FOCUS_DIM_DESC: &str = "Focus dimming: dims the whole window (text and background) while it is \
+     unfocused so it recedes visually, in OKLab so hue is preserved. Accepts \
+     0.0–1.0; 0.0 is off (no change, focused and unfocused look identical), \
+     0.15–0.30 is a subtle recede. The focused window is never dimmed. The \
+     minimum-contrast floor still applies, so text stays legible. Default 0.0.";
+
 /// Human-readable help for the geometric box-drawing knob (RV2), shown in the
 /// in-app settings panel. Follows the every-knob-carries-a-description convention.
 pub const GEOMETRIC_BOXDRAW_DESC: &str = "Geometric box-drawing: renders line, block and Powerline glyphs from \
@@ -406,6 +427,7 @@ pub struct Settings {
     /// Minimum fg/bg WCAG contrast floor in `1.0..=21.0` (RV1). `1.0` (default)
     /// disables enforcement and is pixel-identical to before.
     pub min_contrast: f32,
+    pub focus_dim: f32,
     pub subpixel: SubpixelMode,
     pub key_bindings: Vec<KeyBindingOverride>,
     /// Default cursor shape applied at power-on (DECSCUSR can override).
@@ -451,6 +473,7 @@ impl Default for Settings {
             text_gamma: DEFAULT_TEXT_GAMMA,
             stem_darken: DEFAULT_STEM_DARKEN,
             min_contrast: DEFAULT_MIN_CONTRAST,
+            focus_dim: DEFAULT_FOCUS_DIM,
             subpixel: SubpixelMode::Off,
             key_bindings: Vec::new(),
             cursor_style: CursorStyle::Block,
@@ -579,6 +602,18 @@ impl Settings {
                 description: MIN_CONTRAST_DESC,
                 kind: SettingKind::Number,
                 range: Some("1.0..=21.0"),
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Rendering",
+                key: "focus_dim",
+                env: FOCUS_DIM_ENV,
+                name: "Focus dimming",
+                value: format_float(self.focus_dim),
+                description: FOCUS_DIM_DESC,
+                kind: SettingKind::Number,
+                range: Some("0.0..=1.0"),
                 options: &[],
                 reloadable: true,
             },
@@ -878,6 +913,7 @@ impl Settings {
         let text_gamma = parse_text_gamma(get(TEXT_GAMMA_ENV).as_deref(), &mut warn);
         let stem_darken = parse_stem_darken(get(STEM_DARKEN_ENV).as_deref(), &mut warn);
         let min_contrast = parse_min_contrast(get(MIN_CONTRAST_ENV).as_deref(), &mut warn);
+        let focus_dim = parse_focus_dim(get(FOCUS_DIM_ENV).as_deref(), &mut warn);
         let subpixel = parse_subpixel(get(SUBPIXEL_ENV).as_deref(), &mut warn);
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
@@ -924,6 +960,7 @@ impl Settings {
             text_gamma,
             stem_darken,
             min_contrast,
+            focus_dim,
             subpixel,
             key_bindings,
             cursor_style,
@@ -954,6 +991,7 @@ impl Settings {
         values.insert(TEXT_GAMMA_ENV, format_float(self.text_gamma));
         values.insert(STEM_DARKEN_ENV, format_float(self.stem_darken));
         values.insert(MIN_CONTRAST_ENV, format_float(self.min_contrast));
+        values.insert(FOCUS_DIM_ENV, format_float(self.focus_dim));
         values.insert(SUBPIXEL_ENV, subpixel_display(self.subpixel).to_owned());
         values.insert(KEYBINDS_ENV, key_bindings_edit_value(&self.key_bindings));
         values.insert(
@@ -1319,6 +1357,29 @@ fn parse_min_contrast(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     };
 
     parsed.clamp(MIN_MIN_CONTRAST, MAX_MIN_CONTRAST)
+}
+
+fn parse_focus_dim(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_FOCUS_DIM;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_FOCUS_DIM;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{FOCUS_DIM_ENV}={trimmed:?} is not a valid focus-dim amount; using {DEFAULT_FOCUS_DIM}"
+            ));
+            return DEFAULT_FOCUS_DIM;
+        }
+    };
+
+    parsed.clamp(MIN_FOCUS_DIM, MAX_FOCUS_DIM)
 }
 
 fn parse_subpixel(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> SubpixelMode {
