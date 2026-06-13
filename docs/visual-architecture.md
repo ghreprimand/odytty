@@ -1,9 +1,9 @@
 # OdyTTY Visual Architecture
 
 This document describes the current renderer pipeline, the color resolution
-model, and the planned visual-enhancement direction. Claims in the **Current
-state** sections are grounded in source; claims in the **Planned** sections are
-design intent, not yet built.
+model, and the visual-enhancement direction. Claims marked **(landed)** are
+grounded in source; all other enhancement items are design intent, not yet
+built.
 
 ---
 
@@ -162,15 +162,17 @@ write, so no explicit gamma correction is needed in the output path (only the
 glyph-coverage gamma matters for text rendering).
 
 **TH1 closed the fg/bg/clear-only limitation.** The palette and semantic roles
-are now live in the theme. Theme file format, curated theme library, and the
-live in-app editor are the remaining steps in the theme epic.
+are live in the theme. The full theme epic (TH1–TH4) is now complete — see the
+Theme and appearance system section below and `docs/themes.md` for details.
 
 ---
 
-## Planned visual-enhancement direction
+## Visual-enhancement direction
 
-> **Status: planned / not yet built.** The sections below describe design
-> intent. None of this exists in source yet unless explicitly noted.
+> **Tier 1 (Readability-first) is substantially delivered** as of the current
+> HEAD — RV3, RV1, and RV2 are live. Tiers 2 and 3 remain planned / in
+> progress. Sub-sections marked **(landed)** are grounded in source; all other
+> items are design intent, not yet built.
 
 The enhancement work is organized into three tiers, ordered by risk and
 default-on policy.
@@ -197,14 +199,21 @@ are always tested.
 Features in this tier help reading as well as looking better; they are the
 highest-priority additions.
 
-- **Perceptual color pipeline (RV3):** linear-space blending and OKLab/OKLCH
-  interpolation for SGR dim, selection blends, and theme transitions.
-  Foundational for subsequent effect compositing.
-- **Minimum-contrast guarantee (RV1):** a configurable perceptual fg/bg
-  contrast floor; value `1.0` = exact passthrough (default safe).
-- **Geometric box-drawing / Powerline rendering (RV2):** U+2500–257F,
+- **Perceptual color pipeline (RV3, landed):** linear-space blending is active
+  in the render path; OKLab/OKLCH helpers (`dim_perceptual`, `mix_oklab`) are
+  in place and back the minimum-contrast lift. Equal numeric steps produce equal
+  perceived steps for color selection blends and the contrast floor. The SGR
+  dim-text path currently applies a linear-space scale; adopting the perceptual
+  dim there is a tracked follow-up.
+- **Minimum-contrast guarantee (RV1, landed):** configurable perceptual fg/bg
+  contrast floor applied at render time (`ODYTTY_MIN_CONTRAST`, `min_contrast`).
+  Value `1.0` = exact passthrough (default). The floor is measured via WCAG
+  relative luminance; lift is applied by bisecting OKLab lightness while
+  preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
+- **Geometric box-drawing / Powerline rendering (RV2, landed):** U+2500–257F,
   U+2580–259F, Braille, and Powerline separators rendered as pixel-perfect
-  geometry at exact cell size rather than font glyphs.
+  geometry at exact cell size rather than font glyphs. Controlled by
+  `ODYTTY_GEOMETRIC_BOXDRAW` / `geometric_boxdraw`; default on.
 - **Smooth scrolling (RV4):** interpolated viewport movement within a strict
   bounded latency budget; instant/off mode preserved and default-safe.
 - **Stem darkening for light-on-dark text (RV5):** compensate for irradiation
@@ -245,18 +254,25 @@ pass) that does not exist yet.
 
 ### Theme and appearance system
 
-**TH1 has landed** (commit `fa857f0`): `Theme` now carries the full 16-color
-ANSI palette plus semantic roles (cursor, selection, search, reserved
-border/inactive). The indexed-color render path is theme-driven; OSC-4 /
-dynamic-color overrides layer on top with correct precedence. Remaining: theme
-file format (TH2), curated built-in theme library (TH3), and a live in-app
-theme editor (TH4).
+**The full theme epic has landed.** TH1 (full 16-color ANSI palette + semantic
+roles), TH2 (dependency-free `.theme` file format, built-ins authored in it,
+live reload via `SIGHUP` or settings panel), TH3 (53 built-in themes across
+three families: Odyssey identity, Community, Retro/phosphor), and TH4 (in-app
+theme builder — clone/tweak/author with live preview, saved to user theme file)
+are all shipped. `Theme` carries the full 16-color ANSI palette plus semantic
+roles (cursor, selection, search, reserved border/inactive). The indexed-color
+render path is theme-driven; OSC-4 / dynamic-color overrides layer on top with
+correct precedence. See `docs/themes.md` for the full roster and attribution.
 
 ### In-app configuration UX
 
-An overlay framework (cell-rendered, keyboard-driven, never mutates terminal
-state) will expose all settings and a live theme picker without requiring
-manual config-file edits.
+**Delivered.** The overlay framework (UX1, cell-rendered, keyboard-driven,
+never mutates terminal state), the full settings panel (UX2, `Ctrl+Shift+,`;
+every setting editable with help text, live-applied, written back to
+`odytty.conf` on confirm via atomic rename), the live theme picker (UX3,
+`Ctrl+Shift+T`; arrow-to-preview, `Enter` to persist, `Esc` to restore), and
+the in-app theme builder (TH4; clone/tweak/author with live preview) are all
+shipped.
 
 ---
 
