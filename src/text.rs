@@ -484,6 +484,47 @@ pub fn dim_linear_rgba(color: [f32; 4], amount: f32) -> [f32; 4] {
     [r, g, b, color[3]]
 }
 
+/// Active minimum fg/bg contrast floor (RV1), stored as the bit pattern of an
+/// `f32` so resolution stays lock-free, mirroring the palette seams above.
+///
+/// `1.0` (the default) means "no floor" — [`enforce_contrast_rgba`] is then an
+/// exact identity, so an un-configured renderer is byte-identical to before.
+/// The native layer sets it from `Settings::min_contrast` at startup/reload.
+static MIN_CONTRAST: AtomicU32 = AtomicU32::new(1.0_f32.to_bits());
+
+/// Override the minimum fg/bg contrast floor used by [`enforce_contrast_rgba`].
+///
+/// Presentation-only: it changes how text is painted to keep it legible, never
+/// what the terminal core stores. `ratio <= 1.0` disables enforcement (exact
+/// passthrough). Mirrors [`set_ansi_palette`]/[`set_default_colors`].
+pub fn set_min_contrast(ratio: f32) {
+    MIN_CONTRAST.store(ratio.to_bits(), Ordering::Relaxed);
+}
+
+/// The active minimum-contrast floor (`1.0` = disabled).
+pub fn min_contrast() -> f32 {
+    f32::from_bits(MIN_CONTRAST.load(Ordering::Relaxed))
+}
+
+/// Enforce the active minimum-contrast floor on a resolved linear-RGBA
+/// foreground against its background, preserving alpha (RV1).
+///
+/// This is the render-facing seam over [`crate::color::enforce_min_contrast`]:
+/// the caller passes the final per-cell `fg`/`bg` (after inverse/dim) and gets
+/// back an `fg` whose WCAG contrast against `bg` meets at least the configured
+/// floor, with hue preserved. When the floor is at its passthrough value
+/// (`1.0`, the default) this returns `fg` unchanged, so the plain path stays
+/// byte-identical until the floor is raised.
+pub fn enforce_contrast_rgba(fg: [f32; 4], bg: [f32; 4]) -> [f32; 4] {
+    let ratio = min_contrast();
+    if ratio <= 1.0 {
+        return fg;
+    }
+    let [r, g, b] =
+        crate::color::enforce_min_contrast([fg[0], fg[1], fg[2]], [bg[0], bg[1], bg[2]], ratio);
+    [r, g, b, fg[3]]
+}
+
 /// Linear-RGBA (opaque) for an sRGB triple.
 fn linear_rgba(srgb: (u8, u8, u8)) -> [f32; 4] {
     [
@@ -573,6 +614,28 @@ mod tests {
         let dimmed = dim_linear_rgba(c, 0.5);
         assert_eq!(dimmed[3], 0.8);
         assert!(dimmed[0] < c[0] && dimmed[1] < c[1] && dimmed[2] < c[2]);
+    }
+
+    /// Exercises the process-global `MIN_CONTRAST` seam. Kept in one test so the
+    /// global mutation can't race a sibling, and restores the `1.0` default.
+    #[test]
+    fn enforce_contrast_rgba_seam_gates_on_the_global_floor() {
+        let fg = [0.10, 0.10, 0.10, 0.5];
+        let bg = [0.06, 0.06, 0.06, 1.0];
+        // Default floor (1.0) is an exact identity no matter the pair.
+        assert_eq!(min_contrast(), 1.0);
+        assert_eq!(enforce_contrast_rgba(fg, bg), fg);
+
+        // Raising the floor lifts the low-contrast fg and preserves alpha.
+        set_min_contrast(4.5);
+        let adj = enforce_contrast_rgba(fg, bg);
+        assert_eq!(adj[3], fg[3], "alpha preserved");
+        let c = crate::color::wcag_contrast([adj[0], adj[1], adj[2]], [bg[0], bg[1], bg[2]]);
+        assert!(c >= 4.5 - 1e-3, "floor not met: {c}");
+
+        // Restore the default so other tests see passthrough.
+        set_min_contrast(1.0);
+        assert_eq!(enforce_contrast_rgba(fg, bg), fg);
     }
 
     #[test]

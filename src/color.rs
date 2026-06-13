@@ -219,6 +219,139 @@ pub fn fade(from: LinearRgb, to: LinearRgb, t: f32) -> LinearRgb {
     mix_oklab(from, to, t)
 }
 
+// ---------------------------------------------------------------------------
+// Minimum-contrast guarantee (RV1)
+// ---------------------------------------------------------------------------
+
+/// WCAG relative luminance of a *linear* RGB color (0.0 = black, 1.0 = white).
+///
+/// This is the standard `0.2126 R + 0.7152 G + 0.0722 B` luminance, evaluated
+/// directly on linear channels. Because the render path already holds colors in
+/// linear space, computing luminance here is exact and sidesteps the sRGB
+/// decode entirely — it matches [`crate::theme::relative_luminance`] (which
+/// decodes from bytes first) to within float precision.
+pub fn relative_luminance(rgb: LinearRgb) -> f32 {
+    0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+}
+
+/// WCAG contrast ratio between two linear colors, in `1.0..=21.0`.
+///
+/// `1.0` means equal luminance; `21.0` is black against white. Symmetric. The
+/// luminances are clamped to `[0, 1]` so out-of-gamut intermediates (which the
+/// adjustment search can produce) score the same contrast they would once
+/// clamped for display.
+pub fn wcag_contrast(a: LinearRgb, b: LinearRgb) -> f32 {
+    let la = relative_luminance(a).clamp(0.0, 1.0);
+    let lb = relative_luminance(b).clamp(0.0, 1.0);
+    let (hi, lo) = if la >= lb { (la, lb) } else { (lb, la) };
+    (hi + 0.05) / (lo + 0.05)
+}
+
+/// Number of bisection steps used to home in on the minimal lightness move that
+/// satisfies the contrast floor. 24 steps resolves OKLab L to < 1e-7 — far finer
+/// than the 8-bit output quantum.
+const CONTRAST_BISECT_STEPS: u32 = 24;
+
+/// Adjust `fg` so its WCAG contrast against `bg` meets at least `ratio`, moving
+/// only OKLab lightness and preserving hue and chroma direction.
+///
+/// Metric: the WCAG 2.x relative-luminance contrast ratio (the established,
+/// user-expected legibility measure) computed via [`wcag_contrast`]. The
+/// *adjustment* is perceptual — it walks fg's OKLab L (from RV3) toward black or
+/// white, keeping the `a`/`b` opponent values fixed, so the corrected color
+/// keeps its hue and only changes how light/dark it is.
+///
+/// Guarantees:
+/// - `ratio <= 1.0` returns `fg` **unchanged, bit-for-bit** (passthrough — the
+///   default-setting no-op that keeps the plain path byte-identical).
+/// - If `fg`/`bg` already meet the floor, `fg` is returned unchanged.
+/// - The search keeps the existing fg-vs-bg polarity (lighter text stays the
+///   lighter color) when that direction can satisfy the floor; otherwise it
+///   flips to the only feasible direction.
+/// - Best-effort cap: if even pure black or pure white cannot reach `ratio`
+///   against this `bg` (a near-mid-grey background), the most-contrasting
+///   in-gamut endpoint is returned.
+/// - Idempotent: a second application is a no-op, because the first result
+///   already meets the floor.
+pub fn enforce_min_contrast(fg: LinearRgb, bg: LinearRgb, ratio: f32) -> LinearRgb {
+    // Passthrough: at or below unity there is no floor to enforce.
+    if ratio <= 1.0 {
+        return fg;
+    }
+    if wcag_contrast(fg, bg) >= ratio {
+        return fg;
+    }
+
+    let lab = linear_to_oklab(fg);
+    let lum_fg = relative_luminance(fg).clamp(0.0, 1.0);
+    let lum_bg = relative_luminance(bg).clamp(0.0, 1.0);
+
+    // Pick the lightness direction. Default to preserving polarity: if fg is the
+    // lighter color, push it lighter (toward L = 1); otherwise push it darker
+    // (toward L = 0). If the preferred direction can't reach the floor but the
+    // opposite can, use the opposite.
+    let lighten_first = lum_fg >= lum_bg;
+    let try_dir = |toward_white: bool| -> Option<LinearRgb> {
+        let bound_l = if toward_white { 1.0 } else { 0.0 };
+        // If even the extreme doesn't meet the floor, this direction fails.
+        let extreme = oklab_to_linear(Oklab {
+            l: bound_l,
+            a: lab.a,
+            b: lab.b,
+        });
+        if wcag_contrast(extreme, bg) < ratio {
+            return None;
+        }
+        // Bisect between the current L and the bound for the smallest move that
+        // meets the floor. Contrast is monotonic in L along this direction.
+        let mut near = lab.l; // does not (yet) meet the floor
+        let mut far = bound_l; // meets the floor
+        for _ in 0..CONTRAST_BISECT_STEPS {
+            let mid = 0.5 * (near + far);
+            let candidate = oklab_to_linear(Oklab {
+                l: mid,
+                a: lab.a,
+                b: lab.b,
+            });
+            if wcag_contrast(candidate, bg) >= ratio {
+                far = mid;
+            } else {
+                near = mid;
+            }
+        }
+        Some(oklab_to_linear(Oklab {
+            l: far,
+            a: lab.a,
+            b: lab.b,
+        }))
+    };
+
+    if let Some(adjusted) = try_dir(lighten_first) {
+        return adjusted;
+    }
+    if let Some(adjusted) = try_dir(!lighten_first) {
+        return adjusted;
+    }
+
+    // Best effort: neither pure black nor pure white meets the floor against this
+    // background. Return whichever extreme contrasts most.
+    let white = oklab_to_linear(Oklab {
+        l: 1.0,
+        a: lab.a,
+        b: lab.b,
+    });
+    let black = oklab_to_linear(Oklab {
+        l: 0.0,
+        a: lab.a,
+        b: lab.b,
+    });
+    if wcag_contrast(white, bg) >= wcag_contrast(black, bg) {
+        white
+    } else {
+        black
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,5 +518,128 @@ mod tests {
         // demonstrably lighter, i.e. the two paths genuinely differ.
         let lin_mid_l = linear_to_oklab(mix_linear(a, b, 0.5)).l;
         assert!(lin_mid_l > 0.7, "linear mid L {lin_mid_l}");
+    }
+
+    // --- RV1 minimum-contrast guarantee ---------------------------------
+
+    fn srgb_byte_to_linear(c: u8) -> f32 {
+        srgb_to_linear(c)
+    }
+
+    fn linear_of(r: u8, g: u8, b: u8) -> LinearRgb {
+        [
+            srgb_byte_to_linear(r),
+            srgb_byte_to_linear(g),
+            srgb_byte_to_linear(b),
+        ]
+    }
+
+    #[test]
+    fn contrast_matches_wcag_reference() {
+        // Black on white is the 21:1 maximum; identical colors are 1:1.
+        let black = [0.0, 0.0, 0.0];
+        let white = [1.0, 1.0, 1.0];
+        assert!(close(wcag_contrast(black, white), 21.0, 0.01));
+        assert!(close(wcag_contrast(white, black), 21.0, 0.01));
+        let grey = linear_of(0x33, 0x66, 0x99);
+        assert!(close(wcag_contrast(grey, grey), 1.0, 1e-6));
+    }
+
+    #[test]
+    fn contrast_agrees_with_theme_helper() {
+        // The linear-domain metric must match the byte-domain theme helper
+        // (which TH3 uses to validate themes) to within float precision.
+        let pairs = [
+            ((0x00, 0x00, 0x00), (0xff, 0xff, 0xff)),
+            ((0x80, 0x80, 0x80), (0x00, 0x00, 0x00)),
+            ((0x1d, 0x20, 0x21), (0xd4, 0xbe, 0x98)),
+        ];
+        for (a, b) in pairs {
+            let mine = wcag_contrast(linear_of(a.0, a.1, a.2), linear_of(b.0, b.1, b.2));
+            let theirs = crate::theme::contrast_ratio(a, b) as f32;
+            assert!(close(mine, theirs, 1e-3), "{mine} vs {theirs}");
+        }
+    }
+
+    #[test]
+    fn min_contrast_ratio_at_or_below_one_is_exact_identity() {
+        let fg = [0.30, 0.31, 0.30];
+        let bg = [0.25, 0.26, 0.25];
+        assert_eq!(enforce_min_contrast(fg, bg, 1.0), fg);
+        assert_eq!(enforce_min_contrast(fg, bg, 0.5), fg);
+        assert_eq!(enforce_min_contrast(fg, bg, -3.0), fg);
+    }
+
+    #[test]
+    fn min_contrast_leaves_already_legible_pair_untouched() {
+        // Black on white already far exceeds any sane floor.
+        let fg = [0.0, 0.0, 0.0];
+        let bg = [1.0, 1.0, 1.0];
+        assert_eq!(enforce_min_contrast(fg, bg, 4.5), fg);
+    }
+
+    #[test]
+    fn min_contrast_lifts_low_contrast_pair_to_floor() {
+        // A dim grey on a slightly darker grey — illegibly low contrast.
+        let fg = linear_of(0x55, 0x55, 0x55);
+        let bg = linear_of(0x44, 0x44, 0x44);
+        let ratio = 4.5;
+        assert!(wcag_contrast(fg, bg) < ratio, "precondition: starts low");
+        let adj = enforce_min_contrast(fg, bg, ratio);
+        let after = wcag_contrast(adj, bg);
+        // Meets the floor (small epsilon for the bisection residual).
+        assert!(after >= ratio - 1e-3, "after={after} < {ratio}");
+        // And does not massively overshoot — the minimal move lands near the
+        // floor, not pinned to an extreme.
+        assert!(after <= ratio + 0.5, "overshoot after={after}");
+    }
+
+    #[test]
+    fn min_contrast_preserves_hue() {
+        // A muted red on dark grey; after lifting it should still read as red
+        // (hue in OKLCH roughly unchanged), only lighter.
+        let fg = linear_of(0x6a, 0x30, 0x30);
+        let bg = linear_of(0x20, 0x20, 0x20);
+        let h0 = oklab_to_oklch(linear_to_oklab(fg)).h;
+        let adj = enforce_min_contrast(fg, bg, 7.0);
+        let h1 = oklab_to_oklch(linear_to_oklab(adj)).h;
+        assert!(close(h0, h1, 0.02), "hue drift {h0} -> {h1}");
+    }
+
+    #[test]
+    fn min_contrast_is_idempotent() {
+        let fg = linear_of(0x55, 0x55, 0x55);
+        let bg = linear_of(0x44, 0x44, 0x44);
+        let ratio = 4.5;
+        let once = enforce_min_contrast(fg, bg, ratio);
+        let twice = enforce_min_contrast(once, bg, ratio);
+        assert!(rgb_close(once, twice, 1e-6), "{once:?} vs {twice:?}");
+    }
+
+    #[test]
+    fn min_contrast_keeps_polarity_dark_text_on_light_bg() {
+        // Dark-ish text on a light bg, low contrast: it should get darker (stay
+        // the darker color), not flip to white.
+        let fg = linear_of(0x99, 0x99, 0x99);
+        let bg = linear_of(0xcc, 0xcc, 0xcc);
+        let adj = enforce_min_contrast(fg, bg, 4.5);
+        assert!(
+            relative_luminance(adj) < relative_luminance(bg),
+            "fg should stay darker than bg"
+        );
+        assert!(wcag_contrast(adj, bg) >= 4.5 - 1e-3);
+    }
+
+    #[test]
+    fn min_contrast_best_effort_against_mid_grey() {
+        // No color can reach 21:1 against mid-grey; the function returns the
+        // most-contrasting extreme rather than looping forever or panicking.
+        let fg = linear_of(0x70, 0x70, 0x70);
+        let bg = linear_of(0x7f, 0x7f, 0x7f);
+        let adj = enforce_min_contrast(fg, bg, 21.0);
+        let c = wcag_contrast(adj, bg);
+        // It at least improved over the near-zero starting contrast.
+        assert!(c > wcag_contrast(fg, bg));
+        assert!(c.is_finite());
     }
 }

@@ -41,6 +41,7 @@ visual = ambient
 subpixel = rgb
 text_gamma = 1.4
 stem_darken = 0.0
+min_contrast = 1.0
 cursor_style = bar
 cursor_blink = auto
 keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
@@ -65,6 +66,7 @@ directory and rename it over the target, so OdyTTY never truncates
 | `font_size` | `ODYTTY_FONT_SIZE` | Pixel size, clamped to `6.0..=72.0` | `14.0` | Controls native glyph rasterization, cell size, initial window size, and resize grid fitting. Invalid values fall back to `14.0` with one stderr warning. |
 | `text_gamma` | `ODYTTY_TEXT_GAMMA` | Floating-point gamma, clamped to `0.5..=3.0` | `1.4` | Adjusts glyph coverage in the shader for text weight/contrast. `1.0` is the exact legacy linear blend path. Invalid values fall back to `1.4` with one stderr warning. |
 | `stem_darken` | `ODYTTY_STEM_DARKEN` | Floating-point strength, clamped to `0.0..=1.0` | `0.0` | Stem darkening (RV5): a raster-time coverage boost so light-on-dark body text holds weight at small sizes. `0.0` disables it and is pixel-identical to the pre-feature renderer; `1.0` is the strongest boost. Applied to anti-aliased glyph edges/thin stems only — fully-covered and fully-uncovered pixels are never moved. Default off pending a perceptual eyeball pass; `0.4`–`0.6` is the recommended starting range. Invalid values fall back to `0.0` with one stderr warning. |
+| `min_contrast` | `ODYTTY_MIN_CONTRAST` | Floating-point WCAG ratio, clamped to `1.0..=21.0` | `1.0` | Minimum contrast guarantee (RV1): lifts each cell's foreground until its WCAG contrast against the background meets at least this ratio, so low-contrast apps stay legible. `1.0` disables the floor and is pixel-identical to the pre-feature renderer; `4.5` is the WCAG AA body-text threshold and `7.0` is AAA. The lift moves only perceptual (OKLab) lightness, preserving hue; against a near-mid-grey background where the ratio is unreachable it makes a best-effort move to the most-contrasting shade. Invalid values fall back to `1.0` with one stderr warning. |
 | `subpixel` | `ODYTTY_SUBPIXEL` | `off` (also `none`), `rgb`, `bgr` | `off` | Enables optional RGB/BGR subpixel text coverage when the GPU supports dual-source blending. Unsupported adapters fall back to grayscale text with one stderr notice; startup never fails because of this setting. |
 | `font` | `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | Host monospace probe list | Overrides the probed Linux monospace font. A missing or unparseable path no longer aborts startup: it logs one stderr notice and falls back to the probe list. |
 | `font_family` | `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | Host monospace probe list | Selects the regular face by family name or path. The match is validated as monospace; a proportional or unresolved value logs one stderr notice and falls back to the probe list, so a bad value never aborts startup. `font` / `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered and used for styled text when present, with regular-face fallback. |
@@ -86,7 +88,9 @@ grayscale if the adapter lacks dual-source blending. `synthetic_styles` rebuilds
 the glyph atlas through the same font-change seam so a toggle re-rasterizes (or
 drops) the synthesized bold/italic slots without a restart. `stem_darken` also
 rebuilds the glyph atlas (the boost is baked into coverage at raster time), so a
-change re-rasterizes every slot at the new strength. `native_autoclose_ms` is
+change re-rasterizes every slot at the new strength. `min_contrast` applies at
+color-resolution time (no atlas rebuild), so a change takes effect on the next
+frame. `native_autoclose_ms` is
 startup-only because changing the smoke-test exit timer mid-session would make
 manual and automated lifecycle behavior ambiguous.
 

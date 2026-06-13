@@ -92,6 +92,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "font_size",
             "text_gamma",
             "stem_darken",
+            "min_contrast",
             "subpixel",
             "synthetic_styles",
             "cursor_style",
@@ -106,6 +107,10 @@ fn setting_info_covers_every_field_with_descriptions() {
     assert!(
         info.iter()
             .any(|row| row.key == "stem_darken" && row.range == Some("0.0..=1.0"))
+    );
+    assert!(
+        info.iter()
+            .any(|row| row.key == "min_contrast" && row.range == Some("1.0..=21.0"))
     );
 }
 
@@ -534,6 +539,46 @@ fn stem_darken_clamps_to_unit_range() {
 
     assert_eq!(small.stem_darken, MIN_STEM_DARKEN);
     assert_eq!(large.stem_darken, MAX_STEM_DARKEN);
+    assert!(small_warnings.is_empty());
+    assert!(large_warnings.is_empty());
+}
+
+#[test]
+fn min_contrast_defaults_to_passthrough() {
+    let (settings, warnings) = settings_from([]);
+    assert_eq!(settings.min_contrast, DEFAULT_MIN_CONTRAST);
+    assert_eq!(settings.min_contrast, 1.0);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn min_contrast_parses_a_valid_value() {
+    let (settings, warnings) = settings_from([(MIN_CONTRAST_ENV, "4.5")]);
+    assert_eq!(settings.min_contrast, 4.5);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn empty_min_contrast_falls_back_without_warning() {
+    let (settings, warnings) = settings_from([(MIN_CONTRAST_ENV, "  ")]);
+    assert_eq!(settings.min_contrast, DEFAULT_MIN_CONTRAST);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_min_contrast_falls_back_with_one_warning() {
+    let (settings, warnings) = settings_from([(MIN_CONTRAST_ENV, "high")]);
+    assert_eq!(settings.min_contrast, DEFAULT_MIN_CONTRAST);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(MIN_CONTRAST_ENV));
+}
+
+#[test]
+fn min_contrast_clamps_to_supported_range() {
+    let (small, small_warnings) = settings_from([(MIN_CONTRAST_ENV, "0.2")]);
+    let (large, large_warnings) = settings_from([(MIN_CONTRAST_ENV, "40")]);
+    assert_eq!(small.min_contrast, MIN_MIN_CONTRAST);
+    assert_eq!(large.min_contrast, MAX_MIN_CONTRAST);
     assert!(small_warnings.is_empty());
     assert!(large_warnings.is_empty());
 }

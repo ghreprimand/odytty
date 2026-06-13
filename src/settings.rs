@@ -38,6 +38,7 @@ pub const FONT_FAMILY_ENV: &str = "ODYTTY_FONT_FAMILY";
 pub const FONT_SIZE_ENV: &str = "ODYTTY_FONT_SIZE";
 pub const TEXT_GAMMA_ENV: &str = "ODYTTY_TEXT_GAMMA";
 pub const STEM_DARKEN_ENV: &str = "ODYTTY_STEM_DARKEN";
+pub const MIN_CONTRAST_ENV: &str = "ODYTTY_MIN_CONTRAST";
 pub const SUBPIXEL_ENV: &str = "ODYTTY_SUBPIXEL";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
@@ -59,6 +60,7 @@ const SETTING_ENV_KEYS: &[&str] = &[
     FONT_SIZE_ENV,
     TEXT_GAMMA_ENV,
     STEM_DARKEN_ENV,
+    MIN_CONTRAST_ENV,
     SUBPIXEL_ENV,
     KEYBINDS_ENV,
     CURSOR_STYLE_ENV,
@@ -164,6 +166,23 @@ pub const MAX_STEM_DARKEN: f32 = 1.0;
 pub const STEM_DARKEN_DESC: &str = "Stem darkening: boosts glyph coverage so light-on-dark text holds weight at \
      small sizes. Accepts 0.0–1.0; 0.0 is off (identical to no boost), 1.0 is \
      strongest. Default 0.0.";
+
+/// Minimum fg/bg contrast floor (`ODYTTY_MIN_CONTRAST`): a configurable WCAG
+/// contrast ratio that every cell's foreground is lifted to meet, so no app can
+/// render illegibly low-contrast text (RV1). `1.0` disables the floor and is
+/// pixel-identical to the pre-feature renderer; higher values enforce more
+/// contrast (4.5 is WCAG AA for body text, 7.0 is AAA). The lift moves only
+/// perceptual lightness, preserving hue.
+pub const DEFAULT_MIN_CONTRAST: f32 = 1.0;
+pub const MIN_MIN_CONTRAST: f32 = 1.0;
+pub const MAX_MIN_CONTRAST: f32 = 21.0;
+
+/// Human-readable help for the minimum-contrast knob, shown in the in-app
+/// settings panel (UX2). Follows the every-knob-carries-a-description convention.
+pub const MIN_CONTRAST_DESC: &str = "Minimum contrast: lifts foreground text so its WCAG contrast against the \
+     background meets at least this ratio, keeping low-contrast apps legible. \
+     Accepts 1.0–21.0; 1.0 is off (no change), 4.5 is the WCAG AA body-text \
+     threshold, 7.0 is AAA. Hue is preserved. Default 1.0.";
 
 /// Terminal-local actions that can be rebound without changing PTY input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -302,6 +321,9 @@ pub struct Settings {
     /// Stem-darkening strength in `0.0..=1.0` (RV5). `0.0` (default) disables
     /// the raster-time coverage boost and is pixel-identical to before.
     pub stem_darken: f32,
+    /// Minimum fg/bg WCAG contrast floor in `1.0..=21.0` (RV1). `1.0` (default)
+    /// disables enforcement and is pixel-identical to before.
+    pub min_contrast: f32,
     pub subpixel: SubpixelMode,
     pub key_bindings: Vec<KeyBindingOverride>,
     /// Default cursor shape applied at power-on (DECSCUSR can override).
@@ -329,6 +351,7 @@ impl Default for Settings {
             font_size_px: DEFAULT_FONT_SIZE_PX,
             text_gamma: DEFAULT_TEXT_GAMMA,
             stem_darken: DEFAULT_STEM_DARKEN,
+            min_contrast: DEFAULT_MIN_CONTRAST,
             subpixel: SubpixelMode::Off,
             key_bindings: Vec::new(),
             cursor_style: CursorStyle::Block,
@@ -441,6 +464,18 @@ impl Settings {
                 description: STEM_DARKEN_DESC,
                 kind: SettingKind::Number,
                 range: Some("0.0..=1.0"),
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Rendering",
+                key: "min_contrast",
+                env: MIN_CONTRAST_ENV,
+                name: "Minimum contrast",
+                value: format_float(self.min_contrast),
+                description: MIN_CONTRAST_DESC,
+                kind: SettingKind::Number,
+                range: Some("1.0..=21.0"),
                 options: &[],
                 reloadable: true,
             },
@@ -687,6 +722,7 @@ impl Settings {
         let font_size_px = parse_font_size(get(FONT_SIZE_ENV).as_deref(), &mut warn);
         let text_gamma = parse_text_gamma(get(TEXT_GAMMA_ENV).as_deref(), &mut warn);
         let stem_darken = parse_stem_darken(get(STEM_DARKEN_ENV).as_deref(), &mut warn);
+        let min_contrast = parse_min_contrast(get(MIN_CONTRAST_ENV).as_deref(), &mut warn);
         let subpixel = parse_subpixel(get(SUBPIXEL_ENV).as_deref(), &mut warn);
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
@@ -713,6 +749,7 @@ impl Settings {
             font_size_px,
             text_gamma,
             stem_darken,
+            min_contrast,
             subpixel,
             key_bindings,
             cursor_style,
@@ -738,6 +775,7 @@ impl Settings {
         values.insert(FONT_SIZE_ENV, format_float(self.font_size_px));
         values.insert(TEXT_GAMMA_ENV, format_float(self.text_gamma));
         values.insert(STEM_DARKEN_ENV, format_float(self.stem_darken));
+        values.insert(MIN_CONTRAST_ENV, format_float(self.min_contrast));
         values.insert(SUBPIXEL_ENV, subpixel_display(self.subpixel).to_owned());
         values.insert(KEYBINDS_ENV, key_bindings_edit_value(&self.key_bindings));
         values.insert(
@@ -1044,6 +1082,29 @@ fn parse_stem_darken(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     };
 
     parsed.clamp(MIN_STEM_DARKEN, MAX_STEM_DARKEN)
+}
+
+fn parse_min_contrast(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_MIN_CONTRAST;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_MIN_CONTRAST;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{MIN_CONTRAST_ENV}={trimmed:?} is not a valid contrast ratio; using {DEFAULT_MIN_CONTRAST}"
+            ));
+            return DEFAULT_MIN_CONTRAST;
+        }
+    };
+
+    parsed.clamp(MIN_MIN_CONTRAST, MAX_MIN_CONTRAST)
 }
 
 fn parse_subpixel(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> SubpixelMode {
