@@ -1,0 +1,30 @@
+# Amber CRT — original P3-amber-inspired monochrome palette
+name = amber-crt
+appearance = dark
+
+foreground = #ffb000
+background = #1a0e00
+clear = #150b00
+
+cursor = #ffc233
+selection = #3a2400
+search = #4a3000
+border = #3a2400
+inactive = #9a6b00
+
+color0 = #3a2400
+color1 = #ffb000
+color2 = #ffb000
+color3 = #ffc233
+color4 = #ffb000
+color5 = #ffb000
+color6 = #ffc233
+color7 = #ffd680
+color8 = #5a3a00
+color9 = #ffc233
+color10 = #ffc233
+color11 = #ffd455
+color12 = #ffc233
+color13 = #ffc233
+color14 = #ffd455
+color15 = #ffe6b0

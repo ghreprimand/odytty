@@ -1,0 +1,30 @@
+# IBM 5151-inspired green monochrome — vendor name is a trademark, no affiliation/endorsement implied
+name = ibm-5151
+appearance = dark
+
+foreground = #27d96b
+background = #000000
+clear = #000000
+
+cursor = #3ae57e
+selection = #0a3318
+search = #1a4422
+border = #0a3318
+inactive = #188a44
+
+color0 = #002200
+color1 = #27d96b
+color2 = #27d96b
+color3 = #3ae57e
+color4 = #27d96b
+color5 = #27d96b
+color6 = #3ae57e
+color7 = #7df0a8
+color8 = #0a4422
+color9 = #3ae57e
+color10 = #3ae57e
+color11 = #5af090
+color12 = #3ae57e
+color13 = #3ae57e
+color14 = #5af090
+color15 = #aef6c8

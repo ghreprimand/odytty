@@ -1,0 +1,30 @@
+# Green phosphor — original P1-CRT-inspired monochrome palette
+name = green-phosphor
+appearance = dark
+
+foreground = #33ff66
+background = #001100
+clear = #000d00
+
+cursor = #66ff88
+selection = #0a3315
+search = #1a4a22
+border = #0a3315
+inactive = #1f8a3a
+
+color0 = #003300
+color1 = #33ff66
+color2 = #33ff66
+color3 = #66ff88
+color4 = #33ff66
+color5 = #33ff66
+color6 = #66ffaa
+color7 = #aaffbb
+color8 = #116622
+color9 = #66ff88
+color10 = #66ff88
+color11 = #88ffaa
+color12 = #66ff88
+color13 = #66ff88
+color14 = #88ffcc
+color15 = #ccffdd

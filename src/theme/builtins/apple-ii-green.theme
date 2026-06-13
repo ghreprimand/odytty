@@ -1,0 +1,30 @@
+# Apple II-inspired green monochrome — vendor name is a trademark, no affiliation/endorsement implied
+name = apple-ii-green
+appearance = dark
+
+foreground = #33ff33
+background = #000000
+clear = #000000
+
+cursor = #5aff5a
+selection = #0f3a0f
+search = #1f4a1f
+border = #0f3a0f
+inactive = #1f9a1f
+
+color0 = #0a2a0a
+color1 = #33ff33
+color2 = #33ff33
+color3 = #5aff5a
+color4 = #33ff33
+color5 = #33ff33
+color6 = #5aff5a
+color7 = #9aff9a
+color8 = #155515
+color9 = #5aff5a
+color10 = #5aff5a
+color11 = #7aff7a
+color12 = #5aff5a
+color13 = #5aff5a
+color14 = #7aff7a
+color15 = #c8ffc8

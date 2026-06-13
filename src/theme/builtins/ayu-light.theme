@@ -1,0 +1,30 @@
+# Ayu Light — (c) dempfi, MIT; ported, no endorsement implied
+name = ayu-light
+appearance = light
+
+foreground = #5c6166
+background = #fcfcfc
+clear = #fcfcfc
+
+cursor = #ff9940
+selection = #d6e7f0
+search = #fbe6a8
+border = #e2e3e4
+inactive = #b4b6b8
+
+color0 = #000000
+color1 = #ea6c73
+color2 = #86b300
+color3 = #f2ae49
+color4 = #399ee6
+color5 = #a37acc
+color6 = #4cbf99
+color7 = #787b80
+color8 = #686868
+color9 = #f07171
+color10 = #86b300
+color11 = #f2ae49
+color12 = #399ee6
+color13 = #a37acc
+color14 = #4cbf99
+color15 = #d1d1d1

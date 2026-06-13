@@ -1,0 +1,30 @@
+# Ayu Mirage — (c) dempfi, MIT; ported, no endorsement implied
+name = ayu-mirage
+appearance = dark
+
+foreground = #cccac2
+background = #1f2430
+clear = #1f2430
+
+cursor = #ffcc66
+selection = #2d3a4d
+search = #4d4320
+border = #3b3f47
+inactive = #6d6f72
+
+color0 = #191e2a
+color1 = #ed8274
+color2 = #a6cc70
+color3 = #fad07b
+color4 = #6dcbfa
+color5 = #cfbafa
+color6 = #90e1c6
+color7 = #c7c7c7
+color8 = #686868
+color9 = #f28779
+color10 = #bae67e
+color11 = #ffd580
+color12 = #73d0ff
+color13 = #dfbfff
+color14 = #95e6cb
+color15 = #ffffff

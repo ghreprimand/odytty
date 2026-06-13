@@ -1,0 +1,30 @@
+# Tokyo Night Day — (c) enkia, MIT; ported, no endorsement implied
+name = tokyo-night-day
+appearance = light
+
+foreground = #3760bf
+background = #e1e2e7
+clear = #e1e2e7
+
+cursor = #3760bf
+selection = #c4c8da
+search = #e9d99a
+border = #c6cde1
+inactive = #94a8d5
+
+color0 = #b4b5b9
+color1 = #f52a65
+color2 = #587539
+color3 = #8c6c3e
+color4 = #2e7de9
+color5 = #9854f1
+color6 = #007197
+color7 = #6172b0
+color8 = #a1a6c5
+color9 = #f52a65
+color10 = #587539
+color11 = #8c6c3e
+color12 = #2e7de9
+color13 = #9854f1
+color14 = #007197
+color15 = #3760bf

@@ -1,0 +1,30 @@
+# Zenburn — (c) Jani Nurminen, freely ported; no endorsement implied
+name = zenburn
+appearance = dark
+
+foreground = #dcdccc
+background = #3f3f3f
+clear = #3f3f3f
+
+cursor = #dcdccc
+selection = #5b5b5b
+search = #54502a
+border = #585856
+inactive = #86867e
+
+color0 = #4d4d4d
+color1 = #cc9393
+color2 = #7f9f7f
+color3 = #e3ceab
+color4 = #8cd0d3
+color5 = #dc8cc3
+color6 = #93e0e3
+color7 = #dcdccc
+color8 = #709080
+color9 = #dca3a3
+color10 = #bfebbf
+color11 = #f0dfaf
+color12 = #b3ffff
+color13 = #ffadeb
+color14 = #b3ffff
+color15 = #ffffff

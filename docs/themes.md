@@ -90,6 +90,32 @@ path — so the file format is exercised by the library on every startup.
 | `catppuccin-latte` | light | Community |
 | `one-dark` | dark | Community |
 | `monokai` | dark | Community |
+| `everforest-dark` | dark | Community — forest-toned low-contrast dark palette |
+| `kanagawa` | dark | Community — ink-and-wave dark palette |
+| `rose-pine` | dark | Community — dusky rose and pine palette |
+| `ayu-mirage` | dark | Community — muted blue-gray dark palette |
+| `night-owl` | dark | Community — blue night palette |
+| `palenight` | dark | Community — Material-lineage violet night palette |
+| `github-dark` | dark | Community — GitHub-style dark palette, no affiliation |
+| `zenburn` | dark | Community — low-glare classic dark palette |
+| `oceanic-next` | dark | Community — deep ocean blue-gray palette |
+| `iceberg-dark` | dark | Community — cool blue high-latitude dark palette |
+| `github-light` | light | Community — GitHub-style light palette, no affiliation |
+| `gruvbox-light` | light | Community — warm retro light palette |
+| `one-light` | light | Community — Atom-style light palette |
+| `ayu-light` | light | Community — bright neutral light palette |
+| `rose-pine-dawn` | light | Community — soft dawn companion to Rose Pine |
+| `tokyo-night-day` | light | Community — Tokyo Night light palette |
+| `papercolor-light` | light | Community — paper-inspired terminal palette |
+| `everforest-light` | light | Community — warm forest light palette |
+| `green-phosphor` | dark | Retro — P1-CRT-inspired green monochrome |
+| `amber-crt` | dark | Retro — P3-amber-inspired monochrome |
+| `ibm-5151` | dark | Retro — IBM 5151-inspired green monochrome, no affiliation |
+| `dos-cga` | dark | Retro — DOS/CGA-inspired ANSI text palette |
+| `apple-ii-green` | dark | Retro — Apple II-inspired green monochrome, no affiliation |
+| `commodore-64` | dark | Retro — Commodore 64-inspired blue screen, no affiliation |
+| `hercules-amber` | dark | Retro — Hercules-card-inspired amber monochrome |
+| `vt220-green` | dark | Retro — DEC VT220-inspired green phosphor, no affiliation |
 
 ### Readability validation
 

@@ -1,0 +1,30 @@
+# Hercules-card-inspired amber monochrome — warmer than P3
+name = hercules-amber
+appearance = dark
+
+foreground = #ffaa33
+background = #100800
+clear = #0c0600
+
+cursor = #ffbf55
+selection = #2e1c00
+search = #3e2800
+border = #2e1c00
+inactive = #9a6622
+
+color0 = #2a1800
+color1 = #ffaa33
+color2 = #ffaa33
+color3 = #ffbf55
+color4 = #ffaa33
+color5 = #ffaa33
+color6 = #ffbf55
+color7 = #ffd699
+color8 = #4a3000
+color9 = #ffbf55
+color10 = #ffbf55
+color11 = #ffce77
+color12 = #ffbf55
+color13 = #ffbf55
+color14 = #ffce77
+color15 = #ffe6bf

@@ -1,0 +1,30 @@
+# Everforest light — (c) sainnhe, MIT; ported, no endorsement implied
+name = everforest-light
+appearance = light
+
+foreground = #5c6a72
+background = #fdf6e3
+clear = #fdf6e3
+
+cursor = #5c6a72
+selection = #edeada
+search = #f0e4a8
+border = #e3e0d1
+inactive = #b5b7b0
+
+color0 = #5c6a72
+color1 = #f85552
+color2 = #8da101
+color3 = #dfa000
+color4 = #3a94c5
+color5 = #df69ba
+color6 = #35a77c
+color7 = #e0dcc7
+color8 = #939f91
+color9 = #f85552
+color10 = #8da101
+color11 = #dfa000
+color12 = #3a94c5
+color13 = #df69ba
+color14 = #35a77c
+color15 = #5c6a72

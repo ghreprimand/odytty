@@ -1,0 +1,30 @@
+# Oceanic Next — (c) Dmitri Voronianski, MIT; ported, no endorsement implied
+name = oceanic-next
+appearance = dark
+
+foreground = #c0c5ce
+background = #1b2b34
+clear = #1b2b34
+
+cursor = #c0c5ce
+selection = #33414d
+search = #5e5a42
+border = #35444d
+inactive = #657079
+
+color0 = #343d46
+color1 = #ec5f67
+color2 = #99c794
+color3 = #fac863
+color4 = #6699cc
+color5 = #c594c5
+color6 = #5fb3b3
+color7 = #c0c5ce
+color8 = #65737e
+color9 = #ec5f67
+color10 = #99c794
+color11 = #fac863
+color12 = #6699cc
+color13 = #c594c5
+color14 = #5fb3b3
+color15 = #d8dee9

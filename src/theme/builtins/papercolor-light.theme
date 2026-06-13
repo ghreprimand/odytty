@@ -1,0 +1,30 @@
+# PaperColor — (c) NLKNguyen, MIT; ported, no endorsement implied
+name = papercolor-light
+appearance = light
+
+foreground = #444444
+background = #eeeeee
+clear = #eeeeee
+
+cursor = #0087af
+selection = #d0d0d0
+search = #e4d79a
+border = #d3d3d3
+inactive = #a2a2a2
+
+color0 = #eeeeee
+color1 = #af0000
+color2 = #008700
+color3 = #5f8700
+color4 = #0087af
+color5 = #878787
+color6 = #005f87
+color7 = #444444
+color8 = #bcbcbc
+color9 = #d70000
+color10 = #d70087
+color11 = #8700af
+color12 = #d75f00
+color13 = #d75f00
+color14 = #005faf
+color15 = #005f87

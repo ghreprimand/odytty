@@ -1,0 +1,30 @@
+# DEC VT220-inspired green serial-terminal phosphor — vendor name is a trademark, no affiliation/endorsement implied
+name = vt220-green
+appearance = dark
+
+foreground = #1aff7a
+background = #021008
+clear = #010c06
+
+cursor = #4dff99
+selection = #0a3a20
+search = #1a4a28
+border = #0a3a20
+inactive = #149a55
+
+color0 = #053018
+color1 = #1aff7a
+color2 = #1aff7a
+color3 = #4dff99
+color4 = #1aff7a
+color5 = #1aff7a
+color6 = #4dff99
+color7 = #9affc4
+color8 = #0a4426
+color9 = #4dff99
+color10 = #4dff99
+color11 = #6fffb0
+color12 = #4dff99
+color13 = #4dff99
+color14 = #6fffb0
+color15 = #c4ffdd

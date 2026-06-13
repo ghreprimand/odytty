@@ -1,0 +1,30 @@
+# Commodore 64-inspired blue screen — vendor name is a trademark, no affiliation/endorsement implied
+name = commodore-64
+appearance = dark
+
+foreground = #a5a5ff
+background = #40318d
+clear = #40318d
+
+cursor = #a5a5ff
+selection = #5a4ba8
+search = #6a5a3a
+border = #5a4ba8
+inactive = #7a6fc0
+
+color0 = #40318d
+color1 = #883932
+color2 = #5cab5e
+color3 = #bfce72
+color4 = #7c70da
+color5 = #a059a4
+color6 = #6fc3c0
+color7 = #a5a5ff
+color8 = #5a4ba8
+color9 = #9d4a43
+color10 = #6fbf72
+color11 = #d4e088
+color12 = #9389e8
+color13 = #b66cbb
+color14 = #84d4d2
+color15 = #cfcfff

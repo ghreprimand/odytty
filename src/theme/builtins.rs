@@ -20,10 +20,18 @@
 //! `odyssey-solar`, `odyssey-abyss`, `odyssey-ember`, `odyssey-glacier`,
 //! `odyssey-meridian`, `odyssey-voyager`, `odyssey-pulsar`,
 //! `odyssey-dawn-light` (light), `odyssey-sandstone-light` (light), and
-//! `odyssey-graphite`. Community palettes (published values):
-//! `solarized-dark`, `solarized-light`, `gruvbox-dark`, `nord`, `dracula`,
-//! `tokyo-night`, `catppuccin-mocha`, `catppuccin-latte` (light), `one-dark`,
-//! `monokai`.
+//! `odyssey-graphite`.
+//!
+//! Community palettes (published values): `solarized-dark`, `gruvbox-dark`,
+//! `nord`, `dracula`, `tokyo-night`, `catppuccin-mocha`, `one-dark`, `monokai`,
+//! `everforest-dark`, `kanagawa`, `rose-pine`, `ayu-mirage`, `night-owl`,
+//! `palenight`, `github-dark`, `zenburn`, `oceanic-next`, and `iceberg-dark`.
+//! Light palettes: `solarized-light`, `catppuccin-latte`, `github-light`,
+//! `gruvbox-light`, `one-light`, `ayu-light`, `rose-pine-dawn`,
+//! `tokyo-night-day`, `papercolor-light`, and `everforest-light`.
+//! Retro / phosphor palettes: `green-phosphor`, `amber-crt`, `ibm-5151`,
+//! `dos-cga`, `apple-ii-green`, `commodore-64`, `hercules-amber`, and
+//! `vt220-green`.
 
 use std::sync::OnceLock;
 
@@ -93,13 +101,10 @@ const REGISTRY: &[(&str, &str)] = &[
         "odyssey-graphite",
         include_str!("builtins/odyssey-graphite.theme"),
     ),
+    // Community palettes (published values).
     (
         "solarized-dark",
         include_str!("builtins/solarized-dark.theme"),
-    ),
-    (
-        "solarized-light",
-        include_str!("builtins/solarized-light.theme"),
     ),
     ("gruvbox-dark", include_str!("builtins/gruvbox-dark.theme")),
     ("nord", include_str!("builtins/nord.theme")),
@@ -109,12 +114,71 @@ const REGISTRY: &[(&str, &str)] = &[
         "catppuccin-mocha",
         include_str!("builtins/catppuccin-mocha.theme"),
     ),
+    ("one-dark", include_str!("builtins/one-dark.theme")),
+    ("monokai", include_str!("builtins/monokai.theme")),
+    (
+        "everforest-dark",
+        include_str!("builtins/everforest-dark.theme"),
+    ),
+    ("kanagawa", include_str!("builtins/kanagawa.theme")),
+    ("rose-pine", include_str!("builtins/rose-pine.theme")),
+    ("ayu-mirage", include_str!("builtins/ayu-mirage.theme")),
+    ("night-owl", include_str!("builtins/night-owl.theme")),
+    ("palenight", include_str!("builtins/palenight.theme")),
+    ("github-dark", include_str!("builtins/github-dark.theme")),
+    ("zenburn", include_str!("builtins/zenburn.theme")),
+    ("oceanic-next", include_str!("builtins/oceanic-next.theme")),
+    ("iceberg-dark", include_str!("builtins/iceberg-dark.theme")),
+    // Light palettes.
+    (
+        "solarized-light",
+        include_str!("builtins/solarized-light.theme"),
+    ),
     (
         "catppuccin-latte",
         include_str!("builtins/catppuccin-latte.theme"),
     ),
-    ("one-dark", include_str!("builtins/one-dark.theme")),
-    ("monokai", include_str!("builtins/monokai.theme")),
+    ("github-light", include_str!("builtins/github-light.theme")),
+    (
+        "gruvbox-light",
+        include_str!("builtins/gruvbox-light.theme"),
+    ),
+    ("one-light", include_str!("builtins/one-light.theme")),
+    ("ayu-light", include_str!("builtins/ayu-light.theme")),
+    (
+        "rose-pine-dawn",
+        include_str!("builtins/rose-pine-dawn.theme"),
+    ),
+    (
+        "tokyo-night-day",
+        include_str!("builtins/tokyo-night-day.theme"),
+    ),
+    (
+        "papercolor-light",
+        include_str!("builtins/papercolor-light.theme"),
+    ),
+    (
+        "everforest-light",
+        include_str!("builtins/everforest-light.theme"),
+    ),
+    // Retro / phosphor palettes.
+    (
+        "green-phosphor",
+        include_str!("builtins/green-phosphor.theme"),
+    ),
+    ("amber-crt", include_str!("builtins/amber-crt.theme")),
+    ("ibm-5151", include_str!("builtins/ibm-5151.theme")),
+    ("dos-cga", include_str!("builtins/dos-cga.theme")),
+    (
+        "apple-ii-green",
+        include_str!("builtins/apple-ii-green.theme"),
+    ),
+    ("commodore-64", include_str!("builtins/commodore-64.theme")),
+    (
+        "hercules-amber",
+        include_str!("builtins/hercules-amber.theme"),
+    ),
+    ("vt220-green", include_str!("builtins/vt220-green.theme")),
 ];
 
 static LIBRARY: OnceLock<Vec<Theme>> = OnceLock::new();
@@ -168,7 +232,7 @@ mod tests {
     #[test]
     fn library_has_the_full_roster() {
         assert_eq!(all().len(), REGISTRY.len());
-        assert_eq!(all().len(), 27, "roster size changed — update docs + this");
+        assert_eq!(all().len(), 53, "roster size changed — update docs + this");
     }
 
     #[test]

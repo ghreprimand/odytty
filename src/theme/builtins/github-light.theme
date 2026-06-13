@@ -1,0 +1,30 @@
+# GitHub-style light — palette (c) GitHub (Primer), MIT; GitHub is a trademark, no affiliation/endorsement implied
+name = github-light
+appearance = light
+
+foreground = #24292f
+background = #ffffff
+clear = #ffffff
+
+cursor = #0969da
+selection = #bcd6f5
+search = #fff8c5
+border = #dcddde
+inactive = #9c9fa1
+
+color0 = #24292f
+color1 = #cf222e
+color2 = #116329
+color3 = #4d2d00
+color4 = #0969da
+color5 = #8250df
+color6 = #1b7c83
+color7 = #6e7781
+color8 = #57606a
+color9 = #a40e26
+color10 = #1a7f37
+color11 = #633c01
+color12 = #218bff
+color13 = #a475f9
+color14 = #3192aa
+color15 = #8c959f

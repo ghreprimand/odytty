@@ -1,0 +1,30 @@
+# Palenight — Material lineage (Astorino), MIT-class; ported, no endorsement implied
+name = palenight
+appearance = dark
+
+foreground = #bfc7d5
+background = #292d3e
+clear = #292d3e
+
+cursor = #ffcb6b
+selection = #3c435a
+search = #4d4220
+border = #414656
+inactive = #6c7282
+
+color0 = #292d3e
+color1 = #f07178
+color2 = #c3e88d
+color3 = #ffcb6b
+color4 = #82aaff
+color5 = #c792ea
+color6 = #89ddff
+color7 = #bfc7d5
+color8 = #434758
+color9 = #ff8b92
+color10 = #ddffa7
+color11 = #ffe585
+color12 = #9cc4ff
+color13 = #e1acff
+color14 = #a3f7ff
+color15 = #ffffff
