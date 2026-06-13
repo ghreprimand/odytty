@@ -22,9 +22,9 @@ a planned expansion into readability-first enhancements and atmospheric effects
 
 ### Full byte-path ownership
 
-The PTY layer (`src/pty/linux.rs`) uses `rustix` directly for
+The PTY layer (`src/pty.rs`) uses `rustix` directly for
 `openpt`/`grantpt`/`unlockpt` and session-leader spawn. The VT parser
-(`src/vt/`) is a clean-room two-layer pipeline built from primary
+(`src/parser/`) is a clean-room two-layer pipeline built from primary
 specifications (vt100.net, ECMA-48, xterm `ctlseqs`) — not derived from `vte`
 or any other terminal's source. `vte`, `portable-pty`, and `crossterm` are not
 in the dependency tree.
@@ -217,7 +217,7 @@ SGR-pixel mouse, and the theme palette foundation have all landed.
 
 ## Testing
 
-**Testing.** 909 tests passing: 834 unit/integration, 12 mouse-protocol
+**Testing.** 932 tests passing: 857 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for

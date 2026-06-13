@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Text-quality audit + RV5 stem-darkening prototype (TXT-AUDIT)
+
+- Audit of the text path: confirmed the subpixel path has no FreeType-style FIR low-pass (fringing risk; opt-in only — subpixel is off by default); confirmed ab_glyph does no vertical stem hinting (integer-baseline snapping already crisps horizontals); confirmed the swapchain prefers an sRGB surface and compositing is gamma-correct end to end, with a latent silent-darkening risk only if no sRGB format exists. Ranked follow-ups: perceptual color pipeline (RV3), glyph oversampling, subpixel FIR, in-shader stem-darken, swash hinting, sRGB-fallback guard.
+- RV5 stem-darkening (`src/atlas/mod.rs`): a raster-time coverage boost, applied per glyph sample so light-on-dark stems hold weight at small sizes. Endpoints are exact and strength ≤ 0 is a hard identity, so the default (off) reproduces the historical atlas byte-for-byte. `ODYTTY_STEM_DARKEN` (clamp 0.0–1.0, default 0.0) ships with a human-readable description for the future settings panel and a runtime-knobs row — establishing that every new knob carries help text. Default off pending a perceptual eyeball pass; native activation is a follow-up.
+- Verified: `cargo fmt --check` clean; full suite green; 40k-iter protocol\_fuzz + graphics\_fuzz green; native autoclose smoke exit 0 at default and `ODYTTY_FONT_SIZE=18`.
+
+## 2026-06-13 -- README overhaul + public-doc tone pass (DOCS1)
+
+- Rewrote `README.md` around what makes OdyTTY distinctive (full byte-path ownership, live color emoji with ZWJ/flag/skin-tone clusters, Kitty graphics + Sixel, Kitty keyboard, SGR-pixel mouse, theme-driven ANSI palette + semantic roles, the visual roadmap), restructured into intro → features → build/run → status → testing → docs. Presented on its own merits; competitive framing removed.
+- Swept `SPEC.md`, `docs/full-build-roadmap.md`, and `docs/visual-architecture.md` for the same tone and brought the theme sections up to the TH1 delivered state (full 16-color ANSI palette + semantic roles, theme-driven indexed resolution).
+
+## 2026-06-13 -- Native overlay framework + live themed ANSI palette (UX1 + TH1 activation)
+
+- Added a native in-window overlay framework (`src/native/overlay.rs`) for keyboard-driven, multi-row panels (text fields, lists, toggles) rendered through the existing cell path — presentation-only, never mutating terminal state. This is the foundation for the in-app settings panel and theme picker.
+- Wired the active theme's ANSI palette into native startup and live reload, so indexed colors (0–15 plus bright) follow the selected non-plain theme; the `plain` theme stays byte-identical to the historical hardcoded palette.
+- Verified: `cargo fmt --check` clean; full suite green; 40k-iter protocol\_fuzz + graphics\_fuzz green; native autoclose smoke exit 0 at default and `ODYTTY_FONT_SIZE=18`.
+
 ## 2026-06-13 -- Theme palette foundation: full ANSI palette + semantic roles (TH1)
 
 Epic A anchor. The `Theme` struct grew from three colors (foreground /
