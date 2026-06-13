@@ -61,6 +61,42 @@ file needed. Every built-in is authored in the theme file format and loaded
 through the same parser as a user theme — there is no privileged construction
 path — so the file format is exercised by the library on every startup.
 
+### Theme families
+
+**Odyssey identity** — `plain` plus sixteen `odyssey-*` variants are original
+themes designed for OdysseyOS. `plain` reproduces the historical xterm default
+palette byte-for-byte and is the fallback when no theme is configured. The
+`odyssey-*` variants span a range of visual moods across dark and light
+appearances: deep-space and interstellar cold (`odyssey`, `odyssey-deepspace`,
+`odyssey-pulsar`), warm atmospheric (`odyssey-solar`, `odyssey-ember`,
+`odyssey-abyss`), cool natural (`odyssey-glacier`, `odyssey-voyager`), cosmic
+nebula (`odyssey-nebula`, `odyssey-aurora`), warm and cool text focus
+(`odyssey-meridian`, `odyssey-graphite`), and three light companions
+(`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`). These carry
+the strongest OdysseyOS visual identity.
+
+**Community** — twenty-eight themes ported from widely-used open-source
+color-scheme palettes. The dark side covers the ten palettes that formed the
+original community batch (Solarized, Gruvbox, Nord, Dracula, Tokyo Night,
+Catppuccin Mocha, One Dark, Monokai) plus an extended set including Everforest,
+Kanagawa, Rose Pine, Ayu Mirage, Night Owl, Palenight, GitHub-style dark,
+Zenburn, Oceanic Next, and Iceberg. The light side covers ten counterparts:
+Solarized Light, Catppuccin Latte, GitHub-style light, Gruvbox Light, One
+Light, Ayu Light, Rose Pine Dawn, Tokyo Night Day, PaperColor, and Everforest
+Light. Sources and licenses are listed in the
+[attribution table](#attribution-and-licensing) below.
+
+**Retro / phosphor** — eight themes inspired by historical display hardware:
+three green-phosphor monochrome variants (`green-phosphor`, `ibm-5151`,
+`vt220-green`), two amber monochrome variants (`amber-crt`, `hercules-amber`),
+an Apple II-inspired green phosphor (`apple-ii-green`), the Commodore 64
+blue-on-purple character screen (`commodore-64`), and a DOS/CGA sixteen-color
+text palette (`dos-cga`) tuned to the canonical ANSI hue angles. These use
+deliberately narrow ANSI palettes that approximate the look of the original
+hardware while meeting the library's 4.0 contrast floor. Vendor and platform
+names that appear in theme titles are trademarks of their respective owners;
+OdyTTY has no affiliation with or endorsement from any of those vendors.
+
 | Name | Appearance | Family |
 | --- | --- | --- |
 | `plain` | dark | OdyTTY default (pixel-identical to the pre-theme look) |
@@ -127,9 +163,49 @@ palettes (Solarized in particular sits right at the boundary: ~4.1 light,
 
 This is a *library-authoring* floor, not a render-time guarantee. Per-user
 render-time contrast enforcement — a configurable minimum that lifts low-contrast
-text from *any* app or theme — is the job of the upcoming minimum-contrast
-feature (RV1), which builds on the same contrast helper
+text from *any* app or theme — is available via `ODYTTY_MIN_CONTRAST` /
+`min_contrast =` in `odytty.conf`. It builds on the same contrast helper
 (`theme::contrast_ratio`) used to validate the library here.
+
+### Attribution and licensing
+
+OdyTTY-original themes and retro-inspired themes carry no external attribution.
+Community themes are ported from their published sources; the table below lists
+each source and its licensing posture as stated in the theme file headers.
+"Published palette" means the palette was released publicly by its author(s)
+without an explicit open-source license declaration in the theme header. MIT
+ports are used and adapted under the MIT license.
+
+| Theme(s) | Source | Notes |
+| --- | --- | --- |
+| `plain`, `odyssey`, all `odyssey-*` | OdyTTY original | Original design |
+| `amber-crt`, `green-phosphor`, `hercules-amber`, `dos-cga` | OdyTTY original | Original retro-inspired designs |
+| `catppuccin-mocha`, `catppuccin-latte` | Catppuccin | Published palette |
+| `dracula` | Dracula (Zeno Rocha et al.) | Published palette |
+| `gruvbox-dark` | Gruvbox (Pavel Pertsev) | Published palette |
+| `monokai` | Monokai (Wimer Hazenberg) | Published palette |
+| `nord` | Nord (Arctic Ice Studio) | Published palette |
+| `one-dark` | One Dark (Atom) | Published palette |
+| `solarized-dark`, `solarized-light` | Solarized (Ethan Schoonover) | Published palette |
+| `tokyo-night` | Tokyo Night (enkia) | Published palette |
+| `ayu-light`, `ayu-mirage` | Ayu (dempfi) | MIT, ported; no endorsement implied |
+| `everforest-dark`, `everforest-light` | Everforest (sainnhe) | MIT, ported; no endorsement implied |
+| `github-dark`, `github-light` | GitHub Primer (GitHub) | MIT, ported; GitHub is a trademark, no affiliation |
+| `gruvbox-light` | Gruvbox (morhetz) | MIT, ported; no endorsement implied |
+| `iceberg-dark` | Iceberg (cocopon) | MIT, ported; no endorsement implied |
+| `kanagawa` | Kanagawa (rebelot) | MIT, ported; no endorsement implied |
+| `night-owl` | Night Owl (Sarah Drasner) | MIT, ported; no endorsement implied |
+| `oceanic-next` | Oceanic Next (Dmitri Voronianski) | MIT, ported; no endorsement implied |
+| `one-light` | One Light (Atom / GitHub) | MIT, ported; no endorsement implied |
+| `palenight` | Palenight (Astorino) | MIT-class, ported; no endorsement implied |
+| `papercolor-light` | PaperColor (NLKNguyen) | MIT, ported; no endorsement implied |
+| `rose-pine`, `rose-pine-dawn` | Rose Pine | MIT, ported; no endorsement implied |
+| `tokyo-night-day` | Tokyo Night Day (enkia) | MIT, ported; no endorsement implied |
+| `zenburn` | Zenburn (Jani Nurminen) | Freely ported; no endorsement implied |
+| `apple-ii-green` | Inspired by Apple II display | Apple is a trademark; no affiliation or endorsement |
+| `commodore-64` | Inspired by Commodore 64 display | Commodore is a trademark; no affiliation or endorsement |
+| `ibm-5151` | Inspired by IBM 5151 display | IBM is a trademark; no affiliation or endorsement |
+| `vt220-green` | Inspired by DEC VT220 display | DEC and VT220 are trademarks; no affiliation or endorsement |
 
 ## File format
 
