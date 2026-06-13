@@ -354,6 +354,47 @@ fn text_gamma_clamps_to_sane_range() {
 }
 
 #[test]
+fn stem_darken_defaults_to_off() {
+    let (settings, warnings) = settings_from([]);
+    assert_eq!(settings.stem_darken, DEFAULT_STEM_DARKEN);
+    assert_eq!(settings.stem_darken, 0.0);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn stem_darken_parses_a_valid_value() {
+    let (settings, warnings) = settings_from([(STEM_DARKEN_ENV, "0.5")]);
+    assert_eq!(settings.stem_darken, 0.5);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn empty_stem_darken_falls_back_without_warning() {
+    let (settings, warnings) = settings_from([(STEM_DARKEN_ENV, "  ")]);
+    assert_eq!(settings.stem_darken, DEFAULT_STEM_DARKEN);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_stem_darken_falls_back_with_one_warning() {
+    let (settings, warnings) = settings_from([(STEM_DARKEN_ENV, "heavy")]);
+    assert_eq!(settings.stem_darken, DEFAULT_STEM_DARKEN);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(STEM_DARKEN_ENV));
+}
+
+#[test]
+fn stem_darken_clamps_to_unit_range() {
+    let (small, small_warnings) = settings_from([(STEM_DARKEN_ENV, "-1")]);
+    let (large, large_warnings) = settings_from([(STEM_DARKEN_ENV, "5")]);
+
+    assert_eq!(small.stem_darken, MIN_STEM_DARKEN);
+    assert_eq!(large.stem_darken, MAX_STEM_DARKEN);
+    assert!(small_warnings.is_empty());
+    assert!(large_warnings.is_empty());
+}
+
+#[test]
 fn subpixel_defaults_off_and_parses_orders() {
     let (default, default_warnings) = settings_from([]);
     let (rgb, rgb_warnings) = settings_from([(SUBPIXEL_ENV, " RGB ")]);

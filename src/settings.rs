@@ -30,6 +30,7 @@ pub const FONT_ENV: &str = "ODYTTY_FONT";
 pub const FONT_FAMILY_ENV: &str = "ODYTTY_FONT_FAMILY";
 pub const FONT_SIZE_ENV: &str = "ODYTTY_FONT_SIZE";
 pub const TEXT_GAMMA_ENV: &str = "ODYTTY_TEXT_GAMMA";
+pub const STEM_DARKEN_ENV: &str = "ODYTTY_STEM_DARKEN";
 pub const SUBPIXEL_ENV: &str = "ODYTTY_SUBPIXEL";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
@@ -48,6 +49,7 @@ const SETTING_ENV_KEYS: &[&str] = &[
     FONT_FAMILY_ENV,
     FONT_SIZE_ENV,
     TEXT_GAMMA_ENV,
+    STEM_DARKEN_ENV,
     SUBPIXEL_ENV,
     KEYBINDS_ENV,
     CURSOR_STYLE_ENV,
@@ -130,6 +132,22 @@ pub const DEFAULT_TEXT_GAMMA: f32 = 1.4;
 pub const MIN_TEXT_GAMMA: f32 = 0.5;
 pub const MAX_TEXT_GAMMA: f32 = 3.0;
 
+/// Stem-darkening strength (`ODYTTY_STEM_DARKEN`): a coverage boost applied at
+/// glyph raster time so light-on-dark body text holds weight at small sizes
+/// (RV5). `0.0` disables it and is pixel-identical to the pre-feature renderer;
+/// `1.0` is the strongest boost. Defaults to off pending a perceptual eyeball
+/// pass — see the audit findings for the recommended enable value.
+pub const DEFAULT_STEM_DARKEN: f32 = 0.0;
+pub const MIN_STEM_DARKEN: f32 = 0.0;
+pub const MAX_STEM_DARKEN: f32 = 1.0;
+
+/// Human-readable help for the stem-darken knob, destined for the in-app
+/// settings panel (UX2). Establishes the convention that every new knob ships
+/// with a concise description, its accepted values, and its default.
+pub const STEM_DARKEN_DESC: &str = "Stem darkening: boosts glyph coverage so light-on-dark text holds weight at \
+     small sizes. Accepts 0.0–1.0; 0.0 is off (identical to no boost), 1.0 is \
+     strongest. Default 0.0.";
+
 /// Terminal-local actions that can be rebound without changing PTY input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BindableAction {
@@ -210,6 +228,9 @@ pub struct Settings {
     pub font_family: Option<String>,
     pub font_size_px: f32,
     pub text_gamma: f32,
+    /// Stem-darkening strength in `0.0..=1.0` (RV5). `0.0` (default) disables
+    /// the raster-time coverage boost and is pixel-identical to before.
+    pub stem_darken: f32,
     pub subpixel: SubpixelMode,
     pub key_bindings: Vec<KeyBindingOverride>,
     /// Default cursor shape applied at power-on (DECSCUSR can override).
@@ -236,6 +257,7 @@ impl Default for Settings {
             font_family: None,
             font_size_px: DEFAULT_FONT_SIZE_PX,
             text_gamma: DEFAULT_TEXT_GAMMA,
+            stem_darken: DEFAULT_STEM_DARKEN,
             subpixel: SubpixelMode::Off,
             key_bindings: Vec::new(),
             cursor_style: CursorStyle::Block,
@@ -349,6 +371,7 @@ impl Settings {
         };
         let font_size_px = parse_font_size(get(FONT_SIZE_ENV).as_deref(), &mut warn);
         let text_gamma = parse_text_gamma(get(TEXT_GAMMA_ENV).as_deref(), &mut warn);
+        let stem_darken = parse_stem_darken(get(STEM_DARKEN_ENV).as_deref(), &mut warn);
         let subpixel = parse_subpixel(get(SUBPIXEL_ENV).as_deref(), &mut warn);
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
@@ -374,6 +397,7 @@ impl Settings {
             font_family,
             font_size_px,
             text_gamma,
+            stem_darken,
             subpixel,
             key_bindings,
             cursor_style,
@@ -491,6 +515,29 @@ fn parse_text_gamma(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     };
 
     parsed.clamp(MIN_TEXT_GAMMA, MAX_TEXT_GAMMA)
+}
+
+fn parse_stem_darken(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_STEM_DARKEN;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_STEM_DARKEN;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{STEM_DARKEN_ENV}={trimmed:?} is not a valid stem-darken strength; using {DEFAULT_STEM_DARKEN}"
+            ));
+            return DEFAULT_STEM_DARKEN;
+        }
+    };
+
+    parsed.clamp(MIN_STEM_DARKEN, MAX_STEM_DARKEN)
 }
 
 fn parse_subpixel(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> SubpixelMode {

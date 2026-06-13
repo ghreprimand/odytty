@@ -59,6 +59,7 @@
 //! and the future font-family setting.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use ab_glyph::{Font, FontVec, PxScale, ScaleFont, point};
 use unicode_width::UnicodeWidthChar;
@@ -807,6 +808,69 @@ fn slot_offset(slot: u32, cols: u32, cell: CellSize) -> (u32, u32) {
 /// drawable-region clip keeps the synthesis inside the slot. Synthesis never
 /// changes the cell advance.
 ///
+/// Maximum exponent gain for stem-darkening at strength `1.0`. The applied
+/// exponent is `1.0 / (1.0 + strength * STEM_DARKEN_GAIN)`; with strength in
+/// `0.0..=1.0` this yields an exponent in `1.0 ..= 1/(1+GAIN)`. At `0.6` the
+/// strongest setting boosts a 50%-coverage edge sample by roughly +30%, which
+/// thickens stems noticeably without flooding glyph counters.
+const STEM_DARKEN_GAIN: f32 = 0.6;
+
+/// Active stem-darkening strength, bit-cast `f32` in an atomic so raster reads
+/// stay lock-free (mirrors the runtime color-override seams in
+/// [`crate::text`]). `0.0` (the default) is a true no-op: coverage is written
+/// byte-identically to the pre-feature atlas. Presentation-only — never affects
+/// terminal cell contents or metrics.
+///
+/// **RV5 prototype.** This is a *global* coverage boost applied to every
+/// rasterized glyph (it cannot see per-cell fg/bg at raster time). The
+/// luminance-conditioned "light-on-dark only" variant is a documented in-shader
+/// follow-up; see the audit findings.
+static STEM_DARKEN: AtomicU32 = AtomicU32::new(0); // 0.0_f32.to_bits()
+
+/// Set the global stem-darkening strength used when rasterizing glyphs.
+///
+/// Called once at native startup (and on the atlas-rebuild seam) by the
+/// settings layer with the parsed `ODYTTY_STEM_DARKEN` value. The strength is
+/// clamped to `0.0..=1.0`; `0.0` disables the boost and is pixel-identical to
+/// the pre-feature renderer. Only glyphs rasterized *after* this call observe
+/// the new value, which on the live path is the entire atlas (it is rebuilt
+/// when the setting changes).
+pub fn set_stem_darken(strength: f32) {
+    let clamped = if strength.is_finite() {
+        strength.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    STEM_DARKEN.store(clamped.to_bits(), Ordering::Relaxed);
+}
+
+/// The active stem-darkening strength (`0.0` when disabled).
+fn stem_darken_strength() -> f32 {
+    f32::from_bits(STEM_DARKEN.load(Ordering::Relaxed))
+}
+
+/// Apply stem-darkening to one 8-bit coverage sample.
+///
+/// Compensates for the irradiation illusion (light text on a dark field appears
+/// thinner than it is) by raising partial coverage toward full, so stems hold
+/// weight at small sizes. The mapping is `c^(1/(1+strength*GAIN))` on the
+/// normalized coverage `c = value/255`.
+///
+/// **Pixel-identity guarantee:** at `strength <= 0.0` this returns `value`
+/// unchanged, and the fully-uncovered (`0`) and fully-covered (`255`) endpoints
+/// are always returned exactly — only intermediate (anti-aliased edge / thin
+/// stem) coverage is boosted. So a disabled or absent setting reproduces the
+/// historical atlas byte-for-byte.
+fn apply_stem_darken(value: u8, strength: f32) -> u8 {
+    if strength <= 0.0 || value == 0 || value == 255 {
+        return value;
+    }
+    let c = value as f32 / 255.0;
+    let exponent = 1.0 / (1.0 + strength * STEM_DARKEN_GAIN);
+    let boosted = c.powf(exponent);
+    (boosted * 255.0).round().clamp(0.0, 255.0) as u8
+}
+
 /// Destination slot geometry for [`rasterize_glyph`].
 struct SlotRegion {
     /// Outer top-left of the (lead) slot in atlas pixels.
@@ -838,6 +902,9 @@ fn rasterize_glyph(
     if !font_has_glyph(font, ch) {
         return None;
     }
+    // Stem-darkening strength is read once per glyph; `0.0` (the default) makes
+    // `apply_stem_darken` an identity so coverage is byte-identical to before.
+    let stem = stem_darken_strength();
     // Cell inner origin, and the drawable region (cell + overflow margin) that
     // coverage may occupy, leaving the outer ATLAS_PAD bleed ring transparent.
     // `outer_w` is the slot's total horizontal extent in pixels — `slot_w(cell)`
@@ -867,6 +934,9 @@ fn rasterize_glyph(
             if value == 0 {
                 return; // uninked sample contributes no ink and no bounds
             }
+            // Stem-darkening (RV5): boost partial coverage so light-on-dark
+            // stems hold weight. Identity at the default strength of 0.0.
+            let value = apply_stem_darken(value, stem);
             // Round to the nearest atlas pixel (truncation drifts edges and can
             // drop a glyph's final row/column).
             let ay = inner_y + (bounds.min.y + gy as f32).round() as i32;
