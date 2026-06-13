@@ -10,7 +10,7 @@ use crate::core::{
 };
 use crate::input::{self, Key, KeyEventType, KeyModes, Modifiers};
 use crate::pty::PtySession;
-use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker};
+use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker, SelectionStyle};
 use crate::settings::{
     BindableAction, SettingEdit, Settings, SettingsReloadOutcome, SettingsReloader, THEME_ENV,
     apply_reloadable_values, write_settings_changes_to_path,
@@ -51,7 +51,7 @@ pub(super) use super::resize::{
     PendingResize, RESIZE_DEBOUNCE_INTERVAL, ResizeDebouncer, pending_resize_for_surface,
     scale_factor_changed,
 };
-use super::search_ui::{SearchUi, apply_search_ui};
+use super::search_ui::{SearchStyle, SearchUi, apply_search_ui};
 use super::viewport::{
     SELECTION_AUTOSCROLL_INTERVAL, Viewport, grid_dimensions_for, scroll_indicator_quad,
     wheel_lines,
@@ -179,6 +179,13 @@ pub(super) struct App {
     /// scrollback+visible-screen space. Native owns this UI state; the terminal
     /// core remains unaware of selections and clipboard operations.
     selection: AbsoluteSelectionState,
+    /// ID1 opt-in: when set, the authored theme `cursor`/`selection`/`search`
+    /// roles drive the cursor color and selection/search highlight fills (with
+    /// RV1-floored foregrounds) instead of the historical inverse / hardcoded
+    /// treatments. Default off keeps the plain render pixel-identical. Sourced
+    /// from `ODYTTY_THEMED_UI_ROLES` for now (interim until a settings knob is
+    /// added once `settings.rs` frees up); presentation-only.
+    themed_ui_roles: bool,
     /// Most recent pointer position mapped to a terminal cell. `winit` mouse
     /// button events do not carry coordinates, so press/release use this cached
     /// cell from the latest cursor movement.
@@ -274,6 +281,7 @@ impl App {
             settings,
             settings_reloader,
             selection: AbsoluteSelectionState::default(),
+            themed_ui_roles: themed_ui_roles_from_env(),
             pointer_cell: None,
             pointer_px: None,
             hovered_hyperlink: None,
@@ -863,10 +871,19 @@ impl App {
         // per cell). Mirrors the palette republish above; passthrough at 1.0.
         text::set_min_contrast(self.settings.min_contrast);
         if let Ok(mut terminal) = self.terminal.lock() {
+            // ID1: when themed UI roles are on, the cursor default color comes
+            // from the theme `cursor` role; otherwise it stays the foreground
+            // (today's behavior). A live OSC 12 dynamic-color override is a
+            // separate mechanism in the core and still takes precedence.
+            let cursor_default = if self.themed_ui_roles {
+                rgb(self.theme.cursor)
+            } else {
+                rgb(self.theme.foreground)
+            };
             terminal.set_base_colors(
                 rgb(self.theme.foreground),
                 rgb(self.theme.background),
-                rgb(self.theme.foreground),
+                cursor_default,
             );
             terminal.set_osc52_read_enabled(self.settings.osc52_read);
             terminal.set_cursor_defaults(
@@ -902,6 +919,55 @@ impl App {
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
+    }
+
+    /// ID1: themed selection treatment, or `None` (today's inverse) when the
+    /// opt-in is off. The fill is the theme `selection` role verbatim; the
+    /// foreground is the theme foreground floored over that fill through the
+    /// RV1 minimum-contrast machinery, so it stays legible at the active
+    /// `min_contrast` (identity at the default 1.0).
+    fn themed_selection_style(&self) -> Option<SelectionStyle> {
+        if !self.themed_ui_roles {
+            return None;
+        }
+        let fill = [
+            self.theme.selection.0,
+            self.theme.selection.1,
+            self.theme.selection.2,
+        ];
+        let fg = floor_fg_over(self.theme.foreground, fill, self.settings.min_contrast);
+        Some(SelectionStyle { fill, fg })
+    }
+
+    /// ID1: themed search-highlight treatment, or `None` (today's inverse /
+    /// black-on-yellow) when the opt-in is off. Non-active matches use the
+    /// theme `search` role; the active match uses a brightened OKLab derivative
+    /// of it. Both foregrounds are RV1-floored over their fills.
+    fn themed_search_style(&self) -> Option<SearchStyle> {
+        if !self.themed_ui_roles {
+            return None;
+        }
+        let fill = [
+            self.theme.search.0,
+            self.theme.search.1,
+            self.theme.search.2,
+        ];
+        let fill_lin = srgb_tuple_to_linear(self.theme.search);
+        let active_fill_lin =
+            crate::color::mix_oklab(fill_lin, [1.0, 1.0, 1.0], SEARCH_ACTIVE_BRIGHTEN);
+        let active_fill = linear_to_srgb_tuple(active_fill_lin);
+        let fg = floor_fg_over(self.theme.foreground, fill, self.settings.min_contrast);
+        let active_fg = floor_fg_over(
+            self.theme.foreground,
+            active_fill,
+            self.settings.min_contrast,
+        );
+        Some(SearchStyle {
+            fill,
+            fg,
+            active_fill,
+            active_fg,
+        })
     }
 
     fn update_held_cursor_frame(&mut self, now: Instant) -> bool {
@@ -1153,7 +1219,11 @@ impl ApplicationHandler<UserEvent> for App {
                                 self.grid,
                             )
                         {
-                            selection::apply_highlight(&mut snapshot, visible_range);
+                            selection::apply_highlight(
+                                &mut snapshot,
+                                visible_range,
+                                self.themed_selection_style(),
+                            );
                         }
                         apply_search_ui(
                             &mut snapshot,
@@ -1161,6 +1231,7 @@ impl ApplicationHandler<UserEvent> for App {
                             self.viewport.offset(),
                             scrollback_len,
                             self.grid,
+                            self.themed_search_style(),
                         );
                         apply_overlay(&mut snapshot, &self.overlay);
                         apply_hyperlink_hover(&mut snapshot, self.hovered_hyperlink);
@@ -1379,6 +1450,55 @@ impl ApplicationHandler<UserEvent> for App {
 
 fn rgb(color: (u8, u8, u8)) -> RgbColor {
     RgbColor::new(color.0, color.1, color.2)
+}
+
+/// Environment variable that opts into the ID1 themed cursor/selection/search
+/// roles. Interim gate until a first-class settings knob is added once
+/// `settings.rs` frees up; recognized values are `1`/`true`/`on`/`yes`.
+const THEMED_UI_ROLES_ENV: &str = "ODYTTY_THEMED_UI_ROLES";
+
+/// How far the active search match is brightened toward white (OKLab mix) from
+/// the `search` role, so it reads as distinct from non-active matches.
+const SEARCH_ACTIVE_BRIGHTEN: f32 = 0.35;
+
+fn themed_ui_roles_from_env() -> bool {
+    std::env::var(THEMED_UI_ROLES_ENV)
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "on" | "yes"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn srgb_tuple_to_linear(color: (u8, u8, u8)) -> crate::color::LinearRgb {
+    [
+        crate::color::srgb_to_linear(color.0),
+        crate::color::srgb_to_linear(color.1),
+        crate::color::srgb_to_linear(color.2),
+    ]
+}
+
+fn linear_to_srgb_tuple(linear: crate::color::LinearRgb) -> [u8; 3] {
+    [
+        crate::color::linear_to_srgb_u8(linear[0]),
+        crate::color::linear_to_srgb_u8(linear[1]),
+        crate::color::linear_to_srgb_u8(linear[2]),
+    ]
+}
+
+/// Floor a foreground over a fill so it meets `ratio` WCAG contrast (RV1).
+/// Identity at `ratio <= 1.0` (the default `min_contrast`).
+fn floor_fg_over(fg: (u8, u8, u8), bg: [u8; 3], ratio: f32) -> [u8; 3] {
+    let fg_lin = srgb_tuple_to_linear(fg);
+    let bg_lin = [
+        crate::color::srgb_to_linear(bg[0]),
+        crate::color::srgb_to_linear(bg[1]),
+        crate::color::srgb_to_linear(bg[2]),
+    ];
+    linear_to_srgb_tuple(crate::color::enforce_min_contrast(fg_lin, bg_lin, ratio))
 }
 
 #[cfg(test)]

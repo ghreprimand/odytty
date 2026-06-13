@@ -6,6 +6,25 @@ use crate::selection::{self, AbsoluteCellPoint, AbsoluteSelectionRange, Selectio
 
 use unicode_width::UnicodeWidthChar;
 
+/// Themed search-highlight treatment (ID1). When supplied to
+/// [`apply_search_ui`], non-active matches are painted with `fill`/`fg` and the
+/// active match with `active_fill`/`active_fg` (all sRGB bytes) instead of the
+/// historical inverse / hardcoded black-on-yellow. Foregrounds are precomputed
+/// by the caller, RV1-floored over their respective fills, so readability holds
+/// at the active `min_contrast`. Passing `None` preserves the byte-identical
+/// default path, keeping the plain render pixel-identical.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct SearchStyle {
+    /// Non-active match fill background (sRGB), from the theme `search` role.
+    pub(super) fill: [u8; 3],
+    /// Non-active match foreground over `fill` (sRGB), RV1-floored.
+    pub(super) fg: [u8; 3],
+    /// Active match fill background (sRGB), a brightened `search` derivative.
+    pub(super) active_fill: [u8; 3],
+    /// Active match foreground over `active_fill` (sRGB), RV1-floored.
+    pub(super) active_fg: [u8; 3],
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct SearchUi {
     open: bool,
@@ -164,6 +183,7 @@ pub(super) fn apply_search_ui(
     viewport_offset: usize,
     scrollback_len: usize,
     dimensions: Dimensions,
+    themed: Option<SearchStyle>,
 ) {
     if !search.open {
         return;
@@ -173,7 +193,12 @@ pub(super) fn apply_search_ui(
         if let Some(range) =
             visible_range_for_match(*search_match, viewport_offset, scrollback_len, dimensions)
         {
-            apply_match_highlight(snapshot, range, Some(*search_match) == search.current);
+            apply_match_highlight(
+                snapshot,
+                range,
+                Some(*search_match) == search.current,
+                themed,
+            );
         }
     }
 
@@ -203,7 +228,12 @@ fn visible_range_for_match(
     )
 }
 
-fn apply_match_highlight(snapshot: &mut Snapshot, range: SelectionRange, current: bool) {
+fn apply_match_highlight(
+    snapshot: &mut Snapshot,
+    range: SelectionRange,
+    current: bool,
+    themed: Option<SearchStyle>,
+) {
     let start_row = range.start.row.min(snapshot.dimensions.rows - 1);
     let end_row = range.end.row.min(snapshot.dimensions.rows - 1);
 
@@ -220,12 +250,32 @@ fn apply_match_highlight(snapshot: &mut Snapshot, range: SelectionRange, current
         };
         let offset = row * snapshot.dimensions.columns;
         for cell in &mut snapshot.cells[offset + start_column..=offset + end_column] {
-            if current {
-                cell.attrs.set_inverse(false);
-                cell.attrs.foreground = Color::Indexed(0);
-                cell.attrs.background = Color::Indexed(11);
-            } else {
-                cell.attrs.set_inverse(true);
+            match (themed, current) {
+                // Themed active match: brightened fill + floored fg.
+                (Some(style), true) => {
+                    cell.attrs.set_inverse(false);
+                    cell.attrs.foreground =
+                        Color::Rgb(style.active_fg[0], style.active_fg[1], style.active_fg[2]);
+                    cell.attrs.background = Color::Rgb(
+                        style.active_fill[0],
+                        style.active_fill[1],
+                        style.active_fill[2],
+                    );
+                }
+                // Themed non-active match: search-role fill + floored fg.
+                (Some(style), false) => {
+                    cell.attrs.set_inverse(false);
+                    cell.attrs.foreground = Color::Rgb(style.fg[0], style.fg[1], style.fg[2]);
+                    cell.attrs.background = Color::Rgb(style.fill[0], style.fill[1], style.fill[2]);
+                }
+                // Default active match: historical black-on-yellow.
+                (None, true) => {
+                    cell.attrs.set_inverse(false);
+                    cell.attrs.foreground = Color::Indexed(0);
+                    cell.attrs.background = Color::Indexed(11);
+                }
+                // Default non-active match: historical inverse, byte-identical.
+                (None, false) => cell.attrs.set_inverse(true),
             }
         }
     }
@@ -372,11 +422,133 @@ mod tests {
         ui.open();
         ui.push_char('s');
         ui.refresh(&terminal);
-        apply_search_ui(&mut snapshot, &ui, 0, 0, Dimensions::new(20, 2));
+        apply_search_ui(&mut snapshot, &ui, 0, 0, Dimensions::new(20, 2), None);
 
         assert_eq!(terminal.snapshot(), original);
         assert_eq!(snapshot.cells[20].ch, ' ');
         assert_eq!(snapshot.cells[21].ch, 'S');
         assert!(snapshot.cells[21].attrs.inverse());
+    }
+
+    fn themed_style() -> SearchStyle {
+        SearchStyle {
+            fill: [0x5C, 0x50, 0x1F],
+            fg: [0xF0, 0xEC, 0xD8],
+            active_fill: [0x9A, 0x88, 0x44],
+            active_fg: [0x10, 0x0E, 0x06],
+        }
+    }
+
+    #[test]
+    fn default_active_match_uses_black_on_yellow_and_non_active_inverse() {
+        let mut terminal = Terminal::new(20, 2);
+        terminal.advance(b"al al");
+        let mut snapshot = terminal.snapshot();
+
+        let mut ui = SearchUi::default();
+        ui.open();
+        ui.push_char('a');
+        ui.push_char('l');
+        ui.refresh(&terminal);
+        // Two matches; first is current.
+        apply_search_ui(&mut snapshot, &ui, 0, 0, Dimensions::new(20, 2), None);
+
+        // Active match (cols 0..=1): black-on-yellow, inverse cleared.
+        assert!(!snapshot.cells[0].attrs.inverse());
+        assert_eq!(snapshot.cells[0].attrs.foreground, Color::Indexed(0));
+        assert_eq!(snapshot.cells[0].attrs.background, Color::Indexed(11));
+        // Non-active match (cols 3..=4): plain inverse.
+        assert!(snapshot.cells[3].attrs.inverse());
+    }
+
+    #[test]
+    fn themed_search_paints_role_fills_with_distinct_active_treatment() {
+        let mut terminal = Terminal::new(20, 2);
+        terminal.advance(b"al al");
+        let mut snapshot = terminal.snapshot();
+
+        let mut ui = SearchUi::default();
+        ui.open();
+        ui.push_char('a');
+        ui.push_char('l');
+        ui.refresh(&terminal);
+        apply_search_ui(
+            &mut snapshot,
+            &ui,
+            0,
+            0,
+            Dimensions::new(20, 2),
+            Some(themed_style()),
+        );
+
+        // Active match: brightened fill + floored fg, inverse cleared.
+        assert!(!snapshot.cells[0].attrs.inverse());
+        assert_eq!(
+            snapshot.cells[0].attrs.background,
+            Color::Rgb(0x9A, 0x88, 0x44)
+        );
+        assert_eq!(
+            snapshot.cells[0].attrs.foreground,
+            Color::Rgb(0x10, 0x0E, 0x06)
+        );
+        // Non-active match: search-role fill + floored fg, inverse cleared.
+        assert!(!snapshot.cells[3].attrs.inverse());
+        assert_eq!(
+            snapshot.cells[3].attrs.background,
+            Color::Rgb(0x5C, 0x50, 0x1F)
+        );
+        assert_eq!(
+            snapshot.cells[3].attrs.foreground,
+            Color::Rgb(0xF0, 0xEC, 0xD8)
+        );
+    }
+
+    #[test]
+    fn search_highlight_takes_precedence_over_selection_on_overlap() {
+        // Selection paints first, then the search overlay; on overlapping
+        // cells the search treatment must win (matches the render order in
+        // app/mod.rs: apply_highlight then apply_search_ui).
+        let mut terminal = Terminal::new(20, 2);
+        terminal.advance(b"alpha");
+        let mut snapshot = terminal.snapshot();
+
+        // Themed selection across the whole row.
+        let sel_range = SelectionRange {
+            start: selection::CellPoint { row: 0, column: 0 },
+            end: selection::CellPoint { row: 0, column: 4 },
+        };
+        selection::apply_highlight(
+            &mut snapshot,
+            sel_range,
+            Some(selection::SelectionStyle {
+                fill: [0x24, 0x33, 0x52],
+                fg: [0xEA, 0xEE, 0xF4],
+            }),
+        );
+
+        let mut ui = SearchUi::default();
+        ui.open();
+        ui.push_char('a');
+        ui.push_char('l');
+        ui.refresh(&terminal);
+        apply_search_ui(
+            &mut snapshot,
+            &ui,
+            0,
+            0,
+            Dimensions::new(20, 2),
+            Some(themed_style()),
+        );
+
+        // Cols 0..=1 are both selected and the (current) search match: search wins.
+        assert_eq!(
+            snapshot.cells[0].attrs.background,
+            Color::Rgb(0x9A, 0x88, 0x44)
+        );
+        // Cols 2..=4 are selected only: selection fill remains.
+        assert_eq!(
+            snapshot.cells[2].attrs.background,
+            Color::Rgb(0x24, 0x33, 0x52)
+        );
     }
 }

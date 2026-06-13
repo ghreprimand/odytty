@@ -1,4 +1,4 @@
-use crate::core::{Dimensions, Snapshot};
+use crate::core::{Color, Dimensions, Snapshot};
 use crate::text::CellSize;
 use std::time::{Duration, Instant};
 
@@ -15,6 +15,21 @@ pub struct CellPoint {
 pub struct SelectionRange {
     pub start: CellPoint,
     pub end: CellPoint,
+}
+
+/// Themed selection treatment (ID1). When supplied to [`apply_highlight`], the
+/// selected cells are painted with an explicit `fill` background and `fg`
+/// foreground (both sRGB bytes) instead of the historical per-cell inverse.
+/// The caller precomputes `fg` by flooring the theme foreground over `fill`
+/// through the RV1 minimum-contrast machinery, so readability is guaranteed at
+/// the active `min_contrast`. Passing `None` to `apply_highlight` preserves the
+/// byte-identical inverse path, keeping the default render pixel-identical.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionStyle {
+    /// Selection fill background (sRGB bytes), from the theme `selection` role.
+    pub fill: [u8; 3],
+    /// Foreground over the fill (sRGB bytes), RV1-floored by the caller.
+    pub fg: [u8; 3],
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -338,7 +353,11 @@ pub fn selected_text(snapshot: &Snapshot, range: SelectionRange) -> String {
     lines.join("\n")
 }
 
-pub fn apply_highlight(snapshot: &mut Snapshot, range: SelectionRange) {
+pub fn apply_highlight(
+    snapshot: &mut Snapshot,
+    range: SelectionRange,
+    themed: Option<SelectionStyle>,
+) {
     let start_row = range.start.row.min(snapshot.dimensions.rows - 1);
     let end_row = range.end.row.min(snapshot.dimensions.rows - 1);
 
@@ -355,7 +374,17 @@ pub fn apply_highlight(snapshot: &mut Snapshot, range: SelectionRange) {
         };
         let offset = row * snapshot.dimensions.columns;
         for cell in &mut snapshot.cells[offset + start_column..=offset + end_column] {
-            cell.attrs.set_inverse(true);
+            match themed {
+                // Themed (opt-in): explicit fill + floored fg. Clear inverse so
+                // the role colors are not re-swapped by the renderer.
+                Some(style) => {
+                    cell.attrs.set_inverse(false);
+                    cell.attrs.foreground = Color::Rgb(style.fg[0], style.fg[1], style.fg[2]);
+                    cell.attrs.background = Color::Rgb(style.fill[0], style.fill[1], style.fill[2]);
+                }
+                // Default: historical per-cell inverse, byte-identical.
+                None => cell.attrs.set_inverse(true),
+            }
         }
     }
 }
@@ -456,7 +485,7 @@ mod tests {
             end: CellPoint { row: 1, column: 1 },
         };
 
-        apply_highlight(&mut snapshot, range);
+        apply_highlight(&mut snapshot, range, None);
 
         assert!(!snapshot.cells[1].attrs.inverse());
         assert!(snapshot.cells[2].attrs.inverse());
@@ -464,6 +493,39 @@ mod tests {
         assert!(snapshot.cells[4].attrs.inverse());
         assert!(snapshot.cells[5].attrs.inverse());
         assert!(!snapshot.cells[6].attrs.inverse());
+    }
+
+    #[test]
+    fn themed_highlight_paints_fill_and_floored_fg_without_inverse() {
+        let mut snapshot = snapshot(&["abcd", "efgh"], 4);
+        let range = SelectionRange {
+            start: CellPoint { row: 0, column: 2 },
+            end: CellPoint { row: 1, column: 1 },
+        };
+        let style = SelectionStyle {
+            fill: [0x24, 0x33, 0x52],
+            fg: [0xEA, 0xEE, 0xF4],
+        };
+
+        apply_highlight(&mut snapshot, range, Some(style));
+
+        // Unselected cells are untouched (no inverse, default colors).
+        assert!(!snapshot.cells[1].attrs.inverse());
+        assert_eq!(snapshot.cells[1].attrs.background, Color::Default);
+        assert!(!snapshot.cells[6].attrs.inverse());
+
+        // Selected cells carry the themed fill + floored fg, inverse cleared.
+        for &i in &[2usize, 3, 4, 5] {
+            assert!(!snapshot.cells[i].attrs.inverse());
+            assert_eq!(
+                snapshot.cells[i].attrs.background,
+                Color::Rgb(0x24, 0x33, 0x52)
+            );
+            assert_eq!(
+                snapshot.cells[i].attrs.foreground,
+                Color::Rgb(0xEA, 0xEE, 0xF4)
+            );
+        }
     }
 
     #[test]

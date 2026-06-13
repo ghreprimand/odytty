@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- ID1-a: wire authored cursor/selection/search theme roles (opt-in)
+
+- The theme files already author `cursor`/`selection`/`search` semantic roles,
+  but the renderer ignored them: the cursor used the foreground, selection used
+  a per-cell inverse, and the active search match was hardcoded black-on-yellow.
+  These roles are now wired through, gated behind an opt-in so the default
+  render stays byte-identical.
+- `selection.rs`: `apply_highlight` gains an `Option<SelectionStyle>`. `None`
+  keeps the historical per-cell inverse; `Some` paints the theme `selection`
+  fill with an RV1-floored foreground (inverse cleared so role colors are not
+  re-swapped downstream).
+- `native/search_ui.rs`: `apply_search_ui` / `apply_match_highlight` gain an
+  `Option<SearchStyle>`. `None` preserves today's inverse / black-on-yellow;
+  `Some` paints non-active matches from the `search` role and the active match
+  from a brightened OKLab derivative of it, both with RV1-floored foregrounds.
+- `native/app/mod.rs`: precomputes the floored styles from the active theme +
+  `min_contrast` and threads them into the render path; the cursor default at
+  the `set_base_colors` seam becomes the `cursor` role when themed roles are on
+  (the OSC 12 dynamic-color override remains a separate, higher-precedence
+  mechanism). Foregrounds are floored via `color::enforce_min_contrast`, so at
+  the default `min_contrast` of 1.0 they are exact, and they stay legible over
+  the themed fills when the floor is raised.
+- Gate: opt-in via `ODYTTY_THEMED_UI_ROLES` (interim — a first-class settings
+  knob with overlay/config/introspection support is a follow-up, deferred while
+  `settings.rs` is held by another lane). Default off keeps the plain path
+  pixel-identical.
+- Verified: `cargo test` lib +4 (selection themed; search default/themed/
+  selection-vs-search precedence), full integration battery green incl.
+  **pixel-smoke 25 unchanged** (the proof the default render is byte-identical),
+  `cargo fmt --check` clean, no machine paths, all files < 2000 lines.
+- Known gap: the startup cursor color is set in `native/mod.rs` (a different
+  lane this round), so the themed cursor takes effect from the first config
+  reload rather than the first frame; a one-line startup parity hook is flagged
+  as a follow-up. The proper settings knob is likewise pending.
+
+---
+
 ## 2026-06-13 -- Activate RV1 contrast floor at the live render path
 
 - Correctness fix: the RV1 minimum-contrast machinery
