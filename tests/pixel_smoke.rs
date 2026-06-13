@@ -742,6 +742,50 @@ fn dim_attribute_lowers_cell_luminance() {
 }
 
 #[test]
+fn perceptual_dim_delta_is_confined_to_dim_cells() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // Two-cell row: col0 is a plain glyph, col1 carries the SGR-dim attribute.
+    // The reference renders the same two glyphs with no dim anywhere.
+    let plain = composite(&row_snapshot(2, "MM"), &atlas, CursorStyle::Block);
+    let mixed = composite(&row_snapshot(2, "M\x1b[2mM"), &atlas, CursorStyle::Block);
+
+    // Confinement: the non-dim cell (col0) must be byte-identical between the
+    // two frames — the perceptual-dim change touches only cells with the dim
+    // attribute, so the plain path stays pixel-identical.
+    let (x0, y0, x1, y1) = plain.cell_bounds(0, 0);
+    for y in y0..y1 {
+        for x in x0..x1 {
+            assert_eq!(
+                plain.pixel(x, y),
+                mixed.pixel(x, y),
+                "non-dim cell pixel ({x},{y}) must be byte-identical"
+            );
+        }
+    }
+
+    // The dim cell (col1) must visibly change and lose luminance over its ink.
+    let (dx0, dy0, dx1, dy1) = plain.cell_bounds(1, 0);
+    let mut any_diff = false;
+    let (mut plain_lum, mut dim_lum) = (0.0f32, 0.0f32);
+    for y in dy0..dy1 {
+        for x in dx0..dx1 {
+            let (p, d) = (plain.pixel(x, y), mixed.pixel(x, y));
+            any_diff |= differs(p, d);
+            plain_lum += luminance(p);
+            dim_lum += luminance(d);
+        }
+    }
+    assert!(any_diff, "dim cell must differ from the plain render");
+    assert!(
+        dim_lum < plain_lum,
+        "dim cell luminance {dim_lum} should drop below plain {plain_lum}"
+    );
+}
+
+#[test]
 fn underline_attribute_inks_a_decoration_row() {
     let Some((_font, atlas)) = setup() else {
         eprintln!("skipping: no system font available");

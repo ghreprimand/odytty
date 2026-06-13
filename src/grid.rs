@@ -62,7 +62,16 @@ impl Vertex {
 
 /// Number of vertices per quad (two triangles).
 pub const VERTS_PER_QUAD: usize = 6;
-const DIM_FOREGROUND_FACTOR: f32 = 0.5;
+/// OKLab dim amount for the SGR-dim/faint attribute, chosen for perceived
+/// parity with the historical linear ×0.5 halving. OKLab lightness scales as
+/// the cube root of linear luminance, so the old linear ×0.5 lowered perceived
+/// lightness to `0.5^(1/3) ≈ 0.7937` of the original; matching that means
+/// scaling OKLab L by the same factor, i.e. an amount of `1 - 0.5^(1/3) ≈
+/// 0.2063`. Using [`crate::color::dim_perceptual`] at this amount keeps the
+/// established dim *brightness* while upgrading the model to be hue-preserving
+/// and chroma-aware (dimmer light desaturates), unlike the old per-channel
+/// linear scale which could skew hue.
+const DIM_PERCEPTUAL_AMOUNT: f32 = 0.206_299_47;
 const LINE_DECORATION_THICKNESS_DIVISOR: f32 = 16.0;
 
 /// A solid pixel-space overlay quad appended after terminal-cell geometry.
@@ -231,11 +240,16 @@ pub fn font_style_for_attrs(attrs: &Attrs) -> FontStyle {
 }
 
 /// Apply SGR dim/faint to an effective foreground color.
-pub fn dim_color(mut color: [f32; 4]) -> [f32; 4] {
-    color[0] *= DIM_FOREGROUND_FACTOR;
-    color[1] *= DIM_FOREGROUND_FACTOR;
-    color[2] *= DIM_FOREGROUND_FACTOR;
-    color
+///
+/// Dims perceptually in OKLab via [`crate::color::dim_perceptual`] at
+/// [`DIM_PERCEPTUAL_AMOUNT`] (hue-preserving, chroma-aware), preserving the
+/// alpha channel. The amount is calibrated to the perceived brightness of the
+/// historical linear ×0.5 halving, so dim text stays as legible as before while
+/// no longer skewing hue.
+pub fn dim_color(color: [f32; 4]) -> [f32; 4] {
+    let dimmed =
+        crate::color::dim_perceptual([color[0], color[1], color[2]], DIM_PERCEPTUAL_AMOUNT);
+    [dimmed[0], dimmed[1], dimmed[2], color[3]]
 }
 
 fn line_decoration_thickness(cell_h: f32) -> f32 {
@@ -1273,6 +1287,38 @@ mod tests {
         let first = quad_rect(&verts, 2);
         let second = quad_rect(&verts, 3);
         assert_ne!(first[1], second[1], "curly style alternates y positions");
+    }
+
+    /// Pins the [`DIM_PERCEPTUAL_AMOUNT`] choice: dimming must (a) preserve hue
+    /// in OKLab and (b) reproduce the perceived brightness of the historical
+    /// linear ×0.5 halving (matching OKLab lightness within tolerance). A future
+    /// edit to the constant or the dim model that breaks parity trips here.
+    #[test]
+    fn perceptual_dim_matches_old_halving_brightness_and_preserves_hue() {
+        // A saturated source so a hue skew would be visible.
+        let fg = text::foreground_linear(Color::Rgb(200, 60, 30));
+        let rgb = [fg[0], fg[1], fg[2]];
+        let dimmed = crate::color::dim_perceptual(rgb, DIM_PERCEPTUAL_AMOUNT);
+
+        let old_halved = [rgb[0] * 0.5, rgb[1] * 0.5, rgb[2] * 0.5];
+        let lab_dim = crate::color::linear_to_oklab(dimmed);
+        let lab_old = crate::color::linear_to_oklab(old_halved);
+        let lab_src = crate::color::linear_to_oklab(rgb);
+
+        // (a) Brightness parity with the old linear halving.
+        assert!(
+            (lab_dim.l - lab_old.l).abs() < 1e-3,
+            "perceptual dim L {} should match old-halving L {}",
+            lab_dim.l,
+            lab_old.l
+        );
+        // (b) Hue preserved: the (a, b) chroma vector keeps its direction
+        // (scaled by the same factor as L), so atan2(b, a) is unchanged.
+        let hue = |lab: crate::color::Oklab| lab.b.atan2(lab.a);
+        assert!(
+            (hue(lab_dim) - hue(lab_src)).abs() < 1e-4,
+            "perceptual dim must preserve OKLab hue"
+        );
     }
 
     #[test]
