@@ -399,16 +399,25 @@ its first stable layer.
   DECSED/DECSEL selective erase; wide-pair edge sanitization
 - Lazy scrollback re-wrap and resize fast paths
 - Theme system: full 16-color ANSI palette + semantic roles (cursor, selection,
-  search highlight, reserved border/inactive) per theme; `plain`, `odyssey`, and
-  `odyssey-noir` built-ins; user theme files in a dependency-free `key = value`
-  format (see `docs/themes.md`) resolved from the user theme directory or by
-  path; `ODYTTY_THEME` accepts a built-in name, directory-relative name, or
-  file path; OSC-4 / OSC-10/11/12 dynamic overrides layer on top with correct
-  precedence; optional ambient scanline visual effect
+  search highlight, reserved border/inactive) per theme; 15 contrast-validated
+  built-in themes (`plain`, `odyssey`, `odyssey-noir`, `odyssey-light`,
+  `odyssey-aurora`, `solarized-dark`, `solarized-light`, `gruvbox-dark`, `nord`,
+  `dracula`, `tokyo-night`, `catppuccin-mocha`, `catppuccin-latte`, `one-dark`,
+  `monokai`); user theme files in a dependency-free `key = value` format (see
+  `docs/themes.md`) resolved from the user theme directory or by path;
+  `ODYTTY_THEME` accepts a built-in name, directory-relative name, or file path;
+  OSC-4 / OSC-10/11/12 dynamic overrides layer on top with correct precedence;
+  optional ambient scanline visual effect
 - In-window overlay framework (`src/native/overlay.rs`): a native multi-row
   panel layer rendered through the existing cell path — text fields, lists,
   toggles, keyboard-driven navigation; presentation-only, never mutates terminal
-  state; the foundation for the in-app settings panel and theme picker (UX2/UX3)
+  state
+- In-app settings panel (UX2): `Ctrl+Shift+,` opens a keyboard-driven editor
+  covering font, theme, cursor, keybinds, and all runtime knobs; edits apply
+  live through the existing reload seam; `Ctrl+S` writes changed rows back to
+  `odytty.conf` with preservation-first writeback (comments, blank lines, and
+  unknown keys untouched; same-directory atomic rename). Live theme picker (UX3)
+  and custom theme builder (TH4) remain ahead.
 - Shell working-directory tracking: OSC 7 (`file://host/path`) is parsed and
   stored as advisory string state on the terminal core (`Screen::current_working_directory`,
   `Screen::take_working_directory_changed`). The parser requires the `file://`

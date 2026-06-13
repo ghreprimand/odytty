@@ -68,14 +68,16 @@ true physical pixel coordinates.
 
 `Theme` carries the full 16-color ANSI palette (indices 0–7 normal, 8–15
 bright) plus semantic-role colors (cursor, selection, search highlight, and
-reserved border/inactive). The built-ins (`plain`, `odyssey`, `odyssey-noir`)
-each author a complete palette; `plain` reproduces the historical xterm
-defaults byte-for-byte. OSC-4 and OSC-10/11/12 dynamic overrides layer on top
-with correct precedence. Select with `ODYTTY_THEME=odyssey` or
-`theme = odyssey` in the config file. User theme files are supported: write
-a `.theme` file (see [`docs/themes.md`](docs/themes.md)) and drop it in
-`~/.config/odytty/themes/` or point `ODYTTY_THEME` at a path. A live in-app
-theme picker is planned.
+reserved border/inactive). The library ships 15 contrast-validated built-in
+themes: `plain` (default — reproduces historical xterm defaults byte-for-byte),
+`odyssey`, `odyssey-noir`, `odyssey-light`, `odyssey-aurora`, `solarized-dark`,
+`solarized-light`, `gruvbox-dark`, `nord`, `dracula`, `tokyo-night`,
+`catppuccin-mocha`, `catppuccin-latte`, `one-dark`, and `monokai`
+(see [`docs/themes.md`](docs/themes.md)). OSC-4 and OSC-10/11/12 dynamic
+overrides layer on top with correct precedence. Select with
+`ODYTTY_THEME=odyssey` or `theme = odyssey` in the config file. User theme
+files are supported: write a `.theme` file and drop it in
+`~/.config/odytty/themes/` or point `ODYTTY_THEME` at a path.
 
 ### Terminal compatibility
 
@@ -146,6 +148,12 @@ about once per second. See [`docs/runtime-knobs.md`](docs/runtime-knobs.md)
 for the full knob reference and [`docs/odytty.conf.example`](docs/odytty.conf.example)
 for an annotated example.
 
+**In-app settings panel.** `Ctrl+Shift+,` opens a keyboard-driven settings
+editor covering font, theme, cursor, keybinds, and all runtime knobs. Edits
+apply live through the existing reload seam. `Ctrl+S` writes changed rows back
+to `odytty.conf` without destroying comments, blank lines, or unknown keys
+(preservation-first writeback via same-directory atomic rename).
+
 ### HiDPI
 
 Scale-factor changes rebuild the atlas and recompute cell metrics through the
@@ -189,8 +197,9 @@ non-negotiable floor.
 
 Everything in the Features section above. The full owned byte path is real and
 in production. Color emoji, Kitty graphics, Sixel, the Kitty keyboard protocol,
-SGR-pixel mouse, the theme palette and user theme file format, and the
-in-window overlay framework have all landed.
+SGR-pixel mouse, the theme palette and user theme file format, the 15-theme
+built-in library, the in-window overlay framework, and the in-app settings
+panel have all landed.
 
 ### On the horizon
 
@@ -198,13 +207,9 @@ in-window overlay framework have all landed.
   guarantee, geometric box-drawing/Powerline rendering at exact cell size,
   smooth scrolling. (Stem darkening is available now as `ODYTTY_STEM_DARKEN`;
   default off.)
-- **Theme library and in-app picker** — a curated set of built-in themes
-  covering a wider light + dark range beyond the three current built-ins
-  (`plain`, `odyssey`, `odyssey-noir`), and a live in-app theme picker.
-- **In-app settings panel** — `Ctrl+Shift+,` opens a keyboard-driven settings
-  editor for font, theme, cursor, keybinds, and other runtime knobs. Edits apply
-  live, and `Ctrl+S` writes changed rows back to `odytty.conf` without
-  destroying comments or unknown keys.
+- **In-app theme picker and custom builder** — arrow-through-preview live theme
+  selection (UX3) and an in-terminal theme editor for cloning or authoring
+  themes from scratch (TH4).
 - **Atmospheric effects (opt-in)** — bloom/phosphor glow, CRT/retro profile,
   subtle cursor motion; all off by default, perf- and readability-gated.
 - **Nerd-font / symbol fallback** for modern prompt icons.
@@ -224,7 +229,7 @@ in-window overlay framework have all landed.
 
 ## Testing
 
-**Testing.** 959 tests passing: 884 unit/integration, 12 mouse-protocol
+**Testing.** 984 tests passing: 909 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
