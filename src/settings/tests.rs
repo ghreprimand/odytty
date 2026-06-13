@@ -74,6 +74,64 @@ fn defaults_are_stable_without_env() {
 }
 
 #[test]
+fn setting_info_covers_every_field_with_descriptions() {
+    let settings = Settings::default();
+    let info = settings.setting_info();
+    let keys = info.iter().map(|row| row.key).collect::<Vec<_>>();
+
+    assert_eq!(
+        keys,
+        vec![
+            "theme",
+            "visual",
+            "font",
+            "font_family",
+            "font_size",
+            "text_gamma",
+            "stem_darken",
+            "subpixel",
+            "synthetic_styles",
+            "cursor_style",
+            "cursor_blink",
+            "keybinds",
+            "osc52_read",
+            "native_autoclose_ms",
+        ]
+    );
+    assert!(info.iter().all(|row| !row.description.trim().is_empty()));
+    assert!(info.iter().all(|row| !row.value.trim().is_empty()));
+    assert!(
+        info.iter()
+            .any(|row| row.key == "stem_darken" && row.range == Some("0.0..=1.0"))
+    );
+}
+
+#[test]
+fn setting_info_formats_current_values_for_display() {
+    let settings = Settings {
+        theme: Theme::ODYSSEY,
+        font_family: Some("JetBrains Mono".to_owned()),
+        font_size_px: 18.0,
+        cursor_blink: CursorBlink::Off,
+        osc52_read: true,
+        ..Settings::default()
+    };
+    let info = settings.setting_info();
+    let value = |key| {
+        info.iter()
+            .find(|row| row.key == key)
+            .map(|row| row.value.as_str())
+            .unwrap()
+    };
+
+    assert_eq!(value("theme"), "odyssey");
+    assert_eq!(value("font_family"), "JetBrains Mono");
+    assert_eq!(value("font_size"), "18");
+    assert_eq!(value("cursor_blink"), "off");
+    assert_eq!(value("osc52_read"), "on");
+}
+
+#[test]
 fn config_parser_accepts_comments_whitespace_and_duplicate_last_wins() {
     let (settings, warnings) = settings_from_config_and_env(
         r#"
@@ -145,6 +203,7 @@ fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
         r#"
             font_size = 900
             text_gamma = 0.1
+            stem_darken = 0.4
             keybinds = ctrl+shift+y=copy;alt+space=paste
             cursor_blink = steady
             native_autoclose_ms = 600
@@ -154,6 +213,7 @@ fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
 
     assert_eq!(settings.font_size_px, MAX_FONT_SIZE_PX);
     assert_eq!(settings.text_gamma, MIN_TEXT_GAMMA);
+    assert_eq!(settings.stem_darken, 0.4);
     assert_eq!(settings.key_bindings.len(), 2);
     assert_eq!(settings.cursor_blink, CursorBlink::Off);
     assert_eq!(settings.native_autoclose, Some(Duration::from_millis(600)));
@@ -484,10 +544,10 @@ fn empty_font_family_is_ignored() {
 fn key_bindings_parse_valid_entries_case_insensitively() {
     let (settings, warnings) = settings_from([(
         KEYBINDS_ENV,
-        "ctrl+shift+y=copy; SUPER+F=search, Shift+PageDown=scroll-down",
+        "ctrl+shift+y=copy; SUPER+F=search, Shift+PageDown=scroll-down;ctrl+shift+comma=settings",
     )]);
 
-    assert_eq!(settings.key_bindings.len(), 3);
+    assert_eq!(settings.key_bindings.len(), 4);
     assert_eq!(
         settings.key_bindings[0],
         KeyBindingOverride {
@@ -525,6 +585,14 @@ fn key_bindings_parse_valid_entries_case_insensitively() {
     assert_eq!(
         settings.key_bindings[2].action,
         BindableAction::ScrollPageDown
+    );
+    assert_eq!(
+        settings.key_bindings[3].chord.key,
+        KeyBindingKey::Character(',')
+    );
+    assert_eq!(
+        settings.key_bindings[3].action,
+        BindableAction::SettingsPanel
     );
     assert!(warnings.is_empty());
 }

@@ -384,6 +384,16 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         path as HiDPI scale changes.
   - [x] Robustness policy: invalid rewrites and deleted files leave the current
         settings untouched; `native_autoclose_ms` remains startup-only.
+- [x] UX1 overlay framework: presentation-only in-window panel layer rendered
+      through cells, keyboard-driven, and isolated from terminal state.
+- [x] UX2-a read-only settings panel scaffold.
+  - [x] `Settings::setting_info()` inventories every runtime setting in stable
+        grouped order with current display value, type hint, range/options, env
+        key, reloadability, and non-empty human-readable description.
+  - [x] `Ctrl+Shift+,` opens a scrollable settings panel; `Up`/`Down`,
+        `PageUp`/`PageDown`, `Home`/`End`, and `Esc` navigate/close it.
+        The panel consumes input while open and never writes config or mutates
+        terminal state.
 - [ ] Profiles and CLI config introspection.
 
 ## Visual Capability Parity (Stage 6 parity half)

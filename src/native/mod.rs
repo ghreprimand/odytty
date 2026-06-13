@@ -59,6 +59,7 @@ mod pty;
 mod render_helpers;
 mod resize;
 mod search_ui;
+mod settings_panel;
 mod viewport;
 
 #[cfg(test)]

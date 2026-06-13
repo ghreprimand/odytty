@@ -110,6 +110,14 @@ impl CursorBlink {
         }
     }
 
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::On => "on",
+            Self::Off => "off",
+            Self::Auto => "auto",
+        }
+    }
+
     fn parse(raw: &str) -> Option<Self> {
         match normalize_name(raw).as_str() {
             "on" | "true" | "yes" | "blink" | "blinking" => Some(Self::On),
@@ -156,6 +164,7 @@ pub const STEM_DARKEN_DESC: &str = "Stem darkening: boosts glyph coverage so lig
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BindableAction {
     Search,
+    SettingsPanel,
     Copy,
     Paste,
     ScrollPageUp,
@@ -166,6 +175,9 @@ impl BindableAction {
     fn parse(raw: &str) -> Option<Self> {
         match normalize_name(raw).as_str() {
             "search" | "searchtoggle" | "togglesearch" => Some(Self::Search),
+            "settings" | "settingspanel" | "togglesettings" | "preferences" | "prefs" => {
+                Some(Self::SettingsPanel)
+            }
             "copy" => Some(Self::Copy),
             "paste" => Some(Self::Paste),
             "scrollup" | "pageup" | "scrollpageup" | "scrollbackpageup" => Some(Self::ScrollPageUp),
@@ -223,6 +235,32 @@ pub struct KeyBindingOverride {
     pub action: BindableAction,
 }
 
+/// Broad setting type hint for the read-only UX2-a panel and later editors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingKind {
+    Bool,
+    Enum,
+    Number,
+    String,
+    Path,
+    List,
+}
+
+/// Static/dynamic metadata for one settings row in stable display order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingInfo {
+    pub group: &'static str,
+    pub key: &'static str,
+    pub env: &'static str,
+    pub name: &'static str,
+    pub value: String,
+    pub description: &'static str,
+    pub kind: SettingKind,
+    pub range: Option<&'static str>,
+    pub options: &'static [&'static str],
+    pub reloadable: bool,
+}
+
 /// Typed runtime settings used by the native prototype.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
@@ -274,6 +312,206 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// Stable read-only inventory for the in-app settings panel.
+    ///
+    /// This intentionally mirrors every field on [`Settings`]. UX2-b can attach
+    /// editors and persistence to the same rows; UX2-a only displays them.
+    pub fn setting_info(&self) -> Vec<SettingInfo> {
+        vec![
+            SettingInfo {
+                group: "Theme",
+                key: "theme",
+                env: THEME_ENV,
+                name: "Theme",
+                value: self.theme.name.to_owned(),
+                description: "Full appearance profile: default colors, ANSI palette, semantic role colors, and optional user theme files.",
+                kind: SettingKind::Enum,
+                range: None,
+                options: &[
+                    "plain",
+                    "odyssey",
+                    "odyssey-noir",
+                    "user theme name",
+                    "theme file path",
+                ],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Theme",
+                key: "visual",
+                env: VISUAL_ENV,
+                name: "Visual effect",
+                value: self.visual.as_str().to_owned(),
+                description: "Optional presentation-only visual treatment. Off is the plain renderer and remains the safest fast path.",
+                kind: SettingKind::Enum,
+                range: None,
+                options: &["off", "ambient"],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Font",
+                key: "font",
+                env: FONT_ENV,
+                name: "Font file",
+                value: self
+                    .font_path
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "default monospace probe list".to_owned()),
+                description: "Explicit font file path. Takes precedence over font_family and falls back safely when unreadable.",
+                kind: SettingKind::Path,
+                range: None,
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Font",
+                key: "font_family",
+                env: FONT_FAMILY_ENV,
+                name: "Font family",
+                value: self
+                    .font_family
+                    .clone()
+                    .unwrap_or_else(|| "unset".to_owned()),
+                description: "System font family lookup for the regular monospace face. Ignored when an explicit font file is set.",
+                kind: SettingKind::String,
+                range: None,
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Font",
+                key: "font_size",
+                env: FONT_SIZE_ENV,
+                name: "Font size",
+                value: format_float(self.font_size_px),
+                description: "Native font size in pixels. Rebuilds the glyph atlas, cell metrics, terminal grid, and PTY window size.",
+                kind: SettingKind::Number,
+                range: Some("6.0..=72.0 px"),
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Rendering",
+                key: "text_gamma",
+                env: TEXT_GAMMA_ENV,
+                name: "Text gamma",
+                value: format_float(self.text_gamma),
+                description: "Glyph coverage gamma applied in the shader for text weight and contrast.",
+                kind: SettingKind::Number,
+                range: Some("0.5..=3.0"),
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Rendering",
+                key: "stem_darken",
+                env: STEM_DARKEN_ENV,
+                name: "Stem darkening",
+                value: format_float(self.stem_darken),
+                description: STEM_DARKEN_DESC,
+                kind: SettingKind::Number,
+                range: Some("0.0..=1.0"),
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Rendering",
+                key: "subpixel",
+                env: SUBPIXEL_ENV,
+                name: "Subpixel AA",
+                value: subpixel_display(self.subpixel).to_owned(),
+                description: "Optional RGB/BGR subpixel text coverage. Unsupported adapters fall back to grayscale.",
+                kind: SettingKind::Enum,
+                range: None,
+                options: &["off", "rgb", "bgr"],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Rendering",
+                key: "synthetic_styles",
+                env: SYNTHETIC_STYLES_ENV,
+                name: "Synthetic styles",
+                value: bool_display(self.synthetic_styles).to_owned(),
+                description: "Synthesizes missing bold and italic faces from the regular font when real style faces are unavailable.",
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Cursor",
+                key: "cursor_style",
+                env: CURSOR_STYLE_ENV,
+                name: "Cursor style",
+                value: cursor_style_display(self.cursor_style).to_owned(),
+                description: "Host default cursor shape used at startup and after terminal reset. Applications can still override it.",
+                kind: SettingKind::Enum,
+                range: None,
+                options: &["block", "underline", "bar"],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Cursor",
+                key: "cursor_blink",
+                env: CURSOR_BLINK_ENV,
+                name: "Cursor blink",
+                value: self.cursor_blink.as_str().to_owned(),
+                description: "Host default cursor blink policy. Auto currently resolves to blinking and is reserved for future system preference support.",
+                kind: SettingKind::Enum,
+                range: None,
+                options: &["auto", "on", "off"],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Input",
+                key: "keybinds",
+                env: KEYBINDS_ENV,
+                name: "Key bindings",
+                value: key_bindings_display(&self.key_bindings),
+                description: "Terminal-local shortcut overrides for search, settings, copy, paste, and scrollback actions. PTY key encoding is unchanged.",
+                kind: SettingKind::List,
+                range: None,
+                options: &[
+                    "search",
+                    "settings",
+                    "copy",
+                    "paste",
+                    "scroll-up",
+                    "scroll-down",
+                ],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Clipboard",
+                key: "osc52_read",
+                env: OSC52_READ_ENV,
+                name: "OSC 52 read",
+                value: bool_display(self.osc52_read).to_owned(),
+                description: "Allows terminal applications to query local clipboard contents through OSC 52 replies. Off by default for safety.",
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Development",
+                key: "native_autoclose_ms",
+                env: NATIVE_AUTOCLOSE_ENV,
+                name: "Native autoclose",
+                value: self
+                    .native_autoclose
+                    .map(|duration| format!("{} ms", duration.as_millis()))
+                    .unwrap_or_else(|| "unset".to_owned()),
+                description: "Smoke-test helper that closes the native window after a startup delay. It is startup-only, not live-reloadable.",
+                kind: SettingKind::Number,
+                range: Some("positive milliseconds"),
+                options: &[],
+                reloadable: false,
+            },
+        ]
+    }
+
     /// Load settings from the config file, then overlay the current process
     /// environment. Environment variables always win.
     pub fn from_env() -> Self {
@@ -646,6 +884,108 @@ fn parse_autoclose(raw: Option<&OsStr>) -> Option<Duration> {
     (ms > 0).then_some(Duration::from_millis(ms))
 }
 
+fn format_float(value: f32) -> String {
+    let formatted = format!("{value:.2}");
+    formatted
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_owned()
+}
+
+fn bool_display(value: bool) -> &'static str {
+    if value { "on" } else { "off" }
+}
+
+fn subpixel_display(value: SubpixelMode) -> &'static str {
+    match value {
+        SubpixelMode::Off => "off",
+        SubpixelMode::Rgb => "rgb",
+        SubpixelMode::Bgr => "bgr",
+    }
+}
+
+fn cursor_style_display(value: CursorStyle) -> &'static str {
+    match value {
+        CursorStyle::Block => "block",
+        CursorStyle::Underline => "underline",
+        CursorStyle::Bar => "bar",
+    }
+}
+
+fn key_bindings_display(bindings: &[KeyBindingOverride]) -> String {
+    if bindings.is_empty() {
+        return "default key bindings".to_owned();
+    }
+
+    bindings
+        .iter()
+        .map(format_key_binding)
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn format_key_binding(binding: &KeyBindingOverride) -> String {
+    format!(
+        "{}={}",
+        format_chord(binding.chord),
+        bindable_action_name(binding.action)
+    )
+}
+
+fn format_chord(chord: KeyChord) -> String {
+    let mut parts = Vec::new();
+    if chord.modifiers.ctrl {
+        parts.push("ctrl".to_owned());
+    }
+    if chord.modifiers.shift {
+        parts.push("shift".to_owned());
+    }
+    if chord.modifiers.alt {
+        parts.push("alt".to_owned());
+    }
+    if chord.modifiers.super_key {
+        parts.push("super".to_owned());
+    }
+    parts.push(format_key(chord.key));
+    parts.join("+")
+}
+
+fn format_key(key: KeyBindingKey) -> String {
+    match key {
+        KeyBindingKey::Character(',') => "comma".to_owned(),
+        KeyBindingKey::Character(ch) => ch.to_string(),
+        KeyBindingKey::Named(named) => match named {
+            KeyBindingNamedKey::Enter => "enter".to_owned(),
+            KeyBindingNamedKey::Backspace => "backspace".to_owned(),
+            KeyBindingNamedKey::Escape => "esc".to_owned(),
+            KeyBindingNamedKey::Tab => "tab".to_owned(),
+            KeyBindingNamedKey::Space => "space".to_owned(),
+            KeyBindingNamedKey::PageUp => "pageup".to_owned(),
+            KeyBindingNamedKey::PageDown => "pagedown".to_owned(),
+            KeyBindingNamedKey::Home => "home".to_owned(),
+            KeyBindingNamedKey::End => "end".to_owned(),
+            KeyBindingNamedKey::Delete => "delete".to_owned(),
+            KeyBindingNamedKey::Insert => "insert".to_owned(),
+            KeyBindingNamedKey::ArrowUp => "up".to_owned(),
+            KeyBindingNamedKey::ArrowDown => "down".to_owned(),
+            KeyBindingNamedKey::ArrowLeft => "left".to_owned(),
+            KeyBindingNamedKey::ArrowRight => "right".to_owned(),
+            KeyBindingNamedKey::F(number) => format!("f{number}"),
+        },
+    }
+}
+
+fn bindable_action_name(action: BindableAction) -> &'static str {
+    match action {
+        BindableAction::Search => "search",
+        BindableAction::SettingsPanel => "settings",
+        BindableAction::Copy => "copy",
+        BindableAction::Paste => "paste",
+        BindableAction::ScrollPageUp => "scroll-up",
+        BindableAction::ScrollPageDown => "scroll-down",
+    }
+}
+
 fn parse_bool_setting(
     raw: Option<&OsStr>,
     env: &str,
@@ -737,12 +1077,13 @@ fn parse_key_binding_key(raw: &str) -> Option<KeyBindingKey> {
     let lower = trimmed.to_ascii_lowercase();
     if lower.len() == 1 {
         let ch = lower.chars().next()?;
-        if ch.is_ascii_alphanumeric() {
+        if ch.is_ascii_graphic() && ch != '+' && ch != '=' {
             return Some(KeyBindingKey::Character(ch));
         }
     }
 
     let named = match normalize_name(trimmed).as_str() {
+        "comma" => return Some(KeyBindingKey::Character(',')),
         "enter" | "return" => KeyBindingNamedKey::Enter,
         "backspace" | "bksp" => KeyBindingNamedKey::Backspace,
         "esc" | "escape" => KeyBindingNamedKey::Escape,

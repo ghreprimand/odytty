@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Read-only settings panel scaffold (UX2-a)
+
+- Added a stable settings introspection API: every current runtime setting now
+  exposes a grouped row with config key, environment key, current display value,
+  type hint, valid range/options, reloadability, and a non-empty human-readable
+  description. This is the data source for the in-app settings UI and future
+  writeback/editor slices.
+- Replaced the UX1 demo overlay with a read-only settings panel opened by the
+  bindable `settings` action (`Ctrl+Shift+,` by default). The panel is
+  scrollable (`Up`/`Down`, `PageUp`/`PageDown`, `Home`/`End`), closes with
+  `Esc`, consumes input while open, and only composites into snapshot copies —
+  no terminal state or config mutation in this slice.
+- Filled one config-file gap found during inventory: `stem_darken` is now
+  accepted as an `odytty.conf` key as well as `ODYTTY_STEM_DARKEN`.
+
 ## 2026-06-13 -- Theme schema + serialization (TH2)
 
 - Added a dependency-free theme file format (`src/theme/spec.rs`): a `ThemeSpec`

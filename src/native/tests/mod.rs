@@ -21,7 +21,7 @@ use super::gpu::{
     text_params, theme_clear_color,
 };
 use super::options::NativeOptions;
-use super::overlay::{OverlayPanelSignature, OverlayRenderSignature};
+use super::overlay::OverlayRenderSignature;
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 use super::render_helpers::{
     CursorRenderSignature, GeometryUpdate, RenderContentSignature, RenderSignature,
@@ -29,6 +29,7 @@ use super::render_helpers::{
     key_modes_from_core, openable_hyperlink_uri,
 };
 use super::search_ui::SearchRenderSignature;
+use super::settings_panel::SettingsPanelSignature;
 use super::viewport::{Viewport, grid_dimensions_for, scroll_indicator_quad, wheel_lines};
 use crate::core::{
     Attrs, Cell, Dimensions, KeyboardModes as CoreKeyboardModes, MouseButton as CoreMouseButton,

@@ -58,6 +58,10 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             BindableAction::Search,
         ),
         (
+            char_chord(',', true, true, false, false),
+            BindableAction::SettingsPanel,
+        ),
+        (
             char_chord('c', true, true, false, false),
             BindableAction::Copy,
         ),
@@ -115,7 +119,7 @@ pub(super) fn chord_from_winit(
         WinitKey::Character(text) => {
             let mut chars = text.chars();
             let ch = chars.next()?;
-            if chars.next().is_some() || !ch.is_ascii_alphanumeric() {
+            if chars.next().is_some() || !ch.is_ascii_graphic() {
                 return None;
             }
             KeyBindingKey::Character(ch.to_ascii_lowercase())
@@ -134,13 +138,12 @@ pub(super) fn chord_from_winit(
     })
 }
 
-/// Native-only default overlay chord for UX1. This deliberately stays outside
-/// the settings keybinding table until UX2 expands bindable actions.
+/// Native settings-panel chord. Kept as a named helper for tests and callers
+/// that need the UX1/UX2 default without duplicating binding-table details.
+#[cfg(test)]
 pub(super) fn is_overlay_shortcut(logical: &WinitKey, mods: Modifiers, super_key: bool) -> bool {
-    let WinitKey::Character(text) = logical else {
-        return false;
-    };
-    text == "," && mods.ctrl && mods.shift && !mods.alt && !super_key
+    KeyBindings::default().action_for(logical, mods, super_key)
+        == Some(BindableAction::SettingsPanel)
 }
 
 fn binding_named_key(named: NamedKey) -> Option<KeyBindingNamedKey> {

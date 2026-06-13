@@ -329,6 +329,10 @@ fn key_bindings_preserve_default_shortcuts_when_unset() {
         Some(BindableAction::Search)
     );
     assert_eq!(
+        bindings.action_for(&WinitKey::Character(",".into()), ctrl_shift, false),
+        Some(BindableAction::SettingsPanel)
+    );
+    assert_eq!(
         bindings.action_for(&WinitKey::Character("c".into()), ctrl_shift, false),
         Some(BindableAction::Copy)
     );

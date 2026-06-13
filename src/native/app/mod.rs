@@ -27,8 +27,8 @@ use winit::window::{Window, WindowId};
 
 use super::bindings::{
     KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
-    is_overlay_shortcut, map_keypad_physical_key, map_named_key, map_winit_mouse_button,
-    motion_report_button, wheel_report_button,
+    map_keypad_physical_key, map_named_key, map_winit_mouse_button, motion_report_button,
+    wheel_report_button,
 };
 use super::clipboard::{
     NativeClipboard, read_clipboard_selection, selected_clipboard_text, write_clipboard_selection,
@@ -242,6 +242,7 @@ impl App {
         let visual = settings.visual;
         let key_bindings = KeyBindings::from_overrides(&settings.key_bindings);
         let autoclose = settings.native_autoclose;
+        let overlay = OverlayUi::new(&settings);
         Self {
             options,
             theme,
@@ -274,7 +275,7 @@ impl App {
             report_button: None,
             viewport: Viewport::default(),
             search: SearchUi::default(),
-            overlay: OverlayUi::default(),
+            overlay,
             search_restore_viewport: None,
             last_scrollback_len: 0,
             clipboard: NativeClipboard::default(),
@@ -391,7 +392,8 @@ impl App {
         let mods = self.modifiers;
         let key_modes = self.key_modes();
         if event_type != KeyEventType::Release {
-            if is_overlay_shortcut(&logical, mods, self.super_key) {
+            let action = self.key_bindings.action_for(&logical, mods, self.super_key);
+            if action == Some(BindableAction::SettingsPanel) {
                 self.toggle_overlay();
                 return;
             }
@@ -399,7 +401,6 @@ impl App {
                 self.handle_overlay_key(&logical);
                 return;
             }
-            let action = self.key_bindings.action_for(&logical, mods, self.super_key);
             if action == Some(BindableAction::Search) {
                 self.toggle_search();
                 return;
@@ -425,7 +426,7 @@ impl App {
                     self.scroll_viewport(-(self.page_lines() as isize));
                     return;
                 }
-                Some(BindableAction::Search) | None => {}
+                Some(BindableAction::Search) | Some(BindableAction::SettingsPanel) | None => {}
             }
         }
         if self.overlay.is_open() {
@@ -751,6 +752,7 @@ impl App {
         self.theme = self.settings.theme;
         self.visual = self.settings.visual;
         self.key_bindings = KeyBindings::from_overrides(&self.settings.key_bindings);
+        self.overlay.refresh_settings(&self.settings);
         text::set_default_colors(self.theme.foreground, self.theme.background);
         text::set_ansi_palette(&self.theme.palette);
         if let Ok(mut terminal) = self.terminal.lock() {

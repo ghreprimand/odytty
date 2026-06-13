@@ -87,6 +87,7 @@ manual and automated lifecycle behavior ambiguous.
 | Shortcut | Behavior |
 | --- | --- |
 | `Ctrl+Shift+F` | Open or close the scrollback search bar. Search is case-insensitive by default. |
+| `Ctrl+Shift+,` | Open or close the read-only settings panel. The panel lists every runtime setting with its current value and help text; editing/writeback is a later UX2 slice. |
 | `Enter` while searching | Jump to the next match, wrapping at the end. |
 | `Shift+Enter` while searching | Jump to the previous match, wrapping at the start. |
 | `Backspace` while searching | Edit the query. |
@@ -99,17 +100,26 @@ manual and automated lifecycle behavior ambiguous.
 modifiers plus a key name, separated by `+`. Keys may be letters, digits,
 `f1`-`f24`, or common named keys such as `pageup`, `pagedown`, `home`, `end`,
 `enter`, `esc`, `backspace`, `delete`, `insert`, `tab`, `space`, and arrow
-keys. Actions are `search`, `copy`, `paste`, `scroll-up`, and `scroll-down`.
+keys. Use `comma` for `,` in keybinding strings because literal commas also
+separate entries. Actions are `search`, `settings`, `copy`, `paste`,
+`scroll-up`, and `scroll-down`.
 Examples:
 
 ```sh
 ODYTTY_KEYBINDS="ctrl+shift+y=copy,ctrl+shift+p=paste" cargo run -- --native
 ODYTTY_KEYBINDS="super+f=search;alt+pageup=scroll-up;alt+pagedown=scroll-down" cargo run -- --native
+ODYTTY_KEYBINDS="ctrl+shift+comma=settings" cargo run -- --native
 ```
 
 Valid entries override the default chord for that action only. For example,
 rebinding `copy` to `Ctrl+Shift+Y` leaves paste/search/scroll defaults intact
 and frees `Ctrl+Shift+C` to reach the PTY path.
+
+When the settings panel is open, keyboard input is consumed by the panel rather
+than sent to the PTY. `Up`/`Down`, `PageUp`/`PageDown`, `Home`, and `End`
+navigate the rows; `Esc` closes the panel. The UX2-a panel is read-only and
+presentation-only: it renders into snapshot copies and never mutates terminal
+state or writes configuration.
 
 When the search bar is open, keyboard input is consumed by search rather than
 sent to the PTY. Closing search restores the viewport offset that was active
