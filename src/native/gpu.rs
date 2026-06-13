@@ -601,6 +601,8 @@ fn create_color_glyph_pipeline(
     })
 }
 
+const POST_PROCESS_HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
 struct PostProcessResources {
     offscreen: wgpu::Texture,
     offscreen_view: wgpu::TextureView,
@@ -611,7 +613,11 @@ struct PostProcessResources {
 }
 
 impl PostProcessResources {
-    fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+    fn new(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        offscreen_format: wgpu::TextureFormat,
+    ) -> Self {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("odytty-composite-bgl"),
             entries: &[
@@ -644,8 +650,13 @@ impl PostProcessResources {
             ..Default::default()
         });
         let pipeline = create_composite_pipeline(device, config.format, &bind_group_layout);
-        let (offscreen, offscreen_view, bind_group) =
-            create_post_offscreen(device, config, &bind_group_layout, &sampler);
+        let (offscreen, offscreen_view, bind_group) = create_post_offscreen(
+            device,
+            config,
+            offscreen_format,
+            &bind_group_layout,
+            &sampler,
+        );
         Self {
             offscreen,
             offscreen_view,
@@ -656,18 +667,44 @@ impl PostProcessResources {
         }
     }
 
-    fn resize(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
-        let (offscreen, offscreen_view, bind_group) =
-            create_post_offscreen(device, config, &self.bind_group_layout, &self.sampler);
+    fn resize(
+        &mut self,
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        offscreen_format: wgpu::TextureFormat,
+    ) {
+        let (offscreen, offscreen_view, bind_group) = create_post_offscreen(
+            device,
+            config,
+            offscreen_format,
+            &self.bind_group_layout,
+            &self.sampler,
+        );
         self.offscreen = offscreen;
         self.offscreen_view = offscreen_view;
         self.bind_group = bind_group;
     }
 }
 
+fn supported_post_process_format(adapter: &wgpu::Adapter) -> Option<wgpu::TextureFormat> {
+    let features = adapter.get_texture_format_features(POST_PROCESS_HDR_FORMAT);
+    let required_usages =
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
+    if features.allowed_usages.contains(required_usages)
+        && features
+            .flags
+            .contains(wgpu::TextureFormatFeatureFlags::FILTERABLE)
+    {
+        Some(POST_PROCESS_HDR_FORMAT)
+    } else {
+        None
+    }
+}
+
 fn create_post_offscreen(
     device: &wgpu::Device,
     config: &wgpu::SurfaceConfiguration,
+    format: wgpu::TextureFormat,
     bind_group_layout: &wgpu::BindGroupLayout,
     sampler: &wgpu::Sampler,
 ) -> (wgpu::Texture, wgpu::TextureView, wgpu::BindGroup) {
@@ -681,7 +718,7 @@ fn create_post_offscreen(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: config.format,
+        format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     });
@@ -756,6 +793,7 @@ pub(super) struct GpuState {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     color_glyph_pipeline: wgpu::RenderPipeline,
+    post_process_format: Option<wgpu::TextureFormat>,
     post_process: Option<PostProcessResources>,
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
@@ -881,6 +919,12 @@ impl GpuState {
         if options.subpixel.enabled() && !subpixel.enabled() {
             eprintln!(
                 "odytty: ODYTTY_SUBPIXEL requested but the GPU adapter lacks dual-source blending; using grayscale text"
+            );
+        }
+        let post_process_format = supported_post_process_format(&adapter);
+        if post_process_format.is_none() {
+            eprintln!(
+                "odytty: GPU adapter lacks filterable Rgba16Float render targets; post-process effects disabled"
             );
         }
 
@@ -1111,6 +1155,7 @@ impl GpuState {
             config,
             pipeline,
             color_glyph_pipeline,
+            post_process_format,
             post_process: None,
             bind_group_layout,
             bind_group,
@@ -1541,7 +1586,9 @@ impl GpuState {
         // uniform needs the new physical size.
         self.update_viewport();
         if let Some(post_process) = &mut self.post_process {
-            post_process.resize(&self.device, &self.config);
+            if let Some(format) = self.post_process_format {
+                post_process.resize(&self.device, &self.config, format);
+            }
         }
     }
 
@@ -1677,12 +1724,20 @@ impl GpuState {
                 label: Some("odytty-clear-encoder"),
             });
         if self.post_active() {
-            if self.post_process.is_none() {
-                self.post_process = Some(PostProcessResources::new(&self.device, &self.config));
+            if let Some(format) = self.post_process_format {
+                if self.post_process.is_none() {
+                    self.post_process = Some(PostProcessResources::new(
+                        &self.device,
+                        &self.config,
+                        format,
+                    ));
+                }
+                let post_process = self.post_process.as_ref().expect("post process resources");
+                self.encode_scene_pass(&mut encoder, &post_process.offscreen_view);
+                self.encode_composite_pass(&mut encoder, &view, post_process);
+            } else {
+                self.encode_scene_pass(&mut encoder, &view);
             }
-            let post_process = self.post_process.as_ref().expect("post process resources");
-            self.encode_scene_pass(&mut encoder, &post_process.offscreen_view);
-            self.encode_composite_pass(&mut encoder, &view, post_process);
         } else {
             self.encode_scene_pass(&mut encoder, &view);
         }

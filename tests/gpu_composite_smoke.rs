@@ -3,6 +3,7 @@ use std::sync::mpsc;
 const WIDTH: u32 = 8;
 const HEIGHT: u32 = 6;
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 const SCENE_SHADER: &str = r#"
 struct VsOut {
@@ -34,12 +35,17 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
 
 #[test]
 fn passthrough_composite_matches_direct_render_bytes() {
-    let Some((device, queue)) = gpu_device() else {
+    let Some((device, queue, hdr_supported)) = gpu_device() else {
         eprintln!("skipping: no GPU adapter available");
         return;
     };
+    assert!(
+        hdr_supported,
+        "Rgba16Float must support render attachment + filterable texture binding"
+    );
 
-    let scene_pipeline = create_scene_pipeline(&device);
+    let direct_scene_pipeline = create_scene_pipeline(&device, FORMAT);
+    let offscreen_scene_pipeline = create_scene_pipeline(&device, HDR_FORMAT);
     let composite_bgl = create_composite_bind_group_layout(&device);
     let composite_pipeline = create_composite_pipeline(&device, &composite_bgl);
     let composite_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -53,9 +59,10 @@ fn passthrough_composite_matches_direct_render_bytes() {
         ..Default::default()
     });
 
-    let direct = create_render_texture(&device, "gpu-composite-smoke-direct", true);
-    let offscreen = create_render_texture(&device, "gpu-composite-smoke-offscreen", false);
-    let composite = create_render_texture(&device, "gpu-composite-smoke-composite", true);
+    let direct = create_render_texture(&device, "gpu-composite-smoke-direct", FORMAT, true);
+    let offscreen =
+        create_render_texture(&device, "gpu-composite-smoke-offscreen", HDR_FORMAT, false);
+    let composite = create_render_texture(&device, "gpu-composite-smoke-composite", FORMAT, true);
     let direct_view = direct.create_view(&wgpu::TextureViewDescriptor::default());
     let offscreen_view = offscreen.create_view(&wgpu::TextureViewDescriptor::default());
     let composite_view = composite.create_view(&wgpu::TextureViewDescriptor::default());
@@ -77,8 +84,8 @@ fn passthrough_composite_matches_direct_render_bytes() {
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("gpu-composite-smoke-encoder"),
     });
-    encode_scene(&mut encoder, &scene_pipeline, &direct_view);
-    encode_scene(&mut encoder, &scene_pipeline, &offscreen_view);
+    encode_scene(&mut encoder, &direct_scene_pipeline, &direct_view);
+    encode_scene(&mut encoder, &offscreen_scene_pipeline, &offscreen_view);
     encode_composite(
         &mut encoder,
         &composite_pipeline,
@@ -97,7 +104,7 @@ fn passthrough_composite_matches_direct_render_bytes() {
     assert_eq!(direct_bytes, composite_bytes);
 }
 
-fn gpu_device() -> Option<(wgpu::Device, wgpu::Queue)> {
+fn gpu_device() -> Option<(wgpu::Device, wgpu::Queue, bool)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
@@ -105,7 +112,14 @@ fn gpu_device() -> Option<(wgpu::Device, wgpu::Queue)> {
         compatible_surface: None,
     }))
     .ok()?;
-    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+    let hdr_features = adapter.get_texture_format_features(HDR_FORMAT);
+    let required_hdr_usages =
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
+    let hdr_supported = hdr_features.allowed_usages.contains(required_hdr_usages)
+        && hdr_features
+            .flags
+            .contains(wgpu::TextureFormatFeatureFlags::FILTERABLE);
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("gpu-composite-smoke-device"),
         required_features: wgpu::Features::empty(),
         required_limits: wgpu::Limits::default(),
@@ -113,10 +127,14 @@ fn gpu_device() -> Option<(wgpu::Device, wgpu::Queue)> {
         memory_hints: wgpu::MemoryHints::default(),
         trace: wgpu::Trace::Off,
     }))
-    .ok()
+    .ok()?;
+    Some((device, queue, hdr_supported))
 }
 
-fn create_scene_pipeline(device: &wgpu::Device) -> wgpu::RenderPipeline {
+fn create_scene_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("gpu-composite-smoke-scene-shader"),
         source: wgpu::ShaderSource::Wgsl(SCENE_SHADER.into()),
@@ -146,7 +164,7 @@ fn create_scene_pipeline(device: &wgpu::Device) -> wgpu::RenderPipeline {
             module: &shader,
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
-                format: FORMAT,
+                format,
                 blend: None,
                 write_mask: wgpu::ColorWrites::ALL,
             })],
@@ -228,6 +246,7 @@ fn create_composite_pipeline(
 fn create_render_texture(
     device: &wgpu::Device,
     label: &'static str,
+    format: wgpu::TextureFormat,
     copy_src: bool,
 ) -> wgpu::Texture {
     let mut usage = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
@@ -244,7 +263,7 @@ fn create_render_texture(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: FORMAT,
+        format,
         usage,
         view_formats: &[],
     })
