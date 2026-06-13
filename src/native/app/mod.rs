@@ -858,6 +858,10 @@ impl App {
         }
         text::set_default_colors(self.theme.foreground, self.theme.background);
         text::set_ansi_palette(&self.theme.palette);
+        // RV1: republish the minimum-contrast floor so a live `min_contrast`
+        // edit takes effect on the next frame (the grid resolve seam reads it
+        // per cell). Mirrors the palette republish above; passthrough at 1.0.
+        text::set_min_contrast(self.settings.min_contrast);
         if let Ok(mut terminal) = self.terminal.lock() {
             terminal.set_base_colors(
                 rgb(self.theme.foreground),

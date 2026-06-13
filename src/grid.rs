@@ -464,6 +464,11 @@ pub fn build_cell_vertices_with_color_glyph_runs_into(
         if cell.attrs.dim() {
             fg = dim_color(fg);
         }
+        // RV1 minimum-contrast floor: lift the foreground until it meets the
+        // configured WCAG ratio against this cell's background. Applied last so
+        // it sees the post-inverse, post-dim color. Exact passthrough at the
+        // default floor of 1.0, so the plain path is byte-identical.
+        fg = text::enforce_contrast_rgba(fg, bg);
         (fg, bg)
     };
     let span_of = |row: usize, col: usize| -> f32 {
@@ -690,7 +695,11 @@ fn push_cursor(
     match style {
         CursorStyle::Block => {
             let block_color = rgb_linear(snapshot.colors.cursor);
-            let glyph_color = bg;
+            // The under-cursor glyph is drawn in the cell's background color over
+            // the cursor block; apply the RV1 floor so it stays legible against
+            // the block (the relevant pair here is glyph-vs-block, since `fg` is
+            // not drawn in this path). Passthrough at the default floor of 1.0.
+            let glyph_color = text::enforce_contrast_rgba(bg, block_color);
             push_quad(
                 out,
                 [x0, y0, x0 + cell_w, y0 + cell_h],
@@ -1281,6 +1290,50 @@ mod tests {
             verts[VERTS_PER_QUAD].color,
             dim_color(text::foreground_linear(Color::Indexed(1)))
         );
+    }
+
+    /// RV1 activation: the per-cell resolve seam now passes the foreground
+    /// through `text::enforce_contrast_rgba`, so a raised minimum-contrast floor
+    /// actually lifts low-contrast glyph color at the render path (not just in
+    /// the text.rs unit). Mutates the process-global floor and restores `1.0`,
+    /// mirroring the text.rs seam test, so it can't leave other tests perturbed.
+    #[test]
+    fn min_contrast_floor_lifts_low_contrast_foreground_at_render() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+
+        // A near-black glyph on a black background: WCAG contrast ~1.0.
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"\x1b[?25l\x1b[38;2;20;20;20;48;2;0;0;0mX");
+        let snapshot = term.snapshot();
+
+        // Default floor (1.0) is exact passthrough: the rendered glyph color is
+        // the unmodified foreground.
+        assert_eq!(text::min_contrast(), 1.0);
+        let plain = build_vertices(&snapshot, &atlas);
+        let unfloored = plain[VERTS_PER_QUAD].color;
+        assert_eq!(
+            unfloored,
+            foreground_linear(&snapshot.colors, Color::Rgb(20, 20, 20)),
+            "default floor must be byte-identical passthrough"
+        );
+
+        // Raise the floor to AAA (7.0): the rendered glyph color must lift and
+        // actually meet the ratio against the background.
+        text::set_min_contrast(7.0);
+        let floored = build_vertices(&snapshot, &atlas);
+        let fg = floored[VERTS_PER_QUAD].color;
+        let bg = background_linear(&snapshot.colors, Color::Rgb(0, 0, 0));
+        text::set_min_contrast(1.0); // restore before any assertion can unwind
+
+        assert_ne!(fg, unfloored, "raised floor must change the foreground");
+        let ratio = crate::color::wcag_contrast([fg[0], fg[1], fg[2]], [bg[0], bg[1], bg[2]]);
+        assert!(ratio >= 7.0 - 1e-3, "floor not met at render: {ratio}");
+
+        // The restore took effect: passthrough again.
+        assert_eq!(text::min_contrast(), 1.0);
     }
 
     #[test]

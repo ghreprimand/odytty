@@ -96,6 +96,11 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     let theme = settings.theme;
     text::set_default_colors(theme.foreground, theme.background);
     text::set_ansi_palette(&theme.palette);
+    // Publish the RV1 minimum-contrast floor process-wide before the first
+    // frame so a launch-time `ODYTTY_MIN_CONTRAST` is honored immediately; the
+    // grid resolve seam reads it per cell. The reload path republishes it on
+    // change. Passthrough at the default 1.0, so the plain path is unchanged.
+    text::set_min_contrast(settings.min_contrast);
     // Publish the synthetic-styles kill switch process-wide before the GPU
     // surface (and its glyph atlas) is built on resume, so a launch-time
     // `synthetic_styles = off` is honored from the first frame. The config

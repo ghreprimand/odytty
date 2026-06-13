@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Activate RV1 contrast floor at the live render path
+
+- Correctness fix: the RV1 minimum-contrast machinery
+  (`text::enforce_contrast_rgba` + the `MIN_CONTRAST` global) existed but was
+  never invoked at render — `min_contrast` / `ODYTTY_MIN_CONTRAST` did nothing
+  at any value, while the docs already claimed it lifted foreground to meet
+  WCAG. Now wired in.
+- `grid.rs`: the per-cell `resolve` closure applies
+  `text::enforce_contrast_rgba(fg, bg)` as the final foreground step (after the
+  inverse swap and `dim_color`), so every glyph's foreground meets the floor
+  against its own background. The block-cursor path applies the same floor to
+  the under-cursor glyph against the cursor block. Exact passthrough at the
+  default floor of 1.0, so the plain path stays byte-identical.
+- Native wiring: `text::set_min_contrast(settings.min_contrast)` is published
+  process-wide at startup (before the first frame, so a launch-time
+  `ODYTTY_MIN_CONTRAST` is honored) and republished on live config reload,
+  mirroring the existing palette / `stem_darken` seams.
+- Tests: a new grid render-path test proves a raised floor (7.0) lifts a
+  near-black-on-black glyph and the rendered color actually meets the ratio,
+  and that floor 1.0 is exact passthrough. `cargo test` + `cargo fmt --check`
+  green; the 25 `pixel_smoke` tests are unchanged (default path identical).
+- Follow-up: the parallel RV2 activation (calling
+  `atlas.set_geometric_boxdraw` at the `GlyphAtlas::build` sites) lands in the
+  GPU layer that owns those sites and is tracked separately.
+
 ## 2026-06-13 -- Geometric box-drawing / block / Powerline (RV2)
 
 - New dependency-free `boxdraw` module renders line, block and separator
