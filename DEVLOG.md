@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Editable settings panel live-apply (UX2-b)
+
+- Turned the settings panel from display-only into a live editor. Rows now use
+  their settings metadata to choose the edit behavior: booleans toggle,
+  enums cycle, numbers can be nudged or typed with parser-equivalent clamps,
+  and path/string/list rows edit through a text buffer. `Enter` applies an edit;
+  `Esc` cancels an in-progress row edit without closing the panel.
+- Added a `SettingsEditOverlay` model that tracks panel edits as a diff over
+  the loaded settings. Reverting a value clears it from the diff, and clearing
+  optional fields is preserved as an explicit empty-value diff for the UX2-c
+  writeback packet.
+- Committed panel edits through the same native reload seam used by file live
+  reload, so theme, visual effect, font size/path/family, gamma, stem darkening,
+  subpixel mode, cursor defaults, key bindings, OSC 52 read, and synthetic
+  styles apply immediately. `native_autoclose_ms` remains startup-only and is
+  shown as non-editable in the panel.
+
 ## 2026-06-13 -- Read-only settings panel scaffold (UX2-a)
 
 - Added a stable settings introspection API: every current runtime setting now

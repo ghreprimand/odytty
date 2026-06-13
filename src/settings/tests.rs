@@ -3,6 +3,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::atlas::SubpixelMode;
@@ -11,6 +12,8 @@ use crate::theme::Theme;
 
 use super::reload::{ConfigFileFingerprint, ConfigPollEvent};
 use super::*;
+
+static RELOAD_GLOBAL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn settings_from<const N: usize>(values: [(&str, &str); N]) -> (Settings, Vec<String>) {
     // Default stub resolver: no family resolves. Family-resolution tests use
@@ -300,6 +303,7 @@ fn config_reload_preserves_startup_env_precedence() {
 
 #[test]
 fn apply_reloadable_values_ignores_native_autoclose_ms() {
+    let _guard = RELOAD_GLOBAL_TEST_LOCK.lock().unwrap();
     let mut current = Settings {
         theme: Theme::PLAIN,
         native_autoclose: Some(Duration::from_millis(500)),
@@ -730,6 +734,7 @@ fn garbage_synthetic_styles_falls_back_on_with_warning() {
 
 #[test]
 fn apply_reloadable_values_publishes_synthetic_styles_global() {
+    let _guard = RELOAD_GLOBAL_TEST_LOCK.lock().unwrap();
     // The kill switch is reloadable: applying a reload that flips it updates the
     // Settings and republishes the process-wide flag the renderer reads on its
     // next atlas-build. Restore the default afterward so the shared global does
@@ -758,6 +763,45 @@ fn apply_reloadable_values_publishes_synthetic_styles_global() {
     assert!(synthetic_styles_enabled());
 
     set_synthetic_styles_enabled(restore);
+}
+
+#[test]
+fn settings_edit_overlay_tracks_edit_revert_and_clear_diff() {
+    let base = Settings {
+        font_path: Some(PathBuf::from("/tmp/font-a.ttf")),
+        ..Settings::default()
+    };
+    let mut edits = SettingsEditOverlay::new(&base);
+
+    let changed = edits
+        .apply_raw("font_size", "20")
+        .expect("valid font size edit");
+    assert_eq!(changed.unwrap().font_size_px, 20.0);
+    assert_eq!(
+        edits
+            .changes()
+            .iter()
+            .map(|change| (change.key, change.value.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("font_size", "20")]
+    );
+
+    let changed = edits
+        .apply_raw("font_size", "14")
+        .expect("valid font size revert");
+    assert_eq!(changed.unwrap().font_size_px, 14.0);
+    assert!(edits.changes().is_empty());
+
+    let changed = edits.apply_raw("font", "").expect("valid font clear");
+    assert!(changed.unwrap().font_path.is_none());
+    assert_eq!(
+        edits
+            .changes()
+            .iter()
+            .map(|change| (change.key, change.value.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("font", "")]
+    );
 }
 
 #[test]

@@ -5,7 +5,7 @@
 //! configuration in one place without pushing `std::env` or file reads through
 //! renderer and terminal code.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::PathBuf;
@@ -259,6 +259,26 @@ pub struct SettingInfo {
     pub range: Option<&'static str>,
     pub options: &'static [&'static str],
     pub reloadable: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingEdit {
+    pub key: &'static str,
+    pub env: &'static str,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SettingEditError {
+    pub key: &'static str,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettingsEditOverlay {
+    base_values: BTreeMap<&'static str, String>,
+    values: BTreeMap<&'static str, String>,
+    settings: Settings,
 }
 
 /// Typed runtime settings used by the native prototype.
@@ -518,6 +538,23 @@ impl Settings {
         Self::from_env_and_optional_config(config_file_path())
     }
 
+    fn from_edit_values(values: &BTreeMap<&'static str, String>) -> Result<Self, SettingEditError> {
+        let mut warnings = Vec::new();
+        let settings = Self::from_source(
+            |key| values.get(key).map(OsString::from),
+            |message| warnings.push(message.to_owned()),
+            |family| {
+                crate::text::resolve_font_family(family, &crate::text::font_search_dirs())
+                    .map(|m| m.regular)
+            },
+            |value| resolve_theme_file(value, theme_dir_path().as_deref()),
+        );
+        if let Some(message) = warnings.into_iter().next() {
+            return Err(SettingEditError { key: "", message });
+        }
+        Ok(settings)
+    }
+
     fn from_env_and_optional_config(config_path: Option<PathBuf>) -> Self {
         let mut warnings = Vec::new();
         let config = config_path
@@ -675,6 +712,162 @@ impl Settings {
             native_autoclose,
         }
     }
+}
+
+impl Settings {
+    fn to_edit_values(&self) -> BTreeMap<&'static str, String> {
+        let mut values = BTreeMap::new();
+        values.insert(THEME_ENV, self.theme.name.to_owned());
+        values.insert(VISUAL_ENV, self.visual.as_str().to_owned());
+        if let Some(path) = self.font_path.as_ref() {
+            values.insert(FONT_ENV, path.display().to_string());
+        }
+        if let Some(family) = self.font_family.as_ref() {
+            values.insert(FONT_FAMILY_ENV, family.clone());
+        }
+        values.insert(FONT_SIZE_ENV, format_float(self.font_size_px));
+        values.insert(TEXT_GAMMA_ENV, format_float(self.text_gamma));
+        values.insert(STEM_DARKEN_ENV, format_float(self.stem_darken));
+        values.insert(SUBPIXEL_ENV, subpixel_display(self.subpixel).to_owned());
+        values.insert(KEYBINDS_ENV, key_bindings_edit_value(&self.key_bindings));
+        values.insert(
+            CURSOR_STYLE_ENV,
+            cursor_style_display(self.cursor_style).to_owned(),
+        );
+        values.insert(CURSOR_BLINK_ENV, self.cursor_blink.as_str().to_owned());
+        values.insert(OSC52_READ_ENV, bool_display(self.osc52_read).to_owned());
+        values.insert(
+            SYNTHETIC_STYLES_ENV,
+            bool_display(self.synthetic_styles).to_owned(),
+        );
+        if let Some(duration) = self.native_autoclose {
+            values.insert(NATIVE_AUTOCLOSE_ENV, duration.as_millis().to_string());
+        }
+        values
+    }
+}
+
+impl SettingsEditOverlay {
+    pub fn new(settings: &Settings) -> Self {
+        let values = settings.to_edit_values();
+        Self {
+            base_values: values.clone(),
+            values,
+            settings: settings.clone(),
+        }
+    }
+
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    pub fn changes(&self) -> Vec<SettingEdit> {
+        self.base_values
+            .keys()
+            .chain(self.values.keys())
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .filter(|env| self.base_values.get(env) != self.values.get(env))
+            .filter_map(|env| setting_key_for_env(env).map(|key| (key, env)))
+            .map(|(key, env)| SettingEdit {
+                key,
+                env,
+                value: self.values.get(env).cloned().unwrap_or_default(),
+            })
+            .collect()
+    }
+
+    pub fn changed_count(&self) -> usize {
+        self.changes().len()
+    }
+
+    pub fn apply_raw(
+        &mut self,
+        key: &'static str,
+        raw: &str,
+    ) -> Result<Option<Settings>, SettingEditError> {
+        let Some(info) = self
+            .settings
+            .setting_info()
+            .into_iter()
+            .find(|info| info.key == key)
+        else {
+            return Err(SettingEditError {
+                key,
+                message: "Unknown setting row.".to_owned(),
+            });
+        };
+        if !info.reloadable {
+            return Err(SettingEditError {
+                key,
+                message: "This setting is startup-only and cannot be edited live.".to_owned(),
+            });
+        }
+
+        let mut values = self.values.clone();
+        let trimmed = raw.trim();
+        if clears_setting(key, trimmed) {
+            values.remove(info.env);
+        } else {
+            values.insert(info.env, trimmed.to_owned());
+        }
+
+        let candidate = Settings::from_edit_values(&values).map_err(|mut error| {
+            error.key = key;
+            error
+        })?;
+        let canonical = candidate.to_edit_values();
+        if let Some(value) = canonical.get(info.env) {
+            values.insert(info.env, value.clone());
+        } else {
+            values.remove(info.env);
+        }
+        let candidate = Settings::from_edit_values(&values).map_err(|mut error| {
+            error.key = key;
+            error
+        })?;
+        if candidate == self.settings {
+            self.values = values;
+            return Ok(None);
+        }
+
+        self.values = values;
+        self.settings = candidate.clone();
+        Ok(Some(candidate))
+    }
+}
+
+fn clears_setting(key: &str, value: &str) -> bool {
+    value.is_empty() && matches!(key, "font" | "font_family" | "native_autoclose_ms")
+}
+
+fn setting_key_for_env(env: &str) -> Option<&'static str> {
+    match env {
+        THEME_ENV => Some("theme"),
+        VISUAL_ENV => Some("visual"),
+        FONT_ENV => Some("font"),
+        FONT_FAMILY_ENV => Some("font_family"),
+        FONT_SIZE_ENV => Some("font_size"),
+        TEXT_GAMMA_ENV => Some("text_gamma"),
+        STEM_DARKEN_ENV => Some("stem_darken"),
+        SUBPIXEL_ENV => Some("subpixel"),
+        KEYBINDS_ENV => Some("keybinds"),
+        CURSOR_STYLE_ENV => Some("cursor_style"),
+        CURSOR_BLINK_ENV => Some("cursor_blink"),
+        OSC52_READ_ENV => Some("osc52_read"),
+        SYNTHETIC_STYLES_ENV => Some("synthetic_styles"),
+        NATIVE_AUTOCLOSE_ENV => Some("native_autoclose_ms"),
+        _ => None,
+    }
+}
+
+fn key_bindings_edit_value(bindings: &[KeyBindingOverride]) -> String {
+    bindings
+        .iter()
+        .map(format_key_binding)
+        .collect::<Vec<_>>()
+        .join(";")
 }
 
 pub fn config_file_path() -> Option<PathBuf> {

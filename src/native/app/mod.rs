@@ -102,6 +102,12 @@ impl SynchronizedOutputHold {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SettingsApplySource {
+    ConfigReload,
+    OverlayEdit,
+}
+
 /// Application state driving the `winit` event loop.
 ///
 /// The window is created lazily on `resumed` per `winit`'s portability
@@ -492,6 +498,7 @@ impl App {
         match self.overlay.handle_input(input) {
             OverlayOutcome::Consumed => {}
             OverlayOutcome::Close => self.overlay.close(),
+            OverlayOutcome::ApplySettings(settings) => self.apply_overlay_settings(settings),
         }
         self.request_selection_redraw();
     }
@@ -730,6 +737,18 @@ impl App {
     }
 
     fn apply_reloaded_settings(&mut self, reloaded: Settings) {
+        self.apply_settings_through_reload_seam(reloaded, SettingsApplySource::ConfigReload);
+    }
+
+    fn apply_overlay_settings(&mut self, reloaded: Settings) {
+        self.apply_settings_through_reload_seam(reloaded, SettingsApplySource::OverlayEdit);
+    }
+
+    fn apply_settings_through_reload_seam(
+        &mut self,
+        reloaded: Settings,
+        source: SettingsApplySource,
+    ) {
         let mut next_settings = self.settings.clone();
         if !apply_reloadable_values(&mut next_settings, reloaded) {
             return;
@@ -752,7 +771,10 @@ impl App {
         self.theme = self.settings.theme;
         self.visual = self.settings.visual;
         self.key_bindings = KeyBindings::from_overrides(&self.settings.key_bindings);
-        self.overlay.refresh_settings(&self.settings);
+        match source {
+            SettingsApplySource::ConfigReload => self.overlay.refresh_settings(&self.settings),
+            SettingsApplySource::OverlayEdit => self.overlay.apply_settings(&self.settings),
+        }
         text::set_default_colors(self.theme.foreground, self.theme.background);
         text::set_ansi_palette(&self.theme.palette);
         if let Ok(mut terminal) = self.terminal.lock() {

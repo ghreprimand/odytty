@@ -180,6 +180,9 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
         panel: SettingsPanelSignature {
             selected: 0,
             scroll: 0,
+            editing_key: None,
+            changed_count: 0,
+            message: None,
             entries: Vec::new(),
         },
     }

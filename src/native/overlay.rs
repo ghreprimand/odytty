@@ -5,7 +5,7 @@ use crate::settings::Settings;
 use unicode_width::UnicodeWidthChar;
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
-use super::settings_panel::{SettingsPanel, SettingsPanelSignature};
+use super::settings_panel::{SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature};
 
 #[derive(Debug, Clone)]
 pub(super) struct OverlayUi {
@@ -35,6 +35,10 @@ impl OverlayUi {
         self.panel.refresh(settings);
     }
 
+    pub(super) fn apply_settings(&mut self, settings: &Settings) {
+        self.panel.apply_settings(settings);
+    }
+
     pub(super) fn open(&mut self) {
         self.open = true;
     }
@@ -53,11 +57,11 @@ impl OverlayUi {
 
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> OverlayOutcome {
         match input {
-            OverlayInput::Close => OverlayOutcome::Close,
-            input => {
-                self.panel.handle_input(input);
-                OverlayOutcome::Consumed
-            }
+            OverlayInput::Close if !self.panel.is_editing() => OverlayOutcome::Close,
+            input => match self.panel.handle_input(input) {
+                SettingsPanelOutcome::Consumed => OverlayOutcome::Consumed,
+                SettingsPanelOutcome::Apply(settings) => OverlayOutcome::ApplySettings(settings),
+            },
         }
     }
 
@@ -69,10 +73,11 @@ impl OverlayUi {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) enum OverlayOutcome {
     Consumed,
     Close,
+    ApplySettings(Settings),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

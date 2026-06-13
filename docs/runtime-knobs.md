@@ -87,7 +87,7 @@ manual and automated lifecycle behavior ambiguous.
 | Shortcut | Behavior |
 | --- | --- |
 | `Ctrl+Shift+F` | Open or close the scrollback search bar. Search is case-insensitive by default. |
-| `Ctrl+Shift+,` | Open or close the read-only settings panel. The panel lists every runtime setting with its current value and help text; editing/writeback is a later UX2 slice. |
+| `Ctrl+Shift+,` | Open or close the settings panel. The panel lists every runtime setting with its current value and help text; editable reloadable rows apply live. |
 | `Enter` while searching | Jump to the next match, wrapping at the end. |
 | `Shift+Enter` while searching | Jump to the previous match, wrapping at the start. |
 | `Backspace` while searching | Edit the query. |
@@ -117,9 +117,14 @@ and frees `Ctrl+Shift+C` to reach the PTY path.
 
 When the settings panel is open, keyboard input is consumed by the panel rather
 than sent to the PTY. `Up`/`Down`, `PageUp`/`PageDown`, `Home`, and `End`
-navigate the rows; `Esc` closes the panel. The UX2-a panel is read-only and
-presentation-only: it renders into snapshot copies and never mutates terminal
-state or writes configuration.
+navigate the rows. Reloadable rows are editable: `Enter` starts or commits a
+text/number edit, toggles booleans, and cycles enums; `Left`/`Right` cycle enum
+values or nudge numeric values; `Backspace` edits a text buffer. `Esc` cancels
+an in-progress row edit, or closes the panel when no row edit is active.
+Committed edits apply live through the same reload path as `odytty.conf`.
+The panel does not write configuration yet; UX2-c will add persistence to
+`odytty.conf`. `native_autoclose_ms` remains startup-only and is shown as
+non-editable.
 
 When the search bar is open, keyboard input is consumed by search rather than
 sent to the PTY. Closing search restores the viewport offset that was active

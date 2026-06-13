@@ -394,6 +394,15 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         `PageUp`/`PageDown`, `Home`/`End`, and `Esc` navigate/close it.
         The panel consumes input while open and never writes config or mutates
         terminal state.
+- [x] UX2-b in-panel setting editing with live apply.
+  - [x] Settings rows are editable from the overlay: booleans toggle, enums
+        cycle, numeric values clamp through the same parser path as config/env,
+        and text/path/list settings use an in-row text buffer.
+  - [x] Committed edits live-apply through the same native reload seam as file
+        reload. Startup-only settings are marked non-editable, and no config
+        file writeback happens in this slice.
+  - [x] Edits are tracked as a diff over the loaded settings so UX2-c can
+        serialize only changed rows; reverting a row clears it from the diff.
 - [ ] Profiles and CLI config introspection.
 
 ## Visual Capability Parity (Stage 6 parity half)
