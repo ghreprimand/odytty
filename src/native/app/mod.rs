@@ -736,7 +736,7 @@ impl App {
 
         let next_options = self.options_for_settings(&next_settings);
         let text_rebuilt = match self.gpu.as_mut() {
-            Some(gpu) => match gpu.apply_text_options(&next_options) {
+            Some(gpu) => match gpu.apply_text_options(&next_options, next_settings.stem_darken) {
                 Ok(changed) => changed,
                 Err(err) => {
                     eprintln!("odytty: config reload ignored: {err}");
@@ -863,6 +863,7 @@ impl ApplicationHandler<UserEvent> for App {
             &initial_snapshot,
             self.theme,
             self.visual,
+            self.settings.stem_darken,
         ) {
             Ok(gpu) => {
                 // Push live cell pixel metrics to the terminal core so graphics

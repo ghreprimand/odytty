@@ -5,6 +5,7 @@ use std::sync::Arc;
 use ab_glyph::FontVec;
 use wgpu::util::DeviceExt;
 
+use crate::atlas;
 use crate::core::{CursorStyle, Snapshot};
 use crate::emoji::{ColorGlyphAtlas, EmojiRasterizer};
 use crate::graphics::{StoredImageId, VisiblePlacement};
@@ -38,6 +39,15 @@ pub(super) fn effect_params(visual: VisualEffect) -> [f32; 2] {
 /// `1.0` makes `pow(coverage, 1.0 / gamma)` exactly the old linear coverage.
 pub(super) fn text_params(text_gamma: f32) -> [f32; 4] {
     [text_gamma, 0.0, 0.0, 0.0]
+}
+
+fn choose_surface_format(formats: &[wgpu::TextureFormat]) -> (wgpu::TextureFormat, bool) {
+    let format = formats
+        .iter()
+        .copied()
+        .find(wgpu::TextureFormat::is_srgb)
+        .unwrap_or(formats[0]);
+    (format, format.is_srgb())
 }
 
 /// Viewport uniform mirroring `Viewport` in `cell.wgsl`: physical surface size
@@ -603,6 +613,9 @@ pub(super) struct GpuState {
     text: [f32; 4],
     /// Effective coverage path after adapter capability checks.
     subpixel: SubpixelMode,
+    /// Last-applied RV5 stem-darkening strength. This is baked into atlas
+    /// coverage at raster time, so a live setting change rebuilds the atlas.
+    stem_darken: f32,
     /// Last-applied value of the process-wide synthetic-styles kill switch
     /// ([`crate::settings::synthetic_styles_enabled`]). Retained so
     /// [`Self::apply_text_options`] can detect a live toggle and rebuild the
@@ -631,6 +644,7 @@ impl GpuState {
         initial_snapshot: &Snapshot,
         theme: Theme,
         visual: VisualEffect,
+        stem_darken: f32,
     ) -> Result<Self, NativeError> {
         let effect = effect_params(visual);
         let text = text_params(options.text_gamma);
@@ -672,12 +686,12 @@ impl GpuState {
         .map_err(|err| NativeError::DeviceRequest(err.to_string()))?;
 
         let caps = surface.get_capabilities(&adapter);
-        let format = caps
-            .formats
-            .iter()
-            .copied()
-            .find(wgpu::TextureFormat::is_srgb)
-            .unwrap_or(caps.formats[0]);
+        let (format, surface_is_srgb) = choose_surface_format(&caps.formats);
+        if !surface_is_srgb {
+            eprintln!(
+                "odytty: GPU surface offered no sRGB format; using {format:?}; text and colors may render darker than intended"
+            );
+        }
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -695,6 +709,7 @@ impl GpuState {
 
         // --- Glyph atlas: rasterize at physical pixels for crisp HiDPI text.
         let fonts = StyleFonts::load(options)?;
+        atlas::set_stem_darken(stem_darken);
         let mut atlas =
             GlyphAtlas::build_with_subpixel(fonts.regular_font(), physical_px, subpixel);
         let synthetic_enabled = crate::settings::synthetic_styles_enabled();
@@ -909,6 +924,7 @@ impl GpuState {
             effect,
             text,
             subpixel,
+            stem_darken,
             synthetic_enabled,
             font_path: options.font_path.clone(),
             font_family: options.font_family.clone(),
@@ -1014,6 +1030,7 @@ impl GpuState {
     pub(super) fn apply_text_options(
         &mut self,
         options: &NativeOptions,
+        stem_darken: f32,
     ) -> Result<bool, NativeError> {
         let next_subpixel = effective_subpixel_mode(options.subpixel, self.enabled_features);
         if options.subpixel.enabled() && !next_subpixel.enabled() {
@@ -1026,6 +1043,7 @@ impl GpuState {
             self.font_path != options.font_path || self.font_family != options.font_family;
         let subpixel_changed = self.subpixel != next_subpixel;
         let font_size_changed = (self.font_size_px - options.font_size_px).abs() >= f32::EPSILON;
+        let stem_darken_changed = (self.stem_darken - stem_darken).abs() >= f32::EPSILON;
         // The synthetic-styles kill switch is published process-wide (it cannot
         // ride `NativeOptions`, whose construction literals live in fenced
         // files). A live toggle reuses this font-change rebuild seam: the synth
@@ -1033,7 +1051,12 @@ impl GpuState {
         // the atlas must rebuild.
         let synthetic_now = crate::settings::synthetic_styles_enabled();
         let synthetic_changed = synthetic_now != self.synthetic_enabled;
-        if !font_changed && !subpixel_changed && !font_size_changed && !synthetic_changed {
+        if !font_changed
+            && !subpixel_changed
+            && !font_size_changed
+            && !stem_darken_changed
+            && !synthetic_changed
+        {
             return Ok(false);
         }
 
@@ -1064,9 +1087,13 @@ impl GpuState {
             self.font_size_px = options.font_size_px;
             self.physical_px = physical_font_px(self.font_size_px, self.scale);
         }
+        if stem_darken_changed {
+            self.stem_darken = stem_darken;
+        }
         if synthetic_changed {
             self.synthetic_enabled = synthetic_now;
         }
+        atlas::set_stem_darken(stem_darken);
         self.rebuild_atlas();
         Ok(true)
     }
@@ -1466,5 +1493,32 @@ mod tests {
     fn physical_px_floors_at_one() {
         assert!(physical_font_px(0.0, 1.0) >= 1.0);
         assert!(physical_font_px(0.5, 1.0) >= 1.0);
+    }
+
+    #[test]
+    fn surface_format_prefers_srgb() {
+        let formats = [
+            wgpu::TextureFormat::Bgra8Unorm,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+        ];
+
+        assert_eq!(
+            choose_surface_format(&formats),
+            (wgpu::TextureFormat::Rgba8UnormSrgb, true)
+        );
+    }
+
+    #[test]
+    fn surface_format_falls_back_to_first_non_srgb() {
+        let formats = [
+            wgpu::TextureFormat::Bgra8Unorm,
+            wgpu::TextureFormat::Rgba8Unorm,
+        ];
+
+        assert_eq!(
+            choose_surface_format(&formats),
+            (wgpu::TextureFormat::Bgra8Unorm, false)
+        );
     }
 }

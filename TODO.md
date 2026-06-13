@@ -530,6 +530,10 @@ a floor; surpassing it is the standing ambition.
         overflow.
   - [ ] EM7: COLR/CPAL and alternate color-font formats; SVG-in-OT via
         `resvg` if real installed-font evidence requires it.
+- [x] RV5 stem-darkening native activation: `ODYTTY_STEM_DARKEN` is applied at
+      startup and live reload before glyph-atlas rasterization; default `0.0`
+      remains the byte-identical passthrough. Native now also warns if the GPU
+      surface falls back to a non-sRGB format.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
 
 ## Archived First Prototype Checklist

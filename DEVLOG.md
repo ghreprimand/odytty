@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- RV5 native activation + sRGB fallback guard
+
+- Wired `ODYTTY_STEM_DARKEN` into the native renderer: startup and live reload
+  now publish the configured strength before any glyph-atlas build, and a
+  stem-darken-only reload rebuilds the atlas because the boost is baked into
+  coverage at raster time. The default remains `0.0`, so the atlas/output path
+  stays byte-identical unless the setting is explicitly enabled.
+- Made the rare non-sRGB swapchain path visible. Native still prefers an sRGB
+  surface format, but if an adapter offers only non-sRGB formats OdyTTY now
+  emits a one-line stderr warning naming the chosen format instead of silently
+  risking darker text/colors.
+
 ## 2026-06-13 -- Text-quality audit + RV5 stem-darkening prototype (TXT-AUDIT)
 
 - Audit of the text path: confirmed the subpixel path has no FreeType-style FIR low-pass (fringing risk; opt-in only — subpixel is off by default); confirmed ab_glyph does no vertical stem hinting (integer-baseline snapping already crisps horizontals); confirmed the swapchain prefers an sRGB surface and compositing is gamma-correct end to end, with a latent silent-darkening risk only if no sRGB format exists. Ranked follow-ups: perceptual color pipeline (RV3), glyph oversampling, subpixel FIR, in-shader stem-darken, swash hinting, sRGB-fallback guard.
