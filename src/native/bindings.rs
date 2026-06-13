@@ -62,6 +62,10 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             BindableAction::SettingsPanel,
         ),
         (
+            char_chord('t', true, true, false, false),
+            BindableAction::ThemePicker,
+        ),
+        (
             char_chord('c', true, true, false, false),
             BindableAction::Copy,
         ),
@@ -144,6 +148,15 @@ pub(super) fn chord_from_winit(
 pub(super) fn is_overlay_shortcut(logical: &WinitKey, mods: Modifiers, super_key: bool) -> bool {
     KeyBindings::default().action_for(logical, mods, super_key)
         == Some(BindableAction::SettingsPanel)
+}
+
+#[cfg(test)]
+pub(super) fn is_theme_picker_shortcut(
+    logical: &WinitKey,
+    mods: Modifiers,
+    super_key: bool,
+) -> bool {
+    KeyBindings::default().action_for(logical, mods, super_key) == Some(BindableAction::ThemePicker)
 }
 
 fn binding_named_key(named: NamedKey) -> Option<KeyBindingNamedKey> {

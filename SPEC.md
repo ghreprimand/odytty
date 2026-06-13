@@ -416,8 +416,10 @@ its first stable layer.
   covering font, theme, cursor, keybinds, and all runtime knobs; edits apply
   live through the existing reload seam; `Ctrl+S` writes changed rows back to
   `odytty.conf` with preservation-first writeback (comments, blank lines, and
-  unknown keys untouched; same-directory atomic rename). Live theme picker (UX3)
-  and custom theme builder (TH4) remain ahead.
+  unknown keys untouched; same-directory atomic rename). Live theme picker
+  (UX3): `Ctrl+Shift+T` lists built-ins, previews each theme on arrow
+  navigation, persists the selected built-in with `Enter`, and restores the
+  originally active theme with `Esc`. Custom theme builder (TH4) remains ahead.
 - Shell working-directory tracking: OSC 7 (`file://host/path`) is parsed and
   stored as advisory string state on the terminal core (`Screen::current_working_directory`,
   `Screen::take_working_directory_changed`). The parser requires the `file://`

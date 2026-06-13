@@ -71,7 +71,7 @@ directory and rename it over the target, so OdyTTY never truncates
 | `keybinds` | `ODYTTY_KEYBINDS` | Comma- or semicolon-separated `chord=action` entries | unset | Rebinds native terminal-local actions only. Invalid entries log one stderr warning and are skipped; duplicate chords use the last valid entry. PTY key encoding is unchanged. |
 | `cursor_style` | `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `block` | Sets the host default cursor shape. Applications can override at runtime via DECSCUSR (`CSI Ps SP q`). Invalid values fall back to `block` with one stderr warning. |
 | `cursor_blink` | `ODYTTY_CURSOR_BLINK` | `on` (also `blink`), `off` (also `steady`), `auto` (also `default`) | `auto` | Sets the host default cursor blink policy. `on` and `auto` both resolve to blinking; `auto` is reserved to follow a system or app preference in a future version. DECSCUSR from applications overrides at runtime. Invalid values fall back to `auto` with one stderr warning. |
-| `theme` | `ODYTTY_THEME` | a built-in name (`plain`, `odyssey`, `odyssey-noir`), a user theme name in the theme directory, or a path to a `.theme` file | `plain` | Selects the full appearance profile: default foreground/background, window clear color, the 16-color ANSI palette, and semantic role colors. A built-in name wins; otherwise the value is resolved as a path or a `<name>.theme` file in `<config>/odytty/themes/`. An unknown or unreadable value falls back to `plain` with one stderr warning — a bad theme never aborts startup. See [themes.md](themes.md) for the theme file format. |
+| `theme` | `ODYTTY_THEME` | a built-in name (`plain`, `odyssey`, `odyssey-noir`, `odyssey-light`, `odyssey-aurora`, `solarized-dark`, `solarized-light`, `gruvbox-dark`, `nord`, `dracula`, `tokyo-night`, `catppuccin-mocha`, `catppuccin-latte`, `one-dark`, `monokai`), a user theme name in the theme directory, or a path to a `.theme` file | `plain` | Selects the full appearance profile: default foreground/background, window clear color, the 16-color ANSI palette, and semantic role colors. A built-in name wins; otherwise the value is resolved as a path or a `<name>.theme` file in `<config>/odytty/themes/`. An unknown or unreadable value falls back to `plain` with one stderr warning — a bad theme never aborts startup. See [themes.md](themes.md) for the theme file format. |
 | `visual` | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `off` | Enables or disables the optional presentation-only ambient effect. |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` | Enables OSC 52 clipboard read replies. Off by default: a terminal that replies to read requests allows any remote program to exfiltrate local clipboard contents. Set to `on` only in trusted sessions. Config-file aliases: `osc52read`, `allowosc52read`, `clipboardread`. |
 | `synthetic_styles` | `ODYTTY_SYNTHETIC_STYLES` | `on`, `off` | `on` | Controls whether the renderer synthesizes missing bold/italic faces from the regular outline (double-strike emboldening + oblique shear). When `off`, styled cells render as plain regular glyphs wherever no real bold/italic face is loaded; a real face always wins regardless. Purely presentational — never affects cell semantics or selection. Invalid values fall back to `on` with one stderr warning. Config-file aliases: `syntheticstyles`, `synthstyles`, `syntheticfonts`. |
@@ -96,6 +96,7 @@ manual and automated lifecycle behavior ambiguous.
 | --- | --- |
 | `Ctrl+Shift+F` | Open or close the scrollback search bar. Search is case-insensitive by default. |
 | `Ctrl+Shift+,` | Open or close the settings panel. The panel lists every runtime setting with its current value and help text; editable reloadable rows apply live. |
+| `Ctrl+Shift+T` | Open the theme picker. Arrow keys preview built-in themes immediately, `Enter` saves the selected theme to `odytty.conf`, and `Esc` restores the theme that was active when the picker opened. |
 | `Ctrl+S` while the settings panel is open | Save the panel's live-applied setting changes to `odytty.conf`. |
 | `Enter` while searching | Jump to the next match, wrapping at the end. |
 | `Shift+Enter` while searching | Jump to the previous match, wrapping at the start. |
@@ -110,14 +111,15 @@ modifiers plus a key name, separated by `+`. Keys may be letters, digits,
 `f1`-`f24`, or common named keys such as `pageup`, `pagedown`, `home`, `end`,
 `enter`, `esc`, `backspace`, `delete`, `insert`, `tab`, `space`, and arrow
 keys. Use `comma` for `,` in keybinding strings because literal commas also
-separate entries. Actions are `search`, `settings`, `copy`, `paste`,
-`scroll-up`, and `scroll-down`.
+separate entries. Actions are `search`, `settings`, `theme-picker`, `copy`,
+`paste`, `scroll-up`, and `scroll-down`.
 Examples:
 
 ```sh
 ODYTTY_KEYBINDS="ctrl+shift+y=copy,ctrl+shift+p=paste" cargo run -- --native
 ODYTTY_KEYBINDS="super+f=search;alt+pageup=scroll-up;alt+pagedown=scroll-down" cargo run -- --native
 ODYTTY_KEYBINDS="ctrl+shift+comma=settings" cargo run -- --native
+ODYTTY_KEYBINDS="ctrl+alt+t=theme-picker" cargo run -- --native
 ```
 
 Valid entries override the default chord for that action only. For example,
@@ -129,12 +131,17 @@ than sent to the PTY. `Up`/`Down`, `PageUp`/`PageDown`, `Home`, and `End`
 navigate the rows. Reloadable rows are editable: `Enter` starts or commits a
 text/number edit, toggles booleans, and cycles most enums; the theme row uses
 `Enter` for a text edit so built-in names, user theme names, and theme paths are
-all reachable. `Left`/`Right` cycle enum values or nudge numeric values;
-`Backspace` edits a text buffer. `Esc` cancels an in-progress row edit, or
-closes the panel when no row edit is active. Committed edits apply live through
-the same reload path as `odytty.conf`; `Ctrl+S` persists the current unsaved
-diff to the config file. `native_autoclose_ms` remains startup-only and is shown
-as non-editable.
+all reachable, while `Left`/`Right` opens the built-in theme picker.
+`Left`/`Right` cycle other enum values or nudge numeric values; `Backspace`
+edits a text buffer. `Esc` cancels an in-progress row edit, or closes the panel
+when no row edit is active. Committed edits apply live through the same reload
+path as `odytty.conf`; `Ctrl+S` persists the current unsaved diff to the config
+file. `native_autoclose_ms` remains startup-only and is shown as non-editable.
+
+The theme picker currently enumerates built-in themes only. User theme files can
+still be selected from the settings panel's theme text edit by typing the user
+theme name or a theme file path. Directory enumeration for user themes is a
+follow-up.
 
 When the search bar is open, keyboard input is consumed by search rather than
 sent to the PTY. Closing search restores the viewport offset that was active

@@ -412,6 +412,17 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
   - [x] Saves use a same-directory temp file plus rename, create the config
         directory when missing, and surface non-fatal in-panel errors on write
         failure.
+- [x] UX3 theme picker with live preview.
+  - [x] `Ctrl+Shift+T` opens a built-in theme picker; the settings panel's
+        theme row also opens it with `Left`/`Right` while `Enter` remains the
+        text-edit path for custom theme names and files.
+  - [x] Arrow navigation applies each built-in immediately through the same
+        native live-apply seam as settings-panel edits.
+  - [x] `Enter` persists `theme = <name>` through the preservation-first
+        `odytty.conf` writeback path; `Esc` restores the originally active theme
+        without persisting the preview.
+  - [ ] User theme directory enumeration in the picker; user theme files are
+        still selectable through the settings-panel theme text edit.
 - [ ] Profiles and CLI config introspection.
 
 ## Visual Capability Parity (Stage 6 parity half)

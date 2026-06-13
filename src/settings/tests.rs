@@ -626,10 +626,10 @@ fn empty_font_family_is_ignored() {
 fn key_bindings_parse_valid_entries_case_insensitively() {
     let (settings, warnings) = settings_from([(
         KEYBINDS_ENV,
-        "ctrl+shift+y=copy; SUPER+F=search, Shift+PageDown=scroll-down;ctrl+shift+comma=settings",
+        "ctrl+shift+y=copy; SUPER+F=search, Shift+PageDown=scroll-down;ctrl+shift+comma=settings;ctrl+shift+t=theme-picker",
     )]);
 
-    assert_eq!(settings.key_bindings.len(), 4);
+    assert_eq!(settings.key_bindings.len(), 5);
     assert_eq!(
         settings.key_bindings[0],
         KeyBindingOverride {
@@ -676,6 +676,11 @@ fn key_bindings_parse_valid_entries_case_insensitively() {
         settings.key_bindings[3].action,
         BindableAction::SettingsPanel
     );
+    assert_eq!(
+        settings.key_bindings[4].chord.key,
+        KeyBindingKey::Character('t')
+    );
+    assert_eq!(settings.key_bindings[4].action, BindableAction::ThemePicker);
     assert!(warnings.is_empty());
 }
 

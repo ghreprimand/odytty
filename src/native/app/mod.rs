@@ -401,7 +401,11 @@ impl App {
         if event_type != KeyEventType::Release {
             let action = self.key_bindings.action_for(&logical, mods, self.super_key);
             if action == Some(BindableAction::SettingsPanel) {
-                self.toggle_overlay();
+                self.toggle_settings_overlay();
+                return;
+            }
+            if action == Some(BindableAction::ThemePicker) {
+                self.open_theme_picker_overlay();
                 return;
             }
             if self.overlay.is_open() {
@@ -433,7 +437,10 @@ impl App {
                     self.scroll_viewport(-(self.page_lines() as isize));
                     return;
                 }
-                Some(BindableAction::Search) | Some(BindableAction::SettingsPanel) | None => {}
+                Some(BindableAction::Search)
+                | Some(BindableAction::SettingsPanel)
+                | Some(BindableAction::ThemePicker)
+                | None => {}
             }
         }
         if self.overlay.is_open() {
@@ -479,14 +486,25 @@ impl App {
         }
     }
 
-    fn toggle_overlay(&mut self) {
+    fn toggle_settings_overlay(&mut self) {
         if self.search.is_open() {
             self.close_search(true);
         }
         self.selection.clear();
         self.selecting = false;
         self.last_selection_autoscroll = None;
-        self.overlay.toggle();
+        self.overlay.toggle_settings();
+        self.request_selection_redraw();
+    }
+
+    fn open_theme_picker_overlay(&mut self) {
+        if self.search.is_open() {
+            self.close_search(true);
+        }
+        self.selection.clear();
+        self.selecting = false;
+        self.last_selection_autoscroll = None;
+        self.overlay.open_theme_picker(&self.settings);
         self.request_selection_redraw();
     }
 
@@ -499,6 +517,7 @@ impl App {
         match self.overlay.handle_input(input) {
             OverlayOutcome::Consumed => {}
             OverlayOutcome::Close => self.overlay.close(),
+            OverlayOutcome::OpenThemePicker => self.open_theme_picker_overlay(),
             OverlayOutcome::ApplySettings(settings) => self.apply_overlay_settings(settings),
             OverlayOutcome::SaveSettings(changes) => self.save_overlay_settings(&changes),
         }

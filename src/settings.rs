@@ -170,6 +170,7 @@ pub const STEM_DARKEN_DESC: &str = "Stem darkening: boosts glyph coverage so lig
 pub enum BindableAction {
     Search,
     SettingsPanel,
+    ThemePicker,
     Copy,
     Paste,
     ScrollPageUp,
@@ -182,6 +183,9 @@ impl BindableAction {
             "search" | "searchtoggle" | "togglesearch" => Some(Self::Search),
             "settings" | "settingspanel" | "togglesettings" | "preferences" | "prefs" => {
                 Some(Self::SettingsPanel)
+            }
+            "theme" | "themes" | "themepicker" | "picktheme" | "choosetheme" => {
+                Some(Self::ThemePicker)
             }
             "copy" => Some(Self::Copy),
             "paste" => Some(Self::Paste),
@@ -494,12 +498,13 @@ impl Settings {
                 env: KEYBINDS_ENV,
                 name: "Key bindings",
                 value: key_bindings_display(&self.key_bindings),
-                description: "Terminal-local shortcut overrides for search, settings, copy, paste, and scrollback actions. PTY key encoding is unchanged.",
+                description: "Terminal-local shortcut overrides for search, settings, theme picker, copy, paste, and scrollback actions. PTY key encoding is unchanged.",
                 kind: SettingKind::List,
                 range: None,
                 options: &[
                     "search",
                     "settings",
+                    "theme-picker",
                     "copy",
                     "paste",
                     "scroll-up",
@@ -1165,6 +1170,7 @@ fn bindable_action_name(action: BindableAction) -> &'static str {
     match action {
         BindableAction::Search => "search",
         BindableAction::SettingsPanel => "settings",
+        BindableAction::ThemePicker => "theme-picker",
         BindableAction::Copy => "copy",
         BindableAction::Paste => "paste",
         BindableAction::ScrollPageUp => "scroll-up",

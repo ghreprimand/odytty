@@ -154,6 +154,11 @@ apply live through the existing reload seam. `Ctrl+S` writes changed rows back
 to `odytty.conf` without destroying comments, blank lines, or unknown keys
 (preservation-first writeback via same-directory atomic rename).
 
+**Theme picker.** `Ctrl+Shift+T` opens a built-in theme picker. Arrowing through
+the library previews each theme immediately, `Enter` persists the selected
+theme to `odytty.conf`, and `Esc` restores the theme that was active when the
+picker opened.
+
 ### HiDPI
 
 Scale-factor changes rebuild the atlas and recompute cell metrics through the
@@ -199,7 +204,7 @@ Everything in the Features section above. The full owned byte path is real and
 in production. Color emoji, Kitty graphics, Sixel, the Kitty keyboard protocol,
 SGR-pixel mouse, the theme palette and user theme file format, the 15-theme
 built-in library, the in-window overlay framework, and the in-app settings
-panel have all landed.
+panel plus live theme picker have all landed.
 
 ### On the horizon
 
@@ -207,9 +212,9 @@ panel have all landed.
   guarantee, geometric box-drawing/Powerline rendering at exact cell size,
   smooth scrolling. (Stem darkening is available now as `ODYTTY_STEM_DARKEN`;
   default off.)
-- **In-app theme picker and custom builder** — arrow-through-preview live theme
-  selection (UX3) and an in-terminal theme editor for cloning or authoring
-  themes from scratch (TH4).
+- **Custom theme builder** — an in-terminal theme editor for cloning or
+  authoring themes from scratch (TH4), building on the live picker and settings
+  overlay.
 - **Atmospheric effects (opt-in)** — bloom/phosphor glow, CRT/retro profile,
   subtle cursor motion; all off by default, perf- and readability-gated.
 - **Nerd-font / symbol fallback** for modern prompt icons.

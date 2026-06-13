@@ -40,6 +40,7 @@ pub(super) enum SettingsPanelOutcome {
     Consumed,
     Apply(Settings),
     Save(Vec<SettingEdit>),
+    OpenThemePicker,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -326,6 +327,10 @@ impl SettingsPanel {
         let Some(entry) = self.selected_entry().cloned() else {
             return SettingsPanelOutcome::Consumed;
         };
+        if entry.key == "theme" {
+            self.message = Some("Opening built-in theme picker.".to_owned());
+            return SettingsPanelOutcome::OpenThemePicker;
+        }
         match entry.kind {
             SettingKind::Enum => self.cycle_selected(direction),
             SettingKind::Number => {
@@ -430,6 +435,10 @@ fn setting_detail(entry: &SettingInfo) -> String {
     }
     if !entry.reloadable {
         detail.push_str(" Startup-only.");
+    } else if entry.key == "theme" {
+        detail.push_str(
+            " Enter edits a custom theme value; Left/Right opens the theme picker; Ctrl+S saves.",
+        );
     } else {
         detail.push_str(" Enter edits/applies; Ctrl+S saves; Esc cancels an edit.");
     }
@@ -613,6 +622,17 @@ mod tests {
             SettingsPanelOutcome::Consumed
         );
         assert_eq!(panel.render_signature().editing_key, Some("theme"));
+    }
+
+    #[test]
+    fn theme_row_left_right_opens_picker() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "theme");
+
+        assert_eq!(
+            panel.handle_input(OverlayInput::Right),
+            SettingsPanelOutcome::OpenThemePicker
+        );
     }
 
     #[test]

@@ -208,6 +208,33 @@ fn overlay_shortcut_is_ctrl_shift_comma_only() {
 }
 
 #[test]
+fn theme_picker_shortcut_is_ctrl_shift_t_only() {
+    let key = WinitKey::Character("t".into());
+    let mods = Modifiers {
+        ctrl: true,
+        shift: true,
+        alt: false,
+    };
+
+    assert!(is_theme_picker_shortcut(&key, mods, false));
+    assert!(!is_theme_picker_shortcut(&key, mods, true));
+    assert!(!is_theme_picker_shortcut(
+        &WinitKey::Character("y".into()),
+        mods,
+        false
+    ));
+    assert!(!is_theme_picker_shortcut(
+        &key,
+        Modifiers {
+            ctrl: true,
+            shift: false,
+            alt: false,
+        },
+        false
+    ));
+}
+
+#[test]
 fn mapped_named_key_release_uses_kitty_event_type_flag() {
     let key = map_named_key(NamedKey::ArrowUp, false).expect("arrow maps");
     let modes = input::KeyModes {
@@ -331,6 +358,10 @@ fn key_bindings_preserve_default_shortcuts_when_unset() {
     assert_eq!(
         bindings.action_for(&WinitKey::Character(",".into()), ctrl_shift, false),
         Some(BindableAction::SettingsPanel)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("t".into()), ctrl_shift, false),
+        Some(BindableAction::ThemePicker)
     );
     assert_eq!(
         bindings.action_for(&WinitKey::Character("c".into()), ctrl_shift, false),

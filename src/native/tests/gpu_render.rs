@@ -177,11 +177,20 @@ fn search_sig(query: &str) -> SearchRenderSignature {
 fn overlay_sig(open: bool) -> OverlayRenderSignature {
     OverlayRenderSignature {
         open,
+        mode: OverlayMode::Settings,
         panel: SettingsPanelSignature {
             selected: 0,
             scroll: 0,
             editing_key: None,
             changed_count: 0,
+            message: None,
+            entries: Vec::new(),
+        },
+        theme_picker: ThemePickerSignature {
+            selected: 0,
+            scroll: 0,
+            original: "plain",
+            current: "plain",
             message: None,
             entries: Vec::new(),
         },

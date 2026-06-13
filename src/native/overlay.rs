@@ -1,16 +1,21 @@
 use crate::core::{Attrs, Cell, Color, Snapshot};
 use crate::input::Modifiers;
 use crate::settings::Settings;
+use crate::theme::Theme;
 
 use unicode_width::UnicodeWidthChar;
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
 use super::settings_panel::{SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature};
+use super::theme_picker::{ThemePicker, ThemePickerLine, ThemePickerOutcome, ThemePickerSignature};
 
 #[derive(Debug, Clone)]
 pub(super) struct OverlayUi {
     open: bool,
+    mode: OverlayMode,
+    settings: Settings,
     panel: SettingsPanel,
+    theme_picker: ThemePicker,
 }
 
 impl Default for OverlayUi {
@@ -23,7 +28,10 @@ impl OverlayUi {
     pub(super) fn new(settings: &Settings) -> Self {
         Self {
             open: false,
+            mode: OverlayMode::Settings,
+            settings: settings.clone(),
             panel: SettingsPanel::new(settings),
+            theme_picker: ThemePicker::new(settings),
         }
     }
 
@@ -32,53 +40,107 @@ impl OverlayUi {
     }
 
     pub(super) fn refresh_settings(&mut self, settings: &Settings) {
+        self.settings = settings.clone();
         self.panel.refresh(settings);
+        self.theme_picker.refresh(settings);
     }
 
     pub(super) fn apply_settings(&mut self, settings: &Settings) {
-        self.panel.apply_settings(settings);
+        self.settings = settings.clone();
+        if self.mode == OverlayMode::Settings {
+            self.panel.apply_settings(settings);
+        }
     }
 
-    pub(super) fn open(&mut self) {
+    pub(super) fn open_settings(&mut self) {
         self.open = true;
+        self.mode = OverlayMode::Settings;
     }
 
     pub(super) fn close(&mut self) {
         self.open = false;
+        self.mode = OverlayMode::Settings;
     }
 
-    pub(super) fn toggle(&mut self) {
-        if self.open {
+    pub(super) fn open_theme_picker(&mut self, settings: &Settings) {
+        self.settings = settings.clone();
+        self.theme_picker.open(settings);
+        self.mode = OverlayMode::ThemePicker;
+        self.open = true;
+    }
+
+    pub(super) fn toggle_settings(&mut self) {
+        if self.open && self.mode == OverlayMode::Settings {
             self.close();
         } else {
-            self.open();
+            self.open_settings();
         }
     }
 
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        if self.mode == OverlayMode::ThemePicker {
+            return self.handle_theme_picker_input(input);
+        }
+
         match input {
             OverlayInput::Close if !self.panel.is_editing() => OverlayOutcome::Close,
             input => match self.panel.handle_input(input) {
                 SettingsPanelOutcome::Consumed => OverlayOutcome::Consumed,
                 SettingsPanelOutcome::Apply(settings) => OverlayOutcome::ApplySettings(settings),
                 SettingsPanelOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
+                SettingsPanelOutcome::OpenThemePicker => OverlayOutcome::OpenThemePicker,
             },
         }
     }
 
     pub(super) fn save_succeeded(&mut self, changed: usize) {
-        self.panel.save_succeeded(changed);
+        match self.mode {
+            OverlayMode::Settings => self.panel.save_succeeded(changed),
+            OverlayMode::ThemePicker => {
+                self.theme_picker.save_succeeded(changed);
+                self.close();
+            }
+        }
     }
 
     pub(super) fn save_failed(&mut self, message: String) {
-        self.panel.save_failed(message);
+        match self.mode {
+            OverlayMode::Settings => self.panel.save_failed(message),
+            OverlayMode::ThemePicker => self.theme_picker.save_failed(message),
+        }
     }
 
     pub(super) fn render_signature(&self) -> OverlayRenderSignature {
         OverlayRenderSignature {
             open: self.open,
+            mode: self.mode,
             panel: self.panel.render_signature(),
+            theme_picker: self.theme_picker.render_signature(),
         }
+    }
+
+    fn handle_theme_picker_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match self.theme_picker.handle_input(input) {
+            ThemePickerOutcome::Consumed => OverlayOutcome::Consumed,
+            ThemePickerOutcome::Preview(theme) => {
+                let settings = self.settings_with_theme(theme);
+                self.settings = settings.clone();
+                OverlayOutcome::ApplySettings(settings)
+            }
+            ThemePickerOutcome::Persist(changes) => OverlayOutcome::SaveSettings(changes),
+            ThemePickerOutcome::Cancel(theme) => {
+                let settings = self.settings_with_theme(theme);
+                self.settings = settings.clone();
+                self.close();
+                OverlayOutcome::ApplySettings(settings)
+            }
+        }
+    }
+
+    fn settings_with_theme(&self, theme: Theme) -> Settings {
+        let mut settings = self.settings.clone();
+        settings.theme = theme;
+        settings
     }
 }
 
@@ -86,8 +148,15 @@ impl OverlayUi {
 pub(super) enum OverlayOutcome {
     Consumed,
     Close,
+    OpenThemePicker,
     ApplySettings(Settings),
     SaveSettings(Vec<crate::settings::SettingEdit>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OverlayMode {
+    Settings,
+    ThemePicker,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,7 +179,9 @@ pub(super) enum OverlayInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct OverlayRenderSignature {
     pub(super) open: bool,
+    pub(super) mode: OverlayMode,
     pub(super) panel: SettingsPanelSignature,
+    pub(super) theme_picker: ThemePickerSignature,
 }
 
 pub(super) fn overlay_input_from_winit(
@@ -151,8 +222,16 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
 
     let columns = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
-    let title = "OdyTTY Settings";
-    let width = overlay.panel.desired_width(columns).max(36).min(columns);
+    let title = match overlay.mode {
+        OverlayMode::Settings => "OdyTTY Settings",
+        OverlayMode::ThemePicker => "OdyTTY Themes",
+    };
+    let width = match overlay.mode {
+        OverlayMode::Settings => overlay.panel.desired_width(columns),
+        OverlayMode::ThemePicker => overlay.theme_picker.desired_width(columns),
+    }
+    .max(36)
+    .min(columns);
     let height = rows.min(22);
     let left = (columns - width) / 2;
     let top = (rows - height) / 2;
@@ -170,12 +249,8 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
 
     let body_width = width.saturating_sub(4);
     let body_height = height.saturating_sub(3);
-    for (row_index, row) in overlay
-        .panel
-        .visible_lines(body_width, body_height)
-        .iter()
-        .enumerate()
-    {
+    let lines = overlay.visible_lines(body_width, body_height);
+    for (row_index, row) in lines.iter().enumerate() {
         let y = top + 2 + row_index;
         if y >= top + height.saturating_sub(1) || y >= rows {
             break;
@@ -186,6 +261,49 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
             panel_attrs()
         };
         write_text(snapshot, y, left + 2, body_width, &row.text, attrs);
+    }
+}
+
+impl OverlayUi {
+    fn visible_lines(&self, body_width: usize, body_height: usize) -> Vec<OverlayLine> {
+        match self.mode {
+            OverlayMode::Settings => self
+                .panel
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
+            OverlayMode::ThemePicker => self
+                .theme_picker
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OverlayLine {
+    text: String,
+    focused: bool,
+}
+
+impl From<super::settings_panel::SettingsPanelLine> for OverlayLine {
+    fn from(line: super::settings_panel::SettingsPanelLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+        }
+    }
+}
+
+impl From<ThemePickerLine> for OverlayLine {
+    fn from(line: ThemePickerLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+        }
     }
 }
 
@@ -339,7 +457,7 @@ mod tests {
     #[test]
     fn overlay_draws_into_snapshot_copy_only() {
         let mut overlay = OverlayUi::default();
-        overlay.open();
+        overlay.open_settings();
         let original = snapshot(40, 10);
         let mut rendered = original.clone();
 
@@ -353,7 +471,7 @@ mod tests {
     #[test]
     fn escape_requests_close_without_mutating_state() {
         let mut overlay = OverlayUi::default();
-        overlay.open();
+        overlay.open_settings();
         let before = overlay.render_signature();
 
         assert_eq!(
@@ -361,5 +479,27 @@ mod tests {
             OverlayOutcome::Close
         );
         assert_eq!(overlay.render_signature(), before);
+    }
+
+    #[test]
+    fn theme_picker_cancel_restores_original_theme_and_closes() {
+        let mut overlay = OverlayUi::new(&Settings {
+            theme: crate::theme::Theme::ODYSSEY,
+            ..Settings::default()
+        });
+        let settings = overlay.settings.clone();
+        overlay.open_theme_picker(&settings);
+
+        assert!(matches!(
+            overlay.handle_input(OverlayInput::Down),
+            OverlayOutcome::ApplySettings(_)
+        ));
+        let OverlayOutcome::ApplySettings(settings) = overlay.handle_input(OverlayInput::Close)
+        else {
+            panic!("expected restoration settings");
+        };
+
+        assert_eq!(settings.theme, crate::theme::Theme::ODYSSEY);
+        assert!(!overlay.is_open());
     }
 }

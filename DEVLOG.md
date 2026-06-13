@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Live theme picker (UX3)
+
+- Added a native theme picker opened by the bindable `theme-picker` action
+  (`Ctrl+Shift+T` by default) or from the settings panel's theme row with
+  `Left`/`Right`. The picker lists the built-in theme library, shows each
+  theme's dark/light classification, highlights the current row, and consumes
+  input while open.
+- Theme navigation previews immediately: moving through the list applies each
+  built-in through the same live reload seam used by settings-panel edits, so
+  the whole window recolors before anything is written to disk. `Esc` restores
+  the theme that was active when the picker opened and closes without
+  persistence.
+- `Enter` persists the selected built-in by writing `theme = <name>` through the
+  existing preservation-first `odytty.conf` writeback path. User theme files
+  remain supported through the settings panel's text edit path; enumerating user
+  theme directories is left as a follow-up.
+
 ## 2026-06-13 -- Settings panel writeback (UX2-c)
 
 - Added explicit settings-panel persistence: while the panel is open,
