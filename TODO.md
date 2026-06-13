@@ -423,6 +423,14 @@ decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
         without persisting the preview.
   - [ ] User theme directory enumeration in the picker; user theme files are
         still selectable through the settings-panel theme text edit.
+- [x] TH4 in-app theme builder.
+  - [x] Opened from the settings panel by navigating to the theme row and
+        pressing `B`; clone any existing built-in or start from the default
+        template, adjust individual color roles with live preview applied
+        immediately to the running terminal, and save the result as a named
+        `.theme` file to the user theme directory (same parent as
+        `odytty.conf`, under `themes/`). `Esc` cancels and restores the
+        original theme without saving.
 - [ ] Profiles and CLI config introspection.
 
 ## Visual Capability Parity (Stage 6 parity half)
@@ -569,10 +577,36 @@ a floor; surpassing it is the standing ambition.
         overflow.
   - [ ] EM7: COLR/CPAL and alternate color-font formats; SVG-in-OT via
         `resvg` if real installed-font evidence requires it.
+- [x] RV3 perceptual color pipeline: linear-space blending active in the render
+      path; OKLab / OKLCH helpers (`dim_perceptual`, `mix_oklab`, `src/color.rs`)
+      used by the minimum-contrast lift and the SGR dim-text resolve step.
+      SGR dim now uses `dim_perceptual` (hue-preserving, chroma-aware, calibrated
+      to match the perceived brightness of the prior linear ×0.5).
+- [x] RV1 minimum-contrast floor (`ODYTTY_MIN_CONTRAST`, `min_contrast`):
+      configurable WCAG contrast ratio floor applied at render time. Default
+      `1.0` is exact passthrough (no lift). The floor is measured via WCAG
+      relative luminance; the lift bisects OKLab lightness while preserving hue
+      and chroma (`src/color.rs:enforce_min_contrast`).
+- [x] RV2 geometric box-drawing / Powerline rendering (`ODYTTY_GEOMETRIC_BOXDRAW`,
+      `geometric_boxdraw`): U+2500–257F, U+2580–259F, Braille, and Powerline
+      separators rendered as pixel-perfect geometry at exact cell size rather
+      than font glyphs. Off by default; enable via setting or env var.
 - [x] RV5 stem-darkening native activation: `ODYTTY_STEM_DARKEN` is applied at
       startup and live reload before glyph-atlas rasterization; default `0.0`
       remains the byte-identical passthrough. Native now also warns if the GPU
       surface falls back to a non-sRGB format.
+- [ ] RV6 symbol / Nerd-font fallback chain for PUA prompt icons (starship,
+      powerlevel10k, eza).
+  - [x] Core wiring landed: the fallback path is live and env-gated via
+        `ODYTTY_SYMBOL_FALLBACK`; automatic font search or a user-specified
+        font path via `ODYTTY_SYMBOL_FONT` cover common Nerd-font installs.
+  - [ ] First-class `symbol_fallback` / `symbol_font` settings knob with
+        in-panel control (RV6-SETTINGS, in flight).
+- [x] ID1-a themed cursor, selection, and search roles (`themed_ui_roles`,
+      default on): cursor uses the theme cursor color, selection uses the theme
+      selection color, and search highlight uses the theme search color rather
+      than raw cell inversion. `ODYTTY_THEMED_UI_ROLES=off` restores the
+      classic inversion behavior.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
 
 ## Archived First Prototype Checklist
