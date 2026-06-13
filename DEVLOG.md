@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Multi-codepoint emoji cluster rendering (EM5)
+
+Extended the live color-emoji path from single terminal-cell graphemes to
+bounded multi-codepoint clusters.
+
+- **Audit result.** Current grid storage splits several RGI forms before the
+  renderer sees them: skin-tone emoji store as two wide emoji cells, flags store
+  as two adjacent regional-indicator cells, keycaps store as one ASCII base cell
+  with VS16/keycap combining marks, and ZWJ families store as multiple wide
+  emoji cells whose leads carry trailing ZWJ marks.
+- **Cluster stitching.** `src/emoji/render.rs` now reconstructs flag pairs,
+  skin-tone modifiers, keycaps, and ZWJ chains from the snapshot, shapes the
+  whole cluster with `swash`, and emits one cluster-keyed color-glyph run when
+  the Noto color face resolves it to one bitmap glyph.
+- **Fallback.** If a cluster does not resolve, the renderer emits no cluster
+  run and falls back to the existing per-cell coverage/color path, so unsupported
+  keycaps or future clusters do not blank the grid.
+- **Geometry.** Color runs now record the source columns covered by a cluster.
+  The grid and native glyph-preload paths suppress all covered source
+  foregrounds while drawing a single one- or two-cell color glyph quad from the
+  owning cell.
+- **Tests.** `emoji_pixel_smoke` now covers the storage audit, skin-tone, flag,
+  ZWJ-family cluster rendering, keycap fallback-or-color behavior, no-font
+  fallback visibility, and multi-source-cell foreground suppression.
+
 ## 2026-06-12 -- OSC 7 working-directory tracking, core half (SI1)
 
 Added shell working-directory tracking via OSC 7 (`file://host/path`) on the

@@ -1,6 +1,8 @@
 use odytty::atlas::GlyphAtlas;
 use odytty::core::{CursorStyle, Terminal};
-use odytty::emoji::{ColorGlyphAtlas, EmojiFont, EmojiRasterizer, discover_noto_color_emoji};
+use odytty::emoji::{
+    ColorGlyphAtlas, ColorGlyphId, EmojiFont, EmojiRasterizer, discover_noto_color_emoji,
+};
 use odytty::grid::{self, ColorGlyphVertex, Vertex};
 
 #[derive(Clone)]
@@ -36,6 +38,46 @@ fn setup() -> Option<(GlyphAtlas, EmojiRasterizer)> {
         GlyphAtlas::build(&text_font, 24.0),
         EmojiRasterizer::from_font(emoji_font),
     ))
+}
+
+fn snapshot_for(text: &str, columns: usize) -> odytty::core::Snapshot {
+    let mut terminal = Terminal::new(columns, 1);
+    terminal.advance(b"\x1b[?25l");
+    terminal.advance(text.as_bytes());
+    terminal.snapshot()
+}
+
+fn assert_one_cluster_run(text: &str, covered_columns: u8) {
+    let Some((atlas, mut rasterizer)) = setup() else {
+        eprintln!("skipping: text font or Noto Color Emoji unavailable");
+        return;
+    };
+    let snapshot = snapshot_for(text, 16);
+    let mut color_atlas = ColorGlyphAtlas::new(atlas.cell);
+    let runs = rasterizer.build_color_glyph_runs(&snapshot, &mut color_atlas);
+
+    assert_eq!(runs.len(), 1, "{text:?} should produce one color run");
+    assert_eq!(runs[0].row, 0);
+    assert_eq!(runs[0].column, 0);
+    assert_eq!(runs[0].covered_columns, covered_columns);
+    assert!(
+        matches!(runs[0].key.glyph_id, ColorGlyphId::Cluster(_)),
+        "{text:?} should be keyed by the full cluster"
+    );
+
+    let mut color_vertices = Vec::new();
+    grid::build_color_glyph_vertices_into(&mut color_vertices, &snapshot, &color_atlas, &runs);
+    assert_eq!(
+        color_vertices.len(),
+        grid::VERTS_PER_QUAD,
+        "{text:?} should draw one color glyph quad"
+    );
+    assert_eq!(color_vertices[0].pos, [0.0, 0.0]);
+    assert_eq!(
+        color_vertices[5].pos,
+        [atlas.cell.width as f32 * 2.0, atlas.cell.height as f32],
+        "{text:?} should honor the 2-cell color bitmap contract"
+    );
 }
 
 fn composite_color_glyphs(
@@ -99,6 +141,38 @@ fn over_premul(src: [u8; 4], dst: [u8; 4]) -> [u8; 4] {
 }
 
 #[test]
+fn audit_multi_codepoint_clusters_are_split_in_the_grid_before_color_stitching() {
+    let skin = snapshot_for("\u{1F44D}\u{1F3FD}", 8);
+    assert_eq!(skin.cells[0].grapheme(), "\u{1F44D}");
+    assert!(skin.cells[1].wide_continuation);
+    assert_eq!(skin.cells[2].grapheme(), "\u{1F3FD}");
+    assert!(skin.cells[3].wide_continuation);
+
+    let flag = snapshot_for("\u{1F1FA}\u{1F1F8}", 8);
+    assert_eq!(flag.cells[0].grapheme(), "\u{1F1FA}");
+    assert_eq!(flag.cells[1].grapheme(), "\u{1F1F8}");
+    assert!(!flag.cells[1].wide_continuation);
+
+    let keycap = snapshot_for("1\u{FE0F}\u{20E3}", 4);
+    assert_eq!(keycap.cells[0].ch, '1');
+    assert_eq!(keycap.cells[0].combining(), &['\u{FE0F}', '\u{20E3}']);
+    assert_eq!(keycap.cells[0].grapheme(), "1\u{FE0F}\u{20E3}");
+
+    let family = snapshot_for(
+        "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}",
+        16,
+    );
+    assert_eq!(family.cells[0].grapheme(), "\u{1F468}\u{200D}");
+    assert!(family.cells[1].wide_continuation);
+    assert_eq!(family.cells[2].grapheme(), "\u{1F469}\u{200D}");
+    assert!(family.cells[3].wide_continuation);
+    assert_eq!(family.cells[4].grapheme(), "\u{1F467}\u{200D}");
+    assert!(family.cells[5].wide_continuation);
+    assert_eq!(family.cells[6].grapheme(), "\u{1F466}");
+    assert!(family.cells[7].wide_continuation);
+}
+
+#[test]
 fn real_emoji_renders_through_color_segment_over_background() {
     let Some((atlas, mut rasterizer)) = setup() else {
         eprintln!("skipping: text font or Noto Color Emoji unavailable");
@@ -147,6 +221,92 @@ fn vs15_stays_coverage_vs16_enters_color_path() {
 
     assert!(text_runs.is_empty(), "VS15 forces text/coverage path");
     assert_eq!(emoji_runs.len(), 1, "VS16 forces color path");
+}
+
+#[test]
+fn multi_codepoint_clusters_render_as_one_cluster_keyed_color_glyph() {
+    assert_one_cluster_run("\u{1F44D}\u{1F3FD}", 4);
+    assert_one_cluster_run("\u{1F1FA}\u{1F1F8}", 2);
+    assert_one_cluster_run(
+        "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}",
+        8,
+    );
+}
+
+#[test]
+fn keycap_cluster_is_color_when_resolved_and_visible_fallback_otherwise() {
+    let Some((atlas, mut rasterizer)) = setup() else {
+        eprintln!("skipping: text font or Noto Color Emoji unavailable");
+        return;
+    };
+    let snapshot = snapshot_for("1\u{FE0F}\u{20E3}", 4);
+    let mut color_atlas = ColorGlyphAtlas::new(atlas.cell);
+    let runs = rasterizer.build_color_glyph_runs(&snapshot, &mut color_atlas);
+
+    if let Some(run) = runs.first() {
+        assert_eq!(runs.len(), 1);
+        assert_eq!(run.covered_columns, 1);
+        assert!(matches!(run.key.glyph_id, ColorGlyphId::Cluster(_)));
+    } else {
+        let mut vertices = Vec::<Vertex>::new();
+        grid::build_cell_vertices_with_color_glyph_runs_into(
+            &mut vertices,
+            &snapshot,
+            &atlas,
+            &runs,
+        );
+        assert!(
+            vertices.iter().any(|v| v.is_glyph == 1.0),
+            "unresolved keycap cluster must fall back to visible coverage text"
+        );
+    }
+}
+
+#[test]
+fn unresolved_cluster_keeps_coverage_fallback_visible() {
+    let Some((atlas, _)) = setup() else {
+        eprintln!("skipping: no system text font available");
+        return;
+    };
+    let snapshot = snapshot_for("1\u{FE0F}\u{20E3}", 4);
+    let mut color_atlas = ColorGlyphAtlas::new(atlas.cell);
+    let mut rasterizer = EmojiRasterizer::new(None);
+    let runs = rasterizer.build_color_glyph_runs(&snapshot, &mut color_atlas);
+    assert!(runs.is_empty());
+
+    let mut vertices = Vec::<Vertex>::new();
+    grid::build_cell_vertices_with_color_glyph_runs_into(&mut vertices, &snapshot, &atlas, &runs);
+    assert!(
+        vertices.iter().any(|v| v.is_glyph == 1.0),
+        "fallback coverage glyph for the keycap base must remain visible"
+    );
+}
+
+#[test]
+fn cluster_run_suppresses_all_covered_source_foregrounds() {
+    let Some((atlas, _)) = setup() else {
+        eprintln!("skipping: no system text font available");
+        return;
+    };
+    let snapshot = snapshot_for("AB", 4);
+    let key = odytty::emoji::ColorGlyphKey::new(1, ColorGlyphId::Cluster(9), 24.0, 1.0);
+    let runs = [odytty::grid::ColorGlyphRun::cluster(0, 0, key, 2)];
+
+    let mut plain = Vec::<Vertex>::new();
+    grid::build_cell_vertices_into(&mut plain, &snapshot, &atlas);
+    let mut color_aware = Vec::<Vertex>::new();
+    grid::build_cell_vertices_with_color_glyph_runs_into(
+        &mut color_aware,
+        &snapshot,
+        &atlas,
+        &runs,
+    );
+
+    assert_eq!(plain.iter().filter(|v| v.is_glyph == 1.0).count(), 12);
+    assert!(
+        color_aware.iter().all(|v| v.is_glyph == 0.0),
+        "cluster coverage suppresses every source cell foreground"
+    );
 }
 
 #[test]

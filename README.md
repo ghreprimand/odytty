@@ -27,10 +27,10 @@ below-product-line tools — `ab_glyph` (font rasterization for normal text),
 helpers call `fc-match` directly for Noto Color Emoji, fall back to a bounded
 filesystem scan (depth 6, 20 000-file cap) when fontconfig is absent or returns
 a non-matching font, and return `None` cleanly when Noto Color Emoji is not
-installed so the rest of the stack is not affected. The EM3/EM4 color-glyph
-atlas and placement path are OdyTTY-owned renderer plumbing; Noto Color Emoji
-CBDT/CBLC shaping and bitmap rasterization are delegated to `swash`, with
-VS15/VS16 policy and fallback routing owned by OdyTTY.
+installed so the rest of the stack is not affected. The EM3-EM5 color-glyph
+atlas, placement, and cluster-stitching path are OdyTTY-owned renderer plumbing;
+Noto Color Emoji CBDT/CBLC shaping and bitmap rasterization are delegated to
+`swash`, with VS15/VS16 policy and fallback routing owned by OdyTTY.
 
 **Terminal compatibility.** Sequences confirmed across the fixture suite: SGR
 (all standard attributes, 256-color, truecolor; colon-form `38:2::r:g:b` and
@@ -198,7 +198,7 @@ reuse retained GPU geometry; cursor-blink and overlay-only frames rebuild only
 the bounded tail of the vertex stream rather than the full grid. Resize events
 are debounced to avoid per-frame reflow during drag.
 
-**Testing.** 895 tests passing: 825 unit/integration, 12 mouse-protocol
+**Testing.** 908 tests passing: 833 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -214,9 +214,10 @@ and grid-self-consistency invariants across seven fuzzed surfaces: extended
 underline SGR, Kitty keyboard protocol stack, synchronized output mode 2026, OSC
 52 / dynamic colors, DECRQM / XTWINOPS, DCS query reports (XTGETTCAP / DECRQSS),
 and DEC rectangle / selective-erase ops), 9 PTY alternate-screen smoke, 10
-transcript smoke, and 3 emoji pixel-smoke (real Noto color-emoji composition:
-VS15/VS16 presentation policy and monochrome-foreground suppression for resident
-color-emoji cells). Deep fuzz tiers are `#[ignore]`-gated and run via
+transcript smoke, and 8 emoji pixel-smoke (real Noto color-emoji composition,
+VS15/VS16 presentation policy, multi-codepoint cluster stitching/fallback, and
+monochrome-foreground suppression for resident color-emoji cells). Deep fuzz
+tiers are `#[ignore]`-gated and run via
 `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
 EM2 added three hermetic emoji-probe tests (fixed representative-sequence list,
 bounded filename discovery in a temp directory, and non-color format detection

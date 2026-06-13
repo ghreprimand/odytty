@@ -1315,11 +1315,7 @@ fn color_glyph_segment_sits_between_coverage_text_and_above_images() {
         &atlas,
         &scene,
         &color_atlas,
-        &[ColorGlyphRun {
-            row: 0,
-            column: 0,
-            key,
-        }],
+        &[ColorGlyphRun::new(0, 0, key)],
         0,
         CursorStyle::Block,
     );
@@ -1341,11 +1337,7 @@ fn color_glyph_segment_sits_between_coverage_text_and_above_images() {
         &atlas,
         &scene,
         &color_atlas,
-        &[ColorGlyphRun {
-            row: 0,
-            column: 0,
-            key,
-        }],
+        &[ColorGlyphRun::new(0, 0, key)],
         0,
         CursorStyle::Block,
     );
@@ -1387,16 +1379,8 @@ fn wide_color_glyph_lead_emits_one_two_cell_quad() {
         &snapshot,
         &color_atlas,
         &[
-            ColorGlyphRun {
-                row: 0,
-                column: 0,
-                key,
-            },
-            ColorGlyphRun {
-                row: 0,
-                column: 1,
-                key,
-            },
+            ColorGlyphRun::cluster(0, 0, key, 2),
+            ColorGlyphRun::new(0, 1, key),
         ],
     );
 

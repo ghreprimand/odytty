@@ -408,8 +408,10 @@ a floor; surpassing it is the standing ambition.
         runs, keeps VS15 on coverage, sends VS16/default emoji to color when
         resident, and degrades to coverage/fallback when the color path cannot
         resolve a bitmap.
-  - [ ] EM5: emoji cluster coverage for flags, keycaps, skin tones, and common
-        ZWJ sequences.
+  - [x] EM5: emoji cluster coverage for flags, keycaps, skin tones, and common
+        ZWJ sequences. The renderer reconstructs bounded clusters from the
+        snapshot, keys atlas entries by full cluster, emits one color glyph when
+        Noto resolves a single bitmap, and falls back visibly otherwise.
   - [ ] EM6: scalable color font expansion (COLR/CPAL first, SVG-in-OT only
         from evidence).
 - [ ] Wide-glyph raster quality: double-width (CJK/wide) atlas slot sizing.
@@ -501,17 +503,17 @@ a floor; surpassing it is the standing ambition.
         insert RGBA into ImageStore, create cell-anchored placement; cursor
         moves to row below image (DECSDM-off); decode errors counted but
         never disturb terminal state; 21 end-to-end tests.
-- [ ] Color emoji — RGBA color-glyph path, `swash` shaping/rasterization,
+- [x] Color emoji — RGBA color-glyph path, `swash` shaping/rasterization,
       Noto Color Emoji CBDT/CBLC on Linux, VS15/VS16 presentation,
       ZWJ/cluster support; COLR v1 and SVG-in-OT deferred but
       architecturally permitted.
-  - [ ] EM2: `swash` dependency and fontconfig emoji font discovery — in flight.
-  - [ ] EM3: RGBA color-glyph atlas (`ColorGlyphAtlas`) and dedicated
+  - [x] EM2: `swash` dependency and fontconfig emoji font discovery.
+  - [x] EM3: RGBA color-glyph atlas (`ColorGlyphAtlas`) and dedicated
         shader/draw segment; premultiplied-RGBA source pixels, no SGR
         foreground tint.
-  - [ ] EM4: Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 presentation,
+  - [x] EM4: Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 presentation,
         wide-cell placement, and graceful no-font degradation.
-  - [ ] EM5: emoji clusters — flags, keycaps, skin-tone modifiers, ZWJ
+  - [x] EM5: emoji clusters — flags, keycaps, skin-tone modifiers, ZWJ
         sequences; regression fixtures per category; defined fallback for
         unsupported clusters.
   - [ ] EM6: COLR/CPAL and alternate color-font formats; SVG-in-OT via

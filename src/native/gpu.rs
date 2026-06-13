@@ -363,10 +363,7 @@ pub(super) fn ensure_snapshot_glyphs_excluding_color_runs(
         if cell.wide_continuation || cell.attrs.hidden() {
             continue;
         }
-        if color_runs
-            .iter()
-            .any(|run| run.row == row && run.column == column)
-        {
+        if color_runs.iter().any(|run| run.covers(row, column)) {
             continue;
         }
         let style = grid::font_style_for_attrs(&cell.attrs);

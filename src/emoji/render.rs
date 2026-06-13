@@ -1,8 +1,8 @@
 //! Live color emoji shaping and CBDT/CBLC bitmap rasterization.
 //!
 //! This module is intentionally narrow: it only activates color rendering when
-//! the terminal cell already contains one grapheme that resolves to one color
-//! bitmap glyph. More complex multi-cell RGI stitching remains a later rung.
+//! the terminal grid contains one emoji grapheme or a bounded RGI cluster that
+//! resolves to one color bitmap glyph.
 
 use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content};
 use swash::shape::{Direction, ShapeContext};
@@ -58,10 +58,11 @@ impl EmojiRasterizer {
         build_color_glyph_runs(self, snapshot, atlas)
     }
 
-    fn render_cell(
+    fn render_text(
         &mut self,
         text: &str,
         width_cells: u8,
+        identity: RenderIdentity,
         atlas: &mut ColorGlyphAtlas,
     ) -> Option<ColorGlyphKey> {
         let font = self.font.as_ref()?;
@@ -76,7 +77,7 @@ impl EmojiRasterizer {
 
         let key = ColorGlyphKey::new(
             font.font_id(),
-            ColorGlyphId::Glyph(u32::from(*glyph_id)),
+            identity.color_glyph_id(*glyph_id, text),
             atlas.cell.height as f32,
             1.0,
         );
@@ -98,6 +99,27 @@ impl EmojiRasterizer {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenderIdentity {
+    Glyph,
+    Cluster,
+}
+
+impl RenderIdentity {
+    fn color_glyph_id(self, glyph_id: GlyphId, text: &str) -> ColorGlyphId {
+        match self {
+            Self::Glyph => ColorGlyphId::Glyph(u32::from(glyph_id)),
+            Self::Cluster => ColorGlyphId::Cluster(cluster_hash(text)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ClusterCandidate {
+    text: String,
+    covered_columns: usize,
+}
+
 pub fn build_color_glyph_runs(
     rasterizer: &mut EmojiRasterizer,
     snapshot: &Snapshot,
@@ -108,14 +130,39 @@ pub fn build_color_glyph_runs(
     let mut runs = Vec::new();
 
     for row in 0..rows {
-        for column in 0..cols {
+        let mut column = 0;
+        while column < cols {
             let idx = row * cols + column;
             let cell = &snapshot.cells[idx];
             if cell.wide_continuation || cell.attrs.hidden() {
+                column += 1;
                 continue;
             }
+
+            if let Some(candidate) = cluster_candidate(snapshot, row, column)
+                && emoji_presentation(&candidate.text) == EmojiPresentation::Color
+            {
+                let width_cells = candidate.covered_columns.min(2) as u8;
+                if let Some(key) = rasterizer.render_text(
+                    &candidate.text,
+                    width_cells,
+                    RenderIdentity::Cluster,
+                    atlas,
+                ) {
+                    runs.push(ColorGlyphRun::cluster(
+                        row,
+                        column,
+                        key,
+                        candidate.covered_columns.min(u8::MAX as usize) as u8,
+                    ));
+                    column += candidate.covered_columns;
+                    continue;
+                }
+            }
+
             let text = cell.grapheme();
             if emoji_presentation(&text) != EmojiPresentation::Color {
+                column += 1;
                 continue;
             }
             let width_cells = if column + 1 < cols && snapshot.cells[idx + 1].wide_continuation {
@@ -123,9 +170,12 @@ pub fn build_color_glyph_runs(
             } else {
                 1
             };
-            if let Some(key) = rasterizer.render_cell(&text, width_cells, atlas) {
-                runs.push(ColorGlyphRun { row, column, key });
+            if let Some(key) =
+                rasterizer.render_text(&text, width_cells, RenderIdentity::Glyph, atlas)
+            {
+                runs.push(ColorGlyphRun::cluster(row, column, key, width_cells));
             }
+            column += width_cells as usize;
         }
     }
 
@@ -236,6 +286,142 @@ fn fit_rgba_to_cell(
 
 fn premul(channel: u8, alpha: u8) -> u8 {
     ((u16::from(channel) * u16::from(alpha) + 127) / 255) as u8
+}
+
+fn cluster_candidate(snapshot: &Snapshot, row: usize, column: usize) -> Option<ClusterCandidate> {
+    let cols = snapshot.dimensions.columns;
+    let idx = row * cols + column;
+    let cell = &snapshot.cells[idx];
+    let text = cell.grapheme();
+
+    if is_keycap_sequence(&text) {
+        return Some(ClusterCandidate {
+            text,
+            covered_columns: cell_display_width(snapshot, row, column),
+        });
+    }
+
+    if is_regional_indicator(cell.ch) {
+        let next = next_display_cell(snapshot, row, column)?;
+        let next_cell = &snapshot.cells[row * cols + next];
+        if is_regional_indicator(next_cell.ch) {
+            let mut cluster = text;
+            cluster.push_str(&next_cell.grapheme());
+            return Some(ClusterCandidate {
+                text: cluster,
+                covered_columns: next + cell_display_width(snapshot, row, next) - column,
+            });
+        }
+    }
+
+    if is_default_emoji_presentation(cell.ch)
+        && let Some(next) = next_display_cell(snapshot, row, column)
+    {
+        let next_cell = &snapshot.cells[row * cols + next];
+        if is_emoji_modifier(next_cell.ch) {
+            let mut cluster = text;
+            cluster.push_str(&next_cell.grapheme());
+            return Some(ClusterCandidate {
+                text: cluster,
+                covered_columns: next + cell_display_width(snapshot, row, next) - column,
+            });
+        }
+    }
+
+    if text.ends_with('\u{200D}') {
+        return zwj_cluster_candidate(snapshot, row, column, text);
+    }
+
+    None
+}
+
+fn zwj_cluster_candidate(
+    snapshot: &Snapshot,
+    row: usize,
+    column: usize,
+    mut text: String,
+) -> Option<ClusterCandidate> {
+    let cols = snapshot.dimensions.columns;
+    let mut covered_end = column + cell_display_width(snapshot, row, column);
+    let mut members = 1;
+
+    while text.ends_with('\u{200D}') {
+        let next = next_display_cell_at_or_after(snapshot, row, covered_end)?;
+        let next_cell = &snapshot.cells[row * cols + next];
+        if next_cell.attrs.hidden() {
+            return None;
+        }
+        text.push_str(&next_cell.grapheme());
+        covered_end = next + cell_display_width(snapshot, row, next);
+        members += 1;
+    }
+
+    (members > 1).then_some(ClusterCandidate {
+        text,
+        covered_columns: covered_end - column,
+    })
+}
+
+fn next_display_cell(snapshot: &Snapshot, row: usize, column: usize) -> Option<usize> {
+    let next = column + cell_display_width(snapshot, row, column);
+    next_display_cell_at_or_after(snapshot, row, next)
+}
+
+fn next_display_cell_at_or_after(
+    snapshot: &Snapshot,
+    row: usize,
+    mut column: usize,
+) -> Option<usize> {
+    let cols = snapshot.dimensions.columns;
+    while column < cols {
+        let cell = &snapshot.cells[row * cols + column];
+        if !cell.wide_continuation {
+            return Some(column);
+        }
+        column += 1;
+    }
+    None
+}
+
+fn cell_display_width(snapshot: &Snapshot, row: usize, column: usize) -> usize {
+    let cols = snapshot.dimensions.columns;
+    if column + 1 < cols && snapshot.cells[row * cols + column + 1].wide_continuation {
+        2
+    } else {
+        1
+    }
+}
+
+fn is_keycap_sequence(text: &str) -> bool {
+    let mut chars = text.chars();
+    let Some(base) = chars.next() else {
+        return false;
+    };
+    if !matches!(base, '0'..='9' | '#' | '*') {
+        return false;
+    }
+    let rest: Vec<char> = chars.collect();
+    matches!(rest.as_slice(), ['\u{20E3}'] | ['\u{FE0F}', '\u{20E3}'])
+}
+
+fn is_regional_indicator(ch: char) -> bool {
+    matches!(ch as u32, 0x1F1E6..=0x1F1FF)
+}
+
+fn is_emoji_modifier(ch: char) -> bool {
+    matches!(ch as u32, 0x1F3FB..=0x1F3FF)
+}
+
+fn cluster_hash(text: &str) -> u64 {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+
+    let mut hash = FNV_OFFSET;
+    for byte in text.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
 }
 
 fn is_text_variation_selector(ch: char) -> bool {

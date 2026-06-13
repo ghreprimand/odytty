@@ -100,6 +100,36 @@ pub struct ColorGlyphRun {
     pub row: usize,
     pub column: usize,
     pub key: ColorGlyphKey,
+    /// Number of source grid columns whose foreground glyphs are replaced by
+    /// this run. Multi-codepoint emoji clusters can be stored across several
+    /// cells even though they rasterize to one 1- or 2-cell color bitmap.
+    pub covered_columns: u8,
+}
+
+impl ColorGlyphRun {
+    pub fn new(row: usize, column: usize, key: ColorGlyphKey) -> Self {
+        Self {
+            row,
+            column,
+            key,
+            covered_columns: 1,
+        }
+    }
+
+    pub fn cluster(row: usize, column: usize, key: ColorGlyphKey, covered_columns: u8) -> Self {
+        Self {
+            row,
+            column,
+            key,
+            covered_columns: covered_columns.max(1),
+        }
+    }
+
+    pub fn covers(self, row: usize, column: usize) -> bool {
+        self.row == row
+            && column >= self.column
+            && column < self.column + self.covered_columns as usize
+    }
 }
 
 /// Push a pixel-space rectangle as two triangles into `out`.
@@ -171,7 +201,7 @@ pub fn build_color_glyph_vertices_into(
         if width_cells == 0 || run.column + width_cells > cols {
             continue;
         }
-        if width_cells == 2 && !snapshot.cells[idx + 1].wide_continuation {
+        if width_cells > run.covered_columns as usize {
             continue;
         }
 
@@ -522,8 +552,7 @@ pub fn build_cell_vertices_with_color_glyph_runs_into(
 }
 
 fn has_color_glyph_run(runs: &[ColorGlyphRun], row: usize, column: usize) -> bool {
-    runs.iter()
-        .any(|run| run.row == row && run.column == column)
+    runs.iter().any(|run| run.covers(row, column))
 }
 
 /// Append only cursor geometry for `snapshot` and `cursor_style`.

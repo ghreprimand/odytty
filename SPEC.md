@@ -522,3 +522,15 @@ and draws the dedicated color segment in the EM3 order. If discovery, shaping,
 bitmap rendering, or atlas insertion fails, no color run is emitted and the
 existing coverage/fallback path remains visible. Multi-codepoint RGI stitching
 such as flags, keycaps, skin-tone modifiers, and ZWJ families remains EM5.
+
+**EM5 (delivered).** The live color path reconstructs bounded multi-codepoint
+emoji clusters from the snapshot before shaping. Flags are assembled from
+adjacent regional indicators, skin-tone sequences from the base emoji plus
+modifier cell, keycaps from the base cell's VS16/keycap combining marks, and
+ZWJ chains from successive cells whose graphemes carry trailing ZWJ marks. A
+cluster that shapes to one nonzero Noto color bitmap glyph is inserted into the
+atlas with a `ColorGlyphId::Cluster` key and draws once from the owning cell,
+using a one- or two-cell atlas slot while recording every source column whose
+foreground should be suppressed. If shaping or color bitmap rasterization does
+not resolve, no cluster run is emitted; the existing per-cell coverage/color
+fallback remains visible.
