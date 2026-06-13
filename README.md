@@ -209,18 +209,20 @@ Everything in the Features section above. The full owned byte path is real and
 in production. Color emoji, Kitty graphics, Sixel, the Kitty keyboard protocol,
 SGR-pixel mouse, the theme palette and user theme file format, the 53-theme
 built-in library, the in-window overlay framework, the in-app settings
-panel plus live theme picker, and CLI config introspection have all landed.
+panel plus live theme picker, the in-app custom theme builder, and CLI config
+introspection have all landed. The minimum-contrast readability floor
+(`min_contrast` / `ODYTTY_MIN_CONTRAST`) and geometric box-drawing/block/Powerline
+rendering (`geometric_boxdraw` / `ODYTTY_GEOMETRIC_BOXDRAW`) are wired into the
+live renderer, each default-off / pixel-identical until enabled.
 
 ### On the horizon
 
-- **Readability-first rendering** — geometric box-drawing/Powerline rendering
-  at exact cell size, smooth scrolling, and Nerd-font symbol fallback. (The
-  perceptual color pipeline now backs blending internally; a minimum-contrast
-  floor is available as `ODYTTY_MIN_CONTRAST` and stem darkening as
-  `ODYTTY_STEM_DARKEN`, both default off / passthrough.)
-- **Custom theme builder** — an in-terminal theme editor for cloning or
-  authoring themes from scratch (TH4), building on the live picker and settings
-  overlay.
+- **Readability-first rendering** — smooth scrolling and Nerd-font symbol
+  fallback are next. (The perceptual color pipeline backs linear-space blending;
+  the minimum-contrast floor (`ODYTTY_MIN_CONTRAST`) and geometric
+  box-drawing (`ODYTTY_GEOMETRIC_BOXDRAW`) are now live in the renderer, and
+  stem darkening (`ODYTTY_STEM_DARKEN`) is available — all default off /
+  passthrough.)
 - **Atmospheric effects (opt-in)** — bloom/phosphor glow, CRT/retro profile,
   subtle cursor motion; all off by default, perf- and readability-gated.
 - **Nerd-font / symbol fallback** for modern prompt icons.
@@ -239,7 +241,7 @@ panel plus live theme picker, and CLI config introspection have all landed.
 
 ## Testing
 
-**Testing.** 1026 tests passing: 948 unit/integration, 12 mouse-protocol
+**Testing.** 1067 tests passing: 985 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -250,7 +252,9 @@ pass-through; run via
 `cargo test --test mouse_protocol`), 25 pixel-smoke (headless CPU compositor
 asserting structural raster invariants for text rendering and graphics
 placement; EM3 added two: color-glyph segment draw ordering between coverage
-text and above-image layers, and wide color glyph lead-cell quad emission), 11 protocol-fuzz smoke (never-panic, bounded-host-output, post-RIS,
+text and above-image layers, and wide color glyph lead-cell quad emission), 4
+box-drawing pixel-smoke (geometric box/block/Powerline: corner↔line seam, cross
+join, full-block solidity, and the off/on distinction), 11 protocol-fuzz smoke (never-panic, bounded-host-output, post-RIS,
 and grid-self-consistency invariants across seven fuzzed surfaces: extended
 underline SGR, Kitty keyboard protocol stack, synchronized output mode 2026, OSC
 52 / dynamic colors, DECRQM / XTWINOPS, DCS query reports (XTGETTCAP / DECRQSS),

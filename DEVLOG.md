@@ -44,6 +44,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Activate RV2 geometric box-drawing at the render path
+
+- Correctness fix companion to the RV1 activation: the RV2 geometry engine and
+  the atlas hook (`GlyphAtlas::set_geometric_boxdraw`) existed but native never
+  called the hook, so `geometric_boxdraw` / `ODYTTY_GEOMETRIC_BOXDRAW` was a
+  silent no-op while the docs claimed it rendered. Now wired into the live
+  native render path.
+- `settings.rs`: a process-wide `GEOMETRIC_BOXDRAW_ENABLED` flag (setter/getter,
+  default off) mirroring the `synthetic_styles` kill switch. `native/mod.rs`
+  publishes the setting before the glyph atlas is built; `settings/reload.rs`
+  republishes it on config reload.
+- `native/gpu.rs`: tracks `geometric_enabled`, detects a live toggle in
+  `apply_text_options` and rebuilds the atlas when it flips, and reapplies
+  `set_geometric_boxdraw` after every atlas build (initial + rebuild) so a
+  rebuild never silently drops the flag.
+- Verified: full `cargo test` green, **pixel-smoke 25 unchanged** (default-off
+  path byte-identical), `cargo fmt --check` clean, native smoke with
+  `ODYTTY_GEOMETRIC_BOXDRAW=1` exits 0, all files < 2000 lines.
+
+---
+
 ## 2026-06-13 -- Activate RV1 contrast floor at the live render path
 
 - Correctness fix: the RV1 minimum-contrast machinery
@@ -99,6 +120,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
   `pixel_smoke` 25 unchanged (default-off path identical). Native activation
   (call `set_geometric_boxdraw` on build + rebuild on toggle) is the renderer's
   follow-up.
+
+## 2026-06-13 -- In-app custom theme builder (TH4)
+
+- Added an in-window custom theme builder. It clones the active theme into an
+  editable working copy, lets the user edit every default / semantic / ANSI
+  color with live preview and per-row swatches, shows live fg/bg contrast
+  feedback, and saves a canonical `.theme` file into the config-local theme
+  directory while persisting `theme=<name>` through the existing settings
+  writeback. Reachable from the theme picker and the settings-panel theme row
+  (`B`); `Esc` restores the original theme without writing.
+- Lane: `src/native/**` only (new `theme_builder.rs` + overlay / picker /
+  settings-panel integration), building on the UX3 picker and the UX2-c atomic
+  writeback. Verified: native + theme + cli suites green, `cargo fmt --check`
+  clean, native smoke exits 0, all touched files < 2000 lines.
 
 ## 2026-06-13 -- Theme library to 53 (26 community / light / retro)
 
