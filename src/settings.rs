@@ -40,6 +40,10 @@ pub const TEXT_GAMMA_ENV: &str = "ODYTTY_TEXT_GAMMA";
 pub const STEM_DARKEN_ENV: &str = "ODYTTY_STEM_DARKEN";
 pub const MIN_CONTRAST_ENV: &str = "ODYTTY_MIN_CONTRAST";
 pub const FOCUS_DIM_ENV: &str = "ODYTTY_FOCUS_DIM";
+pub const BLOOM_ENV: &str = "ODYTTY_BLOOM";
+pub const BLOOM_THRESHOLD_ENV: &str = "ODYTTY_BLOOM_THRESHOLD";
+pub const BLOOM_INTENSITY_ENV: &str = "ODYTTY_BLOOM_INTENSITY";
+pub const BLOOM_RADIUS_ENV: &str = "ODYTTY_BLOOM_RADIUS";
 pub const SUBPIXEL_ENV: &str = "ODYTTY_SUBPIXEL";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
@@ -67,6 +71,10 @@ const SETTING_ENV_KEYS: &[&str] = &[
     STEM_DARKEN_ENV,
     MIN_CONTRAST_ENV,
     FOCUS_DIM_ENV,
+    BLOOM_ENV,
+    BLOOM_THRESHOLD_ENV,
+    BLOOM_INTENSITY_ENV,
+    BLOOM_RADIUS_ENV,
     SUBPIXEL_ENV,
     KEYBINDS_ENV,
     CURSOR_STYLE_ENV,
@@ -269,6 +277,33 @@ pub const FOCUS_DIM_DESC: &str = "Focus dimming: dims the whole window (text and
      0.15–0.30 is a subtle recede. The focused window is never dimmed. The \
      minimum-contrast floor still applies, so text stays legible. Default 0.0.";
 
+pub const DEFAULT_BLOOM: bool = false;
+pub const BLOOM_THRESHOLD_MARGIN: f32 = 0.12;
+pub const MIN_BLOOM_THRESHOLD: f32 = 0.70;
+pub const MAX_BLOOM_THRESHOLD: f32 = 1.25;
+pub const DEFAULT_BLOOM_INTENSITY: f32 = 0.4;
+pub const MIN_BLOOM_INTENSITY: f32 = 0.0;
+pub const MAX_BLOOM_INTENSITY: f32 = 1.0;
+pub const DEFAULT_BLOOM_RADIUS: f32 = 3.0;
+pub const MIN_BLOOM_RADIUS: f32 = 0.5;
+pub const MAX_BLOOM_RADIUS: f32 = 8.0;
+
+pub fn default_bloom_threshold_for_theme(theme: Theme) -> f32 {
+    (crate::theme::relative_luminance(theme.foreground) as f32 + BLOOM_THRESHOLD_MARGIN)
+        .clamp(MIN_BLOOM_THRESHOLD, MAX_BLOOM_THRESHOLD)
+}
+
+pub const BLOOM_DESC: &str = "Bloom: optional HDR phosphor glow over bright cells. Off by default and \
+     pixel-identical to the plain renderer. Requires a GPU with filterable \
+     Rgba16Float render targets; unsupported adapters silently use the plain path.";
+pub const BLOOM_THRESHOLD_DESC: &str = "Bloom threshold: linear luminance knee for the bright-pass. The default is \
+     derived from the active theme foreground luminance plus a safety margin, so \
+     normal body text sits below the knee and does not glow.";
+pub const BLOOM_INTENSITY_DESC: &str = "Bloom intensity: additive glow strength. Accepts 0.0–1.0; 0.0 emits no \
+     glow, 0.4 is the conservative default, and the cap keeps bloom bounded.";
+pub const BLOOM_RADIUS_DESC: &str = "Bloom radius: blur spread in half-resolution pixels. Accepts 0.5–8.0; \
+     3.0 is the default soft phosphor radius.";
+
 /// Human-readable help for the geometric box-drawing knob (RV2), shown in the
 /// in-app settings panel. Follows the every-knob-carries-a-description convention.
 pub const GEOMETRIC_BOXDRAW_DESC: &str = "Geometric box-drawing: renders line, block and Powerline glyphs from \
@@ -429,6 +464,10 @@ pub struct Settings {
     /// disables enforcement and is pixel-identical to before.
     pub min_contrast: f32,
     pub focus_dim: f32,
+    pub bloom: bool,
+    pub bloom_threshold: f32,
+    pub bloom_intensity: f32,
+    pub bloom_radius: f32,
     pub subpixel: SubpixelMode,
     pub key_bindings: Vec<KeyBindingOverride>,
     /// Default cursor shape applied at power-on (DECSCUSR can override).
@@ -475,6 +514,10 @@ impl Default for Settings {
             stem_darken: DEFAULT_STEM_DARKEN,
             min_contrast: DEFAULT_MIN_CONTRAST,
             focus_dim: DEFAULT_FOCUS_DIM,
+            bloom: DEFAULT_BLOOM,
+            bloom_threshold: default_bloom_threshold_for_theme(Theme::PLAIN),
+            bloom_intensity: DEFAULT_BLOOM_INTENSITY,
+            bloom_radius: DEFAULT_BLOOM_RADIUS,
             subpixel: SubpixelMode::Off,
             key_bindings: Vec::new(),
             cursor_style: CursorStyle::Block,
@@ -615,6 +658,54 @@ impl Settings {
                 description: FOCUS_DIM_DESC,
                 kind: SettingKind::Number,
                 range: Some("0.0..=1.0"),
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Post-process",
+                key: "bloom",
+                env: BLOOM_ENV,
+                name: "Bloom",
+                value: bool_display(self.bloom).to_owned(),
+                description: BLOOM_DESC,
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Post-process",
+                key: "bloom_threshold",
+                env: BLOOM_THRESHOLD_ENV,
+                name: "Bloom threshold",
+                value: format_float(self.bloom_threshold),
+                description: BLOOM_THRESHOLD_DESC,
+                kind: SettingKind::Number,
+                range: Some("0.70..=1.25"),
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Post-process",
+                key: "bloom_intensity",
+                env: BLOOM_INTENSITY_ENV,
+                name: "Bloom intensity",
+                value: format_float(self.bloom_intensity),
+                description: BLOOM_INTENSITY_DESC,
+                kind: SettingKind::Number,
+                range: Some("0.0..=1.0"),
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Post-process",
+                key: "bloom_radius",
+                env: BLOOM_RADIUS_ENV,
+                name: "Bloom radius",
+                value: format_float(self.bloom_radius),
+                description: BLOOM_RADIUS_DESC,
+                kind: SettingKind::Number,
+                range: Some("0.5..=8.0 px"),
                 options: &[],
                 reloadable: true,
             },
@@ -915,6 +1006,15 @@ impl Settings {
         let stem_darken = parse_stem_darken(get(STEM_DARKEN_ENV).as_deref(), &mut warn);
         let min_contrast = parse_min_contrast(get(MIN_CONTRAST_ENV).as_deref(), &mut warn);
         let focus_dim = parse_focus_dim(get(FOCUS_DIM_ENV).as_deref(), &mut warn);
+        let bloom = parse_bool_setting(get(BLOOM_ENV).as_deref(), BLOOM_ENV, false, &mut warn);
+        let default_bloom_threshold = default_bloom_threshold_for_theme(theme);
+        let bloom_threshold = parse_bloom_threshold(
+            get(BLOOM_THRESHOLD_ENV).as_deref(),
+            default_bloom_threshold,
+            &mut warn,
+        );
+        let bloom_intensity = parse_bloom_intensity(get(BLOOM_INTENSITY_ENV).as_deref(), &mut warn);
+        let bloom_radius = parse_bloom_radius(get(BLOOM_RADIUS_ENV).as_deref(), &mut warn);
         let subpixel = parse_subpixel(get(SUBPIXEL_ENV).as_deref(), &mut warn);
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
@@ -962,6 +1062,10 @@ impl Settings {
             stem_darken,
             min_contrast,
             focus_dim,
+            bloom,
+            bloom_threshold,
+            bloom_intensity,
+            bloom_radius,
             subpixel,
             key_bindings,
             cursor_style,
@@ -993,6 +1097,10 @@ impl Settings {
         values.insert(STEM_DARKEN_ENV, format_float(self.stem_darken));
         values.insert(MIN_CONTRAST_ENV, format_float(self.min_contrast));
         values.insert(FOCUS_DIM_ENV, format_float(self.focus_dim));
+        values.insert(BLOOM_ENV, bool_display(self.bloom).to_owned());
+        values.insert(BLOOM_THRESHOLD_ENV, format_float(self.bloom_threshold));
+        values.insert(BLOOM_INTENSITY_ENV, format_float(self.bloom_intensity));
+        values.insert(BLOOM_RADIUS_ENV, format_float(self.bloom_radius));
         values.insert(SUBPIXEL_ENV, subpixel_display(self.subpixel).to_owned());
         values.insert(KEYBINDS_ENV, key_bindings_edit_value(&self.key_bindings));
         values.insert(
@@ -1381,6 +1489,75 @@ fn parse_focus_dim(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     };
 
     parsed.clamp(MIN_FOCUS_DIM, MAX_FOCUS_DIM)
+}
+
+fn parse_bloom_threshold(raw: Option<&OsStr>, default: f32, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return default;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() || normalize_name(trimmed) == "auto" {
+        return default;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{BLOOM_THRESHOLD_ENV}={trimmed:?} is not a valid bloom threshold; using {default}"
+            ));
+            return default;
+        }
+    };
+
+    parsed.clamp(MIN_BLOOM_THRESHOLD, MAX_BLOOM_THRESHOLD)
+}
+
+fn parse_bloom_intensity(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_BLOOM_INTENSITY;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_BLOOM_INTENSITY;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{BLOOM_INTENSITY_ENV}={trimmed:?} is not a valid bloom intensity; using {DEFAULT_BLOOM_INTENSITY}"
+            ));
+            return DEFAULT_BLOOM_INTENSITY;
+        }
+    };
+
+    parsed.clamp(MIN_BLOOM_INTENSITY, MAX_BLOOM_INTENSITY)
+}
+
+fn parse_bloom_radius(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_BLOOM_RADIUS;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_BLOOM_RADIUS;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{BLOOM_RADIUS_ENV}={trimmed:?} is not a valid bloom radius; using {DEFAULT_BLOOM_RADIUS}"
+            ));
+            return DEFAULT_BLOOM_RADIUS;
+        }
+    };
+
+    parsed.clamp(MIN_BLOOM_RADIUS, MAX_BLOOM_RADIUS)
 }
 
 fn parse_subpixel(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> SubpixelMode {

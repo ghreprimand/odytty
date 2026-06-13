@@ -43,6 +43,10 @@ text_gamma = 1.4
 stem_darken = 0.0
 min_contrast = 1.0
 focus_dim = 0.0
+bloom = off
+bloom_threshold = auto
+bloom_intensity = 0.4
+bloom_radius = 3.0
 geometric_boxdraw = off
 symbol_fallback = off
 symbol_font =
@@ -73,6 +77,10 @@ directory and rename it over the target, so OdyTTY never truncates
 | `stem_darken` | `ODYTTY_STEM_DARKEN` | Floating-point strength, clamped to `0.0..=1.0` | `0.2` | Stem darkening (RV5): a raster-time coverage boost so light-on-dark body text holds weight at small sizes. Ships default-on at a conservative `0.2` (perceptibly crisper without looking bold). `0.0` is the opt-out and is pixel-identical to the pre-feature renderer; `1.0` is the strongest boost. Applied to anti-aliased glyph edges/thin stems only — fully-covered and fully-uncovered pixels are never moved. Invalid values fall back to `0.2` with one stderr warning. |
 | `min_contrast` | `ODYTTY_MIN_CONTRAST` | Floating-point WCAG ratio, clamped to `1.0..=21.0` | `1.0` | Minimum contrast guarantee (RV1): lifts each cell's foreground until its WCAG contrast against the background meets at least this ratio, so low-contrast apps stay legible. `1.0` disables the floor and is pixel-identical to the pre-feature renderer; `4.5` is the WCAG AA body-text threshold and `7.0` is AAA. The lift moves only perceptual (OKLab) lightness, preserving hue; against a near-mid-grey background where the ratio is unreachable it makes a best-effort move to the most-contrasting shade. Invalid values fall back to `1.0` with one stderr warning. |
 | `focus_dim` | `ODYTTY_FOCUS_DIM` | Floating-point amount, clamped to `0.0..=1.0` | `0.0` | Focus dimming (ID2): while the window is unfocused, dims the whole grid — both text and background — so it recedes visually and the focused window stands out. `0.0` disables it and is pixel-identical to the pre-feature renderer (focused and unfocused frames are byte-identical); `0.15`–`0.30` is a subtle recede. The dim is perceptual (OKLab), preserving hue, and is applied before the `min_contrast` floor so text stays legible against the dimmed background. The focused window is never dimmed regardless of this value. Invalid values fall back to `0.0` with one stderr warning. Config-file aliases: `unfocuseddim`. |
+| `bloom` | `ODYTTY_BLOOM` | `on`, `off` | `off` | Bloom / phosphor glow (VE2): renders the scene into an HDR offscreen target, extracts bright cells, blurs them at half resolution, then composites the glow additively. Off by default and pixel-identical to the plain renderer. Requires an adapter where `Rgba16Float` is renderable, texture-bindable, and filterable; unsupported adapters use the plain path. |
+| `bloom_threshold` | `ODYTTY_BLOOM_THRESHOLD` | Floating-point luminance knee, clamped to `0.70..=1.25`, or `auto` | `auto` | Bright-pass threshold for bloom. `auto` derives `relative_luminance(theme.foreground) + 0.12`, clamped to the supported range, so normal theme foreground/body text stays below the glow knee by default. Invalid values fall back to the derived threshold with one stderr warning. |
+| `bloom_intensity` | `ODYTTY_BLOOM_INTENSITY` | Floating-point strength, clamped to `0.0..=1.0` | `0.4` | Additive bloom strength. `0.0` produces no glow; `0.4` is the conservative default for enabled bloom; `1.0` is the cap. Invalid values fall back to `0.4` with one stderr warning. |
+| `bloom_radius` | `ODYTTY_BLOOM_RADIUS` | Floating-point half-resolution blur radius, clamped to `0.5..=8.0` | `3.0` | Blur spread for the separable bloom pass. Smaller values keep glow tight around bright glyphs; larger values create a wider phosphor wash. Invalid values fall back to `3.0` with one stderr warning. |
 | `subpixel` | `ODYTTY_SUBPIXEL` | `off` (also `none`), `rgb`, `bgr` | `off` | Enables optional RGB/BGR subpixel text coverage when the GPU supports dual-source blending. Unsupported adapters fall back to grayscale text with one stderr notice; startup never fails because of this setting. |
 | `font` | `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | Host monospace probe list | Overrides the probed Linux monospace font. A missing or unparseable path no longer aborts startup: it logs one stderr notice and falls back to the probe list. |
 | `font_family` | `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | Host monospace probe list | Selects the regular face by family name or path. The match is validated as monospace; a proportional or unresolved value logs one stderr notice and falls back to the probe list, so a bad value never aborts startup. `font` / `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered and used for styled text when present, with regular-face fallback. |
@@ -103,7 +111,10 @@ color-resolution time (no atlas rebuild), so a change takes effect on the next
 frame. `focus_dim` likewise applies at color-resolution time (no atlas rebuild)
 and only while the window is unfocused, so a change takes effect on the next
 unfocused frame; a focus gain/loss forces a full geometry rebuild so the dim
-appears and clears immediately. `geometric_boxdraw` rebuilds the glyph atlas through the same font-change
+appears and clears immediately. `bloom`, `bloom_threshold`, `bloom_intensity`,
+and `bloom_radius` apply on the next frame; enabling bloom lazily initializes
+the post-process textures/pipelines when the adapter supports the HDR format,
+and disabling bloom returns to the direct scene path. `geometric_boxdraw` rebuilds the glyph atlas through the same font-change
 seam so a toggle re-rasterizes the covered codepoints geometrically (or restores
 their font glyphs) without a restart. `symbol_fallback` and `symbol_font` also
 rebuild the glyph atlas through that seam: toggling the fallback or changing the
@@ -245,6 +256,12 @@ Run with an Odyssey theme and ambient visual treatment:
 
 ```sh
 ODYTTY_THEME=odyssey ODYTTY_VISUAL=ambient cargo run -- --native
+```
+
+Run with conservative bloom on supported GPUs:
+
+```sh
+ODYTTY_BLOOM=on ODYTTY_BLOOM_INTENSITY=0.4 ODYTTY_BLOOM_RADIUS=3 cargo run -- --native
 ```
 
 Run with an explicit font:

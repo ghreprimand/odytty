@@ -39,6 +39,7 @@ fn show_config_output_formats_default_settings() {
 
     assert_contains_line(&output, "theme=plain");
     assert_contains_line(&output, "font_size=14");
+    assert_contains_line(&output, "bloom=off");
     assert_contains_line(&output, "keybinds=");
     assert_contains_line(&output, "synthetic_styles=on");
 

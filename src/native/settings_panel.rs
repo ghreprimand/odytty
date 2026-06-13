@@ -471,6 +471,9 @@ fn number_step(key: &str) -> f32 {
         "text_gamma" => 0.1,
         "stem_darken" => 0.05,
         "focus_dim" => 0.05,
+        "bloom_threshold" => 0.05,
+        "bloom_intensity" => 0.05,
+        "bloom_radius" => 0.5,
         _ => 1.0,
     }
 }

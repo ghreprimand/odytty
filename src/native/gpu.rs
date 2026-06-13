@@ -20,6 +20,7 @@ use super::options::{NativeError, NativeOptions};
 
 mod post;
 
+pub(super) use post::BloomOptions;
 use post::PostProcessResources;
 
 pub(super) fn theme_clear_color(theme: &Theme) -> wgpu::Color {
@@ -615,6 +616,7 @@ pub(super) struct GpuState {
     color_glyph_pipeline: wgpu::RenderPipeline,
     post_process_format: Option<wgpu::TextureFormat>,
     post_process: Option<PostProcessResources>,
+    bloom: BloomOptions,
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
     color_glyph_bind_group_layout: wgpu::BindGroupLayout,
@@ -712,6 +714,7 @@ impl GpuState {
         theme: Theme,
         visual: VisualEffect,
         stem_darken: f32,
+        bloom: BloomOptions,
     ) -> Result<Self, NativeError> {
         let effect = effect_params(visual);
         let text = text_params(options.text_gamma);
@@ -977,6 +980,7 @@ impl GpuState {
             color_glyph_pipeline,
             post_process_format,
             post_process: None,
+            bloom,
             bind_group_layout,
             bind_group,
             color_glyph_bind_group_layout,
@@ -1218,6 +1222,10 @@ impl GpuState {
         self.update_viewport();
     }
 
+    pub(super) fn set_bloom(&mut self, bloom: BloomOptions) {
+        self.bloom = bloom;
+    }
+
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot.
     ///
     /// Called on the UI thread after the pump thread signals new PTY output.
@@ -1419,7 +1427,7 @@ impl GpuState {
     }
 
     fn post_active(&self) -> bool {
-        false
+        self.bloom.enabled && self.post_process_format.is_some()
     }
 
     fn draw_scene<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
@@ -1487,33 +1495,6 @@ impl GpuState {
         self.draw_scene(&mut pass);
     }
 
-    fn encode_composite_pass<'pass>(
-        &'pass self,
-        encoder: &'pass mut wgpu::CommandEncoder,
-        swapchain_view: &'pass wgpu::TextureView,
-        post_process: &'pass PostProcessResources,
-    ) {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("odytty-composite-pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: swapchain_view,
-                resolve_target: None,
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        pass.set_pipeline(&post_process.pipeline);
-        pass.set_bind_group(0, &post_process.bind_group, &[]);
-        pass.draw(0..3, 0..1);
-    }
-
     /// Clear the surface to the active theme's clear color and present one frame.
     ///
     /// Returns a [`FrameOutcome`] so the event loop can decide whether to
@@ -1554,7 +1535,7 @@ impl GpuState {
                 }
                 let post_process = self.post_process.as_ref().expect("post process resources");
                 self.encode_scene_pass(&mut encoder, &post_process.offscreen_view);
-                self.encode_composite_pass(&mut encoder, &view, post_process);
+                post_process.encode_bloom(&mut encoder, &self.queue, &view, self.bloom);
             } else {
                 self.encode_scene_pass(&mut encoder, &view);
             }

@@ -95,6 +95,10 @@ fn setting_info_covers_every_field_with_descriptions() {
             "stem_darken",
             "min_contrast",
             "focus_dim",
+            "bloom",
+            "bloom_threshold",
+            "bloom_intensity",
+            "bloom_radius",
             "subpixel",
             "synthetic_styles",
             "geometric_boxdraw",
@@ -122,6 +126,22 @@ fn setting_info_covers_every_field_with_descriptions() {
         info.iter()
             .any(|row| row.key == "focus_dim" && row.range == Some("0.0..=1.0"))
     );
+    assert!(
+        info.iter()
+            .any(|row| row.key == "bloom" && row.options == ["on", "off"])
+    );
+    assert!(
+        info.iter()
+            .any(|row| row.key == "bloom_threshold" && row.range == Some("0.70..=1.25"))
+    );
+    assert!(
+        info.iter()
+            .any(|row| row.key == "bloom_intensity" && row.range == Some("0.0..=1.0"))
+    );
+    assert!(
+        info.iter()
+            .any(|row| row.key == "bloom_radius" && row.range == Some("0.5..=8.0 px"))
+    );
 }
 
 #[test]
@@ -130,6 +150,10 @@ fn setting_info_formats_current_values_for_display() {
         theme: Theme::ODYSSEY,
         font_family: Some("JetBrains Mono".to_owned()),
         font_size_px: 18.0,
+        bloom: true,
+        bloom_threshold: 0.9,
+        bloom_intensity: 0.35,
+        bloom_radius: 4.5,
         symbol_font: Some(PathBuf::from("/tmp/symbols.otf")),
         cursor_blink: CursorBlink::Off,
         osc52_read: true,
@@ -146,6 +170,10 @@ fn setting_info_formats_current_values_for_display() {
     assert_eq!(value("theme"), "odyssey");
     assert_eq!(value("font_family"), "JetBrains Mono");
     assert_eq!(value("font_size"), "18");
+    assert_eq!(value("bloom"), "on");
+    assert_eq!(value("bloom_threshold"), "0.9");
+    assert_eq!(value("bloom_intensity"), "0.35");
+    assert_eq!(value("bloom_radius"), "4.5");
     assert_eq!(value("symbol_font"), "/tmp/symbols.otf");
     assert_eq!(value("cursor_blink"), "off");
     assert_eq!(value("osc52_read"), "on");
@@ -224,6 +252,10 @@ fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
             font_size = 900
             text_gamma = 0.1
             stem_darken = 0.4
+            bloom = on
+            bloom_threshold = 9
+            bloom_intensity = 2
+            bloom_radius = 99
             keybinds = ctrl+shift+y=copy;alt+space=paste
             cursor_blink = steady
             native_autoclose_ms = 600
@@ -234,6 +266,10 @@ fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
     assert_eq!(settings.font_size_px, MAX_FONT_SIZE_PX);
     assert_eq!(settings.text_gamma, MIN_TEXT_GAMMA);
     assert_eq!(settings.stem_darken, 0.4);
+    assert!(settings.bloom);
+    assert_eq!(settings.bloom_threshold, MAX_BLOOM_THRESHOLD);
+    assert_eq!(settings.bloom_intensity, MAX_BLOOM_INTENSITY);
+    assert_eq!(settings.bloom_radius, MAX_BLOOM_RADIUS);
     assert_eq!(settings.key_bindings.len(), 2);
     assert_eq!(settings.cursor_blink, CursorBlink::Off);
     assert_eq!(settings.native_autoclose, Some(Duration::from_millis(600)));
@@ -642,6 +678,114 @@ fn focus_dim_round_trips_through_config_key_mapping() {
     assert_eq!(config_key_to_env("focus_dim"), Some(FOCUS_DIM_ENV));
     assert_eq!(config_key_to_env("unfocuseddim"), Some(FOCUS_DIM_ENV));
     assert_eq!(env_to_config_key(FOCUS_DIM_ENV), Some("focus_dim"));
+}
+
+#[test]
+fn bloom_defaults_to_off_with_theme_derived_threshold() {
+    let (settings, warnings) = settings_from([]);
+    assert!(!settings.bloom);
+    assert_eq!(
+        settings.bloom_threshold,
+        default_bloom_threshold_for_theme(Theme::PLAIN)
+    );
+    assert_eq!(settings.bloom_intensity, DEFAULT_BLOOM_INTENSITY);
+    assert_eq!(settings.bloom_radius, DEFAULT_BLOOM_RADIUS);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn bloom_parses_valid_values() {
+    let (settings, warnings) = settings_from([
+        (BLOOM_ENV, "on"),
+        (BLOOM_THRESHOLD_ENV, "0.95"),
+        (BLOOM_INTENSITY_ENV, "0.25"),
+        (BLOOM_RADIUS_ENV, "4.5"),
+    ]);
+
+    assert!(settings.bloom);
+    assert_eq!(settings.bloom_threshold, 0.95);
+    assert_eq!(settings.bloom_intensity, 0.25);
+    assert_eq!(settings.bloom_radius, 4.5);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn bloom_auto_threshold_tracks_theme_foreground() {
+    let (settings, warnings) =
+        settings_from([(THEME_ENV, "odyssey"), (BLOOM_THRESHOLD_ENV, "auto")]);
+
+    assert_eq!(
+        settings.bloom_threshold,
+        default_bloom_threshold_for_theme(Theme::ODYSSEY)
+    );
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_bloom_numbers_fall_back_with_warnings() {
+    let (settings, warnings) = settings_from([
+        (BLOOM_THRESHOLD_ENV, "bright"),
+        (BLOOM_INTENSITY_ENV, "strong"),
+        (BLOOM_RADIUS_ENV, "wide"),
+    ]);
+
+    assert_eq!(
+        settings.bloom_threshold,
+        default_bloom_threshold_for_theme(Theme::PLAIN)
+    );
+    assert_eq!(settings.bloom_intensity, DEFAULT_BLOOM_INTENSITY);
+    assert_eq!(settings.bloom_radius, DEFAULT_BLOOM_RADIUS);
+    assert_eq!(warnings.len(), 3);
+    assert!(warnings[0].contains(BLOOM_THRESHOLD_ENV));
+    assert!(warnings[1].contains(BLOOM_INTENSITY_ENV));
+    assert!(warnings[2].contains(BLOOM_RADIUS_ENV));
+}
+
+#[test]
+fn bloom_values_clamp_to_supported_ranges() {
+    let (small, small_warnings) = settings_from([
+        (BLOOM_THRESHOLD_ENV, "0.1"),
+        (BLOOM_INTENSITY_ENV, "-1"),
+        (BLOOM_RADIUS_ENV, "0.1"),
+    ]);
+    let (large, large_warnings) = settings_from([
+        (BLOOM_THRESHOLD_ENV, "9"),
+        (BLOOM_INTENSITY_ENV, "9"),
+        (BLOOM_RADIUS_ENV, "99"),
+    ]);
+
+    assert_eq!(small.bloom_threshold, MIN_BLOOM_THRESHOLD);
+    assert_eq!(small.bloom_intensity, MIN_BLOOM_INTENSITY);
+    assert_eq!(small.bloom_radius, MIN_BLOOM_RADIUS);
+    assert_eq!(large.bloom_threshold, MAX_BLOOM_THRESHOLD);
+    assert_eq!(large.bloom_intensity, MAX_BLOOM_INTENSITY);
+    assert_eq!(large.bloom_radius, MAX_BLOOM_RADIUS);
+    assert!(small_warnings.is_empty());
+    assert!(large_warnings.is_empty());
+}
+
+#[test]
+fn bloom_round_trips_through_config_key_mapping() {
+    assert_eq!(config_key_to_env("bloom"), Some(BLOOM_ENV));
+    assert_eq!(
+        config_key_to_env("bloom_threshold"),
+        Some(BLOOM_THRESHOLD_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("bloom_intensity"),
+        Some(BLOOM_INTENSITY_ENV)
+    );
+    assert_eq!(config_key_to_env("bloom_radius"), Some(BLOOM_RADIUS_ENV));
+    assert_eq!(env_to_config_key(BLOOM_ENV), Some("bloom"));
+    assert_eq!(
+        env_to_config_key(BLOOM_THRESHOLD_ENV),
+        Some("bloom_threshold")
+    );
+    assert_eq!(
+        env_to_config_key(BLOOM_INTENSITY_ENV),
+        Some("bloom_intensity")
+    );
+    assert_eq!(env_to_config_key(BLOOM_RADIUS_ENV), Some("bloom_radius"));
 }
 
 #[test]

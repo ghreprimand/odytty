@@ -35,7 +35,7 @@ use super::clipboard::{
     NativeClipboard, read_clipboard_selection, selected_clipboard_text, write_clipboard_selection,
     write_paste_text,
 };
-use super::gpu::{FrameOutcome, GpuState};
+use super::gpu::{BloomOptions, FrameOutcome, GpuState};
 use super::options::{NativeError, NativeOptions};
 use super::overlay::{OverlayOutcome, OverlayUi, apply_overlay, overlay_input_from_winit};
 use super::pty::{PtyWriter, UserEvent};
@@ -896,6 +896,7 @@ impl App {
             gpu.set_theme(self.theme);
             gpu.set_visual(self.visual);
             gpu.set_text_gamma(self.settings.text_gamma);
+            gpu.set_bloom(bloom_options(&self.settings));
         }
 
         if text_rebuilt {
@@ -1040,6 +1041,7 @@ impl ApplicationHandler<UserEvent> for App {
             self.theme,
             self.visual,
             self.settings.stem_darken,
+            bloom_options(&self.settings),
         ) {
             Ok(gpu) => {
                 // Push live cell pixel metrics to the terminal core so graphics
@@ -1507,6 +1509,15 @@ fn floor_fg_over(fg: (u8, u8, u8), bg: [u8; 3], ratio: f32) -> [u8; 3] {
         crate::color::srgb_to_linear(bg[2]),
     ];
     linear_to_srgb_tuple(crate::color::enforce_min_contrast(fg_lin, bg_lin, ratio))
+}
+
+fn bloom_options(settings: &Settings) -> BloomOptions {
+    BloomOptions {
+        enabled: settings.bloom,
+        threshold: settings.bloom_threshold,
+        intensity: settings.bloom_intensity,
+        radius: settings.bloom_radius,
+    }
 }
 
 #[cfg(test)]
