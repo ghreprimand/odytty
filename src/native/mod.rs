@@ -109,6 +109,11 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // Publish the RV2 geometric box-drawing switch before the atlas is built;
     // the reload path republishes it and the renderer rebuilds when it flips.
     crate::settings::set_geometric_boxdraw_enabled(settings.geometric_boxdraw);
+    // Publish the RV6 symbol fallback knobs before the atlas is built; the
+    // reload path republishes them and the renderer re-resolves/rebuilds when
+    // either value changes.
+    crate::settings::set_symbol_fallback_enabled(settings.symbol_fallback);
+    crate::settings::set_symbol_font_path(settings.symbol_font.clone());
     // Shared terminal model, sized to the initial grid. The pump thread writes
     // to it; the UI thread snapshots from it.
     let mut model = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);

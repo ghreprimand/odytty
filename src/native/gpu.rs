@@ -339,29 +339,44 @@ fn load_optional_style_font(path: &std::path::Path) -> Option<FontVec> {
     text::load_font_at(path).ok()
 }
 
-/// Enable switch for the RV6 symbol / Nerd-font fallback. Read once at GPU
-/// construction; off by default so the missing-glyph path is unchanged.
-///
-/// This is an interim env gate because the first-class settings knob would have
-/// to land in `settings.rs`, which is held by another lane this round. A
-/// follow-up promotes it to a `symbol_fallback` setting with overlay/config/
-/// introspection support.
-const SYMBOL_FALLBACK_ENV: &str = "ODYTTY_SYMBOL_FALLBACK";
-
-/// Resolve the symbol / Nerd-font fallback face when [`SYMBOL_FALLBACK_ENV`] is
-/// enabled and a font is available, else `None`. A missing font with the switch
-/// on is not an error — the renderer silently keeps the hollow-box behavior.
-fn resolve_symbol_fallback() -> Option<Arc<FontVec>> {
-    if !env_flag_enabled(SYMBOL_FALLBACK_ENV) {
-        return None;
-    }
-    text::resolve_symbol_font().map(Arc::new)
+/// Effective RV6 symbol / Nerd-font fallback switch. The legacy env var remains
+/// an override for native smoke setups; otherwise the first-class setting drives
+/// the renderer.
+fn effective_symbol_fallback_enabled() -> bool {
+    env_flag_override(crate::settings::SYMBOL_FALLBACK_ENV)
+        .unwrap_or_else(crate::settings::symbol_fallback_enabled)
 }
 
-/// Interpret an environment variable as a boolean enable flag: `1`/`true`/`on`/
-/// `yes` (case-insensitive) enable; unset or anything else is off.
-fn env_flag_enabled(name: &str) -> bool {
-    std::env::var(name).is_ok_and(|v| {
+/// Effective explicit symbol font path. The legacy env path wins when present;
+/// otherwise the first-class setting may name a font file. `None` means
+/// auto-discover a suitable symbol face.
+fn effective_symbol_font_path() -> Option<PathBuf> {
+    std::env::var_os(crate::settings::SYMBOL_FONT_ENV)
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(crate::settings::symbol_font_path)
+}
+
+/// Resolve the symbol / Nerd-font fallback face when enabled and a font is
+/// available, else `None`. A missing font with the switch on is not fatal — the
+/// renderer keeps the hollow-box behavior.
+fn resolve_symbol_fallback(enabled: bool, explicit_path: Option<&Path>) -> Option<Arc<FontVec>> {
+    if !enabled {
+        return None;
+    }
+    if let Some(path) = explicit_path {
+        match text::load_font_at(path) {
+            Ok(font) => return Some(Arc::new(font)),
+            Err(err) => {
+                eprintln!("odytty: {err}; falling back to symbol font search");
+            }
+        }
+    }
+    text::resolve_symbol_font_in(&text::font_search_dirs()).map(Arc::new)
+}
+
+fn env_flag_override(name: &str) -> Option<bool> {
+    std::env::var(name).ok().map(|v| {
         matches!(
             v.trim().to_ascii_lowercase().as_str(),
             "1" | "true" | "on" | "yes"
@@ -658,12 +673,16 @@ pub(super) struct GpuState {
     /// rebuild the atlas; geometry slots are atlas-owned, so flipping the setting
     /// must not wait for unrelated font changes.
     geometric_enabled: bool,
+    /// Last-applied effective symbol / Nerd-font fallback switch. The setting is
+    /// published process-wide and the legacy env var may override it; retaining
+    /// the effective value lets live toggles rebuild the atlas.
+    symbol_fallback_enabled: bool,
+    /// Last-applied effective explicit fallback path, after env override
+    /// precedence. A change requires re-resolving and rebuilding the atlas.
+    symbol_font_path: Option<PathBuf>,
     /// Symbol / Nerd-font fallback face for PUA prompt icons (RV6), resolved
-    /// once at construction when [`SYMBOL_FALLBACK_ENV`] is enabled and a font
-    /// is found; `None` otherwise. Retained so [`Self::rebuild_atlas`] can
-    /// reinstall it on the fresh atlas (fallback glyphs are baked into slots, so
-    /// a rebuild must re-resolve them). The on/off gate is an env var this round
-    /// — promoting it to a first-class `symbol_fallback` setting is a follow-up.
+    /// when the effective switch is enabled and a font is available; `None`
+    /// otherwise. Reinstalled whenever the glyph atlas is rebuilt.
     symbol_fallback: Option<Arc<FontVec>>,
     font_path: Option<PathBuf>,
     font_family: String,
@@ -760,7 +779,10 @@ impl GpuState {
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
         let geometric_enabled = crate::settings::geometric_boxdraw_enabled();
         atlas.set_geometric_boxdraw(geometric_enabled);
-        let symbol_fallback = resolve_symbol_fallback();
+        let symbol_fallback_enabled = effective_symbol_fallback_enabled();
+        let symbol_font_path = effective_symbol_font_path();
+        let symbol_fallback =
+            resolve_symbol_fallback(symbol_fallback_enabled, symbol_font_path.as_deref());
         atlas.set_fallback_font(symbol_fallback.clone());
         ensure_snapshot_glyphs(&mut atlas, &fonts, initial_snapshot);
         let atlas_texture = create_atlas_texture(&device, &queue, &atlas);
@@ -973,6 +995,8 @@ impl GpuState {
             stem_darken,
             synthetic_enabled,
             geometric_enabled,
+            symbol_fallback_enabled,
+            symbol_font_path,
             symbol_fallback,
             font_path: options.font_path.clone(),
             font_family: options.font_family.clone(),
@@ -1103,12 +1127,17 @@ impl GpuState {
         let synthetic_changed = synthetic_now != self.synthetic_enabled;
         let geometric_now = crate::settings::geometric_boxdraw_enabled();
         let geometric_changed = geometric_now != self.geometric_enabled;
+        let symbol_fallback_now = effective_symbol_fallback_enabled();
+        let symbol_font_path_now = effective_symbol_font_path();
+        let symbol_fallback_changed = symbol_fallback_now != self.symbol_fallback_enabled
+            || symbol_font_path_now != self.symbol_font_path;
         if !font_changed
             && !subpixel_changed
             && !font_size_changed
             && !stem_darken_changed
             && !synthetic_changed
             && !geometric_changed
+            && !symbol_fallback_changed
         {
             return Ok(false);
         }
@@ -1148,6 +1177,14 @@ impl GpuState {
         }
         if geometric_changed {
             self.geometric_enabled = geometric_now;
+        }
+        if symbol_fallback_changed {
+            self.symbol_fallback_enabled = symbol_fallback_now;
+            self.symbol_font_path = symbol_font_path_now;
+            self.symbol_fallback = resolve_symbol_fallback(
+                self.symbol_fallback_enabled,
+                self.symbol_font_path.as_deref(),
+            );
         }
         atlas::set_stem_darken(stem_darken);
         self.rebuild_atlas();

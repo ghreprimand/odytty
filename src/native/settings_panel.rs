@@ -610,6 +610,57 @@ mod tests {
     }
 
     #[test]
+    fn symbol_fallback_rows_are_documented_and_editable() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "symbol_fallback");
+        let lines = panel.visible_lines(96, 80);
+        let text = lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("Symbol fallback: off"));
+        assert!(text.contains(crate::settings::SYMBOL_FALLBACK_ENV));
+        assert!(text.contains("missing-glyph path"));
+
+        let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Activate)
+        else {
+            panic!("expected bool toggle to apply");
+        };
+        assert!(settings.symbol_fallback);
+        assert_eq!(panel.render_signature().changed_count, 1);
+
+        select_key(&mut panel, "symbol_font");
+        let lines = panel.visible_lines(96, 80);
+        let text = lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("Symbol font: auto"));
+        assert!(text.contains(crate::settings::SYMBOL_FONT_ENV));
+        assert!(text.contains("automatic symbol-font search"));
+
+        let SettingsPanelOutcome::Consumed = panel.handle_input(OverlayInput::Activate) else {
+            panic!("expected path edit to start");
+        };
+        clear_edit_buffer(&mut panel);
+        for ch in "/tmp/Symbols Nerd Font.otf".chars() {
+            panel.handle_input(OverlayInput::Char(ch));
+        }
+        let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Activate)
+        else {
+            panic!("expected path edit to apply");
+        };
+        assert_eq!(
+            settings.symbol_font,
+            Some(std::path::PathBuf::from("/tmp/Symbols Nerd Font.otf"))
+        );
+    }
+
+    #[test]
     fn save_reports_changes_and_success_clears_diff() {
         let mut panel = SettingsPanel::new(&Settings::default());
         select_key(&mut panel, "visual");

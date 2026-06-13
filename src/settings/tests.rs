@@ -97,6 +97,8 @@ fn setting_info_covers_every_field_with_descriptions() {
             "subpixel",
             "synthetic_styles",
             "geometric_boxdraw",
+            "symbol_fallback",
+            "symbol_font",
             "themed_ui_roles",
             "cursor_style",
             "cursor_blink",
@@ -123,6 +125,7 @@ fn setting_info_formats_current_values_for_display() {
         theme: Theme::ODYSSEY,
         font_family: Some("JetBrains Mono".to_owned()),
         font_size_px: 18.0,
+        symbol_font: Some(PathBuf::from("/tmp/symbols.otf")),
         cursor_blink: CursorBlink::Off,
         osc52_read: true,
         ..Settings::default()
@@ -138,6 +141,7 @@ fn setting_info_formats_current_values_for_display() {
     assert_eq!(value("theme"), "odyssey");
     assert_eq!(value("font_family"), "JetBrains Mono");
     assert_eq!(value("font_size"), "18");
+    assert_eq!(value("symbol_font"), "/tmp/symbols.otf");
     assert_eq!(value("cursor_blink"), "off");
     assert_eq!(value("osc52_read"), "on");
 }
@@ -885,6 +889,86 @@ fn garbage_geometric_boxdraw_falls_back_off_with_warning() {
     assert!(!settings.geometric_boxdraw);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(GEOMETRIC_BOXDRAW_ENV));
+}
+
+#[test]
+fn symbol_fallback_defaults_off_and_parses_on() {
+    let (settings, warnings) = settings_from([]);
+    assert!(!settings.symbol_fallback);
+    assert!(settings.symbol_font.is_none());
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from([(SYMBOL_FALLBACK_ENV, "on")]);
+    assert!(settings.symbol_fallback);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from_config_and_env("symbol_fallback = true", []);
+    assert!(settings.symbol_fallback);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from_config_and_env("nerdfont = yes", []);
+    assert!(settings.symbol_fallback);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_symbol_fallback_falls_back_off_with_warning() {
+    let (settings, warnings) = settings_from([(SYMBOL_FALLBACK_ENV, "sometimes")]);
+    assert!(!settings.symbol_fallback);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(SYMBOL_FALLBACK_ENV));
+}
+
+#[test]
+fn symbol_font_parses_path_and_auto_clears_it() {
+    let (settings, warnings) = settings_from([(SYMBOL_FONT_ENV, "/tmp/Symbols Nerd Font.otf")]);
+    assert_eq!(
+        settings.symbol_font,
+        Some(PathBuf::from("/tmp/Symbols Nerd Font.otf"))
+    );
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from_config_and_env("symbol_font = auto", []);
+    assert!(settings.symbol_font.is_none());
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) =
+        settings_from_config_and_env("symbolfontpath = /tmp/symbols.ttf", []);
+    assert_eq!(
+        settings.symbol_font,
+        Some(PathBuf::from("/tmp/symbols.ttf"))
+    );
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn symbol_fallback_round_trips_through_config_key_mapping() {
+    assert_eq!(
+        config_key_to_env("symbol_fallback"),
+        Some(SYMBOL_FALLBACK_ENV)
+    );
+    assert_eq!(config_key_to_env("nerdfont"), Some(SYMBOL_FALLBACK_ENV));
+    assert_eq!(
+        env_to_config_key(SYMBOL_FALLBACK_ENV),
+        Some("symbol_fallback")
+    );
+    assert_eq!(config_key_to_env("symbol_font"), Some(SYMBOL_FONT_ENV));
+    assert_eq!(config_key_to_env("nerdfontpath"), Some(SYMBOL_FONT_ENV));
+    assert_eq!(env_to_config_key(SYMBOL_FONT_ENV), Some("symbol_font"));
+
+    let settings = Settings {
+        symbol_fallback: true,
+        symbol_font: Some(PathBuf::from("/tmp/symbols.otf")),
+        ..Settings::default()
+    };
+    assert_eq!(
+        settings.to_edit_values().get(SYMBOL_FALLBACK_ENV),
+        Some(&"on".to_owned())
+    );
+    assert_eq!(
+        settings.to_edit_values().get(SYMBOL_FONT_ENV),
+        Some(&"/tmp/symbols.otf".to_owned())
+    );
 }
 
 #[test]

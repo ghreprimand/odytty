@@ -46,6 +46,8 @@ pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
 pub const OSC52_READ_ENV: &str = "ODYTTY_OSC52_READ";
 pub const SYNTHETIC_STYLES_ENV: &str = "ODYTTY_SYNTHETIC_STYLES";
 pub const GEOMETRIC_BOXDRAW_ENV: &str = "ODYTTY_GEOMETRIC_BOXDRAW";
+pub const SYMBOL_FALLBACK_ENV: &str = "ODYTTY_SYMBOL_FALLBACK";
+pub const SYMBOL_FONT_ENV: &str = "ODYTTY_SYMBOL_FONT";
 pub const THEMED_UI_ROLES_ENV: &str = "ODYTTY_THEMED_UI_ROLES";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
@@ -70,6 +72,8 @@ const SETTING_ENV_KEYS: &[&str] = &[
     OSC52_READ_ENV,
     SYNTHETIC_STYLES_ENV,
     GEOMETRIC_BOXDRAW_ENV,
+    SYMBOL_FALLBACK_ENV,
+    SYMBOL_FONT_ENV,
     THEMED_UI_ROLES_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
@@ -117,6 +121,39 @@ pub fn set_geometric_boxdraw_enabled(enabled: bool) {
 /// codepoints.
 pub fn geometric_boxdraw_enabled() -> bool {
     GEOMETRIC_BOXDRAW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Runtime flag mirroring [`Settings::symbol_fallback`], published
+/// process-wide so the GPU renderer can rebuild the glyph atlas when live
+/// settings enable or disable the RV6 symbol / Nerd-font fallback. Defaults to
+/// `false`, preserving the missing-glyph path unless explicitly enabled.
+static SYMBOL_FALLBACK_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Optional explicit symbol / Nerd-font path mirroring [`Settings::symbol_font`].
+/// `None` means the renderer falls back to its host font search.
+static SYMBOL_FONT_PATH: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
+pub fn set_symbol_fallback_enabled(enabled: bool) {
+    SYMBOL_FALLBACK_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn symbol_fallback_enabled() -> bool {
+    SYMBOL_FALLBACK_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_symbol_font_path(path: Option<PathBuf>) {
+    let mut slot = SYMBOL_FONT_PATH
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *slot = path;
+}
+
+pub fn symbol_font_path() -> Option<PathBuf> {
+    SYMBOL_FONT_PATH
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
 }
 
 /// Default cursor blink policy (`ODYTTY_CURSOR_BLINK`). This is the host default
@@ -216,6 +253,18 @@ pub const GEOMETRIC_BOXDRAW_DESC: &str = "Geometric box-drawing: renders line, b
      cell-aligned geometry instead of the font, so TUI borders, progress bars \
      and powerline prompts are pixel-perfect and seamless at any size. On or \
      off; off (default) uses the font glyph and is identical to before.";
+
+/// Human-readable help for the symbol / Nerd-font fallback enable switch
+/// (RV6), shown in the in-app settings panel.
+pub const SYMBOL_FALLBACK_DESC: &str = "Symbol fallback: enables a secondary symbol/Nerd-font face for private-use \
+     prompt icons when the main font lacks a glyph. Off by default and \
+     identical to the plain missing-glyph path. Environment override wins.";
+
+/// Human-readable help for the optional explicit symbol / Nerd-font path
+/// (RV6), shown in the in-app settings panel.
+pub const SYMBOL_FONT_DESC: &str = "Symbol font: optional path to a .ttf/.otf symbol or Nerd Font used when \
+     symbol_fallback is on. Empty uses OdyTTY's automatic symbol-font search. \
+     ODYTTY_SYMBOL_FONT wins over this setting.";
 
 /// Terminal-local actions that can be rebound without changing PTY input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -376,6 +425,13 @@ pub struct Settings {
     /// from the font (RV2). Off by default; the font path is byte-identical to
     /// before. Purely presentational — never affects cell semantics.
     pub geometric_boxdraw: bool,
+    /// Whether to install a symbol / Nerd-font fallback face for private-use
+    /// prompt icons (RV6). Off by default so the plain missing-glyph path is
+    /// byte-identical unless explicitly enabled.
+    pub symbol_fallback: bool,
+    /// Optional explicit symbol / Nerd-font file path. `None` means auto-resolve
+    /// a suitable symbol face when [`Settings::symbol_fallback`] is enabled.
+    pub symbol_font: Option<PathBuf>,
     /// Whether semantic theme roles drive native cursor, selection, and search
     /// highlight colors. On by default by operator decision; turning it off
     /// restores the historical foreground cursor, inverse selection, and
@@ -402,6 +458,8 @@ impl Default for Settings {
             osc52_read: false,
             synthetic_styles: true,
             geometric_boxdraw: false,
+            symbol_fallback: false,
+            symbol_font: None,
             themed_ui_roles: true,
             native_autoclose: None,
         }
@@ -558,6 +616,34 @@ impl Settings {
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Rendering",
+                key: "symbol_fallback",
+                env: SYMBOL_FALLBACK_ENV,
+                name: "Symbol fallback",
+                value: bool_display(self.symbol_fallback).to_owned(),
+                description: SYMBOL_FALLBACK_DESC,
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Rendering",
+                key: "symbol_font",
+                env: SYMBOL_FONT_ENV,
+                name: "Symbol font",
+                value: self
+                    .symbol_font
+                    .as_ref()
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "auto".to_owned()),
+                description: SYMBOL_FONT_DESC,
+                kind: SettingKind::Path,
+                range: None,
+                options: &[],
                 reloadable: true,
             },
             SettingInfo {
@@ -814,6 +900,13 @@ impl Settings {
             false,
             &mut warn,
         );
+        let symbol_fallback = parse_bool_setting(
+            get(SYMBOL_FALLBACK_ENV).as_deref(),
+            SYMBOL_FALLBACK_ENV,
+            false,
+            &mut warn,
+        );
+        let symbol_font = get(SYMBOL_FONT_ENV).and_then(parse_symbol_font_path);
         let themed_ui_roles = parse_bool_setting(
             get(THEMED_UI_ROLES_ENV).as_deref(),
             THEMED_UI_ROLES_ENV,
@@ -838,6 +931,8 @@ impl Settings {
             osc52_read,
             synthetic_styles,
             geometric_boxdraw,
+            symbol_fallback,
+            symbol_font,
             themed_ui_roles,
             native_autoclose,
         }
@@ -875,6 +970,13 @@ impl Settings {
             GEOMETRIC_BOXDRAW_ENV,
             bool_display(self.geometric_boxdraw).to_owned(),
         );
+        values.insert(
+            SYMBOL_FALLBACK_ENV,
+            bool_display(self.symbol_fallback).to_owned(),
+        );
+        if let Some(path) = self.symbol_font.as_ref() {
+            values.insert(SYMBOL_FONT_ENV, path.display().to_string());
+        }
         values.insert(
             THEMED_UI_ROLES_ENV,
             bool_display(self.themed_ui_roles).to_owned(),
@@ -982,7 +1084,11 @@ impl SettingsEditOverlay {
 }
 
 fn clears_setting(key: &str, value: &str) -> bool {
-    value.is_empty() && matches!(key, "font" | "font_family" | "native_autoclose_ms")
+    (value.is_empty() || (key == "symbol_font" && value.eq_ignore_ascii_case("auto")))
+        && matches!(
+            key,
+            "font" | "font_family" | "symbol_font" | "native_autoclose_ms"
+        )
 }
 
 fn setting_key_for_env(env: &str) -> Option<&'static str> {
@@ -995,6 +1101,23 @@ fn key_bindings_edit_value(bindings: &[KeyBindingOverride]) -> String {
         .map(format_key_binding)
         .collect::<Vec<_>>()
         .join(";")
+}
+
+fn parse_symbol_font_path(raw: OsString) -> Option<PathBuf> {
+    if raw.is_empty() {
+        return None;
+    }
+    match raw.into_string() {
+        Ok(value) => {
+            let trimmed = value.trim();
+            if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("auto") {
+                None
+            } else {
+                Some(PathBuf::from(trimmed))
+            }
+        }
+        Err(value) => Some(PathBuf::from(value)),
+    }
 }
 
 pub fn config_file_path() -> Option<PathBuf> {
