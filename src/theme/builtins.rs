@@ -16,7 +16,11 @@
 //!
 //! Odyssey identity: `plain` (the baseline; palette byte-identical to the
 //! historical xterm table), `odyssey`, `odyssey-noir`, `odyssey-light` (light),
-//! `odyssey-aurora` (high-contrast). Community palettes (published values):
+//! `odyssey-aurora` (high-contrast), `odyssey-deepspace`, `odyssey-nebula`,
+//! `odyssey-solar`, `odyssey-abyss`, `odyssey-ember`, `odyssey-glacier`,
+//! `odyssey-meridian`, `odyssey-voyager`, `odyssey-pulsar`,
+//! `odyssey-dawn-light` (light), `odyssey-sandstone-light` (light), and
+//! `odyssey-graphite`. Community palettes (published values):
 //! `solarized-dark`, `solarized-light`, `gruvbox-dark`, `nord`, `dracula`,
 //! `tokyo-night`, `catppuccin-mocha`, `catppuccin-latte` (light), `one-dark`,
 //! `monokai`.
@@ -40,6 +44,54 @@ const REGISTRY: &[(&str, &str)] = &[
     (
         "odyssey-aurora",
         include_str!("builtins/odyssey-aurora.theme"),
+    ),
+    (
+        "odyssey-deepspace",
+        include_str!("builtins/odyssey-deepspace.theme"),
+    ),
+    (
+        "odyssey-nebula",
+        include_str!("builtins/odyssey-nebula.theme"),
+    ),
+    (
+        "odyssey-solar",
+        include_str!("builtins/odyssey-solar.theme"),
+    ),
+    (
+        "odyssey-abyss",
+        include_str!("builtins/odyssey-abyss.theme"),
+    ),
+    (
+        "odyssey-ember",
+        include_str!("builtins/odyssey-ember.theme"),
+    ),
+    (
+        "odyssey-glacier",
+        include_str!("builtins/odyssey-glacier.theme"),
+    ),
+    (
+        "odyssey-meridian",
+        include_str!("builtins/odyssey-meridian.theme"),
+    ),
+    (
+        "odyssey-voyager",
+        include_str!("builtins/odyssey-voyager.theme"),
+    ),
+    (
+        "odyssey-pulsar",
+        include_str!("builtins/odyssey-pulsar.theme"),
+    ),
+    (
+        "odyssey-dawn-light",
+        include_str!("builtins/odyssey-dawn-light.theme"),
+    ),
+    (
+        "odyssey-sandstone-light",
+        include_str!("builtins/odyssey-sandstone-light.theme"),
+    ),
+    (
+        "odyssey-graphite",
+        include_str!("builtins/odyssey-graphite.theme"),
     ),
     (
         "solarized-dark",
@@ -116,7 +168,7 @@ mod tests {
     #[test]
     fn library_has_the_full_roster() {
         assert_eq!(all().len(), REGISTRY.len());
-        assert_eq!(all().len(), 15, "roster size changed — update docs + this");
+        assert_eq!(all().len(), 27, "roster size changed — update docs + this");
     }
 
     #[test]

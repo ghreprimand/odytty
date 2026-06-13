@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-ember
+appearance = dark
+
+foreground = #f0d8cd
+background = #160b0a
+clear = #0e0706
+
+cursor = #e06a3a
+selection = #3a1d18
+search = #4a3210
+border = #2a1612
+inactive = #8a6258
+
+color0 = #261413
+color1 = #ec5544
+color2 = #b89a5a
+color3 = #e8a04a
+color4 = #e06a3a
+color5 = #d05a6a
+color6 = #cf8a6a
+color7 = #d8c0b8
+color8 = #3e2420
+color9 = #ff7a5c
+color10 = #d4ba72
+color11 = #ffc066
+color12 = #ff8a55
+color13 = #e87a8a
+color14 = #eba888
+color15 = #fbeae2

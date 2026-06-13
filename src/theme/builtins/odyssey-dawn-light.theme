@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-dawn-light
+appearance = light
+
+foreground = #2a2438
+background = #f4f0f8
+clear = #faf7fc
+
+cursor = #3a6fc0
+selection = #e0d8ec
+search = #f4e6a8
+border = #d4cce0
+inactive = #8a83a0
+
+color0 = #2a2438
+color1 = #c0455c
+color2 = #3d8a52
+color3 = #9a6a16
+color4 = #3a6fc0
+color5 = #8a4fc0
+color6 = #1f8fa0
+color7 = #5a5470
+color8 = #46405a
+color9 = #d44a64
+color10 = #469a5e
+color11 = #b07d1a
+color12 = #4a7fd0
+color13 = #9a5fd0
+color14 = #2a9fb0
+color15 = #0c1020

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-voyager
+appearance = dark
+
+foreground = #d6e2dc
+background = #0a1512
+clear = #060e0b
+
+cursor = #5cc888
+selection = #16302a
+search = #3a3e18
+border = #162822
+inactive = #4e6e60
+
+color0 = #122019
+color1 = #e0686a
+color2 = #5cc888
+color3 = #d4bc6a
+color4 = #56b0c0
+color5 = #8c9ad8
+color6 = #5ec8b0
+color7 = #b6c6be
+color8 = #1f3429
+color9 = #ff869a
+color10 = #84e0a8
+color11 = #f0dc92
+color12 = #82d4e0
+color13 = #aeb8ec
+color14 = #88e0c8
+color15 = #eef6f0

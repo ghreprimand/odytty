@@ -68,6 +68,18 @@ path — so the file format is exercised by the library on every startup.
 | `odyssey-noir` | dark | Odyssey identity (deep, low-key) |
 | `odyssey-light` | light | Odyssey identity (light) |
 | `odyssey-aurora` | dark | Odyssey identity (high-contrast) |
+| `odyssey-deepspace` | dark | Odyssey identity (near-black interstellar void with cold starlight accents) |
+| `odyssey-nebula` | dark | Odyssey identity (magenta and violet emission clouds with teal stellar accents) |
+| `odyssey-solar` | dark | Odyssey identity (warm amber solar flare over a dark sunspot field) |
+| `odyssey-abyss` | dark | Odyssey identity (deep teal hadal voyage with bioluminescent cyan) |
+| `odyssey-ember` | dark | Odyssey identity (banked coals and forge orange against charcoal) |
+| `odyssey-glacier` | dark | Odyssey identity (polar blue ice with cold high-legibility contrast) |
+| `odyssey-meridian` | dark | Odyssey identity (warm parchment text on indigo twilight) |
+| `odyssey-voyager` | dark | Odyssey identity (muted expedition greens with logbook warmth) |
+| `odyssey-pulsar` | dark | Odyssey identity (neutron-star neon over near-black) |
+| `odyssey-dawn-light` | light | Odyssey identity (violet-white morning companion to deep space) |
+| `odyssey-sandstone-light` | light | Odyssey identity (sunlit dune and planetary-surface warmth) |
+| `odyssey-graphite` | dark | Odyssey identity (minimal neutral graphite focus mode) |
 | `solarized-dark` | dark | Community |
 | `solarized-light` | light | Community |
 | `gruvbox-dark` | dark | Community |

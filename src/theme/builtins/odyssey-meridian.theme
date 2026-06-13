@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-meridian
+appearance = dark
+
+foreground = #e6e0d0
+background = #121016
+clear = #0b0a0e
+
+cursor = #d4b85a
+selection = #2a2636
+search = #473c18
+border = #221f2a
+inactive = #6a6478
+
+color0 = #201d28
+color1 = #d86a6a
+color2 = #8ab86a
+color3 = #d4b85a
+color4 = #6a9ad0
+color5 = #a07ac8
+color6 = #5ab8b0
+color7 = #cac4b4
+color8 = #34303e
+color9 = #f08a8a
+color10 = #a8d488
+color11 = #ecd47a
+color12 = #88b8e8
+color13 = #bf9ce0
+color14 = #7ad4cc
+color15 = #f4eede

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-sandstone-light
+appearance = light
+
+foreground = #3a3026
+background = #f7f1e6
+clear = #fcf7ee
+
+cursor = #b07818
+selection = #ece2d0
+search = #f2e4a4
+border = #ddd2bf
+inactive = #8a7d68
+
+color0 = #3a3026
+color1 = #bf4f3a
+color2 = #5f8330
+color3 = #b07818
+color4 = #3a7a9a
+color5 = #9a5a8a
+color6 = #2f8a7a
+color7 = #5e5446
+color8 = #564a3a
+color9 = #d4634a
+color10 = #6f9a3c
+color11 = #cf9024
+color12 = #4a8fb0
+color13 = #b06aa0
+color14 = #3aa090
+color15 = #0e0a06

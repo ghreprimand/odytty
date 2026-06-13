@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-glacier
+appearance = dark
+
+foreground = #dce9f2
+background = #0a141e
+clear = #060d14
+
+cursor = #5aa8e0
+selection = #16283a
+search = #3c3a18
+border = #1a2838
+inactive = #506880
+
+color0 = #14202e
+color1 = #e0687a
+color2 = #6ac8b0
+color3 = #d8c87a
+color4 = #5aa8e0
+color5 = #92a8e0
+color6 = #6cc8e0
+color7 = #bcccdc
+color8 = #243446
+color9 = #ff869a
+color10 = #8fe3d0
+color11 = #f0dea0
+color12 = #7fc0f0
+color13 = #b2c4f0
+color14 = #90dcf0
+color15 = #f0f6fc

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-nebula
+appearance = dark
+
+foreground = #ecdcf4
+background = #150a22
+clear = #0e0618
+
+cursor = #d07af0
+selection = #2e1a44
+search = #4a3a18
+border = #26163a
+inactive = #6e5a88
+
+color0 = #241433
+color1 = #ff5d8f
+color2 = #5ad4c0
+color3 = #f0b85a
+color4 = #9a7af0
+color5 = #d07af0
+color6 = #6fd0e8
+color7 = #cdbcd8
+color8 = #3d2a52
+color9 = #ff85ad
+color10 = #8fe6d6
+color11 = #ffce85
+color12 = #b89cff
+color13 = #e09cff
+color14 = #90e0f0
+color15 = #f6ecfa

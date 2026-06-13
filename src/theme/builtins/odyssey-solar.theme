@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-solar
+appearance = dark
+
+foreground = #f4e6cd
+background = #16100a
+clear = #0e0a06
+
+cursor = #f0a83a
+selection = #3a2a16
+search = #4a3812
+border = #2a1d10
+inactive = #8a7355
+
+color0 = #26190f
+color1 = #ec6a4a
+color2 = #c8b35a
+color3 = #f0a83a
+color4 = #e0853a
+color5 = #d06a8a
+color6 = #6ac0a0
+color7 = #d8c8b0
+color8 = #43321f
+color9 = #ff8a64
+color10 = #e0cd72
+color11 = #ffc255
+color12 = #ff9f55
+color13 = #ec8aaa
+color14 = #88dcc0
+color15 = #fef2dc

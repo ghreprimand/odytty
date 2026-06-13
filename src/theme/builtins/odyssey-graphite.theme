@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-graphite
+appearance = dark
+
+foreground = #d2d6dc
+background = #16181c
+clear = #0e1013
+
+cursor = #c0c4cc
+selection = #262a32
+search = #44401c
+border = #222630
+inactive = #5e6470
+
+color0 = #1f2228
+color1 = #d06a72
+color2 = #8aba78
+color3 = #d4b56a
+color4 = #6a9ad0
+color5 = #a08ac0
+color6 = #6ab8bc
+color7 = #c0c4cc
+color8 = #33373e
+color9 = #e88a90
+color10 = #a6d496
+color11 = #ecd086
+color12 = #88b8e8
+color13 = #bfa6e0
+color14 = #88d4d8
+color15 = #f0f2f6

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-abyss
+appearance = dark
+
+foreground = #c4e0e8
+background = #04141a
+clear = #020d12
+
+cursor = #46b8c8
+selection = #0e3340
+search = #3a4218
+border = #0e2832
+inactive = #4a7080
+
+color0 = #0c2630
+color1 = #e85c6a
+color2 = #3cc9a0
+color3 = #5ec8d8
+color4 = #4aa0d0
+color5 = #7a9ad8
+color6 = #46b8c8
+color7 = #a8c8d0
+color8 = #1e3e4a
+color9 = #ff7d8a
+color10 = #5ee3ba
+color11 = #84dde8
+color12 = #6fb8e8
+color13 = #9ab4ec
+color14 = #6cd2e0
+color15 = #e2f2f6

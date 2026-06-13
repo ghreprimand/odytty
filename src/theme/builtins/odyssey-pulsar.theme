@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-pulsar
+appearance = dark
+
+foreground = #dfe2f2
+background = #070810
+clear = #04050b
+
+cursor = #46d0ff
+selection = #182040
+search = #3e3818
+border = #161a30
+inactive = #525a80
+
+color0 = #101220
+color1 = #ff5277
+color2 = #46e0c0
+color3 = #ecd45a
+color4 = #4aa6ff
+color5 = #b07aff
+color6 = #46d0ff
+color7 = #bcc2d8
+color8 = #222640
+color9 = #ff7d9a
+color10 = #7af0d8
+color11 = #ffe585
+color12 = #7fc0ff
+color13 = #cba0ff
+color14 = #7ae0ff
+color15 = #f2f4ff

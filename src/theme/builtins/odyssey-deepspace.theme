@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-deepspace
+appearance = dark
+
+foreground = #cdd6f0
+background = #080b16
+clear = #04060d
+
+cursor = #5aa0f0
+selection = #1a2740
+search = #403515
+border = #161d2e
+inactive = #566080
+
+color0 = #11141f
+color1 = #e25c6f
+color2 = #6fcf97
+color3 = #e8c46a
+color4 = #5aa0f0
+color5 = #a98cf0
+color6 = #5ec8d8
+color7 = #b8c2d8
+color8 = #2a3144
+color9 = #ff7d8e
+color10 = #8fe3b2
+color11 = #ffd98a
+color12 = #7fb8ff
+color13 = #c7adff
+color14 = #84dde8
+color15 = #eef2ff
