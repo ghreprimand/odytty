@@ -601,6 +601,153 @@ fn create_color_glyph_pipeline(
     })
 }
 
+struct PostProcessResources {
+    offscreen: wgpu::Texture,
+    offscreen_view: wgpu::TextureView,
+    bind_group_layout: wgpu::BindGroupLayout,
+    bind_group: wgpu::BindGroup,
+    sampler: wgpu::Sampler,
+    pipeline: wgpu::RenderPipeline,
+}
+
+impl PostProcessResources {
+    fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("odytty-composite-bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("odytty-composite-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+        let pipeline = create_composite_pipeline(device, config.format, &bind_group_layout);
+        let (offscreen, offscreen_view, bind_group) =
+            create_post_offscreen(device, config, &bind_group_layout, &sampler);
+        Self {
+            offscreen,
+            offscreen_view,
+            bind_group_layout,
+            bind_group,
+            sampler,
+            pipeline,
+        }
+    }
+
+    fn resize(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
+        let (offscreen, offscreen_view, bind_group) =
+            create_post_offscreen(device, config, &self.bind_group_layout, &self.sampler);
+        self.offscreen = offscreen;
+        self.offscreen_view = offscreen_view;
+        self.bind_group = bind_group;
+    }
+}
+
+fn create_post_offscreen(
+    device: &wgpu::Device,
+    config: &wgpu::SurfaceConfiguration,
+    bind_group_layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+) -> (wgpu::Texture, wgpu::TextureView, wgpu::BindGroup) {
+    let offscreen = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("odytty-post-offscreen"),
+        size: wgpu::Extent3d {
+            width: config.width.max(1),
+            height: config.height.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: config.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let offscreen_view = offscreen.create_view(&wgpu::TextureViewDescriptor::default());
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("odytty-composite-bg"),
+        layout: bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&offscreen_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    });
+    (offscreen, offscreen_view, bind_group)
+}
+
+fn create_composite_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    bind_group_layout: &wgpu::BindGroupLayout,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("odytty-composite-shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/composite.wgsl").into()),
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("odytty-composite-pl"),
+        bind_group_layouts: &[Some(bind_group_layout)],
+        immediate_size: 0,
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("odytty-composite-pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
 pub(super) struct GpuState {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -609,6 +756,7 @@ pub(super) struct GpuState {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     color_glyph_pipeline: wgpu::RenderPipeline,
+    post_process: Option<PostProcessResources>,
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
     color_glyph_bind_group_layout: wgpu::BindGroupLayout,
@@ -912,7 +1060,6 @@ impl GpuState {
         let pipeline = create_cell_pipeline(&device, config.format, &bind_group_layout, subpixel);
         let color_glyph_pipeline =
             create_color_glyph_pipeline(&device, config.format, &color_glyph_bind_group_layout);
-
         // Build the first vertex buffer from the initial (blank) snapshot. Live
         // PTY output replaces this content via `update_from_snapshot` as the
         // pump thread advances the shared terminal. A >=1x1 grid always emits at
@@ -964,6 +1111,7 @@ impl GpuState {
             config,
             pipeline,
             color_glyph_pipeline,
+            post_process: None,
             bind_group_layout,
             bind_group,
             color_glyph_bind_group_layout,
@@ -1392,12 +1540,111 @@ impl GpuState {
         // Geometry is pixel-space and stable across resize; only the viewport
         // uniform needs the new physical size.
         self.update_viewport();
+        if let Some(post_process) = &mut self.post_process {
+            post_process.resize(&self.device, &self.config);
+        }
     }
 
     /// Reapply the current configuration, used to recover a lost/outdated
     /// surface before the next frame.
     pub(super) fn reconfigure(&self) {
         self.surface.configure(&self.device, &self.config);
+    }
+
+    fn post_active(&self) -> bool {
+        false
+    }
+
+    fn draw_scene<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
+        if self.vertex_count == 0 {
+            return;
+        }
+
+        let background_count = self.background_vertex_count.min(self.vertex_count);
+        let cell_count = self.cell_vertex_count.min(self.vertex_count);
+        // Canonical Kitty render order: background cell quads ->
+        // negative-z images -> coverage glyphs/decorations -> color
+        // glyphs -> cursor/overlays -> non-negative-z images. The image
+        // and color-glyph layers bind their own pipelines/buffers, so
+        // the text pipeline is re-bound before each cell-vertex segment.
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+        if background_count > 0 {
+            pass.draw(0..background_count, 0..1);
+        }
+        self.image_layer.draw_below(pass);
+        if background_count < cell_count {
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+            pass.draw(background_count..cell_count, 0..1);
+        }
+        if self.color_glyph_vertex_count > 0 {
+            pass.set_pipeline(&self.color_glyph_pipeline);
+            pass.set_bind_group(0, &self.color_glyph_bind_group, &[]);
+            pass.set_vertex_buffer(0, self.color_glyph_vertex_buf.slice(..));
+            pass.draw(0..self.color_glyph_vertex_count, 0..1);
+        }
+        if cell_count < self.vertex_count {
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
+            pass.draw(cell_count..self.vertex_count, 0..1);
+        }
+        self.image_layer.draw_above(pass);
+    }
+
+    fn encode_scene_pass<'pass>(
+        &'pass self,
+        encoder: &'pass mut wgpu::CommandEncoder,
+        view: &'pass wgpu::TextureView,
+    ) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("odytty-cell-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    // Keep the neutral clear, then draw cell quads over it.
+                    load: wgpu::LoadOp::Clear(self.clear_color),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        self.draw_scene(&mut pass);
+    }
+
+    fn encode_composite_pass<'pass>(
+        &'pass self,
+        encoder: &'pass mut wgpu::CommandEncoder,
+        swapchain_view: &'pass wgpu::TextureView,
+        post_process: &'pass PostProcessResources,
+    ) {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("odytty-composite-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: swapchain_view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(&post_process.pipeline);
+        pass.set_bind_group(0, &post_process.bind_group, &[]);
+        pass.draw(0..3, 0..1);
     }
 
     /// Clear the surface to the active theme's clear color and present one frame.
@@ -1429,59 +1676,15 @@ impl GpuState {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("odytty-clear-encoder"),
             });
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("odytty-cell-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        // Keep the neutral clear, then draw cell quads over it.
-                        load: wgpu::LoadOp::Clear(self.clear_color),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            if self.vertex_count > 0 {
-                let background_count = self.background_vertex_count.min(self.vertex_count);
-                let cell_count = self.cell_vertex_count.min(self.vertex_count);
-                // Canonical Kitty render order: background cell quads ->
-                // negative-z images -> coverage glyphs/decorations -> color
-                // glyphs -> cursor/overlays -> non-negative-z images. The image
-                // and color-glyph layers bind their own pipelines/buffers, so
-                // the text pipeline is re-bound before each cell-vertex segment.
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &self.bind_group, &[]);
-                pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-                if background_count > 0 {
-                    pass.draw(0..background_count, 0..1);
-                }
-                self.image_layer.draw_below(&mut pass);
-                if background_count < cell_count {
-                    pass.set_pipeline(&self.pipeline);
-                    pass.set_bind_group(0, &self.bind_group, &[]);
-                    pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-                    pass.draw(background_count..cell_count, 0..1);
-                }
-                if self.color_glyph_vertex_count > 0 {
-                    pass.set_pipeline(&self.color_glyph_pipeline);
-                    pass.set_bind_group(0, &self.color_glyph_bind_group, &[]);
-                    pass.set_vertex_buffer(0, self.color_glyph_vertex_buf.slice(..));
-                    pass.draw(0..self.color_glyph_vertex_count, 0..1);
-                }
-                if cell_count < self.vertex_count {
-                    pass.set_pipeline(&self.pipeline);
-                    pass.set_bind_group(0, &self.bind_group, &[]);
-                    pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-                    pass.draw(cell_count..self.vertex_count, 0..1);
-                }
-                self.image_layer.draw_above(&mut pass);
+        if self.post_active() {
+            if self.post_process.is_none() {
+                self.post_process = Some(PostProcessResources::new(&self.device, &self.config));
             }
+            let post_process = self.post_process.as_ref().expect("post process resources");
+            self.encode_scene_pass(&mut encoder, &post_process.offscreen_view);
+            self.encode_composite_pass(&mut encoder, &view, post_process);
+        } else {
+            self.encode_scene_pass(&mut encoder, &view);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         frame.present();
