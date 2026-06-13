@@ -219,9 +219,10 @@ pub const MAX_TEXT_GAMMA: f32 = 3.0;
 /// Stem-darkening strength (`ODYTTY_STEM_DARKEN`): a coverage boost applied at
 /// glyph raster time so light-on-dark body text holds weight at small sizes
 /// (RV5). `0.0` disables it and is pixel-identical to the pre-feature renderer;
-/// `1.0` is the strongest boost. Defaults to off pending a perceptual eyeball
-/// pass — see the audit findings for the recommended enable value.
-pub const DEFAULT_STEM_DARKEN: f32 = 0.0;
+/// `1.0` is the strongest boost. Ships default-on at a deliberately conservative
+/// `0.2` — perceptibly crisper stems without looking bold. Setting `0.0` is the
+/// opt-out and fully restores the classic, pre-feature raster.
+pub const DEFAULT_STEM_DARKEN: f32 = 0.2;
 pub const MIN_STEM_DARKEN: f32 = 0.0;
 pub const MAX_STEM_DARKEN: f32 = 1.0;
 
@@ -230,7 +231,7 @@ pub const MAX_STEM_DARKEN: f32 = 1.0;
 /// with a concise description, its accepted values, and its default.
 pub const STEM_DARKEN_DESC: &str = "Stem darkening: boosts glyph coverage so light-on-dark text holds weight at \
      small sizes. Accepts 0.0–1.0; 0.0 is off (identical to no boost), 1.0 is \
-     strongest. Default 0.0.";
+     strongest. Default 0.2 (a subtle crispness boost).";
 
 /// Minimum fg/bg contrast floor (`ODYTTY_MIN_CONTRAST`): a configurable WCAG
 /// contrast ratio that every cell's foreground is lifted to meet, so no app can

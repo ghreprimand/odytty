@@ -515,10 +515,12 @@ fn text_gamma_clamps_to_sane_range() {
 }
 
 #[test]
-fn stem_darken_defaults_to_off() {
+fn stem_darken_defaults_to_subtle_boost() {
+    // RV5 ships default-on: a conservative, perceptibly-crisper boost (not bold).
+    // The opt-out is an explicit `0.0`, exercised by the clamp/parse tests below.
     let (settings, warnings) = settings_from([]);
     assert_eq!(settings.stem_darken, DEFAULT_STEM_DARKEN);
-    assert_eq!(settings.stem_darken, 0.0);
+    assert_eq!(settings.stem_darken, 0.2);
     assert!(warnings.is_empty());
 }
 
