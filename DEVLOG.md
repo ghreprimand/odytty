@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Geometric box-drawing / block / Powerline (RV2)
+
+- New dependency-free `boxdraw` module renders line, block and separator
+  codepoints from cell-aligned geometry instead of font glyphs, so TUI borders,
+  progress bars and powerline prompts are pixel-perfect and join seamlessly at
+  any (integer or fractional) DPI. `coverage(ch, w, h)` returns a row-major 8-bit
+  coverage bitmap; `covers(ch)` gates it. Pure and GPU-agnostic — fully unit
+  tested without a font, window or device.
+- Covered ranges: box-drawing `U+2500..=257F` (light/heavy lines, every
+  light/heavy mixed corner/tee/cross, the double-line family via a rail model,
+  2/3/4-dash variants, rounded corners, diagonals, half-line stubs), block
+  elements `U+2580..=259F` (full/half/eighth ladders, four shade levels, the
+  quadrants) and Powerline `U+E0B0..=E0B3` (filled + outline triangles).
+  Anything outside these falls back to the font glyph.
+- Wired through the atlas: a new per-atlas `set_geometric_boxdraw(bool)` flag
+  routes covered codepoints to `rasterize_geometric` (full-cell ink, no
+  synthesis/stem-darken); default off is a true no-op and the font path stays
+  byte-identical. New `geometric_boxdraw` config/env knob
+  (`ODYTTY_GEOMETRIC_BOXDRAW`, default off) with help text and a runtime-knobs
+  doc row; live-reloadable via the atlas-rebuild seam.
+- Also repaired a latent gap: `min_contrast` (RV1) and the new
+  `geometric_boxdraw` were missing from the config-key map, so neither could be
+  set from the config file (only the environment). Both now round-trip.
+- Tests: +25 pure geometry unit tests (seam, coverage, both axes, blocks,
+  shades, quadrants, double rails, rounded, diagonals, powerline) + 2 settings
+  knob tests + a 4-case atlas pixel-smoke (corner↔line seam, cross, full-block
+  solidity, off/on distinction). `cargo test` + `cargo fmt --check` green;
+  `pixel_smoke` 25 unchanged (default-off path identical). Native activation
+  (call `set_geometric_boxdraw` on build + rebuild on toggle) is the renderer's
+  follow-up.
+
 ## 2026-06-13 -- Theme library to 53 (26 community / light / retro)
 
 - Added 26 more built-in themes, taking the library from 27 to 53. Batches:

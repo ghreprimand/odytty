@@ -42,6 +42,7 @@ subpixel = rgb
 text_gamma = 1.4
 stem_darken = 0.0
 min_contrast = 1.0
+geometric_boxdraw = off
 cursor_style = bar
 cursor_blink = auto
 keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
@@ -77,6 +78,7 @@ directory and rename it over the target, so OdyTTY never truncates
 | `visual` | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `off` | Enables or disables the optional presentation-only ambient effect. |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` | Enables OSC 52 clipboard read replies. Off by default: a terminal that replies to read requests allows any remote program to exfiltrate local clipboard contents. Set to `on` only in trusted sessions. Config-file aliases: `osc52read`, `allowosc52read`, `clipboardread`. |
 | `synthetic_styles` | `ODYTTY_SYNTHETIC_STYLES` | `on`, `off` | `on` | Controls whether the renderer synthesizes missing bold/italic faces from the regular outline (double-strike emboldening + oblique shear). When `off`, styled cells render as plain regular glyphs wherever no real bold/italic face is loaded; a real face always wins regardless. Purely presentational — never affects cell semantics or selection. Invalid values fall back to `on` with one stderr warning. Config-file aliases: `syntheticstyles`, `synthstyles`, `syntheticfonts`. |
+| `geometric_boxdraw` | `ODYTTY_GEOMETRIC_BOXDRAW` | `on`, `off` | `off` | Geometric box-drawing (RV2): renders box-drawing (`U+2500..=257F`), block-element (`U+2580..=259F`) and Powerline (`U+E0B0..=E0B3`) glyphs from cell-aligned computed geometry (rectangles, rails, arcs, triangles) instead of the font glyph, so TUI borders, progress bars and powerline prompts are pixel-perfect and join seamlessly at any cell size. Codepoints outside the covered ranges always use the font. When `off` (the default) every glyph takes the font path and the atlas is byte-identical to before. Purely presentational — never affects cell semantics. Invalid values fall back to `off` with one stderr warning. |
 | `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
 
 All settings above except `native_autoclose_ms` are live-reloadable from the
@@ -90,7 +92,9 @@ drops) the synthesized bold/italic slots without a restart. `stem_darken` also
 rebuilds the glyph atlas (the boost is baked into coverage at raster time), so a
 change re-rasterizes every slot at the new strength. `min_contrast` applies at
 color-resolution time (no atlas rebuild), so a change takes effect on the next
-frame. `native_autoclose_ms` is
+frame. `geometric_boxdraw` rebuilds the glyph atlas through the same font-change
+seam so a toggle re-rasterizes the covered codepoints geometrically (or restores
+their font glyphs) without a restart. `native_autoclose_ms` is
 startup-only because changing the smoke-test exit timer mid-session would make
 manual and automated lifecycle behavior ambiguous.
 

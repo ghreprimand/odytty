@@ -5,9 +5,10 @@ use std::io;
 use std::path::Path;
 
 use super::{
-    CURSOR_BLINK_ENV, CURSOR_STYLE_ENV, FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV, KEYBINDS_ENV,
-    NATIVE_AUTOCLOSE_ENV, OSC52_READ_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV, SYNTHETIC_STYLES_ENV,
-    TEXT_GAMMA_ENV, THEME_ENV, VISUAL_ENV, normalize_name,
+    CURSOR_BLINK_ENV, CURSOR_STYLE_ENV, FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV,
+    GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV, NATIVE_AUTOCLOSE_ENV, OSC52_READ_ENV,
+    STEM_DARKEN_ENV, SUBPIXEL_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV, VISUAL_ENV,
+    normalize_name,
 };
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
@@ -68,6 +69,8 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "fontsize" => Some(FONT_SIZE_ENV),
         "textgamma" => Some(TEXT_GAMMA_ENV),
         "stemdarken" => Some(STEM_DARKEN_ENV),
+        "mincontrast" => Some(MIN_CONTRAST_ENV),
+        "geometricboxdraw" | "boxdraw" => Some(GEOMETRIC_BOXDRAW_ENV),
         "subpixel" => Some(SUBPIXEL_ENV),
         "keybinds" | "keybindings" => Some(KEYBINDS_ENV),
         "cursorstyle" => Some(CURSOR_STYLE_ENV),
@@ -88,6 +91,8 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         FONT_SIZE_ENV => Some("font_size"),
         TEXT_GAMMA_ENV => Some("text_gamma"),
         STEM_DARKEN_ENV => Some("stem_darken"),
+        MIN_CONTRAST_ENV => Some("min_contrast"),
+        GEOMETRIC_BOXDRAW_ENV => Some("geometric_boxdraw"),
         SUBPIXEL_ENV => Some("subpixel"),
         KEYBINDS_ENV => Some("keybinds"),
         CURSOR_STYLE_ENV => Some("cursor_style"),

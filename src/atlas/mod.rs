@@ -317,6 +317,15 @@ pub struct GlyphAtlas {
     /// affects glyphs rasterized *after* it is set, which on the live path is all
     /// of them (the dynamic region is empty at build time).
     synthetic: u8,
+    /// When set, box-drawing / block-element / Powerline codepoints that
+    /// [`crate::boxdraw::covers`] recognizes are rasterized **geometrically**
+    /// (computed rectangles/rails/arcs/triangles aligned to the cell grid)
+    /// instead of from the font outline (RV2). Default `false` preserves the
+    /// font-glyph path byte-for-byte. Like the synthetic-style mask, it only
+    /// governs glyphs rasterized after it is set; the native layer sets it right
+    /// after [`Self::build`] and rebuilds the atlas when the setting changes, so
+    /// the dynamic region never holds a stale mix of geometric and font glyphs.
+    geometric: bool,
 }
 
 impl GlyphAtlas {
@@ -416,6 +425,7 @@ impl GlyphAtlas {
             dirty: false,
             subpixel,
             synthetic: 0,
+            geometric: false,
         }
     }
 
@@ -567,39 +577,59 @@ impl GlyphAtlas {
         if !wants_glyph(ch) {
             return None;
         }
-        if !font_has_glyph(font, ch) {
+        // Geometric box-drawing (RV2): when enabled, recognized line/block/
+        // Powerline codepoints are rasterized from cell-aligned geometry instead
+        // of the font glyph — and render even if the font lacks the codepoint.
+        let geometric = self.geometric && crate::boxdraw::covers(ch);
+        if !geometric && !font_has_glyph(font, ch) {
             // Font lacks the glyph: cache the fallback decision, draw nothing new.
             self.dynamic.insert((style, ch), FALLBACK_SLOT);
             return Some(self.slot_uv(FALLBACK_SLOT));
         }
-        let cells = glyph_cells(ch);
+        // Geometric glyphs are always single-cell (box/block/Powerline).
+        let cells = if geometric { 1 } else { glyph_cells(ch) };
         let Some(slot) = self.allocate_slots(cells) else {
             // Atlas is at its hard cap: degrade to the fallback box.
             self.dynamic.insert((style, ch), FALLBACK_SLOT);
             return Some(self.slot_uv(FALLBACK_SLOT));
         };
         let origin = slot_offset(slot, self.cols, self.cell);
-        let synth = self.synth_for(style);
-        let ink = rasterize_glyph(
-            font,
-            Pen {
-                px: self.px,
-                baseline: self.cell.baseline as f32,
-            },
-            ch,
-            &mut self.data,
-            self.width,
-            self.subpixel,
-            SlotRegion {
-                origin,
-                cell: self.cell,
-                // Wide glyphs draw across `cells` contiguous slots; the clip
-                // extends over all of them so ink is never cropped at the edge.
-                outer_w: cells * slot_w(self.cell),
-            },
-            synth,
-        )
-        .unwrap_or_else(|| GlyphInk::cell(self.cell));
+        let ink = if geometric {
+            rasterize_geometric(
+                ch,
+                &mut self.data,
+                self.width,
+                self.subpixel,
+                SlotRegion {
+                    origin,
+                    cell: self.cell,
+                    outer_w: slot_w(self.cell),
+                },
+            )
+            .unwrap_or_else(|| GlyphInk::cell(self.cell))
+        } else {
+            let synth = self.synth_for(style);
+            rasterize_glyph(
+                font,
+                Pen {
+                    px: self.px,
+                    baseline: self.cell.baseline as f32,
+                },
+                ch,
+                &mut self.data,
+                self.width,
+                self.subpixel,
+                SlotRegion {
+                    origin,
+                    cell: self.cell,
+                    // Wide glyphs draw across `cells` contiguous slots; the clip
+                    // extends over all of them so ink is never cropped at the edge.
+                    outer_w: cells * slot_w(self.cell),
+                },
+                synth,
+            )
+            .unwrap_or_else(|| GlyphInk::cell(self.cell))
+        };
         // `allocate_slots` already pushed a dense placeholder for the lead (and
         // every reserved/filler slot); overwrite the lead with the real ink.
         self.slot_ink[slot as usize] = ink;
@@ -713,6 +743,21 @@ impl GlyphAtlas {
     /// atlas.
     pub fn set_synthetic_styles(&mut self, bold: bool, italic: bool, bold_italic: bool) {
         self.synthetic = (bold as u8) | ((italic as u8) << 1) | ((bold_italic as u8) << 2);
+    }
+
+    /// Enable or disable geometric box-drawing / block / Powerline rendering
+    /// (RV2). When enabled, codepoints [`crate::boxdraw::covers`] recognizes are
+    /// rasterized from computed cell-aligned geometry instead of the font glyph,
+    /// so TUI borders, progress bars and powerline prompts are pixel-perfect and
+    /// seamless at any cell size; everything else still uses the font.
+    ///
+    /// `false` (the default) is a true no-op: every glyph takes the font path
+    /// and the atlas is byte-identical to the pre-feature renderer. Like
+    /// [`Self::set_synthetic_styles`], this only affects glyphs rasterized after
+    /// it is set, so the native layer calls it on a freshly built atlas and
+    /// rebuilds when the setting toggles (resident slots are never rewritten).
+    pub fn set_geometric_boxdraw(&mut self, on: bool) {
+        self.geometric = on;
     }
 
     /// The [`SynthTransform`] to apply when rasterizing `style`. Returns the
@@ -994,6 +1039,59 @@ fn rasterize_glyph(
         offset_y: min_y - inner_y,
         width: (max_x - min_x + 1) as u32,
         height: (max_y - min_y + 1) as u32,
+    })
+}
+
+/// Rasterize a geometric box-drawing / block / Powerline glyph into the slot
+/// whose outer top-left is `region.origin` (RV2).
+///
+/// The coverage bitmap comes from [`crate::boxdraw::coverage`], computed at the
+/// exact cell pixel size, and is written into the slot's inner cell region (no
+/// overflow, no synthesis, no stem-darkening — the geometry is already crisp).
+/// Achromatic coverage is replicated across all channels for subpixel atlases.
+/// Returns the full-cell ink extent, or `None` if the codepoint is uncovered or
+/// produced an empty bitmap (the caller then falls back to the cell box).
+fn rasterize_geometric(
+    ch: char,
+    data: &mut [u8],
+    width: u32,
+    subpixel: SubpixelMode,
+    region: SlotRegion,
+) -> Option<GlyphInk> {
+    let SlotRegion { origin, cell, .. } = region;
+    let (ox, oy) = origin;
+    let border = slot_border(cell);
+    let inner_x = ox + border;
+    let inner_y = oy + border;
+    let cov = crate::boxdraw::coverage(ch, cell.width, cell.height)?;
+    let mut any = false;
+    for cy in 0..cell.height {
+        for cx in 0..cell.width {
+            let value = cov[(cy * cell.width + cx) as usize];
+            if value == 0 {
+                continue;
+            }
+            any = true;
+            let ax = inner_x + cx;
+            let ay = inner_y + cy;
+            match subpixel {
+                SubpixelMode::Off => write_coverage(data, width, subpixel, ax, ay, None, value),
+                SubpixelMode::Rgb | SubpixelMode::Bgr => {
+                    for channel in 0..3 {
+                        write_coverage(data, width, subpixel, ax, ay, Some(channel), value);
+                    }
+                }
+            }
+        }
+    }
+    if !any {
+        return None;
+    }
+    Some(GlyphInk {
+        offset_x: 0,
+        offset_y: 0,
+        width: cell.width,
+        height: cell.height,
     })
 }
 

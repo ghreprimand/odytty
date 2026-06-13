@@ -1,5 +1,6 @@
 pub mod app;
 pub mod atlas;
+pub mod boxdraw;
 pub mod color;
 pub mod core;
 pub mod emoji;

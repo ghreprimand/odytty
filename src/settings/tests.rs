@@ -95,6 +95,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "min_contrast",
             "subpixel",
             "synthetic_styles",
+            "geometric_boxdraw",
             "cursor_style",
             "cursor_blink",
             "keybinds",
@@ -858,6 +859,30 @@ fn garbage_synthetic_styles_falls_back_on_with_warning() {
     assert!(settings.synthetic_styles);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(SYNTHETIC_STYLES_ENV));
+}
+
+#[test]
+fn geometric_boxdraw_defaults_off_and_parses_on() {
+    let (settings, warnings) = settings_from([]);
+    assert!(!settings.geometric_boxdraw);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from([(GEOMETRIC_BOXDRAW_ENV, "on")]);
+    assert!(settings.geometric_boxdraw);
+    assert!(warnings.is_empty());
+
+    // Config-file form maps onto the same setting.
+    let (settings, warnings) = settings_from_config_and_env("geometric_boxdraw = true", []);
+    assert!(settings.geometric_boxdraw);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_geometric_boxdraw_falls_back_off_with_warning() {
+    let (settings, warnings) = settings_from([(GEOMETRIC_BOXDRAW_ENV, "sometimes")]);
+    assert!(!settings.geometric_boxdraw);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(GEOMETRIC_BOXDRAW_ENV));
 }
 
 #[test]

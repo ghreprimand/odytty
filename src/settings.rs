@@ -45,6 +45,7 @@ pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
 pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
 pub const OSC52_READ_ENV: &str = "ODYTTY_OSC52_READ";
 pub const SYNTHETIC_STYLES_ENV: &str = "ODYTTY_SYNTHETIC_STYLES";
+pub const GEOMETRIC_BOXDRAW_ENV: &str = "ODYTTY_GEOMETRIC_BOXDRAW";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
@@ -67,6 +68,7 @@ const SETTING_ENV_KEYS: &[&str] = &[
     CURSOR_BLINK_ENV,
     OSC52_READ_ENV,
     SYNTHETIC_STYLES_ENV,
+    GEOMETRIC_BOXDRAW_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 
@@ -183,6 +185,13 @@ pub const MIN_CONTRAST_DESC: &str = "Minimum contrast: lifts foreground text so 
      background meets at least this ratio, keeping low-contrast apps legible. \
      Accepts 1.0–21.0; 1.0 is off (no change), 4.5 is the WCAG AA body-text \
      threshold, 7.0 is AAA. Hue is preserved. Default 1.0.";
+
+/// Human-readable help for the geometric box-drawing knob (RV2), shown in the
+/// in-app settings panel. Follows the every-knob-carries-a-description convention.
+pub const GEOMETRIC_BOXDRAW_DESC: &str = "Geometric box-drawing: renders line, block and Powerline glyphs from \
+     cell-aligned geometry instead of the font, so TUI borders, progress bars \
+     and powerline prompts are pixel-perfect and seamless at any size. On or \
+     off; off (default) uses the font glyph and is identical to before.";
 
 /// Terminal-local actions that can be rebound without changing PTY input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -338,6 +347,11 @@ pub struct Settings {
     /// it off makes styled cells render as plain regular glyphs when no real
     /// face is loaded. Purely presentational — never affects cell semantics.
     pub synthetic_styles: bool,
+    /// Whether box-drawing, block-element and Powerline glyphs are rendered
+    /// geometrically (cell-aligned rectangles/rails/arcs/triangles) instead of
+    /// from the font (RV2). Off by default; the font path is byte-identical to
+    /// before. Purely presentational — never affects cell semantics.
+    pub geometric_boxdraw: bool,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -358,6 +372,7 @@ impl Default for Settings {
             cursor_blink: CursorBlink::Auto,
             osc52_read: false,
             synthetic_styles: true,
+            geometric_boxdraw: false,
             native_autoclose: None,
         }
     }
@@ -498,6 +513,18 @@ impl Settings {
                 name: "Synthetic styles",
                 value: bool_display(self.synthetic_styles).to_owned(),
                 description: "Synthesizes missing bold and italic faces from the regular font when real style faces are unavailable.",
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Rendering",
+                key: "geometric_boxdraw",
+                env: GEOMETRIC_BOXDRAW_ENV,
+                name: "Geometric box-drawing",
+                value: bool_display(self.geometric_boxdraw).to_owned(),
+                description: GEOMETRIC_BOXDRAW_DESC,
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
@@ -739,6 +766,12 @@ impl Settings {
             true,
             &mut warn,
         );
+        let geometric_boxdraw = parse_bool_setting(
+            get(GEOMETRIC_BOXDRAW_ENV).as_deref(),
+            GEOMETRIC_BOXDRAW_ENV,
+            false,
+            &mut warn,
+        );
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -756,6 +789,7 @@ impl Settings {
             cursor_blink,
             osc52_read,
             synthetic_styles,
+            geometric_boxdraw,
             native_autoclose,
         }
     }
@@ -787,6 +821,10 @@ impl Settings {
         values.insert(
             SYNTHETIC_STYLES_ENV,
             bool_display(self.synthetic_styles).to_owned(),
+        );
+        values.insert(
+            GEOMETRIC_BOXDRAW_ENV,
+            bool_display(self.geometric_boxdraw).to_owned(),
         );
         if let Some(duration) = self.native_autoclose {
             values.insert(NATIVE_AUTOCLOSE_ENV, duration.as_millis().to_string());
