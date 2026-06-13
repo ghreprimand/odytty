@@ -591,10 +591,11 @@ a floor; surpassing it is the standing ambition.
       `geometric_boxdraw`): U+2500–257F, U+2580–259F, Braille, and Powerline
       separators rendered as pixel-perfect geometry at exact cell size rather
       than font glyphs. Off by default; enable via setting or env var.
-- [x] RV5 stem-darkening native activation: `ODYTTY_STEM_DARKEN` is applied at
-      startup and live reload before glyph-atlas rasterization; default `0.0`
-      remains the byte-identical passthrough. Native now also warns if the GPU
-      surface falls back to a non-sRGB format.
+- [x] RV5 stem-darkening ships default-on at a conservative `0.2` (crisper
+      light-on-dark text); `ODYTTY_STEM_DARKEN` / `stem_darken = 0.0` is the
+      byte-identical opt-out. Applied at startup and live reload before
+      glyph-atlas rasterization. Native warns if the GPU surface falls back to
+      a non-sRGB format.
 - [x] RV6 symbol / Nerd-font fallback chain for PUA prompt icons (starship,
       powerlevel10k, eza).
   - [x] Core wiring landed: the fallback path is live; automatic font search or
@@ -612,6 +613,19 @@ a floor; surpassing it is the standing ambition.
       window is unfocused so it recedes; the dim runs before the RV1 floor so
       text stays legible. Focused frames are byte-identical to the pre-feature
       renderer.
+- [ ] VE1 post-process pipeline (foundation landed, first effect in progress):
+  - [x] VE1-a: lazy offscreen target + passthrough composite wired into the
+        native GPU renderer; `post_active()` false = no offscreen allocation and
+        no extra draw pass — direct-to-swapchain path is byte-identical to the
+        pre-feature renderer. Pixel-smoke guards the seam (direct vs.
+        offscreen→passthrough composite asserts byte-equality).
+  - [x] VE1-b: Rgba16Float linear HDR intermediate so HDR overshoot (linear
+        values above `1.0`) survives the offscreen round-trip for bloom; a
+        filterable-format GPU probe auto-disables the HDR path on weak adapters
+        with one stderr notice and falls back to the direct sRGB path; composite
+        smoke extended to cover Rgba16Float offscreen → passthrough → sRGB.
+  - [ ] First Tier-3 effect activating the pipeline (VE2 bloom) in progress;
+        the VE1 feature box ticks when an effect proves the foundation complete.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
 
 ## Archived First Prototype Checklist
