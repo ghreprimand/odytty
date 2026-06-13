@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- Split native app.rs into a directory module (MS3)
+
+Pure mechanical modularity refactor: `src/native/app.rs` had reached 1815 lines
+after MS2 and was the largest native file approaching the ~2000-line cap. No
+behavior or API change.
+
+- `src/native/app.rs` → `src/native/app/mod.rs` (git records it as a rename),
+  keeping the `App` struct, the `winit` `ApplicationHandler`/event-loop core,
+  window/resize/scale handling, keyboard routing, search, clipboard glue, and
+  settings reload.
+- New child module `src/native/app/interaction.rs` holds the pointer-driven
+  cluster: mouse reporting (including the MS2 SGR-pixel seam), text selection,
+  hyperlink hover/open, and scrollback viewport movement — plus the
+  `pixel_coords_for_report` helper and the 8 MS2 unit tests that exercise it.
+- Because a child module can reach its parent's private fields and methods, no
+  field visibility changed. Only the 15 interaction methods the parent still
+  calls were widened from private to `pub(super)`; the rest stayed private.
+- Result: `app/mod.rs` 1292 lines, `app/interaction.rs` 546 — both well under
+  the cap. Verified: lib 834 (unchanged — the 8 MS2 tests relocated
+  `native::app::tests` → `native::app::interaction::tests`, net zero),
+  integration green, `cargo fmt --check` clean, `git diff --check` clean.
+
 ## 2026-06-13 -- Color glyph atlas capacity audit (EM6)
 
 Audited the live color-emoji atlas capacity model before changing policy. The
