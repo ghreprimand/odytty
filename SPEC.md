@@ -393,8 +393,15 @@ its first stable layer.
 - Lazy scrollback re-wrap and resize fast paths
 - Theme system: full 16-color ANSI palette + semantic roles (cursor, selection,
   search highlight, reserved border/inactive) per theme; `plain`, `odyssey`, and
-  `odyssey-noir` built-ins; OSC-4 / OSC-10/11/12 dynamic overrides layer on top;
-  optional ambient scanline visual effect
+  `odyssey-noir` built-ins; user theme files in a dependency-free `key = value`
+  format (see `docs/themes.md`) resolved from the user theme directory or by
+  path; `ODYTTY_THEME` accepts a built-in name, directory-relative name, or
+  file path; OSC-4 / OSC-10/11/12 dynamic overrides layer on top with correct
+  precedence; optional ambient scanline visual effect
+- In-window overlay framework (`src/native/overlay.rs`): a native multi-row
+  panel layer rendered through the existing cell path — text fields, lists,
+  toggles, keyboard-driven navigation; presentation-only, never mutates terminal
+  state; the foundation for the in-app settings panel and theme picker (UX2/UX3)
 - Shell working-directory tracking: OSC 7 (`file://host/path`) is parsed and
   stored as advisory string state on the terminal core (`Screen::current_working_directory`,
   `Screen::take_working_directory_changed`). The parser requires the `file://`

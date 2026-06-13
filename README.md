@@ -72,8 +72,10 @@ reserved border/inactive). The built-ins (`plain`, `odyssey`, `odyssey-noir`)
 each author a complete palette; `plain` reproduces the historical xterm
 defaults byte-for-byte. OSC-4 and OSC-10/11/12 dynamic overrides layer on top
 with correct precedence. Select with `ODYTTY_THEME=odyssey` or
-`theme = odyssey` in the config file. Custom theme files and a live in-app
-editor are planned.
+`theme = odyssey` in the config file. User theme files are supported: write
+a `.theme` file (see [`docs/themes.md`](docs/themes.md)) and drop it in
+`~/.config/odytty/themes/` or point `ODYTTY_THEME` at a path. A live in-app
+theme picker is planned.
 
 ### Terminal compatibility
 
@@ -187,17 +189,21 @@ non-negotiable floor.
 
 Everything in the Features section above. The full owned byte path is real and
 in production. Color emoji, Kitty graphics, Sixel, the Kitty keyboard protocol,
-SGR-pixel mouse, and the theme palette foundation have all landed.
+SGR-pixel mouse, the theme palette and user theme file format, and the
+in-window overlay framework have all landed.
 
 ### On the horizon
 
 - **Readability-first rendering** — perceptual color pipeline, minimum-contrast
   guarantee, geometric box-drawing/Powerline rendering at exact cell size,
-  smooth scrolling, stem darkening.
-- **Theme library and custom themes** — curated built-in themes (light + dark),
-  a theme file format, and a live in-app theme picker.
-- **In-app settings panel** — an overlay-based settings editor so you never
-  need to hand-edit the config file.
+  smooth scrolling. (Stem darkening is available now as `ODYTTY_STEM_DARKEN`;
+  default off.)
+- **Theme library and in-app picker** — a curated set of built-in themes
+  covering a wider light + dark range beyond the three current built-ins
+  (`plain`, `odyssey`, `odyssey-noir`), and a live in-app theme picker.
+- **In-app settings panel** — the in-window overlay framework is in place;
+  a keyboard-driven settings editor (font, theme, cursor, keybinds) with
+  live apply and write-back to `odytty.conf` is the next step.
 - **Atmospheric effects (opt-in)** — bloom/phosphor glow, CRT/retro profile,
   subtle cursor motion; all off by default, perf- and readability-gated.
 - **Nerd-font / symbol fallback** for modern prompt icons.
@@ -217,7 +223,7 @@ SGR-pixel mouse, and the theme palette foundation have all landed.
 
 ## Testing
 
-**Testing.** 932 tests passing: 857 unit/integration, 12 mouse-protocol
+**Testing.** 957 tests passing: 882 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -262,6 +268,7 @@ and `quick` (smoke); see [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
 - [`TODO.md`](TODO.md) — milestone checklist.
 - [`SPEC.md`](SPEC.md) — durable product and architecture decisions.
 - [`docs/runtime-knobs.md`](docs/runtime-knobs.md) — all settings and launch examples.
+- [`docs/themes.md`](docs/themes.md) — theme file format, built-ins, and user theme directory.
 - [`docs/odytty.conf.example`](docs/odytty.conf.example) — annotated example config file.
 - [`docs/graphics.md`](docs/graphics.md) — Kitty and Sixel protocol reference.
 - [`docs/visual-architecture.md`](docs/visual-architecture.md) — renderer pipeline and planned visual-enhancement direction.
