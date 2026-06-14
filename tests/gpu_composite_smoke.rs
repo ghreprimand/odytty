@@ -99,8 +99,18 @@ fn passthrough_composite_matches_direct_render_bytes() {
 
     let direct_scene_pipeline = create_scene_pipeline(&device, FORMAT, SCENE_SHADER);
     let offscreen_scene_pipeline = create_scene_pipeline(&device, HDR_FORMAT, SCENE_SHADER);
-    let composite_bgl = create_composite_bind_group_layout(&device);
-    let composite_pipeline = create_composite_pipeline(&device, &composite_bgl);
+    let bloom_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("gpu-composite-smoke-bloom-shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../src/shaders/bloom.wgsl").into()),
+    });
+    let composite_bgl = create_bloom_composite_bgl(&device);
+    let composite_pipeline = create_bloom_pipeline(
+        &device,
+        &bloom_shader,
+        "fs_composite_bloom",
+        FORMAT,
+        &composite_bgl,
+    );
     let composite_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("gpu-composite-smoke-sampler"),
         address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -116,23 +126,28 @@ fn passthrough_composite_matches_direct_render_bytes() {
     let offscreen =
         create_render_texture(&device, "gpu-composite-smoke-offscreen", HDR_FORMAT, false);
     let composite = create_render_texture(&device, "gpu-composite-smoke-composite", FORMAT, true);
+    let bloom = create_bloom_texture(&device, "gpu-composite-smoke-disabled-bloom");
     let direct_view = direct.create_view(&wgpu::TextureViewDescriptor::default());
     let offscreen_view = offscreen.create_view(&wgpu::TextureViewDescriptor::default());
     let composite_view = composite.create_view(&wgpu::TextureViewDescriptor::default());
-    let composite_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("gpu-composite-smoke-bg"),
-        layout: &composite_bgl,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&offscreen_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(&composite_sampler),
-            },
-        ],
-    });
+    let bloom_view = bloom.create_view(&wgpu::TextureViewDescriptor::default());
+    let bloom_uniform = create_bloom_uniform(
+        &device,
+        default_bloom_threshold_for_theme(Theme::PLAIN),
+        0.0,
+        3.0,
+    );
+    let crt_uniform = create_crt_uniform(&device, false, 0.08, 3.0, 0.10);
+    let composite_bind_group = create_bloom_composite_bg(
+        &device,
+        &composite_bgl,
+        &offscreen_view,
+        &bloom_view,
+        &composite_sampler,
+        &composite_sampler,
+        &bloom_uniform,
+        &crt_uniform,
+    );
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("gpu-composite-smoke-encoder"),
@@ -187,8 +202,6 @@ fn bloom_preserves_body_text_and_adds_bounded_halo() {
         label: Some("gpu-bloom-smoke-shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("../src/shaders/bloom.wgsl").into()),
     });
-    let passthrough_bgl = create_composite_bind_group_layout(&device);
-    let passthrough_pipeline = create_composite_pipeline(&device, &passthrough_bgl);
     let bright_bgl = create_bloom_source_bgl(&device, "gpu-bloom-smoke-bright-bgl");
     let blur_bgl = create_bloom_source_bgl(&device, "gpu-bloom-smoke-blur-bgl");
     let composite_bgl = create_bloom_composite_bgl(&device);
@@ -227,21 +240,18 @@ fn bloom_preserves_body_text_and_adds_bounded_halo() {
     });
     let threshold = default_bloom_threshold_for_theme(Theme::PLAIN);
     let uniform = create_bloom_uniform(&device, threshold, 0.4, 3.0);
+    let bloom_off_uniform = create_bloom_uniform(&device, threshold, 0.0, 3.0);
     let crt_uniform = create_crt_uniform(&device, false, 0.08, 3.0, 0.10);
-    let passthrough_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("gpu-bloom-smoke-passthrough-bg"),
-        layout: &passthrough_bgl,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&offscreen_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(&nearest),
-            },
-        ],
-    });
+    let bloom_off_bg = create_bloom_composite_bg(
+        &device,
+        &composite_bgl,
+        &offscreen_view,
+        &bright_view,
+        &nearest,
+        &linear,
+        &bloom_off_uniform,
+        &crt_uniform,
+    );
     let bright_bg = create_bloom_source_bg(
         &device,
         &bright_bgl,
@@ -284,8 +294,8 @@ fn bloom_preserves_body_text_and_adds_bounded_halo() {
     encode_scene(&mut encoder, &offscreen_scene_pipeline, &offscreen_view);
     encode_composite(
         &mut encoder,
-        &passthrough_pipeline,
-        &passthrough_bg,
+        &bloom_composite_pipeline,
+        &bloom_off_bg,
         &bloom_off_view,
     );
     encode_composite(&mut encoder, &bright_pipeline, &bright_bg, &bright_view);
@@ -516,74 +526,6 @@ fn create_scene_pipeline(
             entry_point: Some("fs_main"),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-        }),
-        multiview_mask: None,
-        cache: None,
-    })
-}
-
-fn create_composite_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("gpu-composite-smoke-bgl"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-        ],
-    })
-}
-
-fn create_composite_pipeline(
-    device: &wgpu::Device,
-    bind_group_layout: &wgpu::BindGroupLayout,
-) -> wgpu::RenderPipeline {
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("gpu-composite-smoke-composite-shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("../src/shaders/composite.wgsl").into()),
-    });
-    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("gpu-composite-smoke-composite-pl"),
-        bind_group_layouts: &[Some(bind_group_layout)],
-        immediate_size: 0,
-    });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("gpu-composite-smoke-composite-pipeline"),
-        layout: Some(&layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("vs_main"),
-            buffers: &[],
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-        },
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            cull_mode: None,
-            ..Default::default()
-        },
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("fs_main"),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: FORMAT,
                 blend: None,
                 write_mask: wgpu::ColorWrites::ALL,
             })],
