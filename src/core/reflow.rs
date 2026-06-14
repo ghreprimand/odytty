@@ -19,6 +19,7 @@
 
 use unicode_width::UnicodeWidthChar;
 
+use super::prompt_marks::PromptKind;
 use super::screen::{Line, blank_row};
 use super::types::*;
 
@@ -48,6 +49,10 @@ pub(in crate::core) fn resize_buffer_rows(
 struct LogicalLine {
     cells: Vec<Cell>,
     cursor_offset: Option<usize>,
+    /// OSC 133 prompt mark (SH1) captured from the first physical row of this
+    /// logical line; re-stamped onto the first re-wrapped physical row so marks
+    /// survive a width-changing resize.
+    prompt_mark: Option<PromptKind>,
 }
 /// Reflow the combined `scrollback` + `rows` buffer to `dimensions`, preserving
 /// content by rejoining soft-wrapped rows into logical lines and re-wrapping
@@ -85,7 +90,16 @@ pub(in crate::core) fn reflow_lines(
     let mut logicals: Vec<LogicalLine> = Vec::new();
     let mut current: Vec<Cell> = Vec::new();
     let mut current_cursor: Option<usize> = None;
+    let mut current_mark: Option<PromptKind> = None;
     for (idx, line) in combined.iter().enumerate() {
+        if current.is_empty() {
+            // First physical row of a new logical line: capture its mark.
+            current_mark = line.prompt_mark;
+        } else if current_mark.is_none() {
+            // Adopt a mark stamped on a continuation row when the first row
+            // carried none (first non-`None` mark in the logical line wins).
+            current_mark = line.prompt_mark;
+        }
         if idx == cursor_abs_row {
             current_cursor = Some(current.len() + cursor.column.min(line.cells.len()));
         }
@@ -94,6 +108,7 @@ pub(in crate::core) fn reflow_lines(
             logicals.push(LogicalLine {
                 cells: std::mem::take(&mut current),
                 cursor_offset: current_cursor.take(),
+                prompt_mark: current_mark.take(),
             });
         }
     }
@@ -102,6 +117,7 @@ pub(in crate::core) fn reflow_lines(
         logicals.push(LogicalLine {
             cells: current,
             cursor_offset: current_cursor,
+            prompt_mark: current_mark,
         });
     }
 
@@ -128,6 +144,10 @@ pub(in crate::core) fn reflow_lines(
     let mut cursor_dest: Option<(usize, usize)> = None;
 
     for logical in &logicals {
+        // First physical row this logical line will produce; the prompt mark is
+        // re-anchored here after re-wrapping. A logical line always produces at
+        // least one row, so this index is valid afterward.
+        let first_row = new_combined.len();
         // Trim trailing plain blanks fully: the cursor is mapped separately
         // (see below), so trailing blanks never need to be materialized as
         // extra rows.
@@ -223,6 +243,11 @@ pub(in crate::core) fn reflow_lines(
             // The line ended exactly on a wrap boundary: the last row is the
             // logical line's terminator, not a continuation.
             last.wrapped = false;
+        }
+
+        // Re-anchor the prompt mark onto this logical line's first physical row.
+        if let Some(first) = new_combined.get_mut(first_row) {
+            first.prompt_mark = logical.prompt_mark;
         }
     }
 

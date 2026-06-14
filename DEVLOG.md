@@ -7,6 +7,51 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-14 -- SH1-a: OSC 133 semantic prompt marking (inert core foundation)
+
+- Landed the foundation for shell/prompt integration: the owned parser now
+  understands OSC 133 prompt/command/output boundary marks (`A`/`B`/`C`/`D[;exit]`)
+  through the same `dispatch_osc` ident seam as OSC 7/8/52. New module
+  `src/core/prompt_marks.rs` owns a small `Copy` `PromptKind` enum
+  (`PromptStart` / `OutputStart` / `CommandEnd { exit: Option<i32> }`) and the
+  `handle_osc133` setters; aux `k=v` keys are accepted-and-ignored and the `D`
+  exit code is parsed digits-only into `Option<i32>` (absent / non-numeric /
+  overflow → `None`, never a panic, never a host reply).
+- Marks are **logical-line-anchored**: stored as `Option<PromptKind>` on `Line`
+  and `LogicalLine`, stamped on the first physical row of the cursor's logical
+  line, and carried through `push_row`, `logical_from_physical`, `project_line_into`,
+  `resize_lazy`, and width-changing `reflow_lines` ("first non-None mark wins")
+  so a mark survives scroll-out into scrollback and a real column resize. `RIS`,
+  `ED 2/3`, `EL 2`, resize, and alternate-screen enter/leave clear or re-anchor
+  marks as their rows change, and each of those paths now also raises the
+  `take_prompt_marks_changed` poll flag (gated on marks actually being present)
+  so the documented "rebuild only on change" contract holds.
+- **Inert by construction:** `prompt_mark` has exactly two writers
+  (`handle_osc133`, reflow/scrollback carry) and one reader (the poll API);
+  zero render-path readers (`grid.rs` / `gpu.rs` / the resolve closure are
+  clean) and the field is deliberately absent from `Snapshot`, so the plain
+  renderer is byte-identical with or without OSC 133 in the stream. Proven by
+  `osc133_stream_is_byte_identical_to_stripped_text` (snapshot equality for a
+  full `A…B…C…D;0` run vs. the same text with the sequences stripped). The
+  command-aware UX (SH2) that consumes these marks is separate downstream work;
+  SH1-a ships the data captured + queryable with no consumer yet.
+- Design note: marks are first-physical-row / logical-line anchored rather than
+  exact-continuation-row, because preserving an exact wrapped-row position
+  through reflow would need per-offset metadata beyond an inert foundation. This
+  is the accepted SH1-a contract.
+- Verified on the combined tree: `cargo fmt --all --check` clean; full
+  `cargo test` **1197 passed / 0 failed / 19 ignored** (+31 SH1-a tests: 6 unit
+  + 25 `osc_prompt` integration covering A/B/C/D, malformed exit, no grid/host
+  leak, RIS/ED/EL clears, scroll-out survival, width-changing reflow carry,
+  alt-screen leak/loss/restore, and the byte-identical strip proof);
+  `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored` 11
+  passed / 0 failed, no panic; native smokes (baseline + effects) exit 0;
+  `git diff --check` + leak-grep clean. `src/core/screen/mod.rs` is at 1907
+  lines — under the 2000 cap but the next core packet that touches it must split
+  it first.
+
+---
+
 ## 2026-06-14 -- docs: link the OdyTTY website
 
 - Added the project website (`odytty.unfinished-works.com`) to the public-facing

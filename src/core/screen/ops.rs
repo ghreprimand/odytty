@@ -304,24 +304,38 @@ impl Screen {
         let background = self.current_attrs.background;
         match mode {
             0 => {
+                // Partial erases below the cursor replace whole rows (clearing
+                // their marks); the cursor row is erased in place and keeps its
+                // mark. Flag the marks that the row replacement drops.
+                let cleared_mark = self.rows[self.cursor.row + 1..self.dimensions.rows]
+                    .iter()
+                    .any(|l| l.prompt_mark.is_some());
                 self.erase_line_from_cursor();
                 for row in self.cursor.row + 1..self.dimensions.rows {
                     self.rows[row] = blank_row_with_bg(self.dimensions.columns, background);
                 }
+                self.prompt_marks_changed |= cleared_mark;
             }
             1 => {
+                let cleared_mark = self.rows[0..self.cursor.row]
+                    .iter()
+                    .any(|l| l.prompt_mark.is_some());
                 for row in 0..self.cursor.row {
                     self.rows[row] = blank_row_with_bg(self.dimensions.columns, background);
                 }
                 self.erase_line_to_cursor();
+                self.prompt_marks_changed |= cleared_mark;
             }
             2 | 3 => {
+                let cleared_mark = self.rows.iter().any(|l| l.prompt_mark.is_some())
+                    || (mode == 3 && self.scrollback.any_prompt_mark());
                 for row in &mut self.rows {
                     *row = blank_row_with_bg(self.dimensions.columns, background);
                 }
                 if mode == 3 {
                     self.scrollback.clear();
                 }
+                self.prompt_marks_changed |= cleared_mark;
             }
             _ => {}
         }
@@ -337,9 +351,13 @@ impl Screen {
 
     pub(super) fn erase_line(&mut self, mode: usize) {
         match mode {
+            // Modes 0/1 blank cells in place: the row (and its mark) survives.
             0 => self.erase_line_from_cursor(),
             1 => self.erase_line_to_cursor(),
             2 => {
+                // Full-line erase replaces the row with a fresh blank one,
+                // dropping its mark; flag the change if it held one.
+                self.prompt_marks_changed |= self.rows[self.cursor.row].prompt_mark.is_some();
                 self.rows[self.cursor.row] = self.current_blank_row();
             }
             _ => {}
@@ -825,6 +843,10 @@ impl Screen {
             return;
         }
 
+        // Entering swaps the marked primary rows out for a fresh blank alt
+        // buffer, so visible marks vanish; flag the poll API if any existed.
+        self.prompt_marks_changed |= self.has_any_prompt_mark();
+
         let alt_rows = if clear_alt {
             vec![blank_row(self.dimensions.columns); self.dimensions.rows]
         } else {
@@ -874,6 +896,12 @@ impl Screen {
     ///   (1049 already cleared on enter; 47 intentionally preserves content).
     pub(super) fn leave_alternate_screen(&mut self, restore_cursor: bool, _clear_alt: bool) {
         if let Some(primary_screen) = self.primary_screen.take() {
+            // Leaving swaps the alt buffer out for the restored primary, so
+            // marks change if either the outgoing alt OR the incoming primary
+            // (live rows or scrollback) carried any; flag the poll API.
+            self.prompt_marks_changed |= self.has_any_prompt_mark()
+                || primary_screen.rows.iter().any(|l| l.prompt_mark.is_some())
+                || primary_screen.scrollback.any_prompt_mark();
             self.rows = primary_screen.rows;
             self.scrollback = primary_screen.scrollback;
             if restore_cursor {
@@ -935,6 +963,11 @@ impl Screen {
     /// visibility, bracketed paste and pending wrap, homes the cursor, and
     /// discards any pending host output.
     pub(super) fn hard_reset(&mut self) {
+        // RIS rebuilds the grid as blank rows and clears scrollback, dropping
+        // every row-anchored prompt mark; flag it for the poll API if any
+        // existed. (Prompt marks are positional terminal state, not shell state
+        // — unlike the OSC 7 cwd below, they do not survive RIS.)
+        self.prompt_marks_changed |= self.has_any_prompt_mark();
         self.primary_screen = None;
         self.rows = vec![blank_row(self.dimensions.columns); self.dimensions.rows];
         self.scrollback.clear();

@@ -51,6 +51,7 @@ use std::cell::{Ref, RefCell};
 
 use unicode_width::UnicodeWidthChar;
 
+use super::prompt_marks::PromptKind;
 use super::reflow::{reflow_lines, resize_keep_width};
 use super::screen::Line;
 use super::types::{Cell, Dimensions, Position};
@@ -64,6 +65,11 @@ use super::types::{Cell, Dimensions, Position};
 pub(in crate::core) struct LogicalLine {
     cells: Vec<Cell>,
     open: bool,
+    /// OSC 133 prompt mark of this logical line (SH1), captured from the first
+    /// physical row that formed it. Re-stamped onto the first physical row when
+    /// the line is projected back to a grid width (see [`project_line_into`]), so
+    /// the mark survives scroll-out and re-wrap. `None` for an unmarked line.
+    prompt_mark: Option<PromptKind>,
 }
 
 /// Memoized physical projection of the logical store at a single width.
@@ -134,12 +140,21 @@ impl Scrollback {
         if let Some(last) = self.lines.last_mut()
             && last.open
         {
+            // Continuation of an open logical line: extend cells. A continuation
+            // row normally carries no mark, but if the logical line's true first
+            // row already scrolled off before the mark was stamped (the mark
+            // landed on a still-visible continuation row), adopt it here so the
+            // line keeps its first non-`None` mark.
             last.cells.extend(row.cells.iter().copied());
             last.open = wrapped;
+            if last.prompt_mark.is_none() {
+                last.prompt_mark = row.prompt_mark;
+            }
         } else {
             self.lines.push(LogicalLine {
                 cells: row.cells,
                 open: wrapped,
+                prompt_mark: row.prompt_mark,
             });
         }
         self.invalidate();
@@ -149,6 +164,13 @@ impl Scrollback {
     pub(in crate::core) fn clear(&mut self) {
         self.lines.clear();
         self.invalidate();
+    }
+
+    /// Whether any stored logical line carries an OSC 133 prompt mark (SH1).
+    /// Cheap O(lines) scan over the logical store (no projection), used to keep
+    /// the prompt-marks change flag honest on clear/resize.
+    pub(in crate::core) fn any_prompt_mark(&self) -> bool {
+        self.lines.iter().any(|l| l.prompt_mark.is_some())
     }
 
     fn invalidate(&self) {
@@ -227,11 +249,15 @@ pub(in crate::core) fn resize_lazy(
         // irrelevant — so no projection/padding is needed and an open line joins
         // to the live grid without inserted blanks.
         for line in &pulled {
-            subset.push(if line.open {
+            let mut mega = if line.open {
                 Line::wrapped(line.cells.clone())
             } else {
                 Line::unwrapped(line.cells.clone())
-            });
+            };
+            // Carry the prompt mark onto the mega-row so `reflow_lines` re-anchors
+            // it onto the first re-wrapped physical row.
+            mega.prompt_mark = line.prompt_mark;
+            subset.push(mega);
         }
     }
     let cursor_prefix = subset.len();
@@ -268,12 +294,22 @@ pub(in crate::core) fn resize_lazy(
 pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> {
     let mut lines = Vec::new();
     let mut current: Vec<Cell> = Vec::new();
+    let mut current_mark: Option<PromptKind> = None;
     for row in rows {
+        if current.is_empty() {
+            // First physical row of a new logical line: capture its mark.
+            current_mark = row.prompt_mark;
+        } else if current_mark.is_none() {
+            // Adopt a mark stamped on a continuation row when the first row
+            // carried none (first non-`None` mark in the logical line wins).
+            current_mark = row.prompt_mark;
+        }
         current.extend(row.cells.iter().copied());
         if !row.wrapped {
             lines.push(LogicalLine {
                 cells: std::mem::take(&mut current),
                 open: false,
+                prompt_mark: current_mark.take(),
             });
         }
     }
@@ -281,6 +317,7 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
         lines.push(LogicalLine {
             cells: current,
             open: true,
+            prompt_mark: current_mark,
         });
     }
     lines
@@ -290,7 +327,7 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
 pub(in crate::core) fn project_logical(lines: &[LogicalLine], width: usize) -> Vec<Line> {
     let mut out = Vec::new();
     for line in lines {
-        project_line_into(&line.cells, width, line.open, &mut out);
+        project_line_into(&line.cells, width, line.open, line.prompt_mark, &mut out);
     }
     out
 }
@@ -302,7 +339,7 @@ fn cells_all_blank(cells: &[Cell]) -> bool {
 
 fn count_projected_rows(cells: &[Cell], width: usize, open: bool) -> usize {
     let mut tmp = Vec::new();
-    project_line_into(cells, width, open, &mut tmp);
+    project_line_into(cells, width, open, None, &mut tmp);
     tmp.len()
 }
 
@@ -317,8 +354,20 @@ fn count_projected_rows(cells: &[Cell], width: usize, open: bool) -> usize {
 ///   an orphaned continuation spacer is dropped.
 /// - Every row except the last is marked `wrapped`. The last row is marked
 ///   `wrapped` iff the logical line is `open`, otherwise it is hard-terminated.
-fn project_line_into(cells: &[Cell], width: usize, open: bool, out: &mut Vec<Line>) {
+/// - `mark` (the logical line's OSC 133 prompt mark, SH1) is stamped onto the
+///   FIRST physical row produced; continuation rows keep their default `None`.
+fn project_line_into(
+    cells: &[Cell],
+    width: usize,
+    open: bool,
+    mark: Option<PromptKind>,
+    out: &mut Vec<Line>,
+) {
     let plain = Cell::blank();
+    // Index of this logical line's first physical row in `out`; the prompt mark
+    // is re-anchored here after the rows are produced. A logical line always
+    // produces at least one row, so this index is always valid afterward.
+    let first_row = out.len();
 
     // Trim trailing plain blanks (matches reflow). Open lines carry none.
     let mut keep = cells.len();
@@ -386,5 +435,10 @@ fn project_line_into(cells: &[Cell], width: usize, open: bool, out: &mut Vec<Lin
         // Content filled exactly to a wrap boundary: the final row's marker is
         // the line's continuation state.
         last.wrapped = open;
+    }
+
+    // Re-anchor the prompt mark onto this logical line's first physical row.
+    if let Some(first) = out.get_mut(first_row) {
+        first.prompt_mark = mark;
     }
 }

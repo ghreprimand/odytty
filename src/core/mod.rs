@@ -19,6 +19,7 @@ mod graphics_routing;
 mod hyperlink;
 mod kitty;
 mod kitty_transport;
+mod prompt_marks;
 mod reflow;
 mod screen;
 mod scrollback;
@@ -54,6 +55,7 @@ mod tests;
 
 pub use encoding::{encode_focus_event, encode_mouse_event, encode_mouse_event_pixel};
 pub use hyperlink::{Hyperlink, MAX_URI_BYTES, uri_has_openable_scheme};
+pub use prompt_marks::PromptKind;
 pub use screen::{Screen, Terminal};
 pub use search::{
     AbsolutePoint, SearchMatch, SearchOptions, SearchRow, find_next, find_prev, search_rows,

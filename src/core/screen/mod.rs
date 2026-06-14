@@ -14,6 +14,7 @@ use super::graphics_routing::{self, DcsCapture, GraphicsStats};
 use super::hyperlink::{Hyperlink, HyperlinkTable};
 use super::kitty::{decode_base64_bytes, encode_base64_bytes};
 
+use super::prompt_marks::{self, PromptKind};
 use super::reflow::resize_buffer_rows;
 use super::scrollback::{Scrollback, resize_lazy};
 use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
@@ -36,10 +37,17 @@ pub const OSC52_CLIPBOARD_MAX_BYTES: usize = 64 * 1024;
 ///
 /// `Line` derefs to its `cells` vector, so existing `row[col]`, `row.iter()`,
 /// `row.get(..)`, and `row.resize(..)` call sites keep working unchanged.
+///
+/// `prompt_mark` is the optional OSC 133 semantic boundary (SH1) anchored to
+/// this row's logical line; it is `None` for every row except the first physical
+/// row of a logical line that a shell-integration sequence marked. It rides the
+/// row purely as advisory state for the poll API — no render-path code reads it
+/// and it never reaches the [`Snapshot`] (see [`super::prompt_marks`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::core) struct Line {
     pub(in crate::core) cells: Vec<Cell>,
     pub(in crate::core) wrapped: bool,
+    pub(in crate::core) prompt_mark: Option<PromptKind>,
 }
 impl Line {
     /// A row that ends a logical line (hard break / no continuation).
@@ -47,6 +55,7 @@ impl Line {
         Self {
             cells,
             wrapped: false,
+            prompt_mark: None,
         }
     }
 
@@ -55,6 +64,7 @@ impl Line {
         Self {
             cells,
             wrapped: true,
+            prompt_mark: None,
         }
     }
 }
@@ -118,6 +128,10 @@ pub struct Screen {
     /// [`Screen::take_working_directory_changed`] so a front end can poll once
     /// per frame without re-reading an unchanged value.
     working_directory_changed: bool,
+    /// Set whenever an OSC 133 prompt mark is stamped (SH1); cleared by
+    /// [`Screen::take_prompt_marks_changed`] so a front end can poll once per
+    /// frame and rebuild any per-command UI only when the marks actually moved.
+    prompt_marks_changed: bool,
     /// Active mouse reporting protocol (tracking mode + wire encoding).
     mouse: MouseProtocol,
     /// Active keyboard reporting modes (DECCKM cursor keys and DECKPAM keypad).
@@ -233,6 +247,7 @@ impl Screen {
             title_changed: false,
             working_directory: None,
             working_directory_changed: false,
+            prompt_marks_changed: false,
             mouse: MouseProtocol::default(),
             keyboard: KeyboardModes::default(),
             kitty_keyboard_stack: Vec::new(),
@@ -566,6 +581,9 @@ impl Screen {
     pub fn resize(&mut self, columns: usize, rows: usize) {
         let dimensions = Dimensions::new(columns, rows);
         let width_unchanged = dimensions.columns == self.dimensions.columns;
+        // A resize re-wraps/re-anchors marks, so absolute-row mark positions can
+        // shift; flag the change for the poll API (only when marks exist).
+        let had_prompt_marks = self.has_any_prompt_mark();
 
         if self.primary_screen.is_some() {
             // Alternate screen active: truncate/pad the app-managed grid (it
@@ -610,6 +628,7 @@ impl Screen {
         self.scroll_region = clamp_scroll_region(self.scroll_region, dimensions);
         self.graphics
             .resize(self.dimensions.rows, self.dimensions.columns);
+        self.prompt_marks_changed |= had_prompt_marks;
         self.mark_dirty();
     }
 
@@ -761,6 +780,61 @@ impl Screen {
         std::mem::take(&mut self.working_directory_changed)
     }
 
+    /// The OSC 133 prompt mark anchored to absolute row `row`, or `None` if the
+    /// row carries no mark (SH1). The coordinate convention matches
+    /// [`Screen::snapshot_with_scrollback`] and [`super::search`]: row `0` is the
+    /// oldest physical scrollback row, counting down through scrollback into the
+    /// live grid. Out-of-range rows return `None`. Advisory state only — nothing
+    /// on the render path consults it; this is the sole reader of `prompt_mark`.
+    pub fn prompt_mark_at(&self, row: usize) -> Option<PromptKind> {
+        let scrollback = self.scrollback.physical(self.dimensions.columns);
+        let scrollback_len = scrollback.len();
+        if row < scrollback_len {
+            scrollback[row].prompt_mark
+        } else {
+            self.rows
+                .get(row - scrollback_len)
+                .and_then(|l| l.prompt_mark)
+        }
+    }
+
+    /// Return whether the set of prompt marks may have changed since the last
+    /// call, and clear the flag. Mirrors [`Screen::take_working_directory_changed`]
+    /// so a front end can poll once per frame and rebuild per-command UI only on
+    /// change.
+    ///
+    /// The flag is set not only when a new mark is stamped but also whenever an
+    /// operation can clear or reposition existing marks — RIS, erase-display /
+    /// erase-line row replacement, resize/reflow, and alternate-screen
+    /// enter/leave (which swaps the marked primary out and back) — so a consumer
+    /// that trusts "rebuild only on change" never sees
+    /// [`Screen::prompt_mark_at`] return a different result while this reads
+    /// `false`. It is *conservative*: those
+    /// clearing/repositioning paths only raise it when marks are actually
+    /// present, but a raised flag does not guarantee a mark's value changed
+    /// (e.g. a resize that left every mark on the same absolute row).
+    pub fn take_prompt_marks_changed(&mut self) -> bool {
+        std::mem::take(&mut self.prompt_marks_changed)
+    }
+
+    /// Whether any prompt mark is held anywhere in the terminal — the active
+    /// screen's live rows or scrollback, *or* the stored primary screen when the
+    /// alternate screen is active. Used to keep
+    /// [`Self::take_prompt_marks_changed`] honest: the clear/reposition paths
+    /// (RIS, resize) only raise the change flag when there is actually a mark to
+    /// clear or move, and an alt-active resize re-anchors the stored primary's
+    /// marks too, so they must be counted here.
+    fn has_any_prompt_mark(&self) -> bool {
+        if self.rows.iter().any(|l| l.prompt_mark.is_some()) || self.scrollback.any_prompt_mark() {
+            return true;
+        }
+        if let Some(primary) = &self.primary_screen {
+            return primary.rows.iter().any(|l| l.prompt_mark.is_some())
+                || primary.scrollback.any_prompt_mark();
+        }
+        false
+    }
+
     /// The active mouse reporting protocol (tracking mode + encoding).
     pub fn mouse_protocol(&self) -> MouseProtocol {
         self.mouse
@@ -807,6 +881,40 @@ impl Screen {
     fn set_working_directory(&mut self, cwd: String) {
         self.working_directory = Some(cwd);
         self.working_directory_changed = true;
+    }
+
+    /// Handle an OSC 133 payload (SH1): parse the `;`-split parts after `133`
+    /// into a [`PromptKind`] and stamp it on the cursor's current *logical*
+    /// line.
+    ///
+    /// Marks are **logical-line-anchored**: the mark is recorded on the FIRST
+    /// physical row of the logical line the cursor is on, found by walking back
+    /// over soft-wrapped predecessor rows. This keeps the live mark where the
+    /// scroll-out and reflow carry will keep it (continuation rows never hold a
+    /// mark), so a query before and after a resize/scroll-out agrees. A boundary
+    /// reported mid-soft-wrap (e.g. a prompt that wrapped) therefore marks the
+    /// start of the wrapped region, not the wrap continuation. When the logical
+    /// line's true first row has already scrolled into scrollback, the walk
+    /// stops at the top of the live grid; the carry paths then adopt the mark
+    /// onto the open scrollback line (see [`super::scrollback::Scrollback::push_row`]).
+    ///
+    /// A malformed/unknown sub-command leaves the line's existing mark
+    /// untouched. Pure state mutation: no grid write, no host reply, and the
+    /// cursor / pending-wrap state is deliberately not touched.
+    fn handle_osc133(&mut self, parts: &[&[u8]]) {
+        let Some(kind) = prompt_marks::parse_osc133(parts) else {
+            return;
+        };
+        // Walk back to the first physical row of the cursor's logical line: a
+        // row is a soft-wrap continuation iff its predecessor is `wrapped`.
+        let mut row = self.cursor.row.min(self.rows.len().saturating_sub(1));
+        while row > 0 && self.rows[row - 1].wrapped {
+            row -= 1;
+        }
+        if let Some(line) = self.rows.get_mut(row) {
+            line.prompt_mark = Some(kind);
+            self.prompt_marks_changed = true;
+        }
     }
 
     fn set_hyperlink(&mut self, params: &[&[u8]]) {
@@ -1069,6 +1177,10 @@ impl Screen {
                     self.set_working_directory(cwd);
                 }
             }
+            // OSC 133 = shell-integration semantic prompt marking (SH1). Parse
+            // and stamp an advisory per-row mark; never touch the grid, never
+            // reply. See [`Self::handle_osc133`].
+            b"133" => self.handle_osc133(&params[1..]),
             b"4" => self.osc_palette(params),
             b"8" => self.set_hyperlink(params),
             b"10" => self.osc_default_color(params, DefaultColorSlot::Foreground),
@@ -1338,6 +1450,20 @@ impl Terminal {
     /// flag.
     pub fn take_working_directory_changed(&mut self) -> bool {
         self.screen.take_working_directory_changed()
+    }
+
+    /// The OSC 133 prompt mark anchored to absolute row `row` (SH1), or `None`.
+    /// Row `0` is the oldest scrollback row; see [`Screen::prompt_mark_at`].
+    pub fn prompt_mark_at(&self, row: usize) -> Option<PromptKind> {
+        self.screen.prompt_mark_at(row)
+    }
+
+    /// Whether the set of prompt marks may have changed since the last poll
+    /// (a new mark stamped, or marks cleared/repositioned by RIS, erase, resize,
+    /// or an alternate-screen switch); clears the flag. See
+    /// [`Screen::take_prompt_marks_changed`] for the conservative contract.
+    pub fn take_prompt_marks_changed(&mut self) -> bool {
+        self.screen.take_prompt_marks_changed()
     }
 
     /// The active mouse reporting protocol (tracking mode + encoding).

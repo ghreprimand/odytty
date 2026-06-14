@@ -343,6 +343,31 @@ display for longer than 150 ms. Cursor blink remains live during the hold: the
 hold path calls `update_held_cursor_frame`, which re-renders the cursor blink
 delta against the last presented snapshot without touching grid content.
 
+### Semantic Prompt Marking (OSC 133) — foundation
+
+OSC 133 (`ESC ] 133 ; <letter> [; k=v ...] ST`) marks the prompt/command/output
+boundaries a shell-integration script emits: `A` prompt start, `B` prompt end /
+command-input start, `C` command-output start, `D[;exit]` command end. The
+parser surfaces this through the same `dispatch_osc` ident seam as OSC 7/8/52;
+`src/core/prompt_marks.rs` owns the `PromptKind` model and the `handle_osc133`
+setters. Aux `k=v` keys are accepted-and-ignored; the `D` exit code is parsed
+digits-only into `Option<i32>` (absent / non-numeric / overflow → `None`), and
+malformed payloads are consumed without panic or host reply.
+
+Marks are **logical-line-anchored**: a mark is stored as `Option<PromptKind>`
+on the cursor's logical line (carried on the first physical row), so it survives
+scroll-out into scrollback and width-changing reflow. `RIS`, `ED 2/3`, `EL 2`,
+resize, and alternate-screen transitions clear or re-anchor marks as the rows
+they sit on change. A read-only poll API (`prompt_mark_at`,
+`take_prompt_marks_changed`) exposes the marks; the change flag is conservative
+(fires on any stamp, clear, or reposition).
+
+This is a **foundation slice with no render consumer**: `prompt_mark` is never
+read by the render path and is deliberately absent from `Snapshot`, so the
+plain renderer is byte-identical with or without OSC 133 in the stream. The
+command-aware UX that consumes these marks (jump-to-prompt, per-command output
+selection, success/fail gutter) is separate downstream work.
+
 ## Scope
 
 v0 is complete. Stages 1 through 4.5 are substantially complete. The parity
