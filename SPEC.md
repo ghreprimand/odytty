@@ -512,15 +512,21 @@ Tier-3 atmospheric effects land in this order:
 1. **VE1-a (landed):** offscreen scaffold + passthrough composite, sRGB-8
    intermediate. Default dormant; zero visible change. Foundation for all
    subsequent effects.
-2. **VE1-b (in flight):** move the offscreen intermediate to a linear
-   `Rgba16Float` format with a filterable-format probe and graceful auto-disable
-   on adapters that cannot support it. This is a **hard prerequisite for bloom
-   (VE2)**: an sRGB-8 intermediate clamps all values at 1.0 and quantizes,
-   destroying the HDR overshoot (>1.0 linear) that additive glow needs.
-   The composite pass performs the final linear→sRGB encode at store time;
-   the swapchain surface stays `Rgba8UnormSrgb`.
-3. **VE2 (planned):** bloom / phosphor glow (threshold + separable blur +
-   additive composite). Requires VE1-b HDR intermediates.
+2. **VE1-b (landed):** the offscreen intermediate is a linear `Rgba16Float`
+   format with a filterable-format probe and graceful auto-disable on adapters
+   that cannot support it. This was the **hard prerequisite for bloom (VE2)**:
+   an sRGB-8 intermediate clamps all values at 1.0 and quantizes, destroying the
+   HDR overshoot (>1.0 linear) that additive glow needs. The composite pass
+   performs the final linear→sRGB encode at store time; the swapchain surface
+   stays `Rgba8UnormSrgb`. When a post-process pass is active the scene pipelines
+   (cell, color-glyph, image) are rebuilt to render into the HDR offscreen
+   format and rebuilt back when it is disabled, so the default path stays on the
+   swapchain format and byte-identical.
+3. **VE2 (landed):** bloom / phosphor glow (bright-pass threshold + half-res
+   separable blur + additive composite), off by default behind the `bloom`
+   setting and gated on adapter HDR support. The bright-pass threshold is
+   auto-derived from the active theme's foreground luminance so normal body text
+   never glows.
 4. **VE3 (planned):** CRT / retro profile (scanlines, vignette, optional
    curvature / chromatic aberration).
 

@@ -7,6 +7,53 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- VE2: gated bloom / phosphor glow over the HDR post-process
+
+- The post-process foundation is complete and the first visible Tier-3 effect
+  rides on it. Native GPU resources for the offscreen→composite seam moved into
+  their own module, then a bright-pass + half-resolution separable blur (H/V) +
+  additive composite landed as an opt-in bloom pass. Bloom is **off by default**
+  and the plain path stays direct-to-swapchain and byte-identical; it activates
+  only when the setting is on *and* the adapter advertises filterable
+  `Rgba16Float` render targets, otherwise the renderer silently uses the plain
+  path.
+- Four first-class settings carry overlay help text and round-trip through
+  config/env/CLI: `bloom` (on/off), `bloom_threshold` (bright-pass luminance
+  knee, defaulted from the active theme's foreground luminance plus a safety
+  margin so normal body text never glows), `bloom_intensity` (additive strength,
+  default `0.4`), and `bloom_radius` (blur spread in half-res pixels, default
+  `3.0`).
+- Fixed an activation defect caught by native verification before publishing:
+  with bloom on, the scene renders into the linear `Rgba16Float` offscreen, but
+  the cell/color-glyph/image pipelines were still built for the sRGB swapchain
+  format, so enabling bloom triggered a fatal `wgpu` validation error
+  (incompatible color-attachment formats). The renderer now tracks the active
+  scene-target format and rebuilds every live scene pipeline together when it
+  changes, so a runtime bloom toggle or config reload re-targets before the next
+  frame. The default-off path is unchanged.
+- A new native GPU regression test drives the **real** cell + color-glyph
+  pipelines into the HDR offscreen and runs the bloom composite, exercising the
+  live offscreen path rather than a synthetic bloom-texture pass — the exact gap
+  that let the activation defect through. The readback smoke separately proves
+  the off path is exact, sub-threshold body text is unchanged, and a bright HDR
+  cell receives a bounded halo.
+- Verified: `cargo fmt --check` clean; full `cargo test` green (lib 1018 +
+  integration 96 = 1114); native smokes exit 0 for the default path **and** for
+  `ODYTTY_BLOOM=1` alone, with `odyssey-nebula` + a raised contrast floor, and
+  with geometric box-drawing + themed roles + focus dim. Caps held (gpu.rs 1658).
+
+## 2026-06-13 -- Pixel-smoke coverage of the live readability stack (31 -> 34)
+
+- Strengthened structural pixel-smoke coverage of the shipped Tier-1/Tier-2
+  stack (test-only): the RV1 minimum-contrast floor at its second resolve site —
+  the cursor-block under-glyph cut-out, proven legible in composited pixels; the
+  focus-dim x floor precondition (an unfocused window dims the background fill
+  perceptually — luminance and lightness drop, chroma reduced but hue preserved —
+  so the floor re-lifts text against a genuinely dimmed, still-chromatic field);
+  and themed selection/cursor role resolution against real light and dark
+  built-in themes. All additions are global-free — the process contrast floor is
+  never mutated — keeping the suite parallel-safe.
+
 ## 2026-06-13 -- RV5 stem-darkening ships default-on
 
 - Stem darkening now defaults to a conservative `0.2` (was `0.0`/off): light-on-

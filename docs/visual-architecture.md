@@ -173,9 +173,11 @@ Theme and appearance system section below and `docs/themes.md` for details.
 > RV1, RV2, RV3, RV5, and RV6 are all live. **Tier 2 is partially delivered** —
 > ID1-a (themed cursor/selection/search roles, default on) and ID2 (focus
 > dimming) have landed; ID1 full glow/easing, ID3, and ID4 remain open. **Tier
-> 3** (atmospheric post-process) remains in design. Sub-sections marked
-> **(landed)** are grounded in source; all other items are design intent, not
-> yet built.
+> 3 is underway** — VE1 (post-process pipeline: linear `Rgba16Float` offscreen +
+> composite, adapter-gated) and VE2 (bloom / phosphor glow, off by default) are
+> live; VE3 (CRT/retro), VE4 (motion), and VE5 (quality panel) remain open.
+> Sub-sections marked **(landed)** are grounded in source; all other items are
+> design intent, not yet built.
 
 The enhancement work is organized into three tiers, ordered by risk and
 default-on policy.
@@ -259,13 +261,15 @@ Distinctive treatments that direct attention without harming legibility.
 ### Tier 3 — Atmospheric effects (opt-in post-process)
 
 These require a post-process pipeline (offscreen render target + composite
-pass) that does not exist yet.
+pass), which now exists (VE1) and carries the first effect (VE2).
 
-- **Post-process pipeline architecture (VE1):** offscreen render target,
-  composite pass, perf-budget seam, weak-adapter auto-downgrade. Zero visible
-  change at default settings.
-- **Bloom / phosphor glow (VE2):** bright-text/bright-cell glow via threshold
-  + separable blur + additive composite. Default subtle-or-off.
+- **Post-process pipeline architecture (VE1) (landed):** linear `Rgba16Float`
+  offscreen render target, composite pass, filterable-format probe with
+  weak-adapter auto-downgrade. Zero visible change at default settings; the
+  scene pipelines re-target the offscreen format only while a pass is active.
+- **Bloom / phosphor glow (VE2) (landed):** bright-text/bright-cell glow via an
+  auto-derived bright-pass threshold + half-res separable blur + additive
+  composite. Off by default behind the `bloom` setting and adapter-gated.
 - **CRT / retro profile (VE3):** refined scanlines, vignette, optional
   curvature/chromatic aberration; selectable as a theme visual profile.
 - **Subtle motion (VE4):** optional cursor glow/trail and fade-in of new

@@ -250,7 +250,7 @@ default-off / focused frames byte-identical.
 
 ## Testing
 
-**Testing.** 1102 tests passing: 1010 unit/integration, 12 mouse-protocol
+**Testing.** 1114 tests passing: 1018 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -258,7 +258,7 @@ normal/button-event/any-event modes, and SGR-pixel (1016) encoder coverage —
 press/release/wheel/motion with 1-based pixel coordinates, boundary at `(1,1)`,
 large coordinate values, modifier folding, not-1016 guard, and cell-path
 pass-through; run via
-`cargo test --test mouse_protocol`), 29 pixel-smoke (headless CPU compositor
+`cargo test --test mouse_protocol`), 34 pixel-smoke (headless CPU compositor
 asserting structural raster invariants for text rendering and graphics
 placement; EM3 added two — color-glyph segment draw ordering between coverage
 text and above-image layers, and wide color glyph lead-cell quad emission —
@@ -266,7 +266,10 @@ ID1 default-on added three covering the now-default themed selection/cursor
 colors plus the `themed_ui_roles = off` legacy inverse parity, RV3-dim added
 one asserting the perceptual dim delta stays confined to dim cells, and ID2
 added two — a focus-dim-off identity gate and an unfocused-dimmed baseline that
-recedes while still clearing a raised contrast floor), 4
+recedes while still clearing a raised contrast floor, and RV-COVERAGE added
+three — the minimum-contrast floor at its cursor-block under-glyph resolve site,
+the focus-dim × floor background-dim precondition, and themed selection/cursor
+role resolution against real light and dark built-ins), 4
 box-drawing pixel-smoke (geometric box/block/Powerline: corner↔line seam, cross
 join, full-block solidity, and the off/on distinction), 11 protocol-fuzz smoke (never-panic, bounded-host-output, post-RIS,
 and grid-self-consistency invariants across seven fuzzed surfaces: extended
@@ -277,10 +280,11 @@ transcript smoke, 8 emoji pixel-smoke (real Noto color-emoji composition,
 VS15/VS16 presentation policy, multi-codepoint cluster stitching/fallback, and
 monochrome-foreground suppression for resident color-emoji cells), 3 CLI
 introspection (theme enumeration, config-dump formatting, and a spawned
-`--show-config` over a temp config), 1 GPU composite smoke (renders a tiny
-scene direct-to-swapchain vs. through the offscreen→composite seam and
-asserts byte-equality, guarding the dormant post-process foundation;
-adapter-gated), and 3 stem-raster smoke (proving RV5 stem-darkening is wired
+`--show-config` over a temp config), 2 GPU composite smoke (one renders a tiny
+scene direct-to-swapchain vs. through the offscreen→composite seam and asserts
+byte-equality, guarding the plain post-process path; the other proves the bloom
+pass leaves the off path exact, keeps sub-threshold body text unchanged, and
+gives a bright HDR cell a bounded halo; adapter-gated), and 3 stem-raster smoke (proving RV5 stem-darkening is wired
 through the live glyph-atlas raster: the default-on boost raises midtone
 coverage monotonically with the `0`/`255` endpoints pinned, and the `0.0`
 opt-out restores the classic raster byte-for-byte). Deep fuzz
