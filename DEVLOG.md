@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-14 -- copyright year corrected to 2026; first friction session triaged
+
+- Corrected the project copyright line from 2025 to **2026** (the project's
+  authorship/first-publication year) in the README License section. The verbatim
+  GPL-3.0 `LICENSE` text is unaffected (its template appendix is part of the
+  fixed FSF document and carries no project year).
+- First hands-on operator friction session completed. Findings were root-caused
+  against the live code and triaged into a backlog: confirmed bugs (zero window
+  padding; font-family changes failing silently; CRT vignette banding from a hard
+  brightness floor plus no 8-bit dithering; subpixel-RGB color fringing from a
+  missing LCD filter), tuning gaps (selective bloom reads as "highlights only";
+  subtle stem-darken/scanlines), architecture cruft (the legacy `visual=ambient`
+  scanline path overlaps the newer post-process `crt`), and feature requests
+  (mouse-driven settings panel, right-click context menu, font-weight control,
+  a cohesive opt-in retro/CRT look). Reassuring: every effect the operator could
+  see is genuinely wired to the live render path — the issues are tuning, a few
+  real bugs, and settings UX, not dead wiring.
+
+---
+
 ## 2026-06-13 -- project licensed under GPL-3.0-only (LICENSE + SPDX + DCO)
 
 - OdyTTY now carries a formal license: the **GNU General Public License v3.0
@@ -26,7 +46,7 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
   rather than a CLA: contributors sign off commits with `git commit -s`
   (`Signed-off-by:`) to certify provenance, and retain copyright on their own
   contributions. The README gains a License section and the copyright line
-  `Copyright (C) 2025 The OdyTTY Authors`; CONTRIBUTING gains a DCO section with
+  `Copyright (C) 2026 The OdyTTY Authors`; CONTRIBUTING gains a DCO section with
   the verbatim DCO 1.1 text.
 - Dependency-license audit (full transitive tree via `cargo metadata`): every
   dependency is permissive or GPL-3.0-compatible (MIT / Apache-2.0 / BSD / Zlib /

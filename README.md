@@ -338,7 +338,7 @@ You are free to use, study, share, and modify OdyTTY. If you distribute a
 modified version, you must release your changes under the same license (strong
 copyleft).
 
-Copyright (C) 2025 The OdyTTY Authors.
+Copyright (C) 2026 The OdyTTY Authors.
 
 **Contributing:** contributions are welcome under the Developer Certificate of
 Origin (DCO) — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
