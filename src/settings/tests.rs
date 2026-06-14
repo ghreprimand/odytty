@@ -1148,6 +1148,29 @@ fn empty_font_family_is_ignored() {
 }
 
 #[test]
+fn overlay_edit_to_missing_font_family_reports_clear_error() {
+    // The overlay-edit path (`from_edit_values`) must reject an unresolvable
+    // family with a precise, family-named, user-facing message instead of
+    // silently keeping the old font. A clearly bogus name is "not found" on any
+    // host. Default settings have no direct font path, so the family is consulted.
+    let mut values = Settings::default().to_edit_values();
+    values.insert(FONT_FAMILY_ENV, "ZzzNoSuchFamily12345".to_owned());
+
+    let error = Settings::from_edit_values(&values).expect_err("missing family must error");
+    assert_eq!(error.key, "font_family");
+    assert!(
+        error.message.contains("ZzzNoSuchFamily12345"),
+        "names the family: {}",
+        error.message
+    );
+    assert!(
+        error.message.contains("not found"),
+        "states the reason: {}",
+        error.message
+    );
+}
+
+#[test]
 fn key_bindings_parse_valid_entries_case_insensitively() {
     let (settings, warnings) = settings_from([(
         KEYBINDS_ENV,

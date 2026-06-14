@@ -449,15 +449,34 @@ impl Settings {
 
     fn from_edit_values(values: &BTreeMap<&'static str, String>) -> Result<Self, SettingEditError> {
         let mut warnings = Vec::new();
+        // On the overlay-edit path a font-family change that does not resolve is
+        // the most actionable failure, so capture the precise reason (not found
+        // vs not monospace) and surface it ahead of the generic fallback warning
+        // `from_source` also emits for the same condition. The success arm stays
+        // byte-identical: `try_resolve_font_family(..).Ok` returns the same
+        // `regular` path `resolve_font_family` would have.
+        let mut font_family_error: Option<SettingEditError> = None;
         let settings = Self::from_source(
             |key| values.get(key).map(OsString::from),
             |message| warnings.push(message.to_owned()),
-            |family| {
-                crate::text::resolve_font_family(family, &crate::text::font_search_dirs())
-                    .map(|m| m.regular)
+            |family| match crate::text::try_resolve_font_family(
+                family,
+                &crate::text::font_search_dirs(),
+            ) {
+                Ok(matched) => Some(matched.regular),
+                Err(reason) => {
+                    font_family_error.get_or_insert_with(|| SettingEditError {
+                        key: "font_family",
+                        message: font_family_error_message(family, reason),
+                    });
+                    None
+                }
             },
             |value| resolve_theme_file(value, theme_dir_path().as_deref()),
         );
+        if let Some(error) = font_family_error {
+            return Err(error);
+        }
         if let Some(message) = warnings.into_iter().next() {
             return Err(SettingEditError { key: "", message });
         }
@@ -848,6 +867,21 @@ fn clears_setting(key: &str, value: &str) -> bool {
             key,
             "font" | "font_family" | "symbol_font" | "native_autoclose_ms"
         )
+}
+
+/// User-facing overlay message for a failed `font_family` edit, naming the
+/// family and the precise reason. The current font is kept because the edit is
+/// rejected (the loader is never switched to the embedded probe list here).
+fn font_family_error_message(family: &str, reason: crate::text::FontResolveError) -> String {
+    use crate::text::FontResolveError;
+    match reason {
+        FontResolveError::NotFound => {
+            format!("Font family \"{family}\" not found. Keeping the current font.")
+        }
+        FontResolveError::NotMonospace => {
+            format!("Font family \"{family}\" is not monospace. Keeping the current font.")
+        }
+    }
 }
 
 fn setting_key_for_env(env: &str) -> Option<&'static str> {

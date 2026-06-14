@@ -785,6 +785,45 @@ mod tests {
     }
 
     #[test]
+    fn font_family_failure_surfaces_clear_overlay_message() {
+        // Editing the font_family row to an unresolvable family must reject the
+        // edit and render a clear, family-named notice in the panel (the same
+        // message surface UX4 reuses), not fail silently. A bogus name is "not
+        // found" on any host.
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "font_family");
+        let _ = panel.handle_input(OverlayInput::Activate);
+        clear_edit_buffer(&mut panel);
+        for ch in "ZzzNoSuchFamily12345".chars() {
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+
+        assert_eq!(
+            panel.handle_input(OverlayInput::Activate),
+            SettingsPanelOutcome::Consumed
+        );
+        let signature = panel.render_signature();
+        assert_eq!(
+            signature.changed_count, 0,
+            "rejected edit records no change"
+        );
+        let message = signature.message.expect("a failure message is shown");
+        assert!(
+            message.contains("ZzzNoSuchFamily12345") && message.contains("not found"),
+            "names the family and reason: {message}"
+        );
+
+        // And the notice is actually painted into the visible panel lines.
+        let lines = panel.visible_lines(96, 80);
+        let text = lines
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("not found"), "notice renders: {text}");
+    }
+
+    #[test]
     fn invalid_edit_is_rejected_in_panel() {
         let mut panel = SettingsPanel::new(&Settings::default());
         select_key(&mut panel, "font_size");

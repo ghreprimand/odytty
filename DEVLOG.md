@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-14 -- FX-FONT: surface font-load failures in the settings overlay
+
+- Fixed the silent failure where a `font_family` change that couldn't be
+  resolved (family not found, or found but not monospace) kept the previous font
+  with zero user feedback. `src/text.rs` gains `FontResolveError`
+  (`NotFound` / `NotMonospace`) and `try_resolve_font_family`, with the existing
+  `resolve_font_family` now the `.ok()` wrapper over it — public API additive,
+  the success path (selected regular/bold/italic faces) byte-identical, and the
+  style-face discovery in `gpu.rs` untouched.
+- The overlay-edit path (`Settings::from_edit_values`) captures the precise
+  reason and returns a keyed, family-named error
+  (`font_family_error_message`), surfaced ahead of the generic fallback warning.
+  Startup paths (env / config file) keep their warn-and-fall-back behavior and
+  never abort. The error rides the existing `SettingsPanel.message` notice
+  surface (painted with a `! ` prefix under the focused row) — no new render
+  path was added, and that notice mechanism is reusable by the upcoming UX4
+  settings-panel work.
+- Verified on the combined tree: `cargo fmt --all --check` clean; full
+  `cargo test` **1197 passed / 0 failed / 19 ignored** (FX-FONT adds coverage
+  for missing-family error, non-monospace error, success agreement, and the
+  overlay-message paint); native smokes exit 0; `git diff --check` + leak-grep
+  clean; test fixtures use neutral placeholder paths only. Also refreshed the
+  README theme count (15 → the actual 53-theme library) and pointed at
+  `docs/themes.md` for the full roster.
+
+---
+
 ## 2026-06-14 -- SH1-a: OSC 133 semantic prompt marking (inert core foundation)
 
 - Landed the foundation for shell/prompt integration: the owned parser now

@@ -149,26 +149,61 @@ pub fn font_search_dirs() -> Vec<PathBuf> {
 
 /// Resolve a `ODYTTY_FONT_FAMILY` value to a validated monospace face.
 ///
+/// Why a `ODYTTY_FONT_FAMILY` value could not be resolved to a usable monospace
+/// face. Lets the settings/overlay layer surface a precise, user-facing reason
+/// instead of a silent fallback (see [`try_resolve_font_family`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FontResolveError {
+    /// No font file matched the requested family name, or a direct path does not
+    /// exist / is not a readable font file.
+    NotFound,
+    /// A matching face was found but it is proportional, not monospace.
+    NotMonospace,
+}
+
+impl FontResolveError {
+    /// Short, user-facing reason fragment for overlay messages.
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::NotFound => "not found",
+            Self::NotMonospace => "is not monospace",
+        }
+    }
+}
+
+impl std::fmt::Display for FontResolveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.reason())
+    }
+}
+
+/// Resolve a `ODYTTY_FONT_FAMILY` value to a validated monospace face, or report
+/// **why** resolution failed (see [`FontResolveError`]).
+///
 /// Accepts either a direct path to a `.ttf`/`.otf` file or a family **name**
 /// looked up across `dirs`. The returned `regular` face is always validated as
-/// monospace (see [`is_monospace`]); a proportional font is rejected (returns
-/// `None`) so the caller can fall back to the embedded probe list. Style
-/// variants are discovered by filename convention but not opened. Pure with
-/// respect to `dirs`, so tests can supply a fixture directory.
-pub fn resolve_font_family(query: &str, dirs: &[PathBuf]) -> Option<FontFamilyMatch> {
+/// monospace (see [`is_monospace`]); a proportional font is rejected
+/// (`Err(NotMonospace)`) so the caller can either surface that or fall back to
+/// the embedded probe list. Style variants are discovered by filename
+/// convention but not opened. Pure with respect to `dirs`, so tests can supply a
+/// fixture directory.
+pub fn try_resolve_font_family(
+    query: &str,
+    dirs: &[PathBuf],
+) -> Result<FontFamilyMatch, FontResolveError> {
     let trimmed = query.trim();
     if trimmed.is_empty() {
-        return None;
+        return Err(FontResolveError::NotFound);
     }
 
     // Direct path to a font file: validate and use as the regular face.
     let as_path = Path::new(trimmed);
     if as_path.is_file() && has_font_ext(as_path) {
-        let font = load_font_at(as_path).ok()?;
+        let font = load_font_at(as_path).map_err(|_| FontResolveError::NotFound)?;
         if !is_monospace(&font) {
-            return None;
+            return Err(FontResolveError::NotMonospace);
         }
-        return Some(FontFamilyMatch {
+        return Ok(FontFamilyMatch {
             regular: as_path.to_path_buf(),
             bold: None,
             italic: None,
@@ -179,15 +214,18 @@ pub fn resolve_font_family(query: &str, dirs: &[PathBuf]) -> Option<FontFamilyMa
     // Family-name lookup across the search dirs.
     let target = normalize_family(trimmed);
     if target.is_empty() {
-        return None;
+        return Err(FontResolveError::NotFound);
     }
     let files = collect_font_files(dirs);
 
     // Pick the best monospace regular face whose normalized stem contains the
     // requested family. "Best" prefers an explicit "regular"/"mono" marker and a
-    // shorter stem (closer to an exact family match).
+    // shorter stem (closer to an exact family match). Track whether a regular
+    // face matched the name but was proportional, so a pure non-monospace name
+    // hit reports `NotMonospace` rather than `NotFound`.
     let mut regular: Option<PathBuf> = None;
     let mut best_score = i32::MIN;
+    let mut name_hit_non_mono = false;
     for f in &files {
         let stem = normalize_family(&file_stem(f));
         if !stem.contains(&target) {
@@ -204,17 +242,28 @@ pub fn resolve_font_family(query: &str, dirs: &[PathBuf]) -> Option<FontFamilyMa
             score += 1;
         }
         score -= stem.len() as i32;
-        if score <= best_score {
-            continue;
-        }
-        if let Ok(font) = load_font_at(f)
-            && is_monospace(&font)
-        {
-            best_score = score;
-            regular = Some(f.clone());
+        match load_font_at(f) {
+            Ok(font) if is_monospace(&font) => {
+                if score > best_score {
+                    best_score = score;
+                    regular = Some(f.clone());
+                }
+            }
+            // A regular face matched the requested name but is proportional.
+            Ok(_) => name_hit_non_mono = true,
+            Err(_) => {}
         }
     }
-    let regular = regular?;
+    let regular = match regular {
+        Some(path) => path,
+        None => {
+            return Err(if name_hit_non_mono {
+                FontResolveError::NotMonospace
+            } else {
+                FontResolveError::NotFound
+            });
+        }
+    };
 
     // Discover style variants sharing the family target (first match wins).
     let mut bold = None;
@@ -239,12 +288,20 @@ pub fn resolve_font_family(query: &str, dirs: &[PathBuf]) -> Option<FontFamilyMa
         }
     }
 
-    Some(FontFamilyMatch {
+    Ok(FontFamilyMatch {
         regular,
         bold,
         italic,
         bold_italic,
     })
+}
+
+/// `Option` view of [`try_resolve_font_family`]: the validated monospace face,
+/// or `None` on any resolution failure. Used by the loader fast paths that fall
+/// back to the embedded probe list and by the style-face discovery in the
+/// renderer; the resolved face is identical to the `Ok` arm above.
+pub fn resolve_font_family(query: &str, dirs: &[PathBuf]) -> Option<FontFamilyMatch> {
+    try_resolve_font_family(query, dirs).ok()
 }
 
 /// Environment variable naming an explicit symbol / Nerd-font file for the
@@ -890,6 +947,87 @@ mod tests {
         let m = resolve_font_family(path.to_str().unwrap(), &[]).expect("path resolves");
         assert_eq!(m.regular, path);
         assert!(m.bold.is_none() && m.italic.is_none() && m.bold_italic.is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Bytes of the first available *proportional* (non-monospace) system font,
+    /// or `None` when the host has only monospace faces (tests then skip). Scans
+    /// the real search dirs and returns the first face that loads but fails the
+    /// monospace probe; short-circuits on the first hit.
+    fn system_proportional_bytes() -> Option<Vec<u8>> {
+        for dir in font_search_dirs() {
+            for f in collect_font_files(&[dir]) {
+                if let Ok(font) = load_font_at(&f)
+                    && !is_monospace(&font)
+                {
+                    return std::fs::read(&f).ok();
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn try_resolve_reports_not_found_for_missing_family() {
+        assert_eq!(
+            try_resolve_font_family("", &[]),
+            Err(FontResolveError::NotFound)
+        );
+        assert_eq!(
+            try_resolve_font_family("   ", &[]),
+            Err(FontResolveError::NotFound)
+        );
+        // A real-looking name with no matching file is "not found".
+        assert_eq!(
+            try_resolve_font_family("DefinitelyNotAFontXYZ", &[]),
+            Err(FontResolveError::NotFound)
+        );
+    }
+
+    #[test]
+    fn try_resolve_reports_not_monospace_for_proportional_family() {
+        let Some(bytes) = system_proportional_bytes() else {
+            eprintln!("skipping: no proportional system font available");
+            return;
+        };
+        let dir = unique_tmp_dir("proportional");
+        // A regular-face name that resolves by family lookup but is proportional.
+        let path = dir.join("TestProp-Regular.ttf");
+        std::fs::write(&path, &bytes).expect("write fixture font");
+        let dirs = vec![dir.clone()];
+
+        assert_eq!(
+            try_resolve_font_family("Test Prop", &dirs),
+            Err(FontResolveError::NotMonospace),
+            "a name hit that is proportional reports NotMonospace"
+        );
+        // The same reason is reported for a direct path to a proportional file.
+        assert_eq!(
+            try_resolve_font_family(path.to_str().unwrap(), &[]),
+            Err(FontResolveError::NotMonospace),
+            "a direct path to a proportional font reports NotMonospace"
+        );
+        // The `Option` view collapses both reasons to `None`.
+        assert!(resolve_font_family("Test Prop", &dirs).is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn try_resolve_ok_agrees_with_resolve_font_family_on_success() {
+        let Some(bytes) = system_mono_bytes() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let dir = unique_tmp_dir("ok");
+        std::fs::write(dir.join("TestMono-Regular.ttf"), &bytes).expect("write fixture font");
+        let dirs = vec![dir.clone()];
+
+        let ok = try_resolve_font_family("Test Mono", &dirs).expect("family resolves");
+        assert_eq!(ok.regular, dir.join("TestMono-Regular.ttf"));
+        // The `Option` view must agree exactly on the success path.
+        assert_eq!(resolve_font_family("Test Mono", &dirs), Some(ok));
 
         let _ = std::fs::remove_dir_all(&dir);
     }

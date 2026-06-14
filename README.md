@@ -70,12 +70,14 @@ true physical pixel coordinates.
 
 `Theme` carries the full 16-color ANSI palette (indices 0–7 normal, 8–15
 bright) plus semantic-role colors (cursor, selection, search highlight, and
-reserved border/inactive). The library ships 15 contrast-validated built-in
-themes: `plain` (default — reproduces historical xterm defaults byte-for-byte),
-`odyssey`, `odyssey-noir`, `odyssey-light`, `odyssey-aurora`, `solarized-dark`,
-`solarized-light`, `gruvbox-dark`, `nord`, `dracula`, `tokyo-night`,
-`catppuccin-mocha`, `catppuccin-latte`, `one-dark`, and `monokai`
-(see [`docs/themes.md`](docs/themes.md)). OSC-4 and OSC-10/11/12 dynamic
+reserved border/inactive). The library ships 53 contrast-validated built-in
+themes: the Odyssey identity family (`plain` — the default, reproducing
+historical xterm defaults byte-for-byte — plus `odyssey`, `odyssey-noir`,
+`odyssey-light`, `odyssey-aurora`, and more), a set of widely-used community
+palettes (`solarized-dark`/`-light`, `gruvbox-dark`, `nord`, `dracula`,
+`tokyo-night`, `catppuccin-mocha`/`-latte`, `one-dark`, `monokai`, and others),
+and a retro / phosphor family (`green-phosphor`, `amber-crt`, and more). See
+[`docs/themes.md`](docs/themes.md) for the full roster. OSC-4 and OSC-10/11/12 dynamic
 overrides layer on top with correct precedence. Select with
 `ODYTTY_THEME=odyssey` or `theme = odyssey` in the config file. User theme
 files are supported: write a `.theme` file and drop it in
@@ -154,7 +156,10 @@ for an annotated example.
 editor covering font, theme, cursor, keybinds, and all runtime knobs. Edits
 apply live through the existing reload seam. `Ctrl+S` writes changed rows back
 to `odytty.conf` without destroying comments, blank lines, or unknown keys
-(preservation-first writeback via same-directory atomic rename).
+(preservation-first writeback via same-directory atomic rename). When a
+`font_family` edit names a family that can't be resolved — not found, or found
+but not monospace — the panel shows a clear, family-named error instead of
+silently keeping the previous font.
 
 **Theme picker.** `Ctrl+Shift+T` opens a built-in theme picker. Arrowing through
 the library previews each theme immediately, `Enter` persists the selected
