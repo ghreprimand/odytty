@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Underline/strikethrough decoration rows, box-drawing seam continuity, wide
 //! glyph spanning, and the bar cursor stripe.
 

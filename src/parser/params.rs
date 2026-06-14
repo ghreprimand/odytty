@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Owned CSI/DCS parameter container — OdyTTY-original storage.
 //!
 //! `Params` models a VT control sequence's parameter list the way the

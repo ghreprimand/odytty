@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Pixel-level smoke checks (Stage 3: "visual regression / pixel-level smoke
 //! checks where practical").
 //!

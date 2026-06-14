@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Unit tests for the owned [`Params`] container.
 
 use super::params::{MAX_PARAMS, Params};

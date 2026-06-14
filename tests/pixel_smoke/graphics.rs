@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Graphics-path z-order, placement geometry, and color-glyph segment checks
 //! (Stage 6 hardening) — see `graphics_harness` for the ordering contract.
 

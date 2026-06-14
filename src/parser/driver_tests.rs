@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Driver-level integration tests for [`OdyParser`] — feed bytes and assert
 //! the recorded [`VtDispatch`] action stream matches expectation. These
 //! exercise the full Layer 1 → Layer 2 → adapter path; parser golden and

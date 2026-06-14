@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! DCS query/reporting helpers for XTGETTCAP and DECRQSS.
 //!
 //! These protocols ride the same parser hook/put/unhook seam as graphics DCS

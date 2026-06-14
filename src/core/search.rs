@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Scrollback search: a pure, rendering-free engine that finds literal queries
 //! across the combined scrollback + visible buffer and reports matches as
 //! absolute cell ranges a front end can highlight and jump to.

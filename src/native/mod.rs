@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Native window + GPU surface (Linux-first, Wayland-native).
 //!
 //! This module owns the seam between the OS window/event loop, the GPU surface,

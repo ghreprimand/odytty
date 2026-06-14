@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! OSC 7 working-directory tracking (SI1).
 //!
 //! Covers parsing of `file://host/path`, hostname policy (empty / localhost

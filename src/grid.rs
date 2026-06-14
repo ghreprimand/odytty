@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! GPU-agnostic cell geometry: turn a terminal [`Snapshot`] into textured quads.
 //!
 //! This module is the seam between terminal *semantics* (the owned core) and

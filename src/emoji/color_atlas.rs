@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Color glyph atlas groundwork for emoji rendering.
 //!
 //! This module deliberately stops before font decoding. EM4 will feed shaped

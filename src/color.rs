@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Perceptual color primitives (RV3).
 //!
 //! Linear/sRGB transfer plus OKLab / OKLCH conversions, used for

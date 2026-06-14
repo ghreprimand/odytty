@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Headless CLI introspection helpers.
 //!
 //! These commands print stable, script-friendly snapshots and exit before the

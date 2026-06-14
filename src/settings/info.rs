@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
 /// Broad setting type hint for the read-only UX2-a panel and later editors.

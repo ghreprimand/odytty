@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Golden and self-consistency coverage for the production OdyTTY parser.
 //!
 //! PA3 removes `vte` from the repository, so parser regression value is retained

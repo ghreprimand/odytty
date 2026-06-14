@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Clipboard slot, paste-chunk encoding, and PTY-writer tests. (M6 mechanical split from native/tests.rs).
 
 use super::*;

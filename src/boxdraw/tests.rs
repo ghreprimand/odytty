@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Unit tests for the geometric box-drawing module. These are pure: they call
 //! [`coverage`]/[`covers`] with explicit cell sizes and never touch a font, the
 //! atlas, or any global state, so they run deterministically everywhere.

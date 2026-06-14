@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Graphics-path compositor helpers for the `pixel_smoke` suite (Stage 6
 //! hardening).
 //!

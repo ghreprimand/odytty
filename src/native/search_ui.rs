@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use crate::core::{
     AbsolutePoint, Attrs, Cell, Color, Dimensions, SearchMatch, SearchOptions, Snapshot, Terminal,
     find_next, find_prev,

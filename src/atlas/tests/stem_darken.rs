@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Stem-darkening (RV5) coverage-boost tests.
 //!
 //! The boost is applied at raster time in [`apply_stem_darken`]; these tests

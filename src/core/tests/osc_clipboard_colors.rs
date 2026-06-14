@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
 fn osc52(selector: &str, payload: &str) -> Vec<u8> {

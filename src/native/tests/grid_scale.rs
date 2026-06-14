@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Grid-dimension and HiDPI (H3) scale-matrix tests. (M6 mechanical split from native/tests.rs).
 
 use super::*;

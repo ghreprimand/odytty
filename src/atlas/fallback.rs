@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Symbol / Nerd-font fallback classification (RV6).
 //!
 //! Prompt frameworks (starship, powerlevel10k, eza, lsd, …) draw their icons

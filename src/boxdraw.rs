@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Geometric box-drawing, block-element and Powerline rendering (RV2).
 //!
 //! This module computes 8-bit coverage bitmaps for the common line/block/

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Pure mouse- and focus-event encoders. Given the active [`MouseProtocol`] and
 //! an event, produce the exact bytes xterm would send (legacy/UTF-8/SGR/urxvt
 //! mouse reporting, and `ESC [ I` / `ESC [ O` focus reporting). No terminal

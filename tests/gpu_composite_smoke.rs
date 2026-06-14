@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use std::sync::mpsc;
 
 use odytty::settings::default_bloom_threshold_for_theme;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Synthetic bold/italic synthesis and the synthetic-styles kill switch.
 
 use odytty::atlas::{FontStyle, GlyphAtlas};

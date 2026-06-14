@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 // Cell renderer: solid background quads and glyph-coverage quads.
 //
 // Vertices carry pixel-space positions; the vertex shader converts them to

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Resize reflow: re-wrapping the combined scrollback + visible buffer to a new
 //! grid size, plus the width-unchanged fast path.
 //!

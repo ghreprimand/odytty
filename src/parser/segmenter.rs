@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Layer 1 — Ground-state text/control segmenter (UTF-8 lives here).
 //!
 //! The segmenter walks input bytes in **Ground** state and splits them into

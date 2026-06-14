@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Monospace glyph atlas: a CPU-rasterized 8-bit coverage texture with a
 //! missing-glyph fallback, the printable-ASCII block, and a growable dynamic
 //! region for other codepoints.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use crate::settings::{SettingEdit, Settings, THEME_ENV};
 use crate::theme::{Theme, all as built_in_themes, relative_luminance};
 

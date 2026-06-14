@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! DECSCUSR cursor-style + blink-policy behavior for the terminal core
 //! (`CSI Ps SP q`): per-style selection, host-default policy, and the
 //! RIS/DECSTR reset semantics. Kept in a sibling file so `tests.rs` stays under

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Odyssey theme system (presentation only).
 //!
 //! A theme is a tiny, source-agnostic bundle of *presentation* colors: the

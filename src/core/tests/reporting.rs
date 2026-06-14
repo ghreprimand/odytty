@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Terminal reporting-surface fixtures: DECRQM/DECRPM, XTWINOPS report-only
 //! queries, Secondary DA, and XTVERSION.
 

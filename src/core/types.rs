@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Core terminal data types: geometry, colors, attributes, the [`Cell`]
 //! grapheme model, the mouse-reporting enums, and the rendering [`Snapshot`] /
 //! [`TerminalModel`] surface. These are the leaf types the screen state machine

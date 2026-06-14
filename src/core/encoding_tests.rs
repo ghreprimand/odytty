@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Tests for the pure mouse-/focus-event encoders in `super::encoding`,
 //! exercised through the re-exported `encode_mouse_event` / `encode_focus_event`.
 

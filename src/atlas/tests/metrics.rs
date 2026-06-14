@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Atlas build, channel layout, fallback, ensure/growth, and rebuild tests. (M5 mechanical split from atlas.rs).
 
 use super::*;

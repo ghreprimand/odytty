@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Behavioral tests for the terminal core: printing, SGR, cursor movement,
 //! erase/scroll, alternate screen, scrollback/reflow, OSC titles, mouse-mode
 //! tracking, wide/combining Unicode. Drives the public `Terminal`/`Screen` API

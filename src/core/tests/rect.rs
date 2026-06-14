@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
 fn row_text(terminal: &Terminal, row: usize) -> String {

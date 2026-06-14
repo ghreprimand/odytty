@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 use crate::core::{Color, Terminal};
 use crate::text::{FontStyle, load_font};

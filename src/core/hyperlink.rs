@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! OSC 8 hyperlink parsing and interning.
 //!
 //! The terminal stores links for rendering and explicit user actions only. It

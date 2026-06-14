@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Bearing-aware glyph-quad geometry tests. (M5 mechanical split from atlas.rs).
 
 use super::*;

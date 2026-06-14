@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Synthetic bold + italic fallback (SB1): when the font family has no real
 //! face for a style, the Regular outline is emboldened (horizontal
 //! double-strike) and/or sheared (~12-degree oblique) at rasterization time.

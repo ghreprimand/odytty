@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use odytty::atlas::GlyphAtlas;
 use odytty::core::{CursorStyle, Terminal};
 use odytty::emoji::{

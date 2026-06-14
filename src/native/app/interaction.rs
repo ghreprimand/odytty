@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Pointer-driven interaction for the native app: mouse reporting, text
 //! selection, hyperlink hover/open, and scrollback viewport movement.
 //!

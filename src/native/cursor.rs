@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use std::time::{Duration, Instant};
 
 /// Half-period of the cursor blink, i.e. the interval between on/off toggles.

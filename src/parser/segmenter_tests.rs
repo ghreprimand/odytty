@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Component-level tests for [`super::segmenter`] — the Layer-1 Ground sweep
 //! and UTF-8 partial-codepoint carry in isolation. Parser golden and
 //! self-consistency tests cover the full corpus + every byte split; these focus

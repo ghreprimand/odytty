@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use crate::core::{
     MouseButton as CoreMouseButton, MouseEventKind, MouseModifiers as CoreMouseModifiers,
     MouseProtocol, MouseTracking, Terminal, encode_focus_event, encode_mouse_event,

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! The owned terminal state machine: the [`Screen`] grid (primary + alternate),
 //! the [`Terminal`] facade that drives OdyTTY's owned parser, scrollback, scroll
 //! regions, resize reflow, and the CSI/OSC/SGR dispatch helpers. This is the

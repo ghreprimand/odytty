@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 enable dual_source_blending;
 
 // Cell renderer variant for RGB/BGR subpixel text. Background and decoration

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Owned terminal core: an original terminal model driven by OdyTTY's parser.
 //!
 //! The implementation is split into focused submodules and the public surface

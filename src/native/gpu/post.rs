@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use wgpu::util::DeviceExt;
 
 pub(in crate::native) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;

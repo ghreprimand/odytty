@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Glyph-atlas behavioral tests (M5 mechanical split from atlas.rs).
 //! Shared helpers live here; tests are grouped by theme into sibling
 //! files (metrics, geometry, glyph_quad, scaling).

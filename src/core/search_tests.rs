@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Deterministic fixtures for the scrollback search engine
 //! ([`super::search`]): literal matching, case modes, wide/combining cells,
 //! soft-wrap-spanning matches, trailing-blank trimming, and next/prev

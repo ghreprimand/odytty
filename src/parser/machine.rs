@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Layer-2 control state machine — byte-class–driven transitions.
 //!
 //! After Layer 1 (the [`super::segmenter`]) has lifted UTF-8 text and

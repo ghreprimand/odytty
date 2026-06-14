@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! CPU-side text support: font loading and terminal color resolution.
 //!
 //! This module is deliberately GPU-agnostic so it can be unit-tested without a

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Native GPU image layer for terminal graphics placements.
 //!
 //! The terminal core owns image storage and placement semantics. This module

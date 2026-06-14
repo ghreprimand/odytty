@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use crate::settings::{SettingEdit, SettingInfo, SettingKind, Settings, SettingsEditOverlay};
 
 use super::overlay::OverlayInput;

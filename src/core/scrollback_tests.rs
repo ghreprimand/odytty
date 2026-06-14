@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Tests for the scrollback store and the logical-line projection machinery.
 //!
 //! The crux of correctness is the **same-width roundtrip** property: scrollback

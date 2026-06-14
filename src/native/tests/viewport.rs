@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Viewport scroll/indicator, resize & scale debounce, and wheel/scroll-key tests. (M6 mechanical split from native/tests.rs).
 
 use super::*;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Kitty graphics protocol: APC image transmit/display/delete/query.
 //!
 //! Supports direct raw RGB/RGBA (`f=24`/`f=32`), PNG (`f=100`), and

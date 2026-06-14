@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Headless transcript smoke harness.
 //!
 //! Feeds captured/synthetic byte transcripts into the owned terminal core via

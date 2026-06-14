@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Component-level tests for [`super::machine`] — the byte classifier and the
 //! state machine in isolation. Parser golden/self-consistency tests exercise the
 //! broader corpus; these tests pin specific high-value cells so a component-

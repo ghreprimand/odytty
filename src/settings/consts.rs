@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use std::time::Duration;
 
 use crate::theme::Theme;

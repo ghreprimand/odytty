@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! SGR-dim attribute, perceptual-dim confinement, and ID2 focus dimming.
 
 use odytty::core::{Color, CursorStyle, RgbColor, Terminal};

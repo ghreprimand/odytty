@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! OdyTTY-owned VT parser (Stage 4.5 Foundation Ownership).
 //!
 //! This module is the OdyTTY-owned VT parser on the byte path from PTY to

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! CPU-side RGBA image storage shared by terminal graphics protocols.
 //!
 //! The store is renderer-independent: decoded Kitty/Sixel images land here as

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! K2 fixtures: Kitty delete actions (a=d), query (a=q), and DECSDM (mode 80).
 
 use super::*;

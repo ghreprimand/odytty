@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use anyhow::Result;
 use odytty::app::run_interactive;
 use odytty::core::Terminal;

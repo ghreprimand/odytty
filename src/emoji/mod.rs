@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Color emoji discovery, swash proof-of-capability helpers, and atlas plumbing.
 //!
 //! The EM2 probe surface answers whether a host has a usable emoji face, which

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use std::io::{Read, Stdout, Write, stdin, stdout};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd};
 use std::sync::mpsc::{self, Sender};

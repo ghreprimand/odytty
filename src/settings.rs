@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Runtime settings for the prototype.
 //!
 //! Settings are sourced from a small config file and environment variables, but

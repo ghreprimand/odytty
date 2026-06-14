@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Cell-anchored graphics placement scene.
 //!
 //! Placements are terminal state, not renderer state: they scroll with text,

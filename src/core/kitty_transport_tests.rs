@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! G2.5 fixtures: Kitty file-based transports (t=f, t=t, t=s).
 //!
 //! Tests exercise the full APC→transport→image pipeline through Terminal,

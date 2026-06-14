@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Logical-line scrollback storage with a lazily-projected physical view.
 //!
 //! # Why this exists

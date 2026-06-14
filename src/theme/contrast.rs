@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Perceptual contrast helpers (WCAG 2.x relative luminance + contrast ratio).
 //!
 //! This is the first slice of the readability floor that [RV1] (minimum-contrast

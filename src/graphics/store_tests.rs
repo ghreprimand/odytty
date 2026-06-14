@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::store::*;
 
 fn rgba(width: u32, height: u32, byte: u8) -> Vec<u8> {

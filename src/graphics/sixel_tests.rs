@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Tests for the Sixel decoder (`super::sixel`).
 
 use super::sixel::*;

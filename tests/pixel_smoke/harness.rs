@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Shared headless CPU compositor and helpers for the `pixel_smoke` suite.
 //!
 //! The compositor rasterizes a small terminal grid into a linear-RGB buffer

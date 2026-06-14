@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Live stem-darkening (RV5) atlas-raster proof.
 //!
 //! RV5 ships *default-on* (a conservative coverage boost so light-on-dark body

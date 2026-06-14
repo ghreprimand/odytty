@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Blank-cell purity and basic glyph-ink containment.
 
 use odytty::core::CursorStyle;

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

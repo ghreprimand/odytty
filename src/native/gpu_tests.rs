@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use super::gpu::{
     BloomOptions, CrtOptions, ViewportUniform, choose_surface_format, create_atlas_bind_group,
     create_cell_pipeline, create_color_atlas_bind_group, create_color_glyph_pipeline,

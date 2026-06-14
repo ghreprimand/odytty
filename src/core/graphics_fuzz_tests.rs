@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! FZ1: graphics-surface fuzzing — never-panic + bounded-memory guarantees over
 //! the full Kitty/Sixel display surface that grew across G2.2→K3.
 //!

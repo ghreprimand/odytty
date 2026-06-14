@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! FZ2 — protocol-surface fuzzing for the input features that landed after FZ1.
 //!
 //! FZ1 (`src/core/graphics_fuzz_tests.rs`) covers the Kitty/Sixel *graphics*

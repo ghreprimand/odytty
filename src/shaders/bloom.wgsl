@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,

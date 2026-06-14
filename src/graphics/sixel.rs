@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Sixel DCS payload decoder — raw DCS `q` body bytes to RGBA image.
 //!
 //! ## Input contract

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Native options, GPU params, render signature/hyperlink, and snapshot-glyph tests. (M6 mechanical split from native/tests.rs).
 
 use super::*;

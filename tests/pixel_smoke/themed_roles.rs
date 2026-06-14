@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Inverse fill, themed selection/cursor roles, and legacy search colors.
 
 use odytty::core::{

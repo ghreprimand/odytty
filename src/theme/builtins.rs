@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Built-in theme library.
 //!
 //! Every built-in theme is authored as a `.theme` file in the TH2 file format

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! RV6 symbol / Nerd-font fallback behavior at the atlas seam.
 //!
 //! The gate-critical guarantee is **default-safe**: with no fallback font

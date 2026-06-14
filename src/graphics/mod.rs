@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Terminal graphics protocols (Stage 6 ladder, see `graphics-protocol-spike.md`).
 //!
 //! Module ownership is split across parallel work packets:

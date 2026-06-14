@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Glyph ink geometry (strokes, baseline, descender) and styled-slot tests. (M5 mechanical split from atlas.rs).
 
 use super::*;

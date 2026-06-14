@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! The OdyTTY VT parser driver: stitches the [`Segmenter`] (Layer 1) and the
 //! [`Machine`] (Layer 2) together and adapts their outputs to the
 //! [`VtDispatch`] sink that the terminal core implements.

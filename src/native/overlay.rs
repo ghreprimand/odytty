@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use crate::core::{Attrs, Cell, Color, Snapshot};
 use crate::input::Modifiers;
 use crate::settings::Settings;

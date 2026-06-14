@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 /// Human-readable help for the stem-darken knob, destined for the in-app
 /// settings panel (UX2). Establishes the convention that every new knob ships
 /// with a concise description, its accepted values, and its default.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Pure-action vocabulary emitted by the OdyTTY parser control state machine.
 //!
 //! The control state machine's `step(byte) -> Action` (in [`super::machine`])

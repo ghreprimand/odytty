@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 use crate::core::{Color, Dimensions, Snapshot};
 use crate::text::CellSize;
 use std::time::{Duration, Instant};

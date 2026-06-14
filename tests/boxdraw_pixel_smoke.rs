@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Pixel-smoke coverage for geometric box-drawing (RV2), exercised through the
 //! real glyph atlas rather than the pure geometry module.
 //!

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Theme file format: a dependency-free, owned serialization model.
 //!
 //! [`ThemeSpec`] is the on-disk / authoring representation of a theme. It is a

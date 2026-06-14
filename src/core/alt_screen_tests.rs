@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Deterministic mode-matrix fixtures for alternate-screen behavior.
 //!
 //! Covers DECSET/DECRST modes 47, 1047, 1048, 1049 per xterm ctlseqs with

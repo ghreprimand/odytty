@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! DCS/APC graphics routing: captures DCS sixel payloads, decodes them via
 //! the SX1 Sixel decoder, and wires decoded images into the graphics scene
 //! as cell-anchored placements.

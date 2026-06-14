@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! DEC rectangular-area operations and character protection.
 //!
 //! Rectangle coordinates are 1-based, inclusive, and clamp to the visible page.

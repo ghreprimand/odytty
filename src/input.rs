@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Source-agnostic keyboard encoding: the single source of truth for the byte
 //! sequences OdyTTY sends to the PTY in response to key presses.
 //!

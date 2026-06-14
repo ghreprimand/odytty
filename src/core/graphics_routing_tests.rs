@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! End-to-end sixel routing tests: raw DCS byte stream in → visible_graphics()
 //! placements out, including alt-screen isolation, ED/RIS clearing, eviction,
 //! cursor-below-image policy, and decode error counting.

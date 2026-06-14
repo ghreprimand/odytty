@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-only
 //! Live color emoji shaping and CBDT/CBLC bitmap rasterization.
 //!
 //! This module is intentionally narrow: it only activates color rendering when
