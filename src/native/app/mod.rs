@@ -24,6 +24,7 @@ use winit::event::{ElementState, MouseButton as WinitMouseButton, MouseScrollDel
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::NamedKey;
 use winit::keyboard::{Key as WinitKey, PhysicalKey};
+use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::window::{Window, WindowId};
 
 use super::bindings::{
@@ -402,13 +403,16 @@ impl App {
     fn handle_key_event(
         &mut self,
         logical: WinitKey,
+        binding_key: WinitKey,
         physical: PhysicalKey,
         event_type: KeyEventType,
     ) {
         let mods = self.modifiers;
         let key_modes = self.key_modes();
         if event_type != KeyEventType::Release {
-            let action = self.key_bindings.action_for(&logical, mods, self.super_key);
+            let action = self
+                .key_bindings
+                .action_for(&binding_key, mods, self.super_key);
             if action == Some(BindableAction::SettingsPanel) {
                 self.toggle_settings_overlay();
                 return;
@@ -1416,7 +1420,13 @@ impl ApplicationHandler<UserEvent> for App {
                     ElementState::Pressed => KeyEventType::Press,
                     ElementState::Released => KeyEventType::Release,
                 };
-                self.handle_key_event(event.logical_key, event.physical_key, event_type);
+                let binding_key = event.key_without_modifiers();
+                self.handle_key_event(
+                    event.logical_key,
+                    binding_key,
+                    event.physical_key,
+                    event_type,
+                );
             }
             _ => {}
         }
