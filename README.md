@@ -338,7 +338,22 @@ You are free to use, study, share, and modify OdyTTY. If you distribute a
 modified version, you must release your changes under the same license (strong
 copyleft).
 
-Copyright (C) 2026 The OdyTTY Authors.
+Copyright (C) 2026 Unfinished Works and the OdyTTY contributors.
+
+### Name & branding
+
+OdyTTY's **source code** is free and open source under the GPL-3.0 — you're
+welcome to use, study, modify, fork, and redistribute it under that license.
+
+The **OdyTTY name and logo** are a separate matter from the code license.
+They're how people recognize this specific project, so we ask one thing: if you
+ship a modified version or a fork, please give it your own name and don't
+present it as the official OdyTTY or imply it's endorsed by Unfinished Works.
+Calling it *"based on OdyTTY"* or *"a fork of OdyTTY"* is perfectly fine and
+welcome — just don't call it *OdyTTY*. See the [`NOTICE`](NOTICE) file for the
+full note.
+
+Thanks for helping keep the name clear for everyone.
 
 **Contributing:** contributions are welcome under the Developer Certificate of
 Origin (DCO) — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for details.

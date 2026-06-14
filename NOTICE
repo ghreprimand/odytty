@@ -1,0 +1,26 @@
+OdyTTY
+Copyright (C) 2026 Unfinished Works and the OdyTTY contributors.
+
+This program is licensed under the GNU General Public License v3.0 only
+(GPL-3.0-only). See the LICENSE file for the full license text.
+
+--------------------------------------------------------------------------------
+Name & branding
+--------------------------------------------------------------------------------
+
+"OdyTTY" and the OdyTTY logo are unregistered trademarks of Unfinished Works.
+
+The GPL-3.0 license in this repository covers the source code. It does not grant
+rights to use the OdyTTY name or logo, beyond the nominative fair use everyone
+already has (for example, truthfully stating that your project is derived from,
+compatible with, or a fork of OdyTTY).
+
+You are warmly encouraged to fork and redistribute OdyTTY under the GPL. When you
+do, please use your own name and branding for your distribution so users aren't
+misled into thinking it's the official OdyTTY or that Unfinished Works endorses
+it. Please don't use the OdyTTY name or logo as the primary name of your product,
+in your domain name, or in any way that implies official status or endorsement.
+
+This is a request to avoid user confusion, not a restriction on your
+software-freedom rights under the GPL. If you're unsure whether a use is okay,
+just ask.

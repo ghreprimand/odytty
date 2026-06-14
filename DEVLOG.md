@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-14 -- copyright holder set to Unfinished Works; name/branding note added
+
+- Set the project copyright holder to **Unfinished Works** (the trade name the
+  project is developed and published under, home at `unfinished-works.com`). The
+  README copyright line now reads `Copyright (C) 2026 Unfinished Works and the
+  OdyTTY contributors.` — naming the steward while acknowledging that outside
+  contributors retain their own copyright under the DCO. The GPL-3.0-only code
+  license is unchanged; this only names the copyright holder. The verbatim
+  `LICENSE` (FSF text) and the DCO block in `CONTRIBUTING.md` are untouched.
+- Added a **Name & branding** note: a short "Name & branding" section in the
+  README plus a new root `NOTICE` file. It states that "OdyTTY" and its logo are
+  unregistered trademarks of Unfinished Works, that the GPL covers the source
+  code (not the name/logo), and that forks are warmly welcome under the GPL but
+  should use their own name rather than imply official status or endorsement.
+  This is a friendly request to avoid user confusion, explicitly permitted by
+  GPLv3 §7(e) and compatible with the Open Source Definition — it does not
+  restrict any software-freedom rights. No registration; unregistered "™" only.
+
+---
+
 ## 2026-06-14 -- window padding (FX-PAD): adjustable inset with an aligned pixel-cell seam
 
 - Added an adjustable **window padding** inset between the window edge and the
