@@ -1374,45 +1374,140 @@ mod tests {
         );
     }
 
-    /// RV1 activation: the per-cell resolve seam now passes the foreground
-    /// through `text::enforce_contrast_rgba`, so a raised minimum-contrast floor
-    /// actually lifts low-contrast glyph color at the render path (not just in
-    /// the text.rs unit). Mutates the process-global floor and restores `1.0`,
-    /// mirroring the text.rs seam test, so it can't leave other tests perturbed.
+    /// RV1 activation across **both** resolve sites and after the dims.
+    ///
+    /// The per-cell resolve seam passes the foreground through
+    /// `text::enforce_contrast_rgba`, so a raised minimum-contrast floor actually
+    /// lifts low-contrast glyph color at the render path (not just in the text.rs
+    /// unit). This test deliberately owns the only grid-side mutation of the
+    /// process-global floor — it raises to AAA once, exercises all three cases in
+    /// that single window, then restores `1.0` before any assertion can unwind —
+    /// so the suite gains no second unlocked global mutator (which could
+    /// interleave and flake). The three cases:
+    /// 1. **Body site** (per-cell glyph): the canonical low-contrast lift.
+    /// 2. **Cursor-block under-glyph site**: the second floor application
+    ///    (`enforce_contrast_rgba(bg, block)`), proving the floor is live there
+    ///    too, so the two sites agree on honoring the floor.
+    /// 3. **Combined dim + focus + floor**: a dim cell rendered unfocused, whose
+    ///    contrast the two dims have already eroded below the floor — the floor
+    ///    still lifts it, confirming it runs last and wins by construction.
     #[test]
-    fn min_contrast_floor_lifts_low_contrast_foreground_at_render() {
+    fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
         let Some(atlas) = atlas() else {
             eprintln!("skipping: no system font available");
             return;
         };
 
-        // A near-black glyph on a black background: WCAG contrast ~1.0.
-        let mut term = Terminal::new(1, 1);
-        term.advance(b"\x1b[?25l\x1b[38;2;20;20;20;48;2;0;0;0mX");
-        let snapshot = term.snapshot();
+        // --- Case 1 inputs: a near-black glyph on a black background (~1.0). ---
+        let mut body = Terminal::new(1, 1);
+        body.advance(b"\x1b[?25l\x1b[38;2;20;20;20;48;2;0;0;0mX");
+        let body = body.snapshot();
 
-        // Default floor (1.0) is exact passthrough: the rendered glyph color is
-        // the unmodified foreground.
+        // --- Case 2 inputs: a visible block cursor over a glyph, with a cursor
+        // color close to the background so the under-glyph (bg) vs block contrast
+        // starts low. No `?25l`, so pending-wrap keeps the cursor on the glyph. ---
+        let mut cur = Terminal::new(1, 1);
+        cur.set_base_colors(
+            crate::core::RgbColor::new(0xCC, 0xCC, 0xCC),
+            crate::core::RgbColor::new(0x0B, 0x0C, 0x10),
+            crate::core::RgbColor::new(0x22, 0x24, 0x2C),
+        );
+        cur.advance(b"R");
+        let cur = cur.snapshot();
+        let block_color = rgb_linear(cur.colors.cursor);
+
+        // --- Case 3 inputs: a dim grey glyph on a darker grey, rendered with a
+        // non-zero focus dim. After SGR-dim + focus-dim, fg/bg contrast is low. ---
+        let mut combo = Terminal::new(1, 1);
+        combo.advance(b"\x1b[?25l\x1b[2;38;2;90;90;90;48;2;30;30;30mX");
+        let combo = combo.snapshot();
+        let focus = 0.3_f32;
+        let build_combo = |out: &mut Vec<Vertex>| {
+            build_cell_vertices_with_focus_dim_into(out, &combo, &atlas, &[], focus);
+        };
+
+        // === Baseline at the default passthrough floor (1.0). ===
         assert_eq!(text::min_contrast(), 1.0);
-        let plain = build_vertices(&snapshot, &atlas);
-        let unfloored = plain[VERTS_PER_QUAD].color;
+        let body_unfloored = build_vertices(&body, &atlas)[VERTS_PER_QUAD].color;
         assert_eq!(
-            unfloored,
-            foreground_linear(&snapshot.colors, Color::Rgb(20, 20, 20)),
+            body_unfloored,
+            foreground_linear(&body.colors, Color::Rgb(20, 20, 20)),
             "default floor must be byte-identical passthrough"
         );
+        let mut cur_base = Vec::new();
+        build_vertices_with_cursor_into(&mut cur_base, &cur, &atlas, CursorStyle::Block);
+        // 4 quads: cell bg, cell glyph, cursor block, cursor under-glyph.
+        assert_eq!(cur_base.len(), 4 * VERTS_PER_QUAD);
+        let cur_unfloored = cur_base[3 * VERTS_PER_QUAD].color;
+        let mut combo_base = Vec::new();
+        build_combo(&mut combo_base);
+        let combo_unfloored = combo_base[VERTS_PER_QUAD].color;
+        let combo_bg = combo_base[0].color;
+        // Precondition: the doubly-dimmed pair really is below the AAA floor, so
+        // case 3 proves the floor — not the inputs — does the lifting.
+        let combo_base_contrast = crate::color::wcag_contrast(
+            [combo_unfloored[0], combo_unfloored[1], combo_unfloored[2]],
+            [combo_bg[0], combo_bg[1], combo_bg[2]],
+        );
+        assert!(
+            combo_base_contrast < 7.0,
+            "combined precondition: dimmed contrast should start below the floor: {combo_base_contrast}"
+        );
 
-        // Raise the floor to AAA (7.0): the rendered glyph color must lift and
-        // actually meet the ratio against the background.
+        // === Raise to AAA (7.0), rebuild all three, then restore. ===
         text::set_min_contrast(7.0);
-        let floored = build_vertices(&snapshot, &atlas);
-        let fg = floored[VERTS_PER_QUAD].color;
-        let bg = background_linear(&snapshot.colors, Color::Rgb(0, 0, 0));
+        let body_floored = build_vertices(&body, &atlas)[VERTS_PER_QUAD].color;
+        let mut cur_hi = Vec::new();
+        build_vertices_with_cursor_into(&mut cur_hi, &cur, &atlas, CursorStyle::Block);
+        let cur_floored = cur_hi[3 * VERTS_PER_QUAD].color;
+        let mut combo_hi = Vec::new();
+        build_combo(&mut combo_hi);
+        let combo_floored = combo_hi[VERTS_PER_QUAD].color;
+        let combo_hi_bg = combo_hi[0].color;
         text::set_min_contrast(1.0); // restore before any assertion can unwind
 
-        assert_ne!(fg, unfloored, "raised floor must change the foreground");
-        let ratio = crate::color::wcag_contrast([fg[0], fg[1], fg[2]], [bg[0], bg[1], bg[2]]);
-        assert!(ratio >= 7.0 - 1e-3, "floor not met at render: {ratio}");
+        // --- Case 1: body site lifted and meets the floor. ---
+        let body_bg = background_linear(&body.colors, Color::Rgb(0, 0, 0));
+        assert_ne!(
+            body_floored, body_unfloored,
+            "body: raised floor must change fg"
+        );
+        let body_ratio = crate::color::wcag_contrast(
+            [body_floored[0], body_floored[1], body_floored[2]],
+            [body_bg[0], body_bg[1], body_bg[2]],
+        );
+        assert!(body_ratio >= 7.0 - 1e-3, "body floor not met: {body_ratio}");
+
+        // --- Case 2: cursor under-glyph site lifted and meets the floor against
+        // the block color (the second resolve site honors the same floor). ---
+        assert_ne!(
+            cur_floored, cur_unfloored,
+            "cursor under-glyph: raised floor must change the under-glyph color"
+        );
+        let cur_ratio = crate::color::wcag_contrast(
+            [cur_floored[0], cur_floored[1], cur_floored[2]],
+            [block_color[0], block_color[1], block_color[2]],
+        );
+        assert!(
+            cur_ratio >= 7.0 - 1e-3,
+            "cursor-site floor not met: {cur_ratio}"
+        );
+
+        // --- Case 3: combined dim + focus + floor. bg is unchanged by the floor
+        // (only fg is lifted), and the lifted fg clears the floor against it. ---
+        assert_eq!(combo_hi_bg, combo_bg, "floor must not alter the background");
+        assert_ne!(
+            combo_floored, combo_unfloored,
+            "combined: floor must lift fg"
+        );
+        let combo_ratio = crate::color::wcag_contrast(
+            [combo_floored[0], combo_floored[1], combo_floored[2]],
+            [combo_bg[0], combo_bg[1], combo_bg[2]],
+        );
+        assert!(
+            combo_ratio >= 7.0 - 1e-3,
+            "combined floor not met after both dims: {combo_ratio}"
+        );
 
         // The restore took effect: passthrough again.
         assert_eq!(text::min_contrast(), 1.0);
@@ -1543,5 +1638,212 @@ mod tests {
             build_vertices_with_cursor_into(&mut verts, &snapshot, &atlas, style);
             assert_eq!(verts.len(), 4 * VERTS_PER_QUAD, "style {style:?}");
         }
+    }
+
+    // --- GRID-RESOLVE-COVERAGE: the SGR-dim × focus-dim × RV1-floor matrix ---
+    //
+    // The per-cell resolve closure runs three perceptual steps in a load-bearing
+    // order: SGR dim → ID2 focus dim (fg *and* bg) → RV1 contrast floor. The
+    // existing tests cover each step in isolation (dim_attribute_scales…,
+    // min_contrast_floor_lifts…); these deepen the *interaction* — combined
+    // application, the load-bearing ordering, the two floor sites, and that the
+    // dim is the OKLab perceptual path rather than a naive linear halving.
+
+    /// Sum of absolute per-channel RGB differences between two resolved colors —
+    /// a small, dependency-free "visibly different" witness for these tests.
+    fn rgb_l1(a: [f32; 4], b: [f32; 4]) -> f32 {
+        (a[0] - b[0]).abs() + (a[1] - b[1]).abs() + (a[2] - b[2]).abs()
+    }
+
+    /// Ordering guard: the floor must run **after** both dims, not before.
+    ///
+    /// Replays the closure's exact math with the real seam functions
+    /// (`text::dim_linear_rgba` for focus dim, `color::enforce_min_contrast` for
+    /// the floor) at an explicit ratio — global-free, so it never perturbs (or is
+    /// perturbed by) the process `MIN_CONTRAST`. Proves that the live order
+    /// (dim → floor) meets the ratio against the dimmed background, while the
+    /// swapped order (floor → dim) drops back **below** the ratio: dimming both
+    /// fg and bg after the floor pulls their luminances toward the `+0.05`
+    /// offsets and shrinks the contrast. This is exactly why the floor is last.
+    #[test]
+    fn resolve_floor_must_run_after_both_dims() {
+        let fg = text::foreground_linear(Color::Rgb(120, 120, 120));
+        let bg = text::background_linear(Color::Rgb(20, 20, 20));
+        let focus = 0.45_f32;
+        let ratio = 5.0_f32;
+
+        // Live order: focus-dim both, then floor the dimmed fg against dimmed bg.
+        let fg_dim = text::dim_linear_rgba(fg, focus);
+        let bg_dim = text::dim_linear_rgba(bg, focus);
+        let live_fg = {
+            let [r, g, b] = crate::color::enforce_min_contrast(
+                [fg_dim[0], fg_dim[1], fg_dim[2]],
+                [bg_dim[0], bg_dim[1], bg_dim[2]],
+                ratio,
+            );
+            [r, g, b, fg_dim[3]]
+        };
+        let live_contrast = crate::color::wcag_contrast(
+            [live_fg[0], live_fg[1], live_fg[2]],
+            [bg_dim[0], bg_dim[1], bg_dim[2]],
+        );
+        assert!(
+            live_contrast + 1e-3 >= ratio,
+            "live order (dim→floor) must meet the floor: {live_contrast} < {ratio}"
+        );
+
+        // Swapped order: floor first (against the undimmed bg), then focus-dim —
+        // the dim erodes the contrast the floor had just established.
+        let floored_first = {
+            let [r, g, b] = crate::color::enforce_min_contrast(
+                [fg[0], fg[1], fg[2]],
+                [bg[0], bg[1], bg[2]],
+                ratio,
+            );
+            [r, g, b, fg[3]]
+        };
+        let swapped_fg = text::dim_linear_rgba(floored_first, focus);
+        let swapped_contrast = crate::color::wcag_contrast(
+            [swapped_fg[0], swapped_fg[1], swapped_fg[2]],
+            [bg_dim[0], bg_dim[1], bg_dim[2]],
+        );
+        assert!(
+            swapped_contrast < ratio - 1e-2,
+            "swapped order (floor→dim) should fall below the floor: {swapped_contrast}"
+        );
+        assert!(
+            rgb_l1(live_fg, swapped_fg) > 0.02,
+            "the two orders must produce visibly different foregrounds"
+        );
+    }
+
+    /// ID2 focus dim in the live closure recedes **both** the foreground and the
+    /// background, perceptually (OKLab), preserving hue.
+    ///
+    /// Drives the real `build_cell_vertices_with_focus_dim_into` seam at
+    /// `focus_dim = 0.0` vs `0.3`. The background quad is the most robust witness:
+    /// the closure dims bg but never routes it through the floor, so its resolved
+    /// color is independent of the process `MIN_CONTRAST` — this part holds no
+    /// matter what a concurrent test does to the global. A saturated bg makes the
+    /// hue-preservation check meaningful; a high-contrast fg keeps the floor inert
+    /// so the fg-recede check is robust too.
+    #[test]
+    fn focus_dim_recedes_fg_and_bg_perceptually_in_closure() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        // Saturated blue background, bright foreground glyph (high fg/bg contrast).
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"\x1b[?25l\x1b[38;2;235;235;235;48;2;40;70;160mX");
+        let snapshot = term.snapshot();
+
+        let mut focused = Vec::new();
+        build_cell_vertices_with_focus_dim_into(&mut focused, &snapshot, &atlas, &[], 0.0);
+        let mut unfocused = Vec::new();
+        build_cell_vertices_with_focus_dim_into(&mut unfocused, &snapshot, &atlas, &[], 0.3);
+
+        // focus_dim = 0.0 is the off-path gate: an exact no-op.
+        assert_eq!(
+            focused,
+            unfocused_baseline(&snapshot, &atlas),
+            "focus_dim=0.0 must be byte-identical to the focus-agnostic build"
+        );
+
+        // verts[0] is the pass-1 background quad; verts[VERTS_PER_QUAD] the glyph.
+        let bg_f = focused[0].color;
+        let bg_u = unfocused[0].color;
+        let fg_f = focused[VERTS_PER_QUAD].color;
+        let fg_u = unfocused[VERTS_PER_QUAD].color;
+
+        let lum = |c: [f32; 4]| crate::color::relative_luminance([c[0], c[1], c[2]]);
+        // Both fg and bg recede in luminance under focus dim.
+        assert!(
+            lum(bg_u) < lum(bg_f),
+            "bg must recede: {} -> {}",
+            lum(bg_f),
+            lum(bg_u)
+        );
+        assert!(
+            lum(fg_u) < lum(fg_f),
+            "fg must recede: {} -> {}",
+            lum(fg_f),
+            lum(fg_u)
+        );
+
+        // The background dim is perceptual: hue is preserved (OKLCH). bg never
+        // passes through the floor, so this is fully global-independent.
+        let hue = |c: [f32; 4]| {
+            crate::color::oklab_to_oklch(crate::color::linear_to_oklab([c[0], c[1], c[2]])).h
+        };
+        let mut dh = (hue(bg_f) - hue(bg_u)).abs();
+        if dh > std::f32::consts::PI {
+            dh = std::f32::consts::TAU - dh;
+        }
+        assert!(
+            dh < 0.03,
+            "focus dim must preserve background hue; drift {dh} rad"
+        );
+    }
+
+    /// Build the same snapshot through the focus-agnostic entry, for the
+    /// off-path-gate equality check above. Kept as a helper so the gate compares
+    /// against the real `build_cell_vertices_with_color_glyph_runs_into` path
+    /// (which forwards `0.0`) rather than a hand-rolled duplicate.
+    fn unfocused_baseline(snapshot: &Snapshot, atlas: &GlyphAtlas) -> Vec<Vertex> {
+        let mut v = Vec::new();
+        build_cell_vertices_with_color_glyph_runs_into(&mut v, snapshot, atlas, &[]);
+        v
+    }
+
+    /// The live closure routes SGR-dim through `dim_color`, and at
+    /// `DIM_PERCEPTUAL_AMOUNT` that is *equivalent to* — not merely "as bright
+    /// as" — the historical naive linear `×0.5` halving.
+    ///
+    /// This equivalence is exact (within float round-trip error) and is a
+    /// mathematical identity, not a tuning coincidence: scaling all three OKLab
+    /// coordinates `(L, a, b)` by a uniform factor `k` is identical to scaling
+    /// linear RGB by `k³`, because OKLab's only nonlinearity is a per-component
+    /// cube root that a uniform scale commutes through. `dim_perceptual(c, a)`
+    /// scales `(L, a, b)` by `1 - a`, so it equals `(1 - a)³ · c`; with
+    /// `a = 1 - ∛0.5` that factor is exactly `0.5`. (Both paths therefore also
+    /// preserve hue — a uniform linear scale already keeps chromaticity — so the
+    /// "perceptual" framing buys hue-stability that naive halving already had;
+    /// see the report flag.) This test pins the equivalence so a future change to
+    /// `dim_perceptual` that silently broke the established SGR-dim output would
+    /// be caught. Global-free: floor stays at its 1.0 passthrough (high-contrast
+    /// color keeps it inert even under a concurrent raise).
+    #[test]
+    fn closure_sgr_dim_equals_naive_half_brightness() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        // Saturated orange on the default dark bg: high contrast (floor inert),
+        // strong chroma so any real divergence from ×0.5 would show.
+        let mut term = Terminal::new(1, 1);
+        term.advance(b"\x1b[?25l\x1b[2;38;2;220;90;20mX");
+        let snapshot = term.snapshot();
+        let rendered = build_vertices(&snapshot, &atlas)[VERTS_PER_QUAD].color;
+
+        let undimmed = text::foreground_linear(Color::Rgb(220, 90, 20));
+        // The rendered fg is the perceptual operator output …
+        assert_eq!(
+            rendered,
+            dim_color(undimmed),
+            "rendered dim fg must be the perceptual operator output"
+        );
+        // … which equals a naive linear ×0.5 halving within round-trip error.
+        let naive_half = [
+            undimmed[0] * 0.5,
+            undimmed[1] * 0.5,
+            undimmed[2] * 0.5,
+            undimmed[3],
+        ];
+        assert!(
+            rgb_l1(rendered, naive_half) < 1e-5,
+            "SGR-dim at DIM_PERCEPTUAL_AMOUNT must equal a ×0.5 halving: \
+             {rendered:?} vs {naive_half:?}"
+        );
     }
 }
