@@ -20,7 +20,8 @@ minimum-contrast floor (`min_contrast` / `ODYTTY_MIN_CONTRAST`, RV1) before GPU
 post-processing. Post effects cannot feed their output back into that CPU
 resolver, so any effect that changes brightness must be structurally bounded in
 the shader. Bloom adds light only; CRT scanlines and vignette use capped
-multiplicative dimming plus a hard brightness floor.
+multiplicative dimming with a soft-knee brightness floor (no hard clamp step)
+plus an 8-bit ordered dither so the gradient never posterizes into banding.
 
 **Adapter-gated.** Effects that require GPU features OdyTTY cannot guarantee
 (for example, a filterable HDR render target) silently fall back to the plain
@@ -155,8 +156,10 @@ opaque overlay.
 physical pixels. `3.0` is the default.
 
 **`crt_vignette_strength`** — edge dimming strength. Values are clamped to
-`0.0–0.16`, and the shader enforces a brightness floor so lit cells are never
-zeroed by the vignette.
+`0.0–0.16`. The shader approaches its brightness floor through a soft knee
+rather than a hard clamp, so the edge gradient stays smooth instead of forming a
+visible banding ring, and a CRT-only 8-bit ordered dither breaks up any residual
+8-bit posterization. Lit cells are never zeroed by the vignette.
 
 ### Enabling via odytty.conf
 

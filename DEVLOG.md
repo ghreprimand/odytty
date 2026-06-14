@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-14 -- CRT vignette banding fix (FX-VIGNETTE): soft-knee floor + 8-bit dither
+
+- Fixed the visible banding ring in the CRT vignette. The composite shader
+  (`src/shaders/bloom.wgsl`) previously clamped brightness with a hard
+  `max(0.75, ...)` floor; the kink where the dimming product crossed that floor
+  produced a posterized ring at the screen edge. Replaced it with a monotonic
+  soft-knee floor (capped at 0.30 total dim, i.e. a 0.70 brightness floor) so
+  the edge gradient stays smooth with no clamp discontinuity, and added a
+  CRT-only 8x8 Bayer ordered dither at half an 8-bit quantum, per-channel-gated
+  so zero/black channels are never lifted.
+- Visual gate honored: CRT-off is byte-identical to the plain renderer (the
+  dither and soft-knee are inside the `crt.enabled` branch only). New pixel-smoke
+  `tests/pixel_smoke/crt_vignette.rs` proves CRT-off byte identity, monotonic
+  dimming with no hard-floor plateau across the former crossover band, a corner
+  brightness floor of 0.70, and that the dither stays sub-quantum and preserves
+  black channels.
+- Verified on the combined tree: `cargo fmt --check` clean; full `cargo test`
+  **1157 passed / 0 failed / 19 ignored** (+4 new CRT guards);
+  `gpu_composite_smoke` green (WGSL pipeline compiles); native smokes with
+  `ODYTTY_CRT=1` and `ODYTTY_CRT=1 ODYTTY_BLOOM=1` exit 0; `git diff --check`
+  clean. Fuzz skipped — no `src/parser/` or `src/core/` changes in the diff.
+
+---
+
 ## 2026-06-14 -- copyright holder set to Unfinished Works; name/branding note added
 
 - Set the project copyright holder to **Unfinished Works** (the trade name the

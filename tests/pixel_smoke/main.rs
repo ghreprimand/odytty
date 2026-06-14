@@ -38,6 +38,7 @@
 mod graphics_harness;
 mod harness;
 
+mod crt_vignette;
 mod decorations;
 mod dim_focus;
 mod glyph_basics;

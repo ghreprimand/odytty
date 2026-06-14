@@ -83,6 +83,9 @@ fn fs_blur_v(in: VsOut) -> @location(0) vec4<f32> {
 @group(0) @binding(5) var<uniform> crt: Crt;
 
 const PI: f32 = 3.141592653589793;
+const CRT_SOFT_DIM_MAX: f32 = 0.30;
+const CRT_SOFT_KNEE_WIDTH: f32 = 0.08;
+const CRT_DITHER_AMPLITUDE: f32 = 1.0 / 255.0;
 
 fn crt_brightness(uv: vec2<f32>) -> f32 {
     if crt.enabled <= 0.5 {
@@ -99,7 +102,31 @@ fn crt_brightness(uv: vec2<f32>) -> f32 {
     let edge = smoothstep(0.25, 1.45, dot(centered, centered));
     let vignette_dim = clamp(crt.vignette_strength, 0.0, 0.16) * edge;
 
-    return max(0.75, (1.0 - scanline_dim) * (1.0 - vignette_dim));
+    let total_dim = clamp(1.0 - (1.0 - scanline_dim) * (1.0 - vignette_dim), 0.0, 1.0);
+    let knee_start = CRT_SOFT_DIM_MAX - CRT_SOFT_KNEE_WIDTH;
+    let over_knee = max(total_dim - knee_start, 0.0);
+    let soft_dim = select(
+        total_dim,
+        knee_start + CRT_SOFT_KNEE_WIDTH * (1.0 - exp(-over_knee / CRT_SOFT_KNEE_WIDTH)),
+        total_dim > knee_start,
+    );
+    return 1.0 - min(soft_dim, CRT_SOFT_DIM_MAX);
+}
+
+fn crt_dither(pos: vec2<f32>) -> f32 {
+    let bayer = array<f32, 64>(
+         0.0, 48.0, 12.0, 60.0,  3.0, 51.0, 15.0, 63.0,
+        32.0, 16.0, 44.0, 28.0, 35.0, 19.0, 47.0, 31.0,
+         8.0, 56.0,  4.0, 52.0, 11.0, 59.0,  7.0, 55.0,
+        40.0, 24.0, 36.0, 20.0, 43.0, 27.0, 39.0, 23.0,
+         2.0, 50.0, 14.0, 62.0,  1.0, 49.0, 13.0, 61.0,
+        34.0, 18.0, 46.0, 30.0, 33.0, 17.0, 45.0, 29.0,
+        10.0, 58.0,  6.0, 54.0,  9.0, 57.0,  5.0, 53.0,
+        42.0, 26.0, 38.0, 22.0, 41.0, 25.0, 37.0, 21.0,
+    );
+    let pixel = vec2<u32>(u32(pos.x), u32(pos.y));
+    let index = (pixel.y & 7u) * 8u + (pixel.x & 7u);
+    return (((bayer[index] + 0.5) / 64.0) - 0.5) * CRT_DITHER_AMPLITUDE;
 }
 
 @fragment
@@ -111,5 +138,9 @@ fn fs_composite_bloom(in: VsOut) -> @location(0) vec4<f32> {
         rgb += glow * bloom.intensity;
     }
     rgb *= crt_brightness(in.uv);
+    if crt.enabled > 0.5 {
+        let channel_gate = select(vec3<f32>(0.0), vec3<f32>(1.0), rgb > vec3<f32>(0.0));
+        rgb = max(rgb + vec3<f32>(crt_dither(in.pos.xy)) * channel_gate, vec3<f32>(0.0));
+    }
     return vec4<f32>(rgb, scene.a);
 }
