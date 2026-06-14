@@ -251,7 +251,7 @@ default-off / focused frames byte-identical.
 
 ## Testing
 
-**Testing.** 1132 tests passing: 1035 unit/integration, 12 mouse-protocol
+**Testing.** 1139 tests passing: 1042 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for

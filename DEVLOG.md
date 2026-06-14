@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- keybinding hotfix, VE5 render-quality plain bypass, grid test-split
+
+- Keybinding hotfix: the settings-panel shortcut (Ctrl+Shift+,) never fired
+  because a shifted comma reports the glyph `<` as the logical key, which never
+  matched the registered `,` chord — the whole shifted-punctuation binding class
+  was dead. The live key handler now resolves chords against the base key
+  (`key_without_modifiers()`) while still routing the shifted logical key to text
+  input, so Ctrl+Shift+, opens the panel and every shifted-punctuation binding
+  works. The previous test fed an impossible event (`,` with Shift held); it now
+  feeds the realistic Shift+comma (`<`) and asserts the base-key match.
+- VE5 (render-quality master knob + hard plain/fast bypass): a first-class
+  `render_quality` setting (`plain` / `balanced` / `high`, default `balanced` =
+  byte-identical to today) with help text, config/env (`ODYTTY_RENDER_QUALITY`)
+  /CLI round-trip, and one auto-rendered settings-panel row. `plain` is the hard
+  bypass: it derives neutralized effective values (stem 0.0, min_contrast 1.0,
+  focus_dim 0.0, bloom off, crt off) at the settings layer — no grid.rs edit —
+  and `bloom_options()` / `crt_options()` force the post chain inactive even when
+  bloom+crt are both enabled. A precedence test plus a native smoke
+  (`ODYTTY_RENDER_QUALITY=plain ODYTTY_BLOOM=1 ODYTTY_CRT=1` exits 0) prove the
+  bypass wins over the per-effect flags. (Pixel-identity of plain vs the minimal
+  renderer is proven structurally here; a dedicated pixel-smoke proof is queued.)
+- grid.rs split: the inline `#[cfg(test)]` module was lifted verbatim into
+  `src/grid/tests.rs` (declared `mod tests;`), dropping grid.rs 1849 -> 827 lines
+  with the test file at 1013 — both well under the cap, behavior-neutral, grid::
+  count unchanged at 34.
+- Docs: the OKLab uniform-dim overclaim was corrected in
+  `docs/visual-architecture.md` and the `color.rs` `dim_perceptual` comment to
+  match the SPEC honesty note (uniform OKLab scale == uniform linear halving for
+  the uniform-dim case; perceptual benefit is confined to the non-uniform
+  mix/fade paths), with bidirectional cross-links added between
+  `effects.md` <-> `visual-architecture.md` and to `runtime-knobs.md`.
+- Verified on the combined tree: `cargo fmt --check` clean, `git diff --check`
+  clean, 1139 tests / 0 failed, pixel-smoke 34, native smokes (default +
+  `ODYTTY_BLOOM=1` + `ODYTTY_CRT=1` + `ODYTTY_RENDER_QUALITY=plain` with both
+  effects on) exit 0, no machine paths or secrets in the push diff. Fuzz skipped
+  (no parser/core changes).
+
+---
+
 ## 2026-06-13 -- settings module split, grid resolve-closure coverage, RV3 dim honesty
 
 - `settings.rs` reached the 2000-line cap, so its metadata was split into a
