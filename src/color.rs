@@ -150,14 +150,28 @@ pub fn oklch_to_oklab(lch: Oklch) -> Oklab {
 /// "clearly fainter but still legible" rather than the harsher linear halving.
 pub const DEFAULT_DIM_AMOUNT: f32 = 0.40;
 
-/// Perceptually dim a linear color by scaling it toward black in OKLab.
+/// Dim a linear color by scaling it toward black in OKLab.
 ///
 /// `amount` is in `[0, 1]`: `0.0` returns the input unchanged (exact identity,
 /// short-circuited before any round-trip so there is zero float drift), `1.0`
-/// drives the color to black. Lightness and chroma are scaled by the same
-/// `1 - amount` factor, so dimming reduces both perceived brightness and
-/// saturation together (as dimmer light naturally does) while preserving hue —
-/// unlike an independent per-channel linear scale, which can skew hue.
+/// drives the color to black. All three OKLab coordinates (`L`, `a`, `b`) are
+/// scaled by the same `1 - amount` factor.
+///
+/// HONESTY NOTE — this *uniform* OKLab scale is algebraically identical to a
+/// *uniform* linear-RGB scale, and not a perceptual improvement over one for
+/// this code path. OKLab's only nonlinearity is the per-component cube root
+/// applied to an `LMS` mix that is linear in RGB; uniformly scaling `(L, a, b)`
+/// by `k` therefore commutes back through the cube root to scaling linear RGB
+/// by `k³`. Concretely `dim_perceptual(rgb, amount) == (1 - amount)³ · rgb`
+/// exactly (to float epsilon). So for the uniform-dim case this is
+/// OUTPUT-IDENTICAL to a naive per-channel linear scale — both preserve hue,
+/// because a uniform scale of all channels cannot skew it. The pinning test
+/// `grid::tests::closure_sgr_dim_equals_naive_half_brightness` locks this
+/// equivalence so the claim cannot drift.
+///
+/// The perceptual framing is real for the *non-uniform* helpers
+/// ([`mix_oklab`] / [`fade`]), which interpolate along an OKLab segment and so
+/// genuinely differ from a linear-RGB blend — not for this uniform scale.
 pub fn dim_perceptual(rgb: LinearRgb, amount: f32) -> LinearRgb {
     if amount <= 0.0 {
         return rgb;
