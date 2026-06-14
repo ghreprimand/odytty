@@ -25,7 +25,7 @@
 use std::sync::Mutex;
 
 use odytty::atlas::{GlyphAtlas, set_stem_darken};
-use odytty::settings::DEFAULT_STEM_DARKEN;
+use odytty::settings::{DEFAULT_STEM_DARKEN, RenderQuality, Settings};
 use odytty::text;
 
 /// Build size for the proof atlas — large enough that printable ASCII produces
@@ -132,4 +132,61 @@ fn endpoints_stay_pinned_at_default_strength() {
             assert_eq!(s, 255, "byte {i}: fully-covered pixel must stay covered");
         }
     }
+}
+
+#[test]
+fn plain_render_quality_neutralizes_stem_through_live_raster() {
+    if !font_available() {
+        eprintln!("skipping: no system font");
+        return;
+    }
+    // VE5 plain bypass (L1): `render_quality = plain` derives a neutralized
+    // `effective_stem_darken() == 0.0` even when the raw `stem_darken` field is
+    // hot. Proven through the LIVE atlas raster: building at the plain-effective
+    // strength must reproduce the classic 0.0 raster byte-for-byte. The hot raw
+    // field is the teeth — it proves plain *overrides* a live-enabled stem
+    // boost, not merely that 0.0 in yields 0.0 out.
+    //
+    // This is the stem coordinate of the VE5 `plain == minimal` proof; the
+    // focus_dim coordinate is the pixel_smoke `render_quality` layer, and the
+    // post/bloom/crt coordinates are the settings + gpu structural units. It
+    // lives here (not the global-free pixel suite) because `set_stem_darken` is
+    // a process global — the dedicated binary owns its serialization.
+    let hot_plain = Settings {
+        render_quality: RenderQuality::Plain,
+        stem_darken: 0.5,
+        ..Settings::default()
+    };
+    assert_eq!(
+        hot_plain.effective_stem_darken(),
+        0.0,
+        "plain must neutralize a hot stem_darken to 0.0 at the effective layer"
+    );
+
+    let baseline = raster_at(0.0);
+    let plain = raster_at(hot_plain.effective_stem_darken());
+    assert_eq!(
+        baseline, plain,
+        "render_quality=plain must reproduce the classic 0.0 raster byte-for-byte"
+    );
+
+    // Control: the same hot stem under Balanced keeps its boost live, so its
+    // raster MUST differ from the 0.0 baseline — otherwise the equality above
+    // would be vacuous.
+    let hot_balanced = Settings {
+        render_quality: RenderQuality::Balanced,
+        stem_darken: 0.5,
+        ..Settings::default()
+    };
+    assert_eq!(
+        hot_balanced.effective_stem_darken(),
+        0.5,
+        "balanced must preserve the live stem_darken"
+    );
+    let boosted = raster_at(hot_balanced.effective_stem_darken());
+    assert_ne!(
+        baseline, boosted,
+        "control: a live (balanced) stem boost must change the raster, or the \
+         byte-identity proof above is vacuous"
+    );
 }

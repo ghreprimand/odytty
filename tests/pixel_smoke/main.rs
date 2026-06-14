@@ -42,5 +42,6 @@ mod decorations;
 mod dim_focus;
 mod glyph_basics;
 mod graphics;
+mod render_quality;
 mod synthetic;
 mod themed_roles;
