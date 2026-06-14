@@ -196,7 +196,17 @@ pub fn mix_linear(a: LinearRgb, b: LinearRgb, t: f32) -> LinearRgb {
 ///
 /// `t` is clamped to `[0, 1]` with exact endpoints. Equal steps in `t` look
 /// like equal perceived steps, so gradients and theme transitions keep an even
-/// lightness ramp and don't dip through a muddy grey midpoint.
+/// lightness ramp and don't dip through a muddy grey midpoint. The OKLab
+/// lightness of the result is exactly the linear interpolation of the
+/// endpoints' lightnesses, so the perceived-lightness ramp is monotonic in `t`.
+///
+/// **Gamut:** the result is *not* clamped. A straight segment in OKLab maps to a
+/// curve in linear RGB, so an intermediate between two in-gamut endpoints can
+/// bulge slightly outside the `[0, 1]` cube (empirically within roughly
+/// `[-0.09, 1.12]` for saturated primary/secondary pairs). This is intentional:
+/// clamping mid-interpolation would flatten the perceptual ramp, and every
+/// display path already clamps on output via [`linear_to_srgb_u8`]. Callers that
+/// need an in-gamut linear value should clamp the channels themselves.
 pub fn mix_oklab(a: LinearRgb, b: LinearRgb, t: f32) -> LinearRgb {
     if t <= 0.0 {
         return a;
@@ -518,6 +528,267 @@ mod tests {
         // demonstrably lighter, i.e. the two paths genuinely differ.
         let lin_mid_l = linear_to_oklab(mix_linear(a, b, 0.5)).l;
         assert!(lin_mid_l > 0.7, "linear mid L {lin_mid_l}");
+    }
+
+    // --- RV3 round-trip accuracy across the gamut -----------------------
+
+    /// A regular grid over the linear-RGB cube plus a few explicit near-black /
+    /// near-white extremes, where the cube-root in the OKLab transform has its
+    /// steepest slope and is most likely to lose precision. Every sample must
+    /// survive `linear -> OKLab -> linear` with tightly bounded error.
+    #[test]
+    fn oklab_round_trip_bounded_across_gamut_and_extremes() {
+        let n = 12;
+        let mut max_err = 0f32;
+        for i in 0..=n {
+            for j in 0..=n {
+                for k in 0..=n {
+                    let s = [
+                        i as f32 / n as f32,
+                        j as f32 / n as f32,
+                        k as f32 / n as f32,
+                    ];
+                    let back = oklab_to_linear(linear_to_oklab(s));
+                    for c in 0..3 {
+                        max_err = max_err.max((s[c] - back[c]).abs());
+                    }
+                }
+            }
+        }
+        // Cube-root-touchy extremes near both ends of the range.
+        for s in [
+            [0.001, 0.001, 0.001],
+            [0.0005, 0.0, 0.0],
+            [0.999, 0.999, 0.999],
+            [1.0, 0.5, 0.0001],
+            [0.0001, 1.0, 0.0001],
+        ] {
+            let back = oklab_to_linear(linear_to_oklab(s));
+            for c in 0..3 {
+                max_err = max_err.max((s[c] - back[c]).abs());
+            }
+        }
+        // Measured worst case ~2e-6; 1e-4 leaves generous margin while still
+        // catching any real regression in the matrices or the cube-root path.
+        assert!(
+            max_err < 1e-4,
+            "oklab round-trip error too large: {max_err:e}"
+        );
+    }
+
+    /// OKLCH is a pure polar relabelling of OKLab's `a`/`b`, so the round-trip
+    /// should be near-exact everywhere, including across the `atan2` branch cut
+    /// at hue `±π` (negative-`a`, small-`b` colors).
+    #[test]
+    fn oklch_round_trip_bounded_across_gamut() {
+        let n = 12;
+        let mut max_err = 0f32;
+        for i in 0..=n {
+            for j in 0..=n {
+                for k in 0..=n {
+                    let s = [
+                        i as f32 / n as f32,
+                        j as f32 / n as f32,
+                        k as f32 / n as f32,
+                    ];
+                    let lab = linear_to_oklab(s);
+                    let back = oklch_to_oklab(oklab_to_oklch(lab));
+                    max_err = max_err
+                        .max((lab.l - back.l).abs())
+                        .max((lab.a - back.a).abs())
+                        .max((lab.b - back.b).abs());
+                }
+            }
+        }
+        // Explicit near-branch-cut colors (cyan-ish: a < 0, b ~ 0) so the hue
+        // wrap at ±π is exercised directly.
+        for s in [[0.0, 0.4, 0.5], [0.0, 0.5, 0.45], [0.02, 0.3, 0.31]] {
+            let lab = linear_to_oklab(s);
+            let back = oklch_to_oklab(oklab_to_oklch(lab));
+            max_err = max_err
+                .max((lab.l - back.l).abs())
+                .max((lab.a - back.a).abs())
+                .max((lab.b - back.b).abs());
+        }
+        assert!(
+            max_err < 1e-5,
+            "oklch round-trip error too large: {max_err:e}"
+        );
+    }
+
+    // --- RV3 dim_perceptual depth ---------------------------------------
+
+    /// Dimming is monotonic in `amount`: increasing the amount strictly lowers
+    /// both the OKLab lightness and the WCAG relative luminance, with no
+    /// reversals along the way.
+    #[test]
+    fn dim_perceptual_is_monotonic_in_amount() {
+        let base = [0.6, 0.35, 0.2];
+        let mut prev_l = linear_to_oklab(base).l;
+        let mut prev_lum = relative_luminance(base);
+        for step in 1..=20 {
+            let amount = step as f32 / 20.0;
+            let dimmed = dim_perceptual(base, amount);
+            let l = linear_to_oklab(dimmed).l;
+            let lum = relative_luminance(dimmed);
+            assert!(
+                l < prev_l + 1e-6,
+                "L not decreasing at amount={amount}: {l} vs {prev_l}"
+            );
+            assert!(
+                lum < prev_lum + 1e-6,
+                "luminance not decreasing at amount={amount}: {lum} vs {prev_lum}"
+            );
+            prev_l = l;
+            prev_lum = lum;
+        }
+        // Endpoint: amount = 1 lands at black.
+        assert!(rgb_close(dim_perceptual(base, 1.0), [0.0, 0.0, 0.0], 1e-4));
+    }
+
+    /// Dimming two colors by the same amount preserves their lightness order:
+    /// a lighter color stays lighter (the OKLab L scale is a shared positive
+    /// factor), so dimming never inverts relative brightness within a frame.
+    #[test]
+    fn dim_perceptual_preserves_lightness_order() {
+        let lighter = [0.8, 0.8, 0.8];
+        let darker = [0.3, 0.25, 0.2];
+        assert!(linear_to_oklab(lighter).l > linear_to_oklab(darker).l);
+        for step in 0..=20 {
+            let amount = step as f32 / 20.0;
+            let dl = linear_to_oklab(dim_perceptual(lighter, amount)).l;
+            let dd = linear_to_oklab(dim_perceptual(darker, amount)).l;
+            // Order is preserved (and only ties exactly at amount = 1, both 0).
+            assert!(
+                dl + 1e-6 >= dd,
+                "order inverted at amount={amount}: {dl} < {dd}"
+            );
+        }
+    }
+
+    /// Dimming preserves hue across the useful range of amounts for several
+    /// distinct hues. `a` and `b` are scaled by the same positive factor, so
+    /// `atan2(b, a)` is invariant; chroma collapses only as `amount -> 1`, so the
+    /// sweep stops short of the degenerate black endpoint where hue is undefined.
+    #[test]
+    fn dim_perceptual_preserves_hue_across_amounts_and_hues() {
+        let hues = [
+            [0.7, 0.2, 0.1],  // red-ish
+            [0.2, 0.6, 0.15], // green-ish
+            [0.15, 0.3, 0.7], // blue-ish
+            [0.6, 0.55, 0.1], // yellow-ish
+        ];
+        for base in hues {
+            let h0 = oklab_to_oklch(linear_to_oklab(base)).h;
+            for step in 1..=18 {
+                let amount = step as f32 / 20.0; // up to 0.9, well clear of black
+                let h = oklab_to_oklch(linear_to_oklab(dim_perceptual(base, amount))).h;
+                let mut dh = (h - h0).abs();
+                if dh > std::f32::consts::PI {
+                    dh = std::f32::consts::TAU - dh;
+                }
+                assert!(dh < 1e-3, "hue drift {dh} for {base:?} at amount={amount}");
+            }
+        }
+    }
+
+    // --- RV3 blend monotonicity + gamut behavior ------------------------
+
+    /// `mix_oklab` ramps OKLab lightness monotonically in `t` between the
+    /// endpoints — the core perceptual-evenness guarantee documented on the fn.
+    #[test]
+    fn mix_oklab_lightness_is_monotonic_in_t() {
+        let pairs = [
+            ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]),
+            ([0.9, 0.1, 0.05], [0.05, 0.1, 0.9]),
+            ([0.2, 0.6, 0.15], [0.6, 0.55, 0.1]),
+        ];
+        for (a, b) in pairs {
+            let la = linear_to_oklab(a).l;
+            let lb = linear_to_oklab(b).l;
+            let ascending = lb >= la;
+            let mut prev = linear_to_oklab(mix_oklab(a, b, 0.0)).l;
+            for step in 1..=20 {
+                let t = step as f32 / 20.0;
+                let l = linear_to_oklab(mix_oklab(a, b, t)).l;
+                if ascending {
+                    assert!(l + 1e-5 >= prev, "L dipped at t={t}: {l} < {prev}");
+                } else {
+                    assert!(l <= prev + 1e-5, "L rose at t={t}: {l} > {prev}");
+                }
+                prev = l;
+            }
+        }
+    }
+
+    /// Regression guard for the documented gamut behavior: `mix_oklab` may bulge
+    /// out of the `[0, 1]` cube between in-gamut endpoints, but the excursion is
+    /// bounded. If a change blew the perceptual path wide open (or, conversely,
+    /// silently introduced a clamp), this catches it. The display path clamps on
+    /// output, so the bound here is about *intermediate* sanity, not display.
+    #[test]
+    fn mix_oklab_gamut_excursion_is_bounded() {
+        let corners = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 1.0, 0.0],
+            [1.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
+        ];
+        let (mut lo, mut hi) = (0f32, 1f32);
+        for a in corners {
+            for b in corners {
+                for step in 0..=20 {
+                    let m = mix_oklab(a, b, step as f32 / 20.0);
+                    for c in 0..3 {
+                        lo = lo.min(m[c]);
+                        hi = hi.max(m[c]);
+                    }
+                }
+            }
+        }
+        // Measured worst case ~[-0.083, 1.110]; pad the asserted envelope a touch.
+        assert!(lo > -0.15, "negative excursion too large: {lo:e}");
+        assert!(hi < 1.15, "positive excursion too large: {hi:e}");
+    }
+
+    /// `mix_linear` is a straight per-channel lerp, so every channel is
+    /// monotonic in `t` and never leaves the `[0, 1]` cube for in-gamut
+    /// endpoints (the convex-combination property the OKLab path lacks).
+    #[test]
+    fn mix_linear_is_per_channel_monotonic_and_in_gamut() {
+        let a = [0.1, 0.8, 0.3];
+        let b = [0.9, 0.2, 0.6];
+        let mut prev = mix_linear(a, b, 0.0);
+        for step in 1..=20 {
+            let t = step as f32 / 20.0;
+            let m = mix_linear(a, b, t);
+            for c in 0..3 {
+                // a[c] < b[c] for c=0,2 (ascending) and a[1] > b[1] (descending).
+                if b[c] >= a[c] {
+                    assert!(m[c] + 1e-6 >= prev[c], "ch{c} dipped at t={t}");
+                } else {
+                    assert!(m[c] <= prev[c] + 1e-6, "ch{c} rose at t={t}");
+                }
+                assert!((0.0..=1.0).contains(&m[c]), "ch{c} left gamut: {}", m[c]);
+            }
+            prev = m;
+        }
+    }
+
+    /// `fade` is documented as an alias of `mix_oklab`; pin that contract so a
+    /// future refactor can't silently diverge the fade-in/out path from blends.
+    #[test]
+    fn fade_is_mix_oklab_alias() {
+        let a = [0.3, 0.6, 0.2];
+        let b = [0.8, 0.2, 0.5];
+        for step in 0..=10 {
+            let t = step as f32 / 10.0;
+            assert_eq!(fade(a, b, t), mix_oklab(a, b, t));
+        }
     }
 
     // --- RV1 minimum-contrast guarantee ---------------------------------
