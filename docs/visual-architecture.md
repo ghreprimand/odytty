@@ -207,9 +207,11 @@ highest-priority additions.
 - **Perceptual color pipeline (RV3, landed):** linear-space blending is active
   in the render path; OKLab/OKLCH helpers (`dim_perceptual`, `mix_oklab`,
   `src/color.rs`) are used throughout — by the minimum-contrast lift, by SGR
-  dim-text (hue-preserving, calibrated to match the perceived brightness of the
-  prior linear ×0.5), and by the ID2 focus-dim step. Equal numeric steps produce
-  equal perceived steps for dim, selection blends, and the contrast floor.
+  dim-text, and by the ID2 focus-dim step. Honest note: `dim_perceptual` applies
+  a uniform OKLab scale that reduces algebraically to a uniform linear-RGB scale,
+  so for the uniform-dim case it is output-identical to naive per-channel halving
+  (both preserve hue). The perceptual pipeline's payoff is in the non-uniform
+  paths: `mix_oklab` for blends and the OKLab bisect for the contrast floor.
 - **Minimum-contrast guarantee (RV1, landed):** configurable perceptual fg/bg
   contrast floor applied at render time (`ODYTTY_MIN_CONTRAST`, `min_contrast`).
   Value `1.0` = exact passthrough (default). The floor is measured via WCAG
@@ -261,7 +263,8 @@ Distinctive treatments that direct attention without harming legibility.
 ### Tier 3 — Atmospheric effects (opt-in post-process)
 
 These require a post-process pipeline (offscreen render target + composite
-pass), which now exists (VE1) and carries the first effect (VE2).
+pass), which now exists (VE1) and carries the first effect (VE2). For user-facing
+settings and how to enable effects, see [`docs/effects.md`](effects.md).
 
 - **Post-process pipeline architecture (VE1) (landed):** linear `Rgba16Float`
   offscreen render target, composite pass, filterable-format probe with

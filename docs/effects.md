@@ -48,7 +48,9 @@ Bloom is off by default and pixel-identical to the plain renderer when disabled.
 ### Settings
 
 All four settings are live-reloadable: changes in `odytty.conf` or the settings
-overlay take effect on the next frame without restarting.
+overlay take effect on the next frame without restarting. The full knob
+reference (all settings, types, defaults, and reload behaviour) is in
+[`docs/runtime-knobs.md`](runtime-knobs.md).
 
 | Setting | Env | Type | Default | Range |
 |---------|-----|------|---------|-------|
