@@ -127,6 +127,45 @@ pub(crate) fn composite_focus_dim(
     frame
 }
 
+pub(crate) fn composite_with_padding(
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cursor_style: CursorStyle,
+    padding_px: usize,
+) -> Frame {
+    let cols = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    let cell_w = atlas.cell.width as usize;
+    let cell_h = atlas.cell.height as usize;
+    let width = cols * cell_w + padding_px * 2;
+    let height = rows * cell_h + padding_px * 2;
+
+    let mut frame = Frame {
+        width,
+        height,
+        px: vec![default_bg(); width * height],
+        cell_w,
+        cell_h,
+    };
+
+    let origin = [padding_px as f32, padding_px as f32];
+    let mut verts = Vec::new();
+    grid::build_cell_vertices_with_focus_dim_and_origin_into(
+        &mut verts,
+        snapshot,
+        atlas,
+        &[],
+        0.0,
+        origin,
+    );
+    grid::append_cursor_vertices_with_origin(&mut verts, snapshot, atlas, cursor_style, origin);
+
+    for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
+        composite_quad(&mut frame, atlas, quad);
+    }
+    frame
+}
+
 /// Composite one axis-aligned quad (background, glyph, or solid decoration).
 pub(crate) fn composite_quad(frame: &mut Frame, atlas: &GlyphAtlas, quad: &[Vertex]) {
     let tl = &quad[0];

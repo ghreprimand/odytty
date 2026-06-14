@@ -4,7 +4,10 @@ use std::collections::BTreeSet;
 use crate::atlas::CellSize;
 use crate::graphics::{GraphicsProtocol, PlacementId, SourceRect, StoredImageId, VisiblePlacement};
 
-use super::image_layer::{ImageUpload, cache_sync_plan, placement_quad, visible_image_ids};
+use super::image_layer::{
+    ImageUpload, cache_sync_plan, placement_quad, placement_quad_with_padding, visible_image_ids,
+};
+use super::viewport::WindowPadding;
 
 fn placement(row: usize, column: usize, image_id: StoredImageId) -> VisiblePlacement {
     VisiblePlacement {
@@ -48,6 +51,29 @@ fn placement_geometry_maps_cells_to_pixel_rect() {
 
     assert_eq!(quad.rect, [25.0, 30.0, 45.0, 42.0]);
     assert_eq!(quad.uv, [0.0, 0.0, 1.0, 1.0]);
+}
+
+#[test]
+fn placement_geometry_is_offset_by_window_padding() {
+    let mut placement = placement(2, 3, StoredImageId(7));
+    placement.pixel_offset_x = 1;
+    placement.pixel_offset_y = -2;
+    let padding = WindowPadding::from_logical(8.0, 1.0);
+
+    let quad = placement_quad_with_padding(
+        &placement,
+        20,
+        12,
+        CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        },
+        padding,
+    )
+    .expect("quad");
+
+    assert_eq!(quad.rect, [33.0, 38.0, 53.0, 50.0]);
 }
 
 #[test]

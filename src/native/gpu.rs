@@ -18,6 +18,7 @@ use winit::window::Window;
 
 use super::image_layer::{ImageLayer, ImageUpload};
 use super::options::{NativeError, NativeOptions};
+use super::viewport::WindowPadding;
 
 pub(super) mod post;
 
@@ -674,6 +675,10 @@ pub(super) struct GpuState {
     /// (`physical_font_px(font_size_px, scale)`). Tracked so [`Self::set_font_px`]
     /// is idempotent on an unchanged size.
     physical_px: f32,
+    /// Logical window padding from settings plus its current physical-pixel
+    /// realization at [`Self::scale`].
+    window_padding_px: f32,
+    window_padding: WindowPadding,
     /// Surface clear color from the active theme (linear RGBA).
     clear_color: wgpu::Color,
     /// Ambient-effect uniform params `[strength, period_px]` ([0,_] == off).
@@ -803,6 +808,8 @@ impl GpuState {
 
         // --- Glyph atlas: rasterize at physical pixels for crisp HiDPI text.
         let fonts = StyleFonts::load(options)?;
+        let window_padding = WindowPadding::from_logical(options.window_padding_px, scale);
+        let origin = [window_padding.as_f32(), window_padding.as_f32()];
         atlas::set_stem_darken(stem_darken);
         let mut atlas =
             GlyphAtlas::build_with_subpixel(fonts.regular_font(), physical_px, subpixel);
@@ -959,14 +966,22 @@ impl GpuState {
         // pump thread advances the shared terminal. A >=1x1 grid always emits at
         // least one background quad, so this buffer is never zero-sized.
         let mut vertices = Vec::new();
-        grid::build_cell_vertices_with_color_glyph_runs_into(
+        grid::build_cell_vertices_with_focus_dim_and_origin_into(
             &mut vertices,
             initial_snapshot,
             &atlas,
             &initial_color_glyph_runs,
+            0.0,
+            origin,
         );
         let cell_vertex_count = vertices.len() as u32;
-        grid::append_cursor_vertices(&mut vertices, initial_snapshot, &atlas, CursorStyle::Block);
+        grid::append_cursor_vertices_with_origin(
+            &mut vertices,
+            initial_snapshot,
+            &atlas,
+            CursorStyle::Block,
+            origin,
+        );
         let vertex_count = vertices.len() as u32;
         let background_vertex_count = background_vertex_count(initial_snapshot);
         let vertex_buf_capacity_bytes = grow_vertex_buffer_capacity(0, vertex_bytes_len(&vertices));
@@ -975,11 +990,12 @@ impl GpuState {
             queue.write_buffer(&vertex_buf, 0, bytemuck::cast_slice(&vertices));
         }
         let mut color_glyph_vertices = Vec::new();
-        grid::build_color_glyph_vertices_into(
+        grid::build_color_glyph_vertices_with_origin_into(
             &mut color_glyph_vertices,
             initial_snapshot,
             &color_glyph_atlas,
             &initial_color_glyph_runs,
+            origin,
         );
         let color_glyph_vertex_count = color_glyph_vertices.len() as u32;
         let initial_color_glyph_bytes =
@@ -1034,6 +1050,8 @@ impl GpuState {
             font_size_px: options.font_size_px,
             scale,
             physical_px,
+            window_padding_px: options.window_padding_px,
+            window_padding,
             clear_color: theme_clear_color(&theme),
             effect,
             text,
@@ -1106,6 +1124,30 @@ impl GpuState {
         self.scale
     }
 
+    pub(super) fn window_padding(&self) -> WindowPadding {
+        self.window_padding
+    }
+
+    fn content_origin(&self) -> [f32; 2] {
+        [self.window_padding.as_f32(), self.window_padding.as_f32()]
+    }
+
+    fn refresh_window_padding(&mut self) -> bool {
+        let next = WindowPadding::from_logical(self.window_padding_px, self.scale);
+        if next == self.window_padding {
+            return false;
+        }
+        self.window_padding = next;
+        true
+    }
+
+    pub(super) fn set_window_padding_px(&mut self, logical_px: f32) -> bool {
+        let logical_px = logical_px.max(0.0);
+        let logical_changed = (self.window_padding_px - logical_px).abs() >= f32::EPSILON;
+        self.window_padding_px = logical_px;
+        self.refresh_window_padding() || logical_changed
+    }
+
     /// Update the window scale factor, re-rasterizing the glyph atlas at the new
     /// physical pixel size only when the clamped value actually changes.
     ///
@@ -1121,7 +1163,9 @@ impl GpuState {
             return false;
         }
         self.scale = clamped;
-        self.set_font_px(physical_font_px(self.font_size_px, clamped))
+        let font_changed = self.set_font_px(physical_font_px(self.font_size_px, clamped));
+        let padding_changed = self.refresh_window_padding();
+        font_changed || padding_changed
     }
 
     /// Re-rasterize the glyph atlas at a new physical pixel size and recreate the
@@ -1330,13 +1374,14 @@ impl GpuState {
         placements: &[VisiblePlacement],
         uploads: &[ImageUpload],
     ) {
-        self.image_layer.update(
+        self.image_layer.update_with_padding(
             &self.device,
             &self.queue,
             &self.viewport_buf,
             placements,
             uploads,
             self.atlas.cell,
+            self.window_padding,
         );
     }
 
@@ -1362,15 +1407,23 @@ impl GpuState {
             self.refresh_atlas_texture();
         }
         self.rebuild_color_glyph_segment(snapshot, &color_glyph_runs);
-        grid::build_cell_vertices_with_focus_dim_into(
+        let origin = self.content_origin();
+        grid::build_cell_vertices_with_focus_dim_and_origin_into(
             &mut self.vertices,
             snapshot,
             &self.atlas,
             &color_glyph_runs,
             focus_dim,
+            origin,
         );
         self.cell_vertex_count = self.vertices.len() as u32;
-        grid::append_cursor_vertices(&mut self.vertices, snapshot, &self.atlas, cursor_style);
+        grid::append_cursor_vertices_with_origin(
+            &mut self.vertices,
+            snapshot,
+            &self.atlas,
+            cursor_style,
+            origin,
+        );
         self.vertices.reserve(overlays.len() * grid::VERTS_PER_QUAD);
         for &overlay in overlays {
             grid::push_solid_quad(&mut self.vertices, overlay);
@@ -1393,11 +1446,13 @@ impl GpuState {
         if self.color_glyph_atlas.take_dirty() {
             self.refresh_color_glyph_atlas_texture();
         }
-        grid::build_color_glyph_vertices_into(
+        let origin = self.content_origin();
+        grid::build_color_glyph_vertices_with_origin_into(
             &mut self.color_glyph_vertices,
             snapshot,
             &self.color_glyph_atlas,
             runs,
+            origin,
         );
         self.color_glyph_vertex_count = self.color_glyph_vertices.len() as u32;
 
@@ -1425,11 +1480,13 @@ impl GpuState {
         overlays: &[SolidQuad],
     ) {
         self.cursor_vertices.clear();
-        grid::append_cursor_vertices(
+        let origin = self.content_origin();
+        grid::append_cursor_vertices_with_origin(
             &mut self.cursor_vertices,
             snapshot,
             &self.atlas,
             cursor_style,
+            origin,
         );
         self.cursor_vertices
             .reserve(overlays.len() * grid::VERTS_PER_QUAD);

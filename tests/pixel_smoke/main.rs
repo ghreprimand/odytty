@@ -45,3 +45,4 @@ mod graphics;
 mod render_quality;
 mod synthetic;
 mod themed_roles;
+mod window_padding;

@@ -322,6 +322,9 @@ pub struct Settings {
     pub min_contrast: f32,
     pub focus_dim: f32,
     pub render_quality: RenderQuality,
+    /// Logical pixels of inset between the window edge and terminal grid. `0.0`
+    /// preserves the historical edge-to-edge geometry exactly.
+    pub window_padding_px: f32,
     pub bloom: bool,
     pub bloom_threshold: f32,
     pub bloom_intensity: f32,
@@ -377,6 +380,7 @@ impl Default for Settings {
             min_contrast: DEFAULT_MIN_CONTRAST,
             focus_dim: DEFAULT_FOCUS_DIM,
             render_quality: RenderQuality::default(),
+            window_padding_px: DEFAULT_WINDOW_PADDING_PX,
             bloom: DEFAULT_BLOOM,
             bloom_threshold: default_bloom_threshold_for_theme(Theme::PLAIN),
             bloom_intensity: DEFAULT_BLOOM_INTENSITY,
@@ -585,6 +589,7 @@ impl Settings {
         let min_contrast = parse_min_contrast(get(MIN_CONTRAST_ENV).as_deref(), &mut warn);
         let focus_dim = parse_focus_dim(get(FOCUS_DIM_ENV).as_deref(), &mut warn);
         let render_quality = parse_render_quality(get(RENDER_QUALITY_ENV).as_deref(), &mut warn);
+        let window_padding_px = parse_window_padding(get(WINDOW_PADDING_ENV).as_deref(), &mut warn);
         let bloom = parse_bool_setting(get(BLOOM_ENV).as_deref(), BLOOM_ENV, false, &mut warn);
         let default_bloom_threshold = default_bloom_threshold_for_theme(theme);
         let bloom_threshold = parse_bloom_threshold(
@@ -649,6 +654,7 @@ impl Settings {
             min_contrast,
             focus_dim,
             render_quality,
+            window_padding_px,
             bloom,
             bloom_threshold,
             bloom_intensity,
@@ -689,6 +695,7 @@ impl Settings {
         values.insert(MIN_CONTRAST_ENV, format_float(self.min_contrast));
         values.insert(FOCUS_DIM_ENV, format_float(self.focus_dim));
         values.insert(RENDER_QUALITY_ENV, self.render_quality.as_str().to_owned());
+        values.insert(WINDOW_PADDING_ENV, format_float(self.window_padding_px));
         values.insert(BLOOM_ENV, bool_display(self.bloom).to_owned());
         values.insert(BLOOM_THRESHOLD_ENV, format_float(self.bloom_threshold));
         values.insert(BLOOM_INTENSITY_ENV, format_float(self.bloom_intensity));
@@ -1114,6 +1121,29 @@ fn parse_render_quality(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> Ren
             RenderQuality::default()
         }
     }
+}
+
+fn parse_window_padding(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_WINDOW_PADDING_PX;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_WINDOW_PADDING_PX;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{WINDOW_PADDING_ENV}={trimmed:?} is not a valid padding value; using {DEFAULT_WINDOW_PADDING_PX}"
+            ));
+            return DEFAULT_WINDOW_PADDING_PX;
+        }
+    };
+
+    parsed.clamp(MIN_WINDOW_PADDING_PX, MAX_WINDOW_PADDING_PX)
 }
 
 fn parse_bloom_threshold(raw: Option<&OsStr>, default: f32, warn: &mut impl FnMut(&str)) -> f32 {

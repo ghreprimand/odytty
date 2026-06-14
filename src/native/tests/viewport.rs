@@ -109,6 +109,18 @@ fn scroll_indicator_maps_offset_to_right_edge_thumb() {
 }
 
 #[test]
+fn scroll_indicator_is_offset_by_window_padding() {
+    let color = [0.5, 0.6, 0.7, 0.62];
+    let dimensions = Dimensions::new(10, 5);
+    let cell = cell(8, 10);
+    let padding = WindowPadding::from_logical(8.0, 1.0);
+
+    let oldest = scroll_indicator_quad_with_padding(15, 15, dimensions, cell, color, padding)
+        .expect("oldest");
+    assert_eq!(oldest.rect, [85.0, 8.0, 88.0, 20.5]);
+}
+
+#[test]
 fn solid_overlay_quads_append_after_cell_geometry() {
     let Ok(font) = text::load_font() else {
         eprintln!("skipping: no system font available");
@@ -149,16 +161,19 @@ fn resize_debounce_applies_first_then_latest_pending_at_deadline() {
     let t0 = Instant::now();
     let first = PendingResize {
         cell: cell(10, 20),
+        padding: WindowPadding::ZERO,
         width_px: 800,
         height_px: 600,
     };
     let second = PendingResize {
         cell: cell(10, 20),
+        padding: WindowPadding::ZERO,
         width_px: 810,
         height_px: 610,
     };
     let final_size = PendingResize {
         cell: cell(10, 20),
+        padding: WindowPadding::ZERO,
         width_px: 900,
         height_px: 700,
     };
@@ -188,11 +203,13 @@ fn resize_debounce_allows_bounded_immediate_apply_after_interval() {
     let t0 = Instant::now();
     let first = PendingResize {
         cell: cell(10, 20),
+        padding: WindowPadding::ZERO,
         width_px: 800,
         height_px: 600,
     };
     let later = PendingResize {
         cell: cell(10, 20),
+        padding: WindowPadding::ZERO,
         width_px: 1000,
         height_px: 700,
     };
@@ -208,9 +225,9 @@ fn scale_debounce_applies_first_then_latest_cell_metrics_at_deadline() {
     let mut debounce = ResizeDebouncer::new(interval);
     let t0 = Instant::now();
     let size = PhysicalSize::new(800, 600);
-    let first = pending_resize_for_surface(cell(8, 16), size);
-    let second = pending_resize_for_surface(cell(10, 20), size);
-    let final_resize = pending_resize_for_surface(cell(12, 24), size);
+    let first = pending_resize_for_surface(cell(8, 16), WindowPadding::ZERO, size);
+    let second = pending_resize_for_surface(cell(10, 20), WindowPadding::ZERO, size);
+    let final_resize = pending_resize_for_surface(cell(12, 24), WindowPadding::ZERO, size);
 
     assert_eq!(debounce.record(first, t0), Some(first));
     assert_eq!(debounce.deadline(), None);
@@ -231,18 +248,28 @@ fn scale_debounce_applies_first_then_latest_cell_metrics_at_deadline() {
 #[test]
 fn scale_resize_recomputes_grid_from_rebuilt_cell_metrics() {
     let size = PhysicalSize::new(800, 600);
-    let one_x = pending_resize_for_surface(cell(8, 16), size);
-    let two_x = pending_resize_for_surface(cell(16, 32), size);
+    let one_x = pending_resize_for_surface(cell(8, 16), WindowPadding::ZERO, size);
+    let two_x = pending_resize_for_surface(cell(16, 32), WindowPadding::ZERO, size);
 
     assert_eq!(
-        grid_dimensions_for(one_x.width_px, one_x.height_px, one_x.cell),
+        grid_dimensions_for_with_padding(
+            one_x.width_px,
+            one_x.height_px,
+            one_x.cell,
+            one_x.padding
+        ),
         Dimensions {
             columns: 100,
             rows: 37
         }
     );
     assert_eq!(
-        grid_dimensions_for(two_x.width_px, two_x.height_px, two_x.cell),
+        grid_dimensions_for_with_padding(
+            two_x.width_px,
+            two_x.height_px,
+            two_x.cell,
+            two_x.padding
+        ),
         Dimensions {
             columns: 50,
             rows: 18

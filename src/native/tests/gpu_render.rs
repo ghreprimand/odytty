@@ -12,6 +12,7 @@ fn default_options_are_linux_first_monospace() {
     assert_eq!(options.font_size_px, DEFAULT_FONT_SIZE_PX);
     assert_eq!(options.text_gamma, DEFAULT_TEXT_GAMMA);
     assert_eq!(options.subpixel, SubpixelMode::Off);
+    assert_eq!(options.window_padding_px, DEFAULT_WINDOW_PADDING_PX);
     assert_eq!(options.title, "OdyTTY");
 }
 
@@ -23,6 +24,7 @@ fn options_apply_runtime_font_settings() {
         font_size_px: 21.0,
         text_gamma: 1.25,
         subpixel: SubpixelMode::Bgr,
+        window_padding_px: 12.0,
         ..Settings::default()
     };
     let options = NativeOptions::from_settings(&settings);
@@ -32,6 +34,7 @@ fn options_apply_runtime_font_settings() {
     assert_eq!(options.font_size_px, 21.0);
     assert_eq!(options.text_gamma, 1.25);
     assert_eq!(options.subpixel, SubpixelMode::Bgr);
+    assert_eq!(options.window_padding_px, 12.0);
     assert_eq!(options.initial_grid, NativeOptions::default().initial_grid);
 }
 
@@ -88,7 +91,20 @@ fn window_size_covers_the_grid() {
         font_size_px: 10.0,
         ..NativeOptions::default()
     };
-    // 80 cols * (10 * 0.6) = 480 ; 24 rows * (10 * 1.2) = 288
+    // 80 cols * (10 * 0.6) = 480 ; 24 rows * (10 * 1.2) = 288,
+    // plus the default 8 px logical inset on each edge.
+    assert_eq!(options.window_logical_size(), (496, 304));
+}
+
+#[test]
+fn zero_window_padding_preserves_exact_legacy_window_size() {
+    let options = NativeOptions {
+        initial_grid: Dimensions::new(80, 24),
+        font_size_px: 10.0,
+        window_padding_px: 0.0,
+        ..NativeOptions::default()
+    };
+
     assert_eq!(options.window_logical_size(), (480, 288));
 }
 
@@ -164,6 +180,39 @@ fn build_vertices_into_reuses_existing_vec_capacity() {
 
     assert!(!vertices.is_empty());
     assert_eq!(vertices.capacity(), original_capacity);
+}
+
+#[test]
+fn padded_cell_vertices_start_at_window_padding_origin() {
+    let Ok(font) = text::load_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let atlas = GlyphAtlas::build(&font, 24.0);
+    let snapshot = snapshot(&["X"], 1);
+    let padding = WindowPadding::from_logical(8.0, 1.0);
+    let origin = [padding.as_f32(), padding.as_f32()];
+    let mut vertices = Vec::new();
+
+    crate::grid::build_cell_vertices_with_focus_dim_and_origin_into(
+        &mut vertices,
+        &snapshot,
+        &atlas,
+        &[],
+        0.0,
+        origin,
+    );
+    crate::grid::append_cursor_vertices_with_origin(
+        &mut vertices,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        origin,
+    );
+
+    assert_eq!(vertices[0].pos, origin);
+    assert!(vertices.iter().all(|vertex| vertex.pos[0] >= origin[0]));
+    assert!(vertices.iter().all(|vertex| vertex.pos[1] >= origin[1]));
 }
 
 fn search_sig(query: &str) -> SearchRenderSignature {

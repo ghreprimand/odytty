@@ -55,8 +55,8 @@ pub(super) use super::resize::{
 };
 use super::search_ui::{SearchStyle, SearchUi, apply_search_ui};
 use super::viewport::{
-    SELECTION_AUTOSCROLL_INTERVAL, Viewport, grid_dimensions_for, scroll_indicator_quad,
-    wheel_lines,
+    SELECTION_AUTOSCROLL_INTERVAL, Viewport, WindowPadding, grid_dimensions_for_with_padding,
+    scroll_indicator_quad_with_padding, wheel_lines,
 };
 
 mod interaction;
@@ -318,8 +318,19 @@ impl App {
     /// and dropped for the model resize, then the PTY mutex is taken and dropped
     /// for the (non-blocking) `TIOCSWINSZ`. Neither is held across the other or
     /// across any GPU call.
+    #[cfg(test)]
     pub(super) fn resize_grid(&mut self, cell: CellSize, width_px: u32, height_px: u32) -> bool {
-        let new_grid = grid_dimensions_for(width_px, height_px, cell);
+        self.resize_grid_with_padding(cell, WindowPadding::ZERO, width_px, height_px)
+    }
+
+    pub(super) fn resize_grid_with_padding(
+        &mut self,
+        cell: CellSize,
+        padding: WindowPadding,
+        width_px: u32,
+        height_px: u32,
+    ) -> bool {
+        let new_grid = grid_dimensions_for_with_padding(width_px, height_px, cell, padding);
         if new_grid == self.grid {
             return false;
         }
@@ -338,7 +349,12 @@ impl App {
     }
 
     fn apply_grid_resize(&mut self, resize: PendingResize) {
-        if self.resize_grid(resize.cell, resize.width_px, resize.height_px) {
+        if self.resize_grid_with_padding(
+            resize.cell,
+            resize.padding,
+            resize.width_px,
+            resize.height_px,
+        ) {
             self.selection.clear();
             self.selecting = false;
             self.last_selection_autoscroll = None;
@@ -766,6 +782,7 @@ impl App {
             font_size_px: parsed.font_size_px,
             text_gamma: parsed.text_gamma,
             subpixel: parsed.subpixel,
+            window_padding_px: parsed.window_padding_px,
         }
     }
 
@@ -849,17 +866,21 @@ impl App {
         }
 
         let next_options = self.options_for_settings(&next_settings);
-        let text_rebuilt = match self.gpu.as_mut() {
+        let (text_rebuilt, padding_changed) = match self.gpu.as_mut() {
             Some(gpu) => {
-                match gpu.apply_text_options(&next_options, next_settings.effective_stem_darken()) {
+                let text_rebuilt = match gpu
+                    .apply_text_options(&next_options, next_settings.effective_stem_darken())
+                {
                     Ok(changed) => changed,
                     Err(err) => {
                         eprintln!("odytty: config reload ignored: {err}");
                         return;
                     }
-                }
+                };
+                let padding_changed = gpu.set_window_padding_px(next_options.window_padding_px);
+                (text_rebuilt, padding_changed)
             }
-            None => false,
+            None => (false, false),
         };
 
         self.settings = next_settings;
@@ -907,15 +928,15 @@ impl App {
             gpu.set_crt(crt_options(&self.settings));
         }
 
-        if text_rebuilt {
+        if text_rebuilt || padding_changed {
             let resize = self.gpu.as_ref().and_then(|gpu| {
                 let cell = gpu.cell();
                 if let Ok(mut terminal) = self.terminal.lock() {
                     terminal.set_cell_metrics(cell.width, cell.height);
                 }
-                self.window
-                    .as_ref()
-                    .map(|window| pending_resize_for_surface(cell, window.inner_size()))
+                self.window.as_ref().map(|window| {
+                    pending_resize_for_surface(cell, gpu.window_padding(), window.inner_size())
+                })
             });
             if let Some(resize) = resize {
                 self.apply_grid_resize(resize);
@@ -1104,7 +1125,7 @@ impl ApplicationHandler<UserEvent> for App {
                 // are debounced so drag bursts do not reflow on every event.
                 let resize = self.gpu.as_mut().map(|gpu| {
                     gpu.resize(size.width, size.height);
-                    pending_resize_for_surface(gpu.cell(), size)
+                    pending_resize_for_surface(gpu.cell(), gpu.window_padding(), size)
                 });
 
                 if let Some(resize) = resize {
@@ -1132,7 +1153,11 @@ impl ApplicationHandler<UserEvent> for App {
                     if !scale_factor_changed(gpu.scale(), scale) || !gpu.set_scale(scale) {
                         return None;
                     }
-                    Some(pending_resize_for_surface(gpu.cell(), size))
+                    Some(pending_resize_for_surface(
+                        gpu.cell(),
+                        gpu.window_padding(),
+                        size,
+                    ))
                 });
 
                 if let Some(resize) = resize {
@@ -1262,12 +1287,13 @@ impl ApplicationHandler<UserEvent> for App {
                         };
                         let color = self.scroll_indicator_color();
                         let overlay = self.gpu.as_ref().and_then(|gpu| {
-                            scroll_indicator_quad(
+                            scroll_indicator_quad_with_padding(
                                 self.viewport.offset(),
                                 scrollback_len,
                                 self.grid,
                                 gpu.cell(),
                                 color,
+                                gpu.window_padding(),
                             )
                         });
                         let overlays = overlay.into_iter().collect::<Vec<_>>();

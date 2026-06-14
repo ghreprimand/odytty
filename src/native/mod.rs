@@ -83,6 +83,7 @@ use crate::text;
 use winit::event_loop::{ControlFlow, EventLoop};
 
 pub use options::{NativeError, NativeOptions};
+pub(crate) use viewport::WindowPadding;
 
 use app::App;
 use pty::{PtyWriter, UserEvent, spawn_pty_pump};

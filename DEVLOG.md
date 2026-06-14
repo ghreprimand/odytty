@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-14 -- window padding (FX-PAD): adjustable inset with an aligned pixel-cell seam
+
+- Added an adjustable **window padding** inset between the window edge and the
+  terminal grid (`window_padding` / `ODYTTY_WINDOW_PADDING`), the first friction
+  bug fix from the operator session. Default is **8 logical px** (text no longer
+  touches the window edge); **0.0 restores the historical edge-to-edge layout
+  exactly**, and the accepted range is `0.0..=64.0`.
+- The fix offsets the **full pixel-cell seam in both directions** so mouse and
+  selection stay aligned with the padded glyphs: the forward path places every
+  glyph, cursor, solid-quad, image placement, and the scroll indicator at
+  `origin + cell` with `origin = [pad, pad]`, and the inverse path (selection
+  hit-test, drag autoscroll, SGR-1016 pixel mouse reports) subtracts the same
+  pad before dividing into cells. Grid sizing subtracts `2*pad` from each window
+  extent before fitting columns and rows; live reload recomputes the geometry
+  and PTY size through the existing resize seam.
+- Off-by-default-equivalent path preserved: at `window_padding = 0.0` the layout
+  is byte-identical to the pre-feature renderer. A new pixel-smoke,
+  `zero_window_padding_is_pixel_identical_to_legacy_layout`, locks that
+  equality, and padded selection/autoscroll tests pin the seam math.
+- Full settings coverage: in-panel control with help text, config round-trip
+  (aliases `windowpadding` / `padding` / `windowpaddingpx`), `--show-config`
+  reporting, and live reload.
+- Verified on the combined tree: `cargo fmt --check` clean, full `cargo test`
+  **1153 passed / 0 failed / 19 ignored**, native smokes at the default, `12`px,
+  and `0`px paddings all exit 0, `git diff --check` clean.
+
+---
+
 ## 2026-06-14 -- copyright year corrected to 2026; first friction session triaged
 
 - Corrected the project copyright line from 2025 to **2026** (the project's

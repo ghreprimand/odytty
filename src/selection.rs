@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::core::{Color, Dimensions, Snapshot};
+use crate::native::WindowPadding;
 use crate::text::CellSize;
 use std::time::{Duration, Instant};
 
@@ -217,8 +218,19 @@ impl ClickTracker {
 }
 
 pub fn cell_at_physical(x_px: f64, y_px: f64, cell: CellSize, dimensions: Dimensions) -> CellPoint {
-    let column = (x_px.max(0.0) as u32 / cell.width.max(1)) as usize;
-    let row = (y_px.max(0.0) as u32 / cell.height.max(1)) as usize;
+    cell_at_physical_with_padding(x_px, y_px, cell, dimensions, WindowPadding::ZERO)
+}
+
+pub(crate) fn cell_at_physical_with_padding(
+    x_px: f64,
+    y_px: f64,
+    cell: CellSize,
+    dimensions: Dimensions,
+    padding: WindowPadding,
+) -> CellPoint {
+    let pad = f64::from(padding.physical_px());
+    let column = ((x_px - pad).max(0.0) as u32 / cell.width.max(1)) as usize;
+    let row = ((y_px - pad).max(0.0) as u32 / cell.height.max(1)) as usize;
     CellPoint {
         row: row.min(dimensions.rows - 1),
         column: column.min(dimensions.columns - 1),
@@ -312,12 +324,23 @@ pub fn line_range_at(point: CellPoint, dimensions: Dimensions) -> Option<Selecti
 }
 
 pub fn drag_autoscroll_delta(y_px: f64, cell: CellSize, dimensions: Dimensions) -> isize {
-    let cell_height = f64::from(cell.height.max(1));
-    let viewport_height = cell_height * dimensions.rows.max(1) as f64;
+    drag_autoscroll_delta_with_padding(y_px, cell, dimensions, WindowPadding::ZERO)
+}
 
-    if y_px < cell_height {
+pub(crate) fn drag_autoscroll_delta_with_padding(
+    y_px: f64,
+    cell: CellSize,
+    dimensions: Dimensions,
+    padding: WindowPadding,
+) -> isize {
+    let cell_height = f64::from(cell.height.max(1));
+    let pad = f64::from(padding.physical_px());
+    let viewport_height = cell_height * dimensions.rows.max(1) as f64;
+    let content_y = y_px - pad;
+
+    if content_y < cell_height {
         1
-    } else if y_px >= viewport_height - cell_height {
+    } else if content_y >= viewport_height - cell_height {
         -1
     } else {
         0
@@ -438,6 +461,30 @@ mod tests {
         assert_eq!(
             cell_at_physical(999.0, 999.0, cell, dims),
             CellPoint { row: 2, column: 3 }
+        );
+    }
+
+    #[test]
+    fn maps_padded_physical_coordinates_to_grid_cells() {
+        let dims = Dimensions::new(4, 3);
+        let cell = CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        };
+        let padding = WindowPadding::from_logical(8.0, 1.0);
+
+        assert_eq!(
+            cell_at_physical_with_padding(0.0, 0.0, cell, dims, padding),
+            CellPoint { row: 0, column: 0 }
+        );
+        assert_eq!(
+            cell_at_physical_with_padding(8.0, 8.0, cell, dims, padding),
+            CellPoint { row: 0, column: 0 }
+        );
+        assert_eq!(
+            cell_at_physical_with_padding(25.0, 41.0, cell, dims, padding),
+            CellPoint { row: 2, column: 2 }
         );
     }
 
@@ -615,5 +662,29 @@ mod tests {
         assert_eq!(drag_autoscroll_delta(4.0, cell, dims), 1);
         assert_eq!(drag_autoscroll_delta(32.0, cell, dims), 0);
         assert_eq!(drag_autoscroll_delta(60.0, cell, dims), -1);
+    }
+
+    #[test]
+    fn padded_drag_autoscroll_uses_content_edge_bands() {
+        let cell = CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        };
+        let dims = Dimensions::new(80, 4);
+        let padding = WindowPadding::from_logical(8.0, 1.0);
+
+        assert_eq!(
+            drag_autoscroll_delta_with_padding(4.0, cell, dims, padding),
+            1
+        );
+        assert_eq!(
+            drag_autoscroll_delta_with_padding(40.0, cell, dims, padding),
+            0
+        );
+        assert_eq!(
+            drag_autoscroll_delta_with_padding(68.0, cell, dims, padding),
+            -1
+        );
     }
 }

@@ -7,9 +7,45 @@ use crate::text::CellSize;
 
 use winit::event::MouseScrollDelta;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct WindowPadding {
+    physical_px: u32,
+}
+
+impl WindowPadding {
+    pub(crate) const ZERO: Self = Self { physical_px: 0 };
+
+    pub(crate) fn from_logical(logical_px: f32, scale: f32) -> Self {
+        let physical_px = (logical_px.max(0.0) * scale.max(1.0)).round() as u32;
+        Self { physical_px }
+    }
+
+    pub(crate) fn physical_px(self) -> u32 {
+        self.physical_px
+    }
+
+    pub(crate) fn as_f32(self) -> f32 {
+        self.physical_px as f32
+    }
+
+    fn content_extent(self, extent: u32) -> u32 {
+        extent.saturating_sub(self.physical_px.saturating_mul(2))
+    }
+}
+
+#[cfg(test)]
 pub(super) fn grid_dimensions_for(width_px: u32, height_px: u32, cell: CellSize) -> Dimensions {
-    let cols = width_px / cell.width.max(1);
-    let rows = height_px / cell.height.max(1);
+    grid_dimensions_for_with_padding(width_px, height_px, cell, WindowPadding::ZERO)
+}
+
+pub(super) fn grid_dimensions_for_with_padding(
+    width_px: u32,
+    height_px: u32,
+    cell: CellSize,
+    padding: WindowPadding,
+) -> Dimensions {
+    let cols = padding.content_extent(width_px) / cell.width.max(1);
+    let rows = padding.content_extent(height_px) / cell.height.max(1);
     Dimensions::new(cols as usize, rows as usize)
 }
 
@@ -118,12 +154,31 @@ pub(super) fn wheel_lines(delta: MouseScrollDelta, cell_height: u32) -> isize {
 /// `viewport_offset == 0` is the live tail, where the indicator is hidden. In
 /// alternate screen the core exposes no active scrollback, so the same rule
 /// hides the bar there without native needing a core-specific alt-screen query.
+#[cfg(test)]
 pub(super) fn scroll_indicator_quad(
     viewport_offset: usize,
     scrollback_len: usize,
     dimensions: Dimensions,
     cell: CellSize,
     color: [f32; 4],
+) -> Option<SolidQuad> {
+    scroll_indicator_quad_with_padding(
+        viewport_offset,
+        scrollback_len,
+        dimensions,
+        cell,
+        color,
+        WindowPadding::ZERO,
+    )
+}
+
+pub(super) fn scroll_indicator_quad_with_padding(
+    viewport_offset: usize,
+    scrollback_len: usize,
+    dimensions: Dimensions,
+    cell: CellSize,
+    color: [f32; 4],
+    padding: WindowPadding,
 ) -> Option<SolidQuad> {
     if viewport_offset == 0 || scrollback_len == 0 {
         return None;
@@ -152,11 +207,12 @@ pub(super) fn scroll_indicator_quad(
     let y0 = travel * position;
     let y1 = (y0 + thumb_h).min(track_h);
     let width = SCROLL_INDICATOR_WIDTH_PX.min(track_w);
-    let x1 = track_w;
+    let pad = padding.as_f32();
+    let x1 = pad + track_w;
     let x0 = x1 - width;
 
     Some(SolidQuad {
-        rect: [x0, y0, x1, y1],
+        rect: [x0, pad + y0, x1, pad + y1],
         color,
     })
 }

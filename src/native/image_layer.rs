@@ -12,6 +12,7 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::atlas::CellSize;
 use crate::graphics::{StoredImage, StoredImageId, VisiblePlacement};
+use crate::native::WindowPadding;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ImageUpload {
@@ -87,11 +88,28 @@ pub(super) fn cache_sync_plan(
     }
 }
 
+#[cfg(test)]
 pub(super) fn placement_quad(
     placement: &VisiblePlacement,
     image_width: u32,
     image_height: u32,
     cell: CellSize,
+) -> Option<ImageQuad> {
+    placement_quad_with_padding(
+        placement,
+        image_width,
+        image_height,
+        cell,
+        WindowPadding::ZERO,
+    )
+}
+
+pub(super) fn placement_quad_with_padding(
+    placement: &VisiblePlacement,
+    image_width: u32,
+    image_height: u32,
+    cell: CellSize,
+    padding: WindowPadding,
 ) -> Option<ImageQuad> {
     if image_width == 0 || image_height == 0 || placement.display_columns == 0 {
         return None;
@@ -127,8 +145,9 @@ pub(super) fn placement_quad(
         return None;
     }
 
-    let x0 = placement.column as f32 * cell.width as f32 + placement.pixel_offset_x as f32;
-    let y0 = placement.row as f32 * cell.height as f32 + placement.pixel_offset_y as f32;
+    let pad = padding.as_f32();
+    let x0 = pad + placement.column as f32 * cell.width as f32 + placement.pixel_offset_x as f32;
+    let y0 = pad + placement.row as f32 * cell.height as f32 + placement.pixel_offset_y as f32;
     let x1 = x0 + visible_w as f32;
     let y1 = y0 + visible_h as f32;
 
@@ -259,7 +278,7 @@ impl ImageLayer {
         self.textures.keys().copied().collect()
     }
 
-    pub(super) fn update(
+    pub(super) fn update_with_padding(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -267,6 +286,7 @@ impl ImageLayer {
         placements: &[VisiblePlacement],
         uploads: &[ImageUpload],
         cell: CellSize,
+        padding: WindowPadding,
     ) {
         let cached = self.cached_ids();
         let plan = cache_sync_plan(&cached, placements, uploads);
@@ -292,15 +312,16 @@ impl ImageLayer {
             }
         }
 
-        self.rebuild_vertices(device, queue, placements, cell);
+        self.rebuild_vertices_with_padding(device, queue, placements, cell, padding);
     }
 
-    fn rebuild_vertices(
+    fn rebuild_vertices_with_padding(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         placements: &[VisiblePlacement],
         cell: CellSize,
+        padding: WindowPadding,
     ) {
         self.vertices.clear();
         self.draws.clear();
@@ -309,7 +330,9 @@ impl ImageLayer {
             let Some(cached) = self.textures.get(&placement.image_id) else {
                 continue;
             };
-            let Some(quad) = placement_quad(placement, cached.width, cached.height, cell) else {
+            let Some(quad) =
+                placement_quad_with_padding(placement, cached.width, cached.height, cell, padding)
+            else {
                 continue;
             };
 

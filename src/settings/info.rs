@@ -168,6 +168,18 @@ impl Settings {
                 reloadable: true,
             },
             SettingInfo {
+                group: "Rendering",
+                key: "window_padding",
+                env: WINDOW_PADDING_ENV,
+                name: "Window padding",
+                value: format_float(self.window_padding_px),
+                description: WINDOW_PADDING_DESC,
+                kind: SettingKind::Number,
+                range: Some("0.0..=64.0 px"),
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
                 group: "Post-process",
                 key: "bloom",
                 env: BLOOM_ENV,

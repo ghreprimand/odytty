@@ -13,6 +13,7 @@ pub const STEM_DARKEN_ENV: &str = "ODYTTY_STEM_DARKEN";
 pub const MIN_CONTRAST_ENV: &str = "ODYTTY_MIN_CONTRAST";
 pub const FOCUS_DIM_ENV: &str = "ODYTTY_FOCUS_DIM";
 pub const RENDER_QUALITY_ENV: &str = "ODYTTY_RENDER_QUALITY";
+pub const WINDOW_PADDING_ENV: &str = "ODYTTY_WINDOW_PADDING";
 pub const BLOOM_ENV: &str = "ODYTTY_BLOOM";
 pub const BLOOM_THRESHOLD_ENV: &str = "ODYTTY_BLOOM_THRESHOLD";
 pub const BLOOM_INTENSITY_ENV: &str = "ODYTTY_BLOOM_INTENSITY";
@@ -49,6 +50,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     MIN_CONTRAST_ENV,
     FOCUS_DIM_ENV,
     RENDER_QUALITY_ENV,
+    WINDOW_PADDING_ENV,
     BLOOM_ENV,
     BLOOM_THRESHOLD_ENV,
     BLOOM_INTENSITY_ENV,
@@ -107,6 +109,13 @@ pub const MAX_MIN_CONTRAST: f32 = 21.0;
 pub const DEFAULT_FOCUS_DIM: f32 = 0.0;
 pub const MIN_FOCUS_DIM: f32 = 0.0;
 pub const MAX_FOCUS_DIM: f32 = 1.0;
+
+/// Window padding (`ODYTTY_WINDOW_PADDING`): logical pixels of inset on every
+/// window edge before the terminal grid begins. `0.0` restores the historical
+/// exact edge-to-edge layout; the non-zero default gives text breathing room.
+pub const DEFAULT_WINDOW_PADDING_PX: f32 = 8.0;
+pub const MIN_WINDOW_PADDING_PX: f32 = 0.0;
+pub const MAX_WINDOW_PADDING_PX: f32 = 64.0;
 
 pub const DEFAULT_BLOOM: bool = false;
 pub const BLOOM_THRESHOLD_MARGIN: f32 = 0.12;

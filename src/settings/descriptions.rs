@@ -26,6 +26,10 @@ pub const RENDER_QUALITY_DESC: &str = "Render quality: master renderer profile. 
      stem darkening, and the minimum-contrast floor off even when their individual \
      knobs are enabled. high is reserved for future higher-cost quality paths.";
 
+pub const WINDOW_PADDING_DESC: &str = "Window padding: logical pixels of inset between the window edge and the \
+     terminal grid. Accepts 0.0-64.0; 0.0 restores the historical edge-to-edge \
+     layout exactly. Default 8.0.";
+
 pub const BLOOM_DESC: &str = "Bloom: optional HDR phosphor glow over bright cells. Off by default and \
      pixel-identical to the plain renderer. Requires a GPU with filterable \
      Rgba16Float render targets; unsupported adapters silently use the plain path.";

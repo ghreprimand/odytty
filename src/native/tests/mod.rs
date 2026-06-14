@@ -33,18 +33,22 @@ use super::search_ui::SearchRenderSignature;
 use super::settings_panel::SettingsPanelSignature;
 use super::theme_builder::ThemeBuilderSignature;
 use super::theme_picker::ThemePickerSignature;
-use super::viewport::{Viewport, grid_dimensions_for, scroll_indicator_quad, wheel_lines};
+use super::viewport::{
+    Viewport, WindowPadding, grid_dimensions_for, grid_dimensions_for_with_padding,
+    scroll_indicator_quad, scroll_indicator_quad_with_padding, wheel_lines,
+};
 use crate::core::{
-    Attrs, Cell, Dimensions, KeyboardModes as CoreKeyboardModes, MouseButton as CoreMouseButton,
-    MouseEventKind, MouseProtocol, MouseTracking, Position, Snapshot, Terminal,
+    Attrs, Cell, CursorStyle, Dimensions, KeyboardModes as CoreKeyboardModes,
+    MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol, MouseTracking, Position,
+    Snapshot, Terminal,
 };
 use crate::grid::{SolidQuad, VERTS_PER_QUAD};
 use crate::input::{self, Key, KeyEventType, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, CellPoint};
 use crate::settings::{
-    BindableAction, DEFAULT_FONT_SIZE_PX, DEFAULT_TEXT_GAMMA, KeyBindingKey, KeyBindingModifiers,
-    KeyBindingOverride, KeyChord, Settings,
+    BindableAction, DEFAULT_FONT_SIZE_PX, DEFAULT_TEXT_GAMMA, DEFAULT_WINDOW_PADDING_PX,
+    KeyBindingKey, KeyBindingModifiers, KeyBindingOverride, KeyChord, Settings,
 };
 use crate::text::{self, CellSize, FontStyle, GlyphAtlas, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};

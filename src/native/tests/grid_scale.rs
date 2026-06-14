@@ -12,6 +12,13 @@ fn grid_dimensions_floor_divide_pixel_size_by_cell() {
 }
 
 #[test]
+fn grid_dimensions_subtract_window_padding_before_division() {
+    let padding = WindowPadding::from_logical(8.0, 1.0);
+    let dims = grid_dimensions_for_with_padding(800, 600, cell(8, 16), padding);
+    assert_eq!(dims, Dimensions::new(98, 36));
+}
+
+#[test]
 fn grid_dimensions_clamp_to_at_least_one() {
     // A window smaller than a single cell still yields a 1x1 grid rather
     // than a zero-dimension (panicking) grid.
@@ -318,9 +325,9 @@ fn h3_debounce_applies_final_scale_cell_metrics() {
 
     // Simulate a burst of three scale changes in rapid succession:
     // 1.0 → 1.5 → 2.0, each producing different cell metrics.
-    let resize_1x = pending_resize_for_surface(cell(10, 20), surface);
-    let resize_15x = pending_resize_for_surface(cell(15, 30), surface);
-    let resize_2x = pending_resize_for_surface(cell(20, 40), surface);
+    let resize_1x = pending_resize_for_surface(cell(10, 20), WindowPadding::ZERO, surface);
+    let resize_15x = pending_resize_for_surface(cell(15, 30), WindowPadding::ZERO, surface);
+    let resize_2x = pending_resize_for_surface(cell(20, 40), WindowPadding::ZERO, surface);
 
     // First is applied immediately.
     assert_eq!(debounce.record(resize_1x, t0), Some(resize_1x));

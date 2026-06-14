@@ -119,7 +119,7 @@ impl App {
     /// encoder applies the same gating as the cell path). The grid is drawn at
     /// the window origin, so the cached physical position is already
     /// grid-relative; [`pixel_coords_for_report`] floors it to a 1-based pixel
-    /// and clamps to the grid's pixel extent.
+    /// and clamps to the grid's pixel extent after removing any window padding.
     fn encode_pixel_mouse_report(
         &self,
         protocol: MouseProtocol,
@@ -127,8 +127,9 @@ impl App {
         kind: MouseEventKind,
     ) -> Option<Vec<u8>> {
         let (x_px, y_px) = self.pointer_px?;
-        let cell = self.gpu.as_ref().map(GpuState::cell)?;
-        let (px, py) = pixel_coords_for_report(x_px, y_px, cell, self.grid);
+        let gpu = self.gpu.as_ref()?;
+        let cell = gpu.cell();
+        let (px, py) = pixel_coords_for_report(x_px, y_px, cell, self.grid, gpu.window_padding());
         let mods = MouseModifiers {
             // Shift stays reserved for local selection while reporting is active,
             // matching the cell path's modifier policy.
@@ -190,12 +191,17 @@ impl App {
         let Some(cell) = self.gpu.as_ref().map(GpuState::cell) else {
             return;
         };
-        let point = selection::cell_at_physical(x_px, y_px, cell, self.grid);
+        let padding = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO);
+        let point = selection::cell_at_physical_with_padding(x_px, y_px, cell, self.grid, padding);
         self.pointer_cell = Some(point);
         self.pointer_px = Some((x_px, y_px));
         self.update_hover_hyperlink();
         if self.selecting {
-            self.autoscroll_selection_if_needed(y_px, cell);
+            self.autoscroll_selection_if_needed(y_px, cell, padding);
             let scrollback_len = self.scrollback_len();
             self.selection.update(selection::visible_to_absolute(
                 point,
@@ -281,8 +287,13 @@ impl App {
         )
     }
 
-    fn autoscroll_selection_if_needed(&mut self, y_px: f64, cell: CellSize) {
-        let delta = selection::drag_autoscroll_delta(y_px, cell, self.grid);
+    fn autoscroll_selection_if_needed(
+        &mut self,
+        y_px: f64,
+        cell: CellSize,
+        padding: WindowPadding,
+    ) {
+        let delta = selection::drag_autoscroll_delta_with_padding(y_px, cell, self.grid, padding);
         if delta == 0 {
             return;
         }
@@ -367,25 +378,27 @@ impl App {
 /// pixel extent.
 ///
 /// `x_px`/`y_px` are the raw `winit` `CursorMoved` coordinates, which are
-/// already physical pixels and already relative to the grid (the grid is drawn
-/// at the window origin with no inset), so this needs no scale-factor multiply —
-/// `CellSize` is likewise physical-pixel sized. The result floors to an integer
-/// pixel and shifts to the 1-based convention the protocol uses. A cursor left
-/// of or above the grid clamps to pixel 1; a cursor at or past the right/bottom
-/// edge (e.g. while dragging outside the window) clamps to the last in-grid
-/// pixel, mirroring how [`selection::cell_at_physical`] saturates the cell path.
+/// already physical pixels; `CellSize` and `padding` are likewise
+/// physical-pixel sized. The result first subtracts the window padding to get
+/// grid-relative coordinates, then floors to an integer pixel and shifts to the
+/// 1-based convention the protocol uses. A cursor left of or above the grid
+/// clamps to pixel 1; a cursor at or past the right/bottom edge (e.g. while
+/// dragging outside the window) clamps to the last in-grid pixel, mirroring how
+/// [`selection::cell_at_physical_with_padding`] saturates the cell path.
 fn pixel_coords_for_report(
     x_px: f64,
     y_px: f64,
     cell: CellSize,
     dims: Dimensions,
+    padding: WindowPadding,
 ) -> (usize, usize) {
     let max_px = (dims.columns as u32)
         .saturating_mul(cell.width.max(1))
         .max(1);
     let max_py = (dims.rows as u32).saturating_mul(cell.height.max(1)).max(1);
-    let px = (x_px.max(0.0) as u32).min(max_px - 1) as usize + 1;
-    let py = (y_px.max(0.0) as u32).min(max_py - 1) as usize + 1;
+    let pad = f64::from(padding.physical_px());
+    let px = ((x_px - pad).max(0.0) as u32).min(max_px - 1) as usize + 1;
+    let py = ((y_px - pad).max(0.0) as u32).min(max_py - 1) as usize + 1;
     (px, py)
 }
 
@@ -407,9 +420,12 @@ mod tests {
     #[test]
     fn pixel_coords_origin_maps_to_one_based() {
         // Cursor at the top-left physical pixel maps to (1, 1): the protocol is
-        // 1-based and the grid sits at the window origin (no inset to subtract).
+        // 1-based and zero padding keeps the grid at the window origin.
         let dims = Dimensions::new(80, 24);
-        assert_eq!(pixel_coords_for_report(0.0, 0.0, cell_8x16(), dims), (1, 1));
+        assert_eq!(
+            pixel_coords_for_report(0.0, 0.0, cell_8x16(), dims, WindowPadding::ZERO),
+            (1, 1)
+        );
     }
 
     #[test]
@@ -417,7 +433,7 @@ mod tests {
         // Sub-pixel fractions floor; 10.9px -> pixel index 10 -> 1-based 11.
         let dims = Dimensions::new(80, 24);
         assert_eq!(
-            pixel_coords_for_report(10.9, 33.2, cell_8x16(), dims),
+            pixel_coords_for_report(10.9, 33.2, cell_8x16(), dims, WindowPadding::ZERO),
             (11, 34)
         );
     }
@@ -439,8 +455,8 @@ mod tests {
             baseline: 30,
         };
         assert_eq!(
-            pixel_coords_for_report(100.0, 100.0, small, dims),
-            pixel_coords_for_report(100.0, 100.0, large, dims)
+            pixel_coords_for_report(100.0, 100.0, small, dims, WindowPadding::ZERO),
+            pixel_coords_for_report(100.0, 100.0, large, dims, WindowPadding::ZERO)
         );
     }
 
@@ -450,7 +466,7 @@ mod tests {
         // drag) saturates to pixel 1, mirroring cell_at_physical's max(0.0).
         let dims = Dimensions::new(80, 24);
         assert_eq!(
-            pixel_coords_for_report(-50.0, -5.0, cell_8x16(), dims),
+            pixel_coords_for_report(-50.0, -5.0, cell_8x16(), dims, WindowPadding::ZERO),
             (1, 1)
         );
     }
@@ -461,11 +477,11 @@ mod tests {
         // bottom-right edge clamps to the last in-grid pixel (640, 384).
         let dims = Dimensions::new(80, 24);
         assert_eq!(
-            pixel_coords_for_report(640.0, 384.0, cell_8x16(), dims),
+            pixel_coords_for_report(640.0, 384.0, cell_8x16(), dims, WindowPadding::ZERO),
             (640, 384)
         );
         assert_eq!(
-            pixel_coords_for_report(9999.0, 9999.0, cell_8x16(), dims),
+            pixel_coords_for_report(9999.0, 9999.0, cell_8x16(), dims, WindowPadding::ZERO),
             (640, 384)
         );
     }
@@ -476,8 +492,23 @@ mod tests {
         // it is reported as-is (the clamp only bites at/after the extent).
         let dims = Dimensions::new(80, 24);
         assert_eq!(
-            pixel_coords_for_report(639.0, 383.0, cell_8x16(), dims),
+            pixel_coords_for_report(639.0, 383.0, cell_8x16(), dims, WindowPadding::ZERO),
             (640, 384)
+        );
+    }
+
+    #[test]
+    fn pixel_coords_subtract_window_padding_before_reporting() {
+        let dims = Dimensions::new(80, 24);
+        let padding = WindowPadding::from_logical(8.0, 1.0);
+
+        assert_eq!(
+            pixel_coords_for_report(8.0, 8.0, cell_8x16(), dims, padding),
+            (1, 1)
+        );
+        assert_eq!(
+            pixel_coords_for_report(18.9, 41.2, cell_8x16(), dims, padding),
+            (11, 34)
         );
     }
 
@@ -490,7 +521,8 @@ mod tests {
             encoding: MouseEncoding::SgrPixel,
         };
         let dims = Dimensions::new(80, 24);
-        let (px, py) = pixel_coords_for_report(100.0, 200.0, cell_8x16(), dims);
+        let (px, py) =
+            pixel_coords_for_report(100.0, 200.0, cell_8x16(), dims, WindowPadding::ZERO);
         let mods = MouseModifiers {
             shift: false,
             alt: false,
@@ -514,7 +546,8 @@ mod tests {
         // returns None, so send_mouse_report's branch leaves the cell path
         // authoritative for legacy/UTF-8/SGR/urxvt.
         let dims = Dimensions::new(80, 24);
-        let (px, py) = pixel_coords_for_report(100.0, 200.0, cell_8x16(), dims);
+        let (px, py) =
+            pixel_coords_for_report(100.0, 200.0, cell_8x16(), dims, WindowPadding::ZERO);
         let mods = MouseModifiers {
             shift: false,
             alt: false,

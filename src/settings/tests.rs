@@ -97,6 +97,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "min_contrast",
             "focus_dim",
             "render_quality",
+            "window_padding",
             "bloom",
             "bloom_threshold",
             "bloom_intensity",
@@ -135,6 +136,10 @@ fn setting_info_covers_every_field_with_descriptions() {
     assert!(
         info.iter()
             .any(|row| row.key == "render_quality" && row.options == ["plain", "balanced", "high"])
+    );
+    assert!(
+        info.iter()
+            .any(|row| row.key == "window_padding" && row.range == Some("0.0..=64.0 px"))
     );
     assert!(
         info.iter()
@@ -181,6 +186,7 @@ fn setting_info_formats_current_values_for_display() {
         bloom_intensity: 0.35,
         bloom_radius: 4.5,
         render_quality: RenderQuality::High,
+        window_padding_px: 12.0,
         crt: true,
         crt_scanline_intensity: 0.12,
         crt_scanline_period: 4.0,
@@ -206,6 +212,7 @@ fn setting_info_formats_current_values_for_display() {
     assert_eq!(value("bloom_intensity"), "0.35");
     assert_eq!(value("bloom_radius"), "4.5");
     assert_eq!(value("render_quality"), "high");
+    assert_eq!(value("window_padding"), "12");
     assert_eq!(value("crt"), "on");
     assert_eq!(value("crt_scanline_intensity"), "0.12");
     assert_eq!(value("crt_scanline_period"), "4");
@@ -289,6 +296,7 @@ fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
             text_gamma = 0.1
             stem_darken = 0.4
             render_quality = high
+            window_padding = 99
             bloom = on
             bloom_threshold = 9
             bloom_intensity = 2
@@ -308,6 +316,7 @@ fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
     assert_eq!(settings.text_gamma, MIN_TEXT_GAMMA);
     assert_eq!(settings.stem_darken, 0.4);
     assert_eq!(settings.render_quality, RenderQuality::High);
+    assert_eq!(settings.window_padding_px, MAX_WINDOW_PADDING_PX);
     assert!(settings.bloom);
     assert_eq!(settings.bloom_threshold, MAX_BLOOM_THRESHOLD);
     assert_eq!(settings.bloom_intensity, MAX_BLOOM_INTENSITY);
@@ -809,6 +818,33 @@ fn render_quality_round_trips_through_config_key_mapping() {
         env_to_config_key(RENDER_QUALITY_ENV),
         Some("render_quality")
     );
+    assert_eq!(
+        config_key_to_env("window_padding"),
+        Some(WINDOW_PADDING_ENV)
+    );
+    assert_eq!(config_key_to_env("padding"), Some(WINDOW_PADDING_ENV));
+    assert_eq!(
+        env_to_config_key(WINDOW_PADDING_ENV),
+        Some("window_padding")
+    );
+}
+
+#[test]
+fn window_padding_defaults_parses_zero_and_clamps() {
+    let (default_settings, warnings) = settings_from([]);
+    assert_eq!(
+        default_settings.window_padding_px,
+        DEFAULT_WINDOW_PADDING_PX
+    );
+    assert!(warnings.is_empty());
+
+    let (zero, warnings) = settings_from([(WINDOW_PADDING_ENV, "0")]);
+    assert_eq!(zero.window_padding_px, 0.0);
+    assert!(warnings.is_empty());
+
+    let (clamped, warnings) = settings_from([(WINDOW_PADDING_ENV, "999")]);
+    assert_eq!(clamped.window_padding_px, MAX_WINDOW_PADDING_PX);
+    assert!(warnings.is_empty());
 }
 
 #[test]

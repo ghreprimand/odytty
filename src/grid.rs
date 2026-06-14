@@ -163,6 +163,16 @@ pub fn push_solid_quad(out: &mut Vec<Vertex>, quad: SolidQuad) {
     push_quad(out, quad.rect, [0.0, 0.0, 0.0, 0.0], quad.color, 0.0);
 }
 
+pub fn push_solid_quad_with_origin(out: &mut Vec<Vertex>, quad: SolidQuad, origin: [f32; 2]) {
+    let rect = [
+        quad.rect[0] + origin[0],
+        quad.rect[1] + origin[1],
+        quad.rect[2] + origin[0],
+        quad.rect[3] + origin[1],
+    ];
+    push_quad(out, rect, [0.0, 0.0, 0.0, 0.0], quad.color, 0.0);
+}
+
 fn push_color_glyph_quad(out: &mut Vec<ColorGlyphVertex>, rect: [f32; 4], uv: [f32; 4]) {
     let [x0, y0, x1, y1] = rect;
     let [u0, v0, u1, v1] = uv;
@@ -185,6 +195,16 @@ pub fn build_color_glyph_vertices_into(
     snapshot: &Snapshot,
     atlas: &ColorGlyphAtlas,
     runs: &[ColorGlyphRun],
+) {
+    build_color_glyph_vertices_with_origin_into(out, snapshot, atlas, runs, [0.0, 0.0]);
+}
+
+pub fn build_color_glyph_vertices_with_origin_into(
+    out: &mut Vec<ColorGlyphVertex>,
+    snapshot: &Snapshot,
+    atlas: &ColorGlyphAtlas,
+    runs: &[ColorGlyphRun],
+    origin: [f32; 2],
 ) {
     out.clear();
     out.reserve(runs.len() * VERTS_PER_QUAD);
@@ -215,8 +235,8 @@ pub fn build_color_glyph_vertices_into(
             continue;
         }
 
-        let x0 = run.column as f32 * cell_w;
-        let y0 = run.row as f32 * cell_h;
+        let x0 = origin[0] + run.column as f32 * cell_w;
+        let y0 = origin[1] + run.row as f32 * cell_h;
         push_color_glyph_quad(
             out,
             [
@@ -481,6 +501,24 @@ pub fn build_cell_vertices_with_focus_dim_into(
     color_runs: &[ColorGlyphRun],
     focus_dim: f32,
 ) {
+    build_cell_vertices_with_focus_dim_and_origin_into(
+        out,
+        snapshot,
+        atlas,
+        color_runs,
+        focus_dim,
+        [0.0, 0.0],
+    );
+}
+
+pub fn build_cell_vertices_with_focus_dim_and_origin_into(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    color_runs: &[ColorGlyphRun],
+    focus_dim: f32,
+    origin: [f32; 2],
+) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
     let cell_w = atlas.cell.width as f32;
@@ -541,8 +579,8 @@ pub fn build_cell_vertices_with_focus_dim_into(
             }
             let (_, bg) = resolve(cell);
             let span = span_of(row, col);
-            let x0 = col as f32 * cell_w;
-            let y0 = row as f32 * cell_h;
+            let x0 = origin[0] + col as f32 * cell_w;
+            let y0 = origin[1] + row as f32 * cell_h;
             push_quad(
                 out,
                 [x0, y0, x0 + cell_w * span, y0 + cell_h],
@@ -564,8 +602,8 @@ pub fn build_cell_vertices_with_focus_dim_into(
             }
             let (fg, _) = resolve(cell);
             let span = span_of(row, col);
-            let x0 = col as f32 * cell_w;
-            let y0 = row as f32 * cell_h;
+            let x0 = origin[0] + col as f32 * cell_w;
+            let y0 = origin[1] + row as f32 * cell_h;
 
             if !cell.attrs.hidden()
                 && cell.ch != ' '
@@ -624,7 +662,27 @@ pub fn append_cursor_vertices(
 ) {
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
-    push_cursor(out, snapshot, atlas, cell_w, cell_h, cursor_style);
+    push_cursor(
+        out,
+        snapshot,
+        atlas,
+        cell_w,
+        cell_h,
+        cursor_style,
+        [0.0, 0.0],
+    );
+}
+
+pub fn append_cursor_vertices_with_origin(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cursor_style: CursorStyle,
+    origin: [f32; 2],
+) {
+    let cell_w = atlas.cell.width as f32;
+    let cell_h = atlas.cell.height as f32;
+    push_cursor(out, snapshot, atlas, cell_w, cell_h, cursor_style, origin);
 }
 
 /// Push a glyph quad sized and positioned from bearing-aware atlas bounds.
@@ -714,6 +772,7 @@ fn push_cursor(
     cell_w: f32,
     cell_h: f32,
     style: CursorStyle,
+    origin: [f32; 2],
 ) {
     if !snapshot.cursor_visible {
         return;
@@ -740,8 +799,8 @@ fn push_cursor(
         std::mem::swap(&mut fg, &mut bg);
     }
 
-    let x0 = col as f32 * cell_w;
-    let y0 = row as f32 * cell_h;
+    let x0 = origin[0] + col as f32 * cell_w;
+    let y0 = origin[1] + row as f32 * cell_h;
 
     match style {
         CursorStyle::Block => {

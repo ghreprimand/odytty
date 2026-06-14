@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use winit::dpi::PhysicalSize;
 
+use super::WindowPadding;
 use crate::text::CellSize;
 
 pub(super) const RESIZE_DEBOUNCE_INTERVAL: Duration = Duration::from_millis(40);
@@ -10,13 +11,19 @@ pub(super) const RESIZE_DEBOUNCE_INTERVAL: Duration = Duration::from_millis(40);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct PendingResize {
     pub(super) cell: CellSize,
+    pub(super) padding: WindowPadding,
     pub(super) width_px: u32,
     pub(super) height_px: u32,
 }
 
-pub(super) fn pending_resize_for_surface(cell: CellSize, size: PhysicalSize<u32>) -> PendingResize {
+pub(super) fn pending_resize_for_surface(
+    cell: CellSize,
+    padding: WindowPadding,
+    size: PhysicalSize<u32>,
+) -> PendingResize {
     PendingResize {
         cell,
+        padding,
         width_px: size.width,
         height_px: size.height,
     }

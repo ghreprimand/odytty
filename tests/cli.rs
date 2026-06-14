@@ -41,6 +41,7 @@ fn show_config_output_formats_default_settings() {
     assert_contains_line(&output, "theme=plain");
     assert_contains_line(&output, "font_size=14");
     assert_contains_line(&output, "render_quality=balanced");
+    assert_contains_line(&output, "window_padding=8");
     assert_contains_line(&output, "bloom=off");
     assert_contains_line(&output, "crt=off");
     assert_contains_line(&output, "keybinds=");
@@ -84,6 +85,7 @@ fn show_config_reads_temp_config_and_applies_env_override() {
     assert_contains_line(&stdout, "theme=odyssey");
     assert_contains_line(&stdout, "font_size=21");
     assert_contains_line(&stdout, "render_quality=plain");
+    assert_contains_line(&stdout, "window_padding=8");
     assert_contains_line(&stdout, "cursor_blink=off");
     assert_contains_line(&stdout, "subpixel=rgb");
     assert_contains_line(&stdout, "visual=off");

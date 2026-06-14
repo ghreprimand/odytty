@@ -100,6 +100,7 @@ pub fn show_config_output(settings: &Settings) -> String {
         ("text_gamma", float_value(settings.text_gamma)),
         ("theme", settings.theme.name.to_owned()),
         ("visual", visual_value(settings.visual).to_owned()),
+        ("window_padding", float_value(settings.window_padding_px)),
     ];
     rows.sort_by_key(|(key, _)| *key);
 

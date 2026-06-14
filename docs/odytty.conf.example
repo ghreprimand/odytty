@@ -6,6 +6,7 @@
 
 font_size = 18
 font_family = DejaVu Sans Mono
+window_padding = 8
 theme = odyssey
 visual = ambient
 subpixel = off

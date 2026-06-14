@@ -613,6 +613,14 @@ a floor; surpassing it is the standing ambition.
       window is unfocused so it recedes; the dim runs before the RV1 floor so
       text stays legible. Focused frames are byte-identical to the pre-feature
       renderer.
+- [x] ID4-a window padding (`window_padding` / `ODYTTY_WINDOW_PADDING`, default
+      8 logical px): an adjustable inset between the window edge and the terminal
+      grid so text no longer touches the frame. The padding offsets the full
+      pixel-cell seam in both directions — forward (glyph/cursor/quad/image
+      vertices and the scroll indicator) and inverse (selection hit-test, drag
+      autoscroll, SGR-1016 pixel mouse reports) — so mouse and selection stay
+      aligned. `0.0` restores the historical edge-to-edge layout, byte-identical
+      to the pre-feature renderer (guarded by a pixel-smoke).
 - [x] VE1 post-process pipeline:
   - [x] VE1-a: lazy offscreen target + passthrough composite wired into the
         native GPU renderer; `post_active()` false = no offscreen allocation and

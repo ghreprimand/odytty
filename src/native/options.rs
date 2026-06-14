@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use crate::atlas::SubpixelMode;
 use crate::core::Dimensions;
 use crate::render::CellMetrics;
-use crate::settings::{DEFAULT_FONT_SIZE_PX, Settings};
+use crate::settings::{DEFAULT_FONT_SIZE_PX, DEFAULT_WINDOW_PADDING_PX, Settings};
 
 /// Errors from the native app path.
 #[derive(Debug, thiserror::Error)]
@@ -56,6 +56,8 @@ pub struct NativeOptions {
     /// Optional RGB/BGR subpixel text coverage. Defaults off for exact
     /// grayscale output compatibility.
     pub subpixel: SubpixelMode,
+    /// Logical pixels of inset between the window edge and the terminal grid.
+    pub window_padding_px: f32,
 }
 
 impl Default for NativeOptions {
@@ -68,6 +70,7 @@ impl Default for NativeOptions {
             font_size_px: DEFAULT_FONT_SIZE_PX,
             text_gamma: crate::settings::DEFAULT_TEXT_GAMMA,
             subpixel: SubpixelMode::Off,
+            window_padding_px: DEFAULT_WINDOW_PADDING_PX,
         }
     }
 }
@@ -83,6 +86,7 @@ impl NativeOptions {
             font_size_px: settings.font_size_px,
             text_gamma: settings.text_gamma,
             subpixel: settings.subpixel,
+            window_padding_px: settings.window_padding_px,
             ..Self::default()
         }
     }
@@ -103,6 +107,10 @@ impl NativeOptions {
     /// [`LogicalSize`]. Always at least `1x1`.
     pub fn window_logical_size(&self) -> (u32, u32) {
         let (w, h) = self.cell_metrics().surface_size(self.initial_grid);
-        (w.ceil().max(1.0) as u32, h.ceil().max(1.0) as u32)
+        let pad = self.window_padding_px.max(0.0) * 2.0;
+        (
+            (w + pad).ceil().max(1.0) as u32,
+            (h + pad).ceil().max(1.0) as u32,
+        )
     }
 }

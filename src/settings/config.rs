@@ -12,7 +12,7 @@ use super::{
     GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV, NATIVE_AUTOCLOSE_ENV, OSC52_READ_ENV,
     RENDER_QUALITY_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV,
     SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV,
-    normalize_name,
+    WINDOW_PADDING_ENV, normalize_name,
 };
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
@@ -84,6 +84,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "mincontrast" => Some(MIN_CONTRAST_ENV),
         "focusdim" | "unfocuseddim" => Some(FOCUS_DIM_ENV),
         "renderquality" | "quality" | "rendermode" => Some(RENDER_QUALITY_ENV),
+        "windowpadding" | "padding" | "windowpaddingpx" => Some(WINDOW_PADDING_ENV),
         "geometricboxdraw" | "boxdraw" => Some(GEOMETRIC_BOXDRAW_ENV),
         "symbolfallback" | "symbols" | "nerdfont" => Some(SYMBOL_FALLBACK_ENV),
         "symbolfont" | "nerdfontpath" | "symbolfontpath" => Some(SYMBOL_FONT_ENV),
@@ -119,6 +120,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         MIN_CONTRAST_ENV => Some("min_contrast"),
         FOCUS_DIM_ENV => Some("focus_dim"),
         RENDER_QUALITY_ENV => Some("render_quality"),
+        WINDOW_PADDING_ENV => Some("window_padding"),
         GEOMETRIC_BOXDRAW_ENV => Some("geometric_boxdraw"),
         SYMBOL_FALLBACK_ENV => Some("symbol_fallback"),
         SYMBOL_FONT_ENV => Some("symbol_font"),
