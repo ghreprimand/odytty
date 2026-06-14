@@ -324,7 +324,7 @@ and `quick` (smoke); see [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
 - [`docs/effects.md`](docs/effects.md) — visual effects guide (bloom, CRT profile, plain/fast mode).
 - [`docs/graphics.md`](docs/graphics.md) — Kitty and Sixel protocol reference.
 - [`docs/visual-architecture.md`](docs/visual-architecture.md) — renderer pipeline and visual-enhancement direction.
-- [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) — staged roadmap.
+- [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) — full build roadmap (everything still planned).
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — change, commit, and safety conventions.
 
 ---

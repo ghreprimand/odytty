@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-14 -- full-build roadmap refresh: current, comprehensive, reorganized by theme
+
+- Rewrote `docs/full-build-roadmap.md` so it captures the complete forward plan
+  in one durable, public place — nothing wanted gets lost in scattered notes.
+  Reorganized from the old Stages 1-10 layout into eleven thematic tracks
+  (configuration & in-app UX, text & rendering quality, readability & perceptual
+  color, visual identity, shell & prompt integration, interaction & productivity,
+  theming, positioning & performance, multiple contexts, packaging & platform,
+  exploratory), with each item carrying a Now / Next / Later / Someday horizon
+  tag so sequencing is explicit. Added a comprehensive "What's shipped today"
+  baseline and a "How to read this roadmap" guide.
+- Fixed drift the old roadmap carried: AI features and plugin/scripted-config
+  runtimes were listed as "maybe later" but are now stated plainly as non-goals,
+  matching the current charter (private/local, no-telemetry, no-hand-edit
+  config). Softened residual competitive framing — the roadmap now states
+  OdyTTY's own quality bar rather than positioning against other terminals;
+  mature terminals remain named only as compatibility references, consistent
+  with SPEC.md.
+- Updated the `docs/full-build-roadmap.md` pointer text in `README.md` and
+  `TODO.md` from "staged roadmap" to "full build roadmap" to match the new
+  track-based structure. No code changes; docs only.
+
+---
+
 ## 2026-06-14 -- CRT vignette banding fix (FX-VIGNETTE): soft-knee floor + 8-bit dither
 
 - Fixed the visible banding ring in the CRT vignette. The composite shader

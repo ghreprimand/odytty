@@ -3,7 +3,7 @@
 Post-prototype checklist for making OdyTTY comfortable enough for repeated short
 sessions before broader product features. The first meaningful prototype is
 complete; see `DEVLOG.md` for the running record, `SPEC.md` for durable
-decisions, and `docs/full-build-roadmap.md` for the staged roadmap.
+decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
 
 ## Stage 4.5: Foundation Ownership
 

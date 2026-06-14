@@ -1,389 +1,384 @@
 # OdyTTY Full Build Roadmap
 
-This document captures the larger build direction after the first meaningful
-prototype. It is not a commitment to build every idea immediately; it is the
-map of what a serious OdyTTY product would need if the prototype continues to
-justify itself.
+This document is the durable map of where OdyTTY is going. It captures the full
+build direction after the first meaningful prototype — not a promise to build
+every idea immediately, but the complete picture of what a serious OdyTTY would
+need if the project keeps justifying itself. Nothing here is forgotten just
+because it is not being built this week; this is where the long tail lives.
 
-The core rule stays the same: terminal correctness, readable text, predictable
+The core rule never changes: terminal correctness, readable text, predictable
 input, and stable performance outrank visual novelty. At the same time, visual
-quality is a defining pillar of the product, not decoration. OdyTTY aims to be
-a distinctive, well-crafted terminal with features and a visual identity that
-stand on their own merits. Odyssey-specific visuals should make the terminal
-feel more intentional and alive without weakening trust.
-
-A second defining pillar is foundation ownership. OdyTTY's standard is that
-every byte from the PTY to the glyph quad passes exclusively through
-OdyTTY-owned code: the PTY layer, the escape-sequence parser, the terminal
-model, the renderer geometry, and the shaders. External crates are acceptable
-only below the product line — font rasterization, GPU API, windowing,
-clipboard transport, and Unicode character data — which is the same boundary
-the strongest independent terminals draw. This ownership boundary is now real:
-the owned PTY layer and the clean-room VT parser are in production; `vte`,
-`portable-pty`, and `crossterm` have been removed from the dependency tree.
-
-## Current Baseline
-
-Stages 1 through 4.5 are substantially complete and the parity half of Stage 6
-is substantially complete.
-
-OdyTTY opens a native Wayland window, runs a real local shell, and renders
-GPU-backed monospaced text via `wgpu`/Vulkan. The full owned byte path is real
-and in production: the Linux PTY layer uses `rustix` directly; the VT parser is
-a clean-room two-layer DEC ANSI pipeline built from primary specifications;
-the terminal model, renderer geometry, and shaders are OdyTTY-originated.
-`vte`, `portable-pty`, and `crossterm` have been removed from the dependency
-tree; the owned path is the only path.
-
-The daily interaction layer is complete: scrollback search, refined selection
-(double-click word, triple-click line, drag-scroll, scrollback-aware anchors),
-clipboard hardening (chunked paste, bracketed-paste sanitization, PRIMARY
-selection), a right-edge scroll indicator, configurable cursor shapes and blink
-policy, configurable key bindings, and focus/title reporting.
-
-Text quality covers: bearing-aware glyph quads, wide-glyph 2-cell atlas slots
-for CJK/width-2 glyphs, bold/italic style faces, underline/strikethrough/dim/
-inverse/hidden attribute rendering, optional subpixel anti-aliasing, tunable
-text gamma/contrast, HiDPI scale-factor tracking with debounced rebuild, and
-a headless CPU compositor for structural pixel assertions.
-
-Graphics protocol work is substantially done: the Sixel decoder and terminal
-integration are complete (full data language, GPU image rendering). The Kitty
-APC routing seam is in place; the Kitty direct still-image MVP is in progress.
-
-Performance: lazy scrollback re-wrap (~2300× faster width-changed deep resize),
-width-unchanged fast path (~293× faster height-only resize), vertex buffer
-reuse, and resize debounce.
-
-All settings are currently environment variables loaded once at startup. There is
-no file-based configuration yet (Stage 5).
-
-The foundation is strong enough to support Stage 5 (configuration), the Kitty
-graphics MVP, and the identity and visual-enhancement half of Stage 6.
-
-## Stage 1: Prototype Stabilization
-
-Make the prototype comfortable enough for repeated short sessions before
-expanding the product surface.
-
-Focus:
-
-- Add font-size configuration.
-- Add a minimal settings path, starting with environment variables or a small
-  native options/settings layer before a full config file.
-- Keep defaults stable and readable.
-- Improve launch/run documentation for the native prototype.
-- Keep the public docs aligned with actual validated behavior.
-
-Acceptance target:
-
-- A user can run OdyTTY with a comfortable text size and known settings knobs
-  without editing source code.
-- Invalid settings fail softly and fall back to safe defaults.
-- The prototype remains cleanly testable and easy to launch.
-
-## Stage 2: Terminal Correctness Hardening
-
-Treat real shell and TUI failures as evidence. Every reproducible behavior gap
-should become a fixture before more speculative features land.
-
-Focus:
-
-- Expand escape-sequence support from observed failures, not guesswork.
-- Improve OSC support, including title handling and common shell/editor
-  sequences.
-- Add mouse reporting modes needed by real TUIs.
-- Harden alternate-screen behavior against editors, pagers, and full-screen
-  apps.
-- Improve Unicode, wide-character, combining-mark, and ambiguous-width behavior.
-- Add more PTY-backed smoke cases and deterministic transcript fixtures.
-- Continue comparing behavior against xterm/Ghostty/Konsole as references, not
-  as implementation sources.
-
-Acceptance target:
-
-- Common shells, pagers, editors, and lightweight TUIs behave predictably.
-- New compatibility fixes come with deterministic coverage.
-- The terminal core remains independent from rendering and visual layers.
-
-## Stage 3: High-Quality Text And Rendering
-
-Text quality is a major product pillar, not a minor renderer detail. Text
-should look professionally rendered at normal terminal sizes — sharp, stable,
-well-spaced, and pleasant for long sessions. It should hold up on HiDPI
-displays, during scrolling, under color themes, and inside dense TUI screens.
-Mature terminals (xterm, Konsole, and others) serve as compatibility references;
-text quality comparisons against them are useful calibration, not the finish
-line.
-
-Focus:
-
-- Configurable font size.
-- Configurable font family once the settings path exists.
-- HiDPI correctness across window scales and monitor changes.
-- Better glyph atlas management, including cache growth and invalidation.
-- Font fallback for missing glyphs.
-- Correct handling for wide glyphs, combining marks, emoji policy, and
-  ambiguous-width characters.
-- Evaluate shaping strategy: stay cell-based for terminal correctness, but
-  decide explicitly whether ligatures, stylistic sets, or HarfBuzz-style shaping
-  belong behind settings.
-- Improve rasterization quality: pixel alignment, baseline consistency, glyph
-  padding, gamma handling, subpixel strategy, and color blending.
-- Ensure cursor, selection, inverse video, bold, dim, italic, underline, and
-  strikethrough render cleanly at multiple sizes.
-- Profile redraw, scrolling, resize, and large-output performance.
-- Add visual regression screenshots or pixel-level smoke checks when practical.
-
-Acceptance target:
-
-- Text is sharp and comfortable at the default size and at several configured
-  sizes.
-- Side-by-side comparison against reference terminals shows no visible text
-  quality deficit at common sizes and scale factors.
-- Dense colored shell output and basic TUIs remain readable.
-- Renderer performance remains stable under large output and scrollback.
-- Visual effects never reduce glyph contrast or text clarity unless explicitly
-  enabled by a setting and bounded by readability tests.
-
-## Stage 4: Daily Driver Interaction
-
-Make OdyTTY feel normal and efficient for repeated use before larger product
-features such as tabs or panes.
-
-Focus:
-
-- Refine selection: double-click word, line selection, drag beyond viewport,
-  scrollback-aware selection, and clear selection semantics.
-- Improve clipboard behavior: primary selection if appropriate, paste policy,
-  large paste behavior, and clear diagnostics.
-- Add search in scrollback.
-- Add viewport affordances such as a scroll indicator or scrollbar.
-- Add configurable key bindings.
-- Add cursor styles and blink policy.
-- Add window title/focus behavior.
-- Improve mouse and keyboard interaction in TUI apps.
-
-Acceptance target:
-
-- OdyTTY supports the everyday terminal gestures users expect.
-- Short real sessions do not reveal obvious interaction friction.
-- Interaction features remain separated from terminal semantics.
-
-## Stage 4.5: Foundation Ownership
-
-Own the full byte path before building the features that sit on top of it.
-This stage exists because two pressures point at the same work: the project's
-ground-up identity, and concrete engineering needs. The Kitty graphics
-protocol is APC-based and the current parser dependency never surfaces APC
-sequences; Sixel is DCS-based and the current DCS handling is an unimplemented
-pass-through. Synchronized output, richer OSC support, and a deliberate
-malformed-input recovery policy all benefit from owning the byte-level layer.
-
-The replacement seam already exists: the terminal model consumes parser
-callbacks behind a single narrow trait boundary, so the parser is a
-replaceable part by design. The migration method is differential: the existing
-parser is kept as a development-only oracle, identical byte streams are fed to
-both parsers against cloned terminal models, and state is asserted identical
-across the full fixture and transcript corpus before the dependency is
-removed.
-
-Focus:
-
-- An OdyTTY-owned VT parser implementing the canonical DEC ANSI state machine:
-  ground/escape/CSI/OSC/DCS states, mid-stream UTF-8 decoding, C1 handling,
-  parameter limits, cancel/abort semantics, and OSC terminator variants.
-- Real DCS and APC support designed in from the start, so graphics protocols
-  land on an owned byte path rather than being bolted around a dependency.
-- A differential test harness against the outgoing parser plus a fuzzing
-  harness, retained as permanent fixtures after the swap.
-- An OdyTTY-owned Linux PTY layer (openpty, spawn, resize) replacing the
-  cross-platform PTY abstraction.
-- Retire the remaining terminal-adjacent convenience dependencies from the
-  input path so key handling uses the windowing layer's native types.
-- Update SPEC and README to state the ownership boundary plainly once it is
-  real.
-
-Explicit non-goals, recorded so the boundary is deliberate: font parsing and
-rasterization, GPU API, windowing, clipboard transport, and Unicode width
-tables stay external. These sit below the product line; re-owning them adds
-maintenance without adding identity or capability.
-
-Acceptance target:
-
-- Every byte from the PTY to the glyph quad passes exclusively through
-  OdyTTY-owned code.
-- The owned parser matches or exceeds the outgoing parser's behavior across
-  the full fixture corpus, with divergences documented as deliberate.
-- Graphics-protocol work can begin against owned APC/DCS plumbing.
-
-## Stage 5: Settings And Profiles
-
-Move from prototype environment variables to a stable user configuration model.
-
-Focus:
-
-- Config file format and path.
-- Defaults, validation, and diagnostics.
-- Theme, font, cursor, shell, shortcut, window, and effect settings.
-- Live reload of config changes where the renderer already has rebuild seams
-  (the scale-agnostic atlas rebuild path was built to support a live font
-  change, for example); settings that cannot reload live should say so clearly.
-- CLI introspection helpers such as listing themes, fonts, and the effective
-  config, once there is enough surface to introspect.
-- Profile support once the basic config model is reliable.
-- Precedence rules: built-in defaults, config file, environment, command-line
-  overrides.
-
-Acceptance target:
-
-- Users can configure OdyTTY without recompiling or relying on ad hoc env vars.
-- Bad config is recoverable and clearly reported.
-
-## Stage 6: Visual Capability Parity And The Odyssey Layer
-
-This stage is the project's thesis test. Stages 1 through 5 build a competent
-terminal; Stage 6 is where OdyTTY must become visually distinctive without
-weakening what was built. The work has two halves, in order: capability parity,
-then identity. Parity means OdyTTY can render what the leading GPU terminals
-render, at the same visible quality. Identity means using that capability to
-look and feel like OdyTTY rather than a generic terminal.
-
-Focus, parity half:
-
-- Close remaining text-rendering gaps against reference terminals found by
-  side-by-side comparison.
-- Ligatures and stylistic sets behind settings, following the recorded shaping
-  decision and its trigger conditions.
-- Subpixel anti-aliasing strategy where the display stack benefits from it.
-- Image and graphics protocol support (Kitty graphics protocol, Sixel) so
-  modern TUI media workflows render natively.
-- Extend visual regression coverage to every parity feature as it lands.
-
-Focus, identity half:
-
-- Theme presets that work with terminal colors rather than fighting them.
-- Better baseline and Odyssey palettes.
-- Cursor, selection, and window chrome treatments distinctive to OdysseyOS.
-- Optional background treatments and subtle motion only after frame timing is
-  measured.
-- Strict off switches for every effect.
-- Performance and readability budgets for all visual work.
-
-Acceptance target:
-
-- A user comparing OdyTTY side by side with the leading GPU terminals finds no
-  visual capability it lacks, and at least one respect in which it clearly
-  looks or feels better.
-- OdyTTY has a recognizable visual identity while remaining readable and fast.
-- A plain baseline remains available and tested.
-
-## Stage 7: Product Shell Features
-
-Only start these after the core terminal and daily interaction loop are solid.
-
-Focus:
-
-- Tabs.
-- Panes.
-- Multi-window.
-- Sessions.
-- Profiles.
-- Session restore.
-- Command palette, if it solves real workflows.
-
-Acceptance target:
-
-- OdyTTY starts to become a full terminal application, not just a terminal
-  emulator window.
-
-## Stage 8: Packaging And Release
-
-Make OdyTTY installable and maintainable outside the repository.
-
-Focus:
-
-- Release builds.
-- Desktop entry and icon.
-- Packaging for the target Linux environment.
-- CI checks.
-- Versioning and changelog.
-- Crash/logging story.
-
-Acceptance target:
-
-- A user can install, launch, and update OdyTTY without running from the source
-  tree.
-
-## Stage 9: Broader Platform Work
-
-Linux-first remains the right constraint until the Linux app is solid.
-
-Focus:
-
-- Confirm behavior under Wayland and X11 where relevant.
-- Consider macOS or Windows only after the architecture earns it.
-- Avoid portability abstractions until real platform pressure exists.
-
-Acceptance target:
-
-- Platform support expands deliberately rather than weakening the core Linux
-  target.
-
-## Stage 10: Future Experimental Layer
-
-Plugins, AI features, dashboards, shell integration, and richer workflows belong
-after OdyTTY is already a reliable terminal.
-
-Focus:
-
-- Shell integration that improves real workflows.
-- Plugin or extension experiments only with strict safety boundaries.
-- AI or rich UI features only if they do not compromise terminal trust.
-
-Acceptance target:
-
-- Experimental features build on a reliable terminal instead of compensating for
-  an unreliable one.
-
-## Open Architectural Questions
+quality and a distinctive identity are defining pillars of the product, not
+decoration. OdyTTY aims to be a distinctive, well-crafted terminal that stands
+on its own merits — judged against its own quality bar, not framed as a contest
+with anything else. Mature terminals (xterm, Konsole, and others) serve only as
+compatibility references for correctness, never as implementation sources.
+
+A second defining pillar is **foundation ownership**. Every byte from the PTY to
+the glyph quad passes exclusively through OdyTTY-owned code: the PTY layer, the
+escape-sequence parser, the terminal model, the renderer geometry, and the
+shaders. External crates are acceptable only below the product line — font
+rasterization, GPU API, windowing, clipboard transport, and Unicode character
+data. This ownership boundary is real and in production: the owned PTY layer and
+the clean-room VT parser ship today; `vte`, `portable-pty`, and `crossterm` have
+all been removed from the dependency tree.
+
+A third pillar, which shapes much of the roadmap below, is **configuration you
+never hand-edit**. The defining UX goal is that everything is discoverable and
+adjustable from in-app overlays that write the config file for you. Hand-editing
+a config file is a fallback, never a requirement.
+
+---
+
+## How to read this roadmap
+
+The forward work is organized by **theme** (the tracks below), and each item
+carries a **horizon tag** so the relative sequencing is clear:
+
+- **Now** — actively in progress or the immediate next packet.
+- **Next** — near-term; queued and shovel-ready.
+- **Later** — wanted, but waiting on a foundation or an evidence baseline.
+- **Someday** — acknowledged demand, deliberately deferred; recorded so it is
+  never lost, promoted only on an explicit decision.
+
+Two rules govern every feature in every track:
+
+1. **Off by default, behind a setting, with an off switch.** Anything beyond a
+   plain terminal is opt-in. The plain, fast path stays byte-for-byte identical
+   to a renderer without the feature, and is tested as such.
+2. **Readability is a floor, not a preference.** A minimum-contrast guarantee is
+   the safety net that every visual feature validates against; no effect may
+   push text below the legibility floor.
+
+---
+
+## What's shipped today
+
+The foundation is broad and solid. The following are complete and in production.
+
+**Owned byte path.** A native Wayland window runs a real local shell and renders
+GPU-backed monospaced text via `wgpu`/Vulkan. The Linux PTY layer uses `rustix`
+directly; the VT parser is a clean-room two-layer DEC ANSI pipeline built from
+primary specifications; the terminal model, renderer geometry, and shaders are
+OdyTTY-originated. The owned path is the only path.
+
+**Terminal correctness.** Printing, cursor movement, SGR, erase, scrollback,
+alternate screen, save/restore, scroll regions, bracketed paste, insert/delete
+lines and characters, scroll up/down, origin mode, soft/hard reset, repeat, tab
+stops, and device-attribute replies. Alternate-screen behavior is hardened
+against editors, pagers, and full-screen apps with a deterministic fixture
+matrix. Reporting probes (mode queries, size reports, version) are in place.
+
+**Unicode & text.** Mid-stream UTF-8 decoding, wide-character (CJK/width-2)
+write/erase coherence with 2-cell atlas slots, zero-width combining-mark
+attachment, and a defined ambiguous-width policy.
+
+**Input & interaction.** The full daily-driver loop: scrollback search; refined
+selection (double-click word, triple-click line, drag-scroll past the viewport,
+scrollback-aware anchors); clipboard hardening (chunked large paste, bracketed-
+paste sanitization, PRIMARY selection, middle-click paste); a right-edge scroll
+indicator; configurable cursor shapes and blink policy; configurable key
+bindings; window title and focus reporting; mode-aware keyboard encoding; the
+Kitty keyboard protocol; and the full mouse-reporting matrix including SGR-pixel
+mode.
+
+**Graphics & media.** A complete Sixel decoder and terminal integration; the
+Kitty graphics protocol (direct RGB/RGBA and PNG transmit, file/shared-memory
+transports with security hardening, placements with z-order/crop/scale/offset,
+delete and query operations); a GPU image layer; and color emoji (ZWJ families,
+flags, keycaps, skin-tone modifiers, variation selectors) via a dedicated RGBA
+color-glyph atlas.
+
+**Text rendering quality.** Bearing-aware glyph quads, bold/italic style faces
+with synthetic fallback, the full attribute set (underline, strikethrough, dim,
+inverse, hidden), optional subpixel anti-aliasing, tunable text gamma, stem
+darkening, HiDPI scale-factor tracking with debounced rebuild, and a headless
+CPU compositor for structural pixel-level assertions.
+
+**Performance.** Lazy scrollback re-wrap on width change (~2300× faster deep
+resize), a width-unchanged fast path (~293× faster height-only resize), reusable
+vertex storage with a grow-only GPU buffer, resize debounce, and a render
+invalidation/retained-frame system.
+
+**Configuration & themes.** File-based configuration with live reload and a
+clear precedence model (defaults < config file < environment); an in-window
+overlay framework; an in-app settings panel where every setting is editable,
+live-applied, and written back to the config file; a live theme picker; an
+in-app custom theme builder (clone, tweak, live preview, save); and CLI config
+introspection. A dependency-free `.theme` format, a full 16-color + bright ANSI
+palette plus semantic roles, and a curated 53-theme built-in library (dark and
+light, all contrast-validated).
+
+**The visual engine.** A perceptual color pipeline (OKLab/OKLCH) with linear-
+space blending; a configurable minimum-contrast readability floor; geometric
+box-drawing, block, and Powerline rendering at exact cell geometry; symbol /
+Nerd-font fallback for prompt icons; themed cursor/selection/search roles; focus
+dimming; a post-process pipeline on an HDR offscreen target; bloom / phosphor
+glow; a CRT/retro profile (scanlines + a banding-free soft-knee vignette); and a
+render-quality master control with a hard plain/fast bypass. Every effect is
+off by default and pixel-identical to the plain renderer until enabled.
+
+**Window & identity.** Adjustable window padding with a fully aligned
+pixel↔cell coordinate seam.
+
+**Licensing & project identity.** GPL-3.0-only with a Developer Certificate of
+Origin contribution flow, SPDX headers throughout, and a name/branding notice.
+
+---
+
+## Track 1 — Configuration & in-app UX (the no-hand-edit north star)
+
+The defining experience: discoverable overlays that write the config for you.
+
+- **Now — Surface font-load failures.** When a font family is missing or not
+  monospace, the overlay should show a clear error instead of silently keeping
+  the old font.
+- **Next — Mouse-driven settings panel.** Click to toggle and cycle settings,
+  scroll, and click-to-focus a row, so the panel is usable without memorizing
+  keyboard navigation.
+- **Next — Slider and numeric-entry widgets.** Drag a slider to set a value;
+  click to type a number directly.
+- **Next — Effect grouping and clearer labels.** Group related effects and
+  rename cryptic settings to plain language (for example, naming the clipboard-
+  read permission for what it does).
+- **Next — In-panel help clarity.** A clarity sweep over terse setting names and
+  help text, and a fix for one inert option branch.
+- **Next — Consolidate the legacy ambient-scanline path** into the unified
+  effects model, retiring the duplicate while keeping the old config key working.
+- **Later — First-run onboarding overlay** plus search within the settings and
+  theme overlays, so features are discoverable without a separate command
+  palette.
+- **Later — Customizable keybinding remap UI.** Remap a key combination to an
+  action from the overlay, written back to the config.
+- **Later — CLI introspection: list available fonts**, completing the existing
+  introspection helpers.
+- **Someday — Profiles.** Named configuration profiles once the base config
+  model has settled.
+
+## Track 2 — Text & rendering quality
+
+Sharp, stable, comfortable text is a primary product pillar.
+
+- **Now — Subpixel color-fringing filter.** An energy-conserving LCD-style
+  filter over per-channel coverage to remove color fringing in subpixel mode
+  (opt-in, off by default).
+- **Next — Effect default-tuning pass.** Once a human-eye baseline exists,
+  revisit the conservative default strengths of stem darkening, standalone
+  scanlines, and bloom.
+- **Later — Font weight control.** A global weight/boldness knob, distinct from
+  the bold attribute.
+- **Later — Line-height / cell-leading knob.** Adjustable vertical spacing
+  between lines.
+- **Later — Box-drawing thickness knob.** Extends the geometric box-drawing
+  renderer.
+- **Later — Per-codepoint font override.** Map specific codepoints to a chosen
+  fallback font, in keeping with the no-patched-font philosophy.
+- **Later — Smooth scrolling** on a bounded latency budget, with instant scroll
+  preserved as the default-safe path.
+- **Later — Stem-darkening default activation.** The rasterization machinery
+  already ships behind a knob; turning it on by default waits on an eye baseline.
+- **Someday — Legibility font features.** A narrow, charter-clean subset (such
+  as a slashed or dotted zero) is the near-term slice; broader ligatures and
+  arbitrary font features remain deferred pending an explicit shaping decision.
+- **Someday — Scalable color-font expansion** (COLR/CPAL, then SVG-in-OT only
+  from real evidence) beyond the current emoji rendering.
+
+## Track 3 — Readability & perceptual color
+
+This is where OdyTTY invests its differentiation budget, leaning on the
+perceptual color pipeline and the contrast floor. Every item here is pure
+readability or accessibility.
+
+- **Later — Universal legibility guarantee.** Extend the minimum-contrast floor
+  to all application text (256-color and truecolor), nudging the foreground in
+  perceptual color space to clear the floor while preserving its hue. The
+  flagship readability feature.
+- **Later — Perceptual-safe theme builder.** Upgrade the theme builder from
+  raw-hex editing to perceptual (Lightness/Chroma/Hue) sliders with a live
+  contrast readout and a snap-to-floor affordance, so the builder cannot author
+  an unreadable theme. Hex entry stays as an expert fallback; it still writes the
+  `.theme` file for you.
+- **Later — Contrast-aware palette generation.** Seed from an accent color or
+  wallpaper to produce a readability-validated theme starting point to tweak.
+- **Later — Colorblind palette adaptation.** Remap the ANSI palette in
+  perceptual color space, adaptively, for color-vision deficiencies.
+
+## Track 4 — Visual identity & depth
+
+Tier-2/Tier-3 visual character. Each ships off by default, behind a setting,
+validated against the readability floor, with a documented performance cost and
+a pixel-identical plain bypass.
+
+- **Later — Distinctive cursor / selection / search treatments.** Light up the
+  themed selection and search roles with distinct colors, with optional soft
+  glow and easing.
+- **Later — Readability-safe background treatments.** Gradient, vignette, or
+  image backgrounds with blur-behind, where the readability dimming is tied
+  structurally to the contrast floor so it is safe by construction.
+- **Later — Window-chrome identity.** Themed padding already ships; the
+  remaining piece is an optional thin semantic-role border.
+- **Later — Subtle motion.** Cursor glow or trail and fade-in of new output —
+  bounded, and fully disable-able.
+- **Later — Cohesive opt-in retro mode.** A single switch that combines glow on
+  all text, visible scanlines, gentle screen curvature, and a smooth vignette,
+  tuned together as a reference look. The default stays crisp and readable.
+
+## Track 5 — Shell & prompt integration
+
+The terminal cooperating with the shell and prompt. This is the highest-leverage
+gap to close and unlocks the most downstream value.
+
+- **Next — Semantic prompt marking (OSC 133).** Mark prompt, command, and output
+  boundaries. The parser arm and per-row marks need no render change to store;
+  this is the foundation for everything below. A detailed implementation plan is
+  ready.
+- **Later — Command-aware UX.** Built on prompt marking: jump to the previous or
+  next prompt, select and copy a single command's output, and show a per-command
+  success/failure indicator in the gutter.
+- **Later — Click to position the cursor** at a prompt, using the prompt-marking
+  click events. The click slice only — not a takeover of shell input editing.
+- **Someday — Remote shell integration.** Automatically carrying terminal info
+  and shell integration to a remote host over SSH; depends on shell-integration
+  maturity first.
+
+## Track 6 — Interaction & productivity
+
+Mostly small, independent ergonomic wins, all overlay-configured.
+
+- **Later — Right-click context menu** (copy / paste / select-all) plus richer
+  mouse selection and copy/paste.
+- **Later — Keyboard pattern-select / quick-select.** Label on-screen URLs,
+  paths, and hashes for keyboard selection and copy.
+- **Later — Copy mode.** Vim-key keyboard selection of scrollback — standalone,
+  no multiplexer required.
+- **Later — Close-confirmation prompt** when a child process or job is still
+  running.
+- **Later — Window-decoration control.** Toggle client-side vs server-side
+  decorations or borderless mode (compositor-dependent on Linux).
+- **Later — Bindable clear-input action** (low priority; the standard key
+  combinations already cover the common case).
+
+## Track 7 — Theming & palettes
+
+- **Later — Theme-naming standard.** A two-tier approach: keep the original
+  Odyssey-named family as the primary identity, and optionally ship popular
+  community palettes under their real names only where the upstream license
+  permits redistribution and brand guidelines are followed and attributed,
+  without implying endorsement.
+- **Ongoing — Theme-library expansion** past the current 53 (data-only).
+
+## Track 8 — Positioning & performance posture
+
+- **Later — Privacy as a stated feature.** No telemetry, no cloud, no account,
+  fully local and open — framed on OdyTTY's own terms.
+- **Later — Performance-tuning knob** (repaint cadence / input delay) only after
+  a measured latency baseline exists. No unbacked performance claims.
+
+## Track 9 — Multiple contexts: tabs, panes, sessions
+
+Deliberately deferred so the single-window foundation gets fully solid first.
+Recorded in full so the design intent survives. Promoted only on an explicit
+decision. All of this is off by default.
+
+- **Someday — Tabs.** The natural first step: cheap, and it de-risks running
+  multiple shells and the surrounding UI. Ties into the tab-strip chrome.
+- **Someday — A detachable-capable core.** When this epic is taken on, architect
+  the core to support detaching from day one, even before sessions ship.
+- **Someday — Panes / splits.** Split position, ratio, and direction;
+  table-stakes once tabs exist.
+- **Someday — Broadcast input** to multiple panes at once.
+- **Someday — Persistent / detachable sessions** that survive disconnect. This
+  is the loudest real-user demand and the headline when this epic is promoted —
+  deferred by design, not abandoned.
+- **Someday — Window-state persistence** (reopen where you left off) — a lighter
+  cousin of session persistence.
+- **Someday — Multi-window** management.
+
+## Track 10 — Packaging, release & platform
+
+Making OdyTTY installable and maintainable outside the source tree.
+
+- **Someday — Release builds, desktop entry and icon, Linux packaging, CI
+  checks, versioning and a changelog, and a crash/logging story**, so a user can
+  install, launch, and update OdyTTY without building from source.
+- **Someday — Broader platform work.** Confirm behavior under both Wayland and
+  X11 where relevant; consider macOS or Windows only after the Linux app is
+  solid and the architecture earns it. Avoid portability abstractions until real
+  platform pressure exists. Linux-first remains the right constraint.
+
+## Track 11 — Exploratory / far future
+
+Ideas worth recording, only sensible once OdyTTY is already a reliable terminal,
+and only if they never compromise terminal trust.
+
+- **Someday — Command palette** beyond the settings overlay. For now the project
+  borrows only search-within-overlay rather than a full palette.
+- **Someday — Full block-reflow rendering model.** Prompt marking and the
+  command-aware UX deliver most of the value without this large scrollback
+  departure; far future, if ever.
+- **Someday — Workflows / notebooks / saved snippets.** Scope-creepy; deferred.
+
+---
+
+## Non-goals
+
+Recorded so the boundary is deliberate and not relitigated by default.
+
+**Out of scope by charter:**
+
+- **AI / agentic / natural-language-to-shell features.** An explicit non-goal,
+  not a deferred feature.
+- **Telemetry, cloud sync, accounts, or team features.** Against the private,
+  local, no-telemetry direction — their *absence* is a deliberate feature.
+- **Scripted / Lua configuration and plugin or extension runtimes.** A
+  heavyweight dependency and a hand-editing surface, in direct conflict with the
+  no-hand-edit configuration goal.
+- **Distinguishing standard output from standard error by color.** Infeasible:
+  the PTY merges the two streams before the terminal can see them, so this can
+  never be promised.
+- **A full input-editor takeover** of the shell line (multi-cursor, undo). Only
+  the narrow click-to-position slice is worth doing.
+- **Effects for their own sake** — parallax, aggressive dimming of old output,
+  decorative piling-on. The visual engine earns its place only through
+  readability and restraint.
+- **Unbacked "fastest terminal" or daily-driver claims** before compatibility
+  and performance are actually proven and measured.
+
+**External by design (below the product line):**
+
+- Font rasterization, the GPU API, the windowing toolkit, clipboard transport,
+  and Unicode width tables stay external. Re-owning them would add maintenance
+  without adding identity or capability.
+
+---
+
+## Open architectural questions
 
 Named here so they get decided deliberately rather than by default:
 
-- Embeddable core: whether the terminal core should eventually be exposed as a
-  reusable library with a stable embedding interface (in the spirit of
-  libghostty), or remain application-internal. The existing core/render
-  separation keeps the option open; there is no commitment in either direction
-  yet, and no current work should depend on one.
+- **Embeddable core.** Whether the terminal core should eventually be exposed as
+  a reusable library with a stable embedding interface, or remain
+  application-internal. The existing core/render separation keeps the option
+  open; there is no commitment in either direction, and no current work should
+  depend on one.
 
-## Near-Term Recommendation
+---
 
-Stages 1 through 4.5 are complete. The parity half of Stage 6 is substantially
-complete. The recommended focus order is:
+## Near-term focus
 
-1. **Kitty direct still-image MVP.** The APC routing seam and graphics scene are
-   in place; the command parsing, chunk reassembly, RGBA/PNG decode, placement,
-   and query-reply protocol need to be implemented to close the graphics
-   protocol parity gap.
+The honest current ordering:
 
-2. **Side-by-side visual comparison vs Ghostty.** Verify at matched font size
-   and scale that no visible text quality gaps remain. Findings feed into
-   targeted rendering fixes or the shaping work below.
+1. **Close out the remaining rendering/quality bugs** — the subpixel color-
+   fringing filter is the active one; surfacing font-load failures is next.
+2. **The in-app configuration UX** — the mouse-driven settings panel, slider and
+   numeric widgets, clearer grouping and labels. This is the defining UX goal
+   made concrete.
+3. **Semantic prompt marking (OSC 133)** — the highest-leverage integration gap,
+   and the foundation for the command-aware UX.
+4. **The readability features** — the universal legibility guarantee and the
+   perceptual-safe theme builder, which build directly on assets already in the
+   tree.
+5. **The cheaper ergonomic and visual knobs** in parallel as they fit.
 
-3. **Stage 5: file-based configuration.** The current environment-variable
-   settings path is a prototype convenience. A proper config file format,
-   validation, defaults, and eventually live reload are the next product layer.
-
-4. **Ligature/stylistic-set shaping.** Deferred until a side-by-side comparison
-   confirms it is a visible gap. When that trigger is met, the shaping strategy
-   document (stored in the workflow artifacts) describes the recommended
-   implementation path.
-
-5. **Remaining Stage 6 identity half.** Theme presets, palette work, cursor and
-   selection treatments distinctive to OdysseyOS, and bounded optional motion
-   effects — after parity is confirmed and the config layer exists to gate them.
-
-Tabs, panes, profiles, plugins, AI features, heavy effects, packaging, and broad
-cross-platform work should remain deferred. Stage 6 is where the project's
-central question gets answered; the foundation built through Stages 1–4.5 is
-what makes that exploration safe.
+Everything beyond a plain terminal stays off by default, opt-in, measured, and —
+above all — never something you are forced to hand-edit a config file to reach.
