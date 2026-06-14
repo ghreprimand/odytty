@@ -484,8 +484,8 @@ its first stable layer.
 ## Post-Process Pipeline Architecture
 
 *Source: `src/native/gpu.rs` (`PostProcessResources`, `post_active`,
-`draw_scene`, `encode_scene_pass`, `encode_composite_pass`),
-`src/shaders/composite.wgsl`, `tests/gpu_composite_smoke.rs`.*
+`draw_scene`, `encode_scene_pass`, post composite encode path),
+`src/shaders/bloom.wgsl`, `tests/gpu_composite_smoke.rs`.*
 
 ### Design invariant — dormant by default
 
@@ -527,8 +527,12 @@ Tier-3 atmospheric effects land in this order:
    setting and gated on adapter HDR support. The bright-pass threshold is
    auto-derived from the active theme's foreground luminance so normal body text
    never glows.
-4. **VE3 (planned):** CRT / retro profile (scanlines, vignette, optional
-   curvature / chromatic aberration).
+4. **VE3-a (landed):** CRT / retro profile core (bounded scanlines + vignette),
+   off by default behind `crt` and sharing the same offscreen scene render and
+   final composite pass as bloom. Because post-composite dimming cannot feed
+   back into the CPU RV1 resolver, the shader clamps scanline/vignette strength
+   and enforces a brightness floor so lit cells are never zeroed. Curvature and
+   chromatic aberration are deferred to VE3-b.
 
 VE4 (cursor motion trail / new-output fade) and VE5 (GPU quality + per-effect
 settings panel controls) follow after VE2/VE3 are proven.

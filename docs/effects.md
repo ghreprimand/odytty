@@ -15,10 +15,12 @@ OdyTTY's visual effects follow three hard rules:
 active unless you enable it explicitly with a setting. The out-of-the-box
 renderer is the plain, unadorned fast path.
 
-**Readability-gated.** Effects operate in the rendering pipeline before the
-minimum-contrast floor (`min_contrast` / `ODYTTY_MIN_CONTRAST`, RV1). The floor
-is a CPU pass that lifts foreground luminance to meet a configurable WCAG ratio.
-No effect can pull text below that floor — the check always runs last.
+**Readability-gated.** The terminal cell colors pass through the CPU
+minimum-contrast floor (`min_contrast` / `ODYTTY_MIN_CONTRAST`, RV1) before GPU
+post-processing. Post effects cannot feed their output back into that CPU
+resolver, so any effect that changes brightness must be structurally bounded in
+the shader. Bloom adds light only; CRT scanlines and vignette use capped
+multiplicative dimming plus a hard brightness floor.
 
 **Adapter-gated.** Effects that require GPU features OdyTTY cannot guarantee
 (for example, a filterable HDR render target) silently fall back to the plain
@@ -109,7 +111,7 @@ virtual machine graphics adapters may not.
 When the adapter probe fails, OdyTTY prints a single line to stderr:
 
 ```
-odytty: bloom unavailable — adapter does not support filterable Rgba16Float; using plain path
+odytty: GPU adapter lacks filterable Rgba16Float render targets; post-process effects disabled
 ```
 
 The terminal continues normally on the direct sRGB path. No setting is needed
@@ -117,10 +119,63 @@ to trigger the fallback; it is automatic.
 
 ---
 
-## CRT / retro profile (VE3) — coming
+## CRT / retro profile (VE3-a)
 
-Refined scanlines, vignette, and optional curvature / chromatic aberration
-composited over the bloom-capable offscreen target. Not yet shipped.
+The CRT profile adds refined scanlines and a subtle vignette over the same HDR
+offscreen target used by bloom. Curvature and chromatic aberration are deferred:
+they are more likely to affect readability, so the first shipped profile keeps
+to brightness-only treatments.
+
+CRT is off by default and pixel-identical to the plain renderer when disabled.
+When CRT and bloom are both enabled they share one offscreen scene render and
+one final composite pass.
+
+### Settings
+
+All four settings are live-reloadable: changes in `odytty.conf` or the settings
+overlay take effect on the next frame without restarting.
+
+| Setting | Env | Type | Default | Range |
+|---------|-----|------|---------|-------|
+| `crt` | `ODYTTY_CRT` | `on` / `off` | `off` | — |
+| `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | float | `0.08` | `0.0–0.18` |
+| `crt_scanline_period` | `ODYTTY_CRT_SCANLINE_PERIOD` | float | `3.0` | `2.0–12.0` |
+| `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | float | `0.10` | `0.0–0.16` |
+
+**`crt`** — master switch. `on` enables the scanline/vignette profile; `off`
+(default) returns to the direct scene path when no other post effect is active.
+
+**`crt_scanline_intensity`** — dark-band strength. Values are clamped to
+`0.0–0.18` so scanlines remain a subtle brightness modulation rather than an
+opaque overlay.
+
+**`crt_scanline_period`** — vertical distance between scanline bands in
+physical pixels. `3.0` is the default.
+
+**`crt_vignette_strength`** — edge dimming strength. Values are clamped to
+`0.0–0.16`, and the shader enforces a brightness floor so lit cells are never
+zeroed by the vignette.
+
+### Enabling via odytty.conf
+
+```
+crt = on
+crt_scanline_intensity = 0.08
+crt_scanline_period = 3.0
+crt_vignette_strength = 0.10
+```
+
+### Enabling via environment
+
+```sh
+ODYTTY_CRT=on ODYTTY_CRT_SCANLINE_INTENSITY=0.08 odytty
+```
+
+### Requirements and fallback
+
+CRT uses the same `Rgba16Float` post-process target as bloom. If the adapter
+cannot render, bind, and filter that format, OdyTTY uses the plain direct path.
+With both bloom and CRT disabled, no offscreen texture is allocated.
 
 ---
 

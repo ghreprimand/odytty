@@ -250,7 +250,7 @@ default-off / focused frames byte-identical.
 
 ## Testing
 
-**Testing.** 1114 tests passing: 1018 unit/integration, 12 mouse-protocol
+**Testing.** 1129 tests passing: 1032 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -280,11 +280,13 @@ transcript smoke, 8 emoji pixel-smoke (real Noto color-emoji composition,
 VS15/VS16 presentation policy, multi-codepoint cluster stitching/fallback, and
 monochrome-foreground suppression for resident color-emoji cells), 3 CLI
 introspection (theme enumeration, config-dump formatting, and a spawned
-`--show-config` over a temp config), 2 GPU composite smoke (one renders a tiny
+`--show-config` over a temp config), 3 GPU composite smoke (one renders a tiny
 scene direct-to-swapchain vs. through the offscreen→composite seam and asserts
-byte-equality, guarding the plain post-process path; the other proves the bloom
+byte-equality, guarding the plain post-process path; one proves the bloom
 pass leaves the off path exact, keeps sub-threshold body text unchanged, and
-gives a bright HDR cell a bounded halo; adapter-gated), and 3 stem-raster smoke (proving RV5 stem-darkening is wired
+gives a bright HDR cell a bounded halo; and one proves the CRT pass leaves the
+off path exact and dims lit cells only within the capped scanline/vignette band
+without zeroing them; adapter-gated), and 3 stem-raster smoke (proving RV5 stem-darkening is wired
 through the live glyph-atlas raster: the default-on boost raises midtone
 coverage monotonically with the `0`/`255` endpoints pinned, and the `0.0`
 opt-out restores the classic raster byte-for-byte). Deep fuzz

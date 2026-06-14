@@ -7,6 +7,54 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- VE3-a: CRT / retro profile (bounded scanlines + vignette)
+
+- The first CRT treatment lands on the now-stable VE1/VE2 post-process chain:
+  refined scanlines and a subtle vignette, off by default and pixel-identical to
+  the plain renderer when no post effect is active. Curvature and chromatic
+  aberration are deferred to VE3-b — they carry the readability risk, so the
+  first shipped profile keeps to brightness-only treatments.
+- Four first-class settings carry overlay help text and round-trip through
+  config/env/CLI: `crt` (on/off, default off), `crt_scanline_intensity`
+  (`0.0–0.18`, default `0.08`), `crt_scanline_period` (`2.0–12.0` px, default
+  `3.0`), and `crt_vignette_strength` (`0.0–0.16`, default `0.10`).
+- CRT and bloom share **one** HDR offscreen scene render and **one** final
+  composite pass — `post_active()` now triggers for bloom *or* CRT, and
+  disabling the last active post effect returns to the direct swapchain path.
+- Readability is bounded by construction: the composite shader clamps the
+  scanline and vignette dimming and enforces a hard `0.75` brightness floor, so
+  a lit cell can never be zeroed. Because the post-composite path cannot feed
+  back into the CPU RV1 contrast resolver (the binding design rule), CRT is made
+  structurally safe rather than relying on a post-hoc check. A new CRT readback
+  smoke proves crt-off is exact and crt-on dims within the capped band.
+- Verified: `cargo fmt --check` clean; full `cargo test` green (lib 1032 +
+  integration 97 = 1129); native smokes exit 0 for the default path **and** for
+  `ODYTTY_CRT=1`, CRT+bloom together, CRT + a raised contrast floor on
+  `odyssey-nebula`, and CRT at maximum scanline/vignette strength.
+
+## 2026-06-13 -- RV3 perceptual color foundation hardened (color.rs)
+
+- Deepened the OKLab/OKLCH perceptual pipeline that every dim/fade/blend rests
+  on (test-only + docs, no behavior change): bounded-error round-trip coverage
+  across the gamut including the cube-root-touchy near-black/near-white extremes
+  and the OKLCH hue branch cut; depth tests for perceptual dimming (monotonic in
+  amount, lightness-order-preserving, hue-preserving across hues); and blend
+  monotonicity. Documented that `mix_oklab` is intentionally **not** gamut-
+  clamped — a perceptual segment can bulge outside `[0,1]`, and display paths
+  clamp once on output via `linear_to_srgb_u8` — and added a regression guard on
+  the excursion envelope so neither a blown-open path nor a silently-added clamp
+  slips through. Nine new unit tests.
+
+## 2026-06-13 -- User-facing effects guide (docs/effects.md)
+
+- Added `docs/effects.md`, a user guide to the visual-effects model: every
+  effect is off by default, readability-gated, adapter-gated, and backed by a
+  plain/fast path that is pixel-identical to effects-off. Bloom is documented as
+  the first concrete example (the four settings with exact names, defaults, and
+  ranges, plus odytty.conf / env / overlay walkthroughs), and the CRT section
+  was filled in as VE3-a landed. The adapter-fallback stderr message was
+  corrected to match the renderer's actual text.
+
 ## 2026-06-13 -- VE2: gated bloom / phosphor glow over the HDR post-process
 
 - The post-process foundation is complete and the first visible Tier-3 effect

@@ -47,6 +47,10 @@ bloom = off
 bloom_threshold = auto
 bloom_intensity = 0.4
 bloom_radius = 3.0
+crt = off
+crt_scanline_intensity = 0.08
+crt_scanline_period = 3.0
+crt_vignette_strength = 0.10
 geometric_boxdraw = off
 symbol_fallback = off
 symbol_font =
@@ -81,6 +85,10 @@ directory and rename it over the target, so OdyTTY never truncates
 | `bloom_threshold` | `ODYTTY_BLOOM_THRESHOLD` | Floating-point luminance knee, clamped to `0.70..=1.25`, or `auto` | `auto` | Bright-pass threshold for bloom. `auto` derives `relative_luminance(theme.foreground) + 0.12`, clamped to the supported range, so normal theme foreground/body text stays below the glow knee by default. Invalid values fall back to the derived threshold with one stderr warning. |
 | `bloom_intensity` | `ODYTTY_BLOOM_INTENSITY` | Floating-point strength, clamped to `0.0..=1.0` | `0.4` | Additive bloom strength. `0.0` produces no glow; `0.4` is the conservative default for enabled bloom; `1.0` is the cap. Invalid values fall back to `0.4` with one stderr warning. |
 | `bloom_radius` | `ODYTTY_BLOOM_RADIUS` | Floating-point half-resolution blur radius, clamped to `0.5..=8.0` | `3.0` | Blur spread for the separable bloom pass. Smaller values keep glow tight around bright glyphs; larger values create a wider phosphor wash. Invalid values fall back to `3.0` with one stderr warning. |
+| `crt` | `ODYTTY_CRT` | `on`, `off` | `off` | CRT / retro profile (VE3-a): renders bounded scanlines and vignette in the same HDR composite chain as bloom. Off by default and pixel-identical to the plain renderer when no other post effect is active. Requires the same adapter support as bloom; unsupported adapters use the plain path. |
+| `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | Floating-point strength, clamped to `0.0..=0.18` | `0.08` | Dark-band scanline strength. The cap keeps scanlines a subtle multiplicative dimming treatment rather than an opaque overlay. Invalid values fall back to `0.08` with one stderr warning. |
+| `crt_scanline_period` | `ODYTTY_CRT_SCANLINE_PERIOD` | Floating-point physical-pixel period, clamped to `2.0..=12.0` | `3.0` | Vertical distance between scanline bands. Invalid values fall back to `3.0` with one stderr warning. Config-file alias: `crtscanlinedensity`. |
+| `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | Floating-point strength, clamped to `0.0..=0.16` | `0.10` | Edge dimming strength. The shader applies a brightness floor so lit cells are never zeroed by the vignette. Invalid values fall back to `0.10` with one stderr warning. |
 | `subpixel` | `ODYTTY_SUBPIXEL` | `off` (also `none`), `rgb`, `bgr` | `off` | Enables optional RGB/BGR subpixel text coverage when the GPU supports dual-source blending. Unsupported adapters fall back to grayscale text with one stderr notice; startup never fails because of this setting. |
 | `font` | `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | Host monospace probe list | Overrides the probed Linux monospace font. A missing or unparseable path no longer aborts startup: it logs one stderr notice and falls back to the probe list. |
 | `font_family` | `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | Host monospace probe list | Selects the regular face by family name or path. The match is validated as monospace; a proportional or unresolved value logs one stderr notice and falls back to the probe list, so a bad value never aborts startup. `font` / `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered and used for styled text when present, with regular-face fallback. |
@@ -113,8 +121,12 @@ and only while the window is unfocused, so a change takes effect on the next
 unfocused frame; a focus gain/loss forces a full geometry rebuild so the dim
 appears and clears immediately. `bloom`, `bloom_threshold`, `bloom_intensity`,
 and `bloom_radius` apply on the next frame; enabling bloom lazily initializes
-the post-process textures/pipelines when the adapter supports the HDR format,
-and disabling bloom returns to the direct scene path. `geometric_boxdraw` rebuilds the glyph atlas through the same font-change
+the post-process textures/pipelines when the adapter supports the HDR format.
+`crt`, `crt_scanline_intensity`, `crt_scanline_period`, and
+`crt_vignette_strength` apply on the next frame through the same post-process
+chain; CRT and bloom share one offscreen scene render and one final composite
+pass. Disabling the last active post effect returns to the direct scene path.
+`geometric_boxdraw` rebuilds the glyph atlas through the same font-change
 seam so a toggle re-rasterizes the covered codepoints geometrically (or restores
 their font glyphs) without a restart. `symbol_fallback` and `symbol_font` also
 rebuild the glyph atlas through that seam: toggling the fallback or changing the

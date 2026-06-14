@@ -613,7 +613,7 @@ a floor; surpassing it is the standing ambition.
       window is unfocused so it recedes; the dim runs before the RV1 floor so
       text stays legible. Focused frames are byte-identical to the pre-feature
       renderer.
-- [ ] VE1 post-process pipeline (foundation landed, first effect in progress):
+- [x] VE1 post-process pipeline:
   - [x] VE1-a: lazy offscreen target + passthrough composite wired into the
         native GPU renderer; `post_active()` false = no offscreen allocation and
         no extra draw pass — direct-to-swapchain path is byte-identical to the
@@ -624,8 +624,12 @@ a floor; surpassing it is the standing ambition.
         filterable-format GPU probe auto-disables the HDR path on weak adapters
         with one stderr notice and falls back to the direct sRGB path; composite
         smoke extended to cover Rgba16Float offscreen → passthrough → sRGB.
-  - [ ] First Tier-3 effect activating the pipeline (VE2 bloom) in progress;
-        the VE1 feature box ticks when an effect proves the foundation complete.
+  - [x] VE2 bloom / phosphor glow activates the pipeline with a real effect:
+        thresholded bright-pass, half-resolution separable blur, additive
+        composite, off by default and adapter-gated.
+  - [x] VE3-a CRT core: bounded scanlines + vignette share the same offscreen
+        scene render and final composite pass as bloom; curvature and chromatic
+        aberration are deferred.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
 
 ## Archived First Prototype Checklist
