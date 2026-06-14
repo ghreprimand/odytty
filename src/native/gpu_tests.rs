@@ -5,6 +5,7 @@ use super::gpu::{
     physical_font_px, post, scene_target_format,
 };
 use crate::grid::{ColorGlyphVertex, Vertex};
+use crate::settings::{RenderQuality, Settings};
 use crate::text::SubpixelMode;
 use wgpu::util::DeviceExt;
 
@@ -119,6 +120,45 @@ fn scene_target_format_tracks_post_activation() {
     assert_eq!(
         scene_target_format(TEST_SURFACE_FORMAT, None, post_options(false, true)),
         TEST_SURFACE_FORMAT
+    );
+}
+
+#[test]
+fn plain_render_quality_keeps_post_scene_on_swapchain_with_hot_effects() {
+    let plain = Settings {
+        render_quality: RenderQuality::Plain,
+        bloom: true,
+        crt: true,
+        ..Settings::default()
+    };
+    let plain_post = post_options_from_settings(&plain);
+
+    assert!(
+        !plain_post.active(),
+        "plain render quality must force post effects inactive before GPU target selection"
+    );
+    assert_eq!(
+        scene_target_format(TEST_SURFACE_FORMAT, Some(post::HDR_FORMAT), plain_post),
+        TEST_SURFACE_FORMAT,
+        "plain render quality must keep the scene on the swapchain format"
+    );
+
+    let balanced = Settings {
+        render_quality: RenderQuality::Balanced,
+        bloom: true,
+        crt: false,
+        ..Settings::default()
+    };
+    let balanced_post = post_options_from_settings(&balanced);
+
+    assert!(
+        balanced_post.active(),
+        "balanced bloom control proves the post-active assertion can fail"
+    );
+    assert_eq!(
+        scene_target_format(TEST_SURFACE_FORMAT, Some(post::HDR_FORMAT), balanced_post),
+        post::HDR_FORMAT,
+        "active post effects should move the scene into the HDR offscreen format"
     );
 }
 
@@ -264,6 +304,23 @@ fn post_options(bloom_enabled: bool, crt_enabled: bool) -> post::PostProcessOpti
             scanline_intensity: 0.08,
             scanline_period: 3.0,
             vignette_strength: 0.1,
+        },
+    }
+}
+
+fn post_options_from_settings(settings: &Settings) -> post::PostProcessOptions {
+    post::PostProcessOptions {
+        bloom: BloomOptions {
+            enabled: settings.effective_bloom_enabled(),
+            threshold: settings.bloom_threshold,
+            intensity: settings.bloom_intensity,
+            radius: settings.bloom_radius,
+        },
+        crt: CrtOptions {
+            enabled: settings.effective_crt_enabled(),
+            scanline_intensity: settings.crt_scanline_intensity,
+            scanline_period: settings.crt_scanline_period,
+            vignette_strength: settings.crt_vignette_strength,
         },
     }
 }
