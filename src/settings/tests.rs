@@ -99,6 +99,10 @@ fn setting_info_covers_every_field_with_descriptions() {
             "bloom_threshold",
             "bloom_intensity",
             "bloom_radius",
+            "crt",
+            "crt_scanline_intensity",
+            "crt_scanline_period",
+            "crt_vignette_strength",
             "subpixel",
             "synthetic_styles",
             "geometric_boxdraw",
@@ -142,6 +146,22 @@ fn setting_info_covers_every_field_with_descriptions() {
         info.iter()
             .any(|row| row.key == "bloom_radius" && row.range == Some("0.5..=8.0 px"))
     );
+    assert!(
+        info.iter()
+            .any(|row| row.key == "crt" && row.options == ["on", "off"])
+    );
+    assert!(
+        info.iter()
+            .any(|row| row.key == "crt_scanline_intensity" && row.range == Some("0.0..=0.18"))
+    );
+    assert!(
+        info.iter()
+            .any(|row| row.key == "crt_scanline_period" && row.range == Some("2.0..=12.0 px"))
+    );
+    assert!(
+        info.iter()
+            .any(|row| row.key == "crt_vignette_strength" && row.range == Some("0.0..=0.16"))
+    );
 }
 
 #[test]
@@ -154,6 +174,10 @@ fn setting_info_formats_current_values_for_display() {
         bloom_threshold: 0.9,
         bloom_intensity: 0.35,
         bloom_radius: 4.5,
+        crt: true,
+        crt_scanline_intensity: 0.12,
+        crt_scanline_period: 4.0,
+        crt_vignette_strength: 0.14,
         symbol_font: Some(PathBuf::from("/tmp/symbols.otf")),
         cursor_blink: CursorBlink::Off,
         osc52_read: true,
@@ -174,6 +198,10 @@ fn setting_info_formats_current_values_for_display() {
     assert_eq!(value("bloom_threshold"), "0.9");
     assert_eq!(value("bloom_intensity"), "0.35");
     assert_eq!(value("bloom_radius"), "4.5");
+    assert_eq!(value("crt"), "on");
+    assert_eq!(value("crt_scanline_intensity"), "0.12");
+    assert_eq!(value("crt_scanline_period"), "4");
+    assert_eq!(value("crt_vignette_strength"), "0.14");
     assert_eq!(value("symbol_font"), "/tmp/symbols.otf");
     assert_eq!(value("cursor_blink"), "off");
     assert_eq!(value("osc52_read"), "on");
@@ -256,6 +284,10 @@ fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
             bloom_threshold = 9
             bloom_intensity = 2
             bloom_radius = 99
+            crt = on
+            crt_scanline_intensity = 9
+            crt_scanline_period = 99
+            crt_vignette_strength = 9
             keybinds = ctrl+shift+y=copy;alt+space=paste
             cursor_blink = steady
             native_autoclose_ms = 600
@@ -270,6 +302,10 @@ fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
     assert_eq!(settings.bloom_threshold, MAX_BLOOM_THRESHOLD);
     assert_eq!(settings.bloom_intensity, MAX_BLOOM_INTENSITY);
     assert_eq!(settings.bloom_radius, MAX_BLOOM_RADIUS);
+    assert!(settings.crt);
+    assert_eq!(settings.crt_scanline_intensity, MAX_CRT_SCANLINE_INTENSITY);
+    assert_eq!(settings.crt_scanline_period, MAX_CRT_SCANLINE_PERIOD);
+    assert_eq!(settings.crt_vignette_strength, MAX_CRT_VIGNETTE_STRENGTH);
     assert_eq!(settings.key_bindings.len(), 2);
     assert_eq!(settings.cursor_blink, CursorBlink::Off);
     assert_eq!(settings.native_autoclose, Some(Duration::from_millis(600)));
@@ -786,6 +822,114 @@ fn bloom_round_trips_through_config_key_mapping() {
         Some("bloom_intensity")
     );
     assert_eq!(env_to_config_key(BLOOM_RADIUS_ENV), Some("bloom_radius"));
+}
+
+#[test]
+fn crt_defaults_to_off_with_bounded_defaults() {
+    let (settings, warnings) = settings_from([]);
+    assert!(!settings.crt);
+    assert_eq!(
+        settings.crt_scanline_intensity,
+        DEFAULT_CRT_SCANLINE_INTENSITY
+    );
+    assert_eq!(settings.crt_scanline_period, DEFAULT_CRT_SCANLINE_PERIOD);
+    assert_eq!(
+        settings.crt_vignette_strength,
+        DEFAULT_CRT_VIGNETTE_STRENGTH
+    );
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn crt_parses_valid_values() {
+    let (settings, warnings) = settings_from([
+        (CRT_ENV, "on"),
+        (CRT_SCANLINE_INTENSITY_ENV, "0.12"),
+        (CRT_SCANLINE_PERIOD_ENV, "4.5"),
+        (CRT_VIGNETTE_STRENGTH_ENV, "0.14"),
+    ]);
+
+    assert!(settings.crt);
+    assert_eq!(settings.crt_scanline_intensity, 0.12);
+    assert_eq!(settings.crt_scanline_period, 4.5);
+    assert_eq!(settings.crt_vignette_strength, 0.14);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_crt_numbers_fall_back_with_warnings() {
+    let (settings, warnings) = settings_from([
+        (CRT_SCANLINE_INTENSITY_ENV, "strong"),
+        (CRT_SCANLINE_PERIOD_ENV, "dense"),
+        (CRT_VIGNETTE_STRENGTH_ENV, "dark"),
+    ]);
+
+    assert_eq!(
+        settings.crt_scanline_intensity,
+        DEFAULT_CRT_SCANLINE_INTENSITY
+    );
+    assert_eq!(settings.crt_scanline_period, DEFAULT_CRT_SCANLINE_PERIOD);
+    assert_eq!(
+        settings.crt_vignette_strength,
+        DEFAULT_CRT_VIGNETTE_STRENGTH
+    );
+    assert_eq!(warnings.len(), 3);
+    assert!(warnings[0].contains(CRT_SCANLINE_INTENSITY_ENV));
+    assert!(warnings[1].contains(CRT_SCANLINE_PERIOD_ENV));
+    assert!(warnings[2].contains(CRT_VIGNETTE_STRENGTH_ENV));
+}
+
+#[test]
+fn crt_values_clamp_to_supported_ranges() {
+    let (small, small_warnings) = settings_from([
+        (CRT_SCANLINE_INTENSITY_ENV, "-1"),
+        (CRT_SCANLINE_PERIOD_ENV, "0.5"),
+        (CRT_VIGNETTE_STRENGTH_ENV, "-1"),
+    ]);
+    let (large, large_warnings) = settings_from([
+        (CRT_SCANLINE_INTENSITY_ENV, "9"),
+        (CRT_SCANLINE_PERIOD_ENV, "99"),
+        (CRT_VIGNETTE_STRENGTH_ENV, "9"),
+    ]);
+
+    assert_eq!(small.crt_scanline_intensity, MIN_CRT_SCANLINE_INTENSITY);
+    assert_eq!(small.crt_scanline_period, MIN_CRT_SCANLINE_PERIOD);
+    assert_eq!(small.crt_vignette_strength, MIN_CRT_VIGNETTE_STRENGTH);
+    assert_eq!(large.crt_scanline_intensity, MAX_CRT_SCANLINE_INTENSITY);
+    assert_eq!(large.crt_scanline_period, MAX_CRT_SCANLINE_PERIOD);
+    assert_eq!(large.crt_vignette_strength, MAX_CRT_VIGNETTE_STRENGTH);
+    assert!(small_warnings.is_empty());
+    assert!(large_warnings.is_empty());
+}
+
+#[test]
+fn crt_round_trips_through_config_key_mapping() {
+    assert_eq!(config_key_to_env("crt"), Some(CRT_ENV));
+    assert_eq!(
+        config_key_to_env("crt_scanline_intensity"),
+        Some(CRT_SCANLINE_INTENSITY_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("crt_scanline_period"),
+        Some(CRT_SCANLINE_PERIOD_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("crt_vignette_strength"),
+        Some(CRT_VIGNETTE_STRENGTH_ENV)
+    );
+    assert_eq!(env_to_config_key(CRT_ENV), Some("crt"));
+    assert_eq!(
+        env_to_config_key(CRT_SCANLINE_INTENSITY_ENV),
+        Some("crt_scanline_intensity")
+    );
+    assert_eq!(
+        env_to_config_key(CRT_SCANLINE_PERIOD_ENV),
+        Some("crt_scanline_period")
+    );
+    assert_eq!(
+        env_to_config_key(CRT_VIGNETTE_STRENGTH_ENV),
+        Some("crt_vignette_strength")
+    );
 }
 
 #[test]

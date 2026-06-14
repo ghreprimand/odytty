@@ -44,6 +44,10 @@ pub const BLOOM_ENV: &str = "ODYTTY_BLOOM";
 pub const BLOOM_THRESHOLD_ENV: &str = "ODYTTY_BLOOM_THRESHOLD";
 pub const BLOOM_INTENSITY_ENV: &str = "ODYTTY_BLOOM_INTENSITY";
 pub const BLOOM_RADIUS_ENV: &str = "ODYTTY_BLOOM_RADIUS";
+pub const CRT_ENV: &str = "ODYTTY_CRT";
+pub const CRT_SCANLINE_INTENSITY_ENV: &str = "ODYTTY_CRT_SCANLINE_INTENSITY";
+pub const CRT_SCANLINE_PERIOD_ENV: &str = "ODYTTY_CRT_SCANLINE_PERIOD";
+pub const CRT_VIGNETTE_STRENGTH_ENV: &str = "ODYTTY_CRT_VIGNETTE_STRENGTH";
 pub const SUBPIXEL_ENV: &str = "ODYTTY_SUBPIXEL";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
@@ -75,6 +79,10 @@ const SETTING_ENV_KEYS: &[&str] = &[
     BLOOM_THRESHOLD_ENV,
     BLOOM_INTENSITY_ENV,
     BLOOM_RADIUS_ENV,
+    CRT_ENV,
+    CRT_SCANLINE_INTENSITY_ENV,
+    CRT_SCANLINE_PERIOD_ENV,
+    CRT_VIGNETTE_STRENGTH_ENV,
     SUBPIXEL_ENV,
     KEYBINDS_ENV,
     CURSOR_STYLE_ENV,
@@ -304,6 +312,21 @@ pub const BLOOM_INTENSITY_DESC: &str = "Bloom intensity: additive glow strength.
 pub const BLOOM_RADIUS_DESC: &str = "Bloom radius: blur spread in half-resolution pixels. Accepts 0.5–8.0; \
      3.0 is the default soft phosphor radius.";
 
+pub const DEFAULT_CRT: bool = false;
+pub const DEFAULT_CRT_SCANLINE_INTENSITY: f32 = 0.08;
+pub const MIN_CRT_SCANLINE_INTENSITY: f32 = 0.0;
+pub const MAX_CRT_SCANLINE_INTENSITY: f32 = 0.18;
+pub const DEFAULT_CRT_SCANLINE_PERIOD: f32 = 3.0;
+pub const MIN_CRT_SCANLINE_PERIOD: f32 = 2.0;
+pub const MAX_CRT_SCANLINE_PERIOD: f32 = 12.0;
+pub const DEFAULT_CRT_VIGNETTE_STRENGTH: f32 = 0.10;
+pub const MIN_CRT_VIGNETTE_STRENGTH: f32 = 0.0;
+pub const MAX_CRT_VIGNETTE_STRENGTH: f32 = 0.16;
+pub const CRT_DESC: &str = "CRT profile: optional post-process scanlines plus vignette. Off by default and pixel-identical to the plain renderer. Requires the same adapter support as bloom; unsupported adapters silently use the plain path.";
+pub const CRT_SCANLINE_INTENSITY_DESC: &str = "CRT scanline intensity: bounded multiplicative dimming for the dark part of each scanline. Accepts 0.0–0.18; the cap keeps text readable and prevents opaque overlays.";
+pub const CRT_SCANLINE_PERIOD_DESC: &str = "CRT scanline period: vertical distance between scanline bands in physical pixels. Accepts 2.0–12.0; 3.0 is the conservative default.";
+pub const CRT_VIGNETTE_STRENGTH_DESC: &str = "CRT vignette strength: bounded edge dimming. Accepts 0.0–0.16; the shader enforces a brightness floor so corners recede without erasing lit cells.";
+
 /// Human-readable help for the geometric box-drawing knob (RV2), shown in the
 /// in-app settings panel. Follows the every-knob-carries-a-description convention.
 pub const GEOMETRIC_BOXDRAW_DESC: &str = "Geometric box-drawing: renders line, block and Powerline glyphs from \
@@ -468,6 +491,10 @@ pub struct Settings {
     pub bloom_threshold: f32,
     pub bloom_intensity: f32,
     pub bloom_radius: f32,
+    pub crt: bool,
+    pub crt_scanline_intensity: f32,
+    pub crt_scanline_period: f32,
+    pub crt_vignette_strength: f32,
     pub subpixel: SubpixelMode,
     pub key_bindings: Vec<KeyBindingOverride>,
     /// Default cursor shape applied at power-on (DECSCUSR can override).
@@ -518,6 +545,10 @@ impl Default for Settings {
             bloom_threshold: default_bloom_threshold_for_theme(Theme::PLAIN),
             bloom_intensity: DEFAULT_BLOOM_INTENSITY,
             bloom_radius: DEFAULT_BLOOM_RADIUS,
+            crt: DEFAULT_CRT,
+            crt_scanline_intensity: DEFAULT_CRT_SCANLINE_INTENSITY,
+            crt_scanline_period: DEFAULT_CRT_SCANLINE_PERIOD,
+            crt_vignette_strength: DEFAULT_CRT_VIGNETTE_STRENGTH,
             subpixel: SubpixelMode::Off,
             key_bindings: Vec::new(),
             cursor_style: CursorStyle::Block,
@@ -706,6 +737,54 @@ impl Settings {
                 description: BLOOM_RADIUS_DESC,
                 kind: SettingKind::Number,
                 range: Some("0.5..=8.0 px"),
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Post-process",
+                key: "crt",
+                env: CRT_ENV,
+                name: "CRT profile",
+                value: bool_display(self.crt).to_owned(),
+                description: CRT_DESC,
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Post-process",
+                key: "crt_scanline_intensity",
+                env: CRT_SCANLINE_INTENSITY_ENV,
+                name: "CRT scanlines",
+                value: format_float(self.crt_scanline_intensity),
+                description: CRT_SCANLINE_INTENSITY_DESC,
+                kind: SettingKind::Number,
+                range: Some("0.0..=0.18"),
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Post-process",
+                key: "crt_scanline_period",
+                env: CRT_SCANLINE_PERIOD_ENV,
+                name: "CRT scanline period",
+                value: format_float(self.crt_scanline_period),
+                description: CRT_SCANLINE_PERIOD_DESC,
+                kind: SettingKind::Number,
+                range: Some("2.0..=12.0 px"),
+                options: &[],
+                reloadable: true,
+            },
+            SettingInfo {
+                group: "Post-process",
+                key: "crt_vignette_strength",
+                env: CRT_VIGNETTE_STRENGTH_ENV,
+                name: "CRT vignette",
+                value: format_float(self.crt_vignette_strength),
+                description: CRT_VIGNETTE_STRENGTH_DESC,
+                kind: SettingKind::Number,
+                range: Some("0.0..=0.16"),
                 options: &[],
                 reloadable: true,
             },
@@ -1015,6 +1094,13 @@ impl Settings {
         );
         let bloom_intensity = parse_bloom_intensity(get(BLOOM_INTENSITY_ENV).as_deref(), &mut warn);
         let bloom_radius = parse_bloom_radius(get(BLOOM_RADIUS_ENV).as_deref(), &mut warn);
+        let crt = parse_bool_setting(get(CRT_ENV).as_deref(), CRT_ENV, false, &mut warn);
+        let crt_scanline_intensity =
+            parse_crt_scanline_intensity(get(CRT_SCANLINE_INTENSITY_ENV).as_deref(), &mut warn);
+        let crt_scanline_period =
+            parse_crt_scanline_period(get(CRT_SCANLINE_PERIOD_ENV).as_deref(), &mut warn);
+        let crt_vignette_strength =
+            parse_crt_vignette_strength(get(CRT_VIGNETTE_STRENGTH_ENV).as_deref(), &mut warn);
         let subpixel = parse_subpixel(get(SUBPIXEL_ENV).as_deref(), &mut warn);
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
@@ -1066,6 +1152,10 @@ impl Settings {
             bloom_threshold,
             bloom_intensity,
             bloom_radius,
+            crt,
+            crt_scanline_intensity,
+            crt_scanline_period,
+            crt_vignette_strength,
             subpixel,
             key_bindings,
             cursor_style,
@@ -1101,6 +1191,19 @@ impl Settings {
         values.insert(BLOOM_THRESHOLD_ENV, format_float(self.bloom_threshold));
         values.insert(BLOOM_INTENSITY_ENV, format_float(self.bloom_intensity));
         values.insert(BLOOM_RADIUS_ENV, format_float(self.bloom_radius));
+        values.insert(CRT_ENV, bool_display(self.crt).to_owned());
+        values.insert(
+            CRT_SCANLINE_INTENSITY_ENV,
+            format_float(self.crt_scanline_intensity),
+        );
+        values.insert(
+            CRT_SCANLINE_PERIOD_ENV,
+            format_float(self.crt_scanline_period),
+        );
+        values.insert(
+            CRT_VIGNETTE_STRENGTH_ENV,
+            format_float(self.crt_vignette_strength),
+        );
         values.insert(SUBPIXEL_ENV, subpixel_display(self.subpixel).to_owned());
         values.insert(KEYBINDS_ENV, key_bindings_edit_value(&self.key_bindings));
         values.insert(
@@ -1558,6 +1661,73 @@ fn parse_bloom_radius(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     };
 
     parsed.clamp(MIN_BLOOM_RADIUS, MAX_BLOOM_RADIUS)
+}
+
+fn parse_crt_scanline_intensity(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    parse_bounded_float(
+        raw,
+        CRT_SCANLINE_INTENSITY_ENV,
+        "CRT scanline intensity",
+        DEFAULT_CRT_SCANLINE_INTENSITY,
+        MIN_CRT_SCANLINE_INTENSITY,
+        MAX_CRT_SCANLINE_INTENSITY,
+        warn,
+    )
+}
+
+fn parse_crt_scanline_period(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    parse_bounded_float(
+        raw,
+        CRT_SCANLINE_PERIOD_ENV,
+        "CRT scanline period",
+        DEFAULT_CRT_SCANLINE_PERIOD,
+        MIN_CRT_SCANLINE_PERIOD,
+        MAX_CRT_SCANLINE_PERIOD,
+        warn,
+    )
+}
+
+fn parse_crt_vignette_strength(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    parse_bounded_float(
+        raw,
+        CRT_VIGNETTE_STRENGTH_ENV,
+        "CRT vignette strength",
+        DEFAULT_CRT_VIGNETTE_STRENGTH,
+        MIN_CRT_VIGNETTE_STRENGTH,
+        MAX_CRT_VIGNETTE_STRENGTH,
+        warn,
+    )
+}
+
+fn parse_bounded_float(
+    raw: Option<&OsStr>,
+    env: &str,
+    label: &str,
+    default: f32,
+    min: f32,
+    max: f32,
+    warn: &mut impl FnMut(&str),
+) -> f32 {
+    let Some(raw) = raw else {
+        return default;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return default;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{env}={trimmed:?} is not a valid {label}; using {default}"
+            ));
+            return default;
+        }
+    };
+
+    parsed.clamp(min, max)
 }
 
 fn parse_subpixel(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> SubpixelMode {

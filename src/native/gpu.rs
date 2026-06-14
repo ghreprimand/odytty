@@ -20,8 +20,8 @@ use super::options::{NativeError, NativeOptions};
 
 pub(super) mod post;
 
-pub(super) use post::BloomOptions;
-use post::PostProcessResources;
+pub(super) use post::{BloomOptions, CrtOptions};
+use post::{PostProcessOptions, PostProcessResources};
 
 pub(super) fn theme_clear_color(theme: &Theme) -> wgpu::Color {
     let (r, g, b) = theme.clear;
@@ -214,9 +214,9 @@ pub(super) fn blend_state_for_color_glyphs() -> wgpu::BlendState {
 pub(super) fn scene_target_format(
     surface_format: wgpu::TextureFormat,
     post_process_format: Option<wgpu::TextureFormat>,
-    bloom: BloomOptions,
+    post_process: PostProcessOptions,
 ) -> wgpu::TextureFormat {
-    if bloom.enabled {
+    if post_process.active() {
         post_process_format.unwrap_or(surface_format)
     } else {
         surface_format
@@ -632,6 +632,7 @@ pub(super) struct GpuState {
     post_process_format: Option<wgpu::TextureFormat>,
     post_process: Option<PostProcessResources>,
     bloom: BloomOptions,
+    crt: CrtOptions,
     bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
     color_glyph_bind_group_layout: wgpu::BindGroupLayout,
@@ -730,6 +731,7 @@ impl GpuState {
         visual: VisualEffect,
         stem_darken: f32,
         bloom: BloomOptions,
+        crt: CrtOptions,
     ) -> Result<Self, NativeError> {
         let effect = effect_params(visual);
         let text = text_params(options.text_gamma);
@@ -936,7 +938,11 @@ impl GpuState {
             &color_glyph_atlas_sampler,
         );
         let _ = atlas.take_dirty();
-        let scene_target_format = scene_target_format(config.format, post_process_format, bloom);
+        let scene_target_format = scene_target_format(
+            config.format,
+            post_process_format,
+            PostProcessOptions { bloom, crt },
+        );
         let image_layer = ImageLayer::new(&device, scene_target_format);
 
         // --- Render pipeline from the shared cell shader.
@@ -1002,6 +1008,7 @@ impl GpuState {
             post_process_format,
             post_process: None,
             bloom,
+            crt,
             bind_group_layout,
             bind_group,
             color_glyph_bind_group_layout,
@@ -1246,8 +1253,24 @@ impl GpuState {
     pub(super) fn set_bloom(&mut self, bloom: BloomOptions) {
         let old_target = self.scene_target_format;
         self.bloom = bloom;
-        let new_target =
-            scene_target_format(self.config.format, self.post_process_format, self.bloom);
+        let new_target = scene_target_format(
+            self.config.format,
+            self.post_process_format,
+            self.post_options(),
+        );
+        if new_target != old_target {
+            self.rebuild_scene_pipelines(new_target);
+        }
+    }
+
+    pub(super) fn set_crt(&mut self, crt: CrtOptions) {
+        let old_target = self.scene_target_format;
+        self.crt = crt;
+        let new_target = scene_target_format(
+            self.config.format,
+            self.post_process_format,
+            self.post_options(),
+        );
         if new_target != old_target {
             self.rebuild_scene_pipelines(new_target);
         }
@@ -1271,7 +1294,11 @@ impl GpuState {
     }
 
     fn ensure_scene_target_format(&mut self) {
-        let target = scene_target_format(self.config.format, self.post_process_format, self.bloom);
+        let target = scene_target_format(
+            self.config.format,
+            self.post_process_format,
+            self.post_options(),
+        );
         if target != self.scene_target_format {
             self.rebuild_scene_pipelines(target);
         }
@@ -1478,7 +1505,14 @@ impl GpuState {
     }
 
     fn post_active(&self) -> bool {
-        self.bloom.enabled && self.post_process_format.is_some()
+        self.post_options().active() && self.post_process_format.is_some()
+    }
+
+    fn post_options(&self) -> PostProcessOptions {
+        PostProcessOptions {
+            bloom: self.bloom,
+            crt: self.crt,
+        }
     }
 
     fn draw_scene<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
@@ -1587,7 +1621,12 @@ impl GpuState {
                 }
                 let post_process = self.post_process.as_ref().expect("post process resources");
                 self.encode_scene_pass(&mut encoder, &post_process.offscreen_view);
-                post_process.encode_bloom(&mut encoder, &self.queue, &view, self.bloom);
+                post_process.encode_post_process(
+                    &mut encoder,
+                    &self.queue,
+                    &view,
+                    self.post_options(),
+                );
             } else {
                 self.encode_scene_pass(&mut encoder, &view);
             }

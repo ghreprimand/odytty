@@ -77,6 +77,15 @@ struct BloomUniform {
     _pad: f32,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CrtUniform {
+    enabled: f32,
+    scanline_intensity: f32,
+    scanline_period: f32,
+    vignette_strength: f32,
+}
+
 #[test]
 fn passthrough_composite_matches_direct_render_bytes() {
     let Some((device, queue, hdr_supported)) = gpu_device() else {
@@ -218,6 +227,7 @@ fn bloom_preserves_body_text_and_adds_bounded_halo() {
     });
     let threshold = default_bloom_threshold_for_theme(Theme::PLAIN);
     let uniform = create_bloom_uniform(&device, threshold, 0.4, 3.0);
+    let crt_uniform = create_crt_uniform(&device, false, 0.08, 3.0, 0.10);
     let passthrough_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("gpu-bloom-smoke-passthrough-bg"),
         layout: &passthrough_bgl,
@@ -264,6 +274,7 @@ fn bloom_preserves_body_text_and_adds_bounded_halo() {
         &nearest,
         &linear,
         &uniform,
+        &crt_uniform,
     );
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -321,6 +332,126 @@ fn bloom_preserves_body_text_and_adds_bounded_halo() {
         "halo pixel should stay bounded, got {}",
         on_bytes[halo]
     );
+}
+
+#[test]
+fn crt_off_is_exact_and_crt_on_bounded_dims_lit_cells() {
+    let Some((device, queue, hdr_supported)) = gpu_device() else {
+        eprintln!("skipping: no GPU adapter available");
+        return;
+    };
+    assert!(
+        hdr_supported,
+        "Rgba16Float must support render attachment + filterable texture binding"
+    );
+
+    let direct_scene_pipeline = create_scene_pipeline(&device, FORMAT, SCENE_SHADER);
+    let offscreen_scene_pipeline = create_scene_pipeline(&device, HDR_FORMAT, SCENE_SHADER);
+    let direct = create_render_texture(&device, "gpu-crt-smoke-direct", FORMAT, true);
+    let offscreen = create_render_texture(&device, "gpu-crt-smoke-offscreen", HDR_FORMAT, false);
+    let crt_off = create_render_texture(&device, "gpu-crt-smoke-off", FORMAT, true);
+    let crt_on = create_render_texture(&device, "gpu-crt-smoke-on", FORMAT, true);
+    let bloom_dummy = create_bloom_texture(&device, "gpu-crt-smoke-bloom-dummy");
+    let direct_view = direct.create_view(&wgpu::TextureViewDescriptor::default());
+    let offscreen_view = offscreen.create_view(&wgpu::TextureViewDescriptor::default());
+    let crt_off_view = crt_off.create_view(&wgpu::TextureViewDescriptor::default());
+    let crt_on_view = crt_on.create_view(&wgpu::TextureViewDescriptor::default());
+    let bloom_dummy_view = bloom_dummy.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("gpu-crt-smoke-shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../src/shaders/bloom.wgsl").into()),
+    });
+    let composite_bgl = create_bloom_composite_bgl(&device);
+    let composite_pipeline = create_bloom_pipeline(
+        &device,
+        &shader,
+        "fs_composite_bloom",
+        FORMAT,
+        &composite_bgl,
+    );
+    let nearest = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("gpu-crt-smoke-nearest"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        ..Default::default()
+    });
+    let bloom_uniform = create_bloom_uniform(&device, 1.25, 0.0, 3.0);
+    let crt_disabled = create_crt_uniform(&device, false, 0.18, 2.0, 0.16);
+    let crt_enabled = create_crt_uniform(&device, true, 0.18, 2.0, 0.16);
+    let crt_off_bg = create_bloom_composite_bg(
+        &device,
+        &composite_bgl,
+        &offscreen_view,
+        &bloom_dummy_view,
+        &nearest,
+        &nearest,
+        &bloom_uniform,
+        &crt_disabled,
+    );
+    let crt_on_bg = create_bloom_composite_bg(
+        &device,
+        &composite_bgl,
+        &offscreen_view,
+        &bloom_dummy_view,
+        &nearest,
+        &nearest,
+        &bloom_uniform,
+        &crt_enabled,
+    );
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("gpu-crt-smoke-encoder"),
+    });
+    encode_scene(&mut encoder, &direct_scene_pipeline, &direct_view);
+    encode_scene(&mut encoder, &offscreen_scene_pipeline, &offscreen_view);
+    encode_composite(
+        &mut encoder,
+        &composite_pipeline,
+        &crt_off_bg,
+        &crt_off_view,
+    );
+    encode_composite(&mut encoder, &composite_pipeline, &crt_on_bg, &crt_on_view);
+
+    let direct_buffer = create_readback_buffer(&device);
+    let off_buffer = create_readback_buffer(&device);
+    let on_buffer = create_readback_buffer(&device);
+    copy_texture_to_buffer(&mut encoder, &direct, &direct_buffer);
+    copy_texture_to_buffer(&mut encoder, &crt_off, &off_buffer);
+    copy_texture_to_buffer(&mut encoder, &crt_on, &on_buffer);
+    queue.submit(std::iter::once(encoder.finish()));
+
+    let direct_bytes = readback(&device, &direct_buffer);
+    let off_bytes = readback(&device, &off_buffer);
+    let on_bytes = readback(&device, &on_buffer);
+    assert_eq!(direct_bytes, off_bytes, "crt off path must be exact");
+
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let i = pixel_index(x, y);
+            for c in 0..3 {
+                let direct = direct_bytes[i + c];
+                let dimmed = on_bytes[i + c];
+                if direct == 0 {
+                    assert_eq!(dimmed, 0, "crt must not brighten black at {x},{y}");
+                } else {
+                    assert!(
+                        dimmed <= direct,
+                        "crt should only dim lit channel {c} at {x},{y}: {dimmed} > {direct}"
+                    );
+                    assert!(dimmed > 0, "crt must never zero lit channel {c} at {x},{y}");
+                    assert!(
+                        dimmed as f32 >= direct as f32 * 0.70,
+                        "crt dimming exceeded capped band for channel {c} at {x},{y}: {dimmed}/{direct}"
+                    );
+                }
+            }
+        }
+    }
 }
 
 fn gpu_device() -> Option<(wgpu::Device, wgpu::Queue, bool)> {
@@ -524,6 +655,25 @@ fn create_bloom_uniform(
     })
 }
 
+fn create_crt_uniform(
+    device: &wgpu::Device,
+    enabled: bool,
+    scanline_intensity: f32,
+    scanline_period: f32,
+    vignette_strength: f32,
+) -> wgpu::Buffer {
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("gpu-crt-smoke-uniform"),
+        contents: bytemuck::bytes_of(&CrtUniform {
+            enabled: if enabled { 1.0 } else { 0.0 },
+            scanline_intensity,
+            scanline_period,
+            vignette_strength,
+        }),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    })
+}
+
 fn create_bloom_source_bgl(device: &wgpu::Device, label: &'static str) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some(label),
@@ -540,6 +690,7 @@ fn create_bloom_composite_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
             uniform_entry(2),
             texture_entry(3),
             sampler_entry(4),
+            uniform_entry(5),
         ],
     })
 }
@@ -570,7 +721,8 @@ fn create_bloom_composite_bg(
     bloom: &wgpu::TextureView,
     scene_sampler: &wgpu::Sampler,
     bloom_sampler: &wgpu::Sampler,
-    uniform: &wgpu::Buffer,
+    bloom_uniform: &wgpu::Buffer,
+    crt_uniform: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("gpu-bloom-smoke-composite-bg"),
@@ -578,9 +730,10 @@ fn create_bloom_composite_bg(
         entries: &[
             bind_texture(0, scene),
             bind_sampler(1, scene_sampler),
-            bind_uniform(2, uniform),
+            bind_uniform(2, bloom_uniform),
             bind_texture(3, bloom),
             bind_sampler(4, bloom_sampler),
+            bind_uniform(5, crt_uniform),
         ],
     })
 }

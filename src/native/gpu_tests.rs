@@ -1,5 +1,5 @@
 use super::gpu::{
-    BloomOptions, ViewportUniform, choose_surface_format, create_atlas_bind_group,
+    BloomOptions, CrtOptions, ViewportUniform, choose_surface_format, create_atlas_bind_group,
     create_cell_pipeline, create_color_atlas_bind_group, create_color_glyph_pipeline,
     physical_font_px, post, scene_target_format,
 };
@@ -83,27 +83,40 @@ fn surface_format_falls_back_to_first_non_srgb() {
 
 #[test]
 fn scene_target_format_tracks_post_activation() {
-    let disabled = BloomOptions {
-        enabled: false,
-        threshold: 0.4,
-        intensity: 0.4,
-        radius: 3.0,
-    };
-    let enabled = BloomOptions {
-        enabled: true,
-        ..disabled
-    };
-
     assert_eq!(
-        scene_target_format(TEST_SURFACE_FORMAT, Some(post::HDR_FORMAT), disabled),
+        scene_target_format(
+            TEST_SURFACE_FORMAT,
+            Some(post::HDR_FORMAT),
+            post_options(false, false)
+        ),
         TEST_SURFACE_FORMAT
     );
     assert_eq!(
-        scene_target_format(TEST_SURFACE_FORMAT, Some(post::HDR_FORMAT), enabled),
+        scene_target_format(
+            TEST_SURFACE_FORMAT,
+            Some(post::HDR_FORMAT),
+            post_options(true, false)
+        ),
         post::HDR_FORMAT
     );
     assert_eq!(
-        scene_target_format(TEST_SURFACE_FORMAT, None, enabled),
+        scene_target_format(
+            TEST_SURFACE_FORMAT,
+            Some(post::HDR_FORMAT),
+            post_options(false, true)
+        ),
+        post::HDR_FORMAT
+    );
+    assert_eq!(
+        scene_target_format(
+            TEST_SURFACE_FORMAT,
+            Some(post::HDR_FORMAT),
+            post_options(true, true)
+        ),
+        post::HDR_FORMAT
+    );
+    assert_eq!(
+        scene_target_format(TEST_SURFACE_FORMAT, None, post_options(false, true)),
         TEST_SURFACE_FORMAT
     );
 }
@@ -230,21 +243,28 @@ fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
         pass.set_vertex_buffer(0, color_buf.slice(..));
         pass.draw(0..color_vertices.len() as u32, 0..1);
     }
-    post_process.encode_bloom(
-        &mut encoder,
-        &queue,
-        &output_view,
-        BloomOptions {
-            enabled: true,
-            threshold: 0.4,
-            intensity: 0.4,
-            radius: 3.0,
-        },
-    );
+    post_process.encode_post_process(&mut encoder, &queue, &output_view, post_options(true, true));
     queue.submit(std::iter::once(encoder.finish()));
     device
         .poll(wgpu::PollType::wait_indefinitely())
         .expect("device poll");
+}
+
+fn post_options(bloom_enabled: bool, crt_enabled: bool) -> post::PostProcessOptions {
+    post::PostProcessOptions {
+        bloom: BloomOptions {
+            enabled: bloom_enabled,
+            threshold: 0.4,
+            intensity: 0.4,
+            radius: 3.0,
+        },
+        crt: CrtOptions {
+            enabled: crt_enabled,
+            scanline_intensity: 0.08,
+            scanline_period: 3.0,
+            vignette_strength: 0.1,
+        },
+    }
 }
 
 fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {

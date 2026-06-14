@@ -474,6 +474,9 @@ fn number_step(key: &str) -> f32 {
         "bloom_threshold" => 0.05,
         "bloom_intensity" => 0.05,
         "bloom_radius" => 0.5,
+        "crt_scanline_intensity" => 0.01,
+        "crt_scanline_period" => 0.5,
+        "crt_vignette_strength" => 0.01,
         _ => 1.0,
     }
 }

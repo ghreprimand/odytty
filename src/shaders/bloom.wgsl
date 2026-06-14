@@ -10,6 +10,13 @@ struct Bloom {
     _pad: f32,
 };
 
+struct Crt {
+    enabled: f32,
+    scanline_intensity: f32,
+    scanline_period: f32,
+    vignette_strength: f32,
+};
+
 @group(0) @binding(0) var source_tex: texture_2d<f32>;
 @group(0) @binding(1) var source_sampler: sampler;
 @group(0) @binding(2) var<uniform> bloom: Bloom;
@@ -72,10 +79,36 @@ fn fs_blur_v(in: VsOut) -> @location(0) vec4<f32> {
 
 @group(0) @binding(3) var bloom_tex: texture_2d<f32>;
 @group(0) @binding(4) var bloom_sampler: sampler;
+@group(0) @binding(5) var<uniform> crt: Crt;
+
+const PI: f32 = 3.141592653589793;
+
+fn crt_brightness(uv: vec2<f32>) -> f32 {
+    if crt.enabled <= 0.5 {
+        return 1.0;
+    }
+
+    let dims = vec2<f32>(textureDimensions(source_tex));
+    let y_px = uv.y * max(dims.y, 1.0);
+    let period = clamp(crt.scanline_period, 2.0, 12.0);
+    let wave = 0.5 + 0.5 * cos((y_px / period) * 2.0 * PI);
+    let scanline_dim = clamp(crt.scanline_intensity, 0.0, 0.18) * wave;
+
+    let centered = uv * 2.0 - vec2<f32>(1.0, 1.0);
+    let edge = smoothstep(0.25, 1.45, dot(centered, centered));
+    let vignette_dim = clamp(crt.vignette_strength, 0.0, 0.16) * edge;
+
+    return max(0.75, (1.0 - scanline_dim) * (1.0 - vignette_dim));
+}
 
 @fragment
 fn fs_composite_bloom(in: VsOut) -> @location(0) vec4<f32> {
     let scene = textureSample(source_tex, source_sampler, in.uv);
-    let glow = textureSample(bloom_tex, bloom_sampler, in.uv).rgb;
-    return vec4<f32>(scene.rgb + glow * bloom.intensity, scene.a);
+    var rgb = scene.rgb;
+    if bloom.intensity > 0.0 {
+        let glow = textureSample(bloom_tex, bloom_sampler, in.uv).rgb;
+        rgb += glow * bloom.intensity;
+    }
+    rgb *= crt_brightness(in.uv);
+    return vec4<f32>(rgb, scene.a);
 }

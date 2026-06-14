@@ -10,6 +10,26 @@ pub(crate) struct BloomOptions {
     pub(crate) radius: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct CrtOptions {
+    pub(crate) enabled: bool,
+    pub(crate) scanline_intensity: f32,
+    pub(crate) scanline_period: f32,
+    pub(crate) vignette_strength: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PostProcessOptions {
+    pub(crate) bloom: BloomOptions,
+    pub(crate) crt: CrtOptions,
+}
+
+impl PostProcessOptions {
+    pub(crate) fn active(self) -> bool {
+        self.bloom.enabled || self.crt.enabled
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct BloomUniform {
@@ -17,6 +37,15 @@ struct BloomUniform {
     intensity: f32,
     radius: f32,
     _pad: f32,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct CrtUniform {
+    enabled: f32,
+    scanline_intensity: f32,
+    scanline_period: f32,
+    vignette_strength: f32,
 }
 
 pub(in crate::native) struct PostProcessResources {
@@ -29,6 +58,7 @@ pub(in crate::native) struct PostProcessResources {
     sampler: wgpu::Sampler,
     linear_sampler: wgpu::Sampler,
     bloom_uniform: wgpu::Buffer,
+    crt_uniform: wgpu::Buffer,
     bright_pipeline: wgpu::RenderPipeline,
     blur_h_pipeline: wgpu::RenderPipeline,
     blur_v_pipeline: wgpu::RenderPipeline,
@@ -117,6 +147,16 @@ impl PostProcessResources {
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
+        let crt_uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("odytty-crt-uniform"),
+            contents: bytemuck::bytes_of(&CrtUniform {
+                enabled: 0.0,
+                scanline_intensity: 0.0,
+                scanline_period: 3.0,
+                vignette_strength: 0.0,
+            }),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
         let (offscreen, offscreen_view) = create_offscreen(device, config, offscreen_format);
         let (bright, bright_view) =
             create_half_res_texture(device, config, offscreen_format, "odytty-bloom-bright");
@@ -151,6 +191,7 @@ impl PostProcessResources {
             &sampler,
             &linear_sampler,
             &bloom_uniform,
+            &crt_uniform,
         );
         Self {
             offscreen_view,
@@ -162,6 +203,7 @@ impl PostProcessResources {
             sampler,
             linear_sampler,
             bloom_uniform,
+            crt_uniform,
             bright_pipeline,
             blur_h_pipeline,
             blur_v_pipeline,
@@ -197,47 +239,61 @@ impl PostProcessResources {
         self.rebuild_bloom_bind_groups(device);
     }
 
-    pub(in crate::native) fn encode_bloom(
+    pub(in crate::native) fn encode_post_process(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         queue: &wgpu::Queue,
         swapchain_view: &wgpu::TextureView,
-        options: BloomOptions,
+        options: PostProcessOptions,
     ) {
+        let bloom = options.bloom;
+        let crt = options.crt;
         queue.write_buffer(
             &self.bloom_uniform,
             0,
             bytemuck::bytes_of(&BloomUniform {
-                threshold: options.threshold,
-                intensity: options.intensity,
-                radius: options.radius,
+                threshold: bloom.threshold,
+                intensity: if bloom.enabled { bloom.intensity } else { 0.0 },
+                radius: bloom.radius,
                 _pad: 0.0,
             }),
         );
-        encode_fullscreen_pass(
-            encoder,
-            "odytty-bloom-bright-pass",
-            &self.bright_view,
-            &self.bright_pipeline,
-            &self.bright_bind_group,
+        queue.write_buffer(
+            &self.crt_uniform,
+            0,
+            bytemuck::bytes_of(&CrtUniform {
+                enabled: if crt.enabled { 1.0 } else { 0.0 },
+                scanline_intensity: crt.scanline_intensity,
+                scanline_period: crt.scanline_period,
+                vignette_strength: crt.vignette_strength,
+            }),
         );
+        if bloom.enabled {
+            encode_fullscreen_pass(
+                encoder,
+                "odytty-bloom-bright-pass",
+                &self.bright_view,
+                &self.bright_pipeline,
+                &self.bright_bind_group,
+            );
+            encode_fullscreen_pass(
+                encoder,
+                "odytty-bloom-blur-h-pass",
+                &self.ping_view,
+                &self.blur_h_pipeline,
+                &self.blur_h_bind_group,
+            );
+            encode_fullscreen_pass(
+                encoder,
+                "odytty-bloom-blur-v-pass",
+                &self.bright_view,
+                &self.blur_v_pipeline,
+                &self.blur_v_bind_group,
+            );
+        }
         encode_fullscreen_pass(
             encoder,
-            "odytty-bloom-blur-h-pass",
-            &self.ping_view,
-            &self.blur_h_pipeline,
-            &self.blur_h_bind_group,
-        );
-        encode_fullscreen_pass(
-            encoder,
-            "odytty-bloom-blur-v-pass",
-            &self.bright_view,
-            &self.blur_v_pipeline,
-            &self.blur_v_bind_group,
-        );
-        encode_fullscreen_pass(
-            encoder,
-            "odytty-bloom-composite-pass",
+            "odytty-post-composite-pass",
             swapchain_view,
             &self.bloom_composite_pipeline,
             &self.bloom_composite_bind_group,
@@ -274,6 +330,7 @@ impl PostProcessResources {
             &self.sampler,
             &self.linear_sampler,
             &self.bloom_uniform,
+            &self.crt_uniform,
         );
     }
 }
@@ -363,6 +420,7 @@ fn create_bloom_composite_bind_group_layout(device: &wgpu::Device) -> wgpu::Bind
             uniform_entry(2),
             texture_entry(3),
             sampler_entry(4),
+            uniform_entry(5),
         ],
     })
 }
@@ -445,17 +503,19 @@ fn create_bloom_composite_bind_group(
     bloom: &wgpu::TextureView,
     scene_sampler: &wgpu::Sampler,
     bloom_sampler: &wgpu::Sampler,
-    uniform: &wgpu::Buffer,
+    bloom_uniform: &wgpu::Buffer,
+    crt_uniform: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("odytty-bloom-composite-bg"),
+        label: Some("odytty-post-composite-bg"),
         layout,
         entries: &[
             bind_texture(0, scene),
             bind_sampler(1, scene_sampler),
-            bind_uniform(2, uniform),
+            bind_uniform(2, bloom_uniform),
             bind_texture(3, bloom),
             bind_sampler(4, bloom_sampler),
+            bind_uniform(5, crt_uniform),
         ],
     })
 }

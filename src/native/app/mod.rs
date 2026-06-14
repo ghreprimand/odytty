@@ -35,7 +35,7 @@ use super::clipboard::{
     NativeClipboard, read_clipboard_selection, selected_clipboard_text, write_clipboard_selection,
     write_paste_text,
 };
-use super::gpu::{BloomOptions, FrameOutcome, GpuState};
+use super::gpu::{BloomOptions, CrtOptions, FrameOutcome, GpuState};
 use super::options::{NativeError, NativeOptions};
 use super::overlay::{OverlayOutcome, OverlayUi, apply_overlay, overlay_input_from_winit};
 use super::pty::{PtyWriter, UserEvent};
@@ -897,6 +897,7 @@ impl App {
             gpu.set_visual(self.visual);
             gpu.set_text_gamma(self.settings.text_gamma);
             gpu.set_bloom(bloom_options(&self.settings));
+            gpu.set_crt(crt_options(&self.settings));
         }
 
         if text_rebuilt {
@@ -1042,6 +1043,7 @@ impl ApplicationHandler<UserEvent> for App {
             self.visual,
             self.settings.stem_darken,
             bloom_options(&self.settings),
+            crt_options(&self.settings),
         ) {
             Ok(gpu) => {
                 // Push live cell pixel metrics to the terminal core so graphics
@@ -1517,6 +1519,15 @@ fn bloom_options(settings: &Settings) -> BloomOptions {
         threshold: settings.bloom_threshold,
         intensity: settings.bloom_intensity,
         radius: settings.bloom_radius,
+    }
+}
+
+fn crt_options(settings: &Settings) -> CrtOptions {
+    CrtOptions {
+        enabled: settings.crt,
+        scanline_intensity: settings.crt_scanline_intensity,
+        scanline_period: settings.crt_scanline_period,
+        vignette_strength: settings.crt_vignette_strength,
     }
 }
 

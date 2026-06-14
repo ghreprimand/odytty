@@ -46,6 +46,19 @@ pub fn show_config_output(settings: &Settings) -> String {
         ("bloom_intensity", float_value(settings.bloom_intensity)),
         ("bloom_radius", float_value(settings.bloom_radius)),
         ("bloom_threshold", float_value(settings.bloom_threshold)),
+        ("crt", bool_value(settings.crt).to_owned()),
+        (
+            "crt_scanline_intensity",
+            float_value(settings.crt_scanline_intensity),
+        ),
+        (
+            "crt_scanline_period",
+            float_value(settings.crt_scanline_period),
+        ),
+        (
+            "crt_vignette_strength",
+            float_value(settings.crt_vignette_strength),
+        ),
         ("cursor_blink", settings.cursor_blink.as_str().to_owned()),
         (
             "cursor_style",
