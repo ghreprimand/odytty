@@ -135,8 +135,8 @@ hard rules:
 | Tier | Label | Examples | Status |
 |------|-------|---------|--------|
 | 1 | Readability-first | RV1 contrast floor, RV2 geometric box-drawing, RV3 perceptual pipeline, RV5 stem darkening, RV6 symbol fallback | Delivered (RV1–RV3, RV5–RV6); RV4 smooth-scroll open |
-| 2 | Identity and depth | ID1 themed cursor/selection/search, ID2 focus dimming, ID3 backgrounds, ID4 chrome/padding | ID1-a delivered; ID1–ID4 open |
-| 3 | Atmospheric (opt-in) | VE1 post-process pipeline, VE2 bloom/glow, VE3 CRT profile, VE4 motion, VE5 GPU quality | Open — requires post-process pipeline |
+| 2 | Identity and depth | ID1 themed cursor/selection/search, ID2 focus dimming, ID3 backgrounds, ID4 chrome/padding | ID1-a, ID2 delivered; ID3–ID4 open |
+| 3 | Atmospheric (opt-in) | VE1 post-process pipeline, VE2 bloom/glow, VE3 CRT profile, VE4 motion, VE5 GPU quality | VE1, VE2, VE3-a delivered; VE4 motion open |
 
 See `docs/visual-architecture.md` for the full tier breakdown and source
 references.

@@ -234,7 +234,8 @@ default-off / focused frames byte-identical.
   (`symbol_fallback`) is wired into the atlas, and stem darkening
   (`ODYTTY_STEM_DARKEN`) is available — all default off / passthrough.)
 - **Atmospheric effects (opt-in)** — bloom/phosphor glow, CRT/retro profile,
-  subtle cursor motion; all off by default, perf- and readability-gated.
+  subtle cursor motion; all off by default, perf- and readability-gated. See
+  [`docs/effects.md`](docs/effects.md) for settings and how to enable them.
 - **Ligature / stylistic-set shaping** (strategy decided, implementation
   deferred).
 - **Shell integration** — native working-directory consumer (OSC 7 core
@@ -318,7 +319,8 @@ and `quick` (smoke); see [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
 - [`docs/runtime-knobs.md`](docs/runtime-knobs.md) — all settings and launch examples.
 - [`docs/themes.md`](docs/themes.md) — theme file format, built-ins, and user theme directory.
 - [`docs/odytty.conf.example`](docs/odytty.conf.example) — annotated example config file.
+- [`docs/effects.md`](docs/effects.md) — visual effects guide (bloom, CRT profile, plain/fast mode).
 - [`docs/graphics.md`](docs/graphics.md) — Kitty and Sixel protocol reference.
-- [`docs/visual-architecture.md`](docs/visual-architecture.md) — renderer pipeline and planned visual-enhancement direction.
+- [`docs/visual-architecture.md`](docs/visual-architecture.md) — renderer pipeline and visual-enhancement direction.
 - [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) — staged roadmap.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — change, commit, and safety conventions.
