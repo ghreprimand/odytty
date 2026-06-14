@@ -433,9 +433,13 @@ its first stable layer.
     active in the render path, and OKLab / OKLCH dim/fade/mix helpers
     (`dim_perceptual`, `mix_oklab`) are in place so equal numeric steps can
     produce equal perceived steps. These back the minimum-contrast lift below,
-    and the live SGR dim/faint text path now dims through `dim_perceptual`
-    (OKLab, hue-preserving), calibrated to match the prior linear-space
-    halving's perceived brightness.
+    and the live SGR dim/faint text path dims through `dim_perceptual`
+    (OKLab, hue-preserving). Honest note: `dim_perceptual` applies a *uniform*
+    OKLab scale, which reduces algebraically to a uniform linear-RGB scale
+    (`(1-amount)^3 * rgb`) — so for the uniform-dim case it is output-identical
+    to naive per-channel halving (both preserve hue). The perceptual pipeline's
+    payoff is in the *non-uniform* fade/mix paths, not uniform dim; a test pins
+    this equivalence so the claim cannot silently drift.
   - **Minimum-contrast floor** (`ODYTTY_MIN_CONTRAST`, `min_contrast`): a
     configurable WCAG contrast ratio floor between foreground and background,
     applied at render time. Default `1.0` is exact passthrough (no lift); higher

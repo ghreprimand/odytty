@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- settings module split, grid resolve-closure coverage, RV3 dim honesty
+
+- `settings.rs` reached the 2000-line cap, so its metadata was split into a
+  `settings/` submodule tree with the public API preserved by re-export:
+  constants/defaults/bounds to `settings/consts.rs`, help strings to
+  `settings/descriptions.rs`, `SettingKind`/`SettingInfo` + the info builder to
+  `settings/info.rs`. `settings.rs` drops 1999 -> 1421 lines; every new file is
+  well under the cap, zero behavior change (settings tests green). This unblocks
+  the next round of settings-adding visual features (VE5 quality knobs, VE4
+  motion, RV4 scroll).
+- The orphaned `src/shaders/composite.wgsl` (dead since the composite pass was
+  repointed to `bloom.wgsl`) was removed, and the passthrough coverage in
+  `gpu_composite_smoke` was repointed onto the live `fs_composite_bloom` path
+  (bloom intensity 0, CRT off) so it exercises the real shader.
+- Deepened lib coverage of the grid resolve closure -- the load-bearing
+  SGR-dim -> focus-dim -> contrast-floor color path (grid:: 31 -> 34). New tests
+  pin the load-bearing ordering (the floor must run after both dims, proven by
+  showing the swapped order falls below the floor), the focus-dim recede of both
+  foreground and background with hue preserved, and the contrast floor applying
+  at both resolve sites (body glyph + cursor-block under-glyph) after both dims.
+- RV3 dim honesty: a new test established that `dim_perceptual(c, amount)`
+  equals `(1-amount)^3 * c` exactly -- a uniform OKLab scale commutes through the
+  cube-root to a uniform linear-RGB scale. So the live SGR-dim path is
+  output-identical to the prior per-channel halving (both hue-preserving); the
+  perceptual pipeline's benefit is in the non-uniform fade/mix paths, not
+  uniform dim. SPEC and the `color.rs` doc are corrected to state this, and the
+  test pins the equivalence so it cannot drift. RV3 stays delivered (the
+  perceptual pipeline is live); only an over-strong superiority claim about
+  uniform dim was walked back.
+- Docs: README test narrative reconciled (1129 -> 1132 total, 1035 lib);
+  `docs/effects.md` cross-linked from README; CONTRIBUTING tier-2/tier-3 status
+  brought current (ID2 + VE1/VE2/VE3-a marked delivered).
+- Verified on the combined tree: `cargo fmt --check` clean, `git diff --check`
+  clean, 1132 tests / 0 failed, pixel-smoke 34, native smokes (default +
+  `ODYTTY_BLOOM=1` + `ODYTTY_CRT=1`) exit 0, no machine paths or secrets in the
+  push diff. Fuzz skipped (no parser/core changes).
+
+---
+
 ## 2026-06-13 -- VE3-a: CRT / retro profile (bounded scanlines + vignette)
 
 - The first CRT treatment lands on the now-stable VE1/VE2 post-process chain:
