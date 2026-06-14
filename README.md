@@ -1,5 +1,7 @@
 # OdyTTY
 
+**Website:** [odytty.unfinished-works.com](https://odytty.unfinished-works.com)
+
 OdyTTY is a custom Rust terminal emulator built from the ground up for
 OdysseyOS. Every byte from the PTY to the rendered glyph passes through
 OdyTTY-owned code — the PTY layer, escape-sequence parser, terminal model,
@@ -315,6 +317,7 @@ and `quick` (smoke); see [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
 
 ## Project docs
 
+- [odytty.unfinished-works.com](https://odytty.unfinished-works.com) — the OdyTTY website.
 - [`DEVLOG.md`](DEVLOG.md) — running record of what has landed.
 - [`TODO.md`](TODO.md) — milestone checklist.
 - [`SPEC.md`](SPEC.md) — durable product and architecture decisions.

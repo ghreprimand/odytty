@@ -3,6 +3,9 @@ name = "odytty"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-only"
+description = "A from-scratch, GPU-rendered Rust terminal emulator with an Odyssey visual identity."
+homepage = "https://odytty.unfinished-works.com"
+repository = "https://github.com/ghreprimand/odytty"
 
 [dependencies]
 ab_glyph = "0.2.32"

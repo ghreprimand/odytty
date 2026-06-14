@@ -7,6 +7,17 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-14 -- docs: link the OdyTTY website
+
+- Added the project website (`odytty.unfinished-works.com`) to the public-facing
+  metadata. `README.md` now carries it as a prominent link under the title and as
+  an entry in the Project docs list. `Cargo.toml` gained the standard `homepage`
+  (the website), `repository` (the public GitHub), and `description` package
+  fields, so the website surfaces in tooling that reads crate metadata. Docs /
+  metadata only; no code change, no dependency change (Cargo.lock untouched).
+
+---
+
 ## 2026-06-14 -- roadmap: capture a first-class "mouse & pointer excellence" track
 
 - Recorded the remaining mouse/pointer work as an explicit group in
