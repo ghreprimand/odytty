@@ -251,7 +251,7 @@ default-off / focused frames byte-identical.
 
 ## Testing
 
-**Testing.** 1139 tests passing: 1042 unit/integration, 12 mouse-protocol
+**Testing.** 1140 tests passing: 1042 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -290,7 +290,9 @@ off path exact and dims lit cells only within the capped scanline/vignette band
 without zeroing them; adapter-gated), and 3 stem-raster smoke (proving RV5 stem-darkening is wired
 through the live glyph-atlas raster: the default-on boost raises midtone
 coverage monotonically with the `0`/`255` endpoints pinned, and the `0.0`
-opt-out restores the classic raster byte-for-byte). Deep fuzz
+opt-out restores the classic raster byte-for-byte), and 1 license-header
+guard (asserting every tracked Rust and WGSL source file carries the
+`SPDX-License-Identifier: GPL-3.0-only` tag on its first line). Deep fuzz
 tiers are `#[ignore]`-gated and run via
 `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
 EM2 added three hermetic emoji-probe tests (fixed representative-sequence list,

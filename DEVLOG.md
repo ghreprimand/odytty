@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-13 -- project licensed under GPL-3.0-only (LICENSE + SPDX + DCO)
+
+- OdyTTY now carries a formal license: the **GNU General Public License v3.0
+  only** (GPL-3.0-only). A verbatim canonical `LICENSE` (674 lines, the
+  unmodified FSF text) lands at the repo root, and `Cargo.toml` declares
+  `license = "GPL-3.0-only"`. Strong copyleft: anyone may use, study, fork, and
+  modify OdyTTY, and anyone distributing a modified version must release their
+  changes under the same license — so the project stays open and cannot be taken
+  proprietary.
+- Every Rust and WGSL source file (144 targets across `src/` and `tests/`) now
+  begins with an `// SPDX-License-Identifier: GPL-3.0-only` header, and a new
+  `tests/license_headers.rs` guard fails the test suite if any tracked source or
+  shader file is missing the line — so coverage cannot silently rot as new files
+  land. The full copyright notice lives in `LICENSE`; per-file headers stay to
+  the single SPDX tag.
+- Contributions are accepted under the **Developer Certificate of Origin (DCO)**
+  rather than a CLA: contributors sign off commits with `git commit -s`
+  (`Signed-off-by:`) to certify provenance, and retain copyright on their own
+  contributions. The README gains a License section and the copyright line
+  `Copyright (C) 2025 The OdyTTY Authors`; CONTRIBUTING gains a DCO section with
+  the verbatim DCO 1.1 text.
+- Dependency-license audit (full transitive tree via `cargo metadata`): every
+  dependency is permissive or GPL-3.0-compatible (MIT / Apache-2.0 / BSD / Zlib /
+  ISC / Unlicense / BSL-1.0 / Unicode-3.0; Apache-2.0 is one-way compatible into
+  GPLv3). No CDDL / EPL / proprietary / GPL-2.0-only / missing-license blockers.
+- Verified on the combined tree: `cargo fmt --check` clean (SPDX comments don't
+  disturb formatting), `cargo build` clean (SPDX line above crate inner
+  attributes still compiles), 1140 tests / 0 failed including the new license
+  guard, native default smoke exits 0, `git diff --check` clean, no machine paths
+  or secrets in the diff. LICENSE independently structure-checked (18 numbered
+  sections 0-17, Preamble, Terms, "How to Apply" appendix, FSF copyright line).
+
+---
+
 ## 2026-06-13 -- keybinding hotfix, VE5 render-quality plain bypass, grid test-split
 
 - Keybinding hotfix: the settings-panel shortcut (Ctrl+Shift+,) never fired
