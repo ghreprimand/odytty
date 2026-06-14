@@ -324,3 +324,19 @@ and `quick` (smoke); see [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
 - [`docs/visual-architecture.md`](docs/visual-architecture.md) — renderer pipeline and visual-enhancement direction.
 - [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) — staged roadmap.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — change, commit, and safety conventions.
+
+---
+
+## License
+
+OdyTTY is licensed under the **GNU General Public License v3.0 only**
+(GPL-3.0-only). See the [`LICENSE`](LICENSE) file for the full text.
+
+You are free to use, study, share, and modify OdyTTY. If you distribute a
+modified version, you must release your changes under the same license (strong
+copyleft).
+
+Copyright (C) 2025 The OdyTTY Authors.
+
+**Contributing:** contributions are welcome under the Developer Certificate of
+Origin (DCO) — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
