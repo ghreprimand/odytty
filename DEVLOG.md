@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-14 -- roadmap: capture a first-class "mouse & pointer excellence" track
+
+- Recorded the remaining mouse/pointer work as an explicit group in
+  `docs/full-build-roadmap.md` (Track 6) so it is a tracked, first-class concern
+  rather than a single vague line. Documented what already ships — click-drag
+  selection, double-click word, triple-click line, drag-autoscroll while
+  selecting (drag into the top/bottom edge and the viewport keeps scrolling so
+  the selection follows), copy-from-selection, middle-click primary-selection
+  paste, wheel scrolling, the full TUI mouse-reporting matrix including
+  pixel-precise reporting, and hyperlink hover + modifier-click to open — and
+  captured the gaps: right-click context menu, selection extend (Shift-click and
+  double/triple-click-drag), rectangular/block selection, velocity-proportional
+  drag-autoscroll, optional copy-on-select, a draggable scrollbar thumb, and
+  configurable wheel behavior incl. modifier-wheel font zoom. Each is opt-in or
+  configurable and must not disturb an application's own mouse handling. Docs
+  only; no code change.
+
+---
+
 ## 2026-06-14 -- subpixel color-fringing fix (FX-SUBPIXEL): energy-conserving LCD filter
 
 - Fixed the red/blue color fringing on subpixel-rendered text. Subpixel mode

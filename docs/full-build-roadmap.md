@@ -243,8 +243,37 @@ gap to close and unlocks the most downstream value.
 
 Mostly small, independent ergonomic wins, all overlay-configured.
 
-- **Later — Right-click context menu** (copy / paste / select-all) plus richer
-  mouse selection and copy/paste.
+### Mouse & pointer excellence
+
+OdyTTY should feel great with a mouse, not only the keyboard. A strong base
+already ships: click-drag selection, double-click word and triple-click line
+selection, drag-autoscroll while selecting (drag into the top or bottom edge and
+the viewport keeps scrolling so the selection follows), copy-from-selection,
+middle-click primary-selection paste, mouse-wheel scrolling, the full set of TUI
+mouse-reporting modes (including pixel-precise reporting), and hyperlink hover
+with modifier-click to open. The remaining work makes pointer use first-class.
+Each behavior change is opt-in or configurable and never disturbs an application's
+own mouse handling.
+
+- **Later — Right-click context menu** (copy / paste / select-all).
+- **Later — Extend an existing selection.** Shift-click extends to the click
+  point; double-click-then-drag extends by whole words; triple-click-then-drag
+  extends by whole lines.
+- **Later — Rectangular / block selection.** Hold a modifier and drag to select
+  a column region instead of wrapped lines.
+- **Later — Velocity-proportional drag-autoscroll.** The further past the edge
+  you drag, the faster scrollback advances (today it advances at a fixed rate).
+- **Later — Optional copy-on-select** to the clipboard (off by default; the
+  primary-selection path already works regardless).
+- **Later — Draggable scrollbar thumb.** Grab the scroll indicator and scrub
+  through scrollback (today it only shows position).
+- **Later — Configurable wheel behavior.** Adjustable scroll speed / line
+  multiplier, plus modifier-wheel to change font size.
+- (See also: click-to-position-cursor in Track 5, and the mouse-driven settings
+  panel in Track 1.)
+
+### Other ergonomics
+
 - **Later — Keyboard pattern-select / quick-select.** Label on-screen URLs,
   paths, and hashes for keyboard selection and copy.
 - **Later — Copy mode.** Vim-key keyboard selection of scrollback — standalone,
