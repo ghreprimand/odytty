@@ -1,0 +1,421 @@
+use super::gpu::{
+    BloomOptions, ViewportUniform, choose_surface_format, create_atlas_bind_group,
+    create_cell_pipeline, create_color_atlas_bind_group, create_color_glyph_pipeline,
+    physical_font_px, post, scene_target_format,
+};
+use crate::grid::{ColorGlyphVertex, Vertex};
+use crate::text::SubpixelMode;
+use wgpu::util::DeviceExt;
+
+const TEST_SURFACE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+/// At 1x scale the physical size equals the logical font size exactly:
+/// today's non-HiDPI output is unchanged.
+#[test]
+fn physical_px_is_identity_at_unit_scale() {
+    assert_eq!(physical_font_px(16.0, 1.0), 16.0);
+    assert_eq!(physical_font_px(24.0, 1.0), 24.0);
+}
+
+/// Integer and common fractional scales fold deterministically with no
+/// rounding inside the fold (the atlas does its own integer cell rounding).
+#[test]
+fn physical_px_folds_fractional_scales() {
+    assert_eq!(physical_font_px(16.0, 1.25), 20.0);
+    assert_eq!(physical_font_px(16.0, 1.5), 24.0);
+    assert_eq!(physical_font_px(16.0, 2.0), 32.0);
+}
+
+/// The fold is monotonic non-decreasing in scale: a larger scale never yields a
+/// smaller physical size, so density tracks the display.
+#[test]
+fn physical_px_is_monotonic_in_scale() {
+    let mut prev = 0.0f32;
+    for &scale in &[1.0f32, 1.25, 1.5, 1.75, 2.0, 3.0] {
+        let px = physical_font_px(16.0, scale);
+        assert!(px >= prev, "px {px} should be >= previous {prev}");
+        prev = px;
+    }
+}
+
+/// Sub-1.0 scales are clamped to 1x: glyphs are never rasterized below their
+/// logical size. This is the documented HiDPI sub-1.0 clamp (H1).
+#[test]
+fn physical_px_clamps_sub_unit_scale() {
+    assert_eq!(physical_font_px(16.0, 0.5), 16.0);
+    assert_eq!(physical_font_px(16.0, 0.0), 16.0);
+    assert_eq!(physical_font_px(16.0, -2.0), 16.0);
+}
+
+/// A degenerate logical size still yields a usable (>= 1 px) atlas size.
+#[test]
+fn physical_px_floors_at_one() {
+    assert!(physical_font_px(0.0, 1.0) >= 1.0);
+    assert!(physical_font_px(0.5, 1.0) >= 1.0);
+}
+
+#[test]
+fn surface_format_prefers_srgb() {
+    let formats = [
+        wgpu::TextureFormat::Bgra8Unorm,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+    ];
+
+    assert_eq!(
+        choose_surface_format(&formats),
+        (wgpu::TextureFormat::Rgba8UnormSrgb, true)
+    );
+}
+
+#[test]
+fn surface_format_falls_back_to_first_non_srgb() {
+    let formats = [
+        wgpu::TextureFormat::Bgra8Unorm,
+        wgpu::TextureFormat::Rgba8Unorm,
+    ];
+
+    assert_eq!(
+        choose_surface_format(&formats),
+        (wgpu::TextureFormat::Bgra8Unorm, false)
+    );
+}
+
+#[test]
+fn scene_target_format_tracks_post_activation() {
+    let disabled = BloomOptions {
+        enabled: false,
+        threshold: 0.4,
+        intensity: 0.4,
+        radius: 3.0,
+    };
+    let enabled = BloomOptions {
+        enabled: true,
+        ..disabled
+    };
+
+    assert_eq!(
+        scene_target_format(TEST_SURFACE_FORMAT, Some(post::HDR_FORMAT), disabled),
+        TEST_SURFACE_FORMAT
+    );
+    assert_eq!(
+        scene_target_format(TEST_SURFACE_FORMAT, Some(post::HDR_FORMAT), enabled),
+        post::HDR_FORMAT
+    );
+    assert_eq!(
+        scene_target_format(TEST_SURFACE_FORMAT, None, enabled),
+        TEST_SURFACE_FORMAT
+    );
+}
+
+#[test]
+fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
+    let Some((device, queue)) = test_device_with_hdr() else {
+        eprintln!("skipping: no HDR-capable GPU adapter available");
+        return;
+    };
+    let config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format: TEST_SURFACE_FORMAT,
+        width: 16,
+        height: 12,
+        present_mode: wgpu::PresentMode::Fifo,
+        alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+        view_formats: vec![],
+        desired_maximum_frame_latency: 2,
+    };
+    let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("odytty-test-viewport"),
+        contents: bytemuck::bytes_of(&ViewportUniform {
+            size: [config.width as f32, config.height as f32],
+            effect: [0.0, 1.0],
+            text: [1.0, 0.0, 0.0, 0.0],
+        }),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let atlas = single_pixel_texture(
+        &device,
+        &queue,
+        "odytty-test-atlas",
+        wgpu::TextureFormat::R8Unorm,
+        &[255],
+    );
+    let atlas_sampler = nearest_sampler(&device, "odytty-test-atlas-sampler");
+    let bind_group_layout = cell_bind_group_layout(&device);
+    let bind_group = create_atlas_bind_group(
+        &device,
+        &bind_group_layout,
+        &viewport_buf,
+        &atlas,
+        &atlas_sampler,
+    );
+    let color_atlas = single_pixel_texture(
+        &device,
+        &queue,
+        "odytty-test-color-atlas",
+        wgpu::TextureFormat::Rgba8Unorm,
+        &[255, 255, 255, 255],
+    );
+    let color_sampler = nearest_sampler(&device, "odytty-test-color-sampler");
+    let color_bind_group_layout = color_glyph_bind_group_layout(&device);
+    let color_bind_group = create_color_atlas_bind_group(
+        &device,
+        &color_bind_group_layout,
+        &viewport_buf,
+        &color_atlas,
+        &color_sampler,
+    );
+    let cell_pipeline = create_cell_pipeline(
+        &device,
+        post::HDR_FORMAT,
+        &bind_group_layout,
+        SubpixelMode::Off,
+    );
+    let color_pipeline =
+        create_color_glyph_pipeline(&device, post::HDR_FORMAT, &color_bind_group_layout);
+    let cell_vertices = quad_vertices([0.0, 0.0, 8.0, 8.0], [0.8, 0.8, 0.8, 1.0], 0.0);
+    let cell_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("odytty-test-cell-vertices"),
+        contents: bytemuck::cast_slice(&cell_vertices),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let color_vertices = color_quad_vertices([8.0, 4.0, 12.0, 8.0]);
+    let color_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("odytty-test-color-vertices"),
+        contents: bytemuck::cast_slice(&color_vertices),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let post_process = post::PostProcessResources::new(&device, &config, post::HDR_FORMAT);
+    let output = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("odytty-test-bloom-output"),
+        size: wgpu::Extent3d {
+            width: config.width,
+            height: config.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TEST_SURFACE_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let output_view = output.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("odytty-test-bloom-scene-encoder"),
+    });
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("odytty-test-bloom-scene-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &post_process.offscreen_view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(&cell_pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_vertex_buffer(0, cell_buf.slice(..));
+        pass.draw(0..cell_vertices.len() as u32, 0..1);
+        pass.set_pipeline(&color_pipeline);
+        pass.set_bind_group(0, &color_bind_group, &[]);
+        pass.set_vertex_buffer(0, color_buf.slice(..));
+        pass.draw(0..color_vertices.len() as u32, 0..1);
+    }
+    post_process.encode_bloom(
+        &mut encoder,
+        &queue,
+        &output_view,
+        BloomOptions {
+            enabled: true,
+            threshold: 0.4,
+            intensity: 0.4,
+            radius: 3.0,
+        },
+    );
+    queue.submit(std::iter::once(encoder.finish()));
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("device poll");
+}
+
+fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        force_fallback_adapter: false,
+        compatible_surface: None,
+    }))
+    .ok()?;
+    if post::supported_format(&adapter).is_none() {
+        return None;
+    }
+    pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("odytty-test-device"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(),
+        experimental_features: wgpu::ExperimentalFeatures::disabled(),
+        memory_hints: wgpu::MemoryHints::default(),
+        trace: wgpu::Trace::Off,
+    }))
+    .ok()
+}
+
+fn single_pixel_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    label: &'static str,
+    format: wgpu::TextureFormat,
+    bytes: &[u8],
+) -> wgpu::Texture {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        bytes,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(bytes.len() as u32),
+            rows_per_image: Some(1),
+        },
+        wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+    );
+    texture
+}
+
+fn nearest_sampler(device: &wgpu::Device, label: &'static str) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some(label),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        ..Default::default()
+    })
+}
+
+fn cell_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("odytty-test-cell-bgl"),
+        entries: &[
+            viewport_entry(0, wgpu::ShaderStages::VERTEX_FRAGMENT),
+            texture_entry(1, wgpu::TextureSampleType::Float { filterable: true }),
+            sampler_entry(2),
+        ],
+    })
+}
+
+fn color_glyph_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("odytty-test-color-glyph-bgl"),
+        entries: &[
+            viewport_entry(0, wgpu::ShaderStages::VERTEX),
+            texture_entry(1, wgpu::TextureSampleType::Float { filterable: true }),
+            sampler_entry(2),
+        ],
+    })
+}
+
+fn viewport_entry(binding: u32, visibility: wgpu::ShaderStages) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+fn texture_entry(binding: u32, sample_type: wgpu::TextureSampleType) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type,
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
+fn sampler_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+        count: None,
+    }
+}
+
+fn quad_vertices(rect: [f32; 4], color: [f32; 4], is_glyph: f32) -> [Vertex; 6] {
+    let [x0, y0, x1, y1] = rect;
+    [
+        vertex([x0, y0], [0.0, 0.0], color, is_glyph),
+        vertex([x0, y1], [0.0, 1.0], color, is_glyph),
+        vertex([x1, y0], [1.0, 0.0], color, is_glyph),
+        vertex([x1, y0], [1.0, 0.0], color, is_glyph),
+        vertex([x0, y1], [0.0, 1.0], color, is_glyph),
+        vertex([x1, y1], [1.0, 1.0], color, is_glyph),
+    ]
+}
+
+fn vertex(pos: [f32; 2], uv: [f32; 2], color: [f32; 4], is_glyph: f32) -> Vertex {
+    Vertex {
+        pos,
+        uv,
+        color,
+        is_glyph,
+        _pad: [0.0; 3],
+    }
+}
+
+fn color_quad_vertices(rect: [f32; 4]) -> [ColorGlyphVertex; 6] {
+    let [x0, y0, x1, y1] = rect;
+    [
+        color_vertex([x0, y0], [0.0, 0.0]),
+        color_vertex([x0, y1], [0.0, 1.0]),
+        color_vertex([x1, y0], [1.0, 0.0]),
+        color_vertex([x1, y0], [1.0, 0.0]),
+        color_vertex([x0, y1], [0.0, 1.0]),
+        color_vertex([x1, y1], [1.0, 1.0]),
+    ]
+}
+
+fn color_vertex(pos: [f32; 2], uv: [f32; 2]) -> ColorGlyphVertex {
+    ColorGlyphVertex { pos, uv }
+}

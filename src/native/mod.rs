@@ -65,6 +65,8 @@ mod theme_picker;
 mod viewport;
 
 #[cfg(test)]
+mod gpu_tests;
+#[cfg(test)]
 mod image_layer_tests;
 #[cfg(test)]
 mod tests;

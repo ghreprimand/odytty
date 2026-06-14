@@ -1,6 +1,6 @@
 use wgpu::util::DeviceExt;
 
-pub(super) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+pub(in crate::native) const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct BloomOptions {
@@ -19,8 +19,8 @@ struct BloomUniform {
     _pad: f32,
 }
 
-pub(super) struct PostProcessResources {
-    pub(super) offscreen_view: wgpu::TextureView,
+pub(in crate::native) struct PostProcessResources {
+    pub(in crate::native) offscreen_view: wgpu::TextureView,
     offscreen: wgpu::Texture,
     bright: wgpu::Texture,
     bright_view: wgpu::TextureView,
@@ -43,7 +43,7 @@ pub(super) struct PostProcessResources {
 }
 
 impl PostProcessResources {
-    pub(super) fn new(
+    pub(in crate::native) fn new(
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
         offscreen_format: wgpu::TextureFormat,
@@ -197,7 +197,7 @@ impl PostProcessResources {
         self.rebuild_bloom_bind_groups(device);
     }
 
-    pub(super) fn encode_bloom(
+    pub(in crate::native) fn encode_bloom(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         queue: &wgpu::Queue,
@@ -278,7 +278,7 @@ impl PostProcessResources {
     }
 }
 
-pub(super) fn supported_format(adapter: &wgpu::Adapter) -> Option<wgpu::TextureFormat> {
+pub(in crate::native) fn supported_format(adapter: &wgpu::Adapter) -> Option<wgpu::TextureFormat> {
     let features = adapter.get_texture_format_features(HDR_FORMAT);
     let required_usages =
         wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;

@@ -169,6 +169,7 @@ struct ImageDraw {
 
 pub(super) struct ImageLayer {
     pipeline: wgpu::RenderPipeline,
+    target_format: wgpu::TextureFormat,
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     textures: HashMap<StoredImageId, CachedImage>,
@@ -179,7 +180,7 @@ pub(super) struct ImageLayer {
 }
 
 impl ImageLayer {
-    pub(super) fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat) -> Self {
+    pub(super) fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("odytty-image-bgl"),
             entries: &[
@@ -223,58 +224,14 @@ impl ImageLayer {
             ..Default::default()
         });
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("odytty-image-shader"),
-            source: wgpu::ShaderSource::Wgsl(IMAGE_SHADER.into()),
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("odytty-image-pl"),
-            bind_group_layouts: &[Some(&bind_group_layout)],
-            immediate_size: 0,
-        });
-        let vertex_attrs = wgpu::vertex_attr_array![
-            0 => Float32x2, // pos_px
-            1 => Float32x2, // uv
-        ];
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("odytty-image-pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<ImageVertex>() as wgpu::BufferAddress,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &vertex_attrs,
-                }],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: surface_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let pipeline = create_image_pipeline(device, target_format, &bind_group_layout);
 
         let vertex_capacity_bytes = std::mem::size_of::<ImageVertex>() as u64;
         let vertex_buf = create_vertex_buffer(device, vertex_capacity_bytes);
 
         Self {
             pipeline,
+            target_format,
             bind_group_layout,
             sampler,
             textures: HashMap::new(),
@@ -283,6 +240,18 @@ impl ImageLayer {
             vertices: Vec::new(),
             draws: Vec::new(),
         }
+    }
+
+    pub(super) fn rebuild_pipeline(
+        &mut self,
+        device: &wgpu::Device,
+        target_format: wgpu::TextureFormat,
+    ) {
+        if self.target_format == target_format {
+            return;
+        }
+        self.pipeline = create_image_pipeline(device, target_format, &self.bind_group_layout);
+        self.target_format = target_format;
     }
 
     pub(super) fn cached_ids(&self) -> BTreeSet<StoredImageId> {
@@ -410,6 +379,59 @@ impl ImageLayer {
             );
         }
     }
+}
+
+fn create_image_pipeline(
+    device: &wgpu::Device,
+    target_format: wgpu::TextureFormat,
+    bind_group_layout: &wgpu::BindGroupLayout,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("odytty-image-shader"),
+        source: wgpu::ShaderSource::Wgsl(IMAGE_SHADER.into()),
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("odytty-image-pl"),
+        bind_group_layouts: &[Some(bind_group_layout)],
+        immediate_size: 0,
+    });
+    let vertex_attrs = wgpu::vertex_attr_array![
+        0 => Float32x2, // pos_px
+        1 => Float32x2, // uv
+    ];
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("odytty-image-pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<ImageVertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &vertex_attrs,
+            }],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: target_format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
 }
 
 fn create_vertex_buffer(device: &wgpu::Device, capacity_bytes: u64) -> wgpu::Buffer {

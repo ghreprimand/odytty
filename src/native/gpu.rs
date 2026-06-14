@@ -18,7 +18,7 @@ use winit::window::Window;
 use super::image_layer::{ImageLayer, ImageUpload};
 use super::options::{NativeError, NativeOptions};
 
-mod post;
+pub(super) mod post;
 
 pub(super) use post::BloomOptions;
 use post::PostProcessResources;
@@ -46,7 +46,9 @@ pub(super) fn text_params(text_gamma: f32) -> [f32; 4] {
     [text_gamma, 0.0, 0.0, 0.0]
 }
 
-fn choose_surface_format(formats: &[wgpu::TextureFormat]) -> (wgpu::TextureFormat, bool) {
+pub(super) fn choose_surface_format(
+    formats: &[wgpu::TextureFormat],
+) -> (wgpu::TextureFormat, bool) {
     let format = formats
         .iter()
         .copied()
@@ -62,9 +64,9 @@ fn choose_surface_format(formats: &[wgpu::TextureFormat]) -> (wgpu::TextureForma
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct ViewportUniform {
-    size: [f32; 2],
-    effect: [f32; 2],
-    text: [f32; 4],
+    pub(in crate::native) size: [f32; 2],
+    pub(in crate::native) effect: [f32; 2],
+    pub(in crate::native) text: [f32; 4],
 }
 
 fn create_atlas_texture(
@@ -209,7 +211,19 @@ pub(super) fn blend_state_for_color_glyphs() -> wgpu::BlendState {
     }
 }
 
-fn create_atlas_bind_group(
+pub(super) fn scene_target_format(
+    surface_format: wgpu::TextureFormat,
+    post_process_format: Option<wgpu::TextureFormat>,
+    bloom: BloomOptions,
+) -> wgpu::TextureFormat {
+    if bloom.enabled {
+        post_process_format.unwrap_or(surface_format)
+    } else {
+        surface_format
+    }
+}
+
+pub(super) fn create_atlas_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     viewport_buf: &wgpu::Buffer,
@@ -237,7 +251,7 @@ fn create_atlas_bind_group(
     })
 }
 
-fn create_color_atlas_bind_group(
+pub(super) fn create_color_atlas_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
     viewport_buf: &wgpu::Buffer,
@@ -485,7 +499,7 @@ fn create_color_glyph_vertex_buffer(device: &wgpu::Device, capacity_bytes: u64) 
     })
 }
 
-fn create_cell_pipeline(
+pub(super) fn create_cell_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
     bind_group_layout: &wgpu::BindGroupLayout,
@@ -553,7 +567,7 @@ fn create_cell_pipeline(
     })
 }
 
-fn create_color_glyph_pipeline(
+pub(super) fn create_color_glyph_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
     bind_group_layout: &wgpu::BindGroupLayout,
@@ -614,6 +628,7 @@ pub(super) struct GpuState {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     color_glyph_pipeline: wgpu::RenderPipeline,
+    scene_target_format: wgpu::TextureFormat,
     post_process_format: Option<wgpu::TextureFormat>,
     post_process: Option<PostProcessResources>,
     bloom: BloomOptions,
@@ -921,12 +936,17 @@ impl GpuState {
             &color_glyph_atlas_sampler,
         );
         let _ = atlas.take_dirty();
-        let image_layer = ImageLayer::new(&device, config.format);
+        let scene_target_format = scene_target_format(config.format, post_process_format, bloom);
+        let image_layer = ImageLayer::new(&device, scene_target_format);
 
         // --- Render pipeline from the shared cell shader.
-        let pipeline = create_cell_pipeline(&device, config.format, &bind_group_layout, subpixel);
-        let color_glyph_pipeline =
-            create_color_glyph_pipeline(&device, config.format, &color_glyph_bind_group_layout);
+        let pipeline =
+            create_cell_pipeline(&device, scene_target_format, &bind_group_layout, subpixel);
+        let color_glyph_pipeline = create_color_glyph_pipeline(
+            &device,
+            scene_target_format,
+            &color_glyph_bind_group_layout,
+        );
         // Build the first vertex buffer from the initial (blank) snapshot. Live
         // PTY output replaces this content via `update_from_snapshot` as the
         // pump thread advances the shared terminal. A >=1x1 grid always emits at
@@ -978,6 +998,7 @@ impl GpuState {
             config,
             pipeline,
             color_glyph_pipeline,
+            scene_target_format,
             post_process_format,
             post_process: None,
             bloom,
@@ -1177,7 +1198,7 @@ impl GpuState {
             self.subpixel = next_subpixel;
             self.pipeline = create_cell_pipeline(
                 &self.device,
-                self.config.format,
+                self.scene_target_format,
                 &self.bind_group_layout,
                 self.subpixel,
             );
@@ -1223,7 +1244,37 @@ impl GpuState {
     }
 
     pub(super) fn set_bloom(&mut self, bloom: BloomOptions) {
+        let old_target = self.scene_target_format;
         self.bloom = bloom;
+        let new_target =
+            scene_target_format(self.config.format, self.post_process_format, self.bloom);
+        if new_target != old_target {
+            self.rebuild_scene_pipelines(new_target);
+        }
+    }
+
+    fn rebuild_scene_pipelines(&mut self, target_format: wgpu::TextureFormat) {
+        self.pipeline = create_cell_pipeline(
+            &self.device,
+            target_format,
+            &self.bind_group_layout,
+            self.subpixel,
+        );
+        self.color_glyph_pipeline = create_color_glyph_pipeline(
+            &self.device,
+            target_format,
+            &self.color_glyph_bind_group_layout,
+        );
+        self.image_layer
+            .rebuild_pipeline(&self.device, target_format);
+        self.scene_target_format = target_format;
+    }
+
+    fn ensure_scene_target_format(&mut self) {
+        let target = scene_target_format(self.config.format, self.post_process_format, self.bloom);
+        if target != self.scene_target_format {
+            self.rebuild_scene_pipelines(target);
+        }
     }
 
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot.
@@ -1502,6 +1553,7 @@ impl GpuState {
     /// acquisition status through [`wgpu::CurrentSurfaceTexture`] rather than a
     /// `Result`, so there is no fatal out-of-memory path here.
     pub(super) fn render(&mut self) -> FrameOutcome {
+        self.ensure_scene_target_format();
         let (frame, suboptimal) = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => (frame, false),
             // Acquired, but the surface no longer matches: draw this frame, then
@@ -1603,81 +1655,4 @@ pub(super) enum FrameOutcome {
     NeedsReconfigure,
     /// The frame was intentionally skipped (transient surface state).
     Skipped,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// At 1x scale the physical size equals the logical font size exactly:
-    /// today's non-HiDPI output is unchanged.
-    #[test]
-    fn physical_px_is_identity_at_unit_scale() {
-        assert_eq!(physical_font_px(16.0, 1.0), 16.0);
-        assert_eq!(physical_font_px(24.0, 1.0), 24.0);
-    }
-
-    /// Integer and common fractional scales fold deterministically with no
-    /// rounding inside the fold (the atlas does its own integer cell rounding).
-    #[test]
-    fn physical_px_folds_fractional_scales() {
-        assert_eq!(physical_font_px(16.0, 1.25), 20.0);
-        assert_eq!(physical_font_px(16.0, 1.5), 24.0);
-        assert_eq!(physical_font_px(16.0, 2.0), 32.0);
-    }
-
-    /// The fold is monotonic non-decreasing in scale: a larger scale never
-    /// yields a smaller physical size, so density tracks the display.
-    #[test]
-    fn physical_px_is_monotonic_in_scale() {
-        let mut prev = 0.0f32;
-        for &scale in &[1.0f32, 1.25, 1.5, 1.75, 2.0, 3.0] {
-            let px = physical_font_px(16.0, scale);
-            assert!(px >= prev, "px {px} should be >= previous {prev}");
-            prev = px;
-        }
-    }
-
-    /// Sub-1.0 scales are clamped to 1x: glyphs are never rasterized below
-    /// their logical size. This is the documented HiDPI sub-1.0 clamp (H1).
-    #[test]
-    fn physical_px_clamps_sub_unit_scale() {
-        assert_eq!(physical_font_px(16.0, 0.5), 16.0);
-        assert_eq!(physical_font_px(16.0, 0.0), 16.0);
-        assert_eq!(physical_font_px(16.0, -2.0), 16.0);
-    }
-
-    /// A degenerate logical size still yields a usable (>= 1 px) atlas size.
-    #[test]
-    fn physical_px_floors_at_one() {
-        assert!(physical_font_px(0.0, 1.0) >= 1.0);
-        assert!(physical_font_px(0.5, 1.0) >= 1.0);
-    }
-
-    #[test]
-    fn surface_format_prefers_srgb() {
-        let formats = [
-            wgpu::TextureFormat::Bgra8Unorm,
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-            wgpu::TextureFormat::Bgra8UnormSrgb,
-        ];
-
-        assert_eq!(
-            choose_surface_format(&formats),
-            (wgpu::TextureFormat::Rgba8UnormSrgb, true)
-        );
-    }
-
-    #[test]
-    fn surface_format_falls_back_to_first_non_srgb() {
-        let formats = [
-            wgpu::TextureFormat::Bgra8Unorm,
-            wgpu::TextureFormat::Rgba8Unorm,
-        ];
-
-        assert_eq!(
-            choose_surface_format(&formats),
-            (wgpu::TextureFormat::Bgra8Unorm, false)
-        );
-    }
 }
