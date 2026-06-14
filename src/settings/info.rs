@@ -155,6 +155,18 @@ impl Settings {
                 reloadable: true,
             },
             SettingInfo {
+                group: "Rendering",
+                key: "render_quality",
+                env: RENDER_QUALITY_ENV,
+                name: "Render quality",
+                value: self.render_quality.as_str().to_owned(),
+                description: RENDER_QUALITY_DESC,
+                kind: SettingKind::Enum,
+                range: None,
+                options: &["plain", "balanced", "high"],
+                reloadable: true,
+            },
+            SettingInfo {
                 group: "Post-process",
                 key: "bloom",
                 env: BLOOM_ENV,

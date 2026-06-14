@@ -266,6 +266,44 @@ pub struct SettingsEditOverlay {
     settings: Settings,
 }
 
+/// Master render-quality profile. `Balanced` is the current renderer behavior;
+/// `Plain` derives a hard fast path by neutralizing optional visual work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderQuality {
+    Plain,
+    Balanced,
+    High,
+}
+
+impl Default for RenderQuality {
+    fn default() -> Self {
+        Self::Balanced
+    }
+}
+
+impl RenderQuality {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Plain => "plain",
+            Self::Balanced => "balanced",
+            Self::High => "high",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "plain" | "fast" | "minimal" | "minimum" => Some(Self::Plain),
+            "balanced" | "default" | "normal" => Some(Self::Balanced),
+            "high" | "quality" => Some(Self::High),
+            _ => None,
+        }
+    }
+
+    pub fn is_plain(self) -> bool {
+        self == Self::Plain
+    }
+}
+
 /// Typed runtime settings used by the native prototype.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
@@ -282,6 +320,7 @@ pub struct Settings {
     /// disables enforcement and is pixel-identical to before.
     pub min_contrast: f32,
     pub focus_dim: f32,
+    pub render_quality: RenderQuality,
     pub bloom: bool,
     pub bloom_threshold: f32,
     pub bloom_intensity: f32,
@@ -336,6 +375,7 @@ impl Default for Settings {
             stem_darken: DEFAULT_STEM_DARKEN,
             min_contrast: DEFAULT_MIN_CONTRAST,
             focus_dim: DEFAULT_FOCUS_DIM,
+            render_quality: RenderQuality::default(),
             bloom: DEFAULT_BLOOM,
             bloom_threshold: default_bloom_threshold_for_theme(Theme::PLAIN),
             bloom_intensity: DEFAULT_BLOOM_INTENSITY,
@@ -360,6 +400,42 @@ impl Default for Settings {
 }
 
 impl Settings {
+    pub fn plain_render_quality(&self) -> bool {
+        self.render_quality.is_plain()
+    }
+
+    pub fn effective_stem_darken(&self) -> f32 {
+        if self.plain_render_quality() {
+            0.0
+        } else {
+            self.stem_darken
+        }
+    }
+
+    pub fn effective_min_contrast(&self) -> f32 {
+        if self.plain_render_quality() {
+            1.0
+        } else {
+            self.min_contrast
+        }
+    }
+
+    pub fn effective_focus_dim(&self) -> f32 {
+        if self.plain_render_quality() {
+            0.0
+        } else {
+            self.focus_dim
+        }
+    }
+
+    pub fn effective_bloom_enabled(&self) -> bool {
+        !self.plain_render_quality() && self.bloom
+    }
+
+    pub fn effective_crt_enabled(&self) -> bool {
+        !self.plain_render_quality() && self.crt
+    }
+
     /// Load settings from the config file, then overlay the current process
     /// environment. Environment variables always win.
     pub fn from_env() -> Self {
@@ -507,6 +583,7 @@ impl Settings {
         let stem_darken = parse_stem_darken(get(STEM_DARKEN_ENV).as_deref(), &mut warn);
         let min_contrast = parse_min_contrast(get(MIN_CONTRAST_ENV).as_deref(), &mut warn);
         let focus_dim = parse_focus_dim(get(FOCUS_DIM_ENV).as_deref(), &mut warn);
+        let render_quality = parse_render_quality(get(RENDER_QUALITY_ENV).as_deref(), &mut warn);
         let bloom = parse_bool_setting(get(BLOOM_ENV).as_deref(), BLOOM_ENV, false, &mut warn);
         let default_bloom_threshold = default_bloom_threshold_for_theme(theme);
         let bloom_threshold = parse_bloom_threshold(
@@ -570,6 +647,7 @@ impl Settings {
             stem_darken,
             min_contrast,
             focus_dim,
+            render_quality,
             bloom,
             bloom_threshold,
             bloom_intensity,
@@ -609,6 +687,7 @@ impl Settings {
         values.insert(STEM_DARKEN_ENV, format_float(self.stem_darken));
         values.insert(MIN_CONTRAST_ENV, format_float(self.min_contrast));
         values.insert(FOCUS_DIM_ENV, format_float(self.focus_dim));
+        values.insert(RENDER_QUALITY_ENV, self.render_quality.as_str().to_owned());
         values.insert(BLOOM_ENV, bool_display(self.bloom).to_owned());
         values.insert(BLOOM_THRESHOLD_ENV, format_float(self.bloom_threshold));
         values.insert(BLOOM_INTENSITY_ENV, format_float(self.bloom_intensity));
@@ -1014,6 +1093,26 @@ fn parse_focus_dim(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     };
 
     parsed.clamp(MIN_FOCUS_DIM, MAX_FOCUS_DIM)
+}
+
+fn parse_render_quality(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> RenderQuality {
+    let Some(raw) = raw else {
+        return RenderQuality::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return RenderQuality::default();
+    }
+    match RenderQuality::parse(trimmed) {
+        Some(quality) => quality,
+        None => {
+            warn(&format!(
+                "{RENDER_QUALITY_ENV}={trimmed:?} is not plain|balanced|high; using balanced"
+            ));
+            RenderQuality::default()
+        }
+    }
 }
 
 fn parse_bloom_threshold(raw: Option<&OsStr>, default: f32, warn: &mut impl FnMut(&str)) -> f32 {

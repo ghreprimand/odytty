@@ -95,6 +95,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "stem_darken",
             "min_contrast",
             "focus_dim",
+            "render_quality",
             "bloom",
             "bloom_threshold",
             "bloom_intensity",
@@ -129,6 +130,10 @@ fn setting_info_covers_every_field_with_descriptions() {
     assert!(
         info.iter()
             .any(|row| row.key == "focus_dim" && row.range == Some("0.0..=1.0"))
+    );
+    assert!(
+        info.iter()
+            .any(|row| row.key == "render_quality" && row.options == ["plain", "balanced", "high"])
     );
     assert!(
         info.iter()
@@ -174,6 +179,7 @@ fn setting_info_formats_current_values_for_display() {
         bloom_threshold: 0.9,
         bloom_intensity: 0.35,
         bloom_radius: 4.5,
+        render_quality: RenderQuality::High,
         crt: true,
         crt_scanline_intensity: 0.12,
         crt_scanline_period: 4.0,
@@ -198,6 +204,7 @@ fn setting_info_formats_current_values_for_display() {
     assert_eq!(value("bloom_threshold"), "0.9");
     assert_eq!(value("bloom_intensity"), "0.35");
     assert_eq!(value("bloom_radius"), "4.5");
+    assert_eq!(value("render_quality"), "high");
     assert_eq!(value("crt"), "on");
     assert_eq!(value("crt_scanline_intensity"), "0.12");
     assert_eq!(value("crt_scanline_period"), "4");
@@ -280,6 +287,7 @@ fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
             font_size = 900
             text_gamma = 0.1
             stem_darken = 0.4
+            render_quality = high
             bloom = on
             bloom_threshold = 9
             bloom_intensity = 2
@@ -298,6 +306,7 @@ fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
     assert_eq!(settings.font_size_px, MAX_FONT_SIZE_PX);
     assert_eq!(settings.text_gamma, MIN_TEXT_GAMMA);
     assert_eq!(settings.stem_darken, 0.4);
+    assert_eq!(settings.render_quality, RenderQuality::High);
     assert!(settings.bloom);
     assert_eq!(settings.bloom_threshold, MAX_BLOOM_THRESHOLD);
     assert_eq!(settings.bloom_intensity, MAX_BLOOM_INTENSITY);
@@ -714,6 +723,91 @@ fn focus_dim_round_trips_through_config_key_mapping() {
     assert_eq!(config_key_to_env("focus_dim"), Some(FOCUS_DIM_ENV));
     assert_eq!(config_key_to_env("unfocuseddim"), Some(FOCUS_DIM_ENV));
     assert_eq!(env_to_config_key(FOCUS_DIM_ENV), Some("focus_dim"));
+}
+
+#[test]
+fn render_quality_defaults_to_balanced() {
+    let (settings, warnings) = settings_from([]);
+
+    assert_eq!(settings.render_quality, RenderQuality::Balanced);
+    assert_eq!(settings.render_quality.as_str(), "balanced");
+    assert!(!settings.plain_render_quality());
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn render_quality_parses_known_values_and_aliases() {
+    for (raw, expected) in [
+        ("plain", RenderQuality::Plain),
+        ("fast", RenderQuality::Plain),
+        ("balanced", RenderQuality::Balanced),
+        ("default", RenderQuality::Balanced),
+        ("high", RenderQuality::High),
+    ] {
+        let (settings, warnings) = settings_from([(RENDER_QUALITY_ENV, raw)]);
+        assert_eq!(settings.render_quality, expected, "raw={raw}");
+        assert!(warnings.is_empty(), "raw={raw}: {warnings:?}");
+    }
+}
+
+#[test]
+fn garbage_render_quality_falls_back_with_warning() {
+    let (settings, warnings) = settings_from([(RENDER_QUALITY_ENV, "cinematic")]);
+
+    assert_eq!(settings.render_quality, RenderQuality::Balanced);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(RENDER_QUALITY_ENV));
+}
+
+#[test]
+fn render_quality_plain_derives_hard_plain_effective_values() {
+    let settings = Settings {
+        render_quality: RenderQuality::Plain,
+        stem_darken: 0.7,
+        min_contrast: 4.5,
+        focus_dim: 0.3,
+        bloom: true,
+        crt: true,
+        ..Settings::default()
+    };
+
+    assert_eq!(settings.effective_stem_darken(), 0.0);
+    assert_eq!(settings.effective_min_contrast(), 1.0);
+    assert_eq!(settings.effective_focus_dim(), 0.0);
+    assert!(!settings.effective_bloom_enabled());
+    assert!(!settings.effective_crt_enabled());
+}
+
+#[test]
+fn render_quality_balanced_preserves_effective_values() {
+    let settings = Settings {
+        render_quality: RenderQuality::Balanced,
+        stem_darken: 0.7,
+        min_contrast: 4.5,
+        focus_dim: 0.3,
+        bloom: true,
+        crt: true,
+        ..Settings::default()
+    };
+
+    assert_eq!(settings.effective_stem_darken(), 0.7);
+    assert_eq!(settings.effective_min_contrast(), 4.5);
+    assert_eq!(settings.effective_focus_dim(), 0.3);
+    assert!(settings.effective_bloom_enabled());
+    assert!(settings.effective_crt_enabled());
+}
+
+#[test]
+fn render_quality_round_trips_through_config_key_mapping() {
+    assert_eq!(
+        config_key_to_env("render_quality"),
+        Some(RENDER_QUALITY_ENV)
+    );
+    assert_eq!(config_key_to_env("quality"), Some(RENDER_QUALITY_ENV));
+    assert_eq!(
+        env_to_config_key(RENDER_QUALITY_ENV),
+        Some("render_quality")
+    );
 }
 
 #[test]

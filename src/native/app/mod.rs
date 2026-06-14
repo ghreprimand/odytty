@@ -849,13 +849,15 @@ impl App {
 
         let next_options = self.options_for_settings(&next_settings);
         let text_rebuilt = match self.gpu.as_mut() {
-            Some(gpu) => match gpu.apply_text_options(&next_options, next_settings.stem_darken) {
-                Ok(changed) => changed,
-                Err(err) => {
-                    eprintln!("odytty: config reload ignored: {err}");
-                    return;
+            Some(gpu) => {
+                match gpu.apply_text_options(&next_options, next_settings.effective_stem_darken()) {
+                    Ok(changed) => changed,
+                    Err(err) => {
+                        eprintln!("odytty: config reload ignored: {err}");
+                        return;
+                    }
                 }
-            },
+            }
             None => false,
         };
 
@@ -874,7 +876,7 @@ impl App {
         // RV1: republish the minimum-contrast floor so a live `min_contrast`
         // edit takes effect on the next frame (the grid resolve seam reads it
         // per cell). Mirrors the palette republish above; passthrough at 1.0.
-        text::set_min_contrast(self.settings.min_contrast);
+        text::set_min_contrast(self.settings.effective_min_contrast());
         if let Ok(mut terminal) = self.terminal.lock() {
             // ID1: when themed UI roles are on, the cursor default color comes
             // from the theme `cursor` role; otherwise it stays the foreground
@@ -942,7 +944,11 @@ impl App {
             self.theme.selection.1,
             self.theme.selection.2,
         ];
-        let fg = floor_fg_over(self.theme.foreground, fill, self.settings.min_contrast);
+        let fg = floor_fg_over(
+            self.theme.foreground,
+            fill,
+            self.settings.effective_min_contrast(),
+        );
         Some(SelectionStyle { fill, fg })
     }
 
@@ -963,11 +969,15 @@ impl App {
         let active_fill_lin =
             crate::color::mix_oklab(fill_lin, [1.0, 1.0, 1.0], SEARCH_ACTIVE_BRIGHTEN);
         let active_fill = linear_to_srgb_tuple(active_fill_lin);
-        let fg = floor_fg_over(self.theme.foreground, fill, self.settings.min_contrast);
+        let fg = floor_fg_over(
+            self.theme.foreground,
+            fill,
+            self.settings.effective_min_contrast(),
+        );
         let active_fg = floor_fg_over(
             self.theme.foreground,
             active_fill,
-            self.settings.min_contrast,
+            self.settings.effective_min_contrast(),
         );
         Some(SearchStyle {
             fill,
@@ -1045,7 +1055,7 @@ impl ApplicationHandler<UserEvent> for App {
             &initial_snapshot,
             self.theme,
             self.visual,
-            self.settings.stem_darken,
+            self.settings.effective_stem_darken(),
             bloom_options(&self.settings),
             crt_options(&self.settings),
         ) {
@@ -1292,7 +1302,7 @@ impl ApplicationHandler<UserEvent> for App {
                         let focus_dim = if self.focused {
                             0.0
                         } else {
-                            self.settings.focus_dim
+                            self.settings.effective_focus_dim()
                         };
                         if let Some(gpu) = self.gpu.as_mut() {
                             match update {
@@ -1525,7 +1535,7 @@ fn floor_fg_over(fg: (u8, u8, u8), bg: [u8; 3], ratio: f32) -> [u8; 3] {
 
 fn bloom_options(settings: &Settings) -> BloomOptions {
     BloomOptions {
-        enabled: settings.bloom,
+        enabled: settings.effective_bloom_enabled(),
         threshold: settings.bloom_threshold,
         intensity: settings.bloom_intensity,
         radius: settings.bloom_radius,
@@ -1534,7 +1544,7 @@ fn bloom_options(settings: &Settings) -> BloomOptions {
 
 fn crt_options(settings: &Settings) -> CrtOptions {
     CrtOptions {
-        enabled: settings.crt,
+        enabled: settings.effective_crt_enabled(),
         scanline_intensity: settings.crt_scanline_intensity,
         scanline_period: settings.crt_scanline_period,
         vignette_strength: settings.crt_vignette_strength,
@@ -1547,6 +1557,22 @@ mod tests {
 
     fn blink() -> CursorBlinkState {
         CursorBlinkState::new(Duration::from_millis(500))
+    }
+
+    #[test]
+    fn plain_render_quality_forces_post_options_inactive() {
+        let settings = Settings {
+            render_quality: crate::settings::RenderQuality::Plain,
+            bloom: true,
+            crt: true,
+            ..Settings::default()
+        };
+
+        let bloom = bloom_options(&settings);
+        let crt = crt_options(&settings);
+
+        assert!(!bloom.enabled);
+        assert!(!crt.enabled);
     }
 
     #[test]

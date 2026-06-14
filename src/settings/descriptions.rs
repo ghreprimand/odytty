@@ -20,6 +20,11 @@ pub const FOCUS_DIM_DESC: &str = "Focus dimming: dims the whole window (text and
      0.15–0.30 is a subtle recede. The focused window is never dimmed. The \
      minimum-contrast floor still applies, so text stays legible. Default 0.0.";
 
+pub const RENDER_QUALITY_DESC: &str = "Render quality: master renderer profile. balanced is today's default; \
+     plain is the hard fast path and forces post-process effects, focus dimming, \
+     stem darkening, and the minimum-contrast floor off even when their individual \
+     knobs are enabled. high is reserved for future higher-cost quality paths.";
+
 pub const BLOOM_DESC: &str = "Bloom: optional HDR phosphor glow over bright cells. Off by default and \
      pixel-identical to the plain renderer. Requires a GPU with filterable \
      Rgba16Float render targets; unsupported adapters silently use the plain path.";
