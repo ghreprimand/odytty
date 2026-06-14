@@ -1096,15 +1096,133 @@ fn rasterize_glyph(
             draw_sample(1.0 / 3.0, Some(0));
         }
     }
-    if max_x < min_x {
-        return None; // outline produced no inked pixels in the drawable region
+
+    if subpixel.enabled() {
+        lcd_filter_subpixel_region(
+            data,
+            width,
+            subpixel,
+            x_lo as u32,
+            y_lo as u32,
+            (x_hi - x_lo) as u32,
+            (y_hi - y_lo) as u32,
+        );
     }
+
+    let Some((filtered_min_x, filtered_min_y, filtered_max_x, filtered_max_y)) =
+        scan_coverage_bounds(data, width, subpixel, x_lo, y_lo, x_hi, y_hi)
+    else {
+        return None; // outline produced no inked pixels in the drawable region
+    };
+    min_x = filtered_min_x;
+    min_y = filtered_min_y;
+    max_x = filtered_max_x;
+    max_y = filtered_max_y;
+
     Some(GlyphInk {
         offset_x: min_x - inner_x,
         offset_y: min_y - inner_y,
         width: (max_x - min_x + 1) as u32,
         height: (max_y - min_y + 1) as u32,
     })
+}
+
+fn scan_coverage_bounds(
+    data: &[u8],
+    width: u32,
+    subpixel: SubpixelMode,
+    x_lo: i32,
+    y_lo: i32,
+    x_hi: i32,
+    y_hi: i32,
+) -> Option<(i32, i32, i32, i32)> {
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+    for ay in y_lo..y_hi {
+        for ax in x_lo..x_hi {
+            let base =
+                (ay as u32 * width + ax as u32) as usize * subpixel.bytes_per_pixel() as usize;
+            let inked = match subpixel {
+                SubpixelMode::Off => data[base] > 0,
+                SubpixelMode::Rgb | SubpixelMode::Bgr => {
+                    data[base..base + 3].iter().any(|&v| v > 0)
+                }
+            };
+            if inked {
+                min_x = min_x.min(ax);
+                min_y = min_y.min(ay);
+                max_x = max_x.max(ax);
+                max_y = max_y.max(ay);
+            }
+        }
+    }
+    (max_x >= min_x).then_some((min_x, min_y, max_x, max_y))
+}
+
+const LCD_FILTER_TAPS: [u16; 5] = [1, 2, 3, 2, 1];
+const LCD_FILTER_SUM: u16 = 9;
+
+fn lcd_filter_subpixel_region(
+    data: &mut [u8],
+    width: u32,
+    subpixel: SubpixelMode,
+    x0: u32,
+    y0: u32,
+    region_w: u32,
+    region_h: u32,
+) {
+    if !subpixel.enabled() || region_w == 0 || region_h == 0 {
+        return;
+    }
+
+    let samples_per_row = region_w as usize * 3;
+    let mut src = vec![0u8; samples_per_row];
+    let mut dst = vec![0u8; samples_per_row];
+    for row in 0..region_h {
+        let y = y0 + row;
+        for dx in 0..region_w {
+            let x = x0 + dx;
+            let base = ((y * width + x) * 4) as usize;
+            for physical in 0..3 {
+                let channel = physical_channel(subpixel, physical);
+                src[dx as usize * 3 + physical] = data[base + channel];
+            }
+        }
+
+        for i in 0..samples_per_row {
+            let mut weighted = 0u16;
+            for (tap, weight) in LCD_FILTER_TAPS.iter().enumerate() {
+                let source_i = i as isize + tap as isize - 2;
+                if (0..samples_per_row as isize).contains(&source_i) {
+                    weighted += src[source_i as usize] as u16 * weight;
+                }
+            }
+            dst[i] = ((weighted + LCD_FILTER_SUM / 2) / LCD_FILTER_SUM) as u8;
+        }
+
+        for dx in 0..region_w {
+            let x = x0 + dx;
+            let base = ((y * width + x) * 4) as usize;
+            let mut any = false;
+            for physical in 0..3 {
+                let channel = physical_channel(subpixel, physical);
+                let value = dst[dx as usize * 3 + physical];
+                data[base + channel] = value;
+                any |= value > 0;
+            }
+            data[base + 3] = if any { 255 } else { 0 };
+        }
+    }
+}
+
+fn physical_channel(subpixel: SubpixelMode, physical: usize) -> usize {
+    match subpixel {
+        SubpixelMode::Off => 0,
+        SubpixelMode::Rgb => physical,
+        SubpixelMode::Bgr => 2 - physical,
+    }
 }
 
 /// Rasterize a geometric box-drawing / block / Powerline glyph into the slot

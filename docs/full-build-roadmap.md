@@ -91,9 +91,10 @@ color-glyph atlas.
 
 **Text rendering quality.** Bearing-aware glyph quads, bold/italic style faces
 with synthetic fallback, the full attribute set (underline, strikethrough, dim,
-inverse, hidden), optional subpixel anti-aliasing, tunable text gamma, stem
-darkening, HiDPI scale-factor tracking with debounced rebuild, and a headless
-CPU compositor for structural pixel-level assertions.
+inverse, hidden), optional subpixel anti-aliasing with an energy-conserving LCD
+fringe filter, tunable text gamma, stem darkening, HiDPI scale-factor tracking
+with debounced rebuild, and a headless CPU compositor for structural pixel-level
+assertions.
 
 **Performance.** Lazy scrollback re-wrap on width change (~2300× faster deep
 resize), a width-unchanged fast path (~293× faster height-only resize), reusable
@@ -159,9 +160,6 @@ The defining experience: discoverable overlays that write the config for you.
 
 Sharp, stable, comfortable text is a primary product pillar.
 
-- **Now — Subpixel color-fringing filter.** An energy-conserving LCD-style
-  filter over per-channel coverage to remove color fringing in subpixel mode
-  (opt-in, off by default).
 - **Next — Effect default-tuning pass.** Once a human-eye baseline exists,
   revisit the conservative default strengths of stem darkening, standalone
   scanlines, and bloom.

@@ -265,6 +265,13 @@ roughly 4x the grayscale atlas for the same slot count. `ODYTTY_TEXT_GAMMA`
 still applies before compositing: grayscale corrects one coverage channel,
 while subpixel corrects the red, green, and blue coverage channels independently.
 
+An energy-conserving LCD filter (a 5-tap `[1,2,3,2,1]/9` weighting over the
+physical subpixel axis) is applied to subpixel coverage so vertical stem edges
+do not show colored fringing; it redistributes a little coverage between
+neighboring subpixels while preserving per-row luminance. The filter is
+intrinsic to subpixel mode and only runs when `subpixel` is `rgb` or `bgr`; the
+default grayscale path is unaffected.
+
 Run with an Odyssey theme and ambient visual treatment:
 
 ```sh

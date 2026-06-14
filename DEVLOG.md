@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-14 -- subpixel color-fringing fix (FX-SUBPIXEL): energy-conserving LCD filter
+
+- Fixed the red/blue color fringing on subpixel-rendered text. Subpixel mode
+  draws three horizontally-shifted coverage samples into separate R/G/B
+  channels (`src/atlas/mod.rs` `rasterize_glyph`); with no cross-channel filter,
+  a vertical stem lit one channel ahead of the others, producing the visible
+  fringe. Added a private 5-tap LCD filter (`[1,2,3,2,1]/9`, energy-conserving)
+  that runs over the contiguous physical left-to-right subpixel axis after the
+  shifted samples are written, so a pixel's edge subpixel blends into its
+  neighbor and the fringe collapses toward neutral while per-row luminance is
+  preserved. Glyph bounds are re-scanned after filtering so redistributed edge
+  coverage stays inside the ink box, and filtered alpha is refreshed.
+- Visual gate honored: the filter is gated to `SubpixelMode::Rgb | Bgr` only;
+  `SubpixelMode::Off` (the default) is byte-identical, and atlas dimensions /
+  slot geometry are unchanged. No new setting — filtering is intrinsic when
+  subpixel is enabled, which itself remains opt-in / off-by-default. New
+  `src/atlas/tests/subpixel.rs` proves synthetic fringe reduction (R/B imbalance
+  halved + neighbor redistribution), per-row energy preservation, Off-mode byte
+  identity, and unchanged live atlas geometry.
+- Verified on the combined tree: `cargo fmt --check` clean; full `cargo test`
+  **1161 passed / 0 failed / 19 ignored** (+4 new subpixel guards); native
+  smokes with `ODYTTY_SUBPIXEL=rgb` and `=bgr` exit 0, default baseline exit 0;
+  `git diff --check` clean. Fuzz skipped — no `src/parser/` or `src/core/`
+  changes in the diff.
+
+---
+
 ## 2026-06-14 -- full-build roadmap refresh: current, comprehensive, reorganized by theme
 
 - Rewrote `docs/full-build-roadmap.md` so it captures the complete forward plan

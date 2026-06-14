@@ -56,6 +56,11 @@ Both shaders share the same vertex layout (`pos_px`, `uv`, `color`,
 `SubpixelMode::Bgr`; requires `wgpu` dual-source blending):
 
 - Atlas texture format: `Rgba8Unorm` (RGB = per-channel coverage, A unused).
+- Coverage filter: a 5-tap `[1,2,3,2,1]/9` energy-conserving LCD filter runs
+  over the physical left-to-right subpixel axis at raster time
+  (`src/atlas/mod.rs`: `lcd_filter_subpixel_region`), collapsing vertical-stem
+  color fringing toward neutral while preserving per-row luminance. It runs only
+  for `SubpixelMode::Rgb`/`Bgr`; `Off` coverage is never filtered.
 - Glyph fragment: applies gamma per channel, emits two blend sources — a
   weighted color and a per-channel weight — for hardware dual-source blending.
 - Background fragment: same scanline wash as the grayscale path.

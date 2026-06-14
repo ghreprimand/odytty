@@ -12,6 +12,7 @@ mod glyph_quad;
 mod metrics;
 mod scaling;
 mod stem_darken;
+mod subpixel;
 mod synthetic;
 
 pub(super) fn test_font() -> Option<FontVec> {
