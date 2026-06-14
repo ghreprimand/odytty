@@ -431,6 +431,23 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         `.theme` file to the user theme directory (same parent as
         `odytty.conf`, under `themes/`). `Esc` cancels and restores the
         original theme without saving.
+- [ ] UX4 mouse-driven settings overlay.
+  - [x] UX4-P1: the settings panel is now operable by mouse. Left-click toggles
+        a boolean, cycles an enum, opens the theme picker on the theme row, or
+        starts text-edit on numeric/string/path/list rows; right-click cycles an
+        enum backward; the wheel free-scrolls the list; clicking outside the
+        panel dismisses it exactly like `Esc` (the theme picker restores the
+        original theme on dismiss). A single shared `overlay_rect()` is the sole
+        geometry source and one `build_visible_rows` walker backs both the
+        rendered rows and the click hit-map, so what is drawn is exactly what is
+        clickable. All value changes funnel through the existing live-apply
+        commit seam and the keyboard path is unchanged and fully additive.
+        Overlay pointer events take precedence over selection, TUI mouse
+        reporting, hyperlink, and viewport-scroll handling while the overlay is
+        open, and opening an overlay clears any held TUI mouse-report button so
+        no stale report can survive behind it.
+  - [ ] UX4-P2: slider widget (drag to set) and click-to-type numeric entry.
+  - [ ] UX4-P3: coherent effect grouping and clearer setting labels.
 - [ ] Profiles and CLI config introspection.
 
 ## Visual Capability Parity (Stage 6 parity half)

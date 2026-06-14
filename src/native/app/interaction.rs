@@ -28,6 +28,71 @@ impl App {
         self.mouse_reporting_enabled() && !self.modifiers.shift
     }
 
+    /// Route an overlay [`OverlayOutcome`] (from either the keyboard or the
+    /// pointer path) through the shared App-side handlers, so the two entry
+    /// points stay in lockstep (UX4-P1).
+    pub(super) fn apply_overlay_outcome(&mut self, outcome: OverlayOutcome) {
+        match outcome {
+            OverlayOutcome::Consumed => {}
+            OverlayOutcome::Close => self.overlay.close(),
+            OverlayOutcome::OpenThemePicker => self.open_theme_picker_overlay(),
+            OverlayOutcome::OpenThemeBuilder => self.open_theme_builder_overlay(),
+            OverlayOutcome::ApplySettings(settings) => self.apply_overlay_settings(settings),
+            OverlayOutcome::SaveSettings(changes) => self.save_overlay_settings(&changes),
+            OverlayOutcome::SaveTheme(request) => self.save_overlay_theme(request),
+        }
+    }
+
+    /// Translate a winit mouse press over an open overlay into an
+    /// [`OverlayPointer::Press`] and apply the outcome (UX4-P1). Only the press
+    /// edge acts; release is inert for P1 (slider drag is P2). Middle/other
+    /// buttons are dropped so no PRIMARY paste fires while the overlay is up.
+    pub(in crate::native) fn handle_overlay_pointer_press(
+        &mut self,
+        state: ElementState,
+        button: WinitMouseButton,
+    ) {
+        if state != ElementState::Pressed {
+            return;
+        }
+        let Some(cell) = self.pointer_cell else {
+            return;
+        };
+        let button = match button {
+            WinitMouseButton::Left => PointerButton::Left,
+            WinitMouseButton::Right => PointerButton::Right,
+            _ => return,
+        };
+        let Some(rect) = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows) else {
+            return;
+        };
+        let outcome = self
+            .overlay
+            .handle_pointer(OverlayPointer::Press { cell, button }, rect);
+        self.apply_overlay_outcome(outcome);
+        self.request_selection_redraw();
+    }
+
+    /// Translate a winit wheel event over an open overlay into an
+    /// [`OverlayPointer::Wheel`] free-scroll of the panel list (UX4-P1).
+    pub(in crate::native) fn handle_overlay_pointer_wheel(&mut self, delta: MouseScrollDelta) {
+        let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
+        let lines = wheel_lines(delta, cell_height);
+        if lines == 0 {
+            return;
+        }
+        let Some(rect) = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows) else {
+            return;
+        };
+        // `wheel_lines` is positive for wheel-up (toward earlier content); the
+        // settings list scrolls toward earlier entries (lower index), so negate.
+        let outcome = self
+            .overlay
+            .handle_pointer(OverlayPointer::Wheel { lines: -lines }, rect);
+        self.apply_overlay_outcome(outcome);
+        self.request_selection_redraw();
+    }
+
     fn update_hover_hyperlink(&mut self) {
         let hovered = self
             .pointer_cell
@@ -199,6 +264,13 @@ impl App {
         let point = selection::cell_at_physical_with_padding(x_px, y_px, cell, self.grid, padding);
         self.pointer_cell = Some(point);
         self.pointer_px = Some((x_px, y_px));
+        // UX4-P1: while an overlay is open it owns the pointer. Keep caching the
+        // coordinates above (a press needs them), but skip link hover, local
+        // selection, and PTY motion reports — they belong to the terminal grid
+        // beneath the panel. (UX4-P2 adds slider-drag tracking in this branch.)
+        if self.overlay.is_open() {
+            return;
+        }
         self.update_hover_hyperlink();
         if self.selecting {
             self.autoscroll_selection_if_needed(y_px, cell, padding);

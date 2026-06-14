@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-14 -- UX4-P1: mouse-driven settings overlay
+
+- The settings panel is now operable with the mouse. Left-click on a row
+  toggles a boolean, cycles an enum, opens the theme picker on the theme row, or
+  begins text-edit on numeric/string/path/list rows; right-click cycles an enum
+  backward; the wheel free-scrolls the list; and clicking outside the panel
+  dismisses it exactly like `Esc` (the theme picker restores the originally
+  active theme on dismiss). The keyboard path is untouched and the mouse path is
+  purely additive.
+- Geometry has a single source of truth: `overlay_rect()` on the overlay owns
+  the panel rectangle and `apply_overlay` was refactored onto it with the rect
+  math verified byte-identical field-by-field. One `build_visible_rows` walker in
+  the new `settings_panel/pointer.rs` backs both the rendered rows
+  (`visible_lines`) and the click hit-map (`visible_hit_map`) in lockstep, so
+  what is drawn is exactly what is clickable.
+- Event precedence is explicit: while the overlay is open, pointer press/wheel
+  are routed to the overlay before selection, TUI mouse reporting, hyperlink, and
+  viewport-scroll handling. `CursorMoved` still caches the pointer cell first and
+  then bypasses the terminal-grid hover/selection/PTY-motion tail, so a press
+  always has coordinates. Middle-click is dropped at the app layer while the
+  overlay is up, so no PRIMARY paste leaks behind it.
+- Stale-state guard: opening any overlay now runs one
+  `reset_pointer_state_for_overlay()` helper (shared by all three overlay-entry
+  paths) that clears both selection and any held TUI mouse-report button, so a
+  button physically held during a TUI mouse gesture cannot survive behind the
+  overlay and re-enter the motion-report path after close. Covered by a
+  regression test that drives DECSET 1000+1006, arms the report gate, then proves
+  an overlay click captures with no report and no selection leak.
+- Files (split done first, all under the 2000-line cap): `settings_panel.rs`
+  became `settings_panel/mod.rs` (pure git-rename move) plus the new
+  `settings_panel/pointer.rs` (435 lines); `overlay.rs`, `app/mod.rs` (1745),
+  and `app/interaction.rs` carry the routing seams. The shared
+  `apply_overlay_outcome` seam is what UX4-P2 (slider/drag, click-to-type) and
+  UX5 will reuse.
+- Verified: `cargo fmt --all -- --check` clean; `cargo test --lib`
+  1111 passed / 0 failed / 7 ignored; full aggregate 1216 passed / 0 failed /
+  19 ignored (+19 packet tests); release binary builds; pixel/composite smokes
+  green at baseline and with subpixel+CRT+bloom enabled (plain/fast render path
+  byte-identical — the overlay-closed render is unchanged). No parser/protocol
+  surface was touched, so no fuzz obligation for this packet.
+
+---
+
 ## 2026-06-14 -- FX-FONT: surface font-load failures in the settings overlay
 
 - Fixed the silent failure where a `font_family` change that couldn't be

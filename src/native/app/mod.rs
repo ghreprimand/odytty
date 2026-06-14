@@ -39,7 +39,10 @@ use super::clipboard::{
 };
 use super::gpu::{BloomOptions, CrtOptions, FrameOutcome, GpuState};
 use super::options::{NativeError, NativeOptions};
-use super::overlay::{OverlayOutcome, OverlayUi, apply_overlay, overlay_input_from_winit};
+use super::overlay::{
+    OverlayOutcome, OverlayPointer, OverlayUi, PointerButton, apply_overlay,
+    overlay_input_from_winit, overlay_rect,
+};
 use super::pty::{PtyWriter, UserEvent};
 use super::render_helpers::{
     CursorRenderSignature, GeometryUpdate, RenderContentSignature, RenderSignature,
@@ -323,6 +326,68 @@ impl App {
         self.resize_grid_with_padding(cell, WindowPadding::ZERO, width_px, height_px)
     }
 
+    /// Test seam (UX4-P1): open the settings overlay through the production
+    /// keyboard entry path (so the pointer-state reset is genuinely exercised),
+    /// without a window/GPU.
+    #[cfg(test)]
+    pub(super) fn open_settings_overlay_for_test(&mut self) {
+        self.toggle_settings_overlay();
+    }
+
+    /// Test seam (UX4-P1): close the overlay (Esc-equivalent), without a
+    /// window/GPU.
+    #[cfg(test)]
+    pub(super) fn close_overlay_for_test(&mut self) {
+        self.overlay.close();
+    }
+
+    /// Test seam (UX4-P1): inject a cached pointer cell, as `update_pointer_cell`
+    /// would after a `CursorMoved`, so a press has coordinates.
+    #[cfg(test)]
+    pub(super) fn set_pointer_cell_for_test(&mut self, row: usize, column: usize) {
+        self.pointer_cell = Some(CellPoint { row, column });
+    }
+
+    /// Test seam (UX4-P1): the live overlay rect for the current grid.
+    #[cfg(test)]
+    pub(super) fn overlay_rect_for_test(&self) -> Option<super::overlay::OverlayRect> {
+        overlay_rect(&self.overlay, self.grid.columns, self.grid.rows)
+    }
+
+    /// Test seam (UX4-P1): whether a local text selection is in progress.
+    #[cfg(test)]
+    pub(super) fn selecting_for_test(&self) -> bool {
+        self.selecting
+    }
+
+    /// Test seam (UX4-P1): the held mouse-report button, if any.
+    #[cfg(test)]
+    pub(super) fn report_button_for_test(&self) -> Option<CoreMouseButton> {
+        self.report_button
+    }
+
+    /// Test seam (UX4-P1): whether the no-overlay path would report the pointer
+    /// to the PTY (TUI mouse mode active and Shift not held). Lets a precedence
+    /// test assert reporting is armed yet an overlay press still does not leak.
+    #[cfg(test)]
+    pub(super) fn would_report_mouse_to_pty_for_test(&self) -> bool {
+        self.should_report_mouse_to_pty()
+    }
+
+    /// Test seam (UX4-P1): the overlay render signature (mode + panel state).
+    #[cfg(test)]
+    pub(super) fn overlay_signature_for_test(&self) -> super::overlay::OverlayRenderSignature {
+        self.overlay.render_signature()
+    }
+
+    /// Test seam (UX4-P1): arm a held TUI mouse-report button exactly as a real
+    /// reported press would, so a regression test can prove overlay entry clears
+    /// it. Wraps the (module-private) `handle_reported_mouse_input`.
+    #[cfg(test)]
+    pub(super) fn arm_reported_mouse_press_for_test(&mut self, button: CoreMouseButton) {
+        self.handle_reported_mouse_input(ElementState::Pressed, button);
+    }
+
     pub(super) fn resize_grid_with_padding(
         &mut self,
         cell: CellSize,
@@ -516,13 +581,28 @@ impl App {
         }
     }
 
+    /// Reset terminal-grid pointer state when entering any overlay mode.
+    ///
+    /// An open overlay captures the pointer (UX4-P1), so any in-progress local
+    /// selection — and crucially any TUI mouse-report button still held from a
+    /// press before the overlay opened — must be cleared on entry. Overlay
+    /// presses short-circuit before `handle_reported_mouse_input` and overlay
+    /// releases are inert, so a stale `report_button` would otherwise survive
+    /// the overlay and re-enter the held-button motion path after it closes.
+    /// Clearing on entry is sufficient: nothing can re-arm `report_button` while
+    /// the overlay is open, so it is guaranteed `None` on close.
+    fn reset_pointer_state_for_overlay(&mut self) {
+        self.selection.clear();
+        self.selecting = false;
+        self.last_selection_autoscroll = None;
+        self.report_button = None;
+    }
+
     fn toggle_settings_overlay(&mut self) {
         if self.search.is_open() {
             self.close_search(true);
         }
-        self.selection.clear();
-        self.selecting = false;
-        self.last_selection_autoscroll = None;
+        self.reset_pointer_state_for_overlay();
         self.overlay.toggle_settings();
         self.request_selection_redraw();
     }
@@ -531,9 +611,7 @@ impl App {
         if self.search.is_open() {
             self.close_search(true);
         }
-        self.selection.clear();
-        self.selecting = false;
-        self.last_selection_autoscroll = None;
+        self.reset_pointer_state_for_overlay();
         self.overlay.open_theme_picker(&self.settings);
         self.request_selection_redraw();
     }
@@ -542,9 +620,7 @@ impl App {
         if self.search.is_open() {
             self.close_search(true);
         }
-        self.selection.clear();
-        self.selecting = false;
-        self.last_selection_autoscroll = None;
+        self.reset_pointer_state_for_overlay();
         self.overlay.open_theme_builder(&self.settings);
         self.request_selection_redraw();
     }
@@ -555,15 +631,8 @@ impl App {
             return;
         };
 
-        match self.overlay.handle_input(input) {
-            OverlayOutcome::Consumed => {}
-            OverlayOutcome::Close => self.overlay.close(),
-            OverlayOutcome::OpenThemePicker => self.open_theme_picker_overlay(),
-            OverlayOutcome::OpenThemeBuilder => self.open_theme_builder_overlay(),
-            OverlayOutcome::ApplySettings(settings) => self.apply_overlay_settings(settings),
-            OverlayOutcome::SaveSettings(changes) => self.save_overlay_settings(&changes),
-            OverlayOutcome::SaveTheme(request) => self.save_overlay_theme(request),
-        }
+        let outcome = self.overlay.handle_input(input);
+        self.apply_overlay_outcome(outcome);
         self.request_selection_redraw();
     }
 
@@ -1410,6 +1479,14 @@ impl ApplicationHandler<UserEvent> for App {
                 self.update_pointer_cell(position.x, position.y);
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                // UX4-P1: an open overlay captures the pointer before any
+                // selection / PTY-report / hyperlink logic — the mouse analogue
+                // of the keyboard `if self.overlay.is_open()` guard. Shift and
+                // the TUI mouse mode are not consulted here.
+                if self.overlay.is_open() {
+                    self.handle_overlay_pointer_press(state, button);
+                    return;
+                }
                 if self.selecting {
                     if button == WinitMouseButton::Left && state == ElementState::Released {
                         self.finish_selection();
@@ -1440,6 +1517,12 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                // UX4-P1: an open overlay captures the wheel to scroll its list,
+                // before TUI reporting or scrollback movement.
+                if self.overlay.is_open() {
+                    self.handle_overlay_pointer_wheel(delta);
+                    return;
+                }
                 if self.should_report_mouse_to_pty() {
                     let _ = self.handle_reported_wheel(delta);
                     return;

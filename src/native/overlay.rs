@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::core::{Attrs, Cell, Color, Snapshot};
 use crate::input::Modifiers;
+use crate::selection::CellPoint;
 use crate::settings::Settings;
 use crate::theme::{Srgb, Theme};
 
@@ -108,6 +109,66 @@ impl OverlayUi {
                 SettingsPanelOutcome::OpenThemePicker => OverlayOutcome::OpenThemePicker,
                 SettingsPanelOutcome::OpenThemeBuilder => OverlayOutcome::OpenThemeBuilder,
             },
+        }
+    }
+
+    /// Pointer entry point (UX4-P1), the mouse analogue of [`Self::handle_input`].
+    /// `rect` is the live overlay geometry from [`overlay_rect`]. A press outside
+    /// the panel dismisses exactly like Esc (per-mode: the theme picker restores
+    /// its original theme). Inside the Settings panel a press is hit-tested to a
+    /// row+zone and dispatched through the existing value seam; the theme
+    /// picker/builder stay keyboard-driven for P1 (inside presses are inert).
+    pub(super) fn handle_pointer(
+        &mut self,
+        pointer: OverlayPointer,
+        rect: OverlayRect,
+    ) -> OverlayOutcome {
+        match pointer {
+            OverlayPointer::Press { cell, button } => {
+                if !rect.contains(cell) {
+                    // Click-away = Esc; routes through the per-mode close path so
+                    // the theme picker/builder restore their original theme.
+                    return self.handle_input(OverlayInput::Close);
+                }
+                match self.mode {
+                    OverlayMode::Settings => {
+                        let Some(row_in_body) = cell.row.checked_sub(rect.body_top) else {
+                            // The title row / top border: inside the box, inert.
+                            return OverlayOutcome::Consumed;
+                        };
+                        let outcome = self.panel.handle_pointer_press(
+                            rect.body_width,
+                            rect.body_height,
+                            row_in_body,
+                            button,
+                        );
+                        match outcome {
+                            SettingsPanelOutcome::Consumed => OverlayOutcome::Consumed,
+                            SettingsPanelOutcome::Apply(settings) => {
+                                OverlayOutcome::ApplySettings(settings)
+                            }
+                            SettingsPanelOutcome::Save(changes) => {
+                                OverlayOutcome::SaveSettings(changes)
+                            }
+                            SettingsPanelOutcome::OpenThemePicker => {
+                                OverlayOutcome::OpenThemePicker
+                            }
+                            SettingsPanelOutcome::OpenThemeBuilder => {
+                                OverlayOutcome::OpenThemeBuilder
+                            }
+                        }
+                    }
+                    OverlayMode::ThemePicker | OverlayMode::ThemeBuilder => {
+                        OverlayOutcome::Consumed
+                    }
+                }
+            }
+            OverlayPointer::Wheel { lines } => {
+                if self.mode == OverlayMode::Settings {
+                    self.panel.scroll_lines(lines);
+                }
+                OverlayOutcome::Consumed
+            }
         }
     }
 
@@ -235,6 +296,32 @@ pub(super) enum OverlayInput {
     Char(char),
 }
 
+/// Which mouse button drove a pointer event into the overlay. Only the buttons
+/// the overlay acts on are modeled (left = activate, right = reverse-cycle an
+/// enum); middle and others never reach `handle_pointer` (the App layer drops
+/// them while the overlay is open).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PointerButton {
+    Left,
+    Right,
+}
+
+/// Pointer events delivered to the overlay (UX4-P1), the mouse analogue of
+/// [`OverlayInput`]. P1 handles `Press` (click) and `Wheel` (free scroll);
+/// slider drag (`Move`/`Release`) arrives with UX4-P2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OverlayPointer {
+    /// A button went down at `cell` (grid coordinates over the visible grid,
+    /// the same space the overlay is drawn in).
+    Press {
+        cell: CellPoint,
+        button: PointerButton,
+    },
+    /// A wheel notch translated to `lines` (positive = scroll toward later
+    /// entries) over the open overlay.
+    Wheel { lines: isize },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct OverlayRenderSignature {
     pub(super) open: bool,
@@ -275,18 +362,46 @@ pub(super) fn overlay_input_from_winit(
     }
 }
 
-pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
-    if !overlay.open || snapshot.dimensions.rows == 0 || snapshot.dimensions.columns == 0 {
-        return;
-    }
+/// Geometry of the open overlay panel, in terminal cells. The single source of
+/// truth shared by rendering ([`apply_overlay`]) and pointer hit-testing
+/// ([`overlay_rect`]) so a resize can never desync the two. Computed on demand
+/// from the current grid dimensions; never cached.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct OverlayRect {
+    /// Outer panel box (includes border + title row).
+    pub(super) left: usize,
+    pub(super) top: usize,
+    pub(super) width: usize,
+    pub(super) height: usize,
+    /// First body cell (inside the border, below the title).
+    pub(super) body_left: usize,
+    pub(super) body_top: usize,
+    /// Body content extent (matches the args passed to `visible_lines`).
+    pub(super) body_width: usize,
+    pub(super) body_height: usize,
+}
 
-    let columns = snapshot.dimensions.columns;
-    let rows = snapshot.dimensions.rows;
-    let title = match overlay.mode {
-        OverlayMode::Settings => "OdyTTY Settings",
-        OverlayMode::ThemePicker => "OdyTTY Themes",
-        OverlayMode::ThemeBuilder => "OdyTTY Theme Builder",
-    };
+impl OverlayRect {
+    /// Whether a grid cell falls inside the outer panel box.
+    pub(super) fn contains(&self, cell: CellPoint) -> bool {
+        cell.row >= self.top
+            && cell.row < self.top + self.height
+            && cell.column >= self.left
+            && cell.column < self.left + self.width
+    }
+}
+
+/// Compute the open overlay's cell geometry for a grid of `columns`×`rows`, or
+/// `None` when the overlay is closed or the grid is empty. The math is the exact
+/// rect [`apply_overlay`] draws into, so render and hit-test stay in lockstep.
+pub(super) fn overlay_rect(
+    overlay: &OverlayUi,
+    columns: usize,
+    rows: usize,
+) -> Option<OverlayRect> {
+    if !overlay.open || rows == 0 || columns == 0 {
+        return None;
+    }
     let width = match overlay.mode {
         OverlayMode::Settings => overlay.panel.desired_width(columns),
         OverlayMode::ThemePicker => overlay.theme_picker.desired_width(columns),
@@ -297,24 +412,63 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
     let height = rows.min(22);
     let left = (columns - width) / 2;
     let top = (rows - height) / 2;
+    Some(OverlayRect {
+        left,
+        top,
+        width,
+        height,
+        body_left: left + 2,
+        body_top: top + 2,
+        body_width: width.saturating_sub(4),
+        body_height: height.saturating_sub(3),
+    })
+}
 
-    fill_rect(snapshot, left, top, width, height, panel_attrs());
-    draw_border(snapshot, left, top, width, height, border_attrs());
+pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
+    let Some(rect) = overlay_rect(
+        overlay,
+        snapshot.dimensions.columns,
+        snapshot.dimensions.rows,
+    ) else {
+        return;
+    };
+    let rows = snapshot.dimensions.rows;
+    let title = match overlay.mode {
+        OverlayMode::Settings => "OdyTTY Settings",
+        OverlayMode::ThemePicker => "OdyTTY Themes",
+        OverlayMode::ThemeBuilder => "OdyTTY Theme Builder",
+    };
+
+    fill_rect(
+        snapshot,
+        rect.left,
+        rect.top,
+        rect.width,
+        rect.height,
+        panel_attrs(),
+    );
+    draw_border(
+        snapshot,
+        rect.left,
+        rect.top,
+        rect.width,
+        rect.height,
+        border_attrs(),
+    );
     write_text(
         snapshot,
-        top,
-        left + 2,
-        width.saturating_sub(4),
+        rect.top,
+        rect.left + 2,
+        rect.width.saturating_sub(4),
         title,
         title_attrs(),
     );
 
-    let body_width = width.saturating_sub(4);
-    let body_height = height.saturating_sub(3);
-    let lines = overlay.visible_lines(body_width, body_height);
+    let body_width = rect.body_width;
+    let lines = overlay.visible_lines(body_width, rect.body_height);
     for (row_index, row) in lines.iter().enumerate() {
-        let y = top + 2 + row_index;
-        if y >= top + height.saturating_sub(1) || y >= rows {
+        let y = rect.top + 2 + row_index;
+        if y >= rect.top + rect.height.saturating_sub(1) || y >= rows {
             break;
         }
         let attrs = if row.focused {
@@ -323,12 +477,12 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
             panel_attrs()
         };
         let text_column = if let Some(color) = row.swatch {
-            draw_swatch(snapshot, y, left + 2, color);
-            left + 5
+            draw_swatch(snapshot, y, rect.left + 2, color);
+            rect.left + 5
         } else {
-            left + 2
+            rect.left + 2
         };
-        let text_width = body_width.saturating_sub(text_column.saturating_sub(left + 2));
+        let text_width = body_width.saturating_sub(text_column.saturating_sub(rect.left + 2));
         write_text(snapshot, y, text_column, text_width, &row.text, attrs);
     }
 }
@@ -599,5 +753,107 @@ mod tests {
 
         assert_eq!(settings.theme, crate::theme::Theme::ODYSSEY);
         assert!(!overlay.is_open());
+    }
+
+    // --- UX4-P1: pointer entry (handle_pointer / overlay_rect) ---
+
+    fn theme_value_cell(rect: OverlayRect) -> CellPoint {
+        // Row 0 of the body is the first group header ("Theme"); row 1 is the
+        // theme value line. Any body column maps to its Value zone in P1.
+        CellPoint {
+            row: rect.body_top + 1,
+            column: rect.body_left,
+        }
+    }
+
+    #[test]
+    fn pointer_press_outside_the_panel_dismisses_settings() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        // Top-left corner is well outside the centered panel.
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint { row: 0, column: 0 },
+                button: PointerButton::Left,
+            },
+            rect,
+        );
+        assert_eq!(outcome, OverlayOutcome::Close);
+    }
+
+    #[test]
+    fn pointer_press_outside_in_theme_picker_restores_and_closes() {
+        let mut overlay = OverlayUi::new(&Settings {
+            theme: crate::theme::Theme::ODYSSEY,
+            ..Settings::default()
+        });
+        let settings = overlay.settings.clone();
+        overlay.open_theme_picker(&settings);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        // A move within the picker previews a different theme...
+        assert!(matches!(
+            overlay.handle_input(OverlayInput::Down),
+            OverlayOutcome::ApplySettings(_)
+        ));
+        // ...and a click outside dismisses exactly like Esc: restore + close.
+        let OverlayOutcome::ApplySettings(restored) = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint { row: 0, column: 0 },
+                button: PointerButton::Left,
+            },
+            rect,
+        ) else {
+            panic!("expected restoration settings on click-away");
+        };
+        assert_eq!(restored.theme, crate::theme::Theme::ODYSSEY);
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn pointer_click_on_theme_value_opens_picker() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: theme_value_cell(rect),
+                button: PointerButton::Left,
+            },
+            rect,
+        );
+        assert_eq!(outcome, OverlayOutcome::OpenThemePicker);
+    }
+
+    #[test]
+    fn pointer_press_on_title_row_is_inert() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        // The title row sits above body_top but inside the panel box.
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.top,
+                    column: rect.body_left,
+                },
+                button: PointerButton::Left,
+            },
+            rect,
+        );
+        assert_eq!(outcome, OverlayOutcome::Consumed);
+    }
+
+    #[test]
+    fn pointer_wheel_scrolls_settings_without_changing_selection() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let before = overlay.render_signature().panel;
+        let outcome = overlay.handle_pointer(OverlayPointer::Wheel { lines: 4 }, rect);
+        assert_eq!(outcome, OverlayOutcome::Consumed);
+        let after = overlay.render_signature().panel;
+        assert!(after.scroll > before.scroll, "wheel scrolled the list");
+        assert_eq!(after.selected, before.selected, "selection did not move");
     }
 }

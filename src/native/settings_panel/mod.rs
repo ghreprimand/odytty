@@ -3,6 +3,8 @@ use crate::settings::{SettingEdit, SettingInfo, SettingKind, Settings, SettingsE
 
 use super::overlay::OverlayInput;
 
+mod pointer;
+
 #[derive(Debug, Clone)]
 pub(super) struct SettingsPanel {
     edits: SettingsEditOverlay,
@@ -182,71 +184,17 @@ impl SettingsPanel {
         content_width.saturating_add(4).min(columns)
     }
 
+    /// The rendered body lines, projected from the shared row walker so they can
+    /// never drift from the pointer hit-map ([`Self::visible_hit_map`]).
     pub(super) fn visible_lines(
         &self,
         body_width: usize,
         body_height: usize,
     ) -> Vec<SettingsPanelLine> {
-        if body_width == 0 || body_height == 0 {
-            return Vec::new();
-        }
-
-        let mut lines = Vec::new();
-        let mut current_group = "";
-        for (index, entry) in self.entries.iter().enumerate().skip(self.scroll) {
-            if lines.len() >= body_height {
-                break;
-            }
-            if entry.group != current_group {
-                current_group = entry.group;
-                lines.push(SettingsPanelLine {
-                    text: format!("  {current_group}"),
-                    focused: false,
-                });
-                if lines.len() >= body_height {
-                    break;
-                }
-            }
-
-            let focused = index == self.selected;
-            let marker = if focused { ">" } else { " " };
-            let mut value = self.display_value(entry);
-            let max_value = body_width.saturating_sub(entry.name.chars().count() + 6);
-            if value.chars().count() > max_value {
-                value = ellipsize(&value, max_value);
-            }
-            lines.push(SettingsPanelLine {
-                text: format!("{marker} {}: {value}", entry.name),
-                focused,
-            });
-            if lines.len() >= body_height {
-                break;
-            }
-
-            let detail = setting_detail(entry);
-            for wrapped in wrap_words(&detail, body_width.saturating_sub(4)) {
-                if lines.len() >= body_height {
-                    break;
-                }
-                lines.push(SettingsPanelLine {
-                    text: format!("    {wrapped}"),
-                    focused: false,
-                });
-            }
-            if focused && let Some(message) = self.message.as_deref() {
-                for wrapped in wrap_words(message, body_width.saturating_sub(4)) {
-                    if lines.len() >= body_height {
-                        break;
-                    }
-                    lines.push(SettingsPanelLine {
-                        text: format!("    ! {wrapped}"),
-                        focused: false,
-                    });
-                }
-            }
-        }
-
-        lines
+        self.build_visible_rows(body_width, body_height)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect()
     }
 
     fn display_value(&self, entry: &SettingInfo) -> String {
