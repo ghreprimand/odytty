@@ -27,6 +27,7 @@ fn setting_info_groups_are_contiguous_and_ordered_for_the_panel() {
             "Cursor",
             "Input",
             "Clipboard",
+            "Accessibility",
             "Development",
         ]
     );

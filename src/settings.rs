@@ -336,6 +336,56 @@ impl ScrollDragSpeed {
     }
 }
 
+/// Colour-vision-deficiency (colour-blindness) adaptation mode (U4).
+///
+/// `Off` (default) is the pixel-identical baseline: the palette is published
+/// exactly as authored. The three deficiency modes daltonise the palette so
+/// confusable colours separate for that viewer — `Protan`/`Deutan` target the
+/// red–green confusion (the common deficiencies), `Tritan` the blue–yellow. The
+/// native theme-wiring layer maps each mode to its colour-vision model and
+/// re-floors the result so the adapted palette stays readable; the strength of
+/// the correction is [`Settings::cvd_strength`]. Presentation-only — it remaps
+/// only how colours are painted, never the terminal model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CvdMode {
+    /// No adaptation; the authored palette is published unchanged.
+    #[default]
+    Off,
+    /// Red-cone deficiency (protanopia): red–green confusion.
+    Protan,
+    /// Green-cone deficiency (deuteranopia, the most common): red–green confusion.
+    Deutan,
+    /// Blue-cone deficiency (tritanopia, rare): blue–yellow confusion.
+    Tritan,
+}
+
+impl CvdMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Protan => "protan",
+            Self::Deutan => "deutan",
+            Self::Tritan => "tritan",
+        }
+    }
+
+    /// Whether any adaptation is active. `false` for [`CvdMode::Off`], the
+    /// pixel-identical baseline the wiring layer short-circuits on.
+    pub fn is_active(self) -> bool {
+        self != Self::Off
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "off" | "none" | "disabled" => Some(Self::Off),
+            "protan" | "protanopia" | "protanope" => Some(Self::Protan),
+            "deutan" | "deuteran" | "deuteranopia" | "deuteranope" => Some(Self::Deutan),
+            "tritan" | "tritanopia" | "tritanope" => Some(Self::Tritan),
+            _ => None,
+        }
+    }
+}
+
 /// Typed runtime settings used by the native prototype.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
@@ -427,6 +477,16 @@ pub struct Settings {
     /// wheel inside a TUI mouse-reporting app — stays byte-identical. Off
     /// returns Ctrl+wheel to plain scrollback movement.
     pub wheel_zoom: bool,
+    /// Colour-vision-deficiency palette adaptation mode (U4, Accessibility).
+    /// `Off` by default — the off path publishes the authored palette unchanged
+    /// and is pixel-identical to before. The deficiency modes daltonise the
+    /// palette (16 ANSI + cursor/selection/search roles) so confusable colours
+    /// separate, re-floored to stay readable.
+    pub cvd_mode: CvdMode,
+    /// Strength of the CVD adaptation in `0.0..=1.0` (U4). `1.0` (default) is
+    /// the full correction; `0.0` is an exact passthrough. Inert while
+    /// [`Settings::cvd_mode`] is `Off`.
+    pub cvd_strength: f32,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -468,6 +528,8 @@ impl Default for Settings {
             selection_drag_extend: DEFAULT_SELECTION_DRAG_EXTEND,
             scrollbar_drag: DEFAULT_SCROLLBAR_DRAG,
             wheel_zoom: DEFAULT_WHEEL_ZOOM,
+            cvd_mode: CvdMode::default(),
+            cvd_strength: DEFAULT_CVD_STRENGTH,
             native_autoclose: None,
         }
     }
@@ -777,6 +839,8 @@ impl Settings {
             DEFAULT_WHEEL_ZOOM,
             &mut warn,
         );
+        let cvd_mode = parse_cvd_mode(get(CVD_MODE_ENV).as_deref(), &mut warn);
+        let cvd_strength = parse_cvd_strength(get(CVD_STRENGTH_ENV).as_deref(), &mut warn);
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -815,6 +879,8 @@ impl Settings {
             selection_drag_extend,
             scrollbar_drag,
             wheel_zoom,
+            cvd_mode,
+            cvd_strength,
             native_autoclose,
         }
     }
@@ -903,6 +969,8 @@ impl Settings {
             bool_display(self.scrollbar_drag).to_owned(),
         );
         values.insert(WHEEL_ZOOM_ENV, bool_display(self.wheel_zoom).to_owned());
+        values.insert(CVD_MODE_ENV, self.cvd_mode.as_str().to_owned());
+        values.insert(CVD_STRENGTH_ENV, format_float(self.cvd_strength));
         if let Some(duration) = self.native_autoclose {
             values.insert(NATIVE_AUTOCLOSE_ENV, duration.as_millis().to_string());
         }
@@ -1326,6 +1394,49 @@ fn parse_scroll_drag_speed(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> 
             ScrollDragSpeed::default()
         }
     }
+}
+
+fn parse_cvd_mode(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> CvdMode {
+    let Some(raw) = raw else {
+        return CvdMode::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return CvdMode::default();
+    }
+    match CvdMode::parse(trimmed) {
+        Some(mode) => mode,
+        None => {
+            warn(&format!(
+                "{CVD_MODE_ENV}={trimmed:?} is not off|protan|deutan|tritan; using off"
+            ));
+            CvdMode::default()
+        }
+    }
+}
+
+fn parse_cvd_strength(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_CVD_STRENGTH;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_CVD_STRENGTH;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{CVD_STRENGTH_ENV}={trimmed:?} is not a valid strength; using {DEFAULT_CVD_STRENGTH}"
+            ));
+            return DEFAULT_CVD_STRENGTH;
+        }
+    };
+
+    parsed.clamp(MIN_CVD_STRENGTH, MAX_CVD_STRENGTH)
 }
 
 fn parse_render_quality(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> RenderQuality {

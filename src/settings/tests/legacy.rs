@@ -109,6 +109,8 @@ fn setting_info_covers_every_field_with_descriptions() {
             "wheel_zoom",
             "osc52_read",
             "copy_on_select",
+            "cvd_mode",
+            "cvd_strength",
             "native_autoclose_ms",
         ]
     );

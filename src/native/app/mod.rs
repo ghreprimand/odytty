@@ -40,6 +40,7 @@ use super::clipboard::{
     NativeClipboard, read_clipboard_selection, selected_clipboard_text, write_clipboard_selection,
     write_paste_text,
 };
+use super::cvd_theme::CvdThemeCache;
 use super::gpu::{BloomOptions, CrtOptions, FrameOutcome, GpuState};
 use super::options::{NativeError, NativeOptions};
 use super::overlay::{
@@ -127,10 +128,19 @@ enum SettingsApplySource {
 /// the loop returns.
 pub(super) struct App {
     options: NativeOptions,
-    /// Active presentation theme (selected once from `ODYTTY_THEME`). Used for
-    /// the surface clear color; the default cell colors are applied process-wide
-    /// at startup via `text::set_default_colors`. Presentation-only.
+    /// Active *authored* presentation theme (from `ODYTTY_THEME`, updated on
+    /// settings changes). The theme as written — what round-trips/authoring
+    /// read; the colors published to the renderer are [`Self::effective_theme`].
     theme: Theme,
+    /// Theme actually published to the renderer (U4): [`Self::theme`] after
+    /// colour-vision-deficiency adaptation. Equal to `theme` when `cvd_mode` is
+    /// off (byte-identical plain path). Recomputed only in `apply_settings` via
+    /// [`Self::cvd_cache`], never per frame.
+    effective_theme: Theme,
+    /// One-entry cache for [`Self::effective_theme`] keyed on
+    /// `(authored theme, cvd_mode, cvd_strength)` so repeated applies skip the
+    /// palette re-floor.
+    cvd_cache: CvdThemeCache,
     /// Active optional visual treatment (selected once from `ODYTTY_VISUAL`,
     /// default off). Drives the ambient scanline uniform; presentation-only and
     /// fully disableable. The core never sees it.
@@ -287,6 +297,10 @@ impl App {
     ) -> Self {
         let grid = options.initial_grid;
         let theme = settings.theme;
+        // U4: warm the effective-theme cache so the first GPU bring-up publishes
+        // the adapted theme. Off (the default) returns the authored theme.
+        let mut cvd_cache = CvdThemeCache::default();
+        let effective_theme = cvd_cache.resolve(&theme, settings.cvd_mode, settings.cvd_strength);
         let visual = settings.visual;
         let key_bindings = KeyBindings::from_overrides(&settings.key_bindings);
         let autoclose = settings.native_autoclose;
@@ -295,6 +309,8 @@ impl App {
         Self {
             options,
             theme,
+            effective_theme,
+            cvd_cache,
             visual,
             window: None,
             gpu: None,
@@ -471,6 +487,24 @@ impl App {
     #[cfg(test)]
     pub(super) fn set_wheel_zoom_for_test(&mut self, on: bool) {
         self.settings.wheel_zoom = on;
+    }
+
+    /// Test seam (U4): the theme currently published to the renderer (the
+    /// authored theme after CVD adaptation).
+    #[cfg(test)]
+    pub(super) fn effective_theme_for_test(&self) -> Theme {
+        self.effective_theme
+    }
+
+    /// Test seam (U4): drive a live CVD settings change through the real
+    /// `apply_settings` chokepoint (the overlay-edit path), exactly as toggling
+    /// the Accessibility group would.
+    #[cfg(test)]
+    pub(super) fn apply_cvd_for_test(&mut self, mode: crate::settings::CvdMode, strength: f32) {
+        let mut next = self.settings.clone();
+        next.cvd_mode = mode;
+        next.cvd_strength = strength;
+        self.apply_settings_through_reload_seam(next, SettingsApplySource::OverlayEdit);
     }
 
     /// Test seam (CTRL-WHEEL-ZOOM): the current live font size in pixels.
@@ -691,7 +725,7 @@ impl App {
     }
 
     fn scroll_indicator_color(&self) -> [f32; 4] {
-        let (r, g, b) = self.theme.foreground;
+        let (r, g, b) = self.effective_theme.foreground;
         let mut color = text::foreground_linear(Color::Rgb(r, g, b));
         color[3] = 0.62;
         color
@@ -1137,6 +1171,19 @@ impl App {
         self.settings = next_settings;
         self.options = next_options;
         self.theme = self.settings.theme;
+        // U4: compute the effective (CVD-adapted) theme once at this change
+        // chokepoint and publish IT to every renderer seam below. Off returns
+        // the authored theme unchanged (byte-identical plain path); the cache
+        // makes an unchanged theme/mode/strength a cheap clone. A later step can
+        // route the theme builder's live preview around this compute (via
+        // `cvd_theme::effective_theme`) so authoring stays WYSIWYG; that bypass
+        // is not wired yet, so a preview is adapted like any other application
+        // while a CVD mode is active (off by default).
+        self.effective_theme = self.cvd_cache.resolve(
+            &self.theme,
+            self.settings.cvd_mode,
+            self.settings.cvd_strength,
+        );
         self.visual = self.settings.visual;
         self.themed_ui_roles = self.settings.themed_ui_roles;
         self.key_bindings = KeyBindings::from_overrides(&self.settings.key_bindings);
@@ -1144,8 +1191,15 @@ impl App {
             SettingsApplySource::ConfigReload => self.overlay.refresh_settings(&self.settings),
             SettingsApplySource::OverlayEdit => self.overlay.apply_settings(&self.settings),
         }
-        text::set_default_colors(self.theme.foreground, self.theme.background);
-        text::set_ansi_palette(&self.theme.palette);
+        // U4: all theme publishes read `effective_theme` (the authored theme
+        // after CVD adaptation; identical to it when off), so the renderer sees
+        // the adapted colors while `self.theme` keeps the authored one for
+        // save/round-trip.
+        text::set_default_colors(
+            self.effective_theme.foreground,
+            self.effective_theme.background,
+        );
+        text::set_ansi_palette(&self.effective_theme.palette);
         // RV1: republish the minimum-contrast floor so a live `min_contrast`
         // edit takes effect on the next frame (the grid resolve seam reads it
         // per cell). Mirrors the palette republish above; passthrough at 1.0.
@@ -1156,13 +1210,13 @@ impl App {
             // (today's behavior). A live OSC 12 dynamic-color override is a
             // separate mechanism in the core and still takes precedence.
             let cursor_default = if self.themed_ui_roles {
-                rgb(self.theme.cursor)
+                rgb(self.effective_theme.cursor)
             } else {
-                rgb(self.theme.foreground)
+                rgb(self.effective_theme.foreground)
             };
             terminal.set_base_colors(
-                rgb(self.theme.foreground),
-                rgb(self.theme.background),
+                rgb(self.effective_theme.foreground),
+                rgb(self.effective_theme.background),
                 cursor_default,
             );
             terminal.set_osc52_read_enabled(self.settings.osc52_read);
@@ -1172,7 +1226,7 @@ impl App {
             );
         }
         if let Some(gpu) = self.gpu.as_mut() {
-            gpu.set_theme(self.theme);
+            gpu.set_theme(self.effective_theme);
             gpu.set_visual(self.visual);
             gpu.set_text_gamma(self.settings.text_gamma);
             gpu.set_bloom(bloom_options(&self.settings));
@@ -1213,12 +1267,12 @@ impl App {
             return None;
         }
         let fill = [
-            self.theme.selection.0,
-            self.theme.selection.1,
-            self.theme.selection.2,
+            self.effective_theme.selection.0,
+            self.effective_theme.selection.1,
+            self.effective_theme.selection.2,
         ];
         let fg = floor_fg_over(
-            self.theme.foreground,
+            self.effective_theme.foreground,
             fill,
             self.settings.effective_min_contrast(),
         );
@@ -1234,21 +1288,21 @@ impl App {
             return None;
         }
         let fill = [
-            self.theme.search.0,
-            self.theme.search.1,
-            self.theme.search.2,
+            self.effective_theme.search.0,
+            self.effective_theme.search.1,
+            self.effective_theme.search.2,
         ];
-        let fill_lin = srgb_tuple_to_linear(self.theme.search);
+        let fill_lin = srgb_tuple_to_linear(self.effective_theme.search);
         let active_fill_lin =
             crate::color::mix_oklab(fill_lin, [1.0, 1.0, 1.0], SEARCH_ACTIVE_BRIGHTEN);
         let active_fill = linear_to_srgb_tuple(active_fill_lin);
         let fg = floor_fg_over(
-            self.theme.foreground,
+            self.effective_theme.foreground,
             fill,
             self.settings.effective_min_contrast(),
         );
         let active_fg = floor_fg_over(
-            self.theme.foreground,
+            self.effective_theme.foreground,
             active_fill,
             self.settings.effective_min_contrast(),
         );
@@ -1326,7 +1380,7 @@ impl ApplicationHandler<UserEvent> for App {
             window.clone(),
             &self.options,
             &initial_snapshot,
-            self.theme,
+            self.effective_theme,
             self.visual,
             self.settings.effective_stem_darken(),
             bloom_options(&self.settings),

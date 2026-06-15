@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- U4: perceptual CVD (colorblind) palette adaptation, native wiring
+
+- The colorblind palette adaptation now applies live. A new **Accessibility**
+  settings group adds `cvd_mode` (off / protan / deutan / tritan, default off) and
+  `cvd_strength` (0–1, inert when off). When a mode is active the 16 ANSI palette
+  plus the cursor / selection / search roles are remapped in OKLab to pull apart
+  the colors that mode confuses, then re-floored for contrast; indexed-256 and
+  application truecolor are left as-authored (a full per-cell adaptation is a
+  recorded future option).
+- The adaptation is computed once at the settings-apply boundary, not per frame:
+  the effective theme is derived there and fed to every color publish (defaults,
+  ANSI palette, base colors, GPU theme, themed selection/search, scroll
+  indicator), with a small cache keyed on the theme, mode, and strength so it only
+  recomputes on change. Appearance is inferred from background luminance so light
+  themes classify correctly.
+- Off is pixel-identical by construction: with `cvd_mode = off` (or strength ≤ 0)
+  the effective theme returns the authored theme bitwise, never routing through
+  the adaptation. Composes with the legibility floor without double-shifting —
+  adaptation moves the color channels at apply time, the floor moves only
+  lightness at render time. (Known follow-up: the theme-builder live preview still
+  adapts while a CVD mode is on; a WYSIWYG bypass is the next small step.)
+- The apply-time compute and cache live in a new `src/native/cvd_theme.rs` to keep
+  the app module under its size budget. Verified: ENABLED pixel-smoke (a deutan
+  mode visibly separates confusable cells) plus an off-mode pixel-identical
+  baseline; `cvd_theme` + `cvd_wiring` unit suites; aggregate green; `cargo fmt
+  --all --check` clean. This completes the U4 flagship (perceptual CVD adaptation).
+
 ## 2026-06-15 -- U2: mouse-driven theme builder (slider drag + click-to-focus)
 
 - The perceptual-safe theme builder is now fully mouse-driven. Drag a channel

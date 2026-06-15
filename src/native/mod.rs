@@ -53,6 +53,7 @@ mod bindings;
 mod clipboard;
 mod copy_mode;
 mod cursor;
+mod cvd_theme;
 mod gpu;
 mod image_layer;
 mod options;
@@ -98,7 +99,11 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // Select the presentation theme once via Settings and apply its default cell
     // colors process-wide before any rendering. This only
     // affects how Color::Default paints; the terminal core is unaware of it.
-    let theme = settings.theme;
+    // U4: publish the *effective* theme so a launch-time `cvd_mode` is honored
+    // from the first frame. Off (the default) returns the authored theme
+    // unchanged, so the plain path is byte-identical.
+    let theme =
+        cvd_theme::effective_theme(&settings.theme, settings.cvd_mode, settings.cvd_strength);
     text::set_default_colors(theme.foreground, theme.background);
     text::set_ansi_palette(&theme.palette);
     // Publish the RV1 minimum-contrast floor process-wide before the first

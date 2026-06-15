@@ -38,6 +38,8 @@ pub const COPY_ON_SELECT_ENV: &str = "ODYTTY_COPY_ON_SELECT";
 pub const SELECTION_DRAG_EXTEND_ENV: &str = "ODYTTY_SELECTION_DRAG_EXTEND";
 pub const SCROLLBAR_DRAG_ENV: &str = "ODYTTY_SCROLLBAR_DRAG";
 pub const WHEEL_ZOOM_ENV: &str = "ODYTTY_WHEEL_ZOOM";
+pub const CVD_MODE_ENV: &str = "ODYTTY_CVD_MODE";
+pub const CVD_STRENGTH_ENV: &str = "ODYTTY_CVD_STRENGTH";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
@@ -81,6 +83,8 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SELECTION_DRAG_EXTEND_ENV,
     SCROLLBAR_DRAG_ENV,
     WHEEL_ZOOM_ENV,
+    CVD_MODE_ENV,
+    CVD_STRENGTH_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 
@@ -206,3 +210,14 @@ pub const MAX_CRT_SCANLINE_PERIOD: f32 = 12.0;
 pub const DEFAULT_CRT_VIGNETTE_STRENGTH: f32 = 0.10;
 pub const MIN_CRT_VIGNETTE_STRENGTH: f32 = 0.0;
 pub const MAX_CRT_VIGNETTE_STRENGTH: f32 = 0.16;
+
+/// Colour-vision-deficiency adaptation strength (`ODYTTY_CVD_STRENGTH`, U4): how
+/// strongly the palette is daltonised toward separability for the selected
+/// [`crate::settings::CvdMode`]. `1.0` (default) is the full correction; `0.0`
+/// is an exact passthrough. Inert while the mode is `off` — the off mode is the
+/// primary pixel-identical guarantee, and `0.0` strength is a second net. The
+/// adaptation is palette-scope (the 16 ANSI colours plus the cursor/selection/
+/// search roles), re-floored to stay readable; app truecolour is not remapped.
+pub const DEFAULT_CVD_STRENGTH: f32 = 1.0;
+pub const MIN_CVD_STRENGTH: f32 = 0.0;
+pub const MAX_CVD_STRENGTH: f32 = 1.0;
