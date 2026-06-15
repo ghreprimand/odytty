@@ -73,6 +73,7 @@ impl OverlayUi {
         // left the window / focus loss mid-drag) cannot leave it armed for the
         // next open — the P2 analogue of the P1 held-report_button cleanup.
         self.panel.end_slider_drag();
+        self.theme_builder.end_channel_drag();
         self.open = false;
         self.mode = OverlayMode::Settings;
     }
@@ -119,8 +120,10 @@ impl OverlayUi {
     /// `rect` is the live overlay geometry from [`overlay_rect`]. A press outside
     /// the panel dismisses exactly like Esc (per-mode: the theme picker restores
     /// its original theme). Inside the Settings panel a press is hit-tested to a
-    /// row+zone and dispatched through the existing value seam; the theme
-    /// picker/builder stay keyboard-driven for P1 (inside presses are inert).
+    /// row+zone and dispatched through the existing value seam. Inside the theme
+    /// builder a press routes to role/channel focus and starts a slider drag on
+    /// the focused-channel track (U2 Step 2/3); only the theme picker stays
+    /// keyboard-driven (its inside presses remain inert).
     pub(super) fn handle_pointer(
         &mut self,
         pointer: OverlayPointer,
@@ -133,52 +136,80 @@ impl OverlayUi {
                     // the theme picker/builder restore their original theme.
                     return self.handle_input(OverlayInput::Close);
                 }
-                if self.mode != OverlayMode::Settings {
-                    return OverlayOutcome::Consumed;
-                }
                 let Some(row_in_body) = cell.row.checked_sub(rect.body_top) else {
                     // The title row / top border: inside the box, inert.
                     return OverlayOutcome::Consumed;
                 };
                 let col_in_body = cell.column.saturating_sub(rect.body_left);
-                let outcome = self.panel.handle_pointer_press(
-                    rect.body_width,
-                    rect.body_height,
-                    row_in_body,
-                    col_in_body,
-                    button,
-                );
-                settings_outcome(outcome)
+                match self.mode {
+                    OverlayMode::Settings => settings_outcome(self.panel.handle_pointer_press(
+                        rect.body_width,
+                        rect.body_height,
+                        row_in_body,
+                        col_in_body,
+                        button,
+                    )),
+                    OverlayMode::ThemeBuilder => {
+                        let outcome = self.theme_builder.handle_pointer_press(
+                            rect.body_width,
+                            rect.body_height,
+                            row_in_body,
+                            col_in_body,
+                            button,
+                        );
+                        self.apply_builder_outcome(outcome)
+                    }
+                    OverlayMode::ThemePicker => OverlayOutcome::Consumed,
+                }
             }
             OverlayPointer::Move { cell } => {
-                if self.mode != OverlayMode::Settings {
-                    return OverlayOutcome::Consumed;
-                }
                 let col_in_body = cell.column.saturating_sub(rect.body_left);
-                let outcome =
-                    self.panel
-                        .handle_pointer_drag(rect.body_width, rect.body_height, col_in_body);
-                settings_outcome(outcome)
+                match self.mode {
+                    OverlayMode::Settings => settings_outcome(self.panel.handle_pointer_drag(
+                        rect.body_width,
+                        rect.body_height,
+                        col_in_body,
+                    )),
+                    OverlayMode::ThemeBuilder => {
+                        let outcome = self.theme_builder.handle_pointer_drag(
+                            rect.body_width,
+                            rect.body_height,
+                            col_in_body,
+                        );
+                        self.apply_builder_outcome(outcome)
+                    }
+                    OverlayMode::ThemePicker => OverlayOutcome::Consumed,
+                }
             }
             OverlayPointer::Release { .. } => {
-                if self.mode == OverlayMode::Settings {
-                    self.panel.end_slider_drag();
+                match self.mode {
+                    OverlayMode::Settings => self.panel.end_slider_drag(),
+                    OverlayMode::ThemeBuilder => self.theme_builder.end_channel_drag(),
+                    OverlayMode::ThemePicker => {}
                 }
                 OverlayOutcome::Consumed
             }
             OverlayPointer::Wheel { lines } => {
-                if self.mode == OverlayMode::Settings {
-                    self.panel.scroll_lines(lines);
+                match self.mode {
+                    OverlayMode::Settings => self.panel.scroll_lines(lines),
+                    OverlayMode::ThemeBuilder => self.theme_builder.scroll_lines(lines),
+                    OverlayMode::ThemePicker => {}
                 }
                 OverlayOutcome::Consumed
             }
         }
     }
 
-    /// Whether a settings-panel slider drag is in progress (UX4-P2). The App
-    /// gates per-move routing on this so non-drag hover stays cheap.
+    /// Whether an overlay slider drag is in progress (UX4-P2 settings slider or
+    /// U2 Step 2/3 builder channel slider). The App gates per-move routing on
+    /// this so non-drag hover stays cheap. (Name kept for the App call sites,
+    /// which live in a peer lane this wave; it now covers the builder too.)
     pub(super) fn is_settings_dragging(&self) -> bool {
-        self.mode == OverlayMode::Settings && self.panel.is_dragging()
+        match self.mode {
+            OverlayMode::Settings => self.panel.is_dragging(),
+            OverlayMode::ThemeBuilder => self.theme_builder.is_dragging(),
+            OverlayMode::ThemePicker => false,
+        }
     }
 
     /// Abandon any in-progress settings slider drag WITHOUT closing the overlay
@@ -187,10 +218,12 @@ impl OverlayUi {
     /// window after an alt-tab, so without this the drag would survive and the
     /// next bare hover Move on focus regain would commit a phantom slider value
     /// — the overlay-stays-open analogue of the close/reopen lost-release case.
-    /// No-op unless the Settings panel currently holds a drag.
+    /// No-op unless the active mode currently holds a slider drag.
     pub(super) fn cancel_settings_drag(&mut self) {
-        if self.mode == OverlayMode::Settings {
-            self.panel.end_slider_drag();
+        match self.mode {
+            OverlayMode::Settings => self.panel.end_slider_drag(),
+            OverlayMode::ThemeBuilder => self.theme_builder.end_channel_drag(),
+            OverlayMode::ThemePicker => {}
         }
     }
 
@@ -285,7 +318,16 @@ impl OverlayUi {
     }
 
     fn handle_theme_builder_input(&mut self, input: OverlayInput) -> OverlayOutcome {
-        match self.theme_builder.handle_input(input) {
+        let outcome = self.theme_builder.handle_input(input);
+        self.apply_builder_outcome(outcome)
+    }
+
+    /// Lift a [`ThemeBuilderOutcome`] (from the keyboard or the pointer path)
+    /// into an [`OverlayOutcome`] — the single mapping shared by
+    /// `handle_theme_builder_input` and the builder branch of `handle_pointer`,
+    /// so the two entry points can never diverge.
+    fn apply_builder_outcome(&mut self, outcome: ThemeBuilderOutcome) -> OverlayOutcome {
+        match outcome {
             ThemeBuilderOutcome::Consumed => OverlayOutcome::Consumed,
             ThemeBuilderOutcome::Preview(theme) => {
                 let settings = self.settings_with_theme(theme);
@@ -355,6 +397,10 @@ pub(super) enum OverlayInput {
     Save,
     Backspace,
     Close,
+    /// Cycle the theme builder's focused OKLCH channel (U2 Step 2/3). Ignored by
+    /// the settings panel and theme picker (their `handle_input` default arms
+    /// drop it).
+    Tab,
     Char(char),
 }
 
@@ -417,6 +463,7 @@ pub(super) fn overlay_input_from_winit(
         WinitKey::Named(NamedKey::ArrowLeft) => Some(OverlayInput::Left),
         WinitKey::Named(NamedKey::ArrowRight) => Some(OverlayInput::Right),
         WinitKey::Named(NamedKey::Enter) => Some(OverlayInput::Activate),
+        WinitKey::Named(NamedKey::Tab) if !mods.ctrl && !mods.alt => Some(OverlayInput::Tab),
         WinitKey::Named(NamedKey::Backspace) => Some(OverlayInput::Backspace),
         WinitKey::Character(text) if mods.ctrl && !mods.alt && text.eq_ignore_ascii_case("s") => {
             Some(OverlayInput::Save)
@@ -1074,5 +1121,73 @@ mod tests {
             !overlay.is_settings_dragging(),
             "hover did not re-arm the drag"
         );
+    }
+
+    // --- U2 Step 2/3: builder pointer routing through handle_pointer ---
+
+    #[test]
+    fn builder_slider_press_routes_through_handle_pointer_and_arms_a_drag() {
+        let mut overlay = OverlayUi::default();
+        let settings = overlay.settings.clone();
+        overlay.open_theme_builder(&settings);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+
+        // Row 4 of the body is the focused-channel slider (title, name, contrast,
+        // channel-picker, slider). A left press on it applies a theme and arms a
+        // drag the App's Move gate (`is_settings_dragging`) now reports.
+        let cell = CellPoint {
+            row: rect.body_top + 4,
+            column: rect.body_left + rect.body_width.saturating_sub(1),
+        };
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell,
+                button: PointerButton::Left,
+            },
+            rect,
+        );
+        assert!(
+            matches!(outcome, OverlayOutcome::ApplySettings(_)),
+            "slider press previews a theme"
+        );
+        assert!(
+            overlay.is_settings_dragging(),
+            "builder slider press arms a drag routed via the shared gate"
+        );
+
+        // Release ends the drag through the same gate.
+        overlay.handle_pointer(
+            OverlayPointer::Release {
+                cell,
+                button: PointerButton::Left,
+            },
+            rect,
+        );
+        assert!(
+            !overlay.is_settings_dragging(),
+            "release ends the builder drag"
+        );
+    }
+
+    #[test]
+    fn builder_press_outside_restores_and_closes() {
+        let mut overlay = OverlayUi::new(&Settings {
+            theme: crate::theme::Theme::ODYSSEY,
+            ..Settings::default()
+        });
+        let settings = overlay.settings.clone();
+        overlay.open_theme_builder(&settings);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let OverlayOutcome::ApplySettings(restored) = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint { row: 0, column: 0 },
+                button: PointerButton::Left,
+            },
+            rect,
+        ) else {
+            panic!("expected restoration settings on click-away");
+        };
+        assert_eq!(restored.theme, crate::theme::Theme::ODYSSEY);
+        assert!(!overlay.is_open(), "click-away closes the builder");
     }
 }

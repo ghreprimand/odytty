@@ -250,6 +250,8 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
             scroll: 0,
             editing: None,
             message: None,
+            channel: "L (lightness)",
+            selected_color: (0, 0, 0),
         },
     }
 }

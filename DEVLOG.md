@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- U2: mouse-driven theme builder (slider drag + click-to-focus)
+
+- The perceptual-safe theme builder is now fully mouse-driven. Drag a channel
+  slider to set the focused OKLCH value, click a role or channel to focus it, and
+  `Tab` cycles the L/C/H channels (the keyboard `[` / `]` and arrow editing from
+  step 1 still work). Slider drag and the keyboard share the one authoring-math
+  path, so what you author is still exactly what renders, and every step-1
+  invariant holds (AA-4.5 readout, save-time snap-to-floor, verbatim hex entry,
+  appearance inferred from background luminance).
+- Pointer routing rides the existing overlay drag machinery: the same move-gate
+  and focus-loss cancel that drive the settings sliders now also drive the
+  builder, and a single row-layout walker keeps the painted rows and the
+  hit-testing in lockstep. The render signature carries the focused channel and
+  selected color so a pointer-only change still repaints. Nothing changes when the
+  builder is closed — the plain path is byte-identical and TUI mouse reporting is
+  untouched (Shift stays the selection-vs-passthrough seam).
+- This completes the U2 flagship (perceptual-safe visual theme builder).
+  Verified: 19 builder + 27 overlay tests; render-signature matrix test; aggregate
+  green; `cargo fmt --all --check` clean.
+
 ## 2026-06-15 -- HINTS core: URL / path / SHA scanner + label assignment (pure)
 
 - New pure module `src/hints.rs` scans the visible rows for actionable spans —

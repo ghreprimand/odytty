@@ -8,7 +8,7 @@ use crate::settings::Settings;
 use crate::theme::{Appearance, Srgb, Theme, ThemeSpec, contrast_ratio, relative_luminance};
 use crate::theme_author::{self, AUTHORING_CONTRAST_FLOOR, AuthorRole, FloorAgainst};
 
-use super::overlay::OverlayInput;
+use super::overlay::{OverlayInput, PointerButton};
 
 #[derive(Debug, Clone)]
 pub(super) struct ThemeBuilder {
@@ -18,15 +18,20 @@ pub(super) struct ThemeBuilder {
     scroll: usize,
     editing: Option<EditMode>,
     message: Option<String>,
-    /// Which OKLCH channel the Left/Right arrows currently drive (U2). Internal
-    /// view state only — it is surfaced through `message`/the readout lines (both
-    /// already in the render signature), so it deliberately stays out of
-    /// [`ThemeBuilderSignature`].
+    /// Which OKLCH channel the Left/Right arrows currently drive, and which
+    /// channel token a pointer slider drag targets (U2). View state, but it
+    /// changes the rendered readout/slider highlight independently of `message`,
+    /// so it is carried in [`ThemeBuilderSignature`] to drive repaint.
     channel: OklchChannel,
     /// How many floored roles the last save auto-snapped to AA (D-U2-2), carried
     /// from [`ThemeBuilder::save_request`] into [`ThemeBuilder::save_succeeded`]
     /// so the saved-confirmation message can report the backstop.
     save_snap_count: usize,
+    /// Whether a pointer slider drag on the focused-channel track is in progress
+    /// (U2 Step 2/3). Internal view state only; the App gates per-move routing on
+    /// [`ThemeBuilder::is_dragging`] so ordinary hover stays cheap, exactly like
+    /// the settings-panel slider.
+    dragging_channel: bool,
 }
 
 /// The OKLCH channel the keyboard editor is focused on (U2). Lightness and
@@ -47,6 +52,25 @@ enum OklchChannel {
 const L_STEP: f32 = 0.02;
 const C_STEP: f32 = 0.01;
 const H_STEP_DEG: f32 = 5.0;
+
+/// The chroma value mapped to the right end of the chroma slider track. OKLCH
+/// chroma in the sRGB gamut peaks near ~0.37, so this spans the usable range
+/// without a dead zone; values past it gamut-map back down inside
+/// [`theme_author::nudge`].
+const C_MAX: f32 = 0.37;
+
+/// Slider track geometry (U2 Step 2/3), mirroring the settings panel: the track
+/// grows to fill the value area between these widths; below the minimum the
+/// channel row falls back to a plain (keyboard-only) readout line.
+const MIN_SLIDER_TRACK: usize = 8;
+const MAX_SLIDER_TRACK: usize = 24;
+/// A fixed readout budget reserved to the right of the track so the track does
+/// not jump as the channel value's text width changes during a drag.
+const CHANNEL_READOUT_W: usize = 7;
+/// Track groove and thumb glyphs — the same family the settings slider uses, so
+/// they render reliably in the overlay.
+const SLIDER_GROOVE: char = '─';
+const SLIDER_THUMB: char = '█';
 
 impl OklchChannel {
     fn next(self) -> Self {
@@ -70,6 +94,15 @@ impl OklchChannel {
             OklchChannel::Lightness => "L (lightness)",
             OklchChannel::Chroma => "C (chroma)",
             OklchChannel::Hue => "H (hue)",
+        }
+    }
+
+    /// The single-letter label for the compact channel picker tokens.
+    fn short(self) -> &'static str {
+        match self {
+            OklchChannel::Lightness => "L",
+            OklchChannel::Chroma => "C",
+            OklchChannel::Hue => "H",
         }
     }
 
@@ -106,6 +139,38 @@ pub(super) struct ThemeBuilderSignature {
     pub(super) scroll: usize,
     pub(super) editing: Option<ThemeBuilderEditSignature>,
     pub(super) message: Option<String>,
+    /// The focused OKLCH channel's label (U2 Step 2/3). In the signature so the
+    /// channel picker and slider repaint when the focus changes even if the
+    /// message did not — the keyboard path's repaint no longer rides on always
+    /// mutating `message`.
+    pub(super) channel: &'static str,
+    /// The currently-selected role's color (U2 Step 2/3). In the signature so the
+    /// slider thumb, the channel value readout, and the selected field's
+    /// swatch/hex repaint as a slider drag (or hex entry) moves the color.
+    pub(super) selected_color: Srgb,
+}
+
+/// The role of one rendered builder body line, used to dispatch a pointer press
+/// (U2 Step 2/3). Produced in lockstep with the rendered text by
+/// [`ThemeBuilder::build_rows`] so the drawn geometry and the hit-test geometry
+/// can never drift — the same pattern the settings panel uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BuilderZone {
+    /// A header / message / preview line — no pointer action.
+    Inert,
+    /// A role row: a click focuses that `FIELDS` index.
+    Field(usize),
+    /// The compact channel picker: a click on one of the L/C/H tokens focuses
+    /// that channel. Columns are body-relative (0 = first body cell).
+    ChannelPick {
+        l_x0: usize,
+        c_x0: usize,
+        h_x0: usize,
+        tok_w: usize,
+    },
+    /// The focused-channel slider track: a click/drag sets the channel value.
+    /// Columns are body-relative.
+    Slider { track_x0: usize, track_w: usize },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,7 +246,7 @@ impl ThemeBuilder {
     pub(super) fn open(&mut self, settings: &Settings) {
         *self = Self::from_theme(settings.theme);
         self.message = Some(
-            "Clone active theme. [/] picks L/C/H, Left/Right adjust, F snaps to AA, Enter types hex, Ctrl+S saves."
+            "Clone active theme. Tab or [/] picks L/C/H, Left/Right or drag adjust, F snaps to AA, Enter types hex, Ctrl+S saves."
                 .to_owned(),
         );
     }
@@ -208,6 +273,7 @@ impl ThemeBuilder {
             OverlayInput::Right => return self.nudge_selected(1),
             OverlayInput::Char('[') => self.cycle_channel(false),
             OverlayInput::Char(']') => self.cycle_channel(true),
+            OverlayInput::Tab => self.cycle_channel(true),
             OverlayInput::Char('f') | OverlayInput::Char('F') => return self.snap_selected(),
             OverlayInput::Activate => self.begin_color_edit(),
             OverlayInput::Save => self.begin_name_edit(),
@@ -254,6 +320,8 @@ impl ThemeBuilder {
                 },
             }),
             message: self.message.clone(),
+            channel: self.channel.label(),
+            selected_color: self.color(FIELDS[self.selected]),
         }
     }
 
@@ -269,23 +337,59 @@ impl ThemeBuilder {
         body_width: usize,
         body_height: usize,
     ) -> Vec<ThemeBuilderLine> {
+        self.build_rows(body_width, body_height)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect()
+    }
+
+    /// The cell→row hit-map for the current body geometry (U2 Step 2/3), aligned
+    /// 1:1 with [`ThemeBuilder::visible_lines`] (index = body row offset from the
+    /// first body cell), so a pointer press resolves to exactly the zone drawn at
+    /// that row.
+    fn visible_hit_map(&self, body_width: usize, body_height: usize) -> Vec<BuilderZone> {
+        self.build_rows(body_width, body_height)
+            .into_iter()
+            .map(|(_, zone)| zone)
+            .collect()
+    }
+
+    /// The single source of truth for the builder body: emits each rendered line
+    /// paired with its pointer hit zone. Both [`ThemeBuilder::visible_lines`] and
+    /// [`ThemeBuilder::visible_hit_map`] project from this, so the rendered
+    /// geometry and the hit-test geometry are identical by construction.
+    fn build_rows(
+        &self,
+        body_width: usize,
+        body_height: usize,
+    ) -> Vec<(ThemeBuilderLine, BuilderZone)> {
+        let mut rows: Vec<(ThemeBuilderLine, BuilderZone)> = Vec::new();
         if body_width == 0 || body_height == 0 {
-            return Vec::new();
+            return rows;
         }
 
-        let mut lines = Vec::new();
-        lines.push(ThemeBuilderLine {
-            text: ellipsize(
-                "  Theme builder - [/] L/C/H, Left/Right adjust, F snap AA, Enter hex, Ctrl+S save",
+        let inert = |text: String, swatch: Option<Srgb>| {
+            (
+                ThemeBuilderLine {
+                    text,
+                    focused: false,
+                    swatch,
+                },
+                BuilderZone::Inert,
+            )
+        };
+
+        rows.push(inert(
+            ellipsize(
+                "  Theme builder - Tab/[ ] L/C/H, Left/Right or drag adjust, F snap AA, Ctrl+S save",
                 body_width,
             ),
-            focused: false,
-            swatch: None,
-        });
+            None,
+        ));
 
         let ratio = contrast_ratio(self.spec.foreground, self.spec.background);
-        lines.push(ThemeBuilderLine {
-            text: ellipsize(
+        rows.push(inert(
+            ellipsize(
                 &format!(
                     "  name={}  fg/bg contrast={ratio:.2}{}",
                     self.spec.name,
@@ -293,35 +397,74 @@ impl ThemeBuilder {
                 ),
                 body_width,
             ),
-            focused: false,
-            swatch: None,
-        });
+            None,
+        ));
 
-        for text in self.readout_lines() {
-            lines.push(ThemeBuilderLine {
-                text: ellipsize(&text, body_width),
+        // Selected-role contrast readout (inert), then the channel picker and the
+        // focused-channel slider — the two new mouse-driven controls.
+        rows.push(inert(
+            ellipsize(&self.contrast_readout_line(), body_width),
+            None,
+        ));
+
+        let (pick_text, l_x0, c_x0, h_x0, tok_w) = self.channel_picker_line();
+        rows.push((
+            ThemeBuilderLine {
+                text: ellipsize(&pick_text, body_width),
                 focused: false,
                 swatch: None,
-            });
+            },
+            BuilderZone::ChannelPick {
+                l_x0,
+                c_x0,
+                h_x0,
+                tok_w,
+            },
+        ));
+
+        match self.channel_slider_line(body_width) {
+            Some((text, track_x0, track_w)) => rows.push((
+                ThemeBuilderLine {
+                    text,
+                    focused: false,
+                    swatch: None,
+                },
+                BuilderZone::Slider { track_x0, track_w },
+            )),
+            None => rows.push(inert(
+                ellipsize(&self.channel_text_line(), body_width),
+                None,
+            )),
         }
 
         if let Some(message) = self.message.as_deref() {
             for wrapped in wrap_words(message, body_width.saturating_sub(4)) {
-                if lines.len() >= body_height {
-                    return lines;
+                if rows.len() >= body_height {
+                    rows.truncate(body_height);
+                    return rows;
                 }
-                lines.push(ThemeBuilderLine {
-                    text: format!("    {wrapped}"),
-                    focused: false,
-                    swatch: None,
-                });
+                rows.push(inert(format!("    {wrapped}"), None));
             }
         }
 
-        self.push_preview_lines(&mut lines, body_width, body_height);
+        if rows.len() < body_height {
+            rows.push(inert(
+                ellipsize(
+                    "  Preview: Default  Black Red Green Yellow Blue Magenta Cyan White",
+                    body_width,
+                ),
+                Some(self.spec.foreground),
+            ));
+        }
+        if rows.len() < body_height {
+            rows.push(inert(
+                ellipsize("  Selection  Cursor  Search  Border  Inactive", body_width),
+                Some(self.spec.selection),
+            ));
+        }
 
         for (index, field) in FIELDS.iter().enumerate().skip(self.scroll) {
-            if lines.len() >= body_height {
+            if rows.len() >= body_height {
                 break;
             }
             let focused = index == self.selected;
@@ -338,15 +481,18 @@ impl ThemeBuilder {
                 value = format!("[{buffer}]");
             }
             let text = format!("{marker} {:<12} {value}", field.label());
-            lines.push(ThemeBuilderLine {
-                text: ellipsize(&text, body_width),
-                focused,
-                swatch: Some(color),
-            });
+            rows.push((
+                ThemeBuilderLine {
+                    text: ellipsize(&text, body_width),
+                    focused,
+                    swatch: Some(color),
+                },
+                BuilderZone::Field(index),
+            ));
         }
 
-        lines.truncate(body_height);
-        lines
+        rows.truncate(body_height);
+        rows
     }
 
     fn from_theme(theme: Theme) -> Self {
@@ -366,6 +512,7 @@ impl ThemeBuilder {
             message: None,
             channel: OklchChannel::Lightness,
             save_snap_count: 0,
+            dragging_channel: false,
         }
     }
 
@@ -495,19 +642,146 @@ impl ThemeBuilder {
         ThemeBuilderOutcome::Preview(self.preview_theme())
     }
 
-    /// `[` / `]` — move the keyboard editor's focus to the previous / next OKLCH
-    /// channel. Pure view-state change; the new focus is surfaced via `message`
-    /// (in the render signature) so the readout repaints.
+    /// `Tab` / `[` / `]` — move the keyboard editor's focus to the previous /
+    /// next OKLCH channel.
     fn cycle_channel(&mut self, forward: bool) {
-        self.channel = if forward {
+        let next = if forward {
             self.channel.next()
         } else {
             self.channel.prev()
         };
+        self.set_channel(next);
+    }
+
+    /// Focus a specific OKLCH channel (shared by the keyboard cycle and the
+    /// pointer channel-picker click). `channel` is in the render signature, so
+    /// this repaints the picker/slider; the message is feedback, not the repaint
+    /// trigger.
+    fn set_channel(&mut self, channel: OklchChannel) {
+        self.channel = channel;
         self.message = Some(format!(
-            "Edit channel: {} — Left/Right adjust.",
-            self.channel.label()
+            "Edit channel: {} — Left/Right or drag adjust.",
+            channel.label()
         ));
+    }
+
+    /// Whether a pointer slider drag is in progress (U2 Step 2/3). The App gates
+    /// per-move routing on this so ordinary hover over the open builder stays a
+    /// cheap no-op.
+    pub(super) fn is_dragging(&self) -> bool {
+        self.dragging_channel
+    }
+
+    /// End a pointer slider drag (U2 Step 2/3), called on pointer release and on
+    /// the focus-loss / close cleanups.
+    pub(super) fn end_channel_drag(&mut self) {
+        self.dragging_channel = false;
+    }
+
+    /// Free pointer-driven scroll of the role list (U2 Step 2/3): move the
+    /// viewport by `delta` rows without moving `selected`, mirroring the settings
+    /// panel's wheel scroll. The next keyboard navigation re-clamps scroll to the
+    /// selection.
+    pub(super) fn scroll_lines(&mut self, delta: isize) {
+        let max = FIELDS.len().saturating_sub(1) as isize;
+        self.scroll = (self.scroll as isize + delta).clamp(0, max) as usize;
+    }
+
+    /// Handle a left/right press inside the builder body (U2 Step 2/3).
+    /// `row_in_body` / `col_in_body` are 0-based offsets from the first body cell.
+    /// A click on a role row focuses it; a click on an L/C/H picker token focuses
+    /// that channel; a left press/drag on the slider track sets the focused
+    /// channel value through the same [`theme_author::nudge`] seam the keyboard
+    /// uses. Right-click on the slider is inert (no value verb).
+    pub(super) fn handle_pointer_press(
+        &mut self,
+        body_width: usize,
+        body_height: usize,
+        row_in_body: usize,
+        col_in_body: usize,
+        button: PointerButton,
+    ) -> ThemeBuilderOutcome {
+        self.dragging_channel = false;
+        let zones = self.visible_hit_map(body_width, body_height);
+        let Some(zone) = zones.get(row_in_body).copied() else {
+            return ThemeBuilderOutcome::Consumed;
+        };
+        match zone {
+            BuilderZone::Inert => ThemeBuilderOutcome::Consumed,
+            BuilderZone::Field(index) => {
+                // A click away from an in-progress hex/name edit abandons it
+                // (the mouse analogue of Esc), then focuses the clicked role.
+                self.editing = None;
+                self.set_selection(index);
+                ThemeBuilderOutcome::Consumed
+            }
+            BuilderZone::ChannelPick {
+                l_x0,
+                c_x0,
+                h_x0,
+                tok_w,
+            } => {
+                if let Some(channel) = channel_at_col(l_x0, c_x0, h_x0, tok_w, col_in_body) {
+                    self.editing = None;
+                    self.set_channel(channel);
+                }
+                ThemeBuilderOutcome::Consumed
+            }
+            BuilderZone::Slider { track_x0, track_w } => {
+                if button == PointerButton::Right {
+                    return ThemeBuilderOutcome::Consumed;
+                }
+                self.editing = None;
+                self.dragging_channel = true;
+                self.set_channel_fraction(fraction_at(track_x0, track_w, col_in_body))
+            }
+        }
+    }
+
+    /// Continue an in-progress slider drag (U2 Step 2/3): map the cursor column
+    /// to a channel value. Track geometry is recomputed from the shared row
+    /// walker each move, so a resize mid-drag can never desync it.
+    pub(super) fn handle_pointer_drag(
+        &mut self,
+        body_width: usize,
+        _body_height: usize,
+        col_in_body: usize,
+    ) -> ThemeBuilderOutcome {
+        if !self.dragging_channel {
+            return ThemeBuilderOutcome::Consumed;
+        }
+        let Some((_, track_x0, track_w)) = self.channel_slider_line(body_width) else {
+            return ThemeBuilderOutcome::Consumed;
+        };
+        self.set_channel_fraction(fraction_at(track_x0, track_w, col_in_body))
+    }
+
+    /// Set the selected role's focused OKLCH channel to `fraction` of its range
+    /// (`0..=1`), via a delta through [`theme_author::nudge`] so the gamut map and
+    /// quantization match the keyboard editor exactly — the slider and the arrows
+    /// share one math path.
+    fn set_channel_fraction(&mut self, fraction: f32) -> ThemeBuilderOutcome {
+        let field = FIELDS[self.selected];
+        let color = self.color(field);
+        let (l, c, h_deg) = oklch_of(color);
+        let fraction = fraction.clamp(0.0, 1.0);
+        let (dl, dc, dh) = match self.channel {
+            OklchChannel::Lightness => (fraction - l, 0.0, 0.0),
+            OklchChannel::Chroma => (0.0, fraction * C_MAX - c, 0.0),
+            OklchChannel::Hue => {
+                let target_deg = fraction * 360.0;
+                (0.0, 0.0, (target_deg - h_deg).to_radians())
+            }
+        };
+        let nudged = theme_author::nudge(color, dl, dc, dh);
+        self.set_color(field, nudged);
+        self.message = Some(format!(
+            "{} {} -> {}",
+            field.label(),
+            self.channel.label(),
+            hex(nudged)
+        ));
+        ThemeBuilderOutcome::Preview(self.preview_theme())
     }
 
     /// `F` — snap the selected role up to the authoring floor (AA 4.5) against
@@ -616,16 +890,14 @@ impl ThemeBuilder {
         self.scroll = self.scroll.min(FIELDS.len().saturating_sub(1));
     }
 
-    /// The two U2 readout lines for the currently-selected role: its live
-    /// authoring contrast against the floor partner (PASS/FAIL vs the AA 4.5
-    /// authoring floor — explicitly NOT the render-time `min_contrast`), and the
-    /// active OKLCH editing channel with the selected color's L/C/H values.
-    fn readout_lines(&self) -> Vec<String> {
+    /// The selected role's live authoring contrast against its floor partner
+    /// (PASS/FAIL vs the AA 4.5 authoring floor — explicitly NOT the render-time
+    /// `min_contrast`), or a "not floored" note for unfloored roles.
+    fn contrast_readout_line(&self) -> String {
         let field = FIELDS[self.selected];
         let role = author_role(field);
         let color = self.color(field);
-
-        let contrast_line = match theme_author::partner_color(&self.spec, role) {
+        match theme_author::partner_color(&self.spec, role) {
             Some(partner) => {
                 let ratio = theme_author::authoring_contrast(color, partner);
                 let surface = floor_surface_label(role, self.spec.appearance).unwrap_or("?");
@@ -640,41 +912,128 @@ impl ThemeBuilder {
                 )
             }
             None => format!("  {} not floored (no AA target)", field.label()),
-        };
-
-        let (l, c, h) = oklch_of(color);
-        let channel_line = format!(
-            "  edit {}  L {l:.2} C {c:.3} H {h:.0}",
-            self.channel.label()
-        );
-
-        vec![contrast_line, channel_line]
+        }
     }
 
-    fn push_preview_lines(
-        &self,
-        lines: &mut Vec<ThemeBuilderLine>,
-        body_width: usize,
-        body_height: usize,
-    ) {
-        if lines.len() >= body_height {
-            return;
+    /// The plain (keyboard-only) channel readout used when the panel is too
+    /// narrow for a usable slider track: the active channel plus the selected
+    /// color's L/C/H values.
+    fn channel_text_line(&self) -> String {
+        let (l, c, h) = oklch_of(self.color(FIELDS[self.selected]));
+        format!(
+            "  edit {}  L {l:.2} C {c:.3} H {h:.0}",
+            self.channel.label()
+        )
+    }
+
+    /// The two U2 readout strings for the currently-selected role (the contrast
+    /// verdict and the channel/LCH values). Retained as the test-facing view of
+    /// the readout; the rendered overlay projects the same data through
+    /// [`ThemeBuilder::build_rows`].
+    #[cfg(test)]
+    fn readout_lines(&self) -> Vec<String> {
+        vec![self.contrast_readout_line(), self.channel_text_line()]
+    }
+
+    /// The compact channel picker line and the body-relative column of each L/C/H
+    /// token (`l_x0`, `c_x0`, `h_x0`) for hit-testing. The focused channel renders
+    /// bracketed; each token is `tok_w` columns wide.
+    fn channel_picker_line(&self) -> (String, usize, usize, usize, usize) {
+        const PREFIX: &str = "  Channel: ";
+        let tok_w = 3;
+        let mut text = String::from(PREFIX);
+        let mut offs = [0usize; 3];
+        for (i, channel) in [
+            OklchChannel::Lightness,
+            OklchChannel::Chroma,
+            OklchChannel::Hue,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            offs[i] = text.chars().count();
+            let label = channel.short();
+            if self.channel == channel {
+                text.push_str(&format!("[{label}]"));
+            } else {
+                text.push_str(&format!(" {label} "));
+            }
+            text.push(' ');
         }
-        lines.push(ThemeBuilderLine {
-            text: ellipsize(
-                "  Preview: Default  Black Red Green Yellow Blue Magenta Cyan White",
-                body_width,
-            ),
-            focused: false,
-            swatch: Some(self.spec.foreground),
-        });
-        if lines.len() < body_height {
-            lines.push(ThemeBuilderLine {
-                text: ellipsize("  Selection  Cursor  Search  Border  Inactive", body_width),
-                focused: false,
-                swatch: Some(self.spec.selection),
+        (text, offs[0], offs[1], offs[2], tok_w)
+    }
+
+    /// The focused-channel slider line and its body-relative track geometry
+    /// (`track_x0`, `track_w`), or `None` when the panel is too narrow for a
+    /// usable track (the caller falls back to [`ThemeBuilder::channel_text_line`],
+    /// preserving the keyboard path). The readout budget is fixed so the track
+    /// does not jump as the value's text width changes during a drag.
+    fn channel_slider_line(&self, body_width: usize) -> Option<(String, usize, usize)> {
+        let (value_str, fraction) = self.channel_value_and_fraction(FIELDS[self.selected]);
+        let prefix = format!("  {}  ", self.channel.label());
+        let prefix_w = prefix.chars().count();
+
+        let remaining = body_width.checked_sub(prefix_w)?;
+        let track_avail = remaining.checked_sub(1 + CHANNEL_READOUT_W)?;
+        if track_avail < MIN_SLIDER_TRACK {
+            return None;
+        }
+        let track_w = track_avail.min(MAX_SLIDER_TRACK);
+        let track_x0 = prefix_w;
+        let last = track_w.saturating_sub(1);
+        let thumb = ((fraction * last as f32).round() as usize).min(last);
+
+        let mut track = String::with_capacity(track_w);
+        for column in 0..track_w {
+            track.push(if column == thumb {
+                SLIDER_THUMB
+            } else {
+                SLIDER_GROOVE
             });
         }
+        Some((format!("{prefix}{track} {value_str}"), track_x0, track_w))
+    }
+
+    /// The focused channel's display string and its position as a `0..=1`
+    /// fraction of the channel's slider range, for the readout and the thumb.
+    fn channel_value_and_fraction(&self, field: ThemeField) -> (String, f32) {
+        let (l, c, h) = oklch_of(self.color(field));
+        match self.channel {
+            OklchChannel::Lightness => (format!("L {l:.2}"), l.clamp(0.0, 1.0)),
+            OklchChannel::Chroma => (format!("C {c:.3}"), (c / C_MAX).clamp(0.0, 1.0)),
+            OklchChannel::Hue => (format!("H {h:.0}"), (h / 360.0).clamp(0.0, 1.0)),
+        }
+    }
+}
+
+/// Resolve a body-relative column on the channel picker line to the channel
+/// whose token it falls within, or `None` between tokens.
+fn channel_at_col(
+    l_x0: usize,
+    c_x0: usize,
+    h_x0: usize,
+    tok_w: usize,
+    col: usize,
+) -> Option<OklchChannel> {
+    if col >= l_x0 && col < l_x0 + tok_w {
+        Some(OklchChannel::Lightness)
+    } else if col >= c_x0 && col < c_x0 + tok_w {
+        Some(OklchChannel::Chroma)
+    } else if col >= h_x0 && col < h_x0 + tok_w {
+        Some(OklchChannel::Hue)
+    } else {
+        None
+    }
+}
+
+/// Map a body-relative column on a slider track to a `0..=1` fraction. Columns
+/// left of / right of the track saturate to `0` / `1`, mirroring how the
+/// settings slider and the selection drag saturate past an edge.
+fn fraction_at(track_x0: usize, track_w: usize, col: usize) -> f32 {
+    if track_w <= 1 {
+        0.0
+    } else {
+        ((col as f32 - track_x0 as f32) / (track_w - 1) as f32).clamp(0.0, 1.0)
     }
 }
 
@@ -1124,5 +1483,195 @@ mod tests {
             panic!("expected preview");
         };
         assert_eq!(b.color(ThemeField::Foreground), bg); // verbatim, not snapped
+    }
+
+    // --- U2 Step 2/3: pointer (slider / click-to-focus / Tab) ---------------
+
+    const W: usize = 72;
+    const H: usize = 400;
+
+    /// The body row + zone of the channel picker line.
+    fn channel_pick_row(b: &ThemeBuilder) -> (usize, usize, usize, usize, usize) {
+        b.build_rows(W, H)
+            .iter()
+            .enumerate()
+            .find_map(|(row, (_, zone))| match zone {
+                BuilderZone::ChannelPick {
+                    l_x0,
+                    c_x0,
+                    h_x0,
+                    tok_w,
+                } => Some((row, *l_x0, *c_x0, *h_x0, *tok_w)),
+                _ => None,
+            })
+            .expect("channel picker row present")
+    }
+
+    /// The body row + track geometry of the focused-channel slider.
+    fn slider_row(b: &ThemeBuilder) -> (usize, usize, usize) {
+        b.build_rows(W, H)
+            .iter()
+            .enumerate()
+            .find_map(|(row, (_, zone))| match zone {
+                BuilderZone::Slider { track_x0, track_w } => Some((row, *track_x0, *track_w)),
+                _ => None,
+            })
+            .expect("slider row present")
+    }
+
+    /// The body row of the first visible role field with the given `FIELDS` index.
+    fn field_row(b: &ThemeBuilder, index: usize) -> usize {
+        b.build_rows(W, H)
+            .iter()
+            .position(|(_, zone)| matches!(zone, BuilderZone::Field(i) if *i == index))
+            .expect("field row present")
+    }
+
+    #[test]
+    fn clicking_a_field_row_focuses_that_role() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        let target = FIELDS
+            .iter()
+            .position(|f| matches!(f, ThemeField::Cursor))
+            .unwrap();
+        let row = field_row(&b, target);
+        assert_eq!(
+            b.handle_pointer_press(W, H, row, 0, PointerButton::Left),
+            ThemeBuilderOutcome::Consumed
+        );
+        assert_eq!(b.selected, target, "field click focuses its role");
+    }
+
+    #[test]
+    fn clicking_a_channel_token_focuses_that_channel() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        assert_eq!(b.channel, OklchChannel::Lightness);
+        let (row, _l, _c, h_x0, _tok) = channel_pick_row(&b);
+        // Click squarely on the H token.
+        let _ = b.handle_pointer_press(W, H, row, h_x0, PointerButton::Left);
+        assert_eq!(b.channel, OklchChannel::Hue, "clicked H token focuses Hue");
+
+        let (row, _l, c_x0, _h, _tok) = channel_pick_row(&b);
+        let _ = b.handle_pointer_press(W, H, row, c_x0, PointerButton::Left);
+        assert_eq!(
+            b.channel,
+            OklchChannel::Chroma,
+            "clicked C token focuses Chroma"
+        );
+    }
+
+    #[test]
+    fn dragging_the_slider_sets_the_focused_channel_via_core_nudge() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        b.selected = 0; // foreground, default channel = Lightness
+        let start = b.color(ThemeField::Foreground);
+        let (row, track_x0, track_w) = slider_row(&b);
+
+        // Press the far right of the track → fraction 1.0 → set lightness to 1.0
+        // via a delta through core nudge; assert it matches the math exactly.
+        let l = oklch_of(start).0;
+        let ThemeBuilderOutcome::Preview(_) =
+            b.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left)
+        else {
+            panic!("track press previews");
+        };
+        assert!(b.is_dragging(), "track press arms the drag");
+        assert_eq!(
+            b.color(ThemeField::Foreground),
+            theme_author::nudge(start, 1.0 - l, 0.0, 0.0),
+            "far-right press sets lightness to the top of the range"
+        );
+
+        // Drag far left (past the edge) → fraction 0.0 → lightness 0.0.
+        let mid = b.color(ThemeField::Foreground);
+        let mid_l = oklch_of(mid).0;
+        let ThemeBuilderOutcome::Preview(_) = b.handle_pointer_drag(W, H, 0) else {
+            panic!("drag previews");
+        };
+        assert_eq!(
+            b.color(ThemeField::Foreground),
+            theme_author::nudge(mid, 0.0 - mid_l, 0.0, 0.0)
+        );
+
+        // Release ends the drag; a later move is inert.
+        b.end_channel_drag();
+        assert!(!b.is_dragging());
+        assert_eq!(
+            b.handle_pointer_drag(W, H, track_x0),
+            ThemeBuilderOutcome::Consumed,
+            "no drag after release"
+        );
+    }
+
+    #[test]
+    fn right_click_on_the_slider_is_inert() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        b.selected = 0;
+        let before = b.color(ThemeField::Foreground);
+        let (row, track_x0, _track_w) = slider_row(&b);
+        assert_eq!(
+            b.handle_pointer_press(W, H, row, track_x0, PointerButton::Right),
+            ThemeBuilderOutcome::Consumed
+        );
+        assert_eq!(
+            b.color(ThemeField::Foreground),
+            before,
+            "right-click changes nothing"
+        );
+        assert!(!b.is_dragging(), "right-click does not arm a drag");
+    }
+
+    #[test]
+    fn tab_cycles_the_channel_like_the_bracket_keys() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        assert_eq!(b.channel, OklchChannel::Lightness);
+        b.handle_input(OverlayInput::Tab);
+        assert_eq!(b.channel, OklchChannel::Chroma);
+        b.handle_input(OverlayInput::Tab);
+        assert_eq!(b.channel, OklchChannel::Hue);
+        b.handle_input(OverlayInput::Tab);
+        assert_eq!(b.channel, OklchChannel::Lightness, "Tab wraps");
+    }
+
+    #[test]
+    fn a_narrow_panel_drops_the_slider_to_the_keyboard_readout() {
+        let b = ThemeBuilder::new(&Settings::default());
+        // Too narrow for a usable track: no Slider zone, and the channel row is
+        // the plain keyboard readout (keyboard editing still works).
+        let narrow = 20;
+        let zones = b.visible_hit_map(narrow, H);
+        assert!(
+            !zones
+                .iter()
+                .any(|z| matches!(z, BuilderZone::Slider { .. })),
+            "narrow panel has no slider"
+        );
+        assert!(b.channel_slider_line(narrow).is_none());
+    }
+
+    #[test]
+    fn signature_tracks_channel_focus_and_selected_color() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        let base = b.render_signature();
+        // Cycling the channel changes the signature even though the colors did not.
+        b.handle_input(OverlayInput::Tab);
+        let after_channel = b.render_signature();
+        assert_ne!(base.channel, after_channel.channel);
+
+        // Nudging the selected color changes the signature's selected_color, so a
+        // slider drag repaints without relying on the message field.
+        b.selected = 0;
+        let before_color = b.render_signature().selected_color;
+        let (row, track_x0, track_w) = slider_row(&b);
+        let _ = b.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left);
+        assert_ne!(b.render_signature().selected_color, before_color);
+    }
+
+    #[test]
+    fn visible_lines_and_hit_map_stay_lockstep() {
+        let b = ThemeBuilder::new(&Settings::default());
+        let lines = b.visible_lines(W, H);
+        let hits = b.visible_hit_map(W, H);
+        assert_eq!(lines.len(), hits.len(), "lines and hit-map are 1:1");
     }
 }
