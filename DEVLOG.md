@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Refactor: extract pointer/drag handling into its own module
+
+- Mechanical, behavior-preserving extraction. The mouse/pointer handling that
+  grew with MOUSE-EXTEND moved out of `src/native/app/mod.rs` (1858 lines,
+  approaching the 2000-line module cap) into a new `src/native/app/pointer.rs`
+  (148 lines, `use super::*`, mirroring the existing `interaction.rs` sibling).
+- Moved: `handle_mouse_input` and `handle_mouse_wheel` (the two `window_event`
+  arm bodies, now called from one-line delegating arms), plus
+  `handle_primary_paste`, `current_selection_text`, `write_primary_selection`,
+  `reset_pointer_state_for_overlay`, and `cancel_overlay_drag_on_focus_loss`.
+  The only visibility change is `private → pub(super)` on the five
+  cross-module-called methods; exact reach is preserved.
+- No config key, no render change, no behavior change. `app/mod.rs` drops to
+  1742 lines (~280 lines of headroom); both files are well under the cap. This
+  is the runway for the upcoming mouse packets — `handle_mouse_input` is where
+  the scrollbar-grab hit-test and rectangular-select branches will land.
+- Verified: `cargo fmt --all --check` clean; full aggregate
+  1274 passed / 0 failed / 19 ignored; `mouse_protocol`, `pixel_smoke`,
+  `pty_alt_screen_smoke`, `selection_extend`, `pointer_drag` green; clippy
+  net-zero (two pre-existing lints relocated verbatim with the moved code);
+  public-gate scan clean; new file carries the SPDX header.
+
+---
+
 ## 2026-06-15 -- Contrast metric: single source of truth (shown == enforced)
 
 - The tree previously had two contrast worlds: `theme/contrast.rs` carried a

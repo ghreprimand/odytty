@@ -66,6 +66,7 @@ use super::viewport::{
 };
 
 mod interaction;
+mod pointer;
 
 pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(150);
 
@@ -671,37 +672,6 @@ impl App {
         }
     }
 
-    /// Reset terminal-grid pointer state when entering any overlay mode.
-    ///
-    /// An open overlay captures the pointer (UX4-P1), so any in-progress local
-    /// selection — and crucially any TUI mouse-report button still held from a
-    /// press before the overlay opened — must be cleared on entry. Overlay
-    /// presses short-circuit before `handle_reported_mouse_input` and overlay
-    /// releases are inert, so a stale `report_button` would otherwise survive
-    /// the overlay and re-enter the held-button motion path after it closes.
-    /// Clearing on entry is sufficient: nothing can re-arm `report_button` while
-    /// the overlay is open, so it is guaranteed `None` on close.
-    fn reset_pointer_state_for_overlay(&mut self) {
-        self.selection.clear();
-        self.pointer_drag = PointerDrag::None;
-        self.drag_anchor_unit = None;
-        self.last_selection_autoscroll = None;
-        self.report_button = None;
-    }
-
-    /// On focus loss, abandon any in-progress overlay slider drag (UX4-P2).
-    ///
-    /// A press may arm a drag whose release is then delivered to another window
-    /// after an alt-tab; the overlay stays open, so without this the drag
-    /// survives and the next bare hover Move on focus regain commits a phantom
-    /// value (the overlay-stays-open analogue of the close/reopen lost-release
-    /// case). No-op unless the overlay is open with a drag armed.
-    fn cancel_overlay_drag_on_focus_loss(&mut self) {
-        if self.overlay.is_open() {
-            self.overlay.cancel_settings_drag();
-        }
-    }
-
     fn toggle_settings_overlay(&mut self) {
         if self.search.is_open() {
             self.close_search(true);
@@ -863,37 +833,6 @@ impl App {
             return;
         };
         let _ = self.clipboard.write_text(text.as_str());
-    }
-
-    fn current_selection_text(&self) -> Option<String> {
-        let Some(range) = self.selection.range() else {
-            return None;
-        };
-        let terminal = self.terminal.lock().expect("terminal mutex");
-        let scrollback_len = terminal.screen().scrollback_len();
-        let visible_range = selection::visible_range_from_absolute(
-            range,
-            self.viewport.offset(),
-            scrollback_len,
-            self.grid,
-        )?;
-        let snapshot = terminal.snapshot_with_scrollback(self.viewport.offset());
-        selected_clipboard_text(&snapshot, visible_range)
-    }
-
-    fn write_primary_selection(&mut self) {
-        let Some(text) = self.current_selection_text() else {
-            return;
-        };
-        let _ = self.clipboard.write_primary_text(text.as_str());
-    }
-
-    fn handle_primary_paste(&mut self) {
-        let Some(text) = self.clipboard.read_primary_text() else {
-            return;
-        };
-        self.return_to_live();
-        let _ = write_paste_text(&self.terminal, &self.writer, &text);
     }
 
     fn handle_terminal_clipboard_requests(&mut self) {
@@ -1587,65 +1526,10 @@ impl ApplicationHandler<UserEvent> for App {
                 self.update_pointer_cell(position.x, position.y);
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                // UX4-P1: an open overlay captures the pointer before any
-                // selection / PTY-report / hyperlink logic — the mouse analogue
-                // of the keyboard `if self.overlay.is_open()` guard. Shift and
-                // the TUI mouse mode are not consulted here.
-                if self.overlay.is_open() {
-                    self.handle_overlay_pointer_button(state, button);
-                    return;
-                }
-                if self.pointer_drag.is_selecting() {
-                    if button == WinitMouseButton::Left && state == ElementState::Released {
-                        self.finish_selection();
-                    }
-                    return;
-                }
-
-                if (self.should_report_mouse_to_pty() || self.report_button.is_some())
-                    && let Some(button) = map_winit_mouse_button(button)
-                {
-                    self.handle_reported_mouse_input(state, button);
-                    return;
-                }
-
-                if button == WinitMouseButton::Left {
-                    match state {
-                        ElementState::Pressed => {
-                            if !self.try_open_hovered_hyperlink() {
-                                self.begin_selection();
-                            }
-                        }
-                        ElementState::Released => self.finish_selection(),
-                    }
-                } else if button == WinitMouseButton::Middle {
-                    if state == ElementState::Pressed {
-                        self.handle_primary_paste();
-                    }
-                }
+                self.handle_mouse_input(state, button);
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                // UX4-P1: an open overlay captures the wheel to scroll its list,
-                // before TUI reporting or scrollback movement.
-                if self.overlay.is_open() {
-                    self.handle_overlay_pointer_wheel(delta);
-                    return;
-                }
-                if self.should_report_mouse_to_pty() {
-                    let _ = self.handle_reported_wheel(delta);
-                    return;
-                }
-
-                let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
-                // MOUSE-WHEEL-SPEED: local scrollback honors the configured
-                // per-notch multiplier (default 3 = byte-identical). The TUI
-                // reporting and overlay paths above intentionally use the fixed
-                // default step, so this only affects local viewport scrolling.
-                let lines =
-                    wheel_lines_scaled(delta, cell_height, self.settings.scroll_wheel_step());
-                if lines != 0 {
-                    self.scroll_viewport(lines);
-                }
+                self.handle_mouse_wheel(delta);
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 let event_type = match event.state {
