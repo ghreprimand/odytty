@@ -119,3 +119,65 @@ fn scroll_drag_speed_has_an_enum_row_in_the_input_group() {
     assert!(row.reloadable);
     assert!(!row.description.trim().is_empty());
 }
+
+#[test]
+fn scrollbar_drag_defaults_on_and_parses() {
+    // MOUSE-SCROLLBAR: default on (the draggable thumb is inert at the live
+    // tail, so default-on does not change the plain press path).
+    let (settings, warnings) = settings_from([]);
+    assert!(settings.scrollbar_drag);
+    assert!(warnings.is_empty());
+
+    let (off, _) = settings_from([(SCROLLBAR_DRAG_ENV, "off")]);
+    assert!(!off.scrollbar_drag);
+
+    let (on, _) = settings_from([(SCROLLBAR_DRAG_ENV, "on")]);
+    assert!(on.scrollbar_drag);
+}
+
+#[test]
+fn scrollbar_drag_round_trips_through_config_key_mapping() {
+    assert_eq!(
+        config_key_to_env("scrollbar_drag"),
+        Some(SCROLLBAR_DRAG_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("draggablescrollbar"),
+        Some(SCROLLBAR_DRAG_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(SCROLLBAR_DRAG_ENV),
+        Some("scrollbar_drag")
+    );
+}
+
+#[test]
+fn scrollbar_drag_round_trips_through_edit_values() {
+    let settings = Settings {
+        scrollbar_drag: false,
+        ..Settings::default()
+    };
+    assert_eq!(
+        settings.to_edit_values().get(SCROLLBAR_DRAG_ENV),
+        Some(&"off".to_owned())
+    );
+    assert_eq!(
+        Settings::default().to_edit_values().get(SCROLLBAR_DRAG_ENV),
+        Some(&"on".to_owned())
+    );
+}
+
+#[test]
+fn scrollbar_drag_has_a_bool_row_in_the_input_group() {
+    let rows = Settings::default().setting_info();
+    let row = rows
+        .iter()
+        .find(|row| row.key == "scrollbar_drag")
+        .expect("scrollbar_drag row present");
+    assert_eq!(row.group, "Input");
+    assert_eq!(row.kind, SettingKind::Bool);
+    assert_eq!(row.options, ["on", "off"]);
+    assert_eq!(row.value, "on");
+    assert!(row.reloadable);
+    assert!(!row.description.trim().is_empty());
+}

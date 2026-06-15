@@ -293,6 +293,16 @@ impl App {
             self.handle_overlay_pointer_move();
             return;
         }
+        // MOUSE-SCROLLBAR: a scroll-thumb drag owns the pointer move — scrub the
+        // viewport to the offset the thumb-top maps to and stop. Placed before
+        // hover/selection/PTY-report so a scrollbar drag does not update link
+        // hover, extend a selection, or emit PTY motion. Mutually exclusive with
+        // selection (one `pointer_drag` enum); the grab decision already ran at
+        // press time.
+        if let Some(grab_dy) = self.pointer_drag.scrollbar_grab() {
+            self.drag_scrollbar_to(y_px, grab_dy, cell, padding);
+            return;
+        }
         self.update_hover_hyperlink();
         if self.pointer_drag.is_selecting() {
             self.autoscroll_selection_if_needed(y_px, cell, padding);
@@ -300,6 +310,33 @@ impl App {
             self.request_selection_redraw();
         } else if self.should_report_mouse_to_pty() || self.report_button.is_some() {
             self.send_mouse_motion_report();
+        }
+    }
+
+    /// Scrub the viewport to the scrollback offset the dragged scroll thumb maps
+    /// to (MOUSE-SCROLLBAR). `grab_dy` anchors the cursor to the grab point on
+    /// the thumb. Locks the terminal once for the scrollback length and reuses
+    /// it for both the geometry and the clamped jump.
+    fn drag_scrollbar_to(
+        &mut self,
+        y_px: f64,
+        grab_dy: f32,
+        cell: CellSize,
+        padding: WindowPadding,
+    ) {
+        let scrollback_len = self.scrollback_len();
+        let Some(target) = scrollbar_offset_for_drag_with_padding(
+            y_px as f32,
+            grab_dy,
+            scrollback_len,
+            self.grid,
+            cell,
+            padding,
+        ) else {
+            return;
+        };
+        if self.viewport.jump_to(target, scrollback_len) {
+            self.on_viewport_changed();
         }
     }
 
@@ -432,7 +469,7 @@ impl App {
                 granularity: SelectGranularity::Line,
                 ..
             } => self.extend_line_drag(point),
-            PointerDrag::None | PointerDrag::Scrollbar => {}
+            PointerDrag::None | PointerDrag::Scrollbar { .. } => {}
         }
     }
 
@@ -550,7 +587,7 @@ impl App {
                 (Some(current), Some(anchor)) => current != anchor,
                 _ => true,
             },
-            PointerDrag::None | PointerDrag::Scrollbar => false,
+            PointerDrag::None | PointerDrag::Scrollbar { .. } => false,
         }
     }
 

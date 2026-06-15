@@ -62,7 +62,8 @@ pub(super) use super::resize::{
 use super::search_ui::{SearchStyle, SearchUi, apply_search_ui};
 use super::viewport::{
     SELECTION_AUTOSCROLL_INTERVAL, Viewport, WindowPadding, grid_dimensions_for_with_padding,
-    scroll_indicator_quad_with_padding, wheel_lines, wheel_lines_scaled,
+    scroll_indicator_hit_with_padding, scroll_indicator_quad_with_padding,
+    scrollbar_offset_for_drag_with_padding, wheel_lines, wheel_lines_scaled,
 };
 
 mod interaction;
@@ -205,6 +206,13 @@ pub(super) struct App {
     /// so they reuse this cached position. `None` until the first cursor move
     /// and after a resize (geometry changed).
     pointer_px: Option<(f64, f64)>,
+    /// Test-only cell-size override (MOUSE-SCROLLBAR). Headless tests have no
+    /// GPU, so the cell size that the pointer hit-tests need cannot come from
+    /// `GpuState`. When set, [`App::resolved_cell`] returns it; in non-test
+    /// builds this field does not exist and the cell always comes from the GPU,
+    /// so production is byte-identical.
+    #[cfg(test)]
+    test_cell: Option<CellSize>,
     /// Hyperlink currently under the pointer in the visible viewport.
     hovered_hyperlink: Option<LinkId>,
     /// Typed pointer-drag state (MOUSE-EXTEND scaffold): `None` when idle,
@@ -302,6 +310,8 @@ impl App {
             themed_ui_roles,
             pointer_cell: None,
             pointer_px: None,
+            #[cfg(test)]
+            test_cell: None,
             hovered_hyperlink: None,
             pointer_drag: PointerDrag::None,
             drag_anchor_unit: None,
@@ -476,6 +486,80 @@ impl App {
     #[cfg(test)]
     pub(super) fn arm_reported_mouse_press_for_test(&mut self, button: CoreMouseButton) {
         self.handle_reported_mouse_input(ElementState::Pressed, button);
+    }
+
+    /// Test seam (MOUSE-SCROLLBAR): inject a cell size so the pointer hit-test
+    /// can run headlessly (no GPU). See [`App::test_cell`].
+    #[cfg(test)]
+    pub(super) fn set_test_cell_for_test(&mut self, cell: CellSize) {
+        self.test_cell = Some(cell);
+    }
+
+    /// Test seam (MOUSE-SCROLLBAR): toggle the `scrollbar_drag` setting so the
+    /// inverted-gate (off-switch) parity can be pinned.
+    #[cfg(test)]
+    pub(super) fn set_scrollbar_drag_for_test(&mut self, on: bool) {
+        self.settings.scrollbar_drag = on;
+    }
+
+    /// Test seam (MOUSE-SCROLLBAR): set the cached raw pointer pixel position the
+    /// button handlers hit-test against (button events carry no coordinates).
+    #[cfg(test)]
+    pub(super) fn set_pointer_px_for_test(&mut self, x: f64, y: f64) {
+        self.pointer_px = Some((x, y));
+    }
+
+    /// Test seam (MOUSE-SCROLLBAR): scroll the viewport up into history so the
+    /// scroll thumb becomes visible (offset clamps to the scrollback length).
+    #[cfg(test)]
+    pub(super) fn scroll_up_for_test(&mut self, lines: usize) {
+        let scrollback_len = self.scrollback_len();
+        self.viewport.scroll_up(lines, scrollback_len);
+    }
+
+    /// Test seam (MOUSE-SCROLLBAR): the current scrollback length.
+    #[cfg(test)]
+    pub(super) fn scrollback_len_for_test(&self) -> usize {
+        self.scrollback_len()
+    }
+
+    /// Test seam (MOUSE-SCROLLBAR): the live viewport offset.
+    #[cfg(test)]
+    pub(super) fn viewport_offset_for_test(&self) -> usize {
+        self.viewport.offset()
+    }
+
+    /// Test seam (MOUSE-SCROLLBAR): enable a TUI mouse-reporting mode (DECSET
+    /// 1000) on the underlying terminal, so a press routes through the report
+    /// path unless the scroll-thumb grab captures it first.
+    #[cfg(test)]
+    pub(super) fn enable_mouse_reporting_for_test(&mut self) {
+        if let Ok(mut terminal) = self.terminal.lock() {
+            terminal.advance(b"\x1b[?1000h");
+        }
+    }
+
+    /// Test seam (MOUSE-SCROLLBAR): drive a real left button event through the
+    /// production routing and classify the outcome, so the press precedence
+    /// (scroll-thumb grab vs PTY report vs local selection) can be pinned
+    /// without a GPU or a winit event loop.
+    #[cfg(test)]
+    pub(super) fn left_button_outcome_for_test(&mut self, pressed: bool) -> &'static str {
+        let state = if pressed {
+            ElementState::Pressed
+        } else {
+            ElementState::Released
+        };
+        self.handle_mouse_input(state, WinitMouseButton::Left);
+        if self.pointer_drag.scrollbar_grab().is_some() {
+            "grab"
+        } else if self.report_button.is_some() {
+            "report"
+        } else if self.pointer_drag.is_selecting() {
+            "select"
+        } else {
+            "idle"
+        }
     }
 
     pub(super) fn resize_grid_with_padding(

@@ -120,6 +120,134 @@ fn scroll_indicator_is_offset_by_window_padding() {
     assert_eq!(oldest.rect, [85.0, 8.0, 88.0, 20.5]);
 }
 
+// MOUSE-SCROLLBAR: the draggable-thumb hit-test + drag inverse share their
+// geometry with the render path above (the `ScrollbarGeometry` SSOT), so these
+// tests pin both the round-trip against the rendered thumb and the gates that
+// keep the plain press path byte-identical.
+
+#[test]
+fn scrollbar_hit_is_none_at_live_tail_and_without_history() {
+    let dimensions = Dimensions::new(10, 5);
+    let cell = cell(8, 10);
+    // Live tail (offset 0): the thumb is hidden, so a press never grabs it —
+    // this is what keeps press routing byte-identical at the default offset.
+    assert_eq!(
+        scroll_indicator_hit(70.0, 5.0, 0, 15, dimensions, cell),
+        None
+    );
+    // No scrollback: hidden regardless of offset.
+    assert_eq!(
+        scroll_indicator_hit(70.0, 5.0, 3, 0, dimensions, cell),
+        None
+    );
+}
+
+#[test]
+fn scrollbar_hit_only_on_the_thumb_grab_band() {
+    let dimensions = Dimensions::new(10, 5);
+    let cell = cell(8, 10);
+    // Track right edge x1 = 80; grab band is 14px wide => [66, 80]. At the
+    // oldest offset the thumb occupies y in [0, 12.5].
+    // On the thumb, inside the grab band: returns the grab offset within it.
+    assert_eq!(
+        scroll_indicator_hit(70.0, 5.0, 15, 15, dimensions, cell),
+        Some(5.0)
+    );
+    // Left of the grab band (the text area): no grab — selection/report path
+    // keeps the press.
+    assert_eq!(
+        scroll_indicator_hit(50.0, 5.0, 15, 15, dimensions, cell),
+        None
+    );
+    // Within the band horizontally but below the thumb: no grab (track-click is
+    // deferred, so only the thumb itself is grabbable).
+    assert_eq!(
+        scroll_indicator_hit(70.0, 40.0, 15, 15, dimensions, cell),
+        None
+    );
+    // At a mid offset the thumb sits lower (y in [25, 37.5]); a press above it
+    // does not grab.
+    assert_eq!(
+        scroll_indicator_hit(70.0, 5.0, 5, 15, dimensions, cell),
+        None
+    );
+    assert_eq!(
+        scroll_indicator_hit(70.0, 30.0, 5, 15, dimensions, cell),
+        Some(5.0)
+    );
+}
+
+#[test]
+fn scrollbar_drag_offset_round_trips_the_rendered_thumb() {
+    let color = [0.5, 0.6, 0.7, 0.62];
+    let dimensions = Dimensions::new(10, 5);
+    let cell = cell(8, 10);
+    // For each offset, the rendered thumb-top fed back through the drag inverse
+    // (grab offset 0, cursor at the thumb top) recovers the same offset exactly.
+    for offset in [15usize, 12, 8, 5, 3, 1] {
+        let quad = scroll_indicator_quad(offset, 15, dimensions, cell, color).expect("thumb");
+        let thumb_top = quad.rect[1];
+        assert_eq!(
+            scrollbar_offset_for_drag(thumb_top, 0.0, 15, dimensions, cell),
+            Some(offset),
+            "offset {offset} should round-trip"
+        );
+    }
+}
+
+#[test]
+fn scrollbar_drag_anchors_to_the_grab_point() {
+    let dimensions = Dimensions::new(10, 5);
+    let cell = cell(8, 10);
+    // Grab the oldest thumb 6px below its top, then "move" the cursor nowhere:
+    // the offset is unchanged (the thumb does not jump to the cursor).
+    let grab_dy = scroll_indicator_hit(70.0, 6.0, 15, 15, dimensions, cell).expect("grab");
+    assert_eq!(grab_dy, 6.0);
+    assert_eq!(
+        scrollbar_offset_for_drag(6.0, grab_dy, 15, dimensions, cell),
+        Some(15)
+    );
+}
+
+#[test]
+fn scrollbar_drag_clamps_past_either_end() {
+    let dimensions = Dimensions::new(10, 5);
+    let cell = cell(8, 10);
+    // Dragging far below the track pins to the live tail (offset 0).
+    assert_eq!(
+        scrollbar_offset_for_drag(10_000.0, 0.0, 15, dimensions, cell),
+        Some(0)
+    );
+    // Dragging above the track pins to the oldest row (offset == scrollback_len).
+    assert_eq!(
+        scrollbar_offset_for_drag(-500.0, 0.0, 15, dimensions, cell),
+        Some(15)
+    );
+    // No scrollback => not draggable.
+    assert_eq!(
+        scrollbar_offset_for_drag(10.0, 0.0, 0, dimensions, cell),
+        None
+    );
+}
+
+#[test]
+fn scrollbar_drag_zero_travel_is_deterministic_not_a_panic() {
+    // Degenerate geometry: a track shorter than the minimum thumb height forces
+    // `thumb_h == track_h`, so `travel == 0` even with scrollback present. The
+    // inverse must not divide by zero; it maps deterministically to the oldest
+    // offset regardless of the cursor position.
+    let dimensions = Dimensions::new(10, 1);
+    let cell = cell(8, 4); // track_h = 4px < 8px min thumb height => travel 0
+    assert_eq!(
+        scrollbar_offset_for_drag(1_000.0, 0.0, 5, dimensions, cell),
+        Some(5)
+    );
+    assert_eq!(
+        scrollbar_offset_for_drag(-50.0, 2.0, 5, dimensions, cell),
+        Some(5)
+    );
+}
+
 #[test]
 fn solid_overlay_quads_append_after_cell_geometry() {
     let Ok(font) = text::load_font() else {

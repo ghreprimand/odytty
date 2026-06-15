@@ -33,6 +33,34 @@ impl App {
             }
             return;
         }
+        // MOUSE-SCROLLBAR: while a scroll-thumb drag is in progress, swallow
+        // button events (the release ends it) so the drag never leaks a press
+        // to PTY reporting or local selection. `is_selecting()` is false for the
+        // `Scrollbar` variant, so this needs its own guard alongside the one
+        // above.
+        if self.pointer_drag.scrollbar_grab().is_some() {
+            if button == WinitMouseButton::Left && state == ElementState::Released {
+                self.pointer_drag = PointerDrag::None;
+            }
+            return;
+        }
+
+        // MOUSE-SCROLLBAR: a left press on the visible scroll thumb grabs it to
+        // scrub scrollback. Gated on the `scrollbar_drag` setting and the thumb
+        // being visible (`viewport offset > 0`); the hit-test returns `None` at
+        // the live tail and when disabled, so this branch is inert there and the
+        // press routing below stays byte-identical. Sits before the TUI-report
+        // branch so grabbing the thumb wins over mouse reporting — but only when
+        // the press actually lands on the thumb; every other press (including in
+        // a mouse-reporting app) falls through to exactly the historical path.
+        if self.settings.scrollbar_drag
+            && button == WinitMouseButton::Left
+            && state == ElementState::Pressed
+            && let Some(grab_dy) = self.scrollbar_hit_test()
+        {
+            self.pointer_drag = PointerDrag::Scrollbar { grab_dy };
+            return;
+        }
 
         if (self.should_report_mouse_to_pty() || self.report_button.is_some())
             && let Some(button) = map_winit_mouse_button(button)
@@ -55,6 +83,45 @@ impl App {
                 self.handle_primary_paste();
             }
         }
+    }
+
+    /// Hit-test the last cached pointer position against the draggable scroll
+    /// thumb (MOUSE-SCROLLBAR), returning the grab offset within the thumb when
+    /// the press lands on the visible thumb's grab band, else `None`. The thumb
+    /// is visible only while scrolled back (`viewport offset > 0`), so a press
+    /// at the live tail (the default) never grabs — keeping the plain press path
+    /// byte-identical. Uses `pointer_px`, the same cached coordinates the
+    /// SGR-pixel report path relies on (button events carry no coordinates).
+    fn scrollbar_hit_test(&self) -> Option<f32> {
+        let (x_px, y_px) = self.pointer_px?;
+        let cell = self.resolved_cell()?;
+        let padding = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO);
+        let scrollback_len = self.scrollback_len();
+        scroll_indicator_hit_with_padding(
+            x_px as f32,
+            y_px as f32,
+            self.viewport.offset(),
+            scrollback_len,
+            self.grid,
+            cell,
+            padding,
+        )
+    }
+
+    /// The current cell size for pointer geometry. From the GPU in production;
+    /// in headless tests (no GPU) a [`App::test_cell`] override stands in. In
+    /// non-test builds the override does not exist, so this is exactly
+    /// `self.gpu.as_ref().map(GpuState::cell)`.
+    fn resolved_cell(&self) -> Option<CellSize> {
+        #[cfg(test)]
+        if let Some(cell) = self.test_cell {
+            return Some(cell);
+        }
+        self.gpu.as_ref().map(GpuState::cell)
     }
 
     /// Handle a window-level wheel event (the `WindowEvent::MouseWheel`

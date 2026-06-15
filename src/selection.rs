@@ -35,12 +35,15 @@ pub enum SelectGranularity {
 /// `selecting: bool` with one mutually-exclusive home for every grid drag
 /// gesture, mirroring the overlay `SliderDrag` win (UX4-P2) so the gestures can
 /// never overlap. `Select` carries the active [`SelectGranularity`]; the `block`
-/// field is reserved for column/rectangular selection (MOUSE-RECT) and the
-/// `Scrollbar` variant for the draggable scroll thumb (MOUSE-SCROLLBAR) — both
-/// are wired into the type now and constructed by their own later packets. They
-/// are part of this crate's public API (a `pub` enum in a `pub` module), so the
-/// not-yet-constructed arm does not trip the dead-code lint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// field is reserved for column/rectangular selection (MOUSE-RECT) and is wired
+/// into the type now, constructed by its own later packet — it is part of this
+/// crate's public API (a `pub` enum in a `pub` module), so the not-yet-
+/// constructed arm does not trip the dead-code lint. `Scrollbar` carries the
+/// grab offset for the draggable scroll thumb (MOUSE-SCROLLBAR).
+///
+/// `Eq` is intentionally not derived: `Scrollbar` carries an `f32` grab offset,
+/// which is only `PartialEq`. No call site needs total equality.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum PointerDrag {
     #[default]
     None,
@@ -50,9 +53,11 @@ pub enum PointerDrag {
         /// today; threading it through render/extract is a later packet.
         block: bool,
     },
-    /// Reserved for MOUSE-SCROLLBAR (grab the right-edge thumb to scrub
-    /// scrollback). Not constructed until that packet lands.
-    Scrollbar,
+    /// Dragging the right-edge scroll thumb to scrub scrollback
+    /// (MOUSE-SCROLLBAR). `grab_dy` is where on the thumb the press landed
+    /// (px below the thumb top), so the drag keeps the cursor anchored to that
+    /// point rather than snapping the thumb to the cursor.
+    Scrollbar { grab_dy: f32 },
 }
 
 impl PointerDrag {
@@ -61,6 +66,16 @@ impl PointerDrag {
     /// at every call site.
     pub fn is_selecting(&self) -> bool {
         matches!(self, PointerDrag::Select { .. })
+    }
+
+    /// The thumb grab offset when a scroll-thumb drag (MOUSE-SCROLLBAR) is in
+    /// progress, else `None`. Lets the drag-update path read the anchor without
+    /// re-matching the variant.
+    pub fn scrollbar_grab(&self) -> Option<f32> {
+        match self {
+            PointerDrag::Scrollbar { grab_dy } => Some(*grab_dy),
+            _ => None,
+        }
     }
 }
 
@@ -692,7 +707,12 @@ mod tests {
     #[test]
     fn pointer_drag_is_selecting_only_for_select_variants() {
         assert!(!PointerDrag::None.is_selecting());
-        assert!(!PointerDrag::Scrollbar.is_selecting());
+        assert!(!PointerDrag::Scrollbar { grab_dy: 0.0 }.is_selecting());
+        assert_eq!(
+            PointerDrag::Scrollbar { grab_dy: 4.5 }.scrollbar_grab(),
+            Some(4.5)
+        );
+        assert_eq!(PointerDrag::None.scrollbar_grab(), None);
         assert!(
             PointerDrag::Select {
                 granularity: SelectGranularity::Char,

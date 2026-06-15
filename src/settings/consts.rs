@@ -36,6 +36,7 @@ pub const SCROLL_WHEEL_LINES_ENV: &str = "ODYTTY_SCROLL_WHEEL_LINES";
 pub const SCROLL_DRAG_SPEED_ENV: &str = "ODYTTY_SCROLL_DRAG_SPEED";
 pub const COPY_ON_SELECT_ENV: &str = "ODYTTY_COPY_ON_SELECT";
 pub const SELECTION_DRAG_EXTEND_ENV: &str = "ODYTTY_SELECTION_DRAG_EXTEND";
+pub const SCROLLBAR_DRAG_ENV: &str = "ODYTTY_SCROLLBAR_DRAG";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
@@ -77,6 +78,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SCROLL_DRAG_SPEED_ENV,
     COPY_ON_SELECT_ENV,
     SELECTION_DRAG_EXTEND_ENV,
+    SCROLLBAR_DRAG_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 
@@ -158,6 +160,15 @@ pub const DEFAULT_COPY_ON_SELECT: bool = false;
 /// behavior where a double/triple-click finalizes and the follow-on drag does
 /// not extend. Local selection only; never affects TUI mouse reporting.
 pub const DEFAULT_SELECTION_DRAG_EXTEND: bool = true;
+
+/// Draggable scroll thumb (`ODYTTY_SCROLLBAR_DRAG`, MOUSE-SCROLLBAR): when on, a
+/// left press on the right-edge scroll indicator grabs it as a thumb and the
+/// drag scrubs through scrollback. On by default — the thumb only renders while
+/// scrolled back into history, so the grab is inert at the live tail and the
+/// off path (and the live-tail path) leave press routing byte-identical. Local
+/// only; never affects TUI mouse reporting (a press off the thumb still reports
+/// as before).
+pub const DEFAULT_SCROLLBAR_DRAG: bool = true;
 
 pub const DEFAULT_BLOOM: bool = false;
 pub const BLOOM_THRESHOLD_MARGIN: f32 = 0.12;

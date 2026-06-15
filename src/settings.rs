@@ -416,6 +416,11 @@ pub struct Settings {
     /// current selection (MOUSE-EXTEND). On by default (operator decision); off
     /// restores the historical click-to-finish behavior byte-identically.
     pub selection_drag_extend: bool,
+    /// When on, the right-edge scroll indicator is a draggable thumb: a left
+    /// press grabs it and the drag scrubs scrollback (MOUSE-SCROLLBAR). On by
+    /// default; the thumb only renders while scrolled back, so the grab is inert
+    /// at the live tail and the off path leaves press routing byte-identical.
+    pub scrollbar_drag: bool,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -455,6 +460,7 @@ impl Default for Settings {
             scroll_drag_speed: ScrollDragSpeed::default(),
             copy_on_select: DEFAULT_COPY_ON_SELECT,
             selection_drag_extend: DEFAULT_SELECTION_DRAG_EXTEND,
+            scrollbar_drag: DEFAULT_SCROLLBAR_DRAG,
             native_autoclose: None,
         }
     }
@@ -752,6 +758,12 @@ impl Settings {
             DEFAULT_SELECTION_DRAG_EXTEND,
             &mut warn,
         );
+        let scrollbar_drag = parse_bool_setting(
+            get(SCROLLBAR_DRAG_ENV).as_deref(),
+            SCROLLBAR_DRAG_ENV,
+            DEFAULT_SCROLLBAR_DRAG,
+            &mut warn,
+        );
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -788,6 +800,7 @@ impl Settings {
             scroll_drag_speed,
             copy_on_select,
             selection_drag_extend,
+            scrollbar_drag,
             native_autoclose,
         }
     }
@@ -870,6 +883,10 @@ impl Settings {
         values.insert(
             SELECTION_DRAG_EXTEND_ENV,
             bool_display(self.selection_drag_extend).to_owned(),
+        );
+        values.insert(
+            SCROLLBAR_DRAG_ENV,
+            bool_display(self.scrollbar_drag).to_owned(),
         );
         if let Some(duration) = self.native_autoclose {
             values.insert(NATIVE_AUTOCLOSE_ENV, duration.as_millis().to_string());

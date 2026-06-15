@@ -35,7 +35,8 @@ use super::theme_builder::ThemeBuilderSignature;
 use super::theme_picker::ThemePickerSignature;
 use super::viewport::{
     Viewport, WindowPadding, grid_dimensions_for, grid_dimensions_for_with_padding,
-    scroll_indicator_quad, scroll_indicator_quad_with_padding, wheel_lines, wheel_lines_scaled,
+    scroll_indicator_hit, scroll_indicator_quad, scroll_indicator_quad_with_padding,
+    scrollbar_offset_for_drag, wheel_lines, wheel_lines_scaled,
 };
 use crate::core::{
     Attrs, Cell, CursorStyle, Dimensions, KeyboardModes as CoreKeyboardModes,
@@ -62,6 +63,7 @@ mod gpu_render;
 mod grid_scale;
 mod input_keys;
 mod overlay_pointer;
+mod scrollbar;
 mod selection_extend;
 mod synchronized_output;
 mod viewport;

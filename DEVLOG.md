@@ -28,6 +28,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- MOUSE-SCROLLBAR: draggable scroll thumb
+
+- The right-edge scroll indicator, previously display-only, is now a draggable
+  thumb: while scrolled back, a left press on the thumb grabs it and dragging
+  scrubs through scrollback with a grab-anchored thumb. New `scrollbar_drag`
+  setting (bool, default on) provides an explicit off switch and overlay
+  discoverability.
+- Plain/fast path is byte-identical. The thumb already drew at every offset, so
+  there is zero pixel change; the render path now shares one geometry source with
+  the hit-test and the inverse map. Press routing is byte-identical at the live
+  tail (offset 0, thumb hidden → hit-test returns nothing) and when the setting is
+  off — both pinned by inverted-gate tests.
+- The grab hit-test is injected after the overlay and active-drag guards but
+  before the TUI mouse-report branch, and only when the thumb is visible
+  (offset > 0). A press on the visible thumb grabs it ahead of mouse reporting; a
+  press off the thumb still reports to the application — both pinned. An active
+  scrollbar drag returns before hover/selection/motion so it never leaks motion
+  reports to the PTY, and release clears the drag before the report branch.
+- The forward/inverse viewport map round-trips exactly, with clamp and
+  zero-travel (tiny-grid minimum-thumb) coverage.
+- Verified: `cargo fmt --all --check` clean; aggregate green (lib 1242/0/7,
+  mouse_protocol 12, pixel_smoke 41, pty_alt_screen 9); new geometry/round-trip
+  tests + App-level press-routing precedence tests + settings tests in
+  `settings/tests/mouse.rs`; caps respected; public-gate scan clean.
+
+---
+
 ## 2026-06-15 -- U2 core: theme-authoring math (OKLCH nudge + snap-to-floor)
 
 - New `src/theme_author.rs`: the pure, deterministic core the perceptual-safe
