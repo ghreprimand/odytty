@@ -801,6 +801,38 @@ impl Screen {
         }
     }
 
+    /// Every OSC 133 prompt mark in the buffer, as `(absolute_row, kind)` pairs
+    /// in ascending row order. The coordinate convention matches
+    /// [`Screen::prompt_mark_at`]: row `0` is the oldest physical scrollback
+    /// row, counting down through scrollback into the live grid. Rows without a
+    /// mark are skipped, so the result is the *set* of marked rows, not one
+    /// entry per row.
+    ///
+    /// This is the enumeration counterpart to the point-query
+    /// [`Screen::prompt_mark_at`]: a command-aware front end caches this `Vec`
+    /// and rebuilds it only when [`Screen::take_prompt_marks_changed`] reports a
+    /// change, rather than scanning every row each frame. Advisory read only —
+    /// no mutation, no render-path effect, nothing reaches the
+    /// [`super::types::Snapshot`]. When the alternate screen is active the active
+    /// buffer carries no marks (they ride the stored primary), so this returns
+    /// an empty `Vec`, consistent with [`Screen::prompt_mark_at`].
+    pub fn prompt_marks(&self) -> Vec<(usize, PromptKind)> {
+        let scrollback = self.scrollback.physical(self.dimensions.columns);
+        let mut marks = Vec::new();
+        for (row, line) in scrollback.iter().enumerate() {
+            if let Some(kind) = line.prompt_mark {
+                marks.push((row, kind));
+            }
+        }
+        let base = scrollback.len();
+        for (offset, line) in self.rows.iter().enumerate() {
+            if let Some(kind) = line.prompt_mark {
+                marks.push((base + offset, kind));
+            }
+        }
+        marks
+    }
+
     /// Return whether the set of prompt marks may have changed since the last
     /// call, and clear the flag. Mirrors [`Screen::take_working_directory_changed`]
     /// so a front end can poll once per frame and rebuild per-command UI only on
@@ -1459,6 +1491,13 @@ impl Terminal {
     /// Row `0` is the oldest scrollback row; see [`Screen::prompt_mark_at`].
     pub fn prompt_mark_at(&self, row: usize) -> Option<PromptKind> {
         self.screen.prompt_mark_at(row)
+    }
+
+    /// Every OSC 133 prompt mark as `(absolute_row, kind)` pairs in ascending
+    /// row order (row `0` = oldest scrollback). The enumeration counterpart to
+    /// [`Terminal::prompt_mark_at`]; see [`Screen::prompt_marks`].
+    pub fn prompt_marks(&self) -> Vec<(usize, PromptKind)> {
+        self.screen.prompt_marks()
     }
 
     /// Whether the set of prompt marks may have changed since the last poll

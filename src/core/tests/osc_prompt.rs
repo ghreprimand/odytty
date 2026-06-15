@@ -387,3 +387,89 @@ fn resize_while_alt_active_flags_stored_primary_marks() {
     terminal.resize(4, 3);
     assert!(terminal.take_prompt_marks_changed());
 }
+
+// --- SH2 core: prompt-mark enumeration accessor ---
+
+#[test]
+fn prompt_marks_empty_buffer_is_empty() {
+    let terminal = Terminal::new(8, 3);
+    assert!(terminal.prompt_marks().is_empty());
+}
+
+#[test]
+fn prompt_marks_enumerates_in_ascending_row_order() {
+    let mut terminal = Terminal::new(8, 5);
+    terminal.advance(&osc133("A")); // row 0
+    terminal.advance(b"prompt\r\n");
+    terminal.advance(&osc133("C")); // row 1
+    terminal.advance(b"out\r\n");
+    terminal.advance(&osc133("D;0")); // row 2
+
+    let marks = terminal.prompt_marks();
+    assert_eq!(
+        marks,
+        vec![
+            (0, PromptKind::PromptStart),
+            (1, PromptKind::OutputStart),
+            (2, PromptKind::CommandEnd { exit: Some(0) }),
+        ]
+    );
+    // The enumeration agrees with the point query at every marked row.
+    for &(row, kind) in &marks {
+        assert_eq!(terminal.prompt_mark_at(row), Some(kind));
+    }
+}
+
+#[test]
+fn prompt_marks_coordinate_matches_scrollback() {
+    // A marked row scrolled into scrollback keeps absolute row 0, exactly like
+    // prompt_mark_at.
+    let mut terminal = Terminal::new(4, 2);
+    terminal.advance(&osc133("A"));
+    terminal.advance(b"ab\r\ncd\r\nef\r\ngh");
+    assert!(terminal.screen().scrollback_len() >= 1);
+    assert_eq!(terminal.prompt_marks(), vec![(0, PromptKind::PromptStart)]);
+}
+
+#[test]
+fn prompt_marks_empty_on_alt_screen_consistent_with_point_query() {
+    let mut terminal = Terminal::new(8, 3);
+    terminal.advance(&osc133("A"));
+    assert_eq!(terminal.prompt_marks(), vec![(0, PromptKind::PromptStart)]);
+
+    // Entering the alt screen hides the primary's marks; enumeration returns
+    // empty, matching prompt_mark_at(0) == None.
+    terminal.advance(b"\x1b[?1049h");
+    assert!(terminal.prompt_marks().is_empty());
+    assert_eq!(terminal.prompt_mark_at(0), None);
+
+    // Leaving restores them.
+    terminal.advance(b"\x1b[?1049l");
+    assert_eq!(terminal.prompt_marks(), vec![(0, PromptKind::PromptStart)]);
+}
+
+#[test]
+fn command_blocks_derive_from_a_real_transcript() {
+    // End-to-end: a full prompt cycle through the parser, enumerated, then
+    // derived into a command block. Anchors the core derivation to live marks.
+    let mut terminal = Terminal::new(20, 6);
+    terminal.advance(&osc133("A"));
+    terminal.advance(b"user@host:~$ ");
+    terminal.advance(&osc133("B"));
+    terminal.advance(b"echo hi\r\n");
+    terminal.advance(&osc133("C"));
+    terminal.advance(b"hi\r\n");
+    terminal.advance(&osc133("D;0"));
+    terminal.advance(b"\r\n"); // shell advances before printing the next prompt
+    terminal.advance(&osc133("A")); // next prompt on its own row
+
+    let blocks = command_blocks(&terminal.prompt_marks());
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0].prompt_row, 0);
+    assert_eq!(blocks[0].output_start, Some(1));
+    assert_eq!(blocks[0].output, CommandOutput::Rows { start: 1, end: 1 });
+    assert_eq!(blocks[0].exit, Some(0));
+    // The trailing prompt opens a fresh block awaiting input.
+    assert_eq!(blocks[1].output, CommandOutput::Empty);
+    assert_eq!(blocks[1].exit, None);
+}

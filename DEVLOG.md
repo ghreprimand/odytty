@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- SH2 core: prompt-mark enumeration + command-block derivation
+
+- The inert, zero-pixel core foundation that command-aware shell UX will build
+  on. Two additive pieces, no parser/protocol surface touched:
+- `Screen::prompt_marks() -> Vec<(usize, PromptKind)>` (re-exported on
+  `Terminal`): one ascending pass over scrollback-physical then live rows,
+  using the exact same coordinate convention as the existing
+  `prompt_mark_at(row)`, so an enumerated marked row and a point query always
+  agree. Returns empty on the alternate screen. Sits minimally beside
+  `prompt_mark_at` (`src/core/screen/mod.rs` 1700 -> 1739, under the cap).
+- `command_blocks()` pure function in `src/core/prompt_marks.rs`: derives an
+  ordered `Vec<CommandBlock { prompt_row, output_start, output, exit }>` from
+  the marks, where `CommandOutput` is `Empty | Rows { start, end } | Open {
+  start }`. Exit status binds to the preceding block via the half-open
+  `[PromptStart, next PromptStart)` span; every partial/degenerate shape
+  (prompt without command, command without output, stray marks before the
+  first prompt, duplicates) degrades without panic.
+- Exports added to `core/mod.rs`: `CommandBlock`, `CommandOutput`,
+  `command_blocks`. No render change, no `Snapshot`/`TerminalModel` API change,
+  no mutation path.
+- Design caveat recorded for the future gutter packet: the SH1 row-anchored
+  model collapses a command's exit marker and the next prompt onto one row when
+  the shell emits both there, so exit status is frequently unrecoverable in
+  practice (derivation yields `exit: None` gracefully). A per-command
+  success/fail gutter will need an explicit mitigation decision when scoped.
+- Verified: `cargo fmt --all --check` clean; full aggregate
+  1269 passed / 0 failed / 19 ignored (lib 1163, +16 SH2 tests: 11 derivation
+  units + 5 accessor/integration incl. an end-to-end derive-from-transcript);
+  pixel/composite/pty smokes green; deep fuzz 40k (protocol 11/0, graphics 5/0)
+  no-panic; public-gate scan clean. No parser surface; fuzz run anyway because
+  core was touched.
+
+---
+
 ## 2026-06-15 -- Phase 5b mouse: configurable wheel speed + opt-in copy-on-select
 
 - Two default-safe pointer ergonomics knobs, both with byte-identical default
