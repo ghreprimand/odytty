@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Review: draggable scrollbar and safe theme authoring lanes
+
+- Validated the in-progress draggable scroll indicator lane without changing its
+  implementation: the left-press grab sits after overlay/active-selection guards
+  and before TUI mouse reporting, active thumb drags return before hyperlink
+  hover / selection / PTY motion, release clears the drag before reporting, and
+  disabled/live-tail/off-thumb paths keep the historical selection/report
+  routing. The shared scrollbar geometry now has review coverage for render,
+  hit-test, drag inverse, clamping, and zero-travel behavior.
+- Re-reviewed the theme-authoring contrast-floor core after the neutral-palette
+  fix: background-side neutral ANSI slots are exempted by appearance while other
+  text/fill roles still use the role-specific contrast partner, matching the
+  palette-generation validation model.
+- Verification: focused scrollbar routing/viewport/settings tests passed,
+  `cargo fmt --all --check` passed, `cargo test --all-targets -q` passed, and
+  `cargo clippy --all-targets -q` exited 0 with existing repo-wide warnings.
+  Public-safety scans over added tracked lines and the new scrollbar test file
+  were clean. The reviewed code remains uncommitted at the time of this entry.
+
+---
+
+## 2026-06-15 -- U3 core: bg-side neutral exemption (palette generation refinement)
+
+- Refines the generated-palette contrast floor so the two achromatic neutral
+  slots that sit on the background's own side are left near the background
+  instead of being lifted to a legible mid-grey. In a dark theme that is the
+  near-black pair (`color0`/`color8`); in a light theme it is the near-white
+  pair (`color7`/`color15`). Everything else stays floored exactly as before —
+  the foreground, all chromatic ANSI slots, the cursor, and the selection/search
+  fills.
+- Removes a prior artifact where flooring the neutrals turned the palette's
+  "black" into a grey and collapsed `color0` and `color8` onto the same value;
+  the ramp's low end and the two distinct neutrals are now preserved. The
+  render-time legibility guarantee still nudges any app text that actually lands
+  on the background, so the structural neutrals do not need pre-flooring here.
+- `palette_gen.rs` only; `floor <= 1.0` stays an exact pass-through no-op.
+- Verified: `cargo fmt --all --check` clean; aggregate green (lib 1242/0/7, all
+  integration suites pass); golden 24-role snapshot updated; +1 test pinning the
+  near-bg neutral lightness for both appearances (and the opposite, fg-side pair
+  staying floored); public-gate scan clean.
+
+---
+
 ## 2026-06-15 -- U3 core: contrast-aware palette generation (pure module)
 
 - New `src/palette_gen.rs`: `generate(seed, appearance, floor) -> ThemeSpec` turns

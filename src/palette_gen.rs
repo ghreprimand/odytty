@@ -286,20 +286,35 @@ pub fn generate(seed: Srgb, appearance: Appearance, floor: f32) -> ThemeSpec {
 /// surface mapping verbatim so the author-time snap and this generator agree on
 /// what is floored against what:
 ///
-/// * `foreground`, `palette[0..=15]`, `cursor` → against the **background**.
+/// * `foreground`, the 14 chromatic ANSI slots, `cursor` → against the
+///   **background**.
 /// * `selection` / `search` fills → against the **foreground** text that is drawn
 ///   over them (so selected/highlighted text stays legible). `wcag_contrast` is
 ///   symmetric, so flooring the fill against the foreground guarantees the
 ///   foreground-over-fill pair clears the floor.
 /// * `border`, `inactive`, `clear` → window chrome, left untouched.
+/// * **The achromatic neutral pair on the background's own side is exempt** from
+///   the vs-background floor (see [`bg_side_neutral_slots`]). These are
+///   structural ramp neutrals, not primary text: in a dark theme `color0`
+///   (darkest) and `color8` (a step up) stay near the background so the ramp
+///   keeps its low end and the two don't collapse to the same legible grey; in a
+///   light theme the near-bg light neutrals `color7`/`color15` are exempt by
+///   symmetry. The render-time legibility floor (U1) still lifts any app text
+///   that actually lands on the background at draw time, so pre-flooring these
+///   here would be both redundant and aesthetically harmful. The far neutral
+///   pair (nearest the foreground) clears the floor naturally and stays floored.
 ///
 /// [`enforce_min_contrast`] only nudges OKLab lightness (preserving hue and
 /// chroma) and is idempotent, so this preserves every hue identity built above
-/// while making the output RV1-valid by construction.
+/// while making the output RV1-valid by construction for all primary text.
 fn validate(spec: &mut ThemeSpec, floor: f32) {
     let bg = to_linear(spec.background);
     spec.foreground = floor_role(spec.foreground, bg, floor);
-    for slot in spec.palette.iter_mut() {
+    let exempt = bg_side_neutral_slots(spec.appearance);
+    for (index, slot) in spec.palette.iter_mut().enumerate() {
+        if exempt.contains(&index) {
+            continue;
+        }
         *slot = floor_role(*slot, bg, floor);
     }
     spec.cursor = floor_role(spec.cursor, bg, floor);
@@ -308,6 +323,18 @@ fn validate(spec: &mut ThemeSpec, floor: f32) {
     let fg = to_linear(spec.foreground);
     spec.selection = floor_role(spec.selection, fg, floor);
     spec.search = floor_role(spec.search, fg, floor);
+}
+
+/// The two achromatic ANSI neutrals sitting on the same side as the background,
+/// exempt from the vs-background floor so they stay as near-bg structural ramp
+/// neutrals. Dark themes keep `color0`/`color8` (the dark neutrals near a dark
+/// bg); light themes keep `color7`/`color15` (the light neutrals near a light
+/// bg). The opposite pair sits near the foreground and stays floored.
+fn bg_side_neutral_slots(appearance: Appearance) -> [usize; 2] {
+    match appearance {
+        Appearance::Dark => [0, 8],
+        Appearance::Light => [7, 15],
+    }
 }
 
 /// Floor one role (as `Srgb`) against a linear surface, returning the adjusted
@@ -491,7 +518,13 @@ mod tests {
                     wcag_contrast(to_linear(spec.foreground), bg) >= AUTHORING_FLOOR - 1e-3,
                     "fg floor failed seed={seed:?} {appearance:?}"
                 );
+                // The achromatic neutral pair on the bg's own side is exempt
+                // (structural ramp neutrals); every other slot clears the floor.
+                let exempt = bg_side_neutral_slots(appearance);
                 for (i, &color) in spec.palette.iter().enumerate() {
+                    if exempt.contains(&i) {
+                        continue;
+                    }
                     let c = wcag_contrast(to_linear(color), bg);
                     assert!(
                         c >= AUTHORING_FLOOR - 1e-3,
@@ -555,6 +588,53 @@ mod tests {
     }
 
     #[test]
+    fn bg_side_neutrals_keep_their_near_bg_lightness() {
+        // The exempt neutral pair stays close to the background lightness rather
+        // than being lifted to the legible floor. Dark exempts color0/color8
+        // (near a dark bg); Light exempts color7/color15 (near a light bg) — the
+        // symmetric mirror.
+        let seed = (0x86, 0xc1, 0xff);
+
+        let dark = generate(seed, Appearance::Dark, AUTHORING_FLOOR);
+        let dark_bg_l = srgb_to_oklch(dark.background).l;
+        for slot in bg_side_neutral_slots(Appearance::Dark) {
+            let l = srgb_to_oklch(dark.palette[slot]).l;
+            assert!(
+                (l - dark_bg_l).abs() < 0.35 && l < 0.55,
+                "dark color{slot} should hug the dark bg, L={l} (bg L={dark_bg_l})"
+            );
+        }
+
+        let light = generate(seed, Appearance::Light, AUTHORING_FLOOR);
+        let light_bg_l = srgb_to_oklch(light.background).l;
+        for slot in bg_side_neutral_slots(Appearance::Light) {
+            let l = srgb_to_oklch(light.palette[slot]).l;
+            assert!(
+                (l - light_bg_l).abs() < 0.35 && l > 0.55,
+                "light color{slot} should hug the light bg, L={l} (bg L={light_bg_l})"
+            );
+        }
+
+        // And the far (fg-side) neutrals are NOT exempt — they clear the floor.
+        let dark_bg = to_linear(dark.background);
+        for slot in [7usize, 15] {
+            let c = wcag_contrast(to_linear(dark.palette[slot]), dark_bg);
+            assert!(
+                c >= AUTHORING_FLOOR - 1e-3,
+                "dark color{slot} should be floored: {c}"
+            );
+        }
+        let light_bg = to_linear(light.background);
+        for slot in [0usize, 8] {
+            let c = wcag_contrast(to_linear(light.palette[slot]), light_bg);
+            assert!(
+                c >= AUTHORING_FLOOR - 1e-3,
+                "light color{slot} should be floored: {c}"
+            );
+        }
+    }
+
+    #[test]
     fn chromatic_families_stay_within_the_rotation_cap_of_their_anchor() {
         // Red stays red: each generated chromatic family's hue stays within the
         // bias cap of its canonical anchor across the seed sweep. A tiny epsilon
@@ -590,12 +670,14 @@ mod tests {
         for grey in [(0x00, 0x00, 0x00), (0x7f, 0x7f, 0x7f), (0xff, 0xff, 0xff)] {
             let spec = generate(grey, Appearance::Dark, AUTHORING_FLOOR);
             let bg = to_linear(spec.background);
-            for &color in &spec.palette {
+            let exempt = bg_side_neutral_slots(spec.appearance);
+            for (i, &color) in spec.palette.iter().enumerate() {
                 let c = wcag_contrast(to_linear(color), bg);
-                assert!(
-                    c.is_finite() && c >= AUTHORING_FLOOR - 1e-3,
-                    "grey {grey:?}"
-                );
+                assert!(c.is_finite(), "grey {grey:?} produced non-finite contrast");
+                if exempt.contains(&i) {
+                    continue;
+                }
+                assert!(c >= AUTHORING_FLOOR - 1e-3, "grey {grey:?} slot {i}: {c}");
             }
         }
     }
@@ -616,22 +698,35 @@ mod tests {
     fn floor_of_one_is_a_no_op_validation_pass() {
         // With the floor at unity (passthrough), the validation pass must not
         // move any role — the pre-validation colors survive intact.
+        //
+        // A Light appearance is the clean demonstrator: the chromatic ramp sits
+        // at L≈0.62, which is too light against the L≈0.95 light background, so
+        // the 4.5 floor darkens those slots. With floor=1.0 they must stay put.
         let seed = (0x86, 0xc1, 0xff);
-        let floored = generate(seed, Appearance::Dark, 4.5);
-        let unfloored = generate(seed, Appearance::Dark, 1.0);
-        // The unfloored palette black sits near the background (not lifted to a
-        // legible grey), proving the validation pass is what does the lifting.
-        let bg_l = srgb_to_oklch(unfloored.background).l;
-        let black_l = srgb_to_oklch(unfloored.palette[0]).l;
+        let floored = generate(seed, Appearance::Light, 4.5);
+        let unfloored = generate(seed, Appearance::Light, 1.0);
+
+        // color1 (red) is a non-exempt chromatic slot: unfloored it keeps its
+        // built lightness; floored it is pulled darker to clear the floor.
+        let unfloored_l = srgb_to_oklch(unfloored.palette[1]).l;
+        let floored_l = srgb_to_oklch(floored.palette[1]).l;
         assert!(
-            (black_l - bg_l).abs() < 0.12,
-            "unfloored color0 should sit near bg, got {black_l} vs {bg_l}"
+            unfloored_l > floored_l + 0.05,
+            "floor=1.0 should leave color1 lighter than the floored variant: \
+             {unfloored_l} vs {floored_l}"
         );
-        // And the floored variant lifted color0 away from the background.
-        let floored_black_l = srgb_to_oklch(floored.palette[0]).l;
-        assert!(
-            floored_black_l > black_l + 0.05,
-            "floored color0 should be lifted above the unfloored one"
+
+        // floor=1.0 is an exact passthrough: every role equals the pre-floor
+        // build. Re-running the same generation is byte-identical (determinism),
+        // and the floored variant genuinely differs — so the pass did real work.
+        assert_eq!(
+            unfloored,
+            generate(seed, Appearance::Light, 1.0),
+            "floor=1.0 must be deterministic / a stable passthrough"
+        );
+        assert_ne!(
+            unfloored, floored,
+            "the 4.5 floor must move at least one role vs the unfloored build"
         );
     }
 
@@ -652,8 +747,8 @@ mod tests {
         // Pin the exact byte output for a representative cool-blue seed in Dark
         // appearance at the 4.5 authoring floor. This locks the whole pipeline:
         // a change to any constant, anchor, the bias cap, or the floor pass that
-        // alters the result trips this test on purpose. (color0 == color8 here
-        // is expected: both neutral greys floor to the same minimal legible L.)
+        // alters the result trips this test on purpose. (In Dark, color0/color8
+        // are the exempt near-bg structural neutrals — distinct, not floored.)
         let spec = generate((0x86, 0xc1, 0xff), Appearance::Dark, AUTHORING_FLOOR);
         assert_eq!(spec.name, "custom");
         assert_eq!(spec.appearance, Appearance::Dark);
@@ -668,7 +763,7 @@ mod tests {
         assert_eq!(
             spec.palette,
             [
-                (115, 122, 128), // 0  black  (floored neutral)
+                (22, 27, 32),    // 0  black  (exempt near-bg neutral)
                 (197, 99, 115),  // 1  red
                 (42, 157, 108),  // 2  green
                 (112, 148, 58),  // 3  yellow
@@ -676,7 +771,7 @@ mod tests {
                 (158, 111, 190), // 5  magenta
                 (0, 151, 173),   // 6  cyan
                 (184, 190, 197), // 7  white
-                (115, 122, 128), // 8  bright black (floored neutral)
+                (80, 86, 92),    // 8  bright black (exempt near-bg neutral)
                 (250, 139, 155), // 9  bright red
                 (84, 203, 148),  // 10 bright green
                 (153, 193, 95),  // 11 bright yellow
