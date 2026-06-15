@@ -37,6 +37,7 @@ pub const SCROLL_DRAG_SPEED_ENV: &str = "ODYTTY_SCROLL_DRAG_SPEED";
 pub const COPY_ON_SELECT_ENV: &str = "ODYTTY_COPY_ON_SELECT";
 pub const SELECTION_DRAG_EXTEND_ENV: &str = "ODYTTY_SELECTION_DRAG_EXTEND";
 pub const SCROLLBAR_DRAG_ENV: &str = "ODYTTY_SCROLLBAR_DRAG";
+pub const WHEEL_ZOOM_ENV: &str = "ODYTTY_WHEEL_ZOOM";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
@@ -79,6 +80,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     COPY_ON_SELECT_ENV,
     SELECTION_DRAG_EXTEND_ENV,
     SCROLLBAR_DRAG_ENV,
+    WHEEL_ZOOM_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 
@@ -169,6 +171,14 @@ pub const DEFAULT_SELECTION_DRAG_EXTEND: bool = true;
 /// only; never affects TUI mouse reporting (a press off the thumb still reports
 /// as before).
 pub const DEFAULT_SCROLLBAR_DRAG: bool = true;
+
+/// Ctrl+wheel font-size zoom (`ODYTTY_WHEEL_ZOOM`, MOUSE-WHEEL): when on,
+/// Ctrl+wheel up grows the font and Ctrl+wheel down shrinks it, within
+/// [`MIN_FONT_SIZE_PX`]..[`MAX_FONT_SIZE_PX`]. On by default — it only fires on
+/// the explicit Ctrl+wheel gesture while mouse reporting is off, so a plain
+/// wheel (and the wheel inside a TUI mouse-reporting app) is byte-identical.
+/// Off restores Ctrl+wheel to plain scrollback movement.
+pub const DEFAULT_WHEEL_ZOOM: bool = true;
 
 pub const DEFAULT_BLOOM: bool = false;
 pub const BLOOM_THRESHOLD_MARGIN: f32 = 0.12;

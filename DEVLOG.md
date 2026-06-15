@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- CTRL-WHEEL-ZOOM: Ctrl+wheel font-size zoom
+
+- Holding Ctrl and scrolling the wheel now adjusts the font size (up enlarges,
+  down shrinks), clamped to the existing min/max bounds. New `wheel_zoom` setting
+  (bool, default on) — it only ever fires on the explicit Ctrl+wheel gesture.
+- The change is session-local and never writes the config file; it routes through
+  the existing settings-reload seam (atlas rebuild + grid reflow), not a new
+  resize path.
+- Gated on mouse-reporting being off: the zoom branch sits after the
+  report-to-application gate, so a Ctrl+wheel inside a mouse-reporting app passes
+  through to the application exactly as before (pinned by a test that records the
+  emitted report bytes and asserts the font is unchanged). Plain wheel with no
+  modifier is byte-identical, and `wheel_zoom = false` routes Ctrl+wheel exactly
+  like a plain wheel — both pinned by inverted-gate tests.
+- Verified: `cargo fmt --all --check` clean; aggregate green (lib 1290/0/7,
+  mouse_protocol 12, pixel_smoke 41); 13 new tests covering the report-precedence
+  gate, plain-wheel parity, the off switch, both clamp bounds, and session-local
+  semantics; caps respected; public-gate scan clean.
+
+---
+
 ## 2026-06-15 -- U4 core: perceptual CVD (colorblind) palette adaptation
 
 - New `src/cvd.rs`: a pure, deterministic module that adapts a theme's palette

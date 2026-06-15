@@ -13,7 +13,7 @@ use super::{
     RENDER_QUALITY_ENV, SCROLL_DRAG_SPEED_ENV, SCROLL_WHEEL_LINES_ENV, SCROLLBAR_DRAG_ENV,
     SELECTION_DRAG_EXTEND_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV,
     SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV,
-    WINDOW_PADDING_ENV, normalize_name,
+    WHEEL_ZOOM_ENV, WINDOW_PADDING_ENV, normalize_name,
 };
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
@@ -107,6 +107,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
             Some(SELECTION_DRAG_EXTEND_ENV)
         }
         "scrollbardrag" | "draggablescrollbar" | "scrollthumbdrag" => Some(SCROLLBAR_DRAG_ENV),
+        "wheelzoom" | "ctrlwheelzoom" | "fontzoom" => Some(WHEEL_ZOOM_ENV),
         "nativeautoclosems" => Some(NATIVE_AUTOCLOSE_ENV),
         _ => None,
     }
@@ -148,6 +149,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         COPY_ON_SELECT_ENV => Some("copy_on_select"),
         SELECTION_DRAG_EXTEND_ENV => Some("selection_drag_extend"),
         SCROLLBAR_DRAG_ENV => Some("scrollbar_drag"),
+        WHEEL_ZOOM_ENV => Some("wheel_zoom"),
         NATIVE_AUTOCLOSE_ENV => Some("native_autoclose_ms"),
         _ => None,
     }

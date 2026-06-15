@@ -63,7 +63,7 @@ use super::search_ui::{SearchStyle, SearchUi, apply_search_ui};
 use super::viewport::{
     SELECTION_AUTOSCROLL_INTERVAL, Viewport, WindowPadding, grid_dimensions_for_with_padding,
     scroll_indicator_hit_with_padding, scroll_indicator_quad_with_padding,
-    scrollbar_offset_for_drag_with_padding, wheel_lines, wheel_lines_scaled,
+    scrollbar_offset_for_drag_with_padding, wheel_lines, wheel_lines_scaled, wheel_zoom_steps,
 };
 
 mod interaction;
@@ -433,6 +433,34 @@ impl App {
     #[cfg(test)]
     pub(super) fn set_shift_modifier_for_test(&mut self, shift: bool) {
         self.modifiers.shift = shift;
+    }
+
+    /// Test seam (CTRL-WHEEL-ZOOM): set the Ctrl modifier so a Ctrl+wheel zoom
+    /// gesture can be driven through `handle_mouse_wheel`.
+    #[cfg(test)]
+    pub(super) fn set_ctrl_modifier_for_test(&mut self, ctrl: bool) {
+        self.modifiers.ctrl = ctrl;
+    }
+
+    /// Test seam (CTRL-WHEEL-ZOOM): toggle the `wheel_zoom` setting so the
+    /// inverted-gate (off-switch) parity can be pinned.
+    #[cfg(test)]
+    pub(super) fn set_wheel_zoom_for_test(&mut self, on: bool) {
+        self.settings.wheel_zoom = on;
+    }
+
+    /// Test seam (CTRL-WHEEL-ZOOM): the current live font size in pixels.
+    #[cfg(test)]
+    pub(super) fn font_size_px_for_test(&self) -> f32 {
+        self.settings.font_size_px
+    }
+
+    /// Test seam (CTRL-WHEEL-ZOOM): drive a vertical wheel notch through the
+    /// production wheel routing (`handle_mouse_wheel`), so the zoom-vs-scroll-vs
+    /// -report precedence is pinned, not reimplemented. Positive = wheel up.
+    #[cfg(test)]
+    pub(super) fn dispatch_wheel_for_test(&mut self, vertical_notches: f32) {
+        self.handle_mouse_wheel(MouseScrollDelta::LineDelta(0.0, vertical_notches));
     }
 
     /// Test seam (UX4-P1): the held mouse-report button, if any.

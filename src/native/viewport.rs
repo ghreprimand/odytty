@@ -174,6 +174,32 @@ pub(super) fn wheel_lines_scaled(
     }
 }
 
+/// Convert a wheel delta into a signed font-size step count for Ctrl+wheel zoom
+/// (MOUSE-WHEEL): positive = wheel up = larger font, negative = smaller. One
+/// discrete wheel notch maps to one step; continuous touchpad input maps by
+/// sign only (magnitude 1) so a single swipe does not leap across many sizes.
+/// Independent of cell height — the caller applies the step in pixels and
+/// clamps to the supported range. Returns 0 for a zero delta (note: Rust's
+/// `0.0_f64.signum()` is `+1.0`, so the zero case is guarded explicitly).
+pub(super) fn wheel_zoom_steps(delta: MouseScrollDelta) -> i32 {
+    match delta {
+        MouseScrollDelta::LineDelta(_, y) => {
+            if y == 0.0 {
+                0
+            } else {
+                y.signum() as i32 * y.abs().ceil().max(1.0) as i32
+            }
+        }
+        MouseScrollDelta::PixelDelta(pos) => {
+            if pos.y == 0.0 {
+                0
+            } else {
+                pos.y.signum() as i32
+            }
+        }
+    }
+}
+
 /// Offset-independent geometry of the right-edge scroll thumb, plus the maps
 /// between a scrollback offset and the thumb's track position.
 ///

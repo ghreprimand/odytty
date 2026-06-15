@@ -106,6 +106,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "selection_drag_extend",
             "scroll_drag_speed",
             "scrollbar_drag",
+            "wheel_zoom",
             "osc52_read",
             "copy_on_select",
             "native_autoclose_ms",

@@ -421,6 +421,12 @@ pub struct Settings {
     /// default; the thumb only renders while scrolled back, so the grab is inert
     /// at the live tail and the off path leaves press routing byte-identical.
     pub scrollbar_drag: bool,
+    /// When on, Ctrl+wheel adjusts the font size (up = larger, down = smaller)
+    /// while mouse reporting is off (MOUSE-WHEEL zoom). On by default; it only
+    /// fires on the explicit Ctrl+wheel gesture, so a plain wheel — and the
+    /// wheel inside a TUI mouse-reporting app — stays byte-identical. Off
+    /// returns Ctrl+wheel to plain scrollback movement.
+    pub wheel_zoom: bool,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -461,6 +467,7 @@ impl Default for Settings {
             copy_on_select: DEFAULT_COPY_ON_SELECT,
             selection_drag_extend: DEFAULT_SELECTION_DRAG_EXTEND,
             scrollbar_drag: DEFAULT_SCROLLBAR_DRAG,
+            wheel_zoom: DEFAULT_WHEEL_ZOOM,
             native_autoclose: None,
         }
     }
@@ -764,6 +771,12 @@ impl Settings {
             DEFAULT_SCROLLBAR_DRAG,
             &mut warn,
         );
+        let wheel_zoom = parse_bool_setting(
+            get(WHEEL_ZOOM_ENV).as_deref(),
+            WHEEL_ZOOM_ENV,
+            DEFAULT_WHEEL_ZOOM,
+            &mut warn,
+        );
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -801,6 +814,7 @@ impl Settings {
             copy_on_select,
             selection_drag_extend,
             scrollbar_drag,
+            wheel_zoom,
             native_autoclose,
         }
     }
@@ -888,6 +902,7 @@ impl Settings {
             SCROLLBAR_DRAG_ENV,
             bool_display(self.scrollbar_drag).to_owned(),
         );
+        values.insert(WHEEL_ZOOM_ENV, bool_display(self.wheel_zoom).to_owned());
         if let Some(duration) = self.native_autoclose {
             values.insert(NATIVE_AUTOCLOSE_ENV, duration.as_millis().to_string());
         }

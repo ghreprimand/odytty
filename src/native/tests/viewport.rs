@@ -468,6 +468,36 @@ fn wheel_lines_scaled_multiplies_notches_and_preserves_default() {
 }
 
 #[test]
+fn wheel_zoom_steps_maps_sign_and_notches() {
+    // CTRL-WHEEL-ZOOM: wheel up = positive (larger font), down = negative.
+    assert_eq!(wheel_zoom_steps(MouseScrollDelta::LineDelta(0.0, 1.0)), 1);
+    assert_eq!(wheel_zoom_steps(MouseScrollDelta::LineDelta(0.0, -1.0)), -1);
+    // Multiple notches in one event scale the step count, sign preserved.
+    assert_eq!(wheel_zoom_steps(MouseScrollDelta::LineDelta(0.0, 3.0)), 3);
+    assert_eq!(wheel_zoom_steps(MouseScrollDelta::LineDelta(0.0, -2.0)), -2);
+}
+
+#[test]
+fn wheel_zoom_steps_zero_delta_is_zero_not_a_phantom_step() {
+    // A zero line delta is no zoom. Critically, a zero *pixel* delta must also
+    // be zero: Rust's `0.0_f64.signum()` is `+1.0`, which would otherwise
+    // false-zoom-in on an idle touchpad event.
+    assert_eq!(wheel_zoom_steps(MouseScrollDelta::LineDelta(0.0, 0.0)), 0);
+    let zero_px = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 0.0));
+    assert_eq!(wheel_zoom_steps(zero_px), 0);
+}
+
+#[test]
+fn wheel_zoom_steps_pixel_delta_maps_by_sign_only() {
+    // Continuous touchpad input maps to a single step by sign, so a smooth
+    // swipe does not leap across many font sizes at once.
+    let up = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 48.0));
+    assert_eq!(wheel_zoom_steps(up), 1);
+    let down = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, -3.0));
+    assert_eq!(wheel_zoom_steps(down), -1);
+}
+
+#[test]
 fn wheel_pixel_delta_converts_by_cell_height() {
     // 32px / 16px cell == 2 rows up.
     let up = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 32.0));

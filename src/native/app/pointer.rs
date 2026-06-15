@@ -140,6 +140,23 @@ impl App {
             return;
         }
 
+        // MOUSE-WHEEL (zoom): Ctrl+wheel adjusts the font size, but only while
+        // mouse reporting is off. The report gate above already returned for a
+        // reporting app, so Ctrl+wheel there passes through to the PTY untouched
+        // — this branch is never reached in that case. Gated on the `wheel_zoom`
+        // setting (default on); when off, Ctrl+wheel falls through to the plain
+        // scrollback path below, byte-identical to today. Ctrl+wheel is a zoom
+        // gesture, so it is consumed here and never also scrolls scrollback
+        // (the early return holds even at the clamp boundary, where the zoom is
+        // a no-op).
+        if self.settings.wheel_zoom && self.modifiers.ctrl {
+            let steps = wheel_zoom_steps(delta);
+            if steps != 0 {
+                self.adjust_font_size_by(steps);
+            }
+            return;
+        }
+
         let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
         // MOUSE-WHEEL-SPEED: local scrollback honors the configured
         // per-notch multiplier (default 3 = byte-identical). The TUI
@@ -149,6 +166,28 @@ impl App {
         if lines != 0 {
             self.scroll_viewport(lines);
         }
+    }
+
+    /// Adjust the live font size by `steps` pixels (MOUSE-WHEEL Ctrl+wheel
+    /// zoom), clamped to the supported range, routed through the existing live
+    /// settings-apply seam so the atlas rebuild and grid reflow run exactly as
+    /// a `font_size` settings edit would — no separate resize path. A no-op when
+    /// the clamp leaves the size unchanged (already at the min/max), so zooming
+    /// past the bound does nothing. The change is applied live but not written
+    /// to disk: the same transient behavior as dragging the overlay slider
+    /// without saving.
+    fn adjust_font_size_by(&mut self, steps: i32) {
+        let current = self.settings.font_size_px;
+        let next_px = (current + steps as f32).clamp(
+            crate::settings::MIN_FONT_SIZE_PX,
+            crate::settings::MAX_FONT_SIZE_PX,
+        );
+        if (next_px - current).abs() < f32::EPSILON {
+            return;
+        }
+        let mut next = self.settings.clone();
+        next.font_size_px = next_px;
+        self.apply_overlay_settings(next);
     }
 
     fn handle_primary_paste(&mut self) {

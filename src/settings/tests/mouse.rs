@@ -181,3 +181,58 @@ fn scrollbar_drag_has_a_bool_row_in_the_input_group() {
     assert!(row.reloadable);
     assert!(!row.description.trim().is_empty());
 }
+
+#[test]
+fn wheel_zoom_defaults_on_and_parses() {
+    // CTRL-WHEEL-ZOOM: default on. It only fires on the explicit Ctrl+wheel
+    // gesture while mouse reporting is off, so default-on leaves a plain wheel
+    // byte-identical.
+    let (settings, warnings) = settings_from([]);
+    assert!(settings.wheel_zoom);
+    assert!(warnings.is_empty());
+
+    let (off, _) = settings_from([(WHEEL_ZOOM_ENV, "off")]);
+    assert!(!off.wheel_zoom);
+
+    let (on, _) = settings_from([(WHEEL_ZOOM_ENV, "on")]);
+    assert!(on.wheel_zoom);
+}
+
+#[test]
+fn wheel_zoom_round_trips_through_config_key_mapping() {
+    assert_eq!(config_key_to_env("wheel_zoom"), Some(WHEEL_ZOOM_ENV));
+    assert_eq!(config_key_to_env("ctrlwheelzoom"), Some(WHEEL_ZOOM_ENV));
+    assert_eq!(config_key_to_env("fontzoom"), Some(WHEEL_ZOOM_ENV));
+    assert_eq!(env_to_config_key(WHEEL_ZOOM_ENV), Some("wheel_zoom"));
+}
+
+#[test]
+fn wheel_zoom_round_trips_through_edit_values() {
+    let settings = Settings {
+        wheel_zoom: false,
+        ..Settings::default()
+    };
+    assert_eq!(
+        settings.to_edit_values().get(WHEEL_ZOOM_ENV),
+        Some(&"off".to_owned())
+    );
+    assert_eq!(
+        Settings::default().to_edit_values().get(WHEEL_ZOOM_ENV),
+        Some(&"on".to_owned())
+    );
+}
+
+#[test]
+fn wheel_zoom_has_a_bool_row_in_the_input_group() {
+    let rows = Settings::default().setting_info();
+    let row = rows
+        .iter()
+        .find(|row| row.key == "wheel_zoom")
+        .expect("wheel_zoom row present");
+    assert_eq!(row.group, "Input");
+    assert_eq!(row.kind, SettingKind::Bool);
+    assert_eq!(row.options, ["on", "off"]);
+    assert_eq!(row.value, "on");
+    assert!(row.reloadable);
+    assert!(!row.description.trim().is_empty());
+}
