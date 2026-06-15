@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- U2: perceptual-safe theme builder, step 1 (keyboard + readout)
+
+- The in-app theme builder now edits colors in OKLCH rather than raw RGB. Arrow
+  Left/Right nudge the focused channel (Lightness, Chroma, or Hue) by a fixed
+  step, with hue moving as a rotation; `[` / `]` cycle the focused channel. Edits
+  route through the shared theme-authoring core, so what you author is what
+  renders.
+- Each role shows a live contrast readout against its floor-partner surface,
+  labeled PASS/FAIL at the AA 4.5 authoring floor (distinct from the render-time
+  contrast minimum); roles that are not floored say so. `F` snaps the selected
+  role to the floor (inert and messaged when the role is not floored).
+- Saving auto-snaps every floored role to AA and reports how many were adjusted,
+  so the builder cannot write an unreadable theme. The hex-entry expert path is
+  unchanged. The neutral-pair exemption is appearance-correct — the builder infers
+  appearance from background luminance when it opens, so light themes are not
+  misclassified.
+- This is the keyboard / math / readout / save step; pointer (slider drag,
+  click-to-focus) is the next step. Verified: 11 builder tests; `cargo fmt --all
+  --check` clean; aggregate green.
+
 ## 2026-06-15 -- MOUSE-RECT: Alt+drag rectangular/block (column) selection
 
 - Holding Alt while dragging now selects a rectangular column band — the same

@@ -3,8 +3,10 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::color::{linear_to_oklab, oklab_to_oklch, srgb_to_linear};
 use crate::settings::Settings;
 use crate::theme::{Appearance, Srgb, Theme, ThemeSpec, contrast_ratio, relative_luminance};
+use crate::theme_author::{self, AUTHORING_CONTRAST_FLOOR, AuthorRole, FloorAgainst};
 
 use super::overlay::OverlayInput;
 
@@ -16,6 +18,71 @@ pub(super) struct ThemeBuilder {
     scroll: usize,
     editing: Option<EditMode>,
     message: Option<String>,
+    /// Which OKLCH channel the Left/Right arrows currently drive (U2). Internal
+    /// view state only — it is surfaced through `message`/the readout lines (both
+    /// already in the render signature), so it deliberately stays out of
+    /// [`ThemeBuilderSignature`].
+    channel: OklchChannel,
+    /// How many floored roles the last save auto-snapped to AA (D-U2-2), carried
+    /// from [`ThemeBuilder::save_request`] into [`ThemeBuilder::save_succeeded`]
+    /// so the saved-confirmation message can report the backstop.
+    save_snap_count: usize,
+}
+
+/// The OKLCH channel the keyboard editor is focused on (U2). Lightness and
+/// chroma are delta-driven (±step per keypress, gamut-stable); hue is rotated by
+/// a fixed step per keypress (the keyboard analog of the absolute hue dial,
+/// D-U2-1). Cycled with `[` / `]` (the in-app channel-focus control).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum OklchChannel {
+    #[default]
+    Lightness,
+    Chroma,
+    Hue,
+}
+
+/// Per-keypress OKLCH step sizes for the keyboard editor. Lightness and chroma
+/// are additive deltas; hue is a fixed rotation. Kept conservative so a keypress
+/// is a fine nudge, not a jump.
+const L_STEP: f32 = 0.02;
+const C_STEP: f32 = 0.01;
+const H_STEP_DEG: f32 = 5.0;
+
+impl OklchChannel {
+    fn next(self) -> Self {
+        match self {
+            OklchChannel::Lightness => OklchChannel::Chroma,
+            OklchChannel::Chroma => OklchChannel::Hue,
+            OklchChannel::Hue => OklchChannel::Lightness,
+        }
+    }
+
+    fn prev(self) -> Self {
+        match self {
+            OklchChannel::Lightness => OklchChannel::Hue,
+            OklchChannel::Chroma => OklchChannel::Lightness,
+            OklchChannel::Hue => OklchChannel::Chroma,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            OklchChannel::Lightness => "L (lightness)",
+            OklchChannel::Chroma => "C (chroma)",
+            OklchChannel::Hue => "H (hue)",
+        }
+    }
+
+    /// The single non-zero delta this channel contributes for a `direction`
+    /// (`-1` / `+1`) keypress, ready for [`theme_author::nudge`].
+    fn deltas(self, direction: i16) -> (f32, f32, f32) {
+        let sign = f32::from(direction);
+        match self {
+            OklchChannel::Lightness => (sign * L_STEP, 0.0, 0.0),
+            OklchChannel::Chroma => (0.0, sign * C_STEP, 0.0),
+            OklchChannel::Hue => (0.0, 0.0, sign * H_STEP_DEG.to_radians()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -114,7 +181,8 @@ impl ThemeBuilder {
     pub(super) fn open(&mut self, settings: &Settings) {
         *self = Self::from_theme(settings.theme);
         self.message = Some(
-            "Clone active theme. Enter edits hex, Left/Right nudges, Ctrl+S saves.".to_owned(),
+            "Clone active theme. [/] picks L/C/H, Left/Right adjust, F snaps to AA, Enter types hex, Ctrl+S saves."
+                .to_owned(),
         );
     }
 
@@ -138,6 +206,9 @@ impl ThemeBuilder {
             OverlayInput::End => self.set_selection(FIELDS.len().saturating_sub(1)),
             OverlayInput::Left => return self.nudge_selected(-1),
             OverlayInput::Right => return self.nudge_selected(1),
+            OverlayInput::Char('[') => self.cycle_channel(false),
+            OverlayInput::Char(']') => self.cycle_channel(true),
+            OverlayInput::Char('f') | OverlayInput::Char('F') => return self.snap_selected(),
             OverlayInput::Activate => self.begin_color_edit(),
             OverlayInput::Save => self.begin_name_edit(),
             OverlayInput::Char('n') | OverlayInput::Char('N') => self.begin_name_edit(),
@@ -151,13 +222,20 @@ impl ThemeBuilder {
     pub(super) fn save_succeeded(&mut self, saved_name: &str, path: &Path, changed: usize) {
         self.spec.name = saved_name.to_owned();
         self.original = self.preview_theme();
+        let snap_note = match self.save_snap_count {
+            0 => String::new(),
+            1 => " Snapped 1 role to AA on save.".to_owned(),
+            n => format!(" Snapped {n} roles to AA on save."),
+        };
+        self.save_snap_count = 0;
         self.message = Some(format!(
-            "Saved {saved_name} to {} and odytty.conf ({changed} setting change).",
+            "Saved {saved_name} to {} and odytty.conf ({changed} setting change).{snap_note}",
             path.display()
         ));
     }
 
     pub(super) fn save_failed(&mut self, message: String) {
+        self.save_snap_count = 0;
         self.message = Some(format!("Save failed: {message}"));
     }
 
@@ -198,7 +276,7 @@ impl ThemeBuilder {
         let mut lines = Vec::new();
         lines.push(ThemeBuilderLine {
             text: ellipsize(
-                "  Theme builder - Enter hex, Left/Right nudge, Ctrl+S save, Esc cancel",
+                "  Theme builder - [/] L/C/H, Left/Right adjust, F snap AA, Enter hex, Ctrl+S save",
                 body_width,
             ),
             focused: false,
@@ -218,6 +296,14 @@ impl ThemeBuilder {
             focused: false,
             swatch: None,
         });
+
+        for text in self.readout_lines() {
+            lines.push(ThemeBuilderLine {
+                text: ellipsize(&text, body_width),
+                focused: false,
+                swatch: None,
+            });
+        }
 
         if let Some(message) = self.message.as_deref() {
             for wrapped in wrap_words(message, body_width.saturating_sub(4)) {
@@ -278,6 +364,8 @@ impl ThemeBuilder {
             scroll: 0,
             editing: None,
             message: None,
+            channel: OklchChannel::Lightness,
+            save_snap_count: 0,
         }
     }
 
@@ -377,24 +465,101 @@ impl ThemeBuilder {
                 Some("Use letters, numbers, dashes, or underscores; no paths.".to_owned());
             return ThemeBuilderOutcome::Consumed;
         }
-        let mut spec = self.spec.clone();
-        spec.name = name.clone();
-        spec.appearance = if relative_luminance(spec.background) > 0.18 {
+        self.spec.name = name.clone();
+        self.spec.appearance = if relative_luminance(self.spec.background) > 0.18 {
             Appearance::Light
         } else {
             Appearance::Dark
         };
-        self.spec = spec.clone();
+        // D-U2-2: mandatory save-time backstop — snap every floored role to AA so
+        // the written .theme clears the authoring floor by construction, even if
+        // the operator never pressed F. The count is reported in save_succeeded.
+        self.save_snap_count = self.auto_snap_floored();
+        let spec = self.spec.clone();
         ThemeBuilderOutcome::Save(ThemeBuilderSaveRequest { name, spec })
     }
 
     fn nudge_selected(&mut self, direction: i16) -> ThemeBuilderOutcome {
         let field = FIELDS[self.selected];
         let color = self.color(field);
-        let nudged = nudge(color, direction * 5);
+        let (dl, dc, dh) = self.channel.deltas(direction);
+        let nudged = theme_author::nudge(color, dl, dc, dh);
         self.set_color(field, nudged);
-        self.message = Some(format!("{} = {}.", field.label(), hex(nudged)));
+        let arrow = if direction < 0 { "-" } else { "+" };
+        self.message = Some(format!(
+            "{} {} {arrow} -> {}",
+            field.label(),
+            self.channel.label(),
+            hex(nudged)
+        ));
         ThemeBuilderOutcome::Preview(self.preview_theme())
+    }
+
+    /// `[` / `]` — move the keyboard editor's focus to the previous / next OKLCH
+    /// channel. Pure view-state change; the new focus is surfaced via `message`
+    /// (in the render signature) so the readout repaints.
+    fn cycle_channel(&mut self, forward: bool) {
+        self.channel = if forward {
+            self.channel.next()
+        } else {
+            self.channel.prev()
+        };
+        self.message = Some(format!(
+            "Edit channel: {} — Left/Right adjust.",
+            self.channel.label()
+        ));
+    }
+
+    /// `F` — snap the selected role up to the authoring floor (AA 4.5) against
+    /// its [`theme_author::floor_partner`]-resolved surface. Inert (and says so)
+    /// for roles that are not floored (background, chrome, the background-side
+    /// neutral ramp pair); idempotent on roles already clearing the floor.
+    fn snap_selected(&mut self) -> ThemeBuilderOutcome {
+        let field = FIELDS[self.selected];
+        let role = author_role(field);
+        match theme_author::partner_color(&self.spec, role) {
+            Some(partner) => {
+                let snapped = theme_author::snap_to_floor(
+                    self.color(field),
+                    partner,
+                    AUTHORING_CONTRAST_FLOOR,
+                );
+                self.set_color(field, snapped);
+                let ratio = theme_author::authoring_contrast(snapped, partner);
+                let surface = floor_surface_label(role, self.spec.appearance).unwrap_or("?");
+                self.message = Some(format!(
+                    "Snapped {} to AA {AUTHORING_CONTRAST_FLOOR:.1} ({ratio:.2} vs {surface}).",
+                    field.label()
+                ));
+                ThemeBuilderOutcome::Preview(self.preview_theme())
+            }
+            None => {
+                self.message = Some(format!("{} is not floored (no AA target).", field.label()));
+                ThemeBuilderOutcome::Consumed
+            }
+        }
+    }
+
+    /// Auto-snap every floored role in the spec up to the authoring floor (the
+    /// D-U2-2 save-time backstop), returning how many roles actually moved.
+    /// Partners are resolved fresh from the in-progress spec each iteration, so a
+    /// foreground-floored fill (selection/search) snaps against the already
+    /// floored foreground — `FIELDS` lists foreground before the fills, so the
+    /// dependency resolves in one pass.
+    fn auto_snap_floored(&mut self) -> usize {
+        let mut changed = 0;
+        for field in FIELDS {
+            let role = author_role(field);
+            if let Some(partner) = theme_author::partner_color(&self.spec, role) {
+                let before = self.color(field);
+                let after = theme_author::snap_to_floor(before, partner, AUTHORING_CONTRAST_FLOOR);
+                if after != before {
+                    self.set_color(field, after);
+                    changed += 1;
+                }
+            }
+        }
+        changed
     }
 
     fn preview_theme(&self) -> Theme {
@@ -449,6 +614,41 @@ impl ThemeBuilder {
             self.scroll = self.selected.saturating_sub(visible_slack - 1);
         }
         self.scroll = self.scroll.min(FIELDS.len().saturating_sub(1));
+    }
+
+    /// The two U2 readout lines for the currently-selected role: its live
+    /// authoring contrast against the floor partner (PASS/FAIL vs the AA 4.5
+    /// authoring floor — explicitly NOT the render-time `min_contrast`), and the
+    /// active OKLCH editing channel with the selected color's L/C/H values.
+    fn readout_lines(&self) -> Vec<String> {
+        let field = FIELDS[self.selected];
+        let role = author_role(field);
+        let color = self.color(field);
+
+        let contrast_line = match theme_author::partner_color(&self.spec, role) {
+            Some(partner) => {
+                let ratio = theme_author::authoring_contrast(color, partner);
+                let surface = floor_surface_label(role, self.spec.appearance).unwrap_or("?");
+                let verdict = if ratio >= AUTHORING_CONTRAST_FLOOR {
+                    "PASS"
+                } else {
+                    "FAIL"
+                };
+                format!(
+                    "  {} vs {surface}: {ratio:.2} {verdict} AA {AUTHORING_CONTRAST_FLOOR:.1}",
+                    field.label()
+                )
+            }
+            None => format!("  {} not floored (no AA target)", field.label()),
+        };
+
+        let (l, c, h) = oklch_of(color);
+        let channel_line = format!(
+            "  edit {}  L {l:.2} C {c:.3} H {h:.0}",
+            self.channel.label()
+        );
+
+        vec![contrast_line, channel_line]
     }
 
     fn push_preview_lines(
@@ -585,9 +785,44 @@ fn hex((r, g, b): Srgb) -> String {
     format!("#{r:02x}{g:02x}{b:02x}")
 }
 
-fn nudge((r, g, b): Srgb, amount: i16) -> Srgb {
-    let channel = |value: u8| (value as i16 + amount).clamp(0, 255) as u8;
-    (channel(r), channel(g), channel(b))
+/// Map a builder [`ThemeField`] to the U2 [`AuthorRole`] used to resolve its
+/// floor partner. The palette index carries through unchanged so the
+/// appearance-dependent neutral-pair exemption in
+/// [`theme_author::floor_partner`] applies to the right slots.
+fn author_role(field: ThemeField) -> AuthorRole {
+    match field {
+        ThemeField::Foreground => AuthorRole::Foreground,
+        ThemeField::Background => AuthorRole::Background,
+        ThemeField::Clear => AuthorRole::Clear,
+        ThemeField::Cursor => AuthorRole::Cursor,
+        ThemeField::Selection => AuthorRole::Selection,
+        ThemeField::Search => AuthorRole::Search,
+        ThemeField::Border => AuthorRole::Border,
+        ThemeField::Inactive => AuthorRole::Inactive,
+        ThemeField::Palette(index) => AuthorRole::Palette(index),
+    }
+}
+
+/// A short label ("fg" / "bg") for the surface a role floors against, or `None`
+/// when the role is not floored.
+fn floor_surface_label(role: AuthorRole, appearance: Appearance) -> Option<&'static str> {
+    theme_author::floor_partner(role, appearance).map(|against| match against {
+        FloorAgainst::Background => "bg",
+        FloorAgainst::Foreground => "fg",
+    })
+}
+
+/// Decode an sRGB byte triple to OKLCH for the readout: lightness `[0,1]`,
+/// chroma, and hue in degrees `[0,360)`. Read-only display helper over the
+/// shared `color` conversions — the editing math always routes through
+/// [`theme_author::nudge`], never this.
+fn oklch_of((r, g, b): Srgb) -> (f32, f32, f32) {
+    let lch = oklab_to_oklch(linear_to_oklab([
+        srgb_to_linear(r),
+        srgb_to_linear(g),
+        srgb_to_linear(b),
+    ]));
+    (lch.l, lch.c, lch.h.to_degrees().rem_euclid(360.0))
 }
 
 fn wrap_words(text: &str, width: usize) -> Vec<String> {
@@ -734,5 +969,160 @@ mod tests {
         };
 
         assert_eq!(theme, Theme::ODYSSEY);
+    }
+
+    #[test]
+    fn arrows_drive_the_focused_oklch_channel_via_core_nudge() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        let field = FIELDS[b.selected];
+
+        // Default channel = Lightness: Right == core nudge with +L_STEP only.
+        let start = b.color(field);
+        b.handle_input(OverlayInput::Right);
+        assert_eq!(b.color(field), theme_author::nudge(start, L_STEP, 0.0, 0.0));
+
+        // `]` cycles to Chroma: Right == +C_STEP only.
+        b.handle_input(OverlayInput::Char(']'));
+        let before_c = b.color(field);
+        b.handle_input(OverlayInput::Right);
+        assert_eq!(
+            b.color(field),
+            theme_author::nudge(before_c, 0.0, C_STEP, 0.0)
+        );
+
+        // `]` cycles to Hue: Right == +H_STEP rotation only.
+        b.handle_input(OverlayInput::Char(']'));
+        let before_h = b.color(field);
+        b.handle_input(OverlayInput::Right);
+        assert_eq!(
+            b.color(field),
+            theme_author::nudge(before_h, 0.0, 0.0, H_STEP_DEG.to_radians())
+        );
+
+        // Left is the negative delta of the focused channel.
+        let before_neg = b.color(field);
+        b.handle_input(OverlayInput::Left);
+        assert_eq!(
+            b.color(field),
+            theme_author::nudge(before_neg, 0.0, 0.0, -H_STEP_DEG.to_radians())
+        );
+    }
+
+    #[test]
+    fn channel_cycles_both_directions() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        assert_eq!(b.channel, OklchChannel::Lightness);
+        b.handle_input(OverlayInput::Char(']'));
+        assert_eq!(b.channel, OklchChannel::Chroma);
+        b.handle_input(OverlayInput::Char(']'));
+        assert_eq!(b.channel, OklchChannel::Hue);
+        b.handle_input(OverlayInput::Char(']'));
+        assert_eq!(b.channel, OklchChannel::Lightness); // wraps
+        b.handle_input(OverlayInput::Char('['));
+        assert_eq!(b.channel, OklchChannel::Hue); // wraps backward
+    }
+
+    #[test]
+    fn snap_lifts_failing_floored_role_to_aa_and_is_idempotent() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        // Sabotage foreground to equal background (contrast ~1, fails AA).
+        let bg = b.spec.background;
+        b.set_color(ThemeField::Foreground, bg);
+        b.selected = 0; // foreground
+
+        let out = b.snap_selected();
+        assert!(matches!(out, ThemeBuilderOutcome::Preview(_)));
+
+        let partner = theme_author::partner_color(&b.spec, AuthorRole::Foreground).unwrap();
+        let lifted = b.color(ThemeField::Foreground);
+        assert!(theme_author::authoring_contrast(lifted, partner) >= AUTHORING_CONTRAST_FLOOR);
+
+        // Idempotent: a second snap is a byte no-op.
+        b.snap_selected();
+        assert_eq!(b.color(ThemeField::Foreground), lifted);
+    }
+
+    #[test]
+    fn snap_is_inert_on_not_floored_roles() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        // Background is never floored.
+        b.selected = FIELDS
+            .iter()
+            .position(|f| matches!(f, ThemeField::Background))
+            .unwrap();
+        let before = b.color(ThemeField::Background);
+        let out = b.snap_selected();
+        assert_eq!(out, ThemeBuilderOutcome::Consumed);
+        assert_eq!(b.color(ThemeField::Background), before);
+    }
+
+    #[test]
+    fn readout_reflects_pass_fail_and_not_floored() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+
+        // Foreground floored against bg: force a fail, then snap to pass.
+        let bg = b.spec.background;
+        b.set_color(ThemeField::Foreground, bg);
+        b.selected = 0;
+        assert!(b.readout_lines()[0].contains("FAIL"));
+        b.snap_selected();
+        assert!(b.readout_lines()[0].contains("PASS"));
+
+        // Border is not floored.
+        b.selected = FIELDS
+            .iter()
+            .position(|f| matches!(f, ThemeField::Border))
+            .unwrap();
+        assert!(b.readout_lines()[0].contains("not floored"));
+    }
+
+    #[test]
+    fn save_auto_snaps_every_floored_role_to_aa() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        // Sabotage a chromatic palette slot to fail AA against the background.
+        let bg = b.spec.background;
+        b.set_color(ThemeField::Palette(1), bg);
+
+        let ThemeBuilderOutcome::Save(req) = b.save_request("mytheme".to_owned()) else {
+            panic!("expected save request");
+        };
+        assert_eq!(req.name, "mytheme");
+        assert!(b.save_snap_count >= 1);
+
+        // Every floored role in the saved spec now clears the authoring floor.
+        for field in FIELDS {
+            let role = author_role(field);
+            if let Some(partner) = theme_author::partner_color(&b.spec, role) {
+                let ratio = theme_author::authoring_contrast(b.color(field), partner);
+                assert!(
+                    ratio >= AUTHORING_CONTRAST_FLOOR,
+                    "{field:?} only reached {ratio:.2}"
+                );
+            }
+        }
+
+        // The save confirmation reports the backstop.
+        b.save_succeeded("mytheme", Path::new("/tmp/mytheme.theme"), 1);
+        assert!(b.message.as_deref().unwrap().contains("Snapped"));
+    }
+
+    #[test]
+    fn hex_entry_still_applies_verbatim_without_snap() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        b.selected = 0; // foreground
+        let bg = b.spec.background;
+        // Type the background hex into the foreground: a deliberate low-contrast
+        // expert choice that must be applied verbatim (no auto-snap on entry).
+        b.handle_input(OverlayInput::Activate);
+        for _ in 0..8 {
+            b.handle_input(OverlayInput::Backspace);
+        }
+        for ch in hex(bg).chars() {
+            b.handle_input(OverlayInput::Char(ch));
+        }
+        let ThemeBuilderOutcome::Preview(_) = b.handle_input(OverlayInput::Activate) else {
+            panic!("expected preview");
+        };
+        assert_eq!(b.color(ThemeField::Foreground), bg); // verbatim, not snapped
     }
 }
