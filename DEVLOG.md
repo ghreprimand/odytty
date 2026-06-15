@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Docs: sync TODO.md with the shell-integration / perceptual frontier
+
+- TODO.md had drifted: the shell-integration and perceptual-color work that has
+  landed since the prototype had no home in the active checklist, and the
+  "Deferred Until After the First Prototype" section still listed shell
+  integration as deferred even though OSC 133 prompt marking and command-aware
+  UX have shipped.
+- Added a "Stage 7: Shell Integration, Perceptual Moat, and Pointer Excellence"
+  section capturing what landed (OSC 133 prompt marks + command-aware jump /
+  status gutter / output cell-range; the universal legibility floor, perceptual
+  theme builder, palette generation, colorblind adaptation, and the bounded
+  background-scrim primitive; the pointer-excellence set; the 72-theme library
+  and mouse-driven settings overlay) and what remains (click-to-position, native
+  scrim wiring). Recorded the new `--list-fonts` introspection under CLI config,
+  and corrected the now-inaccurate deferred line. Docs-only.
+
 ## 2026-06-15 -- Color: light-theme dual for the readability-scrim primitive
 
 - Made the bounded readability-scrim primitive polarity-complete. A new

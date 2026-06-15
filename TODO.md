@@ -474,6 +474,9 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         → "Symbol font file"). Labels/help only — no config-key/env renames, so
         existing config files keep working; plain/fast render path unchanged.
 - [ ] Profiles and CLI config introspection.
+  - [x] `--list-fonts`: enumerate discoverable font files (path, filename-stem
+        name, monospace on/off) from the renderer's bounded search directories.
+        Pure introspection; no settings key or render-path change.
 
 ## Visual Capability Parity (Stage 6 parity half)
 
@@ -693,6 +696,64 @@ a floor; surpassing it is the standing ambition.
         aberration are deferred.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
 
+## Stage 7: Shell Integration, Perceptual Moat, and Pointer Excellence
+
+Recent work past the prototype: the terminal cooperating with the shell, a
+readability-first perceptual color toolchain, and a first-class mouse surface.
+All visual/effect items ship off by default behind a setting with a
+pixel-identical plain path; the readability floor is the safety net every
+color feature validates against.
+
+- [ ] Shell integration on OSC 133 semantic prompt marks.
+  - [x] SH1: OSC 133 prompt/command/output boundary marking — the parser arms
+        the sequence and per-row prompt marks are stored with no render change,
+        the foundation for command-aware UX.
+  - [x] SH2: command-aware UX — bindable jump to previous/next prompt
+        (viewport-top reference, top-aligned, byte-identical fall-through at the
+        ends) and an off-by-default success/fail status gutter (a thin left-edge
+        bar per finished command, green/red from the ANSI palette so it adapts
+        under the colorblind remap). A prompt-marks epoch folded into the render
+        signature guarantees the bar repaints on a pure status transition.
+  - [x] Core: absolute cell range for a command's output, so the native
+        select/copy path can highlight an exact command's output span.
+  - [ ] SH-CLICK: click-to-position-cursor via OSC 133 click events (the click
+        slice only, not a shell-input takeover).
+- [ ] Perceptual color moat (OKLab/OKLCH pipeline + readability floor).
+  - [x] U1: universal legibility — the contrast floor provably covers every
+        text color type (ANSI, 256-color, truecolor, explicit underline color),
+        lifting foregrounds in OKLab while preserving hue and chroma. Default
+        floor is exact passthrough.
+  - [x] U2: perceptual-safe theme builder — OKLCH lightness/chroma/hue editing
+        with a live contrast readout and snap-to-floor against a dedicated
+        authoring floor, so the builder cannot author an unreadable theme; hex
+        entry stays as the expert fallback.
+  - [x] U3: contrast-aware palette generation — seed a color and generate a
+        readable, floor-validated starting palette to then refine in the
+        builder.
+  - [x] U4: perceptual colorblind palette adaptation — remap the ANSI palette in
+        OKLCH for protan/deutan/tritan, adaptive on output, in an Accessibility
+        settings group.
+  - [x] U5 core: bounded readability-scrim primitive for background treatments —
+        pure math that caps (dark) or lifts (light) the composited background
+        luminance so a treatment cannot breach the contrast floor; native
+        wiring is a follow-up.
+- [ ] Pointer excellence — make the mouse a joy, without disturbing TUI mouse
+      reporting (Shift stays the selection-vs-passthrough seam).
+  - [x] Extend an existing selection: Shift+click, double-click-then-drag by
+        word, triple-click-then-drag by line.
+  - [x] Rectangular/block (column) selection via Alt+drag.
+  - [x] Velocity-proportional drag-autoscroll past the edge band.
+  - [x] Optional copy-on-select to the clipboard (off by default).
+  - [x] Draggable scroll-thumb to scrub through scrollback.
+  - [x] Configurable wheel scroll speed plus modifier+wheel font-size zoom
+        (only when TUI mouse reporting is off).
+- [ ] Theme library and config UX.
+  - [x] Built-in theme library expanded to 72 contrast-validated themes
+        (data-only, ongoing).
+  - [x] Mouse-driven settings overlay with sliders and click-to-type numeric
+        entry (UX4-P1/P2/P3).
+  - [x] Surface font-load failures in the overlay instead of failing silently.
+
 ## Archived First Prototype Checklist
 
 ## Core Readiness
@@ -764,7 +825,9 @@ a floor; surpassing it is the standing ambition.
 ## Deferred Until After the First Prototype
 
 - [ ] Tabs, panes, sessions, profiles, and multiplexing.
-- [ ] Shell integration beyond basic PTY behavior.
+- [x] Shell integration beyond basic PTY behavior — landed: OSC 133 semantic
+      prompt marks and command-aware UX (see Stage 7). Further shell-integration
+      surface (click-to-position) is tracked there.
 - [ ] Plugins, AI features, command palettes, dashboards, or rich nonstandard
       workflows.
 - [ ] Heavy animation or effects that can compromise readability or latency.
