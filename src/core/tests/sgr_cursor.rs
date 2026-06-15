@@ -198,6 +198,114 @@ fn sgr_reset_clears_underline_style_and_color() {
     assert_eq!(reset.attrs, Attrs::default());
 }
 
+/// Regression for the silent drop of 24-bit SGR color channels valued 60–63.
+///
+/// 60/61/62/63 are the ASCII codes of the CSI private-marker bytes `<=>?`. A
+/// former value-equality filter in `sgr_params` treated a *parameter value* of
+/// 60–63 as a marker and discarded the group, so any truecolor channel of
+/// 60/61/62/63 was silently lost (the color fell back to `Default`) and the
+/// param decode desynced. The marker is tracked structurally (as a sequence
+/// intermediate), so a real channel value must now round-trip exactly across
+/// foreground (38), background (48), and underline (58).
+#[test]
+fn truecolor_channels_60_to_63_are_not_dropped() {
+    let mut terminal = Terminal::new(8, 1);
+
+    terminal.advance(
+        b"\x1b[38;2;60;61;62mA\
+          \x1b[0m\x1b[48;2;63;60;61mB\
+          \x1b[0m\x1b[58;2;62;63;60mC",
+    );
+
+    let fg = terminal.screen().cell(0, 0).unwrap();
+    let bg = terminal.screen().cell(0, 1).unwrap();
+    let ul = terminal.screen().cell(0, 2).unwrap();
+    assert_eq!(fg.attrs.foreground, Color::Rgb(60, 61, 62));
+    assert_eq!(bg.attrs.background, Color::Rgb(63, 60, 61));
+    assert_eq!(ul.attrs.underline_color, Some(Color::Rgb(62, 63, 60)));
+}
+
+/// Every single channel value 0..=255 in every channel position round-trips for
+/// foreground truecolor — the exhaustive guard that no value (not just the
+/// historical 60–63) is misclassified as a marker.
+#[test]
+fn truecolor_every_channel_value_round_trips() {
+    for v in 0u16..=255 {
+        // Place the value in each of R, G, B in turn (other channels fixed).
+        let seqs = [
+            format!("\x1b[38;2;{v};7;9mX"),
+            format!("\x1b[38;2;7;{v};9mX"),
+            format!("\x1b[38;2;7;9;{v}mX"),
+        ];
+        let expected = [
+            Color::Rgb(v as u8, 7, 9),
+            Color::Rgb(7, v as u8, 9),
+            Color::Rgb(7, 9, v as u8),
+        ];
+        for (seq, want) in seqs.iter().zip(expected) {
+            let mut t = Terminal::new(2, 1);
+            t.advance(seq.as_bytes());
+            assert_eq!(
+                t.screen().cell(0, 0).unwrap().attrs.foreground,
+                want,
+                "channel value {v} dropped in seq {seq:?}"
+            );
+        }
+    }
+}
+
+/// A truecolor underline color whose channel is 60 must not consume the trailing
+/// underline-style attribute. Before the fix, dropping the `60` group desynced
+/// the decode so the following `4` (underline on) was mis-consumed.
+#[test]
+fn truecolor_underline_channel_60_keeps_trailing_underline_style() {
+    let mut terminal = Terminal::new(2, 1);
+
+    terminal.advance(b"\x1b[58;2;10;20;60;4mU");
+
+    let cell = terminal.screen().cell(0, 0).unwrap();
+    assert_eq!(cell.attrs.underline_color, Some(Color::Rgb(10, 20, 60)));
+    assert_eq!(
+        cell.attrs.effective_underline_style(),
+        UnderlineStyle::Straight,
+        "trailing underline style must survive a 60-valued channel"
+    );
+}
+
+/// The fix must not regress genuine CSI private-marker routing: the marker is an
+/// intermediate, so DEC private modes (`CSI ? … h/l`) and other marker-prefixed
+/// sequences still dispatch correctly — they do not collide with parameter
+/// values that happen to equal 60–63.
+#[test]
+fn private_marker_sequences_still_route_after_fix() {
+    let mut terminal = Terminal::new(4, 2);
+
+    // DECSET 25 (show cursor) then DECRST (hide): the `?` marker must still be
+    // recognized as a private-mode introducer, not treated as SGR/param data.
+    terminal.advance(b"\x1b[?25h");
+    assert!(terminal.snapshot().cursor_visible);
+    terminal.advance(b"\x1b[?25l");
+    assert!(!terminal.snapshot().cursor_visible);
+
+    // A bare SGR with no marker still applies normally afterward.
+    terminal.advance(b"\x1b[1mB");
+    assert!(terminal.screen().cell(0, 0).unwrap().attrs.bold());
+
+    // `CSI > c` (secondary device attributes) — the `>` marker must still route
+    // to DA2, producing its host reply (not be misread as a parameter value).
+    let _ = terminal.take_host_output();
+    terminal.advance(b"\x1b[>c");
+    assert_eq!(terminal.take_host_output(), b"\x1b[>65;1;0c");
+
+    // `CSI = u` (kitty keyboard set-flags, the `=` marker) must still route:
+    // it consumes the sequence as a private-marker control, leaving no host
+    // reply and not corrupting subsequent printable text.
+    terminal.advance(b"\x1b[=1u");
+    assert!(terminal.take_host_output().is_empty());
+    terminal.advance(b"Z");
+    assert_eq!(terminal.screen().cell(0, 1).unwrap().ch, 'Z');
+}
+
 #[test]
 fn responds_to_primary_device_attributes() {
     let mut terminal = Terminal::new(10, 2);

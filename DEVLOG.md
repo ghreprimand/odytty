@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Fix: 24-bit SGR color channels 60-63 were silently dropped
+
+- Fixed a silent correctness bug in the SGR color decode: any 24-bit color
+  (`38;2;R;G;B` foreground, `48;2;…` background, or `58;2;…` underline) whose
+  R, G, or B channel equalled 60, 61, 62, or 63 was discarded and the attribute
+  fell back to the default color. Worse, dropping the channel desynchronised the
+  remaining parameters, so a trailing attribute (e.g. the `4` in
+  `58;2;R;G;60;4`) was mis-consumed too. An exhaustive `0..=255` sweep confirmed
+  only those four values failed.
+- Root cause: a helper filtered SGR parameters whose value matched the CSI
+  private-marker bytes `<`/`=`/`>`/`?` (ASCII 60-63), conflating a genuine numeric
+  parameter value of 60-63 with a marker byte. But the private marker is never
+  stored as a parameter value in the first place — the parser records it as a
+  sequence intermediate (the `ParamMarker` path), so the filter was dead-wrong
+  code that could only ever drop legitimate color channels. The fix deletes the
+  filter; SGR parameter collection is now a straight pass-through.
+- Module split done first to stay under the size cap: the contiguous OSC helper
+  cluster (11 functions) moved verbatim into a new `src/core/screen/osc.rs`
+  (a pure relocation — only `fn` → `pub(super) fn`, verified byte-faithful
+  against the prior file), taking `src/core/screen/mod.rs` from 1907 to 1700
+  lines before any fix code was added.
+- Regression coverage (`src/core/tests/sgr_cursor.rs`): exact-RGB decode across
+  `38`/`48`/`58` for channel values 60-63, an exhaustive `0..=255` round-trip at
+  every channel position, the `58;2;R;G;60;4` trailing-underline-style case, and
+  a private-marker guard proving `?`-DECSET/DECRST, `>`-DA2, and `=`-kitty all
+  still route correctly after the filter's removal.
+- Verified: `cargo fmt --all -- --check` clean; full suite 1137 lib +
+  integration green (aggregate 1243 passed / 0 failed / 19 ignored); deep
+  protocol fuzz at 40k iterations no-panic. No render-path change.
+
+---
+
 ## 2026-06-15 -- UX4-P2: overlay slider widget + click-to-type numeric entry
 
 - Numeric settings rows in the overlay are now adjustable with a draggable
