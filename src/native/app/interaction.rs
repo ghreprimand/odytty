@@ -489,7 +489,13 @@ impl App {
         cell: CellSize,
         padding: WindowPadding,
     ) {
-        let delta = selection::drag_autoscroll_delta_with_padding(y_px, cell, self.grid, padding);
+        // MOUSE-AUTOSCROLL-VEL: the step magnitude ramps with how far the pointer
+        // is dragged past the edge band, up to the configured cap. `legacy` mode
+        // returns a cap of 1, which makes the helper yield exactly ±1/0 —
+        // byte-identical to the historical fixed one-row-per-tick autoscroll.
+        let max_rows = self.settings.autoscroll_max_rows();
+        let delta =
+            selection::drag_autoscroll_step_with_padding(y_px, cell, self.grid, padding, max_rows);
         if delta == 0 {
             return;
         }

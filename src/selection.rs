@@ -404,24 +404,60 @@ pub fn drag_autoscroll_delta(y_px: f64, cell: CellSize, dimensions: Dimensions) 
     drag_autoscroll_delta_with_padding(y_px, cell, dimensions, WindowPadding::ZERO)
 }
 
+/// Fixed-rate (±1/0) drag-edge autoscroll delta: the historical one-row-per-tick
+/// behavior. A thin wrapper over [`drag_autoscroll_step_with_padding`] capped at
+/// a single row, so the band geometry has one source of truth.
 pub(crate) fn drag_autoscroll_delta_with_padding(
     y_px: f64,
     cell: CellSize,
     dimensions: Dimensions,
     padding: WindowPadding,
 ) -> isize {
+    drag_autoscroll_step_with_padding(y_px, cell, dimensions, padding, 1)
+}
+
+/// Velocity-proportional drag-edge autoscroll step (MOUSE-AUTOSCROLL-VEL).
+///
+/// Returns a signed row count: positive scrolls up into history (pointer above
+/// the top edge band), negative scrolls toward the live bottom, `0` while the
+/// pointer is inside the content area between the bands. The magnitude grows by
+/// one row for every additional cell-height the pointer is dragged past the band
+/// edge, clamped to `max_rows` so it can never run away. `max_rows == 1`
+/// collapses the ramp to exactly ±1/0 — byte-identical to the historical fixed
+/// one-row-per-tick autoscroll, which is the `scroll_drag_speed = legacy`
+/// opt-out path. The 80 ms tick cadence lives in the caller and is unchanged.
+pub(crate) fn drag_autoscroll_step_with_padding(
+    y_px: f64,
+    cell: CellSize,
+    dimensions: Dimensions,
+    padding: WindowPadding,
+    max_rows: usize,
+) -> isize {
     let cell_height = f64::from(cell.height.max(1));
     let pad = f64::from(padding.physical_px());
     let viewport_height = cell_height * dimensions.rows.max(1) as f64;
     let content_y = y_px - pad;
+    let max_rows = max_rows.max(1) as isize;
 
     if content_y < cell_height {
-        1
+        autoscroll_rows(cell_height - content_y, cell_height, max_rows)
     } else if content_y >= viewport_height - cell_height {
-        -1
+        -autoscroll_rows(
+            content_y - (viewport_height - cell_height),
+            cell_height,
+            max_rows,
+        )
     } else {
         0
     }
+}
+
+/// Map how far (in pixels) the pointer overshot the band edge to a row count:
+/// one base row plus one extra per full cell-height of overshoot, clamped to
+/// `[1, max_rows]`. With `max_rows == 1` this is always `1`.
+fn autoscroll_rows(overshoot_px: f64, cell_height: f64, max_rows: isize) -> isize {
+    let extra = (overshoot_px / cell_height).floor().max(0.0) as isize;
+    (1 + extra).clamp(1, max_rows)
 }
 
 pub fn selected_text(snapshot: &Snapshot, range: SelectionRange) -> String {
@@ -837,6 +873,93 @@ mod tests {
         assert_eq!(
             drag_autoscroll_delta_with_padding(68.0, cell, dims, padding),
             -1
+        );
+    }
+
+    #[test]
+    fn autoscroll_step_legacy_cap_is_byte_identical_to_fixed_rate() {
+        // MOUSE-AUTOSCROLL-VEL OFF-path parity: `max_rows == 1` must reproduce
+        // the historical ±1/0 fixed-rate delta exactly, at every y the legacy
+        // helper is sampled at — including well past the band where the ramp
+        // would otherwise accelerate.
+        let cell = CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        };
+        let dims = Dimensions::new(80, 4);
+        let padding = WindowPadding::ZERO;
+
+        for y in [-200.0, -16.0, 0.0, 4.0, 15.9, 32.0, 48.0, 60.0, 64.0, 200.0] {
+            assert_eq!(
+                drag_autoscroll_step_with_padding(y, cell, dims, padding, 1),
+                drag_autoscroll_delta_with_padding(y, cell, dims, padding),
+                "legacy cap must match the fixed-rate delta at y={y}"
+            );
+        }
+    }
+
+    #[test]
+    fn autoscroll_step_ramps_with_overshoot_and_caps() {
+        // The step grows one row per cell-height of overshoot past the band edge
+        // and is clamped to `max_rows`, preserving sign.
+        let cell = CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        };
+        let dims = Dimensions::new(80, 4);
+        let padding = WindowPadding::ZERO;
+        let max = 8;
+
+        // Top band edge (content_y == cell_height boundary): one row.
+        assert_eq!(
+            drag_autoscroll_step_with_padding(15.0, cell, dims, padding, max),
+            1
+        );
+        // At the very top of the viewport: one cell-height of overshoot -> 2.
+        assert_eq!(
+            drag_autoscroll_step_with_padding(0.0, cell, dims, padding, max),
+            2
+        );
+        // One cell-height above the window top: two overshoot -> 3.
+        assert_eq!(
+            drag_autoscroll_step_with_padding(-16.0, cell, dims, padding, max),
+            3
+        );
+        // Far above: clamped to +max.
+        assert_eq!(
+            drag_autoscroll_step_with_padding(-1000.0, cell, dims, padding, max),
+            max as isize
+        );
+        // Inside the content band: no scroll regardless of the cap.
+        assert_eq!(
+            drag_autoscroll_step_with_padding(32.0, cell, dims, padding, max),
+            0
+        );
+        // Far below the bottom band: clamped to -max (sign preserved).
+        assert_eq!(
+            drag_autoscroll_step_with_padding(1000.0, cell, dims, padding, max),
+            -(max as isize)
+        );
+    }
+
+    #[test]
+    fn autoscroll_step_zero_cap_is_floored_to_one_row() {
+        // Defensive: a `max_rows` of 0 is floored to 1 so the helper can never
+        // return a zero step while the pointer is past the band (which would
+        // silently disable autoscroll).
+        let cell = CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        };
+        let dims = Dimensions::new(80, 4);
+        let padding = WindowPadding::ZERO;
+
+        assert_eq!(
+            drag_autoscroll_step_with_padding(-1000.0, cell, dims, padding, 0),
+            1
         );
     }
 }

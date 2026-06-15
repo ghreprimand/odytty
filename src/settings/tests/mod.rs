@@ -19,3 +19,4 @@ use super::*;
 
 mod info;
 mod legacy;
+mod mouse;

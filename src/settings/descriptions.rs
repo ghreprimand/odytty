@@ -30,6 +30,11 @@ pub const WINDOW_PADDING_DESC: &str = "Window padding: logical pixels of inset b
      terminal grid. Accepts 0.0-64.0; 0.0 restores the historical edge-to-edge \
      layout exactly. Default 8.0.";
 
+pub const SCROLL_DRAG_SPEED_DESC: &str = "Drag autoscroll speed: when you drag a selection past the top or bottom \
+     edge, ramp accelerates the scroll the further past the edge you drag \
+     (capped so it never runs away); legacy holds a steady one row per step. \
+     Affects local selection only. Default ramp.";
+
 pub const BLOOM_DESC: &str = "Bloom: optional HDR phosphor glow over bright cells. Off by default and \
      pixel-identical to the plain renderer. Requires a GPU with filterable \
      Rgba16Float render targets; unsupported adapters silently use the plain path.";

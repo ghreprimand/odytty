@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- MOUSE-AUTOSCROLL-VEL: velocity-proportional drag autoscroll
+
+- New `scroll_drag_speed` setting (`ramp` | `legacy`, default `ramp`). When you drag
+  a selection past the top/bottom edge band, the autoscroll now accelerates with how
+  far past the edge you reach — one extra row per cell-height of overshoot, capped at
+  8 rows per tick — instead of the historical fixed one row per tick.
+- `legacy` restores the old fixed-rate behavior exactly. The off-path is
+  byte-identical by construction: the rate helper delegates to the new step function
+  with `max_rows = 1`, and a regression test asserts equality against the old
+  fixed-rate output across ten drag positions. The 80 ms tick cadence is unchanged.
+- The ramp runs only inside the local selecting branch; mouse-reporting and the
+  Shift selection/passthrough seam are untouched, so TUI apps see no change.
+- Verified: `cargo fmt --all --check` clean; aggregate green (lib 1205/0/7,
+  mouse_protocol 12, pixel_smoke 41); 5 new selection-autoscroll tests + 7 in a fresh
+  `settings/tests/mouse.rs` submodule; caps respected; public-gate scan clean.
+
+---
+
 ## 2026-06-15 -- Theme library: +8 original Odyssey themes (53 → 61)
 
 - Eight new original Odyssey-named built-in themes, all authored in the standard

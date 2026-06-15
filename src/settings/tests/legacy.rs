@@ -104,6 +104,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "keybinds",
             "scroll_wheel_lines",
             "selection_drag_extend",
+            "scroll_drag_speed",
             "osc52_read",
             "copy_on_select",
             "native_autoclose_ms",

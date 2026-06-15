@@ -33,6 +33,7 @@ pub const SYMBOL_FALLBACK_ENV: &str = "ODYTTY_SYMBOL_FALLBACK";
 pub const SYMBOL_FONT_ENV: &str = "ODYTTY_SYMBOL_FONT";
 pub const THEMED_UI_ROLES_ENV: &str = "ODYTTY_THEMED_UI_ROLES";
 pub const SCROLL_WHEEL_LINES_ENV: &str = "ODYTTY_SCROLL_WHEEL_LINES";
+pub const SCROLL_DRAG_SPEED_ENV: &str = "ODYTTY_SCROLL_DRAG_SPEED";
 pub const COPY_ON_SELECT_ENV: &str = "ODYTTY_COPY_ON_SELECT";
 pub const SELECTION_DRAG_EXTEND_ENV: &str = "ODYTTY_SELECTION_DRAG_EXTEND";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
@@ -73,6 +74,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SYMBOL_FONT_ENV,
     THEMED_UI_ROLES_ENV,
     SCROLL_WHEEL_LINES_ENV,
+    SCROLL_DRAG_SPEED_ENV,
     COPY_ON_SELECT_ENV,
     SELECTION_DRAG_EXTEND_ENV,
     NATIVE_AUTOCLOSE_ENV,
@@ -133,6 +135,14 @@ pub const MAX_WINDOW_PADDING_PX: f32 = 64.0;
 pub const DEFAULT_SCROLL_WHEEL_LINES: f32 = 3.0;
 pub const MIN_SCROLL_WHEEL_LINES: f32 = 1.0;
 pub const MAX_SCROLL_WHEEL_LINES: f32 = 10.0;
+
+/// Upper bound on the rows the drag-edge autoscroll advances per ~80 ms tick
+/// when the velocity ramp is active (`ODYTTY_SCROLL_DRAG_SPEED=ramp`,
+/// MOUSE-AUTOSCROLL-VEL). The ramp grows one extra row per cell-height the
+/// pointer is dragged past the edge band and is clamped to this cap so it can
+/// never scroll uncontrollably fast. The `legacy` mode pins the step to exactly
+/// one row per tick, which is byte-identical to the pre-feature behavior.
+pub const MAX_AUTOSCROLL_ROWS: usize = 8;
 
 /// Copy-on-select (`ODYTTY_COPY_ON_SELECT`, MOUSE-COPYSELECT): when on, finishing
 /// a local selection also writes the CLIPBOARD (in addition to the PRIMARY

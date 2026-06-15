@@ -305,6 +305,37 @@ impl RenderQuality {
     }
 }
 
+/// Drag-edge autoscroll speed profile (MOUSE-AUTOSCROLL-VEL).
+///
+/// `Ramp` (default) makes the autoscroll step grow with how far the pointer is
+/// dragged past the edge band, up to [`MAX_AUTOSCROLL_ROWS`] rows per tick.
+/// `Legacy` pins the step to exactly one row per tick — byte-identical to the
+/// pre-feature behavior, and the opt-out for anyone who preferred the fixed
+/// rate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScrollDragSpeed {
+    #[default]
+    Ramp,
+    Legacy,
+}
+
+impl ScrollDragSpeed {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ramp => "ramp",
+            Self::Legacy => "legacy",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "ramp" | "velocity" | "accelerated" | "on" => Some(Self::Ramp),
+            "legacy" | "fixed" | "constant" | "off" => Some(Self::Legacy),
+            _ => None,
+        }
+    }
+}
+
 /// Typed runtime settings used by the native prototype.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
@@ -370,6 +401,12 @@ pub struct Settings {
     /// rounds it to a `usize >= 1` for the wheel path. Affects local viewport
     /// scroll only — never the TUI mouse-reporting path.
     pub scroll_wheel_lines: f32,
+    /// Drag-edge autoscroll speed profile (MOUSE-AUTOSCROLL-VEL). `Ramp` (the
+    /// default) accelerates the autoscroll step with overshoot past the edge
+    /// band, capped at [`MAX_AUTOSCROLL_ROWS`]; `Legacy` pins it to a fixed one
+    /// row per tick, byte-identical to the pre-feature behavior. Local selection
+    /// drag only — never the TUI mouse-reporting path.
+    pub scroll_drag_speed: ScrollDragSpeed,
     /// When on, finishing a local selection also writes the CLIPBOARD, not just
     /// the PRIMARY selection (MOUSE-COPYSELECT). Off by default — the off path is
     /// byte-identical to before (PRIMARY + middle-click paste already work).
@@ -415,6 +452,7 @@ impl Default for Settings {
             symbol_font: None,
             themed_ui_roles: true,
             scroll_wheel_lines: DEFAULT_SCROLL_WHEEL_LINES,
+            scroll_drag_speed: ScrollDragSpeed::default(),
             copy_on_select: DEFAULT_COPY_ON_SELECT,
             selection_drag_extend: DEFAULT_SELECTION_DRAG_EXTEND,
             native_autoclose: None,
@@ -465,6 +503,18 @@ impl Settings {
     /// `3.0` returns `3`, byte-identical to the historical fixed step.
     pub fn scroll_wheel_step(&self) -> usize {
         (self.scroll_wheel_lines.round() as i64).max(1) as usize
+    }
+
+    /// Upper bound on rows advanced per drag-edge autoscroll tick
+    /// (MOUSE-AUTOSCROLL-VEL). `Ramp` allows up to [`MAX_AUTOSCROLL_ROWS`] so the
+    /// step accelerates with overshoot past the band; `Legacy` returns `1`, which
+    /// pins the delta helper to exactly ±1/0 — byte-identical to the pre-feature
+    /// fixed one-row-per-tick autoscroll.
+    pub fn autoscroll_max_rows(&self) -> usize {
+        match self.scroll_drag_speed {
+            ScrollDragSpeed::Ramp => MAX_AUTOSCROLL_ROWS,
+            ScrollDragSpeed::Legacy => 1,
+        }
     }
 
     /// Load settings from the config file, then overlay the current process
@@ -688,6 +738,8 @@ impl Settings {
         );
         let scroll_wheel_lines =
             parse_scroll_wheel_lines(get(SCROLL_WHEEL_LINES_ENV).as_deref(), &mut warn);
+        let scroll_drag_speed =
+            parse_scroll_drag_speed(get(SCROLL_DRAG_SPEED_ENV).as_deref(), &mut warn);
         let copy_on_select = parse_bool_setting(
             get(COPY_ON_SELECT_ENV).as_deref(),
             COPY_ON_SELECT_ENV,
@@ -733,6 +785,7 @@ impl Settings {
             symbol_font,
             themed_ui_roles,
             scroll_wheel_lines,
+            scroll_drag_speed,
             copy_on_select,
             selection_drag_extend,
             native_autoclose,
@@ -805,6 +858,10 @@ impl Settings {
         values.insert(
             SCROLL_WHEEL_LINES_ENV,
             format_float(self.scroll_wheel_lines),
+        );
+        values.insert(
+            SCROLL_DRAG_SPEED_ENV,
+            self.scroll_drag_speed.as_str().to_owned(),
         );
         values.insert(
             COPY_ON_SELECT_ENV,
@@ -1217,6 +1274,26 @@ fn parse_scroll_wheel_lines(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) ->
     };
 
     parsed.clamp(MIN_SCROLL_WHEEL_LINES, MAX_SCROLL_WHEEL_LINES)
+}
+
+fn parse_scroll_drag_speed(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> ScrollDragSpeed {
+    let Some(raw) = raw else {
+        return ScrollDragSpeed::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return ScrollDragSpeed::default();
+    }
+    match ScrollDragSpeed::parse(trimmed) {
+        Some(speed) => speed,
+        None => {
+            warn(&format!(
+                "{SCROLL_DRAG_SPEED_ENV}={trimmed:?} is not ramp|legacy; using ramp"
+            ));
+            ScrollDragSpeed::default()
+        }
+    }
 }
 
 fn parse_render_quality(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> RenderQuality {
