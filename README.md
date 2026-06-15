@@ -270,7 +270,7 @@ default-off / focused frames byte-identical.
 
 ## Testing
 
-**Testing.** 1140 tests passing: 1042 unit/integration, 12 mouse-protocol
+**Testing.** Over 1200 tests passing: 1205 unit/integration, 12 mouse-protocol
 (hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
 SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
 stripping, protocol-specific release encoding, motion gating for
@@ -278,7 +278,7 @@ normal/button-event/any-event modes, and SGR-pixel (1016) encoder coverage —
 press/release/wheel/motion with 1-based pixel coordinates, boundary at `(1,1)`,
 large coordinate values, modifier folding, not-1016 guard, and cell-path
 pass-through; run via
-`cargo test --test mouse_protocol`), 34 pixel-smoke (headless CPU compositor
+`cargo test --test mouse_protocol`), 41 pixel-smoke (headless CPU compositor
 asserting structural raster invariants for text rendering and graphics
 placement; EM3 added two — color-glyph segment draw ordering between coverage
 text and above-image layers, and wide color glyph lead-cell quad emission —
