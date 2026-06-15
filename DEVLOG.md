@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Internal: extract the theme-builder test module for file headroom
+
+- Moved the theme builder's inline `mod tests` into a sibling
+  `theme_builder_tests.rs`, registered via a `#[cfg(test)] #[path]` child module
+  so the tests keep their `native::theme_builder::tests::...` paths and retain
+  access to the parent's private items. No production code changed; the 22 test
+  cases are byte-identical aside from two rustfmt reflows.
+- Pure file-size relief: `theme_builder.rs` drops from ~1835 to ~1304 lines,
+  back under the modularity cap with headroom for the upcoming builder work.
+
 ## 2026-06-15 -- Docs: refresh the full build roadmap to current reality
 
 - Brought `docs/full-build-roadmap.md` back in lockstep with what actually ships.
