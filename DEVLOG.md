@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- U4 core: perceptual CVD (colorblind) palette adaptation
+
+- New `src/cvd.rs`: a pure, deterministic module that adapts a theme's palette
+  for colour-vision deficiency. `cvd_adapt(color, type, strength)` daltonizes a
+  single colour, `cvd_simulate(color, type)` models how a dichromat sees it, and
+  `adapt_palette(theme, type, strength)` produces an adapted theme. Types are
+  protan / deutan / tritan; strength is clamped to 0..=1 and a strength of zero is
+  a bit-for-bit pass-through.
+- The adaptation works on the OKLab opponent axes: it attenuates the colour
+  component along the axis the viewer cannot distinguish and redistributes the
+  separation onto the retained axis (the primary cue) plus a small lightness
+  offset (secondary). No matrix conversions and no new dependency — it reuses the
+  existing colour primitives.
+- The adapted palette remaps the 16 ANSI colours plus the cursor/selection/search
+  accents and holds the background and foreground fixed as structural anchors,
+  then re-floors every role through the same contrast surface mapping the palette
+  generator and the theme-authoring core use (including the appearance-aware
+  bg-side neutral exemption). Because the re-floor only moves lightness while the
+  adaptation separates colours on the orthogonal opponent plane, flooring can
+  never undo the separation it just created — readable and distinguishable at
+  once, by construction.
+- Verified: `cargo fmt --all --check` clean; aggregate green (lib 1290/0/7, all
+  integration suites pass); 14 tests (determinism, strength-0 pass-through,
+  semantic red/green and blue/yellow pairs clearing a perceptual-separation bar
+  under simulation for all three types, structural bg/fg held, orthogonality,
+  achromatic safety, a pinned golden palette); SPDX present; public-gate scan
+  clean.
+
+---
+
 ## 2026-06-15 -- COPYMODE core: keyboard scrollback selection state machine
 
 - New `src/native/copy_mode.rs`: the pure state machine for a future keyboard

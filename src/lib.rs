@@ -4,6 +4,7 @@ pub mod atlas;
 pub mod boxdraw;
 pub mod color;
 pub mod core;
+pub mod cvd;
 pub mod emoji;
 pub mod graphics;
 pub mod grid;
