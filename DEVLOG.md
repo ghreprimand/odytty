@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Color: light-theme dual for the readability-scrim primitive
+
+- Made the bounded readability-scrim primitive polarity-complete. A new
+  `ScrimPolarity::{Dark, Light}` threads through `readability_scrim_for` and
+  `effective_bg_luminance`: the dark branch keeps the existing black-scrim cap
+  (`effective_bg <= theme_bg`); the new light branch is the dual white-scrim lift
+  (`effective_bg >= theme_bg`), so a background treatment on a light theme is
+  floored from the correct side. Each polarity guards its own degenerate division.
+- The named invariant test now sweeps both polarities across the full luminance
+  and opacity grid (Dark `effective <= l_bg`, Light `effective >= l_bg`, scrim in
+  `[0,1]`), plus light-specific companions for the lift-to-exactly-`l_bg`,
+  monotonicity, opacity-independence, and clamping cases. No external consumers
+  yet — this is the polarity-complete API the upcoming native scrim wiring needs
+  so light themes are handled too.
+
 ## 2026-06-15 -- Core: absolute cell range for a command's output (SH2 select)
 
 - Added `command_output_cell_range(block, last_row, columns)` returning the

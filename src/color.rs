@@ -381,68 +381,108 @@ pub fn enforce_min_contrast(fg: LinearRgb, bg: LinearRgb, ratio: f32) -> LinearR
 // ---------------------------------------------------------------------------
 
 /// The effective background luminance behind a glyph once a background
-/// *treatment* (gradient / vignette / image) shows through a translucent cell
-/// background, with a black *scrim* of the given strength applied to the
-/// treatment first.
+/// The theme polarity a readability scrim protects, selecting which side of the
+/// theme background `l_bg` the effective background must stay on.
 ///
-/// Compositing model (back to front): the treatment is drawn, a black scrim of
-/// alpha `scrim` darkens it (`l_treat * (1 - scrim)` — luminance is linear in the
-/// linear-RGB channels, so a black multiply scales it directly), and the
-/// translucent cell background of opacity `opacity` is composited over that. The
-/// luminance the text actually sits on is the convex blend
-/// `opacity * l_bg + (1 - opacity) * l_treat * (1 - scrim)`: `opacity = 1` fully
-/// occludes the treatment (effective `= l_bg`), `opacity = 0` shows the scrimmed
-/// treatment alone.
+/// The safe direction is set by the *text* polarity, which follows the theme:
+/// - [`ScrimPolarity::Dark`] — a dark theme (light text on a dark background).
+///   Raising the background luminance toward the text reduces contrast, so the
+///   effective background must be **capped** at `l_bg`. The scrim is a black
+///   overlay (darkens the treatment).
+/// - [`ScrimPolarity::Light`] — a light theme (dark text on a light background).
+///   *Lowering* the background luminance toward the text reduces contrast, so the
+///   effective background must be **lifted** to at least `l_bg`. The scrim is a
+///   white overlay (lightens the treatment).
+///
+/// The caller picks the variant from the active theme's appearance. (Defined here
+/// rather than reusing `theme::Appearance` to keep `color` free of an upward
+/// dependency on `theme`.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrimPolarity {
+    /// Dark theme: cap the effective background at `l_bg` (black scrim).
+    Dark,
+    /// Light theme: lift the effective background to at least `l_bg` (white scrim).
+    Light,
+}
+
+/// The effective background luminance behind a glyph once a background
+/// *treatment* (gradient / vignette / image) shows through a translucent cell
+/// background, with a `scrim` overlay of the given strength applied to the
+/// treatment first. The overlay colour follows `polarity`: a black scrim for
+/// [`ScrimPolarity::Dark`] (darkens), a white scrim for [`ScrimPolarity::Light`]
+/// (lightens).
+///
+/// Compositing model (back to front): the treatment is drawn, a `scrim`-alpha
+/// overlay is applied, then the translucent cell background of `opacity` is
+/// composited over that. The luminance the text actually sits on is the convex
+/// blend `opacity * l_bg + (1 - opacity) * scrimmed`, where the scrimmed
+/// treatment is `l_treat * (1 - scrim)` for `Dark` (a black multiply — luminance
+/// is linear in the linear-RGB channels) and `l_treat + (1 - l_treat) * scrim`
+/// for `Light` (a white over). `opacity = 1` fully occludes the treatment
+/// (effective `= l_bg`); `opacity = 0` shows the scrimmed treatment alone.
 ///
 /// All luminances are WCAG relative luminances in `[0, 1]` (see
 /// [`relative_luminance`]). Pure; total.
-pub fn effective_bg_luminance(l_treat: f32, l_bg: f32, opacity: f32, scrim: f32) -> f32 {
+pub fn effective_bg_luminance(
+    l_treat: f32,
+    l_bg: f32,
+    opacity: f32,
+    scrim: f32,
+    polarity: ScrimPolarity,
+) -> f32 {
     let opacity = opacity.clamp(0.0, 1.0);
     let scrim = scrim.clamp(0.0, 1.0);
     let l_treat = l_treat.clamp(0.0, 1.0);
     let l_bg = l_bg.clamp(0.0, 1.0);
-    opacity * l_bg + (1.0 - opacity) * l_treat * (1.0 - scrim)
+    let scrimmed = match polarity {
+        ScrimPolarity::Dark => l_treat * (1.0 - scrim),
+        ScrimPolarity::Light => l_treat + (1.0 - l_treat) * scrim,
+    };
+    opacity * l_bg + (1.0 - opacity) * scrimmed
 }
 
-/// Compute the **readability scrim** — a black-overlay dim in `[0, 1]` applied to
+/// Compute the **readability scrim** — an overlay strength in `[0, 1]` applied to
 /// a background treatment so that the effective luminance behind the text band
-/// (see [`effective_bg_luminance`]) is bounded to **never exceed `l_bg`**, the
+/// (see [`effective_bg_luminance`]) is bounded to the safe side of `l_bg`, the
 /// theme-background luminance the per-cell RV1 floor ([`enforce_min_contrast`])
-/// already references.
+/// already references. The bound direction follows `polarity`:
+/// - [`ScrimPolarity::Dark`]: effective background **never exceeds** `l_bg`
+///   (a black scrim caps a too-bright treatment).
+/// - [`ScrimPolarity::Light`]: effective background **never falls below** `l_bg`
+///   (a white scrim lifts a too-dark treatment).
 ///
 /// This is the load-bearing safety primitive for readability-safe background
 /// treatments (U5 / ID3). The per-cell floor floors each glyph's foreground
 /// against the *theme* background `l_bg`, but never sees the real treatment that
-/// shows through a translucent cell background. By capping the effective
-/// background at `l_bg`, this scrim keeps that existing per-cell guarantee a
-/// **valid, unmodified** floor: for the dark-theme treatment case (light text
-/// over a dark background) the effective background is at or below `l_bg`, so any
-/// foreground that meets the floor against `l_bg` also meets it against the
-/// (equal-or-darker) effective background. You literally cannot author a
-/// treatment that defeats the floor — a brighter or busier treatment yields a
-/// stronger scrim automatically.
+/// shows through a translucent cell background. By keeping the effective
+/// background on the safe side of `l_bg`, this scrim keeps that existing per-cell
+/// guarantee a **valid, unmodified** floor: any foreground that meets the floor
+/// against `l_bg` also meets it against the effective background, because the
+/// effective background is at least as contrasting with the text as `l_bg` is.
+/// You literally cannot author a treatment that defeats the floor — a treatment
+/// further past `l_bg` (brighter for dark themes, darker for light themes) yields
+/// a stronger scrim automatically.
 ///
 /// ## Why the result does not depend on `opacity`
 /// The effective background is a convex blend of `l_bg` and the scrimmed
-/// treatment. A convex blend stays `<= l_bg` **iff** the scrimmed treatment is
-/// itself `<= l_bg` — the `opacity` weight cancels. So the minimal scrim that
-/// caps the blend is `max(0, 1 - l_bg / l_treat)`, independent of the cell
-/// opacity the user later picks. This is a feature: the guarantee is robust to
-/// the user changing cell-background opacity after the fact — no opacity can ever
-/// reintroduce an unreadable background. `opacity` is still taken (and honoured)
-/// so a fully opaque cell background, which hides the treatment entirely, needs
-/// no scrim at all.
+/// treatment. A convex blend stays on the safe side of `l_bg` **iff** the
+/// scrimmed treatment is itself on the safe side — the `opacity` weight cancels.
+/// So the minimal scrim is computed from the scrimmed treatment alone,
+/// independent of the cell opacity the user later picks. This is a feature: the
+/// guarantee is robust to the user changing cell-background opacity after the
+/// fact — no opacity can ever reintroduce an unreadable background. `opacity` is
+/// still taken (and honoured) so a fully opaque cell background, which hides the
+/// treatment entirely, needs no scrim at all.
 ///
 /// ## Contracts
 /// - **Passthrough:** `min_contrast <= 1.0` returns `0.0` (the floor is disabled;
 ///   the plain path applies no scrim and stays byte-identical), mirroring
 ///   [`enforce_min_contrast`]'s unity passthrough.
 /// - **No-op when already safe:** an opaque cell background (`opacity >= 1.0`,
-///   treatment hidden) or a treatment already no brighter than the theme
-///   background (`l_treat <= l_bg`) needs no scrim → `0.0`.
-/// - **Polarity scope:** this caps the effective background at `l_bg` — the
-///   dark-theme treatment model (light text on a dark background, the ID3/U5 use
-///   case). It is the dark-theme primitive by design (D-U5-1).
+///   treatment hidden), or a treatment already on the safe side of `l_bg`
+///   (`l_treat <= l_bg` for `Dark`, `l_treat >= l_bg` for `Light`), needs no
+///   scrim → `0.0`. These no-op branches also guard the divisions below
+///   (`l_treat == 0` for `Dark`, `l_treat == 1` for `Light`).
 /// - **CVD interaction:** when U4 (colour-vision-deficiency adaptation) is
 ///   active, the per-cell floor references the *CVD-adapted* background, so the
 ///   caller must pass the adapted background luminance as `l_bg` — not the
@@ -450,9 +490,14 @@ pub fn effective_bg_luminance(l_treat: f32, l_bg: f32, opacity: f32, scrim: f32)
 ///   actually use.
 ///
 /// Pure, deterministic, total: never panics and never returns NaN for any finite
-/// inputs (`l_treat = 0` is handled by the `l_treat <= l_bg` no-op, so there is
-/// no division by zero).
-pub fn readability_scrim_for(l_treat: f32, l_bg: f32, opacity: f32, min_contrast: f32) -> f32 {
+/// inputs.
+pub fn readability_scrim_for(
+    l_treat: f32,
+    l_bg: f32,
+    opacity: f32,
+    min_contrast: f32,
+    polarity: ScrimPolarity,
+) -> f32 {
     // Passthrough: no floor to protect, so no scrim (keeps the plain path
     // byte-identical when the readability floor is disabled).
     if min_contrast <= 1.0 {
@@ -467,15 +512,30 @@ pub fn readability_scrim_for(l_treat: f32, l_bg: f32, opacity: f32, min_contrast
     if opacity >= 1.0 {
         return 0.0;
     }
-    // Treatment is already no brighter than the theme background: the effective
-    // background can only be <= l_bg, so nothing to dim. (Also covers l_treat == 0,
-    // guarding the division below.)
-    if l_treat <= l_bg {
-        return 0.0;
-    }
 
-    // Dim the treatment to exactly l_bg: l_treat * (1 - dim) == l_bg.
-    (1.0 - l_bg / l_treat).clamp(0.0, 1.0)
+    match polarity {
+        ScrimPolarity::Dark => {
+            // Treatment already no brighter than the theme background: the
+            // effective background can only be <= l_bg, nothing to dim. (Also
+            // covers l_treat == 0, guarding the division.)
+            if l_treat <= l_bg {
+                return 0.0;
+            }
+            // Dim toward black to exactly l_bg: l_treat * (1 - scrim) == l_bg.
+            (1.0 - l_bg / l_treat).clamp(0.0, 1.0)
+        }
+        ScrimPolarity::Light => {
+            // Treatment already no darker than the theme background: the effective
+            // background can only be >= l_bg, nothing to lift. (Also covers
+            // l_treat == 1, guarding the division.)
+            if l_treat >= l_bg {
+                return 0.0;
+            }
+            // Lift toward white to exactly l_bg:
+            // l_treat + (1 - l_treat) * scrim == l_bg.
+            ((l_bg - l_treat) / (1.0 - l_treat)).clamp(0.0, 1.0)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1032,13 +1092,16 @@ mod tests {
 
     // --- Readability scrim (U5 / ID3) -----------------------------------
 
-    /// **The U5 safety invariant.** After applying the computed scrim, the
-    /// effective background luminance behind the text band never exceeds the
-    /// theme-background luminance `l_bg` the per-cell RV1 floor references — for
-    /// every combination of treatment luminance, theme background, and cell
-    /// opacity, including the adversarial cases (a bright treatment, a high cell
-    /// opacity, and a dark theme). This bound is exactly what keeps the existing
-    /// per-cell floor a valid guarantee, so it earns a named, explicit test.
+    /// **The U5 safety invariant (both polarities).** After applying the computed
+    /// scrim, the effective background luminance behind the text band stays on the
+    /// safe side of the theme-background luminance `l_bg` the per-cell RV1 floor
+    /// references — for every combination of treatment luminance, theme
+    /// background, and cell opacity, including the adversarial cases. For a dark
+    /// theme the effective background never *exceeds* `l_bg` (a bright treatment
+    /// is capped); for a light theme it never falls *below* `l_bg` (a dark
+    /// treatment is lifted). These bounds are exactly what keep the existing
+    /// per-cell floor a valid guarantee on each polarity, so they earn a named,
+    /// explicit test.
     #[test]
     fn scrim_bounds_effective_bg_to_theme_bg_for_all_inputs() {
         // Float headroom for the divide-and-recompose round trip.
@@ -1053,15 +1116,55 @@ mod tests {
         for &l_treat in &lums {
             for &l_bg in &lums {
                 for &opacity in &opacities {
-                    let scrim = readability_scrim_for(l_treat, l_bg, opacity, min_contrast);
-                    let effective = effective_bg_luminance(l_treat, l_bg, opacity, scrim);
-                    assert!(
-                        effective <= l_bg + EPS,
-                        "effective bg {effective} exceeded l_bg {l_bg} \
-                         (l_treat={l_treat}, opacity={opacity}, scrim={scrim})"
+                    // Dark polarity: effective bg must never exceed l_bg.
+                    let dark_scrim = readability_scrim_for(
+                        l_treat,
+                        l_bg,
+                        opacity,
+                        min_contrast,
+                        ScrimPolarity::Dark,
                     );
-                    // Sanity: the scrim is a well-formed alpha and never NaN.
-                    assert!((0.0..=1.0).contains(&scrim), "scrim {scrim} out of range");
+                    let dark_eff = effective_bg_luminance(
+                        l_treat,
+                        l_bg,
+                        opacity,
+                        dark_scrim,
+                        ScrimPolarity::Dark,
+                    );
+                    assert!(
+                        dark_eff <= l_bg + EPS,
+                        "dark: effective bg {dark_eff} exceeded l_bg {l_bg} \
+                         (l_treat={l_treat}, opacity={opacity}, scrim={dark_scrim})"
+                    );
+                    assert!(
+                        (0.0..=1.0).contains(&dark_scrim),
+                        "dark scrim {dark_scrim} out of range"
+                    );
+
+                    // Light polarity: effective bg must never fall below l_bg.
+                    let light_scrim = readability_scrim_for(
+                        l_treat,
+                        l_bg,
+                        opacity,
+                        min_contrast,
+                        ScrimPolarity::Light,
+                    );
+                    let light_eff = effective_bg_luminance(
+                        l_treat,
+                        l_bg,
+                        opacity,
+                        light_scrim,
+                        ScrimPolarity::Light,
+                    );
+                    assert!(
+                        light_eff >= l_bg - EPS,
+                        "light: effective bg {light_eff} fell below l_bg {l_bg} \
+                         (l_treat={l_treat}, opacity={opacity}, scrim={light_scrim})"
+                    );
+                    assert!(
+                        (0.0..=1.0).contains(&light_scrim),
+                        "light scrim {light_scrim} out of range"
+                    );
                 }
             }
         }
@@ -1069,78 +1172,148 @@ mod tests {
 
     #[test]
     fn scrim_is_zero_when_floor_disabled() {
-        // min_contrast <= 1.0 is the passthrough: no scrim regardless of how
-        // bright the treatment is, keeping the plain path byte-identical.
-        assert_eq!(readability_scrim_for(1.0, 0.02, 0.0, 1.0), 0.0);
-        assert_eq!(readability_scrim_for(1.0, 0.02, 0.0, 0.5), 0.0);
-        assert_eq!(readability_scrim_for(1.0, 0.02, 0.0, -3.0), 0.0);
-    }
-
-    #[test]
-    fn scrim_is_zero_when_treatment_not_brighter_than_bg() {
-        // A treatment already at/below the theme-bg luminance can only keep the
-        // effective bg <= l_bg, so no dim is applied. Includes l_treat == 0,
-        // which also guards the internal division.
-        assert_eq!(readability_scrim_for(0.0, 0.2, 0.3, 4.5), 0.0);
-        assert_eq!(readability_scrim_for(0.2, 0.2, 0.3, 4.5), 0.0);
-        assert_eq!(readability_scrim_for(0.1, 0.2, 0.3, 4.5), 0.0);
+        // min_contrast <= 1.0 is the passthrough: no scrim regardless of the
+        // treatment, keeping the plain path byte-identical — on both polarities.
+        for polarity in [ScrimPolarity::Dark, ScrimPolarity::Light] {
+            assert_eq!(readability_scrim_for(1.0, 0.02, 0.0, 1.0, polarity), 0.0);
+            assert_eq!(readability_scrim_for(0.0, 0.98, 0.0, 0.5, polarity), 0.0);
+            assert_eq!(readability_scrim_for(1.0, 0.02, 0.0, -3.0, polarity), 0.0);
+        }
     }
 
     #[test]
     fn scrim_is_zero_for_opaque_cell_background() {
         // A fully opaque cell bg hides the treatment entirely (effective == l_bg),
-        // so even a white treatment needs no scrim.
-        assert_eq!(readability_scrim_for(1.0, 0.02, 1.0, 4.5), 0.0);
+        // so even an extreme treatment needs no scrim — on both polarities.
+        assert_eq!(
+            readability_scrim_for(1.0, 0.02, 1.0, 4.5, ScrimPolarity::Dark),
+            0.0
+        );
+        assert_eq!(
+            readability_scrim_for(0.0, 0.98, 1.0, 4.5, ScrimPolarity::Light),
+            0.0
+        );
     }
 
     #[test]
-    fn scrim_dims_treatment_to_exactly_the_theme_bg() {
+    fn scrim_is_zero_when_treatment_already_safe() {
+        // Dark: a treatment no brighter than l_bg can only keep effective <= l_bg
+        // (covers l_treat == 0, the dark division guard).
+        assert_eq!(
+            readability_scrim_for(0.0, 0.2, 0.3, 4.5, ScrimPolarity::Dark),
+            0.0
+        );
+        assert_eq!(
+            readability_scrim_for(0.2, 0.2, 0.3, 4.5, ScrimPolarity::Dark),
+            0.0
+        );
+        // Light: a treatment no darker than l_bg can only keep effective >= l_bg
+        // (covers l_treat == 1, the light division guard).
+        assert_eq!(
+            readability_scrim_for(1.0, 0.8, 0.3, 4.5, ScrimPolarity::Light),
+            0.0
+        );
+        assert_eq!(
+            readability_scrim_for(0.8, 0.8, 0.3, 4.5, ScrimPolarity::Light),
+            0.0
+        );
+    }
+
+    #[test]
+    fn dark_scrim_dims_treatment_to_exactly_the_theme_bg() {
         // A white treatment (l_treat = 1.0) over a dark theme (l_bg = 0.05): the
-        // scrim dims it to exactly l_bg, i.e. dim = 1 - l_bg/l_treat = 0.95.
-        let scrim = readability_scrim_for(1.0, 0.05, 0.0, 4.5);
+        // black scrim dims it to exactly l_bg, i.e. scrim = 1 - l_bg/l_treat = 0.95.
+        let scrim = readability_scrim_for(1.0, 0.05, 0.0, 4.5, ScrimPolarity::Dark);
         assert!(close(scrim, 0.95, 1e-6), "scrim was {scrim}");
         // The scrimmed treatment luminance lands on l_bg.
         assert!(close(1.0 * (1.0 - scrim), 0.05, 1e-6));
     }
 
     #[test]
-    fn brighter_treatment_yields_stronger_scrim() {
-        // Monotonicity: the brighter the treatment over a fixed dark theme, the
-        // stronger the scrim — you cannot author a brighter background without
-        // automatically getting more dimming.
-        let l_bg = 0.04;
-        let a = readability_scrim_for(0.3, l_bg, 0.0, 4.5);
-        let b = readability_scrim_for(0.6, l_bg, 0.0, 4.5);
-        let c = readability_scrim_for(1.0, l_bg, 0.0, 4.5);
-        assert!(a < b && b < c, "expected a<b<c, got {a} {b} {c}");
+    fn light_scrim_lifts_treatment_to_exactly_the_theme_bg() {
+        // A black treatment (l_treat = 0.0) under a light theme (l_bg = 0.9): the
+        // white scrim lifts it to exactly l_bg, i.e. scrim = (l_bg - 0)/(1 - 0) = 0.9.
+        let scrim = readability_scrim_for(0.0, 0.9, 0.0, 4.5, ScrimPolarity::Light);
+        assert!(close(scrim, 0.9, 1e-6), "scrim was {scrim}");
+        // The scrimmed treatment lands on l_bg: 0 + (1 - 0) * 0.9 == 0.9.
+        assert!(close(0.0 + (1.0 - 0.0) * scrim, 0.9, 1e-6));
+        // A mid-dark treatment 0.3 under l_bg 0.6: scrim = (0.6-0.3)/(1-0.3) ≈ 0.4286.
+        let s2 = readability_scrim_for(0.3, 0.6, 0.0, 4.5, ScrimPolarity::Light);
+        assert!(close(0.3 + (1.0 - 0.3) * s2, 0.6, 1e-6), "lifted to {s2}");
+    }
+
+    #[test]
+    fn farther_treatment_yields_stronger_scrim_each_polarity() {
+        // Dark monotonicity: the brighter the treatment over a fixed dark theme,
+        // the stronger the (darkening) scrim.
+        let dl = 0.04;
+        let da = readability_scrim_for(0.3, dl, 0.0, 4.5, ScrimPolarity::Dark);
+        let db = readability_scrim_for(0.6, dl, 0.0, 4.5, ScrimPolarity::Dark);
+        let dc = readability_scrim_for(1.0, dl, 0.0, 4.5, ScrimPolarity::Dark);
+        assert!(
+            da < db && db < dc,
+            "dark expected a<b<c, got {da} {db} {dc}"
+        );
+
+        // Light monotonicity: the darker the treatment under a fixed light theme,
+        // the stronger the (lifting) scrim.
+        let ll = 0.96;
+        let la = readability_scrim_for(0.7, ll, 0.0, 4.5, ScrimPolarity::Light);
+        let lb = readability_scrim_for(0.4, ll, 0.0, 4.5, ScrimPolarity::Light);
+        let lc = readability_scrim_for(0.0, ll, 0.0, 4.5, ScrimPolarity::Light);
+        assert!(
+            la < lb && lb < lc,
+            "light expected a<b<c, got {la} {lb} {lc}"
+        );
     }
 
     #[test]
     fn scrim_is_opacity_independent_while_treatment_shows() {
-        // For any cell opacity < 1 the minimal capping scrim is the same (the
-        // convex-blend argument): the guarantee is robust to the user later
-        // changing opacity. Only the fully-opaque case (treatment hidden) drops
-        // to zero.
-        let base = readability_scrim_for(0.8, 0.05, 0.0, 4.5);
+        // For any cell opacity < 1 the minimal scrim is the same (the convex-blend
+        // argument): the guarantee is robust to the user later changing opacity.
+        // Only the fully-opaque case (treatment hidden) drops to zero. Holds on
+        // both polarities.
+        let dark_base = readability_scrim_for(0.8, 0.05, 0.0, 4.5, ScrimPolarity::Dark);
+        let light_base = readability_scrim_for(0.2, 0.95, 0.0, 4.5, ScrimPolarity::Light);
         for &opacity in &[0.1_f32, 0.5, 0.9, 0.99] {
             assert!(close(
-                readability_scrim_for(0.8, 0.05, opacity, 4.5),
-                base,
+                readability_scrim_for(0.8, 0.05, opacity, 4.5, ScrimPolarity::Dark),
+                dark_base,
+                1e-7
+            ));
+            assert!(close(
+                readability_scrim_for(0.2, 0.95, opacity, 4.5, ScrimPolarity::Light),
+                light_base,
                 1e-7
             ));
         }
-        assert_eq!(readability_scrim_for(0.8, 0.05, 1.0, 4.5), 0.0);
+        assert_eq!(
+            readability_scrim_for(0.8, 0.05, 1.0, 4.5, ScrimPolarity::Dark),
+            0.0
+        );
+        assert_eq!(
+            readability_scrim_for(0.2, 0.95, 1.0, 4.5, ScrimPolarity::Light),
+            0.0
+        );
     }
 
     #[test]
     fn scrim_inputs_are_clamped_and_total() {
         // Out-of-range inputs are clamped rather than producing NaN/panics, and
-        // the invariant still holds.
-        let scrim = readability_scrim_for(2.0, -1.0, 1.5, 4.5);
+        // the invariant still holds. Dark: opacity clamps to 1 → opaque → 0.
+        let scrim = readability_scrim_for(2.0, -1.0, 1.5, 4.5, ScrimPolarity::Dark);
         assert!((0.0..=1.0).contains(&scrim));
-        // l_bg clamps to 0, l_treat to 1, opacity to 1 → opaque → 0 scrim.
         assert_eq!(scrim, 0.0);
-        // A negative l_treat clamps to 0 → no-op branch.
-        assert_eq!(readability_scrim_for(-0.5, 0.1, 0.0, 4.5), 0.0);
+        // A negative l_treat clamps to 0 → dark no-op branch.
+        assert_eq!(
+            readability_scrim_for(-0.5, 0.1, 0.0, 4.5, ScrimPolarity::Dark),
+            0.0
+        );
+        // Light: an over-bright l_treat clamps to 1 → already-safe no-op (no
+        // division by zero).
+        assert_eq!(
+            readability_scrim_for(2.0, 0.5, 0.0, 4.5, ScrimPolarity::Light),
+            0.0
+        );
     }
 }
