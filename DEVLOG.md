@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Binding foundation for prompt navigation, copy mode, and hints
+
+- Adds four bindable actions — jump to previous / next prompt, enter copy mode,
+  and activate hints — across the binding, CLI, and key-table surfaces, with
+  default chords: `Ctrl+Shift+Up` / `Ctrl+Shift+P` (prev prompt),
+  `Ctrl+Shift+Down` / `Ctrl+Shift+N` (next prompt), `Ctrl+Shift+Space` (copy
+  mode), and `Ctrl+Shift+L` (hints). This is the shared foundation the three
+  feature wirings build on, landed once so the per-feature work doesn't collide
+  on the same registration sites.
+- The dispatch handlers are inert this increment: each returns a "did not act"
+  result and falls through to the existing PTY encoding, so the new chords behave
+  byte-identically to today (an unbound key) until a feature claims them. Each
+  handler lives in its own small `app/` submodule (`prompt_jump`, `copy_mode_ui`,
+  `hints_ui`) so the upcoming wirings stay in disjoint files. The settings
+  description for these actions is intentionally not advertised yet, since they
+  are not wired.
+- House-keeping in the same pass: the app module was split to stay under the
+  size budget — themed selection / search / scroll-indicator color helpers moved
+  to `app/theme_roles.rs` and the held-cursor frame stepper to
+  `app/cursor_frame.rs`, both behaviour-neutral moves pinned by existing tests,
+  bringing the app module from 1941 to 1837 lines.
+- Verified: binding and action unit suites (default chords asserted), the
+  render-signature invalidation matrix, aggregate lib green, `cargo fmt --all
+  --check` clean, off-path byte-identity preserved (inert fallthrough), caps
+  back under budget.
+
 ## 2026-06-15 -- Command-nav + hint-scan core: prompt-jump geometry and a viewport row accessor
 
 - Pure core groundwork for the upcoming command-aware UX (jump to prev/next

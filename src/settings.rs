@@ -178,6 +178,14 @@ pub enum BindableAction {
     Paste,
     ScrollPageUp,
     ScrollPageDown,
+    /// Jump the viewport to the previous shell prompt (OSC 133 boundary).
+    JumpPromptPrev,
+    /// Jump the viewport to the next shell prompt (OSC 133 boundary).
+    JumpPromptNext,
+    /// Enter keyboard scrollback selection ("copy") mode.
+    CopyMode,
+    /// Activate keyboard pattern-select hints (URLs / paths / SHAs).
+    Hints,
 }
 
 impl BindableAction {
@@ -196,6 +204,14 @@ impl BindableAction {
             "scrolldown" | "pagedown" | "scrollpagedown" | "scrollbackpagedown" => {
                 Some(Self::ScrollPageDown)
             }
+            "jumppromptprev" | "promptprev" | "prevprompt" | "jumpprevprompt" => {
+                Some(Self::JumpPromptPrev)
+            }
+            "jumppromptnext" | "promptnext" | "nextprompt" | "jumpnextprompt" => {
+                Some(Self::JumpPromptNext)
+            }
+            "copymode" | "selectmode" => Some(Self::CopyMode),
+            "hints" | "hint" | "quickselect" | "patternselect" => Some(Self::Hints),
             _ => None,
         }
     }
@@ -1747,6 +1763,10 @@ fn bindable_action_name(action: BindableAction) -> &'static str {
         BindableAction::Paste => "paste",
         BindableAction::ScrollPageUp => "scroll-up",
         BindableAction::ScrollPageDown => "scroll-down",
+        BindableAction::JumpPromptPrev => "jump-prompt-prev",
+        BindableAction::JumpPromptNext => "jump-prompt-next",
+        BindableAction::CopyMode => "copy-mode",
+        BindableAction::Hints => "hints",
     }
 }
 

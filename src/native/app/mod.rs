@@ -67,8 +67,13 @@ use super::viewport::{
     scrollbar_offset_for_drag_with_padding, wheel_lines, wheel_lines_scaled, wheel_zoom_steps,
 };
 
+mod copy_mode_ui;
+mod cursor_frame;
+mod hints_ui;
 mod interaction;
 mod pointer;
+mod prompt_jump;
+mod theme_roles;
 
 pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(150);
 
@@ -724,13 +729,6 @@ impl App {
         }
     }
 
-    fn scroll_indicator_color(&self) -> [f32; 4] {
-        let (r, g, b) = self.effective_theme.foreground;
-        let mut color = text::foreground_linear(Color::Rgb(r, g, b));
-        color[3] = 0.62;
-        color
-    }
-
     /// Record a fatal startup error and ask the loop to exit.
     fn fail(&mut self, event_loop: &ActiveEventLoop, err: NativeError) {
         self.startup_error = Some(err);
@@ -793,6 +791,32 @@ impl App {
                 Some(BindableAction::ScrollPageDown) => {
                     self.scroll_viewport(-(self.page_lines() as isize));
                     return;
+                }
+                // The next four route to thin per-feature handlers that live in
+                // sibling `app` modules so future feature work fills them in
+                // disjoint files. Each returns whether it consumed the key; a
+                // handler that does not act yet returns `false`, so the chord
+                // falls through to the PTY encode path below exactly as an
+                // unbound key would (the plain path stays byte-identical).
+                Some(BindableAction::JumpPromptPrev) => {
+                    if self.jump_prompt_prev() {
+                        return;
+                    }
+                }
+                Some(BindableAction::JumpPromptNext) => {
+                    if self.jump_prompt_next() {
+                        return;
+                    }
+                }
+                Some(BindableAction::CopyMode) => {
+                    if self.enter_copy_mode() {
+                        return;
+                    }
+                }
+                Some(BindableAction::Hints) => {
+                    if self.activate_hints() {
+                        return;
+                    }
                 }
                 Some(BindableAction::Search)
                 | Some(BindableAction::SettingsPanel)
@@ -1256,102 +1280,6 @@ impl App {
             window.request_redraw();
         }
     }
-
-    /// ID1: themed selection treatment, or `None` (today's inverse) when the
-    /// operator opts out. The fill is the theme `selection` role verbatim; the
-    /// foreground is the theme foreground floored over that fill through the
-    /// RV1 minimum-contrast machinery, so it stays legible at the active
-    /// `min_contrast` (identity at the default 1.0).
-    fn themed_selection_style(&self) -> Option<SelectionStyle> {
-        if !self.themed_ui_roles {
-            return None;
-        }
-        let fill = [
-            self.effective_theme.selection.0,
-            self.effective_theme.selection.1,
-            self.effective_theme.selection.2,
-        ];
-        let fg = floor_fg_over(
-            self.effective_theme.foreground,
-            fill,
-            self.settings.effective_min_contrast(),
-        );
-        Some(SelectionStyle { fill, fg })
-    }
-
-    /// ID1: themed search-highlight treatment, or `None` (today's inverse /
-    /// black-on-yellow) when the operator opts out. Non-active matches use the
-    /// theme `search` role; the active match uses a brightened OKLab derivative
-    /// of it. Both foregrounds are RV1-floored over their fills.
-    fn themed_search_style(&self) -> Option<SearchStyle> {
-        if !self.themed_ui_roles {
-            return None;
-        }
-        let fill = [
-            self.effective_theme.search.0,
-            self.effective_theme.search.1,
-            self.effective_theme.search.2,
-        ];
-        let fill_lin = srgb_tuple_to_linear(self.effective_theme.search);
-        let active_fill_lin =
-            crate::color::mix_oklab(fill_lin, [1.0, 1.0, 1.0], SEARCH_ACTIVE_BRIGHTEN);
-        let active_fill = linear_to_srgb_tuple(active_fill_lin);
-        let fg = floor_fg_over(
-            self.effective_theme.foreground,
-            fill,
-            self.settings.effective_min_contrast(),
-        );
-        let active_fg = floor_fg_over(
-            self.effective_theme.foreground,
-            active_fill,
-            self.settings.effective_min_contrast(),
-        );
-        Some(SearchStyle {
-            fill,
-            fg,
-            active_fill,
-            active_fg,
-        })
-    }
-
-    fn update_held_cursor_frame(&mut self, now: Instant) -> bool {
-        let Some(mut snapshot) = self.last_presented_snapshot.clone() else {
-            return false;
-        };
-        let Some(previous_signature) = self.last_render_signature.clone() else {
-            return false;
-        };
-
-        let cursor_on =
-            self.cursor_blink
-                .poll(now, self.last_presented_cursor_blinking, self.focused);
-        if !cursor_on {
-            snapshot.cursor_visible = false;
-        }
-
-        let signature = RenderSignature {
-            content: previous_signature.content,
-            cursor: CursorRenderSignature {
-                visible: snapshot.cursor_visible,
-                style: self.last_presented_cursor_style,
-            },
-        };
-        let update = RenderSignature::update_from(self.last_render_signature.as_ref(), &signature);
-        if let Some(gpu) = self.gpu.as_mut() {
-            match update {
-                GeometryUpdate::Full | GeometryUpdate::CursorOnly => {
-                    gpu.update_cursor_and_overlays(
-                        &snapshot,
-                        self.last_presented_cursor_style,
-                        &[],
-                    );
-                }
-                GeometryUpdate::Retained => {}
-            }
-        }
-        self.last_render_signature = Some(signature);
-        true
-    }
 }
 
 impl ApplicationHandler<UserEvent> for App {
@@ -1805,38 +1733,6 @@ impl ApplicationHandler<UserEvent> for App {
 
 fn rgb(color: (u8, u8, u8)) -> RgbColor {
     RgbColor::new(color.0, color.1, color.2)
-}
-
-/// How far the active search match is brightened toward white (OKLab mix) from
-/// the `search` role, so it reads as distinct from non-active matches.
-const SEARCH_ACTIVE_BRIGHTEN: f32 = 0.35;
-
-fn srgb_tuple_to_linear(color: (u8, u8, u8)) -> crate::color::LinearRgb {
-    [
-        crate::color::srgb_to_linear(color.0),
-        crate::color::srgb_to_linear(color.1),
-        crate::color::srgb_to_linear(color.2),
-    ]
-}
-
-fn linear_to_srgb_tuple(linear: crate::color::LinearRgb) -> [u8; 3] {
-    [
-        crate::color::linear_to_srgb_u8(linear[0]),
-        crate::color::linear_to_srgb_u8(linear[1]),
-        crate::color::linear_to_srgb_u8(linear[2]),
-    ]
-}
-
-/// Floor a foreground over a fill so it meets `ratio` WCAG contrast (RV1).
-/// Identity at `ratio <= 1.0` (the default `min_contrast`).
-fn floor_fg_over(fg: (u8, u8, u8), bg: [u8; 3], ratio: f32) -> [u8; 3] {
-    let fg_lin = srgb_tuple_to_linear(fg);
-    let bg_lin = [
-        crate::color::srgb_to_linear(bg[0]),
-        crate::color::srgb_to_linear(bg[1]),
-        crate::color::srgb_to_linear(bg[2]),
-    ];
-    linear_to_srgb_tuple(crate::color::enforce_min_contrast(fg_lin, bg_lin, ratio))
 }
 
 fn bloom_options(settings: &Settings) -> BloomOptions {

@@ -387,6 +387,43 @@ fn key_bindings_preserve_default_shortcuts_when_unset() {
 }
 
 #[test]
+fn key_bindings_default_prompt_copymode_and_hints_chords() {
+    let bindings = KeyBindings::from_overrides(&[]);
+    let ctrl_shift = Modifiers {
+        ctrl: true,
+        shift: true,
+        alt: false,
+    };
+
+    // Prompt navigation: arrow primaries plus the letter fallbacks both resolve
+    // to the same action.
+    assert_eq!(
+        bindings.action_for(&WinitKey::Named(NamedKey::ArrowUp), ctrl_shift, false),
+        Some(BindableAction::JumpPromptPrev)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("p".into()), ctrl_shift, false),
+        Some(BindableAction::JumpPromptPrev)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Named(NamedKey::ArrowDown), ctrl_shift, false),
+        Some(BindableAction::JumpPromptNext)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("n".into()), ctrl_shift, false),
+        Some(BindableAction::JumpPromptNext)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Named(NamedKey::Space), ctrl_shift, false),
+        Some(BindableAction::CopyMode)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("l".into()), ctrl_shift, false),
+        Some(BindableAction::Hints)
+    );
+}
+
+#[test]
 fn key_bindings_override_only_the_named_action() {
     let override_ = KeyBindingOverride {
         chord: KeyChord {

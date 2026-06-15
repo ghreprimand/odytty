@@ -240,5 +240,9 @@ fn action_value(action: BindableAction) -> &'static str {
         BindableAction::Paste => "paste",
         BindableAction::ScrollPageUp => "scroll-up",
         BindableAction::ScrollPageDown => "scroll-down",
+        BindableAction::JumpPromptPrev => "jump-prompt-prev",
+        BindableAction::JumpPromptNext => "jump-prompt-next",
+        BindableAction::CopyMode => "copy-mode",
+        BindableAction::Hints => "hints",
     }
 }

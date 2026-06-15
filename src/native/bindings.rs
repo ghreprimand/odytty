@@ -82,6 +82,34 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             named_chord(KeyBindingNamedKey::PageDown, false, true, false, false),
             BindableAction::ScrollPageDown,
         ),
+        // Prompt navigation (OSC 133): the arrow chords are the primary
+        // bindings; the letter chords are fallbacks for keyboards/terminals
+        // where Ctrl+Shift+Arrow is intercepted upstream. Both resolve to the
+        // same action (action_for scans every binding).
+        (
+            named_chord(KeyBindingNamedKey::ArrowUp, true, true, false, false),
+            BindableAction::JumpPromptPrev,
+        ),
+        (
+            char_chord('p', true, true, false, false),
+            BindableAction::JumpPromptPrev,
+        ),
+        (
+            named_chord(KeyBindingNamedKey::ArrowDown, true, true, false, false),
+            BindableAction::JumpPromptNext,
+        ),
+        (
+            char_chord('n', true, true, false, false),
+            BindableAction::JumpPromptNext,
+        ),
+        (
+            named_chord(KeyBindingNamedKey::Space, true, true, false, false),
+            BindableAction::CopyMode,
+        ),
+        (
+            char_chord('l', true, true, false, false),
+            BindableAction::Hints,
+        ),
     ]
 }
 

@@ -1264,6 +1264,54 @@ fn duplicate_key_binding_entries_preserve_input_order() {
 }
 
 #[test]
+fn bindable_action_names_round_trip_through_parse() {
+    use BindableAction::*;
+    for action in [
+        Search,
+        SettingsPanel,
+        ThemePicker,
+        Copy,
+        Paste,
+        ScrollPageUp,
+        ScrollPageDown,
+        JumpPromptPrev,
+        JumpPromptNext,
+        CopyMode,
+        Hints,
+    ] {
+        assert_eq!(
+            BindableAction::parse(bindable_action_name(action)),
+            Some(action),
+            "action name did not round-trip: {action:?}"
+        );
+    }
+}
+
+#[test]
+fn new_bindable_actions_parse_from_config_names() {
+    let (settings, warnings) = settings_from([(
+        KEYBINDS_ENV,
+        "ctrl+shift+p=jump-prompt-prev;ctrl+shift+n=jump-prompt-next;ctrl+alt+k=copy-mode;ctrl+shift+l=hints",
+    )]);
+
+    let actions: Vec<BindableAction> = settings
+        .key_bindings
+        .iter()
+        .map(|binding| binding.action)
+        .collect();
+    assert_eq!(
+        actions,
+        vec![
+            BindableAction::JumpPromptPrev,
+            BindableAction::JumpPromptNext,
+            BindableAction::CopyMode,
+            BindableAction::Hints,
+        ]
+    );
+    assert!(warnings.is_empty());
+}
+
+#[test]
 fn cursor_defaults_without_env() {
     let (settings, warnings) = settings_from([]);
     assert_eq!(settings.cursor_style, CursorStyle::Block);
