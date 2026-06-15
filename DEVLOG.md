@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Contrast metric: single source of truth (shown == enforced)
+
+- The tree previously had two contrast worlds: `theme/contrast.rs` carried a
+  self-contained 8-bit display metric (its own older sRGB-knee relative-luminance
+  in `f64`), while the render-time legibility floor (RV1/U1) measures contrast
+  via the linear-space `color.rs::wcag_contrast`. The displayed contrast reading
+  in the theme builder could therefore diverge slightly from the contrast the
+  renderer actually enforces.
+- `theme/contrast.rs` is now a thin byte-domain adapter over `color.rs`: both
+  functions decode sRGB → linear via `color::srgb_to_linear` and delegate to
+  `color::relative_luminance` / `color::wcag_contrast`. Public signatures are
+  unchanged (sRGB bytes in, `f64` out), so every caller — the theme-builder
+  readout, the bloom-seed default, builtin validation — is untouched.
+  `color.rs` itself is unchanged; the canonical primitives already existed.
+- Result: the contrast a future theme builder *shows* is computed by the exact
+  metric the renderer *enforces*. This is the metric-level precondition for the
+  perceptual theme builder's "authored theme == rendered pixels" guarantee.
+- No render pixel change — this is display-metric reconciliation only. The shown
+  number may shift slightly to match what is actually enforced; that is the
+  intended correctness fix, pinned by new exact-equality tests
+  (`shown_contrast_equals_enforced_metric` over representative fg/bg pairs,
+  `shown_luminance_equals_enforced_metric`). All 53 builtin themes still clear
+  the default minimum contrast after the metric change.
+- Verified: `cargo fmt --all --check` clean; full aggregate
+  1274 passed / 0 failed / 19 ignored; `pixel_smoke` / `gpu_composite_smoke`
+  green (render byte-identical); public-gate scan clean. No parser/core/protocol
+  surface touched.
+
+---
+
 ## 2026-06-15 -- MOUSE-EXTEND: drag-extend selection (default on, additive)
 
 - Selection can now be extended after the initial gesture, gated by a new bool
