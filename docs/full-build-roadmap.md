@@ -107,7 +107,7 @@ overlay framework; an in-app settings panel where every setting is editable,
 live-applied, and written back to the config file; a live theme picker; an
 in-app custom theme builder (clone, tweak, live preview, save); and CLI config
 introspection. A dependency-free `.theme` format, a full 16-color + bright ANSI
-palette plus semantic roles, and a curated 53-theme built-in library (dark and
+palette plus semantic roles, and a curated 61-theme built-in library (dark and
 light, all contrast-validated).
 
 **The visual engine.** A perceptual color pipeline (OKLab/OKLCH) with linear-
@@ -292,7 +292,7 @@ own mouse handling.
   community palettes under their real names only where the upstream license
   permits redistribution and brand guidelines are followed and attributed,
   without implying endorsement.
-- **Ongoing — Theme-library expansion** past the current 53 (data-only).
+- **Ongoing — Theme-library expansion** past the current 61 (data-only).
 
 ## Track 8 — Positioning & performance posture
 

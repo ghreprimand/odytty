@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-orchard
+appearance = dark
+
+foreground = #e2efd8
+background = #0f1711
+clear = #090f0b
+
+cursor = #a7d66b
+selection = #263a27
+search = #503b17
+border = #223326
+inactive = #70836a
+
+color0 = #162018
+color1 = #e06a5f
+color2 = #8ecb68
+color3 = #d6b35d
+color4 = #65a3d9
+color5 = #b484d8
+color6 = #62bca6
+color7 = #cedbc5
+color8 = #39483a
+color9 = #f28a7b
+color10 = #aee889
+color11 = #efd079
+color12 = #86c0f0
+color13 = #c9a0ee
+color14 = #82d8c1
+color15 = #f5fff0

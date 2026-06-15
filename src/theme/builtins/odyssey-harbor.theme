@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-harbor
+appearance = dark
+
+foreground = #dbe8f7
+background = #08141f
+clear = #050d15
+
+cursor = #6db6ff
+selection = #173653
+search = #4a3b15
+border = #1a2d43
+inactive = #697c91
+
+color0 = #0e1c2b
+color1 = #e05f69
+color2 = #72c28b
+color3 = #d5b05a
+color4 = #5da7ed
+color5 = #b185db
+color6 = #5bc0c8
+color7 = #c7d4e4
+color8 = #30475f
+color9 = #f5828a
+color10 = #91dda6
+color11 = #eccb78
+color12 = #83c4ff
+color13 = #c7a0ef
+color14 = #7adbe0
+color15 = #f4f9ff

@@ -63,16 +63,18 @@ path — so the file format is exercised by the library on every startup.
 
 ### Theme families
 
-**Odyssey identity** — `plain` plus sixteen `odyssey-*` variants are original
-themes designed for OdysseyOS. `plain` reproduces the historical xterm default
-palette byte-for-byte and is the fallback when no theme is configured. The
-`odyssey-*` variants span a range of visual moods across dark and light
+**Odyssey identity** — `plain` plus twenty-four `odyssey-*` variants are
+original themes designed for OdysseyOS. `plain` reproduces the historical xterm
+default palette byte-for-byte and is the fallback when no theme is configured.
+The `odyssey-*` variants span a range of visual moods across dark and light
 appearances: deep-space and interstellar cold (`odyssey`, `odyssey-deepspace`,
 `odyssey-pulsar`), warm atmospheric (`odyssey-solar`, `odyssey-ember`,
-`odyssey-abyss`), cool natural (`odyssey-glacier`, `odyssey-voyager`), cosmic
-nebula (`odyssey-nebula`, `odyssey-aurora`), warm and cool text focus
-(`odyssey-meridian`, `odyssey-graphite`), and three light companions
-(`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`). These carry
+`odyssey-abyss`, `odyssey-volcanic`), cool natural (`odyssey-glacier`,
+`odyssey-voyager`, `odyssey-fathom`, `odyssey-harbor`, `odyssey-orchard`),
+cosmic nebula (`odyssey-nebula`, `odyssey-aurora`, `odyssey-ion`), warm and cool
+text focus (`odyssey-meridian`, `odyssey-graphite`), and six light companions
+(`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`,
+`odyssey-cloud-light`, `odyssey-coral-light`, `odyssey-mist-light`). These carry
 the strongest OdysseyOS visual identity.
 
 **Community** — twenty-eight themes ported from widely-used open-source
@@ -116,6 +118,14 @@ OdyTTY has no affiliation with or endorsement from any of those vendors.
 | `odyssey-dawn-light` | light | Odyssey identity (violet-white morning companion to deep space) |
 | `odyssey-sandstone-light` | light | Odyssey identity (sunlit dune and planetary-surface warmth) |
 | `odyssey-graphite` | dark | Odyssey identity (minimal neutral graphite focus mode) |
+| `odyssey-fathom` | dark | Odyssey identity (deep-ocean teal over near-black abyss) |
+| `odyssey-harbor` | dark | Odyssey identity (cool naval blue with clear high-legibility text) |
+| `odyssey-ion` | dark | Odyssey identity (electric indigo-violet over deep space) |
+| `odyssey-orchard` | dark | Odyssey identity (cultivated greens on dark loam) |
+| `odyssey-volcanic` | dark | Odyssey identity (ember warmth and ash over basalt) |
+| `odyssey-cloud-light` | light | Odyssey identity (cool cloud-white with slate-blue text) |
+| `odyssey-coral-light` | light | Odyssey identity (warm coral daylight companion) |
+| `odyssey-mist-light` | light | Odyssey identity (soft misted green-grey morning) |
 | `solarized-dark` | dark | Community |
 | `solarized-light` | light | Community |
 | `gruvbox-dark` | dark | Community |

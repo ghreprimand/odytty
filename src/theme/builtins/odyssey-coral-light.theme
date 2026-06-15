@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-coral-light
+appearance = light
+
+foreground = #332421
+background = #fff4ef
+clear = #fff0e8
+
+cursor = #bf5742
+selection = #f1d4c9
+search = #f7d982
+border = #dfb9ad
+inactive = #856f68
+
+color0 = #3b2b27
+color1 = #bd4f4f
+color2 = #5f7d3d
+color3 = #9f6d1c
+color4 = #326da8
+color5 = #935994
+color6 = #257d7a
+color7 = #eadbd4
+color8 = #6f5b54
+color9 = #d76863
+color10 = #78984f
+color11 = #bd852c
+color12 = #4f83bf
+color13 = #a971aa
+color14 = #369894
+color15 = #ffffff

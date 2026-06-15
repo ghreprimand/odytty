@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-fathom
+appearance = dark
+
+foreground = #d7efe9
+background = #07131a
+clear = #040c11
+
+cursor = #69d0c6
+selection = #153542
+search = #4b3d16
+border = #17303a
+inactive = #66838c
+
+color0 = #0b1c24
+color1 = #e36b6f
+color2 = #83c970
+color3 = #d8b45e
+color4 = #5ea6df
+color5 = #b98ae3
+color6 = #57c7be
+color7 = #c5d8d6
+color8 = #2b4954
+color9 = #ff8a8d
+color10 = #a4e68c
+color11 = #f0cc75
+color12 = #83c4f5
+color13 = #d3a8f2
+color14 = #7ee3da
+color15 = #f0fffc

@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Theme library: +8 original Odyssey themes (53 → 61)
+
+- Eight new original Odyssey-named built-in themes, all authored in the standard
+  `.theme` format and loaded through the same parser as a user theme: five dark
+  (`odyssey-fathom`, `odyssey-harbor`, `odyssey-ion`, `odyssey-orchard`,
+  `odyssey-volcanic`) and three light (`odyssey-cloud-light`,
+  `odyssey-coral-light`, `odyssey-mist-light`).
+- All original Odyssey-identity palettes — no community palette is shipped under
+  its real name (the community-naming question stays an open product decision
+  pending license/attribution review). Each new theme clears the library's
+  default minimum contrast floor; the `every_builtin_meets_minimum_default_contrast`
+  test passes against the unified contrast metric (so the floor it clears is the
+  same one the renderer enforces).
+- Data + registry only — no code-path change beyond the builtin registry. The
+  built-in library is now 61 themes. Public theme counts updated in lockstep:
+  `README.md` (×2), `docs/full-build-roadmap.md` (×2), and `docs/themes.md`
+  (the Odyssey-identity family description and the per-theme table).
+- Verified: `cargo fmt --all --check` clean; full aggregate
+  1195 passed / 0 failed / 19 ignored; builtin-contrast gate green; theme files
+  well-formed; public-gate scan clean (no community palette names, no cluster
+  language).
+
+---
+
 ## 2026-06-15 -- SH2 core helpers: prompt nav + output select-range + status
 
 - The pure-core helpers the native command-aware UX (next wave) will wire, all

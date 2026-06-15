@@ -21,7 +21,9 @@
 //! `odyssey-solar`, `odyssey-abyss`, `odyssey-ember`, `odyssey-glacier`,
 //! `odyssey-meridian`, `odyssey-voyager`, `odyssey-pulsar`,
 //! `odyssey-dawn-light` (light), `odyssey-sandstone-light` (light), and
-//! `odyssey-graphite`.
+//! `odyssey-graphite`, `odyssey-fathom`, `odyssey-harbor`, `odyssey-ion`,
+//! `odyssey-orchard`, `odyssey-volcanic`, `odyssey-cloud-light` (light),
+//! `odyssey-coral-light` (light), and `odyssey-mist-light` (light).
 //!
 //! Community palettes (published values): `solarized-dark`, `gruvbox-dark`,
 //! `nord`, `dracula`, `tokyo-night`, `catppuccin-mocha`, `one-dark`, `monokai`,
@@ -101,6 +103,35 @@ const REGISTRY: &[(&str, &str)] = &[
     (
         "odyssey-graphite",
         include_str!("builtins/odyssey-graphite.theme"),
+    ),
+    (
+        "odyssey-fathom",
+        include_str!("builtins/odyssey-fathom.theme"),
+    ),
+    (
+        "odyssey-harbor",
+        include_str!("builtins/odyssey-harbor.theme"),
+    ),
+    ("odyssey-ion", include_str!("builtins/odyssey-ion.theme")),
+    (
+        "odyssey-orchard",
+        include_str!("builtins/odyssey-orchard.theme"),
+    ),
+    (
+        "odyssey-volcanic",
+        include_str!("builtins/odyssey-volcanic.theme"),
+    ),
+    (
+        "odyssey-cloud-light",
+        include_str!("builtins/odyssey-cloud-light.theme"),
+    ),
+    (
+        "odyssey-coral-light",
+        include_str!("builtins/odyssey-coral-light.theme"),
+    ),
+    (
+        "odyssey-mist-light",
+        include_str!("builtins/odyssey-mist-light.theme"),
     ),
     // Community palettes (published values).
     (
@@ -233,7 +264,7 @@ mod tests {
     #[test]
     fn library_has_the_full_roster() {
         assert_eq!(all().len(), REGISTRY.len());
-        assert_eq!(all().len(), 53, "roster size changed — update docs + this");
+        assert_eq!(all().len(), 61, "roster size changed — update docs + this");
     }
 
     #[test]

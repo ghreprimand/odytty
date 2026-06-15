@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-cloud-light
+appearance = light
+
+foreground = #1f2b3a
+background = #f4f7fb
+clear = #eef3f8
+
+cursor = #256fc4
+selection = #c9dcf2
+search = #ffe6a6
+border = #b8c7d8
+inactive = #718094
+
+color0 = #273241
+color1 = #b84555
+color2 = #4f7d3a
+color3 = #9a6b21
+color4 = #256fc4
+color5 = #8a5bb8
+color6 = #2b7f8f
+color7 = #d9e1ea
+color8 = #5d6a7b
+color9 = #d55f6c
+color10 = #63984b
+color11 = #b7832d
+color12 = #3f86d7
+color13 = #a973cf
+color14 = #3b9cae
+color15 = #ffffff

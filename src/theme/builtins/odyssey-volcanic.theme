@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-volcanic
+appearance = dark
+
+foreground = #f0ded1
+background = #15110f
+clear = #0c0908
+
+cursor = #ff9a5a
+selection = #3a2a21
+search = #5a3d16
+border = #34251f
+inactive = #8a7468
+
+color0 = #1e1714
+color1 = #ef6a5b
+color2 = #8ac06f
+color3 = #d9a857
+color4 = #6d9fd6
+color5 = #c280d7
+color6 = #64b9ae
+color7 = #d8c8bd
+color8 = #4c3b34
+color9 = #ff8874
+color10 = #a8dc88
+color11 = #efc36f
+color12 = #8bb9ec
+color13 = #d99aec
+color14 = #84d4c8
+color15 = #fff4ea

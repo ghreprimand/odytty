@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-ion
+appearance = dark
+
+foreground = #e4e6ff
+background = #101120
+clear = #090a14
+
+cursor = #9aa6ff
+selection = #2a315c
+search = #56421d
+border = #252945
+inactive = #787da0
+
+color0 = #17182a
+color1 = #f06c8c
+color2 = #83d483
+color3 = #e2be62
+color4 = #8398ff
+color5 = #c487f2
+color6 = #65cbd7
+color7 = #d0d4ee
+color8 = #3f425c
+color9 = #ff8ea8
+color10 = #a3ee9f
+color11 = #f0d47d
+color12 = #a2b2ff
+color13 = #d9a7ff
+color14 = #85e2ec
+color15 = #f7f8ff

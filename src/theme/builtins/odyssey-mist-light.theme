@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-mist-light
+appearance = light
+
+foreground = #20302d
+background = #eef7f4
+clear = #e8f2ef
+
+cursor = #257f79
+selection = #c7e0da
+search = #f4dda0
+border = #b5cbc6
+inactive = #6e817d
+
+color0 = #263835
+color1 = #b84f5d
+color2 = #4f7f55
+color3 = #946f25
+color4 = #2f70a8
+color5 = #855fa6
+color6 = #257f79
+color7 = #d8e5e1
+color8 = #5a6d69
+color9 = #d66a72
+color10 = #669b6b
+color11 = #b08535
+color12 = #4b86bd
+color13 = #9c78ba
+color14 = #399a94
+color15 = #ffffff
