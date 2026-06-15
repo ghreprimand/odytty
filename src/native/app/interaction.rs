@@ -408,6 +408,12 @@ impl App {
             return;
         }
         self.write_primary_selection();
+        // MOUSE-COPYSELECT: when enabled, also write the CLIPBOARD via the exact
+        // copy-shortcut path (`handle_copy_shortcut`). Off by default, so the
+        // historical PRIMARY-only finish is byte-identical.
+        if self.settings.copy_on_select {
+            self.handle_copy_shortcut();
+        }
         self.selecting = false;
         self.last_selection_autoscroll = None;
         self.request_selection_redraw();

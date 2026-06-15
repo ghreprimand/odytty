@@ -717,6 +717,14 @@ a floor; surpassing it is the standing ambition.
 - [x] Basic mouse text selection.
 - [x] Copy from selection.
 - [x] Scrollback viewport navigation.
+  - [x] `scroll_wheel_lines` (1-10, default 3): configurable local wheel scroll
+        step, driven by the overlay slider. Only the local viewport path is
+        scaled; reported wheel events (TUI mouse mode on), overlay free-scroll,
+        and touchpad pixel deltas are unaffected. Default 3 is byte-identical to
+        the prior fixed step.
+  - [x] `copy_on_select` (default off): when on, finishing a selection also
+        writes the clipboard (in addition to PRIMARY); off keeps the prior
+        PRIMARY-only behavior byte-identical.
 - [x] Validate basic commands interactively: prompt display, `ls --color`,
       `clear`, simple editor/pager enter-exit behavior, and resize.
 

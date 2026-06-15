@@ -32,6 +32,8 @@ pub const GEOMETRIC_BOXDRAW_ENV: &str = "ODYTTY_GEOMETRIC_BOXDRAW";
 pub const SYMBOL_FALLBACK_ENV: &str = "ODYTTY_SYMBOL_FALLBACK";
 pub const SYMBOL_FONT_ENV: &str = "ODYTTY_SYMBOL_FONT";
 pub const THEMED_UI_ROLES_ENV: &str = "ODYTTY_THEMED_UI_ROLES";
+pub const SCROLL_WHEEL_LINES_ENV: &str = "ODYTTY_SCROLL_WHEEL_LINES";
+pub const COPY_ON_SELECT_ENV: &str = "ODYTTY_COPY_ON_SELECT";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
@@ -69,6 +71,8 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SYMBOL_FALLBACK_ENV,
     SYMBOL_FONT_ENV,
     THEMED_UI_ROLES_ENV,
+    SCROLL_WHEEL_LINES_ENV,
+    COPY_ON_SELECT_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 
@@ -116,6 +120,23 @@ pub const MAX_FOCUS_DIM: f32 = 1.0;
 pub const DEFAULT_WINDOW_PADDING_PX: f32 = 8.0;
 pub const MIN_WINDOW_PADDING_PX: f32 = 0.0;
 pub const MAX_WINDOW_PADDING_PX: f32 = 64.0;
+
+/// Mouse-wheel scroll multiplier (`ODYTTY_SCROLL_WHEEL_LINES`, MOUSE-WHEEL-SPEED):
+/// rows of local scrollback advanced per wheel notch. The default `3.0` is
+/// byte-identical to the historical hardcoded `WHEEL_STEP_LINES`. Stored as `f32`
+/// to ride the shared numeric-setting model (slider / keyboard step / range
+/// label); the wheel path rounds it to a `usize >= 1`. Local viewport scroll
+/// only — when TUI mouse reporting is active the wheel still reports unchanged,
+/// and continuous (touchpad pixel) deltas are never multiplied.
+pub const DEFAULT_SCROLL_WHEEL_LINES: f32 = 3.0;
+pub const MIN_SCROLL_WHEEL_LINES: f32 = 1.0;
+pub const MAX_SCROLL_WHEEL_LINES: f32 = 10.0;
+
+/// Copy-on-select (`ODYTTY_COPY_ON_SELECT`, MOUSE-COPYSELECT): when on, finishing
+/// a local selection also writes the CLIPBOARD (in addition to the PRIMARY
+/// selection it always writes). Off by default — PRIMARY and middle-click paste
+/// already work regardless, so the off path is byte-identical to before.
+pub const DEFAULT_COPY_ON_SELECT: bool = false;
 
 pub const DEFAULT_BLOOM: bool = false;
 pub const BLOOM_THRESHOLD_MARGIN: f32 = 0.12;

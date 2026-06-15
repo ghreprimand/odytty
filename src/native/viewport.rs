@@ -130,17 +130,35 @@ impl Viewport {
     }
 }
 
-/// Convert a mouse-wheel delta into a signed row count: positive scrolls up
-/// into history, negative scrolls toward the live bottom. Line deltas map each
-/// notch to [`WHEEL_STEP_LINES`] rows; pixel deltas convert by the cell height.
+/// Convert a mouse-wheel delta into a signed row count at the default step:
+/// positive scrolls up into history, negative scrolls toward the live bottom.
+/// Line deltas map each notch to [`WHEEL_STEP_LINES`] rows; pixel deltas convert
+/// by the cell height. Thin wrapper over [`wheel_lines_scaled`] at the default
+/// step, used by the direction-only reporting path and the overlay free-scroll
+/// (which deliberately ignore the user's local-scroll multiplier).
 pub(super) fn wheel_lines(delta: MouseScrollDelta, cell_height: u32) -> isize {
+    wheel_lines_scaled(delta, cell_height, WHEEL_STEP_LINES)
+}
+
+/// As [`wheel_lines`], but with a caller-supplied notch multiplier
+/// (`step_lines`, floored at 1) so the local viewport scroll path can honor the
+/// `scroll_wheel_lines` setting (MOUSE-WHEEL-SPEED). Only discrete wheel-notch
+/// (`LineDelta`) input is multiplied; continuous (touchpad `PixelDelta`) input
+/// is already row-accurate and is never scaled. `step_lines == WHEEL_STEP_LINES`
+/// is byte-identical to the historical behavior.
+pub(super) fn wheel_lines_scaled(
+    delta: MouseScrollDelta,
+    cell_height: u32,
+    step_lines: usize,
+) -> isize {
     match delta {
         MouseScrollDelta::LineDelta(_, y) => {
             if y == 0.0 {
                 return 0;
             }
+            let step = step_lines.max(1) as isize;
             let notches = y.abs().ceil().max(1.0) as isize;
-            y.signum() as isize * notches * WHEEL_STEP_LINES as isize
+            y.signum() as isize * notches * step
         }
         MouseScrollDelta::PixelDelta(pos) => {
             let height = (cell_height.max(1)) as f64;

@@ -6,13 +6,13 @@ use std::io;
 use std::path::Path;
 
 use super::{
-    BLOOM_ENV, BLOOM_INTENSITY_ENV, BLOOM_RADIUS_ENV, BLOOM_THRESHOLD_ENV, CRT_ENV,
-    CRT_SCANLINE_INTENSITY_ENV, CRT_SCANLINE_PERIOD_ENV, CRT_VIGNETTE_STRENGTH_ENV,
+    BLOOM_ENV, BLOOM_INTENSITY_ENV, BLOOM_RADIUS_ENV, BLOOM_THRESHOLD_ENV, COPY_ON_SELECT_ENV,
+    CRT_ENV, CRT_SCANLINE_INTENSITY_ENV, CRT_SCANLINE_PERIOD_ENV, CRT_VIGNETTE_STRENGTH_ENV,
     CURSOR_BLINK_ENV, CURSOR_STYLE_ENV, FOCUS_DIM_ENV, FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV,
     GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV, NATIVE_AUTOCLOSE_ENV, OSC52_READ_ENV,
-    RENDER_QUALITY_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV,
-    SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV,
-    WINDOW_PADDING_ENV, normalize_name,
+    RENDER_QUALITY_ENV, SCROLL_WHEEL_LINES_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV,
+    SYMBOL_FONT_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV,
+    VISUAL_ENV, WINDOW_PADDING_ENV, normalize_name,
 };
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
@@ -95,6 +95,10 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "cursorblink" => Some(CURSOR_BLINK_ENV),
         "osc52read" | "allowosc52read" | "clipboardread" => Some(OSC52_READ_ENV),
         "syntheticstyles" | "synthstyles" | "syntheticfonts" => Some(SYNTHETIC_STYLES_ENV),
+        "scrollwheellines" | "wheellines" | "scrollspeed" | "scrollwheelspeed" => {
+            Some(SCROLL_WHEEL_LINES_ENV)
+        }
+        "copyonselect" | "selecttoclipboard" => Some(COPY_ON_SELECT_ENV),
         "nativeautoclosems" => Some(NATIVE_AUTOCLOSE_ENV),
         _ => None,
     }
@@ -131,6 +135,8 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         CURSOR_BLINK_ENV => Some("cursor_blink"),
         OSC52_READ_ENV => Some("osc52_read"),
         SYNTHETIC_STYLES_ENV => Some("synthetic_styles"),
+        SCROLL_WHEEL_LINES_ENV => Some("scroll_wheel_lines"),
+        COPY_ON_SELECT_ENV => Some("copy_on_select"),
         NATIVE_AUTOCLOSE_ENV => Some("native_autoclose_ms"),
         _ => None,
     }

@@ -59,7 +59,7 @@ pub(super) use super::resize::{
 use super::search_ui::{SearchStyle, SearchUi, apply_search_ui};
 use super::viewport::{
     SELECTION_AUTOSCROLL_INTERVAL, Viewport, WindowPadding, grid_dimensions_for_with_padding,
-    scroll_indicator_quad_with_padding, wheel_lines,
+    scroll_indicator_quad_with_padding, wheel_lines, wheel_lines_scaled,
 };
 
 mod interaction;
@@ -1570,7 +1570,12 @@ impl ApplicationHandler<UserEvent> for App {
                 }
 
                 let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
-                let lines = wheel_lines(delta, cell_height);
+                // MOUSE-WHEEL-SPEED: local scrollback honors the configured
+                // per-notch multiplier (default 3 = byte-identical). The TUI
+                // reporting and overlay paths above intentionally use the fixed
+                // default step, so this only affects local viewport scrolling.
+                let lines =
+                    wheel_lines_scaled(delta, cell_height, self.settings.scroll_wheel_step());
                 if lines != 0 {
                     self.scroll_viewport(lines);
                 }

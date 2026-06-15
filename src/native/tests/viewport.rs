@@ -299,6 +299,47 @@ fn wheel_line_delta_maps_notches_to_rows() {
 }
 
 #[test]
+fn wheel_lines_scaled_multiplies_notches_and_preserves_default() {
+    // MOUSE-WHEEL-SPEED: the local-scroll path scales notches by the configured
+    // step. The default step (3) is byte-identical to plain `wheel_lines`.
+    assert_eq!(
+        wheel_lines_scaled(MouseScrollDelta::LineDelta(0.0, 1.0), 16, 3),
+        wheel_lines(MouseScrollDelta::LineDelta(0.0, 1.0), 16),
+        "default step matches the historical wheel_lines exactly"
+    );
+    // A larger step scales the per-notch row count, sign preserved.
+    assert_eq!(
+        wheel_lines_scaled(MouseScrollDelta::LineDelta(0.0, 1.0), 16, 5),
+        5
+    );
+    assert_eq!(
+        wheel_lines_scaled(MouseScrollDelta::LineDelta(0.0, -1.0), 16, 5),
+        -5
+    );
+    assert_eq!(
+        wheel_lines_scaled(MouseScrollDelta::LineDelta(0.0, 2.0), 16, 5),
+        10
+    );
+    // A step of 1 is the minimum (one row per notch).
+    assert_eq!(
+        wheel_lines_scaled(MouseScrollDelta::LineDelta(0.0, 1.0), 16, 1),
+        1
+    );
+    // A zero step floors to one row, never zero.
+    assert_eq!(
+        wheel_lines_scaled(MouseScrollDelta::LineDelta(0.0, 1.0), 16, 0),
+        1
+    );
+    // Continuous (touchpad pixel) deltas are row-accurate and never scaled.
+    let px = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 32.0));
+    assert_eq!(
+        wheel_lines_scaled(px, 16, 5),
+        2,
+        "pixel deltas ignore the multiplier"
+    );
+}
+
+#[test]
 fn wheel_pixel_delta_converts_by_cell_height() {
     // 32px / 16px cell == 2 rows up.
     let up = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 32.0));

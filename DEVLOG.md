@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Phase 5b mouse: configurable wheel speed + opt-in copy-on-select
+
+- Two default-safe pointer ergonomics knobs, both with byte-identical default
+  behavior:
+- `scroll_wheel_lines` (numeric, 1-10, default 3): the wheel scroll step for the
+  local viewport is now configurable instead of a hardcoded 3 rows. It rides the
+  UX4-P2 `NumericSpec` model (min/max/step/unit) so the overlay slider drives it.
+  Only the local viewport-scroll path is scaled — when a TUI has mouse reporting
+  on, the reported wheel events stay unscaled behind the unchanged
+  `should_report_mouse_to_pty()` early-return, the overlay free-scroll keeps its
+  fixed step, and touchpad pixel-delta scrolling is not multiplied. Default 3
+  reproduces today's behavior exactly.
+- `copy_on_select` (bool, default off): when enabled, finishing a selection also
+  writes it to the clipboard (reusing the existing copy path) in addition to the
+  PRIMARY write. Off by default — PRIMARY selection and middle-click paste work
+  exactly as before regardless — so the default path is byte-identical.
+- Shift remains the selection-vs-passthrough seam; `should_report_mouse_to_pty`
+  is untouched. Lane: `src/settings.rs` + `src/settings/{info,config,consts}.rs`
+  for the two keys, `src/native/viewport.rs` for the wheel-step seam,
+  `src/native/app/{mod,interaction}.rs` for the wiring, with tests in
+  `src/settings/tests.rs` and `src/native/tests/{viewport,mod}.rs`.
+- Verified: `cargo fmt --all -- --check` clean; `cargo test --lib`
+  1137 passed / 0 failed / 7 ignored; full aggregate 1243 passed / 0 failed /
+  19 ignored; integration smokes (mouse_protocol, pty_alt_screen, pixel_smoke,
+  gpu_composite, cli, license) green; pixel/composite smokes green at baseline
+  and with subpixel+CRT+bloom enabled; release binary builds. No
+  parser/protocol surface touched.
+
+---
+
 ## 2026-06-15 -- Fix: 24-bit SGR color channels 60-63 were silently dropped
 
 - Fixed a silent correctness bug in the SGR color decode: any 24-bit color

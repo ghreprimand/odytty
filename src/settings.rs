@@ -364,6 +364,16 @@ pub struct Settings {
     /// restores the historical foreground cursor, inverse selection, and
     /// black-on-yellow active search treatment.
     pub themed_ui_roles: bool,
+    /// Rows of local scrollback advanced per mouse-wheel notch (MOUSE-WHEEL-SPEED).
+    /// Default `3.0` is byte-identical to the historical fixed step. Stored as
+    /// `f32` to ride the shared numeric-setting model; [`Settings::scroll_wheel_step`]
+    /// rounds it to a `usize >= 1` for the wheel path. Affects local viewport
+    /// scroll only — never the TUI mouse-reporting path.
+    pub scroll_wheel_lines: f32,
+    /// When on, finishing a local selection also writes the CLIPBOARD, not just
+    /// the PRIMARY selection (MOUSE-COPYSELECT). Off by default — the off path is
+    /// byte-identical to before (PRIMARY + middle-click paste already work).
+    pub copy_on_select: bool,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -399,6 +409,8 @@ impl Default for Settings {
             symbol_fallback: false,
             symbol_font: None,
             themed_ui_roles: true,
+            scroll_wheel_lines: DEFAULT_SCROLL_WHEEL_LINES,
+            copy_on_select: DEFAULT_COPY_ON_SELECT,
             native_autoclose: None,
         }
     }
@@ -439,6 +451,14 @@ impl Settings {
 
     pub fn effective_crt_enabled(&self) -> bool {
         !self.plain_render_quality() && self.crt
+    }
+
+    /// Rows advanced per mouse-wheel notch (MOUSE-WHEEL-SPEED), as a `usize >= 1`.
+    /// Rounds the stored `f32` (kept in the shared numeric-setting model) and
+    /// floors at 1 so a wheel notch always moves at least one row. The default
+    /// `3.0` returns `3`, byte-identical to the historical fixed step.
+    pub fn scroll_wheel_step(&self) -> usize {
+        (self.scroll_wheel_lines.round() as i64).max(1) as usize
     }
 
     /// Load settings from the config file, then overlay the current process
@@ -660,6 +680,14 @@ impl Settings {
             true,
             &mut warn,
         );
+        let scroll_wheel_lines =
+            parse_scroll_wheel_lines(get(SCROLL_WHEEL_LINES_ENV).as_deref(), &mut warn);
+        let copy_on_select = parse_bool_setting(
+            get(COPY_ON_SELECT_ENV).as_deref(),
+            COPY_ON_SELECT_ENV,
+            DEFAULT_COPY_ON_SELECT,
+            &mut warn,
+        );
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -692,6 +720,8 @@ impl Settings {
             symbol_fallback,
             symbol_font,
             themed_ui_roles,
+            scroll_wheel_lines,
+            copy_on_select,
             native_autoclose,
         }
     }
@@ -758,6 +788,14 @@ impl Settings {
         values.insert(
             THEMED_UI_ROLES_ENV,
             bool_display(self.themed_ui_roles).to_owned(),
+        );
+        values.insert(
+            SCROLL_WHEEL_LINES_ENV,
+            format_float(self.scroll_wheel_lines),
+        );
+        values.insert(
+            COPY_ON_SELECT_ENV,
+            bool_display(self.copy_on_select).to_owned(),
         );
         if let Some(duration) = self.native_autoclose {
             values.insert(NATIVE_AUTOCLOSE_ENV, duration.as_millis().to_string());
@@ -1135,6 +1173,33 @@ fn parse_focus_dim(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     };
 
     parsed.clamp(MIN_FOCUS_DIM, MAX_FOCUS_DIM)
+}
+
+/// Parse the mouse-wheel scroll multiplier (MOUSE-WHEEL-SPEED). Mirrors the other
+/// numeric parsers: an absent/blank value yields the default; a non-finite or
+/// unparseable value warns and falls back; otherwise it is clamped to
+/// `[MIN_SCROLL_WHEEL_LINES, MAX_SCROLL_WHEEL_LINES]`.
+fn parse_scroll_wheel_lines(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_SCROLL_WHEEL_LINES;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_SCROLL_WHEEL_LINES;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{SCROLL_WHEEL_LINES_ENV}={trimmed:?} is not a valid wheel-line count; using {DEFAULT_SCROLL_WHEEL_LINES}"
+            ));
+            return DEFAULT_SCROLL_WHEEL_LINES;
+        }
+    };
+
+    parsed.clamp(MIN_SCROLL_WHEEL_LINES, MAX_SCROLL_WHEEL_LINES)
 }
 
 fn parse_render_quality(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> RenderQuality {

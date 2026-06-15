@@ -115,7 +115,9 @@ fn setting_info_covers_every_field_with_descriptions() {
             "cursor_style",
             "cursor_blink",
             "keybinds",
+            "scroll_wheel_lines",
             "osc52_read",
+            "copy_on_select",
             "native_autoclose_ms",
         ]
     );
@@ -1748,6 +1750,11 @@ fn numeric_spec_bounds_match_the_parser_clamp_constants() {
         (csi.min, csi.max),
         (MIN_CRT_SCANLINE_INTENSITY, MAX_CRT_SCANLINE_INTENSITY)
     );
+    let swl = spec("scroll_wheel_lines");
+    assert_eq!(
+        (swl.min, swl.max, swl.step, swl.unit),
+        (MIN_SCROLL_WHEEL_LINES, MAX_SCROLL_WHEEL_LINES, 1.0, "lines")
+    );
 }
 
 #[test]
@@ -1776,6 +1783,7 @@ fn numeric_spec_steps_preserve_the_folded_keyboard_steps() {
         ("crt_scanline_intensity", 0.01),
         ("crt_scanline_period", 0.5),
         ("crt_vignette_strength", 0.01),
+        ("scroll_wheel_lines", 1.0),
     ] {
         assert_eq!(step(key), expected, "{key} keyboard step");
     }
@@ -1839,4 +1847,68 @@ fn numeric_spec_slider_math_clamps_and_snaps() {
     };
     assert_eq!(flat.fraction_of(3.0), 0.0);
     assert_eq!(flat.value_at_fraction(0.5), 3.0);
+}
+
+#[test]
+fn scroll_wheel_lines_defaults_parses_and_clamps() {
+    // Absent → default (byte-identical historical step of 3).
+    let (settings, warnings) = settings_from([]);
+    assert_eq!(settings.scroll_wheel_lines, DEFAULT_SCROLL_WHEEL_LINES);
+    assert_eq!(settings.scroll_wheel_step(), 3);
+    assert!(warnings.is_empty());
+
+    // A valid in-range value is taken as-is and rounds to a usize step.
+    let (settings, warnings) = settings_from([(SCROLL_WHEEL_LINES_ENV, "5")]);
+    assert_eq!(settings.scroll_wheel_lines, 5.0);
+    assert_eq!(settings.scroll_wheel_step(), 5);
+    assert!(warnings.is_empty());
+
+    // Out-of-range values clamp to the spec bounds (no warning — clamp, not reject).
+    let (high, _) = settings_from([(SCROLL_WHEEL_LINES_ENV, "999")]);
+    assert_eq!(high.scroll_wheel_lines, MAX_SCROLL_WHEEL_LINES);
+    let (low, _) = settings_from([(SCROLL_WHEEL_LINES_ENV, "0")]);
+    assert_eq!(low.scroll_wheel_lines, MIN_SCROLL_WHEEL_LINES);
+    assert_eq!(low.scroll_wheel_step(), 1, "step floors at one row");
+
+    // An unparseable value warns and falls back to the default.
+    let (settings, warnings) = settings_from([(SCROLL_WHEEL_LINES_ENV, "fast")]);
+    assert_eq!(settings.scroll_wheel_lines, DEFAULT_SCROLL_WHEEL_LINES);
+    assert_eq!(warnings.len(), 1);
+}
+
+#[test]
+fn copy_on_select_defaults_off_and_parses() {
+    // Absent → off (byte-identical: PRIMARY-only on selection finish).
+    let (settings, warnings) = settings_from([]);
+    assert!(!settings.copy_on_select);
+    assert!(warnings.is_empty());
+
+    // Enabled via the env/config key.
+    let (settings, _) = settings_from([(COPY_ON_SELECT_ENV, "on")]);
+    assert!(settings.copy_on_select);
+
+    let (settings, _) = settings_from([(COPY_ON_SELECT_ENV, "off")]);
+    assert!(!settings.copy_on_select);
+}
+
+#[test]
+fn scroll_wheel_lines_round_trips_through_config_key() {
+    // The config-file alias maps to the env key and back, and the value
+    // survives a to_edit_values round-trip.
+    assert_eq!(
+        config_key_to_env("scroll_wheel_lines"),
+        Some(SCROLL_WHEEL_LINES_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(SCROLL_WHEEL_LINES_ENV),
+        Some("scroll_wheel_lines")
+    );
+    assert_eq!(
+        config_key_to_env("copy_on_select"),
+        Some(COPY_ON_SELECT_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(COPY_ON_SELECT_ENV),
+        Some("copy_on_select")
+    );
 }
