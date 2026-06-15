@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- U3: generate a readable theme from a seed in the theme builder
+
+- The theme builder can now start from a generated palette. Pressing `g` / `G`
+  opens a seed-color entry; on confirm it runs the contrast-aware palette
+  generator against the builder's authoring floor and loads the result as the
+  live editing target, which you then refine with the OKLCH sliders / keyboard
+  from U2. This is an in-builder affordance on the existing character-input path,
+  so it adds no new settings key and no new pointer surface.
+- Safe-by-construction: the generator floors exactly the roles the authoring
+  partner-color logic reports as floored (a shared notion of the
+  background-side neutral slots), so a freshly generated palette reads
+  AA-pass-or-not-floored on every one of the 24 roles — never a failing contrast
+  readout. A test drives the full key path (`g` → type seed → confirm) and
+  asserts that invariant across all roles. Appearance polarity (dark vs light) is
+  taken from the current builder context, not the seed's own lightness, so a
+  light builder stays light. Esc cancels and preserves the in-progress save name.
+- This completes the U3 increment (contrast-aware palette generation): a seed
+  now yields a readable starting `.theme` you can tweak, with the readability
+  floor guaranteed before the first edit.
+- Verified: theme-builder unit suite (3 new, 22 total) including the
+  every-role-readable assertion, the render-signature matrix, aggregate lib
+  green, `cargo fmt --all --check` clean.
+
 ## 2026-06-15 -- Binding foundation for prompt navigation, copy mode, and hints
 
 - Adds four bindable actions — jump to previous / next prompt, enter copy mode,

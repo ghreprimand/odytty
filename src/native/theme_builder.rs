@@ -4,6 +4,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::color::{linear_to_oklab, oklab_to_oklch, srgb_to_linear};
+use crate::palette_gen;
 use crate::settings::Settings;
 use crate::theme::{Appearance, Srgb, Theme, ThemeSpec, contrast_ratio, relative_luminance};
 use crate::theme_author::{self, AUTHORING_CONTRAST_FLOOR, AuthorRole, FloorAgainst};
@@ -177,6 +178,7 @@ enum BuilderZone {
 pub(super) enum ThemeBuilderEditSignature {
     Color { field: &'static str, buffer: String },
     Name { buffer: String },
+    Seed { buffer: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,6 +196,13 @@ enum EditMode {
         buffer: String,
     },
     Name {
+        buffer: String,
+    },
+    /// Seed entry for contrast-aware generation (U3): the user types a single
+    /// accent hex, and Enter feeds it to [`palette_gen::generate`] to author a
+    /// complete, AA-by-construction [`ThemeSpec`] loaded as the live editing
+    /// target. Shares the hex-entry keystroke handling with [`EditMode::Color`].
+    Seed {
         buffer: String,
     },
 }
@@ -246,7 +255,7 @@ impl ThemeBuilder {
     pub(super) fn open(&mut self, settings: &Settings) {
         *self = Self::from_theme(settings.theme);
         self.message = Some(
-            "Clone active theme. Tab or [/] picks L/C/H, Left/Right or drag adjust, F snaps to AA, Enter types hex, Ctrl+S saves."
+            "Clone active theme. Tab or [/] picks L/C/H, Left/Right or drag adjust, F snaps to AA, G generates from a seed, Enter types hex, Ctrl+S saves."
                 .to_owned(),
         );
     }
@@ -275,6 +284,7 @@ impl ThemeBuilder {
             OverlayInput::Char(']') => self.cycle_channel(true),
             OverlayInput::Tab => self.cycle_channel(true),
             OverlayInput::Char('f') | OverlayInput::Char('F') => return self.snap_selected(),
+            OverlayInput::Char('g') | OverlayInput::Char('G') => self.begin_seed_edit(),
             OverlayInput::Activate => self.begin_color_edit(),
             OverlayInput::Save => self.begin_name_edit(),
             OverlayInput::Char('n') | OverlayInput::Char('N') => self.begin_name_edit(),
@@ -316,6 +326,9 @@ impl ThemeBuilder {
                     buffer: buffer.clone(),
                 },
                 EditMode::Name { buffer } => ThemeBuilderEditSignature::Name {
+                    buffer: buffer.clone(),
+                },
+                EditMode::Seed { buffer } => ThemeBuilderEditSignature::Seed {
                     buffer: buffer.clone(),
                 },
             }),
@@ -381,7 +394,7 @@ impl ThemeBuilder {
 
         rows.push(inert(
             ellipsize(
-                "  Theme builder - Tab/[ ] L/C/H, Left/Right or drag adjust, F snap AA, Ctrl+S save",
+                "  Theme builder - Tab/[ ] L/C/H, Left/Right or drag adjust, F snap AA, G generate, Ctrl+S save",
                 body_width,
             ),
             None,
@@ -530,6 +543,9 @@ impl ThemeBuilder {
                 if matches!(self.editing, Some(EditMode::Name { .. })) {
                     self.editing = None;
                     self.message = Some("Cancelled save name.".to_owned());
+                } else if matches!(self.editing, Some(EditMode::Seed { .. })) {
+                    self.editing = None;
+                    self.message = Some("Cancelled generate.".to_owned());
                 }
                 ThemeBuilderOutcome::Consumed
             }
@@ -551,11 +567,21 @@ impl ThemeBuilder {
                     }
                 },
                 Some(EditMode::Name { buffer }) => self.save_request(buffer),
+                Some(EditMode::Seed { buffer }) => match parse_hex(&buffer) {
+                    Some(seed) => self.generate_from_seed(seed),
+                    None => {
+                        self.editing = Some(EditMode::Seed { buffer });
+                        self.message = Some("Use #rgb or #rrggbb for the seed.".to_owned());
+                        ThemeBuilderOutcome::Consumed
+                    }
+                },
                 None => ThemeBuilderOutcome::Consumed,
             },
             OverlayInput::Backspace => {
                 match self.editing.as_mut() {
-                    Some(EditMode::Color { buffer, .. }) | Some(EditMode::Name { buffer }) => {
+                    Some(EditMode::Color { buffer, .. })
+                    | Some(EditMode::Name { buffer })
+                    | Some(EditMode::Seed { buffer }) => {
                         buffer.pop();
                     }
                     None => {}
@@ -564,7 +590,7 @@ impl ThemeBuilder {
             }
             OverlayInput::Char(ch) if !ch.is_control() => {
                 match self.editing.as_mut() {
-                    Some(EditMode::Color { buffer, .. }) => {
+                    Some(EditMode::Color { buffer, .. }) | Some(EditMode::Seed { buffer }) => {
                         if ch == '#' || ch.is_ascii_hexdigit() {
                             buffer.push(ch.to_ascii_lowercase());
                         }
@@ -602,6 +628,45 @@ impl ThemeBuilder {
         });
         self.message =
             Some("Save as: type a theme name, Enter writes .theme, Esc cancels.".to_owned());
+    }
+
+    /// Begin seed-entry for contrast-aware generation (U3): pre-fill the buffer
+    /// with the current cursor accent as a sensible default so Enter alone
+    /// regenerates around the existing accent.
+    fn begin_seed_edit(&mut self) {
+        self.editing = Some(EditMode::Seed {
+            buffer: hex(self.spec.cursor),
+        });
+        self.message = Some(
+            "Generate from seed: type an accent #rrggbb, Enter authors a readable theme, Esc cancels."
+                .to_owned(),
+        );
+    }
+
+    /// Author a complete theme from a single seed accent (U3): hand the seed,
+    /// the current appearance polarity, and the authoring floor to
+    /// [`palette_gen::generate`], then load the RV1-validated result as the live
+    /// editing target. The generated spec clears the AA floor for every floored
+    /// role by construction, so the contrast readout reads PASS (or "not
+    /// floored") on every role immediately after; the user then tweaks it with
+    /// the same OKLCH sliders/keyboard. The in-progress save name is preserved so
+    /// generation does not silently rename the draft.
+    fn generate_from_seed(&mut self, seed: Srgb) -> ThemeBuilderOutcome {
+        let appearance = self.spec.appearance;
+        let name = self.spec.name.clone();
+        let mut spec = palette_gen::generate(seed, appearance, AUTHORING_CONTRAST_FLOOR);
+        spec.name = name;
+        self.spec = spec;
+        self.editing = None;
+        self.selected = 0;
+        self.scroll = 0;
+        self.channel = OklchChannel::default();
+        self.message = Some(format!(
+            "Generated {} theme from seed {}. Every role clears AA by construction; tweak with the sliders, Ctrl+S to save.",
+            appearance_label(appearance),
+            hex(seed),
+        ));
+        ThemeBuilderOutcome::Preview(self.preview_theme())
     }
 
     fn save_request(&mut self, name: String) -> ThemeBuilderOutcome {
@@ -1171,6 +1236,14 @@ fn floor_surface_label(role: AuthorRole, appearance: Appearance) -> Option<&'sta
     })
 }
 
+/// The lowercase polarity word used in the generate-confirmation message (U3).
+fn appearance_label(appearance: Appearance) -> &'static str {
+    match appearance {
+        Appearance::Dark => "dark",
+        Appearance::Light => "light",
+    }
+}
+
 /// Decode an sRGB byte triple to OKLCH for the readout: lightness `[0,1]`,
 /// chroma, and hue in degrees `[0,360)`. Read-only display helper over the
 /// shared `color` conversions — the editing math always routes through
@@ -1673,5 +1746,90 @@ mod tests {
         let lines = b.visible_lines(W, H);
         let hits = b.visible_hit_map(W, H);
         assert_eq!(lines.len(), hits.len(), "lines and hit-map are 1:1");
+    }
+
+    /// Drive the U3 generate action end-to-end through the key path: G opens seed
+    /// entry, the typed accent feeds `palette_gen::generate`, and the loaded spec
+    /// is RV1-valid by construction — so the AA readout reads PASS (or "not
+    /// floored") on *every* role, never FAIL.
+    #[test]
+    fn generate_from_seed_yields_aa_clear_readout_for_every_role() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+
+        // G enters seed-entry; the buffer pre-fills with the current accent.
+        b.handle_input(OverlayInput::Char('g'));
+        assert!(matches!(b.editing, Some(EditMode::Seed { .. })));
+
+        // Clear the pre-fill and type a fresh seed accent.
+        for _ in 0..8 {
+            b.handle_input(OverlayInput::Backspace);
+        }
+        for ch in "#3aa0ff".chars() {
+            b.handle_input(OverlayInput::Char(ch));
+        }
+        let out = b.handle_input(OverlayInput::Activate);
+        assert!(
+            matches!(out, ThemeBuilderOutcome::Preview(_)),
+            "generate previews"
+        );
+        assert!(b.editing.is_none(), "generate exits edit mode");
+
+        // The legibility guarantee: no floored role fails the authoring floor, so
+        // the readout is PASS or "not floored" for all 24 roles.
+        for (index, field) in FIELDS.iter().enumerate() {
+            b.set_selection(index);
+            let line = b.contrast_readout_line();
+            assert!(
+                !line.contains("FAIL"),
+                "freshly generated {field:?} should clear AA, got: {line}"
+            );
+            // Cross-check the numeric guarantee for floored roles directly.
+            let role = author_role(*field);
+            if let Some(partner) = theme_author::partner_color(&b.spec, role) {
+                let ratio = theme_author::authoring_contrast(b.color(*field), partner);
+                assert!(
+                    ratio >= AUTHORING_CONTRAST_FLOOR,
+                    "{field:?} only reached {ratio:.2}"
+                );
+            }
+        }
+    }
+
+    /// The generated spec follows the builder's current appearance polarity, not
+    /// the seed's own lightness: a bright seed in a dark draft still yields a dark
+    /// theme. Generation also preserves the in-progress save name.
+    #[test]
+    fn generate_honors_appearance_and_preserves_name() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        b.spec.appearance = Appearance::Dark;
+        b.spec.name = "draft-name".to_owned();
+
+        // A bright accent seed; appearance stays Dark, so the background stays dark.
+        let out = b.generate_from_seed((250, 250, 250));
+        assert!(matches!(out, ThemeBuilderOutcome::Preview(_)));
+        assert_eq!(b.spec.appearance, Appearance::Dark);
+        assert!(
+            relative_luminance(b.spec.background) <= 0.18,
+            "dark appearance keeps a dark background regardless of seed lightness"
+        );
+        assert_eq!(
+            b.spec.name, "draft-name",
+            "generation preserves the draft name"
+        );
+    }
+
+    /// Esc out of seed entry cancels without authoring a theme.
+    #[test]
+    fn seed_entry_cancels_on_escape() {
+        let mut b = ThemeBuilder::new(&Settings::default());
+        let before = b.spec.clone();
+        b.handle_input(OverlayInput::Char('g'));
+        assert!(matches!(b.editing, Some(EditMode::Seed { .. })));
+        b.handle_input(OverlayInput::Close);
+        assert!(b.editing.is_none());
+        assert_eq!(
+            b.spec, before,
+            "cancelled generate leaves the spec untouched"
+        );
     }
 }
