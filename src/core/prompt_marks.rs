@@ -319,6 +319,88 @@ pub fn command_status(block: &CommandBlock) -> CommandStatus {
     }
 }
 
+/// Where a revealed target row should sit within the viewport when a jump or
+/// reveal scrolls it into view.
+///
+/// SH2 prompt-jump uses [`Align::Top`] (D-SH2-2): a jump lands the prompt at the
+/// top of the viewport so its command output reads downward below it. The other
+/// placements are exposed for callers that want the legacy centered reveal
+/// (search uses center) or a bottom-anchored reveal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Align {
+    /// The target row sits at the top of the viewport — prompt on top, output
+    /// below. The SH2 prompt-jump default.
+    Top,
+    /// The target row sits at the vertical center of the viewport. Matches the
+    /// historical search-reveal behaviour.
+    Center,
+    /// The target row sits at the bottom of the viewport.
+    Bottom,
+}
+
+/// Resolve the scrollback **viewport offset** that brings `target_row` into view
+/// at the requested [`Align`]. Pure viewport geometry shared by SH2 prompt-jump
+/// and any future reveal; the generalization of the native search reveal (which
+/// is the [`Align::Center`] case).
+///
+/// ## Coordinate convention
+/// - `target_row` is absolute (row `0` = oldest scrollback), matching
+///   [`command_blocks`] / [`jump_target`].
+/// - `viewport_height` is the number of visible terminal rows.
+/// - `scrollback_len` is the number of rows scrolled out above the live screen;
+///   equivalently the absolute row of the live viewport's top.
+/// - The returned **offset** is measured up from the live tail: `0` shows the
+///   live tail, and larger values scroll further back. The viewport's top
+///   absolute row is `scrollback_len - offset`.
+///
+/// ## Clamping
+/// The desired top is clamped to `[0, scrollback_len]`, so the offset is never
+/// negative (you cannot scroll below the live tail — a target already on or
+/// below the live screen yields offset `0`) and never exceeds `scrollback_len`
+/// (you cannot scroll above the oldest row). A `viewport_height` of `0` degrades
+/// to a top-anchored reveal. Pure; never panics for any inputs.
+pub fn viewport_offset_for_row(
+    target_row: usize,
+    align: Align,
+    viewport_height: usize,
+    scrollback_len: usize,
+) -> usize {
+    let desired_top = match align {
+        Align::Top => target_row,
+        Align::Center => target_row.saturating_sub(viewport_height / 2),
+        Align::Bottom => target_row.saturating_sub(viewport_height.saturating_sub(1)),
+    };
+    let top = desired_top.min(scrollback_len);
+    scrollback_len.saturating_sub(top)
+}
+
+/// Resolve a prompt-jump in one call: from `reference_row`, find the prev / next
+/// prompt ([`jump_target`]) and the viewport offset that reveals it at `align`
+/// ([`viewport_offset_for_row`]). Returns `(target_prompt_row, viewport_offset)`,
+/// or `None` when there is no prompt past the reference in that direction.
+///
+/// This is the thin composition the SH2 native wiring calls: the native layer
+/// supplies the current reference row (derived from the live viewport position)
+/// and the viewport geometry, and receives both the absolute row to focus and
+/// the offset to scroll to — no jump logic in the front end.
+///
+/// **End behaviour is clamp, no wrap:** at the first prompt a `Prev` jump and at
+/// the last prompt a `Next` jump return `None` (a no-op), rather than wrapping to
+/// the opposite end. This mirrors [`jump_target`]'s strict-neighbour contract and
+/// is asserted in [`prompt_jump_clamps_at_ends_without_wrapping`].
+pub fn prompt_jump(
+    marks: &[(usize, PromptKind)],
+    reference_row: usize,
+    direction: JumpDirection,
+    align: Align,
+    viewport_height: usize,
+    scrollback_len: usize,
+) -> Option<(usize, usize)> {
+    let target = jump_target(marks, reference_row, direction)?;
+    let offset = viewport_offset_for_row(target, align, viewport_height, scrollback_len);
+    Some((target, offset))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -719,5 +801,101 @@ mod tests {
             command_status(&block_with(CommandOutput::Open { start: 1 }, Some(3))),
             CommandStatus::Fail
         );
+    }
+
+    // --- viewport_offset_for_row (SH2 reveal geometry) ---
+
+    #[test]
+    fn align_top_puts_target_at_viewport_top() {
+        // scrollback 100, height 24. Target row 50, Top → top row is 50, so the
+        // offset up from the live tail is scrollback_len - 50 = 50.
+        assert_eq!(viewport_offset_for_row(50, Align::Top, 24, 100), 50);
+    }
+
+    #[test]
+    fn align_center_matches_the_legacy_search_reveal() {
+        // Center reproduces the old native viewport_offset_for_match: the top is
+        // target - height/2 = 50 - 12 = 38, offset = 100 - 38 = 62.
+        assert_eq!(viewport_offset_for_row(50, Align::Center, 24, 100), 62);
+    }
+
+    #[test]
+    fn align_bottom_puts_target_at_viewport_bottom() {
+        // Bottom: top = target - (height - 1) = 50 - 23 = 27, offset = 100 - 27 = 73.
+        assert_eq!(viewport_offset_for_row(50, Align::Bottom, 24, 100), 73);
+    }
+
+    #[test]
+    fn offset_clamps_to_live_tail_for_targets_on_or_below_the_live_screen() {
+        // A target at/below the live viewport top can't scroll the view below the
+        // live tail: the offset clamps to 0.
+        assert_eq!(viewport_offset_for_row(100, Align::Top, 24, 100), 0);
+        assert_eq!(viewport_offset_for_row(150, Align::Top, 24, 100), 0);
+        // Near the tail, Top still reveals it a little above the tail.
+        assert_eq!(viewport_offset_for_row(98, Align::Top, 24, 100), 2);
+    }
+
+    #[test]
+    fn offset_clamps_to_oldest_row_and_never_underflows() {
+        // Row 0 with a tall reveal can't scroll past the oldest row: the offset
+        // saturates at scrollback_len, never underflowing.
+        assert_eq!(viewport_offset_for_row(0, Align::Center, 24, 100), 100);
+        assert_eq!(viewport_offset_for_row(0, Align::Bottom, 24, 100), 100);
+        // Empty scrollback degrades to offset 0 for any align/height.
+        assert_eq!(viewport_offset_for_row(0, Align::Top, 0, 0), 0);
+        assert_eq!(viewport_offset_for_row(5, Align::Center, 24, 0), 0);
+    }
+
+    #[test]
+    fn zero_height_degrades_to_a_top_anchored_reveal() {
+        // height 0: Center/Bottom subtract nothing, so all three aligns coincide
+        // with Top — no panic on the division/subtraction.
+        assert_eq!(viewport_offset_for_row(50, Align::Center, 0, 100), 50);
+        assert_eq!(viewport_offset_for_row(50, Align::Bottom, 0, 100), 50);
+        assert_eq!(viewport_offset_for_row(50, Align::Top, 0, 100), 50);
+    }
+
+    // --- prompt_jump (SH2 native-thin composition) ---
+
+    #[test]
+    fn prompt_jump_composes_target_and_offset() {
+        // Prompts at 0, 4, 10; scrollback 100, height 24. From row 7, Prev → the
+        // prompt at row 4, revealed Top → offset 96.
+        let marks = [(0, A), (1, C), (4, A), (5, C), (10, A)];
+        assert_eq!(
+            prompt_jump(&marks, 7, JumpDirection::Prev, Align::Top, 24, 100),
+            Some((4, 96))
+        );
+        // Next from row 5 → the prompt at row 10, Top → offset 90.
+        assert_eq!(
+            prompt_jump(&marks, 5, JumpDirection::Next, Align::Top, 24, 100),
+            Some((10, 90))
+        );
+    }
+
+    #[test]
+    fn prompt_jump_clamps_at_ends_without_wrapping() {
+        // Clamp, no wrap: Prev at the first prompt and Next at the last prompt
+        // return None (a no-op), never wrapping to the opposite end.
+        let marks = [(2, A), (6, A)];
+        assert_eq!(
+            prompt_jump(&marks, 2, JumpDirection::Prev, Align::Top, 24, 100),
+            None
+        );
+        assert_eq!(
+            prompt_jump(&marks, 6, JumpDirection::Next, Align::Top, 24, 100),
+            None
+        );
+    }
+
+    #[test]
+    fn prompt_jump_honours_the_requested_align() {
+        // The same jump under different aligns yields the same target row but
+        // distinct offsets — confirming the align is threaded through.
+        let marks = [(0, A), (50, A)];
+        let top = prompt_jump(&marks, 10, JumpDirection::Next, Align::Top, 24, 100);
+        let center = prompt_jump(&marks, 10, JumpDirection::Next, Align::Center, 24, 100);
+        assert_eq!(top, Some((50, 50)));
+        assert_eq!(center, Some((50, 62)));
     }
 }

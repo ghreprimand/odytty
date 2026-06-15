@@ -17,6 +17,7 @@ mod repeat_tab_reflow;
 mod reporting;
 mod reset_osc_mouse;
 mod sgr_cursor;
+mod visible_search_rows;
 
 pub(super) fn assert_blank_with_background(
     terminal: &Terminal,

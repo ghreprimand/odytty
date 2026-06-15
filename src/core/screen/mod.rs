@@ -52,6 +52,36 @@ pub(in crate::core) struct Line {
     pub(in crate::core) wrapped: bool,
     pub(in crate::core) prompt_mark: Option<PromptKind>,
 }
+/// An owned physical row of the visible viewport, produced by
+/// [`Screen::visible_search_rows`]. It owns its cells and carries the soft-wrap
+/// `wrapped` flag the hint / quick-select scanner needs to join logical lines
+/// across wrapped rows.
+///
+/// It is owned (rather than a borrowed [`SearchRow`] tied to `&self`) because a
+/// scrolled-back viewport can include scrollback rows projected through a
+/// `RefCell` cache, whose borrow guard cannot outlive the accessor — so a
+/// borrowed view spanning scrollback is not soundly returnable. Borrow it as a
+/// [`SearchRow`] for the scanners via [`VisibleRow::as_search_row`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisibleRow {
+    /// The row's cells, exactly as stored (not padded to the column count),
+    /// mirroring the [`Screen::search`] row-build.
+    pub cells: Vec<Cell>,
+    /// Whether this physical row soft-wrapped into the next (the logical-line
+    /// continuation flag the scanner joins on).
+    pub wrapped: bool,
+}
+
+impl VisibleRow {
+    /// Borrow this owned row as a [`SearchRow`] for the search / hint scanners.
+    pub fn as_search_row(&self) -> SearchRow<'_> {
+        SearchRow {
+            cells: &self.cells,
+            wrapped: self.wrapped,
+        }
+    }
+}
+
 impl Line {
     /// A row that ends a logical line (hard break / no continuation).
     pub(in crate::core) fn unwrapped(cells: Vec<Cell>) -> Self {
@@ -908,6 +938,40 @@ impl Screen {
         search_rows(&rows, query, options)
     }
 
+    /// The visible viewport's physical rows at scrollback `offset_rows`, as owned
+    /// [`VisibleRow`]s carrying each row's `wrapped` flag — the windowed input the
+    /// hint / quick-select scanner consumes (it needs the soft-wrap flags the
+    /// flat [`Snapshot`] does not carry).
+    ///
+    /// Mirrors the [`search`](Self::search) row-build but windows to the visible
+    /// viewport only — the same window as
+    /// [`snapshot_with_scrollback`](Self::snapshot_with_scrollback). Offset `0` is
+    /// the live screen (`self.rows`); positive offsets page upward into
+    /// scrollback, clamped so callers cannot read past the oldest row. Rows are
+    /// emitted top-to-bottom in screen order, so a scanner's row indices are
+    /// viewport-relative (row `0` = the top visible row) — exactly the coordinate
+    /// the renderer paints hint labels in. Pure; never panics.
+    pub fn visible_search_rows(&self, offset_rows: usize) -> Vec<VisibleRow> {
+        let height = self.dimensions.rows;
+        let columns = self.dimensions.columns;
+        let scrollback = self.scrollback.physical(columns);
+        let scrollback_len = scrollback.len();
+        // Same window as snapshot_with_scrollback: bottom edge `offset` rows above
+        // the live tail. window_start = (scrollback_len + height) - offset - height.
+        let offset = offset_rows.min(scrollback_len);
+        let window_start = scrollback_len - offset;
+        scrollback
+            .iter()
+            .chain(self.rows.iter())
+            .skip(window_start)
+            .take(height)
+            .map(|line| VisibleRow {
+                cells: line.cells.clone(),
+                wrapped: line.wrapped,
+            })
+            .collect()
+    }
+
     fn set_title(&mut self, title: String) {
         self.title = Some(title);
         self.title_changed = true;
@@ -1596,6 +1660,13 @@ impl Terminal {
     /// [`Screen::search`] for the coordinate convention and result ordering.
     pub fn search(&self, query: &str, options: SearchOptions) -> Vec<SearchMatch> {
         self.screen.search(query, options)
+    }
+
+    /// The visible viewport's physical rows (with `wrapped` flags) at scrollback
+    /// `offset_rows`, for the hint / quick-select scanner. See
+    /// [`Screen::visible_search_rows`] for the window and coordinate convention.
+    pub fn visible_search_rows(&self, offset_rows: usize) -> Vec<VisibleRow> {
+        self.screen.visible_search_rows(offset_rows)
     }
 }
 pub(in crate::core) fn blank_row(columns: usize) -> Line {

@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Command-nav + hint-scan core: prompt-jump geometry and a viewport row accessor
+
+- Pure core groundwork for the upcoming command-aware UX (jump to prev/next
+  prompt, select a command's output) and the hint scanner's activation. No
+  user-facing behavior changes yet — this is the geometry and the accessor the
+  native wiring will sit on.
+- Prompt-jump geometry: an `Align` (Top / Center / Bottom) plus
+  `viewport_offset_for_row(target, align, viewport_height, scrollback_len)`, which
+  resolves the scrollback offset that brings a target row into view at the
+  requested alignment, clamped to the live tail and the oldest row with
+  saturating math (zero height resolves to Top, never underflows). `prompt_jump`
+  composes a strict prev/next prompt target with that offset and clamps without
+  wrapping at the ends (returns `None` past the last prompt in a direction).
+- Viewport row accessor: `Screen::visible_search_rows(offset)` windows the
+  scrollback-plus-live row stream to exactly the visible viewport (same window as
+  the scrollback snapshot), returning viewport-relative rows top-to-bottom so a
+  scanner's row indices line up with the painted cells. Because a scrolled
+  viewport projects scrollback through a borrowed cache, the accessor returns an
+  owned `VisibleRow { cells, wrapped }` carrier with `as_search_row()` rather than
+  a borrowed row tied to the transient guard — the sound equivalent of the
+  intended interface.
+- Verified: 19 new unit tests (prompt-jump alignment / clamp / compose, viewport
+  windowing / clamp / wrapped-flag carry / screen order / borrow / empty
+  scrollback); aggregate lib green; `cargo fmt --all --check` clean; deep fuzz
+  (40k) across the protocol harness with no panic, since core screen state was
+  touched.
+
 ## 2026-06-15 -- U4: perceptual CVD (colorblind) palette adaptation, native wiring
 
 - The colorblind palette adaptation now applies live. A new **Accessibility**
