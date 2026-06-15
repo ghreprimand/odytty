@@ -380,7 +380,6 @@ pub fn enforce_min_contrast(fg: LinearRgb, bg: LinearRgb, ratio: f32) -> LinearR
 // Readability scrim for background treatments (U5 / ID3)
 // ---------------------------------------------------------------------------
 
-/// The effective background luminance behind a glyph once a background
 /// The theme polarity a readability scrim protects, selecting which side of the
 /// theme background `l_bg` the effective background must stay on.
 ///
