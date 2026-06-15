@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Core: absolute cell range for a command's output (SH2 select)
+
+- Added `command_output_cell_range(block, last_row, columns)` returning the
+  authoritative inclusive cell span for a finished command's output —
+  `start = (start_row, 0)`, `end = (end_row, columns - 1)` — so the native
+  select/copy path can highlight the exact span without re-deriving any
+  coordinate convention. The inclusive end matches the existing search-match
+  convention the highlighter already consumes.
+- Builds on `command_output_range` (same Open-region `last_row` clamp), returns
+  `None` for an empty block, and saturates the last column to 0 when
+  `columns == 0` so there is no underflow. Pure index math; the coordinate
+  convention now lives in exactly one place alongside the prompt-jump targets.
+
 ## 2026-06-15 -- CLI: `--list-fonts` font inventory introspection
 
 - Added a `--list-fonts` command that walks the same bounded font search

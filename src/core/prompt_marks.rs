@@ -19,6 +19,8 @@
 //! yields `None` (the caller leaves the row's existing mark untouched) and no
 //! input byte sequence can panic — mirroring the OSC 7 parse policy.
 
+use super::search::AbsolutePoint;
+
 /// A semantic boundary reported by the shell via OSC 133, anchored to a single
 /// physical row. Small and `Copy` so it rides on every [`super::screen::Line`]
 /// and [`super::scrollback::LogicalLine`] for free.
@@ -278,6 +280,46 @@ pub fn command_output_range(block: &CommandBlock, last_row: usize) -> Option<(us
         CommandOutput::Rows { start, end } => Some((start, end.min(last_row).max(start))),
         CommandOutput::Open { start } => Some((start, last_row.max(start))),
     }
+}
+
+/// The inclusive absolute **cell** range to select for a command's output, as an
+/// [`AbsolutePoint`] `(start, end)` pair, or `None` when the block has nothing
+/// addressable to select.
+///
+/// Command output is line-oriented, so the selection spans whole rows: it begins
+/// at the first output row's column `0` and ends at the last output row's last
+/// column (`columns - 1`). This is the authoritative span — the native
+/// select/copy layer highlights `start..=end` directly and expands nothing, so
+/// the coordinate convention lives in exactly one place (consistent with
+/// [`jump_target`] / [`prompt_jump`]).
+///
+/// `last_row` clamps an open (still-running / final) region exactly as in
+/// [`command_output_range`], which this builds on. `columns` is the grid width;
+/// the inclusive last column is `columns - 1`. The `end` is **inclusive**,
+/// matching the [`super::search::SearchMatch`] convention the highlighter
+/// already consumes.
+///
+/// Edge cases (pure; never panics):
+/// - [`CommandOutput::Empty`] → `None`.
+/// - `columns == 0` (a zero-width grid) → the last column saturates to `0`, so
+///   the range degenerates to column `0` on each row rather than underflowing.
+pub fn command_output_cell_range(
+    block: &CommandBlock,
+    last_row: usize,
+    columns: usize,
+) -> Option<(AbsolutePoint, AbsolutePoint)> {
+    let (start_row, end_row) = command_output_range(block, last_row)?;
+    let last_column = columns.saturating_sub(1);
+    Some((
+        AbsolutePoint {
+            row: start_row,
+            column: 0,
+        },
+        AbsolutePoint {
+            row: end_row,
+            column: last_column,
+        },
+    ))
 }
 
 /// The display status of a command block for the success/fail gutter.
@@ -721,6 +763,91 @@ mod tests {
         // end clamps down to last_row, but never below start.
         assert_eq!(command_output_range(&rows, 7), Some((5, 7)));
         assert_eq!(command_output_range(&rows, 3), Some((5, 5)));
+    }
+
+    // --- command_output_cell_range (SH2 select/copy, Option (b)) ---
+
+    fn point(row: usize, column: usize) -> AbsolutePoint {
+        AbsolutePoint { row, column }
+    }
+
+    #[test]
+    fn cell_range_spans_full_width_rows() {
+        // A multi-row output [1, 4] over an 80-column grid selects from
+        // (1, 0) through the last cell of row 4, (4, 79) inclusive.
+        let block = CommandBlock {
+            prompt_row: 0,
+            output_start: Some(1),
+            output: CommandOutput::Rows { start: 1, end: 4 },
+            exit: Some(0),
+        };
+        assert_eq!(
+            command_output_cell_range(&block, 99, 80),
+            Some((point(1, 0), point(4, 79)))
+        );
+    }
+
+    #[test]
+    fn cell_range_open_clamps_to_last_row() {
+        // Open output's end row clamps to last_row (mirrors command_output_range),
+        // then spans the full width of that row.
+        let block = CommandBlock {
+            prompt_row: 0,
+            output_start: Some(2),
+            output: CommandOutput::Open { start: 2 },
+            exit: None,
+        };
+        assert_eq!(
+            command_output_cell_range(&block, 8, 80),
+            Some((point(2, 0), point(8, 79)))
+        );
+    }
+
+    #[test]
+    fn cell_range_single_row_output() {
+        // A one-row output is (r, 0)..=(r, columns-1).
+        let block = CommandBlock {
+            prompt_row: 0,
+            output_start: Some(3),
+            output: CommandOutput::Rows { start: 3, end: 3 },
+            exit: Some(0),
+        };
+        assert_eq!(
+            command_output_cell_range(&block, 99, 40),
+            Some((point(3, 0), point(3, 39)))
+        );
+    }
+
+    #[test]
+    fn cell_range_empty_output_is_none() {
+        let block = CommandBlock {
+            prompt_row: 0,
+            output_start: None,
+            output: CommandOutput::Empty,
+            exit: None,
+        };
+        assert_eq!(command_output_cell_range(&block, 8, 80), None);
+    }
+
+    #[test]
+    fn cell_range_zero_width_grid_degenerates_to_column_zero() {
+        // Defensive: columns == 0 must not underflow; the last column saturates
+        // to 0, so each row's span collapses to column 0.
+        let block = CommandBlock {
+            prompt_row: 0,
+            output_start: Some(1),
+            output: CommandOutput::Rows { start: 1, end: 2 },
+            exit: Some(0),
+        };
+        assert_eq!(
+            command_output_cell_range(&block, 99, 0),
+            Some((point(1, 0), point(2, 0)))
+        );
+        // A one-column grid: last column is 0 as well.
+        assert_eq!(
+            command_output_cell_range(&block, 99, 1),
+            Some((point(1, 0), point(2, 0)))
+        );
     }
 
     // --- command_status (SH2 gutter) ---
