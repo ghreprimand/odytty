@@ -41,8 +41,8 @@ pub(crate) use consts::SETTING_ENV_KEYS;
 
 /// Runtime flag mirroring [`Settings::synthetic_styles`], published process-wide
 /// so the GPU renderer can read it without threading `Settings` through the
-/// `NativeOptions` seam (whose construction literals live in another worker's
-/// fenced files). Defaults to `true` (synthesis on); the native entry point
+/// `NativeOptions` seam (whose construction literals live in a separate
+/// module). Defaults to `true` (synthesis on); the native entry point
 /// publishes the resolved setting at startup and the config-reload path
 /// republishes it on change. This mirrors the existing process-global pattern
 /// used for default cell colors ([`crate::text::set_default_colors`]).
