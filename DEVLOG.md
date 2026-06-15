@@ -28,6 +28,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- U2 core: theme-authoring math (OKLCH nudge + snap-to-floor)
+
+- New `src/theme_author.rs`: the pure, deterministic core the perceptual-safe
+  theme builder wires onto later (the interactive sliders are a separate, later
+  native packet). Only calls the existing color primitives — no I/O, no globals.
+- `nudge(color, dl, dc, dh)` applies additive OKLCH lightness/chroma/hue deltas
+  with a hue-preserving gamut map back into sRGB, so dragging a slider moves the
+  intended axis and nothing else. `snap_to_floor(candidate, partner, floor)`
+  returns the nearest color to the candidate that clears the contrast floor
+  against its partner role, preserving hue and moving lightness away from the
+  partner — so the builder literally cannot author an unreadable role.
+  `authoring_contrast(a, b)` is the live readout.
+- Two locked invariants: the authoring floor is a separate named constant at
+  WCAG 4.5 (distinct from the render-time floor, which stays at 1.0), and
+  `snap_to_floor` validates on the final quantized 8-bit bytes so what the
+  builder writes is exactly what renders (authored == rendered). `floor <= 1.0`
+  is an exact pass-through no-op.
+- The role→partner mapping mirrors the generated-palette validation surface
+  verbatim, including the appearance-aware bg-side neutral exemption, so the
+  builder and the generator agree on which roles are floored.
+- Verified: `cargo fmt --all --check` clean; aggregate green (lib 1242/0/7, all
+  integration suites pass); +22 tests (determinism, floor-clears across a hue×L
+  sweep both polarities, authored==rendered byte re-check, nudge hue round-trip,
+  no-op at floor<=1, role-mapping for both appearances); SPDX present; public-gate
+  scan clean.
+
+---
+
 ## 2026-06-15 -- U3 core: bg-side neutral exemption (palette generation refinement)
 
 - Refines the generated-palette contrast floor so the two achromatic neutral

@@ -17,3 +17,4 @@ pub mod selection;
 pub mod settings;
 pub mod text;
 pub mod theme;
+pub mod theme_author;
