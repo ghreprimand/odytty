@@ -82,6 +82,19 @@ bindings; window title and focus reporting; mode-aware keyboard encoding; the
 Kitty keyboard protocol; and the full mouse-reporting matrix including SGR-pixel
 mode.
 
+**First-class pointer use.** Beyond the base loop, pointer work is now a polished
+surface: extend an existing selection (shift-click to the point, double-click-
+then-drag by whole words, triple-click-then-drag by whole lines); rectangular /
+block (column) selection by modifier-drag; velocity-proportional drag-autoscroll
+(the further past the edge you drag, the faster scrollback advances, bounded);
+optional copy-on-select; a draggable scroll-thumb that scrubs scrollback; and
+configurable wheel speed with modifier-wheel font zoom. Local selection never
+disturbs an application's own mouse reporting.
+
+**Shell integration.** Semantic prompt marking (OSC 133) records prompt,
+command, and output boundaries per row, with reflow-stable marks — the
+foundation the command-aware navigation builds on.
+
 **Graphics & media.** A complete Sixel decoder and terminal integration; the
 Kitty graphics protocol (direct RGB/RGBA and PNG transmit, file/shared-memory
 transports with security hardening, placements with z-order/crop/scale/offset,
@@ -119,8 +132,22 @@ glow; a CRT/retro profile (scanlines + a banding-free soft-knee vignette); and a
 render-quality master control with a hard plain/fast bypass. Every effect is
 off by default and pixel-identical to the plain renderer until enabled.
 
+**Readability & accessibility.** The perceptual pipeline now carries four
+readability flagships, each pure readability or accessibility: a universal
+legibility guarantee that extends the minimum-contrast floor to all application
+text (256-color and truecolor), nudging the foreground in perceptual color space
+to clear the floor while preserving hue; a perceptual-safe theme builder with
+mouse-driven OKLCH (Lightness/Chroma/Hue) sliders, a live contrast readout, and
+snap-to-floor so it cannot author an unreadable theme (raw-hex entry stays as the
+expert fallback); contrast-aware palette generation that turns a seed color into
+a readability-validated theme starting point; and colorblind palette adaptation
+that remaps the ANSI palette in perceptual space for color-vision deficiencies.
+
 **Window & identity.** Adjustable window padding with a fully aligned
 pixel↔cell coordinate seam.
+
+**Privacy posture.** No telemetry, no cloud, no account — fully local. The
+absence of any phone-home path is a deliberate, stated feature.
 
 **Licensing & project identity.** GPL-3.0-only with a Developer Certificate of
 Origin contribution flow, SPDX headers throughout, and a name/branding notice.
@@ -130,18 +157,10 @@ Origin contribution flow, SPDX headers throughout, and a name/branding notice.
 ## Track 1 — Configuration & in-app UX (the no-hand-edit north star)
 
 The defining experience: discoverable overlays that write the config for you.
+The mouse-driven settings panel (click to toggle and cycle, scroll, click-to-
+focus, drag-a-slider, click-to-type numeric entry), effect grouping with clearer
+labels, and visible font-load failure reporting all ship today.
 
-- **Now — Surface font-load failures.** When a font family is missing or not
-  monospace, the overlay should show a clear error instead of silently keeping
-  the old font.
-- **Next — Mouse-driven settings panel.** Click to toggle and cycle settings,
-  scroll, and click-to-focus a row, so the panel is usable without memorizing
-  keyboard navigation.
-- **Next — Slider and numeric-entry widgets.** Drag a slider to set a value;
-  click to type a number directly.
-- **Next — Effect grouping and clearer labels.** Group related effects and
-  rename cryptic settings to plain language (for example, naming the clipboard-
-  read permission for what it does).
 - **Next — In-panel help clarity.** A clarity sweep over terse setting names and
   help text, and a fix for one inert option branch.
 - **Next — Consolidate the legacy ambient-scanline path** into the unified
@@ -187,19 +206,17 @@ This is where OdyTTY invests its differentiation budget, leaning on the
 perceptual color pipeline and the contrast floor. Every item here is pure
 readability or accessibility.
 
-- **Later — Universal legibility guarantee.** Extend the minimum-contrast floor
-  to all application text (256-color and truecolor), nudging the foreground in
-  perceptual color space to clear the floor while preserving its hue. The
-  flagship readability feature.
-- **Later — Perceptual-safe theme builder.** Upgrade the theme builder from
-  raw-hex editing to perceptual (Lightness/Chroma/Hue) sliders with a live
-  contrast readout and a snap-to-floor affordance, so the builder cannot author
-  an unreadable theme. Hex entry stays as an expert fallback; it still writes the
-  `.theme` file for you.
-- **Later — Contrast-aware palette generation.** Seed from an accent color or
-  wallpaper to produce a readability-validated theme starting point to tweak.
-- **Later — Colorblind palette adaptation.** Remap the ANSI palette in
-  perceptual color space, adaptively, for color-vision deficiencies.
+The four flagships of this track now ship (see *What's shipped today*): the
+universal legibility guarantee across 256-color and truecolor text, the
+perceptual-safe theme builder with OKLCH sliders and snap-to-floor, contrast-
+aware palette generation from a seed, and colorblind palette adaptation. The
+readability foundation is in place and is the safety net the visual-identity
+work in Track 4 validates against.
+
+- **Now — Readability scrim primitive.** A computed-bound dim that lets a
+  background treatment (Track 4) keep the contrast floor valid by construction,
+  bounding the effective luminance behind text to the theme background the floor
+  already references. The pure core of the safe-by-construction background work.
 
 ## Track 4 — Visual identity & depth
 
@@ -224,13 +241,10 @@ a pixel-identical plain bypass.
 ## Track 5 — Shell & prompt integration
 
 The terminal cooperating with the shell and prompt. This is the highest-leverage
-gap to close and unlocks the most downstream value.
+gap to close and unlocks the most downstream value. Semantic prompt marking
+(OSC 133) ships today as the foundation.
 
-- **Next — Semantic prompt marking (OSC 133).** Mark prompt, command, and output
-  boundaries. The parser arm and per-row marks need no render change to store;
-  this is the foundation for everything below. A detailed implementation plan is
-  ready.
-- **Later — Command-aware UX.** Built on prompt marking: jump to the previous or
+- **Now — Command-aware UX.** Built on prompt marking: jump to the previous or
   next prompt, select and copy a single command's output, and show a per-command
   success/failure indicator in the gutter.
 - **Later — Click to position the cursor** at a prompt, using the prompt-marking
@@ -245,39 +259,29 @@ Mostly small, independent ergonomic wins, all overlay-configured.
 
 ### Mouse & pointer excellence
 
-OdyTTY should feel great with a mouse, not only the keyboard. A strong base
-already ships: click-drag selection, double-click word and triple-click line
-selection, drag-autoscroll while selecting (drag into the top or bottom edge and
-the viewport keeps scrolling so the selection follows), copy-from-selection,
-middle-click primary-selection paste, mouse-wheel scrolling, the full set of TUI
-mouse-reporting modes (including pixel-precise reporting), and hyperlink hover
-with modifier-click to open. The remaining work makes pointer use first-class.
-Each behavior change is opt-in or configurable and never disturbs an application's
-own mouse handling.
+OdyTTY now feels first-class with a mouse, not only the keyboard. The pointer
+surface shipped today covers click-drag selection; double-click word and triple-
+click line selection; extend-an-existing-selection (shift-click, and double- or
+triple-click-then-drag by words or lines); rectangular / block (column)
+selection; velocity-proportional drag-autoscroll; copy-from-selection and
+optional copy-on-select; middle-click primary-selection paste; mouse-wheel
+scrolling with configurable speed and modifier-wheel font zoom; a draggable
+scroll-thumb; the full set of TUI mouse-reporting modes (including pixel-precise
+reporting); and hyperlink hover with modifier-click to open. Each behavior change
+is opt-in or configurable and never disturbs an application's own mouse handling.
 
-- **Later — Right-click context menu** (copy / paste / select-all).
-- **Later — Extend an existing selection.** Shift-click extends to the click
-  point; double-click-then-drag extends by whole words; triple-click-then-drag
-  extends by whole lines.
-- **Later — Rectangular / block selection.** Hold a modifier and drag to select
-  a column region instead of wrapped lines.
-- **Later — Velocity-proportional drag-autoscroll.** The further past the edge
-  you drag, the faster scrollback advances (today it advances at a fixed rate).
-- **Later — Optional copy-on-select** to the clipboard (off by default; the
-  primary-selection path already works regardless).
-- **Later — Draggable scrollbar thumb.** Grab the scroll indicator and scrub
-  through scrollback (today it only shows position).
-- **Later — Configurable wheel behavior.** Adjustable scroll speed / line
-  multiplier, plus modifier-wheel to change font size.
+- **Next — Right-click context menu** (copy / paste / select-all).
 - (See also: click-to-position-cursor in Track 5, and the mouse-driven settings
   panel in Track 1.)
 
 ### Other ergonomics
 
-- **Later — Keyboard pattern-select / quick-select.** Label on-screen URLs,
-  paths, and hashes for keyboard selection and copy.
-- **Later — Copy mode.** Vim-key keyboard selection of scrollback — standalone,
-  no multiplexer required.
+- **Now — Keyboard pattern-select / quick-select.** Label on-screen URLs,
+  paths, and hashes for keyboard selection and copy. The scanner core ships; the
+  activation and label overlay are the active next step.
+- **Now — Copy mode.** Vim-key keyboard selection of scrollback — standalone, no
+  multiplexer required. The selection state machine ships; the activation and
+  render wiring are the active next step.
 - **Later — Close-confirmation prompt** when a child process or job is still
   running.
 - **Later — Window-decoration control.** Toggle client-side vs server-side
@@ -296,8 +300,9 @@ own mouse handling.
 
 ## Track 8 — Positioning & performance posture
 
-- **Later — Privacy as a stated feature.** No telemetry, no cloud, no account,
-  fully local and open — framed on OdyTTY's own terms.
+Privacy as a stated feature — no telemetry, no cloud, no account, fully local
+and open — ships today (see *What's shipped today*).
+
 - **Later — Performance-tuning knob** (repaint cadence / input delay) only after
   a measured latency baseline exists. No unbacked performance claims.
 
@@ -393,19 +398,21 @@ Named here so they get decided deliberately rather than by default:
 
 ## Near-term focus
 
-The honest current ordering:
+The honest current ordering, now that the friction-bug close-out, the in-app
+configuration UX, the readability flagships, and the pointer-excellence work all
+ship:
 
-1. **Close out the remaining rendering/quality bugs** — the subpixel color-
-   fringing filter is the active one; surfacing font-load failures is next.
-2. **The in-app configuration UX** — the mouse-driven settings panel, slider and
-   numeric widgets, clearer grouping and labels. This is the defining UX goal
-   made concrete.
-3. **Semantic prompt marking (OSC 133)** — the highest-leverage integration gap,
-   and the foundation for the command-aware UX.
-4. **The readability features** — the universal legibility guarantee and the
-   perceptual-safe theme builder, which build directly on assets already in the
-   tree.
-5. **The cheaper ergonomic and visual knobs** in parallel as they fit.
+1. **Command-aware UX on the prompt-marking foundation** — jump to previous/next
+   prompt, select a command's output, and a per-command success/failure gutter.
+   The highest-leverage integration work, now in progress.
+2. **Native wiring for the banked ergonomic cores** — activation and overlays for
+   keyboard pattern-select (quick-select) and copy mode, whose pure cores ship.
+3. **Readability-safe background treatments** — gradient, vignette, and image
+   backgrounds whose readability dimming is bounded to the contrast floor by
+   construction; the pure scrim primitive is the active first step.
+4. **The cheaper ergonomic and visual knobs** — line height, box-drawing
+   thickness, per-codepoint overrides, follow-OS theme, and the rest — in
+   parallel as they fit a settings-owner slot.
 
 Everything beyond a plain terminal stays off by default, opt-in, measured, and —
 above all — never something you are forced to hand-edit a config file to reach.

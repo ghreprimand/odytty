@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Docs: refresh the full build roadmap to current reality
+
+- Brought `docs/full-build-roadmap.md` back in lockstep with what actually ships.
+  The roadmap had drifted: a batch of items still sat under Now / Next / Later
+  horizons after landing. Moved the shipped work into *What's shipped today* and
+  re-tagged the forward horizons honestly.
+- Newly recorded as shipped: the four readability flagships (universal legibility
+  guarantee across 256-color and truecolor, the perceptual-safe OKLCH theme
+  builder with snap-to-floor, contrast-aware palette generation from a seed, and
+  colorblind palette adaptation); semantic prompt marking (OSC 133); the
+  first-class pointer surface (extend-selection, block selection, velocity
+  autoscroll, copy-on-select, draggable scroll-thumb, wheel speed + modifier-
+  wheel zoom); the mouse-driven settings panel with sliders and numeric entry;
+  visible font-load failure reporting; and the no-telemetry privacy posture.
+- Re-pointed the near-term focus at the genuinely active fronts: command-aware UX
+  on the prompt-marking foundation, native wiring for the banked quick-select and
+  copy-mode cores, and readability-safe background treatments (the bounded
+  scrim primitive first). Docs-only; public-safe (no internal codenames, no
+  comparisons); protocol interop names retained as-is.
+
 ## 2026-06-15 -- U3: generate a readable theme from a seed in the theme builder
 
 - The theme builder can now start from a generated palette. Pressing `g` / `G`
