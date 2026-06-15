@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use odytty::text::FontInventoryEntry;
+
 #[path = "../src/cli.rs"]
 mod cli;
 
@@ -32,6 +34,36 @@ fn list_themes_output_contains_every_builtin_theme() {
     let mut sorted = lines.clone();
     sorted.sort_unstable();
     assert_eq!(lines, sorted, "--list-themes output must be sorted");
+}
+
+#[test]
+fn list_fonts_output_formats_inventory_rows() {
+    let output = cli::list_fonts_output_for_entries(vec![
+        FontInventoryEntry {
+            name: "AlphaMono".to_owned(),
+            path: PathBuf::from("fixtures/fonts/AlphaMono.ttf"),
+            monospace: true,
+        },
+        FontInventoryEntry {
+            name: "PosterSans".to_owned(),
+            path: PathBuf::from("fixtures/fonts/PosterSans.otf"),
+            monospace: false,
+        },
+    ]);
+
+    assert_contains_line(
+        &output,
+        "path=fixtures/fonts/AlphaMono.ttf\tname=AlphaMono\tmonospace=on",
+    );
+    assert_contains_line(
+        &output,
+        "path=fixtures/fonts/PosterSans.otf\tname=PosterSans\tmonospace=off",
+    );
+}
+
+#[test]
+fn output_for_args_supports_list_fonts() {
+    assert!(cli::output_for_args(&["--list-fonts".to_owned()]).is_some());
 }
 
 #[test]

@@ -12,15 +12,36 @@ use odytty::core::CursorStyle;
 use odytty::settings::{
     BindableAction, KeyBindingKey, KeyBindingNamedKey, KeyBindingOverride, KeyChord, Settings,
 };
+use odytty::text::{self, FontInventoryEntry};
 use odytty::theme::{self, Theme, VisualEffect, relative_luminance};
 
 /// Return stdout for a supported CLI introspection flag.
 pub fn output_for_args(args: &[String]) -> Option<String> {
     match args.first().map(String::as_str) {
+        Some("--list-fonts") => Some(list_fonts_output()),
         Some("--list-themes") => Some(list_themes_output()),
         Some("--show-config") => Some(show_config_output(&Settings::from_env())),
         _ => None,
     }
+}
+
+/// Machine-friendly system font inventory.
+pub fn list_fonts_output() -> String {
+    list_fonts_output_for_entries(text::font_inventory())
+}
+
+/// Machine-friendly font inventory for an explicit entry set.
+pub fn list_fonts_output_for_entries(entries: Vec<FontInventoryEntry>) -> String {
+    let mut out = String::new();
+    for entry in entries {
+        out.push_str(&format!(
+            "path={}\tname={}\tmonospace={}\n",
+            path_value(&entry.path),
+            entry.name,
+            bool_value(entry.monospace)
+        ));
+    }
+    out
 }
 
 /// Machine-friendly built-in theme inventory.

@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- CLI: `--list-fonts` font inventory introspection
+
+- Added a `--list-fonts` command that walks the same bounded font search
+  directories the renderer uses and prints one tab-separated row per discovered
+  font file: `path=<path>\tname=<stem>\tmonospace=on/off`. The name is the
+  normalized filename stem (the family resolver's current key); real font-table
+  family/style names are a deferred metadata-parser decision.
+- Reuses the existing inventory primitives (`collect_font_files`, `file_stem`,
+  `load_font_at`, `is_monospace`); unparseable files still list with
+  `monospace=off` rather than being dropped, so the output reflects the full
+  directory. Pure introspection — no settings key, no render-path change.
+
 ## 2026-06-15 -- Themes: add 6 more original Odyssey-named themes (66 -> 72)
 
 - Six new built-in themes, all original Odyssey identity: `odyssey-rosewood`,

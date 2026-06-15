@@ -130,6 +130,17 @@ pub struct FontFamilyMatch {
     pub bold_italic: Option<PathBuf>,
 }
 
+/// One font file discovered by CLI font inventory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontInventoryEntry {
+    /// Filename stem used as the v1 display name.
+    pub name: String,
+    /// Full path to the font file.
+    pub path: PathBuf,
+    /// Whether OdyTTY's monospace probe accepts the face.
+    pub monospace: bool,
+}
+
 /// Standard Linux font search roots, plus per-user font dirs when `HOME` is set.
 /// Only existing directories are returned. Used by the settings layer to resolve
 /// `ODYTTY_FONT_FAMILY`; tests pass explicit dirs instead for hermeticity.
@@ -145,6 +156,34 @@ pub fn font_search_dirs() -> Vec<PathBuf> {
     }
     dirs.retain(|d| d.is_dir());
     dirs
+}
+
+/// Inventory font files from the host's standard search directories.
+pub fn font_inventory() -> Vec<FontInventoryEntry> {
+    font_inventory_in_dirs(&font_search_dirs())
+}
+
+/// Inventory font files under `dirs`, sorted for stable CLI output.
+///
+/// This is intentionally filename-stem based. OdyTTY does not parse font naming
+/// tables yet, so the v1 CLI reports the same stem names the family resolver can
+/// already match.
+pub fn font_inventory_in_dirs(dirs: &[PathBuf]) -> Vec<FontInventoryEntry> {
+    let mut entries = collect_font_files(dirs)
+        .into_iter()
+        .map(|path| {
+            let monospace = load_font_at(&path)
+                .map(|font| is_monospace(&font))
+                .unwrap_or(false);
+            FontInventoryEntry {
+                name: file_stem(&path),
+                path,
+                monospace,
+            }
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.path.cmp(&b.path)));
+    entries
 }
 
 /// Resolve a `ODYTTY_FONT_FAMILY` value to a validated monospace face.
@@ -864,6 +903,35 @@ mod tests {
         assert!(has_font_ext(Path::new("/x/Foo.ttc")));
         assert!(!has_font_ext(Path::new("/x/Foo.png")));
         assert!(!has_font_ext(Path::new("/x/Foo")));
+    }
+
+    #[test]
+    fn font_inventory_reports_stems_sorted_and_monospace_state() {
+        let dir = unique_tmp_dir("inventory");
+        std::fs::write(dir.join("BrokenFont.ttf"), b"not a font").expect("write broken font");
+
+        let Some(bytes) = system_mono_bytes() else {
+            let entries = font_inventory_in_dirs(std::slice::from_ref(&dir));
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0].name, "BrokenFont");
+            assert!(!entries[0].monospace);
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        };
+        std::fs::write(dir.join("ZetaMono.ttf"), &bytes).expect("write zeta font");
+        std::fs::write(dir.join("AlphaMono.otf"), &bytes).expect("write alpha font");
+
+        let entries = font_inventory_in_dirs(std::slice::from_ref(&dir));
+        let names = entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["AlphaMono", "BrokenFont", "ZetaMono"]);
+        assert!(entries[0].monospace);
+        assert!(!entries[1].monospace);
+        assert!(entries[2].monospace);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
