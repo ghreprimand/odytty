@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- HINTS core: URL / path / SHA scanner + label assignment (pure)
+
+- New pure module `src/hints.rs` scans the visible rows for actionable spans —
+  URLs (http/https/ftp/ftps/ssh/git/file plus mailto), absolute / `~/` / `./` /
+  `../` paths, and 7–40 char git SHAs — returning each match with the exact text
+  that would be copied. It reads the same borrowed row view the scrollback search
+  uses, so soft-wrapped rows join into one logical line and matches map back to
+  precise cells (wide glyphs handled), keeping hints, search, and selection on one
+  coordinate convention.
+- Overlap resolves longest-match-first then earliest-start then a stable kind
+  order, so a URL containing a path emits once as the whole URL. Trailing `.,;:`
+  is always trimmed; a closing bracket is trimmed only when unbalanced inside the
+  match. `assign_labels` hands out breadth-first trie labels that are prefix-free
+  by construction (shortest first, reading order, deterministic), with a fallback
+  alphabet so a usable label set always exists.
+- No regex or new dependency — all matching is hand-rolled. This is the scanner
+  core only; keyboard activation and the on-screen label overlay are a later
+  native packet. Verified: 22 tests; aggregate green; `cargo fmt --all --check`
+  clean.
+
 ## 2026-06-15 -- U2: perceptual-safe theme builder, step 1 (keyboard + readout)
 
 - The in-app theme builder now edits colors in OKLCH rather than raw RGB. Arrow

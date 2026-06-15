@@ -8,6 +8,7 @@ pub mod cvd;
 pub mod emoji;
 pub mod graphics;
 pub mod grid;
+pub mod hints;
 pub mod input;
 pub mod native;
 pub mod palette_gen;
