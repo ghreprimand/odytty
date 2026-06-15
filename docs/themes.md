@@ -63,7 +63,7 @@ path — so the file format is exercised by the library on every startup.
 
 ### Theme families
 
-**Odyssey identity** — `plain` plus twenty-four `odyssey-*` variants are
+**Odyssey identity** — `plain` plus twenty-nine `odyssey-*` variants are
 original themes designed for OdysseyOS. `plain` reproduces the historical xterm
 default palette byte-for-byte and is the fallback when no theme is configured.
 The `odyssey-*` variants span a range of visual moods across dark and light
@@ -71,11 +71,13 @@ appearances: deep-space and interstellar cold (`odyssey`, `odyssey-deepspace`,
 `odyssey-pulsar`), warm atmospheric (`odyssey-solar`, `odyssey-ember`,
 `odyssey-abyss`, `odyssey-volcanic`), cool natural (`odyssey-glacier`,
 `odyssey-voyager`, `odyssey-fathom`, `odyssey-harbor`, `odyssey-orchard`),
-cosmic nebula (`odyssey-nebula`, `odyssey-aurora`, `odyssey-ion`), warm and cool
-text focus (`odyssey-meridian`, `odyssey-graphite`), and six light companions
-(`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`,
-`odyssey-cloud-light`, `odyssey-coral-light`, `odyssey-mist-light`). These carry
-the strongest OdysseyOS visual identity.
+cosmic nebula (`odyssey-nebula`, `odyssey-aurora`, `odyssey-ion`,
+`odyssey-twilight`, `odyssey-quasar`), natural greens (`odyssey-verdant`), warm
+and cool text focus (`odyssey-meridian`, `odyssey-graphite`), and eight light
+companions (`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`,
+`odyssey-cloud-light`, `odyssey-coral-light`, `odyssey-mist-light`,
+`odyssey-meadow-light`, `odyssey-parchment-light`). These carry the strongest
+OdysseyOS visual identity.
 
 **Community** — twenty-eight themes ported from widely-used open-source
 color-scheme palettes. The dark side covers the ten palettes that formed the
@@ -126,6 +128,11 @@ OdyTTY has no affiliation with or endorsement from any of those vendors.
 | `odyssey-cloud-light` | light | Odyssey identity (cool cloud-white with slate-blue text) |
 | `odyssey-coral-light` | light | Odyssey identity (warm coral daylight companion) |
 | `odyssey-mist-light` | light | Odyssey identity (soft misted green-grey morning) |
+| `odyssey-twilight` | dark | Odyssey identity (indigo dusk with magenta and violet afterglow) |
+| `odyssey-verdant` | dark | Odyssey identity (deep evergreen canopy over forest-floor dark) |
+| `odyssey-quasar` | dark | Odyssey identity (brilliant cyan-blue jet over a near-black void) |
+| `odyssey-meadow-light` | light | Odyssey identity (sunlit spring-green meadow companion) |
+| `odyssey-parchment-light` | light | Odyssey identity (warm aged-parchment daylight with ink-brown text) |
 | `solarized-dark` | dark | Community |
 | `solarized-light` | light | Community |
 | `gruvbox-dark` | dark | Community |

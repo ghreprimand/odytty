@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-twilight
+appearance = dark
+
+foreground = #e6def2
+background = #16101f
+clear = #0f0a17
+
+cursor = #b88af0
+selection = #2c2140
+search = #4a3c1a
+border = #281d3a
+inactive = #6c6080
+
+color0 = #221830
+color1 = #f06a93
+color2 = #56cfa8
+color3 = #e6b25a
+color4 = #8a82ee
+color5 = #c08af0
+color6 = #66c8e0
+color7 = #c8bedc
+color8 = #3a2c50
+color9 = #ff90b4
+color10 = #84e6c4
+color11 = #ffcd82
+color12 = #aaa2ff
+color13 = #d8a6ff
+color14 = #8ce0f2
+color15 = #f4ecfb

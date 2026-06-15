@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-quasar
+appearance = dark
+
+foreground = #d8ecf4
+background = #08131c
+clear = #040d14
+
+cursor = #38c8e8
+selection = #163040
+search = #40421c
+border = #142838
+inactive = #5a6e7a
+
+color0 = #102234
+color1 = #f06a86
+color2 = #46cdb0
+color3 = #d8b45e
+color4 = #4aa6f0
+color5 = #9a8cf0
+color6 = #3cc8e8
+color7 = #b6c8d4
+color8 = #1e3850
+color9 = #ff8aa4
+color10 = #6ee6cc
+color11 = #ffcf84
+color12 = #7cbcff
+color13 = #b4a6ff
+color14 = #6ce0f6
+color15 = #ecf6fb

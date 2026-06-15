@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Themes: add 5 original Odyssey-named themes (61 -> 66)
+
+- Five new built-in themes, all original Odyssey identity: `odyssey-twilight`
+  (indigo dusk with magenta/violet afterglow), `odyssey-verdant` (deep evergreen
+  canopy), `odyssey-quasar` (cyan-blue jet over near-black), `odyssey-meadow-light`
+  (spring-green meadow), and `odyssey-parchment-light` (warm aged parchment with
+  ink-brown text). Three dark, two light.
+- Every new theme clears the readability floor with wide margin (foreground /
+  background contrast 12.4-15.4 against the 4.0 floor) and has distinct bright /
+  normal rows. No gate was lowered; the builtin count pin and the
+  contrast / appearance / bright-row / parse / uniqueness pins all assert green.
+- `README.md` and `docs/themes.md` updated in lockstep so the published theme
+  count and roster do not drift.
+
 ## 2026-06-15 -- Internal: extract the theme-builder test module for file headroom
 
 - Moved the theme builder's inline `mod tests` into a sibling

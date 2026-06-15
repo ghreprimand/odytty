@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-parchment-light
+appearance = light
+
+foreground = #34291c
+background = #f6efe0
+clear = #fcf7ec
+
+cursor = #b06a1e
+selection = #ece0c8
+search = #e8d49c
+border = #ddd0b6
+inactive = #8c8068
+
+color0 = #34291c
+color1 = #b8483e
+color2 = #5a7d28
+color3 = #9a6a16
+color4 = #3a6faa
+color5 = #97508a
+color6 = #277f7a
+color7 = #5e5444
+color8 = #4a4030
+color9 = #c85a4a
+color10 = #6a8e32
+color11 = #b07d1a
+color12 = #4a7fba
+color13 = #a6609a
+color14 = #338f8a
+color15 = #140e08

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-verdant
+appearance = dark
+
+foreground = #dcecdc
+background = #0c160f
+clear = #071009
+
+cursor = #5ad08a
+selection = #1c2e22
+search = #45401a
+border = #18281c
+inactive = #5e7064
+
+color0 = #14211a
+color1 = #e86a72
+color2 = #5cc878
+color3 = #cdb158
+color4 = #5aa0d0
+color5 = #b487d8
+color6 = #4fc0b0
+color7 = #bcccbc
+color8 = #243a2c
+color9 = #ff8a90
+color10 = #82e29a
+color11 = #e6cd80
+color12 = #82bce8
+color13 = #d0a6ec
+color14 = #74dccc
+color15 = #ecf4ec

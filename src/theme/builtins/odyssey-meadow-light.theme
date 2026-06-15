@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-meadow-light
+appearance = light
+
+foreground = #243026
+background = #f0f6ee
+clear = #f8fcf6
+
+cursor = #2f8a52
+selection = #d8e8d4
+search = #ece8a8
+border = #cee0c8
+inactive = #7e8c7c
+
+color0 = #243026
+color1 = #bc4654
+color2 = #2f8a4e
+color3 = #8a6a18
+color4 = #2f6fb8
+color5 = #864fb4
+color6 = #1c8a8a
+color7 = #56624f
+color8 = #3e4a3c
+color9 = #cc4a5a
+color10 = #38985a
+color11 = #a07c1c
+color12 = #3a7cc4
+color13 = #965fc4
+color14 = #2a9a98
+color15 = #0c140c
