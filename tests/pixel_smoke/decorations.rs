@@ -2,10 +2,69 @@
 //! Underline/strikethrough decoration rows, box-drawing seam continuity, wide
 //! glyph spanning, and the bar cursor stripe.
 
-use odytty::core::{CursorStyle, Terminal};
+use odytty::core::{Color, CursorStyle, Terminal};
 use odytty::grid;
+use odytty::text;
 
 use crate::harness::*;
+
+/// U1 byte-identical guarantee at the default floor. A frame mixing a 256-color
+/// foreground, a truecolor foreground, and an explicit SGR-58 underline color
+/// must composite with each color *unchanged* at `min_contrast = 1.0` — the new
+/// underline-color enforce call is a verifiable visual no-op on the plain path.
+///
+/// The underline decoration is a solid (alpha = 1) quad, so the underline-band
+/// pixels equal the underline color exactly: the load-bearing exact check that
+/// the floor did not shift it. The two foreground cells additionally carry real
+/// ink, confirming the frame is non-trivial. Global-free: the suite stays at the
+/// identity floor throughout (asserted), so this never interleaves with any
+/// global-mutator unit test.
+#[test]
+fn u1_default_floor_passthrough_mixed_fg_and_underline_color() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    assert_eq!(text::min_contrast(), 1.0, "suite must run at the 1.0 floor");
+
+    // col0: 256-color fg glyph; col1: truecolor fg glyph; col2: explicit SGR-58
+    // underline color over a space (so only the solid underline quad inks it).
+    let mut term = Terminal::new(3, 1);
+    term.advance(b"\x1b[?25l");
+    term.advance(b"\x1b[38;5;51mA\x1b[0m\x1b[38;2;200;120;40mB\x1b[0m\x1b[58;2;180;90;30;4m ");
+    let snapshot = term.snapshot();
+    let frame = composite(&snapshot, &atlas, CursorStyle::Block);
+
+    // Foreground cells are non-trivially inked.
+    assert!(
+        cell_ink_count(&frame, 0, 0) > 0,
+        "256-color fg cell should ink"
+    );
+    assert!(
+        cell_ink_count(&frame, 1, 0) > 0,
+        "truecolor fg cell should ink"
+    );
+
+    // The explicit underline color composites exactly to its raw resolved color
+    // (default-floor passthrough). The underline band is full-width and solid.
+    let rect = grid::underline_rect(
+        (2 * frame.cell_w) as f32,
+        0.0,
+        atlas.cell.width as f32,
+        atlas.cell.height as f32,
+        atlas.cell.baseline as f32,
+    );
+    let row = (((rect[1] + rect[3]) / 2.0) as usize).min(frame.height - 1);
+    let sample_x = (2 * frame.cell_w + frame.cell_w / 2).min(frame.width - 1);
+    let raw = text::foreground_linear(Color::Rgb(180, 90, 30));
+    let got = frame.pixel(sample_x, row);
+    let expected = [raw[0], raw[1], raw[2]];
+    assert!(
+        !differs(got, expected),
+        "underline color must be byte-identical passthrough at the default floor: \
+         got {got:?}, expected {expected:?}"
+    );
+}
 
 #[test]
 fn underline_attribute_inks_a_decoration_row() {

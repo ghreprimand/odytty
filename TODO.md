@@ -604,6 +604,17 @@ a floor; surpassing it is the standing ambition.
       `1.0` is exact passthrough (no lift). The floor is measured via WCAG
       relative luminance; the lift bisects OKLab lightness while preserving hue
       and chroma (`src/color.rs:enforce_min_contrast`).
+  - [x] U1 universal legibility guarantee: the contrast floor now provably
+        covers every text color. The glyph path is color-type-agnostic, so
+        256-color and truecolor foregrounds already pass through the same single
+        floor as ANSI/default; the one remaining gap — an explicit SGR underline
+        color (SGR 58) painted without the floor — now routes through the same
+        `enforce_contrast_rgba` lift. Default `min_contrast = 1.0` stays exact
+        passthrough (byte-identical default pixels, including the new underline
+        path); the legibility benefit appears only when the floor is raised. A
+        pixel-smoke frame (256-color + truecolor + explicit-underline-color
+        cells) certifies the no-op at default, and coverage units prove each
+        color type is lifted with hue and chroma preserved when the floor is up.
 - [x] RV2 geometric box-drawing / Powerline rendering (`ODYTTY_GEOMETRIC_BOXDRAW`,
       `geometric_boxdraw`): U+2500–257F, U+2580–259F, Braille, and Powerline
       separators rendered as pixel-perfect geometry at exact cell size rather

@@ -420,6 +420,33 @@ fn underline_color_uses_sgr_58_when_set() {
     );
 }
 
+/// U1 color-type coverage at the default floor: a *truecolor* SGR-58 underline
+/// color is a byte-identical passthrough of its raw resolved color, matching the
+/// indexed case above. Non-mutating — it asserts the new enforce call is a no-op
+/// at min_contrast = 1.0 without touching the process-global floor (so it cannot
+/// interleave with the single owned global-mutator test).
+#[test]
+fn underline_color_truecolor_passthrough_at_default_floor() {
+    let Some(atlas) = atlas() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    assert_eq!(text::min_contrast(), 1.0);
+
+    let mut term = Terminal::new(1, 1);
+    term.advance(b"\x1b[?25l\x1b[58;2;180;90;30;4mU");
+    let snapshot = term.snapshot();
+    let verts = build_vertices(&snapshot, &atlas);
+
+    assert_eq!(verts.len(), 3 * VERTS_PER_QUAD);
+    let line = verts[2 * VERTS_PER_QUAD];
+    assert_eq!(
+        line.color,
+        foreground_linear(&snapshot.colors, Color::Rgb(180, 90, 30)),
+        "default floor: truecolor underline color must be byte-identical passthrough"
+    );
+}
+
 #[test]
 fn double_underline_appends_two_solid_quads() {
     let Some(atlas) = atlas() else {
@@ -600,6 +627,25 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
         build_cell_vertices_with_focus_dim_into(out, &combo, &atlas, &[], focus);
     };
 
+    // --- Case 4 inputs (U1): an explicit SGR-58 underline color (a dark, but
+    // chromatic, purple) on a black background, so the underline ink starts
+    // below the floor and the lift can be checked for hue preservation. The
+    // underline quad is index 2 (bg, glyph, underline) for this single cell. ---
+    let mut uline = Terminal::new(1, 1);
+    uline.advance(b"\x1b[?25l\x1b[58;2;40;12;120;4;48;2;0;0;0mU");
+    let uline = uline.snapshot();
+    let uline_raw = foreground_linear(&uline.colors, Color::Rgb(40, 12, 120));
+
+    // --- Case 5 inputs (U1): an explicit *256-color* (Indexed) underline color
+    // below the floor on black, proving the lift is color-type-agnostic — the
+    // same single enforce path covers indexed and truecolor identically (the
+    // headline U1 finding). Index 18 is a dark, chromatic blue (~1.35 contrast
+    // on black), comfortably below the AAA floor. ---
+    let mut uidx = Terminal::new(1, 1);
+    uidx.advance(b"\x1b[?25l\x1b[58;5;18;4;48;2;0;0;0mU");
+    let uidx = uidx.snapshot();
+    let uidx_raw = foreground_linear(&uidx.colors, Color::Indexed(18));
+
     // === Baseline at the default passthrough floor (1.0). ===
     assert_eq!(text::min_contrast(), 1.0);
     let body_unfloored = build_vertices(&body, &atlas)[VERTS_PER_QUAD].color;
@@ -617,6 +663,20 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
     build_combo(&mut combo_base);
     let combo_unfloored = combo_base[VERTS_PER_QUAD].color;
     let combo_bg = combo_base[0].color;
+    // Case 4 baseline: at the default floor the explicit underline color is an
+    // exact passthrough of its raw resolved color (the new U1 enforce call is a
+    // verifiable no-op at min_contrast = 1.0).
+    let uline_unfloored = build_vertices(&uline, &atlas)[2 * VERTS_PER_QUAD].color;
+    assert_eq!(
+        uline_unfloored, uline_raw,
+        "default floor: explicit underline color must be byte-identical passthrough"
+    );
+    // Case 5 baseline: same passthrough guarantee for the 256-color underline.
+    let uidx_unfloored = build_vertices(&uidx, &atlas)[2 * VERTS_PER_QUAD].color;
+    assert_eq!(
+        uidx_unfloored, uidx_raw,
+        "default floor: 256-color underline color must be byte-identical passthrough"
+    );
     // Precondition: the doubly-dimmed pair really is below the AAA floor, so
     // case 3 proves the floor — not the inputs — does the lifting.
     let combo_base_contrast = crate::color::wcag_contrast(
@@ -638,6 +698,8 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
     build_combo(&mut combo_hi);
     let combo_floored = combo_hi[VERTS_PER_QUAD].color;
     let combo_hi_bg = combo_hi[0].color;
+    let uline_floored = build_vertices(&uline, &atlas)[2 * VERTS_PER_QUAD].color;
+    let uidx_floored = build_vertices(&uidx, &atlas)[2 * VERTS_PER_QUAD].color;
     text::set_min_contrast(1.0); // restore before any assertion can unwind
 
     // --- Case 1: body site lifted and meets the floor. ---
@@ -681,6 +743,77 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
     assert!(
         combo_ratio >= 7.0 - 1e-3,
         "combined floor not met after both dims: {combo_ratio}"
+    );
+
+    // --- Case 4 (U1): the explicit SGR-58 underline color is floored on the
+    // same path as every other foreground ink — lifted to clear the ratio, with
+    // hue preserved (enforce_min_contrast moves only OKLab L, holding a/b). ---
+    let uline_bg = background_linear(&uline.colors, Color::Rgb(0, 0, 0));
+    assert_ne!(
+        uline_floored, uline_unfloored,
+        "underline color: raised floor must lift the explicit SGR-58 color"
+    );
+    let uline_ratio = crate::color::wcag_contrast(
+        [uline_floored[0], uline_floored[1], uline_floored[2]],
+        [uline_bg[0], uline_bg[1], uline_bg[2]],
+    );
+    assert!(
+        uline_ratio >= 7.0 - 1e-3,
+        "underline-color floor not met: {uline_ratio}"
+    );
+    // Hue AND chroma preserved within eps: enforce_min_contrast moves only OKLab
+    // L, holding a/b — so both the OKLCH hue and chroma (sqrt(a²+b²)) are carried
+    // through the lift. Asserting chroma too (not just hue) pins the "lightness
+    // only" guarantee the reviewer expects, distinguishing it from a desaturate.
+    let oklch = |c: [f32; 4]| {
+        crate::color::oklab_to_oklch(crate::color::linear_to_oklab([c[0], c[1], c[2]]))
+    };
+    let hue_drift = |a: [f32; 4], b: [f32; 4]| {
+        let d = (oklch(a).h - oklch(b).h).abs();
+        d.min((std::f32::consts::TAU - d).abs())
+    };
+    let dh = hue_drift(uline_floored, uline_raw);
+    assert!(
+        dh < 0.02,
+        "underline-color hue drifted under the floor: {dh}"
+    );
+    let dc = (oklch(uline_floored).c - oklch(uline_raw).c).abs();
+    assert!(
+        dc < 0.02,
+        "underline-color chroma drifted under the floor (not lightness-only): {dc}"
+    );
+    // Idempotent at the color layer: re-flooring the lifted color is a no-op.
+    let refloored = crate::color::enforce_min_contrast(
+        [uline_floored[0], uline_floored[1], uline_floored[2]],
+        [uline_bg[0], uline_bg[1], uline_bg[2]],
+        7.0,
+    );
+    assert_eq!(
+        refloored,
+        [uline_floored[0], uline_floored[1], uline_floored[2]],
+        "underline-color floor must be idempotent"
+    );
+
+    // --- Case 5 (U1): the 256-color underline color is lifted on the identical
+    // path — same color-type-agnostic enforce call — clearing the ratio with hue
+    // preserved, so indexed and truecolor underline colors behave the same. ---
+    let uidx_bg = background_linear(&uidx.colors, Color::Rgb(0, 0, 0));
+    assert_ne!(
+        uidx_floored, uidx_unfloored,
+        "256-color underline: raised floor must lift the indexed color"
+    );
+    let uidx_ratio = crate::color::wcag_contrast(
+        [uidx_floored[0], uidx_floored[1], uidx_floored[2]],
+        [uidx_bg[0], uidx_bg[1], uidx_bg[2]],
+    );
+    assert!(
+        uidx_ratio >= 7.0 - 1e-3,
+        "256-color underline floor not met: {uidx_ratio}"
+    );
+    let dh_idx = hue_drift(uidx_floored, uidx_raw);
+    assert!(
+        dh_idx < 0.02,
+        "256-color underline hue drifted under the floor: {dh_idx}"
     );
 
     // The restore took effect: passthrough again.

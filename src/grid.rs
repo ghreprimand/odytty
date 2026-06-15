@@ -600,7 +600,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
             if cell.wide_continuation {
                 continue;
             }
-            let (fg, _) = resolve(cell);
+            let (fg, bg) = resolve(cell);
             let span = span_of(row, col);
             let x0 = origin[0] + col as f32 * cell_w;
             let y0 = origin[1] + row as f32 * cell_h;
@@ -616,10 +616,15 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
 
             let underline_style = cell.attrs.effective_underline_style();
             if underline_style != UnderlineStyle::None {
-                let underline_color = cell
-                    .attrs
-                    .underline_color
-                    .map_or(fg, |color| foreground_linear(&snapshot.colors, color));
+                // U1: explicit SGR underline color must clear the same RV1
+                // minimum-contrast floor as every other foreground ink. The
+                // `None` case already maps to the floored cell `fg`; the explicit
+                // case is routed through the identical `enforce_contrast_rgba`
+                // (OKLab-L bisect, hue+chroma preserved, exact passthrough at the
+                // default floor of 1.0 so plain frames stay byte-identical).
+                let underline_color = cell.attrs.underline_color.map_or(fg, |color| {
+                    text::enforce_contrast_rgba(foreground_linear(&snapshot.colors, color), bg)
+                });
                 push_underline_decoration(
                     out,
                     underline_style,

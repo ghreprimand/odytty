@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- U1: universal legibility guarantee (contrast floor covers all text)
+
+- Closed the last gap in the readability floor's coverage. An audit confirmed
+  the glyph path is already color-type-agnostic: default, 256-color (indexed),
+  and truecolor foregrounds all funnel through one `enforce_contrast_rgba` call,
+  and the lift moves only OKLab lightness (hue and chroma preserved) for every
+  foreground it touches — so 256-color and truecolor text were already floored
+  identically to ANSI/default. The single residual gap was an explicit SGR
+  underline color (SGR 58), which was painted straight from its resolved color
+  without passing through the floor.
+- Fix (one site in `src/grid.rs`): the explicit underline color now routes
+  through `text::enforce_contrast_rgba(underline_color, bg)`, the same bisect as
+  every other foreground. The fallback-to-foreground underline case was already
+  floored, so only the explicit case changed.
+- No new machinery and no new default. `color.rs` is untouched; the bisect,
+  polarity, and best-effort cap are unchanged. `min_contrast` stays `1.0` by
+  default, which is exact passthrough — default pixels are byte-identical
+  everywhere, including the new underline call. The legibility benefit appears
+  only when an operator raises the floor; U1 makes that knob complete rather than
+  changing the out-of-box look.
+- Proof battery: a pixel-smoke frame (`u1_default_floor_passthrough_mixed_fg_and_
+  underline_color`) with 256-color fg, truecolor fg, and an explicit-underline-
+  color cell asserts the underline quad is byte-identical to its raw resolved
+  color at the 1.0 floor (the new call is a verifiable visual no-op at default).
+  Coverage units, riding the single owned floor-mutator test, prove a below-floor
+  underline color in both truecolor and 256-color form is lifted to clear the
+  ratio with hue (<0.02) and chroma (<0.02) preserved and is idempotent, firing
+  through the real vertex-build geometry seam at a raised floor.
+- Verified: `cargo fmt --all -- --check` clean; `cargo test --lib`
+  1129 passed / 0 failed / 7 ignored; full aggregate 1235 passed / 0 failed /
+  19 ignored; pixel/composite smokes green at baseline and with subpixel+CRT+
+  bloom enabled; release binary builds. No parser/protocol surface touched.
+
+---
+
 ## 2026-06-14 -- UX4-P1: mouse-driven settings overlay
 
 - The settings panel is now operable with the mouse. Left-click on a row
