@@ -211,6 +211,114 @@ pub fn command_blocks(marks: &[(usize, PromptKind)]) -> Vec<CommandBlock> {
     blocks
 }
 
+/// Direction for [`jump_target`]: navigate to the previous (older) or next
+/// (newer) prompt relative to a cursor row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JumpDirection {
+    /// Toward older scrollback — the nearest [`PromptKind::PromptStart`] whose
+    /// row is strictly *less* than the current row.
+    Prev,
+    /// Toward newer output — the nearest [`PromptKind::PromptStart`] whose row is
+    /// strictly *greater* than the current row.
+    Next,
+}
+
+/// Return the absolute row of the previous / next [`PromptKind::PromptStart`]
+/// relative to `current_row`, or `None` when there is no prompt past the cursor
+/// in that direction (a no-op at the buffer's first / last prompt).
+///
+/// This backs the prompt-jump navigation (Ctrl+Shift+Up/Down): from any cursor
+/// row, hop to the nearest prompt boundary. The comparison is **strict**, so a
+/// cursor already sitting on a prompt row jumps clear of it rather than sticking.
+///
+/// Pure and order-independent: it scans for the min-above / max-below
+/// `PromptStart` rather than assuming the mark list is sorted, so an
+/// out-of-order or partial transcript still yields the correct neighbour and
+/// never panics. Non-`PromptStart` marks (`C` / `D`) are not jump targets.
+pub fn jump_target(
+    marks: &[(usize, PromptKind)],
+    current_row: usize,
+    direction: JumpDirection,
+) -> Option<usize> {
+    marks
+        .iter()
+        .filter(|(_, kind)| matches!(kind, PromptKind::PromptStart))
+        .map(|&(row, _)| row)
+        .filter(|&row| match direction {
+            JumpDirection::Prev => row < current_row,
+            JumpDirection::Next => row > current_row,
+        })
+        .reduce(|best, row| match direction {
+            // Prev wants the largest row still below the cursor (closest from
+            // above); Next wants the smallest row still above it.
+            JumpDirection::Prev => best.max(row),
+            JumpDirection::Next => best.min(row),
+        })
+}
+
+/// The inclusive absolute-row range to select for a command's output, or `None`
+/// when the block has nothing addressable to select.
+///
+/// `last_row` is the live buffer's last absolute row, used to clamp an
+/// [`CommandOutput::Open`] region (a still-running command, or the final block):
+/// the open output runs from its start through the current tail.
+///
+/// - [`CommandOutput::Rows`] `{ start, end }` → `Some((start, end))` (the bounded
+///   span as derived; `end` is clamped to `last_row` defensively).
+/// - [`CommandOutput::Open`] `{ start }` → `Some((start, last_row))`, clamped so
+///   `end >= start` even if the buffer is somehow shorter than the mark.
+/// - [`CommandOutput::Empty`] → `None` (a prompt awaiting input, or a command
+///   that printed nothing — there is no output region to select).
+///
+/// Backs command-output select/copy (select-only by default). Pure; never
+/// panics regardless of `last_row` relative to the block's rows.
+pub fn command_output_range(block: &CommandBlock, last_row: usize) -> Option<(usize, usize)> {
+    match block.output {
+        CommandOutput::Empty => None,
+        CommandOutput::Rows { start, end } => Some((start, end.min(last_row).max(start))),
+        CommandOutput::Open { start } => Some((start, last_row.max(start))),
+    }
+}
+
+/// The display status of a command block for the success/fail gutter.
+///
+/// Deliberately conservative: it **never assumes success** from absence. A
+/// command only reads [`CommandStatus::Success`] on an explicit `exit 0`; a
+/// missing exit degrades to [`CommandStatus::Running`] (output still open) or
+/// [`CommandStatus::Unknown`] (the exit was lost — e.g. the SH1 row-collapse
+/// where `D` and the next prompt's `A` land on one row and the exit is dropped).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandStatus {
+    /// The command finished with an explicit exit status of `0`.
+    Success,
+    /// The command finished with an explicit non-zero exit status.
+    Fail,
+    /// No exit status yet and the output region is still open — the command is
+    /// (or may be) still running.
+    Running,
+    /// No exit status and no open output: either a prompt awaiting input, or a
+    /// finished command whose exit was lost to the SH1 row collapse. The gutter
+    /// must not present this as success or failure.
+    Unknown,
+}
+
+/// Map a [`CommandBlock`] to its [`CommandStatus`] for the gutter.
+///
+/// An explicit exit wins unconditionally (`Some(0)` → success, any other code →
+/// failure). Without an exit, an [`CommandOutput::Open`] region reads as
+/// [`CommandStatus::Running`]; anything else degrades to
+/// [`CommandStatus::Unknown`]. Pure and total.
+pub fn command_status(block: &CommandBlock) -> CommandStatus {
+    match block.exit {
+        Some(0) => CommandStatus::Success,
+        Some(_) => CommandStatus::Fail,
+        None => match block.output {
+            CommandOutput::Open { .. } => CommandStatus::Running,
+            CommandOutput::Empty | CommandOutput::Rows { .. } => CommandStatus::Unknown,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -412,5 +520,204 @@ mod tests {
         assert_eq!(blocks[0].output_start, Some(1));
         assert_eq!(blocks[0].output, CommandOutput::Rows { start: 1, end: 2 });
         assert_eq!(blocks[0].exit, Some(0));
+    }
+
+    // --- jump_target (SH2 prompt navigation) ---
+
+    #[test]
+    fn jump_target_empty_marks_is_none() {
+        assert_eq!(jump_target(&[], 5, JumpDirection::Prev), None);
+        assert_eq!(jump_target(&[], 5, JumpDirection::Next), None);
+    }
+
+    #[test]
+    fn jump_prev_finds_nearest_prompt_below() {
+        // Prompts at rows 0, 4, 10. From row 7, Prev → 4 (largest below 7).
+        let marks = [(0, A), (1, C), (4, A), (5, C), (10, A)];
+        assert_eq!(jump_target(&marks, 7, JumpDirection::Prev), Some(4));
+    }
+
+    #[test]
+    fn jump_next_finds_nearest_prompt_above() {
+        // From row 5, Next → 10 (smallest above 5).
+        let marks = [(0, A), (1, C), (4, A), (5, C), (10, A)];
+        assert_eq!(jump_target(&marks, 5, JumpDirection::Next), Some(10));
+    }
+
+    #[test]
+    fn jump_is_strict_so_a_cursor_on_a_prompt_hops_clear() {
+        // Cursor exactly on the prompt at row 4: Prev jumps to 0, Next to 10 —
+        // never sticks on the row it started on.
+        let marks = [(0, A), (4, A), (10, A)];
+        assert_eq!(jump_target(&marks, 4, JumpDirection::Prev), Some(0));
+        assert_eq!(jump_target(&marks, 4, JumpDirection::Next), Some(10));
+    }
+
+    #[test]
+    fn jump_returns_none_at_the_boundaries() {
+        // Below the first prompt there is no Prev; above the last there is no Next.
+        let marks = [(2, A), (6, A)];
+        assert_eq!(jump_target(&marks, 2, JumpDirection::Prev), None);
+        assert_eq!(jump_target(&marks, 6, JumpDirection::Next), None);
+        // Before any prompt: no Prev, Next is the first prompt.
+        assert_eq!(jump_target(&marks, 0, JumpDirection::Prev), None);
+        assert_eq!(jump_target(&marks, 0, JumpDirection::Next), Some(2));
+    }
+
+    #[test]
+    fn jump_ignores_non_prompt_marks() {
+        // Only PromptStart rows are targets; C / D rows are skipped.
+        let marks = [(0, A), (3, C), (4, d(Some(0)))];
+        // From row 5 there is no prompt above (3 and 4 are C/D, not prompts).
+        assert_eq!(jump_target(&marks, 5, JumpDirection::Next), None);
+        assert_eq!(jump_target(&marks, 5, JumpDirection::Prev), Some(0));
+    }
+
+    #[test]
+    fn jump_is_order_independent() {
+        // Unsorted marks still yield the correct nearest neighbour.
+        let marks = [(10, A), (0, A), (4, A)];
+        assert_eq!(jump_target(&marks, 7, JumpDirection::Prev), Some(4));
+        assert_eq!(jump_target(&marks, 7, JumpDirection::Next), Some(10));
+    }
+
+    // --- command_output_range (SH2 select/copy) ---
+
+    #[test]
+    fn output_range_rows_returns_the_span() {
+        let block = CommandBlock {
+            prompt_row: 0,
+            output_start: Some(1),
+            output: CommandOutput::Rows { start: 1, end: 4 },
+            exit: Some(0),
+        };
+        // last_row well past the span: the bounded Rows span is returned as-is.
+        assert_eq!(command_output_range(&block, 99), Some((1, 4)));
+    }
+
+    #[test]
+    fn output_range_open_clamps_to_last_row() {
+        let block = CommandBlock {
+            prompt_row: 0,
+            output_start: Some(2),
+            output: CommandOutput::Open { start: 2 },
+            exit: None,
+        };
+        // Open output runs from its start through the live tail.
+        assert_eq!(command_output_range(&block, 8), Some((2, 8)));
+    }
+
+    #[test]
+    fn output_range_empty_is_none() {
+        let block = CommandBlock {
+            prompt_row: 0,
+            output_start: None,
+            output: CommandOutput::Empty,
+            exit: None,
+        };
+        assert_eq!(command_output_range(&block, 8), None);
+    }
+
+    #[test]
+    fn output_range_clamps_never_inverts_when_buffer_is_short() {
+        // Defensive: a last_row below the output start must not produce an
+        // inverted (end < start) range. Both shapes clamp end up to start.
+        let open = CommandBlock {
+            prompt_row: 0,
+            output_start: Some(5),
+            output: CommandOutput::Open { start: 5 },
+            exit: None,
+        };
+        assert_eq!(command_output_range(&open, 2), Some((5, 5)));
+
+        let rows = CommandBlock {
+            prompt_row: 0,
+            output_start: Some(5),
+            output: CommandOutput::Rows { start: 5, end: 9 },
+            exit: None,
+        };
+        // end clamps down to last_row, but never below start.
+        assert_eq!(command_output_range(&rows, 7), Some((5, 7)));
+        assert_eq!(command_output_range(&rows, 3), Some((5, 5)));
+    }
+
+    // --- command_status (SH2 gutter) ---
+
+    fn block_with(output: CommandOutput, exit: Option<i32>) -> CommandBlock {
+        // command_status reads only `output` and `exit`; output_start is
+        // irrelevant here, so leave it None.
+        CommandBlock {
+            prompt_row: 0,
+            output_start: None,
+            output,
+            exit,
+        }
+    }
+
+    #[test]
+    fn status_success_only_on_explicit_zero() {
+        assert_eq!(
+            command_status(&block_with(
+                CommandOutput::Rows { start: 1, end: 2 },
+                Some(0)
+            )),
+            CommandStatus::Success
+        );
+    }
+
+    #[test]
+    fn status_fail_on_any_nonzero_exit() {
+        assert_eq!(
+            command_status(&block_with(
+                CommandOutput::Rows { start: 1, end: 2 },
+                Some(1)
+            )),
+            CommandStatus::Fail
+        );
+        assert_eq!(
+            command_status(&block_with(CommandOutput::Empty, Some(130))),
+            CommandStatus::Fail
+        );
+    }
+
+    #[test]
+    fn status_running_when_output_open_and_no_exit() {
+        assert_eq!(
+            command_status(&block_with(CommandOutput::Open { start: 1 }, None)),
+            CommandStatus::Running
+        );
+    }
+
+    #[test]
+    fn status_unknown_when_exit_lost_to_row_collapse() {
+        // Output bounded (Rows) but no exit: the D was lost to the SH1 row
+        // collapse. Must read Unknown, never Success.
+        assert_eq!(
+            command_status(&block_with(CommandOutput::Rows { start: 1, end: 2 }, None)),
+            CommandStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn status_unknown_for_prompt_awaiting_input() {
+        // A bare prompt (Empty output, no exit) is neither running nor finished.
+        assert_eq!(
+            command_status(&block_with(CommandOutput::Empty, None)),
+            CommandStatus::Unknown
+        );
+    }
+
+    #[test]
+    fn status_explicit_exit_wins_over_open_output() {
+        // Defensive: an explicit exit takes precedence even if the output were
+        // somehow still Open — never report Running over a real exit code.
+        assert_eq!(
+            command_status(&block_with(CommandOutput::Open { start: 1 }, Some(0))),
+            CommandStatus::Success
+        );
+        assert_eq!(
+            command_status(&block_with(CommandOutput::Open { start: 1 }, Some(3))),
+            CommandStatus::Fail
+        );
     }
 }

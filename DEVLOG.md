@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- SH2 core helpers: prompt nav + output select-range + status
+
+- The pure-core helpers the native command-aware UX (next wave) will wire, all
+  additive in `src/core/prompt_marks.rs` (consuming the `command_blocks` model)
+  and re-exported from `core/mod.rs`. Zero render/native/parser surface, no
+  `Snapshot` change.
+- `jump_target(marks, current_row, JumpDirection::{Prev,Next}) -> Option<usize>`:
+  the nearest `PromptStart` strictly above/below the current row, `None` at the
+  ends (no-op at boundaries). Order-independent min-above / max-below scan;
+  ignores command/output marks. Backs the prev/next-prompt navigation.
+- `command_output_range(block, last_row) -> Option<(usize, usize)>`: the
+  absolute row span to select/copy for a command's output. `Rows` → that span
+  (end clamped to `last_row`, never inverted); `Open { start }` →
+  `(start, last_row.max(start))`; `Empty` → `None`. Backs select-command-output.
+- `command_status(block) -> CommandStatus { Success, Fail, Running, Unknown }`:
+  `Some(0)` → Success, `Some(_)` → Fail, `None` + open output → Running, else
+  Unknown. Never reports Success without an explicit exit 0; degrades to Unknown
+  when the exit code was lost to the SH1 row-collapse. Backs the future gutter.
+- +16 unit tests (boundary/None cases: jump at ends, Open/Empty ranges,
+  exit-None → Unknown). `prompt_marks.rs` is 723 lines (no split needed).
+- Verified: `cargo fmt --all --check` clean; full aggregate
+  1195 passed / 0 failed / 19 ignored; deep fuzz 40k (protocol 11/0) no-panic;
+  public-gate scan clean. No parser surface; fuzz run anyway because core was
+  touched.
+
+---
+
 ## 2026-06-15 -- Docs: privacy posture stated as a feature (U6)
 
 - Made OdyTTY's privacy posture an explicit, stated feature in the public docs
