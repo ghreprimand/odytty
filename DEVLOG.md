@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- MOUSE-RECT: Alt+drag rectangular/block (column) selection
+
+- Holding Alt while dragging now selects a rectangular column band — the same
+  column range is taken from every spanned row, rather than the wrapped-line flow
+  a plain drag produces. Releasing copies the column band. Plain (no-Alt) drag
+  stays byte-identical to before.
+- No new setting: Alt was previously ignored in local selection, so this is a
+  purely additive gesture. Shift remains the only selection-vs-passthrough seam —
+  Alt+drag inside a mouse-reporting application still reports to the PTY (pinned
+  by a recording-writer test asserting non-empty report bytes and no local
+  selection); Shift+Alt forces local block selection.
+- The column primitives live in `selection.rs` (block bounds, visible block
+  range, block text extraction, block highlight) behind a single
+  `apply_selection_highlight` dispatcher, so the wrapped and block highlight paths
+  share one seam. The render-content signature now carries selection block-ness,
+  so re-selecting the same two endpoints as a block (or back to wrapped) forces a
+  full GPU content upload instead of being coalesced away.
+- Verified: `cargo fmt --all --check` clean; aggregate green (lib 1333/0/7,
+  pixel_smoke 41, mouse_protocol 12); new `mouse_rect` tests plus a render-
+  signature matrix test pinning same-range wrapped<->block as a full invalidation.
+
 ## 2026-06-15 -- CTRL-WHEEL-ZOOM: Ctrl+wheel font-size zoom
 
 - Holding Ctrl and scrolling the wheel now adjusts the font size (up enlarges,

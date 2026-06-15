@@ -344,6 +344,21 @@ impl App {
         let Some(point) = self.pointer_cell else {
             return;
         };
+        // MOUSE-RECT: Alt makes the whole gesture a rectangular/column (block)
+        // selection; every non-Alt gesture is wrapped. The mode is decided once
+        // here at the single selection entry point, so the word/line/drag
+        // sub-paths below all inherit the right mode and a prior block selection
+        // can never leak into a new wrapped one. Alt is reached only on the
+        // local path (the mouse-reporting gate already returned for a reporting
+        // app, where Shift is the only selection-vs-passthrough seam), so
+        // Alt+drag never steals Alt+motion from a TUI that wants it. Block
+        // selection is inherently char-granularity, so Alt suppresses the
+        // double/triple-click word/line semantics and starts a fresh block drag.
+        self.selection_block = self.modifiers.alt;
+        if self.modifiers.alt {
+            self.begin_block_drag(point);
+            return;
+        }
         // MOUSE-EXTEND: Shift+click extends an existing selection (keep the
         // anchor, move the focus to the click) instead of starting a new one.
         // Reached only on the local path (the report decision already ran), so
@@ -386,6 +401,29 @@ impl App {
         self.pointer_drag = PointerDrag::Select {
             granularity: SelectGranularity::Char,
             block: false,
+        };
+        self.drag_anchor_unit = None;
+        self.last_selection_autoscroll = None;
+        self.request_selection_redraw();
+    }
+
+    /// MOUSE-RECT: begin a rectangular/column (block) selection at `point`. The
+    /// press cell is the anchor; the column band then grows as the pointer
+    /// drags, reusing the existing Char-granularity `extend_drag_to` arm (a
+    /// block drag follows the pointer exactly like a normal drag — only how the
+    /// range renders and copies differs). `self.selection_block` is already set
+    /// by the caller, so the render/copy paths treat the live selection as a
+    /// block. Constructs the reserved `PointerDrag::Select { block: true }`.
+    fn begin_block_drag(&mut self, point: CellPoint) {
+        let scrollback_len = self.scrollback_len();
+        self.selection.begin(selection::visible_to_absolute(
+            point,
+            self.viewport.offset(),
+            scrollback_len,
+        ));
+        self.pointer_drag = PointerDrag::Select {
+            granularity: SelectGranularity::Char,
+            block: true,
         };
         self.drag_anchor_unit = None;
         self.last_selection_autoscroll = None;

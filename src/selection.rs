@@ -281,6 +281,58 @@ pub fn visible_range_from_absolute(
     )
 }
 
+/// The inclusive column band `[lo, hi]` a block (rectangular/column) selection
+/// covers (MOUSE-RECT). A range's two corner columns are the dragged endpoints,
+/// which may be in either order, so this min/max's them. Shared by block text
+/// extraction and block highlight (and reused by the keyboard block-selection
+/// mode later), so the column geometry has one source of truth.
+pub fn block_column_bounds(range: SelectionRange) -> (usize, usize) {
+    (
+        range.start.column.min(range.end.column),
+        range.start.column.max(range.end.column),
+    )
+}
+
+/// Map an absolute block selection into the visible grid (MOUSE-RECT). Like
+/// [`visible_range_from_absolute`], the row span is clipped to the viewport, but
+/// — crucially for a block — the column band is taken from the absolute range's
+/// two corners and preserved on every visible row. The wrapped helper zeroes a
+/// top-clipped corner's column and maximizes a bottom-clipped corner's column
+/// (correct for wrapped text, where a clipped row spans full width); a block
+/// must keep the SAME column band regardless of vertical clipping. Returns a
+/// normalized range with `start = (top_row, lo)` and `end = (bottom_row, hi)`,
+/// or `None` when the block is entirely outside the viewport.
+pub fn visible_block_range_from_absolute(
+    range: AbsoluteSelectionRange,
+    viewport_offset: usize,
+    scrollback_len: usize,
+    dimensions: Dimensions,
+) -> Option<SelectionRange> {
+    let top = viewport_top_absolute_row(viewport_offset, scrollback_len);
+    let bottom = top.saturating_add(dimensions.rows.saturating_sub(1));
+
+    if range.end.row < top || range.start.row > bottom {
+        return None;
+    }
+
+    let visible_start_row = range.start.row.max(top) - top;
+    let visible_end_row = range.end.row.min(bottom) - top;
+    let last_column = dimensions.columns - 1;
+    let lo = range.start.column.min(range.end.column).min(last_column);
+    let hi = range.start.column.max(range.end.column).min(last_column);
+
+    Some(SelectionRange {
+        start: CellPoint {
+            row: visible_start_row,
+            column: lo,
+        },
+        end: CellPoint {
+            row: visible_end_row,
+            column: hi,
+        },
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct ClickRecord {
     point: CellPoint,
@@ -505,6 +557,62 @@ pub fn selected_text(snapshot: &Snapshot, range: SelectionRange) -> String {
     lines.join("\n")
 }
 
+/// Extract a block (rectangular/column) selection as text (MOUSE-RECT). Unlike
+/// the wrapped [`selected_text`] — where only the first and last rows are
+/// partial and the interior rows span the full width — every row contributes
+/// the SAME inclusive column band [`block_column_bounds`].
+///
+/// Ragged-line rule: the terminal grid is a fixed cell matrix where short lines
+/// are space-padded to full width, so every row always has a cell at every
+/// column. A row therefore contributes exactly its slice of the band: leading
+/// spaces inside the band are PRESERVED (the band's left edge is a hard column
+/// boundary), trailing spaces are trimmed per row (matching the wrapped path),
+/// and a row that is entirely blank within the band trims to an empty string.
+/// Wide-continuation spacers are dropped. Rows are joined with `'\n'`. `range`
+/// is a visible-space range whose two corner columns define the band.
+pub fn selected_text_block(snapshot: &Snapshot, range: SelectionRange) -> String {
+    let (lo, hi) = block_column_bounds(range);
+    let start_row = range.start.row.min(snapshot.dimensions.rows - 1);
+    let end_row = range.end.row.min(snapshot.dimensions.rows - 1);
+    let lo = lo.min(snapshot.dimensions.columns - 1);
+    let hi = hi.min(snapshot.dimensions.columns - 1);
+
+    let mut lines = Vec::new();
+    for row in start_row..=end_row {
+        let offset = row * snapshot.dimensions.columns;
+        let line = snapshot.cells[offset + lo..=offset + hi]
+            .iter()
+            .filter(|cell| !cell.wide_continuation)
+            .map(|cell| cell.ch)
+            .collect::<String>()
+            .trim_end()
+            .to_owned();
+        lines.push(line);
+    }
+
+    lines.join("\n")
+}
+
+/// Apply the selection treatment to one cell: the historical per-cell inverse
+/// when `themed` is `None` (byte-identical default), or an explicit
+/// RV1-floored fill + foreground when a [`SelectionStyle`] is supplied (ID1).
+/// Shared by the wrapped [`apply_highlight`] and the block
+/// [`apply_highlight_block`] so the two paths can never diverge in how a
+/// selected cell is painted.
+fn highlight_cell(cell: &mut crate::core::Cell, themed: Option<SelectionStyle>) {
+    match themed {
+        // Themed (opt-in): explicit fill + floored fg. Clear inverse so
+        // the role colors are not re-swapped by the renderer.
+        Some(style) => {
+            cell.attrs.set_inverse(false);
+            cell.attrs.foreground = Color::Rgb(style.fg[0], style.fg[1], style.fg[2]);
+            cell.attrs.background = Color::Rgb(style.fill[0], style.fill[1], style.fill[2]);
+        }
+        // Default: historical per-cell inverse, byte-identical.
+        None => cell.attrs.set_inverse(true),
+    }
+}
+
 pub fn apply_highlight(
     snapshot: &mut Snapshot,
     range: SelectionRange,
@@ -526,17 +634,61 @@ pub fn apply_highlight(
         };
         let offset = row * snapshot.dimensions.columns;
         for cell in &mut snapshot.cells[offset + start_column..=offset + end_column] {
-            match themed {
-                // Themed (opt-in): explicit fill + floored fg. Clear inverse so
-                // the role colors are not re-swapped by the renderer.
-                Some(style) => {
-                    cell.attrs.set_inverse(false);
-                    cell.attrs.foreground = Color::Rgb(style.fg[0], style.fg[1], style.fg[2]);
-                    cell.attrs.background = Color::Rgb(style.fill[0], style.fill[1], style.fill[2]);
-                }
-                // Default: historical per-cell inverse, byte-identical.
-                None => cell.attrs.set_inverse(true),
-            }
+            highlight_cell(cell, themed);
+        }
+    }
+}
+
+/// Resolve an absolute selection into its visible range and paint the
+/// highlight, dispatching between the wrapped and block (MOUSE-RECT) projections
+/// so the render path stays a single call. A no-op when the selection is
+/// entirely outside the viewport. The block branch preserves the column band on
+/// every visible row via [`visible_block_range_from_absolute`]; the wrapped
+/// branch is byte-identical to the historical
+/// [`visible_range_from_absolute`] + [`apply_highlight`] pair.
+pub fn apply_selection_highlight(
+    snapshot: &mut Snapshot,
+    range: AbsoluteSelectionRange,
+    block: bool,
+    viewport_offset: usize,
+    scrollback_len: usize,
+    dimensions: Dimensions,
+    themed: Option<SelectionStyle>,
+) {
+    if block {
+        if let Some(visible) =
+            visible_block_range_from_absolute(range, viewport_offset, scrollback_len, dimensions)
+        {
+            apply_highlight_block(snapshot, visible, themed);
+        }
+    } else if let Some(visible) =
+        visible_range_from_absolute(range, viewport_offset, scrollback_len, dimensions)
+    {
+        apply_highlight(snapshot, visible, themed);
+    }
+}
+
+/// Block (rectangular/column) variant of [`apply_highlight`] (MOUSE-RECT). The
+/// same column band [`block_column_bounds`] is painted on EVERY row in the
+/// range, instead of the wrapped path's partial first/last rows. `range` is a
+/// visible-space range whose two corner columns define the band; the caller
+/// derives it from the absolute selection via [`visible_block_range_from_absolute`]
+/// so the band is preserved even when the block extends past the viewport.
+pub fn apply_highlight_block(
+    snapshot: &mut Snapshot,
+    range: SelectionRange,
+    themed: Option<SelectionStyle>,
+) {
+    let (lo, hi) = block_column_bounds(range);
+    let start_row = range.start.row.min(snapshot.dimensions.rows - 1);
+    let end_row = range.end.row.min(snapshot.dimensions.rows - 1);
+    let lo = lo.min(snapshot.dimensions.columns - 1);
+    let hi = hi.min(snapshot.dimensions.columns - 1);
+
+    for row in start_row..=end_row {
+        let offset = row * snapshot.dimensions.columns;
+        for cell in &mut snapshot.cells[offset + lo..=offset + hi] {
+            highlight_cell(cell, themed);
         }
     }
 }
@@ -981,5 +1133,217 @@ mod tests {
             drag_autoscroll_step_with_padding(-1000.0, cell, dims, padding, 0),
             1
         );
+    }
+
+    #[test]
+    fn block_column_bounds_orders_either_corner() {
+        // Corners in either column order yield the same inclusive [lo, hi] band.
+        let forward = SelectionRange {
+            start: CellPoint { row: 0, column: 2 },
+            end: CellPoint { row: 3, column: 6 },
+        };
+        let reversed = SelectionRange {
+            start: CellPoint { row: 0, column: 6 },
+            end: CellPoint { row: 3, column: 2 },
+        };
+        assert_eq!(block_column_bounds(forward), (2, 6));
+        assert_eq!(block_column_bounds(reversed), (2, 6));
+    }
+
+    #[test]
+    fn block_text_extracts_the_same_column_band_on_every_row() {
+        // Unlike wrapped extraction, interior rows do NOT span the full width;
+        // every row contributes only columns [2, 4], trimmed per row.
+        let snapshot = snapshot(&["ab12ef", "gh34ij", "kl56mn"], 6);
+        let range = SelectionRange {
+            start: CellPoint { row: 0, column: 2 },
+            end: CellPoint { row: 2, column: 4 },
+        };
+
+        assert_eq!(selected_text_block(&snapshot, range), "12e\n34i\n56m");
+    }
+
+    #[test]
+    fn block_text_trims_trailing_spaces_per_row() {
+        // A band that runs into trailing whitespace trims each row independently
+        // (a row that is all spaces in the band becomes empty).
+        let snapshot = snapshot(&["aXY   ", "b     ", "cZ    "], 6);
+        let range = SelectionRange {
+            start: CellPoint { row: 0, column: 1 },
+            end: CellPoint { row: 2, column: 3 },
+        };
+
+        assert_eq!(selected_text_block(&snapshot, range), "XY\n\nZ");
+    }
+
+    #[test]
+    fn block_text_preserves_leading_spaces_inside_the_band() {
+        // The band's left edge is a hard column boundary: a space at the band's
+        // first column is part of the rectangle and is preserved, while trailing
+        // spaces are trimmed. Band = columns [1, 4].
+        let snapshot = snapshot(&[" a x  ", "  bb  ", " cc   "], 6);
+        let range = SelectionRange {
+            start: CellPoint { row: 0, column: 1 },
+            end: CellPoint { row: 2, column: 4 },
+        };
+
+        // Row 0 band "a x" (col1='a', col2=' ', col3='x', col4=' ' trimmed).
+        // Row 1 band " bb" (col1=' ', col2='b', col3='b', col4=' ' trimmed).
+        // Row 2 band "cc" (col1='c', col2='c', col3=' ', col4=' ' trimmed).
+        assert_eq!(selected_text_block(&snapshot, range), "a x\n bb\ncc");
+    }
+
+    #[test]
+    fn block_text_diverges_from_wrapped_on_the_same_corners() {
+        // The same two corners produce a column band under block extraction but
+        // wrapped (first/last partial, interior full-width) under the wrapped
+        // path — proving the two are genuinely different selections.
+        let snapshot = snapshot(&["abcdef", "ghijkl", "mnopqr"], 6);
+        let range = SelectionRange {
+            start: CellPoint { row: 0, column: 1 },
+            end: CellPoint { row: 2, column: 3 },
+        };
+
+        assert_eq!(selected_text_block(&snapshot, range), "bcd\nhij\nnop");
+        assert_eq!(selected_text(&snapshot, range), "bcdef\nghijkl\nmnop");
+    }
+
+    #[test]
+    fn block_text_drops_wide_continuation_spacers_in_the_band() {
+        // A wide glyph occupies a lead cell plus a `wide_continuation` spacer.
+        // Row: 'a' | '世'(wide lead) | spacer | 'b' | 'c' | 'd'. The spacer must
+        // never copy as its own cell, so a block band cutting through the glyph
+        // yields the wide char exactly once with no phantom space — the same
+        // `!wide_continuation` filtering the wrapped path uses.
+        let snapshot = Snapshot {
+            dimensions: Dimensions::new(6, 1),
+            cursor: Position::default(),
+            cursor_visible: true,
+            colors: crate::core::DynamicColors::default(),
+            cells: vec![
+                Cell::new('a', Attrs::default()),
+                Cell::new('世', Attrs::default()),
+                Cell::wide_spacer(Attrs::default()),
+                Cell::new('b', Attrs::default()),
+                Cell::new('c', Attrs::default()),
+                Cell::new('d', Attrs::default()),
+            ],
+        };
+
+        // Band [1, 3] spans the wide lead, its spacer, and 'b': the spacer
+        // drops, so the wide char copies once → "世b" (not "世 b").
+        let through = SelectionRange {
+            start: CellPoint { row: 0, column: 1 },
+            end: CellPoint { row: 0, column: 3 },
+        };
+        assert_eq!(selected_text_block(&snapshot, through), "世b");
+
+        // Band [2, 3] starts ON the orphaned continuation spacer (its lead is
+        // outside the band): the spacer drops, leaving just 'b'.
+        let from_spacer = SelectionRange {
+            start: CellPoint { row: 0, column: 2 },
+            end: CellPoint { row: 0, column: 3 },
+        };
+        assert_eq!(selected_text_block(&snapshot, from_spacer), "b");
+    }
+
+    #[test]
+    fn visible_block_range_preserves_the_column_band_when_clipped() {
+        // A block whose top rows are scrolled above the viewport must keep its
+        // [lo, hi] column band on the visible rows — the wrapped projection
+        // would instead zero the top-clipped corner's column.
+        let dims = Dimensions::new(8, 3);
+        let range = AbsoluteSelectionRange {
+            start: AbsoluteCellPoint { row: 5, column: 3 },
+            end: AbsoluteCellPoint { row: 7, column: 5 },
+        };
+
+        // viewport_offset 4 over scrollback 10: top absolute row = 6, so row 5
+        // (with column 3) is clipped above the viewport.
+        assert_eq!(
+            visible_block_range_from_absolute(range, 4, 10, dims),
+            Some(SelectionRange {
+                start: CellPoint { row: 0, column: 3 },
+                end: CellPoint { row: 1, column: 5 },
+            })
+        );
+        // Contrast: the wrapped projection zeros the clipped corner's column.
+        assert_eq!(
+            visible_range_from_absolute(range, 4, 10, dims),
+            Some(SelectionRange {
+                start: CellPoint { row: 0, column: 0 },
+                end: CellPoint { row: 1, column: 5 },
+            })
+        );
+        // Entirely outside the viewport returns None, like the wrapped helper.
+        assert_eq!(visible_block_range_from_absolute(range, 2, 10, dims), None);
+    }
+
+    #[test]
+    fn block_highlight_inverts_only_the_column_band() {
+        // Only columns [1, 2] on both rows are inverted; columns 0 and 3 stay
+        // untouched — the rectangular shape, not the wrapped run.
+        let mut snapshot = snapshot(&["abcd", "efgh"], 4);
+        let range = SelectionRange {
+            start: CellPoint { row: 0, column: 1 },
+            end: CellPoint { row: 1, column: 2 },
+        };
+
+        apply_highlight_block(&mut snapshot, range, None);
+
+        // Row 0: col 0 untouched, cols 1-2 inverted, col 3 untouched.
+        assert!(!snapshot.cells[0].attrs.inverse());
+        assert!(snapshot.cells[1].attrs.inverse());
+        assert!(snapshot.cells[2].attrs.inverse());
+        assert!(!snapshot.cells[3].attrs.inverse());
+        // Row 1: same band.
+        assert!(!snapshot.cells[4].attrs.inverse());
+        assert!(snapshot.cells[5].attrs.inverse());
+        assert!(snapshot.cells[6].attrs.inverse());
+        assert!(!snapshot.cells[7].attrs.inverse());
+    }
+
+    #[test]
+    fn apply_selection_highlight_dispatches_block_vs_wrapped() {
+        let dims = Dimensions::new(4, 2);
+        // Two corners spanning both rows; column band [1, 2].
+        let range = AbsoluteSelectionRange {
+            start: AbsoluteCellPoint { row: 0, column: 1 },
+            end: AbsoluteCellPoint { row: 1, column: 2 },
+        };
+
+        // Block: only the column band [1, 2] is inverted on both rows.
+        let mut block = snapshot(&["abcd", "efgh"], 4);
+        apply_selection_highlight(&mut block, range, true, 0, 0, dims, None);
+        assert!(!block.cells[0].attrs.inverse());
+        assert!(block.cells[1].attrs.inverse());
+        assert!(block.cells[2].attrs.inverse());
+        assert!(!block.cells[3].attrs.inverse());
+        assert!(!block.cells[4].attrs.inverse());
+        assert!(block.cells[5].attrs.inverse());
+        assert!(block.cells[6].attrs.inverse());
+        assert!(!block.cells[7].attrs.inverse());
+
+        // Wrapped: row 0 runs col 1 to end-of-row, row 1 from col 0 to col 2.
+        let mut wrapped = snapshot(&["abcd", "efgh"], 4);
+        apply_selection_highlight(&mut wrapped, range, false, 0, 0, dims, None);
+        assert!(!wrapped.cells[0].attrs.inverse());
+        assert!(wrapped.cells[1].attrs.inverse());
+        assert!(wrapped.cells[2].attrs.inverse());
+        assert!(wrapped.cells[3].attrs.inverse());
+        assert!(wrapped.cells[4].attrs.inverse());
+        assert!(wrapped.cells[5].attrs.inverse());
+        assert!(wrapped.cells[6].attrs.inverse());
+        assert!(!wrapped.cells[7].attrs.inverse());
+
+        // Off-viewport selection is a no-op (nothing inverted) for both modes.
+        let off = AbsoluteSelectionRange {
+            start: AbsoluteCellPoint { row: 5, column: 1 },
+            end: AbsoluteCellPoint { row: 6, column: 2 },
+        };
+        let mut none = snapshot(&["abcd", "efgh"], 4);
+        apply_selection_highlight(&mut none, off, true, 2, 10, dims, None);
+        apply_selection_highlight(&mut none, off, false, 2, 10, dims, None);
+        assert!(none.cells.iter().all(|cell| !cell.attrs.inverse()));
     }
 }

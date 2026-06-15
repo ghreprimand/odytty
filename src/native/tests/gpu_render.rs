@@ -318,10 +318,33 @@ fn render_signature_update_matrix_covers_pixel_invalidators() {
     selection.content.selection = Some(SelectionSignature {
         start: (0, 0),
         end: (0, 2),
+        block: false,
     });
     assert_eq!(
         RenderSignature::update_from(Some(&base), &selection),
         GeometryUpdate::Full
+    );
+
+    // MOUSE-RECT: the SAME selection range with a different mode (wrapped vs
+    // rectangular/block) paints a different highlight shape, so the content
+    // signature must change — otherwise a coalesced redraw could retain a stale
+    // wrapped highlight when a block selection recreates the same range (and
+    // vice versa). Both directions must classify as Full.
+    let mut block_selection = selection.clone();
+    block_selection.content.selection = Some(SelectionSignature {
+        start: (0, 0),
+        end: (0, 2),
+        block: true,
+    });
+    assert_eq!(
+        RenderSignature::update_from(Some(&selection), &block_selection),
+        GeometryUpdate::Full,
+        "same range, wrapped -> block must not be retained"
+    );
+    assert_eq!(
+        RenderSignature::update_from(Some(&block_selection), &selection),
+        GeometryUpdate::Full,
+        "same range, block -> wrapped must not be retained"
     );
 
     let mut search = base.clone();

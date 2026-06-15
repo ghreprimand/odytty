@@ -221,6 +221,14 @@ pub(super) struct App {
     /// drags can stay live and so later pointer gestures (block select, scroll
     /// thumb) get one mutually-exclusive home.
     pointer_drag: PointerDrag,
+    /// Whether the live selection is a rectangular/column (block) selection
+    /// (MOUSE-RECT) rather than a wrapped one. Set once at every selection's
+    /// entry (`begin_selection`) from the Alt modifier, so it stays correct for
+    /// the whole gesture and a prior block selection cannot leak into a new
+    /// wrapped one. Read by the render highlight and the copy choke point, both
+    /// of which only act when `selection.range()` is `Some`, so a stale value
+    /// after the selection clears is inert until the next selection resets it.
+    selection_block: bool,
     /// The anchored word/line range for an in-progress word/line drag-extend
     /// (MOUSE-EXTEND). Fixed at the double/triple-click unit; each drag motion
     /// unions it with the unit under the pointer. `None` for char drags and when
@@ -314,6 +322,7 @@ impl App {
             test_cell: None,
             hovered_hyperlink: None,
             pointer_drag: PointerDrag::None,
+            selection_block: false,
             drag_anchor_unit: None,
             clicks: ClickTracker::default(),
             last_selection_autoscroll: None,
@@ -440,6 +449,21 @@ impl App {
     #[cfg(test)]
     pub(super) fn set_ctrl_modifier_for_test(&mut self, ctrl: bool) {
         self.modifiers.ctrl = ctrl;
+    }
+
+    /// Test seam (MOUSE-RECT): set the Alt modifier so an Alt+drag block
+    /// selection can be driven through the production `begin_selection` route.
+    #[cfg(test)]
+    pub(super) fn set_alt_modifier_for_test(&mut self, alt: bool) {
+        self.modifiers.alt = alt;
+    }
+
+    /// Test seam (MOUSE-RECT): whether the live selection is a block (column)
+    /// selection, so a test can prove the Alt gesture armed block mode and a
+    /// plain drag did not.
+    #[cfg(test)]
+    pub(super) fn selection_is_block_for_test(&self) -> bool {
+        self.selection_block
     }
 
     /// Test seam (CTRL-WHEEL-ZOOM): toggle the `wheel_zoom` setting so the
@@ -623,6 +647,7 @@ impl App {
             resize.height_px,
         ) {
             self.selection.clear();
+            self.selection_block = false;
             self.pointer_drag = PointerDrag::None;
             self.drag_anchor_unit = None;
             self.last_selection_autoscroll = None;
@@ -840,6 +865,7 @@ impl App {
             self.search_restore_viewport = Some(self.viewport.offset());
             self.search.open();
             self.selection.clear();
+            self.selection_block = false;
             self.pointer_drag = PointerDrag::None;
             self.drag_anchor_unit = None;
             self.last_selection_autoscroll = None;
@@ -1481,17 +1507,22 @@ impl ApplicationHandler<UserEvent> for App {
                                 .get(point.row * snapshot.dimensions.columns + point.column)
                                 .and_then(|cell| cell.attrs.hyperlink)
                         });
-                        if let Some(range) = self.selection.range()
-                            && let Some(visible_range) = selection::visible_range_from_absolute(
+                        if let Some(range) = self.selection.range() {
+                            // MOUSE-RECT: dispatch wrapped vs block (column)
+                            // highlight in one call, reading the live
+                            // `selection_block`. Block-ness also rides the
+                            // render-cache signature (see `SelectionSignature`),
+                            // so even if two selections shared the same two
+                            // corners with different block-ness the cache would
+                            // still rebuild — the live read here keeps the paint
+                            // correct on every rebuild regardless.
+                            selection::apply_selection_highlight(
+                                &mut snapshot,
                                 range,
+                                self.selection_block,
                                 self.viewport.offset(),
                                 scrollback_len,
                                 self.grid,
-                            )
-                        {
-                            selection::apply_highlight(
-                                &mut snapshot,
-                                visible_range,
                                 self.themed_selection_style(),
                             );
                         }
@@ -1529,7 +1560,9 @@ impl ApplicationHandler<UserEvent> for App {
                                 scrollback_len,
                                 grid: self.grid,
                                 cell,
-                                selection: self.selection.range().map(SelectionSignature::from),
+                                selection: self.selection.range().map(|range| {
+                                    SelectionSignature::from_range(range, self.selection_block)
+                                }),
                                 search: self.search.render_signature(),
                                 overlay: self.overlay.render_signature(),
                                 hovered_hyperlink: self.hovered_hyperlink,

@@ -62,6 +62,7 @@ mod clipboard_paste;
 mod gpu_render;
 mod grid_scale;
 mod input_keys;
+mod mouse_rect;
 mod overlay_pointer;
 mod scrollbar;
 mod selection_extend;

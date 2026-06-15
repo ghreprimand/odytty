@@ -204,14 +204,30 @@ impl App {
         };
         let terminal = self.terminal.lock().expect("terminal mutex");
         let scrollback_len = terminal.screen().scrollback_len();
-        let visible_range = selection::visible_range_from_absolute(
-            range,
-            self.viewport.offset(),
-            scrollback_len,
-            self.grid,
-        )?;
-        let snapshot = terminal.snapshot_with_scrollback(self.viewport.offset());
-        selected_clipboard_text(&snapshot, visible_range)
+        let offset = self.viewport.offset();
+        // MOUSE-RECT: a block selection copies the column band on every row
+        // (`selected_text_block`), versus the wrapped path's first/last-partial
+        // run. Both branches resolve the visible range and early-return on a
+        // fully-off-viewport selection BEFORE snapshotting, so the wrapped path
+        // stays byte-identical (same calls, same order) and the block path skips
+        // the snapshot clone when nothing is visible. This single choke point is
+        // shared by PRIMARY, CLIPBOARD, copy-on-select, and the keyboard copy.
+        if self.selection_block {
+            let visible_range = selection::visible_block_range_from_absolute(
+                range,
+                offset,
+                scrollback_len,
+                self.grid,
+            )?;
+            let snapshot = terminal.snapshot_with_scrollback(offset);
+            let text = selection::selected_text_block(&snapshot, visible_range);
+            (!text.is_empty()).then_some(text)
+        } else {
+            let visible_range =
+                selection::visible_range_from_absolute(range, offset, scrollback_len, self.grid)?;
+            let snapshot = terminal.snapshot_with_scrollback(offset);
+            selected_clipboard_text(&snapshot, visible_range)
+        }
     }
 
     pub(super) fn write_primary_selection(&mut self) {
@@ -233,6 +249,7 @@ impl App {
     /// the overlay is open, so it is guaranteed `None` on close.
     pub(super) fn reset_pointer_state_for_overlay(&mut self) {
         self.selection.clear();
+        self.selection_block = false;
         self.pointer_drag = PointerDrag::None;
         self.drag_anchor_unit = None;
         self.last_selection_autoscroll = None;

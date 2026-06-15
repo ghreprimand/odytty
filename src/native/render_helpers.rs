@@ -112,13 +112,23 @@ pub(super) struct CursorRenderSignature {
 pub(super) struct SelectionSignature {
     pub(super) start: (usize, usize),
     pub(super) end: (usize, usize),
+    /// MOUSE-RECT: whether the live selection is a rectangular/column (block)
+    /// run. The highlight geometry differs for the same two corner endpoints
+    /// (a column band vs a wrapped run), so block-ness must take part in the
+    /// render-cache signature — otherwise a cached frame could be reused with
+    /// the wrong highlight shape. Folding it into the per-selection signature
+    /// (rather than a top-level field) keeps it observable only while a
+    /// selection exists, so a cleared-but-stale block flag never forces a
+    /// spurious rebuild.
+    pub(super) block: bool,
 }
 
-impl From<AbsoluteSelectionRange> for SelectionSignature {
-    fn from(value: AbsoluteSelectionRange) -> Self {
+impl SelectionSignature {
+    pub(super) fn from_range(range: AbsoluteSelectionRange, block: bool) -> Self {
         Self {
-            start: (value.start.row, value.start.column),
-            end: (value.end.row, value.end.column),
+            start: (range.start.row, range.start.column),
+            end: (range.end.row, range.end.column),
+            block,
         }
     }
 }
