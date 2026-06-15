@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- U3 core: contrast-aware palette generation (pure module)
+
+- New `src/palette_gen.rs`: `generate(seed, appearance, floor) -> ThemeSpec` turns
+  a single seed color plus a light/dark appearance into a complete, readable theme
+  to use as a starting point. Pure and byte-deterministic — no RNG, no I/O — so the
+  same seed always yields the same palette.
+- Pipeline: seed → OKLCH; the 16 ANSI slots ride one shared lightness/chroma ramp
+  at anchors derived from the default ANSI palette via an OKLCH round-trip (no magic
+  hue constants), each biased toward the seed hue but capped at 18° so red still
+  reads red; the neutral slots stay achromatic. Background/foreground polarity comes
+  from the requested appearance, not the seed lightness, so a bright seed in Dark
+  mode still produces a dark background. The seed accent seats into the cursor,
+  selection, and search-fill roles.
+- Readability by construction: every text/fill role is run through the contrast
+  floor (text-over-background and text-over-fill both validated symmetrically), and
+  the check operates on the final quantized 8-bit bytes so what the file emits is
+  what passes. `floor <= 1.0` is an exact pass-through no-op. Out-of-gamut results
+  from darkening saturated colors are resolved by hue-preserving chroma reduction
+  rather than per-channel clipping, so recognizability holds.
+- Standalone module with a stable signature (a future mechanical move into the
+  shared authoring core is anticipated). Reads color primitives and the theme types
+  only — no edits to color/theme/core/settings/native/parser.
+- Verified: `cargo fmt --all --check` clean; aggregate green (lib 1205/0/7, all
+  integration suites pass); 11 new tests (determinism, a golden 24-role snapshot, a
+  17-seed × both-appearance floor sweep, polarity, ANSI recognizability within the
+  rotation cap, achromatic-seed safety, serialize round-trip); SPDX header present;
+  public-gate scan clean.
+
+---
+
 ## 2026-06-15 -- MOUSE-AUTOSCROLL-VEL: velocity-proportional drag autoscroll
 
 - New `scroll_drag_speed` setting (`ramp` | `legacy`, default `ramp`). When you drag

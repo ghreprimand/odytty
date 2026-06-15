@@ -9,6 +9,7 @@ pub mod graphics;
 pub mod grid;
 pub mod input;
 pub mod native;
+pub mod palette_gen;
 pub mod parser;
 pub mod pty;
 pub mod render;
