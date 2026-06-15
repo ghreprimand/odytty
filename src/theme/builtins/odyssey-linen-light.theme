@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-linen-light
+appearance = light
+
+foreground = #2e2a24
+background = #f4f0e8
+clear = #fbf8f2
+
+cursor = #8a6a3a
+selection = #e4ddcc
+search = #ece4a8
+border = #ddd6c4
+inactive = #8a8478
+
+color0 = #2e2a24
+color1 = #bc4a48
+color2 = #5a8a3a
+color3 = #8a6818
+color4 = #3a72ac
+color5 = #9a5a96
+color6 = #2a8a82
+color7 = #5e584c
+color8 = #443e34
+color9 = #cc5450
+color10 = #6a9846
+color11 = #97701a
+color12 = #437fbc
+color13 = #aa68a4
+color14 = #38988e
+color15 = #14100a

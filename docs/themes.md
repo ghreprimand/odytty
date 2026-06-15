@@ -63,21 +63,22 @@ path — so the file format is exercised by the library on every startup.
 
 ### Theme families
 
-**Odyssey identity** — `plain` plus twenty-nine `odyssey-*` variants are
+**Odyssey identity** — `plain` plus thirty-five `odyssey-*` variants are
 original themes designed for OdysseyOS. `plain` reproduces the historical xterm
 default palette byte-for-byte and is the fallback when no theme is configured.
 The `odyssey-*` variants span a range of visual moods across dark and light
 appearances: deep-space and interstellar cold (`odyssey`, `odyssey-deepspace`,
 `odyssey-pulsar`), warm atmospheric (`odyssey-solar`, `odyssey-ember`,
-`odyssey-abyss`, `odyssey-volcanic`), cool natural (`odyssey-glacier`,
-`odyssey-voyager`, `odyssey-fathom`, `odyssey-harbor`, `odyssey-orchard`),
-cosmic nebula (`odyssey-nebula`, `odyssey-aurora`, `odyssey-ion`,
-`odyssey-twilight`, `odyssey-quasar`), natural greens (`odyssey-verdant`), warm
-and cool text focus (`odyssey-meridian`, `odyssey-graphite`), and eight light
+`odyssey-abyss`, `odyssey-volcanic`, `odyssey-rosewood`), cool natural
+(`odyssey-glacier`, `odyssey-voyager`, `odyssey-fathom`, `odyssey-harbor`,
+`odyssey-orchard`, `odyssey-tidepool`, `odyssey-slate`), cosmic nebula
+(`odyssey-nebula`, `odyssey-aurora`, `odyssey-ion`, `odyssey-twilight`,
+`odyssey-quasar`), natural greens (`odyssey-verdant`, `odyssey-moss`), warm
+and cool text focus (`odyssey-meridian`, `odyssey-graphite`), and ten light
 companions (`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`,
 `odyssey-cloud-light`, `odyssey-coral-light`, `odyssey-mist-light`,
-`odyssey-meadow-light`, `odyssey-parchment-light`). These carry the strongest
-OdysseyOS visual identity.
+`odyssey-meadow-light`, `odyssey-parchment-light`, `odyssey-blossom-light`,
+`odyssey-linen-light`). These carry the strongest OdysseyOS visual identity.
 
 **Community** — twenty-eight themes ported from widely-used open-source
 color-scheme palettes. The dark side covers the ten palettes that formed the
@@ -133,6 +134,12 @@ OdyTTY has no affiliation with or endorsement from any of those vendors.
 | `odyssey-quasar` | dark | Odyssey identity (brilliant cyan-blue jet over a near-black void) |
 | `odyssey-meadow-light` | light | Odyssey identity (sunlit spring-green meadow companion) |
 | `odyssey-parchment-light` | light | Odyssey identity (warm aged-parchment daylight with ink-brown text) |
+| `odyssey-tidepool` | dark | Odyssey identity (teal-aqua tidepool over deep coastal dark) |
+| `odyssey-moss` | dark | Odyssey identity (olive and moss greens on forest-floor dark) |
+| `odyssey-rosewood` | dark | Odyssey identity (warm rose and wine over a dark grain) |
+| `odyssey-slate` | dark | Odyssey identity (cool steel-blue neutral focus mode) |
+| `odyssey-blossom-light` | light | Odyssey identity (soft rose-blossom daylight companion) |
+| `odyssey-linen-light` | light | Odyssey identity (warm neutral linen daylight with ink text) |
 | `solarized-dark` | dark | Community |
 | `solarized-light` | light | Community |
 | `gruvbox-dark` | dark | Community |

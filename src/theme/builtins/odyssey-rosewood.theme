@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-rosewood
+appearance = dark
+
+foreground = #f4e2e6
+background = #1c0f14
+clear = #150a0e
+
+cursor = #e06a8a
+selection = #3a1f28
+search = #4a3c1a
+border = #341d24
+inactive = #80606a
+
+color0 = #281820
+color1 = #ee6a7e
+color2 = #5ccc9a
+color3 = #e0a85e
+color4 = #b888d8
+color5 = #e07ab0
+color6 = #6ac8c0
+color7 = #dcbec6
+color8 = #4a2c38
+color9 = #ff90a2
+color10 = #84e6b8
+color11 = #f0c682
+color12 = #cca2ee
+color13 = #f098c8
+color14 = #8ce0d8
+color15 = #fbeef2

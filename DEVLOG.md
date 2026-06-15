@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Themes: add 6 more original Odyssey-named themes (66 -> 72)
+
+- Six new built-in themes, all original Odyssey identity: `odyssey-rosewood`,
+  `odyssey-moss`, `odyssey-tidepool`, `odyssey-slate` (dark), plus
+  `odyssey-blossom-light` and `odyssey-linen-light` (light). The library now
+  ships 72 contrast-validated built-in themes.
+- Each clears the readability floor with margin and keeps distinct bright /
+  normal rows; the builtin count pin (now 72) and the contrast / appearance /
+  parse / uniqueness pins all assert green. `README.md` and `docs/themes.md`
+  (roster table + identity prose) updated in lockstep so the published count and
+  roster do not drift.
+
 ## 2026-06-15 -- SH2: command-aware prompt jump + success/fail status gutter
 
 - Built on the OSC 133 semantic prompt marks (SH1), the terminal now offers

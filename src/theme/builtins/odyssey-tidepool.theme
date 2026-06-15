@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-tidepool
+appearance = dark
+
+foreground = #d6f0ec
+background = #0c1a1c
+clear = #081315
+
+cursor = #4fd6c0
+selection = #163338
+search = #3a4a1a
+border = #1a3034
+inactive = #5e7a78
+
+color0 = #142628
+color1 = #f0707f
+color2 = #46cf9a
+color3 = #d8b25a
+color4 = #4aa8d8
+color5 = #9a8ae0
+color6 = #3fcfc4
+color7 = #bcd4d0
+color8 = #244044
+color9 = #ff8c98
+color10 = #6ce6b4
+color11 = #f0cd82
+color12 = #74c2ee
+color13 = #b6a6f0
+color14 = #74e6dc
+color15 = #ecfbf8

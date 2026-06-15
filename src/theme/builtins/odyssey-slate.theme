@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-slate
+appearance = dark
+
+foreground = #dde4ec
+background = #12161c
+clear = #0d1116
+
+cursor = #7aa8d8
+selection = #243040
+search = #3a4030
+border = #283440
+inactive = #6c7884
+
+color0 = #1e242c
+color1 = #e0808e
+color2 = #6cc0a0
+color3 = #ccb070
+color4 = #6c9cd0
+color5 = #a898d8
+color6 = #5cb8c8
+color7 = #c2ccd6
+color8 = #38444e
+color9 = #f098a4
+color10 = #8ad8b8
+color11 = #e6c88a
+color12 = #8eb6e6
+color13 = #c2b2ee
+color14 = #7cd4e2
+color15 = #eef2f6

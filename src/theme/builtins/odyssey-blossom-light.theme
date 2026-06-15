@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-blossom-light
+appearance = light
+
+foreground = #3a2630
+background = #fbeef2
+clear = #fff6f8
+
+cursor = #c0487a
+selection = #f4d4e0
+search = #f0e0a0
+border = #ecd0da
+inactive = #98828a
+
+color0 = #3a2630
+color1 = #c43a5a
+color2 = #2f8a4e
+color3 = #8a6418
+color4 = #3a6fb8
+color5 = #b04a8a
+color6 = #1c8482
+color7 = #6a5660
+color8 = #4e3a44
+color9 = #d4425e
+color10 = #389852
+color11 = #9a701c
+color12 = #4276c0
+color13 = #c0589a
+color14 = #28908c
+color15 = #1a0e14

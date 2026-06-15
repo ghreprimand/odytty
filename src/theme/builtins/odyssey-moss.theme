@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-moss
+appearance = dark
+
+foreground = #e8ecd6
+background = #14180c
+clear = #0f1208
+
+cursor = #a8c24f
+selection = #2a3018
+search = #3a3a1a
+border = #2a3018
+inactive = #74785e
+
+color0 = #222810
+color1 = #d8745a
+color2 = #8ac24a
+color3 = #d0b048
+color4 = #6aa888
+color5 = #b08ac0
+color6 = #5ec0a0
+color7 = #ccd0b8
+color8 = #3c4424
+color9 = #ec8c70
+color10 = #a6dc66
+color11 = #e8cc6a
+color12 = #88c4a4
+color13 = #c8a6d8
+color14 = #7adcbc
+color15 = #f2f6e2
