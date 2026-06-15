@@ -1,18 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use std::collections::HashMap;
-use std::ffi::OsString;
-use std::fs;
-use std::io;
-use std::path::PathBuf;
-use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime};
 
-use crate::atlas::SubpixelMode;
-use crate::core::CursorStyle;
-use crate::theme::Theme;
-
-use super::config::{config_key_to_env, env_to_config_key};
-use super::reload::{ConfigFileFingerprint, ConfigPollEvent};
 use super::*;
 
 static RELOAD_GLOBAL_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -88,16 +75,22 @@ fn setting_info_covers_every_field_with_descriptions() {
         keys,
         vec![
             "theme",
-            "visual",
+            "themed_ui_roles",
             "font",
             "font_family",
             "font_size",
+            "symbol_fallback",
+            "symbol_font",
             "text_gamma",
             "stem_darken",
             "min_contrast",
             "focus_dim",
             "render_quality",
             "window_padding",
+            "subpixel",
+            "synthetic_styles",
+            "geometric_boxdraw",
+            "visual",
             "bloom",
             "bloom_threshold",
             "bloom_intensity",
@@ -106,12 +99,6 @@ fn setting_info_covers_every_field_with_descriptions() {
             "crt_scanline_intensity",
             "crt_scanline_period",
             "crt_vignette_strength",
-            "subpixel",
-            "synthetic_styles",
-            "geometric_boxdraw",
-            "symbol_fallback",
-            "symbol_font",
-            "themed_ui_roles",
             "cursor_style",
             "cursor_blink",
             "keybinds",
@@ -140,10 +127,9 @@ fn setting_info_covers_every_field_with_descriptions() {
         info.iter()
             .any(|row| row.key == "render_quality" && row.options == ["plain", "balanced", "high"])
     );
-    assert!(
-        info.iter()
-            .any(|row| row.key == "window_padding" && row.range.as_deref() == Some("0.0..=64.0 px"))
-    );
+    assert!(info
+        .iter()
+        .any(|row| row.key == "window_padding" && row.range.as_deref() == Some("0.0..=64.0 px")));
     assert!(
         info.iter()
             .any(|row| row.key == "bloom" && row.options == ["on", "off"])

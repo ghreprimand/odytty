@@ -21,10 +21,10 @@ pub const FOCUS_DIM_DESC: &str = "Focus dimming: dims the whole window (text and
      0.15–0.30 is a subtle recede. The focused window is never dimmed. The \
      minimum-contrast floor still applies, so text stays legible. Default 0.0.";
 
-pub const RENDER_QUALITY_DESC: &str = "Render quality: master renderer profile. balanced is today's default; \
-     plain is the hard fast path and forces post-process effects, focus dimming, \
-     stem darkening, and the minimum-contrast floor off even when their individual \
-     knobs are enabled. high is reserved for future higher-cost quality paths.";
+pub const RENDER_QUALITY_DESC: &str = "Renderer profile: balanced is the default quality path; plain is the \
+     hard fast path and forces post-process effects, focus dimming, stem darkening, \
+     and the minimum-contrast floor off even when those knobs are enabled. high is \
+     reserved for future higher-cost quality paths.";
 
 pub const WINDOW_PADDING_DESC: &str = "Window padding: logical pixels of inset between the window edge and the \
      terminal grid. Accepts 0.0-64.0; 0.0 restores the historical edge-to-edge \
@@ -43,7 +43,7 @@ pub const BLOOM_RADIUS_DESC: &str = "Bloom radius: blur spread in half-resolutio
 
 pub const CRT_DESC: &str = "CRT profile: optional post-process scanlines plus vignette. Off by default and pixel-identical to the plain renderer. Requires the same adapter support as bloom; unsupported adapters silently use the plain path.";
 pub const CRT_SCANLINE_INTENSITY_DESC: &str = "CRT scanline intensity: bounded multiplicative dimming for the dark part of each scanline. Accepts 0.0–0.18; the cap keeps text readable and prevents opaque overlays.";
-pub const CRT_SCANLINE_PERIOD_DESC: &str = "CRT scanline period: vertical distance between scanline bands in physical pixels. Accepts 2.0–12.0; 3.0 is the conservative default.";
+pub const CRT_SCANLINE_PERIOD_DESC: &str = "CRT scanline spacing: vertical distance between scanline bands in physical pixels. Smaller values make the bands denser; larger values spread them out. Accepts 2.0–12.0; 3.0 is the conservative default.";
 pub const CRT_VIGNETTE_STRENGTH_DESC: &str = "CRT vignette strength: bounded edge dimming. Accepts 0.0–0.16; the shader enforces a brightness floor so corners recede without erasing lit cells.";
 
 /// Human-readable help for the geometric box-drawing knob (RV2), shown in the
@@ -61,6 +61,6 @@ pub const SYMBOL_FALLBACK_DESC: &str = "Symbol fallback: enables a secondary sym
 
 /// Human-readable help for the optional explicit symbol / Nerd-font path
 /// (RV6), shown in the in-app settings panel.
-pub const SYMBOL_FONT_DESC: &str = "Symbol font: optional path to a .ttf/.otf symbol or Nerd Font used when \
-     symbol_fallback is on. Empty uses OdyTTY's automatic symbol-font search. \
-     ODYTTY_SYMBOL_FONT wins over this setting.";
+pub const SYMBOL_FONT_DESC: &str = "Symbol font file: optional .ttf/.otf path used only when symbol fallback is \
+     on. Empty or auto uses OdyTTY's automatic symbol-font search. The \
+     ODYTTY_SYMBOL_FONT environment value wins over this config entry.";

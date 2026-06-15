@@ -601,7 +601,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(text.contains("Symbol font: auto"));
+        assert!(text.contains("Symbol font file: auto"));
         assert!(text.contains(crate::settings::SYMBOL_FONT_ENV));
         assert!(text.contains("automatic symbol-font search"));
 

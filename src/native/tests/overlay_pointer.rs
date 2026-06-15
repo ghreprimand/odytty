@@ -126,16 +126,34 @@ fn overlay_slider_drag_routes_through_cursor_move_and_release() {
     };
 
     app.open_settings_overlay_for_test();
-    // Scroll a numeric (slider) row into the capped panel window via the wheel.
-    for _ in 0..8 {
+    let mut tracks = app.overlay_first_slider_track_cells_for_test();
+    for _ in 0..12 {
+        if tracks.is_some() {
+            break;
+        }
         app.handle_overlay_pointer_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
+        tracks = app.overlay_first_slider_track_cells_for_test();
     }
-    let Some((track_left, track_right)) = app.overlay_first_slider_track_cells_for_test() else {
+    let Some((track_left, track_right)) = tracks else {
         eprintln!("skipping: no slider row visible at this size");
         return;
     };
 
-    let value_of = |app: &App, key: &str| -> f32 {
+    let numeric_values = |app: &App| -> Vec<(&'static str, f32)> {
+        app.overlay_signature_for_test()
+            .panel
+            .entries
+            .iter()
+            .filter_map(|entry| {
+                entry
+                    .value
+                    .parse::<f32>()
+                    .ok()
+                    .map(|value| (entry.key, value))
+            })
+            .collect()
+    };
+    let value_of = |app: &App, key: &'static str| -> f32 {
         app.overlay_signature_for_test()
             .panel
             .entries
@@ -149,6 +167,7 @@ fn overlay_slider_drag_routes_through_cursor_move_and_release() {
     app.set_pointer_cell_for_test(track_left.row, track_left.column);
     app.handle_overlay_pointer_move();
     assert!(!app.overlay_is_dragging_for_test(), "hover does not drag");
+    let before = numeric_values(&app);
 
     // Press the far-right of the track → arms the drag and pushes the value up.
     app.set_pointer_cell_for_test(track_right.row, track_right.column);
@@ -157,13 +176,23 @@ fn overlay_slider_drag_routes_through_cursor_move_and_release() {
         app.overlay_is_dragging_for_test(),
         "track press arms the drag"
     );
-    let high = value_of(&app, "font_size");
+    let high_values = numeric_values(&app);
+    let (changed_key, high) = high_values
+        .iter()
+        .find_map(|(key, high)| {
+            let before = before.iter().find(|(before_key, _)| before_key == key)?.1;
+            ((*high - before).abs() > f32::EPSILON).then_some((*key, *high))
+        })
+        .expect("track press changes one numeric setting");
 
     // CursorMoved to the far-left of the track → drives the value down.
     app.set_pointer_cell_for_test(track_left.row, track_left.column);
     app.handle_overlay_pointer_move();
-    let low = value_of(&app, "font_size");
-    assert!(low < high, "drag left lowered the value ({low} < {high})");
+    let low = value_of(&app, changed_key);
+    assert!(
+        low < high,
+        "drag left lowered {changed_key} ({low} < {high})"
+    );
 
     // Release ends the drag; a subsequent move no longer changes the value.
     app.handle_overlay_pointer_button(ElementState::Released, WinitMouseButton::Left);
@@ -171,7 +200,7 @@ fn overlay_slider_drag_routes_through_cursor_move_and_release() {
     app.set_pointer_cell_for_test(track_right.row, track_right.column);
     app.handle_overlay_pointer_move();
     assert_eq!(
-        value_of(&app, "font_size"),
+        value_of(&app, changed_key),
         low,
         "no value change after release"
     );

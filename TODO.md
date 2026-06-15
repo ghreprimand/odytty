@@ -465,7 +465,14 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         release (alt-tab mid-drag) cannot leave a phantom drag that commits a
         stray value on focus regain. Keyboard path unchanged and additive;
         plain/fast render path untouched.
-  - [ ] UX4-P3: coherent effect grouping and clearer setting labels.
+  - [x] UX4-P3: coherent effect grouping and clearer setting labels.
+        `setting_info()` stable-sorts rows into contiguous groups (Theme, Font,
+        Rendering, Post-process, Cursor, Input, Clipboard, Development) and the
+        cryptic keys gained clear display labels + help text (e.g. `osc52_read`
+        → "Allow clipboard read (OSC 52)", `render_quality` → "Renderer
+        profile", `crt_scanline_period` → "CRT scanline spacing", `symbol_font`
+        → "Symbol font file"). Labels/help only — no config-key/env renames, so
+        existing config files keep working; plain/fast render path unchanged.
 - [ ] Profiles and CLI config introspection.
 
 ## Visual Capability Parity (Stage 6 parity half)

@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Settings overlay: coherent grouping + clearer labels (UX4-P3 / HELP1)
+
+- The settings panel now reads clearly: `Settings::setting_info()` stable-sorts
+  rows by a coherent group order so each group renders contiguously — Theme,
+  Font, Rendering, Post-process, Cursor, Input, Clipboard, Development.
+- Clearer display labels and help text for the cryptic keys, labels only — no
+  config-key or env-var renames, so existing config files keep working
+  byte-for-byte. Examples: `osc52_read` → "Allow clipboard read (OSC 52)",
+  `copy_on_select` → "Copy selection to clipboard", `render_quality` →
+  "Renderer profile", `crt_scanline_period` → "CRT scanline spacing",
+  `symbol_font` → "Symbol font file", `visual` → "Ambient visual effect"
+  (grouped under Post-process).
+- No parser/default/runtime behavior change; the plain/fast render path is
+  byte-identical. The overlay-pointer slider regression test was made robust to
+  the new grouped row order (it infers the changed numeric setting instead of
+  assuming a fixed row after a scroll offset), and the settings-panel label
+  assertion was updated to the new labels.
+- Cap relief: the near-cap `src/settings/tests.rs` (1940) was split into
+  `src/settings/tests/{mod,legacy,info}.rs`, all under the 2000-line cap, with
+  the new label/grouping coverage living in the focused `info.rs`.
+- Verified: `cargo fmt --all --check` clean; full aggregate
+  1274 passed / 0 failed / 19 ignored; `pixel_smoke` / `gpu_composite_smoke`
+  green (render byte-identical); public-gate scan clean; new test files carry
+  the SPDX header.
+
+---
+
 ## 2026-06-15 -- Refactor: extract pointer/drag handling into its own module
 
 - Mechanical, behavior-preserving extraction. The mouse/pointer handling that

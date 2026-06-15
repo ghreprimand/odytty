@@ -119,12 +119,12 @@ impl Settings {
                 numeric: None,
             },
             SettingInfo {
-                group: "Theme",
+                group: "Post-process",
                 key: "visual",
                 env: VISUAL_ENV,
-                name: "Visual effect",
+                name: "Ambient visual effect",
                 value: self.visual.as_str().to_owned(),
-                description: "Optional presentation-only visual treatment. Off is the plain renderer and remains the safest fast path.",
+                description: "Legacy ambient scanline treatment. Off is the plain renderer and remains the safest fast path.",
                 kind: SettingKind::Enum,
                 range: None,
                 options: &["off", "ambient"],
@@ -258,7 +258,7 @@ impl Settings {
                 group: "Rendering",
                 key: "render_quality",
                 env: RENDER_QUALITY_ENV,
-                name: "Render quality",
+                name: "Renderer profile",
                 value: self.render_quality.as_str().to_owned(),
                 description: RENDER_QUALITY_DESC,
                 kind: SettingKind::Enum,
@@ -387,7 +387,7 @@ impl Settings {
                 group: "Post-process",
                 key: "crt_scanline_period",
                 env: CRT_SCANLINE_PERIOD_ENV,
-                name: "CRT scanline period",
+                name: "CRT scanline spacing",
                 value: format_float(self.crt_scanline_period),
                 description: CRT_SCANLINE_PERIOD_DESC,
                 kind: SettingKind::Number,
@@ -459,7 +459,7 @@ impl Settings {
                 numeric: None,
             },
             SettingInfo {
-                group: "Rendering",
+                group: "Font",
                 key: "symbol_fallback",
                 env: SYMBOL_FALLBACK_ENV,
                 name: "Symbol fallback",
@@ -472,10 +472,10 @@ impl Settings {
                 numeric: None,
             },
             SettingInfo {
-                group: "Rendering",
+                group: "Font",
                 key: "symbol_font",
                 env: SYMBOL_FONT_ENV,
-                name: "Symbol font",
+                name: "Symbol font file",
                 value: self
                     .symbol_font
                     .as_ref()
@@ -583,9 +583,9 @@ impl Settings {
                 group: "Clipboard",
                 key: "osc52_read",
                 env: OSC52_READ_ENV,
-                name: "OSC 52 read",
+                name: "Allow clipboard read (OSC 52)",
                 value: bool_display(self.osc52_read).to_owned(),
-                description: "Allows terminal applications to query local clipboard contents through OSC 52 replies. Off by default for safety.",
+                description: "Allows terminal applications to query local clipboard contents through OSC 52 replies. Off by default for safety; clipboard writes are separate.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
@@ -596,7 +596,7 @@ impl Settings {
                 group: "Clipboard",
                 key: "copy_on_select",
                 env: COPY_ON_SELECT_ENV,
-                name: "Copy on select",
+                name: "Copy selection to clipboard",
                 value: bool_display(self.copy_on_select).to_owned(),
                 description: "When on, finishing a mouse selection also copies it to the clipboard. Off by default — the primary selection and middle-click paste work either way.",
                 kind: SettingKind::Bool,
@@ -622,6 +622,7 @@ impl Settings {
                 numeric: None,
             },
         ];
+        rows.sort_by_key(|row| setting_group_rank(row.group));
         for row in &mut rows {
             if row.range.is_none()
                 && let Some(spec) = row.numeric
@@ -630,6 +631,20 @@ impl Settings {
             }
         }
         rows
+    }
+}
+
+fn setting_group_rank(group: &str) -> usize {
+    match group {
+        "Theme" => 0,
+        "Font" => 1,
+        "Rendering" => 2,
+        "Post-process" => 3,
+        "Cursor" => 4,
+        "Input" => 5,
+        "Clipboard" => 6,
+        "Development" => 7,
+        _ => 99,
     }
 }
 
