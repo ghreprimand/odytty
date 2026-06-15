@@ -7,24 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-06-15 -- Review: draggable scrollbar and safe theme authoring lanes
+## 2026-06-15 -- COPYMODE core: keyboard scrollback selection state machine
 
-- Validated the in-progress draggable scroll indicator lane without changing its
-  implementation: the left-press grab sits after overlay/active-selection guards
-  and before TUI mouse reporting, active thumb drags return before hyperlink
-  hover / selection / PTY motion, release clears the drag before reporting, and
-  disabled/live-tail/off-thumb paths keep the historical selection/report
-  routing. The shared scrollbar geometry now has review coverage for render,
-  hit-test, drag inverse, clamping, and zero-travel behavior.
-- Re-reviewed the theme-authoring contrast-floor core after the neutral-palette
-  fix: background-side neutral ANSI slots are exempted by appearance while other
-  text/fill roles still use the role-specific contrast partner, matching the
-  palette-generation validation model.
-- Verification: focused scrollbar routing/viewport/settings tests passed,
-  `cargo fmt --all --check` passed, `cargo test --all-targets -q` passed, and
-  `cargo clippy --all-targets -q` exited 0 with existing repo-wide warnings.
-  Public-safety scans over added tracked lines and the new scrollbar test file
-  were clean. The reviewed code remains uncommitted at the time of this entry.
+- New `src/native/copy_mode.rs`: the pure state machine for a future keyboard
+  scrollback-selection mode (vim-style), built and unit-tested but deliberately
+  wired to nothing yet — the activation chord, key routing, and clipboard
+  hand-off are a later native packet.
+- `CopyModeState { cursor, anchor, mode, pending }` tracks position in absolute
+  coordinates so a selection survives scrollback growth while the mode is open;
+  `apply(key, ctx)` advances the state and signals continue / yank / exit, and
+  `range()` derives the current selection (or nothing for a degenerate range).
+- Motions: `hjkl`/arrows, `0`/`^`/`$`, `w`/`b`/`e` (crossing rows), `gg`/`G`,
+  `Ctrl-u`/`d`/`b`/`f` paging over a snapshot, `v`/`V` to toggle character/line
+  selection, `o` to swap ends, `y`/`Enter` to yank, `Esc`/`q` to clear and exit.
+  Numeric count prefixes and block selection are deliberately deferred (a clean
+  block seam exists but is never constructed; block lands later alongside
+  rectangular mouse selection).
+- Reuses the mouse-selection module's public helpers read-only and edits nothing
+  there; any helper it needed beyond that surface is local to the new module.
+- Verified: `cargo fmt --all --check` clean; aggregate green (lib 1290/0/7, all
+  integration suites pass); 21 tests (each motion, character vs line range
+  derivation, end-swap, absolute-coordinate survival across a simulated scrollback
+  grow, edge clamps, degenerate → none); SPDX present; public-gate scan clean.
 
 ---
 

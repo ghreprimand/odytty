@@ -51,6 +51,7 @@
 mod app;
 mod bindings;
 mod clipboard;
+mod copy_mode;
 mod cursor;
 mod gpu;
 mod image_layer;
