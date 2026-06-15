@@ -294,14 +294,9 @@ impl App {
             return;
         }
         self.update_hover_hyperlink();
-        if self.selecting {
+        if self.pointer_drag.is_selecting() {
             self.autoscroll_selection_if_needed(y_px, cell, padding);
-            let scrollback_len = self.scrollback_len();
-            self.selection.update(selection::visible_to_absolute(
-                point,
-                self.viewport.offset(),
-                scrollback_len,
-            ));
+            self.extend_drag_to(point);
             self.request_selection_redraw();
         } else if self.should_report_mouse_to_pty() || self.report_button.is_some() {
             self.send_mouse_motion_report();
@@ -312,6 +307,31 @@ impl App {
         let Some(point) = self.pointer_cell else {
             return;
         };
+        // MOUSE-EXTEND: Shift+click extends an existing selection (keep the
+        // anchor, move the focus to the click) instead of starting a new one.
+        // Reached only on the local path (the report decision already ran), so
+        // Shift stays the selection-vs-passthrough seam untouched. Gated by the
+        // feature flag and an existing selection; otherwise fall through to the
+        // historical click-count dispatch.
+        if self.settings.selection_drag_extend
+            && self.modifiers.shift
+            && self.selection.range().is_some()
+        {
+            let scrollback_len = self.scrollback_len();
+            self.selection.update(selection::visible_to_absolute(
+                point,
+                self.viewport.offset(),
+                scrollback_len,
+            ));
+            self.pointer_drag = PointerDrag::Select {
+                granularity: SelectGranularity::Char,
+                block: false,
+            };
+            self.drag_anchor_unit = None;
+            self.last_selection_autoscroll = None;
+            self.request_selection_redraw();
+            return;
+        }
         match self.clicks.register_click(point, Instant::now()) {
             1 => self.begin_drag_selection(point),
             2 => self.select_word(point),
@@ -326,7 +346,11 @@ impl App {
             self.viewport.offset(),
             scrollback_len,
         ));
-        self.selecting = true;
+        self.pointer_drag = PointerDrag::Select {
+            granularity: SelectGranularity::Char,
+            block: false,
+        };
+        self.drag_anchor_unit = None;
         self.last_selection_autoscroll = None;
         self.request_selection_redraw();
     }
@@ -334,19 +358,19 @@ impl App {
     fn select_word(&mut self, point: CellPoint) {
         let (snapshot, scrollback_len) = self.selection_snapshot();
         let Some(range) = selection::word_range_at(&snapshot, point) else {
+            // No word under the pointer: clear and finalize exactly as before
+            // (nothing to anchor a word-drag to), regardless of the flag.
             self.selection.clear();
-            self.selecting = false;
+            self.pointer_drag = PointerDrag::None;
+            self.drag_anchor_unit = None;
             self.request_selection_redraw();
             return;
         };
 
-        self.selection
-            .set_range(selection::absolute_range_from_visible(
-                range,
-                self.viewport.offset(),
-                scrollback_len,
-            ));
-        self.selecting = false;
+        let absolute =
+            selection::absolute_range_from_visible(range, self.viewport.offset(), scrollback_len);
+        self.selection.set_range(absolute);
+        self.finalize_or_arm_unit_drag(SelectGranularity::Word, absolute);
         self.request_selection_redraw();
     }
 
@@ -356,14 +380,92 @@ impl App {
             return;
         };
 
-        self.selection
-            .set_range(selection::absolute_range_from_visible(
-                range,
-                self.viewport.offset(),
-                scrollback_len,
-            ));
-        self.selecting = false;
+        let absolute =
+            selection::absolute_range_from_visible(range, self.viewport.offset(), scrollback_len);
+        self.selection.set_range(absolute);
+        self.finalize_or_arm_unit_drag(SelectGranularity::Line, absolute);
         self.request_selection_redraw();
+    }
+
+    /// MOUSE-EXTEND: after a double/triple-click sets a word/line range, either
+    /// keep the drag live so a follow-on drag extends by that unit (flag on) or
+    /// finalize byte-identically to the historical click-to-finish behavior
+    /// (flag off). The off branch is the mandated parity path.
+    fn finalize_or_arm_unit_drag(
+        &mut self,
+        granularity: SelectGranularity,
+        anchor: AbsoluteSelectionRange,
+    ) {
+        if self.settings.selection_drag_extend {
+            self.pointer_drag = PointerDrag::Select {
+                granularity,
+                block: false,
+            };
+            self.drag_anchor_unit = Some(anchor);
+        } else {
+            self.pointer_drag = PointerDrag::None;
+            self.drag_anchor_unit = None;
+        }
+    }
+
+    /// Extend the in-progress drag-selection to a visible cell, honoring the
+    /// active granularity (MOUSE-EXTEND). Char follows the pointer exactly (the
+    /// historical drag); Word/Line snap to and union with whole words/lines.
+    pub(super) fn extend_drag_to(&mut self, point: CellPoint) {
+        match self.pointer_drag {
+            PointerDrag::Select {
+                granularity: SelectGranularity::Char,
+                ..
+            } => {
+                let scrollback_len = self.scrollback_len();
+                self.selection.update(selection::visible_to_absolute(
+                    point,
+                    self.viewport.offset(),
+                    scrollback_len,
+                ));
+            }
+            PointerDrag::Select {
+                granularity: SelectGranularity::Word,
+                ..
+            } => self.extend_word_drag(point),
+            PointerDrag::Select {
+                granularity: SelectGranularity::Line,
+                ..
+            } => self.extend_line_drag(point),
+            PointerDrag::None | PointerDrag::Scrollbar => {}
+        }
+    }
+
+    fn extend_word_drag(&mut self, point: CellPoint) {
+        let Some(anchor) = self.drag_anchor_unit else {
+            return;
+        };
+        let (snapshot, scrollback_len) = self.selection_snapshot();
+        let offset = self.viewport.offset();
+        let focus_unit = selection::word_range_at(&snapshot, point)
+            .map(|range| selection::absolute_range_from_visible(range, offset, scrollback_len))
+            .unwrap_or_else(|| {
+                // No word under the pointer (e.g. whitespace): extend to the
+                // pointer cell as a degenerate unit so the drag still grows.
+                let p = selection::visible_to_absolute(point, offset, scrollback_len);
+                AbsoluteSelectionRange { start: p, end: p }
+            });
+        self.selection
+            .set_range(selection::union_absolute_ranges(anchor, focus_unit));
+    }
+
+    fn extend_line_drag(&mut self, point: CellPoint) {
+        let Some(anchor) = self.drag_anchor_unit else {
+            return;
+        };
+        let scrollback_len = self.scrollback_len();
+        let offset = self.viewport.offset();
+        let Some(range) = selection::line_range_at(point, self.grid) else {
+            return;
+        };
+        let focus_unit = selection::absolute_range_from_visible(range, offset, scrollback_len);
+        self.selection
+            .set_range(selection::union_absolute_ranges(anchor, focus_unit));
     }
 
     pub(super) fn request_selection_redraw(&mut self) {
@@ -404,19 +506,46 @@ impl App {
     }
 
     pub(super) fn finish_selection(&mut self) {
-        if !self.selecting {
+        if !self.pointer_drag.is_selecting() {
             return;
         }
-        self.write_primary_selection();
-        // MOUSE-COPYSELECT: when enabled, also write the CLIPBOARD via the exact
-        // copy-shortcut path (`handle_copy_shortcut`). Off by default, so the
-        // historical PRIMARY-only finish is byte-identical.
-        if self.settings.copy_on_select {
-            self.handle_copy_shortcut();
+        // MOUSE-EXTEND parity: a plain double/triple-click that never dragged
+        // must stay byte-identical to the historical finalize, which wrote
+        // nothing to PRIMARY. Only write when a char drag ran (today's behavior)
+        // or a word/line drag actually grew the selection past its clicked unit.
+        if self.drag_selection_should_write_primary() {
+            self.write_primary_selection();
+            // MOUSE-COPYSELECT: when enabled, also write the CLIPBOARD via the
+            // exact copy-shortcut path. Off by default, so the historical
+            // PRIMARY-only finish is byte-identical.
+            if self.settings.copy_on_select {
+                self.handle_copy_shortcut();
+            }
         }
-        self.selecting = false;
+        self.pointer_drag = PointerDrag::None;
+        self.drag_anchor_unit = None;
         self.last_selection_autoscroll = None;
         self.request_selection_redraw();
+    }
+
+    /// Whether finishing the current drag should write PRIMARY (MOUSE-EXTEND).
+    /// Char drags write as before (an empty selection no-ops in
+    /// `current_selection_text`, so a plain single click stays a no-op too).
+    /// Word/Line drags write only when the selection grew beyond the anchored
+    /// click unit, so a plain double/triple-click without a drag stays no-write
+    /// — byte-identical to the historical finalize.
+    pub(super) fn drag_selection_should_write_primary(&self) -> bool {
+        match self.pointer_drag {
+            PointerDrag::Select {
+                granularity: SelectGranularity::Char,
+                ..
+            } => true,
+            PointerDrag::Select { .. } => match (self.selection.range(), self.drag_anchor_unit) {
+                (Some(current), Some(anchor)) => current != anchor,
+                _ => true,
+            },
+            PointerDrag::None | PointerDrag::Scrollbar => false,
+        }
     }
 
     /// Number of rows a Shift+PageUp/PageDown press scrolls: one screenful less

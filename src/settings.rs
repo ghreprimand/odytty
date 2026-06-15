@@ -374,6 +374,11 @@ pub struct Settings {
     /// the PRIMARY selection (MOUSE-COPYSELECT). Off by default — the off path is
     /// byte-identical to before (PRIMARY + middle-click paste already work).
     pub copy_on_select: bool,
+    /// When on, a double-click-then-drag extends the selection by whole words, a
+    /// triple-click-then-drag by whole lines, and Shift+click extends the
+    /// current selection (MOUSE-EXTEND). On by default (operator decision); off
+    /// restores the historical click-to-finish behavior byte-identically.
+    pub selection_drag_extend: bool,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -411,6 +416,7 @@ impl Default for Settings {
             themed_ui_roles: true,
             scroll_wheel_lines: DEFAULT_SCROLL_WHEEL_LINES,
             copy_on_select: DEFAULT_COPY_ON_SELECT,
+            selection_drag_extend: DEFAULT_SELECTION_DRAG_EXTEND,
             native_autoclose: None,
         }
     }
@@ -688,6 +694,12 @@ impl Settings {
             DEFAULT_COPY_ON_SELECT,
             &mut warn,
         );
+        let selection_drag_extend = parse_bool_setting(
+            get(SELECTION_DRAG_EXTEND_ENV).as_deref(),
+            SELECTION_DRAG_EXTEND_ENV,
+            DEFAULT_SELECTION_DRAG_EXTEND,
+            &mut warn,
+        );
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -722,6 +734,7 @@ impl Settings {
             themed_ui_roles,
             scroll_wheel_lines,
             copy_on_select,
+            selection_drag_extend,
             native_autoclose,
         }
     }
@@ -796,6 +809,10 @@ impl Settings {
         values.insert(
             COPY_ON_SELECT_ENV,
             bool_display(self.copy_on_select).to_owned(),
+        );
+        values.insert(
+            SELECTION_DRAG_EXTEND_ENV,
+            bool_display(self.selection_drag_extend).to_owned(),
         );
         if let Some(duration) = self.native_autoclose {
             values.insert(NATIVE_AUTOCLOSE_ENV, duration.as_millis().to_string());

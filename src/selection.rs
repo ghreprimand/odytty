@@ -19,6 +19,51 @@ pub struct SelectionRange {
     pub end: CellPoint,
 }
 
+/// Granularity of an in-progress drag-selection (MOUSE-EXTEND). `Char` is the
+/// historical single-click drag (focus follows the pointer cell); `Word`/`Line`
+/// keep a double/triple-click drag live so it grows by whole words / lines via
+/// [`word_range_at`] / [`line_range_at`] instead of finalizing on the click.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SelectGranularity {
+    #[default]
+    Char,
+    Word,
+    Line,
+}
+
+/// Typed pointer-drag state on the native grid. Replaces the bare
+/// `selecting: bool` with one mutually-exclusive home for every grid drag
+/// gesture, mirroring the overlay `SliderDrag` win (UX4-P2) so the gestures can
+/// never overlap. `Select` carries the active [`SelectGranularity`]; the `block`
+/// field is reserved for column/rectangular selection (MOUSE-RECT) and the
+/// `Scrollbar` variant for the draggable scroll thumb (MOUSE-SCROLLBAR) — both
+/// are wired into the type now and constructed by their own later packets. They
+/// are part of this crate's public API (a `pub` enum in a `pub` module), so the
+/// not-yet-constructed arm does not trip the dead-code lint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PointerDrag {
+    #[default]
+    None,
+    Select {
+        granularity: SelectGranularity,
+        /// Reserved for MOUSE-RECT (Alt+drag column selection). Always `false`
+        /// today; threading it through render/extract is a later packet.
+        block: bool,
+    },
+    /// Reserved for MOUSE-SCROLLBAR (grab the right-edge thumb to scrub
+    /// scrollback). Not constructed until that packet lands.
+    Scrollbar,
+}
+
+impl PointerDrag {
+    /// Whether a local text selection drag is in progress (any granularity).
+    /// This is the typed replacement for the old `selecting` boolean truthiness
+    /// at every call site.
+    pub fn is_selecting(&self) -> bool {
+        matches!(self, PointerDrag::Select { .. })
+    }
+}
+
 /// Themed selection treatment (ID1). When supplied to [`apply_highlight`], the
 /// selected cells are painted with an explicit `fill` background and `fg`
 /// foreground (both sRGB bytes) instead of the historical per-cell inverse.
@@ -123,6 +168,38 @@ pub fn normalize_absolute_range(
     };
 
     (start != end).then_some(AbsoluteSelectionRange { start, end })
+}
+
+/// Union two absolute selection ranges into the smallest range that covers
+/// both (MOUSE-EXTEND word/line drag): the selection spans from the earliest
+/// start to the latest end of the anchored unit and the unit under the pointer,
+/// in row-major order. Unlike [`normalize_absolute_range`] this accepts
+/// degenerate single-cell ranges (`start == end`) so a word-drag over
+/// whitespace (no word under the pointer) still extends to the pointer cell.
+pub fn union_absolute_ranges(
+    a: AbsoluteSelectionRange,
+    b: AbsoluteSelectionRange,
+) -> AbsoluteSelectionRange {
+    AbsoluteSelectionRange {
+        start: min_absolute_point(a.start, b.start),
+        end: max_absolute_point(a.end, b.end),
+    }
+}
+
+fn min_absolute_point(a: AbsoluteCellPoint, b: AbsoluteCellPoint) -> AbsoluteCellPoint {
+    if (a.row, a.column) <= (b.row, b.column) {
+        a
+    } else {
+        b
+    }
+}
+
+fn max_absolute_point(a: AbsoluteCellPoint, b: AbsoluteCellPoint) -> AbsoluteCellPoint {
+    if (a.row, a.column) >= (b.row, b.column) {
+        a
+    } else {
+        b
+    }
 }
 
 pub fn viewport_top_absolute_row(viewport_offset: usize, scrollback_len: usize) -> usize {
@@ -574,6 +651,81 @@ mod tests {
                 Color::Rgb(0xEA, 0xEE, 0xF4)
             );
         }
+    }
+
+    #[test]
+    fn pointer_drag_is_selecting_only_for_select_variants() {
+        assert!(!PointerDrag::None.is_selecting());
+        assert!(!PointerDrag::Scrollbar.is_selecting());
+        assert!(
+            PointerDrag::Select {
+                granularity: SelectGranularity::Char,
+                block: false,
+            }
+            .is_selecting()
+        );
+        assert!(
+            PointerDrag::Select {
+                granularity: SelectGranularity::Word,
+                block: false,
+            }
+            .is_selecting()
+        );
+        assert_eq!(PointerDrag::default(), PointerDrag::None);
+    }
+
+    #[test]
+    fn union_absolute_ranges_spans_both_units_in_row_major_order() {
+        let p = |row, column| AbsoluteCellPoint { row, column };
+        let anchor = AbsoluteSelectionRange {
+            start: p(0, 0),
+            end: p(0, 4),
+        };
+        // Focus unit later on the same row: union spans from anchor start to
+        // focus end.
+        let focus_after = AbsoluteSelectionRange {
+            start: p(0, 6),
+            end: p(0, 10),
+        };
+        assert_eq!(
+            union_absolute_ranges(anchor, focus_after),
+            AbsoluteSelectionRange {
+                start: p(0, 0),
+                end: p(0, 10),
+            }
+        );
+
+        // Focus unit earlier (drag back past the anchor): the union still spans
+        // the outermost corners, so the order of the arguments does not matter.
+        let focus_before = AbsoluteSelectionRange {
+            start: p(0, 0),
+            end: p(0, 1),
+        };
+        let later_anchor = AbsoluteSelectionRange {
+            start: p(2, 3),
+            end: p(2, 7),
+        };
+        assert_eq!(
+            union_absolute_ranges(later_anchor, focus_before),
+            AbsoluteSelectionRange {
+                start: p(0, 0),
+                end: p(2, 7),
+            }
+        );
+
+        // Degenerate single-cell focus (whitespace, no word) still extends the
+        // selection out to that cell.
+        let degenerate = AbsoluteSelectionRange {
+            start: p(0, 12),
+            end: p(0, 12),
+        };
+        assert_eq!(
+            union_absolute_ranges(anchor, degenerate),
+            AbsoluteSelectionRange {
+                start: p(0, 0),
+                end: p(0, 12),
+            }
+        );
     }
 
     #[test]

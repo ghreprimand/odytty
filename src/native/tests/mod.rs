@@ -62,6 +62,7 @@ mod gpu_render;
 mod grid_scale;
 mod input_keys;
 mod overlay_pointer;
+mod selection_extend;
 mod synchronized_output;
 mod viewport;
 

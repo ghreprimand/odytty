@@ -34,6 +34,7 @@ pub const SYMBOL_FONT_ENV: &str = "ODYTTY_SYMBOL_FONT";
 pub const THEMED_UI_ROLES_ENV: &str = "ODYTTY_THEMED_UI_ROLES";
 pub const SCROLL_WHEEL_LINES_ENV: &str = "ODYTTY_SCROLL_WHEEL_LINES";
 pub const COPY_ON_SELECT_ENV: &str = "ODYTTY_COPY_ON_SELECT";
+pub const SELECTION_DRAG_EXTEND_ENV: &str = "ODYTTY_SELECTION_DRAG_EXTEND";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
@@ -73,6 +74,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     THEMED_UI_ROLES_ENV,
     SCROLL_WHEEL_LINES_ENV,
     COPY_ON_SELECT_ENV,
+    SELECTION_DRAG_EXTEND_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 
@@ -137,6 +139,15 @@ pub const MAX_SCROLL_WHEEL_LINES: f32 = 10.0;
 /// selection it always writes). Off by default — PRIMARY and middle-click paste
 /// already work regardless, so the off path is byte-identical to before.
 pub const DEFAULT_COPY_ON_SELECT: bool = false;
+
+/// Drag-to-extend selection (`ODYTTY_SELECTION_DRAG_EXTEND`, MOUSE-EXTEND): when
+/// on, a double-click-then-drag grows the selection by whole words, a
+/// triple-click-then-drag by whole lines, and Shift+click extends the current
+/// selection to the click. On by default (operator decision) — it only gives
+/// meaning to gestures that did nothing before. Off restores the historical
+/// behavior where a double/triple-click finalizes and the follow-on drag does
+/// not extend. Local selection only; never affects TUI mouse reporting.
+pub const DEFAULT_SELECTION_DRAG_EXTEND: bool = true;
 
 pub const DEFAULT_BLOOM: bool = false;
 pub const BLOOM_THRESHOLD_MARGIN: f32 = 0.12;

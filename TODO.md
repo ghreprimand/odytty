@@ -297,6 +297,13 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         rate while extending selection.
   - [x] Selection anchors use absolute scrollback rows and project into the
         current viewport for highlight/copy.
+  - [x] `selection_drag_extend` (default on): double-click-then-drag extends by
+        word, triple-click-then-drag extends by line, and Shift+click extends
+        from the existing anchor; the grown range is a union of absolute ranges.
+        PRIMARY is written only when a drag actually extended a unit, so a plain
+        multiclick stays byte-identical to before; OFF restores the historical
+        finalize-on-multiclick path. Replaces the `selecting` bool with a typed
+        `PointerDrag` scaffold reserved for autoscroll/scrollbar/rect packets.
 - [ ] Improve clipboard behavior, including large paste behavior, diagnostics,
       and primary selection if appropriate.
   - [x] Large paste writes use a background PTY writer thread and 16 KiB chunks,

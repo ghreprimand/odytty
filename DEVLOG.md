@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- MOUSE-EXTEND: drag-extend selection (default on, additive)
+
+- Selection can now be extended after the initial gesture, gated by a new bool
+  `selection_drag_extend` (default on). With it on: double-click-then-drag
+  extends the selection by whole words, triple-click-then-drag extends by whole
+  lines, and Shift+click extends from the existing anchor to the click point;
+  the grown range is the union of absolute scrollback ranges. Plain char-drag
+  is unchanged.
+- Default-on, but proven genuinely additive: `finish_selection` writes PRIMARY
+  only when a drag actually extended past the clicked word/line unit, so a plain
+  double/triple-click with no motion still writes nothing — byte-identical to
+  today. Three explicit OFF-path parity tests
+  (`src/native/tests/selection_extend.rs`) drive a real `App` with
+  `selection_drag_extend = false` and prove the historical finalize-on-multiclick
+  and Shift+click-restart behavior is reproduced exactly (the mandated
+  inverted-gate proof for a default-on feature).
+- The `selecting: bool` drag flag is replaced by a typed
+  `PointerDrag { None | Select { granularity, block } | Scrollbar }` plus a
+  `SelectGranularity`; the `block` and `Scrollbar` arms are reserved (and
+  warning-free as public API) for the autoscroll-velocity, scrollbar-grab, and
+  rectangular-select packets that build on this scaffold. `should_report_mouse_to_pty`
+  is untouched and Shift stays the selection-vs-passthrough seam, so TUI mouse
+  reporting is undisturbed; `mouse_protocol` stays green.
+- Lane: `src/selection.rs` (union/extend), `src/native/app/{mod,interaction}.rs`
+  (pointer state + wiring), the new `src/native/tests/selection_extend.rs`, and
+  the settings-key wiring across `src/settings.rs` +
+  `src/settings/{config,consts,info,tests}.rs`.
+- Verified: `cargo fmt --all --check` clean; full aggregate
+  1269 passed / 0 failed / 19 ignored (10 new mouse-extend tests);
+  `mouse_protocol`, `pixel_smoke`, `pty_alt_screen_smoke`, `gpu_composite_smoke`
+  green (plain/fast path byte-identical); public-gate scan clean; new file
+  carries the SPDX header.
+
+---
+
 ## 2026-06-15 -- SH2 core: prompt-mark enumeration + command-block derivation
 
 - The inert, zero-pixel core foundation that command-aware shell UX will build

@@ -116,6 +116,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "cursor_blink",
             "keybinds",
             "scroll_wheel_lines",
+            "selection_drag_extend",
             "osc52_read",
             "copy_on_select",
             "native_autoclose_ms",
@@ -1889,6 +1890,31 @@ fn copy_on_select_defaults_off_and_parses() {
 
     let (settings, _) = settings_from([(COPY_ON_SELECT_ENV, "off")]);
     assert!(!settings.copy_on_select);
+}
+
+#[test]
+fn selection_drag_extend_defaults_on_and_parses() {
+    // Absent → on (operator default; drag-extend + Shift+click extend active).
+    let (settings, warnings) = settings_from([]);
+    assert!(settings.selection_drag_extend);
+    assert!(warnings.is_empty());
+
+    // Off restores the historical click-to-finish selection.
+    let (settings, _) = settings_from([(SELECTION_DRAG_EXTEND_ENV, "off")]);
+    assert!(!settings.selection_drag_extend);
+
+    let (settings, _) = settings_from([(SELECTION_DRAG_EXTEND_ENV, "on")]);
+    assert!(settings.selection_drag_extend);
+
+    // Config-file alias maps to the env key and back.
+    assert_eq!(
+        config_key_to_env("selection_drag_extend"),
+        Some(SELECTION_DRAG_EXTEND_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(SELECTION_DRAG_EXTEND_ENV),
+        Some("selection_drag_extend")
+    );
 }
 
 #[test]

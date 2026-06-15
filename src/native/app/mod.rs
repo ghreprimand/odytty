@@ -11,7 +11,10 @@ use crate::core::{
 };
 use crate::input::{self, Key, KeyEventType, KeyModes, Modifiers};
 use crate::pty::PtySession;
-use crate::selection::{self, AbsoluteSelectionState, CellPoint, ClickTracker, SelectionStyle};
+use crate::selection::{
+    self, AbsoluteSelectionRange, AbsoluteSelectionState, CellPoint, ClickTracker, PointerDrag,
+    SelectGranularity, SelectionStyle,
+};
 use crate::settings::{
     BindableAction, SettingEdit, Settings, SettingsReloadOutcome, SettingsReloader, THEME_ENV,
     apply_reloadable_values, write_settings_changes_to_path,
@@ -203,8 +206,17 @@ pub(super) struct App {
     pointer_px: Option<(f64, f64)>,
     /// Hyperlink currently under the pointer in the visible viewport.
     hovered_hyperlink: Option<LinkId>,
-    /// Whether the left mouse button is currently extending a selection.
-    selecting: bool,
+    /// Typed pointer-drag state (MOUSE-EXTEND scaffold): `None` when idle,
+    /// `Select { granularity, .. }` while the left button extends a selection
+    /// (char / word / line). Replaces the bare `selecting` boolean so word/line
+    /// drags can stay live and so later pointer gestures (block select, scroll
+    /// thumb) get one mutually-exclusive home.
+    pointer_drag: PointerDrag,
+    /// The anchored word/line range for an in-progress word/line drag-extend
+    /// (MOUSE-EXTEND). Fixed at the double/triple-click unit; each drag motion
+    /// unions it with the unit under the pointer. `None` for char drags and when
+    /// no drag is active.
+    drag_anchor_unit: Option<AbsoluteSelectionRange>,
     /// Same-cell click counter for double-click word and triple-click line
     /// selection.
     clicks: ClickTracker,
@@ -290,7 +302,8 @@ impl App {
             pointer_cell: None,
             pointer_px: None,
             hovered_hyperlink: None,
-            selecting: false,
+            pointer_drag: PointerDrag::None,
+            drag_anchor_unit: None,
             clicks: ClickTracker::default(),
             last_selection_autoscroll: None,
             report_button: None,
@@ -357,7 +370,58 @@ impl App {
     /// Test seam (UX4-P1): whether a local text selection is in progress.
     #[cfg(test)]
     pub(super) fn selecting_for_test(&self) -> bool {
-        self.selecting
+        self.pointer_drag.is_selecting()
+    }
+
+    /// Test seam (MOUSE-EXTEND): force the drag-extend feature flag so a test can
+    /// exercise both the default-on path and the byte-identical off branch.
+    #[cfg(test)]
+    pub(super) fn set_selection_drag_extend_for_test(&mut self, on: bool) {
+        self.settings.selection_drag_extend = on;
+    }
+
+    /// Test seam (MOUSE-EXTEND): drive the left-press selection dispatch (the
+    /// click-count / Shift+click-extend entry the `MouseInput` arm calls).
+    #[cfg(test)]
+    pub(super) fn begin_selection_for_test(&mut self) {
+        self.begin_selection();
+    }
+
+    /// Test seam (MOUSE-EXTEND): drive the left-release finalize the
+    /// `MouseInput` arm calls.
+    #[cfg(test)]
+    pub(super) fn finish_selection_for_test(&mut self) {
+        self.finish_selection();
+    }
+
+    /// Test seam (MOUSE-EXTEND): drive the granularity-aware drag-extend the
+    /// `CursorMoved` handler runs, without a GPU/pixel path. Wraps the
+    /// production `extend_drag_to` (not a parallel reimplementation).
+    #[cfg(test)]
+    pub(super) fn extend_drag_to_cell_for_test(&mut self, row: usize, column: usize) {
+        self.extend_drag_to(CellPoint { row, column });
+    }
+
+    /// Test seam (MOUSE-EXTEND): the text the current selection would copy,
+    /// through the exact `current_selection_text` path PRIMARY/CLIPBOARD use.
+    #[cfg(test)]
+    pub(super) fn selection_text_for_test(&self) -> Option<String> {
+        self.current_selection_text()
+    }
+
+    /// Test seam (MOUSE-EXTEND): whether finishing the current drag would write
+    /// PRIMARY. Lets a regression prove a plain double/triple-click (no drag)
+    /// stays no-write (parity) while a drag that extended does write.
+    #[cfg(test)]
+    pub(super) fn drag_should_write_primary_for_test(&self) -> bool {
+        self.drag_selection_should_write_primary()
+    }
+
+    /// Test seam (MOUSE-EXTEND): set the Shift modifier so a Shift+click-extend
+    /// gesture can be driven through `begin_selection`.
+    #[cfg(test)]
+    pub(super) fn set_shift_modifier_for_test(&mut self, shift: bool) {
+        self.modifiers.shift = shift;
     }
 
     /// Test seam (UX4-P1): the held mouse-report button, if any.
@@ -446,7 +510,8 @@ impl App {
             resize.height_px,
         ) {
             self.selection.clear();
-            self.selecting = false;
+            self.pointer_drag = PointerDrag::None;
+            self.drag_anchor_unit = None;
             self.last_selection_autoscroll = None;
             self.report_button = None;
             self.pointer_cell = None;
@@ -618,7 +683,8 @@ impl App {
     /// the overlay is open, so it is guaranteed `None` on close.
     fn reset_pointer_state_for_overlay(&mut self) {
         self.selection.clear();
-        self.selecting = false;
+        self.pointer_drag = PointerDrag::None;
+        self.drag_anchor_unit = None;
         self.last_selection_autoscroll = None;
         self.report_button = None;
     }
@@ -692,7 +758,8 @@ impl App {
             self.search_restore_viewport = Some(self.viewport.offset());
             self.search.open();
             self.selection.clear();
-            self.selecting = false;
+            self.pointer_drag = PointerDrag::None;
+            self.drag_anchor_unit = None;
             self.last_selection_autoscroll = None;
             self.refresh_search_matches();
         }
@@ -1528,7 +1595,7 @@ impl ApplicationHandler<UserEvent> for App {
                     self.handle_overlay_pointer_button(state, button);
                     return;
                 }
-                if self.selecting {
+                if self.pointer_drag.is_selecting() {
                     if button == WinitMouseButton::Left && state == ElementState::Released {
                         self.finish_selection();
                     }
