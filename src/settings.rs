@@ -27,7 +27,7 @@ mod writeback;
 
 pub use consts::*;
 pub use descriptions::*;
-pub use info::{SettingInfo, SettingKind};
+pub use info::{NumericSpec, SettingInfo, SettingKind};
 pub use reload::{
     ConfigReloadPoller, SettingsReloadOutcome, SettingsReloader, apply_reloadable_values,
 };

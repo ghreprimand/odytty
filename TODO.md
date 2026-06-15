@@ -446,7 +446,18 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         reporting, hyperlink, and viewport-scroll handling while the overlay is
         open, and opening an overlay clears any held TUI mouse-report button so
         no stale report can survive behind it.
-  - [ ] UX4-P2: slider widget (drag to set) and click-to-type numeric entry.
+  - [x] UX4-P2: numeric settings rows gain a draggable slider and click-to-type
+        entry. Each numeric setting carries a `NumericSpec { min, max, step, unit }`
+        and the displayed range label is derived from it (no duplicated range
+        string). Dragging the slider track sets the value within `[min, max]`
+        snapped to `step` with the readout reflecting the live value; clicking the
+        readout begins in-place text entry through the same parser/clamp path as
+        keyboard edit. Pointer Move/Release routing extends the UX4-P1 overlay
+        seam; the drag is mutually-exclusive state that is cleared on release,
+        overlay close/reopen, mode switch, and window focus loss, so a lost
+        release (alt-tab mid-drag) cannot leave a phantom drag that commits a
+        stray value on focus regain. Keyboard path unchanged and additive;
+        plain/fast render path untouched.
   - [ ] UX4-P3: coherent effect grouping and clearer setting labels.
 - [ ] Profiles and CLI config introspection.
 

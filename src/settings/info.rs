@@ -12,8 +12,66 @@ pub enum SettingKind {
     List,
 }
 
+/// Structured numeric bounds for a [`SettingKind::Number`] row (UX4-P2): the
+/// authoritative `(min, max, step)` the slider widget and keyboard step share,
+/// plus an optional display `unit` (e.g. `"px"`). `min`/`max` mirror the same
+/// constants the parser clamps to, so the slider, the keyboard step, the derived
+/// range label, and the live-apply clamp are one source of truth and cannot
+/// drift. `unit` exists only so the derived range label keeps its suffix
+/// losslessly; the `{min, max, step}` core is exactly the modeled spec.
+///
+/// `f32` fields mean this (and therefore [`SettingInfo`]) cannot derive `Eq`;
+/// `PartialEq` is sufficient for every consumer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NumericSpec {
+    pub min: f32,
+    pub max: f32,
+    pub step: f32,
+    pub unit: &'static str,
+}
+
+impl NumericSpec {
+    /// Position of `value` along the track as a `0.0..=1.0` fraction (clamped),
+    /// used to place the slider thumb. A degenerate `min == max` maps to `0.0`.
+    pub fn fraction_of(&self, value: f32) -> f32 {
+        let span = self.max - self.min;
+        if span.abs() < f32::EPSILON {
+            return 0.0;
+        }
+        ((value - self.min) / span).clamp(0.0, 1.0)
+    }
+
+    /// Value at a `0.0..=1.0` track fraction (clamped), snapped to `step` and
+    /// clamped back into `[min, max]`. The live-apply parser clamps again, so
+    /// this only needs to be approximately in-range.
+    pub fn value_at_fraction(&self, fraction: f32) -> f32 {
+        let raw = self.min + fraction.clamp(0.0, 1.0) * (self.max - self.min);
+        self.snap(raw)
+    }
+
+    /// Snap a raw value to the nearest `step` from `min`, clamped to `[min, max]`.
+    pub fn snap(&self, value: f32) -> f32 {
+        let snapped = if self.step > f32::EPSILON {
+            self.min + ((value - self.min) / self.step).round() * self.step
+        } else {
+            value
+        };
+        snapped.clamp(self.min, self.max)
+    }
+
+    /// Stable character budget reserved for the slider's numeric readout: the
+    /// wider of the two bound labels plus room for the `" *"` changed marker, so
+    /// the track geometry does not shift as the live value (or its marker)
+    /// changes during a drag.
+    pub fn readout_width(&self) -> usize {
+        let lo = format_float(self.min).chars().count();
+        let hi = format_float(self.max).chars().count();
+        lo.max(hi) + 2
+    }
+}
+
 /// Static/dynamic metadata for one settings row in stable display order.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SettingInfo {
     pub group: &'static str,
     pub key: &'static str,
@@ -22,7 +80,14 @@ pub struct SettingInfo {
     pub value: String,
     pub description: &'static str,
     pub kind: SettingKind,
-    pub range: Option<&'static str>,
+    /// Human-readable allowed-range hint. For [`SettingKind::Number`] rows with
+    /// a [`NumericSpec`] this is derived from the spec (UX4-P2, Q4) so it can
+    /// never drift from the clamp bounds; other rows carry a literal hint or
+    /// `None`.
+    pub range: Option<String>,
+    /// Structured numeric bounds for slider/step/clamp (UX4-P2). `Some` for
+    /// bounded, live-editable [`SettingKind::Number`] rows; `None` otherwise.
+    pub numeric: Option<NumericSpec>,
     pub options: &'static [&'static str],
     pub reloadable: bool,
 }
@@ -33,7 +98,7 @@ impl Settings {
     /// This intentionally mirrors every field on [`Settings`]. UX2-b can attach
     /// editors and persistence to the same rows; UX2-a only displays them.
     pub fn setting_info(&self) -> Vec<SettingInfo> {
-        vec![
+        let mut rows = vec![
             SettingInfo {
                 group: "Theme",
                 key: "theme",
@@ -51,6 +116,7 @@ impl Settings {
                     "theme file path",
                 ],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Theme",
@@ -63,6 +129,7 @@ impl Settings {
                 range: None,
                 options: &["off", "ambient"],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Font",
@@ -79,6 +146,7 @@ impl Settings {
                 range: None,
                 options: &[],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Font",
@@ -94,6 +162,7 @@ impl Settings {
                 range: None,
                 options: &[],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Font",
@@ -103,9 +172,15 @@ impl Settings {
                 value: format_float(self.font_size_px),
                 description: "Native font size in pixels. Rebuilds the glyph atlas, cell metrics, terminal grid, and PTY window size.",
                 kind: SettingKind::Number,
-                range: Some("6.0..=72.0 px"),
+                range: None,
                 options: &[],
                 reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_FONT_SIZE_PX,
+                    max: MAX_FONT_SIZE_PX,
+                    step: 1.0,
+                    unit: "px",
+                }),
             },
             SettingInfo {
                 group: "Rendering",
@@ -115,9 +190,15 @@ impl Settings {
                 value: format_float(self.text_gamma),
                 description: "Glyph coverage gamma applied in the shader for text weight and contrast.",
                 kind: SettingKind::Number,
-                range: Some("0.5..=3.0"),
+                range: None,
                 options: &[],
                 reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_TEXT_GAMMA,
+                    max: MAX_TEXT_GAMMA,
+                    step: 0.1,
+                    unit: "",
+                }),
             },
             SettingInfo {
                 group: "Rendering",
@@ -127,9 +208,15 @@ impl Settings {
                 value: format_float(self.stem_darken),
                 description: STEM_DARKEN_DESC,
                 kind: SettingKind::Number,
-                range: Some("0.0..=1.0"),
+                range: None,
                 options: &[],
                 reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_STEM_DARKEN,
+                    max: MAX_STEM_DARKEN,
+                    step: 0.05,
+                    unit: "",
+                }),
             },
             SettingInfo {
                 group: "Rendering",
@@ -139,9 +226,15 @@ impl Settings {
                 value: format_float(self.min_contrast),
                 description: MIN_CONTRAST_DESC,
                 kind: SettingKind::Number,
-                range: Some("1.0..=21.0"),
+                range: None,
                 options: &[],
                 reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_MIN_CONTRAST,
+                    max: MAX_MIN_CONTRAST,
+                    step: 1.0,
+                    unit: "",
+                }),
             },
             SettingInfo {
                 group: "Rendering",
@@ -151,9 +244,15 @@ impl Settings {
                 value: format_float(self.focus_dim),
                 description: FOCUS_DIM_DESC,
                 kind: SettingKind::Number,
-                range: Some("0.0..=1.0"),
+                range: None,
                 options: &[],
                 reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_FOCUS_DIM,
+                    max: MAX_FOCUS_DIM,
+                    step: 0.05,
+                    unit: "",
+                }),
             },
             SettingInfo {
                 group: "Rendering",
@@ -166,6 +265,7 @@ impl Settings {
                 range: None,
                 options: &["plain", "balanced", "high"],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Rendering",
@@ -175,9 +275,15 @@ impl Settings {
                 value: format_float(self.window_padding_px),
                 description: WINDOW_PADDING_DESC,
                 kind: SettingKind::Number,
-                range: Some("0.0..=64.0 px"),
+                range: None,
                 options: &[],
                 reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_WINDOW_PADDING_PX,
+                    max: MAX_WINDOW_PADDING_PX,
+                    step: 1.0,
+                    unit: "px",
+                }),
             },
             SettingInfo {
                 group: "Post-process",
@@ -190,6 +296,7 @@ impl Settings {
                 range: None,
                 options: &["on", "off"],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Post-process",
@@ -199,9 +306,15 @@ impl Settings {
                 value: format_float(self.bloom_threshold),
                 description: BLOOM_THRESHOLD_DESC,
                 kind: SettingKind::Number,
-                range: Some("0.70..=1.25"),
+                range: None,
                 options: &[],
                 reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_BLOOM_THRESHOLD,
+                    max: MAX_BLOOM_THRESHOLD,
+                    step: 0.05,
+                    unit: "",
+                }),
             },
             SettingInfo {
                 group: "Post-process",
@@ -211,9 +324,15 @@ impl Settings {
                 value: format_float(self.bloom_intensity),
                 description: BLOOM_INTENSITY_DESC,
                 kind: SettingKind::Number,
-                range: Some("0.0..=1.0"),
+                range: None,
                 options: &[],
                 reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_BLOOM_INTENSITY,
+                    max: MAX_BLOOM_INTENSITY,
+                    step: 0.05,
+                    unit: "",
+                }),
             },
             SettingInfo {
                 group: "Post-process",
@@ -223,9 +342,15 @@ impl Settings {
                 value: format_float(self.bloom_radius),
                 description: BLOOM_RADIUS_DESC,
                 kind: SettingKind::Number,
-                range: Some("0.5..=8.0 px"),
+                range: None,
                 options: &[],
                 reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_BLOOM_RADIUS,
+                    max: MAX_BLOOM_RADIUS,
+                    step: 0.5,
+                    unit: "px",
+                }),
             },
             SettingInfo {
                 group: "Post-process",
@@ -238,6 +363,7 @@ impl Settings {
                 range: None,
                 options: &["on", "off"],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Post-process",
@@ -247,9 +373,15 @@ impl Settings {
                 value: format_float(self.crt_scanline_intensity),
                 description: CRT_SCANLINE_INTENSITY_DESC,
                 kind: SettingKind::Number,
-                range: Some("0.0..=0.18"),
+                range: None,
                 options: &[],
                 reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_CRT_SCANLINE_INTENSITY,
+                    max: MAX_CRT_SCANLINE_INTENSITY,
+                    step: 0.01,
+                    unit: "",
+                }),
             },
             SettingInfo {
                 group: "Post-process",
@@ -259,9 +391,15 @@ impl Settings {
                 value: format_float(self.crt_scanline_period),
                 description: CRT_SCANLINE_PERIOD_DESC,
                 kind: SettingKind::Number,
-                range: Some("2.0..=12.0 px"),
+                range: None,
                 options: &[],
                 reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_CRT_SCANLINE_PERIOD,
+                    max: MAX_CRT_SCANLINE_PERIOD,
+                    step: 0.5,
+                    unit: "px",
+                }),
             },
             SettingInfo {
                 group: "Post-process",
@@ -271,9 +409,15 @@ impl Settings {
                 value: format_float(self.crt_vignette_strength),
                 description: CRT_VIGNETTE_STRENGTH_DESC,
                 kind: SettingKind::Number,
-                range: Some("0.0..=0.16"),
+                range: None,
                 options: &[],
                 reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_CRT_VIGNETTE_STRENGTH,
+                    max: MAX_CRT_VIGNETTE_STRENGTH,
+                    step: 0.01,
+                    unit: "",
+                }),
             },
             SettingInfo {
                 group: "Rendering",
@@ -286,6 +430,7 @@ impl Settings {
                 range: None,
                 options: &["off", "rgb", "bgr"],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Rendering",
@@ -298,6 +443,7 @@ impl Settings {
                 range: None,
                 options: &["on", "off"],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Rendering",
@@ -310,6 +456,7 @@ impl Settings {
                 range: None,
                 options: &["on", "off"],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Rendering",
@@ -322,6 +469,7 @@ impl Settings {
                 range: None,
                 options: &["on", "off"],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Rendering",
@@ -338,6 +486,7 @@ impl Settings {
                 range: None,
                 options: &[],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Theme",
@@ -350,6 +499,7 @@ impl Settings {
                 range: None,
                 options: &["on", "off"],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Cursor",
@@ -362,6 +512,7 @@ impl Settings {
                 range: None,
                 options: &["block", "underline", "bar"],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Cursor",
@@ -374,6 +525,7 @@ impl Settings {
                 range: None,
                 options: &["auto", "on", "off"],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Input",
@@ -394,6 +546,7 @@ impl Settings {
                     "scroll-down",
                 ],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Clipboard",
@@ -406,6 +559,7 @@ impl Settings {
                 range: None,
                 options: &["on", "off"],
                 reloadable: true,
+                numeric: None,
             },
             SettingInfo {
                 group: "Development",
@@ -418,10 +572,43 @@ impl Settings {
                     .unwrap_or_else(|| "unset".to_owned()),
                 description: "Smoke-test helper that closes the native window after a startup delay. It is startup-only, not live-reloadable.",
                 kind: SettingKind::Number,
-                range: Some("positive milliseconds"),
+                range: Some("positive milliseconds".to_owned()),
                 options: &[],
                 reloadable: false,
+                numeric: None,
             },
-        ]
+        ];
+        for row in &mut rows {
+            if row.range.is_none()
+                && let Some(spec) = row.numeric
+            {
+                row.range = Some(numeric_range_label(spec));
+            }
+        }
+        rows
     }
+}
+
+/// Derive the human-readable range hint for a numeric row from its
+/// [`NumericSpec`] (UX4-P2, Q4), keeping the optional unit suffix so the
+/// display string can never drift from the clamp bounds.
+fn numeric_range_label(spec: NumericSpec) -> String {
+    let lo = format_bound(spec.min);
+    let hi = format_bound(spec.max);
+    if spec.unit.is_empty() {
+        format!("{lo}..={hi}")
+    } else {
+        format!("{lo}..={hi} {}", spec.unit)
+    }
+}
+
+/// Format a numeric bound for the range hint: two decimals, then trailing
+/// zeros trimmed while always keeping at least one decimal place (so `6.0`
+/// stays `6.0` and `0.18` stays `0.18`).
+fn format_bound(value: f32) -> String {
+    let mut s = format!("{value:.2}");
+    while s.ends_with('0') && !s.ends_with(".0") {
+        s.pop();
+    }
+    s
 }

@@ -43,18 +43,16 @@ impl App {
         }
     }
 
-    /// Translate a winit mouse press over an open overlay into an
-    /// [`OverlayPointer::Press`] and apply the outcome (UX4-P1). Only the press
-    /// edge acts; release is inert for P1 (slider drag is P2). Middle/other
-    /// buttons are dropped so no PRIMARY paste fires while the overlay is up.
-    pub(in crate::native) fn handle_overlay_pointer_press(
+    /// Translate a winit mouse button edge over an open overlay into an
+    /// [`OverlayPointer::Press`]/`Release` and apply the outcome (UX4-P1/P2).
+    /// Press drives clicks and arms a slider drag; release ends a drag. Middle/
+    /// other buttons are dropped so no PRIMARY paste fires while the overlay is
+    /// up and so a stray middle release cannot disturb a drag.
+    pub(in crate::native) fn handle_overlay_pointer_button(
         &mut self,
         state: ElementState,
         button: WinitMouseButton,
     ) {
-        if state != ElementState::Pressed {
-            return;
-        }
         let Some(cell) = self.pointer_cell else {
             return;
         };
@@ -66,9 +64,31 @@ impl App {
         let Some(rect) = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows) else {
             return;
         };
+        let pointer = match state {
+            ElementState::Pressed => OverlayPointer::Press { cell, button },
+            ElementState::Released => OverlayPointer::Release { cell, button },
+        };
+        let outcome = self.overlay.handle_pointer(pointer, rect);
+        self.apply_overlay_outcome(outcome);
+        self.request_selection_redraw();
+    }
+
+    /// Drive an in-progress slider drag from the cached pointer cell (UX4-P2).
+    /// Gated on an active drag so ordinary hover over the open overlay stays a
+    /// cheap no-op (no redraw, no PTY/selection work).
+    pub(in crate::native) fn handle_overlay_pointer_move(&mut self) {
+        if !self.overlay.is_settings_dragging() {
+            return;
+        }
+        let Some(cell) = self.pointer_cell else {
+            return;
+        };
+        let Some(rect) = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows) else {
+            return;
+        };
         let outcome = self
             .overlay
-            .handle_pointer(OverlayPointer::Press { cell, button }, rect);
+            .handle_pointer(OverlayPointer::Move { cell }, rect);
         self.apply_overlay_outcome(outcome);
         self.request_selection_redraw();
     }
@@ -264,11 +284,13 @@ impl App {
         let point = selection::cell_at_physical_with_padding(x_px, y_px, cell, self.grid, padding);
         self.pointer_cell = Some(point);
         self.pointer_px = Some((x_px, y_px));
-        // UX4-P1: while an overlay is open it owns the pointer. Keep caching the
-        // coordinates above (a press needs them), but skip link hover, local
+        // UX4-P1/P2: while an overlay is open it owns the pointer. Keep caching
+        // the coordinates above (a press needs them), but skip link hover, local
         // selection, and PTY motion reports — they belong to the terminal grid
-        // beneath the panel. (UX4-P2 adds slider-drag tracking in this branch.)
+        // beneath the panel. A move is forwarded to the overlay only to advance
+        // an active slider drag (UX4-P2); non-drag hover is a no-op.
         if self.overlay.is_open() {
+            self.handle_overlay_pointer_move();
             return;
         }
         self.update_hover_hyperlink();

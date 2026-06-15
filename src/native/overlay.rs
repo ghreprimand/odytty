@@ -62,16 +62,24 @@ impl OverlayUi {
     }
 
     pub(super) fn open_settings(&mut self) {
+        // Defensive: never (re)enter with a stale slider drag armed (UX4-P2).
+        self.panel.end_slider_drag();
         self.open = true;
         self.mode = OverlayMode::Settings;
     }
 
     pub(super) fn close(&mut self) {
+        // Clear any in-progress slider drag on exit so a lost release (pointer
+        // left the window / focus loss mid-drag) cannot leave it armed for the
+        // next open — the P2 analogue of the P1 held-report_button cleanup.
+        self.panel.end_slider_drag();
         self.open = false;
         self.mode = OverlayMode::Settings;
     }
 
     pub(super) fn open_theme_picker(&mut self, settings: &Settings) {
+        // A mode switch also abandons any settings-panel slider drag (UX4-P2).
+        self.panel.end_slider_drag();
         self.settings = settings.clone();
         self.theme_picker.open(settings);
         self.mode = OverlayMode::ThemePicker;
@@ -79,6 +87,7 @@ impl OverlayUi {
     }
 
     pub(super) fn open_theme_builder(&mut self, settings: &Settings) {
+        self.panel.end_slider_drag();
         self.settings = settings.clone();
         self.theme_builder.open(settings);
         self.mode = OverlayMode::ThemeBuilder;
@@ -102,13 +111,7 @@ impl OverlayUi {
 
         match input {
             OverlayInput::Close if !self.panel.is_editing() => OverlayOutcome::Close,
-            input => match self.panel.handle_input(input) {
-                SettingsPanelOutcome::Consumed => OverlayOutcome::Consumed,
-                SettingsPanelOutcome::Apply(settings) => OverlayOutcome::ApplySettings(settings),
-                SettingsPanelOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
-                SettingsPanelOutcome::OpenThemePicker => OverlayOutcome::OpenThemePicker,
-                SettingsPanelOutcome::OpenThemeBuilder => OverlayOutcome::OpenThemeBuilder,
-            },
+            input => settings_outcome(self.panel.handle_input(input)),
         }
     }
 
@@ -130,38 +133,38 @@ impl OverlayUi {
                     // the theme picker/builder restore their original theme.
                     return self.handle_input(OverlayInput::Close);
                 }
-                match self.mode {
-                    OverlayMode::Settings => {
-                        let Some(row_in_body) = cell.row.checked_sub(rect.body_top) else {
-                            // The title row / top border: inside the box, inert.
-                            return OverlayOutcome::Consumed;
-                        };
-                        let outcome = self.panel.handle_pointer_press(
-                            rect.body_width,
-                            rect.body_height,
-                            row_in_body,
-                            button,
-                        );
-                        match outcome {
-                            SettingsPanelOutcome::Consumed => OverlayOutcome::Consumed,
-                            SettingsPanelOutcome::Apply(settings) => {
-                                OverlayOutcome::ApplySettings(settings)
-                            }
-                            SettingsPanelOutcome::Save(changes) => {
-                                OverlayOutcome::SaveSettings(changes)
-                            }
-                            SettingsPanelOutcome::OpenThemePicker => {
-                                OverlayOutcome::OpenThemePicker
-                            }
-                            SettingsPanelOutcome::OpenThemeBuilder => {
-                                OverlayOutcome::OpenThemeBuilder
-                            }
-                        }
-                    }
-                    OverlayMode::ThemePicker | OverlayMode::ThemeBuilder => {
-                        OverlayOutcome::Consumed
-                    }
+                if self.mode != OverlayMode::Settings {
+                    return OverlayOutcome::Consumed;
                 }
+                let Some(row_in_body) = cell.row.checked_sub(rect.body_top) else {
+                    // The title row / top border: inside the box, inert.
+                    return OverlayOutcome::Consumed;
+                };
+                let col_in_body = cell.column.saturating_sub(rect.body_left);
+                let outcome = self.panel.handle_pointer_press(
+                    rect.body_width,
+                    rect.body_height,
+                    row_in_body,
+                    col_in_body,
+                    button,
+                );
+                settings_outcome(outcome)
+            }
+            OverlayPointer::Move { cell } => {
+                if self.mode != OverlayMode::Settings {
+                    return OverlayOutcome::Consumed;
+                }
+                let col_in_body = cell.column.saturating_sub(rect.body_left);
+                let outcome =
+                    self.panel
+                        .handle_pointer_drag(rect.body_width, rect.body_height, col_in_body);
+                settings_outcome(outcome)
+            }
+            OverlayPointer::Release { .. } => {
+                if self.mode == OverlayMode::Settings {
+                    self.panel.end_slider_drag();
+                }
+                OverlayOutcome::Consumed
             }
             OverlayPointer::Wheel { lines } => {
                 if self.mode == OverlayMode::Settings {
@@ -170,6 +173,51 @@ impl OverlayUi {
                 OverlayOutcome::Consumed
             }
         }
+    }
+
+    /// Whether a settings-panel slider drag is in progress (UX4-P2). The App
+    /// gates per-move routing on this so non-drag hover stays cheap.
+    pub(super) fn is_settings_dragging(&self) -> bool {
+        self.mode == OverlayMode::Settings && self.panel.is_dragging()
+    }
+
+    /// Abandon any in-progress settings slider drag WITHOUT closing the overlay
+    /// (UX4-P2). The App calls this on focus loss while the overlay stays open:
+    /// a press may have armed a drag whose release is delivered to another
+    /// window after an alt-tab, so without this the drag would survive and the
+    /// next bare hover Move on focus regain would commit a phantom slider value
+    /// — the overlay-stays-open analogue of the close/reopen lost-release case.
+    /// No-op unless the Settings panel currently holds a drag.
+    pub(super) fn cancel_settings_drag(&mut self) {
+        if self.mode == OverlayMode::Settings {
+            self.panel.end_slider_drag();
+        }
+    }
+
+    /// Test seam (UX4-P2): absolute grid cells for the first visible slider's
+    /// track ends (`track_left`, `track_right`) for a `columns`×`rows` grid, so
+    /// a test can drive a real press/move/release through the App layer without
+    /// reaching into private panel geometry.
+    #[cfg(test)]
+    pub(super) fn first_slider_track_cells(
+        &self,
+        columns: usize,
+        rows: usize,
+    ) -> Option<(CellPoint, CellPoint)> {
+        let rect = overlay_rect(self, columns, rows)?;
+        let (row, track_x0, track_w) = self
+            .panel
+            .first_slider_zone_for_test(rect.body_width, rect.body_height)?;
+        let grid_row = rect.body_top + row;
+        let left = CellPoint {
+            row: grid_row,
+            column: rect.body_left + track_x0,
+        };
+        let right = CellPoint {
+            row: grid_row,
+            column: rect.body_left + track_x0 + track_w - 1,
+        };
+        Some((left, right))
     }
 
     pub(super) fn save_succeeded(&mut self, changed: usize) {
@@ -272,6 +320,20 @@ pub(super) enum OverlayOutcome {
     SaveTheme(ThemeBuilderSaveRequest),
 }
 
+/// Lift a [`SettingsPanelOutcome`] (from the keyboard or the pointer path) into
+/// an [`OverlayOutcome`]. The single mapping shared by `handle_input`,
+/// `handle_pointer` press, and `handle_pointer` drag so the three entry points
+/// can never diverge.
+fn settings_outcome(outcome: SettingsPanelOutcome) -> OverlayOutcome {
+    match outcome {
+        SettingsPanelOutcome::Consumed => OverlayOutcome::Consumed,
+        SettingsPanelOutcome::Apply(settings) => OverlayOutcome::ApplySettings(settings),
+        SettingsPanelOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
+        SettingsPanelOutcome::OpenThemePicker => OverlayOutcome::OpenThemePicker,
+        SettingsPanelOutcome::OpenThemeBuilder => OverlayOutcome::OpenThemeBuilder,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum OverlayMode {
     Settings,
@@ -306,14 +368,23 @@ pub(super) enum PointerButton {
     Right,
 }
 
-/// Pointer events delivered to the overlay (UX4-P1), the mouse analogue of
-/// [`OverlayInput`]. P1 handles `Press` (click) and `Wheel` (free scroll);
-/// slider drag (`Move`/`Release`) arrives with UX4-P2.
+/// Pointer events delivered to the overlay (UX4-P1/P2), the mouse analogue of
+/// [`OverlayInput`]. `Press` (click) and `Wheel` (free scroll) landed with P1;
+/// `Move`/`Release` drive the UX4-P2 slider drag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum OverlayPointer {
     /// A button went down at `cell` (grid coordinates over the visible grid,
     /// the same space the overlay is drawn in).
     Press {
+        cell: CellPoint,
+        button: PointerButton,
+    },
+    /// The pointer moved to `cell` while a slider drag is in progress (UX4-P2).
+    /// The App only routes this during an active drag (drag state lives on the
+    /// panel), so no "button held" flag is needed.
+    Move { cell: CellPoint },
+    /// A button was released at `cell` (UX4-P2): ends any slider drag.
+    Release {
         cell: CellPoint,
         button: PointerButton,
     },
@@ -855,5 +926,153 @@ mod tests {
         let after = overlay.render_signature().panel;
         assert!(after.scroll > before.scroll, "wheel scrolled the list");
         assert_eq!(after.selected, before.selected, "selection did not move");
+    }
+
+    // --- UX4-P2: slider drag through OverlayPointer Move/Release ---
+
+    #[test]
+    fn pointer_press_move_release_drives_a_slider_drag() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        // Scroll a numeric (slider) row into the capped 22-row panel window.
+        for _ in 0..10 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        let (left, right) = overlay
+            .first_slider_track_cells(80, 24)
+            .expect("a slider row is visible");
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+
+        // Press the far-right of the track → applies a value + arms the drag.
+        assert!(matches!(
+            overlay.handle_pointer(
+                OverlayPointer::Press {
+                    cell: right,
+                    button: PointerButton::Left,
+                },
+                rect,
+            ),
+            OverlayOutcome::ApplySettings(_)
+        ));
+        assert!(overlay.is_settings_dragging(), "track press arms the drag");
+
+        // Move to the far-left of the track → applies the min value.
+        assert!(matches!(
+            overlay.handle_pointer(OverlayPointer::Move { cell: left }, rect),
+            OverlayOutcome::ApplySettings(_)
+        ));
+
+        // Release ends the drag; a later Move is inert.
+        assert_eq!(
+            overlay.handle_pointer(
+                OverlayPointer::Release {
+                    cell: left,
+                    button: PointerButton::Left,
+                },
+                rect,
+            ),
+            OverlayOutcome::Consumed
+        );
+        assert!(!overlay.is_settings_dragging(), "release ends the drag");
+        assert_eq!(
+            overlay.handle_pointer(OverlayPointer::Move { cell: right }, rect),
+            OverlayOutcome::Consumed,
+            "no drag after release"
+        );
+    }
+
+    #[test]
+    fn a_lost_release_drag_cannot_survive_close_and_reopen() {
+        // Regression (UX4-P2): if a release is never delivered (pointer leaves
+        // the window / focus loss mid-drag), the armed drag must not persist
+        // across close/reopen, or a later hover Move would drive a phantom drag.
+        // Closing and any (re)open clear it.
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        for _ in 0..10 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        let (_, right) = overlay
+            .first_slider_track_cells(80, 24)
+            .expect("a slider row is visible");
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+
+        // Arm a drag, then close WITHOUT a release (the lost-release case).
+        let _ = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: right,
+                button: PointerButton::Left,
+            },
+            rect,
+        );
+        assert!(
+            overlay.is_settings_dragging(),
+            "precondition: drag is armed"
+        );
+        overlay.close();
+        assert!(!overlay.is_settings_dragging(), "close clears the drag");
+
+        // Reopen and assert a bare Move does nothing (no phantom drag).
+        overlay.open_settings();
+        assert!(!overlay.is_settings_dragging(), "reopen has no stale drag");
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        assert_eq!(
+            overlay.handle_pointer(OverlayPointer::Move { cell: right }, rect),
+            OverlayOutcome::Consumed,
+            "hover after reopen is inert"
+        );
+    }
+
+    #[test]
+    fn focus_loss_drag_cancel_keeps_overlay_open_and_inert() {
+        // Regression (UX4-P2): a press can arm a drag whose release is delivered
+        // to ANOTHER window after an alt-tab. The overlay stays OPEN, so
+        // close/reopen never runs — only `cancel_settings_drag` (driven by
+        // `WindowEvent::Focused(false)`) clears the drag. Without it, a bare
+        // hover Move on focus regain would commit a phantom slider value.
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        for _ in 0..10 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        let (left, right) = overlay
+            .first_slider_track_cells(80, 24)
+            .expect("a slider row is visible");
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+
+        // Arm a drag at the right end of the track.
+        let _ = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: right,
+                button: PointerButton::Left,
+            },
+            rect,
+        );
+        assert!(
+            overlay.is_settings_dragging(),
+            "precondition: drag is armed"
+        );
+
+        // Focus loss WITHOUT a release and WITHOUT a close (the overlay-stays-
+        // open lost-release case).
+        overlay.cancel_settings_drag();
+        assert!(overlay.is_open(), "focus loss does not close the overlay");
+        assert!(
+            !overlay.is_settings_dragging(),
+            "focus loss cancels the drag"
+        );
+
+        // A bare hover Move (no held button) after focus regain is inert — no
+        // phantom drag re-armed.
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        assert_eq!(
+            overlay.handle_pointer(OverlayPointer::Move { cell: left }, rect),
+            OverlayOutcome::Consumed,
+            "hover after focus regain is inert"
+        );
+        assert!(
+            !overlay.is_settings_dragging(),
+            "hover did not re-arm the drag"
+        );
     }
 }

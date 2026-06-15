@@ -123,15 +123,15 @@ fn setting_info_covers_every_field_with_descriptions() {
     assert!(info.iter().all(|row| !row.value.trim().is_empty()));
     assert!(
         info.iter()
-            .any(|row| row.key == "stem_darken" && row.range == Some("0.0..=1.0"))
+            .any(|row| row.key == "stem_darken" && row.range.as_deref() == Some("0.0..=1.0"))
     );
     assert!(
         info.iter()
-            .any(|row| row.key == "min_contrast" && row.range == Some("1.0..=21.0"))
+            .any(|row| row.key == "min_contrast" && row.range.as_deref() == Some("1.0..=21.0"))
     );
     assert!(
         info.iter()
-            .any(|row| row.key == "focus_dim" && row.range == Some("0.0..=1.0"))
+            .any(|row| row.key == "focus_dim" && row.range.as_deref() == Some("0.0..=1.0"))
     );
     assert!(
         info.iter()
@@ -139,7 +139,7 @@ fn setting_info_covers_every_field_with_descriptions() {
     );
     assert!(
         info.iter()
-            .any(|row| row.key == "window_padding" && row.range == Some("0.0..=64.0 px"))
+            .any(|row| row.key == "window_padding" && row.range.as_deref() == Some("0.0..=64.0 px"))
     );
     assert!(
         info.iter()
@@ -147,32 +147,29 @@ fn setting_info_covers_every_field_with_descriptions() {
     );
     assert!(
         info.iter()
-            .any(|row| row.key == "bloom_threshold" && row.range == Some("0.70..=1.25"))
+            .any(|row| row.key == "bloom_threshold" && row.range.as_deref() == Some("0.7..=1.25"))
     );
     assert!(
         info.iter()
-            .any(|row| row.key == "bloom_intensity" && row.range == Some("0.0..=1.0"))
+            .any(|row| row.key == "bloom_intensity" && row.range.as_deref() == Some("0.0..=1.0"))
     );
     assert!(
         info.iter()
-            .any(|row| row.key == "bloom_radius" && row.range == Some("0.5..=8.0 px"))
+            .any(|row| row.key == "bloom_radius" && row.range.as_deref() == Some("0.5..=8.0 px"))
     );
     assert!(
         info.iter()
             .any(|row| row.key == "crt" && row.options == ["on", "off"])
     );
-    assert!(
-        info.iter()
-            .any(|row| row.key == "crt_scanline_intensity" && row.range == Some("0.0..=0.18"))
-    );
-    assert!(
-        info.iter()
-            .any(|row| row.key == "crt_scanline_period" && row.range == Some("2.0..=12.0 px"))
-    );
-    assert!(
-        info.iter()
-            .any(|row| row.key == "crt_vignette_strength" && row.range == Some("0.0..=0.16"))
-    );
+    assert!(info.iter().any(
+        |row| row.key == "crt_scanline_intensity" && row.range.as_deref() == Some("0.0..=0.18")
+    ));
+    assert!(info.iter().any(
+        |row| row.key == "crt_scanline_period" && row.range.as_deref() == Some("2.0..=12.0 px")
+    ));
+    assert!(info.iter().any(
+        |row| row.key == "crt_vignette_strength" && row.range.as_deref() == Some("0.0..=0.16")
+    ));
 }
 
 #[test]
@@ -1694,4 +1691,152 @@ fn resolve_theme_file_looks_up_names_in_theme_dir() {
 
     let _ = fs::remove_file(dir.join("solar.theme"));
     let _ = fs::remove_dir(&dir);
+}
+
+// --- UX4-P2: NumericSpec (slider bounds, derived range, folded step) ---
+
+#[test]
+fn numeric_spec_is_present_exactly_for_bounded_number_rows() {
+    let info = Settings::default().setting_info();
+    for row in &info {
+        match row.key {
+            // Startup-only, unbounded: a Number row with no slider spec.
+            "native_autoclose_ms" => {
+                assert_eq!(row.kind, SettingKind::Number);
+                assert!(
+                    row.numeric.is_none(),
+                    "startup-only autoclose carries no slider spec"
+                );
+            }
+            _ if row.kind == SettingKind::Number => assert!(
+                row.numeric.is_some(),
+                "bounded number row {} carries a slider spec",
+                row.key
+            ),
+            _ => assert!(
+                row.numeric.is_none(),
+                "non-number row {} has no slider spec",
+                row.key
+            ),
+        }
+    }
+}
+
+#[test]
+fn numeric_spec_bounds_match_the_parser_clamp_constants() {
+    let info = Settings::default().setting_info();
+    let spec = |key: &str| {
+        info.iter()
+            .find(|row| row.key == key)
+            .unwrap_or_else(|| panic!("row {key}"))
+            .numeric
+            .unwrap_or_else(|| panic!("spec {key}"))
+    };
+
+    let fs = spec("font_size");
+    assert_eq!(
+        (fs.min, fs.max, fs.step, fs.unit),
+        (MIN_FONT_SIZE_PX, MAX_FONT_SIZE_PX, 1.0, "px")
+    );
+    let mc = spec("min_contrast");
+    assert_eq!(
+        (mc.min, mc.max, mc.unit),
+        (MIN_MIN_CONTRAST, MAX_MIN_CONTRAST, "")
+    );
+    let csi = spec("crt_scanline_intensity");
+    assert_eq!(
+        (csi.min, csi.max),
+        (MIN_CRT_SCANLINE_INTENSITY, MAX_CRT_SCANLINE_INTENSITY)
+    );
+}
+
+#[test]
+fn numeric_spec_steps_preserve_the_folded_keyboard_steps() {
+    // UX4-P2 folds the former per-key `number_step` table into `spec.step`; the
+    // keyboard Left/Right step must be byte-for-byte what it was before.
+    let info = Settings::default().setting_info();
+    let step = |key: &str| {
+        info.iter()
+            .find(|row| row.key == key)
+            .unwrap()
+            .numeric
+            .unwrap()
+            .step
+    };
+    for (key, expected) in [
+        ("font_size", 1.0),
+        ("text_gamma", 0.1),
+        ("stem_darken", 0.05),
+        ("min_contrast", 1.0),
+        ("focus_dim", 0.05),
+        ("window_padding", 1.0),
+        ("bloom_threshold", 0.05),
+        ("bloom_intensity", 0.05),
+        ("bloom_radius", 0.5),
+        ("crt_scanline_intensity", 0.01),
+        ("crt_scanline_period", 0.5),
+        ("crt_vignette_strength", 0.01),
+    ] {
+        assert_eq!(step(key), expected, "{key} keyboard step");
+    }
+}
+
+#[test]
+fn numeric_range_label_is_derived_and_keeps_its_unit() {
+    // Every numeric row's range hint is derived from its spec, so it cannot
+    // drift from the clamp bounds; the unit suffix is preserved when present.
+    let info = Settings::default().setting_info();
+    for row in &info {
+        if let Some(spec) = row.numeric {
+            let range = row
+                .range
+                .as_deref()
+                .unwrap_or_else(|| panic!("derived range for {}", row.key));
+            assert!(range.contains("..="), "range is a bound pair: {range}");
+            if !spec.unit.is_empty() {
+                assert!(
+                    range.ends_with(spec.unit),
+                    "range keeps the {} unit: {range}",
+                    spec.unit
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn numeric_spec_slider_math_clamps_and_snaps() {
+    let spec = NumericSpec {
+        min: 0.0,
+        max: 10.0,
+        step: 1.0,
+        unit: "",
+    };
+    assert_eq!(spec.fraction_of(0.0), 0.0);
+    assert_eq!(spec.fraction_of(5.0), 0.5);
+    assert_eq!(spec.fraction_of(10.0), 1.0);
+    assert_eq!(spec.fraction_of(-5.0), 0.0, "below min clamps to 0");
+    assert_eq!(spec.fraction_of(50.0), 1.0, "above max clamps to 1");
+
+    assert_eq!(spec.value_at_fraction(0.0), 0.0);
+    assert_eq!(spec.value_at_fraction(1.0), 10.0);
+    assert_eq!(spec.value_at_fraction(0.54), 5.0, "snaps to nearest step");
+    assert_eq!(
+        spec.value_at_fraction(2.0),
+        10.0,
+        "fraction over 1 saturates"
+    );
+
+    // Reserved readout budget: wider bound label ("10" = 2) plus " *" = 4.
+    assert_eq!(spec.readout_width(), 4);
+
+    // A degenerate zero-width range never divides by zero.
+    let flat = NumericSpec {
+        min: 3.0,
+        max: 3.0,
+        step: 1.0,
+        unit: "",
+    };
+    assert_eq!(flat.fraction_of(3.0), 0.0);
+    assert_eq!(flat.value_at_fraction(0.5), 3.0);
 }

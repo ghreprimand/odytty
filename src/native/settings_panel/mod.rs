@@ -13,6 +13,10 @@ pub(super) struct SettingsPanel {
     scroll: usize,
     editing: Option<RowEdit>,
     message: Option<String>,
+    /// Key of the numeric row whose slider is being dragged (UX4-P2). Set on a
+    /// slider-track press, cleared on release; while `Some`, pointer moves map
+    /// the cursor column to a live value.
+    dragging: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,6 +67,7 @@ impl SettingsPanel {
             scroll: 0,
             editing: None,
             message: None,
+            dragging: None,
         };
         panel.clamp();
         panel
@@ -83,6 +88,7 @@ impl SettingsPanel {
             .unwrap_or(0);
         self.editing = None;
         self.message = None;
+        self.dragging = None;
         self.clamp();
     }
 
@@ -117,6 +123,12 @@ impl SettingsPanel {
 
     pub(super) fn is_editing(&self) -> bool {
         self.editing.is_some()
+    }
+
+    /// Whether a slider drag is currently in progress (UX4-P2). The App uses
+    /// this to gate per-move work to active drags only.
+    pub(super) fn is_dragging(&self) -> bool {
+        self.dragging.is_some()
     }
 
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> SettingsPanelOutcome {
@@ -292,7 +304,7 @@ impl SettingsPanel {
         match entry.kind {
             SettingKind::Enum => self.cycle_selected(direction),
             SettingKind::Number => {
-                let step = number_step(entry.key) * direction as f32;
+                let step = entry.numeric.map_or(1.0, |spec| spec.step) * direction as f32;
                 let parsed = entry.value.parse::<f32>().unwrap_or(0.0);
                 self.commit_value(entry.key, &format!("{:.3}", parsed + step))
             }
@@ -381,7 +393,7 @@ fn setting_detail(entry: &SettingInfo) -> String {
     detail.push_str(" Env: ");
     detail.push_str(entry.env);
     detail.push('.');
-    if let Some(range) = entry.range {
+    if let Some(range) = entry.range.as_deref() {
         detail.push_str(" Range: ");
         detail.push_str(range);
         detail.push('.');
@@ -411,22 +423,6 @@ fn edit_options(entry: &SettingInfo) -> Vec<&'static str> {
         "cursor_style" => vec!["block", "underline", "bar"],
         "cursor_blink" => vec!["auto", "on", "off"],
         _ => entry.options.to_vec(),
-    }
-}
-
-fn number_step(key: &str) -> f32 {
-    match key {
-        "font_size" => 1.0,
-        "text_gamma" => 0.1,
-        "stem_darken" => 0.05,
-        "focus_dim" => 0.05,
-        "bloom_threshold" => 0.05,
-        "bloom_intensity" => 0.05,
-        "bloom_radius" => 0.5,
-        "crt_scanline_intensity" => 0.01,
-        "crt_scanline_period" => 0.5,
-        "crt_vignette_strength" => 0.01,
-        _ => 1.0,
     }
 }
 
@@ -518,7 +514,17 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(text.contains("Font size: 18"));
+        // Numeric rows (UX4-P2) render as a slider: the label and the live
+        // readout sit on either side of the track rather than "name: value".
+        let font_size_line = lines
+            .iter()
+            .find(|line| line.text.contains("Font size:"))
+            .expect("font size row present");
+        assert!(
+            font_size_line.text.trim_end().ends_with("18"),
+            "slider readout shows the live value: {:?}",
+            font_size_line.text
+        );
         assert!(text.contains(FONT_SIZE_ENV));
     }
 

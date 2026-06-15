@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- UX4-P2: overlay slider widget + click-to-type numeric entry
+
+- Numeric settings rows in the overlay are now adjustable with a draggable
+  slider and direct click-to-type entry, building on the UX4-P1 mouse seam. Each
+  numeric setting carries a `NumericSpec { min, max, step, unit }` on its
+  `SettingInfo`, and the displayed range label is derived from that spec rather
+  than maintained as a separate string; the existing per-setting step folds into
+  `spec.step`.
+- Dragging the slider track sets the value within `[min, max]` snapped to `step`,
+  with the readout reflecting the live value through the existing live-apply
+  commit seam. Clicking the readout begins in-place text entry that runs through
+  the same parser/clamp path as a keyboard edit, so every route to a value shares
+  one validation path. Pointer Move/Release routing extends the UX4-P1
+  `OverlayPointer` model (which carried only Press/Wheel); `RowZone` gains a
+  slider zone and the single shared visible-rows/hit-map walker backs it.
+- Drag is modelled as mutually-exclusive state and is cleared on release, on
+  overlay close/reopen, on mode switch, and on `WindowEvent::Focused(false)`.
+  That last clear closes a focus-loss edge: a slider press whose release is lost
+  to an alt-tab (the release lands in another window while the overlay stays
+  open) can no longer leave a phantom drag armed that would commit a stray value
+  on the next cursor move after focus returns. Two regression tests cover the
+  lost-release-then-reopen and focus-loss-while-open sequences, each verified to
+  fail without its clear.
+- Keyboard navigation/editing is unchanged and the mouse additions are purely
+  additive; the plain/fast render path is untouched (the slider is overlay-only).
+- Verified: `cargo fmt --all -- --check` clean; `cargo test --lib`
+  1129 passed / 0 failed / 7 ignored; full aggregate 1235 passed / 0 failed /
+  19 ignored; integration smokes (mouse_protocol, pty_alt_screen, transcript,
+  gpu_composite, pixel_smoke, boxdraw, emoji, stem, license, cli) all green;
+  pixel/composite smokes green at baseline and with subpixel+CRT+bloom enabled;
+  all touched files under the 2000-line cap (largest `app/mod.rs` 1786). No
+  parser/protocol surface touched.
+
+---
+
 ## 2026-06-15 -- U1: universal legibility guarantee (contrast floor covers all text)
 
 - Closed the last gap in the readability floor's coverage. An audit confirmed

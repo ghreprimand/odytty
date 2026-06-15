@@ -380,6 +380,31 @@ impl App {
         self.overlay.render_signature()
     }
 
+    /// Test seam (UX4-P2): absolute track-end cells for the first visible
+    /// slider, so a test can drive a real press/drag/release through the App.
+    #[cfg(test)]
+    pub(super) fn overlay_first_slider_track_cells_for_test(
+        &self,
+    ) -> Option<(CellPoint, CellPoint)> {
+        self.overlay
+            .first_slider_track_cells(self.grid.columns, self.grid.rows)
+    }
+
+    /// Test seam (UX4-P2): whether a settings-panel slider drag is in progress.
+    #[cfg(test)]
+    pub(super) fn overlay_is_dragging_for_test(&self) -> bool {
+        self.overlay.is_settings_dragging()
+    }
+
+    /// Test seam (UX4-P2 review): drive the exact focus-loss drag-cancel the
+    /// `WindowEvent::Focused(false)` arm runs, so a regression can prove a lost
+    /// release on focus loss cannot leave a slider drag armed while the overlay
+    /// stays open. Wraps the production helper (not a parallel reimplementation).
+    #[cfg(test)]
+    pub(super) fn cancel_overlay_drag_on_focus_loss_for_test(&mut self) {
+        self.cancel_overlay_drag_on_focus_loss();
+    }
+
     /// Test seam (UX4-P1): arm a held TUI mouse-report button exactly as a real
     /// reported press would, so a regression test can prove overlay entry clears
     /// it. Wraps the (module-private) `handle_reported_mouse_input`.
@@ -596,6 +621,19 @@ impl App {
         self.selecting = false;
         self.last_selection_autoscroll = None;
         self.report_button = None;
+    }
+
+    /// On focus loss, abandon any in-progress overlay slider drag (UX4-P2).
+    ///
+    /// A press may arm a drag whose release is then delivered to another window
+    /// after an alt-tab; the overlay stays open, so without this the drag
+    /// survives and the next bare hover Move on focus regain commits a phantom
+    /// value (the overlay-stays-open analogue of the close/reopen lost-release
+    /// case). No-op unless the overlay is open with a drag armed.
+    fn cancel_overlay_drag_on_focus_loss(&mut self) {
+        if self.overlay.is_open() {
+            self.overlay.cancel_settings_drag();
+        }
     }
 
     fn toggle_settings_overlay(&mut self) {
@@ -1459,6 +1497,9 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::Focused(focused) => {
                 self.focused = focused;
+                if !focused {
+                    self.cancel_overlay_drag_on_focus_loss();
+                }
                 // Force the cursor solid-on immediately on focus loss (and
                 // resume blinking on focus gain) by rebuilding next frame.
                 self.needs_rebuild = true;
@@ -1484,7 +1525,7 @@ impl ApplicationHandler<UserEvent> for App {
                 // of the keyboard `if self.overlay.is_open()` guard. Shift and
                 // the TUI mouse mode are not consulted here.
                 if self.overlay.is_open() {
-                    self.handle_overlay_pointer_press(state, button);
+                    self.handle_overlay_pointer_button(state, button);
                     return;
                 }
                 if self.selecting {
