@@ -100,6 +100,13 @@ pub(super) struct RenderContentSignature {
     pub(super) hovered_hyperlink: Option<LinkId>,
     pub(super) graphics: Vec<VisibleGraphicSignature>,
     pub(super) presentation_epoch: u64,
+    /// SH2 status-gutter invalidation: a pure OSC 133 status transition can move
+    /// prompt marks without bumping the terminal render revision, so the gutter
+    /// would not repaint on a coalesced redraw. The native layer folds a
+    /// monotonic prompt-marks epoch in here only while the status gutter is on;
+    /// while it is off the epoch never advances, so the default render path
+    /// stays byte-identical.
+    pub(super) prompt_marks_epoch: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

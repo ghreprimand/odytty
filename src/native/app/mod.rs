@@ -69,6 +69,7 @@ use super::viewport::{
 
 mod copy_mode_ui;
 mod cursor_frame;
+mod gutter_ui;
 mod hints_ui;
 mod interaction;
 mod pointer;
@@ -167,6 +168,12 @@ pub(super) struct App {
     /// core revision: theme/default-color changes, atlas/font changes, and
     /// other settings that make identical snapshots build different vertices.
     presentation_epoch: u64,
+    /// SH2 status-gutter invalidation epoch. Bumped when the core reports prompt
+    /// marks changed while the status gutter is enabled, so a pure OSC 133
+    /// status transition (which need not move the terminal render revision)
+    /// still forces a non-retained redraw and the gutter repaints. Stays at its
+    /// initial value while the gutter is off — the default path is unaffected.
+    prompt_marks_epoch: u64,
     /// DECSET 2026 presentation hold state. While active, terminal model/input
     /// keep advancing, but new grid-content uploads are delayed until DECRST or
     /// this state machine's timeout releases the hold.
@@ -323,6 +330,7 @@ impl App {
             needs_rebuild: true,
             last_render_signature: None,
             presentation_epoch: 0,
+            prompt_marks_epoch: 0,
             synchronized_output_hold: SynchronizedOutputHold::default(),
             last_presented_snapshot: None,
             last_presented_cursor_style: crate::core::CursorStyle::default(),
@@ -1440,7 +1448,7 @@ impl ApplicationHandler<UserEvent> for App {
                             visible_graphics,
                             image_uploads,
                         ) = {
-                            let terminal = self.terminal.lock().expect("terminal mutex");
+                            let mut terminal = self.terminal.lock().expect("terminal mutex");
                             let scrollback_len = terminal.screen().scrollback_len();
                             // "Stay scrolled": as new output grows scrollback while
                             // the user is scrolled back, anchor the view to the same
@@ -1450,6 +1458,21 @@ impl ApplicationHandler<UserEvent> for App {
                             self.viewport.anchor_after_growth(added, scrollback_len);
                             self.last_scrollback_len = scrollback_len;
                             self.viewport.clamp(scrollback_len);
+                            // SH2 status-gutter invalidation: a pure OSC 133
+                            // status transition (e.g. a command reporting its
+                            // exit) can update prompt marks without bumping the
+                            // terminal render revision. Poll the core's
+                            // conservative marks-changed flag and fold a monotonic
+                            // epoch into the render signature so the gutter
+                            // repaints on that transition. Gated on the setting:
+                            // while the gutter is off the flag is never consumed
+                            // and the epoch never moves, so the default render
+                            // path stays byte-identical.
+                            if self.settings.command_status_gutter
+                                && terminal.take_prompt_marks_changed()
+                            {
+                                self.prompt_marks_epoch = self.prompt_marks_epoch.wrapping_add(1);
+                            }
                             if self.search.is_open() {
                                 self.search.refresh(&terminal);
                             }
@@ -1534,7 +1557,18 @@ impl ApplicationHandler<UserEvent> for App {
                                 gpu.window_padding(),
                             )
                         });
-                        let overlays = overlay.into_iter().collect::<Vec<_>>();
+                        let mut overlays = overlay.into_iter().collect::<Vec<_>>();
+                        // SH2 success/fail gutter: per-command pass/fail bars at
+                        // the left edge. Off by default — the method returns no
+                        // quads before locking the terminal, so the composed
+                        // overlay set stays byte-identical on the plain path.
+                        if let Some(gpu) = self.gpu.as_ref() {
+                            overlays.extend(self.command_status_gutter_overlays(
+                                scrollback_len,
+                                gpu.cell(),
+                                gpu.window_padding(),
+                            ));
+                        }
                         let signature = RenderSignature {
                             content: RenderContentSignature {
                                 terminal_revision,
@@ -1550,6 +1584,7 @@ impl ApplicationHandler<UserEvent> for App {
                                 hovered_hyperlink: self.hovered_hyperlink,
                                 graphics: visible_graphics_signature(&visible_graphics),
                                 presentation_epoch: self.presentation_epoch,
+                                prompt_marks_epoch: self.prompt_marks_epoch,
                             },
                             cursor: CursorRenderSignature {
                                 visible: snapshot.cursor_visible,

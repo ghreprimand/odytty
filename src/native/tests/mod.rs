@@ -67,6 +67,7 @@ mod mouse_rect;
 mod overlay_pointer;
 mod scrollbar;
 mod selection_extend;
+mod sh2_native;
 mod synchronized_output;
 mod viewport;
 mod wheel_zoom;

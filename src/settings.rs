@@ -493,6 +493,13 @@ pub struct Settings {
     /// wheel inside a TUI mouse-reporting app — stays byte-identical. Off
     /// returns Ctrl+wheel to plain scrollback movement.
     pub wheel_zoom: bool,
+    /// Per-command success/fail gutter (SH2). When on, a thin coloured bar at
+    /// the left edge of each finished command's prompt row reads green for an
+    /// explicit `exit 0` and red for a non-zero exit, sourced from the OSC 133
+    /// command blocks and coloured from the active ANSI palette (so it
+    /// daltonises with U4 for free). Off by default — the off path draws nothing
+    /// and is pixel-identical to today.
+    pub command_status_gutter: bool,
     /// Colour-vision-deficiency palette adaptation mode (U4, Accessibility).
     /// `Off` by default — the off path publishes the authored palette unchanged
     /// and is pixel-identical to before. The deficiency modes daltonise the
@@ -544,6 +551,7 @@ impl Default for Settings {
             selection_drag_extend: DEFAULT_SELECTION_DRAG_EXTEND,
             scrollbar_drag: DEFAULT_SCROLLBAR_DRAG,
             wheel_zoom: DEFAULT_WHEEL_ZOOM,
+            command_status_gutter: DEFAULT_COMMAND_STATUS_GUTTER,
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
             native_autoclose: None,
@@ -855,6 +863,12 @@ impl Settings {
             DEFAULT_WHEEL_ZOOM,
             &mut warn,
         );
+        let command_status_gutter = parse_bool_setting(
+            get(COMMAND_STATUS_GUTTER_ENV).as_deref(),
+            COMMAND_STATUS_GUTTER_ENV,
+            DEFAULT_COMMAND_STATUS_GUTTER,
+            &mut warn,
+        );
         let cvd_mode = parse_cvd_mode(get(CVD_MODE_ENV).as_deref(), &mut warn);
         let cvd_strength = parse_cvd_strength(get(CVD_STRENGTH_ENV).as_deref(), &mut warn);
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
@@ -895,6 +909,7 @@ impl Settings {
             selection_drag_extend,
             scrollbar_drag,
             wheel_zoom,
+            command_status_gutter,
             cvd_mode,
             cvd_strength,
             native_autoclose,
@@ -985,6 +1000,10 @@ impl Settings {
             bool_display(self.scrollbar_drag).to_owned(),
         );
         values.insert(WHEEL_ZOOM_ENV, bool_display(self.wheel_zoom).to_owned());
+        values.insert(
+            COMMAND_STATUS_GUTTER_ENV,
+            bool_display(self.command_status_gutter).to_owned(),
+        );
         values.insert(CVD_MODE_ENV, self.cvd_mode.as_str().to_owned());
         values.insert(CVD_STRENGTH_ENV, format_float(self.cvd_strength));
         if let Some(duration) = self.native_autoclose {

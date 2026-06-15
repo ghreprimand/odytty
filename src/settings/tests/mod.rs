@@ -20,3 +20,4 @@ use super::*;
 mod info;
 mod legacy;
 mod mouse;
+mod sh2;

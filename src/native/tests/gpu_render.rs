@@ -274,6 +274,7 @@ fn render_sig() -> RenderSignature {
             hovered_hyperlink: None,
             graphics: Vec::new(),
             presentation_epoch: 0,
+            prompt_marks_epoch: 0,
         },
         cursor: CursorRenderSignature {
             visible: true,
@@ -376,6 +377,19 @@ fn render_signature_update_matrix_covers_pixel_invalidators() {
     assert_eq!(
         RenderSignature::update_from(Some(&base), &config_reload),
         GeometryUpdate::Full
+    );
+
+    // SH2 status gutter: a pure OSC 133 status transition can move prompt marks
+    // without bumping the terminal revision. The native layer folds a monotonic
+    // prompt-marks epoch into the content signature (only while the gutter is
+    // on), so the bumped epoch must force a non-retained rebuild — otherwise the
+    // gutter bar would not repaint until an unrelated invalidator fired.
+    let mut gutter_marks = base.clone();
+    gutter_marks.content.prompt_marks_epoch += 1;
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &gutter_marks),
+        GeometryUpdate::Full,
+        "prompt-marks epoch bump must not be retained"
     );
 
     let mut image = base.clone();

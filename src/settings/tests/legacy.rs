@@ -107,6 +107,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "scroll_drag_speed",
             "scrollbar_drag",
             "wheel_zoom",
+            "command_status_gutter",
             "osc52_read",
             "copy_on_select",
             "cvd_mode",

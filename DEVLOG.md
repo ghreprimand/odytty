@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- SH2: command-aware prompt jump + success/fail status gutter
+
+- Built on the OSC 133 semantic prompt marks (SH1), the terminal now offers
+  command-aware navigation and feedback. **Prompt jump**: bindable prev/next
+  actions step the viewport between prompt boundaries (reference = viewport top,
+  aligned to top for clean monotonic stepping); at the first/last prompt the
+  chord falls through byte-identically so nothing is swallowed mid-session.
+- **Success/fail status gutter**: a thin 3px left-edge bar marks each finished
+  command's prompt row green for success / red for failure, sourced from the
+  ANSI palette (so it adapts under the colorblind palette remap for free).
+  Running and unknown states draw nothing. Off by default behind a new
+  `command_status_gutter` setting; toggle it from the settings overlay, an env
+  var, the config file, or live reload. When off, the render path is
+  byte-identical — the core's prompt-mark-changed flag is never consumed.
+- Correctness detail: a pure OSC 133 status transition can move prompt marks
+  without bumping the terminal's render revision, so the native layer folds a
+  prompt-marks epoch into its render signature (advanced only while the gutter is
+  enabled) to guarantee the bar repaints on a status change without an unrelated
+  invalidator. A render-signature matrix test pins enabled-changes-are-not-
+  retained while the default-off path stays retained.
+
 ## 2026-06-15 -- Color: bounded readability-scrim primitive for background treatments
 
 - Added the pure-math foundation for readability-safe background treatments

@@ -38,6 +38,7 @@ pub const COPY_ON_SELECT_ENV: &str = "ODYTTY_COPY_ON_SELECT";
 pub const SELECTION_DRAG_EXTEND_ENV: &str = "ODYTTY_SELECTION_DRAG_EXTEND";
 pub const SCROLLBAR_DRAG_ENV: &str = "ODYTTY_SCROLLBAR_DRAG";
 pub const WHEEL_ZOOM_ENV: &str = "ODYTTY_WHEEL_ZOOM";
+pub const COMMAND_STATUS_GUTTER_ENV: &str = "ODYTTY_COMMAND_STATUS_GUTTER";
 pub const CVD_MODE_ENV: &str = "ODYTTY_CVD_MODE";
 pub const CVD_STRENGTH_ENV: &str = "ODYTTY_CVD_STRENGTH";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
@@ -183,6 +184,15 @@ pub const DEFAULT_SCROLLBAR_DRAG: bool = true;
 /// wheel (and the wheel inside a TUI mouse-reporting app) is byte-identical.
 /// Off restores Ctrl+wheel to plain scrollback movement.
 pub const DEFAULT_WHEEL_ZOOM: bool = true;
+
+/// Per-command success/fail gutter (`ODYTTY_COMMAND_STATUS_GUTTER`, SH2): when
+/// on, a thin coloured bar at the left edge of each finished command's prompt
+/// row reads green for an explicit `exit 0` and red for a non-zero exit, sourced
+/// from the OSC 133 command blocks and coloured from the active ANSI palette.
+/// Off by default — while off the gutter draws nothing and the render path is
+/// pixel-identical to today. With shell integration absent no command marks
+/// exist, so the gutter is empty regardless of the setting.
+pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = false;
 
 pub const DEFAULT_BLOOM: bool = false;
 pub const BLOOM_THRESHOLD_MARGIN: f32 = 0.12;
