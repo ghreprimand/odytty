@@ -22,6 +22,23 @@ Odyssey Terminal is a reliable terminal emulator with an OdysseyOS visual identi
 
 Odyssey Terminal is worth exploring because the terminal is a daily operating surface, not just a utility, and OdysseyOS needs one that carries its own visual identity without compromising trust. It is for the operator who wants command-line work to feel more expressive, polished, and alive while remaining dependable enough for real use. The friction it removes is the gap between solid existing terminals and a more personal, visually distinctive environment: instead of accepting either reliability with generic presentation or flashiness that risks distraction, the project tests whether both can coexist. Scope should stop before novelty damages terminal fundamentals; speed, compatibility, input correctness, readable text, stable rendering, and predictable behavior matter more than effects, themes, or nonstandard features.
 
+## Privacy & Data Posture
+
+OdyTTY runs entirely on the local machine. It collects no telemetry and has no
+analytics, crash-reporting, update-check, or "product improvement" data path of
+any kind — there is no network client in the terminal to disable, because none
+is built. There is no account, no sign-in, no cloud sync, and no server-side
+component; settings, themes, and scrollback never leave the local filesystem.
+Configuration is a plain local `odytty.conf` the user owns and can read in full.
+The source is open under the GPL-3.0, so the absence of any data collection is
+verifiable rather than merely promised.
+
+This is a durable product stance, not a default to be flipped: any future
+feature that would transmit data off the machine is out of scope by charter.
+The one network-capable action — Ctrl+click to open a hyperlink — is explicit,
+user-initiated, routed through `xdg-open`, and gated by a scheme allowlist;
+links are never opened from terminal output automatically.
+
 ## Build Direction
 
 The project owns its full byte path from PTY to glyph quad. Shell process and

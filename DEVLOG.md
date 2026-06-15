@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Docs: privacy posture stated as a feature (U6)
+
+- Made OdyTTY's privacy posture an explicit, stated feature in the public docs
+  rather than an unspoken property: a new "Privacy" subsection in `README.md`
+  (Features) and a durable "Privacy & Data Posture" section in `SPEC.md`.
+- The stance, framed on OdyTTY's own terms: runs entirely on the local machine;
+  no telemetry, analytics, crash reporting, update pings, account, or cloud
+  sync — there is no network client built into the terminal. Settings, themes,
+  and scrollback never leave the local filesystem; `odytty.conf` is a plain
+  local file. The source is open (GPL-3.0), so the absence of data collection
+  is verifiable rather than promised. The sole network-capable action —
+  Ctrl+click to open a hyperlink — is explicit, user-initiated, via `xdg-open`,
+  and scheme-allowlisted; links are never opened from output automatically.
+- Recorded as a durable product stance in SPEC: any future feature that would
+  transmit data off the machine is out of scope by charter.
+- Docs-only; no code, no behavior change.
+
+---
+
 ## 2026-06-15 -- Settings overlay: coherent grouping + clearer labels (UX4-P3 / HELP1)
 
 - The settings panel now reads clearly: `Settings::setting_info()` stable-sorts

@@ -172,6 +172,18 @@ Scale-factor changes rebuild the atlas and recompute cell metrics through the
 same path as a font-size change. Resize events are debounced to avoid
 per-frame reflow during drag.
 
+### Privacy
+
+OdyTTY runs entirely on your machine. No telemetry, no analytics, no crash
+reporting, no update pings, no account, no cloud sync — there is no network
+client in the terminal because none is built. Your settings, themes, and
+scrollback never leave the local filesystem, and `odytty.conf` is a plain file
+you own and can read in full. Because the source is open (GPL-3.0), the absence
+of any data collection is verifiable rather than promised. The only
+network-capable action is Ctrl+click to open a hyperlink — explicit,
+user-initiated, routed through `xdg-open`, and gated by a scheme allowlist;
+links are never opened from terminal output automatically.
+
 ---
 
 ## Build and run
