@@ -377,6 +377,107 @@ pub fn enforce_min_contrast(fg: LinearRgb, bg: LinearRgb, ratio: f32) -> LinearR
     }
 }
 
+// Readability scrim for background treatments (U5 / ID3)
+// ---------------------------------------------------------------------------
+
+/// The effective background luminance behind a glyph once a background
+/// *treatment* (gradient / vignette / image) shows through a translucent cell
+/// background, with a black *scrim* of the given strength applied to the
+/// treatment first.
+///
+/// Compositing model (back to front): the treatment is drawn, a black scrim of
+/// alpha `scrim` darkens it (`l_treat * (1 - scrim)` — luminance is linear in the
+/// linear-RGB channels, so a black multiply scales it directly), and the
+/// translucent cell background of opacity `opacity` is composited over that. The
+/// luminance the text actually sits on is the convex blend
+/// `opacity * l_bg + (1 - opacity) * l_treat * (1 - scrim)`: `opacity = 1` fully
+/// occludes the treatment (effective `= l_bg`), `opacity = 0` shows the scrimmed
+/// treatment alone.
+///
+/// All luminances are WCAG relative luminances in `[0, 1]` (see
+/// [`relative_luminance`]). Pure; total.
+pub fn effective_bg_luminance(l_treat: f32, l_bg: f32, opacity: f32, scrim: f32) -> f32 {
+    let opacity = opacity.clamp(0.0, 1.0);
+    let scrim = scrim.clamp(0.0, 1.0);
+    let l_treat = l_treat.clamp(0.0, 1.0);
+    let l_bg = l_bg.clamp(0.0, 1.0);
+    opacity * l_bg + (1.0 - opacity) * l_treat * (1.0 - scrim)
+}
+
+/// Compute the **readability scrim** — a black-overlay dim in `[0, 1]` applied to
+/// a background treatment so that the effective luminance behind the text band
+/// (see [`effective_bg_luminance`]) is bounded to **never exceed `l_bg`**, the
+/// theme-background luminance the per-cell RV1 floor ([`enforce_min_contrast`])
+/// already references.
+///
+/// This is the load-bearing safety primitive for readability-safe background
+/// treatments (U5 / ID3). The per-cell floor floors each glyph's foreground
+/// against the *theme* background `l_bg`, but never sees the real treatment that
+/// shows through a translucent cell background. By capping the effective
+/// background at `l_bg`, this scrim keeps that existing per-cell guarantee a
+/// **valid, unmodified** floor: for the dark-theme treatment case (light text
+/// over a dark background) the effective background is at or below `l_bg`, so any
+/// foreground that meets the floor against `l_bg` also meets it against the
+/// (equal-or-darker) effective background. You literally cannot author a
+/// treatment that defeats the floor — a brighter or busier treatment yields a
+/// stronger scrim automatically.
+///
+/// ## Why the result does not depend on `opacity`
+/// The effective background is a convex blend of `l_bg` and the scrimmed
+/// treatment. A convex blend stays `<= l_bg` **iff** the scrimmed treatment is
+/// itself `<= l_bg` — the `opacity` weight cancels. So the minimal scrim that
+/// caps the blend is `max(0, 1 - l_bg / l_treat)`, independent of the cell
+/// opacity the user later picks. This is a feature: the guarantee is robust to
+/// the user changing cell-background opacity after the fact — no opacity can ever
+/// reintroduce an unreadable background. `opacity` is still taken (and honoured)
+/// so a fully opaque cell background, which hides the treatment entirely, needs
+/// no scrim at all.
+///
+/// ## Contracts
+/// - **Passthrough:** `min_contrast <= 1.0` returns `0.0` (the floor is disabled;
+///   the plain path applies no scrim and stays byte-identical), mirroring
+///   [`enforce_min_contrast`]'s unity passthrough.
+/// - **No-op when already safe:** an opaque cell background (`opacity >= 1.0`,
+///   treatment hidden) or a treatment already no brighter than the theme
+///   background (`l_treat <= l_bg`) needs no scrim → `0.0`.
+/// - **Polarity scope:** this caps the effective background at `l_bg` — the
+///   dark-theme treatment model (light text on a dark background, the ID3/U5 use
+///   case). It is the dark-theme primitive by design (D-U5-1).
+/// - **CVD interaction:** when U4 (colour-vision-deficiency adaptation) is
+///   active, the per-cell floor references the *CVD-adapted* background, so the
+///   caller must pass the adapted background luminance as `l_bg` — not the
+///   authored theme background — so the bound matches the floor the cells
+///   actually use.
+///
+/// Pure, deterministic, total: never panics and never returns NaN for any finite
+/// inputs (`l_treat = 0` is handled by the `l_treat <= l_bg` no-op, so there is
+/// no division by zero).
+pub fn readability_scrim_for(l_treat: f32, l_bg: f32, opacity: f32, min_contrast: f32) -> f32 {
+    // Passthrough: no floor to protect, so no scrim (keeps the plain path
+    // byte-identical when the readability floor is disabled).
+    if min_contrast <= 1.0 {
+        return 0.0;
+    }
+    let l_treat = l_treat.clamp(0.0, 1.0);
+    let l_bg = l_bg.clamp(0.0, 1.0);
+    let opacity = opacity.clamp(0.0, 1.0);
+
+    // An opaque cell background hides the treatment entirely: effective == l_bg
+    // already, no scrim needed.
+    if opacity >= 1.0 {
+        return 0.0;
+    }
+    // Treatment is already no brighter than the theme background: the effective
+    // background can only be <= l_bg, so nothing to dim. (Also covers l_treat == 0,
+    // guarding the division below.)
+    if l_treat <= l_bg {
+        return 0.0;
+    }
+
+    // Dim the treatment to exactly l_bg: l_treat * (1 - dim) == l_bg.
+    (1.0 - l_bg / l_treat).clamp(0.0, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -927,5 +1028,119 @@ mod tests {
         // It at least improved over the near-zero starting contrast.
         assert!(c > wcag_contrast(fg, bg));
         assert!(c.is_finite());
+    }
+
+    // --- Readability scrim (U5 / ID3) -----------------------------------
+
+    /// **The U5 safety invariant.** After applying the computed scrim, the
+    /// effective background luminance behind the text band never exceeds the
+    /// theme-background luminance `l_bg` the per-cell RV1 floor references — for
+    /// every combination of treatment luminance, theme background, and cell
+    /// opacity, including the adversarial cases (a bright treatment, a high cell
+    /// opacity, and a dark theme). This bound is exactly what keeps the existing
+    /// per-cell floor a valid guarantee, so it earns a named, explicit test.
+    #[test]
+    fn scrim_bounds_effective_bg_to_theme_bg_for_all_inputs() {
+        // Float headroom for the divide-and-recompose round trip.
+        const EPS: f32 = 1e-6;
+        // A floor must be in force for the scrim to engage.
+        let min_contrast = 4.5;
+
+        // Sweep treatment luminance, theme-bg luminance, and cell opacity across
+        // the full range, with extra weight on the adversarial corners.
+        let lums = [0.0_f32, 0.02, 0.05, 0.1, 0.2, 0.4, 0.6, 0.8, 0.95, 1.0];
+        let opacities = [0.0_f32, 0.1, 0.25, 0.5, 0.75, 0.9, 0.99, 1.0];
+        for &l_treat in &lums {
+            for &l_bg in &lums {
+                for &opacity in &opacities {
+                    let scrim = readability_scrim_for(l_treat, l_bg, opacity, min_contrast);
+                    let effective = effective_bg_luminance(l_treat, l_bg, opacity, scrim);
+                    assert!(
+                        effective <= l_bg + EPS,
+                        "effective bg {effective} exceeded l_bg {l_bg} \
+                         (l_treat={l_treat}, opacity={opacity}, scrim={scrim})"
+                    );
+                    // Sanity: the scrim is a well-formed alpha and never NaN.
+                    assert!((0.0..=1.0).contains(&scrim), "scrim {scrim} out of range");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn scrim_is_zero_when_floor_disabled() {
+        // min_contrast <= 1.0 is the passthrough: no scrim regardless of how
+        // bright the treatment is, keeping the plain path byte-identical.
+        assert_eq!(readability_scrim_for(1.0, 0.02, 0.0, 1.0), 0.0);
+        assert_eq!(readability_scrim_for(1.0, 0.02, 0.0, 0.5), 0.0);
+        assert_eq!(readability_scrim_for(1.0, 0.02, 0.0, -3.0), 0.0);
+    }
+
+    #[test]
+    fn scrim_is_zero_when_treatment_not_brighter_than_bg() {
+        // A treatment already at/below the theme-bg luminance can only keep the
+        // effective bg <= l_bg, so no dim is applied. Includes l_treat == 0,
+        // which also guards the internal division.
+        assert_eq!(readability_scrim_for(0.0, 0.2, 0.3, 4.5), 0.0);
+        assert_eq!(readability_scrim_for(0.2, 0.2, 0.3, 4.5), 0.0);
+        assert_eq!(readability_scrim_for(0.1, 0.2, 0.3, 4.5), 0.0);
+    }
+
+    #[test]
+    fn scrim_is_zero_for_opaque_cell_background() {
+        // A fully opaque cell bg hides the treatment entirely (effective == l_bg),
+        // so even a white treatment needs no scrim.
+        assert_eq!(readability_scrim_for(1.0, 0.02, 1.0, 4.5), 0.0);
+    }
+
+    #[test]
+    fn scrim_dims_treatment_to_exactly_the_theme_bg() {
+        // A white treatment (l_treat = 1.0) over a dark theme (l_bg = 0.05): the
+        // scrim dims it to exactly l_bg, i.e. dim = 1 - l_bg/l_treat = 0.95.
+        let scrim = readability_scrim_for(1.0, 0.05, 0.0, 4.5);
+        assert!(close(scrim, 0.95, 1e-6), "scrim was {scrim}");
+        // The scrimmed treatment luminance lands on l_bg.
+        assert!(close(1.0 * (1.0 - scrim), 0.05, 1e-6));
+    }
+
+    #[test]
+    fn brighter_treatment_yields_stronger_scrim() {
+        // Monotonicity: the brighter the treatment over a fixed dark theme, the
+        // stronger the scrim — you cannot author a brighter background without
+        // automatically getting more dimming.
+        let l_bg = 0.04;
+        let a = readability_scrim_for(0.3, l_bg, 0.0, 4.5);
+        let b = readability_scrim_for(0.6, l_bg, 0.0, 4.5);
+        let c = readability_scrim_for(1.0, l_bg, 0.0, 4.5);
+        assert!(a < b && b < c, "expected a<b<c, got {a} {b} {c}");
+    }
+
+    #[test]
+    fn scrim_is_opacity_independent_while_treatment_shows() {
+        // For any cell opacity < 1 the minimal capping scrim is the same (the
+        // convex-blend argument): the guarantee is robust to the user later
+        // changing opacity. Only the fully-opaque case (treatment hidden) drops
+        // to zero.
+        let base = readability_scrim_for(0.8, 0.05, 0.0, 4.5);
+        for &opacity in &[0.1_f32, 0.5, 0.9, 0.99] {
+            assert!(close(
+                readability_scrim_for(0.8, 0.05, opacity, 4.5),
+                base,
+                1e-7
+            ));
+        }
+        assert_eq!(readability_scrim_for(0.8, 0.05, 1.0, 4.5), 0.0);
+    }
+
+    #[test]
+    fn scrim_inputs_are_clamped_and_total() {
+        // Out-of-range inputs are clamped rather than producing NaN/panics, and
+        // the invariant still holds.
+        let scrim = readability_scrim_for(2.0, -1.0, 1.5, 4.5);
+        assert!((0.0..=1.0).contains(&scrim));
+        // l_bg clamps to 0, l_treat to 1, opacity to 1 → opaque → 0 scrim.
+        assert_eq!(scrim, 0.0);
+        // A negative l_treat clamps to 0 → no-op branch.
+        assert_eq!(readability_scrim_for(-0.5, 0.1, 0.0, 4.5), 0.0);
     }
 }

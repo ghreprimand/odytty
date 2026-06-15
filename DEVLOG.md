@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-15 -- Color: bounded readability-scrim primitive for background treatments
+
+- Added the pure-math foundation for readability-safe background treatments
+  (gradient / vignette / image-behind): given a treatment luminance, the theme
+  background luminance, an opacity, and the active contrast floor, it returns the
+  exact scrim factor that keeps the *effective* background no brighter than the
+  theme background. Safe-by-construction — a background treatment cannot push the
+  composited background past the floor the foreground was validated against.
+- Polarity is the ratified dark-theme cap (`effective_bg <= theme_bg`); the
+  light-theme dual (lift) is a recorded follow-up for when light treatments are
+  wired. Opaque treatments and a `min_contrast <= 1.0` passthrough early-out to a
+  zero scrim, so the default render path is untouched.
+- A named invariant test sweeps 800 combinations (10 treatment luminances x 10
+  background luminances x 8 opacities, including the adversarial bright-treatment
+  / dark-theme / high-opacity corner) and asserts the effective background never
+  exceeds the theme background. Core math only; no pixels change yet.
+
 ## 2026-06-15 -- Themes: add 5 original Odyssey-named themes (61 -> 66)
 
 - Five new built-in themes, all original Odyssey identity: `odyssey-twilight`
