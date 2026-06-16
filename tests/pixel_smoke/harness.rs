@@ -158,7 +158,14 @@ pub(crate) fn composite_with_padding(
         0.0,
         origin,
     );
-    grid::append_cursor_vertices_with_origin(&mut verts, snapshot, atlas, cursor_style, origin);
+    grid::append_cursor_vertices_with_origin(
+        &mut verts,
+        snapshot,
+        atlas,
+        cursor_style,
+        origin,
+        grid::CursorRenderParams::default(),
+    );
 
     for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
         composite_quad(&mut frame, atlas, quad);

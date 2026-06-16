@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- Native foundation: cursor render-params aggregator (Wave-15b)
+
+- Second half of the chokepoint dissolver, on the cursor-vertex path (distinct
+  from the overlay-quad registry). The cursor's position and opacity were a
+  shared seam two upcoming Phase-4 features both needed to touch (ID1 cursor-
+  easing wants alpha; VE4 cursor-slide wants a sub-cell offset), which would
+  serialize their builds. This generalizes both into one aggregated parameter.
+  - **`CursorRenderParams { offset: [f32;2], alpha: f32 }`** (in `src/grid.rs`,
+    where `push_cursor` can name it). `Default` is the identity — `offset
+    [0.0,0.0]`, `alpha 1.0` (fully opaque; polarity documented, never 0.0) — so
+    today's render is byte-identical. `push_cursor` adds the offset to the cell
+    origin and multiplies the cursor-quad color alpha, for all three styles
+    (block, underline, bar). The under-cursor glyph color is derived from the
+    OPAQUE block color BEFORE the alpha fade, so a fading cursor never drags its
+    glyph through a transient contrast violation.
+  - **`cursor_render_params()` + `animation_deadline()` aggregators**
+    (`overlay_registry.rs`) fold per-feature contributor stubs:
+    `cursor_blink_alpha()`/`cursor_blink_fade_deadline()` (ID1, new
+    `app/cursor.rs`) and `cursor_motion_offset()`/`cursor_motion_deadline()`
+    (VE4, `cursor_frame.rs`). Every stub returns the identity / `None`, so the
+    aggregators return `Default` and an at-rest terminal arms zero extra wakeups.
+  - Threaded through `update_cursor_and_overlays` (gpu.rs); both the normal-paint
+    CursorOnly arm (`app/mod.rs`) and the blink-frame path (`cursor_frame.rs`)
+    pass the SAME `cursor_render_params()` source, hoisted before the gpu borrow.
+- Off-path byte-identical by construction: `cursor_render_params_default_is_byte_identical`
+  (all 3 styles), inverse-trap `cursor_render_params_offset_and_alpha_are_live`
+  (guards against a silent param-drop), `cursor_render_params_is_identity_by_default`,
+  `animation_deadline_is_none_at_rest`. lib 1443/0 (+4); pixel-smoke 42/0.
+- Unblocks ID1 + VE4 on disjoint files in Wave 16 (each fills its own stub body).
+
 ## 2026-06-16 -- Theme library 78 -> 84 built-in themes
 
 - Six new contrast-validated Odyssey-identity themes fill measured hue gaps in

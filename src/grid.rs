@@ -654,6 +654,36 @@ fn has_color_glyph_run(runs: &[ColorGlyphRun], row: usize, column: usize) -> boo
     runs.iter().any(|run| run.covers(row, column))
 }
 
+/// Visual-only animation parameters applied to the cursor quad (Wave-15b
+/// foundation). Each field is owned by exactly one Phase-4 cursor feature; the
+/// [`Default`] is the identity, so today's render is byte-identical.
+///
+/// - `offset` — sub-cell pixel shift added to the cursor's cell origin
+///   (VE4-slide). Default `[0.0, 0.0]` ⇒ unchanged `x0`/`y0`.
+/// - `alpha` — multiplier on the cursor quad's color alpha (ID1-easing).
+///   Default `1.0` ⇒ unchanged opacity. Polarity: `1.0` = fully opaque (today),
+///   `0.0` = invisible — never default to `0.0`.
+///
+/// The type lives here (not in the native overlay registry) because
+/// [`push_cursor`] — a `crate::grid` function — must name it to apply the
+/// fields, and a `pub(in crate::native)` type is not visible from `crate::grid`.
+/// The native layer re-exports it; this is the contained grid-level change the
+/// foundation scope anticipated for alpha application.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CursorRenderParams {
+    pub offset: [f32; 2],
+    pub alpha: f32,
+}
+
+impl Default for CursorRenderParams {
+    fn default() -> Self {
+        Self {
+            offset: [0.0, 0.0],
+            alpha: 1.0,
+        }
+    }
+}
+
 /// Append only cursor geometry for `snapshot` and `cursor_style`.
 ///
 /// The cursor emits at most two quads (block over a printable glyph) or one quad
@@ -675,6 +705,7 @@ pub fn append_cursor_vertices(
         cell_h,
         cursor_style,
         [0.0, 0.0],
+        CursorRenderParams::default(),
     );
 }
 
@@ -684,10 +715,20 @@ pub fn append_cursor_vertices_with_origin(
     atlas: &GlyphAtlas,
     cursor_style: CursorStyle,
     origin: [f32; 2],
+    params: CursorRenderParams,
 ) {
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
-    push_cursor(out, snapshot, atlas, cell_w, cell_h, cursor_style, origin);
+    push_cursor(
+        out,
+        snapshot,
+        atlas,
+        cell_w,
+        cell_h,
+        cursor_style,
+        origin,
+        params,
+    );
 }
 
 /// Push a glyph quad sized and positioned from bearing-aware atlas bounds.
@@ -770,6 +811,10 @@ pub fn cursor_bar_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32) -> [f32; 4] {
 /// the blink "off" phase) emits nothing. The position is clamped to the grid so
 /// a stale snapshot can never index out of bounds. Reflects only the live
 /// snapshot cursor — no scrollback/viewport offset is applied here.
+// Wave-15b adds `params` as the 8th argument; the geometry inputs (dimensions,
+// style, origin) are already discrete and bundling them would obscure the
+// call sites more than it would help. Matches `push_underline_decoration`.
+#[allow(clippy::too_many_arguments)]
 fn push_cursor(
     out: &mut Vec<Vertex>,
     snapshot: &Snapshot,
@@ -778,6 +823,7 @@ fn push_cursor(
     cell_h: f32,
     style: CursorStyle,
     origin: [f32; 2],
+    params: CursorRenderParams,
 ) {
     if !snapshot.cursor_visible {
         return;
@@ -804,17 +850,24 @@ fn push_cursor(
         std::mem::swap(&mut fg, &mut bg);
     }
 
-    let x0 = origin[0] + col as f32 * cell_w;
-    let y0 = origin[1] + row as f32 * cell_h;
+    // VE4-slide: additive sub-cell shift. Default `[0.0, 0.0]` ⇒ identity.
+    let x0 = origin[0] + col as f32 * cell_w + params.offset[0];
+    let y0 = origin[1] + row as f32 * cell_h + params.offset[1];
 
     match style {
         CursorStyle::Block => {
-            let block_color = rgb_linear(snapshot.colors.cursor);
+            let mut block_color = rgb_linear(snapshot.colors.cursor);
             // The under-cursor glyph is drawn in the cell's background color over
             // the cursor block; apply the RV1 floor so it stays legible against
             // the block (the relevant pair here is glyph-vs-block, since `fg` is
             // not drawn in this path). Passthrough at the default floor of 1.0.
+            //
+            // R6 ordering: derive the glyph color from the OPAQUE block color
+            // BEFORE the ID1-easing alpha fade, so a fading cursor never drags
+            // the under-glyph through a transient contrast violation. The glyph
+            // itself is NEVER alpha-faded — only the block is.
             let glyph_color = text::enforce_contrast_rgba(bg, block_color);
+            block_color[3] *= params.alpha;
             push_quad(
                 out,
                 [x0, y0, x0 + cell_w, y0 + cell_h],
@@ -831,20 +884,24 @@ fn push_cursor(
             }
         }
         CursorStyle::Underline => {
+            let mut color = rgb_linear(snapshot.colors.cursor);
+            color[3] *= params.alpha;
             push_solid_quad(
                 out,
                 SolidQuad {
                     rect: cursor_underline_rect(x0, y0, cell_w, cell_h),
-                    color: rgb_linear(snapshot.colors.cursor),
+                    color,
                 },
             );
         }
         CursorStyle::Bar => {
+            let mut color = rgb_linear(snapshot.colors.cursor);
+            color[3] *= params.alpha;
             push_solid_quad(
                 out,
                 SolidQuad {
                     rect: cursor_bar_rect(x0, y0, cell_w, cell_h),
-                    color: rgb_linear(snapshot.colors.cursor),
+                    color,
                 },
             );
         }

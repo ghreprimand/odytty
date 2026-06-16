@@ -208,6 +208,7 @@ fn padded_cell_vertices_start_at_window_padding_origin() {
         &atlas,
         CursorStyle::Block,
         origin,
+        crate::grid::CursorRenderParams::default(),
     );
 
     assert_eq!(vertices[0].pos, origin);

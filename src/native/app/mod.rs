@@ -9,7 +9,7 @@ use crate::core::{
     MouseEventKind, MouseModifiers, MouseProtocol, RgbColor, Snapshot, Terminal,
     encode_mouse_event_pixel,
 };
-use crate::grid::SolidQuad;
+use crate::grid::{CursorRenderParams, SolidQuad};
 use crate::input::{self, Key, KeyEventType, KeyModes, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{
@@ -70,6 +70,7 @@ use super::viewport::{
 };
 
 mod copy_mode_ui;
+mod cursor;
 mod cursor_frame;
 mod gutter_ui;
 mod hints_ui;
@@ -732,6 +733,10 @@ impl App {
             self.cursor_blink.deadline(),
             self.settings_reloader.deadline(),
             self.synchronized_output_hold.deadline(),
+            // Wave-15b: aggregated cursor-animation wake source. `None` at rest
+            // (both contributor stubs return `None`), so the at-rest min is
+            // unchanged and no spurious wakeup is scheduled.
+            self.animation_deadline(),
         ]
         .into_iter()
         .flatten()
@@ -1609,6 +1614,10 @@ impl ApplicationHandler<UserEvent> for App {
                         } else {
                             self.settings.effective_focus_dim()
                         };
+                        // R3 call-site parity: hoisted before the `gpu` mutable
+                        // borrow so the CursorOnly arm passes the SAME params
+                        // source as the blink-frame path in `cursor_frame.rs`.
+                        let cursor_params = self.cursor_render_params();
                         if let Some(gpu) = self.gpu.as_mut() {
                             match update {
                                 GeometryUpdate::Full => {
@@ -1633,6 +1642,7 @@ impl ApplicationHandler<UserEvent> for App {
                                         &snapshot,
                                         cursor_style,
                                         &overlays,
+                                        cursor_params,
                                     );
                                 }
                                 GeometryUpdate::Retained => {}

@@ -10,7 +10,7 @@ use crate::atlas;
 use crate::core::{CursorStyle, Snapshot};
 use crate::emoji::{ColorGlyphAtlas, EmojiRasterizer};
 use crate::graphics::{StoredImageId, VisiblePlacement};
-use crate::grid::{self, ColorGlyphRun, ColorGlyphVertex, SolidQuad, Vertex};
+use crate::grid::{self, ColorGlyphRun, ColorGlyphVertex, CursorRenderParams, SolidQuad, Vertex};
 use crate::text::{self, FontStyle, GlyphAtlas, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};
 
@@ -996,6 +996,7 @@ impl GpuState {
             &atlas,
             CursorStyle::Block,
             origin,
+            CursorRenderParams::default(),
         );
         let vertex_count = vertices.len() as u32;
         let background_vertex_count = background_vertex_count(initial_snapshot);
@@ -1455,6 +1456,7 @@ impl GpuState {
             &self.atlas,
             cursor_style,
             origin,
+            CursorRenderParams::default(),
         );
         self.vertices.reserve(overlays.len() * grid::VERTS_PER_QUAD);
         for &overlay in overlays {
@@ -1510,6 +1512,7 @@ impl GpuState {
         snapshot: &Snapshot,
         cursor_style: CursorStyle,
         overlays: &[SolidQuad],
+        params: CursorRenderParams,
     ) {
         self.cursor_vertices.clear();
         let origin = self.content_origin();
@@ -1519,6 +1522,7 @@ impl GpuState {
             &self.atlas,
             cursor_style,
             origin,
+            params,
         );
         self.cursor_vertices
             .reserve(overlays.len() * grid::VERTS_PER_QUAD);

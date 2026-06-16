@@ -256,6 +256,44 @@ fn contributor_change_forces_full_rebuild() {
     );
 }
 
+/// Wave-15b R1/R2: the cursor render-params aggregator returns the identity on
+/// the default path — `offset == [0.0, 0.0]` (no slide) and `alpha == 1.0`
+/// (fully opaque, NOT `0.0` which would make the cursor invisible). This is the
+/// byte-identity gate: a default `CursorRenderParams` threads through
+/// `push_cursor` without changing a single vertex.
+#[test]
+fn cursor_render_params_is_identity_by_default() {
+    let Some(app) = build_app(Settings::default()) else {
+        return;
+    };
+    let params = app.cursor_render_params();
+    assert_eq!(
+        params,
+        crate::grid::CursorRenderParams::default(),
+        "the aggregator must return the identity when both contributors are inert"
+    );
+    assert_eq!(params.offset, [0.0, 0.0], "no slide on the default path");
+    assert_eq!(
+        params.alpha, 1.0,
+        "cursor must be fully opaque (1.0, not 0.0) on the default path"
+    );
+}
+
+/// Wave-15b R4: with no cursor animation active, the aggregated animation
+/// deadline is `None`, so an idle terminal schedules zero extra wakeups — the
+/// `update_control_flow_deadline` collector's min is unperturbed.
+#[test]
+fn animation_deadline_is_none_at_rest() {
+    let Some(app) = build_app(Settings::default()) else {
+        return;
+    };
+    assert_eq!(
+        app.animation_deadline(),
+        None,
+        "no animation source may leak a Some at rest (bounded-wake contract)"
+    );
+}
+
 /// Trap #4 / Trap #5: with no feature active the modal gate is dead — the active
 /// modal is `None` (keys fall through to the BindableAction match) and the
 /// pointer guard returns `false` (mouse input/wheel are unguarded).

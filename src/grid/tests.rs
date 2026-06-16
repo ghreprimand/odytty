@@ -925,6 +925,95 @@ fn bar_cursor_emits_single_left_bar() {
 }
 
 #[test]
+fn cursor_render_params_default_is_byte_identical() {
+    let Some(atlas) = atlas() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // Wave-15b R1: a default `CursorRenderParams` threaded through the
+    // with-origin/with-params path produces vertices byte-identical to the
+    // legacy origin-only path, for every cursor style.
+    let term = Terminal::new(3, 2);
+    let snapshot = term.snapshot();
+    for style in [CursorStyle::Block, CursorStyle::Underline, CursorStyle::Bar] {
+        let mut legacy = Vec::new();
+        append_cursor_vertices(&mut legacy, &snapshot, &atlas, style);
+        let mut threaded = Vec::new();
+        append_cursor_vertices_with_origin(
+            &mut threaded,
+            &snapshot,
+            &atlas,
+            style,
+            [0.0, 0.0],
+            CursorRenderParams::default(),
+        );
+        assert_eq!(legacy, threaded, "style {style:?} must be byte-identical");
+    }
+}
+
+#[test]
+fn cursor_render_params_offset_and_alpha_are_live() {
+    let Some(atlas) = atlas() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // Wave-15b R1 (inverse): the threading must actually apply — a guard
+    // against a future edit silently dropping `params` (which would leave the
+    // default-identity test green while the feature is dead). A blank cell emits
+    // exactly one block quad, so vertex 0 is the cursor block.
+    let term = Terminal::new(3, 2);
+    let snapshot = term.snapshot();
+
+    let mut base = Vec::new();
+    append_cursor_vertices_with_origin(
+        &mut base,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        [0.0, 0.0],
+        CursorRenderParams::default(),
+    );
+    assert!(
+        (base[0].color[3] - 1.0).abs() < 1e-6,
+        "default alpha is opaque"
+    );
+
+    // alpha=0.5 halves the block color alpha (glyph contrast derived first).
+    let mut faded = Vec::new();
+    append_cursor_vertices_with_origin(
+        &mut faded,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        [0.0, 0.0],
+        CursorRenderParams {
+            offset: [0.0, 0.0],
+            alpha: 0.5,
+        },
+    );
+    assert!(
+        (faded[0].color[3] - 0.5).abs() < 1e-6,
+        "alpha must multiply the cursor block color alpha"
+    );
+
+    // offset shifts the block quad origin by exactly [dx, dy].
+    let mut shifted = Vec::new();
+    append_cursor_vertices_with_origin(
+        &mut shifted,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        [0.0, 0.0],
+        CursorRenderParams {
+            offset: [5.0, 7.0],
+            alpha: 1.0,
+        },
+    );
+    assert!((shifted[0].pos[0] - (base[0].pos[0] + 5.0)).abs() < 1e-6);
+    assert!((shifted[0].pos[1] - (base[0].pos[1] + 7.0)).abs() < 1e-6);
+}
+
+#[test]
 fn hidden_cursor_emits_nothing_for_any_style() {
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");

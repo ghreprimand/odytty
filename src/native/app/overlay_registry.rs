@@ -236,4 +236,42 @@ impl App {
     pub(in crate::native) fn modal_captures_pointer(&self) -> bool {
         matches!(self.active_modal(), ActiveModal::CopyMode)
     }
+
+    // --- cursor render-params aggregator (Wave-15b foundation) ---------------
+
+    /// Fold the per-feature cursor render parameters into one [`CursorRenderParams`].
+    /// Each field is filled by exactly one Phase-4 feature's contributor stub —
+    /// `cursor_motion_offset()` (VE4-slide, `cursor_frame.rs`) and
+    /// `cursor_blink_alpha()` (ID1-easing, `cursor.rs`). Both stubs return the
+    /// identity today (`[0.0, 0.0]` / `1.0`), so this returns
+    /// `CursorRenderParams::default()` and the cursor renders byte-identically.
+    ///
+    /// This aggregator dissolves the `push_cursor` collision: ID1 and VE4 each
+    /// own one field, so neither edits the other's file in Wave 16.
+    pub(in crate::native) fn cursor_render_params(&self) -> CursorRenderParams {
+        CursorRenderParams {
+            offset: self.cursor_motion_offset(),
+            alpha: self.cursor_blink_alpha(),
+        }
+    }
+
+    /// Fold every cursor-animation wake source into the soonest deadline, or
+    /// `None` when nothing is animating. Mirrors the render-params aggregator:
+    /// `cursor_blink_fade_deadline()` (ID1-easing) and `cursor_motion_deadline()`
+    /// (VE4-slide) each return `None` today, so the min is `None` and the
+    /// control-flow collector schedules exactly as before — zero extra wakes on
+    /// an at-rest terminal.
+    ///
+    /// This aggregator dissolves the `update_control_flow_deadline` collision:
+    /// the collector folds in one stable `self.animation_deadline()` entry, and
+    /// each feature adds its wake source behind its own stub in its own file.
+    pub(in crate::native) fn animation_deadline(&self) -> Option<Instant> {
+        [
+            self.cursor_blink_fade_deadline(),
+            self.cursor_motion_deadline(),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
+    }
 }
