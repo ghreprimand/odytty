@@ -1459,6 +1459,15 @@ impl GpuState {
             treatment,
         );
         self.cell_vertex_count = self.vertices.len() as u32;
+        // D-GLOW-3 draw order: cursor-layer overlays (glow/trail) are appended
+        // BEFORE the cursor block so they composite behind it. Both live in the
+        // single `[cell_vertex_count..vertex_count]` draw segment, so order
+        // within the buffer is the stacking order; the count tracking is
+        // unaffected (`cell_vertex_count` is fixed above, `vertex_count` below).
+        self.vertices.reserve(overlays.len() * grid::VERTS_PER_QUAD);
+        for &overlay in overlays {
+            grid::push_solid_quad(&mut self.vertices, overlay);
+        }
         grid::append_cursor_vertices_with_origin(
             &mut self.vertices,
             snapshot,
@@ -1467,10 +1476,6 @@ impl GpuState {
             origin,
             CursorRenderParams::default(),
         );
-        self.vertices.reserve(overlays.len() * grid::VERTS_PER_QUAD);
-        for &overlay in overlays {
-            grid::push_solid_quad(&mut self.vertices, overlay);
-        }
         self.vertex_count = self.vertices.len() as u32;
         self.background_vertex_count = background_vertex_count(snapshot).min(self.vertex_count);
         let needed = vertex_bytes_len(&self.vertices);
@@ -1525,6 +1530,15 @@ impl GpuState {
     ) {
         self.cursor_vertices.clear();
         let origin = self.content_origin();
+        // D-GLOW-3 draw order: cursor-layer overlays (glow/trail) precede the
+        // cursor block in `cursor_vertices` so they composite behind it. This
+        // mirrors the Full-rebuild path so the CursorOnly update produces an
+        // identical stacking order; the count tracking is order-independent.
+        self.cursor_vertices
+            .reserve(overlays.len() * grid::VERTS_PER_QUAD);
+        for &overlay in overlays {
+            grid::push_solid_quad(&mut self.cursor_vertices, overlay);
+        }
         grid::append_cursor_vertices_with_origin(
             &mut self.cursor_vertices,
             snapshot,
@@ -1533,11 +1547,6 @@ impl GpuState {
             origin,
             params,
         );
-        self.cursor_vertices
-            .reserve(overlays.len() * grid::VERTS_PER_QUAD);
-        for &overlay in overlays {
-            grid::push_solid_quad(&mut self.cursor_vertices, overlay);
-        }
 
         let cell_vertices = self.cell_vertex_count as usize;
         let needed_vertices = cell_vertices + self.cursor_vertices.len();

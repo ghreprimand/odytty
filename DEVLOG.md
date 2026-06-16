@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- ID1: soft cursor glow (off by default), drawn behind the cursor
+
+- New `cursor_glow` setting (off by default; aliases `cursorglow` / `cursorhalo`
+  / `cursorbloom`): when on, the cursor gets a soft halo of three concentric
+  semi-transparent rings (extend 8/4/1 px, alpha 0.05/0.09/0.13) in the theme
+  foreground color. While off no glow quads are emitted, so the default render
+  path is byte-identical to before — proven by the unchanged pixel-smoke parity
+  suite and the registry's off-path identity test.
+- The glow is routed through the existing cursor-layer overlay slot
+  (`paint_cursor_glow_quads`), so it uses the standard alpha-blend pipeline — no
+  new render pipeline (true additive overbright is a deferred v2). The halo
+  alpha is capped at 0.13, which keeps adjacent-cell text contrast within the
+  RV1 floor's safety threshold; no extra floor guard is needed at v1.
+- Draw order fix: the GPU cursor/overlay emit (`update_from_snapshot_with_overlays`
+  and the `CursorOnly` `update_cursor_and_overlays`) now appends cursor-layer
+  overlays BEFORE the cursor block, so the glow composites behind the cursor
+  rather than on top of it. A pixel-smoke test composites cells → overlays →
+  cursor and asserts the cursor cell stays the cursor color while the halo shows
+  just outside it. This also positions VE4's cursor trail behind the cursor.
+- The glow rides the existing render-cache reclassification: the cache fragment
+  is `Inert` while off (a frame-to-frame constant) and a constant `CursorGlow`
+  while on, so toggling the setting forces a rebuild; cursor moves and blink
+  toggles already reclassify through the terminal-revision and the cursor
+  visibility signature, and the quads are repainted from the live cursor each
+  frame, so no per-position signature field is needed.
+- Themed selection/search role colors (ID1 Part A) were already live behind the
+  default-on `themed_ui_roles` knob — this packet completes ID1 with Part B.
+- Verified: fmt clean, lib 1543/0/7 (+7: 4 glow painter/signature unit tests, 3
+  cursor-setting round-trip tests), native pixel-smoke 47/0 (+2 draw-order /
+  off-path tests), clippy 38 baseline (zero new). No parser/core change ⇒ no
+  fuzz. The cursor-settings round-trip tests live in a new
+  `settings/tests/cursor.rs` to keep `legacy.rs` under the source-size cap.
+
+---
+
 ## 2026-06-16 -- SH-CLICK: click-to-position the shell cursor on the live prompt
 
 - With the new `sh_click` setting on (off by default), a plain left click on the

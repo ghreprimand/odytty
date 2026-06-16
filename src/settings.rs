@@ -485,6 +485,11 @@ pub struct Settings {
     /// by default; the off path holds alpha at `1.0` and hard-hides on the blink
     /// off-phase, byte-identical to before. Purely presentational.
     pub cursor_easing: bool,
+    /// Whether the cursor draws a soft concentric halo behind the block (ID1).
+    /// Off by default; the off path emits no glow quads, byte-identical to
+    /// before. Purely presentational; never affects cell semantics or the
+    /// logical cursor position.
+    pub cursor_glow: bool,
     /// Whether the cursor glides between adjacent positions instead of
     /// teleporting (VE4). Off by default; the off path sits at the exact cell
     /// origin (zero offset), byte-identical to before. Discontinuities always
@@ -604,6 +609,7 @@ impl Default for Settings {
             cursor_style: CursorStyle::Block,
             cursor_blink: CursorBlink::Auto,
             cursor_easing: DEFAULT_CURSOR_EASING,
+            cursor_glow: DEFAULT_CURSOR_GLOW,
             cursor_motion: DEFAULT_CURSOR_MOTION,
             osc52_read: false,
             synthetic_styles: true,
@@ -909,6 +915,12 @@ impl Settings {
             DEFAULT_CURSOR_EASING,
             &mut warn,
         );
+        let cursor_glow = parse_bool_setting(
+            get(CURSOR_GLOW_ENV).as_deref(),
+            CURSOR_GLOW_ENV,
+            DEFAULT_CURSOR_GLOW,
+            &mut warn,
+        );
         let cursor_motion = parse_bool_setting(
             get(CURSOR_MOTION_ENV).as_deref(),
             CURSOR_MOTION_ENV,
@@ -1018,6 +1030,7 @@ impl Settings {
             cursor_style,
             cursor_blink,
             cursor_easing,
+            cursor_glow,
             cursor_motion,
             osc52_read,
             synthetic_styles,
@@ -1092,6 +1105,7 @@ impl Settings {
             CURSOR_EASING_ENV,
             bool_display(self.cursor_easing).to_owned(),
         );
+        values.insert(CURSOR_GLOW_ENV, bool_display(self.cursor_glow).to_owned());
         values.insert(
             CURSOR_MOTION_ENV,
             bool_display(self.cursor_motion).to_owned(),

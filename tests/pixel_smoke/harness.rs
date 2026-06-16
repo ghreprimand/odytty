@@ -216,6 +216,45 @@ pub(crate) fn composite_background_treatment(
     frame
 }
 
+/// Composite a frame in the native renderer's post-D-GLOW-3 vertex order:
+/// cells (backgrounds + glyphs) → cursor-layer overlay quads (ID1 glow / VE4
+/// trail) → the cursor block. The overlays are appended BEFORE the cursor so
+/// the cursor composites on top of them (glow behind the cursor), mirroring
+/// `gpu::update_from_snapshot_with_overlays` after the reorder.
+pub(crate) fn composite_with_cursor_overlays(
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cursor_style: CursorStyle,
+    overlays: &[grid::SolidQuad],
+) -> Frame {
+    let cols = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    let cell_w = atlas.cell.width as usize;
+    let cell_h = atlas.cell.height as usize;
+    let width = cols * cell_w;
+    let height = rows * cell_h;
+
+    let mut frame = Frame {
+        width,
+        height,
+        px: vec![default_bg(); width * height],
+        cell_w,
+        cell_h,
+    };
+
+    let mut verts = Vec::new();
+    grid::build_cell_vertices_into(&mut verts, snapshot, atlas);
+    for &quad in overlays {
+        grid::push_solid_quad(&mut verts, quad);
+    }
+    grid::append_cursor_vertices(&mut verts, snapshot, atlas, cursor_style);
+
+    for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
+        composite_quad(&mut frame, atlas, quad);
+    }
+    frame
+}
+
 /// Composite one axis-aligned quad (background, glyph, or solid decoration).
 pub(crate) fn composite_quad(frame: &mut Frame, atlas: &GlyphAtlas, quad: &[Vertex]) {
     let tl = &quad[0];

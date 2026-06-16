@@ -105,6 +105,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "cursor_style",
             "cursor_blink",
             "cursor_easing",
+            "cursor_glow",
             "cursor_motion",
             "keybinds",
             "scroll_wheel_lines",

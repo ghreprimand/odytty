@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use crate::core::{
     ClipboardRequest, Color, Dimensions, LinkId, MouseButton as CoreMouseButton, MouseEncoding,
-    MouseEventKind, MouseModifiers, MouseProtocol, RgbColor, Snapshot, Terminal,
+    MouseEventKind, MouseModifiers, MouseProtocol, Position, RgbColor, Snapshot, Terminal,
     encode_mouse_event_pixel,
 };
 use crate::grid::{CursorRenderParams, SolidQuad};
@@ -1355,7 +1355,12 @@ impl ApplicationHandler<UserEvent> for App {
                         // Frame-overlay cell-paint manifest (see overlay_registry).
                         // Order = paint precedence; new slots strictly after the
                         // existing four and no-op until their feature ships.
-                        let ctx = self.overlay_ctx(scrollback_len, cell);
+                        let ctx = self.overlay_ctx(
+                            scrollback_len,
+                            cell,
+                            snapshot.cursor,
+                            snapshot.cursor_visible,
+                        );
                         self.paint_selection_cells(&mut snapshot, &ctx);
                         self.paint_search_cells(&mut snapshot, &ctx);
                         self.paint_overlay_cells(&mut snapshot, &ctx);

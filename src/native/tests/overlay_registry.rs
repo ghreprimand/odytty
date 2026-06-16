@@ -146,7 +146,12 @@ fn frame_overlay_refactor_is_pixel_identical() {
     };
     let original = content_snapshot();
     let mut painted = original.clone();
-    let ctx = app.overlay_ctx(0, cell(CELL_W, CELL_H));
+    let ctx = app.overlay_ctx(
+        0,
+        cell(CELL_W, CELL_H),
+        crate::core::Position::default(),
+        false,
+    );
 
     // Cell-paint manifest in production order.
     app.paint_selection_cells(&mut painted, &ctx);
@@ -184,7 +189,12 @@ fn inactive_contributors_are_noops() {
         return;
     };
     app.open_settings_overlay_for_test();
-    let ctx = app.overlay_ctx(0, cell(CELL_W, CELL_H));
+    let ctx = app.overlay_ctx(
+        0,
+        cell(CELL_W, CELL_H),
+        crate::core::Position::default(),
+        false,
+    );
 
     // Snapshot AFTER the existing overlay paint runs; the new slots must add
     // nothing on top of it.
@@ -214,7 +224,12 @@ fn relocated_overlay_paint_mutates_when_open() {
         return;
     };
     app.open_settings_overlay_for_test();
-    let ctx = app.overlay_ctx(0, cell(CELL_W, CELL_H));
+    let ctx = app.overlay_ctx(
+        0,
+        cell(CELL_W, CELL_H),
+        crate::core::Position::default(),
+        false,
+    );
 
     let original = content_snapshot();
     let mut painted = original.clone();
@@ -521,5 +536,134 @@ fn modal_gate_is_dead_by_default() {
     assert!(
         !app.modal_captures_pointer(),
         "the pointer guard is dead with no modal active"
+    );
+}
+
+// --- ID1 v1 soft cursor glow (Phase 4) --------------------------------------
+
+/// Off-path identity (T1 kill-shot): with `cursor_glow` off (the default) the
+/// glow painter emits zero quads even with the cursor visible, and the cache
+/// fragment is `Inert` — so the default render path is byte-identical.
+#[test]
+fn cursor_glow_off_emits_no_quads() {
+    let Some(app) = build_app(Settings::default()) else {
+        return;
+    };
+    let ctx = app.overlay_ctx(
+        0,
+        cell(CELL_W, CELL_H),
+        crate::core::Position { row: 1, column: 2 },
+        true, // visible — proves the gate is the setting, not visibility
+    );
+    let mut quads: Vec<SolidQuad> = Vec::new();
+    app.paint_cursor_glow_quads(&ctx, &mut quads);
+    assert!(quads.is_empty(), "glow must emit nothing while off");
+    assert_eq!(
+        app.cursor_glow_overlay_signature(),
+        OverlayFragment::Inert,
+        "the glow cache fragment must be Inert while off (constant key)"
+    );
+}
+
+/// Glow on + cursor visible emits exactly three concentric halo rings centered
+/// on the cursor cell, faintest (outer) first so the inner rings composite over
+/// it. Alphas are the ratified 0.05/0.09/0.13 ladder and every ring shares one
+/// RGB (the theme foreground), independent of cursor position.
+#[test]
+fn cursor_glow_on_emits_three_concentric_rings() {
+    let Some(app) = build_app(Settings {
+        cursor_glow: true,
+        ..Settings::default()
+    }) else {
+        return;
+    };
+    let cw = CELL_W as f32;
+    let ch = CELL_H as f32;
+    let (col, row) = (2usize, 1usize);
+    let ctx = app.overlay_ctx(
+        0,
+        cell(CELL_W, CELL_H),
+        crate::core::Position { row, column: col },
+        true,
+    );
+    let mut quads: Vec<SolidQuad> = Vec::new();
+    app.paint_cursor_glow_quads(&ctx, &mut quads);
+    assert_eq!(quads.len(), 3, "glow must emit exactly three rings");
+
+    // No window padding in tests (gpu absent ⇒ ZERO), so the cursor cell is at
+    // [col*cw, row*ch, +cw, +ch]; rings extend 8/4/1 px outward.
+    let x0 = col as f32 * cw;
+    let y0 = row as f32 * ch;
+    let x1 = x0 + cw;
+    let y1 = y0 + ch;
+    let expected = [(8.0f32, 0.05f32), (4.0, 0.09), (1.0, 0.13)];
+    for (q, (extend, alpha)) in quads.iter().zip(expected) {
+        assert_eq!(
+            q.rect,
+            [x0 - extend, y0 - extend, x1 + extend, y1 + extend],
+            "ring rect must be the cursor cell expanded by {extend}px"
+        );
+        assert!(
+            (q.color[3] - alpha).abs() < 1e-6,
+            "ring alpha must be {alpha}"
+        );
+    }
+    // Concentric: outer encloses mid encloses inner (strictly nested).
+    assert!(
+        quads[0].rect[0] < quads[1].rect[0] && quads[1].rect[0] < quads[2].rect[0],
+        "rings must nest outer→inner"
+    );
+    // One shared RGB across rings (the theme foreground in linear RGB).
+    let rgb = |q: &SolidQuad| [q.color[0], q.color[1], q.color[2]];
+    assert_eq!(rgb(&quads[0]), rgb(&quads[1]), "all rings share one color");
+    assert_eq!(rgb(&quads[1]), rgb(&quads[2]), "all rings share one color");
+
+    // Cache fragment is a non-Inert constant while on (T4 — toggles the cache).
+    assert_eq!(
+        app.cursor_glow_overlay_signature(),
+        OverlayFragment::CursorGlow { phase: 0 },
+        "the glow cache fragment must be CursorGlow while on"
+    );
+}
+
+/// Visibility gate: glow on but the cursor hidden (blink off-phase / DECTCEM)
+/// emits no quads, matching the cursor block which is also not drawn that frame.
+#[test]
+fn cursor_glow_hidden_cursor_emits_no_quads() {
+    let Some(app) = build_app(Settings {
+        cursor_glow: true,
+        ..Settings::default()
+    }) else {
+        return;
+    };
+    let ctx = app.overlay_ctx(
+        0,
+        cell(CELL_W, CELL_H),
+        crate::core::Position { row: 1, column: 2 },
+        false, // cursor hidden this frame
+    );
+    let mut quads: Vec<SolidQuad> = Vec::new();
+    app.paint_cursor_glow_quads(&ctx, &mut quads);
+    assert!(quads.is_empty(), "no glow while the cursor is hidden");
+}
+
+/// Cache invalidation (T4): toggling `cursor_glow` flips the composite between
+/// `Inert` and `CursorGlow`, so the content signature differs and the
+/// geometry-update gate returns `Full` — the glow appears/disappears without a
+/// stale cache.
+#[test]
+fn cursor_glow_toggle_forces_full_rebuild() {
+    let off = render_sig(inert_composite());
+    let mut on_composite = inert_composite();
+    on_composite.cursor_glow = OverlayFragment::CursorGlow { phase: 0 };
+    let on = render_sig(on_composite);
+    assert_ne!(
+        off.content, on.content,
+        "the toggle must change the content"
+    );
+    assert_eq!(
+        RenderSignature::update_from(Some(&off), &on),
+        GeometryUpdate::Full,
+        "toggling glow on must force a full rebuild"
     );
 }

@@ -17,6 +17,7 @@ use super::config::{config_key_to_env, env_to_config_key};
 use super::reload::{ConfigFileFingerprint, ConfigPollEvent};
 use super::*;
 
+mod cursor;
 mod info;
 mod keybinds;
 mod legacy;

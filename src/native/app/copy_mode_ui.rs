@@ -489,6 +489,8 @@ mod tests {
                 height: 16,
                 baseline: 0,
             },
+            crate::core::Position::default(),
+            false,
         )
     }
 

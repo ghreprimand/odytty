@@ -31,6 +31,7 @@ pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
 pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
 pub const CURSOR_EASING_ENV: &str = "ODYTTY_CURSOR_EASING";
 pub const CURSOR_MOTION_ENV: &str = "ODYTTY_CURSOR_MOTION";
+pub const CURSOR_GLOW_ENV: &str = "ODYTTY_CURSOR_GLOW";
 pub const OSC52_READ_ENV: &str = "ODYTTY_OSC52_READ";
 pub const SYNTHETIC_STYLES_ENV: &str = "ODYTTY_SYNTHETIC_STYLES";
 pub const GEOMETRIC_BOXDRAW_ENV: &str = "ODYTTY_GEOMETRIC_BOXDRAW";
@@ -83,6 +84,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CURSOR_BLINK_ENV,
     CURSOR_EASING_ENV,
     CURSOR_MOTION_ENV,
+    CURSOR_GLOW_ENV,
     OSC52_READ_ENV,
     SYNTHETIC_STYLES_ENV,
     GEOMETRIC_BOXDRAW_ENV,
@@ -211,6 +213,15 @@ pub const DEFAULT_CURSOR_EASING: bool = false;
 /// cursor position is always the destination cell, so selection/clipboard and
 /// TUI semantics are unaffected.
 pub const DEFAULT_CURSOR_MOTION: bool = false;
+
+/// Soft cursor glow (`ODYTTY_CURSOR_GLOW`, ID1): when on, three concentric
+/// semi-transparent halo quads are drawn behind the cursor block in the theme
+/// foreground color, giving the cursor a subtle bloom. Off by default — while
+/// off no glow quads are emitted and the render path is byte-identical to
+/// before. Purely presentational; never affects cell semantics or the logical
+/// cursor position. The halo alpha is capped low enough that adjacent-cell text
+/// contrast stays within the RV1 floor.
+pub const DEFAULT_CURSOR_GLOW: bool = false;
 
 /// Drag-to-extend selection (`ODYTTY_SELECTION_DRAG_EXTEND`, MOUSE-EXTEND): when
 /// on, a double-click-then-drag grows the selection by whole words, a
