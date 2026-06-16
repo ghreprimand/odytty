@@ -21,6 +21,7 @@ use super::gpu::{
     effect_params, effective_subpixel_mode, ensure_snapshot_glyphs, grow_vertex_buffer_capacity,
     text_params, theme_clear_color,
 };
+use super::key_remap_ui::KeyRemapSignature;
 use super::options::NativeOptions;
 use super::overlay::{OverlayMode, OverlayRenderSignature};
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
@@ -64,6 +65,7 @@ mod cvd_wiring;
 mod gpu_render;
 mod grid_scale;
 mod input_keys;
+mod key_remap_wiring;
 mod mouse_rect;
 mod overlay_pointer;
 mod overlay_registry;

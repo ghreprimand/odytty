@@ -157,7 +157,7 @@ fn parse_key_binding_key(raw: &str) -> Option<KeyBindingKey> {
     Some(KeyBindingKey::Named(named))
 }
 
-fn format_chord(chord: KeyChord) -> String {
+pub(super) fn format_chord(chord: KeyChord) -> String {
     let mut parts = Vec::new();
     if chord.modifiers.ctrl {
         parts.push("ctrl".to_owned());

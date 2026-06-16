@@ -611,6 +611,10 @@ impl Settings {
                 description: "Terminal-local shortcut overrides for search, settings, theme picker, copy, paste, and scrollback actions. PTY key encoding is unchanged.",
                 kind: SettingKind::List,
                 range: None,
+                // D-KBR-2: all 12 BindableAction names, in the same order as the
+                // `bindable_action_name` authority (settings/values.rs). Display
+                // only — the parser already accepts every action; this list was
+                // stale (7 of 12) before KB-REMAP surfaced the gap.
                 options: &[
                     "search",
                     "settings",
@@ -619,6 +623,11 @@ impl Settings {
                     "paste",
                     "scroll-up",
                     "scroll-down",
+                    "jump-prompt-prev",
+                    "jump-prompt-next",
+                    "copy-mode",
+                    "hints",
+                    "clear-input",
                 ],
                 reloadable: true,
                 numeric: None,

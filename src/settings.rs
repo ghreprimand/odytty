@@ -1265,6 +1265,28 @@ fn key_bindings_edit_value(bindings: &[KeyBindingOverride]) -> String {
         .join(";")
 }
 
+/// Serialize key-binding overrides to the `keybinds=` config value (KB-REMAP
+/// persistence). Public wrapper over the internal serializer so the native
+/// remap UI writes the EXACT string the parser round-trips — never a reinvented
+/// format. An empty slice yields an empty string (clears the setting).
+pub fn key_bindings_config_value(overrides: &[KeyBindingOverride]) -> String {
+    key_bindings_edit_value(overrides)
+}
+
+/// Display string for a single chord (KB-REMAP UI). Public wrapper over the
+/// internal formatter so the on-screen label and the persisted config value
+/// agree byte-for-byte (e.g. `ctrl+shift+f`).
+pub fn format_key_chord(chord: KeyChord) -> String {
+    format_chord(chord)
+}
+
+/// Canonical display name for a bindable action (KB-REMAP UI). The single
+/// authority shared with the settings-panel `keybinds` options list, so the
+/// remap menu and the config tokens never drift.
+pub fn bindable_action_display_name(action: BindableAction) -> &'static str {
+    bindable_action_name(action)
+}
+
 fn parse_symbol_font_path(raw: OsString) -> Option<PathBuf> {
     if raw.is_empty() {
         return None;

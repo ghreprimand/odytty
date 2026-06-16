@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- Keybinding remap UI: rebind any action from inside the overlay
+
+- A new in-overlay key-binding editor (`OverlayMode::KeyBindings`) lets you
+  rebind any of the 12 bindable actions without hand-editing the config. Open it
+  from the settings panel's key-bindings row; browse the action list, press a row
+  to arm chord capture, then press the desired key combination — it is captured
+  verbatim and written to the config for you (the north-star "the overlay writes
+  the config" flow). Backspace resets a row to its default, `R` resets all, and a
+  conflict (the chord is already bound) raises a confirm step before replacing.
+- The capture path is the key correctness point: the raw chord is routed through
+  `chord_from_winit` as the *first* statement in `handle_overlay_key`, before the
+  lossy overlay-input mapper that would otherwise collapse `Ctrl+Shift+K` into a
+  plain key and drop the modifiers. `is_capturing_chord()` is false whenever the
+  modal is closed or merely browsing, so normal overlay navigation is untouched
+  and the default render path stays byte-identical. An end-to-end wiring test
+  drives a modifier chord through the production key path and asserts it became
+  live-bound.
+- The in-app editor and a hand-typed `ODYTTY_KEYBINDS` entry produce byte-identical
+  overrides (the UI reuses the existing chord serializer). The settings panel's
+  key-bindings options list now covers all 12 actions (previously 7), pinned to
+  the action-name authority by a drift-guard test so a new action cannot ship
+  without its selectable token.
+- State: library tests 1505/0 (+16), pixel-smoke 45/0 byte-identical, fmt clean,
+  clippy at the 38 baseline (zero-new). New files `src/native/key_remap_ui.rs`
+  (702) and the wiring test; `overlay.rs` 1275, `app/mod.rs` 1711, all under cap.
+
+---
+
 ## 2026-06-16 -- Consolidate the legacy ambient scanline into the unified CRT model
 
 - The old `visual=ambient` / `visual=scanlines` cell-shader wash is retired into

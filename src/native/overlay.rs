@@ -2,12 +2,13 @@
 use crate::core::{Attrs, Cell, Color, Snapshot};
 use crate::input::Modifiers;
 use crate::selection::CellPoint;
-use crate::settings::Settings;
+use crate::settings::{KeyChord, Settings};
 use crate::theme::{Srgb, Theme};
 
 use unicode_width::UnicodeWidthChar;
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
+use super::key_remap_ui::{KeyRemapLine, KeyRemapOutcome, KeyRemapSignature, KeyRemapUi};
 use super::settings_panel::{SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature};
 use super::theme_builder::{
     ThemeBuilder, ThemeBuilderLine, ThemeBuilderOutcome, ThemeBuilderSaveRequest,
@@ -23,6 +24,7 @@ pub(super) struct OverlayUi {
     panel: SettingsPanel,
     theme_picker: ThemePicker,
     theme_builder: ThemeBuilder,
+    key_remap: KeyRemapUi,
 }
 
 impl Default for OverlayUi {
@@ -40,6 +42,7 @@ impl OverlayUi {
             panel: SettingsPanel::new(settings),
             theme_picker: ThemePicker::new(settings),
             theme_builder: ThemeBuilder::new(settings),
+            key_remap: KeyRemapUi::new(settings),
         }
     }
 
@@ -52,6 +55,7 @@ impl OverlayUi {
         self.panel.refresh(settings);
         self.theme_picker.refresh(settings);
         self.theme_builder.refresh(settings);
+        self.key_remap.refresh(settings);
     }
 
     pub(super) fn apply_settings(&mut self, settings: &Settings) {
@@ -95,6 +99,29 @@ impl OverlayUi {
         self.open = true;
     }
 
+    pub(super) fn open_key_bindings(&mut self, settings: &Settings) {
+        self.panel.end_slider_drag();
+        self.settings = settings.clone();
+        self.key_remap.open(settings);
+        self.mode = OverlayMode::KeyBindings;
+        self.open = true;
+    }
+
+    /// Whether the key-remap modal is armed to capture a raw chord (KB-REMAP).
+    /// The App gates its chord-capture bypass on this: `true` ONLY when the
+    /// KeyBindings mode is active AND a row/conflict is awaiting a chord, so
+    /// normal overlay navigation is never diverted (R1).
+    pub(super) fn is_capturing_chord(&self) -> bool {
+        self.mode == OverlayMode::KeyBindings && self.key_remap.is_capturing_chord()
+    }
+
+    /// Deliver a raw captured chord to the key-remap modal (KB-REMAP). Only
+    /// called by the App while [`Self::is_capturing_chord`] is `true`.
+    pub(super) fn deliver_chord(&mut self, chord: Option<KeyChord>) -> OverlayOutcome {
+        let outcome = self.key_remap.deliver_chord(chord);
+        self.apply_key_remap_outcome(outcome)
+    }
+
     pub(super) fn toggle_settings(&mut self) {
         if self.open && self.mode == OverlayMode::Settings {
             self.close();
@@ -107,6 +134,7 @@ impl OverlayUi {
         match self.mode {
             OverlayMode::ThemePicker => return self.handle_theme_picker_input(input),
             OverlayMode::ThemeBuilder => return self.handle_theme_builder_input(input),
+            OverlayMode::KeyBindings => return self.handle_key_remap_input(input),
             OverlayMode::Settings => {}
         }
 
@@ -159,7 +187,7 @@ impl OverlayUi {
                         );
                         self.apply_builder_outcome(outcome)
                     }
-                    OverlayMode::ThemePicker => OverlayOutcome::Consumed,
+                    OverlayMode::ThemePicker | OverlayMode::KeyBindings => OverlayOutcome::Consumed,
                 }
             }
             OverlayPointer::Move { cell } => {
@@ -178,14 +206,14 @@ impl OverlayUi {
                         );
                         self.apply_builder_outcome(outcome)
                     }
-                    OverlayMode::ThemePicker => OverlayOutcome::Consumed,
+                    OverlayMode::ThemePicker | OverlayMode::KeyBindings => OverlayOutcome::Consumed,
                 }
             }
             OverlayPointer::Release { .. } => {
                 match self.mode {
                     OverlayMode::Settings => self.panel.end_slider_drag(),
                     OverlayMode::ThemeBuilder => self.theme_builder.end_channel_drag(),
-                    OverlayMode::ThemePicker => {}
+                    OverlayMode::ThemePicker | OverlayMode::KeyBindings => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -193,6 +221,7 @@ impl OverlayUi {
                 match self.mode {
                     OverlayMode::Settings => self.panel.scroll_lines(lines),
                     OverlayMode::ThemeBuilder => self.theme_builder.scroll_lines(lines),
+                    OverlayMode::KeyBindings => self.key_remap.scroll_lines(lines),
                     OverlayMode::ThemePicker => {}
                 }
                 OverlayOutcome::Consumed
@@ -208,7 +237,7 @@ impl OverlayUi {
         match self.mode {
             OverlayMode::Settings => self.panel.is_dragging(),
             OverlayMode::ThemeBuilder => self.theme_builder.is_dragging(),
-            OverlayMode::ThemePicker => false,
+            OverlayMode::ThemePicker | OverlayMode::KeyBindings => false,
         }
     }
 
@@ -223,7 +252,7 @@ impl OverlayUi {
         match self.mode {
             OverlayMode::Settings => self.panel.end_slider_drag(),
             OverlayMode::ThemeBuilder => self.theme_builder.end_channel_drag(),
-            OverlayMode::ThemePicker => {}
+            OverlayMode::ThemePicker | OverlayMode::KeyBindings => {}
         }
     }
 
@@ -261,6 +290,10 @@ impl OverlayUi {
                 self.close();
             }
             OverlayMode::ThemeBuilder => {}
+            // KB-REMAP stays open after a save so the user can keep editing; the
+            // modal reports the saved count and adopts the persisted bindings as
+            // its new restore baseline.
+            OverlayMode::KeyBindings => self.key_remap.save_succeeded(changed),
         }
     }
 
@@ -269,6 +302,7 @@ impl OverlayUi {
             OverlayMode::Settings => self.panel.save_failed(message),
             OverlayMode::ThemePicker => self.theme_picker.save_failed(message),
             OverlayMode::ThemeBuilder => self.theme_builder.save_failed(message),
+            OverlayMode::KeyBindings => self.key_remap.save_failed(message),
         }
     }
 
@@ -289,6 +323,7 @@ impl OverlayUi {
             panel: self.panel.render_signature(),
             theme_picker: self.theme_picker.render_signature(),
             theme_builder: self.theme_builder.render_signature(),
+            key_remap: self.key_remap.render_signature(),
         }
     }
 
@@ -344,6 +379,31 @@ impl OverlayUi {
         }
     }
 
+    fn handle_key_remap_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        let outcome = self.key_remap.handle_input(input);
+        self.apply_key_remap_outcome(outcome)
+    }
+
+    /// Lift a [`KeyRemapOutcome`] (from the browsing keyboard path or the
+    /// chord-capture path) into an [`OverlayOutcome`] — the single mapping
+    /// shared by `handle_key_remap_input` and `deliver_chord` so the two entry
+    /// points can never diverge.
+    fn apply_key_remap_outcome(&mut self, outcome: KeyRemapOutcome) -> OverlayOutcome {
+        match outcome {
+            KeyRemapOutcome::Consumed => OverlayOutcome::Consumed,
+            KeyRemapOutcome::Preview(settings) => {
+                self.settings = settings.clone();
+                OverlayOutcome::ApplySettings(settings)
+            }
+            KeyRemapOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
+            KeyRemapOutcome::Cancel(settings) => {
+                self.settings = settings.clone();
+                self.close();
+                OverlayOutcome::ApplySettings(settings)
+            }
+        }
+    }
+
     fn settings_with_theme(&self, theme: Theme) -> Settings {
         let mut settings = self.settings.clone();
         settings.theme = theme;
@@ -357,6 +417,7 @@ pub(super) enum OverlayOutcome {
     Close,
     OpenThemePicker,
     OpenThemeBuilder,
+    OpenKeyBindings,
     ApplySettings(Settings),
     SaveSettings(Vec<crate::settings::SettingEdit>),
     SaveTheme(ThemeBuilderSaveRequest),
@@ -373,6 +434,7 @@ fn settings_outcome(outcome: SettingsPanelOutcome) -> OverlayOutcome {
         SettingsPanelOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
         SettingsPanelOutcome::OpenThemePicker => OverlayOutcome::OpenThemePicker,
         SettingsPanelOutcome::OpenThemeBuilder => OverlayOutcome::OpenThemeBuilder,
+        SettingsPanelOutcome::OpenKeyBindings => OverlayOutcome::OpenKeyBindings,
     }
 }
 
@@ -381,6 +443,7 @@ pub(super) enum OverlayMode {
     Settings,
     ThemePicker,
     ThemeBuilder,
+    KeyBindings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -446,6 +509,7 @@ pub(super) struct OverlayRenderSignature {
     pub(super) panel: SettingsPanelSignature,
     pub(super) theme_picker: ThemePickerSignature,
     pub(super) theme_builder: ThemeBuilderSignature,
+    pub(super) key_remap: KeyRemapSignature,
 }
 
 pub(super) fn overlay_input_from_winit(
@@ -524,6 +588,7 @@ pub(super) fn overlay_rect(
         OverlayMode::Settings => overlay.panel.desired_width(columns),
         OverlayMode::ThemePicker => overlay.theme_picker.desired_width(columns),
         OverlayMode::ThemeBuilder => overlay.theme_builder.desired_width(columns),
+        OverlayMode::KeyBindings => overlay.key_remap.desired_width(columns),
     }
     .max(36)
     .min(columns);
@@ -555,6 +620,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
         OverlayMode::Settings => "OdyTTY Settings",
         OverlayMode::ThemePicker => "OdyTTY Themes",
         OverlayMode::ThemeBuilder => "OdyTTY Theme Builder",
+        OverlayMode::KeyBindings => "OdyTTY Key Bindings",
     };
 
     fill_rect(
@@ -626,6 +692,12 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
+            OverlayMode::KeyBindings => self
+                .key_remap
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
         }
     }
 }
@@ -663,6 +735,16 @@ impl From<ThemeBuilderLine> for OverlayLine {
             text: line.text,
             focused: line.focused,
             swatch: line.swatch,
+        }
+    }
+}
+
+impl From<KeyRemapLine> for OverlayLine {
+    fn from(line: KeyRemapLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: None,
         }
     }
 }

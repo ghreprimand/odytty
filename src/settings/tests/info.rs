@@ -61,6 +61,37 @@ fn ux4_p3_labels_are_specific_without_renaming_config_keys() {
 }
 
 #[test]
+fn keybinds_info_options_lists_all_actions() {
+    // D-KBR-2 / R7: the `keybinds` row's options[] must enumerate every
+    // BindableAction (it was stale at 7 of 12). Pinned to the
+    // `bindable_action_display_name` authority so the list and the parser tokens
+    // can never drift, and so adding a BindableAction variant fails here until
+    // its display token is added to the row.
+    let rows = Settings::default().setting_info();
+    let keybinds = row(&rows, "keybinds");
+    let expected = [
+        BindableAction::Search,
+        BindableAction::SettingsPanel,
+        BindableAction::ThemePicker,
+        BindableAction::Copy,
+        BindableAction::Paste,
+        BindableAction::ScrollPageUp,
+        BindableAction::ScrollPageDown,
+        BindableAction::JumpPromptPrev,
+        BindableAction::JumpPromptNext,
+        BindableAction::CopyMode,
+        BindableAction::Hints,
+        BindableAction::ClearInput,
+    ];
+    let expected_names: Vec<&'static str> = expected
+        .iter()
+        .map(|action| bindable_action_display_name(*action))
+        .collect();
+    assert_eq!(keybinds.options, expected_names.as_slice());
+    assert_eq!(keybinds.options.len(), 12, "all 12 actions selectable");
+}
+
+#[test]
 fn help1_cryptic_settings_have_actionable_descriptions() {
     let rows = Settings::default().setting_info();
 

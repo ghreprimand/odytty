@@ -56,6 +56,7 @@ mod cursor;
 mod cvd_theme;
 mod gpu;
 mod image_layer;
+mod key_remap_ui;
 mod options;
 mod overlay;
 mod pty;

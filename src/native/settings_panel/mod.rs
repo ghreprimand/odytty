@@ -49,6 +49,7 @@ pub(super) enum SettingsPanelOutcome {
     Save(Vec<SettingEdit>),
     OpenThemePicker,
     OpenThemeBuilder,
+    OpenKeyBindings,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -249,6 +250,10 @@ impl SettingsPanel {
                 SettingsPanelOutcome::Consumed
             }
             SettingKind::Enum => self.cycle_selected(1),
+            // D-KBR-1: the `keybinds` row opens the KB-REMAP modal instead of
+            // dropping into a raw `chord=action;…` text buffer (the no-hand-
+            // editing north star). Mirrors the `theme` row → builder pattern.
+            SettingKind::List if entry.key == "keybinds" => SettingsPanelOutcome::OpenKeyBindings,
             SettingKind::Number | SettingKind::String | SettingKind::Path | SettingKind::List => {
                 self.editing = Some(RowEdit {
                     key: entry.key,

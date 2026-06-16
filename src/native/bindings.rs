@@ -45,10 +45,27 @@ impl KeyBindings {
         super_key: bool,
     ) -> Option<BindableAction> {
         let chord = chord_from_winit(logical, mods, super_key)?;
+        self.action_for_chord(chord)
+    }
+
+    /// Resolve the action a `KeyChord` triggers under these bindings (KB-REMAP
+    /// conflict detection). Scans newest-first so a working override shadows a
+    /// default, matching [`Self::action_for`]'s precedence exactly.
+    pub(in crate::native) fn action_for_chord(&self, chord: KeyChord) -> Option<BindableAction> {
         self.bindings
             .iter()
             .rev()
             .find_map(|(candidate, action)| (*candidate == chord).then_some(*action))
+    }
+
+    /// The effective chord currently bound to `action` (KB-REMAP row display),
+    /// or `None` if every default/override for it was removed. Scans newest-first
+    /// so the active override wins over a default of the same action.
+    pub(in crate::native) fn chord_for_action(&self, action: BindableAction) -> Option<KeyChord> {
+        self.bindings
+            .iter()
+            .rev()
+            .find_map(|(chord, candidate)| (*candidate == action).then_some(*chord))
     }
 }
 
@@ -147,7 +164,11 @@ fn named_chord(
     }
 }
 
-pub(super) fn chord_from_winit(
+// Visibility widened to `pub(in crate::native)` (D-KBR-7) so the chord-capture
+// bypass in `app/mod.rs::handle_overlay_key` can build a raw `KeyChord` from a
+// live keypress without the lossy `overlay_input_from_winit` mapper. Stays
+// internal to the native module — no new public crate API surface.
+pub(in crate::native) fn chord_from_winit(
     logical: &WinitKey,
     mods: Modifiers,
     super_key: bool,

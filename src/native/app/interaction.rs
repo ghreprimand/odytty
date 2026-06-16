@@ -37,6 +37,7 @@ impl App {
             OverlayOutcome::Close => self.overlay.close(),
             OverlayOutcome::OpenThemePicker => self.open_theme_picker_overlay(),
             OverlayOutcome::OpenThemeBuilder => self.open_theme_builder_overlay(),
+            OverlayOutcome::OpenKeyBindings => self.open_key_bindings_overlay(),
             OverlayOutcome::ApplySettings(settings) => self.apply_overlay_settings(settings),
             OverlayOutcome::SaveSettings(changes) => self.save_overlay_settings(&changes),
             OverlayOutcome::SaveTheme(request) => self.save_overlay_theme(request),

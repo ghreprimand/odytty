@@ -316,4 +316,54 @@ impl App {
             "idle"
         }
     }
+
+    /// Test seam (KB-REMAP): open the key-binding remap modal through the
+    /// production entry path (so the pointer-state reset and overlay open are
+    /// genuinely exercised), without a window/GPU.
+    #[cfg(test)]
+    pub(in crate::native) fn open_key_bindings_overlay_for_test(&mut self) {
+        self.open_key_bindings_overlay();
+    }
+
+    /// Test seam (KB-REMAP R2): drive a winit logical key through the EXACT
+    /// production overlay-key path (`handle_overlay_key`), with the given
+    /// modifiers, so a test proves the chord-capture bypass fires before the
+    /// lossy `overlay_input_from_winit` mapper. Sets `self.modifiers` to match
+    /// the chord, exactly as the real `KeyboardInput` arm does.
+    #[cfg(test)]
+    pub(in crate::native) fn drive_overlay_key_for_test(
+        &mut self,
+        logical: winit::keyboard::Key,
+        ctrl: bool,
+        shift: bool,
+    ) {
+        self.modifiers.ctrl = ctrl;
+        self.modifiers.shift = shift;
+        self.handle_overlay_key(&logical);
+    }
+
+    /// Test seam (KB-REMAP R2): whether the remap modal is armed to capture a
+    /// raw chord — the predicate the production key path gates its bypass on.
+    #[cfg(test)]
+    pub(in crate::native) fn overlay_capturing_chord_for_test(&self) -> bool {
+        self.overlay.is_capturing_chord()
+    }
+
+    /// Test seam (KB-REMAP R2): the live action a chord resolves to after the
+    /// remap apply, read from the production `KeyBindings` table the renderer and
+    /// key dispatch both use.
+    #[cfg(test)]
+    pub(in crate::native) fn live_action_for_chord_for_test(
+        &self,
+        logical: &winit::keyboard::Key,
+        ctrl: bool,
+        shift: bool,
+    ) -> Option<crate::settings::BindableAction> {
+        let mods = crate::input::Modifiers {
+            ctrl,
+            shift,
+            ..crate::input::Modifiers::default()
+        };
+        self.key_bindings.action_for(logical, mods, false)
+    }
 }

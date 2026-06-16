@@ -696,7 +696,32 @@ impl App {
         self.request_selection_redraw();
     }
 
+    fn open_key_bindings_overlay(&mut self) {
+        if self.search.is_open() {
+            self.close_search(true);
+        }
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_key_bindings(&self.settings);
+        self.request_selection_redraw();
+    }
+
     fn handle_overlay_key(&mut self, logical: &WinitKey) {
+        // KB-REMAP chord capture (R2 KILL-SHOT): when the key-remap modal is
+        // armed to capture a chord, this MUST be the first thing we do — route
+        // the raw key through `chord_from_winit` BEFORE the lossy
+        // `overlay_input_from_winit` mapper, which would otherwise collapse a
+        // chord like Ctrl+Shift+K into an `OverlayInput` (or, for Enter/Esc, an
+        // Activate/Close) and the modifiers would be lost. `is_capturing_chord`
+        // is `false` whenever the modal is closed or merely browsing, so this
+        // never disturbs normal overlay navigation (R1).
+        if self.overlay.is_capturing_chord() {
+            let chord = super::bindings::chord_from_winit(logical, self.modifiers, self.super_key);
+            let outcome = self.overlay.deliver_chord(chord);
+            self.apply_overlay_outcome(outcome);
+            self.request_selection_redraw();
+            return;
+        }
+
         let Some(input) = overlay_input_from_winit(logical, self.modifiers) else {
             self.request_selection_redraw();
             return;
