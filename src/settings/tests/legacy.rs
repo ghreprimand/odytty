@@ -101,6 +101,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "crt_scanline_intensity",
             "crt_scanline_period",
             "crt_vignette_strength",
+            "background_treatment",
             "cursor_style",
             "cursor_blink",
             "cursor_easing",
@@ -169,6 +170,10 @@ fn setting_info_covers_every_field_with_descriptions() {
     assert!(info.iter().any(
         |row| row.key == "crt_vignette_strength" && row.range.as_deref() == Some("0.0..=0.16")
     ));
+    assert!(
+        info.iter().any(|row| row.key == "background_treatment"
+            && row.options == ["off", "gradient", "vignette"])
+    );
 }
 
 #[test]

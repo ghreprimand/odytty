@@ -38,6 +38,7 @@
 mod graphics_harness;
 mod harness;
 
+mod background_treatment;
 mod crt_vignette;
 mod cvd;
 mod decorations;

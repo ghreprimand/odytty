@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- Readability-safe background treatments: gradient + vignette (off by default)
+
+- A new `background_treatment` knob (`off` default / `gradient` / `vignette`)
+  subtly darkens each cell's background by its grid position so the window
+  reads with depth — gradient darkens toward the bottom, vignette toward the
+  edges and corners. Off by default and pixel-identical to before when off.
+- Readability is safe-by-construction: the treatment modulates the per-cell
+  background *after* focus dimming and *before* the minimum-contrast floor, so
+  the floor sees the treated background and re-lifts the foreground to keep
+  text legible — per cell, no separate clamp needed. The darken is capped
+  (`MAX_BG_TREATMENT_DARKEN`) and the knob is forced off under the plain
+  renderer profile, preserving the plain/fast path.
+- The treatment lives entirely in the cell-vertex background path (a
+  `BackgroundTreatmentParams` threaded through `build_cell_vertices_*`), not in
+  a draw-over quad — so it never paints over glyphs. The render-cache fragment
+  is `Inert` while off and a quantized `Background { scrim_q, treat }` while on,
+  so a config change repaints but a static frame does not thrash. No animation
+  wake is added (the treatment is static per frame).
+- State: library tests 1485/0 (+9), pixel-smoke 45/0 (+3, harness gained a
+  background-treatment composite case), fmt clean, clippy at the 38 baseline
+  (zero-new). New files `src/native/app/background_ui.rs` (154) and
+  `tests/pixel_smoke/background_treatment.rs`; `app/mod.rs` 1686, `grid.rs` 1081.
+
+---
+
 ## 2026-06-16 -- COPYMODE: vim-key keyboard scrollback selection (off by default)
 
 - A keyboard-driven copy mode lands on the Wave-15 overlay-registry + modal

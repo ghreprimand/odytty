@@ -624,7 +624,14 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
     let combo = combo.snapshot();
     let focus = 0.3_f32;
     let build_combo = |out: &mut Vec<Vertex>| {
-        build_cell_vertices_with_focus_dim_into(out, &combo, &atlas, &[], focus);
+        build_cell_vertices_with_focus_dim_into(
+            out,
+            &combo,
+            &atlas,
+            &[],
+            focus,
+            BackgroundTreatmentParams::default(),
+        );
     };
 
     // --- Case 4 inputs (U1): an explicit SGR-58 underline color (a dark, but
@@ -1127,9 +1134,23 @@ fn focus_dim_recedes_fg_and_bg_perceptually_in_closure() {
     let snapshot = term.snapshot();
 
     let mut focused = Vec::new();
-    build_cell_vertices_with_focus_dim_into(&mut focused, &snapshot, &atlas, &[], 0.0);
+    build_cell_vertices_with_focus_dim_into(
+        &mut focused,
+        &snapshot,
+        &atlas,
+        &[],
+        0.0,
+        BackgroundTreatmentParams::default(),
+    );
     let mut unfocused = Vec::new();
-    build_cell_vertices_with_focus_dim_into(&mut unfocused, &snapshot, &atlas, &[], 0.3);
+    build_cell_vertices_with_focus_dim_into(
+        &mut unfocused,
+        &snapshot,
+        &atlas,
+        &[],
+        0.3,
+        BackgroundTreatmentParams::default(),
+    );
 
     // focus_dim = 0.0 is the off-path gate: an exact no-op.
     assert_eq!(
@@ -1233,4 +1254,92 @@ fn closure_sgr_dim_equals_naive_half_brightness() {
         "SGR-dim at DIM_PERCEPTUAL_AMOUNT must equal a ×0.5 halving: \
              {rendered:?} vs {naive_half:?}"
     );
+}
+
+// --- ID3/U5 background treatment (gradient / vignette) ----------------------
+
+/// KILL-SHOT (trap 1): the default params are inactive, and `apply_to` is an
+/// exact identity for every cell — so the grid apply block is skipped and the
+/// rendered frame is byte-identical to the pre-feature renderer.
+#[test]
+fn bg_treatment_default_is_identity() {
+    let params = BackgroundTreatmentParams::default();
+    assert!(!params.active());
+    let bg = [0.2, 0.3, 0.4, 1.0];
+    for (row, col) in [(0, 0), (3, 7), (23, 79)] {
+        assert_eq!(params.apply_to(bg, row, col, 24, 80), bg);
+    }
+}
+
+/// An explicitly inactive (zero-strength) treatment is also an identity.
+#[test]
+fn bg_treatment_zero_strength_is_identity() {
+    let params = BackgroundTreatmentParams {
+        kind: BackgroundTreatment::Vignette,
+        strength: 0.0,
+    };
+    assert!(!params.active());
+    let bg = [0.5, 0.5, 0.5, 1.0];
+    assert_eq!(params.apply_to(bg, 5, 5, 24, 80), bg);
+}
+
+/// Gradient: the top row is unchanged (falloff 0) and the bottom row is
+/// darkened the most, monotonically increasing with row; alpha is preserved.
+#[test]
+fn bg_treatment_gradient_darkens_toward_bottom() {
+    let params = BackgroundTreatmentParams {
+        kind: BackgroundTreatment::Gradient,
+        strength: 1.0,
+    };
+    let bg = [0.8, 0.8, 0.8, 1.0];
+    let rows = 10;
+    let cols = 4;
+    let top = params.apply_to(bg, 0, 0, rows, cols);
+    let mid = params.apply_to(bg, 5, 0, rows, cols);
+    let bottom = params.apply_to(bg, rows - 1, 0, rows, cols);
+    assert_eq!(top, bg, "top row falloff is 0 ⇒ unchanged");
+    assert!(mid[0] < top[0], "middle darker than top");
+    assert!(bottom[0] < mid[0], "bottom darker than middle");
+    assert_eq!(bottom[3], 1.0, "alpha preserved");
+    // The bottom never darkens past the documented cap.
+    let min_factor = 1.0 - MAX_BG_TREATMENT_DARKEN;
+    assert!(bottom[0] >= bg[0] * min_factor - 1e-6);
+}
+
+/// Vignette: the center cell is unchanged (falloff 0) and a corner is darkened;
+/// the corner is the farthest point so it carries the maximum attenuation.
+#[test]
+fn bg_treatment_vignette_darkens_toward_corners() {
+    let params = BackgroundTreatmentParams {
+        kind: BackgroundTreatment::Vignette,
+        strength: 1.0,
+    };
+    let bg = [0.6, 0.6, 0.6, 1.0];
+    let rows = 9;
+    let cols = 9;
+    let center = params.apply_to(bg, 4, 4, rows, cols);
+    let corner = params.apply_to(bg, 0, 0, rows, cols);
+    assert_eq!(center, bg, "center falloff is 0 ⇒ unchanged");
+    assert!(corner[0] < bg[0], "corner is darkened");
+    assert_eq!(corner[3], 1.0, "alpha preserved");
+    // Corner is the farthest point ⇒ maximum documented attenuation.
+    let expected = bg[0] * (1.0 - MAX_BG_TREATMENT_DARKEN);
+    assert!((corner[0] - expected).abs() < 1e-5);
+}
+
+/// Degenerate grids never panic and never divide by zero.
+#[test]
+fn bg_treatment_degenerate_grids_are_total() {
+    let g = BackgroundTreatmentParams {
+        kind: BackgroundTreatment::Gradient,
+        strength: 1.0,
+    };
+    let v = BackgroundTreatmentParams {
+        kind: BackgroundTreatment::Vignette,
+        strength: 1.0,
+    };
+    let bg = [0.3, 0.3, 0.3, 1.0];
+    // 1x1 grid: both falloffs are 0 (no extent), so identity.
+    assert_eq!(g.apply_to(bg, 0, 0, 1, 1), bg);
+    assert_eq!(v.apply_to(bg, 0, 0, 1, 1), bg);
 }

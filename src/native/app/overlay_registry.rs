@@ -199,10 +199,9 @@ impl App {
         OverlayFragment::Inert
     }
 
-    /// ID3/U5 background cache fragment — inert until the feature ships.
-    pub(super) fn background_overlay_signature(&self) -> OverlayFragment {
-        OverlayFragment::Inert
-    }
+    // Note: `background_overlay_signature()` (ID3/U5) lives in `background_ui.rs`
+    // alongside `background_treatment_params()`, so the whole treatment feature
+    // is one submodule.
 
     // --- modal-input gate ----------------------------------------------------
 

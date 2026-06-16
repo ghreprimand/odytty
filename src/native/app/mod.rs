@@ -69,6 +69,7 @@ use super::viewport::{
     scrollbar_offset_for_drag_with_padding, wheel_lines, wheel_lines_scaled, wheel_zoom_steps,
 };
 
+mod background_ui;
 mod copy_mode_ui;
 mod cursor;
 mod cursor_frame;
@@ -1393,6 +1394,11 @@ impl ApplicationHandler<UserEvent> for App {
                         } else {
                             self.settings.effective_focus_dim()
                         };
+                        // ID3/U5 background treatment: resolved once per Full
+                        // rebuild (identity when the knob is off, so the plain
+                        // path is byte-identical). grid.rs applies it per cell
+                        // before the RV1 floor.
+                        let background_treatment = self.background_treatment_params();
                         // `cursor_params` was hoisted above the signature literal
                         // (it feeds the `anim` cache key); the CursorOnly arm
                         // reuses the same value so the cached cursor matches.
@@ -1405,6 +1411,7 @@ impl ApplicationHandler<UserEvent> for App {
                                             &snapshot,
                                             cursor_style,
                                             focus_dim,
+                                            background_treatment,
                                         );
                                     } else {
                                         gpu.update_from_snapshot_with_overlays(
@@ -1412,6 +1419,7 @@ impl ApplicationHandler<UserEvent> for App {
                                             cursor_style,
                                             &overlays,
                                             focus_dim,
+                                            background_treatment,
                                         );
                                     }
                                 }

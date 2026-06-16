@@ -531,6 +531,29 @@ pub(super) fn parse_render_quality(
     }
 }
 
+pub(super) fn parse_background_treatment(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> BackgroundTreatment {
+    let Some(raw) = raw else {
+        return BackgroundTreatment::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return BackgroundTreatment::default();
+    }
+    match BackgroundTreatment::parse(trimmed) {
+        Some(treatment) => treatment,
+        None => {
+            warn(&format!(
+                "{BACKGROUND_TREATMENT_ENV}={trimmed:?} is not off|gradient|vignette; using off"
+            ));
+            BackgroundTreatment::default()
+        }
+    }
+}
+
 pub(super) fn parse_window_padding(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     let Some(raw) = raw else {
         return DEFAULT_WINDOW_PADDING_PX;

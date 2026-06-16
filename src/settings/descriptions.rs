@@ -26,6 +26,16 @@ pub const RENDER_QUALITY_DESC: &str = "Renderer profile: balanced is the default
      and the minimum-contrast floor off even when those knobs are enabled. high is \
      reserved for future higher-cost quality paths.";
 
+/// Human-readable help for the ID3/U5 background-treatment knob, shown in the
+/// in-app settings panel.
+pub const BACKGROUND_TREATMENT_DESC: &str = "Background treatment: subtly darkens the cell background by position so the \
+     window has depth. off (default) draws the background unchanged and is \
+     pixel-identical to before. gradient darkens toward the bottom; vignette \
+     darkens toward the edges and corners. The minimum-contrast floor is applied \
+     to the treated background, so text stays legible by construction. Small \
+     extra per-frame cost only while a rebuild runs; off when the renderer \
+     profile is plain.";
+
 pub const WINDOW_PADDING_DESC: &str = "Window padding: logical pixels of inset between the window edge and the \
      terminal grid. Accepts 0.0-64.0; 0.0 restores the historical edge-to-edge \
      layout exactly. Default 8.0.";

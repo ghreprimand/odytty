@@ -318,6 +318,44 @@ impl RenderQuality {
     }
 }
 
+/// ID3/U5 background-treatment selector. `Off` (the default) leaves the cell
+/// background exactly as resolved, so the plain/fast path is pixel-identical.
+/// The others apply a readability-safe per-cell luminance modulation in the
+/// grid cell-vertex path, before the RV1 minimum-contrast floor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BackgroundTreatment {
+    /// No treatment — background drawn unchanged (default).
+    #[default]
+    Off,
+    /// Vertical gradient: darkens toward the bottom rows.
+    Gradient,
+    /// Radial vignette: darkens toward the edges and corners.
+    Vignette,
+}
+
+impl BackgroundTreatment {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Gradient => "gradient",
+            Self::Vignette => "vignette",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "off" | "none" | "false" | "plain" => Some(Self::Off),
+            "gradient" | "linear" => Some(Self::Gradient),
+            "vignette" | "radial" => Some(Self::Vignette),
+            _ => None,
+        }
+    }
+
+    pub fn is_off(self) -> bool {
+        self == Self::Off
+    }
+}
+
 /// Drag-edge autoscroll speed profile (MOUSE-AUTOSCROLL-VEL).
 ///
 /// `Ramp` (default) makes the autoscroll step grow with how far the pointer is
@@ -416,6 +454,8 @@ pub struct Settings {
     pub min_contrast: f32,
     pub focus_dim: f32,
     pub render_quality: RenderQuality,
+    /// ID3/U5 background treatment (`off` default ⇒ pixel-identical plain path).
+    pub background_treatment: BackgroundTreatment,
     /// Logical pixels of inset between the window edge and terminal grid. `0.0`
     /// preserves the historical edge-to-edge geometry exactly.
     pub window_padding_px: f32,
@@ -540,6 +580,7 @@ impl Default for Settings {
             min_contrast: DEFAULT_MIN_CONTRAST,
             focus_dim: DEFAULT_FOCUS_DIM,
             render_quality: RenderQuality::default(),
+            background_treatment: BackgroundTreatment::default(),
             window_padding_px: DEFAULT_WINDOW_PADDING_PX,
             bloom: DEFAULT_BLOOM,
             bloom_threshold: default_bloom_threshold_for_theme(Theme::PLAIN),
@@ -603,6 +644,17 @@ impl Settings {
             0.0
         } else {
             self.focus_dim
+        }
+    }
+
+    /// The active background treatment (ID3/U5), forced `Off` on the plain
+    /// renderer profile so the fast path stays pixel-identical even when the
+    /// knob is set.
+    pub fn effective_background_treatment(&self) -> BackgroundTreatment {
+        if self.plain_render_quality() {
+            BackgroundTreatment::Off
+        } else {
+            self.background_treatment
         }
     }
 
@@ -801,6 +853,8 @@ impl Settings {
         let min_contrast = parse_min_contrast(get(MIN_CONTRAST_ENV).as_deref(), &mut warn);
         let focus_dim = parse_focus_dim(get(FOCUS_DIM_ENV).as_deref(), &mut warn);
         let render_quality = parse_render_quality(get(RENDER_QUALITY_ENV).as_deref(), &mut warn);
+        let background_treatment =
+            parse_background_treatment(get(BACKGROUND_TREATMENT_ENV).as_deref(), &mut warn);
         let window_padding_px = parse_window_padding(get(WINDOW_PADDING_ENV).as_deref(), &mut warn);
         let bloom = parse_bool_setting(get(BLOOM_ENV).as_deref(), BLOOM_ENV, false, &mut warn);
         let default_bloom_threshold = default_bloom_threshold_for_theme(theme);
@@ -916,6 +970,7 @@ impl Settings {
             min_contrast,
             focus_dim,
             render_quality,
+            background_treatment,
             window_padding_px,
             bloom,
             bloom_threshold,
@@ -970,6 +1025,10 @@ impl Settings {
         values.insert(MIN_CONTRAST_ENV, format_float(self.min_contrast));
         values.insert(FOCUS_DIM_ENV, format_float(self.focus_dim));
         values.insert(RENDER_QUALITY_ENV, self.render_quality.as_str().to_owned());
+        values.insert(
+            BACKGROUND_TREATMENT_ENV,
+            self.background_treatment.as_str().to_owned(),
+        );
         values.insert(WINDOW_PADDING_ENV, format_float(self.window_padding_px));
         values.insert(BLOOM_ENV, bool_display(self.bloom).to_owned());
         values.insert(BLOOM_THRESHOLD_ENV, format_float(self.bloom_threshold));

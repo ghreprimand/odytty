@@ -118,7 +118,14 @@ pub(crate) fn composite_focus_dim(
     };
 
     let mut verts = Vec::new();
-    grid::build_cell_vertices_with_focus_dim_into(&mut verts, snapshot, atlas, &[], focus_dim);
+    grid::build_cell_vertices_with_focus_dim_into(
+        &mut verts,
+        snapshot,
+        atlas,
+        &[],
+        focus_dim,
+        grid::BackgroundTreatmentParams::default(),
+    );
     grid::append_cursor_vertices(&mut verts, snapshot, atlas, cursor_style);
 
     for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
@@ -157,6 +164,7 @@ pub(crate) fn composite_with_padding(
         &[],
         0.0,
         origin,
+        grid::BackgroundTreatmentParams::default(),
     );
     grid::append_cursor_vertices_with_origin(
         &mut verts,
@@ -166,6 +174,41 @@ pub(crate) fn composite_with_padding(
         origin,
         grid::CursorRenderParams::default(),
     );
+
+    for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
+        composite_quad(&mut frame, atlas, quad);
+    }
+    frame
+}
+
+/// Composite a frame driving an ID3/U5 background treatment through the real
+/// geometry path — the same `build_cell_vertices_with_focus_dim_into` seam the
+/// native renderer uses. The default (inactive) `BackgroundTreatmentParams`
+/// reproduces the plain render byte-for-byte (the off-path gate).
+pub(crate) fn composite_background_treatment(
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cursor_style: CursorStyle,
+    treatment: grid::BackgroundTreatmentParams,
+) -> Frame {
+    let cols = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    let cell_w = atlas.cell.width as usize;
+    let cell_h = atlas.cell.height as usize;
+    let width = cols * cell_w;
+    let height = rows * cell_h;
+
+    let mut frame = Frame {
+        width,
+        height,
+        px: vec![default_bg(); width * height],
+        cell_w,
+        cell_h,
+    };
+
+    let mut verts = Vec::new();
+    grid::build_cell_vertices_with_focus_dim_into(&mut verts, snapshot, atlas, &[], 0.0, treatment);
+    grid::append_cursor_vertices(&mut verts, snapshot, atlas, cursor_style);
 
     for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
         composite_quad(&mut frame, atlas, quad);

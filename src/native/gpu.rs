@@ -988,6 +988,7 @@ impl GpuState {
             &initial_color_glyph_runs,
             0.0,
             origin,
+            grid::BackgroundTreatmentParams::default(),
         );
         let cell_vertex_count = vertices.len() as u32;
         grid::append_cursor_vertices_with_origin(
@@ -1394,8 +1395,9 @@ impl GpuState {
         snapshot: &Snapshot,
         cursor_style: CursorStyle,
         focus_dim: f32,
+        treatment: grid::BackgroundTreatmentParams,
     ) {
-        self.update_from_snapshot_with_overlays(snapshot, cursor_style, &[], focus_dim);
+        self.update_from_snapshot_with_overlays(snapshot, cursor_style, &[], focus_dim, treatment);
     }
 
     pub(super) fn cached_image_ids(&self) -> BTreeSet<StoredImageId> {
@@ -1426,6 +1428,7 @@ impl GpuState {
         cursor_style: CursorStyle,
         overlays: &[SolidQuad],
         focus_dim: f32,
+        treatment: grid::BackgroundTreatmentParams,
     ) {
         let color_glyph_runs = self
             .emoji_rasterizer
@@ -1448,6 +1451,7 @@ impl GpuState {
             &color_glyph_runs,
             focus_dim,
             origin,
+            treatment,
         );
         self.cell_vertex_count = self.vertices.len() as u32;
         grid::append_cursor_vertices_with_origin(
