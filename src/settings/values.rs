@@ -1,0 +1,799 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//! Private value parsers and display helpers extracted from `settings.rs`.
+//!
+//! Every `parse_*` function here mirrors a single config/env knob; the
+//! matching `*_display` and `format_*` helpers format values back to the
+//! human-readable form used by the overlay and config writeback.
+//!
+//! Visibility: items called only from `settings.rs` (the parent) are
+//! `pub(super)`. Items only called within this module are private. Nothing
+//! here is pub to the crate — callers outside this file reach the helpers
+//! through `settings`'s own scope (which imports this module via
+//! `use self::values::*;`).
+
+use std::ffi::OsStr;
+use std::time::Duration;
+
+use crate::atlas::SubpixelMode;
+use crate::core::CursorStyle;
+
+// Brings in all types, consts, and pub(super)/private items from settings.rs
+// (CursorBlink, BindableAction, KeyBinding* types, ScrollDragSpeed, CvdMode,
+// RenderQuality, consts::*, normalize_name, etc.).
+use super::*;
+
+// ---------------------------------------------------------------------------
+// Private helpers (only used within this module)
+// ---------------------------------------------------------------------------
+
+fn parse_cursor_style(raw: &str) -> Option<CursorStyle> {
+    match normalize_name(raw).as_str() {
+        "block" => Some(CursorStyle::Block),
+        "underline" | "under" => Some(CursorStyle::Underline),
+        "bar" | "ibeam" | "beam" | "vertical" => Some(CursorStyle::Bar),
+        _ => None,
+    }
+}
+
+fn parse_bounded_float(
+    raw: Option<&OsStr>,
+    env: &str,
+    label: &str,
+    default: f32,
+    min: f32,
+    max: f32,
+    warn: &mut impl FnMut(&str),
+) -> f32 {
+    let Some(raw) = raw else {
+        return default;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return default;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{env}={trimmed:?} is not a valid {label}; using {default}"
+            ));
+            return default;
+        }
+    };
+
+    parsed.clamp(min, max)
+}
+
+fn parse_key_binding_entry(entry: &str, warn: &mut impl FnMut(&str)) -> Option<KeyBindingOverride> {
+    let trimmed = entry.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let Some((chord_raw, action_raw)) = trimmed.split_once('=') else {
+        warn(&format!(
+            "{KEYBINDS_ENV} entry {trimmed:?} is missing '='; skipping"
+        ));
+        return None;
+    };
+    let Some(chord) = parse_key_chord(chord_raw.trim()) else {
+        warn(&format!(
+            "{KEYBINDS_ENV} entry {trimmed:?} has an invalid key chord; skipping"
+        ));
+        return None;
+    };
+    let Some(action) = BindableAction::parse(action_raw.trim()) else {
+        warn(&format!(
+            "{KEYBINDS_ENV} entry {trimmed:?} has an unknown action; skipping"
+        ));
+        return None;
+    };
+    Some(KeyBindingOverride { chord, action })
+}
+
+fn parse_key_chord(raw: &str) -> Option<KeyChord> {
+    let mut modifiers = KeyBindingModifiers::default();
+    let mut key = None;
+    for token in raw
+        .split('+')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+    {
+        match normalize_name(token).as_str() {
+            "ctrl" | "control" => modifiers.ctrl = true,
+            "shift" => modifiers.shift = true,
+            "alt" | "option" => modifiers.alt = true,
+            "super" | "meta" | "cmd" | "command" | "win" | "windows" => {
+                modifiers.super_key = true;
+            }
+            _ if key.is_none() => key = parse_key_binding_key(token),
+            _ => return None,
+        }
+    }
+    Some(KeyChord {
+        modifiers,
+        key: key?,
+    })
+}
+
+fn parse_key_binding_key(raw: &str) -> Option<KeyBindingKey> {
+    let trimmed = raw.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.len() == 1 {
+        let ch = lower.chars().next()?;
+        if ch.is_ascii_graphic() && ch != '+' && ch != '=' {
+            return Some(KeyBindingKey::Character(ch));
+        }
+    }
+
+    let named = match normalize_name(trimmed).as_str() {
+        "comma" => return Some(KeyBindingKey::Character(',')),
+        "enter" | "return" => KeyBindingNamedKey::Enter,
+        "backspace" | "bksp" => KeyBindingNamedKey::Backspace,
+        "esc" | "escape" => KeyBindingNamedKey::Escape,
+        "tab" => KeyBindingNamedKey::Tab,
+        "space" | "spacebar" => KeyBindingNamedKey::Space,
+        "pageup" | "pgup" => KeyBindingNamedKey::PageUp,
+        "pagedown" | "pgdn" => KeyBindingNamedKey::PageDown,
+        "home" => KeyBindingNamedKey::Home,
+        "end" => KeyBindingNamedKey::End,
+        "delete" | "del" => KeyBindingNamedKey::Delete,
+        "insert" | "ins" => KeyBindingNamedKey::Insert,
+        "up" | "arrowup" => KeyBindingNamedKey::ArrowUp,
+        "down" | "arrowdown" => KeyBindingNamedKey::ArrowDown,
+        "left" | "arrowleft" => KeyBindingNamedKey::ArrowLeft,
+        "right" | "arrowright" => KeyBindingNamedKey::ArrowRight,
+        f_key if f_key.starts_with('f') => {
+            let number = f_key[1..].parse::<u8>().ok()?;
+            if (1..=24).contains(&number) {
+                KeyBindingNamedKey::F(number)
+            } else {
+                return None;
+            }
+        }
+        _ => return None,
+    };
+    Some(KeyBindingKey::Named(named))
+}
+
+fn format_chord(chord: KeyChord) -> String {
+    let mut parts = Vec::new();
+    if chord.modifiers.ctrl {
+        parts.push("ctrl".to_owned());
+    }
+    if chord.modifiers.shift {
+        parts.push("shift".to_owned());
+    }
+    if chord.modifiers.alt {
+        parts.push("alt".to_owned());
+    }
+    if chord.modifiers.super_key {
+        parts.push("super".to_owned());
+    }
+    parts.push(format_key(chord.key));
+    parts.join("+")
+}
+
+fn format_key(key: KeyBindingKey) -> String {
+    match key {
+        KeyBindingKey::Character(',') => "comma".to_owned(),
+        KeyBindingKey::Character(ch) => ch.to_string(),
+        KeyBindingKey::Named(named) => match named {
+            KeyBindingNamedKey::Enter => "enter".to_owned(),
+            KeyBindingNamedKey::Backspace => "backspace".to_owned(),
+            KeyBindingNamedKey::Escape => "esc".to_owned(),
+            KeyBindingNamedKey::Tab => "tab".to_owned(),
+            KeyBindingNamedKey::Space => "space".to_owned(),
+            KeyBindingNamedKey::PageUp => "pageup".to_owned(),
+            KeyBindingNamedKey::PageDown => "pagedown".to_owned(),
+            KeyBindingNamedKey::Home => "home".to_owned(),
+            KeyBindingNamedKey::End => "end".to_owned(),
+            KeyBindingNamedKey::Delete => "delete".to_owned(),
+            KeyBindingNamedKey::Insert => "insert".to_owned(),
+            KeyBindingNamedKey::ArrowUp => "up".to_owned(),
+            KeyBindingNamedKey::ArrowDown => "down".to_owned(),
+            KeyBindingNamedKey::ArrowLeft => "left".to_owned(),
+            KeyBindingNamedKey::ArrowRight => "right".to_owned(),
+            KeyBindingNamedKey::F(number) => format!("f{number}"),
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Pub(super) helpers — called from settings.rs and/or sibling submodules
+// ---------------------------------------------------------------------------
+
+/// Parse `ODYTTY_CURSOR_STYLE`, falling back to the default block shape with one
+/// warning on an unrecognized value. Empty/unset is the silent default.
+pub(super) fn parse_cursor_style_setting(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> CursorStyle {
+    let Some(raw) = raw else {
+        return CursorStyle::Block;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return CursorStyle::Block;
+    }
+    match parse_cursor_style(trimmed) {
+        Some(style) => style,
+        None => {
+            warn(&format!(
+                "{CURSOR_STYLE_ENV}={trimmed:?} is not block|underline|bar; using block"
+            ));
+            CursorStyle::Block
+        }
+    }
+}
+
+/// Parse `ODYTTY_CURSOR_BLINK`, falling back to the default `auto` policy with
+/// one warning on an unrecognized value. Empty/unset is the silent default.
+pub(super) fn parse_cursor_blink_setting(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> CursorBlink {
+    let Some(raw) = raw else {
+        return CursorBlink::Auto;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return CursorBlink::Auto;
+    }
+    match CursorBlink::parse(trimmed) {
+        Some(policy) => policy,
+        None => {
+            warn(&format!(
+                "{CURSOR_BLINK_ENV}={trimmed:?} is not on|off|auto; using auto"
+            ));
+            CursorBlink::Auto
+        }
+    }
+}
+
+pub(super) fn parse_font_size(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_FONT_SIZE_PX;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_FONT_SIZE_PX;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{FONT_SIZE_ENV}={trimmed:?} is not a valid pixel size; using {DEFAULT_FONT_SIZE_PX}"
+            ));
+            return DEFAULT_FONT_SIZE_PX;
+        }
+    };
+
+    parsed.clamp(MIN_FONT_SIZE_PX, MAX_FONT_SIZE_PX)
+}
+
+pub(super) fn parse_text_gamma(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_TEXT_GAMMA;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_TEXT_GAMMA;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{TEXT_GAMMA_ENV}={trimmed:?} is not a valid gamma value; using {DEFAULT_TEXT_GAMMA}"
+            ));
+            return DEFAULT_TEXT_GAMMA;
+        }
+    };
+
+    parsed.clamp(MIN_TEXT_GAMMA, MAX_TEXT_GAMMA)
+}
+
+pub(super) fn parse_stem_darken(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_STEM_DARKEN;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_STEM_DARKEN;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{STEM_DARKEN_ENV}={trimmed:?} is not a valid stem-darken strength; using {DEFAULT_STEM_DARKEN}"
+            ));
+            return DEFAULT_STEM_DARKEN;
+        }
+    };
+
+    parsed.clamp(MIN_STEM_DARKEN, MAX_STEM_DARKEN)
+}
+
+pub(super) fn parse_line_height(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_LINE_HEIGHT;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_LINE_HEIGHT;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{LINE_HEIGHT_ENV}={trimmed:?} is not a valid line-height multiplier; using {DEFAULT_LINE_HEIGHT}"
+            ));
+            return DEFAULT_LINE_HEIGHT;
+        }
+    };
+
+    parsed.clamp(MIN_LINE_HEIGHT, MAX_LINE_HEIGHT)
+}
+
+pub(super) fn parse_box_thickness(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_BOX_THICKNESS;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_BOX_THICKNESS;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{BOX_THICKNESS_ENV}={trimmed:?} is not a valid box-thickness multiplier; using {DEFAULT_BOX_THICKNESS}"
+            ));
+            return DEFAULT_BOX_THICKNESS;
+        }
+    };
+
+    parsed.clamp(MIN_BOX_THICKNESS, MAX_BOX_THICKNESS)
+}
+
+pub(super) fn parse_min_contrast(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_MIN_CONTRAST;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_MIN_CONTRAST;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{MIN_CONTRAST_ENV}={trimmed:?} is not a valid contrast ratio; using {DEFAULT_MIN_CONTRAST}"
+            ));
+            return DEFAULT_MIN_CONTRAST;
+        }
+    };
+
+    parsed.clamp(MIN_MIN_CONTRAST, MAX_MIN_CONTRAST)
+}
+
+pub(super) fn parse_focus_dim(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_FOCUS_DIM;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_FOCUS_DIM;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{FOCUS_DIM_ENV}={trimmed:?} is not a valid focus-dim amount; using {DEFAULT_FOCUS_DIM}"
+            ));
+            return DEFAULT_FOCUS_DIM;
+        }
+    };
+
+    parsed.clamp(MIN_FOCUS_DIM, MAX_FOCUS_DIM)
+}
+
+/// Parse the mouse-wheel scroll multiplier (MOUSE-WHEEL-SPEED). Mirrors the other
+/// numeric parsers: an absent/blank value yields the default; a non-finite or
+/// unparseable value warns and falls back; otherwise it is clamped to
+/// `[MIN_SCROLL_WHEEL_LINES, MAX_SCROLL_WHEEL_LINES]`.
+pub(super) fn parse_scroll_wheel_lines(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_SCROLL_WHEEL_LINES;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_SCROLL_WHEEL_LINES;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{SCROLL_WHEEL_LINES_ENV}={trimmed:?} is not a valid wheel-line count; using {DEFAULT_SCROLL_WHEEL_LINES}"
+            ));
+            return DEFAULT_SCROLL_WHEEL_LINES;
+        }
+    };
+
+    parsed.clamp(MIN_SCROLL_WHEEL_LINES, MAX_SCROLL_WHEEL_LINES)
+}
+
+pub(super) fn parse_scroll_drag_speed(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> ScrollDragSpeed {
+    let Some(raw) = raw else {
+        return ScrollDragSpeed::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return ScrollDragSpeed::default();
+    }
+    match ScrollDragSpeed::parse(trimmed) {
+        Some(speed) => speed,
+        None => {
+            warn(&format!(
+                "{SCROLL_DRAG_SPEED_ENV}={trimmed:?} is not ramp|legacy; using ramp"
+            ));
+            ScrollDragSpeed::default()
+        }
+    }
+}
+
+pub(super) fn parse_cvd_mode(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> CvdMode {
+    let Some(raw) = raw else {
+        return CvdMode::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return CvdMode::default();
+    }
+    match CvdMode::parse(trimmed) {
+        Some(mode) => mode,
+        None => {
+            warn(&format!(
+                "{CVD_MODE_ENV}={trimmed:?} is not off|protan|deutan|tritan; using off"
+            ));
+            CvdMode::default()
+        }
+    }
+}
+
+pub(super) fn parse_cvd_strength(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_CVD_STRENGTH;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_CVD_STRENGTH;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{CVD_STRENGTH_ENV}={trimmed:?} is not a valid strength; using {DEFAULT_CVD_STRENGTH}"
+            ));
+            return DEFAULT_CVD_STRENGTH;
+        }
+    };
+
+    parsed.clamp(MIN_CVD_STRENGTH, MAX_CVD_STRENGTH)
+}
+
+pub(super) fn parse_render_quality(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> RenderQuality {
+    let Some(raw) = raw else {
+        return RenderQuality::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return RenderQuality::default();
+    }
+    match RenderQuality::parse(trimmed) {
+        Some(quality) => quality,
+        None => {
+            warn(&format!(
+                "{RENDER_QUALITY_ENV}={trimmed:?} is not plain|balanced|high; using balanced"
+            ));
+            RenderQuality::default()
+        }
+    }
+}
+
+pub(super) fn parse_window_padding(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_WINDOW_PADDING_PX;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_WINDOW_PADDING_PX;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{WINDOW_PADDING_ENV}={trimmed:?} is not a valid padding value; using {DEFAULT_WINDOW_PADDING_PX}"
+            ));
+            return DEFAULT_WINDOW_PADDING_PX;
+        }
+    };
+
+    parsed.clamp(MIN_WINDOW_PADDING_PX, MAX_WINDOW_PADDING_PX)
+}
+
+pub(super) fn parse_bloom_threshold(
+    raw: Option<&OsStr>,
+    default: f32,
+    warn: &mut impl FnMut(&str),
+) -> f32 {
+    let Some(raw) = raw else {
+        return default;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() || normalize_name(trimmed) == "auto" {
+        return default;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{BLOOM_THRESHOLD_ENV}={trimmed:?} is not a valid bloom threshold; using {default}"
+            ));
+            return default;
+        }
+    };
+
+    parsed.clamp(MIN_BLOOM_THRESHOLD, MAX_BLOOM_THRESHOLD)
+}
+
+pub(super) fn parse_bloom_intensity(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_BLOOM_INTENSITY;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_BLOOM_INTENSITY;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{BLOOM_INTENSITY_ENV}={trimmed:?} is not a valid bloom intensity; using {DEFAULT_BLOOM_INTENSITY}"
+            ));
+            return DEFAULT_BLOOM_INTENSITY;
+        }
+    };
+
+    parsed.clamp(MIN_BLOOM_INTENSITY, MAX_BLOOM_INTENSITY)
+}
+
+pub(super) fn parse_bloom_radius(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_BLOOM_RADIUS;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_BLOOM_RADIUS;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{BLOOM_RADIUS_ENV}={trimmed:?} is not a valid bloom radius; using {DEFAULT_BLOOM_RADIUS}"
+            ));
+            return DEFAULT_BLOOM_RADIUS;
+        }
+    };
+
+    parsed.clamp(MIN_BLOOM_RADIUS, MAX_BLOOM_RADIUS)
+}
+
+pub(super) fn parse_crt_scanline_intensity(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> f32 {
+    parse_bounded_float(
+        raw,
+        CRT_SCANLINE_INTENSITY_ENV,
+        "CRT scanline intensity",
+        DEFAULT_CRT_SCANLINE_INTENSITY,
+        MIN_CRT_SCANLINE_INTENSITY,
+        MAX_CRT_SCANLINE_INTENSITY,
+        warn,
+    )
+}
+
+pub(super) fn parse_crt_scanline_period(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    parse_bounded_float(
+        raw,
+        CRT_SCANLINE_PERIOD_ENV,
+        "CRT scanline period",
+        DEFAULT_CRT_SCANLINE_PERIOD,
+        MIN_CRT_SCANLINE_PERIOD,
+        MAX_CRT_SCANLINE_PERIOD,
+        warn,
+    )
+}
+
+pub(super) fn parse_crt_vignette_strength(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    parse_bounded_float(
+        raw,
+        CRT_VIGNETTE_STRENGTH_ENV,
+        "CRT vignette strength",
+        DEFAULT_CRT_VIGNETTE_STRENGTH,
+        MIN_CRT_VIGNETTE_STRENGTH,
+        MAX_CRT_VIGNETTE_STRENGTH,
+        warn,
+    )
+}
+
+pub(super) fn parse_subpixel(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> SubpixelMode {
+    let Some(raw) = raw else {
+        return SubpixelMode::Off;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return SubpixelMode::Off;
+    }
+
+    match normalize_name(trimmed).as_str() {
+        "off" | "none" | "false" | "0" => SubpixelMode::Off,
+        "rgb" => SubpixelMode::Rgb,
+        "bgr" => SubpixelMode::Bgr,
+        _ => {
+            warn(&format!(
+                "{SUBPIXEL_ENV}={trimmed:?} is not off|rgb|bgr; using off"
+            ));
+            SubpixelMode::Off
+        }
+    }
+}
+
+pub(super) fn parse_autoclose(raw: Option<&OsStr>) -> Option<Duration> {
+    let raw = raw?;
+    let ms: u64 = raw.to_string_lossy().trim().parse().ok()?;
+    (ms > 0).then_some(Duration::from_millis(ms))
+}
+
+pub(super) fn parse_bool_setting(
+    raw: Option<&OsStr>,
+    env: &str,
+    default: bool,
+    warn: &mut impl FnMut(&str),
+) -> bool {
+    let Some(raw) = raw else {
+        return default;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return default;
+    }
+    match normalize_name(trimmed).as_str() {
+        "1" | "true" | "yes" | "on" | "enabled" | "enable" => true,
+        "0" | "false" | "no" | "off" | "disabled" | "disable" => false,
+        _ => {
+            warn(&format!("{env}={trimmed:?} is not on|off; using {default}"));
+            default
+        }
+    }
+}
+
+pub(super) fn parse_key_bindings(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> Vec<KeyBindingOverride> {
+    let Some(raw) = raw else {
+        return Vec::new();
+    };
+    let value = raw.to_string_lossy();
+    value
+        .split([',', ';'])
+        .filter_map(|entry| parse_key_binding_entry(entry, warn))
+        .collect()
+}
+
+pub(super) fn format_float(value: f32) -> String {
+    let formatted = format!("{value:.2}");
+    formatted
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_owned()
+}
+
+pub(super) fn bool_display(value: bool) -> &'static str {
+    if value { "on" } else { "off" }
+}
+
+pub(super) fn subpixel_display(value: SubpixelMode) -> &'static str {
+    match value {
+        SubpixelMode::Off => "off",
+        SubpixelMode::Rgb => "rgb",
+        SubpixelMode::Bgr => "bgr",
+    }
+}
+
+pub(super) fn cursor_style_display(value: CursorStyle) -> &'static str {
+    match value {
+        CursorStyle::Block => "block",
+        CursorStyle::Underline => "underline",
+        CursorStyle::Bar => "bar",
+    }
+}
+
+pub(super) fn key_bindings_display(bindings: &[KeyBindingOverride]) -> String {
+    if bindings.is_empty() {
+        return "default key bindings".to_owned();
+    }
+
+    bindings
+        .iter()
+        .map(format_key_binding)
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+pub(super) fn format_key_binding(binding: &KeyBindingOverride) -> String {
+    format!(
+        "{}={}",
+        format_chord(binding.chord),
+        bindable_action_name(binding.action)
+    )
+}
+
+pub(super) fn bindable_action_name(action: BindableAction) -> &'static str {
+    match action {
+        BindableAction::Search => "search",
+        BindableAction::SettingsPanel => "settings",
+        BindableAction::ThemePicker => "theme-picker",
+        BindableAction::Copy => "copy",
+        BindableAction::Paste => "paste",
+        BindableAction::ScrollPageUp => "scroll-up",
+        BindableAction::ScrollPageDown => "scroll-down",
+        BindableAction::JumpPromptPrev => "jump-prompt-prev",
+        BindableAction::JumpPromptNext => "jump-prompt-next",
+        BindableAction::CopyMode => "copy-mode",
+        BindableAction::Hints => "hints",
+        BindableAction::ClearInput => "clear-input",
+    }
+}
