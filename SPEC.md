@@ -460,7 +460,7 @@ its first stable layer.
   shared dependency-free parse path (see [`docs/themes.md`](docs/themes.md) for
   the current roster and file format); `ODYTTY_THEME` accepts a built-in name,
   directory-relative name, or file path; OSC-4 / OSC-10/11/12 dynamic overrides
-  layer on top with correct precedence; optional ambient scanline visual effect
+  layer on top with correct precedence; optional CRT scanline visual effect (`visual=ambient`/`scanlines` are back-compat aliases for the CRT path when no explicit `crt` setting is present; explicit `crt` always wins)
 - In-window overlay framework (`src/native/overlay.rs`): a native multi-row
   panel layer rendered through the existing cell path — text fields, lists,
   toggles, keyboard-driven navigation; presentation-only, never mutates terminal

@@ -14,8 +14,8 @@ reliable enough for daily use. It has a handful of features you won't find
 combined in most terminals: live color emoji with ZWJ sequence / flag /
 skin-tone cluster support, the Kitty graphics protocol plus Sixel, the Kitty
 keyboard protocol, SGR-pixel mouse reporting (mode 1016), a fully theme-driven
-ANSI palette with semantic roles, and an optional ambient visual treatment with
-a planned expansion into readability-first enhancements and atmospheric effects
+ANSI palette with semantic roles, and an optional CRT scanline treatment (`visual=ambient` is the back-compat key) with a
+planned expansion into readability-first enhancements and atmospheric effects
 — all off by default and gated behind explicit settings.
 
 ---

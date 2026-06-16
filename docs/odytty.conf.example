@@ -8,6 +8,9 @@ font_size = 18
 font_family = DejaVu Sans Mono
 window_padding = 8
 theme = odyssey
+# Back-compat alias: "ambient" and "scanlines" enable the CRT scanline effect
+# when no explicit "crt" setting is present; "crt = on/off" always wins.
+# Requires a GPU with filterable 16-bit float support; silently no-ops otherwise.
 visual = ambient
 subpixel = off
 text_gamma = 1.4

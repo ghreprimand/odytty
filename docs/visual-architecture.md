@@ -49,8 +49,8 @@ Both shaders share the same vertex layout (`pos_px`, `uv`, `color`,
 - Glyph fragment: samples `atlas_tex.r`, applies coverage gamma
   (`pow(coverage, 1/gamma)`, passthrough at `gamma == 1.0`), outputs
   `vec4(color.rgb, color.a * corrected_coverage)`.
-- Background fragment: optionally applies the ambient scanline wash (see
-  below); outputs `vec4(color.rgb * factor, color.a)`.
+- Background fragment: outputs `vec4(color.rgb, color.a)`. (The legacy inline
+  cell-shader scanline wash is retired; see the CRT/scanline section below.)
 
 **Subpixel path** (`cell_subpixel.wgsl`, used when `SubpixelMode::Rgb` or
 `SubpixelMode::Bgr`; requires `wgpu` dual-source blending):
@@ -63,26 +63,28 @@ Both shaders share the same vertex layout (`pos_px`, `uv`, `color`,
   for `SubpixelMode::Rgb`/`Bgr`; `Off` coverage is never filtered.
 - Glyph fragment: applies gamma per channel, emits two blend sources — a
   weighted color and a per-channel weight — for hardware dual-source blending.
-- Background fragment: same scanline wash as the grayscale path.
+- Background fragment: same as the grayscale path (inline scanline wash retired; CRT post-process handles it).
 - Fallback: if the adapter lacks `DUAL_SOURCE_BLENDING`, OdyTTY falls back to
   `SubpixelMode::Off` with a stderr notice; startup never fails because of it
   (`src/native/gpu.rs`: `fn actual_subpixel`).
 
-### Ambient scanline wash
+### CRT scanline effect and the legacy ambient setting
 
-*Source: `src/theme.rs` (`VisualEffect`), `src/native/gpu.rs`
-(`effect_params`, `fn set_visual`).*
+The unified CRT post-process is the single scanline implementation. The legacy
+cell-shader scanline wash (the old `VisualEffect::Ambient` path) has been
+retired: the cell shaders no longer modulate background brightness inline.
 
-`VisualEffect::Ambient` packs `[scanline_strength, scanline_period_px]` into
-the `viewport.effect` uniform (`effect_params` in `gpu.rs`). The fragment
-shader modulates background brightness with `1 - strength * trough`, where
-`trough = 0.5 - 0.5 * cos(TAU * y / period)`. When `strength == 0.0` (the
-`VisualEffect::Off` path) the factor is exactly `1.0` — pixel-identical to no
-effect. **Glyphs are never touched by the wash** (the shader branches on
-`is_glyph`).
+`visual=ambient` and `visual=scanlines` are back-compat aliases: when either is
+set and no explicit `crt` key is present, OdyTTY enables the CRT scanline
+effect as if `crt=on` were specified. An explicit `crt` setting always wins —
+the `visual` key never overrides it. `visual=off`/`none`/`plain` keep the
+renderer plain.
 
-`VisualEffect::Off` is the default; `VisualEffect::Ambient` (also `scanlines`)
-is the only other value. Both shaders implement the wash identically.
+The CRT path requires a GPU adapter with filterable 16-bit float support; it
+silently no-ops on adapters that lack it. Unlike the old cell-shader wash
+(which only dimmed backgrounds), the CRT post-process dims the full scene
+including glyph coverage, and its scanline strength, period, vignette, and
+screen curvature are independently configurable via their own settings.
 
 ### Coverage atlas (`GlyphAtlas`)
 

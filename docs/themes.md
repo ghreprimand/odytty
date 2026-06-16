@@ -299,7 +299,7 @@ Colors are written as `#RRGGBB` or `#RGB` (the leading `#` is optional;
 | `color0` … `color15` | The 16 ANSI colors (0–7 normal, 8–15 bright). Alias: `palette0` … `palette15`. |
 | `font_family` | Optional font-family hint (forward-compat; not yet applied). |
 | `font_size` | Optional font-size hint in px (forward-compat; not yet applied). |
-| `visual` | Bundled visual-effect profile: `off`, `ambient`, or `scanlines` (forward-compat; not yet auto-applied). |
+| `visual` | Bundled visual-effect profile: `off`, `ambient`, or `scanlines`. `ambient`/`scanlines` are back-compat aliases for the CRT scanline effect (parsed and stored; not yet auto-applied at theme load time). |
 
 `appearance`, `font_family`, `font_size`, and `visual` are parsed, validated,
 and round-tripped today but are **not yet applied at runtime** — they are part

@@ -163,8 +163,10 @@ labels, and visible font-load failure reporting all ship today.
 
 - **Next — In-panel help clarity.** A clarity sweep over terse setting names and
   help text, and a fix for one inert option branch.
-- **Next — Consolidate the legacy ambient-scanline path** into the unified
-  effects model, retiring the duplicate while keeping the old config key working.
+- **Shipped — Consolidated the legacy ambient-scanline path** into the unified
+  CRT effects model. `visual=ambient`/`scanlines` are now back-compat aliases
+  that route to the CRT scanline effect when no explicit `crt` setting is
+  present; the old cell-shader scanline wash is retired.
 - **Later — First-run onboarding overlay** plus search within the settings and
   theme overlays, so features are discoverable without a separate command
   palette.
