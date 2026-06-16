@@ -356,6 +356,22 @@ impl GlyphAtlas {
     /// storage. Subpixel modes keep the same atlas dimensions and slot geometry
     /// as grayscale but store RGB stripe coverage in an RGBA8 bitmap.
     pub fn build_with_subpixel(font: &FontVec, px: f32, subpixel: SubpixelMode) -> Self {
+        Self::build_with_options(font, px, subpixel, 1.0)
+    }
+
+    /// Rasterize printable ASCII with an explicit `line_height` multiplier
+    /// (LINEHEIGHT). `1.0` is the historical cell geometry, byte-identical to
+    /// [`Self::build_with_subpixel`]; values above `1.0` add vertical leading,
+    /// split symmetrically (half above, half below) so the baseline stays
+    /// centered and glyph rasterization is unchanged — only the cell box grows
+    /// and the baseline shifts down by the top half. The added rows are
+    /// transparent gutter, so default `1.0` produces identical coverage.
+    pub fn build_with_options(
+        font: &FontVec,
+        px: f32,
+        subpixel: SubpixelMode,
+        line_height: f32,
+    ) -> Self {
         let px = px.max(1.0);
         let scale = PxScale::from(px);
         let scaled = font.as_scaled(scale);
@@ -374,6 +390,20 @@ impl GlyphAtlas {
         let baseline = ascent.round().max(0.0);
         let cell_w = advance.ceil().max(1.0) as u32;
         let cell_h = (ascent - descent).ceil().max(1.0) as u32;
+
+        // LINEHEIGHT leading: extra rows added around the natural cell. At the
+        // default `1.0` the leading is exactly 0, so `cell_h`/`baseline` are
+        // unchanged and the atlas is byte-identical. The leading is split with
+        // the larger half on top (`lead_top`) so the baseline moves down by that
+        // amount; glyphs still rasterize against the same metrics, just lower in
+        // a taller slot, which keeps every glyph's shape pixel-for-pixel.
+        let leading = (((line_height.max(1.0) - 1.0) * cell_h as f32).round() as u32).min(cell_h);
+        let lead_top = leading.div_ceil(2);
+        let cell_h = cell_h + leading;
+        // Shift the baseline down by the top leading so every glyph rasterizes
+        // lower within the taller slot. Kept as `f32` for the rasterizer Pen;
+        // the cell stores the rounded integer row.
+        let baseline = baseline + lead_top as f32;
         let cell = CellSize {
             width: cell_w,
             height: cell_h,

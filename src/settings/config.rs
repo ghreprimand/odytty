@@ -16,6 +16,7 @@ use super::{
     SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV,
     WHEEL_ZOOM_ENV, WINDOW_PADDING_ENV, normalize_name,
 };
+use super::{BOX_THICKNESS_ENV, LINE_HEIGHT_ENV};
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
     values: HashMap<&'static str, OsString>,
@@ -92,6 +93,8 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "symbolfont" | "nerdfontpath" | "symbolfontpath" => Some(SYMBOL_FONT_ENV),
         "themeduiroles" | "themedroles" | "uiroles" => Some(THEMED_UI_ROLES_ENV),
         "subpixel" => Some(SUBPIXEL_ENV),
+        "lineheight" | "lineleading" | "cellleading" => Some(LINE_HEIGHT_ENV),
+        "boxthickness" | "boxweight" | "boxstroke" => Some(BOX_THICKNESS_ENV),
         "keybinds" | "keybindings" => Some(KEYBINDS_ENV),
         "cursorstyle" => Some(CURSOR_STYLE_ENV),
         "cursorblink" => Some(CURSOR_BLINK_ENV),
@@ -143,6 +146,8 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         SYMBOL_FONT_ENV => Some("symbol_font"),
         THEMED_UI_ROLES_ENV => Some("themed_ui_roles"),
         SUBPIXEL_ENV => Some("subpixel"),
+        LINE_HEIGHT_ENV => Some("line_height"),
+        BOX_THICKNESS_ENV => Some("box_thickness"),
         KEYBINDS_ENV => Some("keybinds"),
         CURSOR_STYLE_ENV => Some("cursor_style"),
         CURSOR_BLINK_ENV => Some("cursor_blink"),

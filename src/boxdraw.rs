@@ -31,6 +31,38 @@
 //! Everything else (arcs beyond the four rounded corners, the rarer technical
 //! symbols, etc.) is left to the font glyph via the fallback path.
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
+/// Active box-drawing stroke-thickness multiplier (BOXTHICK), bit-cast `f32` in
+/// an atomic so the pure raster path stays lock-free (mirrors the stem-darken
+/// seam in [`crate::atlas`]). `1.0` (the default) is a true no-op: multiplying
+/// the DPI-derived light weight by `1.0` is exact in `f32`, so every stroke is
+/// byte-identical to the pre-feature raster. Presentation-only — the geometry
+/// is still grid-aligned, only the rule weight scales.
+static BOX_THICKNESS: AtomicU32 = AtomicU32::new(0x3f80_0000); // 1.0_f32.to_bits()
+
+/// Set the global box-drawing stroke-thickness multiplier used when rasterizing
+/// the geometric line/Powerline families.
+///
+/// Called by the settings layer at startup and on the atlas-rebuild seam with
+/// the parsed `ODYTTY_BOX_THICKNESS` value (already range-clamped). A
+/// non-finite value falls back to `1.0`. Only glyphs rasterized *after* this
+/// call observe the new weight, which on the live path is the whole atlas (it
+/// is rebuilt when the setting changes).
+pub fn set_box_thickness(multiplier: f32) {
+    let value = if multiplier.is_finite() && multiplier > 0.0 {
+        multiplier
+    } else {
+        1.0
+    };
+    BOX_THICKNESS.store(value.to_bits(), Ordering::Relaxed);
+}
+
+/// The active box-drawing thickness multiplier (`1.0` when unset).
+fn box_thickness_multiplier() -> f32 {
+    f32::from_bits(BOX_THICKNESS.load(Ordering::Relaxed))
+}
+
 /// Line weight for the light/heavy box-drawing family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Weight {
@@ -468,9 +500,19 @@ impl Canvas {
 }
 
 /// Light line thickness in pixels, derived from the cell size so it scales with
-/// DPI. At least one pixel.
+/// DPI. At least one pixel. Applies the live BOXTHICK multiplier; see
+/// [`light_thickness_with`] for the pure form.
 fn light_thickness(w: u32, h: u32) -> u32 {
-    ((w.min(h) as f32 / 8.0).round() as u32).max(1)
+    light_thickness_with(w, h, box_thickness_multiplier())
+}
+
+/// Pure light-thickness computation with an explicit BOXTHICK `multiplier`. At
+/// the default `1.0` the multiply is exact (`x * 1.0 == x`), so the result is
+/// byte-identical to the pre-feature `(min(w, h) / 8).round().max(1)` formula;
+/// other multipliers scale the DPI-derived base weight. At least one pixel.
+fn light_thickness_with(w: u32, h: u32, multiplier: f32) -> u32 {
+    let base = w.min(h) as f32 / 8.0;
+    ((base * multiplier).round() as u32).max(1)
 }
 
 /// Heavy line thickness — about twice the light weight, always strictly thicker.

@@ -421,6 +421,11 @@ fn key_bindings_default_prompt_copymode_and_hints_chords() {
         bindings.action_for(&WinitKey::Character("l".into()), ctrl_shift, false),
         Some(BindableAction::Hints)
     );
+    // IN1: Ctrl+Shift+K clears the shell input line.
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("k".into()), ctrl_shift, false),
+        Some(BindableAction::ClearInput)
+    );
 }
 
 #[test]

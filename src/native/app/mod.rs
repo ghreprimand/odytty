@@ -826,6 +826,16 @@ impl App {
                         return;
                     }
                 }
+                Some(BindableAction::ClearInput) => {
+                    // IN1: clear the current shell input line. Sends a
+                    // readline-style "move to start, kill to end" sequence
+                    // (Ctrl+A, Ctrl+K) so the whole line is cleared regardless
+                    // of cursor position. Returns the viewport to live like any
+                    // keystroke that reaches the shell, then consumes the chord.
+                    self.return_to_live();
+                    self.write_pty_bytes(&[0x01, 0x0b]);
+                    return;
+                }
                 Some(BindableAction::Search)
                 | Some(BindableAction::SettingsPanel)
                 | Some(BindableAction::ThemePicker)
@@ -1100,6 +1110,8 @@ impl App {
             text_gamma: parsed.text_gamma,
             subpixel: parsed.subpixel,
             window_padding_px: parsed.window_padding_px,
+            line_height: parsed.line_height,
+            box_thickness: parsed.box_thickness,
         }
     }
 

@@ -18,6 +18,7 @@ use super::reload::{ConfigFileFingerprint, ConfigPollEvent};
 use super::*;
 
 mod info;
+mod keybinds;
 mod legacy;
 mod mouse;
 mod sh2;

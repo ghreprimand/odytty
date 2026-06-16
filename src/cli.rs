@@ -265,5 +265,6 @@ fn action_value(action: BindableAction) -> &'static str {
         BindableAction::JumpPromptNext => "jump-prompt-next",
         BindableAction::CopyMode => "copy-mode",
         BindableAction::Hints => "hints",
+        BindableAction::ClearInput => "clear-input",
     }
 }

@@ -23,6 +23,8 @@ pub const CRT_SCANLINE_INTENSITY_ENV: &str = "ODYTTY_CRT_SCANLINE_INTENSITY";
 pub const CRT_SCANLINE_PERIOD_ENV: &str = "ODYTTY_CRT_SCANLINE_PERIOD";
 pub const CRT_VIGNETTE_STRENGTH_ENV: &str = "ODYTTY_CRT_VIGNETTE_STRENGTH";
 pub const SUBPIXEL_ENV: &str = "ODYTTY_SUBPIXEL";
+pub const LINE_HEIGHT_ENV: &str = "ODYTTY_LINE_HEIGHT";
+pub const BOX_THICKNESS_ENV: &str = "ODYTTY_BOX_THICKNESS";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
 pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
@@ -69,6 +71,8 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CRT_SCANLINE_PERIOD_ENV,
     CRT_VIGNETTE_STRENGTH_ENV,
     SUBPIXEL_ENV,
+    LINE_HEIGHT_ENV,
+    BOX_THICKNESS_ENV,
     KEYBINDS_ENV,
     CURSOR_STYLE_ENV,
     CURSOR_BLINK_ENV,
@@ -133,6 +137,29 @@ pub const MAX_FOCUS_DIM: f32 = 1.0;
 pub const DEFAULT_WINDOW_PADDING_PX: f32 = 8.0;
 pub const MIN_WINDOW_PADDING_PX: f32 = 0.0;
 pub const MAX_WINDOW_PADDING_PX: f32 = 64.0;
+
+/// Line-height multiplier (`ODYTTY_LINE_HEIGHT`, LINEHEIGHT): extra vertical
+/// leading baked into each glyph cell, expressed as a multiple of the natural
+/// font cell height. `1.0` (default) adds zero leading and is byte-identical to
+/// the pre-feature atlas: cell height, baseline and glyph coverage are all
+/// unchanged. Values above `1.0` grow the cell box and shift the baseline down
+/// by the top half of the added rows, so glyphs keep their exact shape and only
+/// gain breathing room above and below. The leading is clamped so it can never
+/// exceed one extra cell height.
+pub const DEFAULT_LINE_HEIGHT: f32 = 1.0;
+pub const MIN_LINE_HEIGHT: f32 = 1.0;
+pub const MAX_LINE_HEIGHT: f32 = 2.0;
+
+/// Box-drawing stroke-thickness multiplier (`ODYTTY_BOX_THICKNESS`, BOXTHICK):
+/// scales the geometric box-drawing / Powerline line weight relative to the
+/// DPI-derived default. `1.0` (default) reproduces the historical stroke widths
+/// byte-identically (multiplying the light weight by `1.0` is exact in `f32`);
+/// values below `1.0` draw thinner rules and above `1.0` draw heavier rules.
+/// Only affects the renderer's own geometric box-drawing path — inert when
+/// geometric box-drawing is off or when a font supplies the glyphs.
+pub const DEFAULT_BOX_THICKNESS: f32 = 1.0;
+pub const MIN_BOX_THICKNESS: f32 = 0.5;
+pub const MAX_BOX_THICKNESS: f32 = 3.0;
 
 /// Mouse-wheel scroll multiplier (`ODYTTY_SCROLL_WHEEL_LINES`, MOUSE-WHEEL-SPEED):
 /// rows of local scrollback advanced per wheel notch. The default `3.0` is

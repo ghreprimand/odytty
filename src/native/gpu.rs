@@ -691,6 +691,14 @@ pub(super) struct GpuState {
     /// Last-applied RV5 stem-darkening strength. This is baked into atlas
     /// coverage at raster time, so a live setting change rebuilds the atlas.
     stem_darken: f32,
+    /// Last-applied line-height multiplier (LINEHEIGHT). The leading is baked
+    /// into the atlas cell geometry, so a live change rebuilds the atlas. `1.0`
+    /// is the byte-identical historical cell.
+    line_height: f32,
+    /// Last-applied box-drawing thickness multiplier (BOXTHICK). The stroke
+    /// weight is baked into geometric box-drawing slots at raster time, so a
+    /// live change rebuilds the atlas. `1.0` reproduces the historical weights.
+    box_thickness: f32,
     /// Last-applied value of the process-wide synthetic-styles kill switch
     /// ([`crate::settings::synthetic_styles_enabled`]). Retained so
     /// [`Self::apply_text_options`] can detect a live toggle and rebuild the
@@ -811,8 +819,15 @@ impl GpuState {
         let window_padding = WindowPadding::from_logical(options.window_padding_px, scale);
         let origin = [window_padding.as_f32(), window_padding.as_f32()];
         atlas::set_stem_darken(stem_darken);
-        let mut atlas =
-            GlyphAtlas::build_with_subpixel(fonts.regular_font(), physical_px, subpixel);
+        let line_height = options.line_height;
+        let box_thickness = options.box_thickness;
+        crate::boxdraw::set_box_thickness(box_thickness);
+        let mut atlas = GlyphAtlas::build_with_options(
+            fonts.regular_font(),
+            physical_px,
+            subpixel,
+            line_height,
+        );
         let synthetic_enabled = crate::settings::synthetic_styles_enabled();
         let (synth_bold, synth_italic, synth_bold_italic) =
             masked_synthetic(&fonts, synthetic_enabled);
@@ -1057,6 +1072,8 @@ impl GpuState {
             text,
             subpixel,
             stem_darken,
+            line_height,
+            box_thickness,
             synthetic_enabled,
             geometric_enabled,
             symbol_fallback_enabled,
@@ -1095,10 +1112,14 @@ impl GpuState {
     }
 
     fn rebuild_atlas(&mut self) {
-        let mut atlas = GlyphAtlas::build_with_subpixel(
+        // BOXTHICK weight is read from the process-global atomic at raster time;
+        // re-publish it here so a scale-driven rebuild keeps the active multiplier.
+        crate::boxdraw::set_box_thickness(self.box_thickness);
+        let mut atlas = GlyphAtlas::build_with_options(
             self.fonts.regular_font(),
             self.physical_px,
             self.subpixel,
+            self.line_height,
         );
         let (synth_bold, synth_italic, synth_bold_italic) =
             masked_synthetic(&self.fonts, self.synthetic_enabled);
@@ -1208,6 +1229,9 @@ impl GpuState {
         let subpixel_changed = self.subpixel != next_subpixel;
         let font_size_changed = (self.font_size_px - options.font_size_px).abs() >= f32::EPSILON;
         let stem_darken_changed = (self.stem_darken - stem_darken).abs() >= f32::EPSILON;
+        let line_height_changed = (self.line_height - options.line_height).abs() >= f32::EPSILON;
+        let box_thickness_changed =
+            (self.box_thickness - options.box_thickness).abs() >= f32::EPSILON;
         // The synthetic-styles kill switch is published process-wide (it cannot
         // ride `NativeOptions`, whose construction literals live in fenced
         // files). A live toggle reuses this font-change rebuild seam: the synth
@@ -1225,6 +1249,8 @@ impl GpuState {
             && !subpixel_changed
             && !font_size_changed
             && !stem_darken_changed
+            && !line_height_changed
+            && !box_thickness_changed
             && !synthetic_changed
             && !geometric_changed
             && !symbol_fallback_changed
@@ -1261,6 +1287,12 @@ impl GpuState {
         }
         if stem_darken_changed {
             self.stem_darken = stem_darken;
+        }
+        if line_height_changed {
+            self.line_height = options.line_height;
+        }
+        if box_thickness_changed {
+            self.box_thickness = options.box_thickness;
         }
         if synthetic_changed {
             self.synthetic_enabled = synthetic_now;

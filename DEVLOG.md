@@ -7,6 +7,66 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- Config knobs: IN1 clear-input + line_height + box_thickness
+
+- Three operator-configurable knobs in one bundle, every one default-identity
+  (the plain/fast path stays byte-for-byte unchanged when the knob is at its
+  default):
+  - **IN1** — bindable clear-input action (Ctrl+Shift+K by default), input-only:
+    returns to live view then writes Ctrl+A/Ctrl+K to the PTY. Falls through
+    cleanly when unbound.
+  - **LINEHEIGHT** — `line_height` (aliases `line_leading`/`cell_leading`;
+    `ODYTTY_LINE_HEIGHT`; range 1.0..=2.0, default 1.0). Adds symmetric cell
+    leading; at 1.0 the cell geometry and coverage buffer are proven
+    byte-identical to the legacy build. Rides the same reload path as
+    `font_size`, so rows/viewport/cursor/overlay re-anchor through the existing
+    font-size seam.
+  - **BOXTHICK** — `box_thickness` (aliases `box_weight`/`box_stroke`;
+    `ODYTTY_BOX_THICKNESS`; range 0.5..=3.0, default 1.0). Scales box-drawing
+    stroke weight; at 1.0 proven byte-identical to the legacy
+    `min(w,h)/8` raster over a 40x40 cell matrix. Non-finite/non-positive
+    clamps to 1.0; re-published on scale rebuilds.
+- Cap split (mechanical, Tier A): `src/settings/tests/legacy.rs` crossed 2000
+  (2022) — the 6 key-binding tests were extracted verbatim into the new
+  `src/settings/tests/keybinds.rs` (legacy.rs back to 1871). NOTE: `settings.rs`
+  is now 1993 lines — a submodule extraction is scheduled as its own packet.
+- Gates: lib 1433/0 (+5 behavioral tests), all-targets clean, pixel-smoke 42/0,
+  fmt clean, zero new clippy in-lane, SPDX on the new file.
+
+## 2026-06-16 -- Core: CLOSE-CONFIRM foreground-job detection (PTY seam)
+
+- Added the pure-core seam for a future close-confirmation prompt: `PtySession`
+  can report whether a foreground job other than the shell is running, via a
+  read-only `tcgetpgrp` (TIOCGPGRP) comparison against the shell's process-group
+  id. Surfaced as a `Copy` enum `ForegroundJob { None, Running, Unknown }`
+  returned by value — no borrow into PTY internals.
+- Read-only by construction: a single `tcgetpgrp` inspection that never reaps,
+  waits on, or mutates the child (proven by a test asserting `try_wait()` still
+  returns `Ok(None)` after a query). PTY-closed / exited / errored-fd /
+  no-foreground-group all classify as `Unknown` and never panic; there is no
+  false-`Running` race window (the brief post-fork pre-`TIOCSCTTY` window reports
+  as `Unknown`, not `Running`). The classifier is a pure free fn over a borrowed
+  fd so the error/mismatch paths are unit-testable.
+- The native close-confirm follow-up will prompt only on `Running`; both `None`
+  and `Unknown` are treated as safe-to-close. `src/pty.rs` only (345 lines).
+- Gates: lib 1433/0 (+3 tests), fmt clean, zero new clippy in-lane.
+
+## 2026-06-16 -- Themes: 6 original Odyssey-named palettes (72 -> 78)
+
+- Authored 6 new original, data-only built-in themes filling unoccupied
+  hue/mood space in the Odyssey-identity family: `odyssey-garnet` (dark,
+  crimson/wine-red on maroon-black), `odyssey-sepia` (dark, warm sepia-brown
+  monochrome focus), `odyssey-cobalt` (dark, electric royal-blue on deep cobalt
+  navy), and three lights — `odyssey-lilac-light` (lavender), `odyssey-pearl-light`
+  (cool neutral pearl-grey), `odyssey-apricot-light` (warm apricot-peach).
+  Each clears the RV1 readability floor (MIN_CONTRAST=4.0) by a wide margin
+  (fg/bg 12.5–15.2), pre-validated against `color.rs`'s exact WCAG math.
+- Registered all six in the `REGISTRY` table in `src/theme/builtins.rs` (after
+  `odyssey-linen-light`), bumped the roster-count assertion 72 -> 78, and
+  appended them to the module rustdoc roster. Synced the factual counts in
+  `README.md` (2 refs) and `docs/themes.md` (prose counts, mood groups, and
+  6 new roster-table rows). Theme suite 134/0; fmt/diff/leak clean.
+
 ## 2026-06-16 -- Core: OSC 133 click-to-position parse + delta carrier (SH-CLICK)
 
 - Added the core slice of click-to-position: a cooperating shell can announce,

@@ -21,6 +21,51 @@ fn atlas_has_positive_metrics_and_glyph_coverage() {
 }
 
 #[test]
+fn line_height_default_is_byte_identical_to_legacy_build() {
+    // LINEHEIGHT: build_with_options at the default 1.0 multiplier must produce
+    // a cell, dimensions and coverage buffer byte-identical to the historical
+    // build_with_subpixel path — the leading is exactly zero.
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let legacy = GlyphAtlas::build_with_subpixel(&font, 24.0, SubpixelMode::Off);
+    let leaded = GlyphAtlas::build_with_options(&font, 24.0, SubpixelMode::Off, 1.0);
+    assert_eq!(leaded.cell, legacy.cell, "cell geometry must be unchanged");
+    assert_eq!(leaded.width, legacy.width);
+    assert_eq!(leaded.height, legacy.height);
+    assert_eq!(leaded.data, legacy.data, "coverage must be byte-identical");
+}
+
+#[test]
+fn line_height_above_one_adds_symmetric_leading() {
+    // A line_height > 1.0 grows the cell height and shifts the baseline down by
+    // the top leading, while the cell width and the rasterized glyph shape are
+    // unchanged (the glyph simply sits lower in a taller slot).
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let base = GlyphAtlas::build_with_options(&font, 24.0, SubpixelMode::Off, 1.0);
+    let tall = GlyphAtlas::build_with_options(&font, 24.0, SubpixelMode::Off, 1.5);
+    assert_eq!(
+        tall.cell.width, base.cell.width,
+        "advance width is unchanged"
+    );
+    assert!(
+        tall.cell.height > base.cell.height,
+        "leading must grow the cell height ({} !> {})",
+        tall.cell.height,
+        base.cell.height
+    );
+    assert!(
+        tall.cell.baseline >= base.cell.baseline,
+        "baseline shifts down by the top leading"
+    );
+    assert!(tall.cell.baseline <= tall.cell.height);
+}
+
+#[test]
 fn default_atlas_stays_single_channel() {
     let Some(font) = test_font() else {
         eprintln!("skipping: no system font available");

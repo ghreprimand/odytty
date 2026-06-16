@@ -186,6 +186,9 @@ pub enum BindableAction {
     CopyMode,
     /// Activate keyboard pattern-select hints (URLs / paths / SHAs).
     Hints,
+    /// Clear the current shell input line (IN1). Writes a readline-style
+    /// kill-whole-line sequence to the PTY; inert when unbound.
+    ClearInput,
 }
 
 impl BindableAction {
@@ -212,6 +215,7 @@ impl BindableAction {
             }
             "copymode" | "selectmode" => Some(Self::CopyMode),
             "hints" | "hint" | "quickselect" | "patternselect" => Some(Self::Hints),
+            "clearinput" | "clearline" | "killline" | "clear" => Some(Self::ClearInput),
             _ => None,
         }
     }
@@ -431,6 +435,14 @@ pub struct Settings {
     pub crt_scanline_period: f32,
     pub crt_vignette_strength: f32,
     pub subpixel: SubpixelMode,
+    /// Line-height multiplier baked into the glyph cell (LINEHEIGHT). `1.0`
+    /// (default) adds zero leading and is pixel-identical to before; higher
+    /// values grow the cell box and add symmetric vertical breathing room.
+    pub line_height: f32,
+    /// Box-drawing stroke-thickness multiplier (BOXTHICK). `1.0` (default)
+    /// reproduces the historical geometric box-drawing weights byte-identically;
+    /// other values scale the rule thickness.
+    pub box_thickness: f32,
     pub key_bindings: Vec<KeyBindingOverride>,
     /// Default cursor shape applied at power-on (DECSCUSR can override).
     pub cursor_style: CursorStyle,
@@ -536,6 +548,8 @@ impl Default for Settings {
             crt_scanline_period: DEFAULT_CRT_SCANLINE_PERIOD,
             crt_vignette_strength: DEFAULT_CRT_VIGNETTE_STRENGTH,
             subpixel: SubpixelMode::Off,
+            line_height: DEFAULT_LINE_HEIGHT,
+            box_thickness: DEFAULT_BOX_THICKNESS,
             key_bindings: Vec::new(),
             cursor_style: CursorStyle::Block,
             cursor_blink: CursorBlink::Auto,
@@ -801,6 +815,8 @@ impl Settings {
         let crt_vignette_strength =
             parse_crt_vignette_strength(get(CRT_VIGNETTE_STRENGTH_ENV).as_deref(), &mut warn);
         let subpixel = parse_subpixel(get(SUBPIXEL_ENV).as_deref(), &mut warn);
+        let line_height = parse_line_height(get(LINE_HEIGHT_ENV).as_deref(), &mut warn);
+        let box_thickness = parse_box_thickness(get(BOX_THICKNESS_ENV).as_deref(), &mut warn);
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
         let cursor_blink = parse_cursor_blink_setting(get(CURSOR_BLINK_ENV).as_deref(), &mut warn);
@@ -894,6 +910,8 @@ impl Settings {
             crt_scanline_period,
             crt_vignette_strength,
             subpixel,
+            line_height,
+            box_thickness,
             key_bindings,
             cursor_style,
             cursor_blink,
@@ -953,6 +971,8 @@ impl Settings {
             format_float(self.crt_vignette_strength),
         );
         values.insert(SUBPIXEL_ENV, subpixel_display(self.subpixel).to_owned());
+        values.insert(LINE_HEIGHT_ENV, format_float(self.line_height));
+        values.insert(BOX_THICKNESS_ENV, format_float(self.box_thickness));
         values.insert(KEYBINDS_ENV, key_bindings_edit_value(&self.key_bindings));
         values.insert(
             CURSOR_STYLE_ENV,
@@ -1336,6 +1356,52 @@ fn parse_stem_darken(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     };
 
     parsed.clamp(MIN_STEM_DARKEN, MAX_STEM_DARKEN)
+}
+
+fn parse_line_height(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_LINE_HEIGHT;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_LINE_HEIGHT;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{LINE_HEIGHT_ENV}={trimmed:?} is not a valid line-height multiplier; using {DEFAULT_LINE_HEIGHT}"
+            ));
+            return DEFAULT_LINE_HEIGHT;
+        }
+    };
+
+    parsed.clamp(MIN_LINE_HEIGHT, MAX_LINE_HEIGHT)
+}
+
+fn parse_box_thickness(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_BOX_THICKNESS;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_BOX_THICKNESS;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{BOX_THICKNESS_ENV}={trimmed:?} is not a valid box-thickness multiplier; using {DEFAULT_BOX_THICKNESS}"
+            ));
+            return DEFAULT_BOX_THICKNESS;
+        }
+    };
+
+    parsed.clamp(MIN_BOX_THICKNESS, MAX_BOX_THICKNESS)
 }
 
 fn parse_min_contrast(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
@@ -1786,6 +1852,7 @@ fn bindable_action_name(action: BindableAction) -> &'static str {
         BindableAction::JumpPromptNext => "jump-prompt-next",
         BindableAction::CopyMode => "copy-mode",
         BindableAction::Hints => "hints",
+        BindableAction::ClearInput => "clear-input",
     }
 }
 

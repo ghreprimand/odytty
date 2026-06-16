@@ -79,6 +79,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "font",
             "font_family",
             "font_size",
+            "line_height",
             "symbol_fallback",
             "symbol_font",
             "text_gamma",
@@ -90,6 +91,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "subpixel",
             "synthetic_styles",
             "geometric_boxdraw",
+            "box_thickness",
             "visual",
             "bloom",
             "bloom_threshold",
@@ -255,6 +257,45 @@ fn config_parser_warns_and_skips_bad_lines_but_keeps_good_values() {
     assert!(warnings[1].contains("unknown key"));
     assert!(warnings[2].contains("empty key"));
     assert!(warnings[3].contains(TEXT_GAMMA_ENV));
+}
+
+#[test]
+fn line_height_and_box_thickness_parse_clamp_and_default() {
+    // Valid values round-trip through the config keys.
+    let (settings, warnings) = settings_from_config_and_env(
+        r#"
+            line_height = 1.4
+            box_thickness = 1.5
+        "#,
+        [],
+    );
+    assert_eq!(settings.line_height, 1.4);
+    assert_eq!(settings.box_thickness, 1.5);
+    assert!(warnings.is_empty());
+
+    // Out-of-range values clamp to the documented bounds.
+    let (clamped, _) = settings_from_config_and_env(
+        r#"
+            line_height = 9.0
+            box_thickness = 0.01
+        "#,
+        [],
+    );
+    assert_eq!(clamped.line_height, MAX_LINE_HEIGHT);
+    assert_eq!(clamped.box_thickness, MIN_BOX_THICKNESS);
+
+    // Unset keys keep the byte-identical defaults; bad values warn and default.
+    let (defaults, warnings) = settings_from_config_and_env(
+        r#"
+            line_height = wide
+        "#,
+        [],
+    );
+    assert_eq!(defaults.line_height, DEFAULT_LINE_HEIGHT);
+    assert_eq!(defaults.box_thickness, DEFAULT_BOX_THICKNESS);
+    assert_eq!(defaults.line_height, 1.0);
+    assert_eq!(defaults.box_thickness, 1.0);
+    assert!(warnings.iter().any(|w| w.contains(LINE_HEIGHT_ENV)));
 }
 
 #[test]
@@ -1160,156 +1201,6 @@ fn overlay_edit_to_missing_font_family_reports_clear_error() {
         "states the reason: {}",
         error.message
     );
-}
-
-#[test]
-fn key_bindings_parse_valid_entries_case_insensitively() {
-    let (settings, warnings) = settings_from([(
-        KEYBINDS_ENV,
-        "ctrl+shift+y=copy; SUPER+F=search, Shift+PageDown=scroll-down;ctrl+shift+comma=settings;ctrl+shift+t=theme-picker",
-    )]);
-
-    assert_eq!(settings.key_bindings.len(), 5);
-    assert_eq!(
-        settings.key_bindings[0],
-        KeyBindingOverride {
-            chord: KeyChord {
-                modifiers: KeyBindingModifiers {
-                    ctrl: true,
-                    shift: true,
-                    alt: false,
-                    super_key: false,
-                },
-                key: KeyBindingKey::Character('y'),
-            },
-            action: BindableAction::Copy,
-        }
-    );
-    assert_eq!(
-        settings.key_bindings[1],
-        KeyBindingOverride {
-            chord: KeyChord {
-                modifiers: KeyBindingModifiers {
-                    ctrl: false,
-                    shift: false,
-                    alt: false,
-                    super_key: true,
-                },
-                key: KeyBindingKey::Character('f'),
-            },
-            action: BindableAction::Search,
-        }
-    );
-    assert_eq!(
-        settings.key_bindings[2].chord.key,
-        KeyBindingKey::Named(KeyBindingNamedKey::PageDown)
-    );
-    assert_eq!(
-        settings.key_bindings[2].action,
-        BindableAction::ScrollPageDown
-    );
-    assert_eq!(
-        settings.key_bindings[3].chord.key,
-        KeyBindingKey::Character(',')
-    );
-    assert_eq!(
-        settings.key_bindings[3].action,
-        BindableAction::SettingsPanel
-    );
-    assert_eq!(
-        settings.key_bindings[4].chord.key,
-        KeyBindingKey::Character('t')
-    );
-    assert_eq!(settings.key_bindings[4].action, BindableAction::ThemePicker);
-    assert!(warnings.is_empty());
-}
-
-#[test]
-fn key_bindings_skip_bad_entries_with_warnings() {
-    let (settings, warnings) = settings_from([(
-        KEYBINDS_ENV,
-        "ctrl+shift=copy,ctrl+shift+f=nope,ctrl+x+z=paste,alt+space=paste",
-    )]);
-
-    assert_eq!(settings.key_bindings.len(), 1);
-    assert_eq!(
-        settings.key_bindings[0].chord.key,
-        KeyBindingKey::Named(KeyBindingNamedKey::Space)
-    );
-    assert_eq!(settings.key_bindings[0].action, BindableAction::Paste);
-    assert_eq!(warnings.len(), 3);
-    assert!(
-        warnings
-            .iter()
-            .all(|warning| warning.contains(KEYBINDS_ENV))
-    );
-}
-
-#[test]
-fn empty_key_bindings_are_ignored_without_warning() {
-    let (settings, warnings) = settings_from([(KEYBINDS_ENV, " , ; ")]);
-
-    assert!(settings.key_bindings.is_empty());
-    assert!(warnings.is_empty());
-}
-
-#[test]
-fn duplicate_key_binding_entries_preserve_input_order() {
-    let (settings, warnings) =
-        settings_from([(KEYBINDS_ENV, "ctrl+shift+y=copy,ctrl+shift+y=paste")]);
-
-    assert_eq!(settings.key_bindings.len(), 2);
-    assert_eq!(settings.key_bindings[0].action, BindableAction::Copy);
-    assert_eq!(settings.key_bindings[1].action, BindableAction::Paste);
-    assert!(warnings.is_empty());
-}
-
-#[test]
-fn bindable_action_names_round_trip_through_parse() {
-    use BindableAction::*;
-    for action in [
-        Search,
-        SettingsPanel,
-        ThemePicker,
-        Copy,
-        Paste,
-        ScrollPageUp,
-        ScrollPageDown,
-        JumpPromptPrev,
-        JumpPromptNext,
-        CopyMode,
-        Hints,
-    ] {
-        assert_eq!(
-            BindableAction::parse(bindable_action_name(action)),
-            Some(action),
-            "action name did not round-trip: {action:?}"
-        );
-    }
-}
-
-#[test]
-fn new_bindable_actions_parse_from_config_names() {
-    let (settings, warnings) = settings_from([(
-        KEYBINDS_ENV,
-        "ctrl+shift+p=jump-prompt-prev;ctrl+shift+n=jump-prompt-next;ctrl+alt+k=copy-mode;ctrl+shift+l=hints",
-    )]);
-
-    let actions: Vec<BindableAction> = settings
-        .key_bindings
-        .iter()
-        .map(|binding| binding.action)
-        .collect();
-    assert_eq!(
-        actions,
-        vec![
-            BindableAction::JumpPromptPrev,
-            BindableAction::JumpPromptNext,
-            BindableAction::CopyMode,
-            BindableAction::Hints,
-        ]
-    );
-    assert!(warnings.is_empty());
 }
 
 #[test]

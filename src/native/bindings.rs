@@ -110,6 +110,10 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             char_chord('l', true, true, false, false),
             BindableAction::Hints,
         ),
+        (
+            char_chord('k', true, true, false, false),
+            BindableAction::ClearInput,
+        ),
     ]
 }
 

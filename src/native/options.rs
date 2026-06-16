@@ -4,7 +4,10 @@ use std::path::PathBuf;
 use crate::atlas::SubpixelMode;
 use crate::core::Dimensions;
 use crate::render::CellMetrics;
-use crate::settings::{DEFAULT_FONT_SIZE_PX, DEFAULT_WINDOW_PADDING_PX, Settings};
+use crate::settings::{
+    DEFAULT_BOX_THICKNESS, DEFAULT_FONT_SIZE_PX, DEFAULT_LINE_HEIGHT, DEFAULT_WINDOW_PADDING_PX,
+    Settings,
+};
 
 /// Errors from the native app path.
 #[derive(Debug, thiserror::Error)]
@@ -58,6 +61,15 @@ pub struct NativeOptions {
     pub subpixel: SubpixelMode,
     /// Logical pixels of inset between the window edge and the terminal grid.
     pub window_padding_px: f32,
+    /// Line-height multiplier baked into the glyph atlas cell (LINEHEIGHT).
+    /// `1.0` adds zero leading and is byte-identical to the historical cell
+    /// geometry; higher values grow the cell box for extra vertical breathing
+    /// room.
+    pub line_height: f32,
+    /// Box-drawing stroke-thickness multiplier (BOXTHICK). `1.0` reproduces the
+    /// historical geometric box-drawing weights byte-identically; other values
+    /// scale the rule thickness. Inert unless geometric box-drawing is on.
+    pub box_thickness: f32,
 }
 
 impl Default for NativeOptions {
@@ -71,6 +83,8 @@ impl Default for NativeOptions {
             text_gamma: crate::settings::DEFAULT_TEXT_GAMMA,
             subpixel: SubpixelMode::Off,
             window_padding_px: DEFAULT_WINDOW_PADDING_PX,
+            line_height: DEFAULT_LINE_HEIGHT,
+            box_thickness: DEFAULT_BOX_THICKNESS,
         }
     }
 }
@@ -87,6 +101,8 @@ impl NativeOptions {
             text_gamma: settings.text_gamma,
             subpixel: settings.subpixel,
             window_padding_px: settings.window_padding_px,
+            line_height: settings.line_height,
+            box_thickness: settings.box_thickness,
             ..Self::default()
         }
     }

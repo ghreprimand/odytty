@@ -289,6 +289,36 @@ fn powerline_left_triangle_points_left() {
 }
 
 #[test]
+fn box_thickness_default_multiplier_is_byte_identical() {
+    // BOXTHICK: the default `1.0` multiplier must reproduce the historical
+    // light-line thickness formula exactly. `x * 1.0 == x` in f32, so every
+    // cell metric matches `(min(w, h) / 8).round().max(1)`. This is the pure
+    // proof behind the unchanged default render path.
+    for w in 1u32..=40 {
+        for h in 1u32..=40 {
+            let legacy = ((w.min(h) as f32 / 8.0).round() as u32).max(1);
+            assert_eq!(
+                light_thickness_with(w, h, 1.0),
+                legacy,
+                "default thickness must match the pre-feature formula at {w}x{h}"
+            );
+        }
+    }
+}
+
+#[test]
+fn box_thickness_multiplier_scales_stroke_weight() {
+    // A multiplier above 1.0 produces a heavier light line and below 1.0 a
+    // lighter one, always clamped to at least one pixel. Pure: no global state.
+    let thin = light_thickness_with(W, H, 0.5);
+    let base = light_thickness_with(W, H, 1.0);
+    let thick = light_thickness_with(W, H, 3.0);
+    assert!(thin >= 1, "thickness never drops below one pixel");
+    assert!(thick > base, "3.0x must be heavier than the default weight");
+    assert!(thin <= base, "0.5x must not exceed the default weight");
+}
+
+#[test]
 fn covered_ranges_all_produce_buffers() {
     // Every codepoint the module classifies must also produce a buffer, and the
     // documented block + powerline ranges are fully covered.
