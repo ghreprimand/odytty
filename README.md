@@ -138,6 +138,8 @@ bracketed-paste sanitization, line-ending normalization, Linux PRIMARY selection
 Right-edge scroll indicator. Configurable cursor shapes (block/underline/bar),
 blink policy, and key bindings (`ODYTTY_KEYBINDS`).
 
+**In-app keybinding editor.** The settings panel's key-bindings row (`Ctrl+Shift+,` → navigate to Keybindings) opens a dedicated binding editor. Browse all 12 bindable actions, press a row to capture a new chord, and the new binding is written to your config automatically — the same overlay-writes-config flow as every other setting. `Backspace` on a row resets it to its default chord; `R` resets all bindings at once. If a new chord conflicts with an existing binding, a prompt lets you confirm or cancel the replacement. Hand-editing `ODYTTY_KEYBINDS` remains fully supported and produces byte-identical results.
+
 **Keyboard quick-select.** `Ctrl+Shift+L` scans the visible screen for URLs,
 file paths, and short identifiers (Git SHAs and similar hex strings), labels
 each match with a short home-row key sequence, and copies the one you type.

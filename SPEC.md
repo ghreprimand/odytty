@@ -420,7 +420,7 @@ its first stable layer.
 - Dynamic colors: OSC 10/11/12, OSC 4 palette entries, and reset/query support
 - Right-edge scroll position indicator
 - Configurable cursor shapes and blink policy (DECSCUSR + settings)
-- Configurable terminal-local key bindings
+- Configurable terminal-local key bindings; in-app keybinding editor in the settings panel (browse all 12 bindable actions, capture a new chord by pressing a row, `Backspace` resets to default, `R` resets all, conflict prompt on clash, writes to `odytty.conf` via the preservation-first writeback path; `ODYTTY_KEYBINDS` hand-editing is byte-identical)
 - Keyboard copy mode (`copy_mode` action, off by default): a keyboard-driven
   scrollback selection mode. `h/j/k/l`, `w/b/e`, `0/^/$`, `gg/G` move the
   caret; `v` and `V` start character and line selection; `y` / Enter yanks the

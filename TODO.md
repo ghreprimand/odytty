@@ -788,6 +788,12 @@ color feature validates against.
   - [x] Mouse-driven settings overlay with sliders and click-to-type numeric
         entry.
   - [x] Surface font-load failures in the overlay instead of failing silently.
+  - [x] In-app keybinding editor: the settings panel's Keybindings row opens a
+        dedicated editor where all 12 bindable actions are listed; pressing a row
+        captures a new chord, `Backspace` resets a row to its default,
+        `R` resets all bindings, and conflicts prompt before replacing. Changes
+        are written to `odytty.conf` via the preservation-first writeback path;
+        `ODYTTY_KEYBINDS` hand-editing is byte-identical.
 
 ## Archived First Prototype Checklist
 

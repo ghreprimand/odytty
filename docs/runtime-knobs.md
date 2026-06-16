@@ -158,8 +158,16 @@ modifiers plus a key name, separated by `+`. Keys may be letters, digits,
 `f1`-`f24`, or common named keys such as `pageup`, `pagedown`, `home`, `end`,
 `enter`, `esc`, `backspace`, `delete`, `insert`, `tab`, `space`, and arrow
 keys. Use `comma` for `,` in keybinding strings because literal commas also
-separate entries. Actions are `search`, `settings`, `theme-picker`, `copy`,
-`paste`, `scroll-up`, and `scroll-down`.
+separate entries. All 12 bindable actions are: `search`, `settings`, `theme-picker`, `copy`,
+`paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`,
+`copy-mode`, `hints`, and `clear-input`.
+
+The in-app keybinding editor (settings panel → Keybindings row) is the
+no-hand-edit path: browse all 12 actions, press a row to capture a new chord,
+`Backspace` resets a row to its default, `R` resets all. Conflicts prompt before
+replacing. Changes are written to `odytty.conf` via the same preservation-first
+writeback path as all other settings. `ODYTTY_KEYBINDS` hand-editing is
+byte-identical to the in-app editor.
 Examples:
 
 ```sh
