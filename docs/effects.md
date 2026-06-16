@@ -16,7 +16,7 @@ active unless you enable it explicitly with a setting. The out-of-the-box
 renderer is the plain, unadorned fast path.
 
 **Readability-gated.** The terminal cell colors pass through the CPU
-minimum-contrast floor (`min_contrast` / `ODYTTY_MIN_CONTRAST`, RV1) before GPU
+minimum-contrast floor (`min_contrast` / `ODYTTY_MIN_CONTRAST`) before GPU
 post-processing. Post effects cannot feed their output back into that CPU
 resolver, so any effect that changes brightness must be structurally bounded in
 the shader. Bloom adds light only; CRT scanlines and vignette use capped
@@ -122,7 +122,7 @@ to trigger the fallback; it is automatic.
 
 ---
 
-## CRT / retro profile (VE3-a)
+## CRT / retro profile
 
 The CRT profile adds refined scanlines and a subtle vignette over the same HDR
 offscreen target used by bloom. Curvature and chromatic aberration are deferred:
@@ -184,7 +184,7 @@ With both bloom and CRT disabled, no offscreen texture is allocated.
 
 ---
 
-## Motion (VE4) — coming
+## Cursor motion and new-output fade — coming
 
 Cursor glow/trail and fade-in of new output. Bounded and disable-able. Not yet
 shipped.

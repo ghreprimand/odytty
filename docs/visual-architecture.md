@@ -124,9 +124,9 @@ up to a cap of 4096 slots (`MAX_COLOR_GLYPH_SLOTS`).
 `src/grid.rs` (`foreground_linear`, `background_linear`), `src/text.rs`
 (`indexed_srgb`, `srgb_to_linear`).*
 
-### Theme (TH1 landed)
+### Theme system (landed)
 
-*Source: `src/theme.rs` (TH1, commit `fa857f0`).*
+*Source: `src/theme.rs` (commit `fa857f0`).*
 
 `Theme` now carries the full 16-color ANSI palette (indices 0–7 normal, 8–15
 bright), semantic-role colors (cursor, selection, search highlight, reserved
@@ -168,8 +168,8 @@ attribute; the sRGB swapchain surface applies the linear→sRGB transfer on
 write, so no explicit gamma correction is needed in the output path (only the
 glyph-coverage gamma matters for text rendering).
 
-**TH1 closed the fg/bg/clear-only limitation.** The palette and semantic roles
-are live in the theme. The full theme epic (TH1–TH4) is now complete — see the
+**The theme update closed the fg/bg/clear-only limitation.** The palette and semantic roles
+are live in the theme. The full theme epic is now complete — see the
 Theme and appearance system section below and `docs/themes.md` for details.
 
 ---
@@ -177,12 +177,15 @@ Theme and appearance system section below and `docs/themes.md` for details.
 ## Visual-enhancement direction
 
 > **Tier 1 (Readability-first) is fully delivered** as of the current HEAD —
-> RV1, RV2, RV3, RV5, and RV6 are all live. **Tier 2 is partially delivered** —
-> ID1-a (themed cursor/selection/search roles, default on) and ID2 (focus
-> dimming) have landed; ID1 full glow/easing, ID3, and ID4 remain open. **Tier
-> 3 is underway** — VE1 (post-process pipeline: linear `Rgba16Float` offscreen +
-> composite, adapter-gated) and VE2 (bloom / phosphor glow, off by default) are
-> live; VE3 (CRT/retro), VE4 (motion), and VE5 (quality panel) remain open.
+> the readability foundations — minimum-contrast floor, geometric box-drawing,
+> perceptual color pipeline, stem darkening, and symbol fallback — are all live.
+> **Tier 2 is partially delivered** — themed cursor/selection/search roles
+> (default on) and focus dimming have landed; cursor glow/easing, background
+> treatments, and window chrome remain open. **Tier 3 is underway** — VE1
+> (post-process pipeline: linear `Rgba16Float` offscreen + composite,
+> adapter-gated) and VE2 (bloom / phosphor glow, off by default) are live;
+> CRT/retro profile, cursor motion / new-output fade, and GPU quality settings
+> remain open.
 > Sub-sections marked **(landed)** are grounded in source; all other items are
 > design intent, not yet built.
 
@@ -211,32 +214,32 @@ are always tested.
 Features in this tier help reading as well as looking better; they are the
 highest-priority additions.
 
-- **Perceptual color pipeline (RV3, landed):** linear-space blending is active
+- **Perceptual color pipeline (landed):** linear-space blending is active
   in the render path; OKLab/OKLCH helpers (`dim_perceptual`, `mix_oklab`,
   `src/color.rs`) are used throughout — by the minimum-contrast lift, by SGR
-  dim-text, and by the ID2 focus-dim step. Honest note: `dim_perceptual` applies
+  dim-text, and by the focus-dim step. Honest note: `dim_perceptual` applies
   a uniform OKLab scale that reduces algebraically to a uniform linear-RGB scale,
   so for the uniform-dim case it is output-identical to naive per-channel halving
   (both preserve hue). The perceptual pipeline's payoff is in the non-uniform
   paths: `mix_oklab` for blends and the OKLab bisect for the contrast floor.
-- **Minimum-contrast guarantee (RV1, landed):** configurable perceptual fg/bg
+- **Minimum-contrast guarantee (landed):** configurable perceptual fg/bg
   contrast floor applied at render time (`ODYTTY_MIN_CONTRAST`, `min_contrast`).
   Value `1.0` = exact passthrough (default). The floor is measured via WCAG
   relative luminance; lift is applied by bisecting OKLab lightness while
   preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
-- **Geometric box-drawing / Powerline rendering (RV2, landed):** U+2500–257F,
+- **Geometric box-drawing / Powerline rendering (landed):** U+2500–257F,
   U+2580–259F, Braille, and Powerline separators rendered as pixel-perfect
   geometry at exact cell size rather than font glyphs. Controlled by
   `ODYTTY_GEOMETRIC_BOXDRAW` / `geometric_boxdraw`; default on.
-- **Smooth scrolling (RV4):** interpolated viewport movement within a strict
+- **Smooth scrolling:** interpolated viewport movement within a strict
   bounded latency budget; instant/off mode preserved and default-safe.
-- **Stem darkening for light-on-dark text (RV5, landed, default-on):** a coverage
+- **Stem darkening for light-on-dark text (landed, default-on):** a coverage
   boost that keeps glyph stroke weight on light-on-dark displays.
   `ODYTTY_STEM_DARKEN` / `stem_darken`, range `0.0`–`1.0`, default `0.2` (a
   conservative on-by-default boost for crisper text). Applied at rasterization
   time (`src/atlas/mod.rs`); `0.0` is the byte-identical opt-out to the classic
   raster.
-- **Nerd-font / symbol fallback (RV6, landed):** automatic PUA glyph fallback
+- **Nerd-font / symbol fallback (landed):** automatic PUA glyph fallback
   for modern prompt icons (starship, powerlevel10k, eza). `symbol_fallback`
   setting / `ODYTTY_SYMBOL_FALLBACK` env var enables the secondary symbol-font
   face; `symbol_font` / `ODYTTY_SYMBOL_FONT` specifies the face path (or uses
@@ -246,25 +249,25 @@ highest-priority additions.
 
 Distinctive treatments that direct attention without harming legibility.
 
-- **Cursor and selection treatments (ID1, partially landed):** themed
-  cursor/selection/search semantic roles are delivered (ID1-a, landed): when
+- **Cursor and selection treatments (partially landed):** themed
+  cursor/selection/search semantic roles are delivered (landed): when
   `themed_ui_roles` is on (default), the cursor uses the theme cursor color,
   selections use the theme selection color, and search highlights use the theme
   search color rather than raw cell inversion. `ODYTTY_THEMED_UI_ROLES=off`
-  restores the classic inversion behavior. Remaining ID1 work: optional soft
+  restores the classic inversion behavior. Remaining work: optional soft
   glow on cursor, cursor-position easing.
-- **Focus dimming (ID2, landed):** dims the whole grid — both text foreground
+- **Focus dimming (landed):** dims the whole grid — both text foreground
   and background — perceptually in OKLab while the window is unfocused, so it
   recedes visually without color shifts. `ODYTTY_FOCUS_DIM` / `focus_dim`,
   range `0.0`–`1.0`, default `0.0` (off); recommended range `0.15`–`0.30` for
   a subtle recede. Applied in the grid resolve closure *after* SGR-dim and
-  *before* the RV1 floor, so legibility is preserved by construction — the RV1
-  floor sees the dimmed background and re-lifts text if needed. Focused frames
+  *before* the contrast floor, so legibility is preserved by construction — the
+  contrast floor sees the dimmed background and re-lifts text if needed. Focused frames
   are never dimmed: the effective amount is always `0.0` when focused, keeping
   focused frames byte-identical to the unfocused-off path.
-- **Background treatments (ID3):** optional gradient/vignette/image background
+- **Background treatments:** optional gradient/vignette/image background
   and blur-behind transparency, each with automatic readability-preserving dim.
-- **Window chrome / padding identity (ID4):** themed padding and optional thin
+- **Window chrome / padding identity:** themed padding and optional thin
   semantic-role border using the theme clear color.
 
 ### Tier 3 — Atmospheric effects (opt-in post-process)
@@ -280,34 +283,33 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
 - **Bloom / phosphor glow (VE2) (landed):** bright-text/bright-cell glow via an
   auto-derived bright-pass threshold + half-res separable blur + additive
   composite. Off by default behind the `bloom` setting and adapter-gated.
-- **CRT / retro profile (VE3):** refined scanlines, vignette, optional
+- **CRT / retro profile:** refined scanlines, vignette, optional
   curvature/chromatic aberration; selectable as a theme visual profile.
-- **Subtle motion (VE4):** optional cursor glow/trail and fade-in of new
+- **Subtle motion:** optional cursor glow/trail and fade-in of new
   output; bounded, disable-able, strict latency budget.
-- **GPU quality + effect settings (VE5):** per-effect toggles in the settings
+- **GPU quality + effect settings:** per-effect toggles in the settings
   panel; hard plain/fast mode bypasses all post-process.
 
 ### Theme and appearance system
 
-**The full theme epic has landed.** TH1 (full 16-color ANSI palette + semantic
-roles), TH2 (dependency-free `.theme` file format, built-ins authored in it,
-live reload via `SIGHUP` or settings panel), TH3 (53 built-in themes across
-three families: Odyssey identity, Community, Retro/phosphor), and TH4 (in-app
-theme builder — clone/tweak/author with live preview, saved to user theme file)
-are all shipped. `Theme` carries the full 16-color ANSI palette plus semantic
-roles (cursor, selection, search, reserved border/inactive). The indexed-color
-render path is theme-driven; OSC-4 / dynamic-color overrides layer on top with
-correct precedence. See `docs/themes.md` for the full roster and attribution.
+**The full theme system has landed** — a 16-color ANSI palette with semantic
+roles, a dependency-free `.theme` file format with built-in themes and live
+reload via `SIGHUP` or the settings panel, 53 built-in themes across three
+families (Odyssey identity, Community, Retro/phosphor), and an in-app theme
+builder with live preview saved to a user theme file. `Theme` carries the full
+16-color ANSI palette plus semantic roles (cursor, selection, search, reserved
+border/inactive). The indexed-color render path is theme-driven; OSC-4 /
+dynamic-color overrides layer on top with correct precedence. See
+`docs/themes.md` for the full roster and attribution.
 
 ### In-app configuration UX
 
-**Delivered.** The overlay framework (UX1, cell-rendered, keyboard-driven,
-never mutates terminal state), the full settings panel (UX2, `Ctrl+Shift+,`;
-every setting editable with help text, live-applied, written back to
-`odytty.conf` on confirm via atomic rename), the live theme picker (UX3,
-`Ctrl+Shift+T`; arrow-to-preview, `Enter` to persist, `Esc` to restore), and
-the in-app theme builder (TH4; clone/tweak/author with live preview) are all
-shipped.
+**Delivered.** The cell-rendered overlay framework (keyboard-driven, never
+mutates terminal state), the full settings panel (`Ctrl+Shift+,`; every setting
+editable with help text, live-applied, written back to `odytty.conf` on confirm
+via atomic rename), the live theme picker (`Ctrl+Shift+T`; arrow-to-preview,
+`Enter` to persist, `Esc` to restore), and the in-app theme builder with live
+preview are all shipped.
 
 ---
 

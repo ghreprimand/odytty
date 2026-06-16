@@ -676,7 +676,7 @@ golden fixtures do not need to change when the representation does — the same
 rationale that governs the `protected`-omit and `blink:false`-omit golden
 decisions elsewhere.
 
-**Color emoji (EM1 decision record).** The accepted direction is a separate
+**Color emoji — decision record.** The accepted direction is a separate
 premultiplied-RGBA color-glyph path, distinct from the current monochrome
 coverage shader. `swash` is chosen for emoji shaping and rasterization: it
 covers CBDT/CBLC bitmap strikes (Noto Color Emoji's format on Linux),
@@ -698,9 +698,9 @@ Draw order: cell backgrounds → below-text images → coverage glyphs and line
 decorations → color emoji glyphs → cursor and overlays. COLR v1 and SVG-in-OT
 are deferred but architecturally permitted; the boundary rule (rasterization
 external, placement owned) applies to those paths as well. Implementation
-ladder EM2–EM7 is tracked in `TODO.md`.
+the delivery ladder is tracked in `TODO.md`.
 
-**EM2 (delivered).** The first `src/emoji/` packet was a renderer-free probe
+**First increment (delivered).** The first `src/emoji/` packet was a renderer-free probe
 module: no atlas, GPU, shader, or core terminal code. Discovery runs in two
 stages. First, `fc-match -f '%{file}\n%{family}' 'Noto Color Emoji'` is invoked
 directly; the returned path and family string are checked against a strict
@@ -721,19 +721,19 @@ sequence list, non-color format detection for a monospace outline font). The
 host-dependent full probe is `#[ignore]`-gated and runs via
 `cargo test emoji -- --ignored`; it exits cleanly when the font is absent.
 
-**EM3 (delivered).** `src/emoji/color_atlas.rs` adds the OdyTTY-owned
+**Second increment (delivered).** `src/emoji/color_atlas.rs` adds the OdyTTY-owned
 `ColorGlyphAtlas`: a grow-only `Rgba8Unorm` atlas for premultiplied source
 pixels, keyed by `(font identity, glyph-or-cluster id, physical px size,
 scale)` rather than by character. Slots span one or two terminal cells; wide
 color glyphs draw once from the lead cell and continuation cells emit nothing.
 The native renderer owns a dedicated color-glyph texture, vertex buffer, WGSL
 shader, and premultiplied-alpha blend state. The segment currently receives no
-live runs until EM4 supplies decoded swash glyphs, but synthetic tests pin the
+live runs until the real decoder supplied decoded swash glyphs, but synthetic tests pin the
 atlas bookkeeping, UVs, dirty revision, pass ordering, and wide-cell contract.
 Selection/search backgrounds render under color glyphs; OdyTTY does not tint or
 recolor source emoji pixels with SGR foreground colors.
 
-**EM4 (delivered).** `src/emoji/render.rs` activates the first live color emoji
+**Third increment (delivered).** `src/emoji/render.rs` activates the first live color emoji
 path for Linux Noto Color Emoji CBDT/CBLC bitmaps. `EmojiRasterizer` discovers
 the Noto face, shapes each eligible terminal-cell grapheme with `swash`, renders
 single-glyph color bitmaps with best-fit strike selection, scales/centers them
@@ -742,12 +742,12 @@ VS15 (`U+FE0E`) forces the text/coverage path; VS16 (`U+FE0F`) and default
 emoji-presentation codepoints request color. The native renderer computes runs
 from the snapshot before coverage-atlas insertion, skips normal monochrome
 foreground quads only for resident color runs, uploads dirty color-atlas pixels,
-and draws the dedicated color segment in the EM3 order. If discovery, shaping,
+and draws the dedicated color segment in the established draw order. If discovery, shaping,
 bitmap rendering, or atlas insertion fails, no color run is emitted and the
 existing coverage/fallback path remains visible. Multi-codepoint RGI stitching
-such as flags, keycaps, skin-tone modifiers, and ZWJ families remains EM5.
+such as flags, keycaps, skin-tone modifiers, and ZWJ families remains for a future increment.
 
-**EM5 (delivered).** The live color path reconstructs bounded multi-codepoint
+**Fourth increment (delivered).** The live color path reconstructs bounded multi-codepoint
 emoji clusters from the snapshot before shaping. Flags are assembled from
 adjacent regional indicators, skin-tone sequences from the base emoji plus
 modifier cell, keycaps from the base cell's VS16/keycap combining marks, and
@@ -759,7 +759,7 @@ foreground should be suppressed. If shaping or color bitmap rasterization does
 not resolve, no cluster run is emitted; the existing per-cell coverage/color
 fallback remains visible.
 
-**EM6 capacity audit (delivered).** `ColorGlyphAtlas` capacity is bounded and
+**Capacity audit (delivered).** `ColorGlyphAtlas` capacity is bounded and
 corruption-safe as implemented. The atlas starts at 16 columns by four rows,
 grows in four-row chunks, and caps at 4096 resident color glyph/cluster slots.
 At the cap, a new insertion returns `ColorGlyphAtlasError::Full`; existing

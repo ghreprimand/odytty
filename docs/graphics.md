@@ -251,7 +251,7 @@ The native renderer owns a dedicated draw segment for premultiplied-RGBA color
 glyphs, sitting between the coverage-text/decorations segment and the above-image
 layer.
 
-### Live pipeline (EM4)
+### Live pipeline
 
 **Presentation policy.** For each terminal cell, `src/emoji/render.rs` decides
 whether a grapheme should render as a color glyph or fall through to the

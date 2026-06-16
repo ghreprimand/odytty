@@ -316,13 +316,13 @@ large coordinate values, modifier folding, not-1016 guard, and cell-path
 pass-through; run via
 `cargo test --test mouse_protocol`), 42 pixel-smoke (headless CPU compositor
 asserting structural raster invariants for text rendering and graphics
-placement; EM3 added two — color-glyph segment draw ordering between coverage
+placement; two pixel-smoke tests — color-glyph segment draw ordering between coverage
 text and above-image layers, and wide color glyph lead-cell quad emission —
-ID1 default-on added three covering the now-default themed selection/cursor
-colors plus the `themed_ui_roles = off` legacy inverse parity, RV3-dim added
-one asserting the perceptual dim delta stays confined to dim cells, and ID2
-added two — a focus-dim-off identity gate and an unfocused-dimmed baseline that
-recedes while still clearing a raised contrast floor, and RV-COVERAGE added
+the themed-roles default-on update added three covering the now-default themed selection/cursor
+colors plus the `themed_ui_roles = off` legacy inverse parity, the perceptual-dim update added
+one asserting the perceptual dim delta stays confined to dim cells, and focus-dim support added
+two — a focus-dim-off identity gate and an unfocused-dimmed baseline that
+recedes while still clearing a raised contrast floor, and contrast-floor coverage added
 three — the minimum-contrast floor at its cursor-block under-glyph resolve site,
 the focus-dim × floor background-dim precondition, and themed selection/cursor
 role resolution against real light and dark built-ins), 4
@@ -342,7 +342,7 @@ byte-equality, guarding the plain post-process path; one proves the bloom
 pass leaves the off path exact, keeps sub-threshold body text unchanged, and
 gives a bright HDR cell a bounded halo; and one proves the CRT pass leaves the
 off path exact and dims lit cells only within the capped scanline/vignette band
-without zeroing them; adapter-gated), and 3 stem-raster smoke (proving RV5 stem-darkening is wired
+without zeroing them; adapter-gated), and 3 stem-raster smoke (proving stem darkening is wired
 through the live glyph-atlas raster: the default-on boost raises midtone
 coverage monotonically with the `0`/`255` endpoints pinned, and the `0.0`
 opt-out restores the classic raster byte-for-byte), and 1 license-header
@@ -350,7 +350,7 @@ guard (asserting every tracked Rust and WGSL source file carries the
 `SPDX-License-Identifier: GPL-3.0-only` tag on its first line). Deep fuzz
 tiers are `#[ignore]`-gated and run via
 `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
-EM2 added three hermetic emoji-probe tests (fixed representative-sequence list,
+The emoji-probe work added three hermetic tests (fixed representative-sequence list,
 bounded filename discovery in a temp directory, and non-color format detection
 for outline fonts); the host-dependent full probe against an installed Noto Color
 Emoji is `#[ignore]`-gated and runs via
