@@ -7,6 +7,48 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- VE4-FADE: new-output fade-in (off by default)
+
+- New `new_output_fade` setting (off by default; aliases `newoutputfade` /
+  `outputfade` / `fadein` / `newlinefade`): when on, rows of freshly arrived
+  output at the live tail fade in over a short (120 ms) ease-out ramp instead of
+  appearing instantly. This closes the VE4 "subtle motion" held partial (the
+  cursor slide shipped earlier; this is the remaining fade-in sub-feature).
+- Row tracking is app-side scrollback-delta, not core epoch stamps: at the live
+  tail (`viewport_offset == 0`) every new line of output grows `scrollback_len`
+  by exactly one as the oldest visible row scrolls off, so the scrollback delta
+  since the previous rebuild (capped at the grid height) is the count of new
+  bottom rows. A per-row `row_fade_starts` vector stamps those rows with the
+  frame instant and rotates older fades upward to follow their rows. The core
+  stays untouched — the fade is purely a native presentation concern.
+- RV1-safe by construction: the fade is painted as a background-color
+  `SolidQuad` overlay that decays from opaque to transparent over each fading
+  row. The underlying cell content is always rendered at full opacity (already
+  floor-satisfying); the quad only *obscures then reveals* it, so no
+  intermediate frame ever drops a foreground below the readability floor. The
+  cursor's row is never obscured, so the live prompt stays visible.
+- Wiring: a new `new_row_fade` overlay slot (6th, last in the quad manifest so
+  it sits on top of all other overlays; the cursor block still draws after
+  overlays so it is never hidden), a `new_row_fade_deadline()` folded into the
+  existing `animation_deadline()` aggregator as its fourth contributor (one
+  timer, not a second), and a `new_row_fade` field in the overlay composite
+  render-cache signature carrying a per-rebuild epoch so each animation frame
+  reclassifies while the cell content is unchanged. Two new `OverlayCtx` fields
+  (`now`, `clear_color`) thread the frame clock and theme background in.
+- Off-path identity: with the knob off `update_row_fade` clears the tracker and
+  returns immediately, so `row_fade_starts` is always empty, the deadline is
+  `None` (zero extra wakes), the fragment is constant `Inert`, and zero quads are
+  emitted — the default render is byte-identical (pixel-smoke 47/0). Scrolling
+  back into history and resizing both snap (no fade over scrollback; new geometry
+  starts un-faded).
+- Verified: fmt clean, lib 1574/0/7 (+10: ease-curve property, off-path identity,
+  scrollback-delta marking + cap, settle→idle, deadline aggregation, viewport &
+  resize snap, cursor-row exception, and background-color/decaying-alpha quad
+  shape), all-targets 0 failed, native pixel-smoke 47/0, clippy 38 baseline (zero
+  new). No parser/core change ⇒ no fuzz.
+
+---
+
 ## 2026-06-16 -- IN2: right-click context menu (Copy / Paste / Select All)
 
 - A right-click in the terminal now opens a small context menu at the click cell

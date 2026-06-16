@@ -491,6 +491,7 @@ mod tests {
             },
             crate::core::Position::default(),
             false,
+            std::time::Instant::now(),
         )
     }
 

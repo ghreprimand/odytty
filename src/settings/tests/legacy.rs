@@ -100,6 +100,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "crt_scanline_period",
             "crt_vignette_strength",
             "background_treatment",
+            "new_output_fade",
             "cursor_style",
             "cursor_blink",
             "cursor_easing",

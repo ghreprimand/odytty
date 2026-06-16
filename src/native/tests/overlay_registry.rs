@@ -55,6 +55,7 @@ fn inert_composite() -> OverlayCompositeSignature {
         cursor_trail: OverlayFragment::Inert,
         cursor_glow: OverlayFragment::Inert,
         background: OverlayFragment::Inert,
+        new_row_fade: OverlayFragment::Inert,
     }
 }
 
@@ -152,6 +153,7 @@ fn frame_overlay_refactor_is_pixel_identical() {
         cell(CELL_W, CELL_H),
         crate::core::Position::default(),
         false,
+        std::time::Instant::now(),
     );
 
     // Cell-paint manifest in production order.
@@ -195,6 +197,7 @@ fn inactive_contributors_are_noops() {
         cell(CELL_W, CELL_H),
         crate::core::Position::default(),
         false,
+        std::time::Instant::now(),
     );
 
     // Snapshot AFTER the existing overlay paint runs; the new slots must add
@@ -230,6 +233,7 @@ fn relocated_overlay_paint_mutates_when_open() {
         cell(CELL_W, CELL_H),
         crate::core::Position::default(),
         false,
+        std::time::Instant::now(),
     );
 
     let original = content_snapshot();
@@ -555,6 +559,7 @@ fn cursor_glow_off_emits_no_quads() {
         cell(CELL_W, CELL_H),
         crate::core::Position { row: 1, column: 2 },
         true, // visible — proves the gate is the setting, not visibility
+        std::time::Instant::now(),
     );
     let mut quads: Vec<SolidQuad> = Vec::new();
     app.paint_cursor_glow_quads(&ctx, &mut quads);
@@ -586,6 +591,7 @@ fn cursor_glow_on_emits_three_concentric_rings() {
         cell(CELL_W, CELL_H),
         crate::core::Position { row, column: col },
         true,
+        std::time::Instant::now(),
     );
     let mut quads: Vec<SolidQuad> = Vec::new();
     app.paint_cursor_glow_quads(&ctx, &mut quads);
@@ -642,6 +648,7 @@ fn cursor_glow_hidden_cursor_emits_no_quads() {
         cell(CELL_W, CELL_H),
         crate::core::Position { row: 1, column: 2 },
         false, // cursor hidden this frame
+        std::time::Instant::now(),
     );
     let mut quads: Vec<SolidQuad> = Vec::new();
     app.paint_cursor_glow_quads(&ctx, &mut quads);

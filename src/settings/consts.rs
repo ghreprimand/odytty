@@ -32,6 +32,7 @@ pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
 pub const CURSOR_EASING_ENV: &str = "ODYTTY_CURSOR_EASING";
 pub const CURSOR_MOTION_ENV: &str = "ODYTTY_CURSOR_MOTION";
 pub const CURSOR_GLOW_ENV: &str = "ODYTTY_CURSOR_GLOW";
+pub const NEW_OUTPUT_FADE_ENV: &str = "ODYTTY_NEW_OUTPUT_FADE";
 pub const OSC52_READ_ENV: &str = "ODYTTY_OSC52_READ";
 pub const SYNTHETIC_STYLES_ENV: &str = "ODYTTY_SYNTHETIC_STYLES";
 pub const GEOMETRIC_BOXDRAW_ENV: &str = "ODYTTY_GEOMETRIC_BOXDRAW";
@@ -85,6 +86,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CURSOR_EASING_ENV,
     CURSOR_MOTION_ENV,
     CURSOR_GLOW_ENV,
+    NEW_OUTPUT_FADE_ENV,
     OSC52_READ_ENV,
     SYNTHETIC_STYLES_ENV,
     GEOMETRIC_BOXDRAW_ENV,
@@ -222,6 +224,18 @@ pub const DEFAULT_CURSOR_MOTION: bool = false;
 /// cursor position. The halo alpha is capped low enough that adjacent-cell text
 /// contrast stays within the RV1 floor.
 pub const DEFAULT_CURSOR_GLOW: bool = false;
+
+/// New-output fade-in (`ODYTTY_NEW_OUTPUT_FADE`, VE4): when on, rows of freshly
+/// arrived output at the live tail fade in over a short ease-out ramp instead of
+/// appearing instantly. Implemented as a background-color overlay quad that
+/// decays from opaque to transparent over each new row, so the underlying cell
+/// content is always rendered at full opacity and never drops below the RV1
+/// readability floor mid-fade — the quad only *obscures then reveals*. Off by
+/// default; while off no fade quads are emitted, no extra wakes are scheduled,
+/// and the render path is byte-identical to before. Only fades at the live tail
+/// (`viewport_offset == 0`); scrolling back or resizing snaps instantly. The
+/// row carrying the cursor is never obscured. Purely presentational.
+pub const DEFAULT_NEW_OUTPUT_FADE: bool = false;
 
 /// Drag-to-extend selection (`ODYTTY_SELECTION_DRAG_EXTEND`, MOUSE-EXTEND): when
 /// on, a double-click-then-drag grows the selection by whole words, a

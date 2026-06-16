@@ -566,6 +566,13 @@ pub struct Settings {
     /// shell having advertised `click_events=1`, so the off path (and a
     /// non-integrated shell) emits nothing and is byte-identical to today.
     pub sh_click: bool,
+    /// Whether freshly arrived output rows fade in at the live tail (VE4). Off
+    /// by default; the off path emits no fade quads, schedules no extra wakes,
+    /// and is byte-identical to before. The fade is a background-color overlay
+    /// quad that decays to transparent, so the underlying content is always
+    /// fully rendered and never drops below the RV1 floor mid-fade. Only at the
+    /// live tail; scrollback and resize snap. Purely presentational.
+    pub new_output_fade: bool,
     /// Colour-vision-deficiency palette adaptation mode (U4, Accessibility).
     /// `Off` by default — the off path publishes the authored palette unchanged
     /// and is pixel-identical to before. The deficiency modes daltonise the
@@ -625,6 +632,7 @@ impl Default for Settings {
             wheel_zoom: DEFAULT_WHEEL_ZOOM,
             command_status_gutter: DEFAULT_COMMAND_STATUS_GUTTER,
             sh_click: DEFAULT_SH_CLICK,
+            new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
             native_autoclose: None,
@@ -998,6 +1006,12 @@ impl Settings {
             DEFAULT_SH_CLICK,
             &mut warn,
         );
+        let new_output_fade = parse_bool_setting(
+            get(NEW_OUTPUT_FADE_ENV).as_deref(),
+            NEW_OUTPUT_FADE_ENV,
+            DEFAULT_NEW_OUTPUT_FADE,
+            &mut warn,
+        );
         let cvd_mode = parse_cvd_mode(get(CVD_MODE_ENV).as_deref(), &mut warn);
         let cvd_strength = parse_cvd_strength(get(CVD_STRENGTH_ENV).as_deref(), &mut warn);
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
@@ -1046,6 +1060,7 @@ impl Settings {
             wheel_zoom,
             command_status_gutter,
             sh_click,
+            new_output_fade,
             cvd_mode,
             cvd_strength,
             native_autoclose,
@@ -1156,6 +1171,10 @@ impl Settings {
             bool_display(self.command_status_gutter).to_owned(),
         );
         values.insert(SH_CLICK_ENV, bool_display(self.sh_click).to_owned());
+        values.insert(
+            NEW_OUTPUT_FADE_ENV,
+            bool_display(self.new_output_fade).to_owned(),
+        );
         values.insert(CVD_MODE_ENV, self.cvd_mode.as_str().to_owned());
         values.insert(CVD_STRENGTH_ENV, format_float(self.cvd_strength));
         if let Some(duration) = self.native_autoclose {

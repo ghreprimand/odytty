@@ -76,6 +76,7 @@ mod cursor_frame;
 mod gutter_ui;
 mod hints_ui;
 mod interaction;
+mod new_row_fade;
 mod overlay_registry;
 mod pointer;
 mod prompt_jump;
@@ -333,6 +334,20 @@ pub(super) struct App {
     /// VE4 slide — the full initial displacement (in pixels) from the prior cell
     /// to the destination cell; decays to zero across the glide.
     cursor_slide_from_px: [f32; 2],
+    /// VE4 new-output fade — per-row fade-start instants, indexed by viewport
+    /// row. `Some(t)` = the row is fading in from `t`; `None` = full opacity.
+    /// Length tracks `grid.rows`; always empty while the feature is off, and
+    /// cleared on resize, scroll-back, and feature-off so a stale fade never
+    /// persists. See [`new_row_fade`].
+    row_fade_starts: Vec<Option<Instant>>,
+    /// VE4 new-output fade — the `scrollback_len` observed at the previous
+    /// fade update, used to derive how many new rows arrived since.
+    last_scrollback_len_for_fade: usize,
+    /// VE4 new-output fade — monotonic epoch bumped once per rebuild while any
+    /// row is mid-fade, so the render-cache fragment changes each animation
+    /// frame (the quad alphas move while the cell content does not). Folded into
+    /// the overlay composite signature; constant on the off path.
+    row_fade_epoch: u64,
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
@@ -422,6 +437,9 @@ impl App {
             cursor_slide_deadline: None,
             cursor_slide_start: None,
             cursor_slide_from_px: [0.0, 0.0],
+            row_fade_starts: Vec::new(),
+            last_scrollback_len_for_fade: 0,
+            row_fade_epoch: 0,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
             autoclose,
@@ -1397,11 +1415,17 @@ impl ApplicationHandler<UserEvent> for App {
                         // Frame-overlay cell-paint manifest (see overlay_registry).
                         // Order = paint precedence; new slots strictly after the
                         // existing four and no-op until their feature ships.
+                        // VE4 new-output fade: refresh the per-row fade-start
+                        // instants from the scrollback delta before building the
+                        // overlay context, so the fade quads this frame reflect
+                        // this rebuild's new rows. No-op while the knob is off.
+                        self.update_row_fade(now, scrollback_len);
                         let ctx = self.overlay_ctx(
                             scrollback_len,
                             cell,
                             snapshot.cursor,
                             snapshot.cursor_visible,
+                            now,
                         );
                         self.paint_selection_cells(&mut snapshot, &ctx);
                         self.paint_search_cells(&mut snapshot, &ctx);
@@ -1422,6 +1446,11 @@ impl ApplicationHandler<UserEvent> for App {
                         self.paint_cursor_trail_quads(&ctx, &mut overlays);
                         self.paint_cursor_glow_quads(&ctx, &mut overlays);
                         self.paint_background_quads(&ctx, &mut overlays);
+                        // VE4 new-output fade quads — last so they obscure the
+                        // freshly arrived rows on top of all other overlays;
+                        // empty on the off path. The cursor block draws after
+                        // overlays (ID1 reorder), so it is never hidden.
+                        self.paint_new_row_fade_quads(&ctx, &mut overlays);
                         // R3 call-site parity + A2 cache observability: compute
                         // the live cursor params ONCE so the signature `anim` key
                         // and the GPU CursorOnly call derive from the same source.
@@ -1453,6 +1482,7 @@ impl ApplicationHandler<UserEvent> for App {
                                     cursor_trail: self.cursor_trail_overlay_signature(),
                                     cursor_glow: self.cursor_glow_overlay_signature(),
                                     background: self.background_overlay_signature(),
+                                    new_row_fade: self.new_row_fade_overlay_signature(),
                                 },
                             },
                             cursor: CursorRenderSignature {

@@ -1151,6 +1151,20 @@ impl GpuState {
         self.window_padding
     }
 
+    /// The active theme background clear color in linear RGB with alpha `1.0`,
+    /// matching the [`SolidQuad`] color basis (VE4 new-output fade paints a
+    /// quad of this color over each fading row). Sourced from the same
+    /// `clear_color` used for the frame clear, so an opaque fade quad is
+    /// pixel-seamless against the surrounding background.
+    pub(super) fn clear_color_linear(&self) -> [f32; 4] {
+        [
+            self.clear_color.r as f32,
+            self.clear_color.g as f32,
+            self.clear_color.b as f32,
+            1.0,
+        ]
+    }
+
     fn content_origin(&self) -> [f32; 2] {
         [self.window_padding.as_f32(), self.window_padding.as_f32()]
     }

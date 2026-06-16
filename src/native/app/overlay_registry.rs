@@ -50,6 +50,14 @@ pub(in crate::native) struct OverlayCtx {
     /// off-phase). Cursor-layer overlays gate on this so the glow hides exactly
     /// when the cursor block does.
     pub(in crate::native) cursor_visible: bool,
+    /// Frame composition instant, injected so per-frame overlay animations
+    /// (VE4 new-output fade) advance from a single coherent clock.
+    pub(in crate::native) now: Instant,
+    /// Active theme background clear color in linear RGB (alpha `1.0`). VE4's
+    /// fade quad is painted in this color so it is seamless against the frame
+    /// clear; `[0.0; 4]` when the GPU is not yet present (the caller has
+    /// already early-returned in that case, so this is just a total default).
+    pub(in crate::native) clear_color: [f32; 4],
 }
 
 /// The currently-active keyboard modal, if any. Extended as new modals land;
@@ -74,6 +82,7 @@ impl App {
         cell: CellSize,
         cursor: Position,
         cursor_visible: bool,
+        now: Instant,
     ) -> OverlayCtx {
         OverlayCtx {
             viewport_offset: self.viewport.offset(),
@@ -87,6 +96,12 @@ impl App {
                 .unwrap_or_default(),
             cursor,
             cursor_visible,
+            now,
+            clear_color: self
+                .gpu
+                .as_ref()
+                .map(GpuState::clear_color_linear)
+                .unwrap_or([0.0; 4]),
         }
     }
 
@@ -335,6 +350,7 @@ impl App {
         [
             self.cursor_blink_fade_deadline(),
             self.cursor_motion_deadline(),
+            self.new_row_fade_deadline(),
         ]
         .into_iter()
         .flatten()

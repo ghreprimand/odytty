@@ -295,6 +295,7 @@ fn render_sig() -> RenderSignature {
                 cursor_trail: OverlayFragment::Inert,
                 cursor_glow: OverlayFragment::Inert,
                 background: OverlayFragment::Inert,
+                new_row_fade: OverlayFragment::Inert,
             },
         },
         cursor: CursorRenderSignature {
