@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- Core: OSC 133 click-to-position parse + delta carrier (SH-CLICK)
+
+- Added the core slice of click-to-position: a cooperating shell can announce,
+  per prompt, that its line editor accepts click-to-position via an OSC 133
+  prompt-start `click_events=N` attribute (`1` enables, `0` withdraws). The
+  parser scans only a prompt-start (`A`/`B`) payload, accepts exactly `1`/`0`,
+  and drops anything else (empty, multi-byte, non-binary, or a sibling attribute
+  like `aid=7`) leaving the current state unchanged. `Screen` tracks the latest
+  explicit directive as a `click_events_enabled` scalar (default off, peer of
+  focus reporting), and RIS resets it.
+- The emitted carrier is `ClickReport { cell_delta: i32 }` — an owned, `Copy`
+  value (no borrow into grid/screen, mirroring the absolute-point pattern):
+  `click_report(enabled, cursor_column, click_column)` returns the signed
+  horizontal cell delta, or `None` for a click on the cursor's own cell or when
+  disabled. The native pointer layer (the fast-follow) turns that delta into
+  cursor-key presses; core computes the delta only and the row-gate is native's
+  job. This is the click slice only — no shell-input takeover, no multi-cursor.
+- The directive is consumed by the OSC handler and never reaches the grid or a
+  snapshot (proven by a full snapshot-equality test); default-off is
+  byte-identical. A new OSC 133 arm in the protocol fuzz generator exercises the
+  parse surface; deep fuzz 40k stays 11/0 no-panic. lib 1425/0/7.
+
 ## 2026-06-16 -- Core: codepoint→font-override map (SYMMAP, RV6 extension)
 
 - Added the font-resolution-area core for per-codepoint font overrides: a

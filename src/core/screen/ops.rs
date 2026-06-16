@@ -1002,6 +1002,7 @@ impl Screen {
         self.keyboard = KeyboardModes::default();
         self.kitty_keyboard_stack.clear();
         self.focus_reporting = false;
+        self.click_events_enabled = false;
         // RIS returns the cursor shape/blink to the host default policy.
         self.cursor_style = self.default_cursor_style;
         self.cursor_blink = self.default_cursor_blink;

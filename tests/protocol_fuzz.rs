@@ -390,7 +390,7 @@ fn gen_mode_2026(rng: &mut FuzzRng) -> Vec<u8> {
 fn gen_osc(rng: &mut FuzzRng) -> Vec<u8> {
     let st: &[u8] = if rng.bool() { b"\x07" } else { b"\x1b\\" };
     let mut s: Vec<u8> = Vec::from(&b"\x1b]"[..]);
-    match rng.below(7) {
+    match rng.below(8) {
         0 => {
             // OSC 52 set with arbitrary (often invalid) base64.
             s.extend_from_slice(b"52;c;");
@@ -431,6 +431,25 @@ fn gen_osc(rng: &mut FuzzRng) -> Vec<u8> {
             let n = rng.below(64);
             for _ in 0..n {
                 s.push(*rng.pick(b"title \xe2\x9c\x94abc;:?"));
+            }
+        }
+        6 => {
+            // OSC 133 shell-integration prompt marks (SH1/SH-CLICK): random
+            // letter + key/value attribute soup, including click_events values.
+            s.extend_from_slice(b"133;");
+            s.push(*rng.pick(b"ABCDZ;"));
+            let n = rng.below(8);
+            for _ in 0..n {
+                s.push(b';');
+                match rng.below(4) {
+                    0 => s.extend_from_slice(b"click_events="),
+                    1 => s.extend_from_slice(b"aid="),
+                    _ => {}
+                }
+                let m = rng.below(12);
+                for _ in 0..m {
+                    s.push(*rng.pick(b"01239=;clickevnts_- "));
+                }
             }
         }
         _ => {

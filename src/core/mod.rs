@@ -56,9 +56,9 @@ mod tests;
 pub use encoding::{encode_focus_event, encode_mouse_event, encode_mouse_event_pixel};
 pub use hyperlink::{Hyperlink, MAX_URI_BYTES, uri_has_openable_scheme};
 pub use prompt_marks::{
-    Align, CommandBlock, CommandOutput, CommandStatus, JumpDirection, PromptKind, command_blocks,
-    command_output_cell_range, command_output_range, command_status, jump_target, prompt_jump,
-    viewport_offset_for_row,
+    Align, ClickReport, CommandBlock, CommandOutput, CommandStatus, JumpDirection, PromptKind,
+    click_report, command_blocks, command_output_cell_range, command_output_range, command_status,
+    jump_target, prompt_jump, viewport_offset_for_row,
 };
 pub use screen::{Screen, Terminal, VisibleRow};
 pub use search::{

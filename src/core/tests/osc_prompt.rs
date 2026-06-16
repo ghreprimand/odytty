@@ -473,3 +473,56 @@ fn command_blocks_derive_from_a_real_transcript() {
     assert_eq!(blocks[1].output, CommandOutput::Empty);
     assert_eq!(blocks[1].exit, None);
 }
+
+// --- SH-CLICK: click-events enable through the OSC 133 dispatch ---
+
+#[test]
+fn click_events_default_off_and_byte_identical_without_directive() {
+    // Default-off: a fresh terminal and a plain prompt cycle never enable
+    // click-events, so the SH-CLICK emit path stays inert.
+    let mut terminal = Terminal::new(20, 6);
+    assert!(!terminal.click_events_enabled());
+    terminal.advance(&osc133("A"));
+    terminal.advance(&osc133("B"));
+    terminal.advance(&osc133("C"));
+    terminal.advance(&osc133("D;0"));
+    assert!(!terminal.click_events_enabled());
+}
+
+#[test]
+fn click_events_enable_and_withdraw_through_dispatch() {
+    let mut terminal = Terminal::new(20, 6);
+    // A prompt announcing click_events=1 enables it.
+    terminal.advance(&osc133("A;click_events=1"));
+    assert!(terminal.click_events_enabled());
+    // A plain prompt leaves the flag unchanged (absent attribute = no change).
+    terminal.advance(b"\r\n");
+    terminal.advance(&osc133("A"));
+    assert!(terminal.click_events_enabled());
+    // An explicit click_events=0 withdraws it.
+    terminal.advance(b"\r\n");
+    terminal.advance(&osc133("A;click_events=0"));
+    assert!(!terminal.click_events_enabled());
+}
+
+#[test]
+fn click_events_reset_by_ris() {
+    let mut terminal = Terminal::new(20, 6);
+    terminal.advance(&osc133("A;click_events=1"));
+    assert!(terminal.click_events_enabled());
+    // RIS returns click-events to its power-on (off) state.
+    terminal.advance(b"\x1bc");
+    assert!(!terminal.click_events_enabled());
+}
+
+#[test]
+fn click_events_directive_does_not_leak_into_grid() {
+    // The click_events attribute is consumed by the OSC handler, never printed.
+    let mut plain = Terminal::new(20, 6);
+    let mut marked = Terminal::new(20, 6);
+    plain.advance(b"X");
+    marked.advance(&osc133("A;click_events=1"));
+    marked.advance(b"X");
+    // The directive is consumed by the OSC handler; the render surface matches.
+    assert_eq!(plain.snapshot(), marked.snapshot());
+}

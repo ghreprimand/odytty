@@ -80,6 +80,121 @@ fn parse_exit_code(part: &[u8]) -> Option<i32> {
     Some(value)
 }
 
+/// The OSC 133 click-to-position directive carried on a prompt-start payload as
+/// a `click_events=N` key/value attribute (SH-CLICK).
+///
+/// A cooperating shell announces, on each prompt, whether its line editor will
+/// accept click-to-position: `click_events=1` enables it, `click_events=0`
+/// withdraws it. OdyTTY tracks the latest explicit directive as terminal state
+/// (default off); the native pointer layer reads that state and, on a click
+/// within the active prompt line, maps the [`ClickReport`] this module emits to
+/// the cursor-key presses that move the shell cursor.
+///
+/// **Charter boundary:** this is the click-to-position slice only. Core parses
+/// the enable/disable and emits a structured horizontal delta; it never takes
+/// over shell input, never does multi-cursor or undo, and never writes to the
+/// host on its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClickEvents {
+    /// `click_events=1`: the shell's line editor accepts click-to-position.
+    Enable,
+    /// `click_events=0`: the shell withdrew click-to-position support.
+    Disable,
+}
+
+/// Scan an OSC 133 payload — the `;`-split parts *after* the leading `133` — for
+/// a `click_events=N` attribute on a prompt-start (`A`/`B`), returning the
+/// directive when present and well-formed (SH-CLICK).
+///
+/// Returns `None` (leave the current click-events state untouched) when:
+/// - the payload is not a prompt-start (`C` / `D` / unknown letters carry no
+///   click-events directive);
+/// - no `click_events` key is present; or
+/// - the value is anything other than the exact `1` / `0` (an empty, multi-byte,
+///   or non-binary value is dropped, not an error).
+///
+/// Pure and defensive: any byte sequence yields a directive or `None` and never
+/// panics, mirroring [`parse_osc133`]. Unknown / oversized sibling attributes
+/// (e.g. `aid=7`) are simply skipped.
+pub(in crate::core) fn parse_click_events(parts: &[&[u8]]) -> Option<ClickEvents> {
+    // Only a prompt-start (A/B) carries the click-events directive.
+    let letter = parts.first().and_then(|p| p.first()).copied()?;
+    if !matches!(letter, b'A' | b'B') {
+        return None;
+    }
+    // Find the `click_events=<val>` attribute among the remaining parts.
+    for part in &parts[1..] {
+        let Some(equals) = part.iter().position(|&b| b == b'=') else {
+            continue;
+        };
+        let (key, value) = part.split_at(equals);
+        if key != b"click_events" {
+            continue;
+        }
+        // `value` still carries the leading `=`; the bytes after it are the value.
+        return match &value[1..] {
+            b"1" => Some(ClickEvents::Enable),
+            b"0" => Some(ClickEvents::Disable),
+            // Empty / multi-byte / non-binary values are dropped (unchanged).
+            _ => None,
+        };
+    }
+    None
+}
+
+/// A structured click-to-position request (SH-CLICK): the signed horizontal cell
+/// delta from the shell line-editor cursor to the clicked cell. Owned and
+/// `Copy` — it carries no borrow into grid/screen state, so the native layer can
+/// hold it freely (mirroring the [`AbsolutePoint`] owned-carrier pattern).
+///
+/// The native layer turns `cell_delta` into that many cursor-key presses
+/// (`Left` for a negative delta, `Right` for a positive one) sent to the host —
+/// the click-to-position action. Core computes the delta; native owns the wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClickReport {
+    /// Net horizontal movement in cells from the cursor to the clicked cell:
+    /// negative = move left, positive = move right. Never zero — a click on the
+    /// cursor's own cell yields `None` from [`click_report`] (no event).
+    pub cell_delta: i32,
+}
+
+/// Derive the click-to-position request for a click on the active prompt line,
+/// or `None` when no movement should occur (SH-CLICK).
+///
+/// `enabled` is the OSC 133 click-events state ([`ClickEvents`], tracked by the
+/// screen). **Default-off contract:** when the app has not enabled click-events
+/// this returns `None` and touches nothing, so the emit path is byte-identical
+/// to today (no event produced, no host write).
+///
+/// `cursor_column` is the line-editor cursor's current column and `click_column`
+/// the clicked cell's column — both 0-based within the prompt row. The native
+/// layer confirms the click landed on the active prompt line (the row gate is a
+/// native concern) before calling; core's contract is purely the horizontal
+/// delta `click_column - cursor_column`. A click on the cursor's own cell yields
+/// `None`.
+///
+/// Pure; never panics. Column counts are clamped into `i32` range and the delta
+/// uses a saturating subtraction, so even absurd column values cannot overflow.
+pub fn click_report(
+    enabled: bool,
+    cursor_column: usize,
+    click_column: usize,
+) -> Option<ClickReport> {
+    if !enabled {
+        return None;
+    }
+    // Clamp into i32 range defensively (grid columns never approach this, but a
+    // malformed caller value must not overflow the cast or the subtraction).
+    let cursor = cursor_column.min(i32::MAX as usize) as i32;
+    let click = click_column.min(i32::MAX as usize) as i32;
+    let cell_delta = click.saturating_sub(cursor);
+    if cell_delta == 0 {
+        None
+    } else {
+        Some(ClickReport { cell_delta })
+    }
+}
+
 /// The output region of a [`CommandBlock`], derived from the marks that bound
 /// it. Absolute-row coordinates (row `0` = oldest scrollback), matching
 /// [`super::screen::Screen::prompt_marks`].
@@ -510,6 +625,119 @@ mod tests {
             parse_osc133(&[b"A", b"aid=1"]),
             Some(PromptKind::PromptStart)
         );
+    }
+
+    // --- SH-CLICK: click-events parse + click report ---
+
+    #[test]
+    fn click_events_enable_and_disable_parse() {
+        assert_eq!(
+            parse_click_events(&[b"A", b"click_events=1"]),
+            Some(ClickEvents::Enable)
+        );
+        assert_eq!(
+            parse_click_events(&[b"A", b"click_events=0"]),
+            Some(ClickEvents::Disable)
+        );
+        // `B` (command-input start) is also a prompt-start and carries it too.
+        assert_eq!(
+            parse_click_events(&[b"B", b"click_events=1"]),
+            Some(ClickEvents::Enable)
+        );
+    }
+
+    #[test]
+    fn click_events_absent_or_plain_prompt_is_none() {
+        // A plain prompt with no click_events attribute leaves state untouched.
+        assert_eq!(parse_click_events(&[b"A"]), None);
+        // Sibling attributes without click_events are skipped, not an error.
+        assert_eq!(parse_click_events(&[b"A", b"aid=7"]), None);
+    }
+
+    #[test]
+    fn click_events_only_on_prompt_start() {
+        // C / D / unknown letters carry no click-events directive even if a
+        // stray click_events token rides along.
+        assert_eq!(parse_click_events(&[b"C", b"click_events=1"]), None);
+        assert_eq!(parse_click_events(&[b"D", b"click_events=1"]), None);
+        assert_eq!(parse_click_events(&[b"Z", b"click_events=1"]), None);
+        assert_eq!(parse_click_events(&[b""]), None);
+        assert_eq!(parse_click_events(&[]), None);
+    }
+
+    #[test]
+    fn click_events_malformed_value_is_dropped() {
+        // Empty, multi-byte, and non-binary values yield None (leave unchanged),
+        // never panic. Only the exact `1` / `0` are recognized.
+        assert_eq!(parse_click_events(&[b"A", b"click_events="]), None);
+        assert_eq!(parse_click_events(&[b"A", b"click_events=2"]), None);
+        assert_eq!(parse_click_events(&[b"A", b"click_events=10"]), None);
+        assert_eq!(parse_click_events(&[b"A", b"click_events=yes"]), None);
+        // A key that merely starts with the name must not match.
+        assert_eq!(parse_click_events(&[b"A", b"click_events_extra=1"]), None);
+    }
+
+    #[test]
+    fn click_events_finds_attribute_among_siblings() {
+        // The directive is found regardless of its position among other attrs.
+        assert_eq!(
+            parse_click_events(&[b"A", b"aid=7", b"click_events=1", b"k=v"]),
+            Some(ClickEvents::Enable)
+        );
+        // The first click_events attribute wins.
+        assert_eq!(
+            parse_click_events(&[b"A", b"click_events=1", b"click_events=0"]),
+            Some(ClickEvents::Enable)
+        );
+    }
+
+    #[test]
+    fn click_report_inert_when_disabled() {
+        // Default-off contract: not enabled → None regardless of the columns, so
+        // the emit path is byte-identical to today (no event).
+        assert_eq!(click_report(false, 5, 20), None);
+        assert_eq!(click_report(false, 0, 0), None);
+    }
+
+    #[test]
+    fn click_report_signed_delta_when_enabled() {
+        // Click right of the cursor → positive (move right); left → negative.
+        assert_eq!(
+            click_report(true, 4, 10),
+            Some(ClickReport { cell_delta: 6 })
+        );
+        assert_eq!(
+            click_report(true, 10, 4),
+            Some(ClickReport { cell_delta: -6 })
+        );
+    }
+
+    #[test]
+    fn click_report_same_cell_is_none() {
+        // A click on the cursor's own cell is a no-op (no movement event).
+        assert_eq!(click_report(true, 7, 7), None);
+        assert_eq!(click_report(true, 0, 0), None);
+    }
+
+    #[test]
+    fn click_report_does_not_overflow_on_absurd_columns() {
+        // Defensive: huge column values clamp into i32 range and the saturating
+        // subtraction never panics. usize::MAX click, 0 cursor → +i32::MAX.
+        assert_eq!(
+            click_report(true, 0, usize::MAX),
+            Some(ClickReport {
+                cell_delta: i32::MAX
+            })
+        );
+        // usize::MAX cursor, 0 click → -i32::MAX (saturates, no underflow).
+        assert_eq!(
+            click_report(true, usize::MAX, 0),
+            Some(ClickReport {
+                cell_delta: -i32::MAX
+            })
+        );
+        // Both clamped to i32::MAX → equal → None.
+        assert_eq!(click_report(true, usize::MAX, usize::MAX), None);
     }
 
     // --- CommandBlock derivation (SH2 core) ---

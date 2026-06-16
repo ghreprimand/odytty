@@ -176,6 +176,14 @@ pub struct Screen {
     /// DECSET/DECRST 1004 focus reporting. When on, the front end emits
     /// `ESC [ I` / `ESC [ O` on focus in/out. Off at power-on; RIS resets it.
     focus_reporting: bool,
+    /// OSC 133 click-to-position enable (SH-CLICK). A cooperating shell sets this
+    /// per prompt via a `click_events=1` attribute (and clears it with `=0`); a
+    /// plain prompt leaves it unchanged. Off at power-on; RIS resets it. Advisory
+    /// state only — core never acts on it; the native pointer layer reads it and,
+    /// on a click on the active prompt line, maps [`prompt_marks::click_report`]
+    /// to cursor-key presses. Default-off means the emit path is inert until the
+    /// app opts in.
+    click_events_enabled: bool,
     /// Effective cursor shape (DECSCUSR `CSI Ps SP q`, or the host default).
     cursor_style: CursorStyle,
     /// Effective cursor blink policy (DECSCUSR, or the host default).
@@ -285,6 +293,7 @@ impl Screen {
             keyboard: KeyboardModes::default(),
             kitty_keyboard_stack: Vec::new(),
             focus_reporting: false,
+            click_events_enabled: false,
             cursor_style: CursorStyle::default(),
             cursor_blink: true,
             default_cursor_style: CursorStyle::default(),
@@ -917,6 +926,15 @@ impl Screen {
         self.focus_reporting
     }
 
+    /// Whether OSC 133 click-to-position (SH-CLICK) is currently enabled by the
+    /// shell. Advisory: the native pointer layer reads this to decide whether a
+    /// click on the active prompt line should emit a
+    /// [`prompt_marks::click_report`]; core never acts on it. Off until a
+    /// `click_events=1` prompt attribute opts in.
+    pub fn click_events_enabled(&self) -> bool {
+        self.click_events_enabled
+    }
+
     pub fn hyperlink(&self, id: LinkId) -> Option<&Hyperlink> {
         self.hyperlinks.get(id)
     }
@@ -1001,6 +1019,13 @@ impl Screen {
     /// untouched. Pure state mutation: no grid write, no host reply, and the
     /// cursor / pending-wrap state is deliberately not touched.
     fn handle_osc133(&mut self, parts: &[&[u8]]) {
+        // SH-CLICK: a prompt-start may carry a `click_events=N` directive that
+        // enables (or withdraws) click-to-position. Apply it when explicitly
+        // present; an absent attribute leaves the flag unchanged. This is
+        // independent of the mark stamping below and never writes the grid.
+        if let Some(directive) = prompt_marks::parse_click_events(parts) {
+            self.click_events_enabled = matches!(directive, prompt_marks::ClickEvents::Enable);
+        }
         let Some(kind) = prompt_marks::parse_osc133(parts) else {
             return;
         };
@@ -1585,6 +1610,12 @@ impl Terminal {
     /// Whether DECSET 1004 focus reporting is enabled.
     pub fn focus_reporting(&self) -> bool {
         self.screen.focus_reporting()
+    }
+
+    /// Whether OSC 133 click-to-position (SH-CLICK) is currently enabled by the
+    /// shell; see [`Screen::click_events_enabled`].
+    pub fn click_events_enabled(&self) -> bool {
+        self.screen.click_events_enabled()
     }
 
     pub fn hyperlink(&self, id: LinkId) -> Option<&Hyperlink> {
