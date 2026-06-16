@@ -421,6 +421,12 @@ its first stable layer.
 - Right-edge scroll position indicator
 - Configurable cursor shapes and blink policy (DECSCUSR + settings)
 - Configurable terminal-local key bindings
+- Keyboard copy mode (`copy_mode` action, off by default): a keyboard-driven
+  scrollback selection mode. `h/j/k/l`, `w/b/e`, `0/^/$`, `gg/G` move the
+  caret; `v` and `V` start character and line selection; `y` / Enter yanks the
+  selected text to the clipboard; `Esc`/`q` cancel. Arrow keys, PageUp/Down,
+  Home/End, and `Ctrl-u/d/b/f` paging are also bound. Off by default — nothing
+  changes until the action is bound via `ODYTTY_KEYBINDS` and invoked.
 - Mouse reporting: tracking modes 9 (X10), 1000 (normal), 1002 (button-event),
   1003 (any-event), focus reporting (1004); encodings 1005 (UTF-8 coordinate
   extension), 1006 (SGR decimal), 1015 (urxvt decimal); legacy byte protocol

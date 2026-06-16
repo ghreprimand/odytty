@@ -344,6 +344,15 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         copies the match the user types; `Esc` dismisses. Labels are
         prefix-free (no mismatch on multi-character labels). Binding is
         configurable via `ODYTTY_KEYBINDS` (action name `hints`).
+- [x] Keyboard copy mode (off by default; bind via `ODYTTY_KEYBINDS` action
+      `copy_mode`): keyboard-driven scrollback selection with vim-style motions.
+  - [x] `h/j/k/l`, `w/b/e`, `0/^/$`, `gg/G` move the caret; arrow keys,
+        PageUp/Down, Home/End, and `Ctrl-u/d/b/f` paging are also bound.
+  - [x] `v` starts character selection, `V` starts line selection, `o` swaps
+        ends; `y` / Enter yanks selected text to clipboard; `Esc`/`q` cancel.
+  - [x] Terminal core state is never modified — copy mode is a presentation
+        overlay; the default frame and input routing are byte-identical while
+        copy mode is inactive.
 - [x] Add cursor style and blink policy settings.
   - [x] DECSCUSR (`CSI Ps SP q`) styles 0-6: host default, blinking/steady
         block, blinking/steady underline, blinking/steady bar; `RIS`/`DECSTR`

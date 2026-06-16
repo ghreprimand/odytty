@@ -135,6 +135,14 @@ each match with a short home-row key sequence, and copies the one you type.
 label never misfires on a partial keystroke. The binding is configurable via
 `ODYTTY_KEYBINDS` (action name `hints`).
 
+**Keyboard copy mode.** A keyboard-driven scrollback selection mode, bound via
+`ODYTTY_KEYBINDS` (action name `copy_mode`) and off by default. Once open, vim
+motions navigate the scrollback (`hjkl`, `w`/`b`/`e`, `0`/`^`/`$`, `gg`/`G`);
+`v` starts character selection, `V` starts line selection, `y` or Enter yanks
+the selected text to the clipboard, and `Esc`/`q` cancel. Arrow keys,
+PageUp/Down, Home/End, and `Ctrl-u`/`d`/`b`/`f` paging are also bound.
+Terminal state is never modified while copy mode is active.
+
 **OSC 8 hyperlinks.** Shell output with OSC 8 sequences renders hover underline
 highlighting. Ctrl+click opens links via `xdg-open` through a scheme allowlist
 (`http`, `https`, `file`, `mailto`); links are never auto-opened from input.
