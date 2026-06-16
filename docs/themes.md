@@ -63,22 +63,24 @@ path — so the file format is exercised by the library on every startup.
 
 ### Theme families
 
-**Odyssey identity** — `plain` plus thirty-five `odyssey-*` variants are
+**Odyssey identity** — `plain` plus forty-one `odyssey-*` variants are
 original themes designed for OdysseyOS. `plain` reproduces the historical xterm
 default palette byte-for-byte and is the fallback when no theme is configured.
 The `odyssey-*` variants span a range of visual moods across dark and light
 appearances: deep-space and interstellar cold (`odyssey`, `odyssey-deepspace`,
 `odyssey-pulsar`), warm atmospheric (`odyssey-solar`, `odyssey-ember`,
-`odyssey-abyss`, `odyssey-volcanic`, `odyssey-rosewood`), cool natural
-(`odyssey-glacier`, `odyssey-voyager`, `odyssey-fathom`, `odyssey-harbor`,
-`odyssey-orchard`, `odyssey-tidepool`, `odyssey-slate`), cosmic nebula
-(`odyssey-nebula`, `odyssey-aurora`, `odyssey-ion`, `odyssey-twilight`,
-`odyssey-quasar`), natural greens (`odyssey-verdant`, `odyssey-moss`), warm
-and cool text focus (`odyssey-meridian`, `odyssey-graphite`), and ten light
+`odyssey-abyss`, `odyssey-volcanic`, `odyssey-rosewood`, `odyssey-garnet`),
+cool natural (`odyssey-glacier`, `odyssey-voyager`, `odyssey-fathom`,
+`odyssey-harbor`, `odyssey-orchard`, `odyssey-tidepool`, `odyssey-slate`),
+cosmic nebula (`odyssey-nebula`, `odyssey-aurora`, `odyssey-ion`,
+`odyssey-twilight`, `odyssey-quasar`, `odyssey-cobalt`), natural greens
+(`odyssey-verdant`, `odyssey-moss`), warm and cool text focus
+(`odyssey-meridian`, `odyssey-graphite`, `odyssey-sepia`), and thirteen light
 companions (`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`,
 `odyssey-cloud-light`, `odyssey-coral-light`, `odyssey-mist-light`,
 `odyssey-meadow-light`, `odyssey-parchment-light`, `odyssey-blossom-light`,
-`odyssey-linen-light`). These carry the strongest OdysseyOS visual identity.
+`odyssey-linen-light`, `odyssey-lilac-light`, `odyssey-pearl-light`,
+`odyssey-apricot-light`). These carry the strongest OdysseyOS visual identity.
 
 **Community** — twenty-eight themes ported from widely-used open-source
 color-scheme palettes. The dark side covers the ten palettes that formed the
@@ -140,6 +142,12 @@ OdyTTY has no affiliation with or endorsement from any of those vendors.
 | `odyssey-slate` | dark | Odyssey identity (cool steel-blue neutral focus mode) |
 | `odyssey-blossom-light` | light | Odyssey identity (soft rose-blossom daylight companion) |
 | `odyssey-linen-light` | light | Odyssey identity (warm neutral linen daylight with ink text) |
+| `odyssey-garnet` | dark | Odyssey identity (deep crimson and wine-red over a maroon-black grain) |
+| `odyssey-sepia` | dark | Odyssey identity (warm sepia-brown monochrome focus mode) |
+| `odyssey-cobalt` | dark | Odyssey identity (electric royal-blue jet over deep cobalt navy) |
+| `odyssey-lilac-light` | light | Odyssey identity (soft lavender daylight with violet accents) |
+| `odyssey-pearl-light` | light | Odyssey identity (cool neutral pearl-grey daylight) |
+| `odyssey-apricot-light` | light | Odyssey identity (warm apricot-peach daylight companion) |
 | `solarized-dark` | dark | Community |
 | `solarized-light` | light | Community |
 | `gruvbox-dark` | dark | Community |

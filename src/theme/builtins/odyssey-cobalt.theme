@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-cobalt
+appearance = dark
+
+foreground = #dde2f8
+background = #070a1e
+clear = #04060f
+
+cursor = #5870ff
+selection = #1e2850
+search = #4a3c18
+border = #1c2448
+inactive = #6068a0
+
+color0 = #161e3c
+color1 = #f06a8a
+color2 = #5cd0a0
+color3 = #e6b85a
+color4 = #5870ff
+color5 = #9a7af0
+color6 = #4cc0e8
+color7 = #c4cae8
+color8 = #2c3460
+color9 = #ff8aa6
+color10 = #84e6bc
+color11 = #ffd078
+color12 = #7e92ff
+color13 = #b89aff
+color14 = #74d8f4
+color15 = #eef0fc

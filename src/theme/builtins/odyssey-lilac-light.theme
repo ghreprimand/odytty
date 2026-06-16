@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-lilac-light
+appearance = light
+
+foreground = #2e2640
+background = #f3eefa
+clear = #fbf8fe
+
+cursor = #7a4ec0
+selection = #e4d8f4
+search = #ece4a8
+border = #ddd0ee
+inactive = #8a7ca4
+
+color0 = #2e2640
+color1 = #bc4664
+color2 = #2f8a52
+color3 = #8a6a18
+color4 = #5246c0
+color5 = #8a40bc
+color6 = #1c8090
+color7 = #564e64
+color8 = #463e58
+color9 = #cc4a72
+color10 = #38985a
+color11 = #a07c1c
+color12 = #5e54d4
+color13 = #9a52c8
+color14 = #2a8fa4
+color15 = #16101e

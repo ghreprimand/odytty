@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-sepia
+appearance = dark
+
+foreground = #ecdcc4
+background = #15110a
+clear = #100c07
+
+cursor = #d8b888
+selection = #38301f
+search = #44381a
+border = #2e2618
+inactive = #786850
+
+color0 = #281f14
+color1 = #c8806a
+color2 = #a8b070
+color3 = #d8b060
+color4 = #88a0a8
+color5 = #c098a0
+color6 = #90b0a8
+color7 = #d4c4ac
+color8 = #4a3e2c
+color9 = #e0a088
+color10 = #c4cc90
+color11 = #f0cc80
+color12 = #a8c0c8
+color13 = #e0b8c0
+color14 = #b0d0c8
+color15 = #f4e8d4

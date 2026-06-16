@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-pearl-light
+appearance = light
+
+foreground = #262a30
+background = #f1f3f6
+clear = #fafbfc
+
+cursor = #50607a
+selection = #dde1e8
+search = #e8e6b0
+border = #d4d8e0
+inactive = #8a909a
+
+color0 = #262a30
+color1 = #bc4a52
+color2 = #3a8a5e
+color3 = #8a6a20
+color4 = #3a6ec0
+color5 = #8050b4
+color6 = #1f8590
+color7 = #565c64
+color8 = #444a52
+color9 = #cc505a
+color10 = #429868
+color11 = #a07c24
+color12 = #4a7ccc
+color13 = #905ec0
+color14 = #2a909a
+color15 = #14171c

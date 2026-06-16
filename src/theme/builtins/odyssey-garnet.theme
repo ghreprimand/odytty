@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-garnet
+appearance = dark
+
+foreground = #f2dde0
+background = #170a0d
+clear = #110709
+
+cursor = #e8455f
+selection = #3a1a22
+search = #4a3a16
+border = #361820
+inactive = #806068
+
+color0 = #2a1418
+color1 = #e8526a
+color2 = #5fc888
+color3 = #e0a84e
+color4 = #6f9ae8
+color5 = #d878a0
+color6 = #58c0c0
+color7 = #d8c4c8
+color8 = #4a2a32
+color9 = #ff7088
+color10 = #84e0a4
+color11 = #ffc870
+color12 = #92b6ff
+color13 = #f098c0
+color14 = #80e0e0
+color15 = #f8e8ec

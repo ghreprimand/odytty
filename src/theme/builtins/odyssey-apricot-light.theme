@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-apricot-light
+appearance = light
+
+foreground = #382a22
+background = #fdf2e9
+clear = #fff9f3
+
+cursor = #c2611e
+selection = #f6e0cc
+search = #f0e2a4
+border = #ecd6c2
+inactive = #9a8474
+
+color0 = #382a22
+color1 = #c24632
+color2 = #4a8a3a
+color3 = #b06a14
+color4 = #2f6fb8
+color5 = #a8508c
+color6 = #1f8a82
+color7 = #645248
+color8 = #4e3e34
+color9 = #d8543e
+color10 = #5a9a48
+color11 = #c47c1c
+color12 = #3a7cc4
+color13 = #b85e9c
+color14 = #2a9a90
+color15 = #1e140e
