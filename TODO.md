@@ -354,6 +354,13 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
   - [x] Render the three cursor shapes through the existing quad path; blink is
         focus-aware and busy-redraw-free (solid with no scheduled wake when the
         style does not blink or the window is unfocused).
+- [x] Opt-in cursor animations (both off by default).
+  - [x] Cursor easing (`cursor_easing`): opacity fades across each blink edge
+        (180 ms ease) instead of a hard toggle; unfocused and steady cursors
+        stay fully opaque with no animation overhead.
+  - [x] Cursor slide (`cursor_motion`): cursor glides between adjacent cells
+        (55 ms ease-out-cubic) instead of jumping; snaps on first frame, large
+        jumps (> 6 cells), resize, scrollback, and unfocus.
 - [ ] Add window title and focus behavior.
   - [x] Apply OSC title changes to the native window title.
   - [x] Emit DECSET 1004 focus-in/out reports from native window focus events.
@@ -377,14 +384,14 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
 
 ## Stage 5: Settings and Profiles
 
-- [x] CF1 file-based configuration: load
+- [x] File-based configuration: load
       `$XDG_CONFIG_HOME/odytty/odytty.conf` or
       `~/.config/odytty/odytty.conf` once at native startup with precedence
       defaults < config file < environment variables. The format is simple
       `key = value` plus `#` comments, uses a hand-rolled parser, mirrors every
       current `ODYTTY_*` knob, keeps malformed/missing/unreadable files
       non-fatal, and routes all values through the single `Settings` struct.
-- [x] CF2 live config reload for settings with existing rebuild seams.
+- [x] Live config reload for settings with existing rebuild seams.
   - [x] Dependency-free mtime+size polling on the native event-loop wake path
         with a bounded one-second cadence; no watcher thread or notify/inotify
         dependency.
@@ -397,9 +404,9 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         path as HiDPI scale changes.
   - [x] Robustness policy: invalid rewrites and deleted files leave the current
         settings untouched; `native_autoclose_ms` remains startup-only.
-- [x] UX1 overlay framework: presentation-only in-window panel layer rendered
+- [x] Settings overlay framework: presentation-only in-window panel layer rendered
       through cells, keyboard-driven, and isolated from terminal state.
-- [x] UX2-a read-only settings panel scaffold.
+- [x] Read-only settings panel scaffold.
   - [x] `Settings::setting_info()` inventories every runtime setting in stable
         grouped order with current display value, type hint, range/options, env
         key, reloadability, and non-empty human-readable description.
@@ -407,16 +414,16 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         `PageUp`/`PageDown`, `Home`/`End`, and `Esc` navigate/close it.
         The panel consumes input while open and never writes config or mutates
         terminal state.
-- [x] UX2-b in-panel setting editing with live apply.
+- [x] In-panel setting editing with live apply.
   - [x] Settings rows are editable from the overlay: booleans toggle, enums
         cycle, numeric values clamp through the same parser path as config/env,
         and text/path/list settings use an in-row text buffer.
   - [x] Committed edits live-apply through the same native reload seam as file
         reload. Startup-only settings are marked non-editable, and no config
         file writeback happens in this slice.
-  - [x] Edits are tracked as a diff over the loaded settings so UX2-c can
-        serialize only changed rows; reverting a row clears it from the diff.
-- [x] UX2-c atomic settings writeback.
+  - [x] Edits are tracked as a diff over the loaded settings so the writeback
+        step can serialize only changed rows; reverting a row clears it from the diff.
+- [x] Atomic settings writeback.
   - [x] `Ctrl+S` in the settings panel persists the live-applied diff to the
         same `odytty.conf` path used by startup/live reload.
   - [x] Writeback preserves comments, blank lines, key order, and unknown or
@@ -425,7 +432,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
   - [x] Saves use a same-directory temp file plus rename, create the config
         directory when missing, and surface non-fatal in-panel errors on write
         failure.
-- [x] UX3 theme picker with live preview.
+- [x] Theme picker with live preview.
   - [x] `Ctrl+Shift+T` opens a built-in theme picker; the settings panel's
         theme row also opens it with `Left`/`Right` while `Enter` remains the
         text-edit path for custom theme names and files.
@@ -436,7 +443,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         without persisting the preview.
   - [ ] User theme directory enumeration in the picker; user theme files are
         still selectable through the settings-panel theme text edit.
-- [x] TH4 in-app theme builder.
+- [x] In-app theme builder.
   - [x] Opened from the settings panel by navigating to the theme row and
         pressing `B`; clone any existing built-in or start from the default
         template, adjust individual color roles with live preview applied
@@ -444,9 +451,9 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         `.theme` file to the user theme directory (same parent as
         `odytty.conf`, under `themes/`). `Esc` cancels and restores the
         original theme without saving.
-- [ ] UX4 mouse-driven settings overlay.
-  - [x] UX4-P1: the settings panel is now operable by mouse. Left-click toggles
-        a boolean, cycles an enum, opens the theme picker on the theme row, or
+- [x] Mouse-driven settings overlay.
+  - [x] The settings panel is now operable by mouse: left-click toggles a
+        boolean, cycles an enum, opens the theme picker on the theme row, or
         starts text-edit on numeric/string/path/list rows; right-click cycles an
         enum backward; the wheel free-scrolls the list; clicking outside the
         panel dismisses it exactly like `Esc` (the theme picker restores the
@@ -459,26 +466,31 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         reporting, hyperlink, and viewport-scroll handling while the overlay is
         open, and opening an overlay clears any held TUI mouse-report button so
         no stale report can survive behind it.
-  - [x] UX4-P2: numeric settings rows gain a draggable slider and click-to-type
-        entry. Each numeric setting carries a `NumericSpec { min, max, step, unit }`
+  - [x] Numeric settings rows gain a draggable slider and click-to-type entry.
+        Each numeric setting carries a `NumericSpec { min, max, step, unit }`
         and the displayed range label is derived from it (no duplicated range
         string). Dragging the slider track sets the value within `[min, max]`
         snapped to `step` with the readout reflecting the live value; clicking the
         readout begins in-place text entry through the same parser/clamp path as
-        keyboard edit. Pointer Move/Release routing extends the UX4-P1 overlay
+        keyboard edit. Pointer Move/Release routing extends the overlay pointer
         seam; the drag is mutually-exclusive state that is cleared on release,
         overlay close/reopen, mode switch, and window focus loss, so a lost
         release (alt-tab mid-drag) cannot leave a phantom drag that commits a
         stray value on focus regain. Keyboard path unchanged and additive;
         plain/fast render path untouched.
-  - [x] UX4-P3: coherent effect grouping and clearer setting labels.
-        `setting_info()` stable-sorts rows into contiguous groups (Theme, Font,
-        Rendering, Post-process, Cursor, Input, Clipboard, Development) and the
-        cryptic keys gained clear display labels + help text (e.g. `osc52_read`
-        → "Allow clipboard read (OSC 52)", `render_quality` → "Renderer
-        profile", `crt_scanline_period` → "CRT scanline spacing", `symbol_font`
-        → "Symbol font file"). Labels/help only — no config-key/env renames, so
+  - [x] Coherent effect grouping and clearer setting labels: `setting_info()`
+        stable-sorts rows into contiguous groups (Theme, Font, Rendering,
+        Post-process, Cursor, Input, Clipboard, Development) and cryptic keys
+        gained clear display labels + help text (e.g. `osc52_read` →
+        "Allow clipboard read (OSC 52)", `render_quality` → "Renderer profile",
+        `crt_scanline_period` → "CRT scanline spacing", `symbol_font` →
+        "Symbol font file"). Labels/help only — no config-key/env renames, so
         existing config files keep working; plain/fast render path unchanged.
+- [x] Settings description clarity sweep — rewrote in-panel descriptions for
+      `text_gamma`, `visual`, `cursor_style`, and `cursor_blink` to lead with
+      what each setting does and the effect of changing it.
+  - [ ] Fix the inert `cursor_blink = auto` logic branch (currently behaves
+        identically to `on`; tied to a future OS-theme follow-on setting).
 - [ ] Profiles and CLI config introspection.
   - [x] `--list-fonts`: enumerate discoverable font files (path, filename-stem
         name, monospace on/off) from the renderer's bounded search directories.
@@ -489,45 +501,45 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
 Operator directive: visual capability parity with the strongest GPU terminals is
 a floor; surpassing it is the standing ambition.
 
-- [ ] Add color emoji rendering on the accepted EM ladder.
-  - [x] EM1: decision spike selected `swash`, a separate premultiplied-RGBA
+- [ ] Add color emoji rendering.
+  - [x] Decision spike: selected `swash`, a separate premultiplied-RGBA
         emoji atlas/draw segment, Linux Noto Color Emoji CBDT/CBLC first,
         VS15/VS16 + degradation in the first implementation packet, and
         deferred-not-blocked COLR v1 / SVG-in-OT support.
-  - [x] EM2: renderer-free emoji font discovery + swash proof module.
-        `src/emoji/` discovers Noto Color Emoji via fontconfig or bounded
+  - [x] Emoji font discovery and swash proof module: `src/emoji/` discovers
+        Noto Color Emoji via fontconfig or bounded
         search, records advertised color glyph formats, and shapes
         representative single, variation-selector, skin-tone, flag, keycap,
         and ZWJ-family sequences. Host-dependent Noto fixture is ignored when
         absent; no atlas/GPU path changes yet.
-  - [x] EM3: separate RGBA color glyph atlas and shader path.
+  - [x] Separate RGBA color-glyph atlas and dedicated shader path:
         `ColorGlyphAtlas` stores premultiplied synthetic RGBA glyphs keyed by
         shaped font/glyph-or-cluster identity, and native now has a dedicated
         color-glyph pass ordered after coverage glyphs/decorations and before
-        cursor/overlays. Real color font decoding remains EM4.
-  - [x] EM4: Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 policy.
+        cursor/overlays. Real color font decoding is a follow-up packet.
+  - [x] Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 policy:
         `EmojiRasterizer` shapes eligible cell graphemes with `swash`, renders
         color bitmaps into the premultiplied atlas, drives live color-glyph
         runs, keeps VS15 on coverage, sends VS16/default emoji to color when
         resident, and degrades to coverage/fallback when the color path cannot
         resolve a bitmap.
-  - [x] EM5: emoji cluster coverage for flags, keycaps, skin tones, and common
+  - [x] Emoji cluster coverage for flags, keycaps, skin tones, and common
         ZWJ sequences. The renderer reconstructs bounded clusters from the
         snapshot, keys atlas entries by full cluster, emits one color glyph when
         Noto resolves a single bitmap, and falls back visibly otherwise.
-  - [x] EM6: ColorGlyphAtlas capacity audit. The atlas is already bounded at
+  - [x] ColorGlyphAtlas capacity audit: the atlas is already bounded at
         4096 resident glyph/cluster slots, grows in fixed row chunks, returns
         `Full` without overwrite or dirtying at capacity, and leaves fallback
         rendering visible; no eviction added without observed need.
-  - [ ] EM7: scalable color font expansion (COLR/CPAL first, SVG-in-OT only
+  - [ ] Scalable color font expansion (COLR/CPAL first, SVG-in-OT only
         from evidence).
 - [ ] Wide-glyph raster quality: double-width (CJK/wide) atlas slot sizing.
-  - [x] W1 audit: width-2 glyphs were clipped — a single-cell atlas slot caps
+  - [x] Audit: width-2 glyphs were clipped — a single-cell atlas slot caps
         ink at `cell.width + overflow_margin` (~`cell.width + cell.height/4`),
         losing the rightmost ~27% of a full-em width-2 glyph, and the slot is
         physically too narrow to hold it. R3 bearing-aware quads did not help
         (the clip is at raster time, in the slot).
-  - [x] W1 fix: width-2 codepoints (`UnicodeWidthChar::width == Some(2)`, the
+  - [x] Fix: width-2 codepoints (`UnicodeWidthChar::width == Some(2)`, the
         same rule core uses) reserve two consecutive atlas slots in one row
         (a filler slot avoids a row wrap), rasterize across the full 2-cell
         drawable region, and report a 2-cell `slot_uv` / bearing-aware bounds.
@@ -538,29 +550,29 @@ a floor; surpassing it is the standing ambition.
 - [x] Subpixel anti-aliasing behind a setting (R2 finding C).
 - [x] Image/graphics protocol decision spike (Kitty graphics + Sixel) —
       sequenced after the owned parser.
-- [x] G2.1 shared graphics scene: terminal-owned RGBA image store, bounded
+- [x] Shared graphics scene: terminal-owned RGBA image store, bounded
       memory/eviction, cell-anchored placement model, primary/alternate
       isolation, scroll/clear/resize/reset hooks, visible-placement accessor,
       and raw Kitty APC / Sixel DCS routing seam.
-- [x] G2.3 native GPU image layer: visible scene placements render as
+- [x] Native GPU image layer: visible scene placements render as
       alpha-blended RGBA8 textured quads between cell backgrounds and glyphs,
       with lazy image-id uploads, visible-set cache eviction, scrollback-aware
       placement geometry, and headless geometry/cache tests.
-- [x] G2.2 Kitty direct still-image MVP: `src/core/kitty.rs` — APC `_G`
+- [x] Kitty direct still-image MVP: `src/core/kitty.rs` — APC `_G`
       control parsing, in-tree base64 decoder, direct raw RGB/RGBA
       transmit/display (`a=t`/`a=T`, `f=24`/`f=32`, `t=d`), chunk reassembly
       with caps, image/placement ids, Kitty OK/error responses via the
       host-output seam, cursor policy (`C=1`), quiet mode, and deterministic
       protocol fixtures including robustness cases.
-  - [x] G2.2b: PNG (`f=100`) payload decode via a constrained direct `png`
+  - [x] PNG (`f=100`) payload decode via a constrained direct `png`
         crate dependency; header-level cap checks, RGBA8 normalization, chunked
         PNG fixtures, and explicit malformed/oversized/dimension-mismatch
         errors.
-  - [x] G2.5: file/shared-memory transports (`t=f`, `t=t`, `t=s`) with security
+  - [x] File/shared-memory transports (`t=f`, `t=t`, `t=s`) with security
         hardening: temp-dir path restriction, O_NOFOLLOW symlink rejection,
         delete-before-decode for t=t, immediate shm_unlink for t=s, size caps;
         25 integration tests.
-- [x] FZ1 graphics-surface fuzzing: deterministic never-panic + bounded-memory
+- [x] Graphics-surface fuzzing: deterministic never-panic + bounded-memory
       harness (`src/core/graphics_fuzz_tests.rs`) over the whole Kitty/Sixel
       display surface — structured APC `_G` control soup (overflow numerics,
       duplicate/unknown keys, truncated base64, `m=` chunk abuse with
@@ -573,7 +585,7 @@ a floor; surpassing it is the standing ambition.
       bounded performance observations on `decode_sixel` routed to the director
       (eager raster-canvas alloc; O(area) incremental-width re-layout) — both
       cap-bounded, not panics.
-  - [x] SX4 sixel memory-behavior hardening (fixes the two FZ1 findings):
+  - [x] Sixel memory-behavior hardening (follow-up fixes from the graphics-surface fuzzing audit):
         `raster_attrs` no longer eagerly allocates the declared canvas — it
         records + cap-validates the declared size and the buffer fills lazily
         (header-only streams now cost zero, ~144 MB/seq → 0); the pixel buffer
@@ -582,7 +594,7 @@ a floor; surpassing it is the standing ambition.
         instead of O(N²) (`!9999~` 48 ms → 0.19 ms). Caps, never-panic, and
         declared-size authority unchanged; +5 sixel fixtures + a relaxed-token
         regression fuzzer; deep tier re-run at 40k clean.
-- [x] K3 Kitty placement surface: `p=` placement ids with multiple named
+- [x] Kitty placement surface: `p=` placement ids with multiple named
       placements per image and same-`(i,p)` replacement; `a=p` display of a
       previously transmitted image by protocol id; `z=` z-index with the
       canonical bg → negative-z → glyphs → non-negative-z render order in the
@@ -591,22 +603,22 @@ a floor; surpassing it is the standing ambition.
       (`a=f/a=a`) and Unicode placeholders (`U=1`) out of scope (rejected /
       ignored, documented). Fixed a pre-existing `d=i,p=` bug (matched the
       internal placement id instead of the protocol `p=`); 12 fixtures.
-- [x] K2 Kitty delete/query + DECSDM: `a=d` delete variants (d=a/A, i/I+p=,
+- [x] Kitty delete/query + DECSDM: `a=d` delete variants (d=a/A, i/I+p=,
       c/C, p/P+x=/y=) with uppercase image-data GC, `a=q` validation-only
       query responses, and DECSET/DECRST 80 sixel cursor policy (anchor at
       cursor vs cursor-below) with RIS/DECSTR resets; 17 fixtures.
-- [x] SX3 live cell metrics: `Terminal::set_cell_metrics()` replaces the
+- [x] Live cell metrics for graphics: `Terminal::set_cell_metrics()` replaces the
       provisional 8×16 px cell in graphics extent/cursor math; native wires
       metrics at GPU init and on every grid resize; new-placements-only
       recompute policy.
-- [x] SX1/SX2 Sixel decoder and terminal integration: pure payload decoder
+- [x] Sixel decoder and terminal integration: pure payload decoder
       then shared-scene placement and cursor/scroll policy.
-  - [x] SX1: `src/graphics/sixel.rs` — full Sixel data language (raster attrs,
+  - [x] Decoder (`src/graphics/sixel.rs`): full Sixel data language (raster attrs,
         RGB/HLS color introducers, repeat, CR/LF, 6-bit data bytes), VT340
         16-color default palette, HLS-to-RGB, 40 MiB / 10 kpx hard caps,
         P2 transparency, robustness against malformed input, 27 tests.
-  - [x] SX2: `src/core/graphics_routing.rs` — DCS hook/put/unhook routing
-        extracted from screen.rs; on DCS q unhook decode payload via SX1,
+  - [x] Integration (`src/core/graphics_routing.rs`): DCS hook/put/unhook routing
+        extracted from screen.rs; on DCS q unhook decode payload via the sixel decoder,
         insert RGBA into ImageStore, create cell-anchored placement; cursor
         moves to row below image (DECSDM-off); decode errors counted but
         never disturb terminal state; 21 end-to-end tests.
@@ -614,31 +626,31 @@ a floor; surpassing it is the standing ambition.
       Noto Color Emoji CBDT/CBLC on Linux, VS15/VS16 presentation,
       ZWJ/cluster support; COLR v1 and SVG-in-OT deferred but
       architecturally permitted.
-  - [x] EM2: `swash` dependency and fontconfig emoji font discovery.
-  - [x] EM3: RGBA color-glyph atlas (`ColorGlyphAtlas`) and dedicated
+  - [x] `swash` dependency and fontconfig emoji font discovery.
+  - [x] RGBA color-glyph atlas (`ColorGlyphAtlas`) and dedicated
         shader/draw segment; premultiplied-RGBA source pixels, no SGR
         foreground tint.
-  - [x] EM4: Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 presentation,
+  - [x] Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 presentation,
         wide-cell placement, and graceful no-font degradation.
-  - [x] EM5: emoji clusters — flags, keycaps, skin-tone modifiers, ZWJ
+  - [x] Emoji clusters: flags, keycaps, skin-tone modifiers, ZWJ
         sequences; regression fixtures per category; defined fallback for
         unsupported clusters.
-  - [x] EM6: ColorGlyphAtlas capacity audit; bounded growth to 4096 slots,
+  - [x] ColorGlyphAtlas capacity audit: bounded growth to 4096 slots,
         deterministic `Full` at cap, and no slot overwrite or dirtying on
         overflow.
-  - [ ] EM7: COLR/CPAL and alternate color-font formats; SVG-in-OT via
+  - [ ] COLR/CPAL and alternate color-font formats; SVG-in-OT via
         `resvg` if real installed-font evidence requires it.
-- [x] RV3 perceptual color pipeline: linear-space blending active in the render
+- [x] Perceptual color pipeline: linear-space blending active in the render
       path; OKLab / OKLCH helpers (`dim_perceptual`, `mix_oklab`, `src/color.rs`)
       used by the minimum-contrast lift and the SGR dim-text resolve step.
       SGR dim now uses `dim_perceptual` (hue-preserving, chroma-aware, calibrated
       to match the perceived brightness of the prior linear ×0.5).
-- [x] RV1 minimum-contrast floor (`ODYTTY_MIN_CONTRAST`, `min_contrast`):
+- [x] Minimum-contrast floor (`ODYTTY_MIN_CONTRAST`, `min_contrast`):
       configurable WCAG contrast ratio floor applied at render time. Default
       `1.0` is exact passthrough (no lift). The floor is measured via WCAG
       relative luminance; the lift bisects OKLab lightness while preserving hue
       and chroma (`src/color.rs:enforce_min_contrast`).
-  - [x] U1 universal legibility guarantee: the contrast floor now provably
+  - [x] Universal legibility guarantee: the contrast floor now provably
         covers every text color. The glyph path is color-type-agnostic, so
         256-color and truecolor foregrounds already pass through the same single
         floor as ANSI/default; the one remaining gap — an explicit SGR underline
@@ -649,33 +661,33 @@ a floor; surpassing it is the standing ambition.
         pixel-smoke frame (256-color + truecolor + explicit-underline-color
         cells) certifies the no-op at default, and coverage units prove each
         color type is lifted with hue and chroma preserved when the floor is up.
-- [x] RV2 geometric box-drawing / Powerline rendering (`ODYTTY_GEOMETRIC_BOXDRAW`,
+- [x] Geometric box-drawing / Powerline rendering (`ODYTTY_GEOMETRIC_BOXDRAW`,
       `geometric_boxdraw`): U+2500–257F, U+2580–259F, Braille, and Powerline
       separators rendered as pixel-perfect geometry at exact cell size rather
       than font glyphs. Off by default; enable via setting or env var.
-- [x] RV5 stem-darkening ships default-on at a conservative `0.2` (crisper
+- [x] Stem-darkening ships default-on at a conservative `0.2` (crisper
       light-on-dark text); `ODYTTY_STEM_DARKEN` / `stem_darken = 0.0` is the
       byte-identical opt-out. Applied at startup and live reload before
       glyph-atlas rasterization. Native warns if the GPU surface falls back to
       a non-sRGB format.
-- [x] RV6 symbol / Nerd-font fallback chain for PUA prompt icons (starship,
+- [x] Symbol / Nerd-font fallback chain for PUA prompt icons (starship,
       powerlevel10k, eza).
   - [x] Core wiring landed: the fallback path is live; automatic font search or
         a user-specified font path cover common Nerd-font installs.
   - [x] First-class `symbol_fallback` / `symbol_font` settings knob with
         in-panel control, config round-trip, and help text; `ODYTTY_SYMBOL_FALLBACK`
         / `ODYTTY_SYMBOL_FONT` remain as env overrides.
-- [x] ID1-a themed cursor, selection, and search roles (`themed_ui_roles`,
+- [x] Themed cursor, selection, and search roles (`themed_ui_roles`,
       default on): cursor uses the theme cursor color, selection uses the theme
       selection color, and search highlight uses the theme search color rather
       than raw cell inversion. `ODYTTY_THEMED_UI_ROLES=off` restores the
       classic inversion behavior.
-- [x] ID2 focus dimming (`focus_dim` / `ODYTTY_FOCUS_DIM`, default 0.0 = off):
+- [x] Focus dimming (`focus_dim` / `ODYTTY_FOCUS_DIM`, default 0.0 = off):
       perceptually dims the whole grid (text + background) in OKLab while the
-      window is unfocused so it recedes; the dim runs before the RV1 floor so
-      text stays legible. Focused frames are byte-identical to the pre-feature
+      window is unfocused so it recedes; the dim runs before the contrast floor
+      so text stays legible. Focused frames are byte-identical to the pre-feature
       renderer.
-- [x] ID4-a window padding (`window_padding` / `ODYTTY_WINDOW_PADDING`, default
+- [x] Window padding (`window_padding` / `ODYTTY_WINDOW_PADDING`, default
       8 logical px): an adjustable inset between the window edge and the terminal
       grid so text no longer touches the frame. The padding offsets the full
       pixel-cell seam in both directions — forward (glyph/cursor/quad/image
@@ -683,23 +695,22 @@ a floor; surpassing it is the standing ambition.
       autoscroll, SGR-1016 pixel mouse reports) — so mouse and selection stay
       aligned. `0.0` restores the historical edge-to-edge layout, byte-identical
       to the pre-feature renderer (guarded by a pixel-smoke).
-- [x] VE1 post-process pipeline:
-  - [x] VE1-a: lazy offscreen target + passthrough composite wired into the
+- [x] Post-process pipeline:
+  - [x] Lazy offscreen render target + passthrough composite wired into the
         native GPU renderer; `post_active()` false = no offscreen allocation and
         no extra draw pass — direct-to-swapchain path is byte-identical to the
         pre-feature renderer. Pixel-smoke guards the seam (direct vs.
         offscreen→passthrough composite asserts byte-equality).
-  - [x] VE1-b: Rgba16Float linear HDR intermediate so HDR overshoot (linear
-        values above `1.0`) survives the offscreen round-trip for bloom; a
+  - [x] Linear HDR intermediate (Rgba16Float) so HDR overshoot (linear values
+        above `1.0`) survives the offscreen round-trip for bloom; a
         filterable-format GPU probe auto-disables the HDR path on weak adapters
         with one stderr notice and falls back to the direct sRGB path; composite
         smoke extended to cover Rgba16Float offscreen → passthrough → sRGB.
-  - [x] VE2 bloom / phosphor glow activates the pipeline with a real effect:
-        thresholded bright-pass, half-resolution separable blur, additive
-        composite, off by default and adapter-gated.
-  - [x] VE3-a CRT core: bounded scanlines + vignette share the same offscreen
-        scene render and final composite pass as bloom; curvature and chromatic
-        aberration are deferred.
+  - [x] Bloom / phosphor glow effect: thresholded bright-pass, half-resolution
+        separable blur, additive composite, off by default and adapter-gated.
+  - [x] CRT post-process core: bounded scanlines + vignette share the same
+        offscreen scene render and final composite pass as bloom; curvature and
+        chromatic aberration are deferred.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
 
 ## Stage 7: Shell Integration, Perceptual Moat, and Pointer Excellence
@@ -711,10 +722,10 @@ pixel-identical plain path; the readability floor is the safety net every
 color feature validates against.
 
 - [ ] Shell integration on OSC 133 semantic prompt marks.
-  - [x] SH1: OSC 133 prompt/command/output boundary marking — the parser arms
+  - [x] OSC 133 prompt/command/output boundary marking — the parser arms
         the sequence and per-row prompt marks are stored with no render change,
         the foundation for command-aware UX.
-  - [x] SH2: command-aware UX — bindable jump to previous/next prompt
+  - [x] Command-aware UX: bindable jump to previous/next prompt
         (viewport-top reference, top-aligned, byte-identical fall-through at the
         ends) and an off-by-default success/fail status gutter (a thin left-edge
         bar per finished command, green/red from the ANSI palette so it adapts
@@ -722,24 +733,24 @@ color feature validates against.
         signature guarantees the bar repaints on a pure status transition.
   - [x] Core: absolute cell range for a command's output, so the native
         select/copy path can highlight an exact command's output span.
-  - [ ] SH-CLICK: click-to-position-cursor via OSC 133 click events (the click
-        slice only, not a shell-input takeover).
+  - [ ] Click-to-position cursor via OSC 133 click events (the click slice
+        only, not a shell-input takeover).
 - [ ] Perceptual color moat (OKLab/OKLCH pipeline + readability floor).
-  - [x] U1: universal legibility — the contrast floor provably covers every
+  - [x] Universal legibility: the contrast floor provably covers every
         text color type (ANSI, 256-color, truecolor, explicit underline color),
         lifting foregrounds in OKLab while preserving hue and chroma. Default
         floor is exact passthrough.
-  - [x] U2: perceptual-safe theme builder — OKLCH lightness/chroma/hue editing
+  - [x] Perceptual-safe theme builder: OKLCH lightness/chroma/hue editing
         with a live contrast readout and snap-to-floor against a dedicated
         authoring floor, so the builder cannot author an unreadable theme; hex
         entry stays as the expert fallback.
-  - [x] U3: contrast-aware palette generation — seed a color and generate a
+  - [x] Contrast-aware palette generation: seed a color and generate a
         readable, floor-validated starting palette to then refine in the
         builder.
-  - [x] U4: perceptual colorblind palette adaptation — remap the ANSI palette in
+  - [x] Perceptual colorblind palette adaptation: remap the ANSI palette in
         OKLCH for protan/deutan/tritan, adaptive on output, in an Accessibility
         settings group.
-  - [x] U5 core: bounded readability-scrim primitive for background treatments —
+  - [x] Readability-scrim primitive for background treatments (core) —
         pure math that caps (dark) or lifts (light) the composited background
         luminance so a treatment cannot breach the contrast floor; native
         wiring is a follow-up.
@@ -757,7 +768,7 @@ color feature validates against.
   - [x] Built-in theme library expanded to 88 contrast-validated themes
         (data-only, ongoing).
   - [x] Mouse-driven settings overlay with sliders and click-to-type numeric
-        entry (UX4-P1/P2/P3).
+        entry.
   - [x] Surface font-load failures in the overlay instead of failing silently.
 
 ## Archived First Prototype Checklist
