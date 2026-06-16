@@ -51,6 +51,7 @@
 mod app;
 mod bindings;
 mod clipboard;
+mod context_menu_ui;
 mod copy_mode;
 mod cursor;
 mod cvd_theme;

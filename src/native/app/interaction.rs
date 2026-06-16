@@ -41,6 +41,10 @@ impl App {
             OverlayOutcome::ApplySettings(settings) => self.apply_overlay_settings(settings),
             OverlayOutcome::SaveSettings(changes) => self.save_overlay_settings(&changes),
             OverlayOutcome::SaveTheme(request) => self.save_overlay_theme(request),
+            // IN2: the menu closed itself before emitting these; run the action.
+            OverlayOutcome::ContextMenuCopy => self.handle_copy_shortcut(),
+            OverlayOutcome::ContextMenuPaste => self.handle_paste_shortcut(),
+            OverlayOutcome::ContextMenuSelectAll => self.handle_select_all(),
         }
     }
 
@@ -78,7 +82,10 @@ impl App {
     /// Gated on an active drag so ordinary hover over the open overlay stays a
     /// cheap no-op (no redraw, no PTY/selection work).
     pub(in crate::native) fn handle_overlay_pointer_move(&mut self) {
-        if !self.overlay.is_settings_dragging() {
+        // A bare hover is forwarded only to advance an active slider drag
+        // (UX4-P2) or to drive context-menu hover-to-focus (IN2); otherwise it
+        // is a cheap no-op.
+        if !self.overlay.is_settings_dragging() && !self.overlay.is_context_menu() {
             return;
         }
         let Some(cell) = self.pointer_cell else {

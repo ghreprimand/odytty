@@ -99,6 +99,7 @@ fn closed_overlay_sig() -> OverlayRenderSignature {
             bindings: String::new(),
         },
         onboarding: OnboardingSignature::default(),
+        context_menu: ContextMenuSignature::default(),
     }
 }
 

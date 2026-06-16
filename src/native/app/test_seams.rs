@@ -324,6 +324,69 @@ impl App {
         }
     }
 
+    /// Test seam (IN2): drive a mouse button edge through the exact production
+    /// window-level routing (`handle_mouse_input`), so the right-click context
+    /// menu's precedence against the TUI report gate, the Shift override, and an
+    /// already-open overlay are pinned through the real path — not reimplemented.
+    #[cfg(test)]
+    pub(in crate::native) fn dispatch_mouse_button_for_test(
+        &mut self,
+        pressed: bool,
+        button: WinitMouseButton,
+    ) {
+        let state = if pressed {
+            ElementState::Pressed
+        } else {
+            ElementState::Released
+        };
+        self.handle_mouse_input(state, button);
+    }
+
+    /// Test seam (IN2): whether the context menu is the active overlay mode.
+    #[cfg(test)]
+    pub(in crate::native) fn context_menu_open_for_test(&self) -> bool {
+        self.overlay.is_context_menu()
+    }
+
+    /// Test seam (IN2): force a non-empty absolute selection so the menu's Copy
+    /// gating (selection present ⇒ enabled) can be exercised deterministically.
+    #[cfg(test)]
+    pub(in crate::native) fn force_selection_for_test(
+        &mut self,
+        start_row: usize,
+        start_col: usize,
+        end_row: usize,
+        end_col: usize,
+    ) {
+        self.selection.set_range(AbsoluteSelectionRange {
+            start: selection::AbsoluteCellPoint {
+                row: start_row,
+                column: start_col,
+            },
+            end: selection::AbsoluteCellPoint {
+                row: end_row,
+                column: end_col,
+            },
+        });
+    }
+
+    /// Test seam (IN2): the live absolute selection range as
+    /// `(start_row, start_col, end_row, end_col)`, so Select All can be proven to
+    /// span the whole buffer.
+    #[cfg(test)]
+    pub(in crate::native) fn selection_range_for_test(
+        &self,
+    ) -> Option<(usize, usize, usize, usize)> {
+        self.selection.range().map(|range| {
+            (
+                range.start.row,
+                range.start.column,
+                range.end.row,
+                range.end.column,
+            )
+        })
+    }
+
     /// Test seam (KB-REMAP): open the key-binding remap modal through the
     /// production entry path (so the pointer-state reset and overlay open are
     /// genuinely exercised), without a window/GPU.

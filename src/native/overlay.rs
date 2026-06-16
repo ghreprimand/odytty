@@ -8,6 +8,9 @@ use crate::theme::{Srgb, Theme};
 use unicode_width::UnicodeWidthChar;
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
+use super::context_menu_ui::{
+    ContextMenuItem, ContextMenuOutcome, ContextMenuSignature, ContextMenuUi,
+};
 use super::key_remap_ui::{KeyRemapLine, KeyRemapOutcome, KeyRemapSignature, KeyRemapUi};
 use super::onboarding::{OnboardingLine, OnboardingPanel, OnboardingSignature};
 use super::settings_panel::{SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature};
@@ -27,6 +30,7 @@ pub(super) struct OverlayUi {
     theme_builder: ThemeBuilder,
     key_remap: KeyRemapUi,
     onboarding: OnboardingPanel,
+    context_menu: ContextMenuUi,
 }
 
 impl Default for OverlayUi {
@@ -46,6 +50,7 @@ impl OverlayUi {
             theme_builder: ThemeBuilder::new(settings),
             key_remap: KeyRemapUi::new(settings),
             onboarding: OnboardingPanel::new(settings),
+            context_menu: ContextMenuUi::new(),
         }
     }
 
@@ -122,6 +127,48 @@ impl OverlayUi {
         self.open = true;
     }
 
+    /// Open the right-click context menu (IN2) at `spawn` (a grid cell), with
+    /// the item-enabled snapshot the App computed from the live selection /
+    /// clipboard. Unlike the other openers this does NOT clear the selection —
+    /// the Copy item needs it — so the App must not route through
+    /// `reset_pointer_state_for_overlay` here.
+    pub(super) fn open_context_menu(&mut self, spawn: CellPoint, copy: bool, paste: bool) {
+        self.panel.end_slider_drag();
+        self.context_menu.open(spawn, copy, paste);
+        self.mode = OverlayMode::ContextMenu;
+        self.open = true;
+    }
+
+    /// Whether the context menu is the active overlay mode (IN2). The App uses
+    /// this to route bare hover Moves to the menu for hover-to-focus, alongside
+    /// the slider-drag gate.
+    pub(super) fn is_context_menu(&self) -> bool {
+        self.open && self.mode == OverlayMode::ContextMenu
+    }
+
+    /// Lift a [`ContextMenuOutcome`] into an [`OverlayOutcome`] (IN2). An
+    /// `Activate` closes the menu and emits the matching App-side action; the
+    /// App runs it after the overlay has closed.
+    fn apply_context_menu_outcome(&mut self, outcome: ContextMenuOutcome) -> OverlayOutcome {
+        match outcome {
+            ContextMenuOutcome::Consumed => OverlayOutcome::Consumed,
+            ContextMenuOutcome::Close => OverlayOutcome::Close,
+            ContextMenuOutcome::Activate(item) => {
+                self.close();
+                match item {
+                    ContextMenuItem::Copy => OverlayOutcome::ContextMenuCopy,
+                    ContextMenuItem::Paste => OverlayOutcome::ContextMenuPaste,
+                    ContextMenuItem::SelectAll => OverlayOutcome::ContextMenuSelectAll,
+                }
+            }
+        }
+    }
+
+    fn handle_context_menu_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        let outcome = self.context_menu.handle_input(input);
+        self.apply_context_menu_outcome(outcome)
+    }
+
     /// Whether the key-remap modal is armed to capture a raw chord (KB-REMAP).
     /// The App gates its chord-capture bypass on this: `true` ONLY when the
     /// KeyBindings mode is active AND a row/conflict is awaiting a chord, so
@@ -151,6 +198,7 @@ impl OverlayUi {
             OverlayMode::ThemeBuilder => return self.handle_theme_builder_input(input),
             OverlayMode::KeyBindings => return self.handle_key_remap_input(input),
             OverlayMode::Onboarding => return self.handle_onboarding_input(input),
+            OverlayMode::ContextMenu => return self.handle_context_menu_input(input),
             OverlayMode::Settings => {}
         }
 
@@ -205,6 +253,10 @@ impl OverlayUi {
                         );
                         self.apply_builder_outcome(outcome)
                     }
+                    OverlayMode::ContextMenu => {
+                        let outcome = self.context_menu.handle_press(row_in_body, button);
+                        self.apply_context_menu_outcome(outcome)
+                    }
                     OverlayMode::ThemePicker
                     | OverlayMode::KeyBindings
                     | OverlayMode::Onboarding => OverlayOutcome::Consumed,
@@ -226,6 +278,13 @@ impl OverlayUi {
                         );
                         self.apply_builder_outcome(outcome)
                     }
+                    OverlayMode::ContextMenu => {
+                        // Hover-to-focus (D-IN2-6): move focus to the item under
+                        // the pointer; off-item (border) hovers leave it as is.
+                        let row_in_body = cell.row.checked_sub(rect.body_top);
+                        self.context_menu.handle_hover(row_in_body);
+                        OverlayOutcome::Consumed
+                    }
                     OverlayMode::ThemePicker
                     | OverlayMode::KeyBindings
                     | OverlayMode::Onboarding => OverlayOutcome::Consumed,
@@ -237,7 +296,8 @@ impl OverlayUi {
                     OverlayMode::ThemeBuilder => self.theme_builder.end_channel_drag(),
                     OverlayMode::ThemePicker
                     | OverlayMode::KeyBindings
-                    | OverlayMode::Onboarding => {}
+                    | OverlayMode::Onboarding
+                    | OverlayMode::ContextMenu => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -246,7 +306,9 @@ impl OverlayUi {
                     OverlayMode::Settings => self.panel.scroll_lines(lines),
                     OverlayMode::ThemeBuilder => self.theme_builder.scroll_lines(lines),
                     OverlayMode::KeyBindings => self.key_remap.scroll_lines(lines),
-                    OverlayMode::ThemePicker | OverlayMode::Onboarding => {}
+                    OverlayMode::ThemePicker
+                    | OverlayMode::Onboarding
+                    | OverlayMode::ContextMenu => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -261,7 +323,10 @@ impl OverlayUi {
         match self.mode {
             OverlayMode::Settings => self.panel.is_dragging(),
             OverlayMode::ThemeBuilder => self.theme_builder.is_dragging(),
-            OverlayMode::ThemePicker | OverlayMode::KeyBindings | OverlayMode::Onboarding => false,
+            OverlayMode::ThemePicker
+            | OverlayMode::KeyBindings
+            | OverlayMode::Onboarding
+            | OverlayMode::ContextMenu => false,
         }
     }
 
@@ -276,7 +341,10 @@ impl OverlayUi {
         match self.mode {
             OverlayMode::Settings => self.panel.end_slider_drag(),
             OverlayMode::ThemeBuilder => self.theme_builder.end_channel_drag(),
-            OverlayMode::ThemePicker | OverlayMode::KeyBindings | OverlayMode::Onboarding => {}
+            OverlayMode::ThemePicker
+            | OverlayMode::KeyBindings
+            | OverlayMode::Onboarding
+            | OverlayMode::ContextMenu => {}
         }
     }
 
@@ -318,8 +386,8 @@ impl OverlayUi {
             // modal reports the saved count and adopts the persisted bindings as
             // its new restore baseline.
             OverlayMode::KeyBindings => self.key_remap.save_succeeded(changed),
-            // The onboarding card has no save path of its own.
-            OverlayMode::Onboarding => {}
+            // The onboarding card and context menu have no save path of their own.
+            OverlayMode::Onboarding | OverlayMode::ContextMenu => {}
         }
     }
 
@@ -329,7 +397,7 @@ impl OverlayUi {
             OverlayMode::ThemePicker => self.theme_picker.save_failed(message),
             OverlayMode::ThemeBuilder => self.theme_builder.save_failed(message),
             OverlayMode::KeyBindings => self.key_remap.save_failed(message),
-            OverlayMode::Onboarding => {}
+            OverlayMode::Onboarding | OverlayMode::ContextMenu => {}
         }
     }
 
@@ -352,6 +420,7 @@ impl OverlayUi {
             theme_builder: self.theme_builder.render_signature(),
             key_remap: self.key_remap.render_signature(),
             onboarding: self.onboarding.render_signature(),
+            context_menu: self.context_menu.render_signature(),
         }
     }
 
@@ -462,6 +531,12 @@ pub(super) enum OverlayOutcome {
     ApplySettings(Settings),
     SaveSettings(Vec<crate::settings::SettingEdit>),
     SaveTheme(ThemeBuilderSaveRequest),
+    /// Run the right-click menu's Copy / Paste / Select All action (IN2). The
+    /// overlay has already closed itself by the time these are emitted; the App
+    /// dispatches them to the existing copy/paste shortcuts and `handle_select_all`.
+    ContextMenuCopy,
+    ContextMenuPaste,
+    ContextMenuSelectAll,
 }
 
 /// Lift a [`SettingsPanelOutcome`] (from the keyboard or the pointer path) into
@@ -486,6 +561,9 @@ pub(super) enum OverlayMode {
     ThemeBuilder,
     KeyBindings,
     Onboarding,
+    /// Right-click context menu (IN2). Spawns at the pointer cell rather than
+    /// centered; carries no title bar.
+    ContextMenu,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -553,6 +631,7 @@ pub(super) struct OverlayRenderSignature {
     pub(super) theme_builder: ThemeBuilderSignature,
     pub(super) key_remap: KeyRemapSignature,
     pub(super) onboarding: OnboardingSignature,
+    pub(super) context_menu: ContextMenuSignature,
 }
 
 pub(super) fn overlay_input_from_winit(
@@ -627,12 +706,19 @@ pub(super) fn overlay_rect(
     if !overlay.open || rows == 0 || columns == 0 {
         return None;
     }
+    // The context menu spawns at the pointer cell (not centered) and is sized to
+    // its three items, so it bypasses the centered-panel geometry below (IN2).
+    if overlay.mode == OverlayMode::ContextMenu {
+        return Some(overlay.context_menu.rect(columns, rows));
+    }
     let width = match overlay.mode {
         OverlayMode::Settings => overlay.panel.desired_width(columns),
         OverlayMode::ThemePicker => overlay.theme_picker.desired_width(columns),
         OverlayMode::ThemeBuilder => overlay.theme_builder.desired_width(columns),
         OverlayMode::KeyBindings => overlay.key_remap.desired_width(columns),
         OverlayMode::Onboarding => overlay.onboarding.desired_width(columns),
+        // Unreachable: handled by the early return above.
+        OverlayMode::ContextMenu => overlay.context_menu.menu_width(),
     }
     .max(36)
     .min(columns);
@@ -659,6 +745,11 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
     ) else {
         return;
     };
+    // The context menu has its own no-title layout (IN2); dispatch and return.
+    if overlay.mode == OverlayMode::ContextMenu {
+        apply_context_menu(snapshot, overlay, rect);
+        return;
+    }
     let rows = snapshot.dimensions.rows;
     let title = match overlay.mode {
         OverlayMode::Settings => "OdyTTY Settings",
@@ -666,6 +757,8 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
         OverlayMode::ThemeBuilder => "OdyTTY Theme Builder",
         OverlayMode::KeyBindings => "OdyTTY Key Bindings",
         OverlayMode::Onboarding => "Welcome to OdyTTY",
+        // Unreachable: handled by the early dispatch above.
+        OverlayMode::ContextMenu => "",
     };
 
     fill_rect(
@@ -716,6 +809,51 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
     }
 }
 
+/// Render the right-click context menu (IN2): a bordered box at the spawn cell
+/// with one row per item. The focused item gets the highlight attrs; a disabled
+/// item (Copy with no selection, Paste with an empty clipboard) renders dim. No
+/// title row. Item text starts at `left + 2` (border + one pad column), matching
+/// the centered panels' body inset.
+fn apply_context_menu(snapshot: &mut Snapshot, overlay: &OverlayUi, rect: OverlayRect) {
+    fill_rect(
+        snapshot,
+        rect.left,
+        rect.top,
+        rect.width,
+        rect.height,
+        panel_attrs(),
+    );
+    draw_border(
+        snapshot,
+        rect.left,
+        rect.top,
+        rect.width,
+        rect.height,
+        border_attrs(),
+    );
+    let text_column = rect.left + 2;
+    let text_width = rect.width.saturating_sub(4);
+    for (index, (label, focused, enabled)) in overlay.context_menu.rows().iter().enumerate() {
+        let y = rect.body_top + index;
+        // Guard against a grid so short the body row falls on/under the bottom
+        // border (defensive; `rect()` already sizes the box to fit).
+        if y >= rect.top + rect.height.saturating_sub(1) || y >= snapshot.dimensions.rows {
+            break;
+        }
+        let attrs = if *focused {
+            focused_attrs()
+        } else if *enabled {
+            panel_attrs()
+        } else {
+            dim_attrs()
+        };
+        // Paint the full item row in its attrs so the focus highlight spans the
+        // whole width, then write the label over it.
+        fill_rect(snapshot, text_column, y, text_width, 1, attrs);
+        write_text(snapshot, y, text_column, text_width, label, attrs);
+    }
+}
+
 impl OverlayUi {
     fn visible_lines(&self, body_width: usize, body_height: usize) -> Vec<OverlayLine> {
         match self.mode {
@@ -749,6 +887,9 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
+            // The context menu renders via `apply_context_menu`, not this shared
+            // body walker (IN2).
+            OverlayMode::ContextMenu => Vec::new(),
         }
     }
 }
@@ -923,6 +1064,14 @@ fn focused_attrs() -> Attrs {
     let mut attrs = Attrs::default();
     attrs.foreground = Color::Indexed(0);
     attrs.background = Color::Indexed(11);
+    attrs
+}
+
+/// Attrs for a disabled context-menu item (IN2): the panel fill with a muted
+/// (bright-black) foreground so the label reads as unavailable.
+fn dim_attrs() -> Attrs {
+    let mut attrs = panel_attrs();
+    attrs.foreground = Color::Indexed(8);
     attrs
 }
 

@@ -76,6 +76,19 @@ impl App {
             return;
         }
 
+        // IN2: a right-click press opens the context menu. This sits AFTER the
+        // TUI report gate above (step 6), so inside a TUI with mouse reporting
+        // active the right-click is reported to the PTY and this is never
+        // reached. Shift+right-click bypasses the report gate (Shift is excluded
+        // from `should_report_mouse_to_pty`), so it falls through to here and
+        // opens the menu even in a TUI — the same Shift override convention as
+        // local selection. In a plain shell the gate is skipped and the menu
+        // opens. No enable bool: the report gate IS the off switch (D-IN2-1).
+        if button == WinitMouseButton::Right && state == ElementState::Pressed {
+            self.open_context_menu();
+            return;
+        }
+
         if button == WinitMouseButton::Left {
             match state {
                 ElementState::Pressed => {

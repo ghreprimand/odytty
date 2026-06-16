@@ -16,6 +16,7 @@ use super::bindings::{
 use super::clipboard::{
     ClipboardSlot, encode_paste_chunks, flatten_chunks, selected_clipboard_text,
 };
+use super::context_menu_ui::ContextMenuSignature;
 use super::gpu::{
     StyleFonts, ViewportUniform, blend_state_for_color_glyphs, blend_state_for_subpixel,
     effect_params, effective_subpixel_mode, ensure_snapshot_glyphs, grow_vertex_buffer_capacity,
@@ -62,6 +63,7 @@ use winit::event::{MouseButton as WinitMouseButton, MouseScrollDelta};
 use winit::keyboard::{Key as WinitKey, KeyCode, NamedKey, PhysicalKey};
 
 mod clipboard_paste;
+mod context_menu;
 mod cvd_wiring;
 mod gpu_render;
 mod grid_scale;

@@ -266,6 +266,7 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
             bindings: String::new(),
         },
         onboarding: OnboardingSignature::default(),
+        context_menu: ContextMenuSignature::default(),
     }
 }
 

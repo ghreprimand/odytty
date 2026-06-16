@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- IN2: right-click context menu (Copy / Paste / Select All)
+
+- A right-click in the terminal now opens a small context menu at the click cell
+  with **Copy**, **Paste**, and **Select All**. There is no enable setting: the
+  menu is always available in a plain shell, and the existing TUI mouse-reporting
+  passthrough guard is the effective off switch — inside a TUI that requests
+  mouse reporting, a right-click is reported to the application untouched and the
+  menu does not open. Shift+right-click bypasses that guard (the same Shift
+  override that forces local selection), so the menu is still reachable in a TUI
+  when explicitly asked for.
+- New `OverlayMode::ContextMenu` (the 6th overlay mode) backed by a new
+  `context_menu_ui` module. Unlike the centered panels the menu spawns at the
+  pointer cell and is edge-clamped to always fit the grid; it carries no title
+  bar and renders via a dedicated `apply_context_menu` path. Copy is enabled only
+  when a selection exists, Paste only when the clipboard holds text; a disabled
+  item renders dim and its activation is a no-op. Items activate on press (the
+  same model as the other overlays), which also sidesteps the opening
+  right-click's release. Up/Down cycle focus, Enter/Space activate, Esc or a
+  click outside dismisses, and hovering highlights the item under the pointer.
+- Select All selects the whole buffer — the full scrollback plus the visible grid
+  — stored in absolute row space so it stays meaningful as the viewport scrolls;
+  the copy path resolves whatever is visible at copy time (the app-wide
+  selection→clipboard contract). Opening the menu deliberately does NOT clear the
+  selection, so the Copy item still has something to copy.
+- Off-path identity: with no right-click the `ContextMenu` mode is never entered
+  and its render-cache sub-signature stays at the default, so the default render
+  is byte-identical — the unchanged pixel-smoke parity suite (47/0) and the
+  registry off-path identity test both still hold.
+- Verified: fmt clean, lib 1564/0/7 (+21: 12 menu-logic unit tests + 9 App-level
+  integration tests covering the TUI passthrough gate, the Shift override,
+  main-overlay precedence, off-path identity, Copy gating, and the full
+  activation→Select-All path), native pixel-smoke 47/0, clippy 38 baseline (zero
+  new). No parser/core change ⇒ no fuzz.
+
+---
+
 ## 2026-06-16 -- ID1: soft cursor glow (off by default), drawn behind the cursor
 
 - New `cursor_glow` setting (off by default; aliases `cursorglow` / `cursorhalo`

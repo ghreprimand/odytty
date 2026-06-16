@@ -868,6 +868,48 @@ impl App {
         let _ = self.clipboard.write_text(text.as_str());
     }
 
+    /// Open the right-click context menu (IN2) at the cached pointer cell, with
+    /// Copy enabled iff a selection exists and Paste enabled iff the clipboard
+    /// holds text — the per-item gating snapshot the menu renders. Deliberately
+    /// does NOT call `reset_pointer_state_for_overlay`: that would clear the
+    /// selection the Copy item needs. No pointer cell (e.g. before the first
+    /// move) means no menu.
+    pub(super) fn open_context_menu(&mut self) {
+        let Some(spawn) = self.pointer_cell else {
+            return;
+        };
+        let copy_enabled = self.selection.range().is_some();
+        let paste_enabled = self.clipboard.read_text().is_some();
+        self.overlay
+            .open_context_menu(spawn, copy_enabled, paste_enabled);
+        self.request_selection_redraw();
+    }
+
+    /// Select the entire buffer — the full scrollback plus the visible grid
+    /// (IN2 Select All). The range is stored in absolute row space, so it stays
+    /// meaningful as the viewport scrolls; the copy path resolves whatever is
+    /// visible at copy time (the app-wide selection→clipboard contract). Also
+    /// mirrors the selection to PRIMARY like any other selection. No-op on an
+    /// empty grid.
+    fn handle_select_all(&mut self) {
+        let columns = self.grid.columns;
+        let rows = self.grid.rows;
+        if columns == 0 || rows == 0 {
+            return;
+        }
+        let end_row = self.scrollback_len() + rows - 1;
+        self.selection.set_range(AbsoluteSelectionRange {
+            start: selection::AbsoluteCellPoint { row: 0, column: 0 },
+            end: selection::AbsoluteCellPoint {
+                row: end_row,
+                column: columns - 1,
+            },
+        });
+        self.selection_block = false;
+        self.write_primary_selection();
+        self.request_selection_redraw();
+    }
+
     fn handle_terminal_clipboard_requests(&mut self) {
         let requests = self
             .terminal
