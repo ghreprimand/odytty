@@ -1319,10 +1319,15 @@ impl GpuState {
         self.clear_color = theme_clear_color(&theme);
     }
 
-    pub(super) fn set_visual(&mut self, visual: VisualEffect) {
-        self.effect = effect_params(visual);
-        self.update_viewport();
-    }
+    /// Retired (UX5): the legacy ambient scanline path is folded into the
+    /// unified CRT post-process, so the cell shader no longer reads a scanline
+    /// term from the `effect` uniform. `visual=ambient` now aliases to `crt=on`
+    /// in settings and the scanline look is produced by the CRT post-process.
+    /// This shell remains so the settings-apply path keeps a stable call site;
+    /// the `effect` uniform stays at its (now vestigial but valid) init value,
+    /// so the uniform layout is unchanged and nothing is left in an invalid
+    /// state. It intentionally does nothing.
+    pub(super) fn set_visual(&mut self, _visual: VisualEffect) {}
 
     pub(super) fn set_text_gamma(&mut self, text_gamma: f32) {
         self.text = text_params(text_gamma);

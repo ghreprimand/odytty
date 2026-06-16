@@ -69,12 +69,12 @@ fn fs_main(in: VsOut) -> FsOut {
         return out;
     }
 
-    let strength = viewport.effect.x;
-    let period = max(viewport.effect.y, 1.0);
-    let TAU = 6.2831853;
-    let trough = 0.5 - 0.5 * cos(TAU * in.clip.y / period);
-    let factor = 1.0 - strength * trough;
-    out.color = vec4<f32>(in.color.rgb * factor, in.color.a);
+    // Legacy ambient scanline wash retired here (UX5): the scanline look is now
+    // produced by the unified CRT post-process, so the background is no longer
+    // modulated by `viewport.effect`. This is the previous off-path output
+    // (factor 1.0), so default rendering is pixel-identical. `viewport.effect`
+    // is retained in the uniform for layout stability but is no longer sampled.
+    out.color = in.color;
     out.weight = vec4<f32>(in.color.a);
     return out;
 }

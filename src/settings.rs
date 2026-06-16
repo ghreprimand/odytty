@@ -663,7 +663,14 @@ impl Settings {
     }
 
     pub fn effective_crt_enabled(&self) -> bool {
-        !self.plain_render_quality() && self.crt
+        // UX5: CRT is normally suppressed by the plain render-quality fast path.
+        // The retired `visual=ambient` scanline path was NEVER plain-gated, so
+        // when it aliases into CRT (see `from_source`) we preserve that
+        // back-compat by bypassing the plain gate specifically for the ambient
+        // alias. An explicit `crt=` config under a plain profile still obeys the
+        // plain gate; only the legacy ambient route is exempt.
+        let ambient_alias = self.visual == VisualEffect::Ambient;
+        (!self.plain_render_quality() || ambient_alias) && self.crt
     }
 
     /// Rows advanced per mouse-wheel notch (MOUSE-WHEEL-SPEED), as a `usize >= 1`.
@@ -865,7 +872,17 @@ impl Settings {
         );
         let bloom_intensity = parse_bloom_intensity(get(BLOOM_INTENSITY_ENV).as_deref(), &mut warn);
         let bloom_radius = parse_bloom_radius(get(BLOOM_RADIUS_ENV).as_deref(), &mut warn);
-        let crt = parse_bool_setting(get(CRT_ENV).as_deref(), CRT_ENV, false, &mut warn);
+        // UX5: the legacy `visual=ambient`/`scanlines` scanline effect is folded
+        // into the unified CRT post-process. An ambient visual aliases to
+        // `crt=on` ONLY when no explicit CRT setting is present — an explicit
+        // `crt=`/`ODYTTY_CRT` always wins over the alias (the alias merely fills
+        // the unset case), so a config can never stack two scanline passes.
+        let crt_explicit = get(CRT_ENV);
+        let crt = if crt_explicit.is_some() {
+            parse_bool_setting(crt_explicit.as_deref(), CRT_ENV, false, &mut warn)
+        } else {
+            visual == VisualEffect::Ambient
+        };
         let crt_scanline_intensity =
             parse_crt_scanline_intensity(get(CRT_SCANLINE_INTENSITY_ENV).as_deref(), &mut warn);
         let crt_scanline_period =

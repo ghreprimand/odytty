@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- Consolidate the legacy ambient scanline into the unified CRT model
+
+- The old `visual=ambient` / `visual=scanlines` cell-shader wash is retired into
+  the unified CRT post-process so there is one scanline implementation, not two.
+  `visual=ambient` (or `scanlines`) now back-compat aliases to the CRT effect
+  when no explicit CRT setting is present; an explicit `crt=…` / `CRT_ENV`
+  always wins over the alias, so the two can never double-apply.
+- `effective_crt_enabled()` is widened so the ambient alias bypasses the
+  plain-render-quality gate (ambient was never gated, so back-compat preserves
+  that), while a non-ambient explicit CRT under the plain profile still obeys
+  the gate.
+- The cell and subpixel shaders no longer modulate the background by
+  `viewport.effect`; the background path returns the unmodified cell color —
+  which is exactly the prior off-path output (the old scanline factor was 1.0 at
+  strength 0), so default rendering is pixel-identical. The `effect` uniform
+  field is retained for layout stability but is no longer sampled, and
+  `set_visual` becomes a no-op shell (kept as a stable apply call site). Three
+  accepted deltas are documented in the `visual` knob help: the CRT path depends
+  on a filterable `Rgba16Float` adapter (silent no-op when unavailable), and the
+  CRT post-process dims the full composited scene including glyph pixels where
+  the old ambient wash skipped them.
+- State: library tests 1489/0 (+4), pixel-smoke 45/0 (byte-identical default
+  path), fmt clean, clippy at the 38 baseline (zero-new). `settings/tests/legacy.rs`
+  is at 1956 lines — over the soft-flag; the next addition there splits the file.
+
+---
+
 ## 2026-06-16 -- Readability-safe background treatments: gradient + vignette (off by default)
 
 - A new `background_treatment` knob (`off` default / `gradient` / `vignette`)

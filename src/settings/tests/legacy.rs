@@ -585,6 +585,84 @@ fn valid_values_resolve_to_typed_settings() {
     assert!(warnings.is_empty());
 }
 
+// UX5 — legacy `visual=ambient` is folded into the unified CRT post-process.
+// These guard the alias precedence + the plain-gate bypass so the retired
+// scanline look survives a back-compat config and never double-applies.
+
+#[test]
+fn ux5_ambient_visual_aliases_to_crt_when_unset() {
+    // TRAP 1 BACK-COMPAT: `visual=ambient` with no explicit CRT setting routes
+    // the scanline look through CRT (crt=on). `scanlines` is an ambient alias.
+    let (settings, _) = settings_from([(VISUAL_ENV, "ambient")]);
+    assert_eq!(settings.visual, VisualEffect::Ambient);
+    assert!(
+        settings.crt,
+        "ambient must alias to crt=on when crt is unset"
+    );
+
+    let (settings, _) = settings_from([(VISUAL_ENV, "scanlines")]);
+    assert!(
+        settings.crt,
+        "scanlines is an ambient alias and also aliases crt"
+    );
+}
+
+#[test]
+fn ux5_explicit_crt_always_wins_over_ambient_alias() {
+    // TRAP 4 NO-DOUBLE-APPLY: an explicit `crt=` always overrides the alias, in
+    // BOTH precedence directions, so a config can never stack two scanline
+    // passes (the alias only fills the unset case).
+    let (settings, _) = settings_from([(VISUAL_ENV, "ambient"), (CRT_ENV, "off")]);
+    assert!(
+        !settings.crt,
+        "explicit crt=off must win over the ambient alias"
+    );
+
+    let (settings, _) = settings_from([(VISUAL_ENV, "off"), (CRT_ENV, "on")]);
+    assert!(
+        settings.crt,
+        "explicit crt=on stands without any visual alias"
+    );
+}
+
+#[test]
+fn ux5_no_ambient_leaves_crt_off_by_default() {
+    // The default (no visual, no crt) keeps CRT off — the alias only fires for
+    // ambient. Guards TRAP 2 PLAIN-PATH IDENTITY at the settings layer.
+    let (settings, _) = settings_from([]);
+    assert_eq!(settings.visual, VisualEffect::Off);
+    assert!(!settings.crt, "no ambient + no crt config keeps crt off");
+}
+
+#[test]
+fn ux5_ambient_alias_bypasses_plain_gate() {
+    // The legacy ambient path was never plain-gated, so its CRT alias is exempt
+    // from the plain render-quality suppression — preserving back-compat.
+    let settings = Settings {
+        render_quality: RenderQuality::Plain,
+        visual: VisualEffect::Ambient,
+        crt: true,
+        ..Settings::default()
+    };
+    assert!(
+        settings.effective_crt_enabled(),
+        "ambient alias bypasses the plain gate"
+    );
+
+    // An explicit (non-ambient) crt under a plain profile still obeys the gate
+    // (the bypass is specific to the ambient alias).
+    let settings = Settings {
+        render_quality: RenderQuality::Plain,
+        visual: VisualEffect::Off,
+        crt: true,
+        ..Settings::default()
+    };
+    assert!(
+        !settings.effective_crt_enabled(),
+        "non-ambient crt still obeys the plain gate"
+    );
+}
+
 fn temp_test_dir(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!("odytty-{name}-{}", std::process::id()))
 }

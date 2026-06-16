@@ -52,8 +52,9 @@ fn vs_main(in: VsIn) -> VsOut {
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (in.is_glyph > 0.5) {
-        // Glyphs are never touched by the ambient effect: text stays crisp and
-        // full-contrast regardless of the visual setting.
+        // Glyphs stay crisp and full-contrast: the cell shader applies no
+        // background wash (the legacy ambient path was retired into the CRT
+        // post-process, which dims the full composited scene downstream).
         let coverage = textureSample(atlas_tex, atlas_sampler, in.uv).r;
         let gamma = max(viewport.text.x, 0.0001);
         var corrected = coverage;
@@ -63,14 +64,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         return vec4<f32>(in.color.rgb, in.color.a * corrected);
     }
 
-    // Background fill. When the ambient wash is enabled (strength > 0) apply a
-    // faint static scanline by modulating brightness with the framebuffer Y.
-    // `in.clip` in the fragment stage is the pixel coordinate. At strength 0
-    // the factor is exactly 1.0, so the off path is pixel-identical.
-    let strength = viewport.effect.x;
-    let period = max(viewport.effect.y, 1.0);
-    let TAU = 6.2831853;
-    let trough = 0.5 - 0.5 * cos(TAU * in.clip.y / period);
-    let factor = 1.0 - strength * trough;
-    return vec4<f32>(in.color.rgb * factor, in.color.a);
+    // Background fill. The legacy ambient scanline wash was retired here (UX5):
+    // the scanline look is now produced by the unified CRT post-process, so the
+    // cell shader no longer modulates the background by `viewport.effect`. This
+    // is the previous off-path output (factor 1.0), so default rendering is
+    // pixel-identical. `viewport.effect` is retained in the uniform for layout
+    // stability but is no longer sampled.
+    return in.color;
 }
