@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- Core: codepoint→font-override map (SYMMAP, RV6 extension)
+
+- Added the font-resolution-area core for per-codepoint font overrides: a
+  `SymbolMapRule` (an inclusive `u32` codepoint range mapped to an override font
+  identifier) plus a `SymbolMap` (an ordered rule list with first-match lookup).
+  This is OdyTTY's non-patched-font way to point selected codepoints — box
+  drawing, powerline glyphs, a missing symbol range — at a different family or
+  font file without modifying the primary font.
+- The override identifier is stored verbatim as the same query string the font
+  resolver already accepts (a family name or a path); it is not resolved at map
+  construction. Lookup is first-match-wins over the ordered rules, so an earlier
+  rule deterministically shadows a later overlapping one.
+- Core layer only — no settings key and no glyph-resolution wiring yet; the
+  `symbol_map` setting and the render call-site are the native fast-follow. The
+  empty map is the identity/off path (every codepoint resolves to `None`), and a
+  degenerate range (`start > end`) is rejected at construction without panicking.
+  lib 1425/0/7.
+
 ## 2026-06-15 -- Docs: sync TODO.md with the shell-integration / perceptual frontier
 
 - TODO.md had drifted: the shell-integration and perceptual-color work that has
