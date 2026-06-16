@@ -38,9 +38,9 @@ pub const SCROLL_DRAG_SPEED_DESC: &str = "Drag autoscroll speed: when you drag a
 pub const BLOOM_DESC: &str = "Bloom: optional HDR phosphor glow over bright cells. Off by default and \
      pixel-identical to the plain renderer. Requires a GPU with filterable \
      Rgba16Float render targets; unsupported adapters silently use the plain path.";
-pub const BLOOM_THRESHOLD_DESC: &str = "Bloom threshold: linear luminance knee for the bright-pass. The default is \
-     derived from the active theme foreground luminance plus a safety margin, so \
-     normal body text sits below the knee and does not glow.";
+pub const BLOOM_THRESHOLD_DESC: &str = "Bloom threshold: luminance level above which text begins to glow. The default is \
+     derived from the theme foreground color so normal body text stays below the \
+     threshold and does not bloom; only visually brighter elements pick up the effect.";
 pub const BLOOM_INTENSITY_DESC: &str = "Bloom intensity: additive glow strength. Accepts 0.0–1.0; 0.0 emits no \
      glow, 0.4 is the conservative default, and the cap keeps bloom bounded.";
 pub const BLOOM_RADIUS_DESC: &str = "Bloom radius: blur spread in half-resolution pixels. Accepts 0.5–8.0; \

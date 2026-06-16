@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- HELP1: settings-panel description clarity sweep (wording portion)
+
+- Reworded five terse/jargon-y in-panel setting descriptions so the overlay
+  explains itself without external docs (north star: never hand-edit config).
+  Each now leads with what the setting does, then the effect of changing it:
+  `text_gamma`, `visual` (ambient scanline), `cursor_style`, `cursor_blink`
+  (`info.rs`), and `BLOOM_THRESHOLD_DESC` (`descriptions.rs`).
+- The three operator-named cryptic targets (`symbol_font`, `render_quality`,
+  `crt_scanline_period`) already had actionable descriptions in
+  `descriptions.rs` satisfying the existing
+  `help1_cryptic_settings_have_actionable_descriptions` gate — no change needed.
+- Text-only; no logic, no key/kind/range/options/reloadable changes. lib 1443/0,
+  fmt clean. HELP1 is NOT complete: the inert `cursor_blink=auto` logic branch
+  fix is a separate pending packet.
+
 ## 2026-06-16 -- Native foundation: cursor render-params aggregator (Wave-15b)
 
 - Second half of the chokepoint dissolver, on the cursor-vertex path (distinct
