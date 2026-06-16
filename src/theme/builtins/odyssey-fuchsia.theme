@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-fuchsia
+appearance = dark
+
+foreground = #f4d8ec
+background = #160a14
+clear = #0e0610
+
+cursor = #e852c0
+selection = #3c1834
+search = #3a2e10
+border = #401840
+inactive = #8a4878
+
+color0 = #2a1428
+color1 = #f05870
+color2 = #56cc8c
+color3 = #d4aa44
+color4 = #6480e4
+color5 = #e852c0
+color6 = #44c4d8
+color7 = #d8bcd4
+color8 = #4c2848
+color9 = #ff7a90
+color10 = #7adca8
+color11 = #ecc860
+color12 = #88a0f4
+color13 = #f870d8
+color14 = #68d8e8
+color15 = #fce8f8

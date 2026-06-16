@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-butter-light
+appearance = light
+
+foreground = #38300e
+background = #fef8e0
+clear = #fffce8
+
+cursor = #b08800
+selection = #f0e080
+search = #e8c898
+border = #d8c888
+inactive = #8a7c3c
+
+color0 = #38300e
+color1 = #c03020
+color2 = #286828
+color3 = #8a6400
+color4 = #2450a8
+color5 = #7040a8
+color6 = #147878
+color7 = #6a6040
+color8 = #524a2c
+color9 = #d04030
+color10 = #347040
+color11 = #967000
+color12 = #3068b8
+color13 = #8050b8
+color14 = #1a8888
+color15 = #1a1200

@@ -63,7 +63,7 @@ path — so the file format is exercised by the library on every startup.
 
 ### Theme families
 
-**Odyssey identity** — `plain` plus forty-one `odyssey-*` variants are
+**Odyssey identity** — `plain` plus forty-seven `odyssey-*` variants are
 original themes designed for OdysseyOS. `plain` reproduces the historical xterm
 default palette byte-for-byte and is the fallback when no theme is configured.
 The `odyssey-*` variants span a range of visual moods across dark and light
@@ -73,14 +73,16 @@ appearances: deep-space and interstellar cold (`odyssey`, `odyssey-deepspace`,
 cool natural (`odyssey-glacier`, `odyssey-voyager`, `odyssey-fathom`,
 `odyssey-harbor`, `odyssey-orchard`, `odyssey-tidepool`, `odyssey-slate`),
 cosmic nebula (`odyssey-nebula`, `odyssey-aurora`, `odyssey-ion`,
-`odyssey-twilight`, `odyssey-quasar`, `odyssey-cobalt`), natural greens
-(`odyssey-verdant`, `odyssey-moss`), warm and cool text focus
-(`odyssey-meridian`, `odyssey-graphite`, `odyssey-sepia`), and thirteen light
+`odyssey-twilight`, `odyssey-quasar`, `odyssey-cobalt`), natural greens and
+chartreuse (`odyssey-verdant`, `odyssey-moss`, `odyssey-chartreuse`), warm and
+cool text focus (`odyssey-meridian`, `odyssey-graphite`, `odyssey-sepia`),
+vivid accents (`odyssey-violet`, `odyssey-fuchsia`), and sixteen light
 companions (`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`,
 `odyssey-cloud-light`, `odyssey-coral-light`, `odyssey-mist-light`,
 `odyssey-meadow-light`, `odyssey-parchment-light`, `odyssey-blossom-light`,
 `odyssey-linen-light`, `odyssey-lilac-light`, `odyssey-pearl-light`,
-`odyssey-apricot-light`). These carry the strongest OdysseyOS visual identity.
+`odyssey-apricot-light`, `odyssey-butter-light`, `odyssey-sage-light`,
+`odyssey-slate-light`). These carry the strongest OdysseyOS visual identity.
 
 **Community** — twenty-eight themes ported from widely-used open-source
 color-scheme palettes. The dark side covers the ten palettes that formed the
@@ -148,6 +150,12 @@ OdyTTY has no affiliation with or endorsement from any of those vendors.
 | `odyssey-lilac-light` | light | Odyssey identity (soft lavender daylight with violet accents) |
 | `odyssey-pearl-light` | light | Odyssey identity (cool neutral pearl-grey daylight) |
 | `odyssey-apricot-light` | light | Odyssey identity (warm apricot-peach daylight companion) |
+| `odyssey-chartreuse` | dark | Odyssey identity (yellow-green chartreuse accent on deep olive-black) |
+| `odyssey-violet` | dark | Odyssey identity (amethyst violet accent on deep indigo-black) |
+| `odyssey-fuchsia` | dark | Odyssey identity (vivid magenta-pink accent on deep magenta-black) |
+| `odyssey-butter-light` | light | Odyssey identity (warm golden-yellow honey daylight companion) |
+| `odyssey-sage-light` | light | Odyssey identity (muted herbal sage-green daylight companion) |
+| `odyssey-slate-light` | light | Odyssey identity (cool blue-slate daylight companion) |
 | `solarized-dark` | dark | Community |
 | `solarized-light` | light | Community |
 | `gruvbox-dark` | dark | Community |

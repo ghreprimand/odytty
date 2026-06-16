@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- Theme library 78 -> 84 built-in themes
+
+- Six new contrast-validated Odyssey-identity themes fill measured hue gaps in
+  the palette: `odyssey-chartreuse` (yellow-green 75 deg), `odyssey-violet`
+  (amethyst 285 deg), `odyssey-fuchsia` (hot magenta 315 deg) on the dark side;
+  `odyssey-butter-light` (golden-yellow 50 deg), `odyssey-sage-light` (herbal
+  sage 130 deg), `odyssey-slate-light` (blue-slate 225 deg) on the light side.
+- Data-only: six `.theme` files + registry rows in `src/theme/builtins.rs`; the
+  roster assertion moves 78 -> 84, and every theme passes the existing library
+  gates (min-contrast RV1 floor, appearance-flag-matches-luminance, parse-clean,
+  bright != normal, unique names). Theme gate suite 10/0; lib 1443/0.
+- Docs in lockstep: `README.md` (2x count), `docs/themes.md` (prose mood-group
+  counts + six new table rows). No bare stale "78" remains.
+
 ## 2026-06-16 -- Native foundation: overlay registry + modal-input gate (chokepoint dissolver)
 
 - Pure-infra refactor that dissolves the `src/native/app/mod.rs` throughput

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-slate-light
+appearance = light
+
+foreground = #1c2640
+background = #ecf0f8
+clear = #f4f6fc
+
+cursor = #3860cc
+selection = #c8d4f0
+search = #e4d8a8
+border = #b0bce0
+inactive = #6070a0
+
+color0 = #1c2640
+color1 = #b22c3c
+color2 = #26743c
+color3 = #805c10
+color4 = #2454b8
+color5 = #7038a8
+color6 = #16748a
+color7 = #42506a
+color8 = #2c3c56
+color9 = #c83048
+color10 = #2e8448
+color11 = #947018
+color12 = #3060c8
+color13 = #8040b8
+color14 = #1a7a8c
+color15 = #080e1e

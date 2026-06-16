@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-sage-light
+appearance = light
+
+foreground = #263020
+background = #eff5ea
+clear = #f6faf2
+
+cursor = #4a8842
+selection = #cce4c4
+search = #e8e4a4
+border = #b8d4b0
+inactive = #6a7e60
+
+color0 = #263020
+color1 = #aa2c38
+color2 = #2e7a30
+color3 = #7c6a18
+color4 = #28609c
+color5 = #72409a
+color6 = #1a7a70
+color7 = #485840
+color8 = #3a4c34
+color9 = #c03040
+color10 = #368040
+color11 = #7a6c16
+color12 = #3070ac
+color13 = #8250ac
+color14 = #1e7e78
+color15 = #0e180c

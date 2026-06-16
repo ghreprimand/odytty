@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-chartreuse
+appearance = dark
+
+foreground = #d4eda8
+background = #0e1408
+clear = #080d04
+
+cursor = #9edd22
+selection = #2a3810
+search = #3a2c10
+border = #2a3c10
+inactive = #5a7238
+
+color0 = #1c2810
+color1 = #e85050
+color2 = #7acc2a
+color3 = #cca820
+color4 = #5488cc
+color5 = #b46acc
+color6 = #30c4a0
+color7 = #b8d494
+color8 = #344c1e
+color9 = #ff7a7a
+color10 = #a8e84e
+color11 = #ecd050
+color12 = #78a8e8
+color13 = #d090e0
+color14 = #5adabb
+color15 = #e8f4cc

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-violet
+appearance = dark
+
+foreground = #e0d4f8
+background = #100c1c
+clear = #09071a
+
+cursor = #b06eee
+selection = #2c1e48
+search = #3c2e14
+border = #2c2050
+inactive = #6a5898
+
+color0 = #1e1630
+color1 = #f06888
+color2 = #5ec898
+color3 = #d8bc5c
+color4 = #7088f0
+color5 = #b06eee
+color6 = #52c8d8
+color7 = #c8c0e4
+color8 = #382a50
+color9 = #ff8aaa
+color10 = #80dcb4
+color11 = #f0d478
+color12 = #90a8ff
+color13 = #cc90ff
+color14 = #7adcea
+color15 = #f0ecff
