@@ -794,6 +794,13 @@ color feature validates against.
         `R` resets all bindings, and conflicts prompt before replacing. Changes
         are written to `odytty.conf` via the preservation-first writeback path;
         `ODYTTY_KEYBINDS` hand-editing is byte-identical.
+  - [x] First-run onboarding and settings search: on first launch (no config
+        file yet, or `ODYTTY_ONBOARDING=1`) a welcome card shows the core
+        keyboard shortcuts, read live from the active bindings so rebinds are
+        reflected immediately; dismissed with Enter/Esc/Space. First-run memory
+        is the config file's existence — no flag file, no telemetry, no account.
+        `/` in the settings panel filters rows by name, key, description, or
+        group; Esc once clears the filter, a second Esc closes the panel.
 
 ## Archived First Prototype Checklist
 

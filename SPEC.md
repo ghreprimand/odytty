@@ -272,6 +272,21 @@ descriptions. Both are driven by the same `SettingInfo` table used by the
 in-app settings panel, so they stay in sync with the runtime knob surface
 automatically.
 
+**Settings search.** Typing `/` while the in-app settings panel is open
+filters the displayed roster by name, config key, description, or group label.
+`Esc` once clears the filter; a second `Esc` closes the panel. Theme-picker
+search is a separate future slice.
+
+**First-run onboarding.** On first launch — detected by the absence of a
+config file, or overridden with `ODYTTY_ONBOARDING=1` — OdyTTY shows a
+welcome overlay with the core keyboard shortcuts before the shell starts. All
+shortcut labels are read live from the active bindings at display time, so the
+card reflects any prior customization correctly. The overlay is dismissed with
+`Enter`, `Esc`, or `Space`. First-run state is stored as the config file's
+existence — there is no separate flag file, no telemetry, and no account
+requirement; the first-run state is therefore controlled entirely by a plain
+local file the user owns.
+
 ## Interaction Architecture
 
 ### OSC 8 Hyperlinks

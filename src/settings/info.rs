@@ -569,7 +569,7 @@ impl Settings {
                 env: CURSOR_BLINK_ENV,
                 name: "Cursor blink",
                 value: self.cursor_blink.as_str().to_owned(),
-                description: "Default cursor blink behavior at startup. On blinks the cursor at a fixed rate; off keeps it steady. Auto currently acts like on and is reserved for future OS preference integration.",
+                description: "Default cursor blink policy at startup. on blinks at a fixed rate; off keeps the cursor steady. auto currently resolves to on — an OS-preference reader is not yet implemented; auto is reserved for that future integration.",
                 kind: SettingKind::Enum,
                 range: None,
                 options: &["auto", "on", "off"],

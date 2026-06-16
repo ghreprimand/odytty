@@ -186,7 +186,16 @@ to `odytty.conf` without destroying comments, blank lines, or unknown keys
 (preservation-first writeback via same-directory atomic rename). When a
 `font_family` edit names a family that can't be resolved — not found, or found
 but not monospace — the panel shows a clear, family-named error instead of
-silently keeping the previous font.
+silently keeping the previous font. Typing `/` while the panel is open filters
+the roster by name, key, description, or group; `Esc` once clears the filter,
+a second `Esc` closes the panel.
+
+**First-run welcome card.** On first launch — when no config file exists yet,
+or with `ODYTTY_ONBOARDING=1` — OdyTTY shows a welcome overlay listing the
+core keyboard shortcuts. Shortcut labels are read live from the active bindings,
+so if you have already customized them the card shows your actual chords.
+Dismiss with `Enter`, `Esc`, or `Space`. First-run memory is the config file's
+existence — no flag file, no telemetry, no account.
 
 **Theme picker.** `Ctrl+Shift+T` opens a built-in theme picker. Arrowing through
 the library previews each theme immediately, `Enter` persists the selected
