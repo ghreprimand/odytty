@@ -34,8 +34,9 @@
 //! `odyssey-fuchsia`, `odyssey-butter-light` (light), `odyssey-sage-light`
 //! (light), `odyssey-slate-light` (light), `odyssey-amber`, `odyssey-jungle`,
 //! `odyssey-orchid`, `odyssey-seafoam-light` (light), `odyssey-indigo`,
-//! `odyssey-raspberry`, `odyssey-citrus-light` (light), and
-//! `odyssey-mauve-light` (light).
+//! `odyssey-raspberry`, `odyssey-citrus-light` (light),
+//! `odyssey-mauve-light` (light), `odyssey-terracotta`, `odyssey-harvest`,
+//! `odyssey-lagoon`, and `odyssey-clover-light` (light).
 //!
 //! Community palettes (published values): `solarized-dark`, `gruvbox-dark`,
 //! `nord`, `dracula`, `tokyo-night`, `catppuccin-mocha`, `one-dark`, `monokai`,
@@ -266,6 +267,22 @@ const REGISTRY: &[(&str, &str)] = &[
         "odyssey-mauve-light",
         include_str!("builtins/odyssey-mauve-light.theme"),
     ),
+    (
+        "odyssey-terracotta",
+        include_str!("builtins/odyssey-terracotta.theme"),
+    ),
+    (
+        "odyssey-harvest",
+        include_str!("builtins/odyssey-harvest.theme"),
+    ),
+    (
+        "odyssey-lagoon",
+        include_str!("builtins/odyssey-lagoon.theme"),
+    ),
+    (
+        "odyssey-clover-light",
+        include_str!("builtins/odyssey-clover-light.theme"),
+    ),
     // Community palettes (published values).
     (
         "solarized-dark",
@@ -397,7 +414,7 @@ mod tests {
     #[test]
     fn library_has_the_full_roster() {
         assert_eq!(all().len(), REGISTRY.len());
-        assert_eq!(all().len(), 92, "roster size changed — update docs + this");
+        assert_eq!(all().len(), 96, "roster size changed — update docs + this");
     }
 
     #[test]

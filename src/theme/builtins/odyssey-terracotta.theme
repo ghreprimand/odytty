@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-terracotta
+appearance = dark
+
+foreground = #f0d4c8
+background = #180c08
+clear = #100805
+
+cursor = #e07040
+selection = #3c1e18
+search = #4a3800
+border = #2c1a12
+inactive = #8a6a60
+
+color0 = #221410
+color1 = #e04040
+color2 = #8c8030
+color3 = #e09030
+color4 = #6880c0
+color5 = #c06088
+color6 = #7aa870
+color7 = #d0bab0
+color8 = #3c2820
+color9 = #f06858
+color10 = #b0a050
+color11 = #f0b060
+color12 = #8898d8
+color13 = #d888b0
+color14 = #9ac898
+color15 = #f4e8e0

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-harvest
+appearance = dark
+
+foreground = #f4e898
+background = #0e0a00
+clear = #090700
+
+cursor = #d8a020
+selection = #261a00
+search = #3a2e00
+border = #2a2000
+inactive = #7a6a30
+
+color0 = #1a1400
+color1 = #d04040
+color2 = #8aaa30
+color3 = #d8a020
+color4 = #5878c8
+color5 = #a868b8
+color6 = #3aaa80
+color7 = #d4c880
+color8 = #302800
+color9 = #e86060
+color10 = #b0cc48
+color11 = #f0be38
+color12 = #7898e0
+color13 = #c098d0
+color14 = #5ac8a0
+color15 = #faf4cc

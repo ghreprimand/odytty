@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-lagoon
+appearance = dark
+
+foreground = #c8eef8
+background = #071418
+clear = #040e12
+
+cursor = #3ac4e0
+selection = #163338
+search = #3a4a1a
+border = #1a3040
+inactive = #5e8490
+
+color0 = #0e2028
+color1 = #e85878
+color2 = #38c880
+color3 = #d0bc48
+color4 = #3888d8
+color5 = #9870c8
+color6 = #28bcc8
+color7 = #b0d8e4
+color8 = #1e3840
+color9 = #ff7898
+color10 = #58e0a0
+color11 = #e8d868
+color12 = #58a8ee
+color13 = #b898e0
+color14 = #48d8e4
+color15 = #e4f6fc

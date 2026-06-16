@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-clover-light
+appearance = light
+
+foreground = #1e2e18
+background = #f0f6e8
+clear = #f8fbf4
+
+cursor = #5a8a28
+selection = #d4e8c0
+search = #e8e4a0
+border = #c8deb4
+inactive = #6a7a60
+
+color0 = #1e2e18
+color1 = #c03050
+color2 = #2e8040
+color3 = #8a6a10
+color4 = #2860b0
+color5 = #8048a8
+color6 = #1e8870
+color7 = #4a5e42
+color8 = #384830
+color9 = #cc3858
+color10 = #389a4a
+color11 = #a0780c
+color12 = #3070c0
+color13 = #9458b8
+color14 = #2a9880
+color15 = #0a160a
