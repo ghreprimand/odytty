@@ -96,12 +96,12 @@ The source tree is organized into clear ownership lanes:
 |------|---------------|
 | `src/parser/` | Clean-room VT parser: segmenter, state machine, action dispatch, driver. No external parser crate. |
 | `src/core/` | Terminal model, screen, grid state, SGR/mode dispatch, protocol handlers (Kitty, Sixel routing, query, rect ops, search). Core never imports windowing, GPU, or rendering code. |
-| `src/grid.rs` | Render color resolve path: attribute → linear RGB. Houses the inverse → `dim_perceptual` → RV1-floor resolve closure, `enforce_contrast_rgba`, and `dim_color`. |
+| `src/grid.rs` | Render color resolve path: attribute → linear RGB. Houses the inverse → `dim_perceptual` → minimum-contrast-floor resolve closure, `enforce_contrast_rgba`, and `dim_color`. |
 | `src/text.rs` + `src/atlas/` | Glyph rasterization: font loading, R8 and RGBA atlas, coverage/subpixel paths, synthetic bold/italic, symbol fallback chain. |
 | `src/native/` | GPU renderer (`gpu.rs`, WGSL shaders), event loop (`app/mod.rs`), settings panel and overlay (`settings_panel.rs`, `overlay.rs`, `theme_builder.rs`), selection, search, input. |
 | `src/theme/` | `Theme` struct, `.theme` file format and parser (`spec.rs`), built-in registry (`builtins.rs`, `builtins/`), contrast validation, live reload. |
 | `src/settings/` | `Settings` struct, config file round-trip, live reload, atomic writeback, `SettingInfo` inventory for the in-app panel. |
-| `src/color.rs` | Perceptual color primitives (RV3): sRGB ↔ linear transfer, OKLab/OKLCH conversions, `dim_perceptual`, `mix_oklab`, `enforce_min_contrast`. Single source of truth for the sRGB transfer. |
+| `src/color.rs` | Perceptual color primitives: sRGB ↔ linear transfer, OKLab/OKLCH conversions, `dim_perceptual`, `mix_oklab`, `enforce_min_contrast`. Single source of truth for the sRGB transfer. |
 | `src/pty.rs` | Owned Linux PTY layer: openpt/grantpt/unlockpt, TIOCGPTPEER, TIOCSWINSZ, session-leader spawn. |
 
 All visual settings flow from `src/settings.rs` through the `Settings` struct
@@ -190,22 +190,22 @@ hard rules:
   default settings. Pixel-smoke tests assert this.
 - **Perf-gated.** A weak adapter or a budget-exceeded frame must auto-downgrade
   to the plain path without visual corruption or a crash.
-- **Readability-gated.** The RV1 minimum-contrast floor (`min_contrast`) is the
+- **Readability-gated.** The minimum-contrast floor (`min_contrast`) is the
   safety net. No visual enhancement may make text less legible at the user's
   configured contrast floor.
 
 | Tier | Label | Examples | Status |
 |------|-------|---------|--------|
-| 1 | Readability-first | RV1 contrast floor, RV2 geometric box-drawing, RV3 perceptual pipeline, RV5 stem darkening, RV6 symbol fallback | Delivered (RV1–RV3, RV5–RV6); RV4 smooth-scroll open |
-| 2 | Identity and depth | ID1 themed cursor/selection/search, ID2 focus dimming, ID3 backgrounds, ID4 chrome/padding | ID1-a, ID2 delivered; ID3–ID4 open |
-| 3 | Atmospheric (opt-in) | VE1 post-process pipeline, VE2 bloom/glow, VE3 CRT profile, VE4 motion, VE5 GPU quality | VE1, VE2, VE3-a delivered; VE4 motion open |
+| 1 | Readability-first | Minimum-contrast floor, geometric box-drawing, perceptual color pipeline, stem darkening, symbol fallback | Minimum-contrast floor, box-drawing, perceptual pipeline, stem darkening, and symbol fallback delivered; smooth scrolling open |
+| 2 | Identity and depth | Themed cursor/selection/search, focus dimming, background treatments, chrome/padding | Themed cursor/selection/search and focus dimming delivered; background treatments and chrome/padding open |
+| 3 | Atmospheric (opt-in) | Post-process pipeline, bloom/glow, CRT profile, cursor motion, GPU quality | Post-process pipeline, bloom/glow, and CRT profile core delivered; cursor motion and GPU quality open |
 
 See `docs/visual-architecture.md` for the full tier breakdown and source
 references.
 
 ## Adding a built-in theme
 
-All 84 built-in themes live in `src/theme/builtins/` as `.theme` files.
+All 88 built-in themes live in `src/theme/builtins/` as `.theme` files.
 The `REGISTRY` slice in `src/theme/builtins.rs` maps names to
 `include_str!`-embedded sources. Adding a new built-in is four steps:
 

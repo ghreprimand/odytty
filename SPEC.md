@@ -459,14 +459,14 @@ its first stable layer.
   panel layer rendered through the existing cell path — text fields, lists,
   toggles, keyboard-driven navigation; presentation-only, never mutates terminal
   state
-- In-app settings panel (UX2): `Ctrl+Shift+,` opens a keyboard-driven editor
+- In-app settings panel: `Ctrl+Shift+,` opens a keyboard-driven editor
   covering font, theme, cursor, keybinds, and all runtime knobs; edits apply
   live through the existing reload seam; `Ctrl+S` writes changed rows back to
   `odytty.conf` with preservation-first writeback (comments, blank lines, and
-  unknown keys untouched; same-directory atomic rename). Live theme picker
-  (UX3): `Ctrl+Shift+T` lists built-ins, previews each theme on arrow
+  unknown keys untouched; same-directory atomic rename). Live theme picker:
+  `Ctrl+Shift+T` lists built-ins, previews each theme on arrow
   navigation, persists the selected built-in with `Enter`, and restores the
-  originally active theme with `Esc`. Custom theme builder (TH4) has landed:
+  originally active theme with `Esc`. The custom theme builder has landed:
   clone/tweak/author with live preview, saved to a user `.theme` file.
 - Readability pipeline: all visual enhancements are off by default, behind
   explicit settings, with a pixel-identical plain/fast path that bypasses
@@ -510,7 +510,7 @@ its first stable layer.
   (e.g. open-new-tab-in-same-directory) is a deliberate follow-up packet (SI2).
   OSC 6 is accepted-and-ignored.
 
-- Post-process pipeline foundation (VE1-a): lazy offscreen render target +
+- Post-process pipeline foundation: lazy offscreen render target +
   fullscreen-triangle passthrough composite; default path stays
   direct-to-swapchain (byte-identical); GPU readback smoke guards the seam
 
@@ -555,37 +555,37 @@ it guards the passthrough seam against regressions as effects land.
 
 Tier-3 atmospheric effects land in this order:
 
-1. **VE1-a (landed):** offscreen scaffold + passthrough composite, sRGB-8
-   intermediate. Default dormant; zero visible change. Foundation for all
-   subsequent effects.
-2. **VE1-b (landed):** the offscreen intermediate is a linear `Rgba16Float`
-   format with a filterable-format probe and graceful auto-disable on adapters
-   that cannot support it. This was the **hard prerequisite for bloom (VE2)**:
-   an sRGB-8 intermediate clamps all values at 1.0 and quantizes, destroying the
-   HDR overshoot (>1.0 linear) that additive glow needs. The composite pass
-   performs the final linear→sRGB encode at store time; the swapchain surface
-   stays `Rgba8UnormSrgb`. When a post-process pass is active the scene pipelines
-   (cell, color-glyph, image) are rebuilt to render into the HDR offscreen
-   format and rebuilt back when it is disabled, so the default path stays on the
-   swapchain format and byte-identical.
-3. **VE2 (landed):** bloom / phosphor glow (bright-pass threshold + half-res
-   separable blur + additive composite), off by default behind the `bloom`
+1. **Post-process scaffold (landed):** offscreen scaffold + passthrough
+   composite, sRGB-8 intermediate. Default dormant; zero visible change.
+   Foundation for all subsequent effects.
+2. **Linear HDR intermediate (landed):** the offscreen intermediate is a linear
+   `Rgba16Float` format with a filterable-format probe and graceful auto-disable
+   on adapters that cannot support it. This was the **hard prerequisite for
+   bloom**: an sRGB-8 intermediate clamps all values at 1.0 and quantizes,
+   destroying the HDR overshoot (>1.0 linear) that additive glow needs. The
+   composite pass performs the final linear→sRGB encode at store time; the
+   swapchain surface stays `Rgba8UnormSrgb`. When a post-process pass is active
+   the scene pipelines (cell, color-glyph, image) are rebuilt to render into
+   the HDR offscreen format and rebuilt back when it is disabled, so the default
+   path stays on the swapchain format and byte-identical.
+3. **Bloom / phosphor glow (landed):** bright-pass threshold + half-res
+   separable blur + additive composite, off by default behind the `bloom`
    setting and gated on adapter HDR support. The bright-pass threshold is
    auto-derived from the active theme's foreground luminance so normal body text
    never glows.
-4. **VE3-a (landed):** CRT / retro profile core (bounded scanlines + vignette),
-   off by default behind `crt` and sharing the same offscreen scene render and
-   final composite pass as bloom. Because post-composite dimming cannot feed
-   back into the CPU RV1 resolver, the shader clamps scanline/vignette strength
-   and enforces a brightness floor so lit cells are never zeroed. Curvature and
-   chromatic aberration are deferred to VE3-b.
+4. **CRT / retro profile core (landed):** bounded scanlines + vignette, off by
+   default behind `crt` and sharing the same offscreen scene render and final
+   composite pass as bloom. Because post-composite dimming cannot feed back into
+   the CPU minimum-contrast resolver, the shader clamps scanline/vignette
+   strength and enforces a brightness floor so lit cells are never zeroed.
+   Curvature and chromatic aberration are deferred.
 
-VE4 (cursor motion trail / new-output fade) and VE5 (GPU quality + per-effect
-settings panel controls) follow after VE2/VE3 are proven.
+Cursor motion trail / new-output fade and GPU quality / per-effect settings
+panel controls follow after bloom and CRT profile are proven.
 
 ### Readability-gate architecture — durable design rule
 
-The **RV1 minimum-contrast floor** (`enforce_min_contrast`,
+The **minimum-contrast floor** (`enforce_min_contrast`,
 `src/color.rs:enforce_min_contrast`) runs at **CPU color-resolve time** — the
 last step of the per-cell resolve closure inside `build_cell_vertices_with_focus_dim_into`
 — before the vertex buffer is written and long before any GPU scene or
@@ -593,7 +593,7 @@ post-process pass executes. There is no within-frame feedback path from the GPU
 composite back to the CPU resolve step.
 
 **Consequence (binding design rule):** post-process effects **cannot** rely on
-the RV1 floor to clean up legibility after the fact. Every Tier-3 effect must
+the minimum-contrast floor to clean up legibility after the fact. Every Tier-3 effect must
 be **structurally unable** to harm body-text legibility by construction:
 
 - **Bloom / additive glow:** threshold is auto-derived to lie strictly above
