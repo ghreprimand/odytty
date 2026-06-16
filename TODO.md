@@ -338,6 +338,12 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
   - [x] Unset preserves today's defaults exactly; valid entries override one
         action at a time; invalid entries log and skip; duplicate chords use
         the last valid binding. PTY input mapping remains unchanged.
+- [x] Keyboard pattern quick-select for URLs, paths, and identifiers.
+  - [x] `Ctrl+Shift+L` scans the visible screen for URL, path, and SHA-like
+        patterns, labels each match with a short home-row key sequence, and
+        copies the match the user types; `Esc` dismisses. Labels are
+        prefix-free (no mismatch on multi-character labels). Binding is
+        configurable via `ODYTTY_KEYBINDS` (action name `hints`).
 - [x] Add cursor style and blink policy settings.
   - [x] DECSCUSR (`CSI Ps SP q`) styles 0-6: host default, blinking/steady
         block, blinking/steady underline, blinking/steady bar; `RIS`/`DECSTR`
@@ -748,7 +754,7 @@ color feature validates against.
   - [x] Configurable wheel scroll speed plus modifier+wheel font-size zoom
         (only when TUI mouse reporting is off).
 - [ ] Theme library and config UX.
-  - [x] Built-in theme library expanded to 84 contrast-validated themes
+  - [x] Built-in theme library expanded to 88 contrast-validated themes
         (data-only, ongoing).
   - [x] Mouse-driven settings overlay with sliders and click-to-type numeric
         entry (UX4-P1/P2/P3).

@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- Theme library 84 -> 88 + HINTS surfaced in public docs
+
+- Four new contrast-validated Odyssey-identity themes fill measured hue gaps:
+  `odyssey-amber` (golden amber ~55 deg), `odyssey-jungle` (tropical green
+  ~155 deg), `odyssey-orchid` (orchid purple-pink ~305 deg) on the dark side;
+  `odyssey-seafoam-light` (seafoam-green ~175 deg) on the light side. All pass
+  the library gates (min-contrast RV1 floor, appearance-flag, parse-clean,
+  bright != normal, unique names); roster assertion 84 -> 88. Theme gates 10/0.
+- HINTS now described in the public feature surface: README "Daily-driver
+  interaction" gains a keyboard quick-select paragraph (scan visible URLs /
+  paths / identifiers, label each, type to copy, Esc dismisses; binding via
+  the keybinds config), and TODO marks the feature done. No SPEC change — it is
+  a feature, not a durable architecture boundary.
+- Docs in lockstep: README count 84 -> 88 (both sites), `docs/themes.md` prose
+  mood-group counts + four new table rows. lib 1456/0; fmt clean.
+
 ## 2026-06-16 -- HINTS: keyboard pattern-select / quick-select (Wave-16, copy v1)
 
 - First Wave-16 native feature on the overlay-registry + modal-input foundation:

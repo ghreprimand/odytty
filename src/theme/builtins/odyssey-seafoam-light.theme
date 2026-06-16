@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-seafoam-light
+appearance = light
+
+foreground = #1a3832
+background = #eef8f6
+clear = #f4faf8
+
+cursor = #1a8878
+selection = #c0e8e4
+search = #e4e890
+border = #a8d8d0
+inactive = #5a8888
+
+color0 = #1a3832
+color1 = #b02c38
+color2 = #1a7858
+color3 = #7a6408
+color4 = #1a5890
+color5 = #6838a0
+color6 = #1a7880
+color7 = #3e6060
+color8 = #2e5050
+color9 = #c83040
+color10 = #228868
+color11 = #8a7210
+color12 = #2468a0
+color13 = #7848b0
+color14 = #228898
+color15 = #0a201c

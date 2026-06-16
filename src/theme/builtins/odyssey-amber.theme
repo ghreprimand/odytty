@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-amber
+appearance = dark
+
+foreground = #f0d47a
+background = #100a00
+clear = #0c0800
+
+cursor = #e8b820
+selection = #261a00
+search = #302600
+border = #2c1e00
+inactive = #7a6420
+
+color0 = #1e1200
+color1 = #d04040
+color2 = #90b020
+color3 = #c89810
+color4 = #4870c0
+color5 = #a84ea8
+color6 = #20a888
+color7 = #c8b880
+color8 = #302000
+color9 = #e06060
+color10 = #a8cc30
+color11 = #e8b820
+color12 = #6890d8
+color13 = #c070c0
+color14 = #40c8a8
+color15 = #f4e4b0

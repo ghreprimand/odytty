@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-orchid
+appearance = dark
+
+foreground = #e0a8dc
+background = #0c0012
+clear = #080010
+
+cursor = #d050d8
+selection = #280040
+search = #38104c
+border = #2c0040
+inactive = #7050a0
+
+color0 = #180020
+color1 = #d84060
+color2 = #509040
+color3 = #b08020
+color4 = #5860c8
+color5 = #b840c8
+color6 = #2098a8
+color7 = #b080b8
+color8 = #2c0038
+color9 = #f06080
+color10 = #68b050
+color11 = #d4a030
+color12 = #7880e0
+color13 = #d060e0
+color14 = #38b0c0
+color15 = #f0d0f4

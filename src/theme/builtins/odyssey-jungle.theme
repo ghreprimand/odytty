@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-jungle
+appearance = dark
+
+foreground = #88d8b0
+background = #031408
+clear = #010c06
+
+cursor = #40c898
+selection = #0a2414
+search = #1c2c10
+border = #102814
+inactive = #407860
+
+color0 = #071c0c
+color1 = #dc4848
+color2 = #38b048
+color3 = #c09418
+color4 = #3880c4
+color5 = #a050c0
+color6 = #18a898
+color7 = #7ab898
+color8 = #103018
+color9 = #f07070
+color10 = #50cc60
+color11 = #d8b030
+color12 = #5898d8
+color13 = #b870d0
+color14 = #30c0b0
+color15 = #c0e8d0

@@ -70,7 +70,7 @@ true physical pixel coordinates.
 
 `Theme` carries the full 16-color ANSI palette (indices 0–7 normal, 8–15
 bright) plus semantic-role colors (cursor, selection, search highlight, and
-reserved border/inactive). The library ships 84 contrast-validated built-in
+reserved border/inactive). The library ships 88 contrast-validated built-in
 themes: the Odyssey identity family (`plain` — the default, reproducing
 historical xterm defaults byte-for-byte — plus `odyssey`, `odyssey-noir`,
 `odyssey-light`, `odyssey-aurora`, and more), a set of widely-used community
@@ -127,6 +127,13 @@ scrollback-aware anchors. Clipboard: chunked background writes for large pastes,
 bracketed-paste sanitization, line-ending normalization, Linux PRIMARY selection.
 Right-edge scroll indicator. Configurable cursor shapes (block/underline/bar),
 blink policy, and key bindings (`ODYTTY_KEYBINDS`).
+
+**Keyboard quick-select.** `Ctrl+Shift+L` scans the visible screen for URLs,
+file paths, and short identifiers (Git SHAs and similar hex strings), labels
+each match with a short home-row key sequence, and copies the one you type.
+`Esc` dismisses without copying. Labels are prefix-free, so a two-character
+label never misfires on a partial keystroke. The binding is configurable via
+`ODYTTY_KEYBINDS` (action name `hints`).
 
 **OSC 8 hyperlinks.** Shell output with OSC 8 sequences renders hover underline
 highlighting. Ctrl+click opens links via `xdg-open` through a scheme allowlist
@@ -226,7 +233,7 @@ non-negotiable floor.
 
 Everything in the Features section above. The full owned byte path is real and
 in production. Color emoji, Kitty graphics, Sixel, the Kitty keyboard protocol,
-SGR-pixel mouse, the theme palette and user theme file format, the 84-theme
+SGR-pixel mouse, the theme palette and user theme file format, the 88-theme
 built-in library, the in-window overlay framework, the in-app settings
 panel plus live theme picker, the in-app custom theme builder, and CLI config
 introspection have all landed. The minimum-contrast readability floor
