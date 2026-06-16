@@ -22,6 +22,7 @@ use super::gpu::{
     text_params, theme_clear_color,
 };
 use super::key_remap_ui::KeyRemapSignature;
+use super::onboarding::OnboardingSignature;
 use super::options::NativeOptions;
 use super::overlay::{OverlayMode, OverlayRenderSignature};
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};

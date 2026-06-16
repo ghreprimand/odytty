@@ -9,6 +9,7 @@ use unicode_width::UnicodeWidthChar;
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
 use super::key_remap_ui::{KeyRemapLine, KeyRemapOutcome, KeyRemapSignature, KeyRemapUi};
+use super::onboarding::{OnboardingLine, OnboardingPanel, OnboardingSignature};
 use super::settings_panel::{SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature};
 use super::theme_builder::{
     ThemeBuilder, ThemeBuilderLine, ThemeBuilderOutcome, ThemeBuilderSaveRequest,
@@ -25,6 +26,7 @@ pub(super) struct OverlayUi {
     theme_picker: ThemePicker,
     theme_builder: ThemeBuilder,
     key_remap: KeyRemapUi,
+    onboarding: OnboardingPanel,
 }
 
 impl Default for OverlayUi {
@@ -43,6 +45,7 @@ impl OverlayUi {
             theme_picker: ThemePicker::new(settings),
             theme_builder: ThemeBuilder::new(settings),
             key_remap: KeyRemapUi::new(settings),
+            onboarding: OnboardingPanel::new(settings),
         }
     }
 
@@ -56,6 +59,7 @@ impl OverlayUi {
         self.theme_picker.refresh(settings);
         self.theme_builder.refresh(settings);
         self.key_remap.refresh(settings);
+        self.onboarding.refresh(settings);
     }
 
     pub(super) fn apply_settings(&mut self, settings: &Settings) {
@@ -107,6 +111,17 @@ impl OverlayUi {
         self.open = true;
     }
 
+    /// Open the first-run onboarding card (ONBOARD). Called once at startup by
+    /// `App::new` when the config file does not yet exist (or the
+    /// `ODYTTY_ONBOARDING` override is set). Refreshes the card from the current
+    /// settings so the shortcut hints reflect the live bindings (D-OB-3).
+    pub(super) fn open_onboarding(&mut self) {
+        self.panel.end_slider_drag();
+        self.onboarding.refresh(&self.settings);
+        self.mode = OverlayMode::Onboarding;
+        self.open = true;
+    }
+
     /// Whether the key-remap modal is armed to capture a raw chord (KB-REMAP).
     /// The App gates its chord-capture bypass on this: `true` ONLY when the
     /// KeyBindings mode is active AND a row/conflict is awaiting a chord, so
@@ -135,11 +150,14 @@ impl OverlayUi {
             OverlayMode::ThemePicker => return self.handle_theme_picker_input(input),
             OverlayMode::ThemeBuilder => return self.handle_theme_builder_input(input),
             OverlayMode::KeyBindings => return self.handle_key_remap_input(input),
+            OverlayMode::Onboarding => return self.handle_onboarding_input(input),
             OverlayMode::Settings => {}
         }
 
         match input {
-            OverlayInput::Close if !self.panel.is_editing() => OverlayOutcome::Close,
+            OverlayInput::Close if !self.panel.is_editing() && !self.panel.is_searching() => {
+                OverlayOutcome::Close
+            }
             input => settings_outcome(self.panel.handle_input(input)),
         }
     }
@@ -187,7 +205,9 @@ impl OverlayUi {
                         );
                         self.apply_builder_outcome(outcome)
                     }
-                    OverlayMode::ThemePicker | OverlayMode::KeyBindings => OverlayOutcome::Consumed,
+                    OverlayMode::ThemePicker
+                    | OverlayMode::KeyBindings
+                    | OverlayMode::Onboarding => OverlayOutcome::Consumed,
                 }
             }
             OverlayPointer::Move { cell } => {
@@ -206,14 +226,18 @@ impl OverlayUi {
                         );
                         self.apply_builder_outcome(outcome)
                     }
-                    OverlayMode::ThemePicker | OverlayMode::KeyBindings => OverlayOutcome::Consumed,
+                    OverlayMode::ThemePicker
+                    | OverlayMode::KeyBindings
+                    | OverlayMode::Onboarding => OverlayOutcome::Consumed,
                 }
             }
             OverlayPointer::Release { .. } => {
                 match self.mode {
                     OverlayMode::Settings => self.panel.end_slider_drag(),
                     OverlayMode::ThemeBuilder => self.theme_builder.end_channel_drag(),
-                    OverlayMode::ThemePicker | OverlayMode::KeyBindings => {}
+                    OverlayMode::ThemePicker
+                    | OverlayMode::KeyBindings
+                    | OverlayMode::Onboarding => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -222,7 +246,7 @@ impl OverlayUi {
                     OverlayMode::Settings => self.panel.scroll_lines(lines),
                     OverlayMode::ThemeBuilder => self.theme_builder.scroll_lines(lines),
                     OverlayMode::KeyBindings => self.key_remap.scroll_lines(lines),
-                    OverlayMode::ThemePicker => {}
+                    OverlayMode::ThemePicker | OverlayMode::Onboarding => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -237,7 +261,7 @@ impl OverlayUi {
         match self.mode {
             OverlayMode::Settings => self.panel.is_dragging(),
             OverlayMode::ThemeBuilder => self.theme_builder.is_dragging(),
-            OverlayMode::ThemePicker | OverlayMode::KeyBindings => false,
+            OverlayMode::ThemePicker | OverlayMode::KeyBindings | OverlayMode::Onboarding => false,
         }
     }
 
@@ -252,7 +276,7 @@ impl OverlayUi {
         match self.mode {
             OverlayMode::Settings => self.panel.end_slider_drag(),
             OverlayMode::ThemeBuilder => self.theme_builder.end_channel_drag(),
-            OverlayMode::ThemePicker | OverlayMode::KeyBindings => {}
+            OverlayMode::ThemePicker | OverlayMode::KeyBindings | OverlayMode::Onboarding => {}
         }
     }
 
@@ -294,6 +318,8 @@ impl OverlayUi {
             // modal reports the saved count and adopts the persisted bindings as
             // its new restore baseline.
             OverlayMode::KeyBindings => self.key_remap.save_succeeded(changed),
+            // The onboarding card has no save path of its own.
+            OverlayMode::Onboarding => {}
         }
     }
 
@@ -303,6 +329,7 @@ impl OverlayUi {
             OverlayMode::ThemePicker => self.theme_picker.save_failed(message),
             OverlayMode::ThemeBuilder => self.theme_builder.save_failed(message),
             OverlayMode::KeyBindings => self.key_remap.save_failed(message),
+            OverlayMode::Onboarding => {}
         }
     }
 
@@ -324,6 +351,7 @@ impl OverlayUi {
             theme_picker: self.theme_picker.render_signature(),
             theme_builder: self.theme_builder.render_signature(),
             key_remap: self.key_remap.render_signature(),
+            onboarding: self.onboarding.render_signature(),
         }
     }
 
@@ -404,6 +432,19 @@ impl OverlayUi {
         }
     }
 
+    /// Handle a key in the first-run onboarding card (ONBOARD). The card is a
+    /// static info panel: Enter / Esc / Space dismiss it (close the overlay);
+    /// every other key is swallowed so nothing leaks to the PTY behind it. The
+    /// terminal stays live throughout — dismissal is the only state change.
+    fn handle_onboarding_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match input {
+            OverlayInput::Close | OverlayInput::Activate | OverlayInput::Char(' ') => {
+                OverlayOutcome::Close
+            }
+            _ => OverlayOutcome::Consumed,
+        }
+    }
+
     fn settings_with_theme(&self, theme: Theme) -> Settings {
         let mut settings = self.settings.clone();
         settings.theme = theme;
@@ -444,6 +485,7 @@ pub(super) enum OverlayMode {
     ThemePicker,
     ThemeBuilder,
     KeyBindings,
+    Onboarding,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -510,6 +552,7 @@ pub(super) struct OverlayRenderSignature {
     pub(super) theme_picker: ThemePickerSignature,
     pub(super) theme_builder: ThemeBuilderSignature,
     pub(super) key_remap: KeyRemapSignature,
+    pub(super) onboarding: OnboardingSignature,
 }
 
 pub(super) fn overlay_input_from_winit(
@@ -589,6 +632,7 @@ pub(super) fn overlay_rect(
         OverlayMode::ThemePicker => overlay.theme_picker.desired_width(columns),
         OverlayMode::ThemeBuilder => overlay.theme_builder.desired_width(columns),
         OverlayMode::KeyBindings => overlay.key_remap.desired_width(columns),
+        OverlayMode::Onboarding => overlay.onboarding.desired_width(columns),
     }
     .max(36)
     .min(columns);
@@ -621,6 +665,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
         OverlayMode::ThemePicker => "OdyTTY Themes",
         OverlayMode::ThemeBuilder => "OdyTTY Theme Builder",
         OverlayMode::KeyBindings => "OdyTTY Key Bindings",
+        OverlayMode::Onboarding => "Welcome to OdyTTY",
     };
 
     fill_rect(
@@ -698,6 +743,12 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
+            OverlayMode::Onboarding => self
+                .onboarding
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
         }
     }
 }
@@ -741,6 +792,16 @@ impl From<ThemeBuilderLine> for OverlayLine {
 
 impl From<KeyRemapLine> for OverlayLine {
     fn from(line: KeyRemapLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: None,
+        }
+    }
+}
+
+impl From<OnboardingLine> for OverlayLine {
+    fn from(line: OnboardingLine) -> Self {
         Self {
             text: line.text,
             focused: line.focused,
@@ -931,6 +992,71 @@ mod tests {
             OverlayOutcome::Close
         );
         assert_eq!(overlay.render_signature(), before);
+    }
+
+    #[test]
+    fn onboarding_opens_renders_and_dismisses() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_onboarding();
+        assert!(overlay.is_open());
+        assert_eq!(overlay.render_signature().mode, OverlayMode::Onboarding);
+
+        // The welcome card paints its title into the snapshot.
+        let mut rendered = snapshot(70, 18);
+        apply_overlay(&mut rendered, &overlay);
+        let painted: String = rendered.cells.iter().map(|cell| cell.ch).collect();
+        assert!(painted.contains("Welcome to OdyTTY"));
+
+        // Enter, Esc, and Space each dismiss; any other key is swallowed.
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Char('x')),
+            OverlayOutcome::Consumed
+        );
+        assert!(overlay.is_open());
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Close
+        );
+        for input in [
+            OverlayInput::Close,
+            OverlayInput::Char(' '),
+            OverlayInput::Activate,
+        ] {
+            overlay.open_onboarding();
+            assert_eq!(overlay.handle_input(input), OverlayOutcome::Close);
+        }
+    }
+
+    #[test]
+    fn escape_while_searching_does_not_close_overlay() {
+        // R7: the overlay-close Esc is gated on `!is_searching()`, so an Esc in
+        // search mode runs the panel's two-step exit instead of closing.
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Char('/')),
+            OverlayOutcome::Consumed
+        );
+        for ch in "cursor".chars() {
+            let _ = overlay.handle_input(OverlayInput::Char(ch));
+        }
+        // First Esc clears the query, overlay stays open.
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Close),
+            OverlayOutcome::Consumed
+        );
+        assert!(overlay.is_open());
+        // Second Esc exits search, still not closing the overlay.
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Close),
+            OverlayOutcome::Consumed
+        );
+        assert!(overlay.is_open());
+        // With search fully exited, Esc now closes.
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Close),
+            OverlayOutcome::Close
+        );
     }
 
     #[test]

@@ -237,6 +237,8 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
             changed_count: 0,
             message: None,
             entries: Vec::new(),
+            query: String::new(),
+            search_active: false,
         },
         theme_picker: ThemePickerSignature {
             selected: 0,
@@ -263,6 +265,7 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
             message: None,
             bindings: String::new(),
         },
+        onboarding: OnboardingSignature::default(),
     }
 }
 

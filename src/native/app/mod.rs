@@ -361,7 +361,9 @@ impl App {
         let autoclose = settings.native_autoclose;
         let themed_ui_roles = settings.themed_ui_roles;
         let overlay = OverlayUi::new(&settings);
-        Self {
+        // ONBOARD: decide before construction whether this is a first launch.
+        let onboarding_override = std::env::var_os("ODYTTY_ONBOARDING").is_some();
+        let mut app = Self {
             options,
             theme,
             effective_theme,
@@ -425,7 +427,15 @@ impl App {
             autoclose,
             deadline: None,
             startup_error: None,
+        };
+        // ONBOARD (D-OB-1/D-OB-2): open the first-run welcome card iff the
+        // config file does not yet exist (or the env override is set). First-run
+        // memory is the user-owned config's existence — no telemetry, no flag
+        // file (U6). Materializing the config (saving any setting) retires it.
+        if should_show_onboarding(onboarding_override, app.settings_reloader.config_path()) {
+            app.overlay.open_onboarding();
         }
+        app
     }
 
     pub(super) fn resize_grid_with_padding(
@@ -1627,12 +1637,37 @@ fn crt_options(settings: &Settings) -> CrtOptions {
     }
 }
 
+/// Whether the first-run onboarding card should open at startup (ONBOARD).
+/// `env_override` forces it on (the `ODYTTY_ONBOARDING` escape hatch / CI).
+/// Otherwise it is a first launch iff the resolved `config_path` does not yet
+/// exist. An unresolvable path (no writable config dir) returns `false` —
+/// fail-safe to NOT nagging, since dismissal could not be persisted (D-OB-2).
+fn should_show_onboarding(env_override: bool, config_path: Option<&std::path::Path>) -> bool {
+    env_override || config_path.map(|path| !path.exists()).unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn blink() -> CursorBlinkState {
         CursorBlinkState::new(Duration::from_millis(500))
+    }
+
+    #[test]
+    fn onboarding_opens_only_on_first_run_or_override() {
+        // Absent config ⇒ first run ⇒ show.
+        let missing = std::path::Path::new("/nonexistent/odytty/odytty.conf");
+        assert!(should_show_onboarding(false, Some(missing)));
+        // A path that exists ⇒ NOT first run ⇒ do not show. Cargo guarantees
+        // this manifest is present during the test.
+        let present = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        assert!(present.exists());
+        assert!(!should_show_onboarding(false, Some(present.as_path())));
+        // Env override forces it on regardless of file state.
+        assert!(should_show_onboarding(true, Some(present.as_path())));
+        // Unresolvable path ⇒ fail-safe to not nagging.
+        assert!(!should_show_onboarding(false, None));
     }
 
     #[test]

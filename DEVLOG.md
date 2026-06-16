@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- ONBOARD: first-run welcome card + in-overlay settings search
+
+- First launch (no config file present, or the `ODYTTY_ONBOARDING` env override
+  set) opens a welcome card (`OverlayMode::Onboarding`, new module
+  `src/native/onboarding.rs`) with the core keyboard shortcuts. The shortcut
+  hints are read live from the active key bindings (`KeyBindings::from_overrides`
+  → `chord_for_action` → `format_key_chord`), so they stay correct after a
+  KB-REMAP rebind rather than being hardcoded. Dismiss with Enter/Esc/Space; any
+  other key is consumed (nothing leaks to the PTY); click-outside also closes.
+- First-run memory is simply the config file's existence — no telemetry, no flag
+  file, no account (consistent with the local/no-telemetry posture, U6). The
+  detection helper `should_show_onboarding(env_override, config_path)` fails safe:
+  an unresolvable config path resolves to *not* showing the card (never nag).
+- In the settings panel, `/` from the non-editing list enters a live substring
+  search over name/key/description/group; the shared row walker keeps the pointer
+  hit-map in lockstep with the filtered view. Two-step Esc (exit search, then
+  close). Starting a text edit from a filtered row restores the full roster first.
+  ThemePicker search is deferred to a follow-up.
+- Off-path is byte-identical: when not first-run the Onboarding mode is never
+  entered, and an empty search query reproduces the pre-ONBOARD settings
+  signature. Verified: lib 1521/0/7, native pixel-smoke 45/0, fmt clean, clippy
+  baseline (zero new). This closes the current native overlay queue.
+
+---
+
 ## 2026-06-16 -- Keybinding remap UI: rebind any action from inside the overlay
 
 - A new in-overlay key-binding editor (`OverlayMode::KeyBindings`) lets you

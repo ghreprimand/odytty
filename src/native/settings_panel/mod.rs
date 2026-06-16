@@ -8,6 +8,10 @@ mod pointer;
 #[derive(Debug, Clone)]
 pub(super) struct SettingsPanel {
     edits: SettingsEditOverlay,
+    /// The full setting roster, the base for the search filter (OB-SEARCH). The
+    /// rendered `entries` is this list narrowed by the active query; with no
+    /// query the two are identical (the off-path is byte-identical to today).
+    all_entries: Vec<SettingInfo>,
     entries: Vec<SettingInfo>,
     selected: usize,
     scroll: usize,
@@ -17,6 +21,11 @@ pub(super) struct SettingsPanel {
     /// slider-track press, cleared on release; while `Some`, pointer moves map
     /// the cursor column to a live value.
     dragging: Option<&'static str>,
+    /// In-overlay search state (OB-SEARCH). `search_active` is entered with `/`
+    /// from the non-editing list; `query` is the live filter substring. Both
+    /// default to off / empty, so the panel is off-path-identical until used.
+    query: String,
+    search_active: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,6 +36,8 @@ pub(super) struct SettingsPanelSignature {
     pub(super) changed_count: usize,
     pub(super) message: Option<String>,
     pub(super) entries: Vec<SettingsPanelEntrySignature>,
+    pub(super) query: String,
+    pub(super) search_active: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,14 +72,18 @@ struct RowEdit {
 impl SettingsPanel {
     pub(super) fn new(settings: &Settings) -> Self {
         let edits = SettingsEditOverlay::new(settings);
+        let entries = edits.settings().setting_info();
         let mut panel = Self {
-            entries: edits.settings().setting_info(),
+            all_entries: entries.clone(),
+            entries,
             edits,
             selected: 0,
             scroll: 0,
             editing: None,
             message: None,
             dragging: None,
+            query: String::new(),
+            search_active: false,
         };
         panel.clamp();
         panel
@@ -81,7 +96,12 @@ impl SettingsPanel {
             .map(|entry| entry.key)
             .unwrap_or("theme");
         self.edits = SettingsEditOverlay::new(settings);
-        self.entries = self.edits.settings().setting_info();
+        // A config reload clears any active search so the base list is rebuilt
+        // from fresh data, never filtered against stale entries (R1).
+        self.query.clear();
+        self.search_active = false;
+        self.all_entries = self.edits.settings().setting_info();
+        self.entries = self.all_entries.clone();
         self.selected = self
             .entries
             .iter()
@@ -99,7 +119,8 @@ impl SettingsPanel {
             .get(self.selected)
             .map(|entry| entry.key)
             .unwrap_or("theme");
-        self.entries = self.edits.settings().setting_info();
+        self.all_entries = self.edits.settings().setting_info();
+        self.apply_search_filter();
         self.selected = self
             .entries
             .iter()
@@ -113,7 +134,8 @@ impl SettingsPanel {
 
     pub(super) fn save_succeeded(&mut self, changed: usize) {
         self.edits.mark_saved();
-        self.entries = self.edits.settings().setting_info();
+        self.all_entries = self.edits.settings().setting_info();
+        self.apply_search_filter();
         self.message = Some(format!("Saved {changed} setting change(s) to odytty.conf."));
         self.clamp();
     }
@@ -133,8 +155,14 @@ impl SettingsPanel {
     }
 
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> SettingsPanelOutcome {
+        // Guard order is load-bearing (R2): a live text edit owns the keystrokes
+        // first, THEN the search filter. Reversed, typing into a string row
+        // would be misread as query accumulation.
         if self.editing.is_some() {
             return self.handle_editing_input(input);
+        }
+        if self.search_active {
+            return self.handle_search_input(input);
         }
 
         match input {
@@ -159,9 +187,130 @@ impl SettingsPanel {
                 return SettingsPanelOutcome::OpenThemeBuilder;
             }
             OverlayInput::Char(' ') => return self.activate_selected(),
+            // OB-SEARCH: `/` from the non-editing list enters search mode. Gated
+            // to the non-editing state (D-OB-6) — inside a text edit `/` is a
+            // literal character handled by `handle_editing_input` above.
+            OverlayInput::Char('/') => {
+                self.search_active = true;
+                self.query.clear();
+                self.apply_search_filter();
+                return SettingsPanelOutcome::Consumed;
+            }
             _ => {}
         }
         SettingsPanelOutcome::Consumed
+    }
+
+    /// Handle a key while the search filter is active (OB-SEARCH). Characters
+    /// accumulate the query; Backspace trims it; navigation/activation work on
+    /// the filtered list; Esc is the two-step exit (D-OB-7): the first Esc with a
+    /// non-empty query clears it, the second exits search mode. Starting a text
+    /// edit (a string/number/path/theme row) cleanly exits search so the panel
+    /// invariant `entries == all_entries when !search_active` always holds (R2).
+    fn handle_search_input(&mut self, input: OverlayInput) -> SettingsPanelOutcome {
+        match input {
+            OverlayInput::Close => {
+                if self.query.is_empty() {
+                    self.search_active = false;
+                    self.entries = self.all_entries.clone();
+                    self.clamp();
+                } else {
+                    self.query.clear();
+                    self.apply_search_filter();
+                }
+                SettingsPanelOutcome::Consumed
+            }
+            OverlayInput::Backspace => {
+                self.query.pop();
+                self.apply_search_filter();
+                SettingsPanelOutcome::Consumed
+            }
+            OverlayInput::Up => {
+                self.move_selection(-1);
+                SettingsPanelOutcome::Consumed
+            }
+            OverlayInput::Down => {
+                self.move_selection(1);
+                SettingsPanelOutcome::Consumed
+            }
+            OverlayInput::PageUp => {
+                self.move_selection(-6);
+                SettingsPanelOutcome::Consumed
+            }
+            OverlayInput::PageDown => {
+                self.move_selection(6);
+                SettingsPanelOutcome::Consumed
+            }
+            OverlayInput::Home => {
+                self.set_selection(0);
+                SettingsPanelOutcome::Consumed
+            }
+            OverlayInput::End => {
+                self.set_selection(self.entries.len().saturating_sub(1));
+                SettingsPanelOutcome::Consumed
+            }
+            OverlayInput::Left => self.step_or_cycle_selected(-1),
+            OverlayInput::Right => self.step_or_cycle_selected(1),
+            OverlayInput::Save => self.save_changes(),
+            // Activate / Space act on the selected filtered row. A bool/enum
+            // toggle stays in search; a row that begins a text edit exits search
+            // first (R2) so the two states are never armed together.
+            OverlayInput::Activate | OverlayInput::Char(' ') => {
+                let key_before = self.selected_entry().map(|entry| entry.key);
+                let outcome = self.activate_selected();
+                if self.editing.is_some() {
+                    self.exit_search_preserving(key_before);
+                }
+                outcome
+            }
+            OverlayInput::Char(ch) if !ch.is_control() => {
+                self.query.push(ch);
+                self.apply_search_filter();
+                SettingsPanelOutcome::Consumed
+            }
+            _ => SettingsPanelOutcome::Consumed,
+        }
+    }
+
+    /// Re-derive the visible `entries` from `all_entries` and the current query
+    /// (OB-SEARCH). Empty query == the full list (byte-identical to the
+    /// no-search path). Always clamps the selection into the filtered set (R3).
+    fn apply_search_filter(&mut self) {
+        if self.query.is_empty() {
+            self.entries = self.all_entries.clone();
+        } else {
+            let needle = self.query.to_lowercase();
+            self.entries = self
+                .all_entries
+                .iter()
+                .filter(|entry| matches_query(entry, &needle))
+                .cloned()
+                .collect();
+        }
+        self.selected = self.selected.min(self.entries.len().saturating_sub(1));
+        self.clamp();
+    }
+
+    /// Leave search mode and restore the full roster, keeping the selection on
+    /// the row identified by `key` (the row a text edit just began on) so the
+    /// edit and the cursor stay aligned (R2).
+    fn exit_search_preserving(&mut self, key: Option<&'static str>) {
+        self.search_active = false;
+        self.query.clear();
+        self.entries = self.all_entries.clone();
+        if let Some(key) = key
+            && let Some(pos) = self.entries.iter().position(|entry| entry.key == key)
+        {
+            self.selected = pos;
+        }
+        self.clamp();
+    }
+
+    /// Whether the search filter is currently active (OB-SEARCH). The overlay
+    /// gates its Esc-to-close on this so the two-step search exit runs first
+    /// (R7); the App's modal seam is unaffected.
+    pub(super) fn is_searching(&self) -> bool {
+        self.search_active
     }
 
     pub(super) fn render_signature(&self) -> SettingsPanelSignature {
@@ -180,6 +329,8 @@ impl SettingsPanel {
                     description: entry.description,
                 })
                 .collect(),
+            query: self.query.clone(),
+            search_active: self.search_active,
         }
     }
 
@@ -334,15 +485,15 @@ impl SettingsPanel {
     fn commit_value(&mut self, key: &'static str, value: &str) -> SettingsPanelOutcome {
         match self.edits.apply_raw(key, value) {
             Ok(Some(settings)) => {
-                self.entries = self.edits.settings().setting_info();
+                self.all_entries = self.edits.settings().setting_info();
+                self.apply_search_filter();
                 self.message = Some(format!("Applied {key}."));
-                self.clamp();
                 SettingsPanelOutcome::Apply(settings)
             }
             Ok(None) => {
-                self.entries = self.edits.settings().setting_info();
+                self.all_entries = self.edits.settings().setting_info();
+                self.apply_search_filter();
                 self.message = Some("No setting change.".to_owned());
-                self.clamp();
                 SettingsPanelOutcome::Consumed
             }
             Err(error) => {
@@ -418,6 +569,17 @@ fn setting_detail(entry: &SettingInfo) -> String {
         detail.push_str(" Enter edits/applies; Ctrl+S saves; Esc cancels an edit.");
     }
     detail
+}
+
+/// OB-SEARCH filter predicate: case-insensitive substring match of `needle`
+/// (already lowercased by the caller) against an entry's name, key, description,
+/// or group — so a row whose name doesn't match but whose help text does is
+/// still surfaced.
+fn matches_query(entry: &SettingInfo, needle: &str) -> bool {
+    entry.name.to_lowercase().contains(needle)
+        || entry.key.to_lowercase().contains(needle)
+        || entry.description.to_lowercase().contains(needle)
+        || entry.group.to_lowercase().contains(needle)
 }
 
 fn edit_options(entry: &SettingInfo) -> Vec<&'static str> {
@@ -804,6 +966,174 @@ mod tests {
                 .as_deref()
                 .is_some_and(|message| message.contains("valid pixel size"))
         );
+    }
+
+    #[test]
+    fn slash_enters_search_and_filters_to_matches() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let total = panel.render_signature().entries.len();
+        assert!(panel.handle_input(OverlayInput::Char('/')) == SettingsPanelOutcome::Consumed);
+        assert!(panel.is_searching());
+        for ch in "cursor".chars() {
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+        let sig = panel.render_signature();
+        assert!(sig.search_active);
+        assert_eq!(sig.query, "cursor");
+        assert!(!sig.entries.is_empty() && sig.entries.len() < total);
+        assert!(
+            sig.entries
+                .iter()
+                .all(|entry| entry.key.contains("cursor") || entry.key == "cursor_blink")
+                || sig.entries.iter().any(|entry| entry.key.contains("cursor"))
+        );
+        // The search-bar header renders above the filtered rows.
+        let text = panel
+            .visible_lines(80, 80)
+            .iter()
+            .map(|line| line.text.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("Search: cursor"));
+    }
+
+    #[test]
+    fn search_matches_against_description_text() {
+        // A query that hits a description but not the row name must still show
+        // the row (Finding B haystack). "legacy" appears in a description.
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let _ = panel.handle_input(OverlayInput::Char('/'));
+        for ch in "legacy".chars() {
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+        let sig = panel.render_signature();
+        assert!(
+            !sig.entries.is_empty(),
+            "a description-only match is surfaced"
+        );
+    }
+
+    #[test]
+    fn two_step_escape_clears_then_exits_search() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let total = panel.render_signature().entries.len();
+        let _ = panel.handle_input(OverlayInput::Char('/'));
+        for ch in "font".chars() {
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+        assert!(!panel.render_signature().query.is_empty());
+        // First Esc clears the query but stays in search mode (shows all).
+        let _ = panel.handle_input(OverlayInput::Close);
+        let sig = panel.render_signature();
+        assert!(sig.search_active);
+        assert!(sig.query.is_empty());
+        assert_eq!(sig.entries.len(), total);
+        // Second Esc exits search entirely; entries restored to the full list.
+        let _ = panel.handle_input(OverlayInput::Close);
+        let sig = panel.render_signature();
+        assert!(!sig.search_active);
+        assert_eq!(sig.entries.len(), total);
+    }
+
+    #[test]
+    fn backspace_trims_query_and_refilters() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let _ = panel.handle_input(OverlayInput::Char('/'));
+        for ch in "cursor".chars() {
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+        let narrowed = panel.render_signature().entries.len();
+        let _ = panel.handle_input(OverlayInput::Backspace);
+        let sig = panel.render_signature();
+        assert_eq!(sig.query, "curso");
+        assert!(sig.entries.len() >= narrowed);
+    }
+
+    #[test]
+    fn no_match_query_shows_notice_and_keeps_overlay() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let _ = panel.handle_input(OverlayInput::Char('/'));
+        for ch in "zzzznosuchsetting".chars() {
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+        let sig = panel.render_signature();
+        assert!(sig.search_active);
+        assert!(sig.entries.is_empty());
+        let text = panel
+            .visible_lines(80, 80)
+            .iter()
+            .map(|line| line.text.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("No settings match"));
+    }
+
+    #[test]
+    fn selection_clamps_after_filter_narrows_list() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let _ = panel.handle_input(OverlayInput::End);
+        let last = panel.render_signature().selected;
+        assert!(last > 0);
+        let _ = panel.handle_input(OverlayInput::Char('/'));
+        for ch in "theme".chars() {
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+        let sig = panel.render_signature();
+        assert!(sig.selected < sig.entries.len());
+    }
+
+    #[test]
+    fn empty_query_signature_matches_unsearched_panel() {
+        // Off-path identity (R/parity): search active but empty query renders
+        // the same entry set as a fresh panel (no rows dropped or reordered).
+        let baseline = SettingsPanel::new(&Settings::default())
+            .render_signature()
+            .entries;
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let _ = panel.handle_input(OverlayInput::Char('/'));
+        let entries = panel.render_signature().entries;
+        assert_eq!(entries, baseline);
+    }
+
+    #[test]
+    fn editing_a_filtered_row_exits_search_cleanly() {
+        // R2: starting a text edit on a filtered row exits search and restores
+        // the full roster, with the selection kept on the edited row.
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let total = panel.render_signature().entries.len();
+        let _ = panel.handle_input(OverlayInput::Char('/'));
+        for ch in "font file".chars() {
+            // space activates in search; only type the first token.
+            if ch == ' ' {
+                break;
+            }
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+        // Move to the font path row and activate it (begins an edit).
+        select_key(&mut panel, "font");
+        let _ = panel.handle_input(OverlayInput::Activate);
+        let sig = panel.render_signature();
+        assert!(!sig.search_active, "edit exits search");
+        assert_eq!(sig.editing_key, Some("font"));
+        assert_eq!(sig.entries.len(), total, "full roster restored");
+    }
+
+    #[test]
+    fn refresh_clears_active_search() {
+        // R1: a config reload mid-search rebuilds the base list and drops the
+        // filter so it never applies to stale data.
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let total = panel.render_signature().entries.len();
+        let _ = panel.handle_input(OverlayInput::Char('/'));
+        for ch in "cursor".chars() {
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+        assert!(panel.is_searching());
+        panel.refresh(&Settings::default());
+        let sig = panel.render_signature();
+        assert!(!sig.search_active);
+        assert!(sig.query.is_empty());
+        assert_eq!(sig.entries.len(), total);
     }
 
     fn select_key(panel: &mut SettingsPanel, key: &str) {

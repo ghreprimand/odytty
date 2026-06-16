@@ -75,6 +75,22 @@ impl SettingsPanel {
             return rows;
         }
 
+        // OB-SEARCH: when searching, a fixed filter header sits above the
+        // results. It is inert (entry_index None) — the keyboard owns the query
+        // — so the pointer hit-map stays in lockstep with the rendered lines.
+        if self.search_active {
+            rows.push((
+                SettingsPanelLine {
+                    text: format!("  Search: {}|", self.query),
+                    focused: true,
+                },
+                RowHit {
+                    entry_index: None,
+                    zone: RowZone::GroupHeader,
+                },
+            ));
+        }
+
         let mut current_group = "";
         for (index, entry) in self.entries.iter().enumerate().skip(self.scroll) {
             if rows.len() >= body_height {
@@ -165,6 +181,21 @@ impl SettingsPanel {
                     ));
                 }
             }
+        }
+
+        // OB-SEARCH: a query that matches nothing shows an explicit notice rather
+        // than an empty body, and never closes the overlay (R3).
+        if self.search_active && self.entries.is_empty() && rows.len() < body_height {
+            rows.push((
+                SettingsPanelLine {
+                    text: format!("  No settings match \"{}\".", self.query),
+                    focused: false,
+                },
+                RowHit {
+                    entry_index: None,
+                    zone: RowZone::Message,
+                },
+            ));
         }
 
         rows
