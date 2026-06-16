@@ -73,6 +73,7 @@ mod overlay_registry;
 mod scrollbar;
 mod selection_extend;
 mod sh2_native;
+mod sh_click;
 mod synchronized_output;
 mod viewport;
 mod wheel_zoom;

@@ -44,6 +44,7 @@ pub const SELECTION_DRAG_EXTEND_ENV: &str = "ODYTTY_SELECTION_DRAG_EXTEND";
 pub const SCROLLBAR_DRAG_ENV: &str = "ODYTTY_SCROLLBAR_DRAG";
 pub const WHEEL_ZOOM_ENV: &str = "ODYTTY_WHEEL_ZOOM";
 pub const COMMAND_STATUS_GUTTER_ENV: &str = "ODYTTY_COMMAND_STATUS_GUTTER";
+pub const SH_CLICK_ENV: &str = "ODYTTY_SH_CLICK";
 pub const CVD_MODE_ENV: &str = "ODYTTY_CVD_MODE";
 pub const CVD_STRENGTH_ENV: &str = "ODYTTY_CVD_STRENGTH";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
@@ -94,6 +95,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SELECTION_DRAG_EXTEND_ENV,
     SCROLLBAR_DRAG_ENV,
     WHEEL_ZOOM_ENV,
+    SH_CLICK_ENV,
     CVD_MODE_ENV,
     CVD_STRENGTH_ENV,
     NATIVE_AUTOCLOSE_ENV,
@@ -244,6 +246,16 @@ pub const DEFAULT_WHEEL_ZOOM: bool = true;
 /// pixel-identical to today. With shell integration absent no command marks
 /// exist, so the gutter is empty regardless of the setting.
 pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = false;
+
+/// Click-to-position-cursor (`ODYTTY_SH_CLICK`, SH-CLICK): when on, a plain left
+/// click on the live shell prompt line moves the shell's input cursor to the
+/// clicked column by emitting the matching number of Left/Right cursor keys —
+/// the click slice of OSC 133 `click_events`, never a shell-input takeover.
+/// Off by default, and doubly gated: even when on it acts only when a
+/// cooperating shell has advertised `click_events=1` on its prompt, so a
+/// non-integrated shell never triggers it. While off the pointer path is
+/// byte-identical to today (no bytes emitted), and it never changes a pixel.
+pub const DEFAULT_SH_CLICK: bool = false;
 
 pub const DEFAULT_BLOOM: bool = false;
 pub const BLOOM_THRESHOLD_MARGIN: f32 = 0.12;

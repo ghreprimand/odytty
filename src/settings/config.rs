@@ -13,9 +13,9 @@ use super::{
     CVD_STRENGTH_ENV, FOCUS_DIM_ENV, FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV,
     GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV, NATIVE_AUTOCLOSE_ENV, OSC52_READ_ENV,
     RENDER_QUALITY_ENV, SCROLL_DRAG_SPEED_ENV, SCROLL_WHEEL_LINES_ENV, SCROLLBAR_DRAG_ENV,
-    SELECTION_DRAG_EXTEND_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV,
-    SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV,
-    WHEEL_ZOOM_ENV, WINDOW_PADDING_ENV, normalize_name,
+    SELECTION_DRAG_EXTEND_ENV, SH_CLICK_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV,
+    SYMBOL_FONT_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV,
+    VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_PADDING_ENV, normalize_name,
 };
 use super::{BOX_THICKNESS_ENV, LINE_HEIGHT_ENV};
 #[derive(Debug, Clone, Default)]
@@ -119,6 +119,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "scrollbardrag" | "draggablescrollbar" | "scrollthumbdrag" => Some(SCROLLBAR_DRAG_ENV),
         "wheelzoom" | "ctrlwheelzoom" | "fontzoom" => Some(WHEEL_ZOOM_ENV),
         "commandstatusgutter" | "statusgutter" | "commandgutter" => Some(COMMAND_STATUS_GUTTER_ENV),
+        "shclick" | "clicktoposition" | "clicktomovecursor" | "promptclick" => Some(SH_CLICK_ENV),
         "cvdmode" | "colorblindmode" | "colourblindmode" | "daltonize" => Some(CVD_MODE_ENV),
         "cvdstrength" | "colorblindstrength" | "colourblindstrength" => Some(CVD_STRENGTH_ENV),
         "nativeautoclosems" => Some(NATIVE_AUTOCLOSE_ENV),
@@ -169,6 +170,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         SCROLLBAR_DRAG_ENV => Some("scrollbar_drag"),
         WHEEL_ZOOM_ENV => Some("wheel_zoom"),
         COMMAND_STATUS_GUTTER_ENV => Some("command_status_gutter"),
+        SH_CLICK_ENV => Some("sh_click"),
         CVD_MODE_ENV => Some("cvd_mode"),
         CVD_STRENGTH_ENV => Some("cvd_strength"),
         NATIVE_AUTOCLOSE_ENV => Some("native_autoclose_ms"),

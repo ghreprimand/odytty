@@ -113,6 +113,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "scrollbar_drag",
             "wheel_zoom",
             "command_status_gutter",
+            "sh_click",
             "osc52_read",
             "copy_on_select",
             "cvd_mode",
@@ -1906,6 +1907,37 @@ fn copy_on_select_defaults_off_and_parses() {
 
     let (settings, _) = settings_from([(COPY_ON_SELECT_ENV, "off")]);
     assert!(!settings.copy_on_select);
+}
+
+#[test]
+fn sh_click_defaults_off_and_round_trips_through_config_key() {
+    // Absent → off (SH-CLICK click-to-position is off by default; the off path
+    // emits no bytes and is byte-identical to today).
+    let (settings, warnings) = settings_from([]);
+    assert!(!settings.sh_click);
+    assert!(warnings.is_empty());
+
+    let (settings, _) = settings_from([(SH_CLICK_ENV, "on")]);
+    assert!(settings.sh_click);
+
+    let (settings, _) = settings_from([(SH_CLICK_ENV, "off")]);
+    assert!(!settings.sh_click);
+
+    // The config-file key (and an alias) maps to the env key and back, and the
+    // value survives a to_edit_values round-trip.
+    assert_eq!(config_key_to_env("sh_click"), Some(SH_CLICK_ENV));
+    assert_eq!(config_key_to_env("click_to_position"), Some(SH_CLICK_ENV));
+    assert_eq!(env_to_config_key(SH_CLICK_ENV), Some("sh_click"));
+    assert_eq!(
+        Settings {
+            sh_click: true,
+            ..Settings::default()
+        }
+        .to_edit_values()
+        .get(SH_CLICK_ENV)
+        .map(String::as_str),
+        Some("on")
+    );
 }
 
 #[test]

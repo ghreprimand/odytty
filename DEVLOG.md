@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- SH-CLICK: click-to-position the shell cursor on the live prompt
+
+- With the new `sh_click` setting on (off by default), a plain left click on the
+  live shell prompt line moves the shell's input cursor to the clicked column —
+  the click slice of OSC 133 `click_events`, never a shell-input takeover. It is
+  doubly gated: the setting plus the shell having advertised `click_events=1` on
+  its prompt, so a non-integrated shell never triggers it and the off path emits
+  no bytes (byte-identical to today).
+- The decision is made at *release* on an empty selection (zero-width range), so
+  drag-select and click-to-position are mutually exclusive by construction: a
+  real drag (non-empty selection) always wins, and double/triple-click word/line
+  selection is untouched. Shift (selection/passthrough seam), Alt (block select),
+  and Ctrl (hyperlink open) all defer to their existing meaning — only a plain
+  click repositions.
+- The horizontal delta comes from core (`prompt_marks::click_report`); the native
+  side encodes `|delta|` Left/Right keys through the live key modes
+  (`encode_key_event`), so a shell in DECCKM application-cursor mode receives the
+  SS3 forms (`\x1bOC`/`\x1bOD`), byte-identical to a real arrow keypress — not
+  hardcoded CSI. The burst goes through the same PTY writer as keyboard input.
+- Prompt-context gated: it fires only when the last OSC 133 command block is
+  awaiting input (no `OutputStart`), so the lingering click-events flag cannot
+  steal a click into a running command. TUI mouse-reporting apps own the click
+  (the report gate returns earlier). v1 is same-row horizontal only — an off-row
+  click on a wrapped prompt falls through rather than emitting a wrong jump.
+- Verified: lib 1536/0/7 (+15: 4 encoding unit tests incl. the DECCKM guard, 10
+  native integration tests over a recording-writer PTY, 1 settings round-trip),
+  native pixel-smoke 45/0 (no render-path change), fmt clean, clippy 38 baseline
+  (zero new). No parser/core change on this side ⇒ no fuzz.
+
+---
+
 ## 2026-06-16 -- ONBOARD: first-run welcome card + in-overlay settings search
 
 - First launch (no config file present, or the `ODYTTY_ONBOARDING` env override

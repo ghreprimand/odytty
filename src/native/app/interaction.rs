@@ -591,11 +591,22 @@ impl App {
         if !self.pointer_drag.is_selecting() {
             return;
         }
-        // MOUSE-EXTEND parity: a plain double/triple-click that never dragged
-        // must stay byte-identical to the historical finalize, which wrote
-        // nothing to PRIMARY. Only write when a char drag ran (today's behavior)
-        // or a word/line drag actually grew the selection past its clicked unit.
-        if self.drag_selection_should_write_primary() {
+        // SH-CLICK: a bare left click (no drag, so the selection stayed empty —
+        // `range()` is `None` for a zero-width selection) on the live shell
+        // prompt repositions the input cursor. Decided here at release, NOT at
+        // press, so a real drag (a non-empty selection) always wins: drag-select
+        // and click-to-position are mutually exclusive by construction (D-SHC-2).
+        // `try_click_to_position` returns `false` whenever it does not fire
+        // (feature off, shell not advertising, wrong row, same-cell, modified
+        // click), so the off path falls straight through to the historical
+        // finalize below — byte-identical to today (T1).
+        if self.selection.range().is_none() && self.try_click_to_position() {
+            // The click positioned the cursor; nothing was selected to copy.
+        } else if self.drag_selection_should_write_primary() {
+            // MOUSE-EXTEND parity: a plain double/triple-click that never dragged
+            // must stay byte-identical to the historical finalize, which wrote
+            // nothing to PRIMARY. Only write when a char drag ran (today's
+            // behavior) or a word/line drag actually grew past its clicked unit.
             self.write_primary_selection();
             // MOUSE-COPYSELECT: when enabled, also write the CLIPBOARD via the
             // exact copy-shortcut path. Off by default, so the historical
@@ -628,6 +639,102 @@ impl App {
             },
             PointerDrag::None | PointerDrag::Scrollbar { .. } => false,
         }
+    }
+
+    /// SH-CLICK: whether click-to-position is live right now — the `sh_click`
+    /// setting is on AND the shell has advertised OSC 133 `click_events=1` on
+    /// its prompt. Doubly off by default: the setting defaults off, and a
+    /// non-integrated shell never sets the core flag. When the setting is off
+    /// this short-circuits before locking the terminal, so the off path does no
+    /// work at all (T1 off-path identity).
+    fn sh_click_enabled(&self) -> bool {
+        self.settings.sh_click
+            && self
+                .terminal
+                .lock()
+                .map(|terminal| terminal.click_events_enabled())
+                .unwrap_or(false)
+    }
+
+    /// SH-CLICK: emit the cursor-positioning key burst for a bare left click on
+    /// the live prompt line, returning whether the click was consumed.
+    ///
+    /// Returns `false` (the caller falls through to the historical finalize,
+    /// byte-identical to today) in every case but the narrow one the feature
+    /// targets:
+    /// - the feature is off or the shell has not advertised click-events (T1);
+    /// - the click carries any modifier — Shift is the selection/passthrough
+    ///   seam, Alt is block-select, Ctrl is hyperlink-open, so only a *plain*
+    ///   click repositions (T2 — Shift seam preserved);
+    /// - the viewport is scrolled off the live tail (a click in scrollback is
+    ///   never a prompt edit);
+    /// - the live command block is not awaiting input — i.e. there is no live
+    ///   prompt because the command already executed (an `OutputStart` exists)
+    ///   or there are no marks at all. This is the real prompt-context gate
+    ///   (T4): the click-events flag alone can linger across a running command,
+    ///   so we require the last [`crate::core::CommandBlock`] to have no output
+    ///   yet;
+    /// - the click is not on the cursor's own visual row — v1 is same-row
+    ///   horizontal only (D-SHC-4); a click on a wrapped prompt's other row
+    ///   falls through rather than emitting a wrong jump;
+    /// - the click lands on the cursor's own cell, so [`crate::core::click_report`]
+    ///   yields no movement (T4 same-cell ⇒ None).
+    ///
+    /// When it does fire, the horizontal delta from [`crate::core::click_report`]
+    /// is encoded as `|delta|` Left/Right cursor keys through the live key modes
+    /// ([`click_position_bytes`]) — honoring DECCKM application-cursor mode, the
+    /// load-bearing encoding trap — and written through the same PTY writer a
+    /// real arrow keypress uses (T5), after returning to the live tail.
+    ///
+    /// TUI mouse reporting (DECSET 1000/1002/1003/1006…) never reaches here: the
+    /// reporting gate in [`App::handle_mouse_input`] returns earlier, so a
+    /// reporting app's click is sent to the app, not to click-to-position (T3).
+    fn try_click_to_position(&mut self) -> bool {
+        if !self.sh_click_enabled() {
+            return false;
+        }
+        // T2: only a plain left click repositions; any modifier defers to its
+        // existing meaning (Shift=select/passthrough, Alt=block, Ctrl=open).
+        if self.modifiers.shift || self.modifiers.alt || self.modifiers.ctrl || self.super_key {
+            return false;
+        }
+        // A scrolled-back viewport is never a live-prompt edit.
+        if self.viewport.offset() != 0 {
+            return false;
+        }
+        let Some(point) = self.pointer_cell else {
+            return false;
+        };
+        let (cursor, report, at_live_prompt) = {
+            let Ok(terminal) = self.terminal.lock() else {
+                return false;
+            };
+            let cursor = terminal.screen().cursor();
+            // T4 prompt-context gate: the last command block must be awaiting
+            // input (no OutputStart) for a live prompt to exist.
+            let blocks = crate::core::command_blocks(&terminal.prompt_marks());
+            let at_live_prompt = blocks
+                .last()
+                .is_some_and(|block| block.output_start.is_none());
+            let report = crate::core::click_report(true, cursor.column, point.column);
+            (cursor, report, at_live_prompt)
+        };
+        // v1 same-row only (D-SHC-4) + the prompt-context gate (T4).
+        if !at_live_prompt || point.row != cursor.row {
+            return false;
+        }
+        let Some(report) = report else {
+            return false; // same-cell click ⇒ no movement (T4)
+        };
+        let bytes = click_position_bytes(report, self.key_modes());
+        if bytes.is_empty() {
+            return false;
+        }
+        // T5: the positioning burst goes to the host through the exact keystroke
+        // writer, after snapping to the live tail like any typed input.
+        self.return_to_live();
+        self.write_pty_bytes(&bytes);
+        true
     }
 
     /// Number of rows a Shift+PageUp/PageDown press scrolls: one screenful less
@@ -696,6 +803,29 @@ impl App {
 /// clamps to pixel 1; a cursor at or past the right/bottom edge (e.g. while
 /// dragging outside the window) clamps to the last in-grid pixel, mirroring how
 /// [`selection::cell_at_physical_with_padding`] saturates the cell path.
+/// SH-CLICK: encode the cursor-positioning key burst for a click-to-position
+/// report — `|cell_delta|` repetitions of Left (negative delta) or Right
+/// (positive delta), each encoded through the live [`KeyModes`] so a shell in
+/// DECCKM application-cursor mode receives the SS3 form (`\x1bOC`/`\x1bOD`), not
+/// the CSI form (`\x1b[C`/`\x1b[D`). This is the load-bearing encoding trap:
+/// hardcoded CSI arrows would move the cursor wrong (or not at all) in zsh/zle,
+/// fish, and readline shells that run in application-cursor mode, so the bytes
+/// MUST be identical to a real arrow keypress in every mode.
+///
+/// Pure and total: returns the exact bytes the PTY writer receives. A
+/// zero-delta report cannot reach here ([`crate::core::click_report`] returns
+/// `None` for a same-cell click), and the delta is already saturated into
+/// `i32` range by core, so `unsigned_abs` never overflows.
+fn click_position_bytes(report: crate::core::ClickReport, modes: KeyModes) -> Vec<u8> {
+    let (key, count) = if report.cell_delta < 0 {
+        (Key::Left, report.cell_delta.unsigned_abs() as usize)
+    } else {
+        (Key::Right, report.cell_delta as usize)
+    };
+    let arrow = input::encode_key_event(key, Modifiers::NONE, modes, KeyEventType::Press);
+    arrow.repeat(count)
+}
+
 fn pixel_coords_for_report(
     x_px: f64,
     y_px: f64,
@@ -716,7 +846,60 @@ fn pixel_coords_for_report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::MouseTracking;
+    use crate::core::{ClickReport, MouseTracking};
+
+    // --- SH-CLICK: click-to-position arrow encoding (Finding A) ---
+
+    fn app_cursor_modes() -> KeyModes {
+        KeyModes {
+            application_cursor: true,
+            ..KeyModes::default()
+        }
+    }
+
+    #[test]
+    fn click_position_emits_right_arrows_in_csi_mode() {
+        // A positive delta (click right of the cursor) emits that many Right
+        // cursor keys in the default CSI form.
+        let bytes = click_position_bytes(ClickReport { cell_delta: 5 }, KeyModes::default());
+        assert_eq!(bytes, b"\x1b[C".repeat(5));
+    }
+
+    #[test]
+    fn click_position_emits_left_arrows_in_csi_mode() {
+        // A negative delta (click left of the cursor) emits Left cursor keys.
+        let bytes = click_position_bytes(ClickReport { cell_delta: -3 }, KeyModes::default());
+        assert_eq!(bytes, b"\x1b[D".repeat(3));
+    }
+
+    #[test]
+    fn click_position_honors_decckm_application_cursor_mode() {
+        // Finding A (the highest-risk encoding trap): a shell in DECCKM
+        // application-cursor mode must receive the SS3 forms (\x1bOC / \x1bOD),
+        // byte-identical to a real arrow keypress, NOT the CSI forms. This is
+        // why the burst routes through `encode_key_event`, never hardcoded bytes.
+        let right = click_position_bytes(ClickReport { cell_delta: 5 }, app_cursor_modes());
+        assert_eq!(right, b"\x1bOC".repeat(5));
+        let left = click_position_bytes(ClickReport { cell_delta: -2 }, app_cursor_modes());
+        assert_eq!(left, b"\x1bOD".repeat(2));
+    }
+
+    #[test]
+    fn click_position_burst_length_matches_delta_magnitude() {
+        // The number of arrows equals |delta|; a single-cell move emits one key.
+        assert_eq!(
+            click_position_bytes(ClickReport { cell_delta: 1 }, KeyModes::default()),
+            b"\x1b[C"
+        );
+        assert_eq!(
+            click_position_bytes(ClickReport { cell_delta: -1 }, KeyModes::default()).len(),
+            b"\x1b[D".len()
+        );
+        // A wide delta maps to exactly that many arrows (no off-by-one), without
+        // exercising an absurd allocation.
+        let wide = click_position_bytes(ClickReport { cell_delta: 200 }, KeyModes::default());
+        assert_eq!(wide.len(), b"\x1b[C".len() * 200);
+    }
 
     // --- MS2: SGR-pixel (1016) native pixel seam ---
 

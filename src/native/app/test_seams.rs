@@ -134,6 +134,13 @@ impl App {
         self.modifiers.alt = alt;
     }
 
+    /// Test seam (SH-CLICK): toggle the `sh_click` setting so the click-to-
+    /// position default-off path and the enabled path can both be pinned.
+    #[cfg(test)]
+    pub(in crate::native) fn set_sh_click_for_test(&mut self, on: bool) {
+        self.settings.sh_click = on;
+    }
+
     /// Test seam (MOUSE-RECT): whether the live selection is a block (column)
     /// selection, so a test can prove the Alt gesture armed block mode and a
     /// plain drag did not.

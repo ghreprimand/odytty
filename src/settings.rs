@@ -554,6 +554,13 @@ pub struct Settings {
     /// daltonises with U4 for free). Off by default — the off path draws nothing
     /// and is pixel-identical to today.
     pub command_status_gutter: bool,
+    /// Click-to-position-cursor on the live prompt (SH-CLICK). When on, a plain
+    /// left click on the shell prompt line moves the shell's input cursor to the
+    /// clicked column by emitting Left/Right cursor keys — the click slice of
+    /// OSC 133 `click_events`. Off by default and additionally gated on the
+    /// shell having advertised `click_events=1`, so the off path (and a
+    /// non-integrated shell) emits nothing and is byte-identical to today.
+    pub sh_click: bool,
     /// Colour-vision-deficiency palette adaptation mode (U4, Accessibility).
     /// `Off` by default — the off path publishes the authored palette unchanged
     /// and is pixel-identical to before. The deficiency modes daltonise the
@@ -611,6 +618,7 @@ impl Default for Settings {
             scrollbar_drag: DEFAULT_SCROLLBAR_DRAG,
             wheel_zoom: DEFAULT_WHEEL_ZOOM,
             command_status_gutter: DEFAULT_COMMAND_STATUS_GUTTER,
+            sh_click: DEFAULT_SH_CLICK,
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
             native_autoclose: None,
@@ -972,6 +980,12 @@ impl Settings {
             DEFAULT_COMMAND_STATUS_GUTTER,
             &mut warn,
         );
+        let sh_click = parse_bool_setting(
+            get(SH_CLICK_ENV).as_deref(),
+            SH_CLICK_ENV,
+            DEFAULT_SH_CLICK,
+            &mut warn,
+        );
         let cvd_mode = parse_cvd_mode(get(CVD_MODE_ENV).as_deref(), &mut warn);
         let cvd_strength = parse_cvd_strength(get(CVD_STRENGTH_ENV).as_deref(), &mut warn);
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
@@ -1018,6 +1032,7 @@ impl Settings {
             scrollbar_drag,
             wheel_zoom,
             command_status_gutter,
+            sh_click,
             cvd_mode,
             cvd_strength,
             native_autoclose,
@@ -1126,6 +1141,7 @@ impl Settings {
             COMMAND_STATUS_GUTTER_ENV,
             bool_display(self.command_status_gutter).to_owned(),
         );
+        values.insert(SH_CLICK_ENV, bool_display(self.sh_click).to_owned());
         values.insert(CVD_MODE_ENV, self.cvd_mode.as_str().to_owned());
         values.insert(CVD_STRENGTH_ENV, format_float(self.cvd_strength));
         if let Some(duration) = self.native_autoclose {
