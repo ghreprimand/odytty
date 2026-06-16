@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-raspberry
+appearance = dark
+
+foreground = #f2d8e8
+background = #170c10
+clear = #100810
+
+cursor = #d83870
+selection = #3e1428
+search = #3c2c10
+border = #381430
+inactive = #845068
+
+color0 = #281020
+color1 = #e04060
+color2 = #56c888
+color3 = #d4a840
+color4 = #7078dc
+color5 = #d84898
+color6 = #44c4cc
+color7 = #d8b8c8
+color8 = #483038
+color9 = #f87088
+color10 = #78dca8
+color11 = #eec060
+color12 = #9098ec
+color13 = #f070b8
+color14 = #68d8e4
+color15 = #fce8f0

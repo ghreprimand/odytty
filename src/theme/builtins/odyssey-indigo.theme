@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-indigo
+appearance = dark
+
+foreground = #ccd2f6
+background = #09091c
+clear = #050510
+
+cursor = #7882f0
+selection = #1e2040
+search = #2c2c10
+border = #1c2044
+inactive = #5c5e84
+
+color0 = #141630
+color1 = #e05868
+color2 = #4ec88a
+color3 = #c8a844
+color4 = #6070e8
+color5 = #b870dc
+color6 = #44c0d4
+color7 = #b8bede
+color8 = #2c2e50
+color9 = #f87888
+color10 = #72e8a8
+color11 = #e8c862
+color12 = #8898f8
+color13 = #d092ee
+color14 = #68d8e8
+color15 = #eef0ff

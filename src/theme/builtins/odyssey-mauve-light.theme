@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-mauve-light
+appearance = light
+
+foreground = #2e1e36
+background = #f6eef4
+clear = #fef6fc
+
+cursor = #9040b0
+selection = #e4c8e8
+search = #e8e8a0
+border = #d4a8d8
+inactive = #9070a0
+
+color0 = #2e1e36
+color1 = #bc4464
+color2 = #2a8a50
+color3 = #8a6a18
+color4 = #4848bc
+color5 = #8840b0
+color6 = #208090
+color7 = #504260
+color8 = #46344e
+color9 = #cc4878
+color10 = #389860
+color11 = #9e7c1c
+color12 = #5858cc
+color13 = #9852c0
+color14 = #2890a4
+color15 = #18101e

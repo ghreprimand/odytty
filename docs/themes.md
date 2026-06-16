@@ -63,7 +63,7 @@ path — so the file format is exercised by the library on every startup.
 
 ### Theme families
 
-**Odyssey identity** — `plain` plus fifty-one `odyssey-*` variants are
+**Odyssey identity** — `plain` plus fifty-five `odyssey-*` variants are
 original themes designed for OdysseyOS. `plain` reproduces the historical xterm
 default palette byte-for-byte and is the fallback when no theme is configured.
 The `odyssey-*` variants span a range of visual moods across dark and light
@@ -77,13 +77,15 @@ appearances: deep-space and interstellar cold (`odyssey`, `odyssey-deepspace`,
 `odyssey-cobalt`), natural greens and chartreuse (`odyssey-verdant`,
 `odyssey-moss`, `odyssey-chartreuse`), warm and cool text focus
 (`odyssey-meridian`, `odyssey-graphite`, `odyssey-sepia`), vivid accents
-(`odyssey-violet`, `odyssey-fuchsia`, `odyssey-orchid`), and seventeen light
+(`odyssey-violet`, `odyssey-fuchsia`, `odyssey-orchid`), deep indigo and berry
+(`odyssey-indigo`, `odyssey-raspberry`), and nineteen light
 companions (`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`,
 `odyssey-cloud-light`, `odyssey-coral-light`, `odyssey-mist-light`,
 `odyssey-meadow-light`, `odyssey-parchment-light`, `odyssey-blossom-light`,
 `odyssey-linen-light`, `odyssey-lilac-light`, `odyssey-pearl-light`,
 `odyssey-apricot-light`, `odyssey-butter-light`, `odyssey-sage-light`,
-`odyssey-slate-light`, `odyssey-seafoam-light`). These carry the strongest
+`odyssey-slate-light`, `odyssey-seafoam-light`, `odyssey-citrus-light`,
+`odyssey-mauve-light`). These carry the strongest
 OdysseyOS visual identity.
 
 **Community** — twenty-eight themes ported from widely-used open-source
@@ -162,6 +164,10 @@ OdyTTY has no affiliation with or endorsement from any of those vendors.
 | `odyssey-jungle` | dark | Odyssey identity (deep tropical green canopy on forest-floor dark) |
 | `odyssey-orchid` | dark | Odyssey identity (rich orchid purple-pink on deep mauve-dark) |
 | `odyssey-seafoam-light` | light | Odyssey identity (soft seafoam-green daylight companion) |
+| `odyssey-indigo` | dark | Odyssey identity (deep indigo blue-violet between the blue and purple clusters) |
+| `odyssey-raspberry` | dark | Odyssey identity (deep berry raspberry between magenta-pink and rose-red) |
+| `odyssey-citrus-light` | light | Odyssey identity (fresh lime-citrus daylight companion) |
+| `odyssey-mauve-light` | light | Odyssey identity (dusty mauve daylight companion between lavender and rose) |
 | `solarized-dark` | dark | Community |
 | `solarized-light` | light | Community |
 | `gruvbox-dark` | dark | Community |

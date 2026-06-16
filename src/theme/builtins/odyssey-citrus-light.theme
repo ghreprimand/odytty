@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-citrus-light
+appearance = light
+
+foreground = #1e2c08
+background = #f4f8e0
+clear = #f8fcec
+
+cursor = #5c9010
+selection = #c8e898
+search = #e8e87c
+border = #aac868
+inactive = #6a8040
+
+color0 = #1e2c08
+color1 = #b82c38
+color2 = #1e8228
+color3 = #7a7008
+color4 = #1e5890
+color5 = #683898
+color6 = #1a7840
+color7 = #3e4a20
+color8 = #364820
+color9 = #d03844
+color10 = #289038
+color11 = #888010
+color12 = #2870a8
+color13 = #7848b0
+color14 = #287848
+color15 = #0c1808
