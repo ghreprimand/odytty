@@ -22,4 +22,6 @@ mod info;
 mod keybinds;
 mod legacy;
 mod mouse;
+mod numeric;
+mod overlay;
 mod sh2;
