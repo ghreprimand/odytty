@@ -28,6 +28,8 @@ pub const BOX_THICKNESS_ENV: &str = "ODYTTY_BOX_THICKNESS";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
 pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
+pub const CURSOR_EASING_ENV: &str = "ODYTTY_CURSOR_EASING";
+pub const CURSOR_MOTION_ENV: &str = "ODYTTY_CURSOR_MOTION";
 pub const OSC52_READ_ENV: &str = "ODYTTY_OSC52_READ";
 pub const SYNTHETIC_STYLES_ENV: &str = "ODYTTY_SYNTHETIC_STYLES";
 pub const GEOMETRIC_BOXDRAW_ENV: &str = "ODYTTY_GEOMETRIC_BOXDRAW";
@@ -76,6 +78,8 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     KEYBINDS_ENV,
     CURSOR_STYLE_ENV,
     CURSOR_BLINK_ENV,
+    CURSOR_EASING_ENV,
+    CURSOR_MOTION_ENV,
     OSC52_READ_ENV,
     SYNTHETIC_STYLES_ENV,
     GEOMETRIC_BOXDRAW_ENV,
@@ -185,6 +189,24 @@ pub const MAX_AUTOSCROLL_ROWS: usize = 8;
 /// selection it always writes). Off by default — PRIMARY and middle-click paste
 /// already work regardless, so the off path is byte-identical to before.
 pub const DEFAULT_COPY_ON_SELECT: bool = false;
+
+/// Cursor blink-fade easing (`ODYTTY_CURSOR_EASING`, ID1): when on, the cursor
+/// eases its opacity in and out across the blink toggle instead of hard
+/// on/off-switching. Off by default — while off the cursor renders its alpha at
+/// a constant `1.0` and the blink off-phase hides the cursor outright, so the
+/// render path is byte-identical to before. Purely presentational; never
+/// affects cell semantics or the logical cursor position.
+pub const DEFAULT_CURSOR_EASING: bool = false;
+
+/// Cursor slide motion (`ODYTTY_CURSOR_MOTION`, VE4): when on, the cursor glides
+/// a short sub-cell interpolation between adjacent steady-state positions
+/// instead of teleporting. Off by default — while off the cursor sits at its
+/// exact cell origin (zero offset) and the render path is byte-identical to
+/// before. Discontinuities (first frame, resize/reflow, scrollback, large jump,
+/// unfocused) always snap rather than slide. Purely presentational; the logical
+/// cursor position is always the destination cell, so selection/clipboard and
+/// TUI semantics are unaffected.
+pub const DEFAULT_CURSOR_MOTION: bool = false;
 
 /// Drag-to-extend selection (`ODYTTY_SELECTION_DRAG_EXTEND`, MOUSE-EXTEND): when
 /// on, a double-click-then-drag grows the selection by whole words, a

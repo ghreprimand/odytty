@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- Cursor animation: easing + slide (both off by default) + the cache observability layer
+
+- Two opt-in cursor animations land on the Wave-15b aggregator, together with
+  the render-cache wiring that aggregator was missing:
+  - **Cursor easing** (`cursor_easing`, default off): the cursor opacity fades
+    across each blink edge (180ms ease) instead of a hard on/off. Off / steady /
+    unfocused ⇒ alpha 1.0, no animation.
+  - **Cursor slide** (`cursor_motion`, default off): the cursor glides between
+    adjacent cells (55ms ease-out-cubic) instead of jumping. Snaps (no glide) on
+    first frame, large jumps (>6 cells), resize/reflow, scrollback, unfocus, and
+    hide — the logical cursor is always the destination.
+- **Cache observability (the foundation gap this packet closed):** Wave-15b
+  plumbed cursor params through the vertex builder but the render cache could
+  neither observe an alpha/offset change nor wake to repaint one, so a filled
+  animation would have frozen. Fixed structurally:
+  - `CursorRenderSignature` gains a quantized `anim` key (`CursorAnimKey`:
+    quarter-pixel offset buckets + 1/1024 alpha buckets). At rest the params are
+    the identity, which quantizes to `CursorAnimKey::IDENTITY` exactly — so the
+    key is a frame-to-frame constant and the classification stays `Retained`:
+    the plain path is byte-identical. An animating frame perturbs the key →
+    `CursorOnly` → the GPU re-threads the live params.
+  - `about_to_wait` gains an animation-deadline-due rebuild trigger that fires
+    only while `animation_deadline()` is `Some` and due; once the animation
+    settles the deadline returns `None` and the terminal returns to zero-wake
+    idle (bounded-wake contract). The live params are hoisted once per frame and
+    feed both the signature key and the GPU call (cursor-path parity).
+- Off-path identity proven: `cursor_anim_key_is_identity_when_both_features_off`,
+  `cursor_anim_key_quantization_polarity`, `easing_fades_in_then_settles_to_opaque_and_stops_waking`,
+  `motion_slides_between_adjacent_cells_then_settles`, `motion_snaps_on_first_frame`/`_on_large_jump`;
+  the pre-existing default-identity + at-rest-deadline + pixel-identity tests all
+  stay green unchanged. lib 1462/0 (+6), pixel-smoke 42/0, clippy zero-new.
+- Knob timing (fade/slide ms, max-jump) is internal for v1; promotable to
+  settings later. Note: `src/native/app/mod.rs` is now 1960/2000 — a split is
+  scheduled before the next mod.rs-growing packet.
+
 ## 2026-06-16 -- Theme library 84 -> 88 + HINTS surfaced in public docs
 
 - Four new contrast-validated Odyssey-identity themes fill measured hue gaps:

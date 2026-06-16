@@ -287,6 +287,7 @@ fn render_sig() -> RenderSignature {
         cursor: CursorRenderSignature {
             visible: true,
             style: crate::core::CursorStyle::Block,
+            anim: CursorAnimKey::IDENTITY,
         },
     }
 }

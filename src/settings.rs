@@ -441,6 +441,15 @@ pub struct Settings {
     pub cursor_style: CursorStyle,
     /// Default cursor blink policy applied at power-on (DECSCUSR can override).
     pub cursor_blink: CursorBlink,
+    /// Whether the cursor eases its opacity across the blink toggle (ID1). Off
+    /// by default; the off path holds alpha at `1.0` and hard-hides on the blink
+    /// off-phase, byte-identical to before. Purely presentational.
+    pub cursor_easing: bool,
+    /// Whether the cursor glides between adjacent positions instead of
+    /// teleporting (VE4). Off by default; the off path sits at the exact cell
+    /// origin (zero offset), byte-identical to before. Discontinuities always
+    /// snap. The logical cursor position is always the destination cell.
+    pub cursor_motion: bool,
     /// Whether OSC 52 clipboard read/query replies are enabled. Off by default
     /// to avoid silent clipboard exfiltration.
     pub osc52_read: bool,
@@ -546,6 +555,8 @@ impl Default for Settings {
             key_bindings: Vec::new(),
             cursor_style: CursorStyle::Block,
             cursor_blink: CursorBlink::Auto,
+            cursor_easing: DEFAULT_CURSOR_EASING,
+            cursor_motion: DEFAULT_CURSOR_MOTION,
             osc52_read: false,
             synthetic_styles: true,
             geometric_boxdraw: false,
@@ -813,6 +824,18 @@ impl Settings {
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
         let cursor_blink = parse_cursor_blink_setting(get(CURSOR_BLINK_ENV).as_deref(), &mut warn);
+        let cursor_easing = parse_bool_setting(
+            get(CURSOR_EASING_ENV).as_deref(),
+            CURSOR_EASING_ENV,
+            DEFAULT_CURSOR_EASING,
+            &mut warn,
+        );
+        let cursor_motion = parse_bool_setting(
+            get(CURSOR_MOTION_ENV).as_deref(),
+            CURSOR_MOTION_ENV,
+            DEFAULT_CURSOR_MOTION,
+            &mut warn,
+        );
         let osc52_read = parse_bool_setting(
             get(OSC52_READ_ENV).as_deref(),
             OSC52_READ_ENV,
@@ -908,6 +931,8 @@ impl Settings {
             key_bindings,
             cursor_style,
             cursor_blink,
+            cursor_easing,
+            cursor_motion,
             osc52_read,
             synthetic_styles,
             geometric_boxdraw,
@@ -972,6 +997,14 @@ impl Settings {
             cursor_style_display(self.cursor_style).to_owned(),
         );
         values.insert(CURSOR_BLINK_ENV, self.cursor_blink.as_str().to_owned());
+        values.insert(
+            CURSOR_EASING_ENV,
+            bool_display(self.cursor_easing).to_owned(),
+        );
+        values.insert(
+            CURSOR_MOTION_ENV,
+            bool_display(self.cursor_motion).to_owned(),
+        );
         values.insert(OSC52_READ_ENV, bool_display(self.osc52_read).to_owned());
         values.insert(
             SYNTHETIC_STYLES_ENV,

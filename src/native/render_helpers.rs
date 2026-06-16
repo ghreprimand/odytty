@@ -6,6 +6,7 @@ use crate::core::{
     uri_has_openable_scheme,
 };
 use crate::graphics::{StoredImageId, VisiblePlacement};
+use crate::grid::CursorRenderParams;
 use crate::input::KeyModes;
 use crate::input::Modifiers;
 use crate::selection::AbsoluteSelectionRange;
@@ -169,6 +170,67 @@ pub(super) struct RenderContentSignature {
 pub(super) struct CursorRenderSignature {
     pub(super) visible: bool,
     pub(super) style: CursorStyle,
+    /// Quantized cursor-animation key (ID1 easing alpha + VE4 slide offset).
+    ///
+    /// The render cache only varies the cursor geometry on a `CursorOnly`
+    /// reclassification, which fires when `content` is equal but `cursor`
+    /// differs. The pre-existing `visible`/`style` fields cannot observe an
+    /// alpha-only or sub-cell-offset change, so a live cursor animation would
+    /// be invisible to the cache and freeze. Folding a quantized snapshot of
+    /// [`CursorRenderParams`] in here makes the change observable: an animating
+    /// frame perturbs this key → `CursorOnly` → the GPU re-threads the live
+    /// params. When both features are off the params are the identity
+    /// (`offset == [0, 0]`, `alpha == 1.0`) which quantizes to
+    /// [`CursorAnimKey::IDENTITY`], so the key is a frame-to-frame constant and
+    /// the classification stays `Retained` — the plain path is byte-identical.
+    pub(super) anim: CursorAnimKey,
+}
+
+/// Change-observable, equality-stable quantization of [`CursorRenderParams`] for
+/// the render-cache signature. The raw params carry `f32`s (no `Eq`); this key
+/// buckets them into integers so it can live in the `Eq`/`Hash`-bearing
+/// signature while still flagging a visible animation step.
+///
+/// Identity contract (the kill-shot): a fully opaque, zero-offset cursor MUST
+/// quantize to [`Self::IDENTITY`] exactly. `offset == [0.0, 0.0]` rounds to
+/// `(0, 0)` and `alpha == 1.0` rounds to the full alpha bucket, so the default
+/// path produces a constant key and never spuriously reclassifies to
+/// `CursorOnly`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct CursorAnimKey {
+    /// Sub-cell offset quantized to quarter-pixel buckets (VE4 slide).
+    pub(super) offset_q: (i32, i32),
+    /// Alpha quantized to `1/1024` buckets, clamped to `0..=1` (ID1 easing).
+    pub(super) alpha_q: u16,
+}
+
+impl CursorAnimKey {
+    /// Quarter-pixel offset buckets: fine enough that a slide reads as smooth,
+    /// coarse enough that floating-point jitter at rest cannot leave the `(0,0)`
+    /// identity bucket.
+    const OFFSET_SCALE: f32 = 4.0;
+    /// Alpha buckets across `0..=1`. `1.0` maps to exactly `ALPHA_SCALE`.
+    const ALPHA_SCALE: f32 = 1024.0;
+    /// The identity bucket: zero offset, full opacity. Equal to
+    /// `CursorAnimKey::from_params(&CursorRenderParams::default())`. The
+    /// default-identity gate asserts against this; it is referenced only from the
+    /// test battery in production builds, so the `dead_code` allow documents the
+    /// contract anchor without forcing a synthetic production use.
+    #[allow(dead_code)]
+    pub(super) const IDENTITY: Self = Self {
+        offset_q: (0, 0),
+        alpha_q: Self::ALPHA_SCALE as u16,
+    };
+
+    pub(super) fn from_params(params: &CursorRenderParams) -> Self {
+        Self {
+            offset_q: (
+                (params.offset[0] * Self::OFFSET_SCALE).round() as i32,
+                (params.offset[1] * Self::OFFSET_SCALE).round() as i32,
+            ),
+            alpha_q: (params.alpha.clamp(0.0, 1.0) * Self::ALPHA_SCALE).round() as u16,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

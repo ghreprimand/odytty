@@ -8,13 +8,13 @@ use std::path::Path;
 use super::{
     BLOOM_ENV, BLOOM_INTENSITY_ENV, BLOOM_RADIUS_ENV, BLOOM_THRESHOLD_ENV,
     COMMAND_STATUS_GUTTER_ENV, COPY_ON_SELECT_ENV, CRT_ENV, CRT_SCANLINE_INTENSITY_ENV,
-    CRT_SCANLINE_PERIOD_ENV, CRT_VIGNETTE_STRENGTH_ENV, CURSOR_BLINK_ENV, CURSOR_STYLE_ENV,
-    CVD_MODE_ENV, CVD_STRENGTH_ENV, FOCUS_DIM_ENV, FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV,
-    GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV, NATIVE_AUTOCLOSE_ENV, OSC52_READ_ENV,
-    RENDER_QUALITY_ENV, SCROLL_DRAG_SPEED_ENV, SCROLL_WHEEL_LINES_ENV, SCROLLBAR_DRAG_ENV,
-    SELECTION_DRAG_EXTEND_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV,
-    SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV,
-    WHEEL_ZOOM_ENV, WINDOW_PADDING_ENV, normalize_name,
+    CRT_SCANLINE_PERIOD_ENV, CRT_VIGNETTE_STRENGTH_ENV, CURSOR_BLINK_ENV, CURSOR_EASING_ENV,
+    CURSOR_MOTION_ENV, CURSOR_STYLE_ENV, CVD_MODE_ENV, CVD_STRENGTH_ENV, FOCUS_DIM_ENV, FONT_ENV,
+    FONT_FAMILY_ENV, FONT_SIZE_ENV, GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV,
+    NATIVE_AUTOCLOSE_ENV, OSC52_READ_ENV, RENDER_QUALITY_ENV, SCROLL_DRAG_SPEED_ENV,
+    SCROLL_WHEEL_LINES_ENV, SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV, STEM_DARKEN_ENV,
+    SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV,
+    THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_PADDING_ENV, normalize_name,
 };
 use super::{BOX_THICKNESS_ENV, LINE_HEIGHT_ENV};
 #[derive(Debug, Clone, Default)]
@@ -98,6 +98,8 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "keybinds" | "keybindings" => Some(KEYBINDS_ENV),
         "cursorstyle" => Some(CURSOR_STYLE_ENV),
         "cursorblink" => Some(CURSOR_BLINK_ENV),
+        "cursoreasing" | "cursorfade" | "cursorblinkfade" => Some(CURSOR_EASING_ENV),
+        "cursormotion" | "cursorslide" | "cursoranimation" => Some(CURSOR_MOTION_ENV),
         "osc52read" | "allowosc52read" | "clipboardread" => Some(OSC52_READ_ENV),
         "syntheticstyles" | "synthstyles" | "syntheticfonts" => Some(SYNTHETIC_STYLES_ENV),
         "scrollwheellines" | "wheellines" | "scrollspeed" | "scrollwheelspeed" => {
@@ -151,6 +153,8 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         KEYBINDS_ENV => Some("keybinds"),
         CURSOR_STYLE_ENV => Some("cursor_style"),
         CURSOR_BLINK_ENV => Some("cursor_blink"),
+        CURSOR_EASING_ENV => Some("cursor_easing"),
+        CURSOR_MOTION_ENV => Some("cursor_motion"),
         OSC52_READ_ENV => Some("osc52_read"),
         SYNTHETIC_STYLES_ENV => Some("synthetic_styles"),
         SCROLL_WHEEL_LINES_ENV => Some("scroll_wheel_lines"),

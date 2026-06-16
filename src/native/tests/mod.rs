@@ -25,9 +25,10 @@ use super::options::NativeOptions;
 use super::overlay::{OverlayMode, OverlayRenderSignature};
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 use super::render_helpers::{
-    CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature, OverlayFragment,
-    RenderContentSignature, RenderSignature, SelectionSignature, VisibleGraphicSignature,
-    apply_hyperlink_hover, hyperlink_action_allowed, key_modes_from_core, openable_hyperlink_uri,
+    CursorAnimKey, CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature,
+    OverlayFragment, RenderContentSignature, RenderSignature, SelectionSignature,
+    VisibleGraphicSignature, apply_hyperlink_hover, hyperlink_action_allowed, key_modes_from_core,
+    openable_hyperlink_uri,
 };
 use super::search_ui::SearchRenderSignature;
 use super::settings_panel::SettingsPanelSignature;
@@ -43,7 +44,7 @@ use crate::core::{
     MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol, MouseTracking, Position,
     Snapshot, Terminal,
 };
-use crate::grid::{SolidQuad, VERTS_PER_QUAD};
+use crate::grid::{CursorRenderParams, SolidQuad, VERTS_PER_QUAD};
 use crate::input::{self, Key, KeyEventType, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, CellPoint};

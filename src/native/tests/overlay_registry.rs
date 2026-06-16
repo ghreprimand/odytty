@@ -119,6 +119,7 @@ fn render_sig(overlays: OverlayCompositeSignature) -> RenderSignature {
         cursor: CursorRenderSignature {
             visible: true,
             style: CursorStyle::Block,
+            anim: CursorAnimKey::IDENTITY,
         },
     }
 }
@@ -291,6 +292,205 @@ fn animation_deadline_is_none_at_rest() {
         app.animation_deadline(),
         None,
         "no animation source may leak a Some at rest (bounded-wake contract)"
+    );
+}
+
+// --- ID1 easing + VE4 slide (Wave-16): observability + default-identity ------
+
+/// Trap #1 (kill-shot): the quantized `anim` key MUST equal the identity bucket
+/// when both features are off. The pure mapping (`from_params(default)`) and the
+/// aggregator on the default path both land on `CursorAnimKey::IDENTITY`, so the
+/// signature is a frame-to-frame constant ⇒ `update_from` returns `Retained` ⇒
+/// the GPU is never touched ⇒ the plain path is byte-identical.
+#[test]
+fn cursor_anim_key_is_identity_when_both_features_off() {
+    assert_eq!(
+        CursorAnimKey::from_params(&CursorRenderParams::default()),
+        CursorAnimKey::IDENTITY,
+        "default params (offset [0,0], alpha 1.0) MUST quantize to the identity bucket"
+    );
+    let Some(mut app) = build_app(Settings::default()) else {
+        return;
+    };
+    // Run both updaters on the default path (knobs off); they must pin identity.
+    let now = Instant::now();
+    let snap = content_snapshot();
+    app.update_cursor_easing(now, false, false);
+    app.update_cursor_motion(now, &snap, cell(CELL_W, CELL_H));
+    assert_eq!(
+        CursorAnimKey::from_params(&app.cursor_render_params()),
+        CursorAnimKey::IDENTITY,
+        "the default path quantizes to identity even after the updaters run"
+    );
+    assert_eq!(
+        app.animation_deadline(),
+        None,
+        "the default path arms no animation wake"
+    );
+}
+
+/// Trap #2: quantization polarity. The identity bucket is `(0,0)` offset + the
+/// full (non-zero) alpha bucket — never inverted to invisible. A faded alpha and
+/// a sub-cell offset each land in a DIFFERENT bucket, so a live animation step is
+/// observable to the cache (a lower alpha quantizes to a strictly lower bucket).
+#[test]
+fn cursor_anim_key_quantization_polarity() {
+    assert_eq!(CursorAnimKey::IDENTITY.offset_q, (0, 0));
+    assert!(
+        CursorAnimKey::IDENTITY.alpha_q > 0,
+        "full opacity quantizes to a non-zero bucket (1.0 is NOT inverted to invisible)"
+    );
+    let faded = CursorAnimKey::from_params(&CursorRenderParams {
+        offset: [0.0, 0.0],
+        alpha: 0.5,
+    });
+    assert_ne!(
+        faded,
+        CursorAnimKey::IDENTITY,
+        "a half-faded cursor reclassifies (the cache observes the fade)"
+    );
+    assert!(
+        faded.alpha_q < CursorAnimKey::IDENTITY.alpha_q,
+        "lower opacity quantizes to a strictly lower bucket (polarity preserved)"
+    );
+    let slid = CursorAnimKey::from_params(&CursorRenderParams {
+        offset: [3.0, 0.0],
+        alpha: 1.0,
+    });
+    assert_ne!(
+        slid,
+        CursorAnimKey::IDENTITY,
+        "a sub-cell slide offset reclassifies (the cache observes the slide)"
+    );
+}
+
+/// Trap #5 (ID1 polarity + bounded wake): a fade-in starts BELOW full opacity and
+/// eases up to exactly `1.0`, never starting at zero and snapping visible; once
+/// the ramp completes it arms no further easing wake (the blink toggle deadline,
+/// scheduled separately, carries to the next edge).
+#[test]
+fn easing_fades_in_then_settles_to_opaque_and_stops_waking() {
+    let mut settings = Settings::default();
+    settings.cursor_easing = true;
+    let Some(mut app) = build_app(settings) else {
+        return;
+    };
+    let t0 = Instant::now();
+    app.update_cursor_easing(t0, true, true);
+    let a0 = app.cursor_render_params().alpha;
+    assert!(
+        (0.0..1.0).contains(&a0),
+        "fade-in begins below full opacity (eased up, not pre-snapped): {a0}"
+    );
+    assert!(
+        app.animation_deadline().is_some(),
+        "a fade in flight arms a wake"
+    );
+    let settled = t0 + Duration::from_millis(500);
+    app.update_cursor_easing(settled, true, true);
+    assert_eq!(
+        app.cursor_render_params().alpha,
+        1.0,
+        "fade-in completes fully opaque (1.0 — polarity, no inversion)"
+    );
+    assert_eq!(
+        app.animation_deadline(),
+        None,
+        "a settled fade arms no further wake (bounded-wake AFTER completion)"
+    );
+}
+
+/// VE4: an adjacent move arms a non-zero slide that decays to zero and stops
+/// waking once the glide completes (Trap #3 bounded wake after settle).
+#[test]
+fn motion_slides_between_adjacent_cells_then_settles() {
+    let mut settings = Settings::default();
+    settings.cursor_motion = true;
+    let Some(mut app) = build_app(settings) else {
+        return;
+    };
+    let cell = cell(CELL_W, CELL_H);
+    let mut prev = content_snapshot();
+    prev.cursor = Position { row: 0, column: 0 };
+    app.set_last_presented_snapshot_for_test(prev);
+    let mut cur = content_snapshot();
+    cur.cursor = Position { row: 0, column: 1 };
+    let t0 = Instant::now();
+    app.update_cursor_motion(t0, &cur, cell);
+    let off0 = app.cursor_render_params().offset;
+    assert!(
+        off0[0].abs() > 0.0,
+        "an adjacent move arms a non-zero slide offset: {off0:?}"
+    );
+    assert!(
+        app.animation_deadline().is_some(),
+        "a slide in flight arms a wake"
+    );
+    // Simulate the frame present: the prior snapshot becomes the destination, so
+    // the next frame sees from == to and the same glide continues to completion.
+    app.set_last_presented_snapshot_for_test(cur.clone());
+    let settled = t0 + Duration::from_millis(200);
+    app.update_cursor_motion(settled, &cur, cell);
+    assert_eq!(
+        app.cursor_render_params().offset,
+        [0.0, 0.0],
+        "a settled slide returns to zero offset"
+    );
+    assert_eq!(
+        app.animation_deadline(),
+        None,
+        "a settled slide arms no further wake (bounded)"
+    );
+}
+
+/// Trap #4: the first frame (no prior snapshot) snaps — never glides from a
+/// stale position.
+#[test]
+fn motion_snaps_on_first_frame() {
+    let mut settings = Settings::default();
+    settings.cursor_motion = true;
+    let Some(mut app) = build_app(settings) else {
+        return;
+    };
+    let mut cur = content_snapshot();
+    cur.cursor = Position { row: 0, column: 5 };
+    app.update_cursor_motion(Instant::now(), &cur, cell(CELL_W, CELL_H));
+    assert_eq!(
+        app.cursor_render_params().offset,
+        [0.0, 0.0],
+        "first frame snaps (no prior snapshot to slide from)"
+    );
+    assert_eq!(
+        app.animation_deadline(),
+        None,
+        "first frame arms no slide wake"
+    );
+}
+
+/// VE4 snap on a large jump (clear-screen / cursor-home class): a move longer
+/// than the slide cap teleports rather than gliding across the screen.
+#[test]
+fn motion_snaps_on_large_jump() {
+    let mut settings = Settings::default();
+    settings.cursor_motion = true;
+    let Some(mut app) = build_app(settings) else {
+        return;
+    };
+    let mut prev = content_snapshot();
+    prev.cursor = Position { row: 0, column: 0 };
+    app.set_last_presented_snapshot_for_test(prev);
+    let mut cur = content_snapshot();
+    cur.cursor = Position { row: 0, column: 40 };
+    app.update_cursor_motion(Instant::now(), &cur, cell(CELL_W, CELL_H));
+    assert_eq!(
+        app.cursor_render_params().offset,
+        [0.0, 0.0],
+        "a jump beyond the slide cap snaps instantly"
+    );
+    assert_eq!(
+        app.animation_deadline(),
+        None,
+        "a large-jump snap arms no slide wake"
     );
 }
 

@@ -50,10 +50,10 @@ use super::overlay::{
 };
 use super::pty::{PtyWriter, UserEvent};
 use super::render_helpers::{
-    CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature, OverlayFragment,
-    RenderContentSignature, RenderSignature, SelectionSignature, apply_hyperlink_hover,
-    hyperlink_action_allowed, image_uploads_for_visible, key_modes_from_core,
-    openable_hyperlink_uri, visible_graphics_signature,
+    CursorAnimKey, CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature,
+    OverlayFragment, RenderContentSignature, RenderSignature, SelectionSignature,
+    apply_hyperlink_hover, hyperlink_action_allowed, image_uploads_for_visible,
+    key_modes_from_core, openable_hyperlink_uri, visible_graphics_signature,
 };
 use super::theme_builder::{save_theme_to_dir, user_theme_dir_for_config};
 
@@ -300,6 +300,32 @@ pub(super) struct App {
     /// blinks and the window is focused; otherwise the cursor is solid and the
     /// loop is not woken for it.
     cursor_blink: CursorBlinkState,
+    /// ID1 cursor blink-fade easing — precomputed alpha multiplier for the
+    /// current frame (`1.0` = opaque). Refreshed by [`App::update_cursor_easing`]
+    /// once per rebuild; read by the `cursor_blink_alpha` contributor. `1.0`
+    /// whenever easing is off, so the cursor renders byte-identically.
+    cursor_anim_alpha: f32,
+    /// ID1 easing — next fade wake, or `None` once the ramp settles. Folded into
+    /// [`App::animation_deadline`]; `None` on the default path.
+    cursor_ease_deadline: Option<Instant>,
+    /// ID1 easing — the blink phase at the last observed edge, used to time the
+    /// opacity ramp from each on/off transition independently of the blink clock.
+    cursor_ease_phase_on: bool,
+    /// ID1 easing — instant of the last blink edge the easing ramp is measured
+    /// from.
+    cursor_ease_toggle_at: Option<Instant>,
+    /// VE4 cursor slide — precomputed sub-cell pixel offset for the current
+    /// frame (`[0.0, 0.0]` at rest). Refreshed by [`App::update_cursor_motion`]
+    /// once per rebuild; read by the `cursor_motion_offset` contributor.
+    cursor_anim_offset: [f32; 2],
+    /// VE4 slide — next glide wake, or `None` once the slide settles. Folded into
+    /// [`App::animation_deadline`]; `None` on the default path.
+    cursor_slide_deadline: Option<Instant>,
+    /// VE4 slide — start instant of the active glide, or `None` when not sliding.
+    cursor_slide_start: Option<Instant>,
+    /// VE4 slide — the full initial displacement (in pixels) from the prior cell
+    /// to the destination cell; decays to zero across the glide.
+    cursor_slide_from_px: [f32; 2],
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
@@ -375,6 +401,17 @@ impl App {
             clipboard: NativeClipboard::default(),
             resize_debounce: ResizeDebouncer::new(RESIZE_DEBOUNCE_INTERVAL),
             cursor_blink: CursorBlinkState::new(CURSOR_BLINK_INTERVAL),
+            // Cursor-animation state: identity at rest (ID1 easing alpha 1.0,
+            // VE4 slide offset zero, no wakes) so the default path is
+            // byte-identical until a feature is enabled.
+            cursor_anim_alpha: 1.0,
+            cursor_ease_deadline: None,
+            cursor_ease_phase_on: true,
+            cursor_ease_toggle_at: None,
+            cursor_anim_offset: [0.0, 0.0],
+            cursor_slide_deadline: None,
+            cursor_slide_start: None,
+            cursor_slide_from_px: [0.0, 0.0],
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
             autoclose,
@@ -1538,7 +1575,16 @@ impl ApplicationHandler<UserEvent> for App {
                         // it solid when not blinking or unfocused.
                         let base_cursor_visible = snapshot.cursor_visible;
                         let cursor_on = self.cursor_blink.poll(now, cursor_blinking, self.focused);
-                        if !cursor_on {
+                        // ID1 easing + VE4 slide: refresh the precomputed cursor
+                        // animation params for this frame from the injected `now`
+                        // and the blink phase / logical cursor move. Both no-op to
+                        // the identity while their knobs are off.
+                        self.update_cursor_easing(now, cursor_on, cursor_blinking);
+                        self.update_cursor_motion(now, &snapshot, cell);
+                        // Blink off-phase hard-hide — skipped while easing is on,
+                        // where the precomputed alpha carries the fade instead (so
+                        // easing does not double-hide).
+                        if !cursor_on && !self.settings.cursor_easing {
                             snapshot.cursor_visible = false;
                         }
                         self.hovered_hyperlink = self.pointer_cell.and_then(|point| {
@@ -1575,6 +1621,12 @@ impl ApplicationHandler<UserEvent> for App {
                         self.paint_cursor_trail_quads(&ctx, &mut overlays);
                         self.paint_cursor_glow_quads(&ctx, &mut overlays);
                         self.paint_background_quads(&ctx, &mut overlays);
+                        // R3 call-site parity + A2 cache observability: compute
+                        // the live cursor params ONCE so the signature `anim` key
+                        // and the GPU CursorOnly call derive from the same source.
+                        // Identity while both knobs are off ⇒ a constant key ⇒
+                        // `Retained` ⇒ byte-identical plain path.
+                        let cursor_params = self.cursor_render_params();
                         let signature = RenderSignature {
                             content: RenderContentSignature {
                                 terminal_revision,
@@ -1605,6 +1657,7 @@ impl ApplicationHandler<UserEvent> for App {
                             cursor: CursorRenderSignature {
                                 visible: snapshot.cursor_visible,
                                 style: cursor_style,
+                                anim: CursorAnimKey::from_params(&cursor_params),
                             },
                         };
                         let update = RenderSignature::update_from(
@@ -1622,10 +1675,9 @@ impl ApplicationHandler<UserEvent> for App {
                         } else {
                             self.settings.effective_focus_dim()
                         };
-                        // R3 call-site parity: hoisted before the `gpu` mutable
-                        // borrow so the CursorOnly arm passes the SAME params
-                        // source as the blink-frame path in `cursor_frame.rs`.
-                        let cursor_params = self.cursor_render_params();
+                        // `cursor_params` was hoisted above the signature literal
+                        // (it feeds the `anim` cache key); the CursorOnly arm
+                        // reuses the same value so the cached cursor matches.
                         if let Some(gpu) = self.gpu.as_mut() {
                             match update {
                                 GeometryUpdate::Full => {
@@ -1761,6 +1813,21 @@ impl ApplicationHandler<UserEvent> for App {
         // A due cursor-blink toggle rebuilds once so the phase flips; the rebuild
         // path polls the blink driver and advances it.
         if self.cursor_blink.is_due(now) {
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+
+        // A due cursor-animation tick (ID1 easing fade / VE4 slide) rebuilds once
+        // so the eased alpha / slide offset advance. `animation_deadline()` is
+        // `None` whenever nothing is animating (both knobs off, or the animation
+        // settled), so this fires only while an animation is in flight and the
+        // terminal returns to zero-wake idle once it completes (bounded wake).
+        if self
+            .animation_deadline()
+            .is_some_and(|deadline| now >= deadline)
+        {
             self.needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();

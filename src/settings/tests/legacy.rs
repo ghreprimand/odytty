@@ -103,6 +103,8 @@ fn setting_info_covers_every_field_with_descriptions() {
             "crt_vignette_strength",
             "cursor_style",
             "cursor_blink",
+            "cursor_easing",
+            "cursor_motion",
             "keybinds",
             "scroll_wheel_lines",
             "selection_drag_extend",
