@@ -762,7 +762,16 @@ color feature validates against.
   - [x] Readability-scrim primitive for background treatments (core) —
         pure math that caps (dark) or lifts (light) the composited background
         luminance so a treatment cannot breach the contrast floor; native
-        wiring is a follow-up.
+        wiring landed.
+  - [x] Background treatments (`background_treatment = gradient / vignette`,
+        off by default): position-based per-cell background darkening —
+        gradient darkens toward the bottom, vignette toward the edges and
+        corners. Readability is safe-by-construction: the treatment runs before
+        the minimum-contrast floor so the floor re-lifts the foreground over the
+        treated background. Pixel-identical to before when off; forced off under
+        the plain renderer profile.
+  - [ ] Image/blur-behind support (future slice): static image behind the grid
+        with a configurable blur and readability dim tied to the contrast floor.
 - [ ] Pointer excellence — make the mouse a joy, without disturbing TUI mouse
       reporting (Shift stays the selection-vs-passthrough seam).
   - [x] Extend an existing selection: Shift+click, double-click-then-drag by

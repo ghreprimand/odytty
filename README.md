@@ -119,6 +119,16 @@ faces are absent; `ODYTTY_SYNTHETIC_STYLES=off` disables synthesis. Extended
 underline styles fully decoded and rendered (`SGR 4:0`–`4:5`: straight, double,
 curly, dotted, dashed). Underline color via `SGR 58`/`59`.
 
+**Background treatments.** `background_treatment = gradient` subtly darkens
+each cell's background toward the bottom of the window; `background_treatment
+= vignette` darkens toward the edges and corners. Both are off by default
+(`background_treatment = off`), pixel-identical to the plain renderer when off,
+and forced off under the `render_quality = plain` profile. Readability is
+safe-by-construction: the treatment darkens the per-cell background before the
+minimum-contrast floor runs, so the floor re-lifts the foreground over the
+treated background cell by cell. Image/blur-behind support is a planned future
+extension.
+
 ### Daily-driver interaction
 
 Scrollback search (`Ctrl+Shift+F`) with next/prev navigation and match

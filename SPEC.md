@@ -611,6 +611,14 @@ be **structurally unable** to harm body-text legibility by construction:
   an intensity cap that keeps the worst-case dimming above the body-text
   legibility floor. The user-configured `min_contrast` floor is the explicit
   safety net at the CPU level; effects must not require it.
+- **Background treatments** (`background_treatment`, `off`/`gradient`/`vignette`,
+  default `off`): position-based per-cell background darkening (gradient toward
+  the bottom; vignette toward the edges/corners). Legibility is
+  safe-by-construction: the darken is applied to the per-cell background
+  **before** the minimum-contrast floor resolves, so the floor sees the treated
+  background and re-lifts the foreground as needed. A `MAX_BG_TREATMENT_DARKEN`
+  cap keeps the worst-case dimming bounded; the knob is forced off under the
+  plain renderer profile. Image/blur-behind is a planned future extension.
 - Any new Tier-3 effect must document its structural legibility guarantee
   before landing.
 
