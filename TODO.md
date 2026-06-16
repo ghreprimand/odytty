@@ -748,7 +748,7 @@ color feature validates against.
   - [x] Configurable wheel scroll speed plus modifier+wheel font-size zoom
         (only when TUI mouse reporting is off).
 - [ ] Theme library and config UX.
-  - [x] Built-in theme library expanded to 72 contrast-validated themes
+  - [x] Built-in theme library expanded to 84 contrast-validated themes
         (data-only, ongoing).
   - [x] Mouse-driven settings overlay with sliders and click-to-type numeric
         entry (UX4-P1/P2/P3).

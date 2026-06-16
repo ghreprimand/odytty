@@ -109,9 +109,9 @@ to the renderer; the core is never aware of them.
 
 ## Test battery
 
-The default `cargo test` run is deterministic and host-independent: ~1090 tests
+The default `cargo test` run is deterministic and host-independent: ~1456 tests
 spread across unit and integration suites. Integration test buckets include
-`mouse_protocol`, `pixel_smoke` (29 compositor checks), `protocol_fuzz_*_smoke`
+`mouse_protocol`, `pixel_smoke` (42 compositor checks), `protocol_fuzz_*_smoke`
 (quick fuzzer tiers), `pty_alt_screen_smoke`, `transcript_smoke`,
 `emoji_pixel_smoke`, `boxdraw_pixel_smoke`, and `cli`. PTY smoke tests are
 `#[ignore]`d by default and require a real PTY (`cargo test -- --ignored` to
@@ -205,7 +205,7 @@ references.
 
 ## Adding a built-in theme
 
-All 53 built-in themes live in `src/theme/builtins/` as `.theme` files.
+All 84 built-in themes live in `src/theme/builtins/` as `.theme` files.
 The `REGISTRY` slice in `src/theme/builtins.rs` maps names to
 `include_str!`-embedded sources. Adding a new built-in is four steps:
 
