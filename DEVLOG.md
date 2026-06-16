@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- COPYMODE: vim-key keyboard scrollback selection (off by default)
+
+- A keyboard-driven copy mode lands on the Wave-15 overlay-registry + modal
+  foundation. The bindable `CopyMode` action opens a navigable caret in the
+  scrollback; vim motions move it (`h/j/k/l`, `w/b/e`, `0/^/$`, `gg/G`), `v`/`V`
+  start char/line selection, `o` swaps ends, `y`/Enter yanks to the clipboard,
+  `Esc`/`q` cancel. Arrows, PageUp/Down, Home/End, and `Ctrl-u/d/b/f` paging are
+  also bound. Off by default — nothing changes until the action is bound and
+  invoked.
+- The model is a pure-core state machine (`src/native/copy_mode.rs`, absolute
+  coordinates so the selection stays pinned to content as scrollback grows); the
+  native wiring (`src/native/app/copy_mode_ui.rs`) translates keys, paints the
+  selection band + an inverted caret onto a snapshot copy, and extracts the
+  selected text across scrollback windows for the clipboard. Terminal core state
+  is never touched — copy mode is a presentation overlay.
+- Off-path contract: `copy_mode == None` ⇒ `copy_mode_active()` false,
+  `paint_copy_mode_cells` mutates zero cells, the render-cache fragment is
+  `Inert` ⇒ the default frame bytes and input routing are byte-identical. While
+  active the modal captures every key (no PTY leak) and owns the pointer.
+- State: library tests 1476/0 (+14 wiring + the 21 banked core tests),
+  pixel-smoke 42/0, fmt clean, clippy at the 38 baseline (zero-new).
+  `copy_mode_ui.rs` 699 lines, `app/mod.rs` 1678.
+
+---
+
 ## 2026-06-16 -- Cap-relief: native App test seams split to their own module
 
 - `src/native/app/mod.rs` was at 1960/2000 lines, the hard cap. The entire

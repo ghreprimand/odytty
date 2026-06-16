@@ -283,6 +283,10 @@ pub(super) struct App {
     /// when inactive — the byte-identical default path. UI-only: label badges
     /// mutate snapshot copies, never terminal-core state.
     hints: Option<hints_ui::HintsUi>,
+    /// COPYMODE: live vim-key scrollback-selection state, or `None` (the
+    /// byte-identical default path). Presentation-only — the selection band and
+    /// caret mutate snapshot copies, never terminal-core state.
+    copy_mode: Option<crate::native::copy_mode::CopyModeState>,
     /// Native in-window overlay state. It is presentation-only: widgets
     /// composite into snapshot copies and never mutate terminal state or PTY.
     overlay: OverlayUi,
@@ -397,6 +401,7 @@ impl App {
             viewport: Viewport::default(),
             search: SearchUi::default(),
             hints: None,
+            copy_mode: None,
             overlay,
             search_restore_viewport: None,
             last_scrollback_len: 0,
