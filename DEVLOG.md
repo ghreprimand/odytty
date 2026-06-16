@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- Cap-relief: native App test seams split to their own module
+
+- `src/native/app/mod.rs` was at 1960/2000 lines, the hard cap. The entire
+  `#[cfg(test)]` test-seam block (the `_for_test` accessors/drivers plus the
+  cfg-test `resize_grid` wrapper) moved verbatim to a new child module
+  `src/native/app/test_seams.rs` (319 lines), gated `#[cfg(test)]` so it is not
+  compiled into the library.
+- Pure relocation: mod.rs diff is +2/−289 (the 2 insertions are the
+  `mod test_seams;` registration). Two forced, behaviour-identical deltas — 36
+  seam methods widen `pub(super) fn` → `pub(in crate::native) fn` (restores the
+  exact prior reach from the test harness) and two return-type paths absolutize
+  `super::overlay::…` → `crate::native::overlay::…`. No test-count change.
+- State: mod.rs 1960 → 1673 (comfortable margin for upcoming native work).
+  Library tests 1462/0, pixel-smoke 42/0 — byte-identical to pre-move. fmt
+  clean, clippy zero-new.
+
+---
+
 ## 2026-06-16 -- Cursor animation: easing + slide (both off by default) + the cache observability layer
 
 - Two opt-in cursor animations land on the Wave-15b aggregator, together with
