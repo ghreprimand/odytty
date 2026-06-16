@@ -27,6 +27,13 @@ impl App {
             self.handle_overlay_pointer_button(state, button);
             return;
         }
+        // Modal pointer capture (Wave-15 foundation): a mouse-owning modal
+        // (copy-mode) swallows the press beneath the overlay guard, suppressing
+        // both local selection and PTY reporting. `modal_captures_pointer()` is
+        // `false` today, so this is dead code and the press path is unchanged.
+        if self.modal_captures_pointer() {
+            return;
+        }
         if self.pointer_drag.is_selecting() {
             if button == WinitMouseButton::Left && state == ElementState::Released {
                 self.finish_selection();
@@ -133,6 +140,12 @@ impl App {
         // before TUI reporting or scrollback movement.
         if self.overlay.is_open() {
             self.handle_overlay_pointer_wheel(delta);
+            return;
+        }
+        // Modal pointer capture (Wave-15 foundation): a mouse-owning modal
+        // swallows the wheel beneath the overlay guard. `false` today ⇒ dead
+        // code ⇒ the wheel path is unchanged.
+        if self.modal_captures_pointer() {
             return;
         }
         if self.should_report_mouse_to_pty() {

@@ -275,6 +275,13 @@ fn render_sig() -> RenderSignature {
             graphics: Vec::new(),
             presentation_epoch: 0,
             prompt_marks_epoch: 0,
+            overlays: OverlayCompositeSignature {
+                hints: OverlayFragment::Inert,
+                copy_mode: OverlayFragment::Inert,
+                cursor_trail: OverlayFragment::Inert,
+                cursor_glow: OverlayFragment::Inert,
+                background: OverlayFragment::Inert,
+            },
         },
         cursor: CursorRenderSignature {
             visible: true,

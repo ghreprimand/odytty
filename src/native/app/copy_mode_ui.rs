@@ -10,6 +10,7 @@
 //! returns `false`, so the bound chord falls through to the PTY encode path
 //! exactly as an unbound key would — the plain path stays byte-identical.
 
+use super::overlay_registry::OverlayCtx;
 use super::*;
 
 impl App {
@@ -18,4 +19,30 @@ impl App {
     pub(super) fn enter_copy_mode(&mut self) -> bool {
         false
     }
+
+    // --- overlay-registry / modal-gate contributor slots (Wave-15) ---
+    // All no-ops today: the copy-mode feature packet fills these bodies in this
+    // file only, touching neither `app/mod.rs` nor `render_helpers.rs`.
+
+    /// Paint the copy-mode caret/selection onto the snapshot cells. No-op until
+    /// copy mode ships.
+    pub(in crate::native) fn paint_copy_mode_cells(
+        &self,
+        _snapshot: &mut Snapshot,
+        _ctx: &OverlayCtx,
+    ) {
+    }
+
+    /// Copy-mode render-cache fragment — inert until copy mode is active.
+    pub(super) fn copy_mode_overlay_signature(&self) -> OverlayFragment {
+        OverlayFragment::Inert
+    }
+
+    /// Whether copy-mode is active (captures keys AND the mouse). `false` today.
+    pub(super) fn copy_mode_active(&self) -> bool {
+        false
+    }
+
+    /// Handle a key while copy-mode is active. No-op today.
+    pub(super) fn copy_mode_key(&mut self, _key: &WinitKey) {}
 }

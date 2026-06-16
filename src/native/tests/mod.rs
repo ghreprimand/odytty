@@ -4,8 +4,8 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use super::app::{
-    App, PendingResize, ResizeDebouncer, SYNCHRONIZED_OUTPUT_TIMEOUT, SynchronizedOutputHold,
-    pending_resize_for_surface, scale_factor_changed,
+    ActiveModal, App, PendingResize, ResizeDebouncer, SYNCHRONIZED_OUTPUT_TIMEOUT,
+    SynchronizedOutputHold, pending_resize_for_surface, scale_factor_changed,
 };
 use super::bindings::{
     KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
@@ -25,9 +25,9 @@ use super::options::NativeOptions;
 use super::overlay::{OverlayMode, OverlayRenderSignature};
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 use super::render_helpers::{
-    CursorRenderSignature, GeometryUpdate, RenderContentSignature, RenderSignature,
-    SelectionSignature, VisibleGraphicSignature, apply_hyperlink_hover, hyperlink_action_allowed,
-    key_modes_from_core, openable_hyperlink_uri,
+    CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature, OverlayFragment,
+    RenderContentSignature, RenderSignature, SelectionSignature, VisibleGraphicSignature,
+    apply_hyperlink_hover, hyperlink_action_allowed, key_modes_from_core, openable_hyperlink_uri,
 };
 use super::search_ui::SearchRenderSignature;
 use super::settings_panel::SettingsPanelSignature;
@@ -65,6 +65,7 @@ mod grid_scale;
 mod input_keys;
 mod mouse_rect;
 mod overlay_pointer;
+mod overlay_registry;
 mod scrollbar;
 mod selection_extend;
 mod sh2_native;

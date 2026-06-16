@@ -7,6 +7,58 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- Native foundation: overlay registry + modal-input gate (chokepoint dissolver)
+
+- Pure-infra refactor that dissolves the `src/native/app/mod.rs` throughput
+  limiter: the frame composition (cell-paints + quad collection) and the
+  keyboard-input ladder were the single seam every upcoming native feature had
+  to edit, serializing the build. This packet generalizes both into registries
+  so future features each contribute from their own disjoint submodule.
+  - **Frame-overlay registry** (`src/native/app/overlay_registry.rs`, new): the
+    four existing cell-paints (selection → search → overlay → hyperlink) and the
+    two quad sources (scroll indicator, SH2 gutter) are relocated behind a fixed
+    ordered manifest of `paint_*_cells` / `paint_*_quads` methods, each living in
+    its own submodule. No-op contributor slots for hints, copy-mode, cursor
+    trail, cursor glow, and background are landed up front (inert today).
+  - **Composite render-cache signature**: `RenderContentSignature` gains one
+    `overlays: OverlayCompositeSignature` field folding the NEW contributors'
+    `OverlayFragment`s. Every fragment is `Inert` while its feature is off, so
+    the composite is a frame-to-frame constant and the geometry-update decision
+    is byte-identical to before. Existing selection/search/overlay/hyperlink/
+    prompt-marks fields are left inline (D-INFRA-1/D-INFRA-6).
+  - **Modal-input gate**: an `ActiveModal` enum + `active_modal()` /
+    `route_modal_key()` / `modal_captures_pointer()` slot beneath the
+    overlay/search guards, above the `BindableAction` match (precedence
+    overlay → search → modal → action → PTY). All `None` today ⇒ verbatim
+    fall-through. The pointer guard sits at the two true capture entry points
+    (mouse button + wheel), dead until a mouse-owning modal activates.
+- Off-path is byte-identical by construction: proven by
+  `frame_overlay_refactor_is_pixel_identical` (off-path manifest mutates zero
+  cells, pushes zero quads) plus `relocated_overlay_paint_mutates_when_open`
+  (the inverse — the relocated wrappers still paint when their feature is on).
+  Cap-relief bonus: `app/mod.rs` 1884 → 1875 (net reduction).
+- Unblocks the next wave: HINTS / COPYMODE / ID1 / VE4 / ID3-U5 native wiring
+  each fill only their own submodule bodies — none touch `app/mod.rs`,
+  `render_helpers.rs`, or `pointer.rs`.
+- Gates: lib 1439/0 (+6 foundation tests), all-targets clean, pixel-smoke 42/0,
+  fmt clean, zero new clippy in-lane, SPDX on both new files.
+
+## 2026-06-16 -- settings.rs cap-relief: extract value parsers into settings/values.rs
+
+- Mechanical extraction (behavior-preserving): the large block of private value
+  parsers (`parse_*` for cursor/font/gamma/stem/line-height/box-thickness/
+  contrast/focus-dim/scroll/cvd/bloom/crt/subpixel/key-bindings) and the
+  display/format helpers (`format_float`, `*_display`, `format_chord`,
+  `bindable_action_name`, …) moved from `src/settings.rs` into the new
+  `src/settings/values.rs`. Re-exported via `use self::values::*;` so call sites
+  are unchanged. `normalize_name` stayed in `settings.rs` (it has callers in
+  both the moved block and sibling modules).
+- `settings.rs` 1993 → 1249 lines (−744); `values.rs` 799 lines — both well
+  under the 2000-line cap. Clears the cap pressure that was blocking the next
+  settings-touching feature.
+- Gates: lib 1439/0 unchanged (pure move, no new tests), fmt clean, zero new
+  clippy in-lane, SPDX on the new file.
+
 ## 2026-06-16 -- Config knobs: IN1 clear-input + line_height + box_thickness
 
 - Three operator-configurable knobs in one bundle, every one default-identity

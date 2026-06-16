@@ -87,6 +87,56 @@ impl RenderSignature {
     }
 }
 
+/// Per-contributor render-cache fragment for the overlay registry. `Inert` ⇒
+/// the contributor adds nothing to the composite cache key, so an inactive
+/// feature never perturbs the geometry-update decision. Each active feature
+/// folds its compact, change-observable state into its own variant.
+///
+/// Foundation note: every variant except `Inert` is currently unconstructed in
+/// production (the contributor `*_overlay_signature()` methods all return
+/// `Inert`); the variants land here so the Wave N+1 feature packets fill in
+/// only their own submodule body without re-editing this enum.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+// Foundation scaffolding: every variant except `Inert` is intentionally
+// unconstructed in production until its Wave N+1 feature packet fills in the
+// corresponding `*_overlay_signature()` body. Landing the variants now is the
+// whole point of the dissolver — feature packets edit only their own submodule,
+// never this enum.
+#[allow(dead_code)]
+pub(super) enum OverlayFragment {
+    /// Contributes nothing to the cache key — the off/inactive state.
+    Inert,
+    /// HINTS label-overlay epoch (bumped when the visible label set changes).
+    Hints { label_epoch: u64 },
+    /// COPYMODE caret + optional selection anchor (cell coordinates).
+    CopyMode {
+        caret: (usize, usize),
+        anchor: Option<(usize, usize)>,
+    },
+    /// VE4-v1 cursor-trail animation phase.
+    CursorTrail { phase: u32 },
+    /// ID1/VE4 cursor-glow animation phase (glow routed as overlay quads per
+    /// D-IDVE-1, so it is a contributor slot like the trail).
+    CursorGlow { phase: u32 },
+    /// ID3/U5 background treatment (quantized scrim + treatment discriminant).
+    Background { scrim_q: u16, treat: u8 },
+}
+
+/// Folds the NEW overlay contributors' fragments into one hashable cache key.
+/// The existing selection/search/overlay/hovered_hyperlink/prompt_marks_epoch
+/// signature fields are left as-is (D-INFRA-1/D-INFRA-6) — only the open
+/// frontier is generalized here. When every contributor is inactive every
+/// fragment is `Inert`, so the composite is a frame-to-frame constant and the
+/// geometry-update gate behaves exactly as before this field existed.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(super) struct OverlayCompositeSignature {
+    pub(super) hints: OverlayFragment,
+    pub(super) copy_mode: OverlayFragment,
+    pub(super) cursor_trail: OverlayFragment,
+    pub(super) cursor_glow: OverlayFragment,
+    pub(super) background: OverlayFragment,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RenderContentSignature {
     pub(super) terminal_revision: u64,
@@ -107,6 +157,12 @@ pub(super) struct RenderContentSignature {
     /// while it is off the epoch never advances, so the default render path
     /// stays byte-identical.
     pub(super) prompt_marks_epoch: u64,
+    /// Overlay-registry composite cache key for the NEW painted contributors
+    /// (hints / copy-mode / cursor-trail / background). All fragments are
+    /// `Inert` while their features are off, so this field is a constant on the
+    /// default path and the geometry-update decision is unchanged from before
+    /// the overlay registry landed.
+    pub(super) overlays: OverlayCompositeSignature,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

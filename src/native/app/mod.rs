@@ -9,6 +9,7 @@ use crate::core::{
     MouseEventKind, MouseModifiers, MouseProtocol, RgbColor, Snapshot, Terminal,
     encode_mouse_event_pixel,
 };
+use crate::grid::SolidQuad;
 use crate::input::{self, Key, KeyEventType, KeyModes, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{
@@ -49,9 +50,10 @@ use super::overlay::{
 };
 use super::pty::{PtyWriter, UserEvent};
 use super::render_helpers::{
-    CursorRenderSignature, GeometryUpdate, RenderContentSignature, RenderSignature,
-    SelectionSignature, apply_hyperlink_hover, hyperlink_action_allowed, image_uploads_for_visible,
-    key_modes_from_core, openable_hyperlink_uri, visible_graphics_signature,
+    CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature, OverlayFragment,
+    RenderContentSignature, RenderSignature, SelectionSignature, apply_hyperlink_hover,
+    hyperlink_action_allowed, image_uploads_for_visible, key_modes_from_core,
+    openable_hyperlink_uri, visible_graphics_signature,
 };
 use super::theme_builder::{save_theme_to_dir, user_theme_dir_for_config};
 
@@ -72,9 +74,12 @@ mod cursor_frame;
 mod gutter_ui;
 mod hints_ui;
 mod interaction;
+mod overlay_registry;
 mod pointer;
 mod prompt_jump;
 mod theme_roles;
+
+pub(in crate::native) use overlay_registry::ActiveModal;
 
 pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(150);
 
@@ -782,6 +787,16 @@ impl App {
             if self.search.is_open() {
                 self.handle_search_key(logical);
                 return;
+            }
+            // Modal-input gate: a new keyboard modal captures keys beneath the
+            // overlay/search guards, above the BindableAction match (precedence
+            // D-INFRA-4). Always None today ⇒ falls through unchanged.
+            match self.active_modal() {
+                ActiveModal::None => {}
+                modal => {
+                    self.route_modal_key(modal, &logical);
+                    return;
+                }
             }
             match action {
                 Some(BindableAction::Copy) => {
@@ -1524,63 +1539,29 @@ impl ApplicationHandler<UserEvent> for App {
                                 .get(point.row * snapshot.dimensions.columns + point.column)
                                 .and_then(|cell| cell.attrs.hyperlink)
                         });
-                        if let Some(range) = self.selection.range() {
-                            // MOUSE-RECT: dispatch wrapped vs block (column)
-                            // highlight in one call, reading the live
-                            // `selection_block`. Block-ness also rides the
-                            // render-cache signature (see `SelectionSignature`),
-                            // so even if two selections shared the same two
-                            // corners with different block-ness the cache would
-                            // still rebuild — the live read here keeps the paint
-                            // correct on every rebuild regardless.
-                            selection::apply_selection_highlight(
-                                &mut snapshot,
-                                range,
-                                self.selection_block,
-                                self.viewport.offset(),
-                                scrollback_len,
-                                self.grid,
-                                self.themed_selection_style(),
-                            );
-                        }
-                        apply_search_ui(
-                            &mut snapshot,
-                            &self.search,
-                            self.viewport.offset(),
-                            scrollback_len,
-                            self.grid,
-                            self.themed_search_style(),
-                        );
-                        apply_overlay(&mut snapshot, &self.overlay);
-                        apply_hyperlink_hover(&mut snapshot, self.hovered_hyperlink);
+                        // Frame-overlay cell-paint manifest (see overlay_registry).
+                        // Order = paint precedence; new slots strictly after the
+                        // existing four and no-op until their feature ships.
+                        let ctx = self.overlay_ctx(scrollback_len, cell);
+                        self.paint_selection_cells(&mut snapshot, &ctx);
+                        self.paint_search_cells(&mut snapshot, &ctx);
+                        self.paint_overlay_cells(&mut snapshot, &ctx);
+                        self.paint_hyperlink_cells(&mut snapshot, &ctx);
+                        self.paint_hints_cells(&mut snapshot, &ctx);
+                        self.paint_copy_mode_cells(&mut snapshot, &ctx);
                         let content_snapshot = {
                             let mut content_snapshot = snapshot.clone();
                             content_snapshot.cursor_visible = base_cursor_visible;
                             content_snapshot
                         };
-                        let color = self.scroll_indicator_color();
-                        let overlay = self.gpu.as_ref().and_then(|gpu| {
-                            scroll_indicator_quad_with_padding(
-                                self.viewport.offset(),
-                                scrollback_len,
-                                self.grid,
-                                gpu.cell(),
-                                color,
-                                gpu.window_padding(),
-                            )
-                        });
-                        let mut overlays = overlay.into_iter().collect::<Vec<_>>();
-                        // SH2 success/fail gutter: per-command pass/fail bars at
-                        // the left edge. Off by default — the method returns no
-                        // quads before locking the terminal, so the composed
-                        // overlay set stays byte-identical on the plain path.
-                        if let Some(gpu) = self.gpu.as_ref() {
-                            overlays.extend(self.command_status_gutter_overlays(
-                                scrollback_len,
-                                gpu.cell(),
-                                gpu.window_padding(),
-                            ));
-                        }
+                        // Frame-overlay quad manifest: scroll indicator, then the
+                        // off-by-default SH2 gutter, then the no-op new slots.
+                        let mut overlays: Vec<SolidQuad> = Vec::new();
+                        self.paint_scroll_indicator_quads(&ctx, &mut overlays);
+                        self.paint_gutter_quads(&ctx, &mut overlays);
+                        self.paint_cursor_trail_quads(&ctx, &mut overlays);
+                        self.paint_cursor_glow_quads(&ctx, &mut overlays);
+                        self.paint_background_quads(&ctx, &mut overlays);
                         let signature = RenderSignature {
                             content: RenderContentSignature {
                                 terminal_revision,
@@ -1597,6 +1578,16 @@ impl ApplicationHandler<UserEvent> for App {
                                 graphics: visible_graphics_signature(&visible_graphics),
                                 presentation_epoch: self.presentation_epoch,
                                 prompt_marks_epoch: self.prompt_marks_epoch,
+                                // Overlay-registry composite (NEW contributors
+                                // only; all Inert today ⇒ constant ⇒ decision
+                                // unchanged). D-INFRA-1/D-INFRA-6.
+                                overlays: OverlayCompositeSignature {
+                                    hints: self.hints_overlay_signature(),
+                                    copy_mode: self.copy_mode_overlay_signature(),
+                                    cursor_trail: self.cursor_trail_overlay_signature(),
+                                    cursor_glow: self.cursor_glow_overlay_signature(),
+                                    background: self.background_overlay_signature(),
+                                },
                             },
                             cursor: CursorRenderSignature {
                                 visible: snapshot.cursor_visible,
