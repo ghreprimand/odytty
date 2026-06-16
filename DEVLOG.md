@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-16 -- HINTS: keyboard pattern-select / quick-select (Wave-16, copy v1)
+
+- First Wave-16 native feature on the overlay-registry + modal-input foundation:
+  press the hints action, OdyTTY scans the visible viewport for URLs / paths /
+  SHAs, paints a short label badge at each match, and the typed label copies the
+  match text to the clipboard. Keyboard-only; copy-only in v1.
+- Rides the foundation seams (none rebuilt):
+  - **Label badges are cell-mutations** (`apply_hints_ui`, sibling of the search
+    highlighter) — not solid quads. Zero quad contributors added.
+  - **Invalidation** via the foundation's `OverlayCompositeSignature.hints`
+    fragment (was `Inert`): a monotonic `label_epoch` bumped on every typed
+    char / backspace, so the composite stays a frame-to-frame constant while
+    inactive and flips only on a real label change.
+  - **Modal gate**: `hints_selecting()` feeds `active_modal()` and `hints_key()`
+    fills the `route_modal_key()` arm (precedence overlay → search → modal →
+    action). Zero-match activation stores nothing, so `active_modal()` stays
+    `None` and no dead modal can swallow keys.
+  - Hints does NOT capture the pointer (`modal_captures_pointer()` stays
+    CopyMode-only); `pointer.rs` untouched.
+- Themed badge (`themed_hint_style()`) is a brightened `search`-role derivative
+  with the label fg RV1-floored over the fill; falls back to the high-contrast
+  default badge when themed UI roles are off.
+- Off-path byte-identical: `none_hints_is_pixel_identical_noop` +
+  `empty_label_set_is_noop` (hints inactive mutates zero cells), and the
+  foundation's `frame_overlay_refactor_is_pixel_identical` now exercises
+  `paint_hints_cells` in the real manifest with hints inactive. Reflow closes
+  the modal (label spans are absolute rows, stale after relayout). lib 1456/0
+  (+13), pixel-smoke 42/0, clippy zero-new.
+- Follow-up (documented, not in v1): `hints_kinds` / `hints_alphabet` config
+  keys and open-URL via the desktop opener; copy-only today.
+
 ## 2026-06-16 -- HELP1: settings-panel description clarity sweep (wording portion)
 
 - Reworded five terse/jargon-y in-panel setting descriptions so the overlay

@@ -81,6 +81,26 @@ impl App {
             active_fg,
         })
     }
+
+    /// HINTS label-badge treatment: a brightened `search`-role derivative so the
+    /// badge reads as distinct from a passive search highlight, with the label
+    /// foreground RV1-floored over the badge fill (trap #4). Returns `None` when
+    /// themed UI roles are off, preserving the high-contrast default badge.
+    pub(super) fn themed_hint_style(&self) -> Option<super::hints_ui::HintStyle> {
+        if !self.themed_ui_roles {
+            return None;
+        }
+        let fill_lin = srgb_tuple_to_linear(self.effective_theme.search);
+        let badge_fill_lin =
+            crate::color::mix_oklab(fill_lin, [1.0, 1.0, 1.0], SEARCH_ACTIVE_BRIGHTEN);
+        let fill = linear_to_srgb_tuple(badge_fill_lin);
+        let fg = floor_fg_over(
+            self.effective_theme.foreground,
+            fill,
+            self.settings.effective_min_contrast(),
+        );
+        Some(super::hints_ui::HintStyle { fill, fg })
+    }
 }
 
 fn srgb_tuple_to_linear(color: (u8, u8, u8)) -> crate::color::LinearRgb {

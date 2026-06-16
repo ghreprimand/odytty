@@ -277,6 +277,10 @@ pub(super) struct App {
     /// Native scrollback search state. It is UI-only: queries and highlights
     /// mutate snapshot copies, never terminal-core state.
     search: SearchUi,
+    /// HINTS pattern-select state (URLs / paths / SHAs → label → copy). `None`
+    /// when inactive — the byte-identical default path. UI-only: label badges
+    /// mutate snapshot copies, never terminal-core state.
+    hints: Option<hints_ui::HintsUi>,
     /// Native in-window overlay state. It is presentation-only: widgets
     /// composite into snapshot copies and never mutate terminal state or PTY.
     overlay: OverlayUi,
@@ -364,6 +368,7 @@ impl App {
             report_button: None,
             viewport: Viewport::default(),
             search: SearchUi::default(),
+            hints: None,
             overlay,
             search_restore_viewport: None,
             last_scrollback_len: 0,
@@ -716,6 +721,9 @@ impl App {
             self.viewport.reset_to_live();
             self.search.reset_for_reflow();
             self.search_restore_viewport = None;
+            // HINTS label spans are absolute rows against the old layout; a
+            // reflow makes them stale, so close the modal (trap #4).
+            self.hints = None;
             self.needs_rebuild = true;
         }
     }
