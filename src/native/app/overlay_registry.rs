@@ -58,6 +58,11 @@ pub(in crate::native) struct OverlayCtx {
     /// clear; `[0.0; 4]` when the GPU is not yet present (the caller has
     /// already early-returned in that case, so this is just a total default).
     pub(in crate::native) clear_color: [f32; 4],
+    /// Surface DPI scale factor (logical→physical px). Chrome thicknesses
+    /// authored in logical pixels (ID4 window border) are multiplied by this so
+    /// the frame is a consistent visual weight across displays. `1.0` when the
+    /// GPU is not yet present (the caller has already early-returned then).
+    pub(in crate::native) scale: f32,
 }
 
 /// The currently-active keyboard modal, if any. Extended as new modals land;
@@ -102,6 +107,7 @@ impl App {
                 .as_ref()
                 .map(GpuState::clear_color_linear)
                 .unwrap_or([0.0; 4]),
+            scale: self.gpu.as_ref().map(GpuState::scale).unwrap_or(1.0),
         }
     }
 
@@ -195,14 +201,9 @@ impl App {
         ));
     }
 
-    /// VE4-v1 cursor-trail quads — no-op slot (foundation). Filled by the
-    /// cursor-trail feature packet.
-    pub(in crate::native) fn paint_cursor_trail_quads(
-        &self,
-        _ctx: &OverlayCtx,
-        _out: &mut Vec<SolidQuad>,
-    ) {
-    }
+    // VE4 cursor-trail quads: `paint_cursor_trail_quads` lives in `cursor_trail.rs`
+    // alongside `cursor_trail_overlay_signature`, so the whole trail feature is
+    // one submodule.
 
     /// ID1 v1 soft cursor glow — three concentric semi-transparent halo quads
     /// in the theme foreground color, emitted as cursor-layer overlays so the
@@ -260,10 +261,8 @@ impl App {
     ) {
     }
 
-    /// VE4-v1 cursor-trail cache fragment — inert until the feature ships.
-    pub(super) fn cursor_trail_overlay_signature(&self) -> OverlayFragment {
-        OverlayFragment::Inert
-    }
+    // VE4 cursor-trail cache fragment: `cursor_trail_overlay_signature` lives in
+    // `cursor_trail.rs` alongside the trail's quad emitter.
 
     /// ID1 cursor-glow cache fragment. `Inert` while off, so the composite key
     /// is a frame-to-frame constant and the default render path never

@@ -73,6 +73,7 @@ mod background_ui;
 mod copy_mode_ui;
 mod cursor;
 mod cursor_frame;
+mod cursor_trail;
 mod gutter_ui;
 mod hints_ui;
 mod interaction;
@@ -83,6 +84,7 @@ mod prompt_jump;
 #[cfg(test)]
 mod test_seams;
 mod theme_roles;
+mod window_border;
 
 pub(in crate::native) use overlay_registry::ActiveModal;
 
@@ -1446,6 +1448,10 @@ impl ApplicationHandler<UserEvent> for App {
                         self.paint_cursor_trail_quads(&ctx, &mut overlays);
                         self.paint_cursor_glow_quads(&ctx, &mut overlays);
                         self.paint_background_quads(&ctx, &mut overlays);
+                        // ID4 themed window border: a thin frame in the padding
+                        // band, drawn over any background treatment; empty on the
+                        // off path.
+                        self.paint_window_border_quads(&ctx, &mut overlays);
                         // VE4 new-output fade quads — last so they obscure the
                         // freshly arrived rows on top of all other overlays;
                         // empty on the off path. The cursor block draws after

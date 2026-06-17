@@ -32,7 +32,9 @@ pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
 pub const CURSOR_EASING_ENV: &str = "ODYTTY_CURSOR_EASING";
 pub const CURSOR_MOTION_ENV: &str = "ODYTTY_CURSOR_MOTION";
 pub const CURSOR_GLOW_ENV: &str = "ODYTTY_CURSOR_GLOW";
+pub const CURSOR_TRAIL_ENV: &str = "ODYTTY_CURSOR_TRAIL";
 pub const NEW_OUTPUT_FADE_ENV: &str = "ODYTTY_NEW_OUTPUT_FADE";
+pub const WINDOW_BORDER_ENV: &str = "ODYTTY_WINDOW_BORDER";
 pub const OSC52_READ_ENV: &str = "ODYTTY_OSC52_READ";
 pub const SYNTHETIC_STYLES_ENV: &str = "ODYTTY_SYNTHETIC_STYLES";
 pub const GEOMETRIC_BOXDRAW_ENV: &str = "ODYTTY_GEOMETRIC_BOXDRAW";
@@ -86,7 +88,9 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CURSOR_EASING_ENV,
     CURSOR_MOTION_ENV,
     CURSOR_GLOW_ENV,
+    CURSOR_TRAIL_ENV,
     NEW_OUTPUT_FADE_ENV,
+    WINDOW_BORDER_ENV,
     OSC52_READ_ENV,
     SYNTHETIC_STYLES_ENV,
     GEOMETRIC_BOXDRAW_ENV,
@@ -225,6 +229,18 @@ pub const DEFAULT_CURSOR_MOTION: bool = false;
 /// contrast stays within the RV1 floor.
 pub const DEFAULT_CURSOR_GLOW: bool = false;
 
+/// Cursor motion trail (`ODYTTY_CURSOR_TRAIL`, VE4): when on, a short fading
+/// after-image of decaying ghost quads trails the cursor along its slide path
+/// while it glides between cells. Rides the existing cursor-slide animation
+/// (`cursor_motion`): the trail only appears while a slide is in flight and
+/// fully decays as the slide settles, so it never schedules a wake beyond the
+/// slide's own animation window. Off by default — while off no trail quads are
+/// emitted and the render path is byte-identical to before. The ghosts are
+/// drawn behind the cursor block in the theme cursor color at low alpha, so
+/// they never obscure cell content or affect the logical cursor position.
+/// Visible only when `cursor_motion` is also on (the slide it trails).
+pub const DEFAULT_CURSOR_TRAIL: bool = false;
+
 /// New-output fade-in (`ODYTTY_NEW_OUTPUT_FADE`, VE4): when on, rows of freshly
 /// arrived output at the live tail fade in over a short ease-out ramp instead of
 /// appearing instantly. Implemented as a background-color overlay quad that
@@ -236,6 +252,16 @@ pub const DEFAULT_CURSOR_GLOW: bool = false;
 /// (`viewport_offset == 0`); scrolling back or resizing snaps instantly. The
 /// row carrying the cursor is never obscured. Purely presentational.
 pub const DEFAULT_NEW_OUTPUT_FADE: bool = false;
+
+/// Themed window border (`ODYTTY_WINDOW_BORDER`, ID4): when on, a thin border in
+/// the theme `border` role color is drawn around the grid, framing the terminal
+/// content. The border is painted as overlay quads within the existing window
+/// padding band, so it never eats cell area; its thickness is specified in
+/// logical pixels and scaled by the surface DPI factor, and the frame tracks the
+/// content rect on resize. Off by default — while off no border quads are
+/// emitted and the render path is byte-identical to before. Purely
+/// presentational; never affects cell semantics.
+pub const DEFAULT_WINDOW_BORDER: bool = false;
 
 /// Drag-to-extend selection (`ODYTTY_SELECTION_DRAG_EXTEND`, MOUSE-EXTEND): when
 /// on, a double-click-then-drag grows the selection by whole words, a

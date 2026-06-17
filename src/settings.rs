@@ -490,6 +490,12 @@ pub struct Settings {
     /// before. Purely presentational; never affects cell semantics or the
     /// logical cursor position.
     pub cursor_glow: bool,
+    /// Whether a short fading after-image trails the cursor along its slide path
+    /// (VE4). Off by default; the off path emits no trail quads and arms no
+    /// extra wake, byte-identical to before. Rides the cursor-slide animation,
+    /// so it is visible only while `cursor_motion` is also on; purely
+    /// presentational, never affects cell semantics or the logical cursor.
+    pub cursor_trail: bool,
     /// Whether the cursor glides between adjacent positions instead of
     /// teleporting (VE4). Off by default; the off path sits at the exact cell
     /// origin (zero offset), byte-identical to before. Discontinuities always
@@ -573,6 +579,13 @@ pub struct Settings {
     /// fully rendered and never drops below the RV1 floor mid-fade. Only at the
     /// live tail; scrollback and resize snap. Purely presentational.
     pub new_output_fade: bool,
+    /// Whether a thin themed border is drawn around the grid (ID4). Off by
+    /// default; the off path emits no border quads and is byte-identical to
+    /// before. The border is painted in the theme `border` role color within the
+    /// existing padding band (it never eats cell area), its thickness scaled by
+    /// the surface DPI factor, and it tracks the content rect on resize. Purely
+    /// presentational; never affects cell semantics.
+    pub window_border: bool,
     /// Colour-vision-deficiency palette adaptation mode (U4, Accessibility).
     /// `Off` by default — the off path publishes the authored palette unchanged
     /// and is pixel-identical to before. The deficiency modes daltonise the
@@ -617,6 +630,7 @@ impl Default for Settings {
             cursor_blink: CursorBlink::Auto,
             cursor_easing: DEFAULT_CURSOR_EASING,
             cursor_glow: DEFAULT_CURSOR_GLOW,
+            cursor_trail: DEFAULT_CURSOR_TRAIL,
             cursor_motion: DEFAULT_CURSOR_MOTION,
             osc52_read: false,
             synthetic_styles: true,
@@ -633,6 +647,7 @@ impl Default for Settings {
             command_status_gutter: DEFAULT_COMMAND_STATUS_GUTTER,
             sh_click: DEFAULT_SH_CLICK,
             new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
+            window_border: DEFAULT_WINDOW_BORDER,
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
             native_autoclose: None,
@@ -929,6 +944,12 @@ impl Settings {
             DEFAULT_CURSOR_GLOW,
             &mut warn,
         );
+        let cursor_trail = parse_bool_setting(
+            get(CURSOR_TRAIL_ENV).as_deref(),
+            CURSOR_TRAIL_ENV,
+            DEFAULT_CURSOR_TRAIL,
+            &mut warn,
+        );
         let cursor_motion = parse_bool_setting(
             get(CURSOR_MOTION_ENV).as_deref(),
             CURSOR_MOTION_ENV,
@@ -1012,6 +1033,12 @@ impl Settings {
             DEFAULT_NEW_OUTPUT_FADE,
             &mut warn,
         );
+        let window_border = parse_bool_setting(
+            get(WINDOW_BORDER_ENV).as_deref(),
+            WINDOW_BORDER_ENV,
+            DEFAULT_WINDOW_BORDER,
+            &mut warn,
+        );
         let cvd_mode = parse_cvd_mode(get(CVD_MODE_ENV).as_deref(), &mut warn);
         let cvd_strength = parse_cvd_strength(get(CVD_STRENGTH_ENV).as_deref(), &mut warn);
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
@@ -1045,6 +1072,7 @@ impl Settings {
             cursor_blink,
             cursor_easing,
             cursor_glow,
+            cursor_trail,
             cursor_motion,
             osc52_read,
             synthetic_styles,
@@ -1061,6 +1089,7 @@ impl Settings {
             command_status_gutter,
             sh_click,
             new_output_fade,
+            window_border,
             cvd_mode,
             cvd_strength,
             native_autoclose,
@@ -1121,6 +1150,7 @@ impl Settings {
             bool_display(self.cursor_easing).to_owned(),
         );
         values.insert(CURSOR_GLOW_ENV, bool_display(self.cursor_glow).to_owned());
+        values.insert(CURSOR_TRAIL_ENV, bool_display(self.cursor_trail).to_owned());
         values.insert(
             CURSOR_MOTION_ENV,
             bool_display(self.cursor_motion).to_owned(),
@@ -1174,6 +1204,10 @@ impl Settings {
         values.insert(
             NEW_OUTPUT_FADE_ENV,
             bool_display(self.new_output_fade).to_owned(),
+        );
+        values.insert(
+            WINDOW_BORDER_ENV,
+            bool_display(self.window_border).to_owned(),
         );
         values.insert(CVD_MODE_ENV, self.cvd_mode.as_str().to_owned());
         values.insert(CVD_STRENGTH_ENV, format_float(self.cvd_strength));

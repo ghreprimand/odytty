@@ -216,6 +216,7 @@ fn inactive_contributors_are_noops() {
     app.paint_cursor_trail_quads(&ctx, &mut quads);
     app.paint_cursor_glow_quads(&ctx, &mut quads);
     app.paint_background_quads(&ctx, &mut quads);
+    app.paint_window_border_quads(&ctx, &mut quads);
     assert!(quads.is_empty(), "the new quad slots must push nothing");
 }
 

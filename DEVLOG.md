@@ -7,6 +7,60 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- ID4 themed window border + VE4 cursor trail (both off by default)
+
+Two visual-identity finish features, each off by default with a byte-identical
+plain/fast path.
+
+- **ID4 — themed window border** (`window_border`; aliases `border` /
+  `themedborder` / `windowframe` / `windowborder`): when on, a thin frame in the
+  theme `border` role color is drawn around the grid. Until now the `border`
+  role was authored in every theme but only ever read by the theme-builder
+  preview — never drawn as chrome. The frame is four `SolidQuad`s forming a ring
+  whose inner edge is flush with the content rect and which extends *outward*
+  into the existing window-padding band, so it never covers cell text; the plain
+  path is untouched. Thickness is authored in logical pixels (1.5) and scaled by
+  the surface DPI factor (a new `OverlayCtx.scale`, sourced from the live GPU
+  state), clamped to the padding width so it can never bleed past the surface
+  edge. The ring is derived entirely from the live content rect each frame, so it
+  tracks the viewport on every resize with no stored rectangle. No dedicated
+  cache-signature fragment is needed: the border is a pure function of the knob,
+  the theme `border` color, the grid geometry, and the scale — and each of those
+  already forces a Full rebuild (settings/theme bump `presentation_epoch`; a
+  resize/DPI change moves the grid/cell signature).
+- **VE4 — cursor trail** (`cursor_trail`; aliases `cursortrail` / `cursortrails`
+  / `cursorghost` / `cursorafterimage`): when on, a short fading after-image of
+  decaying ghost quads trails the cursor along its slide path while it glides
+  between cells, closing the remaining VE4 sliver (cursor slide, glow, and
+  new-output fade already shipped). It rides the existing cursor-slide animation
+  rather than tracking the cursor itself: the ghost positions are derived purely
+  from the slide's stored full displacement and current decaying offset, so it
+  adds *zero* animation wakes (the slide's own bounded wake schedule drives every
+  trail frame) and vanishes the instant the slide settles. Each ghost sits
+  between the cursor's current animated position and the slide origin at a fixed
+  lag, in the theme cursor-role color, with a half-sine intensity that is zero at
+  both slide endpoints (so the ghosts never pile opaque on the cursor cell) and
+  capped at alpha 0.16 (under the RV1 floor's adjacent-text margin). Drawn before
+  the cursor block, so the cursor composites cleanly on top with no
+  double-blend. Visible only while `cursor_motion` is also on (the slide it
+  trails). The cache fragment is a frame-to-frame constant when enabled
+  (mirroring the glow), so a toggle forces one rebuild while the slide's own
+  `anim` key drives the cheap per-frame CursorOnly repaints.
+- Both features live in focused submodules (`window_border.rs`, `cursor_trail.rs`)
+  filling the foundation's no-op overlay-quad slots; `app/mod.rs` gained only the
+  two stable paint call sites and one new module line (1823→1829, well under the
+  cap), and `gpu.rs` is untouched.
+- Off-path identity: with each knob off the paint methods return before emitting
+  any quad, so the default render is byte-identical (pixel-smoke 47/0; the
+  registry no-op test now also exercises the border slot).
+- Verified: fmt clean, lib 1574→1585 (+11: 7 cursor-trail + 4 window-border —
+  off-path identity, on-path geometry/color/alpha caps, slide-endpoint zero
+  intensity, degenerate-path guard, resize tracking, ring-stays-outside-content,
+  signature toggle), all-targets 0 failed, native pixel-smoke 47/0, clippy 38
+  baseline (zero new). No parser/core change ⇒ no fuzz.
+
+---
+
 ## 2026-06-16 -- VE4-FADE: new-output fade-in (off by default)
 
 - New `new_output_fade` setting (off by default; aliases `newoutputfade` /
