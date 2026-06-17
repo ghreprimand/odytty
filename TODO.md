@@ -363,13 +363,19 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
   - [x] Render the three cursor shapes through the existing quad path; blink is
         focus-aware and busy-redraw-free (solid with no scheduled wake when the
         style does not blink or the window is unfocused).
-- [x] Opt-in cursor animations (both off by default).
+- [x] Opt-in cursor animations (all off by default).
   - [x] Cursor easing (`cursor_easing`): opacity fades across each blink edge
         (180 ms ease) instead of a hard toggle; unfocused and steady cursors
         stay fully opaque with no animation overhead.
   - [x] Cursor slide (`cursor_motion`): cursor glides between adjacent cells
         (55 ms ease-out-cubic) instead of jumping; snaps on first frame, large
         jumps (> 6 cells), resize, scrollback, and unfocus.
+  - [x] Cursor trail (`cursor_trail`): a short fading after-image trails the
+        cursor as it glides, drawn behind the cursor block in the theme cursor
+        color; only visible while cursor slide is on; fully decays on settle.
+  - [x] Cursor glow (`cursor_glow`): three faint concentric rings in the theme
+        foreground color drawn behind the cursor block; faint enough to keep
+        nearby text readable.
 - [ ] Add window title and focus behavior.
   - [x] Apply OSC title changes to the native window title.
   - [x] Emit DECSET 1004 focus-in/out reports from native window focus events.
@@ -720,6 +726,20 @@ a floor; surpassing it is the standing ambition.
   - [x] CRT post-process core: bounded scanlines + vignette share the same
         offscreen scene render and final composite pass as bloom; curvature and
         chromatic aberration are deferred.
+  - [x] Cursor trail (`cursor_trail`, off by default): fading after-image that
+        trails the cursor as it glides (rides cursor slide; fully decays on
+        settle); themed window border (`window_border`, off by default): a thin
+        DPI-scaled frame in the theme border color inside the padding band.
+  - [x] New-output fade (`new_output_fade`, off by default): freshly arrived
+        output rows fade in over a short ramp at the live tail; scrollback and
+        resize snap.
+- [x] Follow-OS dark/light theme (`follow_os_theme`, off by default):
+      switches between `os_theme_dark` and `os_theme_light` based on the
+      desktop color-scheme signal. Live on Wayland; on X11 seed direction at
+      launch with `ODYTTY_APPEARANCE=dark|light` (no live X11 signal).
+- [x] Close confirmation (`confirm_close`, default on): brief in-window prompt
+      before closing when a foreground program is running; idle shell exits
+      without prompting.
 - [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
 
 ## Stage 7: Shell Integration, Perceptual Moat, and Pointer Excellence
@@ -783,7 +803,7 @@ color feature validates against.
   - [x] Configurable wheel scroll speed plus modifier+wheel font-size zoom
         (only when TUI mouse reporting is off).
 - [ ] Theme library and config UX.
-  - [x] Built-in theme library expanded to 96 contrast-validated themes
+  - [x] Built-in theme library expanded to 100 contrast-validated themes
         (data-only, ongoing).
   - [x] Mouse-driven settings overlay with sliders and click-to-type numeric
         entry.

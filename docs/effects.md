@@ -184,10 +184,33 @@ With both bloom and CRT disabled, no offscreen texture is allocated.
 
 ---
 
-## Cursor motion and new-output fade — coming
+## Cursor animations
 
-Cursor glow/trail and fade-in of new output. Bounded and disable-able. Not yet
-shipped.
+Three optional cursor animations ship off by default; all are purely visual and
+never affect the logical cursor position or terminal state.
+
+**Cursor slide** (`cursor_motion = on`): the cursor glides between adjacent
+positions (55 ms ease-out-cubic) instead of jumping. Large jumps, resizes,
+scrollback navigation, and the first frame always snap instantly.
+
+**Cursor trail** (`cursor_trail = on`): a short fading after-image trails the
+cursor as it glides, drawn behind the cursor block in the theme cursor color.
+Only visible while cursor slide is also on; fully decays as the glide settles.
+
+**Cursor glow** (`cursor_glow = on`): three faint concentric rings in the theme
+foreground color behind the cursor block. Faint enough to keep nearby text
+readable.
+
+**Cursor blink fade** (`cursor_easing = on`): the cursor eases its opacity in
+and out across each blink instead of switching hard on and off. Only active
+while the cursor is blinking and the window is focused.
+
+## New-output fade
+
+`new_output_fade = on` fades freshly arrived output rows in over a short ramp
+at the live tail instead of appearing instantly. The fade obscures then reveals
+each new row, so the text is always fully rendered and readable. Scrollback and
+resize snap. Off by default; only at the live tail.
 
 ---
 

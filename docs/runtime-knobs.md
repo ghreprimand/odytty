@@ -55,8 +55,15 @@ geometric_boxdraw = off
 symbol_fallback = off
 symbol_font =
 themed_ui_roles = on
+window_border = off
 cursor_style = bar
 cursor_blink = auto
+cursor_trail = off
+new_output_fade = off
+follow_os_theme = off
+# os_theme_dark = odyssey
+# os_theme_light = odyssey-light
+confirm_close = on
 keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
 ```
 
@@ -104,6 +111,13 @@ directory and rename it over the target, so OdyTTY never truncates
 | `symbol_fallback` | `ODYTTY_SYMBOL_FALLBACK` | `on`, `off` | `off` | Symbol / Nerd-font fallback: installs a secondary symbol font for private-use prompt icons when the primary font has no glyph. Off by default: the missing-glyph path is byte-identical to the plain renderer. `ODYTTY_SYMBOL_FALLBACK` remains a compatibility override and wins over the config value when set. Invalid values fall back to `off` with one stderr warning. Config-file aliases: `symbolfallback`, `symbols`, `nerdfont`. |
 | `symbol_font` | `ODYTTY_SYMBOL_FONT` | Path to a `.ttf` or `.otf`, empty, or `auto` | `auto` | Optional explicit symbol / Nerd-font file used when `symbol_fallback` is on. Empty, unset, or `auto` uses OdyTTY's automatic symbol-font search. `ODYTTY_SYMBOL_FONT` wins over the config value when set, preserving the original env-only launch path. A bad explicit path logs one stderr notice and falls back to automatic search rather than aborting startup. Config-file aliases: `symbolfont`, `symbolfontpath`, `nerdfontpath`. |
 | `themed_ui_roles` | `ODYTTY_THEMED_UI_ROLES` | `on`, `off` | `on` | Themed native UI roles: uses the active theme's semantic `cursor`, `selection`, and `search` colors for the cursor default, mouse selection fill, and search highlights. This is the default appearance. Set to `off` for the legacy path: foreground-colored cursor, inverse selection, inverse non-active search matches, and black-on-yellow active search matches. Invalid values fall back to `on` with one stderr warning. Config-file aliases: `themedroles`, `uiroles`. |
+| `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` | Themed window border: draws a thin frame around the terminal grid in the active theme's `border` role color, scaled to the display DPI. The border sits inside the window padding band so it never covers cell text. Off by default; purely visual; pixel-identical to before when off. Invalid values fall back to `off`. |
+| `cursor_trail` | `ODYTTY_CURSOR_TRAIL` | `on`, `off` | `off` | Cursor trail: a short fading after-image that trails the cursor as it glides between cells, drawn behind the cursor block in the theme cursor color. Only visible while `cursor_motion` (cursor slide) is also on; fully decays as the glide settles. Off by default; purely visual. Invalid values fall back to `off`. |
+| `new_output_fade` | `ODYTTY_NEW_OUTPUT_FADE` | `on`, `off` | `off` | New-output fade-in: freshly arrived output rows fade in over a short ramp at the live tail instead of appearing instantly. The text is always fully rendered; the fade is a brief opacity ramp only. Scrollback and resize snap immediately. Off by default; only at the live tail. Invalid values fall back to `off`. |
+| `follow_os_theme` | `ODYTTY_FOLLOW_OS_THEME` | `on`, `off` | `off` | Follow OS dark/light theme: when on, switches between `os_theme_dark` and `os_theme_light` based on the desktop's color-scheme signal. The signal is live on Wayland (via `org.freedesktop.portal.Settings`); on X11 there is no live signal — set `ODYTTY_APPEARANCE=dark\|light` at launch to seed the direction. Off by default; when off the active `theme` drives presentation. Invalid values fall back to `off`. |
+| `os_theme_dark` | `ODYTTY_OS_THEME_DARK` | A built-in theme name | unset | Theme applied when `follow_os_theme` is on and the desktop signals a dark color scheme. Resolved by name against the built-in theme library (same rules as `theme`). When unset, the authored `theme` is kept unchanged on a dark signal. |
+| `os_theme_light` | `ODYTTY_OS_THEME_LIGHT` | A built-in theme name | unset | Theme applied when `follow_os_theme` is on and the desktop signals a light color scheme. When unset, the authored `theme` is kept unchanged on a light signal. |
+| `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` | Close confirmation: when on, shows a brief in-window confirmation prompt before closing the window if a foreground program is still running. An idle shell (no foreground job) closes immediately without prompting. Set to `off` to close unconditionally. Invalid values fall back to `on`. |
 | `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
 
 All settings above except `native_autoclose_ms` are live-reloadable from the
@@ -133,9 +147,11 @@ their font glyphs) without a restart. `symbol_fallback` and `symbol_font` also
 rebuild the glyph atlas through that seam: toggling the fallback or changing the
 explicit symbol font re-resolves the fallback face and re-rasterizes missing PUA
 icons without a restart. `themed_ui_roles` is presentation-only and applies on
-the next frame. `native_autoclose_ms` is startup-only because changing the
-smoke-test exit timer mid-session would make manual and automated lifecycle
-behavior ambiguous.
+the next frame. `window_border`, `cursor_trail`, `new_output_fade`,
+`follow_os_theme`, `os_theme_dark`, `os_theme_light`, and `confirm_close`
+apply on the next frame or event. `native_autoclose_ms` is startup-only
+because changing the smoke-test exit timer mid-session would make manual and
+automated lifecycle behavior ambiguous.
 
 ## Native Shortcuts
 

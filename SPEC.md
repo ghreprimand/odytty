@@ -534,6 +534,28 @@ its first stable layer.
 - Post-process pipeline foundation: lazy offscreen render target +
   fullscreen-triangle passthrough composite; default path stays
   direct-to-swapchain (byte-identical); GPU readback smoke guards the seam
+- Opt-in cursor animations (all off by default, purely visual, never move the
+  logical cursor): cursor blink fade (`cursor_easing`, 180 ms ease); cursor
+  slide (`cursor_motion`, 55 ms ease-out-cubic, snaps on large jumps/resize/
+  scrollback); cursor glow (`cursor_glow`, three faint concentric rings in the
+  theme foreground color behind the cursor block); cursor trail (`cursor_trail`,
+  short fading after-image trailing the gliding cursor in the theme cursor color,
+  only visible while cursor slide is on).
+- New-output fade (`new_output_fade`, off by default): rows of freshly arrived
+  output fade in over a short ramp at the live tail; scrollback and resize snap.
+- Themed window border (`window_border`, off by default): an optional thin
+  border around the terminal grid in the theme's `border` role color, drawn
+  inside the window padding band, DPI-scaled, purely visual.
+- Follow-OS dark/light theme (`follow_os_theme`, off by default): switches
+  between `os_theme_dark` and `os_theme_light` based on the desktop
+  color-scheme preference. Live on Wayland via the compositor
+  `org.freedesktop.portal.Settings` `color-scheme` property. On X11 there is no
+  live signal — seed direction at launch with `ODYTTY_APPEARANCE=dark|light`.
+  When either theme name is unset the authored `theme` value is kept unchanged
+  for that direction.
+- Close confirmation (`confirm_close`, default on): shows a brief in-window
+  prompt before closing if a foreground program is still running. An idle shell
+  closes without prompting. Off disables the guard unconditionally.
 
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering
@@ -601,8 +623,13 @@ Tier-3 atmospheric effects land in this order:
    strength and enforces a brightness floor so lit cells are never zeroed.
    Curvature and chromatic aberration are deferred.
 
-Cursor motion trail / new-output fade and GPU quality / per-effect settings
-panel controls follow after bloom and CRT profile are proven.
+Cursor motion trail (`cursor_trail`, off by default): a short fading after-image
+that trails the cursor as it glides between cells, drawn behind the cursor block
+in the theme cursor color. Only visible while cursor slide (`cursor_motion`) is
+also on; fully decays as the glide settles. New-output fade (`new_output_fade`,
+off by default): rows of freshly arrived output fade in over a short ramp at the
+live tail. Both effects landed in the Tier-3 sequencing after bloom and CRT
+profile were proven. GPU quality / per-effect settings panel controls follow.
 
 ### Readability-gate architecture — durable design rule
 

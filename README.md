@@ -168,6 +168,12 @@ validation. Read disabled by default (`osc52_read = off`); opt-in with
 `ODYTTY_OSC52_READ=on`. OSC 10/11/12 and OSC 4 palette entries with full
 reset support (OSC 104/110/111/112).
 
+**Window border.** `window_border = on` draws a thin frame around the terminal grid in the theme's border color. The border sits inside the window padding so it never covers cell text, scales with display DPI, and tracks the grid on resize. Off by default; purely visual.
+
+**Follow OS dark/light theme.** `follow_os_theme = on` + `os_theme_dark = <name>` / `os_theme_light = <name>` switches between two configured themes automatically when the desktop color-scheme changes. The switch is live on Wayland (compositor preference signal); on X11 there is no live signal — set `ODYTTY_APPEARANCE=dark|light` at launch to seed the initial direction. Off by default; when off the active theme drives presentation.
+
+**Close confirmation.** `confirm_close = on` (the default) shows a brief confirmation prompt before closing the window if a foreground program is still running. Closing an idle shell exits immediately as before. Set to `off` to close unconditionally.
+
 **Synchronized output.** DEC private mode 2026 with 150 ms safety timeout.
 
 ### Configuration
@@ -278,7 +284,16 @@ path; `ODYTTY_SYMBOL_FALLBACK` / `ODYTTY_SYMBOL_FONT` remain as env overrides),
 default-off / byte-identical until enabled. Focus dimming (`focus_dim` /
 `ODYTTY_FOCUS_DIM`) perceptually dims the whole grid while the window is
 unfocused so it recedes, with the contrast floor keeping text legible;
-default-off / focused frames byte-identical.
+default-off / focused frames byte-identical. Opt-in cursor animations are live:
+cursor blink fade (`cursor_easing`), cursor slide between cells (`cursor_motion`),
+and cursor trail — a short fading after-image that trails the gliding cursor
+(`cursor_trail`, rides cursor slide); all three off by default. A themed window
+border (`window_border = on`) draws a thin frame in the theme's border color
+inside the padding band; off by default. Follow-OS dark/light theme switching
+(`follow_os_theme` + `os_theme_dark` / `os_theme_light`) is live on Wayland;
+X11 can seed the direction at launch via `ODYTTY_APPEARANCE=dark|light`. Close
+confirmation (`confirm_close`, default on) guards against accidental window
+closure when a program is still running.
 
 ### On the horizon
 
@@ -289,7 +304,7 @@ default-off / focused frames byte-identical.
   (`symbol_fallback`) is wired into the atlas, and stem darkening
   (`ODYTTY_STEM_DARKEN`) is available — all default off / passthrough.)
 - **Atmospheric effects (opt-in)** — bloom/phosphor glow, CRT/retro profile,
-  subtle cursor motion; all off by default, perf- and readability-gated. See
+  cursor glow; all off by default, perf- and readability-gated. See
   [`docs/effects.md`](docs/effects.md) for settings and how to enable them.
 - **Ligature / stylistic-set shaping** (strategy decided, implementation
   deferred).

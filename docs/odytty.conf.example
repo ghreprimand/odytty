@@ -16,6 +16,13 @@ subpixel = off
 text_gamma = 1.4
 cursor_style = block
 cursor_blink = auto
+# cursor_trail = off
+# new_output_fade = off
+# window_border = off
+# follow_os_theme = off
+# os_theme_dark = odyssey
+# os_theme_light = odyssey-light
+confirm_close = on
 keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
 
 # Development smoke helper. Leave unset for normal interactive use.
