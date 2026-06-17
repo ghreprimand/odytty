@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- SETTINGS-PANEL-STATE-FIX: live-apply preserves navigation, filter, and dirty edits
+
+Live testing surfaced three settings-panel state bugs, all rooted in the
+live-apply seam (`apply_settings`) doing too much: starting to adjust a slider
+reframed the row to the bottom of the window; committing a value while drilled
+into a section leaked the user back to the full setting list; and a Save re-read
+yanked the panel back to Level 1. Fix keeps the panel's edit overlay
+(`self.edits`) as the single source of truth on a live apply and never resets
+`level`/`section_selected`/`search_active`. Selection no longer recenters scroll
+for an already-visible row; off-screen selection scrolls minimally. Arrow steps
+saturate cleanly at a numeric setting's min/max without a scroll jump. Section
+filter at Level 2 and an active search filter both survive a commit. Five new
+panel tests pin the behavior.
+
+## 2026-06-17 -- FONT-PICKER-STAY-OPEN: applying a font keeps the picker open
+
+In the two-level settings model the font picker closed back to the panel on every
+Enter, so cycling through fonts to compare them meant re-opening the picker each
+time. Enter now live-applies + saves the chosen family and KEEPS the picker open
+("Applied — Enter to try another, Esc to close."); the just-applied family adopts
+as the new baseline so it shows the "current" marker and Esc no longer reverts
+past it. Esc is now the single close/back affordance: from the panel-launched
+picker it returns to Settings, from the standalone launch (Ctrl+Shift+F) it
+closes the overlay. Two overlay tests pin both launch paths.
+
 ## 2026-06-17 -- FONT-FAMILY-EMOJI-EXCLUSION: keep color-emoji faces out of the text-family list
 
 Follow-up to FONT-PIPELINE-REWORK. A color-emoji font (e.g. "Noto Color Emoji")
