@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- THEME-REVERT-FIX: adopt externally-applied themes into the panel baseline
+
+Live testing showed that changing a theme, then touching any other setting,
+reverted the theme -- both before and after Save. Root cause: the settings
+panel's live-apply seam only forwarded changes into the panel's edit overlay
+when the overlay was in the settings view; a theme chosen from the theme picker
+runs in a different overlay mode, so the panel kept the *old* theme as its
+baseline and the next edit rebuilt full settings from that stale baseline,
+clobbering the live theme. Fix adds a 3-way rebase: an externally-applied theme
+is adopted as a clean baseline while any unsaved edits replay on top, gated by
+overlay mode so the panel's own commits never rebase (which would zero the dirty
+set). Six focused tests cover the edit-overlay rebase, panel-level navigation
+preservation, the real overlay mode gate, and the before-save / after-save repro
+paths.
+
 ## 2026-06-17 -- SETTINGS-PANEL-STATE-FIX: live-apply preserves navigation, filter, and dirty edits
 
 Live testing surfaced three settings-panel state bugs, all rooted in the

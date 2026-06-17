@@ -242,6 +242,24 @@ impl SettingsPanel {
         self.clamp();
     }
 
+    /// Reconcile an externally-applied `Settings` from a picker into the edit
+    /// overlay as the new clean baseline, while preserving pending panel edits
+    /// and navigation state.
+    pub(super) fn rebase_onto_external(&mut self, settings: &Settings) {
+        self.edits.rebase_onto(settings);
+        let selected_key = self
+            .entries
+            .get(self.selected)
+            .map(|entry| entry.key)
+            .unwrap_or("theme");
+        self.all_entries = self.edits.settings().setting_info();
+        self.refresh_entries_after_commit();
+        if let Some(pos) = self.entries.iter().position(|e| e.key == selected_key) {
+            self.selected = pos;
+        }
+        self.clamp();
+    }
+
     pub(super) fn save_succeeded(&mut self, changed: usize) {
         self.edits.mark_saved();
         self.all_entries = self.edits.settings().setting_info();
@@ -2236,5 +2254,102 @@ mod tests {
         );
         let after: Vec<&'static str> = panel.entries.iter().map(|e| e.key).collect();
         assert_eq!(after, filtered, "search filter preserved after live apply");
+    }
+
+    #[test]
+    fn rebase_onto_external_then_commit_does_not_revert_theme() {
+        use crate::theme::Theme;
+
+        let base = Settings {
+            theme: Theme::PLAIN,
+            ..Settings::default()
+        };
+        let mut panel = SettingsPanel::new(&base);
+        select_key(&mut panel, "font_size");
+
+        // Snapshot nav state before the external theme application.
+        let (level_before, section_before) = (panel.level, panel.section_selected);
+        assert!(
+            matches!(level_before, SettingsLevel::SectionDetail { .. }),
+            "precondition: drilled into a section"
+        );
+
+        // External theme application reconciles into the panel.
+        panel.rebase_onto_external(&Settings {
+            theme: Theme::ODYSSEY_NOIR,
+            ..Settings::default()
+        });
+
+        assert_eq!(panel.level, level_before, "level preserved by rebase");
+        assert_eq!(
+            panel.section_selected, section_before,
+            "section preserved by rebase"
+        );
+        // font_size should still be selected (re-find by key).
+        assert_eq!(
+            panel.entries.get(panel.selected).map(|e| e.key),
+            Some("font_size"),
+            "selected key preserved by rebase"
+        );
+
+        // Commit a different setting in the panel; this used to rebuild from a
+        // stale theme baseline.
+        let SettingsPanelOutcome::Apply(first) = panel.handle_input(OverlayInput::Right) else {
+            panic!("font_size step should apply");
+        };
+        let SettingsPanelOutcome::Apply(second) = panel.handle_input(OverlayInput::Right) else {
+            panic!("second font_size step should apply");
+        };
+        // Both commit rounds must carry the new theme (the bug reverted it).
+        assert_eq!(first.theme, Theme::ODYSSEY_NOIR);
+
+        assert_eq!(
+            second.theme,
+            Theme::ODYSSEY_NOIR,
+            "panel commit must not revert the externally-applied theme"
+        );
+        assert_eq!(
+            panel.render_signature().changed_count,
+            1,
+            "dirty count is font_size only, theme is clean baseline"
+        );
+        // Nav still intact after the commit too.
+        assert_eq!(panel.level, level_before);
+    }
+
+    #[test]
+    fn rebase_onto_external_preserves_pending_dirty_edit() {
+        use crate::theme::Theme;
+
+        let mut panel = SettingsPanel::new(&Settings {
+            theme: Theme::PLAIN,
+            ..Settings::default()
+        });
+        select_key(&mut panel, "font_size");
+        let SettingsPanelOutcome::Apply(_) = panel.handle_input(OverlayInput::Right) else {
+            panic!("font_size step should apply");
+        };
+        assert_eq!(panel.render_signature().changed_count, 1);
+
+        panel.rebase_onto_external(&Settings {
+            theme: Theme::ODYSSEY,
+            ..Settings::default()
+        });
+
+        assert_eq!(panel.render_signature().changed_count, 1, "edit survived");
+        assert_eq!(
+            panel.edits.settings().theme,
+            Theme::ODYSSEY,
+            "theme adopted as clean baseline"
+        );
+        assert_eq!(
+            panel
+                .edits
+                .changes()
+                .iter()
+                .map(|c| c.key)
+                .collect::<Vec<_>>(),
+            vec!["font_size"]
+        );
     }
 }

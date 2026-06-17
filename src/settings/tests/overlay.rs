@@ -303,3 +303,86 @@ fn resolve_theme_file_looks_up_names_in_theme_dir() {
     let _ = fs::remove_file(dir.join("solar.theme"));
     let _ = fs::remove_dir(&dir);
 }
+
+#[test]
+fn rebase_onto_adopts_external_theme_and_preserves_dirty_edit() {
+    let base = Settings {
+        theme: Theme::PLAIN,
+        ..Settings::default()
+    };
+    let mut edits = SettingsEditOverlay::new(&base);
+
+    edits
+        .apply_raw("font_size", "20")
+        .expect("valid font size edit");
+    assert_eq!(edits.changes().len(), 1);
+    assert_eq!(edits.settings().theme, Theme::PLAIN);
+
+    edits.rebase_onto(&Settings {
+        theme: Theme::ODYSSEY,
+        ..Settings::default()
+    });
+
+    assert_eq!(
+        edits
+            .changes()
+            .iter()
+            .map(|c| (c.key, c.value.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("font_size", "20")],
+        "pending dirty edit must survive rebase"
+    );
+    assert_eq!(edits.settings().theme, Theme::ODYSSEY);
+    assert_eq!(edits.changed_count(), 1, "theme must not count as dirty");
+}
+
+#[test]
+fn rebase_onto_then_panel_commit_does_not_revert_theme() {
+    let base = Settings {
+        theme: Theme::PLAIN,
+        ..Settings::default()
+    };
+    let mut edits = SettingsEditOverlay::new(&base);
+
+    edits.rebase_onto(&Settings {
+        theme: Theme::ODYSSEY_NOIR,
+        ..Settings::default()
+    });
+    assert_eq!(edits.settings().theme, Theme::ODYSSEY_NOIR);
+    assert!(edits.changes().is_empty(), "clean rebase, no dirty edits");
+
+    let applied = edits
+        .apply_raw("font_size", "16")
+        .expect("valid font size edit");
+    assert_eq!(applied.unwrap().font_size_px, 16.0);
+
+    assert_eq!(
+        edits.settings().theme,
+        Theme::ODYSSEY_NOIR,
+        "panel commit must not revert the externally-applied theme"
+    );
+    assert_eq!(
+        edits.changes().iter().map(|c| c.key).collect::<Vec<_>>(),
+        vec!["font_size"]
+    );
+}
+
+#[test]
+fn rebase_then_mark_saved_keeps_theme() {
+    let base = Settings {
+        theme: Theme::PLAIN,
+        ..Settings::default()
+    };
+    let mut edits = SettingsEditOverlay::new(&base);
+    edits.rebase_onto(&Settings {
+        theme: Theme::ODYSSEY,
+        ..Settings::default()
+    });
+    edits.apply_raw("font_size", "18").expect("valid edit");
+    assert_eq!(edits.changed_count(), 1);
+
+    edits.mark_saved();
+
+    assert_eq!(edits.settings().theme, Theme::ODYSSEY);
+    assert!(edits.changes().is_empty(), "save clears dirty edits");
+}

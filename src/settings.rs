@@ -1494,6 +1494,42 @@ impl SettingsEditOverlay {
         self.base_values = self.values.clone();
     }
 
+    /// Adopt externally-applied settings as the clean baseline, while replaying
+    /// any pending panel-owned edits on top.
+    pub fn rebase_onto(&mut self, new: &Settings) {
+        let mut pending: Vec<(&'static str, Option<String>)> = Vec::new();
+        for env in self
+            .base_values
+            .keys()
+            .chain(self.values.keys())
+            .copied()
+            .collect::<std::collections::BTreeSet<_>>()
+        {
+            if self.base_values.get(env) != self.values.get(env) {
+                pending.push((env, self.values.get(env).cloned()));
+            }
+        }
+
+        let nv = new.to_edit_values();
+        self.base_values = nv.clone();
+        self.values = nv;
+
+        for (env, val) in pending {
+            match val {
+                Some(value) => {
+                    self.values.insert(env, value);
+                }
+                None => {
+                    self.values.remove(env);
+                }
+            }
+        }
+
+        // Pending edits were already parsed when accepted; fall back to the
+        // incoming snapshot rather than leaving a half-applied settings view.
+        self.settings = Settings::from_edit_values(&self.values).unwrap_or_else(|_| new.clone());
+    }
+
     pub fn apply_raw(
         &mut self,
         key: &'static str,

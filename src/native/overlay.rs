@@ -81,8 +81,14 @@ impl OverlayUi {
 
     pub(super) fn apply_settings(&mut self, settings: &Settings) {
         self.settings = settings.clone();
+        // The panel's own commits already updated `self.panel.edits`; rebasing
+        // them here would erase its dirty state. Picker-origin changes arrive
+        // through the same apply path while another overlay mode is active, so
+        // adopt those as the panel's clean baseline instead.
         if self.mode == OverlayMode::Settings {
             self.panel.apply_settings(settings);
+        } else {
+            self.panel.rebase_onto_external(settings);
         }
     }
 
@@ -1673,6 +1679,85 @@ mod tests {
             overlay.render_signature().mode,
             OverlayMode::Settings,
             "theme picker apply from settings should return to settings panel"
+        );
+    }
+
+    #[test]
+    fn theme_picker_save_then_panel_commit_keeps_external_theme() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::OpenThemePicker
+        );
+
+        let settings = overlay.settings.clone();
+        overlay.open_theme_picker(&settings);
+
+        let OverlayOutcome::ApplySettings(preview) = overlay.handle_input(OverlayInput::Down)
+        else {
+            panic!("expected theme preview");
+        };
+        let preview_theme = preview.theme;
+        overlay.apply_settings(&preview);
+
+        let OverlayOutcome::SaveSettings(changes) = overlay.handle_input(OverlayInput::Activate)
+        else {
+            panic!("expected theme picker save request");
+        };
+        overlay.save_succeeded(changes.len());
+
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Close),
+            OverlayOutcome::Consumed
+        );
+        while overlay.render_signature().panel.section_selected != 1 {
+            assert_eq!(
+                overlay.handle_input(OverlayInput::Down),
+                OverlayOutcome::Consumed
+            );
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Consumed
+        );
+        for _ in 0..8 {
+            if overlay
+                .render_signature()
+                .panel
+                .entries
+                .get(overlay.render_signature().panel.selected)
+                .is_some_and(|entry| entry.key == "font_size")
+            {
+                break;
+            }
+            assert_eq!(
+                overlay.handle_input(OverlayInput::Down),
+                OverlayOutcome::Consumed
+            );
+        }
+        assert_eq!(
+            overlay
+                .render_signature()
+                .panel
+                .entries
+                .get(overlay.render_signature().panel.selected)
+                .map(|entry| entry.key),
+            Some("font_size")
+        );
+        let OverlayOutcome::ApplySettings(committed) = overlay.handle_input(OverlayInput::Right)
+        else {
+            panic!("expected second settings edit to apply");
+        };
+
+        assert_eq!(
+            committed.theme, preview_theme,
+            "panel commit must not rebuild settings from the old theme baseline"
         );
     }
 
