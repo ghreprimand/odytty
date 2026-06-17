@@ -45,15 +45,19 @@ impl StyleFonts {
 
     /// Resolve the four style faces for the configured family.
     ///
-    /// RV7: `font_weight` is an optional weight-variant suffix. When empty (the
-    /// default) the regular face is loaded via [`text::load_font_with_path`]
-    /// exactly as before — byte-identical off path. When set, the effective
-    /// query is `"{font_family} {font_weight}"` resolved through the same
-    /// monospace-gated [`text::resolve_font_family`]; a missing weight face warns
-    /// and falls back to the plain regular face (real faces only — never
-    /// synthetic emboldening/thinning). Bold/italic discovery ALWAYS uses the
-    /// plain `font_family` (not the weight query), so the SGR bold attribute
-    /// stays visually distinct from the chosen base weight.
+    /// RV7 / FONT-WEIGHT-FIX: `font_weight` is an optional weight-variant
+    /// suffix. When empty (the default) the regular face is loaded via
+    /// [`text::load_font_with_path`] exactly as before — byte-identical off
+    /// path. When set, the weight face is selected directly within the family by
+    /// [`text::resolve_font_weight_face`], which scans for the file whose stem
+    /// carries both the family and the weight term WITHOUT the regular-face
+    /// filter (the old `"{family} {weight}"`-concat path was self-defeating: the
+    /// regular-face filter excluded the very Bold file the query found, so every
+    /// weight silently fell back to regular). A missing weight face warns and
+    /// falls back to the plain regular face (real faces only — never synthetic
+    /// emboldening/thinning). Bold/italic discovery ALWAYS uses the plain
+    /// `font_family` (not the weight query), so the SGR bold attribute stays
+    /// visually distinct from the chosen base weight.
     pub(super) fn load_from(
         font_path: Option<&Path>,
         font_family: &str,
@@ -63,13 +67,14 @@ impl StyleFonts {
             text::load_font_with_path(font_path)
                 .map_err(|err| NativeError::Text(err.to_string()))?
         } else {
-            let weight_query = format!("{} {}", font_family.trim(), font_weight.trim());
-            match text::resolve_font_family(&weight_query, &text::font_search_dirs()) {
-                Some(matched) => match text::load_font_at(&matched.regular) {
+            let family = font_family.trim();
+            let weight = font_weight.trim();
+            match text::resolve_font_weight_face(family, weight, &text::font_search_dirs()) {
+                Some(path) => match text::load_font_at(&path) {
                     Ok(font) => font,
                     Err(err) => {
                         eprintln!(
-                            "odytty: font_weight: {err}; falling back to the regular face for {weight_query:?}"
+                            "odytty: font_weight: {err}; falling back to the regular face for {family:?} {weight:?}"
                         );
                         text::load_font_with_path(font_path)
                             .map_err(|err| NativeError::Text(err.to_string()))?
@@ -77,7 +82,7 @@ impl StyleFonts {
                 },
                 None => {
                     eprintln!(
-                        "odytty: font_weight: family {weight_query:?} not found (or not monospace); using the regular face"
+                        "odytty: font_weight: no {weight:?} face found for family {family:?}; using the regular face"
                     );
                     text::load_font_with_path(font_path)
                         .map_err(|err| NativeError::Text(err.to_string()))?

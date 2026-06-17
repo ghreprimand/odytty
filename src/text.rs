@@ -343,6 +343,54 @@ pub fn resolve_font_family(query: &str, dirs: &[PathBuf]) -> Option<FontFamilyMa
     try_resolve_font_family(query, dirs).ok()
 }
 
+/// Resolve a specific *weight* face within a named font family (RV7 /
+/// FONT-WEIGHT-FIX).
+///
+/// Unlike [`try_resolve_font_family`], this deliberately does **not** apply the
+/// `variant_flags` regular-face filter — selecting a variant face is the whole
+/// point. The historical `"{family} {weight}"`-concat-then-resolve approach was
+/// self-defeating: a `"Bold"` query normalizes to a target containing `"bold"`,
+/// which finds `CascadiaMono-Bold.ttf`, but the regular-face filter in
+/// [`try_resolve_font_family`] then *excludes* that very file because its stem
+/// is a bold variant. Net: every real weight face silently fell back to
+/// regular. This function instead scans for the file whose normalized stem
+/// contains BOTH the family and the weight term.
+///
+/// Returns the matching face path, or `None` when the family or weight is empty
+/// or no file in the family carries the weight term (the caller then warns and
+/// falls back to the regular face — never a crash).
+///
+/// Scoring among matches: a pure weight request (e.g. `"Bold"`) prefers the
+/// non-italic face over its `*-BoldItalic` sibling, and — as a deterministic
+/// tie-break — the shortest stem, so `"Light"` resolves to `*-Light` rather than
+/// `*-ExtraLight` regardless of filesystem iteration order. A request that
+/// itself names italic (`"BoldItalic"`) only matches the italic face, so the
+/// non-italic preference is moot there.
+pub fn resolve_font_weight_face(family: &str, weight: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
+    let family_target = normalize_family(family);
+    let weight_target = normalize_family(weight);
+    if family_target.is_empty() || weight_target.is_empty() {
+        return None;
+    }
+    let files = collect_font_files(dirs);
+    let mut best: Option<(i32, PathBuf)> = None;
+    for f in &files {
+        let stem = normalize_family(&file_stem(f));
+        // Must carry both the family and the requested weight term.
+        if !stem.contains(&family_target) || !stem.contains(&weight_target) {
+            continue;
+        }
+        // Prefer a non-italic face for a pure weight request (strong weight),
+        // then the closest (shortest) stem so "Light" beats "ExtraLight".
+        let (_, italic) = variant_flags(&stem);
+        let score = if italic { 0 } else { 1000 } - stem.len() as i32;
+        if best.as_ref().is_none_or(|(s, _)| score > *s) {
+            best = Some((score, f.clone()));
+        }
+    }
+    best.map(|(_, path)| path)
+}
+
 /// Environment variable naming an explicit symbol / Nerd-font file for the
 /// RV6 PUA-icon fallback. When set to a readable `.ttf`/`.otf`, it takes
 /// precedence over the family search in [`resolve_symbol_font`].
@@ -1131,6 +1179,166 @@ mod tests {
         assert_eq!(m.italic, Some(dir.join("TestMono-Italic.ttf")));
         assert_eq!(m.bold_italic, Some(dir.join("TestMono-BoldItalic.ttf")));
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Lay down a multi-weight family fixture and return `(dir, dirs)`. Faces are
+    /// the same monospace bytes; the filename stems drive weight matching.
+    fn weight_fixture(tag: &str, faces: &[&str]) -> (PathBuf, Vec<PathBuf>) {
+        let bytes = system_mono_bytes().expect("caller guards on system font");
+        let dir = unique_tmp_dir(tag);
+        for name in faces {
+            std::fs::write(dir.join(name), &bytes).expect("write fixture font");
+        }
+        let dirs = vec![dir.clone()];
+        (dir, dirs)
+    }
+
+    #[test]
+    fn weight_face_finds_bold_that_the_generic_resolver_excludes() {
+        // FONT-WEIGHT-FIX root cause (T-FP-1 / T-variant-filter-scope): the Bold
+        // face must be selected by the weight resolver, while the generic family
+        // resolver still returns the REGULAR face (never the Bold variant).
+        let Some(_) = system_mono_bytes() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let (dir, dirs) = weight_fixture(
+            "weight_bold",
+            &["CascadiaMono-Regular.ttf", "CascadiaMono-Bold.ttf"],
+        );
+
+        // The weight resolver finds the Bold FILE directly.
+        assert_eq!(
+            resolve_font_weight_face("CascadiaMono", "Bold", &dirs),
+            Some(dir.join("CascadiaMono-Bold.ttf")),
+            "weight resolver selects the Bold face the old concat path could not"
+        );
+        // The generic resolver's contract is UNCHANGED: it still returns the
+        // regular face and never the Bold variant (T-variant-filter-scope).
+        let generic = resolve_font_family("CascadiaMono", &dirs).expect("family resolves");
+        assert_eq!(
+            generic.regular,
+            dir.join("CascadiaMono-Regular.ttf"),
+            "generic resolver still excludes variant faces from the regular slot"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn weight_face_empty_inputs_return_none() {
+        // T-FP-7 / T-regular-identity: an empty weight (or family) yields None so
+        // the loader takes its unchanged regular-face path. No file scan result
+        // can ever stand in for "no weight requested".
+        assert!(resolve_font_weight_face("CascadiaMono", "", &[]).is_none());
+        assert!(resolve_font_weight_face("CascadiaMono", "   ", &[]).is_none());
+        assert!(resolve_font_weight_face("", "Bold", &[]).is_none());
+        assert!(resolve_font_weight_face("  ", "Bold", &[]).is_none());
+    }
+
+    #[test]
+    fn weight_face_missing_weight_returns_none_for_fallback() {
+        // T-weight-not-found: a weight with no matching face returns None so the
+        // caller warns and falls back to the regular face — never a crash.
+        let Some(_) = system_mono_bytes() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let (dir, dirs) = weight_fixture(
+            "weight_missing",
+            &["CascadiaMono-Regular.ttf", "CascadiaMono-Bold.ttf"],
+        );
+        assert!(
+            resolve_font_weight_face("CascadiaMono", "Black", &dirs).is_none(),
+            "no Black face exists ⇒ None ⇒ caller falls back to regular"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn weight_face_light_resolves_and_beats_extralight() {
+        // T-light-still-works + the ExtraLight disambiguation: "Light" must
+        // resolve to the Light face, NOT ExtraLight (whose stem also contains
+        // "light"). The shortest-stem tie-break makes this deterministic
+        // regardless of filesystem iteration order.
+        let Some(_) = system_mono_bytes() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let (dir, dirs) = weight_fixture(
+            "weight_light",
+            &[
+                "CascadiaMono-Regular.ttf",
+                "CascadiaMono-Light.ttf",
+                "CascadiaMono-ExtraLight.ttf",
+            ],
+        );
+        assert_eq!(
+            resolve_font_weight_face("CascadiaMono", "Light", &dirs),
+            Some(dir.join("CascadiaMono-Light.ttf")),
+            "Light resolves to the Light face, not ExtraLight"
+        );
+        // ExtraLight remains addressable by its own name.
+        assert_eq!(
+            resolve_font_weight_face("CascadiaMono", "ExtraLight", &dirs),
+            Some(dir.join("CascadiaMono-ExtraLight.ttf"))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn weight_face_prefers_non_italic_for_a_pure_weight() {
+        // A pure "Bold" request prefers the upright Bold face over BoldItalic,
+        // while "BoldItalic" still reaches the italic face (its term only the
+        // bold-italic stem carries).
+        let Some(_) = system_mono_bytes() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let (dir, dirs) = weight_fixture(
+            "weight_italic",
+            &[
+                "CascadiaMono-Regular.ttf",
+                "CascadiaMono-Bold.ttf",
+                "CascadiaMono-BoldItalic.ttf",
+            ],
+        );
+        assert_eq!(
+            resolve_font_weight_face("CascadiaMono", "Bold", &dirs),
+            Some(dir.join("CascadiaMono-Bold.ttf")),
+            "pure Bold prefers the upright Bold face"
+        );
+        assert_eq!(
+            resolve_font_weight_face("CascadiaMono", "BoldItalic", &dirs),
+            Some(dir.join("CascadiaMono-BoldItalic.ttf")),
+            "BoldItalic reaches the bold-italic face"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn weight_face_matching_is_case_and_separator_insensitive() {
+        // T-case-norm: weight matching normalizes case and separators, so
+        // "semi bold" / "SemiBold" both match "CascadiaMono-SemiBold.ttf".
+        let Some(_) = system_mono_bytes() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let (dir, dirs) = weight_fixture(
+            "weight_case",
+            &["CascadiaMono-Regular.ttf", "CascadiaMono-SemiBold.ttf"],
+        );
+        let expected = Some(dir.join("CascadiaMono-SemiBold.ttf"));
+        assert_eq!(
+            resolve_font_weight_face("CascadiaMono", "SemiBold", &dirs),
+            expected
+        );
+        assert_eq!(
+            resolve_font_weight_face("cascadia mono", "semi bold", &dirs),
+            expected,
+            "case + separator insensitive on both family and weight"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

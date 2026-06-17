@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- FONT-WEIGHT-FIX: select the weight face file instead of guessing a family name
+
+`font_weight` silently did nothing. Root cause was self-inflicted: the resolver
+built a family string `"{family} {weight}"` (e.g. `"Cascadia Mono Bold"`), asked
+fontconfig for that as a *family name* (which does not exist), and even when it
+located the right face file the generic family resolver excluded it via the
+variant-flag guard that deliberately rejects bold/italic faces for a plain
+`font_family` request.
+
+- **New `resolve_font_weight_face(family, weight, dirs)`** in `text.rs`. Scans
+  for the file whose normalized stem contains both the family target and the
+  weight term, deliberately skipping the regular-face variant filter (selecting
+  a variant face is the whole point). Deterministic scoring: a pure weight
+  request prefers the non-italic face (+1000), then shortest stem as tie-break,
+  so `Light` resolves to `*-Light` rather than `*-ExtraLight`/`*-SemiLight`
+  regardless of filesystem iteration order; a request that itself names italic
+  (`BoldItalic`) only matches the italic face.
+- **`StyleFonts::load_from`** routes the non-empty-`font_weight` branch through
+  the new resolver. The empty-weight branch (regular face) is structurally
+  untouched and byte-identical. `try_resolve_font_family`'s contract and its
+  variant filter are unchanged.
+- Native smoke against live fonts: `Bold -> CascadiaCode-Bold.ttf`,
+  `Light -> CascadiaCode-Light.ttf` (not ExtraLight), `SemiBold -> SemiBold`
+  (not Bold, despite "semibold" containing "bold"), `BoldItalic -> BoldItalic`,
+  `Black -> None` (clean fallback to regular).
+- Six new `text::` tests cover the front-loaded traps: weight face vs. the
+  generic resolver's exclusion, empty-input None, missing-weight fallback,
+  Light-beats-ExtraLight, non-italic preference, case/separator insensitivity.
+
+State: `cargo test --lib` 1645 passed / 0 failed (+ the new weight-face tests);
+`cargo fmt --check` clean; clippy `--lib` 37 (baseline 38, zero net-new).
+Foundation for the upcoming font picker — collapsing families to a name plus a
+weight knob now resolves to the correct face file.
+
+---
+
 ## 2026-06-17 -- OVERLAY-UX: bigger settings panel, bold setting lines, scroll-follow fix
 
 Three friction-session fixes to the settings overlay, all in the overlay/panel
