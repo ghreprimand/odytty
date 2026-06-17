@@ -24,6 +24,7 @@ pub const BLOOM_ENV: &str = "ODYTTY_BLOOM";
 pub const BLOOM_THRESHOLD_ENV: &str = "ODYTTY_BLOOM_THRESHOLD";
 pub const BLOOM_INTENSITY_ENV: &str = "ODYTTY_BLOOM_INTENSITY";
 pub const BLOOM_RADIUS_ENV: &str = "ODYTTY_BLOOM_RADIUS";
+pub const RETRO_ENV: &str = "ODYTTY_RETRO";
 pub const CRT_ENV: &str = "ODYTTY_CRT";
 pub const CRT_SCANLINE_INTENSITY_ENV: &str = "ODYTTY_CRT_SCANLINE_INTENSITY";
 pub const CRT_SCANLINE_PERIOD_ENV: &str = "ODYTTY_CRT_SCANLINE_PERIOD";
@@ -92,6 +93,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     BLOOM_THRESHOLD_ENV,
     BLOOM_INTENSITY_ENV,
     BLOOM_RADIUS_ENV,
+    RETRO_ENV,
     CRT_ENV,
     CRT_SCANLINE_INTENSITY_ENV,
     CRT_SCANLINE_PERIOD_ENV,
@@ -417,6 +419,12 @@ pub const MAX_BLOOM_INTENSITY: f32 = 1.0;
 pub const DEFAULT_BLOOM_RADIUS: f32 = 8.0;
 pub const MIN_BLOOM_RADIUS: f32 = 0.5;
 pub const MAX_BLOOM_RADIUS: f32 = 8.0;
+pub const DEFAULT_RETRO: bool = false;
+pub const RETRO_BLOOM_THRESHOLD: f32 = 0.70;
+pub const RETRO_BLOOM_INTENSITY: f32 = 1.0;
+pub const RETRO_BLOOM_RADIUS: f32 = 8.0;
+pub const RETRO_CRT_SCANLINE_INTENSITY: f32 = 0.35;
+pub const RETRO_CRT_VIGNETTE_STRENGTH: f32 = 0.35;
 
 pub fn default_bloom_threshold_for_theme(theme: Theme) -> f32 {
     (crate::theme::relative_luminance(theme.foreground) as f32 + BLOOM_THRESHOLD_MARGIN)
@@ -426,13 +434,13 @@ pub fn default_bloom_threshold_for_theme(theme: Theme) -> f32 {
 pub const DEFAULT_CRT: bool = true;
 pub const DEFAULT_CRT_SCANLINE_INTENSITY: f32 = 0.17;
 pub const MIN_CRT_SCANLINE_INTENSITY: f32 = 0.0;
-pub const MAX_CRT_SCANLINE_INTENSITY: f32 = 0.18;
+pub const MAX_CRT_SCANLINE_INTENSITY: f32 = 0.35;
 pub const DEFAULT_CRT_SCANLINE_PERIOD: f32 = 7.0;
 pub const MIN_CRT_SCANLINE_PERIOD: f32 = 2.0;
 pub const MAX_CRT_SCANLINE_PERIOD: f32 = 12.0;
 pub const DEFAULT_CRT_VIGNETTE_STRENGTH: f32 = 0.10;
 pub const MIN_CRT_VIGNETTE_STRENGTH: f32 = 0.0;
-pub const MAX_CRT_VIGNETTE_STRENGTH: f32 = 0.16;
+pub const MAX_CRT_VIGNETTE_STRENGTH: f32 = 0.45;
 
 /// Colour-vision-deficiency adaptation strength (`ODYTTY_CVD_STRENGTH`, U4): how
 /// strongly the palette is daltonised toward separability for the selected

@@ -124,6 +124,33 @@ to trigger the fallback; it is automatic.
 
 ---
 
+## Retro preset
+
+The retro preset is a one-switch stronger phosphor profile. It does not persist
+over the individual bloom and CRT knobs; it only changes their effective runtime
+values while `retro = on`.
+
+| Setting | Env | Type | Default |
+|---------|-----|------|---------|
+| `retro` | `ODYTTY_RETRO` | `on` / `off` | `off` |
+
+When enabled, the preset uses:
+
+```conf
+retro = on
+# effective runtime values:
+# bloom_threshold = 0.70
+# bloom_intensity = 1.0
+# bloom_radius = 8.0
+# crt_scanline_intensity = 0.35
+# crt_vignette_strength = 0.35
+```
+
+`render_quality = plain` still bypasses the preset and renders through the direct
+path.
+
+---
+
 ## CRT / retro profile
 
 The CRT profile adds refined scanlines and a subtle vignette over the same HDR
@@ -144,22 +171,22 @@ overlay take effect on the next frame without restarting.
 | Setting | Env | Type | Default | Range |
 |---------|-----|------|---------|-------|
 | `crt` | `ODYTTY_CRT` | `on` / `off` | `on` | — |
-| `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | float | `0.17` | `0.0–0.18` |
+| `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | float | `0.17` | `0.0–0.35` |
 | `crt_scanline_period` | `ODYTTY_CRT_SCANLINE_PERIOD` | float | `7.0` | `2.0–12.0` |
-| `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | float | `0.10` | `0.0–0.16` |
+| `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | float | `0.10` | `0.0–0.45` |
 
 **`crt`** — master switch. `on` enables the scanline/vignette profile; `off`
 returns to the direct scene path when no other post effect is active.
 
 **`crt_scanline_intensity`** — dark-band strength. Values are clamped to
-`0.0–0.18` so scanlines remain a subtle brightness modulation rather than an
-opaque overlay.
+`0.0–0.35`. The shader keeps a separate brightness floor so stronger scanlines
+remain bounded rather than becoming an opaque overlay.
 
 **`crt_scanline_period`** — vertical distance between scanline bands in
 physical pixels. `7.0` is the default.
 
 **`crt_vignette_strength`** — edge dimming strength. Values are clamped to
-`0.0–0.16`. The shader approaches its brightness floor through a soft knee
+`0.0–0.45`. The shader approaches its brightness floor through a soft knee
 rather than a hard clamp, so the edge gradient stays smooth instead of forming a
 visible banding ring, and a CRT-only 8-bit ordered dither breaks up any residual
 8-bit posterization. Lit cells are never zeroed by the vignette.

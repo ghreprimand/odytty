@@ -184,8 +184,8 @@ Theme and appearance system section below and `docs/themes.md` for details.
 > treatments, and window chrome remain open. **Tier 3 is underway** — VE1
 > (post-process pipeline: linear `Rgba16Float` offscreen + composite,
 > adapter-gated), VE2 (bloom / phosphor glow), and CRT scanlines are live;
-> cursor motion / new-output fade and additional GPU quality settings remain
-> open.
+> a one-switch stronger retro preset is live; cursor motion / new-output fade
+> and additional GPU quality settings remain open.
 > Sub-sections marked **(landed)** are grounded in source; all other items are
 > design intent, not yet built.
 
@@ -283,8 +283,9 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
   bright-pass threshold + half-res separable blur + additive composite. Enabled
   in the fresh-install ambient baseline behind the `bloom` setting and
   adapter-gated.
-- **CRT / retro profile:** refined scanlines, vignette, optional
-  curvature/chromatic aberration; selectable as a theme visual profile.
+- **CRT / retro profile (landed):** refined scanlines and vignette, with a
+  separate `retro=on` preset for a stronger phosphor reference look. Curvature
+  and chromatic aberration remain deferred.
 - **Subtle motion:** optional cursor glow/trail and fade-in of new
   output; bounded, disable-able, strict latency budget.
 - **GPU quality + effect settings:** per-effect toggles in the settings

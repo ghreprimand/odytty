@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- RETRO-PRESET: one-switch stronger phosphor profile
+
+OdyTTY now has a first-class `retro = on` / `ODYTTY_RETRO=on` preset for a
+stronger phosphor look without rewriting the individual bloom and CRT knobs. The
+preset raises effective bloom to threshold `0.70`, intensity `1.0`, radius `8.0`,
+and CRT to scanlines `0.35` plus vignette `0.35`; turning it off returns to the
+explicit per-knob values. The standalone CRT caps also rise to `0.35` scanlines
+and `0.45` vignette, while the shader's separate brightness floor remains in
+place so lit cells cannot be erased. `render_quality = plain` still bypasses the
+whole post-process chain, and public docs now describe the ambient defaults,
+logical font-size semantics, and the new preset accurately.
+
 ## 2026-06-17 -- DEFAULT-AMBIENT-BASELINE: fresh installs start on Odyssey visuals
 
 Fresh native launches now start from the current Odyssey appearance baseline:

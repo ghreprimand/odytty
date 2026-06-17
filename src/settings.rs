@@ -538,6 +538,10 @@ pub struct Settings {
     pub bloom_threshold: f32,
     pub bloom_intensity: f32,
     pub bloom_radius: f32,
+    /// Cohesive retro/phosphor preset. When on, effective bloom/CRT values are
+    /// promoted to a stronger tuned profile without overwriting the individual
+    /// knobs; `render_quality=plain` still forces every post-process off.
+    pub retro: bool,
     pub crt: bool,
     pub crt_scanline_intensity: f32,
     pub crt_scanline_period: f32,
@@ -737,6 +741,7 @@ impl Default for Settings {
             bloom_threshold: DEFAULT_BLOOM_THRESHOLD,
             bloom_intensity: DEFAULT_BLOOM_INTENSITY,
             bloom_radius: DEFAULT_BLOOM_RADIUS,
+            retro: DEFAULT_RETRO,
             crt: DEFAULT_CRT,
             crt_scanline_intensity: DEFAULT_CRT_SCANLINE_INTENSITY,
             crt_scanline_period: DEFAULT_CRT_SCANLINE_PERIOD,
@@ -822,11 +827,51 @@ impl Settings {
     }
 
     pub fn effective_bloom_enabled(&self) -> bool {
-        !self.plain_render_quality() && self.bloom
+        !self.plain_render_quality() && (self.bloom || self.retro)
+    }
+
+    pub fn effective_bloom_threshold(&self) -> f32 {
+        if self.retro && !self.plain_render_quality() {
+            RETRO_BLOOM_THRESHOLD
+        } else {
+            self.bloom_threshold
+        }
+    }
+
+    pub fn effective_bloom_intensity(&self) -> f32 {
+        if self.retro && !self.plain_render_quality() {
+            RETRO_BLOOM_INTENSITY
+        } else {
+            self.bloom_intensity
+        }
+    }
+
+    pub fn effective_bloom_radius(&self) -> f32 {
+        if self.retro && !self.plain_render_quality() {
+            RETRO_BLOOM_RADIUS
+        } else {
+            self.bloom_radius
+        }
     }
 
     pub fn effective_crt_enabled(&self) -> bool {
-        !self.plain_render_quality() && self.crt
+        !self.plain_render_quality() && (self.crt || self.retro)
+    }
+
+    pub fn effective_crt_scanline_intensity(&self) -> f32 {
+        if self.retro && !self.plain_render_quality() {
+            RETRO_CRT_SCANLINE_INTENSITY
+        } else {
+            self.crt_scanline_intensity
+        }
+    }
+
+    pub fn effective_crt_vignette_strength(&self) -> f32 {
+        if self.retro && !self.plain_render_quality() {
+            RETRO_CRT_VIGNETTE_STRENGTH
+        } else {
+            self.crt_vignette_strength
+        }
     }
 
     /// Rows advanced per mouse-wheel notch (MOUSE-WHEEL-SPEED), as a `usize >= 1`.
@@ -1056,6 +1101,12 @@ impl Settings {
         );
         let bloom_intensity = parse_bloom_intensity(get(BLOOM_INTENSITY_ENV).as_deref(), &mut warn);
         let bloom_radius = parse_bloom_radius(get(BLOOM_RADIUS_ENV).as_deref(), &mut warn);
+        let retro = parse_bool_setting(
+            get(RETRO_ENV).as_deref(),
+            RETRO_ENV,
+            DEFAULT_RETRO,
+            &mut warn,
+        );
         // UX5: the legacy `visual=ambient`/`scanlines` scanline effect is folded
         // into the unified CRT post-process. An ambient visual aliases to
         // `crt=on` ONLY when no explicit CRT setting is present — an explicit
@@ -1252,6 +1303,7 @@ impl Settings {
             bloom_threshold,
             bloom_intensity,
             bloom_radius,
+            retro,
             crt,
             crt_scanline_intensity,
             crt_scanline_period,
@@ -1339,6 +1391,7 @@ impl Settings {
         values.insert(BLOOM_THRESHOLD_ENV, format_float(self.bloom_threshold));
         values.insert(BLOOM_INTENSITY_ENV, format_float(self.bloom_intensity));
         values.insert(BLOOM_RADIUS_ENV, format_float(self.bloom_radius));
+        values.insert(RETRO_ENV, bool_display(self.retro).to_owned());
         values.insert(CRT_ENV, bool_display(self.crt).to_owned());
         values.insert(
             CRT_SCANLINE_INTENSITY_ENV,

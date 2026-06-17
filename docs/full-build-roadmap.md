@@ -129,8 +129,9 @@ box-drawing, block, and Powerline rendering at exact cell geometry; symbol /
 Nerd-font fallback for prompt icons; themed cursor/selection/search roles; focus
 dimming; a post-process pipeline on an HDR offscreen target; bloom / phosphor
 glow; a CRT/retro profile (scanlines + a banding-free soft-knee vignette); and a
-render-quality master control with a hard plain/fast bypass. Every effect is
-off by default and pixel-identical to the plain renderer until enabled.
+render-quality master control with a hard plain/fast bypass. Effects are
+configurable with explicit opt-outs, and the plain renderer remains
+pixel-identical when selected.
 
 **Readability & accessibility.** The perceptual pipeline now carries four
 readability flagships, each pure readability or accessibility: a universal
@@ -222,9 +223,9 @@ work in Track 4 validates against.
 
 ## Track 4 — Visual identity & depth
 
-Tier-2/Tier-3 visual character. Each ships off by default, behind a setting,
-validated against the readability floor, with a documented performance cost and
-a pixel-identical plain bypass.
+Tier-2/Tier-3 visual character. Each ships behind a setting, validated against
+the readability floor, with a documented performance cost and a pixel-identical
+plain bypass.
 
 - **Later — Distinctive cursor / selection / search treatments.** Light up the
   themed selection and search roles with distinct colors, with optional soft
@@ -236,9 +237,9 @@ a pixel-identical plain bypass.
   remaining piece is an optional thin semantic-role border.
 - **Later — Subtle motion.** Cursor glow or trail and fade-in of new output —
   bounded, and fully disable-able.
-- **Later — Cohesive opt-in retro mode.** A single switch that combines glow on
-  all text, visible scanlines, gentle screen curvature, and a smooth vignette,
-  tuned together as a reference look. The default stays crisp and readable.
+- **Now — Cohesive opt-in retro mode.** A single switch raises bloom, scanlines,
+  and vignette into a stronger phosphor reference look. Screen curvature remains
+  a later refinement.
 
 ## Track 5 — Shell & prompt integration
 

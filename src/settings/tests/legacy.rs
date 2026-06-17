@@ -71,6 +71,7 @@ fn defaults_are_stable_without_env() {
     assert_eq!(settings.bloom_threshold, DEFAULT_BLOOM_THRESHOLD);
     assert_eq!(settings.bloom_intensity, DEFAULT_BLOOM_INTENSITY);
     assert_eq!(settings.bloom_radius, DEFAULT_BLOOM_RADIUS);
+    assert!(!settings.retro);
     assert!(settings.crt);
     assert_eq!(
         settings.crt_scanline_intensity,
@@ -122,11 +123,12 @@ fn setting_info_covers_every_field_with_descriptions() {
             "geometric_boxdraw",
             "box_thickness",
             "visual",
+            "retro",
+            "crt",
             "bloom",
             "bloom_threshold",
             "bloom_intensity",
             "bloom_radius",
-            "crt",
             "crt_scanline_intensity",
             "crt_scanline_period",
             "crt_vignette_strength",
@@ -205,16 +207,20 @@ fn setting_info_covers_every_field_with_descriptions() {
     );
     assert!(
         info.iter()
+            .any(|row| row.key == "retro" && row.options == ["on", "off"])
+    );
+    assert!(
+        info.iter()
             .any(|row| row.key == "crt" && row.options == ["on", "off"])
     );
     assert!(info.iter().any(
-        |row| row.key == "crt_scanline_intensity" && row.range.as_deref() == Some("0.0..=0.18")
+        |row| row.key == "crt_scanline_intensity" && row.range.as_deref() == Some("0.0..=0.35")
     ));
     assert!(info.iter().any(
         |row| row.key == "crt_scanline_period" && row.range.as_deref() == Some("2.0..=12.0 px")
     ));
     assert!(info.iter().any(
-        |row| row.key == "crt_vignette_strength" && row.range.as_deref() == Some("0.0..=0.16")
+        |row| row.key == "crt_vignette_strength" && row.range.as_deref() == Some("0.0..=0.45")
     ));
     assert!(info.iter().any(|row| row.key == "background_treatment"
         && row.options == ["off", "gradient", "vignette", "image"]));
@@ -385,6 +391,7 @@ fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
             bloom_threshold = 9
             bloom_intensity = 2
             bloom_radius = 99
+            retro = on
             crt = on
             crt_scanline_intensity = 9
             crt_scanline_period = 99
@@ -405,6 +412,7 @@ fn config_values_use_the_same_parse_and_clamp_rules_as_env() {
     assert_eq!(settings.bloom_threshold, MAX_BLOOM_THRESHOLD);
     assert_eq!(settings.bloom_intensity, MAX_BLOOM_INTENSITY);
     assert_eq!(settings.bloom_radius, MAX_BLOOM_RADIUS);
+    assert!(settings.retro);
     assert!(settings.crt);
     assert_eq!(settings.crt_scanline_intensity, MAX_CRT_SCANLINE_INTENSITY);
     assert_eq!(settings.crt_scanline_period, MAX_CRT_SCANLINE_PERIOD);
@@ -648,6 +656,61 @@ fn ux5_explicit_crt_always_wins_over_ambient_alias() {
         settings.crt,
         "explicit crt=on stands without any visual alias"
     );
+}
+
+#[test]
+fn retro_preset_is_a_separate_one_switch_profile() {
+    let (settings, warnings) = settings_from([
+        (RETRO_ENV, "on"),
+        (BLOOM_ENV, "off"),
+        (CRT_ENV, "off"),
+        (BLOOM_THRESHOLD_ENV, "1.10"),
+        (BLOOM_INTENSITY_ENV, "0.10"),
+        (BLOOM_RADIUS_ENV, "1.0"),
+        (CRT_SCANLINE_INTENSITY_ENV, "0.02"),
+        (CRT_VIGNETTE_STRENGTH_ENV, "0.03"),
+    ]);
+
+    assert!(settings.retro);
+    assert!(settings.effective_bloom_enabled());
+    assert!(settings.effective_crt_enabled());
+    assert_eq!(settings.effective_bloom_threshold(), RETRO_BLOOM_THRESHOLD);
+    assert_eq!(settings.effective_bloom_intensity(), RETRO_BLOOM_INTENSITY);
+    assert_eq!(settings.effective_bloom_radius(), RETRO_BLOOM_RADIUS);
+    assert_eq!(
+        settings.effective_crt_scanline_intensity(),
+        RETRO_CRT_SCANLINE_INTENSITY
+    );
+    assert_eq!(
+        settings.effective_crt_vignette_strength(),
+        RETRO_CRT_VIGNETTE_STRENGTH
+    );
+    assert_eq!(settings.bloom_threshold, 1.10);
+    assert_eq!(settings.bloom_intensity, 0.10);
+    assert_eq!(settings.bloom_radius, 1.0);
+    assert_eq!(settings.crt_scanline_intensity, 0.02);
+    assert_eq!(settings.crt_vignette_strength, 0.03);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn plain_render_quality_bypasses_retro_preset() {
+    let (settings, warnings) = settings_from([(RETRO_ENV, "on"), (RENDER_QUALITY_ENV, "plain")]);
+
+    assert!(settings.retro);
+    assert!(!settings.effective_bloom_enabled());
+    assert!(!settings.effective_crt_enabled());
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn retro_config_key_no_longer_aliases_crt_only() {
+    let (settings, warnings) = settings_from_config_and_env("retro = on\ncrt = off\n", []);
+
+    assert!(settings.retro);
+    assert!(!settings.crt);
+    assert!(settings.effective_crt_enabled());
+    assert!(warnings.is_empty());
 }
 
 #[test]

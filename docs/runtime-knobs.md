@@ -48,6 +48,7 @@ bloom = on
 bloom_threshold = 0.75
 bloom_intensity = 0.8
 bloom_radius = 8.0
+retro = off
 crt = on
 crt_scanline_intensity = 0.17
 crt_scanline_period = 7.0
@@ -87,7 +88,7 @@ directory and rename it over the target, so OdyTTY never truncates
 
 | Config key | Environment variable | Values | Default | Notes |
 | --- | --- | --- | --- | --- |
-| `font_size` | `ODYTTY_FONT_SIZE` | Pixel size, clamped to `6.0..=72.0` | `14.0` | Controls native glyph rasterization, cell size, initial window size, and resize grid fitting. Invalid values fall back to `14.0` with one stderr warning. |
+| `font_size` | `ODYTTY_FONT_SIZE` | Logical pixel size, clamped to `6.0..=72.0` | `14.0` | Controls native glyph rasterization, cell size, initial window size, and resize grid fitting. The renderer folds the active window scale factor into the physical atlas size, so this value is logical rather than point-sized. Invalid values fall back to `14.0` with one stderr warning. |
 | `text_gamma` | `ODYTTY_TEXT_GAMMA` | Floating-point gamma, clamped to `0.5..=3.0` | `1.5` | Adjusts glyph coverage in the shader for text weight/contrast. `1.0` is the exact legacy linear blend path. Invalid values fall back to `1.5` with one stderr warning. |
 | `stem_darken` | `ODYTTY_STEM_DARKEN` | Floating-point strength, clamped to `0.0..=1.0` | `0.5` | Stem darkening: a raster-time coverage boost so light-on-dark body text holds weight at small sizes. Ships default-on at `0.5`. `0.0` is the opt-out and is pixel-identical to the pre-feature renderer; `1.0` is the strongest boost. Applied to anti-aliased glyph edges/thin stems only — fully-covered and fully-uncovered pixels are never moved. Invalid values fall back to `0.5` with one stderr warning. |
 | `min_contrast` | `ODYTTY_MIN_CONTRAST` | Floating-point WCAG ratio, clamped to `1.0..=21.0` | `13.0` | Minimum contrast guarantee: lifts each cell's foreground until its WCAG contrast against the background meets at least this ratio, so low-contrast apps stay legible. `1.0` disables the floor and is pixel-identical to the pre-feature renderer; `4.5` is the WCAG AA body-text threshold and `7.0` is AAA. The lift moves only perceptual (OKLab) lightness, preserving hue; against a near-mid-grey background where the ratio is unreachable it makes a best-effort move to the most-contrasting shade. Invalid values fall back to `13.0` with one stderr warning. |
@@ -96,10 +97,11 @@ directory and rename it over the target, so OdyTTY never truncates
 | `bloom_threshold` | `ODYTTY_BLOOM_THRESHOLD` | Floating-point luminance knee, clamped to `0.70..=1.25`, or `auto` | `0.75` | Bright-pass threshold for bloom. `auto` derives `relative_luminance(theme.foreground) + 0.12`, clamped to the supported range; unset/invalid values fall back to `0.75` with one stderr warning. |
 | `bloom_intensity` | `ODYTTY_BLOOM_INTENSITY` | Floating-point strength, clamped to `0.0..=1.0` | `0.8` | Additive bloom strength. `0.0` produces no glow; `1.0` is the cap. Invalid values fall back to `0.8` with one stderr warning. |
 | `bloom_radius` | `ODYTTY_BLOOM_RADIUS` | Floating-point half-resolution blur radius, clamped to `0.5..=8.0` | `8.0` | Blur spread for the separable bloom pass. Smaller values keep glow tight around bright glyphs; larger values create a wider phosphor wash. Invalid values fall back to `8.0` with one stderr warning. |
+| `retro` | `ODYTTY_RETRO` | `on`, `off` | `off` | One-switch stronger phosphor preset. When on, bloom and CRT use a tuned high-visibility profile (`bloom_threshold=0.70`, `bloom_intensity=1.0`, `bloom_radius=8.0`, `crt_scanline_intensity=0.35`, `crt_vignette_strength=0.35`) without overwriting the individual knobs. `render_quality=plain` still forces the direct path. Config-file aliases: `retropreset`, `phosphor`. |
 | `crt` | `ODYTTY_CRT` | `on`, `off` | `on` | CRT / retro profile: renders bounded scanlines and vignette in the same HDR composite chain as bloom. Requires the same adapter support as bloom; unsupported adapters use the plain path with one notice. |
-| `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | Floating-point strength, clamped to `0.0..=0.18` | `0.17` | Dark-band scanline strength. The cap keeps scanlines a bounded multiplicative dimming treatment rather than an opaque overlay. Invalid values fall back to `0.17` with one stderr warning. |
+| `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | Floating-point strength, clamped to `0.0..=0.35` | `0.17` | Dark-band scanline strength. The shader keeps a brightness floor so stronger scanlines remain bounded rather than becoming an opaque overlay. Invalid values fall back to `0.17` with one stderr warning. |
 | `crt_scanline_period` | `ODYTTY_CRT_SCANLINE_PERIOD` | Floating-point physical-pixel period, clamped to `2.0..=12.0` | `7.0` | Vertical distance between scanline bands. Invalid values fall back to `7.0` with one stderr warning. Config-file alias: `crtscanlinedensity`. |
-| `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | Floating-point strength, clamped to `0.0..=0.16` | `0.10` | Edge dimming strength. The shader applies a brightness floor so lit cells are never zeroed by the vignette. Invalid values fall back to `0.10` with one stderr warning. |
+| `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | Floating-point strength, clamped to `0.0..=0.45` | `0.10` | Edge dimming strength. The shader applies a brightness floor so lit cells are never zeroed by the vignette. Invalid values fall back to `0.10` with one stderr warning. |
 | `subpixel` | `ODYTTY_SUBPIXEL` | `off` (also `none`), `rgb`, `bgr` | `off` | Enables optional RGB/BGR subpixel text coverage when the GPU supports dual-source blending. Unsupported adapters fall back to grayscale text with one stderr notice; startup never fails because of this setting. |
 | `font` | `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | bundled JetBrains Mono, then host probe fallback | Overrides the bundled default. A missing or unparseable path no longer aborts startup: it logs one stderr notice and falls back to JetBrains Mono or the host probe list. |
 | `font_family` | `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | `JetBrains Mono` | Selects the regular face by family name or path. The bundled `JetBrains Mono` family is always available; other matches are validated as monospace. A proportional or unresolved value logs one stderr notice and falls back to the bundled/default path, so a bad value never aborts startup. `font` / `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered and used for styled text when present, with regular-face fallback. |
@@ -142,7 +144,7 @@ color-resolution time (no atlas rebuild), so a change takes effect on the next
 frame. `focus_dim` likewise applies at color-resolution time (no atlas rebuild)
 and only while the window is unfocused, so a change takes effect on the next
 unfocused frame; a focus gain/loss forces a full geometry rebuild so the dim
-appears and clears immediately. `bloom`, `bloom_threshold`, `bloom_intensity`,
+appears and clears immediately. `retro`, `bloom`, `bloom_threshold`, `bloom_intensity`,
 and `bloom_radius` apply on the next frame; enabling bloom lazily initializes
 the post-process textures/pipelines when the adapter supports the HDR format.
 `crt`, `crt_scanline_intensity`, `crt_scanline_period`, and
@@ -315,7 +317,7 @@ Run with an Odyssey theme and the CRT scanline effect (via the back-compat `visu
 ODYTTY_THEME=odyssey ODYTTY_VISUAL=ambient cargo run -- --native
 ```
 
-Run with conservative bloom on supported GPUs:
+Run with a reduced bloom wash on supported GPUs:
 
 ```sh
 ODYTTY_BLOOM=on ODYTTY_BLOOM_INTENSITY=0.4 ODYTTY_BLOOM_RADIUS=3 cargo run -- --native

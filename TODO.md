@@ -748,9 +748,9 @@ a floor; surpassing it is the standing ambition.
 
 Recent work past the prototype: the terminal cooperating with the shell, a
 readability-first perceptual color toolchain, and a first-class mouse surface.
-All visual/effect items ship off by default behind a setting with a
-pixel-identical plain path; the readability floor is the safety net every
-color feature validates against.
+Visual/effect items stay behind settings with explicit opt-outs and a
+pixel-identical plain path; the readability floor is the safety net every color
+feature validates against.
 
 - [ ] Shell integration on OSC 133 semantic prompt marks.
   - [x] OSC 133 prompt/command/output boundary marking — the parser arms

@@ -112,6 +112,7 @@ pub fn show_config_output(settings: &Settings) -> String {
             "render_quality",
             settings.render_quality.as_str().to_owned(),
         ),
+        ("retro", bool_value(settings.retro).to_owned()),
         ("stem_darken", float_value(settings.stem_darken)),
         ("subpixel", subpixel_value(settings.subpixel).to_owned()),
         (

@@ -22,6 +22,7 @@ bloom = on
 bloom_threshold = 0.75
 bloom_intensity = 0.8
 bloom_radius = 8.0
+retro = off
 crt = on
 crt_scanline_intensity = 0.17
 crt_scanline_period = 7.0

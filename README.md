@@ -17,7 +17,8 @@ keyboard protocol, SGR-pixel mouse reporting (mode 1016), a fully theme-driven
 ANSI palette with semantic roles, bundled JetBrains Mono font faces, and the
 Odyssey ambient visual baseline: `theme=odyssey`, bloom, and CRT scanlines are
 enabled on a fresh install, while `render_quality=plain` keeps the direct
-renderer available.
+renderer available. A separate `retro=on` preset raises the phosphor/CRT effect
+strength as an opt-in reference look.
 
 ---
 
@@ -327,8 +328,9 @@ X11 (WM-dependent).
   remain the passthrough opt-outs.)
 - **Atmospheric effects** — bloom/phosphor glow and CRT scanlines are part of
   the Odyssey ambient default, remain perf- and readability-gated, and can be
-  disabled with settings or bypassed with `render_quality=plain`. See
-  [`docs/effects.md`](docs/effects.md) for settings and tuning.
+  disabled with settings or bypassed with `render_quality=plain`. `retro=on`
+  enables a stronger phosphor preset without overwriting the individual knobs.
+  See [`docs/effects.md`](docs/effects.md) for settings and tuning.
 - **Ligature / stylistic-set shaping** (strategy decided, implementation
   deferred).
 - **Shell integration** — native working-directory consumer (OSC 7 core

@@ -96,11 +96,11 @@ fn crt_brightness(uv: vec2<f32>) -> f32 {
     let y_px = uv.y * max(dims.y, 1.0);
     let period = clamp(crt.scanline_period, 2.0, 12.0);
     let wave = 0.5 + 0.5 * cos((y_px / period) * 2.0 * PI);
-    let scanline_dim = clamp(crt.scanline_intensity, 0.0, 0.18) * wave;
+    let scanline_dim = clamp(crt.scanline_intensity, 0.0, 0.35) * wave;
 
     let centered = uv * 2.0 - vec2<f32>(1.0, 1.0);
     let edge = smoothstep(0.25, 1.45, dot(centered, centered));
-    let vignette_dim = clamp(crt.vignette_strength, 0.0, 0.16) * edge;
+    let vignette_dim = clamp(crt.vignette_strength, 0.0, 0.45) * edge;
 
     let total_dim = clamp(1.0 - (1.0 - scanline_dim) * (1.0 - vignette_dim), 0.0, 1.0);
     let knee_start = CRT_SOFT_DIM_MAX - CRT_SOFT_KNEE_WIDTH;

@@ -1897,18 +1897,18 @@ fn rgb(color: (u8, u8, u8)) -> RgbColor {
 fn bloom_options(settings: &Settings) -> BloomOptions {
     BloomOptions {
         enabled: settings.effective_bloom_enabled(),
-        threshold: settings.bloom_threshold,
-        intensity: settings.bloom_intensity,
-        radius: settings.bloom_radius,
+        threshold: settings.effective_bloom_threshold(),
+        intensity: settings.effective_bloom_intensity(),
+        radius: settings.effective_bloom_radius(),
     }
 }
 
 fn crt_options(settings: &Settings) -> CrtOptions {
     CrtOptions {
         enabled: settings.effective_crt_enabled(),
-        scanline_intensity: settings.crt_scanline_intensity,
+        scanline_intensity: settings.effective_crt_scanline_intensity(),
         scanline_period: settings.crt_scanline_period,
-        vignette_strength: settings.crt_vignette_strength,
+        vignette_strength: settings.effective_crt_vignette_strength(),
     }
 }
 

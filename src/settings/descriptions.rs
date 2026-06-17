@@ -62,31 +62,32 @@ pub const CELL_BG_OPACITY_DESC: &str = "Cell background opacity: how opaque each
 
 pub const WINDOW_PADDING_DESC: &str = "Window padding: logical pixels of inset between the window edge and the \
      terminal grid. Accepts 0.0-64.0; 0.0 restores the historical edge-to-edge \
-     layout exactly. Default 8.0.";
+     layout exactly. Default 4.0.";
 
 pub const SCROLL_DRAG_SPEED_DESC: &str = "Drag autoscroll speed: when you drag a selection past the top or bottom \
      edge, ramp accelerates the scroll the further past the edge you drag \
      (capped so it never runs away); legacy holds a steady one row per step. \
      Affects local selection only. Default ramp.";
 
-pub const BLOOM_DESC: &str = "Bloom: optional HDR phosphor glow over bright cells. Off by default and \
-     pixel-identical to the plain renderer. Requires a GPU with filterable \
+pub const BLOOM_DESC: &str = "Bloom: HDR phosphor glow over bright cells. On in the Odyssey ambient \
+     default and pixel-identical to the plain renderer when off. Requires a GPU with filterable \
      Rgba16Float render targets; unsupported adapters silently use the plain path.";
 pub const BLOOM_THRESHOLD_DESC: &str = "Bloom threshold: luminance level above which text begins to glow. The default is \
-     derived from the theme foreground color so normal body text stays below the \
-     threshold and does not bloom; only visually brighter elements pick up the effect.";
+     0.75 for the Odyssey ambient baseline; lower values glow more text, higher values reserve \
+     bloom for brighter elements.";
 pub const BLOOM_INTENSITY_DESC: &str = "Bloom intensity: additive glow strength. Accepts 0.0–1.0; 0.0 emits no \
-     glow, 0.4 is the conservative default, and the cap keeps bloom bounded.";
+     glow, 0.8 is the ambient default, and the cap keeps bloom bounded.";
 pub const BLOOM_RADIUS_DESC: &str = "Bloom radius: blur spread in half-resolution pixels. Accepts 0.5–8.0; \
-     3.0 is the default soft phosphor radius.";
+     8.0 is the ambient default wide phosphor radius.";
 
-pub const CRT_DESC: &str = "CRT profile: optional post-process scanlines plus vignette. Off by default and pixel-identical to the plain renderer. Requires the same adapter support as bloom; unsupported adapters silently use the plain path.";
-pub const CRT_SCANLINE_INTENSITY_DESC: &str = "CRT scanline intensity: bounded multiplicative dimming for the dark part of each scanline. Accepts 0.0–0.18; the cap keeps text readable and prevents opaque overlays.";
+pub const RETRO_DESC: &str = "Retro preset: one-switch stronger phosphor look. When on, bloom and CRT use a tuned high-visibility profile without overwriting the individual knobs. The plain renderer profile still bypasses it.";
+pub const CRT_DESC: &str = "CRT profile: post-process scanlines plus vignette. On in the Odyssey ambient default and pixel-identical to the plain renderer when off. Requires the same adapter support as bloom; unsupported adapters silently use the plain path.";
+pub const CRT_SCANLINE_INTENSITY_DESC: &str = "CRT scanline intensity: bounded multiplicative dimming for the dark part of each scanline. Accepts 0.0–0.35; the shader keeps a brightness floor so scanlines stay readable.";
 pub const CRT_SCANLINE_PERIOD_DESC: &str = "CRT scanline spacing: vertical distance between the dark scanline bands in the CRT/retro \
      post-process, measured in physical pixels. Smaller values pack bands closer together; \
-     larger values spread them out for a coarser look. Accepts 2.0–12.0; 3.0 is the \
-     conservative default. Only takes effect when the CRT profile is on.";
-pub const CRT_VIGNETTE_STRENGTH_DESC: &str = "CRT vignette strength: bounded edge dimming. Accepts 0.0–0.16; the shader enforces a brightness floor so corners recede without erasing lit cells.";
+     larger values spread them out for a coarser look. Accepts 2.0–12.0; 7.0 is the \
+     ambient default. Only takes effect when the CRT profile is on.";
+pub const CRT_VIGNETTE_STRENGTH_DESC: &str = "CRT vignette strength: bounded edge dimming. Accepts 0.0–0.45; the shader enforces a brightness floor so corners recede without erasing lit cells.";
 
 /// Human-readable help for the geometric box-drawing knob (RV2), shown in the
 /// in-app settings panel. Follows the every-knob-carries-a-description convention.
