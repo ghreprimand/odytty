@@ -43,9 +43,9 @@ carries a **horizon tag** so the relative sequencing is clear:
 
 Two rules govern every feature in every track:
 
-1. **Off by default, behind a setting, with an off switch.** Anything beyond a
-   plain terminal is opt-in. The plain, fast path stays byte-for-byte identical
-   to a renderer without the feature, and is tested as such.
+1. **Behind a setting, with an off switch.** Anything beyond a plain terminal
+   must be configurable. The plain, fast path stays byte-for-byte identical to a
+   renderer without the feature, and is tested as such.
 2. **Readability is a floor, not a preference.** A minimum-contrast guarantee is
    the safety net that every visual feature validates against; no effect may
    push text below the legibility floor.
@@ -416,5 +416,5 @@ ship:
    thickness, per-codepoint overrides, follow-OS theme, and the rest — in
    parallel as they fit a settings-owner slot.
 
-Everything beyond a plain terminal stays off by default, opt-in, measured, and —
-above all — never something you are forced to hand-edit a config file to reach.
+Everything beyond a plain terminal stays measured, opt-out-able, and — above all
+— never something you are forced to hand-edit a config file to reach.

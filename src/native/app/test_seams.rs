@@ -409,7 +409,36 @@ impl App {
     ) {
         self.modifiers.ctrl = ctrl;
         self.modifiers.shift = shift;
-        self.handle_overlay_key(&logical);
+        self.handle_overlay_key(&logical, KeyEventType::Press);
+    }
+
+    /// Test seam (SETTINGS-SLIDER-LAG): drive a key-repeat event through the
+    /// overlay path so high-frequency numeric edits can be tested separately
+    /// from one-shot presses.
+    #[cfg(test)]
+    pub(in crate::native) fn drive_overlay_repeat_key_for_test(
+        &mut self,
+        logical: winit::keyboard::Key,
+        ctrl: bool,
+        shift: bool,
+    ) {
+        self.modifiers.ctrl = ctrl;
+        self.modifiers.shift = shift;
+        self.handle_overlay_key(&logical, KeyEventType::Repeat);
+    }
+
+    /// Test seam (SETTINGS-SLIDER-LAG): whether an overlay live-apply is queued
+    /// for coalescing.
+    #[cfg(test)]
+    pub(in crate::native) fn pending_overlay_settings_for_test(&self) -> bool {
+        self.pending_overlay_settings.is_some()
+    }
+
+    /// Test seam (SETTINGS-SLIDER-LAG): flush the coalesced overlay apply as the
+    /// redraw/about-to-wait/release paths do in production.
+    #[cfg(test)]
+    pub(in crate::native) fn flush_pending_overlay_settings_for_test(&mut self) {
+        self.flush_pending_overlay_settings();
     }
 
     /// Test seam (KB-REMAP R2): whether the remap modal is armed to capture a

@@ -9,12 +9,9 @@
 //!
 //! ## Font sourcing
 //!
-//! For this first prototype the font is loaded from the host at runtime: the
-//! the settings layer can provide an explicit font path, otherwise a small list
-//! of common Linux monospace paths is probed. Bundling a font into the repo for
-//! fully deterministic rendering is a deliberate later decision (it means
-//! committing a binary + its license to a public repo), so it is intentionally
-//! not done here.
+//! The default text face is bundled JetBrains Mono. The settings layer can still
+//! provide an explicit font path or system font family; bad overrides fall back
+//! to the bundled face so startup never depends on host font installation.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -27,6 +24,115 @@ use crate::settings::FONT_ENV;
 /// The glyph atlas and its cell metrics live in [`crate::atlas`]; re-exported
 /// here so `crate::text::{CellSize, GlyphAtlas}` call sites keep resolving.
 pub use crate::atlas::{CellSize, FontStyle, GlyphAtlas, SubpixelMode};
+
+pub const BUNDLED_FONT_FAMILY: &str = "JetBrains Mono";
+pub const BUNDLED_FONT_VERSION: &str = "2.304";
+
+struct BundledFace {
+    weight: &'static str,
+    italic: bool,
+    filename: &'static str,
+    bytes: &'static [u8],
+}
+
+const BUNDLED_FACES: &[BundledFace] = &[
+    BundledFace {
+        weight: "Thin",
+        italic: false,
+        filename: "JetBrainsMono-Thin.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-Thin.ttf"),
+    },
+    BundledFace {
+        weight: "Thin",
+        italic: true,
+        filename: "JetBrainsMono-ThinItalic.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-ThinItalic.ttf"),
+    },
+    BundledFace {
+        weight: "ExtraLight",
+        italic: false,
+        filename: "JetBrainsMono-ExtraLight.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-ExtraLight.ttf"),
+    },
+    BundledFace {
+        weight: "ExtraLight",
+        italic: true,
+        filename: "JetBrainsMono-ExtraLightItalic.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-ExtraLightItalic.ttf"),
+    },
+    BundledFace {
+        weight: "Light",
+        italic: false,
+        filename: "JetBrainsMono-Light.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-Light.ttf"),
+    },
+    BundledFace {
+        weight: "Light",
+        italic: true,
+        filename: "JetBrainsMono-LightItalic.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-LightItalic.ttf"),
+    },
+    BundledFace {
+        weight: "Regular",
+        italic: false,
+        filename: "JetBrainsMono-Regular.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"),
+    },
+    BundledFace {
+        weight: "Regular",
+        italic: true,
+        filename: "JetBrainsMono-Italic.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf"),
+    },
+    BundledFace {
+        weight: "Medium",
+        italic: false,
+        filename: "JetBrainsMono-Medium.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-Medium.ttf"),
+    },
+    BundledFace {
+        weight: "Medium",
+        italic: true,
+        filename: "JetBrainsMono-MediumItalic.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-MediumItalic.ttf"),
+    },
+    BundledFace {
+        weight: "SemiBold",
+        italic: false,
+        filename: "JetBrainsMono-SemiBold.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-SemiBold.ttf"),
+    },
+    BundledFace {
+        weight: "SemiBold",
+        italic: true,
+        filename: "JetBrainsMono-SemiBoldItalic.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-SemiBoldItalic.ttf"),
+    },
+    BundledFace {
+        weight: "Bold",
+        italic: false,
+        filename: "JetBrainsMono-Bold.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
+    },
+    BundledFace {
+        weight: "Bold",
+        italic: true,
+        filename: "JetBrainsMono-BoldItalic.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf"),
+    },
+    BundledFace {
+        weight: "ExtraBold",
+        italic: false,
+        filename: "JetBrainsMono-ExtraBold.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-ExtraBold.ttf"),
+    },
+    BundledFace {
+        weight: "ExtraBold",
+        italic: true,
+        filename: "JetBrainsMono-ExtraBoldItalic.ttf",
+        bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-ExtraBoldItalic.ttf"),
+    },
+];
 
 /// Errors from font loading.
 #[derive(Debug, thiserror::Error)]
@@ -89,6 +195,10 @@ pub fn load_font_with_path(font_path: Option<&Path>) -> Result<FontVec, TextErro
         }
     }
 
+    if let Ok(font) = load_bundled_font() {
+        return Ok(font);
+    }
+
     for candidate in font_candidates() {
         if candidate.exists()
             && let Ok(font) = load_font_at(&candidate)
@@ -109,6 +219,52 @@ pub fn load_font_at(path: &Path) -> Result<FontVec, TextError> {
         path: path.display().to_string(),
         source,
     })
+}
+
+pub fn is_bundled_font_family(query: &str) -> bool {
+    let normalized = normalize_family(query);
+    normalized == normalize_family(BUNDLED_FONT_FAMILY) || normalized == "monospace"
+}
+
+pub fn load_bundled_font() -> Result<FontVec, TextError> {
+    load_bundled_face("Regular", false).ok_or(TextError::NoFont)
+}
+
+pub fn load_bundled_style(style: FontStyle) -> Result<FontVec, TextError> {
+    match style {
+        FontStyle::Regular => load_bundled_face("Regular", false),
+        FontStyle::Bold => load_bundled_face("Bold", false),
+        FontStyle::Italic => load_bundled_face("Regular", true),
+        FontStyle::BoldItalic => load_bundled_face("Bold", true),
+    }
+    .ok_or(TextError::NoFont)
+}
+
+pub fn load_bundled_weight(weight: &str, italic: bool) -> Option<FontVec> {
+    let target = normalize_family(weight);
+    if target.is_empty() || target == "regular" || target == "normal" {
+        return load_bundled_face("Regular", italic);
+    }
+    BUNDLED_FACES
+        .iter()
+        .find(|face| normalize_family(face.weight) == target && face.italic == italic)
+        .and_then(parse_bundled_face)
+}
+
+fn load_bundled_face(weight: &str, italic: bool) -> Option<FontVec> {
+    BUNDLED_FACES
+        .iter()
+        .find(|face| face.weight == weight && face.italic == italic)
+        .and_then(parse_bundled_face)
+}
+
+fn parse_bundled_face(face: &BundledFace) -> Option<FontVec> {
+    FontVec::try_from_vec(face.bytes.to_vec())
+        .map_err(|source| TextError::Parse {
+            path: format!("bundled {}", face.filename),
+            source,
+        })
+        .ok()
 }
 
 /// A resolved font family: the validated monospace `regular` face plus any
@@ -303,7 +459,15 @@ fn path_is_monospace(path: &Path, meta: &FaceMeta) -> bool {
 /// reads real metadata, so italic/variant files of one family collapse into a
 /// single entry and proportional-only families never appear.
 pub fn font_families() -> Vec<String> {
-    font_families_in_dirs(&font_search_dirs())
+    let mut families = font_families_in_dirs(&font_search_dirs());
+    if !families
+        .iter()
+        .any(|family| normalize_family(family) == normalize_family(BUNDLED_FONT_FAMILY))
+    {
+        families.push(BUNDLED_FONT_FAMILY.to_owned());
+        families.sort_by_key(|name| name.to_lowercase());
+    }
+    families
 }
 
 /// [`font_families`] over an explicit directory set, for hermetic tests.
@@ -1128,14 +1292,12 @@ mod tests {
     }
 
     /// Exercises the process-global `MIN_CONTRAST` seam. Kept in one test so the
-    /// global mutation can't race a sibling, and restores the `1.0` default.
+    /// global mutation can't race a sibling, and restores the configured default.
     #[test]
     fn enforce_contrast_rgba_seam_gates_on_the_global_floor() {
         let fg = [0.10, 0.10, 0.10, 0.5];
         let bg = [0.06, 0.06, 0.06, 1.0];
-        // Default floor (1.0) is an exact identity no matter the pair.
-        assert_eq!(min_contrast(), 1.0);
-        assert_eq!(enforce_contrast_rgba(fg, bg), fg);
+        assert_eq!(min_contrast(), crate::settings::DEFAULT_MIN_CONTRAST);
 
         // Raising the floor lifts the low-contrast fg and preserves alpha.
         set_min_contrast(4.5);
@@ -1144,9 +1306,12 @@ mod tests {
         let c = crate::color::wcag_contrast([adj[0], adj[1], adj[2]], [bg[0], bg[1], bg[2]]);
         assert!(c >= 4.5 - 1e-3, "floor not met: {c}");
 
-        // Restore the default so other tests see passthrough.
+        // The explicit passthrough override remains exact.
         set_min_contrast(1.0);
         assert_eq!(enforce_contrast_rgba(fg, bg), fg);
+
+        // Restore the configured default for sibling tests.
+        set_min_contrast(crate::settings::DEFAULT_MIN_CONTRAST);
     }
 
     #[test]
@@ -1328,6 +1493,21 @@ mod tests {
         };
         let font = FontVec::try_from_vec(bytes).expect("parse system font");
         assert!(is_monospace(&font), "probed default should be monospace");
+    }
+
+    #[test]
+    fn bundled_jetbrains_mono_faces_are_parseable_and_monospace() {
+        assert!(is_bundled_font_family("JetBrains Mono"));
+        assert!(is_bundled_font_family("monospace"));
+
+        let regular = load_bundled_font().expect("bundled regular parses");
+        assert!(is_monospace(&regular), "bundled regular is monospace");
+
+        let semibold = load_bundled_weight("SemiBold", false).expect("bundled semibold parses");
+        assert!(is_monospace(&semibold), "bundled semibold is monospace");
+
+        let italic = load_bundled_style(FontStyle::Italic).expect("bundled italic parses");
+        assert!(is_monospace(&italic), "bundled italic is monospace");
     }
 
     /// A real monospace family installed on this host (read from metadata), with

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use std::time::Duration;
 
-use crate::theme::Theme;
+use crate::theme::{Theme, VisualEffect};
 
 pub const THEME_ENV: &str = "ODYTTY_THEME";
 pub const VISUAL_ENV: &str = "ODYTTY_VISUAL";
@@ -136,27 +136,28 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
 pub const DEFAULT_FONT_SIZE_PX: f32 = 14.0;
 pub const MIN_FONT_SIZE_PX: f32 = 6.0;
 pub const MAX_FONT_SIZE_PX: f32 = 72.0;
-pub const DEFAULT_TEXT_GAMMA: f32 = 1.4;
+pub const DEFAULT_THEME: Theme = Theme::ODYSSEY;
+pub const DEFAULT_VISUAL: VisualEffect = VisualEffect::Ambient;
+pub const DEFAULT_TEXT_GAMMA: f32 = 1.5;
 pub const MIN_TEXT_GAMMA: f32 = 0.5;
 pub const MAX_TEXT_GAMMA: f32 = 3.0;
 
 /// Stem-darkening strength (`ODYTTY_STEM_DARKEN`): a coverage boost applied at
 /// glyph raster time so light-on-dark body text holds weight at small sizes
 /// (RV5). `0.0` disables it and is pixel-identical to the pre-feature renderer;
-/// `1.0` is the strongest boost. Ships default-on at a deliberately conservative
-/// `0.2` -- perceptibly crisper stems without looking bold. Setting `0.0` is the
-/// opt-out and fully restores the classic, pre-feature raster.
-pub const DEFAULT_STEM_DARKEN: f32 = 0.2;
+/// `1.0` is the strongest boost. Ships default-on at `0.5` for a visible
+/// light-on-dark weight boost. Setting `0.0` is the opt-out and fully restores
+/// the classic, pre-feature raster.
+pub const DEFAULT_STEM_DARKEN: f32 = 0.5;
 pub const MIN_STEM_DARKEN: f32 = 0.0;
 pub const MAX_STEM_DARKEN: f32 = 1.0;
 
 /// Minimum fg/bg contrast floor (`ODYTTY_MIN_CONTRAST`): a configurable WCAG
 /// contrast ratio that every cell's foreground is lifted to meet, so no app can
-/// render illegibly low-contrast text (RV1). `1.0` disables the floor and is
-/// pixel-identical to the pre-feature renderer; higher values enforce more
-/// contrast (4.5 is WCAG AA for body text, 7.0 is AAA). The lift moves only
-/// perceptual lightness, preserving hue.
-pub const DEFAULT_MIN_CONTRAST: f32 = 1.0;
+/// render illegibly low-contrast text (RV1). The default is an assertive
+/// readability floor; `1.0` disables the floor and is pixel-identical to the
+/// pre-feature renderer. The lift moves only perceptual lightness, preserving hue.
+pub const DEFAULT_MIN_CONTRAST: f32 = 13.0;
 pub const MIN_MIN_CONTRAST: f32 = 1.0;
 pub const MAX_MIN_CONTRAST: f32 = 21.0;
 
@@ -174,7 +175,7 @@ pub const MAX_FOCUS_DIM: f32 = 1.0;
 /// Window padding (`ODYTTY_WINDOW_PADDING`): logical pixels of inset on every
 /// window edge before the terminal grid begins. `0.0` restores the historical
 /// exact edge-to-edge layout; the non-zero default gives text breathing room.
-pub const DEFAULT_WINDOW_PADDING_PX: f32 = 8.0;
+pub const DEFAULT_WINDOW_PADDING_PX: f32 = 4.0;
 pub const MIN_WINDOW_PADDING_PX: f32 = 0.0;
 pub const MAX_WINDOW_PADDING_PX: f32 = 64.0;
 
@@ -405,14 +406,15 @@ pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = false;
 /// byte-identical to today (no bytes emitted), and it never changes a pixel.
 pub const DEFAULT_SH_CLICK: bool = false;
 
-pub const DEFAULT_BLOOM: bool = false;
+pub const DEFAULT_BLOOM: bool = true;
+pub const DEFAULT_BLOOM_THRESHOLD: f32 = 0.75;
 pub const BLOOM_THRESHOLD_MARGIN: f32 = 0.12;
 pub const MIN_BLOOM_THRESHOLD: f32 = 0.70;
 pub const MAX_BLOOM_THRESHOLD: f32 = 1.25;
-pub const DEFAULT_BLOOM_INTENSITY: f32 = 0.4;
+pub const DEFAULT_BLOOM_INTENSITY: f32 = 0.8;
 pub const MIN_BLOOM_INTENSITY: f32 = 0.0;
 pub const MAX_BLOOM_INTENSITY: f32 = 1.0;
-pub const DEFAULT_BLOOM_RADIUS: f32 = 3.0;
+pub const DEFAULT_BLOOM_RADIUS: f32 = 8.0;
 pub const MIN_BLOOM_RADIUS: f32 = 0.5;
 pub const MAX_BLOOM_RADIUS: f32 = 8.0;
 
@@ -421,11 +423,11 @@ pub fn default_bloom_threshold_for_theme(theme: Theme) -> f32 {
         .clamp(MIN_BLOOM_THRESHOLD, MAX_BLOOM_THRESHOLD)
 }
 
-pub const DEFAULT_CRT: bool = false;
-pub const DEFAULT_CRT_SCANLINE_INTENSITY: f32 = 0.08;
+pub const DEFAULT_CRT: bool = true;
+pub const DEFAULT_CRT_SCANLINE_INTENSITY: f32 = 0.17;
 pub const MIN_CRT_SCANLINE_INTENSITY: f32 = 0.0;
 pub const MAX_CRT_SCANLINE_INTENSITY: f32 = 0.18;
-pub const DEFAULT_CRT_SCANLINE_PERIOD: f32 = 3.0;
+pub const DEFAULT_CRT_SCANLINE_PERIOD: f32 = 7.0;
 pub const MIN_CRT_SCANLINE_PERIOD: f32 = 2.0;
 pub const MAX_CRT_SCANLINE_PERIOD: f32 = 12.0;
 pub const DEFAULT_CRT_VIGNETTE_STRENGTH: f32 = 0.10;

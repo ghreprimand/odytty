@@ -5,10 +5,6 @@
 
 use super::*;
 
-/// Serialize the two `apply_reloadable_values` tests that mutate the
-/// process-wide `synthetic_styles_enabled` global, so they never race.
-static RELOAD_GLOBAL_TEST_LOCK: Mutex<()> = Mutex::new(());
-
 /// Build a `Settings` from a flat env-style key/value list, collecting any
 /// warnings. Mirrors the `legacy` module's private helper; kept local so this
 /// submodule is self-contained.
@@ -253,9 +249,9 @@ fn user_theme_file_contents_resolve_through_spec() {
 }
 
 #[test]
-fn unresolvable_theme_value_falls_back_to_plain_with_warning() {
+fn unresolvable_theme_value_falls_back_to_default_with_warning() {
     let (settings, warnings) = settings_from_theme("does-not-exist", |_| None);
-    assert_eq!(settings.theme, Theme::PLAIN);
+    assert_eq!(settings.theme, DEFAULT_THEME);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(THEME_ENV));
     assert!(warnings[0].contains("does-not-exist"));

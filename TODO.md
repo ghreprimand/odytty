@@ -215,7 +215,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         that blocks UV bleed and preserves box-drawing edge joins + descenders.
   - [x] Shader gamma/contrast side: `ODYTTY_TEXT_GAMMA` drives a glyph coverage
         correction uniform; `1.0` is the exact legacy blend escape hatch and
-        `1.4` is the tuned default for light-on-dark text weight.
+        `1.5` is the tuned default for light-on-dark text weight.
   - [x] Bearing-aware glyph geometry (`src/atlas.rs` + `src/grid.rs`, R3): each
         atlas slot reserves an overflow margin and records per-slot inked bounds;
         `glyph_quad` sizes each glyph quad to its real ink so overflow renders
@@ -662,7 +662,8 @@ a floor; surpassing it is the standing ambition.
       to match the perceived brightness of the prior linear ×0.5).
 - [x] Minimum-contrast floor (`ODYTTY_MIN_CONTRAST`, `min_contrast`):
       configurable WCAG contrast ratio floor applied at render time. Default
-      `1.0` is exact passthrough (no lift). The floor is measured via WCAG
+      `13.0` is the fresh-install readability floor; `1.0` is the exact
+      passthrough opt-out. The floor is measured via WCAG
       relative luminance; the lift bisects OKLab lightness while preserving hue
       and chroma (`src/color.rs:enforce_min_contrast`).
   - [x] Universal legibility guarantee: the contrast floor now provably
@@ -670,9 +671,9 @@ a floor; surpassing it is the standing ambition.
         256-color and truecolor foregrounds already pass through the same single
         floor as ANSI/default; the one remaining gap — an explicit SGR underline
         color (SGR 58) painted without the floor — now routes through the same
-        `enforce_contrast_rgba` lift. Default `min_contrast = 1.0` stays exact
-        passthrough (byte-identical default pixels, including the new underline
-        path); the legibility benefit appears only when the floor is raised. A
+        `enforce_contrast_rgba` lift. `min_contrast = 1.0` stays exact
+        passthrough (byte-identical opt-out pixels, including the new underline
+        path). A
         pixel-smoke frame (256-color + truecolor + explicit-underline-color
         cells) certifies the no-op at default, and coverage units prove each
         color type is lifted with hue and chroma preserved when the floor is up.
@@ -680,7 +681,7 @@ a floor; surpassing it is the standing ambition.
       `geometric_boxdraw`): U+2500–257F, U+2580–259F, Braille, and Powerline
       separators rendered as pixel-perfect geometry at exact cell size rather
       than font glyphs. Off by default; enable via setting or env var.
-- [x] Stem-darkening ships default-on at a conservative `0.2` (crisper
+- [x] Stem-darkening ships default-on at `0.5` (crisper
       light-on-dark text); `ODYTTY_STEM_DARKEN` / `stem_darken = 0.0` is the
       byte-identical opt-out. Applied at startup and live reload before
       glyph-atlas rasterization. Native warns if the GPU surface falls back to
@@ -703,7 +704,7 @@ a floor; surpassing it is the standing ambition.
       so text stays legible. Focused frames are byte-identical to the pre-feature
       renderer.
 - [x] Window padding (`window_padding` / `ODYTTY_WINDOW_PADDING`, default
-      8 logical px): an adjustable inset between the window edge and the terminal
+      4 logical px): an adjustable inset between the window edge and the terminal
       grid so text no longer touches the frame. The padding offsets the full
       pixel-cell seam in both directions — forward (glyph/cursor/quad/image
       vertices and the scroll indicator) and inverse (selection hit-test, drag
@@ -722,7 +723,8 @@ a floor; surpassing it is the standing ambition.
         with one stderr notice and falls back to the direct sRGB path; composite
         smoke extended to cover Rgba16Float offscreen → passthrough → sRGB.
   - [x] Bloom / phosphor glow effect: thresholded bright-pass, half-resolution
-        separable blur, additive composite, off by default and adapter-gated.
+        separable blur, additive composite, enabled in the fresh-install ambient
+        baseline and adapter-gated.
   - [x] CRT post-process core: bounded scanlines + vignette share the same
         offscreen scene render and final composite pass as bloom; curvature and
         chromatic aberration are deferred.

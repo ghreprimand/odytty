@@ -213,11 +213,21 @@ fn overlay_slider_drag_routes_through_cursor_move_and_release() {
     let before = numeric_values(&app);
 
     // Press the far-right of the track → arms the drag and pushes the value up.
+    let app_font_before_drag = app.font_size_px_for_test();
     app.set_pointer_cell_for_test(track_right.row, track_right.column);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
     assert!(
         app.overlay_is_dragging_for_test(),
         "track press arms the drag"
+    );
+    assert!(
+        app.pending_overlay_settings_for_test(),
+        "slider press queues the expensive app apply"
+    );
+    assert_eq!(
+        app.font_size_px_for_test(),
+        app_font_before_drag,
+        "drag press updates the panel before rebuilding the app font state"
     );
     let high_values = numeric_values(&app);
     let (changed_key, high) = high_values
@@ -236,10 +246,26 @@ fn overlay_slider_drag_routes_through_cursor_move_and_release() {
         low < high,
         "drag left lowered {changed_key} ({low} < {high})"
     );
+    assert!(
+        app.pending_overlay_settings_for_test(),
+        "drag move replaces the queued app apply"
+    );
 
-    // Release ends the drag; a subsequent move no longer changes the value.
+    // Release ends the drag, flushes the latest queued settings, and a
+    // subsequent move no longer changes the value.
     app.handle_overlay_pointer_button(ElementState::Released, WinitMouseButton::Left);
     assert!(!app.overlay_is_dragging_for_test(), "release ends the drag");
+    assert!(
+        !app.pending_overlay_settings_for_test(),
+        "release flushes the queued app apply"
+    );
+    if changed_key == "font_size" {
+        assert_eq!(
+            app.font_size_px_for_test(),
+            low,
+            "release applies the latest dragged font size"
+        );
+    }
     app.set_pointer_cell_for_test(track_right.row, track_right.column);
     app.handle_overlay_pointer_move();
     assert_eq!(
@@ -250,6 +276,72 @@ fn overlay_slider_drag_routes_through_cursor_move_and_release() {
     // The drag never armed a PTY report or a local selection.
     assert!(app.report_button_for_test().is_none());
     assert!(!app.selecting_for_test());
+}
+
+#[test]
+fn settings_slider_key_repeat_is_coalesced_until_flush() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    app.open_settings_overlay_for_test();
+    // Fonts section, then font_size row.
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
+        false,
+        false,
+    );
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
+        false,
+        false,
+    );
+    for _ in 0..3 {
+        app.drive_overlay_key_for_test(
+            winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
+            false,
+            false,
+        );
+    }
+
+    let start = app.font_size_px_for_test();
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowRight),
+        false,
+        false,
+    );
+    assert_eq!(
+        app.font_size_px_for_test(),
+        start + 1.0,
+        "single key press still applies immediately"
+    );
+
+    app.drive_overlay_repeat_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowRight),
+        false,
+        false,
+    );
+    assert!(
+        app.pending_overlay_settings_for_test(),
+        "key repeat queues the expensive app apply"
+    );
+    assert_eq!(
+        app.font_size_px_for_test(),
+        start + 1.0,
+        "repeat updates the panel before applying app font state"
+    );
+
+    app.flush_pending_overlay_settings_for_test();
+    assert!(
+        !app.pending_overlay_settings_for_test(),
+        "flush clears the queued apply"
+    );
+    assert_eq!(
+        app.font_size_px_for_test(),
+        start + 2.0,
+        "flush applies the latest repeated font size"
+    );
 }
 
 #[test]

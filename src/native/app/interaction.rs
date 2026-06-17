@@ -32,24 +32,69 @@ impl App {
     /// pointer path) through the shared App-side handlers, so the two entry
     /// points stay in lockstep (UX4-P1).
     pub(super) fn apply_overlay_outcome(&mut self, outcome: OverlayOutcome) {
+        self.apply_overlay_outcome_with_policy(outcome, false);
+    }
+
+    pub(super) fn apply_overlay_outcome_with_policy(
+        &mut self,
+        outcome: OverlayOutcome,
+        coalesce_apply: bool,
+    ) {
         match outcome {
             OverlayOutcome::Consumed => {}
-            OverlayOutcome::Close => self.overlay.close(),
-            OverlayOutcome::OpenThemePicker => self.open_theme_picker_overlay(),
-            OverlayOutcome::OpenThemeBuilder => self.open_theme_builder_overlay(),
-            OverlayOutcome::OpenKeyBindings => self.open_key_bindings_overlay(),
-            OverlayOutcome::OpenFontPicker => self.open_font_picker_overlay(),
-            OverlayOutcome::ApplySettings(settings) => self.apply_overlay_settings(*settings),
+            OverlayOutcome::Close => {
+                self.flush_pending_overlay_settings();
+                self.overlay.close();
+            }
+            OverlayOutcome::OpenThemePicker => {
+                self.flush_pending_overlay_settings();
+                self.open_theme_picker_overlay();
+            }
+            OverlayOutcome::OpenThemeBuilder => {
+                self.flush_pending_overlay_settings();
+                self.open_theme_builder_overlay();
+            }
+            OverlayOutcome::OpenKeyBindings => {
+                self.flush_pending_overlay_settings();
+                self.open_key_bindings_overlay();
+            }
+            OverlayOutcome::OpenFontPicker => {
+                self.flush_pending_overlay_settings();
+                self.open_font_picker_overlay();
+            }
+            OverlayOutcome::ApplySettings(settings) => {
+                if coalesce_apply {
+                    self.queue_overlay_settings(*settings);
+                } else {
+                    self.pending_overlay_settings = None;
+                    self.apply_overlay_settings(*settings);
+                }
+            }
             OverlayOutcome::SaveSettings(changes) => self.save_overlay_settings(&changes),
-            OverlayOutcome::SaveTheme(request) => self.save_overlay_theme(request),
+            OverlayOutcome::SaveTheme(request) => {
+                self.flush_pending_overlay_settings();
+                self.save_overlay_theme(request);
+            }
             // IN2: the menu closed itself before emitting these; run the action.
-            OverlayOutcome::ContextMenuCopy => self.handle_copy_shortcut(),
-            OverlayOutcome::ContextMenuPaste => self.handle_paste_shortcut(),
-            OverlayOutcome::ContextMenuSelectAll => self.handle_select_all(),
+            OverlayOutcome::ContextMenuCopy => {
+                self.flush_pending_overlay_settings();
+                self.handle_copy_shortcut();
+            }
+            OverlayOutcome::ContextMenuPaste => {
+                self.flush_pending_overlay_settings();
+                self.handle_paste_shortcut();
+            }
+            OverlayOutcome::ContextMenuSelectAll => {
+                self.flush_pending_overlay_settings();
+                self.handle_select_all();
+            }
             // CLOSE-CONFIRM: the dialog closed itself before emitting this; flag
             // the exit so `window_event` exits the loop on this same turn (the
             // outcome cannot reach `ActiveEventLoop` from here — `&mut self`).
-            OverlayOutcome::ForceClose => self.pending_exit = true,
+            OverlayOutcome::ForceClose => {
+                self.flush_pending_overlay_settings();
+                self.pending_exit = true;
+            }
         }
     }
 
@@ -79,7 +124,11 @@ impl App {
             ElementState::Released => OverlayPointer::Release { cell, button },
         };
         let outcome = self.overlay.handle_pointer(pointer, rect);
-        self.apply_overlay_outcome(outcome);
+        let coalesce_apply = state == ElementState::Pressed && self.overlay.is_settings_dragging();
+        self.apply_overlay_outcome_with_policy(outcome, coalesce_apply);
+        if state == ElementState::Released {
+            self.flush_pending_overlay_settings();
+        }
         self.request_selection_redraw();
     }
 
@@ -102,7 +151,8 @@ impl App {
         let outcome = self
             .overlay
             .handle_pointer(OverlayPointer::Move { cell }, rect);
-        self.apply_overlay_outcome(outcome);
+        let coalesce_apply = self.overlay.is_settings_dragging();
+        self.apply_overlay_outcome_with_policy(outcome, coalesce_apply);
         self.request_selection_redraw();
     }
 

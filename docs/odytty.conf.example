@@ -5,16 +5,27 @@
 # matching ODYTTY_* environment variable was set at startup.
 
 font_size = 18
-font_family = DejaVu Sans Mono
+font_family = JetBrains Mono
 # font_weight =
-window_padding = 8
+window_padding = 4
 theme = odyssey
 # Back-compat alias: "ambient" and "scanlines" enable the CRT scanline effect
 # when no explicit "crt" setting is present; "crt = on/off" always wins.
 # Requires a GPU with filterable 16-bit float support; silently no-ops otherwise.
 visual = ambient
 subpixel = off
-text_gamma = 1.4
+text_gamma = 1.5
+stem_darken = 0.5
+min_contrast = 13.0
+focus_dim = 0.0
+bloom = on
+bloom_threshold = 0.75
+bloom_intensity = 0.8
+bloom_radius = 8.0
+crt = on
+crt_scanline_intensity = 0.17
+crt_scanline_period = 7.0
+crt_vignette_strength = 0.10
 cursor_style = block
 cursor_blink = auto
 # cursor_trail = off

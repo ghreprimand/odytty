@@ -7,7 +7,7 @@ use super::*;
 fn default_options_are_linux_first_monospace() {
     let options = NativeOptions::default();
     assert_eq!(options.initial_grid, Dimensions::new(80, 24));
-    assert_eq!(options.font_family, "monospace");
+    assert_eq!(options.font_family, crate::text::BUNDLED_FONT_FAMILY);
     assert_eq!(options.font_path, None);
     assert_eq!(options.font_size_px, DEFAULT_FONT_SIZE_PX);
     assert_eq!(options.text_gamma, DEFAULT_TEXT_GAMMA);
@@ -92,8 +92,8 @@ fn window_size_covers_the_grid() {
         ..NativeOptions::default()
     };
     // 80 cols * (10 * 0.6) = 480 ; 24 rows * (10 * 1.2) = 288,
-    // plus the default 8 px logical inset on each edge.
-    assert_eq!(options.window_logical_size(), (496, 304));
+    // plus the default 4 px logical inset on each edge.
+    assert_eq!(options.window_logical_size(), (488, 296));
 }
 
 #[test]

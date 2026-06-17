@@ -492,9 +492,9 @@ its first stable layer.
   navigation, persists the selected built-in with `Enter`, and restores the
   originally active theme with `Esc`. The custom theme builder has landed:
   clone/tweak/author with live preview, saved to a user `.theme` file.
-- Readability pipeline: all visual enhancements are off by default, behind
-  explicit settings, with a pixel-identical plain/fast path that bypasses
-  extras. Three delivered knobs:
+- Readability pipeline: visual enhancements are explicit settings with
+  individual opt-outs, and `render_quality=plain` preserves the pixel-identical
+  plain/fast path that bypasses extras. Three delivered knobs:
   - **Perceptual color pipeline** (`src/color.rs`): linear-space blending is
     active in the render path, and OKLab / OKLCH dim/fade/mix helpers
     (`dim_perceptual`, `mix_oklab`) are in place so equal numeric steps can
@@ -508,13 +508,14 @@ its first stable layer.
     this equivalence so the claim cannot silently drift.
   - **Minimum-contrast floor** (`ODYTTY_MIN_CONTRAST`, `min_contrast`): a
     configurable WCAG contrast ratio floor between foreground and background,
-    applied at render time. Default `1.0` is exact passthrough (no lift); higher
+    applied at render time. Default `13.0` is the fresh-install readability
+    floor; `1.0` is the exact passthrough opt-out. Higher
     values lift underpowered foregrounds toward legibility. The floor is measured
     via WCAG relative luminance; the lift is applied by bisecting OKLab lightness
     while preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
   - **Stem darkening** (`ODYTTY_STEM_DARKEN`, `stem_darken`): a coverage boost
-    that keeps glyph stroke weight on light-on-dark displays. Default `0.2` (on,
-    a conservative boost for crisper text); range `0.0`–`1.0`, where `0.0` is the
+    that keeps glyph stroke weight on light-on-dark displays. Default `0.5`;
+    range `0.0`–`1.0`, where `0.0` is the
     byte-identical opt-out to the classic raster. Applied at rasterization time
     (`src/atlas/mod.rs`).
 - Shell working-directory tracking: OSC 7 (`file://host/path`) is parsed and
@@ -596,11 +597,11 @@ its first stable layer.
 `draw_scene`, `encode_scene_pass`, post composite encode path),
 `src/shaders/bloom.wgsl`, `tests/gpu_composite_smoke.rs`.*
 
-### Design invariant — dormant by default
+### Design invariant — plain bypass
 
 The renderer carries a **lazy post-process scaffold**: an offscreen render
 target, a nearest-clamp sampler, and a fullscreen-triangle composite pipeline.
-By default the pipeline is **dormant**: `post_active()` returns `false`, the
+In the plain/fast profile the pipeline is **dormant**: `post_active()` returns `false`, the
 `PostProcessResources` are `None`, no offscreen texture is allocated, and
 rendering writes directly to the swapchain surface. The direct path and the
 offscreen path share one scene-draw sequence (`draw_scene()` /
@@ -632,15 +633,16 @@ Tier-3 atmospheric effects land in this order:
    the HDR offscreen format and rebuilt back when it is disabled, so the default
    path stays on the swapchain format and byte-identical.
 3. **Bloom / phosphor glow (landed):** bright-pass threshold + half-res
-   separable blur + additive composite, off by default behind the `bloom`
-   setting and gated on adapter HDR support. The bright-pass threshold is
-   auto-derived from the active theme's foreground luminance so normal body text
-   never glows.
-4. **CRT / retro profile core (landed):** bounded scanlines + vignette, off by
-   default behind `crt` and sharing the same offscreen scene render and final
-   composite pass as bloom. Because post-composite dimming cannot feed back into
-   the CPU minimum-contrast resolver, the shader clamps scanline/vignette
-   strength and enforces a brightness floor so lit cells are never zeroed.
+   separable blur + additive composite, enabled in the fresh-install ambient
+   baseline behind the `bloom` setting and gated on adapter HDR support. The
+   built-in threshold is fixed at `0.75`, while the `auto` value remains
+   available for theme-derived tuning.
+4. **CRT / retro profile core (landed):** bounded scanlines + vignette, enabled
+   in the fresh-install ambient baseline behind `crt` and sharing the same
+   offscreen scene render and final composite pass as bloom. Because
+   post-composite dimming cannot feed back into the CPU minimum-contrast
+   resolver, the shader clamps scanline/vignette strength and enforces a
+   brightness floor so lit cells are never zeroed.
    Curvature and chromatic aberration are deferred.
 
 Cursor motion trail (`cursor_trail`, off by default): a short fading after-image

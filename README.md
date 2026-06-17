@@ -14,9 +14,10 @@ reliable enough for daily use. It has a handful of features you won't find
 combined in most terminals: live color emoji with ZWJ sequence / flag /
 skin-tone cluster support, the Kitty graphics protocol plus Sixel, the Kitty
 keyboard protocol, SGR-pixel mouse reporting (mode 1016), a fully theme-driven
-ANSI palette with semantic roles, and an optional CRT scanline treatment (`visual=ambient` is the back-compat key) with a
-planned expansion into readability-first enhancements and atmospheric effects
-— all off by default and gated behind explicit settings.
+ANSI palette with semantic roles, bundled JetBrains Mono font faces, and the
+Odyssey ambient visual baseline: `theme=odyssey`, bloom, and CRT scanlines are
+enabled on a fresh install, while `render_quality=plain` keeps the direct
+renderer available.
 
 ---
 
@@ -71,8 +72,9 @@ true physical pixel coordinates.
 `Theme` carries the full 16-color ANSI palette (indices 0–7 normal, 8–15
 bright) plus semantic-role colors (cursor, selection, search highlight, and
 reserved border/inactive). The library ships 100 contrast-validated built-in
-themes: the Odyssey identity family (`plain` — the default, reproducing
-historical xterm defaults byte-for-byte — plus `odyssey`, `odyssey-noir`,
+themes: the Odyssey identity family (`odyssey` — the fresh-install default —
+plus `plain`, which reproduces historical xterm defaults byte-for-byte,
+`odyssey-noir`,
 `odyssey-light`, `odyssey-aurora`, and more), a set of widely-used community
 palettes (`solarized-dark`/`-light`, `gruvbox-dark`, `nord`, `dracula`,
 `tokyo-night`, `catppuccin-mocha`/`-latte`, `one-dark`, `monokai`, and others),
@@ -109,12 +111,15 @@ See [`SPEC.md`](SPEC.md) for the complete architecture and sequence reference.
 
 ### Text and rendering quality
 
-GPU-backed via `ab_glyph` into a dynamic glyph atlas. Wide-glyph (CJK/width-2)
+GPU-backed via `ab_glyph` into a dynamic glyph atlas. The fresh-install default
+is bundled JetBrains Mono with real regular, italic, bold, and intermediate
+weight faces; host font lookup remains available through `font_family` and
+`font`. Wide-glyph (CJK/width-2)
 atlas slots span two physical cells. Bearing-aware quad geometry sizes each
 glyph to its real ink bounds so italic side-bearings and tall glyphs render
 uncropped. Optional subpixel AA (`ODYTTY_SUBPIXEL=rgb|bgr`) uses dual-source
 blending when the GPU supports it. Tunable coverage gamma (`ODYTTY_TEXT_GAMMA`,
-default 1.4). Synthetic bold (double-strike) and italic (12° shear) when real
+default 1.5). Synthetic bold (double-strike) and italic (12° shear) when real
 faces are absent; `ODYTTY_SYNTHETIC_STYLES=off` disables synthesis. Extended
 underline styles fully decoded and rendered (`SGR 4:0`–`4:5`: straight, double,
 curly, dotted, dashed). Underline color via `SGR 58`/`59`.
@@ -280,7 +285,9 @@ panel plus live theme picker, the in-app custom theme builder, and CLI config
 introspection have all landed. The minimum-contrast readability floor
 (`min_contrast` / `ODYTTY_MIN_CONTRAST`) and geometric box-drawing/block/Powerline
 rendering (`geometric_boxdraw` / `ODYTTY_GEOMETRIC_BOXDRAW`) are wired into the
-live renderer, each default-off / pixel-identical until enabled. Themed
+live renderer. The contrast floor is part of the fresh-install readability
+baseline; geometric box drawing remains default-off / pixel-identical until
+enabled. Themed
 cursor/selection/search roles (`themed_ui_roles`) are live and default-on, so a
 theme's authored selection and cursor colors drive the UI out of the box;
 `themed_ui_roles = off` restores the classic inverse rendering. A symbol /
@@ -302,7 +309,8 @@ confirmation (`confirm_close`, default on) guards against accidental window
 closure when a program is still running. Smooth scrolling (`smooth_scroll = on`)
 eases viewport movement over a bounded animation window while keeping scroll
 targets updated immediately. Font weight control (`font_weight`) selects a named
-weight face for normal text independently of the SGR bold attribute. Window
+weight face for normal text independently of the SGR bold attribute. Bundled
+JetBrains Mono provides the default real weight faces. Window
 decoration toggle (`window_decorations`, default on) hides the titlebar on
 Wayland (reliable via client-side decorations) or makes a best-effort request on
 X11 (WM-dependent).
@@ -314,10 +322,13 @@ X11 (WM-dependent).
   minimum-contrast floor (`ODYTTY_MIN_CONTRAST`), geometric box-drawing
   (`ODYTTY_GEOMETRIC_BOXDRAW`), and the symbol / Nerd-font fallback
   (`symbol_fallback`) are wired into the renderer, and stem darkening
-  (`ODYTTY_STEM_DARKEN`) is available — all default off / passthrough.)
-- **Atmospheric effects (opt-in)** — bloom/phosphor glow, CRT/retro profile,
-  cursor glow; all off by default, perf- and readability-gated. See
-  [`docs/effects.md`](docs/effects.md) for settings and how to enable them.
+  (`ODYTTY_STEM_DARKEN`) is available. The fresh-install baseline enables the
+  contrast floor and stem darkening; `min_contrast=1.0` and `stem_darken=0.0`
+  remain the passthrough opt-outs.)
+- **Atmospheric effects** — bloom/phosphor glow and CRT scanlines are part of
+  the Odyssey ambient default, remain perf- and readability-gated, and can be
+  disabled with settings or bypassed with `render_quality=plain`. See
+  [`docs/effects.md`](docs/effects.md) for settings and tuning.
 - **Ligature / stylistic-set shaping** (strategy decided, implementation
   deferred).
 - **Shell integration** — native working-directory consumer (OSC 7 core

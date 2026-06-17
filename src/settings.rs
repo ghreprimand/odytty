@@ -501,10 +501,10 @@ pub struct Settings {
     pub font_weight: String,
     pub font_size_px: f32,
     pub text_gamma: f32,
-    /// Stem-darkening strength in `0.0..=1.0` (RV5). `0.0` (default) disables
-    /// the raster-time coverage boost and is pixel-identical to before.
+    /// Stem-darkening strength in `0.0..=1.0` (RV5). `0.0` disables the
+    /// raster-time coverage boost and is pixel-identical to before.
     pub stem_darken: f32,
-    /// Minimum fg/bg WCAG contrast floor in `1.0..=21.0` (RV1). `1.0` (default)
+    /// Minimum fg/bg WCAG contrast floor in `1.0..=21.0` (RV1). `1.0`
     /// disables enforcement and is pixel-identical to before.
     pub min_contrast: f32,
     pub focus_dim: f32,
@@ -715,11 +715,11 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            theme: Theme::PLAIN,
-            visual: VisualEffect::Off,
+            theme: DEFAULT_THEME,
+            visual: DEFAULT_VISUAL,
             font_path: None,
             explicit_font_path: None,
-            font_family: None,
+            font_family: Some(crate::text::BUNDLED_FONT_FAMILY.to_owned()),
             font_weight: String::new(),
             font_size_px: DEFAULT_FONT_SIZE_PX,
             text_gamma: DEFAULT_TEXT_GAMMA,
@@ -734,7 +734,7 @@ impl Default for Settings {
             cell_bg_opacity: DEFAULT_CELL_BG_OPACITY,
             window_padding_px: DEFAULT_WINDOW_PADDING_PX,
             bloom: DEFAULT_BLOOM,
-            bloom_threshold: default_bloom_threshold_for_theme(Theme::PLAIN),
+            bloom_threshold: DEFAULT_BLOOM_THRESHOLD,
             bloom_intensity: DEFAULT_BLOOM_INTENSITY,
             bloom_radius: DEFAULT_BLOOM_RADIUS,
             crt: DEFAULT_CRT,
@@ -826,14 +826,7 @@ impl Settings {
     }
 
     pub fn effective_crt_enabled(&self) -> bool {
-        // UX5: CRT is normally suppressed by the plain render-quality fast path.
-        // The retired `visual=ambient` scanline path was NEVER plain-gated, so
-        // when it aliases into CRT (see `from_source`) we preserve that
-        // back-compat by bypassing the plain gate specifically for the ambient
-        // alias. An explicit `crt=` config under a plain profile still obeys the
-        // plain gate; only the legacy ambient route is exempt.
-        let ambient_alias = self.visual == VisualEffect::Ambient;
-        (!self.plain_render_quality() || ambient_alias) && self.crt
+        !self.plain_render_quality() && self.crt
     }
 
     /// Rows advanced per mouse-wheel notch (MOUSE-WHEEL-SPEED), as a `usize >= 1`.
@@ -964,14 +957,15 @@ impl Settings {
         // ODYTTY_THEME resolution: a built-in name resolves to its const; any
         // other value is treated as a user theme (a path, or a name found in
         // the user theme dir) loaded via `read_theme` and parsed through the
-        // shared `ThemeSpec` path. A missing/garbage value falls back to plain
-        // with a warning — startup never fails from a bad theme setting.
+        // shared `ThemeSpec` path. A missing/garbage value falls back to the
+        // configured default with a warning — startup never fails from a bad
+        // theme setting.
         let theme = match get(THEME_ENV)
             .and_then(|value| value.into_string().ok())
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
         {
-            None => Theme::PLAIN,
+            None => DEFAULT_THEME,
             Some(value) => {
                 if let Some(builtin) = Theme::from_name(&value) {
                     builtin
@@ -982,20 +976,20 @@ impl Settings {
                     spec.to_theme()
                 } else {
                     warn(&format!(
-                        "{THEME_ENV}={value:?} is not a built-in theme or a readable theme file; using plain"
+                        "{THEME_ENV}={value:?} is not a built-in theme or a readable theme file; using the default theme"
                     ));
-                    Theme::PLAIN
+                    DEFAULT_THEME
                 }
             }
         };
         let visual = get(VISUAL_ENV)
             .and_then(|value| value.into_string().ok())
             .map(|value| VisualEffect::from_name_or_default(&value))
-            .unwrap_or(VisualEffect::Off);
+            .unwrap_or(DEFAULT_VISUAL);
         // Direct path knob (ODYTTY_FONT) takes precedence over family lookup so
         // an explicit file always wins. ODYTTY_FONT_FAMILY is resolved to a
         // validated monospace path only when no direct path is given; resolution
-        // failure falls back to the embedded probe list (font_path = None) with
+        // failure falls back to the embedded default (font_path = None) with
         // one warning, so a bad family value never aborts startup.
         let direct_path = get(FONT_ENV).map(PathBuf::from);
         // The raw explicit `font` key, kept verbatim for display/writeback. This
@@ -1006,17 +1000,22 @@ impl Settings {
         let font_family = get(FONT_FAMILY_ENV)
             .and_then(|value| value.into_string().ok())
             .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
+            .filter(|value| !value.is_empty())
+            .or_else(|| Some(crate::text::BUNDLED_FONT_FAMILY.to_owned()));
         let font_path = if direct_path.is_some() {
             direct_path
         } else if let Some(family) = font_family.as_deref() {
-            match resolve_family(family) {
-                Some(path) => Some(path),
-                None => {
-                    warn(&format!(
-                        "{FONT_FAMILY_ENV}={family:?} did not resolve to a monospace font; using the default font"
-                    ));
-                    None
+            if crate::text::is_bundled_font_family(family) {
+                None
+            } else {
+                match resolve_family(family) {
+                    Some(path) => Some(path),
+                    None => {
+                        warn(&format!(
+                            "{FONT_FAMILY_ENV}={family:?} did not resolve to a monospace font; using the default font"
+                        ));
+                        None
+                    }
                 }
             }
         } else {
@@ -1043,8 +1042,13 @@ impl Settings {
             parse_background_image_scrim(get(BACKGROUND_IMAGE_SCRIM_ENV).as_deref(), &mut warn);
         let cell_bg_opacity = parse_cell_bg_opacity(get(CELL_BG_OPACITY_ENV).as_deref(), &mut warn);
         let window_padding_px = parse_window_padding(get(WINDOW_PADDING_ENV).as_deref(), &mut warn);
-        let bloom = parse_bool_setting(get(BLOOM_ENV).as_deref(), BLOOM_ENV, false, &mut warn);
-        let default_bloom_threshold = default_bloom_threshold_for_theme(theme);
+        let bloom = parse_bool_setting(
+            get(BLOOM_ENV).as_deref(),
+            BLOOM_ENV,
+            DEFAULT_BLOOM,
+            &mut warn,
+        );
+        let default_bloom_threshold = DEFAULT_BLOOM_THRESHOLD;
         let bloom_threshold = parse_bloom_threshold(
             get(BLOOM_THRESHOLD_ENV).as_deref(),
             default_bloom_threshold,
@@ -1059,9 +1063,9 @@ impl Settings {
         // the unset case), so a config can never stack two scanline passes.
         let crt_explicit = get(CRT_ENV);
         let crt = if crt_explicit.is_some() {
-            parse_bool_setting(crt_explicit.as_deref(), CRT_ENV, false, &mut warn)
+            parse_bool_setting(crt_explicit.as_deref(), CRT_ENV, DEFAULT_CRT, &mut warn)
         } else {
-            visual == VisualEffect::Ambient
+            DEFAULT_CRT || visual == VisualEffect::Ambient
         };
         let crt_scanline_intensity =
             parse_crt_scanline_intensity(get(CRT_SCANLINE_INTENSITY_ENV).as_deref(), &mut warn);

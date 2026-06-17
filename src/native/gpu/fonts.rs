@@ -63,6 +63,10 @@ impl StyleFonts {
         font_family: &str,
         font_weight: &str,
     ) -> Result<Self, NativeError> {
+        if font_path.is_none() && text::is_bundled_font_family(font_family) {
+            return Self::load_bundled(font_weight);
+        }
+
         let regular = if font_weight.trim().is_empty() {
             text::load_font_with_path(font_path)
                 .map_err(|err| NativeError::Text(err.to_string()))?
@@ -110,6 +114,45 @@ impl StyleFonts {
         }
 
         Ok(fonts)
+    }
+
+    fn load_bundled(font_weight: &str) -> Result<Self, NativeError> {
+        let regular = if font_weight.trim().is_empty() {
+            text::load_bundled_style(FontStyle::Regular)
+        } else {
+            match text::load_bundled_weight(font_weight.trim(), false) {
+                Some(font) => Ok(font),
+                None => {
+                    eprintln!(
+                        "odytty: font_weight: bundled JetBrains Mono has no {:?} weight face; using the regular face",
+                        font_weight.trim()
+                    );
+                    text::load_bundled_style(FontStyle::Regular)
+                }
+            }
+        }
+        .map_err(|err| NativeError::Text(err.to_string()))?;
+
+        let regular = Arc::new(regular);
+        let bold = Arc::new(
+            text::load_bundled_style(FontStyle::Bold)
+                .map_err(|err| NativeError::Text(err.to_string()))?,
+        );
+        let italic = Arc::new(
+            text::load_bundled_style(FontStyle::Italic)
+                .map_err(|err| NativeError::Text(err.to_string()))?,
+        );
+        let bold_italic = Arc::new(
+            text::load_bundled_style(FontStyle::BoldItalic)
+                .map_err(|err| NativeError::Text(err.to_string()))?,
+        );
+
+        Ok(Self {
+            regular,
+            bold,
+            italic,
+            bold_italic,
+        })
     }
 
     pub(in crate::native) fn font_for(&self, style: FontStyle) -> &FontVec {

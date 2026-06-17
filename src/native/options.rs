@@ -38,16 +38,16 @@ pub enum NativeError {
 /// Initial native window and text assumptions.
 ///
 /// These are the documented starting defaults for the Linux-first prototype.
-/// They are intentionally minimal; richer settings (themes, effects) belong to a
-/// later Odyssey layer, not here.
+/// Appearance/effect defaults live in [`Settings`]; this type carries the
+/// window/text subset needed to bootstrap the native renderer.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NativeOptions {
     /// Window title.
     pub title: String,
     /// Initial terminal grid size in columns/rows.
     pub initial_grid: Dimensions,
-    /// Monospace font family request. `"monospace"` defers to the system's
-    /// default fixed-width face for the first prototype.
+    /// Monospace font family request. Defaults to bundled JetBrains Mono unless
+    /// `font_path` points at a direct file or settings request another family.
     pub font_family: String,
     /// Optional weight-variant suffix appended to `font_family` to select a
     /// lighter or heavier base face (RV7). Empty (the default) loads the
@@ -82,7 +82,7 @@ impl Default for NativeOptions {
         Self {
             title: "OdyTTY".to_owned(),
             initial_grid: Dimensions::new(80, 24),
-            font_family: "monospace".to_owned(),
+            font_family: crate::text::BUNDLED_FONT_FAMILY.to_owned(),
             font_weight: String::new(),
             font_path: None,
             font_size_px: DEFAULT_FONT_SIZE_PX,

@@ -69,6 +69,7 @@ fn command_status_gutter_is_persisted_in_edit_values() {
 
 #[test]
 fn command_status_gutter_is_live_reloadable() {
+    let _guard = RELOAD_GLOBAL_TEST_LOCK.lock().unwrap();
     let mut current = Settings::default();
     assert!(!current.command_status_gutter);
 

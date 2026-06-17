@@ -15,7 +15,9 @@
 
 use super::SettingsLevel;
 use super::sections::SECTIONS;
-use super::{RowEdit, SettingKind, SettingsPanel, SettingsPanelLine, SettingsPanelOutcome};
+use super::{
+    RowEdit, SettingKind, SettingsPanel, SettingsPanelLine, SettingsPanelOutcome, SliderDragState,
+};
 use super::{SettingInfo, ellipsize, setting_detail, wrap_words};
 use crate::native::overlay::PointerButton;
 
@@ -568,8 +570,7 @@ impl SettingsPanel {
             let Some(spec) = spec else {
                 return SettingsPanelOutcome::Consumed;
             };
-            self.dragging = Some(key);
-            self.set_value_from_slider(key, spec, track_x0, track_w, col_in_body)
+            self.set_value_from_slider(key, spec, track_x0, track_w, col_in_body, true)
         } else if col_in_body >= readout_x0 && col_in_body < readout_x0 + readout_w {
             self.start_numeric_edit(entry_index)
         } else {
@@ -587,9 +588,10 @@ impl SettingsPanel {
         body_height: usize,
         col_in_body: usize,
     ) -> SettingsPanelOutcome {
-        let Some(key) = self.dragging else {
+        let Some(drag) = self.dragging.as_ref() else {
             return SettingsPanelOutcome::Consumed;
         };
+        let key = drag.key;
         let Some(index) = self.entries.iter().position(|entry| entry.key == key) else {
             return SettingsPanelOutcome::Consumed;
         };
@@ -599,7 +601,7 @@ impl SettingsPanel {
         let Some((track_x0, track_w)) = self.slider_zone_for(index, body_width, body_height) else {
             return SettingsPanelOutcome::Consumed;
         };
-        self.set_value_from_slider(key, spec, track_x0, track_w, col_in_body)
+        self.set_value_from_slider(key, spec, track_x0, track_w, col_in_body, true)
     }
 
     /// End a slider drag (UX4-P2), called on pointer release.
@@ -618,6 +620,7 @@ impl SettingsPanel {
         track_x0: usize,
         track_w: usize,
         col_in_body: usize,
+        dragging: bool,
     ) -> SettingsPanelOutcome {
         let fraction = if track_w <= 1 {
             0.0
@@ -625,7 +628,21 @@ impl SettingsPanel {
             ((col_in_body as f32 - track_x0 as f32) / (track_w - 1) as f32).clamp(0.0, 1.0)
         };
         let value = spec.value_at_fraction(fraction);
-        self.commit_value(key, &format!("{value:.3}"))
+        let value = format!("{value:.3}");
+        if dragging {
+            if self
+                .dragging
+                .as_ref()
+                .is_some_and(|drag| drag.key == key && drag.value == value)
+            {
+                return SettingsPanelOutcome::Consumed;
+            }
+            self.dragging = Some(SliderDragState {
+                key,
+                value: value.clone(),
+            });
+        }
+        self.commit_value(key, &value)
     }
 
     /// Begin a click-to-type numeric edit through the same `RowEdit` path the

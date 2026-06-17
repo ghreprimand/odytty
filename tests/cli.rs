@@ -70,12 +70,14 @@ fn output_for_args_supports_list_fonts() {
 fn show_config_output_formats_default_settings() {
     let output = cli::show_config_output(&odytty::settings::Settings::default());
 
-    assert_contains_line(&output, "theme=plain");
+    assert_contains_line(&output, "theme=odyssey");
+    assert_contains_line(&output, "visual=ambient");
+    assert_contains_line(&output, "font_family=JetBrains Mono");
     assert_contains_line(&output, "font_size=14");
     assert_contains_line(&output, "render_quality=balanced");
-    assert_contains_line(&output, "window_padding=8");
-    assert_contains_line(&output, "bloom=off");
-    assert_contains_line(&output, "crt=off");
+    assert_contains_line(&output, "window_padding=4");
+    assert_contains_line(&output, "bloom=on");
+    assert_contains_line(&output, "crt=on");
     assert_contains_line(&output, "keybinds=");
     assert_contains_line(&output, "synthetic_styles=on");
 
@@ -117,10 +119,10 @@ fn show_config_reads_temp_config_and_applies_env_override() {
     assert_contains_line(&stdout, "theme=odyssey");
     assert_contains_line(&stdout, "font_size=21");
     assert_contains_line(&stdout, "render_quality=plain");
-    assert_contains_line(&stdout, "window_padding=8");
+    assert_contains_line(&stdout, "window_padding=4");
     assert_contains_line(&stdout, "cursor_blink=off");
     assert_contains_line(&stdout, "subpixel=rgb");
-    assert_contains_line(&stdout, "visual=off");
+    assert_contains_line(&stdout, "visual=ambient");
 
     let lines = stdout.lines().collect::<Vec<_>>();
     let mut sorted = lines.clone();

@@ -183,9 +183,9 @@ Theme and appearance system section below and `docs/themes.md` for details.
 > (default on) and focus dimming have landed; cursor glow/easing, background
 > treatments, and window chrome remain open. **Tier 3 is underway** — VE1
 > (post-process pipeline: linear `Rgba16Float` offscreen + composite,
-> adapter-gated) and VE2 (bloom / phosphor glow, off by default) are live;
-> CRT/retro profile, cursor motion / new-output fade, and GPU quality settings
-> remain open.
+> adapter-gated), VE2 (bloom / phosphor glow), and CRT scanlines are live;
+> cursor motion / new-output fade and additional GPU quality settings remain
+> open.
 > Sub-sections marked **(landed)** are grounded in source; all other items are
 > design intent, not yet built.
 
@@ -196,7 +196,7 @@ default-on policy.
 
 Every atmospheric or decorative effect must:
 
-- Be **off by default** and reachable only through an explicit setting.
+- Have an explicit off switch and stay behind a normal setting.
 - Be **perf-gated**: a weak adapter or a budget-exceeded frame must
   auto-downgrade to the plain path without visual corruption.
 - Be **readability-gated**: no effect may make text less legible at the user's
@@ -235,10 +235,9 @@ highest-priority additions.
   bounded latency budget; instant/off mode preserved and default-safe.
 - **Stem darkening for light-on-dark text (landed, default-on):** a coverage
   boost that keeps glyph stroke weight on light-on-dark displays.
-  `ODYTTY_STEM_DARKEN` / `stem_darken`, range `0.0`–`1.0`, default `0.2` (a
-  conservative on-by-default boost for crisper text). Applied at rasterization
-  time (`src/atlas/mod.rs`); `0.0` is the byte-identical opt-out to the classic
-  raster.
+  `ODYTTY_STEM_DARKEN` / `stem_darken`, range `0.0`–`1.0`, default `0.5`.
+  Applied at rasterization time (`src/atlas/mod.rs`); `0.0` is the
+  byte-identical opt-out to the classic raster.
 - **Nerd-font / symbol fallback (landed):** automatic PUA glyph fallback
   for modern prompt icons (starship, powerlevel10k, eza). `symbol_fallback`
   setting / `ODYTTY_SYMBOL_FALLBACK` env var enables the secondary symbol-font
@@ -280,9 +279,10 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
   offscreen render target, composite pass, filterable-format probe with
   weak-adapter auto-downgrade. Zero visible change at default settings; the
   scene pipelines re-target the offscreen format only while a pass is active.
-- **Bloom / phosphor glow (VE2) (landed):** bright-text/bright-cell glow via an
-  auto-derived bright-pass threshold + half-res separable blur + additive
-  composite. Off by default behind the `bloom` setting and adapter-gated.
+- **Bloom / phosphor glow (VE2) (landed):** bright-text/bright-cell glow via a
+  bright-pass threshold + half-res separable blur + additive composite. Enabled
+  in the fresh-install ambient baseline behind the `bloom` setting and
+  adapter-gated.
 - **CRT / retro profile:** refined scanlines, vignette, optional
   curvature/chromatic aberration; selectable as a theme visual profile.
 - **Subtle motion:** optional cursor glow/trail and fade-in of new

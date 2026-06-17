@@ -24,3 +24,13 @@ in your domain name, or in any way that implies official status or endorsement.
 This is a request to avoid user confusion, not a restriction on your
 software-freedom rights under the GPL. If you're unsure whether a use is okay,
 just ask.
+
+--------------------------------------------------------------------------------
+Bundled fonts
+--------------------------------------------------------------------------------
+
+JetBrains Mono
+Copyright 2020 The JetBrains Mono Project Authors
+Licensed under the SIL Open Font License, Version 1.1.
+
+The bundled font files and license text live in `assets/fonts/jetbrains-mono/`.

@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- DEFAULT-AMBIENT-BASELINE: fresh installs start on Odyssey visuals
+
+Fresh native launches now start from the current Odyssey appearance baseline:
+`theme = odyssey`, `visual = ambient`, bloom on (`threshold 0.75`, intensity
+`0.8`, radius `8.0`), CRT on (`scanlines 0.17`, spacing `7.0`), text gamma
+`1.5`, stem darkening `0.5`, minimum contrast `13.0`, focus dimming `0.0`,
+window padding `4.0`, subpixel antialiasing off, and fully opaque cell
+backgrounds. Unsupported HDR post-process adapters still fall back to the plain
+direct path with a notice instead of failing startup, and `render_quality =
+plain` remains the explicit fast/compatibility escape hatch. Public docs now
+describe the new baseline instead of the old all-effects-off default.
+
+## 2026-06-17 -- JETBRAINS-MONO-BUNDLE: guaranteed default text face
+
+OdyTTY now bundles JetBrains Mono 2.304 (SIL Open Font License 1.1) as the
+guaranteed default text family, including real regular/italic/bold and
+intermediate weight faces. Fresh installs no longer depend on host font
+availability for the baseline face; `font_family = JetBrains Mono` and
+`font_family = monospace` resolve to the embedded bytes with `font_path = None`,
+while explicit `font` paths and other installed families still work as before.
+The NOTICE and runtime docs carry the attribution, and tests cover bundled face
+parsing plus the settings-layer no-host-resolution path.
+
+## 2026-06-17 -- SETTINGS-SLIDER-LAG: coalesce high-frequency slider live-apply
+
+Live testing showed keyboard slider movement felt laggy and mouse slider drags
+could lock up the settings UI. The hot path was applying every high-frequency
+slider/key-repeat mutation synchronously through the full live settings seam;
+heavy rows such as `font_size` can rebuild the glyph atlas on each step. The
+panel now updates its own visible value immediately, while the app coalesces
+slider-drag and key-repeat `ApplySettings` outcomes to the latest settings
+snapshot and flushes before redraw, release, save, close, or mode switch. The
+slider drag path also suppresses duplicate same-value moves before they re-enter
+settings parsing. Two focused native tests cover mouse-drag coalescing through
+release and keyboard-repeat coalescing through flush.
+
 ## 2026-06-17 -- THEME-REVERT-FIX: adopt externally-applied themes into the panel baseline
 
 Live testing showed that changing a theme, then touching any other setting,

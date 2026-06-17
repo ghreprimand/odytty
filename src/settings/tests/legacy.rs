@@ -60,6 +60,30 @@ fn defaults_are_stable_without_env() {
     let (settings, warnings) = settings_from([]);
 
     assert_eq!(settings, Settings::default());
+    assert_eq!(settings.theme, DEFAULT_THEME);
+    assert_eq!(settings.visual, DEFAULT_VISUAL);
+    assert_eq!(
+        settings.font_family.as_deref(),
+        Some(crate::text::BUNDLED_FONT_FAMILY)
+    );
+    assert_eq!(settings.font_path, None);
+    assert!(settings.bloom);
+    assert_eq!(settings.bloom_threshold, DEFAULT_BLOOM_THRESHOLD);
+    assert_eq!(settings.bloom_intensity, DEFAULT_BLOOM_INTENSITY);
+    assert_eq!(settings.bloom_radius, DEFAULT_BLOOM_RADIUS);
+    assert!(settings.crt);
+    assert_eq!(
+        settings.crt_scanline_intensity,
+        DEFAULT_CRT_SCANLINE_INTENSITY
+    );
+    assert_eq!(settings.crt_scanline_period, DEFAULT_CRT_SCANLINE_PERIOD);
+    assert_eq!(settings.text_gamma, DEFAULT_TEXT_GAMMA);
+    assert_eq!(settings.stem_darken, DEFAULT_STEM_DARKEN);
+    assert_eq!(settings.min_contrast, DEFAULT_MIN_CONTRAST);
+    assert_eq!(settings.focus_dim, DEFAULT_FOCUS_DIM);
+    assert_eq!(settings.window_padding_px, DEFAULT_WINDOW_PADDING_PX);
+    assert_eq!(settings.subpixel, SubpixelMode::Off);
+    assert_eq!(settings.cell_bg_opacity, DEFAULT_CELL_BG_OPACITY);
     assert!(warnings.is_empty());
 }
 
@@ -627,18 +651,17 @@ fn ux5_explicit_crt_always_wins_over_ambient_alias() {
 }
 
 #[test]
-fn ux5_no_ambient_leaves_crt_off_by_default() {
-    // The default (no visual, no crt) keeps CRT off — the alias only fires for
-    // ambient. Guards TRAP 2 PLAIN-PATH IDENTITY at the settings layer.
+fn ux5_no_ambient_still_uses_crt_default() {
+    // CRT is now a default profile choice, independent of the legacy
+    // visual=ambient alias. Explicit crt=off remains the opt-out.
     let (settings, _) = settings_from([]);
-    assert_eq!(settings.visual, VisualEffect::Off);
-    assert!(!settings.crt, "no ambient + no crt config keeps crt off");
+    assert_eq!(settings.visual, DEFAULT_VISUAL);
+    assert!(settings.crt, "fresh install defaults to CRT on");
 }
 
 #[test]
-fn ux5_ambient_alias_bypasses_plain_gate() {
-    // The legacy ambient path was never plain-gated, so its CRT alias is exempt
-    // from the plain render-quality suppression — preserving back-compat.
+fn render_quality_plain_suppresses_ambient_crt() {
+    // The plain profile is the explicit fast/unstyled escape hatch.
     let settings = Settings {
         render_quality: RenderQuality::Plain,
         visual: VisualEffect::Ambient,
@@ -646,12 +669,11 @@ fn ux5_ambient_alias_bypasses_plain_gate() {
         ..Settings::default()
     };
     assert!(
-        settings.effective_crt_enabled(),
-        "ambient alias bypasses the plain gate"
+        !settings.effective_crt_enabled(),
+        "plain render quality suppresses CRT even when ambient is active"
     );
 
-    // An explicit (non-ambient) crt under a plain profile still obeys the gate
-    // (the bypass is specific to the ambient alias).
+    // An explicit crt under a plain profile obeys the same gate.
     let settings = Settings {
         render_quality: RenderQuality::Plain,
         visual: VisualEffect::Off,
@@ -725,12 +747,12 @@ fn text_gamma_clamps_to_sane_range() {
 }
 
 #[test]
-fn stem_darken_defaults_to_subtle_boost() {
-    // RV5 ships default-on: a conservative, perceptibly-crisper boost (not bold).
+fn stem_darken_defaults_to_visible_boost() {
+    // Fresh installs use a visible boost; explicit 0.0 remains the opt-out.
     // The opt-out is an explicit `0.0`, exercised by the clamp/parse tests below.
     let (settings, warnings) = settings_from([]);
     assert_eq!(settings.stem_darken, DEFAULT_STEM_DARKEN);
-    assert_eq!(settings.stem_darken, 0.2);
+    assert_eq!(settings.stem_darken, 0.5);
     assert!(warnings.is_empty());
 }
 
@@ -768,10 +790,10 @@ fn stem_darken_clamps_to_unit_range() {
 }
 
 #[test]
-fn min_contrast_defaults_to_passthrough() {
+fn min_contrast_defaults_to_strong_floor() {
     let (settings, warnings) = settings_from([]);
     assert_eq!(settings.min_contrast, DEFAULT_MIN_CONTRAST);
-    assert_eq!(settings.min_contrast, 1.0);
+    assert_eq!(settings.min_contrast, 13.0);
     assert!(warnings.is_empty());
 }
 
@@ -967,13 +989,10 @@ fn window_padding_defaults_parses_zero_and_clamps() {
 }
 
 #[test]
-fn bloom_defaults_to_off_with_theme_derived_threshold() {
+fn bloom_defaults_to_on_with_fixed_threshold() {
     let (settings, warnings) = settings_from([]);
-    assert!(!settings.bloom);
-    assert_eq!(
-        settings.bloom_threshold,
-        default_bloom_threshold_for_theme(Theme::PLAIN)
-    );
+    assert!(settings.bloom);
+    assert_eq!(settings.bloom_threshold, DEFAULT_BLOOM_THRESHOLD);
     assert_eq!(settings.bloom_intensity, DEFAULT_BLOOM_INTENSITY);
     assert_eq!(settings.bloom_radius, DEFAULT_BLOOM_RADIUS);
     assert!(warnings.is_empty());
@@ -996,14 +1015,11 @@ fn bloom_parses_valid_values() {
 }
 
 #[test]
-fn bloom_auto_threshold_tracks_theme_foreground() {
+fn bloom_auto_threshold_uses_fixed_default() {
     let (settings, warnings) =
         settings_from([(THEME_ENV, "odyssey"), (BLOOM_THRESHOLD_ENV, "auto")]);
 
-    assert_eq!(
-        settings.bloom_threshold,
-        default_bloom_threshold_for_theme(Theme::ODYSSEY)
-    );
+    assert_eq!(settings.bloom_threshold, DEFAULT_BLOOM_THRESHOLD);
     assert!(warnings.is_empty());
 }
 
@@ -1015,10 +1031,7 @@ fn garbage_bloom_numbers_fall_back_with_warnings() {
         (BLOOM_RADIUS_ENV, "wide"),
     ]);
 
-    assert_eq!(
-        settings.bloom_threshold,
-        default_bloom_threshold_for_theme(Theme::PLAIN)
-    );
+    assert_eq!(settings.bloom_threshold, DEFAULT_BLOOM_THRESHOLD);
     assert_eq!(settings.bloom_intensity, DEFAULT_BLOOM_INTENSITY);
     assert_eq!(settings.bloom_radius, DEFAULT_BLOOM_RADIUS);
     assert_eq!(warnings.len(), 3);
@@ -1075,9 +1088,9 @@ fn bloom_round_trips_through_config_key_mapping() {
 }
 
 #[test]
-fn crt_defaults_to_off_with_bounded_defaults() {
+fn crt_defaults_to_on_with_bounded_defaults() {
     let (settings, warnings) = settings_from([]);
-    assert!(!settings.crt);
+    assert!(settings.crt);
     assert_eq!(
         settings.crt_scanline_intensity,
         DEFAULT_CRT_SCANLINE_INTENSITY
@@ -1211,14 +1224,14 @@ fn garbage_subpixel_falls_back_with_one_warning() {
 #[test]
 fn font_family_is_parsed_and_trimmed() {
     let (settings, warnings) =
-        settings_from_resolving([(FONT_FAMILY_ENV, "  JetBrains Mono  ")], |family| {
-            assert_eq!(family, "JetBrains Mono");
-            Some(PathBuf::from("/fonts/JetBrainsMono-Regular.ttf"))
+        settings_from_resolving([(FONT_FAMILY_ENV, "  Test Mono  ")], |family| {
+            assert_eq!(family, "Test Mono");
+            Some(PathBuf::from("/fonts/TestMono-Regular.ttf"))
         });
-    assert_eq!(settings.font_family.as_deref(), Some("JetBrains Mono"));
+    assert_eq!(settings.font_family.as_deref(), Some("Test Mono"));
     assert_eq!(
         settings.font_path,
-        Some(PathBuf::from("/fonts/JetBrainsMono-Regular.ttf"))
+        Some(PathBuf::from("/fonts/TestMono-Regular.ttf"))
     );
     assert!(warnings.is_empty());
 }
@@ -1251,7 +1264,7 @@ fn direct_font_path_wins_over_family() {
 fn unresolvable_family_falls_back_with_one_warning() {
     let (settings, warnings) =
         settings_from_resolving([(FONT_FAMILY_ENV, "No Such Mono")], |_| None);
-    // Falls back to the embedded probe list (None) rather than failing.
+    // Falls back to the embedded default path (None) rather than failing.
     assert_eq!(settings.font_path, None);
     assert_eq!(settings.font_family.as_deref(), Some("No Such Mono"));
     assert_eq!(warnings.len(), 1);
@@ -1259,9 +1272,35 @@ fn unresolvable_family_falls_back_with_one_warning() {
 }
 
 #[test]
+fn bundled_font_family_uses_embedded_default_without_host_resolution() {
+    let mut resolver_called = false;
+    let (settings, warnings) = settings_from_resolving(
+        [(FONT_FAMILY_ENV, crate::text::BUNDLED_FONT_FAMILY)],
+        |_| {
+            resolver_called = true;
+            None
+        },
+    );
+
+    assert!(
+        !resolver_called,
+        "bundled family must not depend on host fonts"
+    );
+    assert_eq!(
+        settings.font_family.as_deref(),
+        Some(crate::text::BUNDLED_FONT_FAMILY)
+    );
+    assert_eq!(settings.font_path, None);
+    assert!(warnings.is_empty());
+}
+
+#[test]
 fn empty_font_family_is_ignored() {
     let (settings, warnings) = settings_from([(FONT_FAMILY_ENV, "   ")]);
-    assert_eq!(settings.font_family, None);
+    assert_eq!(
+        settings.font_family.as_deref(),
+        Some(crate::text::BUNDLED_FONT_FAMILY)
+    );
     assert_eq!(settings.font_path, None);
     assert!(warnings.is_empty());
 }

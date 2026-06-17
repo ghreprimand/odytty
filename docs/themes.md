@@ -8,9 +8,10 @@ border/inactive). A theme is selected with the `theme` setting
 
 There are two kinds of theme:
 
-- **Built-in themes**, selected by name — `plain` (the default —
-  pixel-identical to the pre-theme appearance) plus a curated library of
-  Odyssey-identity and community themes (see [Built-in theme
+- **Built-in themes**, selected by name — `odyssey` is the fresh-install
+  default, while `plain` remains available as the pixel-identical pre-theme
+  appearance plus a curated library of Odyssey-identity and community themes
+  (see [Built-in theme
   library](#built-in-theme-library)).
 - **User theme files**, written in the dependency-free theme file format
   described below and dropped into your theme directory (or referenced by path).
@@ -64,8 +65,9 @@ path — so the file format is exercised by the library on every startup.
 ### Theme families
 
 **Odyssey identity** — `plain` plus sixty-three `odyssey-*` variants are
-original themes designed for OdysseyOS. `plain` reproduces the historical xterm
-default palette byte-for-byte and is the fallback when no theme is configured.
+original themes designed for OdysseyOS. `odyssey` is the fresh-install default;
+`plain` reproduces the historical xterm default palette byte-for-byte and
+remains available as an explicit compatibility choice.
 The `odyssey-*` variants span a range of visual moods across dark and light
 appearances: deep-space and interstellar cold (`odyssey`, `odyssey-deepspace`,
 `odyssey-pulsar`, `odyssey-midnight`), warm atmospheric (`odyssey-solar`,
@@ -114,8 +116,8 @@ OdyTTY has no affiliation with or endorsement from any of those vendors.
 
 | Name | Appearance | Family |
 | --- | --- | --- |
-| `plain` | dark | OdyTTY default (pixel-identical to the pre-theme look) |
-| `odyssey` | dark | Odyssey identity |
+| `plain` | dark | Pixel-identical to the pre-theme look |
+| `odyssey` | dark | OdyTTY default Odyssey identity |
 | `odyssey-noir` | dark | Odyssey identity (deep, low-key) |
 | `odyssey-light` | light | Odyssey identity (light) |
 | `odyssey-aurora` | dark | Odyssey identity (high-contrast) |

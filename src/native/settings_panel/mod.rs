@@ -48,8 +48,8 @@ pub(super) struct SettingsPanel {
     scroll: usize,
     editing: Option<RowEdit>,
     message: Option<String>,
-    /// Key of the numeric row whose slider is being dragged (UX4-P2).
-    dragging: Option<&'static str>,
+    /// Numeric row whose slider is being dragged (UX4-P2).
+    dragging: Option<SliderDragState>,
     /// In-overlay search state (OB-SEARCH).
     query: String,
     search_active: bool,
@@ -115,6 +115,12 @@ pub(super) enum SettingsPanelOutcome {
 struct RowEdit {
     key: &'static str,
     buffer: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SliderDragState {
+    key: &'static str,
+    value: String,
 }
 
 impl SettingsPanel {
@@ -1297,7 +1303,7 @@ mod tests {
         let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Right) else {
             panic!("expected enum cycle to apply");
         };
-        assert_eq!(settings.visual.as_str(), "ambient");
+        assert_eq!(settings.visual.as_str(), "off");
         assert_eq!(panel.render_signature().changed_count, 1);
     }
 

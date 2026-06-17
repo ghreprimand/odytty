@@ -25,7 +25,7 @@ Status: turnkey — run each cell, record pass/fail in the rightmost column.
 |----------------------------|----------------------------------------------|
 | `WINIT_X11_SCALE_FACTOR=N` | Force X11 scale to N (e.g. 1.25, 2.0)       |
 | `ODYTTY_FONT_SIZE=N`       | Override logical font size (default 14)      |
-| `ODYTTY_THEME=name`        | Theme selection (default `plain`)            |
+| `ODYTTY_THEME=name`        | Theme selection (default `odyssey`)          |
 
 ---
 

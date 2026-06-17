@@ -17,6 +17,10 @@ use super::config::{config_key_to_env, env_to_config_key};
 use super::reload::{ConfigFileFingerprint, ConfigPollEvent};
 use super::*;
 
+/// Serialize tests that call `apply_reloadable_values`, because it republishes
+/// process-wide renderer globals.
+static RELOAD_GLOBAL_TEST_LOCK: Mutex<()> = Mutex::new(());
+
 mod cursor;
 mod info;
 mod keybinds;

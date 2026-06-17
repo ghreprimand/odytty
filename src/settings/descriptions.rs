@@ -4,14 +4,14 @@
 /// with a concise description, its accepted values, and its default.
 pub const STEM_DARKEN_DESC: &str = "Stem darkening: boosts glyph coverage so light-on-dark text holds weight at \
      small sizes. Accepts 0.0–1.0; 0.0 is off (identical to no boost), 1.0 is \
-     strongest. Default 0.2 (a subtle crispness boost).";
+     strongest. Default 0.5.";
 
 /// Human-readable help for the minimum-contrast knob, shown in the in-app
 /// settings panel (UX2). Follows the every-knob-carries-a-description convention.
 pub const MIN_CONTRAST_DESC: &str = "Minimum contrast: lifts foreground text so its WCAG contrast against the \
      background meets at least this ratio, keeping low-contrast apps legible. \
      Accepts 1.0–21.0; 1.0 is off (no change), 4.5 is the WCAG AA body-text \
-     threshold, 7.0 is AAA. Hue is preserved. Default 1.0.";
+     threshold, 7.0 is AAA. Hue is preserved. Default 13.0.";
 
 /// Human-readable help for the focus-dimming knob (ID2), shown in the in-app
 /// settings panel. Follows the every-knob-carries-a-description convention.

@@ -223,6 +223,10 @@ pub(super) struct App {
     key_bindings: KeyBindings,
     settings: Settings,
     settings_reloader: SettingsReloader,
+    /// Latest settings produced by a high-frequency overlay interaction
+    /// (slider drag / key repeat). Coalesced so expensive live applies such as
+    /// font-size atlas rebuilds happen at most once per frame/event burst.
+    pending_overlay_settings: Option<Settings>,
     /// Current selection anchored to absolute rows in the
     /// scrollback+visible-screen space. Native owns this UI state; the terminal
     /// core remains unaware of selections and clipboard operations.
@@ -433,6 +437,7 @@ impl App {
             key_bindings,
             settings,
             settings_reloader,
+            pending_overlay_settings: None,
             selection: AbsoluteSelectionState::default(),
             themed_ui_roles,
             pointer_cell: None,
@@ -611,7 +616,7 @@ impl App {
                 return;
             }
             if self.overlay.is_open() {
-                self.handle_overlay_key(&logical);
+                self.handle_overlay_key(&logical, event_type);
                 return;
             }
             if action == Some(BindableAction::Search) {
@@ -779,7 +784,7 @@ impl App {
         self.request_selection_redraw();
     }
 
-    fn handle_overlay_key(&mut self, logical: &WinitKey) {
+    fn handle_overlay_key(&mut self, logical: &WinitKey, event_type: KeyEventType) {
         // KB-REMAP chord capture (R2 KILL-SHOT): when the key-remap modal is
         // armed to capture a chord, this MUST be the first thing we do — route
         // the raw key through `chord_from_winit` BEFORE the lossy
@@ -802,7 +807,7 @@ impl App {
         };
 
         let outcome = self.overlay.handle_input(input);
-        self.apply_overlay_outcome(outcome);
+        self.apply_overlay_outcome_with_policy(outcome, event_type == KeyEventType::Repeat);
         self.request_selection_redraw();
     }
 
@@ -1064,7 +1069,21 @@ impl App {
         self.apply_settings_through_reload_seam(reloaded, SettingsApplySource::OverlayEdit);
     }
 
+    fn queue_overlay_settings(&mut self, settings: Settings) {
+        self.pending_overlay_settings = Some(settings);
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
+    fn flush_pending_overlay_settings(&mut self) {
+        if let Some(settings) = self.pending_overlay_settings.take() {
+            self.apply_overlay_settings(settings);
+        }
+    }
+
     fn save_overlay_settings(&mut self, changes: &[crate::settings::SettingEdit]) {
+        self.flush_pending_overlay_settings();
         let Some(path) = self.settings_reloader.config_path() else {
             self.overlay
                 .save_failed("could not resolve odytty.conf path".to_owned());
@@ -1448,6 +1467,7 @@ impl ApplicationHandler<UserEvent> for App {
                 self.update_control_flow_deadline(event_loop);
             }
             WindowEvent::RedrawRequested => {
+                self.flush_pending_overlay_settings();
                 self.handle_terminal_clipboard_requests();
                 self.update_window_title();
                 // Rebuild geometry at most once per redraw, no matter how many
@@ -1857,6 +1877,7 @@ impl ApplicationHandler<UserEvent> for App {
         }
 
         self.poll_config_reload(now);
+        self.flush_pending_overlay_settings();
 
         if let Some(deadline) = self.deadline
             && now >= deadline
