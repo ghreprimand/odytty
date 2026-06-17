@@ -1282,6 +1282,48 @@ impl App {
             window.request_redraw();
         }
     }
+
+    fn run_about_to_wait_maintenance(&mut self, now: Instant) {
+        if let Some(resize) = self.resize_debounce.take_due(now) {
+            self.apply_grid_resize(resize);
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+
+        // A due cursor-blink toggle rebuilds once so the phase flips; the rebuild
+        // path polls the blink driver and advances it.
+        if self.cursor_blink.is_due(now) {
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+
+        // A due cursor-animation tick (ID1 easing fade / VE4 slide) rebuilds once
+        // so the eased alpha / slide offset advance. `animation_deadline()` is
+        // `None` whenever nothing is animating (both knobs off, or the animation
+        // settled), so this fires only while an animation is in flight and the
+        // terminal returns to zero-wake idle once it completes (bounded wake).
+        if self
+            .animation_deadline()
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+
+        if self.synchronized_output_hold.is_due(now) {
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+
+        self.poll_config_reload(now);
+    }
 }
 
 impl ApplicationHandler<UserEvent> for App {
@@ -1838,46 +1880,7 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
-        if let Some(resize) = self.resize_debounce.take_due(now) {
-            self.apply_grid_resize(resize);
-            if let Some(window) = self.window.as_ref() {
-                window.request_redraw();
-            }
-        }
-
-        // A due cursor-blink toggle rebuilds once so the phase flips; the rebuild
-        // path polls the blink driver and advances it.
-        if self.cursor_blink.is_due(now) {
-            self.needs_rebuild = true;
-            if let Some(window) = self.window.as_ref() {
-                window.request_redraw();
-            }
-        }
-
-        // A due cursor-animation tick (ID1 easing fade / VE4 slide) rebuilds once
-        // so the eased alpha / slide offset advance. `animation_deadline()` is
-        // `None` whenever nothing is animating (both knobs off, or the animation
-        // settled), so this fires only while an animation is in flight and the
-        // terminal returns to zero-wake idle once it completes (bounded wake).
-        if self
-            .animation_deadline()
-            .is_some_and(|deadline| now >= deadline)
-        {
-            self.needs_rebuild = true;
-            if let Some(window) = self.window.as_ref() {
-                window.request_redraw();
-            }
-        }
-
-        if self.synchronized_output_hold.is_due(now) {
-            self.needs_rebuild = true;
-            if let Some(window) = self.window.as_ref() {
-                window.request_redraw();
-            }
-        }
-
-        self.poll_config_reload(now);
-        self.flush_pending_overlay_settings();
+        self.run_about_to_wait_maintenance(now);
 
         if let Some(deadline) = self.deadline
             && now >= deadline

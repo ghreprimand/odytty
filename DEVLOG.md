@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- SETTINGS-SLIDER-LAG: coalesce live applies to redraw/release
+
+Settings slider drags and key-repeat steps now keep their expensive live apply
+queued until the redraw/release/close/save flush points instead of flushing
+during the event loop's idle maintenance. This preserves the existing
+latest-value behavior while stopping high-frequency pointer/key events from
+forcing font atlas rebuilds, grid resizes, and full settings presentation
+publishes once per input event. A regression test covers the idle-maintenance
+path so the coalescing gate cannot be bypassed again.
+
 ## 2026-06-17 -- RETRO-PRESET: one-switch stronger phosphor profile
 
 OdyTTY now has a first-class `retro = on` / `ODYTTY_RETRO=on` preset for a

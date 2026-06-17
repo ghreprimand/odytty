@@ -441,6 +441,14 @@ impl App {
         self.flush_pending_overlay_settings();
     }
 
+    /// Test seam (SETTINGS-SLIDER-LAG): run the non-render idle maintenance the
+    /// winit loop performs in `about_to_wait`. This must not flush a coalesced
+    /// slider/key-repeat apply; redraw/release/close are the flush points.
+    #[cfg(test)]
+    pub(in crate::native) fn run_about_to_wait_maintenance_for_test(&mut self, now: Instant) {
+        self.run_about_to_wait_maintenance(now);
+    }
+
     /// Test seam (KB-REMAP R2): whether the remap modal is armed to capture a
     /// raw chord — the predicate the production key path gates its bypass on.
     #[cfg(test)]

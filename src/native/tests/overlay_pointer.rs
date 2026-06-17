@@ -332,6 +332,17 @@ fn settings_slider_key_repeat_is_coalesced_until_flush() {
         "repeat updates the panel before applying app font state"
     );
 
+    app.run_about_to_wait_maintenance_for_test(Instant::now());
+    assert!(
+        app.pending_overlay_settings_for_test(),
+        "event-loop idle maintenance must not flush coalesced slider/key-repeat applies"
+    );
+    assert_eq!(
+        app.font_size_px_for_test(),
+        start + 1.0,
+        "idle maintenance leaves the expensive app font state untouched"
+    );
+
     app.flush_pending_overlay_settings_for_test();
     assert!(
         !app.pending_overlay_settings_for_test(),
