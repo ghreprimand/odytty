@@ -479,12 +479,13 @@ impl OverlayUi {
                 }
             }
             OverlayMode::FontPicker => {
+                // FONT-PICKER-STAY-OPEN: applying a font (Enter) live-applies
+                // and saves it, then KEEPS the picker open so the user can keep
+                // cycling fonts. font_picker.save_succeeded adopts the applied
+                // family as the new baseline (self.original), so it shows the
+                // "current" marker and Esc no longer reverts past it. Esc
+                // (Cancel) is what closes the picker / returns to the panel.
                 self.font_picker.save_succeeded(changed);
-                if self.picker_return.is_some() {
-                    self.return_to_settings_panel();
-                } else {
-                    self.close();
-                }
             }
             OverlayMode::ThemeBuilder => {}
             // KB-REMAP stays open after a save so the user can keep editing; the
@@ -1712,7 +1713,10 @@ mod tests {
     }
 
     #[test]
-    fn font_picker_save_returns_to_settings_when_launched_from_settings_panel() {
+    fn font_picker_apply_stays_open_when_launched_from_settings_panel() {
+        // FONT-PICKER-STAY-OPEN: Enter applies+saves the font but KEEPS the
+        // picker open so the user can keep cycling. It must NOT return to the
+        // settings panel after the save succeeds.
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
 
@@ -1746,12 +1750,77 @@ mod tests {
         assert_eq!(changes.len(), 1);
 
         overlay.save_succeeded(changes.len());
+        // Stay-open contract: still open, still in FontPicker mode.
+        assert!(overlay.is_open(), "picker must stay open after apply");
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::FontPicker,
+            "font picker apply must stay in FontPicker mode, not return to panel"
+        );
+
+        // The applied family now shows the "current" marker in the rendered list
+        // (font_picker.save_succeeded adopts it as self.original).
+        let applied = overlay.settings.font_family.clone();
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let lines = overlay.visible_lines(rect.body_width, rect.body_height);
+        assert!(
+            lines.iter().any(|line| line.text.contains("current")
+                && applied
+                    .as_deref()
+                    .map(|f| line.text.contains(f))
+                    .unwrap_or(true)),
+            "applied family must render with the current marker after apply"
+        );
+
+        // Esc still returns to the settings panel (the panel-launched path).
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Close),
+            OverlayOutcome::Consumed
+        );
         assert!(overlay.is_open());
         assert_eq!(
             overlay.render_signature().mode,
             OverlayMode::Settings,
-            "font picker apply from settings should return to settings panel"
+            "Esc must return to the settings panel after the panel-launched picker"
         );
+    }
+
+    #[test]
+    fn font_picker_apply_stays_open_then_esc_closes_standalone() {
+        // FONT-PICKER-STAY-OPEN standalone path (Ctrl+Shift+F): Enter applies and
+        // keeps the picker open; a second Enter applies another font; Esc closes.
+        let mut overlay = OverlayUi::default();
+        overlay.open_font_picker(&overlay.settings.clone());
+        assert_eq!(overlay.render_signature().mode, OverlayMode::FontPicker);
+
+        // First Enter: apply + stay open.
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Down),
+            OverlayOutcome::Consumed
+        );
+        let outcome = overlay.handle_input(OverlayInput::Activate);
+        let OverlayOutcome::SaveSettings(changes) = outcome else {
+            panic!("expected first save request");
+        };
+        overlay.save_succeeded(changes.len());
+        assert!(overlay.is_open(), "picker stays open after first apply");
+        assert_eq!(overlay.render_signature().mode, OverlayMode::FontPicker);
+
+        // Second Enter: still persists and still stays open (cycling works).
+        let outcome = overlay.handle_input(OverlayInput::Activate);
+        let OverlayOutcome::SaveSettings(changes2) = outcome else {
+            panic!("expected second save request");
+        };
+        overlay.save_succeeded(changes2.len());
+        assert!(overlay.is_open(), "picker stays open after second apply");
+        assert_eq!(overlay.render_signature().mode, OverlayMode::FontPicker);
+
+        // Esc on the standalone path fully closes the overlay.
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Close),
+            OverlayOutcome::Close
+        );
+        assert!(!overlay.is_open(), "standalone Esc closes the picker");
     }
 
     // --- UX4-P1: pointer entry (handle_pointer / overlay_rect) ---

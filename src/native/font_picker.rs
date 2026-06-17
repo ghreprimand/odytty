@@ -136,7 +136,10 @@ impl FontPicker {
 
     pub(super) fn save_succeeded(&mut self, _changed: usize) {
         self.original = self.selected_family().unwrap_or(self.original.clone());
-        self.message = Some("Font family saved.".to_owned());
+        // FONT-PICKER-STAY-OPEN: the picker stays open after applying, so make
+        // the model obvious. self.original now tracks the just-applied family,
+        // so it renders with the "current" marker and Esc keeps it.
+        self.message = Some("Applied — Enter to try another, Esc to close.".to_owned());
     }
 
     pub(super) fn save_failed(&mut self, message: String) {
