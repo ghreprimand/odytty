@@ -492,4 +492,16 @@ impl App {
     pub(in crate::native) fn pending_exit_for_test(&self) -> bool {
         self.pending_exit
     }
+
+    /// Test seam (FONT-SAVE-CORRECTNESS BUG 2): drive the post-write live-apply
+    /// step that `save_overlay_settings` now performs — re-applying the
+    /// just-written config through the shared `OverlayEdit` reload seam so a
+    /// picked font / theme / panel edit takes effect immediately, not at the
+    /// next restart. Wraps the exact production `apply_overlay_settings` the save
+    /// path calls (not a parallel reimplementation), decoupled from the real
+    /// `config_file_path()` so the test is hermetic.
+    #[cfg(test)]
+    pub(in crate::native) fn apply_saved_settings_live_for_test(&mut self, reloaded: Settings) {
+        self.apply_overlay_settings(reloaded);
+    }
 }

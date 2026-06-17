@@ -136,7 +136,14 @@ fn setting_info_covers_every_field_with_descriptions() {
         ]
     );
     assert!(info.iter().all(|row| !row.description.trim().is_empty()));
-    assert!(info.iter().all(|row| !row.value.trim().is_empty()));
+    // Every row carries a value EXCEPT an unset optional Path (e.g. the explicit
+    // `font` file): an unset Path must surface an empty value, not a human
+    // sentence, so the writeback never persists a placeholder as a real path
+    // (FONT-SAVE-CORRECTNESS BUG 1). Non-Path rows still all carry a value.
+    assert!(
+        info.iter()
+            .all(|row| { !row.value.trim().is_empty() || matches!(row.kind, SettingKind::Path) })
+    );
     assert!(
         info.iter()
             .any(|row| row.key == "stem_darken" && row.range.as_deref() == Some("0.0..=1.0"))

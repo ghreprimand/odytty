@@ -180,13 +180,22 @@ impl Settings {
                 group: "Font",
                 key: "font",
                 env: FONT_ENV,
-                name: "Font file",
+                name: "Font file (advanced)",
+                // An UNSET explicit font must carry an EMPTY value, not a human
+                // sentence: this `value` is what the path-picker seeds and what
+                // the writeback persists/compares. A sentence here got written to
+                // config verbatim as `font = default monospace probe list`, which
+                // (a) spammed a "No such file" warning every launch and (b) — since
+                // `font` outranks `font_family` — shadowed the user's chosen font.
+                // Empty is treated as a clear by the writeback (apply_raw("font",
+                // "")), so an untouched font emits no edit. The default hint lives
+                // in the description below, not in the value.
                 value: self
                     .font_path
                     .as_ref()
                     .map(|path| path.display().to_string())
-                    .unwrap_or_else(|| "default monospace probe list".to_owned()),
-                description: "Explicit font file path. Takes precedence over font_family and falls back safely when unreadable.",
+                    .unwrap_or_default(),
+                description: "Advanced: an explicit path to one font file, used instead of the system font lookup. Leave empty (the default: the probed monospace font, or the Font family setting) unless you want to force a specific file. When set, it takes precedence over Font family and falls back safely if the file is missing or unreadable.",
                 kind: SettingKind::Path,
                 range: None,
                 options: &[],

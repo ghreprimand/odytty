@@ -61,6 +61,41 @@ fn ux4_p3_labels_are_specific_without_renaming_config_keys() {
 }
 
 #[test]
+fn unset_font_file_value_is_empty_not_a_human_sentence() {
+    // FONT-SAVE-CORRECTNESS BUG 1: an UNSET explicit `font` must surface an
+    // EMPTY value, never a human sentence. The `value` field is what the
+    // path-picker seeds and what the writeback persists/compares; a sentence
+    // here was written verbatim as `font = default monospace probe list`,
+    // spamming a "No such file" warning and (since `font` outranks
+    // `font_family`) shadowing the user's chosen font.
+    let rows = Settings::default().setting_info();
+    let font = row(&rows, "font");
+    assert!(
+        Settings::default().font_path.is_none(),
+        "precondition: default has no explicit font file"
+    );
+    assert_eq!(font.value, "", "unset font surfaces an empty value");
+    assert_ne!(
+        font.value, "default monospace probe list",
+        "the legacy human-sentence placeholder must not leak into the value"
+    );
+    // The default hint moved into the description, which must read as an
+    // advanced explicit-file override (the operator found the old wording
+    // confusing).
+    assert!(
+        font.description.to_lowercase().contains("advanced"),
+        "description signals an advanced override"
+    );
+
+    // A draft with no font change must emit NO font edit — the pollution path.
+    let draft = SettingsEditOverlay::new(&Settings::default());
+    assert!(
+        !draft.changes().iter().any(|edit| edit.key == "font"),
+        "an untouched unset font must not be persisted"
+    );
+}
+
+#[test]
 fn keybinds_info_options_lists_all_actions() {
     // D-KBR-2 / R7: the `keybinds` row's options[] must enumerate every
     // BindableAction (it was stale at 7 of 12). Pinned to the

@@ -68,6 +68,7 @@ mod clipboard_paste;
 mod close_confirm;
 mod context_menu;
 mod cvd_wiring;
+mod font_save;
 mod gpu_render;
 mod grid_scale;
 mod input_keys;

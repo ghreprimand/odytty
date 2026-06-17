@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- FONT-SAVE-CORRECTNESS: stop persisting the unset-font placeholder; saves now apply live
+
+A live test surfaced two font bugs that left a chosen font apparently doing
+nothing.
+
+- **Unset "Font file" no longer pollutes the config.** The explicit font-file
+  (Path) setting displayed a human sentence as its value when unset, and that
+  sentence could be written back to `odytty.conf` as a literal path
+  (`font = default monospace probe list`), which both spammed a read error on
+  every launch and — because an explicit font file outranks the font family —
+  silently shadowed the font family the user had chosen. The unset value is now
+  an empty string (the writeback's clear), so an untouched font emits no edit
+  and never pollutes the config. The hint moved into the description, reworded
+  as an advanced explicit-file override, and the row is now labelled
+  "Font file (advanced)".
+- **Overlay saves apply live.** Saving from the overlay previously only wrote to
+  disk — the running terminal kept the old font/theme until restart. After a
+  successful write that changed something, the settings are re-read from the
+  just-written config and routed through the existing overlay-edit reload seam,
+  so the font atlas / theme / options rebuild immediately. Covers the font
+  picker, theme picker, settings-panel save, and key remap.
+- Three new tests: unset font yields an empty (non-sentence) value and is not
+  persisted; re-applying unchanged settings is a stable no-op (no live-preview
+  regression); a saved change applies live through the seam.
+
+State: `cargo test --lib` 1673 passed / 0 failed; all-targets green
+(pixel_smoke 49, gpu_composite 3, mouse_protocol 12); `cargo fmt --check` clean;
+clippy `--lib` 38 (baseline, zero net-new).
+
+---
+
 ## 2026-06-17 -- FONT-PICKER: choose a system font from a list, like the theme picker
 
 The `font_family` setting was a dead type-in field. It is now a browsable picker

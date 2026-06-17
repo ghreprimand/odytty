@@ -1071,7 +1071,18 @@ impl App {
             return;
         };
         match write_settings_changes_to_path(path, changes) {
-            Ok(result) => self.overlay.save_succeeded(result.changed),
+            Ok(result) => {
+                self.overlay.save_succeeded(result.changed);
+                // BUG 2 (FONT-SAVE-CORRECTNESS): a Save must also apply LIVE, not
+                // only at restart. Re-read the just-written config as startup does
+                // (`Settings::from_env`, same path + env) and route it through the
+                // shared reload seam — no duplicated reload logic. Idempotent: a
+                // live-previewed value and the later background poll both no-op.
+                if result.changed > 0 {
+                    let reloaded = Settings::from_env();
+                    self.apply_overlay_settings(reloaded);
+                }
+            }
             Err(error) => self.overlay.save_failed(error.to_string()),
         }
     }
