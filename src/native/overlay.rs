@@ -122,14 +122,14 @@ impl OverlayUi {
         self.open = true;
     }
 
-    /// Open the font-family picker (FONT-PICKER). Runs a fresh font inventory
-    /// scan on open (same call site as `--list-fonts`; typically <100 ms).
-    /// Backs the picker list with monospace-only, family-collapsed entries.
+    /// Open the font-family picker (FONT-PICKER). Runs a fresh metadata scan on
+    /// open (typically <100 ms). Backs the picker list with the host's distinct
+    /// real monospace family names (from [`crate::text::font_families`]).
     pub(super) fn open_font_picker(&mut self, settings: &Settings) {
         self.panel.end_slider_drag();
         self.settings = settings.clone();
-        let inventory = crate::text::font_inventory();
-        self.font_picker.open(settings, inventory);
+        let families = crate::text::font_families();
+        self.font_picker.open(settings, families);
         self.mode = OverlayMode::FontPicker;
         self.open = true;
     }

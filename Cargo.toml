@@ -18,6 +18,11 @@ pollster = "0.4.0"
 rustix = { version = "1.1.4", features = ["pty", "termios"] }
 swash = "0.2.9"
 thiserror = "2.0.18"
+# Read-only access to font name/metadata tables (real family name, OS/2 weight,
+# italic + monospace flags) so font enumeration and family resolution use real
+# metadata rather than guessing from filenames. Already in the tree transitively
+# via ab_glyph (same parser); used here for table reads only, never rasterizing.
+ttf-parser = "0.25.1"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 unicode-width = "0.2.2"

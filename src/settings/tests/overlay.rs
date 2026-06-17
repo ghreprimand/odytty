@@ -173,7 +173,12 @@ fn apply_reloadable_values_publishes_synthetic_styles_global() {
 
 #[test]
 fn settings_edit_overlay_tracks_edit_revert_and_clear_diff() {
+    // The `font` config key tracks the RAW explicit override
+    // (`explicit_font_path`), not the effective `font_path` that family
+    // resolution may populate (RC4). Seed the explicit field so the clear-diff
+    // exercises the real `font`-key writeback path.
     let base = Settings {
+        explicit_font_path: Some(PathBuf::from("/tmp/font-a.ttf")),
         font_path: Some(PathBuf::from("/tmp/font-a.ttf")),
         ..Settings::default()
     };

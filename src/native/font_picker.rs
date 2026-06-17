@@ -2,14 +2,15 @@
 //! Font-family picker overlay (FONT-PICKER).
 //!
 //! Displays the monospace font families available on the host (via
-//! [`crate::text::font_inventory`]), lets the user navigate and filter them,
-//! and on Enter emits a [`SettingEdit`] that writes `font_family` to the config
-//! — the same path saving any other setting uses.
+//! [`crate::text::font_families`]), lets the user navigate and filter them, and
+//! on Enter emits a [`SettingEdit`] that writes `font_family` to the config —
+//! the same path saving any other setting uses.
 //!
-//! **Family collapse**: `font_inventory` returns one entry per *file* (stem).
-//! The picker collapses to unique *family* names by stripping trailing
-//! weight/style tokens (Bold, Regular, Italic, Light, SemiBold, …) from the
-//! stem, then deduplicating and sorting the result.
+//! **Real family names**: the list is the distinct real `name`-table families
+//! that have a monospace face, read by [`crate::text::font_families`]. There is
+//! no filename-stem guessing — italic/variant files of one family collapse into
+//! a single entry, and the name the user picks resolves cleanly because the
+//! resolver matches the same real family names.
 //!
 //! **No live preview**: font swaps require an atlas rebuild (re-rasterising
 //! every loaded glyph). This is too expensive to do on every highlight move, so
@@ -17,7 +18,6 @@
 //! it, and presses Enter; the reload path then fires normally.
 
 use crate::settings::{FONT_FAMILY_ENV, SettingEdit, Settings};
-use crate::text::FontInventoryEntry;
 
 use super::overlay::OverlayInput;
 
@@ -27,7 +27,7 @@ use super::overlay::OverlayInput;
 
 #[derive(Debug, Clone)]
 pub(super) struct FontPicker {
-    /// Collapsed, monospace-only family names (unique, sorted).
+    /// Monospace-only real family names (unique, sorted).
     all_families: Vec<String>,
     /// Indices into `all_families` that match the current `query`.
     filtered: Vec<usize>,
@@ -94,10 +94,13 @@ impl FontPicker {
     }
 
     /// (Re)open the picker: snapshot the current font_family as the restore
-    /// point and refresh the family list from a new inventory scan.
-    pub(super) fn open(&mut self, settings: &Settings, inventory: Vec<FontInventoryEntry>) {
+    /// point and refresh the family list from a fresh metadata scan.
+    ///
+    /// `families` is the distinct, sorted, monospace-only real family list (from
+    /// [`crate::text::font_families`]); the picker stores it verbatim.
+    pub(super) fn open(&mut self, settings: &Settings, families: Vec<String>) {
         self.original = current_font_family(settings);
-        self.all_families = collapse_inventory(inventory);
+        self.all_families = families;
         self.query.clear();
         self.message = Some(
             "Select a font family — type to filter, Enter to apply, Esc to cancel.".to_owned(),
@@ -314,126 +317,6 @@ impl FontPicker {
 }
 
 // ---------------------------------------------------------------------------
-// Family-collapse logic
-// ---------------------------------------------------------------------------
-
-/// Weight/style token suffixes to strip when collapsing a font file stem to a
-/// family name. Matched case-insensitively against each `-`/`_`-separated
-/// part from the end of the stem.
-const STYLE_TOKENS: &[&str] = &[
-    "bold",
-    "italic",
-    "light",
-    "semi",
-    "semibold",
-    "regular",
-    "medium",
-    "thin",
-    "black",
-    "oblique",
-    "condensed",
-    "heavy",
-    "extra",
-    "extralight",
-    "ultra",
-    "ultralight",
-    "extrabold",
-    "ultrabold",
-    "roman",
-    "book",
-    "demi",
-    "demibold",
-    "semibolditalic",
-    "bolditalic",
-    "lightitalic",
-    "extrablack",
-    "hairline",
-    "expanded",
-    "narrow",
-    "wide",
-];
-
-fn is_style_suffix_part(part: &str) -> bool {
-    let lower = part.to_lowercase();
-    if STYLE_TOKENS.contains(&lower.as_str()) {
-        return true;
-    }
-
-    let pieces = split_camel_style_pieces(part);
-    pieces.len() > 1
-        && pieces.iter().all(|piece| {
-            let lower = piece.to_lowercase();
-            STYLE_TOKENS.contains(&lower.as_str())
-        })
-}
-
-fn split_camel_style_pieces(part: &str) -> Vec<String> {
-    let mut pieces = Vec::new();
-    let mut current = String::new();
-    for ch in part.chars() {
-        if ch.is_uppercase() && !current.is_empty() {
-            pieces.push(current);
-            current = String::new();
-        }
-        current.push(ch);
-    }
-    if !current.is_empty() {
-        pieces.push(current);
-    }
-    pieces
-}
-
-/// Collapse a font inventory into unique, sorted family names (monospace only).
-pub(super) fn collapse_inventory(inventory: Vec<FontInventoryEntry>) -> Vec<String> {
-    let mut families: Vec<String> = inventory
-        .into_iter()
-        .filter(|e| e.monospace)
-        .map(|e| collapse_to_family(&e.name))
-        .filter(|f| !f.is_empty())
-        .collect();
-    families.sort_unstable_by_key(|a| a.to_lowercase());
-    families.dedup_by(|a, b| a.to_lowercase() == b.to_lowercase());
-    families
-}
-
-/// Derive a family name from a font file stem by stripping trailing
-/// weight/style tokens. The stem is split on `-` or `_`; trailing parts that
-/// are pure style tokens are removed; the remaining parts are joined with a
-/// space. If all parts are style tokens (unlikely), the original stem is
-/// returned as-is.
-///
-/// Examples:
-/// - `"CascadiaMono-Regular"` → `"CascadiaMono"`
-/// - `"JetBrainsMono-Bold"` → `"JetBrainsMono"`
-/// - `"DejaVuSansMono"` → `"DejaVuSansMono"` (no separator)
-/// - `"Hack-Bold-Italic"` (hypothetical) → `"Hack"`
-pub(crate) fn collapse_to_family(stem: &str) -> String {
-    // Determine the primary separator used in this stem.
-    let sep = if stem.contains('-') {
-        '-'
-    } else if stem.contains('_') {
-        '_'
-    } else {
-        // No separator: the whole stem is the family name.
-        return stem.to_owned();
-    };
-
-    let parts: Vec<&str> = stem.split(sep).collect();
-
-    // Find how many trailing parts are pure style/weight tokens.
-    let mut keep = parts.len();
-    while keep > 1 {
-        if is_style_suffix_part(parts[keep - 1]) {
-            keep -= 1;
-        } else {
-            break;
-        }
-    }
-
-    parts[..keep].join(" ")
-}
-
-// ---------------------------------------------------------------------------
 // Helpers shared with theme_picker
 // ---------------------------------------------------------------------------
 
@@ -487,7 +370,7 @@ fn ellipsize(text: &str, width: usize) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Tests (T-collapse … T-filter)
+// Tests (picker behaviour over a real-family list)
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
@@ -495,75 +378,17 @@ mod tests {
     use super::*;
     use crate::settings::write_settings_changes_to_path;
 
-    fn make_inventory(entries: &[(&str, bool)]) -> Vec<FontInventoryEntry> {
-        entries
-            .iter()
-            .map(|(name, mono)| FontInventoryEntry {
-                name: name.to_string(),
-                path: std::path::PathBuf::from(format!("/fake/{name}.ttf")),
-                monospace: *mono,
-            })
-            .collect()
+    /// The picker now consumes a ready-made real-family list (from
+    /// `crate::text::font_families`); family derivation/dedup/mono-filtering is
+    /// tested at that source in `crate::text`. These tests feed the list
+    /// directly to exercise navigation, filtering, cancel, and apply.
+    fn make_families(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| n.to_string()).collect()
     }
 
-    // T-collapse: two files of the same family collapse to ONE entry, sorted
-    // deterministically.
+    // T-empty: an empty family list opens without panic; list is empty.
     #[test]
-    fn t_collapse_same_family_deduped() {
-        let inv = make_inventory(&[
-            ("CascadiaMono-Regular", true),
-            ("CascadiaMono-Bold", true),
-            ("CascadiaMono-Italic", true),
-        ]);
-        let families = collapse_inventory(inv);
-        assert_eq!(families, vec!["CascadiaMono"]);
-    }
-
-    // T-collapse: multiple families are all represented once, sorted.
-    #[test]
-    fn t_collapse_multiple_families_sorted() {
-        let inv = make_inventory(&[
-            ("Hack-Regular", true),
-            ("Hack-Bold", true),
-            ("JetBrainsMono-Regular", true),
-            ("JetBrainsMono-Bold", true),
-            ("Hack-Italic", true),
-        ]);
-        let families = collapse_inventory(inv);
-        assert_eq!(families, vec!["Hack", "JetBrainsMono"]);
-    }
-
-    // T-collapse: unseparated stems are kept as-is.
-    #[test]
-    fn t_collapse_no_separator_kept_whole() {
-        let inv = make_inventory(&[("DejaVuSansMono", true)]);
-        let families = collapse_inventory(inv);
-        assert_eq!(families, vec!["DejaVuSansMono"]);
-    }
-
-    // T-mono-filter: non-monospace faces never appear in the list.
-    #[test]
-    fn t_mono_filter_proportional_excluded() {
-        let inv = make_inventory(&[
-            ("Arial-Regular", false),
-            ("TimesNewRoman-Regular", false),
-            ("FiraCode-Regular", true),
-        ]);
-        let families = collapse_inventory(inv);
-        assert_eq!(families, vec!["FiraCode"]);
-    }
-
-    // T-mono-filter: a list with ONLY non-mono fonts collapses to nothing.
-    #[test]
-    fn t_mono_filter_all_proportional_gives_empty() {
-        let inv = make_inventory(&[("Arial-Regular", false), ("Georgia-Regular", false)]);
-        let families = collapse_inventory(inv);
-        assert!(families.is_empty());
-    }
-
-    // T-empty-inventory: empty inventory opens without panic; list is empty.
-    #[test]
-    fn t_empty_inventory_no_panic() {
+    fn t_empty_families_no_panic() {
         let settings = Settings::default();
         let mut picker = FontPicker::new(&settings);
         picker.open(&settings, Vec::new());
@@ -578,14 +403,10 @@ mod tests {
     #[test]
     fn t_cancel_identity() {
         let mut settings = Settings::default();
-        settings.font_family = Some("CascadiaMono".to_owned());
-        let inv = make_inventory(&[
-            ("CascadiaMono-Regular", true),
-            ("CascadiaMono-Bold", true),
-            ("Hack-Regular", true),
-        ]);
+        settings.font_family = Some("Cascadia Code".to_owned());
+        let families = make_families(&["Cascadia Code", "Hack"]);
         let mut picker = FontPicker::new(&settings);
-        picker.open(&settings, inv);
+        picker.open(&settings, families);
 
         // Move to a different entry.
         let _ = picker.handle_input(OverlayInput::Down);
@@ -593,7 +414,7 @@ mod tests {
         let outcome = picker.handle_input(OverlayInput::Close);
         match outcome {
             FontPickerOutcome::Cancel(family) => {
-                assert_eq!(family, "CascadiaMono");
+                assert_eq!(family, "Cascadia Code");
             }
             other => panic!("expected Cancel, got {other:?}"),
         }
@@ -606,9 +427,9 @@ mod tests {
     fn t_cancel_does_not_mutate_original() {
         let mut settings = Settings::default();
         settings.font_family = Some("Hack".to_owned());
-        let inv = make_inventory(&[("Hack-Regular", true), ("FiraCode-Regular", true)]);
+        let families = make_families(&["Fira Code", "Hack"]);
         let mut picker = FontPicker::new(&settings);
-        picker.open(&settings, inv);
+        picker.open(&settings, families);
 
         // Navigate and cancel.
         let _ = picker.handle_input(OverlayInput::Down);
@@ -619,18 +440,16 @@ mod tests {
     }
 
     // T-apply-writes: Enter emits a SettingEdit that routes font_family through
-    // the dirty/save path with the correct key and env.
+    // the dirty/save path with the correct key and env — and the value is the
+    // exact REAL family name (with spaces), which the resolver matches.
     #[test]
     fn t_apply_writes_correct_setting_edit() {
         let settings = Settings::default();
-        let inv = make_inventory(&[
-            ("CascadiaMono-Regular", true),
-            ("JetBrainsMono-Regular", true),
-        ]);
+        let families = make_families(&["Cascadia Code", "JetBrains Mono"]);
         let mut picker = FontPicker::new(&settings);
-        picker.open(&settings, inv);
+        picker.open(&settings, families);
 
-        // Select second entry (JetBrainsMono).
+        // Select second entry (JetBrains Mono).
         let _ = picker.handle_input(OverlayInput::Down);
         let outcome = picker.handle_input(OverlayInput::Activate);
 
@@ -639,7 +458,7 @@ mod tests {
                 assert_eq!(changes.len(), 1);
                 assert_eq!(changes[0].key, "font_family");
                 assert_eq!(changes[0].env, FONT_FAMILY_ENV);
-                assert_eq!(changes[0].value, "JetBrainsMono");
+                assert_eq!(changes[0].value, "JetBrains Mono");
             }
             other => panic!("expected Persist, got {other:?}"),
         }
@@ -660,9 +479,9 @@ mod tests {
         std::fs::write(&path, "# kept\nfont_family = monospace\nfont_size = 16\n").unwrap();
 
         let settings = Settings::default();
-        let inv = make_inventory(&[("FiraCode-Regular", true)]);
+        let families = make_families(&["Fira Code"]);
         let mut picker = FontPicker::new(&settings);
-        picker.open(&settings, inv);
+        picker.open(&settings, families);
 
         let FontPickerOutcome::Persist(changes) = picker.handle_input(OverlayInput::Activate)
         else {
@@ -673,7 +492,7 @@ mod tests {
         let written = std::fs::read_to_string(&path).unwrap();
         assert_eq!(result.changed, 1);
         assert!(written.contains("# kept"));
-        assert!(written.contains("font_family = FiraCode"));
+        assert!(written.contains("font_family = Fira Code"));
         assert!(written.contains("font_size = 16"));
         assert!(!written.contains("/home/"));
 
@@ -684,14 +503,9 @@ mod tests {
     #[test]
     fn t_filter_narrows_and_restores() {
         let settings = Settings::default();
-        let inv = make_inventory(&[
-            ("CascadiaMono-Regular", true),
-            ("Hack-Regular", true),
-            ("JetBrainsMono-Regular", true),
-            ("FiraCode-Regular", true),
-        ]);
+        let families = make_families(&["Cascadia Code", "Hack", "JetBrains Mono", "Fira Code"]);
         let mut picker = FontPicker::new(&settings);
-        picker.open(&settings, inv);
+        picker.open(&settings, families);
 
         // All 4 visible initially.
         assert_eq!(picker.render_signature().entries.len(), 4);
@@ -711,65 +525,19 @@ mod tests {
         assert_eq!(picker.render_signature().entries.len(), 4);
     }
 
-    // T-filter: filter is case-insensitive.
+    // T-filter: filter is case-insensitive and matches inside multi-word names.
     #[test]
     fn t_filter_is_case_insensitive() {
         let settings = Settings::default();
-        let inv = make_inventory(&[("CascadiaMono-Regular", true), ("FiraCode-Regular", true)]);
+        let families = make_families(&["Cascadia Code", "Fira Code"]);
         let mut picker = FontPicker::new(&settings);
-        picker.open(&settings, inv);
+        picker.open(&settings, families);
 
         for ch in "CASCADIA".chars() {
             picker.handle_input(OverlayInput::Char(ch));
         }
         let sig = picker.render_signature();
         assert_eq!(sig.entries.len(), 1);
-        assert_eq!(sig.entries[0], "CascadiaMono");
-    }
-
-    // collapse_to_family unit tests (determinism, token stripping).
-    #[test]
-    fn collapse_strips_regular_suffix() {
-        assert_eq!(collapse_to_family("CascadiaMono-Regular"), "CascadiaMono");
-        assert_eq!(collapse_to_family("Hack-Regular"), "Hack");
-    }
-
-    #[test]
-    fn collapse_strips_bold_suffix() {
-        assert_eq!(collapse_to_family("JetBrainsMono-Bold"), "JetBrainsMono");
-    }
-
-    #[test]
-    fn collapse_strips_multiple_trailing_tokens() {
-        // Hypothetical compound: both Bold and Italic are trailing tokens.
-        assert_eq!(collapse_to_family("Hack-Bold-Italic"), "Hack");
-    }
-
-    #[test]
-    fn collapse_strips_compound_camel_case_style_suffixes() {
-        assert_eq!(
-            collapse_to_family("Inconsolata-CondensedBlack"),
-            "Inconsolata"
-        );
-        assert_eq!(collapse_to_family("Inconsolata-Bold"), "Inconsolata");
-        assert_eq!(collapse_to_family("Inconsolata-Regular"), "Inconsolata");
-    }
-
-    #[test]
-    fn collapse_keeps_unrecognized_compound_family_words() {
-        assert_eq!(
-            collapse_to_family("SomeMono-CondensedBlackbird"),
-            "SomeMono CondensedBlackbird"
-        );
-    }
-
-    #[test]
-    fn collapse_no_separator_is_identity() {
-        assert_eq!(collapse_to_family("DejaVuSansMono"), "DejaVuSansMono");
-    }
-
-    #[test]
-    fn collapse_underscore_separator() {
-        assert_eq!(collapse_to_family("SomeMono_Regular"), "SomeMono");
+        assert_eq!(sig.entries[0], "Cascadia Code");
     }
 }

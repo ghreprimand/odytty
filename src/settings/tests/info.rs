@@ -96,6 +96,39 @@ fn unset_font_file_value_is_empty_not_a_human_sentence() {
 }
 
 #[test]
+fn advanced_font_row_stays_empty_after_a_family_pick() {
+    // FONT-PIPELINE-REWORK RC4: picking a `font_family` resolves a regular face
+    // INTO `font_path`, but the advanced `font` row reflects only the RAW
+    // explicit `font` key (`explicit_font_path`). A family pick leaves the
+    // explicit key unset, so the row must stay empty — it must NOT show the
+    // resolved face, which made it look like the picker changed the advanced
+    // setting. Likewise the writeback emits no `font` edit for a family-only
+    // config.
+    let settings = Settings {
+        font_family: Some("JetBrains Mono".to_owned()),
+        // The renderer's effective face the family resolved to.
+        font_path: Some(std::path::PathBuf::from("/fonts/JetBrainsMono-Regular.ttf")),
+        // The user set NO explicit `font` key.
+        explicit_font_path: None,
+        ..Settings::default()
+    };
+    let rows = settings.setting_info();
+    let font = row(&rows, "font");
+    assert_eq!(
+        font.value, "",
+        "advanced font row is empty when only a family is set (shows the raw key, not the resolved face)"
+    );
+
+    // The writeback baseline carries no `font` value, so a save touching other
+    // settings never persists a spurious `font` line.
+    let draft = SettingsEditOverlay::new(&settings);
+    assert!(
+        !draft.changes().iter().any(|edit| edit.key == "font"),
+        "a family-only config emits no font edit"
+    );
+}
+
+#[test]
 fn keybinds_info_options_lists_all_actions() {
     // D-KBR-2 / R7: the `keybinds` row's options[] must enumerate every
     // BindableAction (it was stale at 7 of 12). Pinned to the

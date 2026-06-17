@@ -115,8 +115,8 @@ pub fn load_font_at(path: &Path) -> Result<FontVec, TextError> {
 /// style variants discovered alongside it.
 ///
 /// **Groundwork (F1):** only `regular` is loaded and rendered today. The
-/// `bold`/`italic`/`bold_italic` paths are *discovered* by filename convention
-/// so a future packet can load them into the `(style, char)`-keyed atlas without
+/// `bold`/`italic`/`bold_italic` paths are *discovered* by font metadata so a
+/// future packet can load them into the `(style, char)`-keyed atlas without
 /// re-running discovery; they are intentionally not opened here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FontFamilyMatch {
@@ -186,6 +186,163 @@ pub fn font_inventory_in_dirs(dirs: &[PathBuf]) -> Vec<FontInventoryEntry> {
     entries
 }
 
+// ---------------------------------------------------------------------------
+// Real font metadata (ttf-parser): family name, weight, italic, monospace.
+//
+// Family identity is read from the font's `name` table, never guessed from the
+// filename stem — `CascadiaCodeItalic.ttf` has no separator yet its real family
+// is "Cascadia Code", and the regular face must be chosen by OS/2 weight (400),
+// not by the shortest stem. ttf-parser is read-only here (the same parser
+// ab_glyph already uses); rasterization still goes through ab_glyph.
+// ---------------------------------------------------------------------------
+
+/// Metadata read from a font file's tables, used to enumerate families and pick
+/// the right face by real attributes rather than filename heuristics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FaceMeta {
+    /// Real family name (Typographic Family, name ID 16; else Family, ID 1).
+    family: String,
+    /// OS/2 usWeightClass as a number (Regular == 400). `Weight::Normal` when
+    /// the OS/2 table is absent.
+    weight: u16,
+    /// OS/2 usWidthClass as a number (Normal == 5). Lets the regular-face pick
+    /// prefer the normal-width face over width variants (e.g. Inconsolata ships
+    /// Expanded/Condensed faces under the same typographic family).
+    width: u16,
+    /// Italic / oblique flag (head.macStyle / OS/2 fsSelection).
+    italic: bool,
+    /// post.isFixedPitch (the font's own monospace claim); a `false` here is not
+    /// authoritative — some monospace fonts leave it unset, so the caller falls
+    /// back to the advance-probe [`is_monospace`].
+    monospaced_flag: bool,
+}
+
+/// OpenType `name` table IDs used for family identity.
+const NAME_ID_FAMILY: u16 = 1;
+const NAME_ID_TYPOGRAPHIC_FAMILY: u16 = 16;
+
+/// Read [`FaceMeta`] for the first face in a font file, or `None` when the file
+/// cannot be read/parsed or carries no usable family name.
+fn read_face_meta(path: &Path) -> Option<FaceMeta> {
+    let data = std::fs::read(path).ok()?;
+    let face = ttf_parser::Face::parse(&data, 0).ok()?;
+    let family = real_family_name(&face)?;
+    Some(FaceMeta {
+        family,
+        weight: face.weight().to_number(),
+        width: face.width().to_number(),
+        italic: face.is_italic(),
+        monospaced_flag: face.is_monospaced(),
+    })
+}
+
+/// Extract the real family name from a parsed face: prefer the Typographic
+/// Family (name ID 16), fall back to the legacy Family (name ID 1). Returns the
+/// first non-empty Unicode-decodable record for each ID. `None` when neither is
+/// present/decodable.
+fn real_family_name(face: &ttf_parser::Face) -> Option<String> {
+    let mut typographic: Option<String> = None;
+    let mut family: Option<String> = None;
+    for name in face.names() {
+        let slot = match name.name_id {
+            NAME_ID_TYPOGRAPHIC_FAMILY => &mut typographic,
+            NAME_ID_FAMILY => &mut family,
+            _ => continue,
+        };
+        if slot.is_some() {
+            continue;
+        }
+        if let Some(text) = name.to_string() {
+            let trimmed = text.trim();
+            if !trimmed.is_empty() {
+                *slot = Some(trimmed.to_owned());
+            }
+        }
+    }
+    typographic.or(family)
+}
+
+/// Whether a font file is monospace: trust the `post.isFixedPitch` flag when
+/// set, otherwise fall back to the advance-width probe ([`is_monospace`]) so a
+/// monospace font that leaves the flag unset is still accepted.
+fn path_is_monospace(path: &Path, meta: &FaceMeta) -> bool {
+    if meta.monospaced_flag {
+        return true;
+    }
+    load_font_at(path)
+        .map(|font| is_monospace(&font))
+        .unwrap_or(false)
+}
+
+/// Distinct real family names that have at least one monospace face, sorted
+/// case-insensitively and deduplicated. This is what the font picker lists; it
+/// reads real metadata, so italic/variant files of one family collapse into a
+/// single entry and proportional-only families never appear.
+pub fn font_families() -> Vec<String> {
+    font_families_in_dirs(&font_search_dirs())
+}
+
+/// [`font_families`] over an explicit directory set, for hermetic tests.
+pub fn font_families_in_dirs(dirs: &[PathBuf]) -> Vec<String> {
+    let metas = collect_font_files(dirs)
+        .into_iter()
+        .filter_map(|path| {
+            let meta = read_face_meta(&path)?;
+            let monospace = path_is_monospace(&path, &meta);
+            Some((meta, monospace))
+        })
+        .collect::<Vec<_>>();
+    distinct_monospace_families(&metas)
+}
+
+/// Pure family-collapse: distinct real family names among `metas` that have a
+/// monospace face, deduped case-insensitively (first spelling wins) and sorted.
+/// Factored out so the dedup/exclusion rules are testable without files.
+fn distinct_monospace_families(metas: &[(FaceMeta, bool)]) -> Vec<String> {
+    let mut families: Vec<String> = Vec::new();
+    for (meta, monospace) in metas {
+        if !monospace {
+            continue;
+        }
+        let family = meta.family.trim();
+        if family.is_empty() {
+            continue;
+        }
+        let key = normalize_family(family);
+        if key.is_empty() {
+            continue;
+        }
+        if !families.iter().any(|f| normalize_family(f) == key) {
+            families.push(family.to_owned());
+        }
+    }
+    families.sort_by_key(|name| name.to_lowercase());
+    families
+}
+
+/// Pick the index of the best "regular" face among `metas`: prefer an upright
+/// face over an italic one, then the weight closest to Regular (400). This is
+/// the fix for the washed-out-thin-text bug — `Thin` (100) loses to `Regular`
+/// (400) by weight distance, where the old shortest-stem rule wrongly chose it.
+fn pick_regular_index(metas: &[FaceMeta]) -> Option<usize> {
+    metas
+        .iter()
+        .enumerate()
+        .max_by_key(|(_, meta)| regular_rank(meta))
+        .map(|(index, _)| index)
+}
+
+/// Ranking key for [`pick_regular_index`]: upright beats italic; then the
+/// normal-width face beats width variants (Condensed/Expanded), so a family that
+/// ships width variants under one typographic name still yields its true
+/// regular; finally the weight nearest 400 wins. Higher tuple is better.
+fn regular_rank(meta: &FaceMeta) -> (i32, i32, i32) {
+    let upright = i32::from(!meta.italic);
+    let width_closeness = -((meta.width as i32 - 5).abs());
+    let weight_closeness = -((meta.weight as i32 - 400).abs());
+    (upright, width_closeness, weight_closeness)
+}
+
 /// Resolve a `ODYTTY_FONT_FAMILY` value to a validated monospace face.
 ///
 /// Why a `ODYTTY_FONT_FAMILY` value could not be resolved to a usable monospace
@@ -223,9 +380,10 @@ impl std::fmt::Display for FontResolveError {
 /// looked up across `dirs`. The returned `regular` face is always validated as
 /// monospace (see [`is_monospace`]); a proportional font is rejected
 /// (`Err(NotMonospace)`) so the caller can either surface that or fall back to
-/// the embedded probe list. Style variants are discovered by filename
-/// convention but not opened. Pure with respect to `dirs`, so tests can supply a
-/// fixture directory.
+/// the embedded probe list. The family is matched against the real `name`-table
+/// family (not the filename stem) and the regular face is chosen by OS/2 weight
+/// (closest to 400, upright). Style variants are discovered by metadata but not
+/// opened. Pure with respect to `dirs`, so tests can supply a fixture directory.
 pub fn try_resolve_font_family(
     query: &str,
     dirs: &[PathBuf],
@@ -250,82 +408,58 @@ pub fn try_resolve_font_family(
         });
     }
 
-    // Family-name lookup across the search dirs.
+    // Family-name lookup across the search dirs, by REAL metadata family name
+    // (the `name` table), never the filename stem.
     let target = normalize_family(trimmed);
     if target.is_empty() {
         return Err(FontResolveError::NotFound);
     }
-    let files = collect_font_files(dirs);
 
-    // Pick the best monospace regular face whose normalized stem contains the
-    // requested family. "Best" prefers an explicit "regular"/"mono" marker and a
-    // shorter stem (closer to an exact family match). Track whether a regular
-    // face matched the name but was proportional, so a pure non-monospace name
-    // hit reports `NotMonospace` rather than `NotFound`.
-    let mut regular: Option<PathBuf> = None;
-    let mut best_score = i32::MIN;
-    let mut name_hit_non_mono = false;
-    for f in &files {
-        let stem = normalize_family(&file_stem(f));
-        if !stem.contains(&target) {
+    // Gather (path, meta) for every face whose real family name matches. Prefer
+    // an EXACT normalized match — the picker writes exact real names, and exact
+    // matching keeps "JetBrains Mono" from also catching "JetBrains Mono NL".
+    // Fall back to a substring match only when nothing matches exactly, so a
+    // partial user-typed `ODYTTY_FONT_FAMILY` still resolves.
+    let mut exact: Vec<(PathBuf, FaceMeta)> = Vec::new();
+    let mut partial: Vec<(PathBuf, FaceMeta)> = Vec::new();
+    for f in &collect_font_files(dirs) {
+        let Some(meta) = read_face_meta(f) else {
             continue;
-        }
-        if variant_flags(&stem) != (false, false) {
-            continue; // not a regular face
-        }
-        let mut score = 0i32;
-        if stem.contains("regular") {
-            score += 2;
-        }
-        if stem.contains("mono") {
-            score += 1;
-        }
-        score -= stem.len() as i32;
-        match load_font_at(f) {
-            Ok(font) if is_monospace(&font) => {
-                if score > best_score {
-                    best_score = score;
-                    regular = Some(f.clone());
-                }
-            }
-            // A regular face matched the requested name but is proportional.
-            Ok(_) => name_hit_non_mono = true,
-            Err(_) => {}
+        };
+        let family_key = normalize_family(&meta.family);
+        if family_key == target {
+            exact.push((f.clone(), meta));
+        } else if family_key.contains(&target) {
+            partial.push((f.clone(), meta));
         }
     }
-    let regular = match regular {
-        Some(path) => path,
-        None => {
-            return Err(if name_hit_non_mono {
-                FontResolveError::NotMonospace
-            } else {
-                FontResolveError::NotFound
-            });
-        }
-    };
-
-    // Discover style variants sharing the family target (first match wins).
-    let mut bold = None;
-    let mut italic = None;
-    let mut bold_italic = None;
-    for f in &files {
-        let stem = normalize_family(&file_stem(f));
-        if !stem.contains(&target) {
-            continue;
-        }
-        match variant_flags(&stem) {
-            (true, true) => {
-                bold_italic.get_or_insert_with(|| f.clone());
-            }
-            (true, false) => {
-                bold.get_or_insert_with(|| f.clone());
-            }
-            (false, true) => {
-                italic.get_or_insert_with(|| f.clone());
-            }
-            (false, false) => {}
-        }
+    let matched = if exact.is_empty() { partial } else { exact };
+    if matched.is_empty() {
+        return Err(FontResolveError::NotFound);
     }
+
+    // Keep the monospace faces; a family that matched by name but offers no
+    // monospace face reports NotMonospace (the old name-hit-but-proportional
+    // behaviour), so the caller can surface a precise reason.
+    let monospace: Vec<(PathBuf, FaceMeta)> = matched
+        .into_iter()
+        .filter(|(path, meta)| path_is_monospace(path, meta))
+        .collect();
+    if monospace.is_empty() {
+        return Err(FontResolveError::NotMonospace);
+    }
+
+    // Select the regular face by metadata (closest to weight 400, upright),
+    // never by stem length — the fix for the thin-face selection bug.
+    let metas: Vec<FaceMeta> = monospace.iter().map(|(_, meta)| meta.clone()).collect();
+    let regular_index = pick_regular_index(&metas).unwrap_or(0);
+    let regular = monospace[regular_index].0.clone();
+
+    // Discover style variants by metadata among the monospace faces (groundwork:
+    // discovered for a future packet, not opened here).
+    let bold = pick_variant(&monospace, true, false);
+    let italic = pick_variant(&monospace, false, true);
+    let bold_italic = pick_variant(&monospace, true, true);
 
     Ok(FontFamilyMatch {
         regular,
@@ -333,6 +467,23 @@ pub fn try_resolve_font_family(
         italic,
         bold_italic,
     })
+}
+
+/// Pick a style-variant face by metadata: `want_bold` selects faces at OS/2
+/// weight ≥ 600, `want_italic` selects italic faces; among matches the one
+/// closest to the canonical weight (700 bold / 400 upright) wins. Returns `None`
+/// when the family has no such variant.
+fn pick_variant(
+    faces: &[(PathBuf, FaceMeta)],
+    want_bold: bool,
+    want_italic: bool,
+) -> Option<PathBuf> {
+    let target_weight = if want_bold { 700 } else { 400 };
+    faces
+        .iter()
+        .filter(|(_, meta)| (meta.weight >= 600) == want_bold && meta.italic == want_italic)
+        .min_by_key(|(_, meta)| (meta.weight as i32 - target_weight).abs())
+        .map(|(path, _)| path.clone())
 }
 
 /// `Option` view of [`try_resolve_font_family`]: the validated monospace face,
@@ -1155,31 +1306,41 @@ mod tests {
         assert!(is_monospace(&font), "probed default should be monospace");
     }
 
+    /// A real monospace family installed on this host (read from metadata), with
+    /// the live search dirs, or `None` when the host has no monospace face.
+    fn a_real_monospace_family() -> Option<(String, Vec<PathBuf>)> {
+        let dirs = font_search_dirs();
+        for f in collect_font_files(&dirs) {
+            if let Some(meta) = read_face_meta(&f)
+                && path_is_monospace(&f, &meta)
+                && !meta.family.trim().is_empty()
+            {
+                return Some((meta.family, dirs));
+            }
+        }
+        None
+    }
+
+    /// Trap (a)+(b) over REAL fonts: a family installed on this host resolves to
+    /// a real, loadable monospace regular face — never "did not resolve", never
+    /// a thin/italic face. Family identity comes from the `name` table, so the
+    /// resolved regular is the one whose metadata is upright (the regular slot).
     #[test]
-    fn resolve_family_finds_regular_and_style_variants() {
-        let Some(bytes) = system_mono_bytes() else {
-            eprintln!("skipping: no system font available");
+    fn resolve_real_family_picks_a_monospace_regular_face() {
+        let Some((family, dirs)) = a_real_monospace_family() else {
+            eprintln!("skipping: no system monospace family available");
             return;
         };
-        let dir = unique_tmp_dir("variants");
-        // Lay down a family with all four faces (same bytes; names drive matching).
-        for name in [
-            "TestMono-Regular.ttf",
-            "TestMono-Bold.ttf",
-            "TestMono-Italic.ttf",
-            "TestMono-BoldItalic.ttf",
-        ] {
-            std::fs::write(dir.join(name), &bytes).expect("write fixture font");
-        }
-        let dirs = vec![dir.clone()];
-
-        let m = resolve_font_family("Test Mono", &dirs).expect("family resolves");
-        assert_eq!(m.regular, dir.join("TestMono-Regular.ttf"));
-        assert_eq!(m.bold, Some(dir.join("TestMono-Bold.ttf")));
-        assert_eq!(m.italic, Some(dir.join("TestMono-Italic.ttf")));
-        assert_eq!(m.bold_italic, Some(dir.join("TestMono-BoldItalic.ttf")));
-
-        let _ = std::fs::remove_dir_all(&dir);
+        let m = try_resolve_font_family(&family, &dirs).expect("real family resolves");
+        let font = load_font_at(&m.regular).expect("regular face loads");
+        assert!(is_monospace(&font), "resolved regular face is monospace");
+        // The enumeration API lists this real family (no stem guessing).
+        assert!(
+            font_families_in_dirs(&dirs)
+                .iter()
+                .any(|f| normalize_family(f) == normalize_family(&family)),
+            "font_families lists the resolved real family"
+        );
     }
 
     /// Lay down a multi-weight family fixture and return `(dir, dirs)`. Faces are
@@ -1195,10 +1356,12 @@ mod tests {
     }
 
     #[test]
-    fn weight_face_finds_bold_that_the_generic_resolver_excludes() {
-        // FONT-WEIGHT-FIX root cause (T-FP-1 / T-variant-filter-scope): the Bold
-        // face must be selected by the weight resolver, while the generic family
-        // resolver still returns the REGULAR face (never the Bold variant).
+    fn weight_face_finds_bold_within_a_family() {
+        // FONT-WEIGHT-FIX: the weight resolver selects the requested weight's
+        // FILE by stem within the family (the old `"{family} {weight}"` concat
+        // path could not). This path is unchanged by the metadata rework: the
+        // real family name the picker writes (e.g. "Cascadia Code") still
+        // normalizes into the file stem, so weight selection stays robust.
         let Some(_) = system_mono_bytes() else {
             eprintln!("skipping: no system font available");
             return;
@@ -1208,19 +1371,10 @@ mod tests {
             &["CascadiaMono-Regular.ttf", "CascadiaMono-Bold.ttf"],
         );
 
-        // The weight resolver finds the Bold FILE directly.
         assert_eq!(
             resolve_font_weight_face("CascadiaMono", "Bold", &dirs),
             Some(dir.join("CascadiaMono-Bold.ttf")),
             "weight resolver selects the Bold face the old concat path could not"
-        );
-        // The generic resolver's contract is UNCHANGED: it still returns the
-        // regular face and never the Bold variant (T-variant-filter-scope).
-        let generic = resolve_font_family("CascadiaMono", &dirs).expect("family resolves");
-        assert_eq!(
-            generic.regular,
-            dir.join("CascadiaMono-Regular.ttf"),
-            "generic resolver still excludes variant faces from the regular slot"
         );
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1400,15 +1554,21 @@ mod tests {
             return;
         };
         let dir = unique_tmp_dir("proportional");
-        // A regular-face name that resolves by family lookup but is proportional.
-        let path = dir.join("TestProp-Regular.ttf");
+        let path = dir.join("Proportional.ttf");
         std::fs::write(&path, &bytes).expect("write fixture font");
         let dirs = vec![dir.clone()];
 
+        // Query by the proportional face's REAL family name (from metadata): the
+        // family matches but offers no monospace face → NotMonospace.
+        let Some(family) = read_face_meta(&path).map(|meta| meta.family) else {
+            eprintln!("skipping: proportional face carries no family name");
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        };
         assert_eq!(
-            try_resolve_font_family("Test Prop", &dirs),
+            try_resolve_font_family(&family, &dirs),
             Err(FontResolveError::NotMonospace),
-            "a name hit that is proportional reports NotMonospace"
+            "a real family that matched but is proportional reports NotMonospace"
         );
         // The same reason is reported for a direct path to a proportional file.
         assert_eq!(
@@ -1417,27 +1577,151 @@ mod tests {
             "a direct path to a proportional font reports NotMonospace"
         );
         // The `Option` view collapses both reasons to `None`.
-        assert!(resolve_font_family("Test Prop", &dirs).is_none());
+        assert!(resolve_font_family(&family, &dirs).is_none());
 
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn try_resolve_ok_agrees_with_resolve_font_family_on_success() {
-        let Some(bytes) = system_mono_bytes() else {
-            eprintln!("skipping: no system font available");
+        let Some((family, dirs)) = a_real_monospace_family() else {
+            eprintln!("skipping: no system monospace family available");
             return;
         };
-        let dir = unique_tmp_dir("ok");
-        std::fs::write(dir.join("TestMono-Regular.ttf"), &bytes).expect("write fixture font");
-        let dirs = vec![dir.clone()];
-
-        let ok = try_resolve_font_family("Test Mono", &dirs).expect("family resolves");
-        assert_eq!(ok.regular, dir.join("TestMono-Regular.ttf"));
+        let ok = try_resolve_font_family(&family, &dirs).expect("real family resolves");
         // The `Option` view must agree exactly on the success path.
-        assert_eq!(resolve_font_family("Test Mono", &dirs), Some(ok));
+        assert_eq!(resolve_font_family(&family, &dirs), Some(ok));
+    }
 
-        let _ = std::fs::remove_dir_all(&dir);
+    /// Synthetic [`FaceMeta`] for the pure metadata-logic traps (no files).
+    /// Normal width (5); use [`fm_width`] to exercise the width tie-break.
+    fn fm(family: &str, weight: u16, italic: bool) -> FaceMeta {
+        fm_width(family, weight, 5, italic)
+    }
+
+    /// [`fm`] with an explicit OS/2 width class (Normal == 5).
+    fn fm_width(family: &str, weight: u16, width: u16, italic: bool) -> FaceMeta {
+        FaceMeta {
+            family: family.to_owned(),
+            weight,
+            width,
+            italic,
+            monospaced_flag: true,
+        }
+    }
+
+    // Trap (c): distinct family enumeration collapses italic + roman + every
+    // weight of one family into ONE entry, excludes proportional-only families,
+    // and sorts case-insensitively.
+    #[test]
+    fn distinct_families_dedup_styles_and_exclude_proportional_only() {
+        let metas = vec![
+            (fm("JetBrains Mono", 400, false), true),
+            (fm("JetBrains Mono", 700, false), true), // bold of same family
+            (fm("JetBrains Mono", 400, true), true),  // italic of same family
+            (fm("Cascadia Code", 400, false), true),
+            (fm("Helvetica", 400, false), false), // proportional-only → excluded
+        ];
+        assert_eq!(
+            distinct_monospace_families(&metas),
+            vec!["Cascadia Code".to_owned(), "JetBrains Mono".to_owned()]
+        );
+    }
+
+    // Trap (b): the regular face is chosen by metadata (400, upright), NOT by
+    // shortest stem / first-seen — Thin must never win. Order puts Thin first so
+    // a first-wins bug would surface.
+    #[test]
+    fn pick_regular_prefers_400_upright_over_thin_and_italic() {
+        let metas = vec![
+            fm("X", 100, false), // Thin
+            fm("X", 400, false), // Regular  ← expected
+            fm("X", 400, true),  // Italic
+            fm("X", 700, false), // Bold
+        ];
+        assert_eq!(pick_regular_index(&metas), Some(1));
+    }
+
+    #[test]
+    fn pick_regular_breaks_weight_ties_toward_upright() {
+        let metas = vec![fm("X", 400, true), fm("X", 400, false)];
+        assert_eq!(
+            pick_regular_index(&metas),
+            Some(1),
+            "upright wins at equal weight distance"
+        );
+    }
+
+    // Width tie-break: a family that ships width variants under one typographic
+    // name (e.g. Inconsolata's Expanded/UltraExpanded at weight 400 upright) must
+    // resolve to the NORMAL-width face, not a width variant.
+    #[test]
+    fn pick_regular_prefers_normal_width_over_width_variants() {
+        let metas = vec![
+            fm_width("Inconsolata", 400, 9, false), // UltraExpanded
+            fm_width("Inconsolata", 400, 3, false), // Condensed
+            fm_width("Inconsolata", 400, 5, false), // Normal  ← expected
+        ];
+        assert_eq!(pick_regular_index(&metas), Some(2));
+    }
+
+    // Variant discovery by metadata: bold = heavy upright, italic = light
+    // italic, bold-italic = heavy italic; a missing variant yields None.
+    #[test]
+    fn pick_variant_selects_faces_by_metadata() {
+        let faces = vec![
+            (PathBuf::from("/f/reg"), fm("X", 400, false)),
+            (PathBuf::from("/f/bold"), fm("X", 700, false)),
+            (PathBuf::from("/f/italic"), fm("X", 400, true)),
+            (PathBuf::from("/f/bolditalic"), fm("X", 700, true)),
+        ];
+        assert_eq!(
+            pick_variant(&faces, true, false),
+            Some(PathBuf::from("/f/bold"))
+        );
+        assert_eq!(
+            pick_variant(&faces, false, true),
+            Some(PathBuf::from("/f/italic"))
+        );
+        assert_eq!(
+            pick_variant(&faces, true, true),
+            Some(PathBuf::from("/f/bolditalic"))
+        );
+        let only_upright = vec![
+            (PathBuf::from("/f/reg"), fm("X", 400, false)),
+            (PathBuf::from("/f/bold"), fm("X", 700, false)),
+        ];
+        assert_eq!(
+            pick_variant(&only_upright, false, true),
+            None,
+            "no italic face ⇒ None"
+        );
+    }
+
+    // font_families over the real host dirs: sorted, no empties, no
+    // case-insensitive duplicates (trap a/c on real metadata).
+    #[test]
+    fn font_families_lists_real_names_without_variant_duplicates() {
+        let families = font_families_in_dirs(&font_search_dirs());
+        if families.is_empty() {
+            eprintln!("skipping: no system fonts available");
+            return;
+        }
+        let mut sorted = families.clone();
+        sorted.sort_by_key(|name| name.to_lowercase());
+        assert_eq!(families, sorted, "families are sorted case-insensitively");
+        assert!(
+            families.iter().all(|f| !f.trim().is_empty()),
+            "no empty family names"
+        );
+        let mut keys: Vec<String> = families.iter().map(|f| f.to_lowercase()).collect();
+        let before = keys.len();
+        keys.dedup();
+        assert_eq!(
+            keys.len(),
+            before,
+            "no case-insensitive duplicate families (sorted ⇒ consecutive)"
+        );
     }
 
     #[test]

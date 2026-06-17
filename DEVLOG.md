@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- FONT-PIPELINE-REWORK: real font metadata replaces filename guessing
+
+Live testing kept hitting the same class of font failures — a picker entry that
+refused to resolve ("did not resolve to a monospace font"), washed-out text after
+a pick, junk entries, and the advanced "Font file" row appearing to change on its
+own. Root cause was architectural: the whole font system derived family identity
+from **filename stems**, which is hopeless against real-world filenames. This
+packet replaces the guessing with real font metadata read from the font files.
+
+- **Family identity from real metadata.** A new `read_face_meta` reads the
+  typographic family name (`name` ID 16, falling back to ID 1), OS/2 weight and
+  width, and the italic and fixed-pitch flags via `ttf-parser` (already present
+  transitively; now a direct read-only dependency — rasterization is unchanged).
+- **`font_families()` lists clean real families.** Distinct real family names that
+  have at least one monospace face, deduped case-insensitively and sorted — so a
+  family's italic/variant files collapse into one entry and proportional-only
+  families never appear. The picker now lists these instead of per-file stems.
+- **Regular-face selection by metadata, never by stem length.** The resolver picks
+  the best regular face by ranking upright over italic, then width nearest Normal,
+  then weight nearest 400. This kills the washed-out bug: the old "shortest stem"
+  rule chose `JetBrainsMonoNL-Thin` over `-Regular`; selection is now correct.
+- **Family matching by real name.** Exact normalized match first (so "JetBrains
+  Mono" no longer also catches "JetBrains Mono NL"), substring fallback for
+  partial typed queries. Italic-only stems like `CascadiaCodeItalic` fold into
+  "Cascadia Code" and stop appearing as dead-end families.
+- **Advanced "Font file" row reflects only an explicit override.** A new
+  `explicit_font_path` stores the raw `font` config key, distinct from the
+  effective `font_path` (which family resolution populates). The advanced row and
+  the writeback read `explicit_font_path`, so picking a family leaves the row
+  empty and emits no `font` edit — the row no longer appears to change on its own.
+- **Filename-stem collapse heuristic deleted** from the font picker (the
+  `collapse_to_family`/`STYLE_TOKENS` logic and its tests). `font_inventory()` and
+  the CLI path are unchanged.
+
+Verified live against this machine's installed fonts: 24 clean real families with
+no variant duplicates or junk stems; JetBrains Mono -> `JetBrainsMono-Regular.ttf`
+(not Thin), Cascadia Code -> `CascadiaCode.ttf`, Hack/IBM Plex/JetBrains Mono NL all
+-> their Regular face; the old bogus `CascadiaCodeItalic` correctly no longer
+resolves. `cargo fmt --check` clean, `cargo test --lib` 1668/0, all-targets green
+(pixel_smoke 49, gpu_composite 3, mouse_protocol 12), `cargo clippy --lib` 38
+(baseline, zero net-new). Known minor follow-up: an emoji font whose fixed-pitch
+flag is set can slip into the family list; a proportional/emoji exclusion filter
+is queued.
+
 ## 2026-06-17 -- SETTINGS-NAV-MODEL: consistent Enter/Esc/arrow semantics in the settings overlay
 
 Live testing of the two-level overlay surfaced an inconsistent navigation model.

@@ -478,7 +478,17 @@ impl CvdMode {
 pub struct Settings {
     pub theme: Theme,
     pub visual: VisualEffect,
+    /// The EFFECTIVE regular-face path the renderer loads: either the explicit
+    /// `font` key, or — when only `font_family` is set — the regular face
+    /// resolved from that family. Internal/derived; not the raw config value.
     pub font_path: Option<PathBuf>,
+    /// The RAW explicit `font` config key (an advanced one-file override), or
+    /// `None` when unset. Kept distinct from [`Settings::font_path`] so the UI
+    /// and writeback reflect what the user actually set: picking a `font_family`
+    /// populates `font_path` with the resolved face but must NOT make the
+    /// advanced `font` row look set (RC4). This is the value the `font` row
+    /// displays and the writeback persists for the `font` key.
+    pub explicit_font_path: Option<PathBuf>,
     pub font_family: Option<String>,
     /// Optional weight-variant suffix appended to [`Settings::font_family`] to
     /// select a lighter or heavier base face (RV7), e.g. `"Light"`, `"Medium"`,
@@ -708,6 +718,7 @@ impl Default for Settings {
             theme: Theme::PLAIN,
             visual: VisualEffect::Off,
             font_path: None,
+            explicit_font_path: None,
             font_family: None,
             font_weight: String::new(),
             font_size_px: DEFAULT_FONT_SIZE_PX,
@@ -987,6 +998,11 @@ impl Settings {
         // failure falls back to the embedded probe list (font_path = None) with
         // one warning, so a bad family value never aborts startup.
         let direct_path = get(FONT_ENV).map(PathBuf::from);
+        // The raw explicit `font` key, kept verbatim for display/writeback. This
+        // is distinct from the effective `font_path` below, which may instead be
+        // the regular face resolved from `font_family` (RC4): the advanced `font`
+        // row must reflect only what the user explicitly set.
+        let explicit_font_path = direct_path.clone();
         let font_family = get(FONT_FAMILY_ENV)
             .and_then(|value| value.into_string().ok())
             .map(|value| value.trim().to_string())
@@ -1213,6 +1229,7 @@ impl Settings {
             theme,
             visual,
             font_path,
+            explicit_font_path,
             font_family,
             font_weight,
             font_size_px,
@@ -1280,7 +1297,10 @@ impl Settings {
         let mut values = BTreeMap::new();
         values.insert(THEME_ENV, self.theme.name.to_owned());
         values.insert(VISUAL_ENV, self.visual.as_str().to_owned());
-        if let Some(path) = self.font_path.as_ref() {
+        // The `font` config key reflects the RAW explicit override, never the
+        // face resolved from `font_family` (RC4): a family pick must not make the
+        // writeback baseline carry a `font` value.
+        if let Some(path) = self.explicit_font_path.as_ref() {
             values.insert(FONT_ENV, path.display().to_string());
         }
         if let Some(family) = self.font_family.as_ref() {

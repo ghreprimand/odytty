@@ -181,17 +181,17 @@ impl Settings {
                 key: "font",
                 env: FONT_ENV,
                 name: "Font file (advanced)",
-                // An UNSET explicit font must carry an EMPTY value, not a human
-                // sentence: this `value` is what the path-picker seeds and what
-                // the writeback persists/compares. A sentence here got written to
-                // config verbatim as `font = default monospace probe list`, which
-                // (a) spammed a "No such file" warning every launch and (b) — since
-                // `font` outranks `font_family` — shadowed the user's chosen font.
-                // Empty is treated as a clear by the writeback (apply_raw("font",
-                // "")), so an untouched font emits no edit. The default hint lives
-                // in the description below, not in the value.
+                // Display the RAW explicit `font` key, never the effective
+                // `font_path` (RC4): picking a `font_family` resolves a regular
+                // face INTO `font_path`, but the advanced row must stay empty
+                // because the user never set an explicit file. An UNSET explicit
+                // font carries an EMPTY value, not a human sentence — this `value`
+                // is what the path-picker seeds and what the writeback compares;
+                // empty is treated as a clear (apply_raw("font", "")), so an
+                // untouched font emits no edit. The default hint lives in the
+                // description below, not in the value.
                 value: self
-                    .font_path
+                    .explicit_font_path
                     .as_ref()
                     .map(|path| path.display().to_string())
                     .unwrap_or_default(),
