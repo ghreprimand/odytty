@@ -55,6 +55,7 @@ mod context_menu_ui;
 mod copy_mode;
 mod cursor;
 mod cvd_theme;
+mod font_picker;
 mod gpu;
 mod image_layer;
 mod key_remap_ui;

@@ -11,6 +11,7 @@ use winit::keyboard::{Key as WinitKey, NamedKey};
 use super::context_menu_ui::{
     ContextMenuItem, ContextMenuOutcome, ContextMenuSignature, ContextMenuUi,
 };
+use super::font_picker::{FontPicker, FontPickerLine, FontPickerOutcome, FontPickerSignature};
 use super::key_remap_ui::{KeyRemapLine, KeyRemapOutcome, KeyRemapSignature, KeyRemapUi};
 use super::onboarding::{OnboardingLine, OnboardingPanel, OnboardingSignature};
 use super::settings_panel::{SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature};
@@ -28,6 +29,7 @@ pub(super) struct OverlayUi {
     panel: SettingsPanel,
     theme_picker: ThemePicker,
     theme_builder: ThemeBuilder,
+    font_picker: FontPicker,
     key_remap: KeyRemapUi,
     onboarding: OnboardingPanel,
     context_menu: ContextMenuUi,
@@ -52,6 +54,7 @@ impl OverlayUi {
             panel: SettingsPanel::new(settings),
             theme_picker: ThemePicker::new(settings),
             theme_builder: ThemeBuilder::new(settings),
+            font_picker: FontPicker::new(settings),
             key_remap: KeyRemapUi::new(settings),
             onboarding: OnboardingPanel::new(settings),
             context_menu: ContextMenuUi::new(),
@@ -111,6 +114,18 @@ impl OverlayUi {
         self.settings = settings.clone();
         self.theme_builder.open(settings);
         self.mode = OverlayMode::ThemeBuilder;
+        self.open = true;
+    }
+
+    /// Open the font-family picker (FONT-PICKER). Runs a fresh font inventory
+    /// scan on open (same call site as `--list-fonts`; typically <100 ms).
+    /// Backs the picker list with monospace-only, family-collapsed entries.
+    pub(super) fn open_font_picker(&mut self, settings: &Settings) {
+        self.panel.end_slider_drag();
+        self.settings = settings.clone();
+        let inventory = crate::text::font_inventory();
+        self.font_picker.open(settings, inventory);
+        self.mode = OverlayMode::FontPicker;
         self.open = true;
     }
 
@@ -237,6 +252,7 @@ impl OverlayUi {
         match self.mode {
             OverlayMode::ThemePicker => return self.handle_theme_picker_input(input),
             OverlayMode::ThemeBuilder => return self.handle_theme_builder_input(input),
+            OverlayMode::FontPicker => return self.handle_font_picker_input(input),
             OverlayMode::KeyBindings => return self.handle_key_remap_input(input),
             OverlayMode::Onboarding => return self.handle_onboarding_input(input),
             OverlayMode::ContextMenu => return self.handle_context_menu_input(input),
@@ -302,6 +318,7 @@ impl OverlayUi {
                         self.apply_context_menu_outcome(outcome)
                     }
                     OverlayMode::ThemePicker
+                    | OverlayMode::FontPicker
                     | OverlayMode::KeyBindings
                     | OverlayMode::Onboarding
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
@@ -334,6 +351,7 @@ impl OverlayUi {
                         OverlayOutcome::Consumed
                     }
                     OverlayMode::ThemePicker
+                    | OverlayMode::FontPicker
                     | OverlayMode::KeyBindings
                     | OverlayMode::Onboarding
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
@@ -344,6 +362,7 @@ impl OverlayUi {
                     OverlayMode::Settings => self.panel.end_slider_drag(),
                     OverlayMode::ThemeBuilder => self.theme_builder.end_channel_drag(),
                     OverlayMode::ThemePicker
+                    | OverlayMode::FontPicker
                     | OverlayMode::KeyBindings
                     | OverlayMode::Onboarding
                     | OverlayMode::ContextMenu
@@ -356,6 +375,13 @@ impl OverlayUi {
                     OverlayMode::Settings => self.panel.scroll_lines(lines),
                     OverlayMode::ThemeBuilder => self.theme_builder.scroll_lines(lines),
                     OverlayMode::KeyBindings => self.key_remap.scroll_lines(lines),
+                    OverlayMode::FontPicker => {
+                        self.font_picker.handle_input(if lines < 0 {
+                            OverlayInput::Up
+                        } else {
+                            OverlayInput::Down
+                        });
+                    }
                     OverlayMode::ThemePicker
                     | OverlayMode::Onboarding
                     | OverlayMode::ContextMenu
@@ -375,6 +401,7 @@ impl OverlayUi {
             OverlayMode::Settings => self.panel.is_dragging(),
             OverlayMode::ThemeBuilder => self.theme_builder.is_dragging(),
             OverlayMode::ThemePicker
+            | OverlayMode::FontPicker
             | OverlayMode::KeyBindings
             | OverlayMode::Onboarding
             | OverlayMode::ContextMenu
@@ -394,6 +421,7 @@ impl OverlayUi {
             OverlayMode::Settings => self.panel.end_slider_drag(),
             OverlayMode::ThemeBuilder => self.theme_builder.end_channel_drag(),
             OverlayMode::ThemePicker
+            | OverlayMode::FontPicker
             | OverlayMode::KeyBindings
             | OverlayMode::Onboarding
             | OverlayMode::ContextMenu
@@ -441,6 +469,10 @@ impl OverlayUi {
                 self.theme_picker.save_succeeded(changed);
                 self.close();
             }
+            OverlayMode::FontPicker => {
+                self.font_picker.save_succeeded(changed);
+                self.close();
+            }
             OverlayMode::ThemeBuilder => {}
             // KB-REMAP stays open after a save so the user can keep editing; the
             // modal reports the saved count and adopts the persisted bindings as
@@ -457,6 +489,7 @@ impl OverlayUi {
             OverlayMode::Settings => self.panel.save_failed(message),
             OverlayMode::ThemePicker => self.theme_picker.save_failed(message),
             OverlayMode::ThemeBuilder => self.theme_builder.save_failed(message),
+            OverlayMode::FontPicker => self.font_picker.save_failed(message),
             OverlayMode::KeyBindings => self.key_remap.save_failed(message),
             OverlayMode::Onboarding | OverlayMode::ContextMenu | OverlayMode::ConfirmClose => {}
         }
@@ -479,6 +512,7 @@ impl OverlayUi {
             panel: self.panel.render_signature(),
             theme_picker: self.theme_picker.render_signature(),
             theme_builder: self.theme_builder.render_signature(),
+            font_picker: self.font_picker.render_signature(),
             key_remap: self.key_remap.render_signature(),
             onboarding: self.onboarding.render_signature(),
             context_menu: self.context_menu.render_signature(),
@@ -513,6 +547,19 @@ impl OverlayUi {
     fn handle_theme_builder_input(&mut self, input: OverlayInput) -> OverlayOutcome {
         let outcome = self.theme_builder.handle_input(input);
         self.apply_builder_outcome(outcome)
+    }
+
+    fn handle_font_picker_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match self.font_picker.handle_input(input) {
+            FontPickerOutcome::Consumed => OverlayOutcome::Consumed,
+            FontPickerOutcome::Persist(changes) => OverlayOutcome::SaveSettings(changes),
+            FontPickerOutcome::Cancel(_original) => {
+                // Font was never changed in-memory (no live preview), so just
+                // close the picker — no ApplySettings needed.
+                self.close();
+                OverlayOutcome::Close
+            }
+        }
     }
 
     /// Lift a [`ThemeBuilderOutcome`] (from the keyboard or the pointer path)
@@ -645,6 +692,9 @@ pub(super) enum OverlayMode {
     Settings,
     ThemePicker,
     ThemeBuilder,
+    /// Font-family picker (FONT-PICKER). Lists monospace families from the
+    /// host's font search dirs; type-to-filter + Enter saves `font_family`.
+    FontPicker,
     KeyBindings,
     Onboarding,
     /// Right-click context menu (IN2). Spawns at the pointer cell rather than
@@ -719,6 +769,7 @@ pub(super) struct OverlayRenderSignature {
     pub(super) panel: SettingsPanelSignature,
     pub(super) theme_picker: ThemePickerSignature,
     pub(super) theme_builder: ThemeBuilderSignature,
+    pub(super) font_picker: FontPickerSignature,
     pub(super) key_remap: KeyRemapSignature,
     pub(super) onboarding: OnboardingSignature,
     pub(super) context_menu: ContextMenuSignature,
@@ -810,6 +861,7 @@ pub(super) fn overlay_rect(
         OverlayMode::Settings => overlay.panel.desired_width(columns),
         OverlayMode::ThemePicker => overlay.theme_picker.desired_width(columns),
         OverlayMode::ThemeBuilder => overlay.theme_builder.desired_width(columns),
+        OverlayMode::FontPicker => overlay.font_picker.desired_width(columns),
         OverlayMode::KeyBindings => overlay.key_remap.desired_width(columns),
         OverlayMode::Onboarding => overlay.onboarding.desired_width(columns),
         // Unreachable: handled by the early return above.
@@ -861,6 +913,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         }
         OverlayMode::ThemePicker => "OdyTTY Themes",
         OverlayMode::ThemeBuilder => "OdyTTY Theme Builder",
+        OverlayMode::FontPicker => "OdyTTY Font Picker",
         OverlayMode::KeyBindings => "OdyTTY Key Bindings",
         OverlayMode::Onboarding => "Welcome to OdyTTY",
         // Unreachable: handled by the early dispatch above.
@@ -990,6 +1043,12 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
+            OverlayMode::FontPicker => self
+                .font_picker
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
             OverlayMode::KeyBindings => self
                 .key_remap
                 .visible_lines(body_width, body_height)
@@ -1069,6 +1128,17 @@ impl From<ThemeBuilderLine> for OverlayLine {
             text: line.text,
             focused: line.focused,
             swatch: line.swatch,
+            bold: false,
+        }
+    }
+}
+
+impl From<FontPickerLine> for OverlayLine {
+    fn from(line: FontPickerLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: None,
             bold: false,
         }
     }

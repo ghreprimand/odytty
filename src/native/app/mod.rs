@@ -770,6 +770,15 @@ impl App {
         self.request_selection_redraw();
     }
 
+    fn open_font_picker_overlay(&mut self) {
+        if self.search.is_open() {
+            self.close_search(true);
+        }
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_font_picker(&self.settings);
+        self.request_selection_redraw();
+    }
+
     fn handle_overlay_key(&mut self, logical: &WinitKey) {
         // KB-REMAP chord capture (R2 KILL-SHOT): when the key-remap modal is
         // armed to capture a chord, this MUST be the first thing we do — route

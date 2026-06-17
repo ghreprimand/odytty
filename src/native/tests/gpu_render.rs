@@ -261,6 +261,15 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
             channel: "L (lightness)",
             selected_color: (0, 0, 0),
         },
+        font_picker: FontPickerSignature {
+            selected: 0,
+            scroll: 0,
+            original: String::new(),
+            current: String::new(),
+            query: String::new(),
+            message: None,
+            entries: Vec::new(),
+        },
         key_remap: KeyRemapSignature {
             selected: 0,
             scroll: 0,

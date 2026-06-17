@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- FONT-PICKER: choose a system font from a list, like the theme picker
+
+The `font_family` setting was a dead type-in field. It is now a browsable picker
+that mirrors the theme picker: open it from the Fonts section, highlight a family,
+type to filter, Enter to apply, Esc to cancel.
+
+- **New `font_picker.rs`** modelled on `theme_picker.rs`. Opens from the
+  `OpenFontPicker` outcome the redesign wired up; `open_font_picker_overlay()`
+  sits beside `open_theme_picker_overlay()`.
+- **Family-collapsed, monospace-only list.** Backed by `text::font_inventory()`
+  (per-file stems). `collapse_to_family()` strips trailing weight/style tokens
+  (bold/italic/light/semibold/regular/… — 18 tokens, case + separator
+  insensitive) and dedups so the user sees unique family names, not 501 files.
+  Non-monospace faces are filtered out. Family choice here pairs with the
+  now-working `font_weight` knob (FONT-WEIGHT-FIX) for the face.
+- **Type-to-filter** (case-insensitive substring) with the same incremental
+  search feel as the theme picker; Enter persists a `font_family` edit through
+  the normal dirty/save path; Esc restores the prior value exactly.
+- **No live preview** by design: a font swap forces a full glyph-atlas rebuild
+  and texture re-upload (~100–500 ms), too costly per-highlight, so it applies
+  on Enter only. The `FontPickerOutcome` enum leaves room for a future
+  `Preview` variant if that cost is ever amortized.
+- Seventeen new tests cover the traps: family collapse/dedup/sort, monospace
+  filter, empty-inventory no-panic, cancel-identity, apply-writes-the-edit, and
+  filter narrow/restore.
+
+State: `cargo test --lib` 1662 passed / 0 failed; all-targets green
+(pixel_smoke 49, gpu_composite 3); `cargo fmt --check` clean; clippy `--lib` 37
+(baseline 38, zero net-new); new file carries SPDX.
+
+---
+
 ## 2026-06-17 -- SETTINGS-REDESIGN: two-level master/detail settings overlay
 
 The settings overlay was a single long flat list. It is now two levels: Level 1

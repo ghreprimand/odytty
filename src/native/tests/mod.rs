@@ -17,6 +17,7 @@ use super::clipboard::{
     ClipboardSlot, encode_paste_chunks, flatten_chunks, selected_clipboard_text,
 };
 use super::context_menu_ui::ContextMenuSignature;
+use super::font_picker::FontPickerSignature;
 use super::gpu::{
     StyleFonts, ViewportUniform, blend_state_for_color_glyphs, blend_state_for_subpixel,
     effect_params, effective_subpixel_mode, ensure_snapshot_glyphs, grow_vertex_buffer_capacity,
