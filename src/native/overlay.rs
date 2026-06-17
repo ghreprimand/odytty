@@ -31,6 +31,10 @@ pub(super) struct OverlayUi {
     key_remap: KeyRemapUi,
     onboarding: OnboardingPanel,
     context_menu: ContextMenuUi,
+    /// Set when a `SaveAndClose` outcome arrives from the settings panel (dirty
+    /// close prompt). On the next `save_succeeded` call for Settings mode, the
+    /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
+    close_after_save: bool,
 }
 
 impl Default for OverlayUi {
@@ -51,6 +55,7 @@ impl OverlayUi {
             key_remap: KeyRemapUi::new(settings),
             onboarding: OnboardingPanel::new(settings),
             context_menu: ContextMenuUi::new(),
+            close_after_save: false,
         }
     }
 
@@ -89,6 +94,7 @@ impl OverlayUi {
         self.theme_builder.end_channel_drag();
         self.open = false;
         self.mode = OverlayMode::Settings;
+        self.close_after_save = false;
     }
 
     pub(super) fn open_theme_picker(&mut self, settings: &Settings) {
@@ -238,12 +244,11 @@ impl OverlayUi {
             OverlayMode::Settings => {}
         }
 
-        match input {
-            OverlayInput::Close if !self.panel.is_editing() && !self.panel.is_searching() => {
-                OverlayOutcome::Close
-            }
-            input => settings_outcome(self.panel.handle_input(input)),
-        }
+        // All inputs route through the panel. The panel decides whether to Close
+        // (via SettingsPanelOutcome::Close at Level 1 clean) or consume Esc for
+        // dirty-close, search, edit cancel, or Level-2 → Level-1 back navigation.
+        let outcome = self.panel.handle_input(input);
+        self.map_settings_outcome(outcome)
     }
 
     /// Pointer entry point (UX4-P1), the mouse analogue of [`Self::handle_input`].
@@ -272,13 +277,16 @@ impl OverlayUi {
                 };
                 let col_in_body = cell.column.saturating_sub(rect.body_left);
                 match self.mode {
-                    OverlayMode::Settings => settings_outcome(self.panel.handle_pointer_press(
-                        rect.body_width,
-                        rect.body_height,
-                        row_in_body,
-                        col_in_body,
-                        button,
-                    )),
+                    OverlayMode::Settings => {
+                        let o = self.panel.handle_pointer_press(
+                            rect.body_width,
+                            rect.body_height,
+                            row_in_body,
+                            col_in_body,
+                            button,
+                        );
+                        self.map_settings_outcome(o)
+                    }
                     OverlayMode::ThemeBuilder => {
                         let outcome = self.theme_builder.handle_pointer_press(
                             rect.body_width,
@@ -302,11 +310,14 @@ impl OverlayUi {
             OverlayPointer::Move { cell } => {
                 let col_in_body = cell.column.saturating_sub(rect.body_left);
                 match self.mode {
-                    OverlayMode::Settings => settings_outcome(self.panel.handle_pointer_drag(
-                        rect.body_width,
-                        rect.body_height,
-                        col_in_body,
-                    )),
+                    OverlayMode::Settings => {
+                        let o = self.panel.handle_pointer_drag(
+                            rect.body_width,
+                            rect.body_height,
+                            col_in_body,
+                        );
+                        self.map_settings_outcome(o)
+                    }
                     OverlayMode::ThemeBuilder => {
                         let outcome = self.theme_builder.handle_pointer_drag(
                             rect.body_width,
@@ -418,7 +429,14 @@ impl OverlayUi {
 
     pub(super) fn save_succeeded(&mut self, changed: usize) {
         match self.mode {
-            OverlayMode::Settings => self.panel.save_succeeded(changed),
+            OverlayMode::Settings => {
+                self.panel.save_succeeded(changed);
+                // If this save came from the SaveAndClose dirty-close prompt,
+                // close the overlay now that the save has succeeded.
+                if self.close_after_save {
+                    self.close(); // resets close_after_save via close()
+                }
+            }
             OverlayMode::ThemePicker => {
                 self.theme_picker.save_succeeded(changed);
                 self.close();
@@ -571,6 +589,10 @@ pub(super) enum OverlayOutcome {
     OpenThemePicker,
     OpenThemeBuilder,
     OpenKeyBindings,
+    /// Open the font-family picker (FONT-PICKER). Emitted from the Fonts
+    /// section's `font_family` row. The picker overlay is sequenced in the
+    /// FONT-PICKER packet; for now `apply_overlay_outcome` handles it as a stub.
+    OpenFontPicker,
     /// Boxed because `Settings` is by far the largest payload across this
     /// short-lived outcome enum; boxing keeps the enum small to move and clears
     /// the `large_enum_variant` lint as the settings surface grows.
@@ -590,18 +612,31 @@ pub(super) enum OverlayOutcome {
     ForceClose,
 }
 
-/// Lift a [`SettingsPanelOutcome`] (from the keyboard or the pointer path) into
-/// an [`OverlayOutcome`]. The single mapping shared by `handle_input`,
-/// `handle_pointer` press, and `handle_pointer` drag so the three entry points
-/// can never diverge.
-fn settings_outcome(outcome: SettingsPanelOutcome) -> OverlayOutcome {
-    match outcome {
-        SettingsPanelOutcome::Consumed => OverlayOutcome::Consumed,
-        SettingsPanelOutcome::Apply(settings) => OverlayOutcome::ApplySettings(Box::new(settings)),
-        SettingsPanelOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
-        SettingsPanelOutcome::OpenThemePicker => OverlayOutcome::OpenThemePicker,
-        SettingsPanelOutcome::OpenThemeBuilder => OverlayOutcome::OpenThemeBuilder,
-        SettingsPanelOutcome::OpenKeyBindings => OverlayOutcome::OpenKeyBindings,
+impl OverlayUi {
+    /// Map a [`SettingsPanelOutcome`] into an [`OverlayOutcome`]. This is the
+    /// single shared mapping for `handle_input`, `handle_pointer` press, and
+    /// `handle_pointer` drag, so the three entry points can never diverge.
+    /// `SaveAndClose` sets `close_after_save` so `save_succeeded` closes the
+    /// overlay after the App persists the changes.
+    fn map_settings_outcome(&mut self, outcome: SettingsPanelOutcome) -> OverlayOutcome {
+        match outcome {
+            SettingsPanelOutcome::Consumed => OverlayOutcome::Consumed,
+            SettingsPanelOutcome::Apply(settings) => {
+                OverlayOutcome::ApplySettings(Box::new(settings))
+            }
+            SettingsPanelOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
+            SettingsPanelOutcome::OpenThemePicker => OverlayOutcome::OpenThemePicker,
+            SettingsPanelOutcome::OpenThemeBuilder => OverlayOutcome::OpenThemeBuilder,
+            SettingsPanelOutcome::OpenKeyBindings => OverlayOutcome::OpenKeyBindings,
+            SettingsPanelOutcome::OpenFontPicker => OverlayOutcome::OpenFontPicker,
+            SettingsPanelOutcome::Close => OverlayOutcome::Close,
+            SettingsPanelOutcome::DiscardAndClose => OverlayOutcome::Close,
+            SettingsPanelOutcome::SaveAndClose(edits) => {
+                // Save the changes; after save_succeeded, close the overlay.
+                self.close_after_save = true;
+                OverlayOutcome::SaveSettings(edits)
+            }
+        }
     }
 }
 
@@ -817,8 +852,13 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         return;
     }
     let rows = snapshot.dimensions.rows;
-    let title = match overlay.mode {
-        OverlayMode::Settings => "OdyTTY Settings",
+    // The Settings title is dynamic (shows level, editing state, search query).
+    let title_owned: String;
+    let title: &str = match overlay.mode {
+        OverlayMode::Settings => {
+            title_owned = overlay.panel.panel_title();
+            &title_owned
+        }
         OverlayMode::ThemePicker => "OdyTTY Themes",
         OverlayMode::ThemeBuilder => "OdyTTY Theme Builder",
         OverlayMode::KeyBindings => "OdyTTY Key Bindings",
@@ -1512,7 +1552,10 @@ mod tests {
     fn pointer_click_on_theme_value_opens_picker() {
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
+        // Drill into Themes section first (Enter on the focused first section).
+        overlay.handle_input(OverlayInput::Activate);
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        // body_top + 1 = theme value row (after "Theme" group header at row 0).
         let outcome = overlay.handle_pointer(
             OverlayPointer::Press {
                 cell: theme_value_cell(rect),
@@ -1546,6 +1589,11 @@ mod tests {
     fn pointer_wheel_scrolls_settings_without_changing_selection() {
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
+        // Drill into Rendering (many entries) so wheel scrolls the Level-2
+        // entry list (self.scroll), not the Level-1 section_scroll.
+        overlay.handle_input(OverlayInput::Down); // Fonts
+        overlay.handle_input(OverlayInput::Down); // Rendering
+        overlay.handle_input(OverlayInput::Activate); // drill in
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
         let before = overlay.render_signature().panel;
         let outcome = overlay.handle_pointer(OverlayPointer::Wheel { lines: 4 }, rect);
@@ -1561,13 +1609,12 @@ mod tests {
     fn pointer_press_move_release_drives_a_slider_drag() {
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
-        // Scroll a numeric (slider) row into the capped 22-row panel window.
-        for _ in 0..10 {
-            overlay.handle_input(OverlayInput::Down);
-        }
+        // Drill into Fonts section (contains font_size, a slider row).
+        overlay.handle_input(OverlayInput::Down); // section_selected = 1 (Fonts)
+        overlay.handle_input(OverlayInput::Activate); // drill in
         let (left, right) = overlay
             .first_slider_track_cells(80, 24)
-            .expect("a slider row is visible");
+            .expect("a slider row is visible in Fonts section");
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
         // Press the far-right of the track → applies a value + arms the drag.
@@ -1616,12 +1663,12 @@ mod tests {
         // Closing and any (re)open clear it.
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
-        for _ in 0..10 {
-            overlay.handle_input(OverlayInput::Down);
-        }
+        // Drill into Fonts section to get a slider row.
+        overlay.handle_input(OverlayInput::Down); // Fonts
+        overlay.handle_input(OverlayInput::Activate); // drill in
         let (_, right) = overlay
             .first_slider_track_cells(80, 24)
-            .expect("a slider row is visible");
+            .expect("a slider row is visible in Fonts section");
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
         // Arm a drag, then close WITHOUT a release (the lost-release case).
@@ -1659,12 +1706,12 @@ mod tests {
         // hover Move on focus regain would commit a phantom slider value.
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
-        for _ in 0..10 {
-            overlay.handle_input(OverlayInput::Down);
-        }
+        // Drill into Fonts section to get a slider row.
+        overlay.handle_input(OverlayInput::Down); // Fonts
+        overlay.handle_input(OverlayInput::Activate); // drill in
         let (left, right) = overlay
             .first_slider_track_cells(80, 24)
-            .expect("a slider row is visible");
+            .expect("a slider row is visible in Fonts section");
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
         // Arm a drag at the right end of the track.

@@ -1,0 +1,341 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//! Inline path-picker sub-state for `SettingsPanel` (SETTINGS-REDESIGN).
+//!
+//! Activated when Enter is pressed on a `SettingKind::Path` row at Level 2.
+//! Renders a minimal file browser inside the settings panel body (no new
+//! `OverlayMode`). Navigation: Up/Down move the selection, Enter on a
+//! directory navigates into it, Enter on a file commits the path. Esc
+//! cancels without changing the setting. v1 is select-only (no typed input
+//! in the picker itself).
+
+use std::path::{Path, PathBuf};
+
+use super::SettingsPanelLine;
+use super::pointer::{RowHit, RowZone};
+use crate::native::overlay::OverlayInput;
+
+/// State for an active path-picker session.
+#[derive(Debug, Clone)]
+pub(super) struct PathPickerState {
+    /// The setting key this picker is editing.
+    pub(super) key: &'static str,
+    /// Currently-browsed directory.
+    current_dir: PathBuf,
+    /// Sorted entries in `current_dir` (dirs first, then filtered files).
+    entries: Vec<PathEntry>,
+    selected: usize,
+    scroll: usize,
+    /// The original setting value; restored on Esc. Kept for callers that
+    /// need to restore the value if the picker is externally cancelled.
+    #[allow(dead_code)]
+    pub(super) original: String,
+}
+
+#[derive(Debug, Clone)]
+struct PathEntry {
+    /// Display name (filename + "/" suffix for directories).
+    name: String,
+    path: PathBuf,
+    is_dir: bool,
+}
+
+/// What the path picker wants the owning panel to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum PathPickerOutcome {
+    /// Input consumed; keep the picker open.
+    Consumed,
+    /// A file was selected — commit this path string.
+    Selected(String),
+    /// Picker was cancelled; restore the original value.
+    Cancelled,
+}
+
+impl PathPickerState {
+    /// Create a new picker for `key`, starting in `start_dir`. `original` is
+    /// the setting's current value — restored if the user presses Esc.
+    pub(super) fn new(key: &'static str, start_dir: PathBuf, original: String) -> Self {
+        let mut picker = Self {
+            key,
+            current_dir: PathBuf::new(),
+            entries: Vec::new(),
+            selected: 0,
+            scroll: 0,
+            original,
+        };
+        picker.navigate_to(start_dir);
+        picker
+    }
+
+    /// Navigate into `dir`, refreshing the entry list.
+    fn navigate_to(&mut self, dir: PathBuf) {
+        self.current_dir = dir;
+        self.entries = read_dir_entries(&self.current_dir, extension_filter(self.key));
+        self.selected = 0;
+        self.scroll = 0;
+    }
+
+    /// Handle one key event. Returns the picker outcome.
+    pub(super) fn handle_input(&mut self, input: OverlayInput) -> PathPickerOutcome {
+        match input {
+            OverlayInput::Up => {
+                if self.selected > 0 {
+                    self.selected -= 1;
+                    self.clamp_scroll();
+                }
+            }
+            OverlayInput::Down => {
+                if self.selected + 1 < self.entries.len() {
+                    self.selected += 1;
+                    self.clamp_scroll();
+                }
+            }
+            OverlayInput::Home => {
+                self.selected = 0;
+                self.clamp_scroll();
+            }
+            OverlayInput::End => {
+                self.selected = self.entries.len().saturating_sub(1);
+                self.clamp_scroll();
+            }
+            OverlayInput::PageUp => {
+                self.selected = self.selected.saturating_sub(6);
+                self.clamp_scroll();
+            }
+            OverlayInput::PageDown => {
+                self.selected = (self.selected + 6).min(self.entries.len().saturating_sub(1));
+                self.clamp_scroll();
+            }
+            OverlayInput::Activate => {
+                return self.activate_selected();
+            }
+            OverlayInput::Close => {
+                return PathPickerOutcome::Cancelled;
+            }
+            _ => {}
+        }
+        PathPickerOutcome::Consumed
+    }
+
+    fn activate_selected(&mut self) -> PathPickerOutcome {
+        let Some(entry) = self.entries.get(self.selected).cloned() else {
+            return PathPickerOutcome::Consumed;
+        };
+        if entry.is_dir {
+            self.navigate_to(entry.path);
+            PathPickerOutcome::Consumed
+        } else {
+            PathPickerOutcome::Selected(entry.path.display().to_string())
+        }
+    }
+
+    /// Wheel-driven free scroll.
+    pub(super) fn scroll_lines(&mut self, delta: isize) {
+        if self.entries.is_empty() {
+            self.scroll = 0;
+            return;
+        }
+        let max = self.entries.len().saturating_sub(1) as isize;
+        self.scroll = (self.scroll as isize + delta).clamp(0, max) as usize;
+    }
+
+    fn clamp_scroll(&mut self) {
+        if self.entries.is_empty() {
+            self.scroll = 0;
+            return;
+        }
+        self.selected = self.selected.min(self.entries.len() - 1);
+        if self.selected < self.scroll {
+            self.scroll = self.selected;
+        }
+        // Approximate: use 8 lines of slack.
+        if self.selected >= self.scroll + 8 {
+            self.scroll = self.selected.saturating_sub(7);
+        }
+        self.scroll = self.scroll.min(self.entries.len() - 1);
+    }
+
+    /// Build the body rows for the picker panel (used by `build_visible_rows`).
+    pub(super) fn build_visible_rows(
+        &self,
+        body_width: usize,
+        body_height: usize,
+    ) -> Vec<(SettingsPanelLine, RowHit)> {
+        if body_width == 0 || body_height == 0 {
+            return Vec::new();
+        }
+        let mut rows: Vec<(SettingsPanelLine, RowHit)> = Vec::new();
+        let inert = RowHit {
+            entry_index: None,
+            zone: RowZone::GroupHeader,
+        };
+
+        // Directory breadcrumb header.
+        let dir_str = self.current_dir.display().to_string();
+        let dir_display = if dir_str.chars().count() > body_width.saturating_sub(3) {
+            format!(
+                "…{}",
+                &dir_str[dir_str.len().saturating_sub(body_width.saturating_sub(4))..]
+            )
+        } else {
+            dir_str
+        };
+        if rows.len() < body_height {
+            rows.push((
+                SettingsPanelLine {
+                    text: format!("  {dir_display}"),
+                    focused: false,
+                    bold: false,
+                },
+                inert,
+            ));
+        }
+
+        // Separator.
+        if rows.len() < body_height {
+            let sep = "─".repeat(body_width.min(48));
+            rows.push((
+                SettingsPanelLine {
+                    text: format!("  {sep}"),
+                    focused: false,
+                    bold: false,
+                },
+                inert,
+            ));
+        }
+
+        // Entry rows.
+        for (index, entry) in self.entries.iter().enumerate().skip(self.scroll) {
+            if rows.len() >= body_height {
+                break;
+            }
+            let focused = index == self.selected;
+            let marker = if focused { ">" } else { " " };
+            let max_name = body_width.saturating_sub(4);
+            let name = if entry.name.chars().count() > max_name {
+                let mut n = entry.name.chars().take(max_name - 1).collect::<String>();
+                n.push('~');
+                n
+            } else {
+                entry.name.clone()
+            };
+            rows.push((
+                SettingsPanelLine {
+                    text: format!("{marker} {name}"),
+                    focused,
+                    bold: focused && !entry.is_dir,
+                },
+                RowHit {
+                    // entry_index carries the path-entry index for pointer clicks.
+                    entry_index: Some(index),
+                    zone: RowZone::Value,
+                },
+            ));
+        }
+
+        // Empty-dir notice.
+        if self.entries.is_empty() && rows.len() < body_height {
+            rows.push((
+                SettingsPanelLine {
+                    text: "  (empty directory)".to_owned(),
+                    focused: false,
+                    bold: false,
+                },
+                inert,
+            ));
+        }
+
+        // Footer hint.
+        if rows.len() < body_height {
+            rows.push((
+                SettingsPanelLine {
+                    text: "  Enter open  Esc cancel".to_owned(),
+                    focused: false,
+                    bold: false,
+                },
+                inert,
+            ));
+        }
+
+        rows
+    }
+}
+
+/// Determine which file extensions to show based on the setting key.
+fn extension_filter(key: &str) -> &'static [&'static str] {
+    match key {
+        "font" | "symbol_font" => &["ttf", "otf", "ttc"],
+        "background_image" => &["png", "jpg", "jpeg", "webp"],
+        _ => &[],
+    }
+}
+
+/// Read the entries of `dir`: directories first (sorted), then files whose
+/// extension matches `ext_filter` (sorted). If `ext_filter` is empty, all
+/// non-directory files are shown. Hidden entries (starting with `.`) are
+/// excluded from file listings but included for directories.
+fn read_dir_entries(dir: &Path, ext_filter: &[&str]) -> Vec<PathEntry> {
+    let Ok(read) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut dirs: Vec<PathEntry> = Vec::new();
+    let mut files: Vec<PathEntry> = Vec::new();
+
+    for entry in read.flatten() {
+        let path = entry.path();
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if meta.is_dir() {
+            let name_os = entry.file_name();
+            let name = name_os.to_string_lossy();
+            if name.starts_with('.') {
+                continue;
+            }
+            dirs.push(PathEntry {
+                name: format!("{name}/"),
+                path,
+                is_dir: true,
+            });
+        } else if meta.is_file() {
+            let name_os = entry.file_name();
+            let name = name_os.to_string_lossy();
+            if name.starts_with('.') {
+                continue;
+            }
+            if !ext_filter.is_empty() {
+                let ext = path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                if !ext_filter.contains(&ext.as_str()) {
+                    continue;
+                }
+            }
+            files.push(PathEntry {
+                name: name.into_owned(),
+                path,
+                is_dir: false,
+            });
+        }
+    }
+
+    dirs.sort_by(|a, b| a.name.cmp(&b.name));
+    files.sort_by(|a, b| a.name.cmp(&b.name));
+    dirs.extend(files);
+    dirs
+}
+
+/// Resolve the starting directory for a picker from the setting's current value.
+pub(super) fn resolve_start_dir(current_value: &str) -> PathBuf {
+    let p = Path::new(current_value.trim());
+    if p.is_file() {
+        return p.parent().unwrap_or(p).to_path_buf();
+    }
+    if p.is_dir() {
+        return p.to_path_buf();
+    }
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/"))
+}

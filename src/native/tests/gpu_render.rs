@@ -240,6 +240,9 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
             entries: Vec::new(),
             query: String::new(),
             search_active: false,
+            level: crate::native::settings_panel::SettingsLevel::SectionList,
+            section_selected: 0,
+            pending_close_prompt: false,
         },
         theme_picker: ThemePickerSignature {
             selected: 0,

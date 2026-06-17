@@ -36,8 +36,15 @@ fn overlay_open_press_is_captured_and_neither_selects_nor_reports() {
     };
 
     app.open_settings_overlay_for_test();
+    // Drill into the Themes section (Enter on the first section row).
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
+        false,
+        false,
+    );
     let rect = app.overlay_rect_for_test().expect("overlay rect");
-    // Body row 0 is the first group header; row 1 is the theme value line.
+    // At Level 2 Themes: body row 0 is the "Theme" group header; row 1 is the
+    // theme value line. Any body column maps to its Value zone.
     app.set_pointer_cell_for_test(rect.body_top + 1, rect.body_left);
 
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
@@ -79,7 +86,14 @@ fn overlay_press_does_not_leak_to_pty_even_with_mouse_reporting_enabled() {
 
     // Open the overlay and click a value row inside it.
     app.open_settings_overlay_for_test();
+    // Drill into Themes section so the theme value row is clickable at Level 2.
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
+        false,
+        false,
+    );
     let rect = app.overlay_rect_for_test().expect("overlay rect");
+    // body_top + 1 = theme value row (after "Theme" group header at row 0).
     app.set_pointer_cell_for_test(rect.body_top + 1, rect.body_left);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
 
@@ -105,6 +119,24 @@ fn overlay_open_wheel_scrolls_the_panel_not_the_scrollback() {
     };
 
     app.open_settings_overlay_for_test();
+    // Drill into the Rendering section (many entries) so wheel scrolls Level-2
+    // entry list (self.scroll) rather than Level-1 section_scroll.
+    // Rendering is index 2: Down, Down, Enter.
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
+        false,
+        false,
+    );
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
+        false,
+        false,
+    );
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
+        false,
+        false,
+    );
     let before = app.overlay_signature_for_test().panel.scroll;
 
     // Wheel down (negative line delta) advances the settings list.
@@ -126,6 +158,17 @@ fn overlay_slider_drag_routes_through_cursor_move_and_release() {
     };
 
     app.open_settings_overlay_for_test();
+    // Drill into Fonts section (contains font_size, a slider row).
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
+        false,
+        false,
+    );
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
+        false,
+        false,
+    );
     let mut tracks = app.overlay_first_slider_track_cells_for_test();
     for _ in 0..12 {
         if tracks.is_some() {
@@ -223,11 +266,18 @@ fn focus_loss_cancels_an_armed_overlay_slider_drag() {
     };
 
     app.open_settings_overlay_for_test();
-    // Scroll the settings list one notch at a time until a numeric (slider) row
-    // enters the capped panel window, stopping at the FIRST one. Scrolling a
-    // fixed large amount overshoots past every slider into the non-numeric tail
-    // (the sliders sit near the top), which is why the blanket-scroll sibling
-    // test skips at this size.
+    // Drill into Fonts section to get a numeric slider row.
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
+        false,
+        false,
+    );
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
+        false,
+        false,
+    );
+    // Scroll one notch at a time until a slider row enters the visible window.
     let mut tracks = app.overlay_first_slider_track_cells_for_test();
     for _ in 0..12 {
         if tracks.is_some() {

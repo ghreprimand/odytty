@@ -13,6 +13,8 @@
 //! numeric slider (`Slider` zone): a draggable track plus a click-to-type
 //! readout, both committing through that same seam.
 
+use super::SettingsLevel;
+use super::sections::SECTIONS;
 use super::{RowEdit, SettingKind, SettingsPanel, SettingsPanelLine, SettingsPanelOutcome};
 use super::{SettingInfo, ellipsize, setting_detail, wrap_words};
 use crate::native::overlay::PointerButton;
@@ -49,6 +51,10 @@ pub(in crate::native) enum RowZone {
     Detail,
     /// A `"! ..."` notice line — inert.
     Message,
+    /// A section row in the Level-1 section list (SETTINGS-REDESIGN).
+    /// `entry_index` carries the section index; a click drills into that
+    /// section. This zone only appears in Level-1 hit-maps (T-level-hitmap).
+    SectionRow,
 }
 
 /// One entry of the hit-map: which setting row a body line belongs to (if any)
@@ -64,8 +70,154 @@ impl SettingsPanel {
     /// once and emits each rendered line paired with its hit-map role. Both
     /// [`SettingsPanel::visible_lines`] and [`SettingsPanel::visible_hit_map`]
     /// project from this, guaranteeing the rendered geometry and the hit-test
-    /// geometry are identical.
+    /// geometry are identical (T-level-hitmap).
+    ///
+    /// Dispatches on the current level:
+    /// - Level 1 (SectionList): builds section-list rows with `SectionRow` zones.
+    /// - Level 2 (SectionDetail) or search: builds setting-entry rows.
+    /// - Path picker / close prompt: delegates to their own builders.
     pub(super) fn build_visible_rows(
+        &self,
+        body_width: usize,
+        body_height: usize,
+    ) -> Vec<(SettingsPanelLine, RowHit)> {
+        if body_width == 0 || body_height == 0 {
+            return Vec::new();
+        }
+        // Path picker owns the body when active.
+        if let Some(picker) = &self.path_picker {
+            return picker.build_visible_rows(body_width, body_height);
+        }
+        // Dirty-close prompt owns the body when active.
+        if self.pending_close_prompt {
+            return self.build_close_prompt_rows(body_width, body_height);
+        }
+        // Level 1 (section list) unless search mode is forcing the flat view.
+        if matches!(self.level, SettingsLevel::SectionList) && !self.search_active {
+            return self.build_section_list_rows(body_width, body_height);
+        }
+        // Level 2 / search: build the settings-entry rows.
+        self.build_settings_rows(body_width, body_height)
+    }
+
+    /// Level-1 section-list rows. Each section maps to a `SectionRow` hit so
+    /// pointer presses drill in correctly (T-level-hitmap).
+    fn build_section_list_rows(
+        &self,
+        body_width: usize,
+        body_height: usize,
+    ) -> Vec<(SettingsPanelLine, RowHit)> {
+        let mut rows: Vec<(SettingsPanelLine, RowHit)> = Vec::new();
+        for (index, section) in SECTIONS.iter().enumerate().skip(self.section_scroll) {
+            if rows.len() >= body_height {
+                break;
+            }
+            let count = self
+                .all_entries
+                .iter()
+                .filter(|e| section.groups.contains(&e.group))
+                .count();
+            let focused = index == self.section_selected;
+            let marker = if focused { ">" } else { " " };
+            let count_str = format!("({count})");
+            let name_w = section.name.chars().count();
+            let available = body_width.saturating_sub(name_w + 4 + count_str.len());
+            // Right-align the count with padding.
+            let text = if available > 0 {
+                format!(
+                    "{marker} {}{:>pad$}",
+                    section.name,
+                    count_str,
+                    pad = available + count_str.len()
+                )
+            } else {
+                format!("{marker} {}  {count_str}", section.name)
+            };
+            rows.push((
+                SettingsPanelLine {
+                    text,
+                    focused,
+                    bold: focused,
+                },
+                RowHit {
+                    entry_index: Some(index),
+                    zone: RowZone::SectionRow,
+                },
+            ));
+        }
+        // Footer hint.
+        if rows.len() < body_height {
+            rows.push((
+                SettingsPanelLine {
+                    text: "  Enter/\u{2192} open  / search  Ctrl+S save  Esc close".to_owned(),
+                    focused: false,
+                    bold: false,
+                },
+                RowHit {
+                    entry_index: None,
+                    zone: RowZone::GroupHeader,
+                },
+            ));
+        }
+        rows
+    }
+
+    /// Dirty-close prompt body rows.
+    fn build_close_prompt_rows(
+        &self,
+        body_width: usize,
+        body_height: usize,
+    ) -> Vec<(SettingsPanelLine, RowHit)> {
+        let count = self.edits.changed_count();
+        let inert = RowHit {
+            entry_index: None,
+            zone: RowZone::Message,
+        };
+        let _ = body_width; // layout is fixed text, width only clips
+        let mut rows = vec![
+            (
+                SettingsPanelLine {
+                    text: format!("  You have {count} unsaved setting change(s)."),
+                    focused: false,
+                    bold: false,
+                },
+                inert,
+            ),
+            (
+                SettingsPanelLine {
+                    text: String::new(),
+                    focused: false,
+                    bold: false,
+                },
+                inert,
+            ),
+        ];
+        let actions = [
+            "  [S] Save and close",
+            "  [D] Discard and close",
+            "  [C] Cancel (return to settings)",
+        ];
+        for text in actions {
+            if rows.len() >= body_height {
+                break;
+            }
+            rows.push((
+                SettingsPanelLine {
+                    text: text.to_owned(),
+                    focused: false,
+                    bold: false,
+                },
+                inert,
+            ));
+        }
+        rows
+    }
+
+    /// Level-2 (and search-mode) entry rows. This is the body of the former
+    /// `build_visible_rows`; renamed so the dispatcher above can call it
+    /// explicitly from `selected_in_window` without re-entering the path-picker
+    /// and close-prompt branches.
+    pub(super) fn build_settings_rows(
         &self,
         body_width: usize,
         body_height: usize,
@@ -75,9 +227,7 @@ impl SettingsPanel {
             return rows;
         }
 
-        // OB-SEARCH: when searching, a fixed filter header sits above the
-        // results. It is inert (entry_index None) — the keyboard owns the query
-        // — so the pointer hit-map stays in lockstep with the rendered lines.
+        // OB-SEARCH: when searching, a fixed filter header sits above the results.
         if self.search_active {
             rows.push((
                 SettingsPanelLine {
@@ -297,7 +447,22 @@ impl SettingsPanel {
     /// later entries) without moving `selected`. This is independent of the
     /// keyboard `clamp()` keep-selection-visible logic; the next keyboard
     /// navigation will re-clamp scroll to the selection as before.
+    /// Free pointer-driven scroll. At Level 1 (section list) scrolls
+    /// `section_scroll`; at Level 2 or in search mode scrolls `scroll`.
+    /// (T-scroll-per-level: the two offsets are independent.)
     pub(in crate::native) fn scroll_lines(&mut self, delta: isize) {
+        // Path picker owns wheel scroll when active.
+        if let Some(picker) = self.path_picker.as_mut() {
+            picker.scroll_lines(delta);
+            return;
+        }
+        if matches!(self.level, SettingsLevel::SectionList) && !self.search_active {
+            // Level 1: scroll the section list.
+            let max = SECTIONS.len().saturating_sub(1) as isize;
+            self.section_scroll = (self.section_scroll as isize + delta).clamp(0, max) as usize;
+            return;
+        }
+        // Level 2 / search: scroll the entry list.
         if self.entries.is_empty() {
             self.scroll = 0;
             return;
@@ -325,6 +490,17 @@ impl SettingsPanel {
         let Some(hit) = hit_map.get(row_in_body).copied() else {
             return SettingsPanelOutcome::Consumed;
         };
+
+        // SectionRow: drill into the clicked section (Level 1 only).
+        // T-level-hitmap: this zone only appears in Level-1 hit-maps.
+        if hit.zone == RowZone::SectionRow {
+            if let Some(section_index) = hit.entry_index {
+                self.section_selected = section_index;
+                self.drill_into_section(section_index);
+            }
+            return SettingsPanelOutcome::Consumed;
+        }
+
         let Some(entry_index) = hit.entry_index else {
             // GroupHeader / Message: inert, no focus change.
             return SettingsPanelOutcome::Consumed;
@@ -336,6 +512,7 @@ impl SettingsPanel {
         self.set_selection(entry_index);
 
         match hit.zone {
+            RowZone::SectionRow => SettingsPanelOutcome::Consumed, // handled above
             RowZone::GroupHeader | RowZone::Message => SettingsPanelOutcome::Consumed,
             // A help line only selects its owning row; no value change.
             RowZone::Detail => SettingsPanelOutcome::Consumed,
@@ -495,15 +672,19 @@ impl SettingsPanel {
             return SettingsPanelOutcome::Consumed;
         }
         match entry.kind {
+            // Key-specific overrides run before kind dispatch (theme is Enum,
+            // font_family is String — both open pickers not editors).
+            _ if entry.key == "theme" => {
+                self.message = Some("Opening built-in theme picker.".to_owned());
+                SettingsPanelOutcome::OpenThemePicker
+            }
+            _ if entry.key == "font_family" => {
+                self.message = Some("Opening font picker.".to_owned());
+                SettingsPanelOutcome::OpenFontPicker
+            }
             SettingKind::Bool => {
                 let next = if entry.value == "on" { "off" } else { "on" };
                 self.commit_value(entry.key, next)
-            }
-            // Theme row click opens the built-in picker, matching the keyboard
-            // Left/Right behavior (not the Enter custom-path text edit).
-            SettingKind::Enum if entry.key == "theme" => {
-                self.message = Some("Opening built-in theme picker.".to_owned());
-                SettingsPanelOutcome::OpenThemePicker
             }
             SettingKind::Enum => {
                 let direction = if button == PointerButton::Right {
@@ -513,7 +694,17 @@ impl SettingsPanel {
                 };
                 self.cycle_selected(direction)
             }
-            SettingKind::Number | SettingKind::String | SettingKind::Path | SettingKind::List => {
+            // Path rows open the inline path picker.
+            SettingKind::Path => {
+                let original = entry.value.clone();
+                let start_dir = super::path_picker::resolve_start_dir(&original);
+                self.editing = None;
+                self.path_picker = Some(super::path_picker::PathPickerState::new(
+                    entry.key, start_dir, original,
+                ));
+                SettingsPanelOutcome::Consumed
+            }
+            SettingKind::Number | SettingKind::String | SettingKind::List => {
                 self.editing = Some(RowEdit {
                     key: entry.key,
                     buffer: entry.value,
@@ -532,7 +723,11 @@ mod tests {
     use crate::settings::Settings;
 
     fn panel() -> SettingsPanel {
-        SettingsPanel::new(&Settings::default())
+        let mut p = SettingsPanel::new(&Settings::default());
+        // Use flat-mode so pointer tests see all entries without needing to
+        // navigate the two-level section list first (T-level-hitmap fixture).
+        p.set_test_flat_mode();
+        p
     }
 
     /// Geometry generous enough that every row is visible.

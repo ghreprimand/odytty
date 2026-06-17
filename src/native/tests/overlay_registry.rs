@@ -15,6 +15,7 @@
 //! (CI sandboxes), mirroring the other native App suites.
 
 use super::*;
+use crate::native::settings_panel::SettingsLevel;
 
 const COLS: usize = 80;
 const ROWS: usize = 24;
@@ -73,6 +74,9 @@ fn closed_overlay_sig() -> OverlayRenderSignature {
             entries: Vec::new(),
             query: String::new(),
             search_active: false,
+            level: SettingsLevel::SectionList,
+            section_selected: 0,
+            pending_close_prompt: false,
         },
         theme_picker: ThemePickerSignature {
             selected: 0,

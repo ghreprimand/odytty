@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- SETTINGS-REDESIGN: two-level master/detail settings overlay
+
+The settings overlay was a single long flat list. It is now two levels: Level 1
+is a short list of named sections; Enter drills into a section to its settings
+(Level 2); Esc backs out one level. This makes finding a setting fast instead of
+a scroll-hunt, and folds in clearer Enter semantics and a save-on-close prompt.
+
+- **Seven sections** — Themes, Fonts, Rendering, Effects, Cursor, Input,
+  Advanced — mapped onto the existing nine internal setting groups (Effects =
+  the post-process group; Rendering = the rendering group; Input folds in
+  Clipboard; Advanced folds Accessibility + Development). New `sections.rs`
+  holds the `Section` table and a `SettingsLevel` enum.
+- **Level-aware navigation.** Section-list and detail views keep independent
+  scroll offsets; entering a section resets the detail scroll. The scroll-follow
+  clamp has a Level-1 fast path and an exact-visibility walk at Level 2.
+- **Clearer Enter semantics.** A Themes row opens the theme picker; the Fonts
+  section's font-family row opens the (upcoming) font picker rather than a raw
+  type-in; path-valued rows open an inline path picker (new `path_picker.rs`
+  with directory navigation). Save-on-close: a dirty overlay prompts before
+  closing, and a successful save closes the overlay.
+- Mutually-exclusive substates (path picker / close prompt / inline edit /
+  search / level) guard each other so only one is ever active; the changed-edit
+  count survives level transitions; `/` search is Level-1 only.
+- Sixteen new tests cover the front-loaded traps: per-level hitmap and scroll,
+  editing cleared on level change, changed-count survival, substate mutual
+  exclusion, search inert at Level 2, per-level scroll-follow, and the
+  Esc-closes / Save-noops-when-clean identity.
+
+State: `cargo test --lib` 1645 passed / 0 failed; `cargo fmt --check` clean;
+clippy `--lib` 37 (baseline 38, zero net-new); two new files carry SPDX. The
+font picker (rides on FONT-WEIGHT-FIX) becomes a drill-down in the Fonts section.
+
+---
+
 ## 2026-06-17 -- FONT-WEIGHT-FIX: select the weight face file instead of guessing a family name
 
 `font_weight` silently did nothing. Root cause was self-inflicted: the resolver
