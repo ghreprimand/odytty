@@ -226,6 +226,15 @@ const NAME_ID_TYPOGRAPHIC_FAMILY: u16 = 16;
 fn read_face_meta(path: &Path) -> Option<FaceMeta> {
     let data = std::fs::read(path).ok()?;
     let face = ttf_parser::Face::parse(&data, 0).ok()?;
+    // Exclude emoji / icon / symbol faces from text-family enumeration and
+    // family-name resolution: a color-emoji font (e.g. "Noto Color Emoji")
+    // can report fixed-pitch and slip past the monospace probe, listing a
+    // proportional/color face as a text mono family in the picker. A real text
+    // mono font always covers basic Latin; an emoji/icon font never does. This
+    // does NOT affect the separate RV6 symbol/PUA-icon fallback path.
+    if !has_basic_latin_coverage(&face) {
+        return None;
+    }
     let family = real_family_name(&face)?;
     Some(FaceMeta {
         family,
@@ -260,6 +269,21 @@ fn real_family_name(face: &ttf_parser::Face) -> Option<String> {
         }
     }
     typographic.or(family)
+}
+
+/// Representative basic-Latin code points a real text font must render. An
+/// emoji / icon / symbol font maps none of these, so requiring coverage of all
+/// three cleanly excludes such faces from the text-family picker while never
+/// false-excluding a genuine monospace text font.
+const LATIN_COVERAGE_PROBE: [char; 3] = ['A', 'z', '0'];
+
+/// Whether a face covers basic Latin (see [`LATIN_COVERAGE_PROBE`]). Used to
+/// keep color-emoji / icon faces — which can falsely report fixed-pitch — out
+/// of the text-family list and family-name resolution.
+fn has_basic_latin_coverage(face: &ttf_parser::Face) -> bool {
+    LATIN_COVERAGE_PROBE
+        .iter()
+        .all(|&c| face.glyph_index(c).is_some())
 }
 
 /// Whether a font file is monospace: trust the `post.isFixedPitch` flag when
@@ -1626,6 +1650,41 @@ mod tests {
             distinct_monospace_families(&metas),
             vec!["Cascadia Code".to_owned(), "JetBrains Mono".to_owned()]
         );
+    }
+
+    // Emoji/icon exclusion: a real mono text font covers basic Latin; a
+    // color-emoji font does not. read_face_meta drops faces failing this probe
+    // so they never list as text families (the "Noto Color Emoji" picker wart).
+    #[test]
+    fn latin_coverage_accepts_text_font_rejects_emoji() {
+        // Positive: a real monospace text font on this host covers basic Latin.
+        if let Some((_, dirs)) = a_real_monospace_family() {
+            let covered = collect_font_files(&dirs).iter().any(|f| {
+                let Ok(data) = std::fs::read(f) else {
+                    return false;
+                };
+                ttf_parser::Face::parse(&data, 0)
+                    .map(|face| has_basic_latin_coverage(&face))
+                    .unwrap_or(false)
+            });
+            assert!(covered, "a text mono font must report Latin coverage");
+        }
+        // Negative: a color-emoji font (if installed) fails coverage AND is
+        // therefore absent from read_face_meta / font_families. Skip if absent.
+        let emoji = Path::new("/usr/share/fonts/noto/NotoColorEmoji.ttf");
+        if emoji.is_file() {
+            let data = std::fs::read(emoji).expect("read emoji font");
+            if let Ok(face) = ttf_parser::Face::parse(&data, 0) {
+                assert!(
+                    !has_basic_latin_coverage(&face),
+                    "color-emoji font must fail the Latin-coverage probe"
+                );
+            }
+            assert!(
+                read_face_meta(emoji).is_none(),
+                "emoji font must be excluded from family enumeration"
+            );
+        }
     }
 
     // Trap (b): the regular face is chosen by metadata (400, upright), NOT by

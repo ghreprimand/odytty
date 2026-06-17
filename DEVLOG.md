@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- FONT-FAMILY-EMOJI-EXCLUSION: keep color-emoji faces out of the text-family list
+
+Follow-up to FONT-PIPELINE-REWORK. A color-emoji font (e.g. "Noto Color Emoji")
+can report fixed-pitch and slip past the monospace probe, so it listed as a text
+mono family in the picker. `read_face_meta` now drops any face that fails a
+basic-Latin coverage probe (must map `A`, `z`, `0`): a real text mono font always
+covers basic Latin; an emoji/icon/symbol face never does. This excludes such
+faces from both the picker family list and family-name resolution — correct,
+since text cannot render in an emoji font. The separate RV6 symbol/PUA-icon
+fallback path is untouched (emoji still loads as a fallback face; it just no
+longer lists as a text family), and `--list-fonts` (`font_inventory`, the raw
+per-file diagnostic) is unchanged by design.
+
+`cargo fmt --check` clean, `cargo test --lib` 1669/0 (+1 host-tolerant
+regression), all-targets green (pixel_smoke 49, gpu_composite 3, mouse_protocol
+12), `cargo clippy --lib` 38 (baseline, zero net-new).
+
 ## 2026-06-17 -- FONT-PIPELINE-REWORK: real font metadata replaces filename guessing
 
 Live testing kept hitting the same class of font failures — a picker entry that
