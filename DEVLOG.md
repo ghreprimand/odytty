@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- HELP1 settings-label clarity sweep
+
+A small readability pass over settings-panel labels and help text (no behavior
+change). `subpixel` is now named "Subpixel antialiasing" (was the abbreviation
+"Subpixel AA") with a fuller description noting it is off by default and that
+unsupported adapters fall back to grayscale; `synthetic_styles` is now named
+"Synthesize bold & italic" rather than reading as a raw config key. The earlier
+clarity work on `render_quality`, `crt_scanline_period`, and the honest
+`cursor_blink=auto` wording already landed; this closes the general sweep. Test
+pins added to `help1_cryptic_settings_have_actionable_descriptions`; lib test
+count unchanged.
+
+---
+
 ## 2026-06-17 -- ID4 themed window border + VE4 cursor trail (both off by default)
 
 Two visual-identity finish features, each off by default with a byte-identical

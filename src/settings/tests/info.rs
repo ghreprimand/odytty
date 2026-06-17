@@ -125,4 +125,14 @@ fn help1_cryptic_settings_have_actionable_descriptions() {
     assert!(scanline_period.description.contains("Smaller values"));
     assert!(scanline_period.description.contains("2.0"));
     assert_eq!(scanline_period.range.as_deref(), Some("2.0..=12.0 px"));
+
+    // General sweep: raw-abbreviation and raw-key names replaced with plain English.
+    let subpixel = row(&rows, "subpixel");
+    assert_eq!(subpixel.name, "Subpixel antialiasing");
+    assert!(subpixel.description.contains("RGB or BGR"));
+    assert!(subpixel.description.contains("LCD"));
+
+    let synthetic_styles = row(&rows, "synthetic_styles");
+    assert_eq!(synthetic_styles.name, "Synthesize bold & italic");
+    assert!(synthetic_styles.description.contains("bold and italic"));
 }
