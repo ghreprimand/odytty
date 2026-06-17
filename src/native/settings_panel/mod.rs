@@ -201,21 +201,43 @@ impl SettingsPanel {
         self.clamp();
     }
 
-    pub(super) fn apply_settings(&mut self, settings: &Settings) {
+    /// Live-apply seam (`SettingsApplySource::OverlayEdit`): a value committed in
+    /// the panel (step/cycle/slider) or a Save re-read of the config is routed
+    /// back here so the preview/save takes effect immediately. This MUST preserve
+    /// the panel's navigation state — the current level, the drilled-into section
+    /// filter, an active search, and any unsaved dirty edits in `self.edits`.
+    ///
+    /// SETTINGS-PANEL-STATE-FIX:
+    ///   - Bug B: do NOT call `apply_search_filter()` unconditionally. With no
+    ///     active query it replaces the section-filtered list with ALL settings,
+    ///     leaking the user out of their section. Use the section/search-aware
+    ///     `refresh_entries_after_commit()` instead (the same rebuild the commit
+    ///     path uses), which preserves the SectionDetail filter at Level 2, the
+    ///     search filter in search mode, and the full list only at Level 1.
+    ///   - Bug C: do NOT call the level-resetting `refresh()`. On a live apply the
+    ///     incoming `settings` (re-read via `Settings::from_env` on Save) can
+    ///     differ from the in-panel edit overlay, so the old
+    ///     `if self.edits.settings() != settings { self.refresh(settings); }`
+    ///     fired spuriously and yanked the user back to Level 1. The applied
+    ///     values are already reflected in `self.edits` (the commit path updated
+    ///     it; Save calls `save_succeeded`/`mark_saved`), so we keep `self.edits`
+    ///     as the source of truth and never touch `self.level`,
+    ///     `self.section_selected`, or `self.search_active` here.
+    pub(super) fn apply_settings(&mut self, _settings: &Settings) {
         let selected_key = self
             .entries
             .get(self.selected)
             .map(|entry| entry.key)
             .unwrap_or("theme");
         self.all_entries = self.edits.settings().setting_info();
-        self.apply_search_filter();
-        self.selected = self
-            .entries
-            .iter()
-            .position(|entry| entry.key == selected_key)
-            .unwrap_or(0);
-        if self.edits.settings() != settings {
-            self.refresh(settings);
+        self.refresh_entries_after_commit();
+        // Re-find the selected key within the (section/search-aware) list. The
+        // SectionDetail branch of refresh_entries_after_commit already re-finds,
+        // so this only fixes up the Level-1 / search branches; if the key is no
+        // longer present we keep the filter-aware selection rather than jumping
+        // to row 0.
+        if let Some(pos) = self.entries.iter().position(|e| e.key == selected_key) {
+            self.selected = pos;
         }
         self.clamp();
     }
@@ -895,19 +917,19 @@ impl SettingsPanel {
             return;
         }
         self.selected = self.selected.min(self.entries.len() - 1);
+        // SLIDER-SCROLL-STABILITY: scroll MINIMALLY, only when the selected row
+        // is genuinely off-screen. Never recenter a row that is already visible
+        // (the old `visible_slack` reframe yanked the viewport on every press of
+        // any row below the top third — that is what jumped a slider to the
+        // bottom on adjust). Scroll up to reveal a selection above the window;
+        // scroll DOWN one row at a time only until the selection becomes visible
+        // (preserves keyboard follow-visible without recentering — see the
+        // [follow-lag] trap).
         if self.selected < self.scroll {
             self.scroll = self.selected;
         }
-        let visible_slack = (self.last_body_height / 3).max(5);
-        if self.selected >= self.scroll + visible_slack {
-            self.scroll = self.selected.saturating_sub(visible_slack - 1);
-        }
         if self.last_body_height > 0 {
-            loop {
-                let visible = self.selected_in_window(self.last_body_height);
-                if visible || self.scroll >= self.selected {
-                    break;
-                }
+            while self.scroll < self.selected && !self.selected_in_window(self.last_body_height) {
                 self.scroll += 1;
             }
         }
@@ -1998,5 +2020,221 @@ mod tests {
             SettingsLevel::SectionList,
             "Esc at Level 2 returns to Level 1"
         );
+    }
+
+    // ── SETTINGS-PANEL-STATE-FIX regression tests ────────────────────────────
+
+    /// Entry indices whose Value/Slider row is currently visible at the active
+    /// scroll, read from the shared row walker (the same source the pointer
+    /// hit-map and `selected_in_window` consume).
+    fn visible_entry_indices(panel: &SettingsPanel, w: usize, h: usize) -> Vec<usize> {
+        use crate::native::settings_panel::pointer::RowZone;
+        panel
+            .build_settings_rows(w, h)
+            .into_iter()
+            .filter_map(|(_, hit)| match hit.zone {
+                RowZone::Value | RowZone::Slider { .. } => hit.entry_index,
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Bug A: selecting (e.g. pressing) a row that is already on-screen must NOT
+    /// recenter the viewport. The old `visible_slack` reframe yanked the view on
+    /// any selection below the top third — this is what jumped a slider to the
+    /// bottom the instant you adjusted it.
+    #[test]
+    fn selecting_a_visible_row_does_not_recenter_scroll() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        panel.drill_into_section(2); // Rendering (many entries)
+        panel.update_body_width(90);
+        panel.update_body_height(28);
+        let _ = panel.visible_lines(90, 28);
+        let vis = visible_entry_indices(&panel, 90, 28);
+        let last_visible = *vis.iter().max().expect("some rows visible at top");
+        assert!(
+            last_visible >= 1,
+            "need a non-top visible row to be meaningful"
+        );
+        // Pointer press path is `set_selection`; start from the top of scroll.
+        panel.scroll = 0;
+        panel.set_selection(last_visible);
+        assert_eq!(
+            panel.scroll, 0,
+            "an already-visible row must not move the viewport"
+        );
+        assert!(
+            panel.selected_in_window(28),
+            "the selected row stays visible"
+        );
+    }
+
+    /// Bug A [follow-lag] trap: arrowing the selection BELOW the visible window
+    /// must still scroll — minimally — to reveal it (no VIEWPORT-FOLLOW-LAG
+    /// regression), while arrowing within the window does not scroll.
+    #[test]
+    fn offscreen_selection_scrolls_minimally_within_window_does_not() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        panel.drill_into_section(2); // Rendering
+        panel.update_body_width(90);
+        panel.update_body_height(24);
+        let _ = panel.visible_lines(90, 24);
+
+        // Arrow within the visible window: no scroll.
+        let vis = visible_entry_indices(&panel, 90, 24);
+        let last_visible = *vis.iter().max().expect("rows visible");
+        panel.set_selection(last_visible);
+        assert_eq!(panel.scroll, 0, "still within window: no scroll");
+
+        // Jump to the end: an off-screen selection must be revealed.
+        panel.set_selection(panel.entries.len() - 1);
+        assert!(
+            panel.scroll > 0,
+            "off-screen selection scrolls to reveal it"
+        );
+        assert!(
+            panel.scroll <= panel.selected,
+            "scroll never overshoots past selection"
+        );
+        assert!(panel.selected_in_window(24), "End selection is revealed");
+    }
+
+    /// Bug A end-clamp trap: keyboard steps at the numeric min/max saturate the
+    /// value exactly and never jump the scroll.
+    #[test]
+    fn arrow_steps_saturate_at_min_and_max_without_scroll_jump() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "font_size");
+        panel.update_body_width(90);
+        panel.update_body_height(28);
+        let _ = panel.visible_lines(90, 28);
+        let spec = panel.selected_entry().unwrap().numeric.unwrap();
+
+        // Drive to the minimum.
+        for _ in 0..200 {
+            let _ = panel.step_or_cycle_selected(-1);
+        }
+        let at_min = panel
+            .selected_entry()
+            .unwrap()
+            .value
+            .parse::<f32>()
+            .unwrap();
+        assert!((at_min - spec.min).abs() < 1e-3, "value saturates at min");
+        let scroll_at_min = panel.scroll;
+        let _ = panel.step_or_cycle_selected(-1); // already at the floor
+        assert_eq!(panel.scroll, scroll_at_min, "no scroll jump at min");
+        let still_min = panel
+            .selected_entry()
+            .unwrap()
+            .value
+            .parse::<f32>()
+            .unwrap();
+        assert!((still_min - spec.min).abs() < 1e-3, "value held at min");
+
+        // Drive to the maximum.
+        for _ in 0..400 {
+            let _ = panel.step_or_cycle_selected(1);
+        }
+        let at_max = panel
+            .selected_entry()
+            .unwrap()
+            .value
+            .parse::<f32>()
+            .unwrap();
+        assert!((at_max - spec.max).abs() < 1e-3, "value saturates at max");
+        let scroll_at_max = panel.scroll;
+        let _ = panel.step_or_cycle_selected(1); // already at the ceiling
+        assert_eq!(panel.scroll, scroll_at_max, "no scroll jump at max");
+        let still_max = panel
+            .selected_entry()
+            .unwrap()
+            .value
+            .parse::<f32>()
+            .unwrap();
+        assert!((still_max - spec.max).abs() < 1e-3, "value held at max");
+    }
+
+    /// Bug B + Bug C: a live apply (the OverlayEdit round-trip seam) while
+    /// drilled into a section must PRESERVE the section filter (Bug B) and the
+    /// current level (Bug C), and must not clobber pending dirty edits. This is
+    /// the bloom-threshold "multi-line slider row" shape the operator hit.
+    #[test]
+    fn live_apply_preserves_section_filter_level_and_dirty_state() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "bloom_threshold");
+        let section_keys: Vec<&'static str> = panel.entries.iter().map(|e| e.key).collect();
+        assert!(section_keys.contains(&"bloom_threshold"));
+        assert!(
+            section_keys.len() < panel.all_entries.len(),
+            "section view is a strict subset of all settings"
+        );
+        let level_before = panel.render_signature().level;
+        assert!(matches!(level_before, SettingsLevel::SectionDetail { .. }));
+
+        // Commit a value change in this section (creates a pending dirty edit).
+        let entry = panel.selected_entry().unwrap().clone();
+        let spec = entry.numeric.unwrap();
+        let cur = entry.value.parse::<f32>().unwrap();
+        let target = if (cur - spec.min).abs() > spec.step {
+            spec.min
+        } else {
+            spec.max
+        };
+        let outcome = panel.commit_value(entry.key, &format!("{target:.3}"));
+        assert!(
+            matches!(outcome, SettingsPanelOutcome::Apply(_)),
+            "a real value change applies"
+        );
+        assert_eq!(panel.render_signature().changed_count, 1, "one dirty edit");
+
+        // Simulate the live-apply round-trip seam. The incoming `settings` is the
+        // unedited baseline (as a Save's `Settings::from_env` re-read can differ
+        // from the in-panel edit overlay) — pre-fix this triggered the spurious
+        // level-resetting refresh().
+        panel.apply_settings(&Settings::default());
+
+        // Bug B: still only this section's settings.
+        let after: Vec<&'static str> = panel.entries.iter().map(|e| e.key).collect();
+        assert_eq!(
+            after, section_keys,
+            "section filter preserved after live apply"
+        );
+        // Bug C: level unchanged.
+        assert_eq!(
+            panel.render_signature().level,
+            level_before,
+            "drilled-in level preserved after live apply"
+        );
+        // [dirty-preserve]: the pending edit is not silently discarded.
+        assert_eq!(
+            panel.render_signature().changed_count,
+            1,
+            "pending dirty edit preserved across live apply"
+        );
+    }
+
+    /// Bug B [search-preserve] trap: a live apply while searching must keep the
+    /// search filter, not reset to the full list or drop search mode.
+    #[test]
+    fn live_apply_preserves_active_search_filter() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        // Enter search and type a needle that matches a known subset.
+        let _ = panel.handle_input(OverlayInput::Char('/'));
+        for ch in "bloom".chars() {
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+        assert!(panel.render_signature().search_active, "search is active");
+        let filtered: Vec<&'static str> = panel.entries.iter().map(|e| e.key).collect();
+        assert!(!filtered.is_empty() && filtered.len() < panel.all_entries.len());
+
+        panel.apply_settings(&Settings::default());
+
+        assert!(
+            panel.render_signature().search_active,
+            "search stays active after live apply"
+        );
+        let after: Vec<&'static str> = panel.entries.iter().map(|e| e.key).collect();
+        assert_eq!(after, filtered, "search filter preserved after live apply");
     }
 }
