@@ -63,31 +63,32 @@ path — so the file format is exercised by the library on every startup.
 
 ### Theme families
 
-**Odyssey identity** — `plain` plus fifty-nine `odyssey-*` variants are
+**Odyssey identity** — `plain` plus sixty-three `odyssey-*` variants are
 original themes designed for OdysseyOS. `plain` reproduces the historical xterm
 default palette byte-for-byte and is the fallback when no theme is configured.
 The `odyssey-*` variants span a range of visual moods across dark and light
 appearances: deep-space and interstellar cold (`odyssey`, `odyssey-deepspace`,
-`odyssey-pulsar`), warm atmospheric (`odyssey-solar`, `odyssey-ember`,
-`odyssey-abyss`, `odyssey-volcanic`, `odyssey-rosewood`, `odyssey-garnet`,
-`odyssey-amber`, `odyssey-terracotta`, `odyssey-harvest`), cool natural
-(`odyssey-glacier`, `odyssey-voyager`, `odyssey-fathom`, `odyssey-harbor`,
-`odyssey-orchard`, `odyssey-tidepool`, `odyssey-slate`, `odyssey-jungle`,
-`odyssey-lagoon`), cosmic nebula (`odyssey-nebula`, `odyssey-aurora`,
-`odyssey-ion`, `odyssey-twilight`, `odyssey-quasar`, `odyssey-cobalt`),
-natural greens and chartreuse (`odyssey-verdant`, `odyssey-moss`,
-`odyssey-chartreuse`), warm and cool text focus (`odyssey-meridian`,
-`odyssey-graphite`, `odyssey-sepia`), vivid accents (`odyssey-violet`,
-`odyssey-fuchsia`, `odyssey-orchid`), deep indigo and berry
-(`odyssey-indigo`, `odyssey-raspberry`), and twenty light
+`odyssey-pulsar`, `odyssey-midnight`), warm atmospheric (`odyssey-solar`,
+`odyssey-ember`, `odyssey-abyss`, `odyssey-volcanic`, `odyssey-rosewood`,
+`odyssey-garnet`, `odyssey-amber`, `odyssey-terracotta`, `odyssey-harvest`),
+cool natural (`odyssey-glacier`, `odyssey-voyager`, `odyssey-fathom`,
+`odyssey-harbor`, `odyssey-orchard`, `odyssey-tidepool`, `odyssey-slate`,
+`odyssey-jungle`, `odyssey-lagoon`), cosmic nebula (`odyssey-nebula`,
+`odyssey-aurora`, `odyssey-ion`, `odyssey-twilight`, `odyssey-quasar`,
+`odyssey-cobalt`), natural greens and chartreuse (`odyssey-verdant`,
+`odyssey-moss`, `odyssey-chartreuse`, `odyssey-pine`), warm and cool text
+focus (`odyssey-meridian`, `odyssey-graphite`, `odyssey-sepia`), vivid accents
+(`odyssey-violet`, `odyssey-fuchsia`, `odyssey-orchid`), deep indigo and berry
+(`odyssey-indigo`, `odyssey-raspberry`), and twenty-two light
 companions (`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`,
 `odyssey-cloud-light`, `odyssey-coral-light`, `odyssey-mist-light`,
 `odyssey-meadow-light`, `odyssey-parchment-light`, `odyssey-blossom-light`,
 `odyssey-linen-light`, `odyssey-lilac-light`, `odyssey-pearl-light`,
 `odyssey-apricot-light`, `odyssey-butter-light`, `odyssey-sage-light`,
 `odyssey-slate-light`, `odyssey-seafoam-light`, `odyssey-citrus-light`,
-`odyssey-mauve-light`, `odyssey-clover-light`). These carry the strongest
-OdysseyOS visual identity.
+`odyssey-mauve-light`, `odyssey-clover-light`, `odyssey-sienna-light`,
+`odyssey-periwinkle-light`). These carry the strongest OdysseyOS visual
+identity.
 
 **Community** — twenty-eight themes ported from widely-used open-source
 color-scheme palettes. The dark side covers the ten palettes that formed the
@@ -169,6 +170,14 @@ OdyTTY has no affiliation with or endorsement from any of those vendors.
 | `odyssey-raspberry` | dark | Odyssey identity (deep berry raspberry between magenta-pink and rose-red) |
 | `odyssey-citrus-light` | light | Odyssey identity (fresh lime-citrus daylight companion) |
 | `odyssey-mauve-light` | light | Odyssey identity (dusty mauve daylight companion between lavender and rose) |
+| `odyssey-terracotta` | dark | Odyssey identity (warm clay and terracotta over a near-black hearth ground) |
+| `odyssey-harvest` | dark | Odyssey identity (golden wheat harvest on deep autumn dark) |
+| `odyssey-lagoon` | dark | Odyssey identity (bright cyan-azure lagoon surface over deep teal-blue depths) |
+| `odyssey-clover-light` | light | Odyssey identity (spring green clover daylight companion) |
+| `odyssey-midnight` | dark | Odyssey identity (maximum-contrast blue-black midnight with stark blue-white text) |
+| `odyssey-sienna-light` | light | Odyssey identity (warm sienna-cream daylight companion with terracotta accents) |
+| `odyssey-periwinkle-light` | light | Odyssey identity (cool blue-violet periwinkle daylight companion) |
+| `odyssey-pine` | dark | Odyssey identity (muted forest-pine dark with sage-green text) |
 | `solarized-dark` | dark | Community |
 | `solarized-light` | light | Community |
 | `gruvbox-dark` | dark | Community |

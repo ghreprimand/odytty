@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-periwinkle-light
+appearance = light
+
+foreground = #1e2048
+background = #f2f3ff
+clear = #fafaff
+
+cursor = #5a60e0
+selection = #ccd0f8
+search = #e8e4a0
+border = #b8bce8
+inactive = #7880c0
+
+color0 = #1e2048
+color1 = #bc4458
+color2 = #2c8850
+color3 = #8c6a10
+color4 = #4850d8
+color5 = #9040c0
+color6 = #1878a8
+color7 = #4a4e78
+color8 = #383c68
+color9 = #cc4868
+color10 = #389860
+color11 = #a27c14
+color12 = #5862e8
+color13 = #a050d0
+color14 = #228ab8
+color15 = #0e1028

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-pine
+appearance = dark
+
+foreground = #c4dcc4
+background = #0a1410
+clear = #060e0a
+
+cursor = #4ab870
+selection = #1a2e20
+search = #3a4018
+border = #162a1c
+inactive = #587860
+
+color0 = #101e14
+color1 = #d86060
+color2 = #48b878
+color3 = #c0a840
+color4 = #4898c8
+color5 = #9878c8
+color6 = #38b8a0
+color7 = #a8c4a8
+color8 = #22362a
+color9 = #f08080
+color10 = #68d094
+color11 = #d8c060
+color12 = #70b0d8
+color13 = #b898dc
+color14 = #58ccb8
+color15 = #dceede

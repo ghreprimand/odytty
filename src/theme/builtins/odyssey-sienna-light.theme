@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-sienna-light
+appearance = light
+
+foreground = #2a1a0a
+background = #fdf5ec
+clear = #fffaf4
+
+cursor = #b86030
+selection = #f0d8bc
+search = #e8e8a0
+border = #e0c8a8
+inactive = #9a7a60
+
+color0 = #2a1a0a
+color1 = #c04030
+color2 = #3a8840
+color3 = #9a6810
+color4 = #3060b0
+color5 = #9040a8
+color6 = #1a7a88
+color7 = #5a4030
+color8 = #4a3020
+color9 = #d05038
+color10 = #489850
+color11 = #b07c18
+color12 = #4070c0
+color13 = #a050b8
+color14 = #2a8c9a
+color15 = #140c04
