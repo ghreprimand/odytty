@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- SYMMAP per-range font override + cursor_blink=auto honesty (HELP1 close)
+
+Two native packets: a new glyph-routing feature and the final HELP1 clarity fix.
+
+- **SYMMAP — per-codepoint-range font-family override** (`symbol_map`, empty by
+  default; aliases `symbolmap` / `codepointmap`). Routes specific Unicode ranges
+  to named font families without patching the body font — the clean alternative
+  to bundled "Nerd Font" variants. Config grammar is semicolon-separated
+  `U+XXXX[-U+YYYY]=Family` rules (single codepoint or inclusive range), e.g.
+  `U+E000-U+F8FF=Symbols Nerd Font; U+2500-U+257F=Fira Code`. First-match-wins.
+  The core data model (`text::SymbolMap`) already shipped; this packet wires it
+  through settings (parse / round-trip / panel row), publishes it process-wide,
+  and resolves family names to faces at atlas build/rebuild in `gpu.rs`. The
+  atlas grew a `symbol_map_fonts` range table and a `symbol_map_font_for`
+  lookup; `ensure_styled` consults it first, so the precedence is
+  **SYMMAP > geometric box-drawing > RV6 symbol fallback > primary > tofu box**
+  (a remapped box-drawing range suppresses geometric rendering). **Off-path is
+  byte-identical**: the default empty map skips the lookup entirely, so the
+  raster face stays the primary font and the glyph path is unchanged. A missing
+  or non-monospace override family is skipped with a warning, never a crash. A
+  live map change re-resolves the faces and rebuilds the atlas through the
+  existing `apply_text_options` change-detection seam.
+- **`cursor_blink=auto` made honest** (HELP1 close). The `Auto` policy used to
+  carry a doc comment promising a future "OS-preference reader"; Linux (Wayland
+  and X11) exposes no OS caret-blink preference to the windowing layer, so that
+  was a promise that could not land. `Auto` now honestly resolves to the
+  conventional blinking default (the historical VT power-on state) — the same
+  concrete flag `on` produces — and the doc + the settings-panel label say
+  exactly that, with no phantom preference claim. `on` / `off` remain the
+  explicit overrides; an app's DECSCUSR still overrides any of them at runtime.
+- **Boxing fix.** Growing `Settings` with the `symbol_map` field tipped
+  `OverlayOutcome::ApplySettings` over the `large_enum_variant` threshold; its
+  payload is now `Box<Settings>`, keeping the short-lived outcome enum cheap to
+  move and clippy at the established baseline (zero-new).
+
+Verified: `cargo fmt --check` clean; `cargo test --lib` 1605 passing (+9:
+2 settings round-trip/parse tests, 6 atlas SYMMAP tests, 1 cursor_blink
+resolution test); `cargo test --all-targets` 0 failed; pixel-smoke 47/0
+byte-identical (off path unchanged); `cargo clippy --lib` 37 = baseline,
+zero-new. No parser/core-state change, so no fuzz needed. Largest touched file
+`gpu.rs` at 1878 lines (under the 1950 flag).
+
+---
+
 ## 2026-06-17 -- OS-THEME follow OS dark/light + CLOSE-CONFIRM (event-loop pair)
 
 Two native features that live in the winit event-loop handlers, both with a

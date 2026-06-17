@@ -197,6 +197,7 @@ pub fn apply_reloadable_values(current: &mut Settings, mut reloaded: Settings) -
     super::set_geometric_boxdraw_enabled(reloaded.geometric_boxdraw);
     super::set_symbol_fallback_enabled(reloaded.symbol_fallback);
     super::set_symbol_font_path(reloaded.symbol_font.clone());
+    super::set_symbol_map(reloaded.symbol_map.clone());
     if *current == reloaded {
         return false;
     }

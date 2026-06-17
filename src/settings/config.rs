@@ -15,9 +15,9 @@ use super::{
     NATIVE_AUTOCLOSE_ENV, NEW_OUTPUT_FADE_ENV, OS_THEME_DARK_ENV, OS_THEME_LIGHT_ENV,
     OSC52_READ_ENV, RENDER_QUALITY_ENV, SCROLL_DRAG_SPEED_ENV, SCROLL_WHEEL_LINES_ENV,
     SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV, SH_CLICK_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV,
-    SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV,
-    THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_PADDING_ENV,
-    normalize_name,
+    SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV,
+    THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV,
+    WINDOW_PADDING_ENV, normalize_name,
 };
 use super::{BOX_THICKNESS_ENV, LINE_HEIGHT_ENV};
 #[derive(Debug, Clone, Default)]
@@ -102,6 +102,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "geometricboxdraw" | "boxdraw" => Some(GEOMETRIC_BOXDRAW_ENV),
         "symbolfallback" | "symbols" | "nerdfont" => Some(SYMBOL_FALLBACK_ENV),
         "symbolfont" | "nerdfontpath" | "symbolfontpath" => Some(SYMBOL_FONT_ENV),
+        "symbolmap" | "symbolmaps" | "codepointmap" => Some(SYMBOL_MAP_ENV),
         "themeduiroles" | "themedroles" | "uiroles" => Some(THEMED_UI_ROLES_ENV),
         "subpixel" => Some(SUBPIXEL_ENV),
         "lineheight" | "lineleading" | "cellleading" => Some(LINE_HEIGHT_ENV),
@@ -171,6 +172,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         GEOMETRIC_BOXDRAW_ENV => Some("geometric_boxdraw"),
         SYMBOL_FALLBACK_ENV => Some("symbol_fallback"),
         SYMBOL_FONT_ENV => Some("symbol_font"),
+        SYMBOL_MAP_ENV => Some("symbol_map"),
         THEMED_UI_ROLES_ENV => Some("themed_ui_roles"),
         SUBPIXEL_ENV => Some("subpixel"),
         LINE_HEIGHT_ENV => Some("line_height"),

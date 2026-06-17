@@ -341,6 +341,17 @@ pub struct GlyphAtlas {
     /// borrow. The native layer resolves and sets it after build, mirroring the
     /// synthetic-styles / geometric switches.
     fallback: Option<Arc<FontVec>>,
+    /// SYMMAP: per-codepoint-range override faces (resolved from the user's
+    /// `symbol_map` config). Each entry is an inclusive `(start, end, face)`
+    /// range; [`Self::symbol_map_font_for`] returns the first range that
+    /// contains a codepoint (first-match-wins, matching `text::SymbolMap`). An
+    /// empty `Vec` (the default) means no override: every lookup returns `None`,
+    /// the chosen raster font stays the primary `font`, and the glyph path is
+    /// byte-identical to the no-SYMMAP renderer. Held as `Arc`s so the per-glyph
+    /// lookup clones a handle without conflicting with the `&mut self` bitmap
+    /// borrow, exactly like `fallback`. The native layer resolves family names
+    /// to faces and installs them after build, rebuilding when the map changes.
+    symbol_map_fonts: Vec<(u32, u32, Arc<FontVec>)>,
 }
 
 impl GlyphAtlas {
@@ -472,6 +483,7 @@ impl GlyphAtlas {
             synthetic: 0,
             geometric: false,
             fallback: None,
+            symbol_map_fonts: Vec::new(),
         }
     }
 
@@ -623,17 +635,32 @@ impl GlyphAtlas {
         if !wants_glyph(ch) {
             return None;
         }
+        // SYMMAP (extends RV6): a user-configured codepoint→font-family override
+        // takes priority over every other glyph source. `None` (the default,
+        // empty-map state) means no override and the scan is skipped, so the
+        // path below is byte-identical to the no-SYMMAP renderer.
+        let override_arc = self.symbol_map_font_for(ch);
         // Geometric box-drawing (RV2): when enabled, recognized line/block/
         // Powerline codepoints are rasterized from cell-aligned geometry instead
         // of the font glyph — and render even if the font lacks the codepoint.
-        let geometric = self.geometric && crate::boxdraw::covers(ch);
+        // A SYMMAP override suppresses geometric rendering: if the user
+        // explicitly remapped a box-drawing range, their font glyph wins.
+        let geometric = self.geometric && override_arc.is_none() && crate::boxdraw::covers(ch);
+        // The raster face for this glyph, in precedence order:
+        //   SYMMAP override > geometric (handled above) > RV6 symbol fallback >
+        //   primary font > hollow-box tofu.
         // RV6: when the primary font lacks the glyph, a symbol/Nerd fallback
         // font (if configured) rasterizes PUA prompt icons instead of tofu.
         // `None` here means either no fallback is set, the codepoint is not a
         // symbol, or the fallback also lacks it — all of which fall through to
         // the historical hollow-box slot, keeping the default path identical.
         let mut symbol_font: Option<Arc<FontVec>> = None;
-        if !geometric && !font_has_glyph(font, ch) {
+        if let Some(ov) = override_arc {
+            // SYMMAP: rasterize from the override face directly (no synthetic
+            // transform — icon faces are not emboldened/sheared), bypassing the
+            // primary-font glyph-presence check and the PUA symbol fallback.
+            symbol_font = Some(ov);
+        } else if !geometric && !font_has_glyph(font, ch) {
             match self.symbol_fallback(ch) {
                 Some(fb) => symbol_font = Some(fb),
                 None => {
@@ -840,6 +867,31 @@ impl GlyphAtlas {
     /// so the dynamic region never mixes resolved and unresolved fallbacks.
     pub fn set_fallback_font(&mut self, font: Option<Arc<FontVec>>) {
         self.fallback = font;
+    }
+
+    /// Install the resolved SYMMAP override faces (`(start, end, face)` ranges,
+    /// first-match-wins). An empty `Vec` restores the no-override path. The
+    /// native layer calls this after build and on every atlas rebuild; like the
+    /// fallback/geometric switches it only governs glyphs rasterized after it is
+    /// set, and the atlas is rebuilt (clearing the dynamic region) when the map
+    /// changes, so cached slots never mix faces.
+    pub fn set_symbol_map_fonts(&mut self, fonts: Vec<(u32, u32, Arc<FontVec>)>) {
+        self.symbol_map_fonts = fonts;
+    }
+
+    /// The SYMMAP override face for `ch`, or `None` when no rule matches (the
+    /// identity / off path). With no rules the `Vec` is empty and the scan is
+    /// skipped entirely, so the default costs nothing. First-match-wins matches
+    /// `text::SymbolMap` precedence.
+    fn symbol_map_font_for(&self, ch: char) -> Option<Arc<FontVec>> {
+        if self.symbol_map_fonts.is_empty() {
+            return None;
+        }
+        let cp = ch as u32;
+        self.symbol_map_fonts
+            .iter()
+            .find(|(start, end, _)| *start <= cp && cp <= *end)
+            .map(|(_, _, font)| Arc::clone(font))
     }
 
     /// The fallback font to rasterize `ch` from when the primary lacks it, or

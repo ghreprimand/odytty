@@ -396,6 +396,38 @@ fn resolve_symbol_fallback(enabled: bool, explicit_path: Option<&Path>) -> Optio
     text::resolve_symbol_font_in(&text::font_search_dirs()).map(Arc::new)
 }
 
+/// Resolve a SYMMAP override map's font-family names to loaded faces (SYMMAP).
+///
+/// Each rule's family name is resolved against the host font search dirs; on
+/// success the regular face is loaded and paired with the rule's inclusive
+/// codepoint range. A family that does not resolve (missing, or not a monospace
+/// face) is **skipped with a warning** — the range falls through to normal font
+/// resolution rather than crashing, mirroring the resilient `symbol_fallback`
+/// path. An empty map resolves to an empty `Vec` (the identity / off path).
+fn resolve_symbol_map_fonts(map: &crate::text::SymbolMap) -> Vec<(u32, u32, Arc<FontVec>)> {
+    if map.is_empty() {
+        return Vec::new();
+    }
+    let dirs = text::font_search_dirs();
+    let mut result = Vec::with_capacity(map.len());
+    for rule in map.rules() {
+        let (start, end) = rule.bounds();
+        match text::resolve_font_family(rule.font(), &dirs) {
+            Some(matched) => match text::load_font_at(&matched.regular) {
+                Ok(font) => result.push((start, end, Arc::new(font))),
+                Err(err) => eprintln!(
+                    "odytty: symbol_map: {err}; skipping override for U+{start:04X}-U+{end:04X}"
+                ),
+            },
+            None => eprintln!(
+                "odytty: symbol_map: font family {:?} not found (or not monospace); skipping override for U+{start:04X}-U+{end:04X}",
+                rule.font()
+            ),
+        }
+    }
+    result
+}
+
 fn env_flag_override(name: &str) -> Option<bool> {
     std::env::var(name).ok().map(|v| {
         matches!(
@@ -722,6 +754,13 @@ pub(super) struct GpuState {
     /// when the effective switch is enabled and a font is available; `None`
     /// otherwise. Reinstalled whenever the glyph atlas is rebuilt.
     symbol_fallback: Option<Arc<FontVec>>,
+    /// Last-applied SYMMAP override map (raw rules), retained for change
+    /// detection: when the live map differs the atlas is rebuilt with freshly
+    /// resolved override faces. Empty (the default) keeps the no-override path.
+    symbol_map: crate::text::SymbolMap,
+    /// SYMMAP override faces resolved from `symbol_map`'s family names
+    /// (`(start, end, face)` ranges). Reinstalled whenever the atlas is rebuilt.
+    symbol_map_fonts: Vec<(u32, u32, Arc<FontVec>)>,
     font_path: Option<PathBuf>,
     font_family: String,
     // Kept alive for the lifetime of the bind group; never read directly.
@@ -839,6 +878,9 @@ impl GpuState {
         let symbol_fallback =
             resolve_symbol_fallback(symbol_fallback_enabled, symbol_font_path.as_deref());
         atlas.set_fallback_font(symbol_fallback.clone());
+        let symbol_map = crate::settings::symbol_map();
+        let symbol_map_fonts = resolve_symbol_map_fonts(&symbol_map);
+        atlas.set_symbol_map_fonts(symbol_map_fonts.clone());
         ensure_snapshot_glyphs(&mut atlas, &fonts, initial_snapshot);
         let atlas_texture = create_atlas_texture(&device, &queue, &atlas);
         // Nearest + clamp: glyph cells map 1:1 to pixels, so no filtering.
@@ -1081,6 +1123,8 @@ impl GpuState {
             symbol_fallback_enabled,
             symbol_font_path,
             symbol_fallback,
+            symbol_map,
+            symbol_map_fonts,
             font_path: options.font_path.clone(),
             font_family: options.font_family.clone(),
             atlas_texture,
@@ -1128,6 +1172,7 @@ impl GpuState {
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
         atlas.set_geometric_boxdraw(self.geometric_enabled);
         atlas.set_fallback_font(self.symbol_fallback.clone());
+        atlas.set_symbol_map_fonts(self.symbol_map_fonts.clone());
         let _ = atlas.take_dirty();
         self.atlas = atlas;
         self.refresh_atlas_texture();
@@ -1261,6 +1306,11 @@ impl GpuState {
         let symbol_font_path_now = effective_symbol_font_path();
         let symbol_fallback_changed = symbol_fallback_now != self.symbol_fallback_enabled
             || symbol_font_path_now != self.symbol_font_path;
+        // SYMMAP: the override map is published process-wide; a live change
+        // requires re-resolving the override faces and rebuilding the atlas
+        // (override glyphs are baked into atlas slots, like the fallback face).
+        let symbol_map_now = crate::settings::symbol_map();
+        let symbol_map_changed = symbol_map_now != self.symbol_map;
         if !font_changed
             && !subpixel_changed
             && !font_size_changed
@@ -1270,6 +1320,7 @@ impl GpuState {
             && !synthetic_changed
             && !geometric_changed
             && !symbol_fallback_changed
+            && !symbol_map_changed
         {
             return Ok(false);
         }
@@ -1323,6 +1374,10 @@ impl GpuState {
                 self.symbol_fallback_enabled,
                 self.symbol_font_path.as_deref(),
             );
+        }
+        if symbol_map_changed {
+            self.symbol_map_fonts = resolve_symbol_map_fonts(&symbol_map_now);
+            self.symbol_map = symbol_map_now;
         }
         atlas::set_stem_darken(stem_darken);
         self.rebuild_atlas();

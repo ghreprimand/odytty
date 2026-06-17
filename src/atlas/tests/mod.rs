@@ -13,6 +13,7 @@ mod metrics;
 mod scaling;
 mod stem_darken;
 mod subpixel;
+mod symbol_map;
 mod synthetic;
 
 pub(super) fn test_font() -> Option<FontVec> {

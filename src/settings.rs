@@ -119,6 +119,26 @@ pub fn symbol_font_path() -> Option<PathBuf> {
         .clone()
 }
 
+/// Live SYMMAP override map (`Settings::symbol_map`), published process-wide so
+/// the GPU renderer can resolve override font families and rebuild the glyph
+/// atlas when the map changes. The default is empty (the identity / off path).
+static SYMBOL_MAP: std::sync::Mutex<Option<crate::text::SymbolMap>> = std::sync::Mutex::new(None);
+
+pub fn set_symbol_map(map: crate::text::SymbolMap) {
+    let mut slot = SYMBOL_MAP
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *slot = Some(map);
+}
+
+pub fn symbol_map() -> crate::text::SymbolMap {
+    SYMBOL_MAP
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+        .unwrap_or_default()
+}
+
 /// Default cursor blink policy (`ODYTTY_CURSOR_BLINK`). This is the host default
 /// applied at power-on and after DECSCUSR 0 / RIS / DECSTR; an application's
 /// DECSCUSR can still override it at runtime.
@@ -128,14 +148,22 @@ pub enum CursorBlink {
     On,
     /// Cursor is steady by default.
     Off,
-    /// Conventional terminal default. Currently resolves to blinking; reserved
-    /// to later follow a system/app preference.
+    /// Conventional terminal default. Resolves to **blinking** — the historical
+    /// VT default a fresh terminal powers on with. Linux (Wayland and X11)
+    /// exposes no OS-level caret-blink *preference* to winit, so `Auto` honestly
+    /// defers to that conventional default rather than to a system setting that
+    /// does not exist. An application's DECSCUSR / DECSET 12 can still override
+    /// it at runtime, exactly as for `On`/`Off`.
     #[default]
     Auto,
 }
 
 impl CursorBlink {
     /// Resolve the policy to a concrete default blink flag for the core.
+    ///
+    /// `Auto` resolves to `true` (blinking): on Linux there is no OS caret-blink
+    /// preference exposed to the windowing layer, so the honest default is the
+    /// conventional blinking cursor. `On`/`Off` are the explicit overrides.
     pub fn enabled(self) -> bool {
         match self {
             Self::On | Self::Auto => true,
@@ -521,6 +549,11 @@ pub struct Settings {
     /// Optional explicit symbol / Nerd-font file path. `None` means auto-resolve
     /// a suitable symbol face when [`Settings::symbol_fallback`] is enabled.
     pub symbol_font: Option<PathBuf>,
+    /// Per-codepoint-range font-family override (SYMMAP, extends RV6). Routes
+    /// specific Unicode ranges to named font families without patching the body
+    /// font. The default is an empty map: every lookup returns `None`, so glyph
+    /// resolution is byte-identical to the no-override path. First-match-wins.
+    pub symbol_map: crate::text::SymbolMap,
     /// Whether semantic theme roles drive native cursor, selection, and search
     /// highlight colors. On by default by operator decision; turning it off
     /// restores the historical foreground cursor, inverse selection, and
@@ -654,6 +687,7 @@ impl Default for Settings {
             geometric_boxdraw: false,
             symbol_fallback: false,
             symbol_font: None,
+            symbol_map: crate::text::SymbolMap::new(),
             themed_ui_roles: true,
             scroll_wheel_lines: DEFAULT_SCROLL_WHEEL_LINES,
             scroll_drag_speed: ScrollDragSpeed::default(),
@@ -1002,6 +1036,10 @@ impl Settings {
             &mut warn,
         );
         let symbol_font = get(SYMBOL_FONT_ENV).and_then(parse_symbol_font_path);
+        let symbol_map = get(SYMBOL_MAP_ENV)
+            .and_then(|value| value.into_string().ok())
+            .map(|raw| parse_symbol_map(&raw, &mut warn))
+            .unwrap_or_default();
         let themed_ui_roles = parse_bool_setting(
             get(THEMED_UI_ROLES_ENV).as_deref(),
             THEMED_UI_ROLES_ENV,
@@ -1123,6 +1161,7 @@ impl Settings {
             geometric_boxdraw,
             symbol_fallback,
             symbol_font,
+            symbol_map,
             themed_ui_roles,
             scroll_wheel_lines,
             scroll_drag_speed,
@@ -1218,6 +1257,9 @@ impl Settings {
         );
         if let Some(path) = self.symbol_font.as_ref() {
             values.insert(SYMBOL_FONT_ENV, path.display().to_string());
+        }
+        if !self.symbol_map.is_empty() {
+            values.insert(SYMBOL_MAP_ENV, format_symbol_map(&self.symbol_map));
         }
         values.insert(
             THEMED_UI_ROLES_ENV,
@@ -1430,6 +1472,79 @@ pub fn format_key_chord(chord: KeyChord) -> String {
 /// remap menu and the config tokens never drift.
 pub fn bindable_action_display_name(action: BindableAction) -> &'static str {
     bindable_action_name(action)
+}
+
+/// Parse a `ODYTTY_SYMBOL_MAP` string into a [`crate::text::SymbolMap`] (SYMMAP).
+///
+/// Grammar: semicolon-separated rules, each `U+XXXX[-U+YYYY]=FontFamilyName`.
+/// A single codepoint (`U+XXXX=Name`) is treated as the range `XXXX..=XXXX`.
+/// Hex is case-insensitive; the `U+`/`u+` prefix is required on each codepoint.
+/// The font name is everything after the first `=`, trimmed, and may contain
+/// spaces. Malformed entries (no `=`, empty font, bad codepoint, degenerate
+/// range) are warned and skipped — a bad rule never aborts startup, and an
+/// empty result is the identity (no override). First-match-wins preserves the
+/// written order.
+fn parse_symbol_map(raw: &str, warn: &mut impl FnMut(&str)) -> crate::text::SymbolMap {
+    let mut map = crate::text::SymbolMap::new();
+    let parse_cp = |s: &str| -> Option<u32> {
+        let hex = s.strip_prefix("U+").or_else(|| s.strip_prefix("u+"))?;
+        u32::from_str_radix(hex, 16).ok()
+    };
+    for entry in raw.split(';') {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let Some((range_part, font_part)) = entry.split_once('=') else {
+            warn(&format!(
+                "{SYMBOL_MAP_ENV}: rule {entry:?} has no '=' separator; skipping"
+            ));
+            continue;
+        };
+        let range_part = range_part.trim();
+        let font_name = font_part.trim();
+        if font_name.is_empty() {
+            warn(&format!(
+                "{SYMBOL_MAP_ENV}: rule {entry:?} has an empty font name; skipping"
+            ));
+            continue;
+        }
+        let (start_str, end_str) = match range_part.split_once('-') {
+            Some((s, e)) => (s.trim(), e.trim()),
+            None => (range_part, range_part),
+        };
+        let (Some(start), Some(end)) = (parse_cp(start_str), parse_cp(end_str)) else {
+            warn(&format!(
+                "{SYMBOL_MAP_ENV}: rule {entry:?} has an invalid codepoint range (expected U+XXXX[-U+YYYY]); skipping"
+            ));
+            continue;
+        };
+        if !map.push(start, end, font_name) {
+            warn(&format!(
+                "{SYMBOL_MAP_ENV}: rule {entry:?} has start > end; skipping"
+            ));
+        }
+    }
+    map
+}
+
+/// Serialize a [`crate::text::SymbolMap`] back to its `ODYTTY_SYMBOL_MAP` config
+/// string (the inverse of [`parse_symbol_map`]). Each rule renders as
+/// `U+XXXX-U+YYYY=Font` (or `U+XXXX=Font` when start == end), joined by `; `, so
+/// the persisted value round-trips through the parser byte-for-byte.
+fn format_symbol_map(map: &crate::text::SymbolMap) -> String {
+    map.rules()
+        .iter()
+        .map(|rule| {
+            let (start, end) = rule.bounds();
+            if start == end {
+                format!("U+{start:04X}={}", rule.font())
+            } else {
+                format!("U+{start:04X}-U+{end:04X}={}", rule.font())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn parse_symbol_font_path(raw: OsString) -> Option<PathBuf> {

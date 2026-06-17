@@ -83,6 +83,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "line_height",
             "symbol_fallback",
             "symbol_font",
+            "symbol_map",
             "text_gamma",
             "stem_darken",
             "min_contrast",
@@ -1286,6 +1287,17 @@ fn cursor_defaults_without_env() {
 }
 
 #[test]
+fn cursor_blink_auto_resolves_to_the_conventional_blinking_default() {
+    // HELP1: `Auto` is honest about Linux exposing no OS caret-blink preference
+    // — it resolves to the conventional blinking default (the historical VT
+    // power-on state), the same concrete blink flag `On` produces, while `Off`
+    // is the explicit steady override. No phantom "OS preference" is consulted.
+    assert!(CursorBlink::Auto.enabled());
+    assert_eq!(CursorBlink::Auto.enabled(), CursorBlink::On.enabled());
+    assert!(!CursorBlink::Off.enabled());
+}
+
+#[test]
 fn cursor_style_and_blink_parse_case_insensitively() {
     let (settings, warnings) =
         settings_from([(CURSOR_STYLE_ENV, "  Bar  "), (CURSOR_BLINK_ENV, "Off")]);
@@ -1469,6 +1481,83 @@ fn symbol_fallback_round_trips_through_config_key_mapping() {
         settings.to_edit_values().get(SYMBOL_FONT_ENV),
         Some(&"/tmp/symbols.otf".to_owned())
     );
+}
+
+#[test]
+fn symbol_map_defaults_empty_and_parses_ranges() {
+    // SYMMAP: default is empty (identity); a well-formed spec parses to ordered
+    // first-match rules; malformed entries warn and are skipped without aborting.
+    let (settings, warnings) = settings_from([]);
+    assert!(settings.symbol_map.is_empty());
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from([(
+        SYMBOL_MAP_ENV,
+        "U+2500-U+257F=Fira Code; U+E000-U+F8FF=Symbols Nerd Font; U+2600=Weather",
+    )]);
+    assert_eq!(settings.symbol_map.len(), 3);
+    assert_eq!(
+        settings.symbol_map.lookup_char('\u{2500}'),
+        Some("Fira Code")
+    );
+    assert_eq!(
+        settings.symbol_map.lookup_char('\u{257F}'),
+        Some("Fira Code")
+    );
+    assert_eq!(
+        settings.symbol_map.lookup_char('\u{E000}'),
+        Some("Symbols Nerd Font")
+    );
+    // Single codepoint U+2600 parses as the inclusive range 2600..=2600.
+    assert_eq!(settings.symbol_map.lookup_char('\u{2600}'), Some("Weather"));
+    assert_eq!(settings.symbol_map.lookup_char('\u{2601}'), None);
+    // An unmapped codepoint outside every range is identity (None).
+    assert_eq!(settings.symbol_map.lookup_char('A'), None);
+    assert!(warnings.is_empty());
+
+    // Malformed entries (no '=', empty font, bad codepoint, degenerate range)
+    // warn and are skipped; a valid neighbor still lands.
+    let (settings, warnings) = settings_from([(
+        SYMBOL_MAP_ENV,
+        "garbage; U+ZZZZ=Bad; U+30=; U+50-U+40=Reversed; U+41=Good",
+    )]);
+    assert_eq!(settings.symbol_map.len(), 1);
+    assert_eq!(settings.symbol_map.lookup_char('A'), Some("Good"));
+    assert_eq!(warnings.len(), 4);
+    assert!(warnings.iter().all(|w| w.contains(SYMBOL_MAP_ENV)));
+}
+
+#[test]
+fn symbol_map_round_trips_through_config_and_edit_values() {
+    // Config-key aliases map both ways.
+    assert_eq!(config_key_to_env("symbol_map"), Some(SYMBOL_MAP_ENV));
+    assert_eq!(config_key_to_env("codepointmap"), Some(SYMBOL_MAP_ENV));
+    assert_eq!(env_to_config_key(SYMBOL_MAP_ENV), Some("symbol_map"));
+
+    // A config-sourced map parses identically to the env path.
+    let (settings, warnings) = settings_from_config_and_env(
+        "symbol_map = U+E000-U+F8FF=Symbols Nerd Font; U+2500=Fira Code",
+        [],
+    );
+    assert_eq!(settings.symbol_map.len(), 2);
+    assert!(warnings.is_empty());
+
+    // to_edit_values serializes back to a parseable spec (range + single forms);
+    // re-parsing reproduces the same map (round-trip stability).
+    let serialized = settings
+        .to_edit_values()
+        .get(SYMBOL_MAP_ENV)
+        .cloned()
+        .expect("non-empty map is serialized");
+    assert!(serialized.contains("U+E000-U+F8FF=Symbols Nerd Font"));
+    assert!(serialized.contains("U+2500=Fira Code"));
+    let (reparsed, warnings) = settings_from([(SYMBOL_MAP_ENV, serialized.as_str())]);
+    assert_eq!(reparsed.symbol_map, settings.symbol_map);
+    assert!(warnings.is_empty());
+
+    // An empty map is omitted from the edit values (nothing to persist).
+    let empty = Settings::default();
+    assert!(empty.to_edit_values().get(SYMBOL_MAP_ENV).is_none());
 }
 
 #[test]

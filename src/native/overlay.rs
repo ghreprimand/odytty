@@ -473,7 +473,7 @@ impl OverlayUi {
             ThemePickerOutcome::Preview(theme) => {
                 let settings = self.settings_with_theme(theme);
                 self.settings = settings.clone();
-                OverlayOutcome::ApplySettings(settings)
+                OverlayOutcome::ApplySettings(Box::new(settings))
             }
             ThemePickerOutcome::Persist(changes) => OverlayOutcome::SaveSettings(changes),
             ThemePickerOutcome::OpenBuilder(theme) => {
@@ -481,13 +481,13 @@ impl OverlayUi {
                 self.settings = settings.clone();
                 self.theme_builder.open(&settings);
                 self.mode = OverlayMode::ThemeBuilder;
-                OverlayOutcome::ApplySettings(settings)
+                OverlayOutcome::ApplySettings(Box::new(settings))
             }
             ThemePickerOutcome::Cancel(theme) => {
                 let settings = self.settings_with_theme(theme);
                 self.settings = settings.clone();
                 self.close();
-                OverlayOutcome::ApplySettings(settings)
+                OverlayOutcome::ApplySettings(Box::new(settings))
             }
         }
     }
@@ -507,14 +507,14 @@ impl OverlayUi {
             ThemeBuilderOutcome::Preview(theme) => {
                 let settings = self.settings_with_theme(theme);
                 self.settings = settings.clone();
-                OverlayOutcome::ApplySettings(settings)
+                OverlayOutcome::ApplySettings(Box::new(settings))
             }
             ThemeBuilderOutcome::Save(request) => OverlayOutcome::SaveTheme(request),
             ThemeBuilderOutcome::Cancel(theme) => {
                 let settings = self.settings_with_theme(theme);
                 self.settings = settings.clone();
                 self.close();
-                OverlayOutcome::ApplySettings(settings)
+                OverlayOutcome::ApplySettings(Box::new(settings))
             }
         }
     }
@@ -533,13 +533,13 @@ impl OverlayUi {
             KeyRemapOutcome::Consumed => OverlayOutcome::Consumed,
             KeyRemapOutcome::Preview(settings) => {
                 self.settings = settings.clone();
-                OverlayOutcome::ApplySettings(settings)
+                OverlayOutcome::ApplySettings(Box::new(settings))
             }
             KeyRemapOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
             KeyRemapOutcome::Cancel(settings) => {
                 self.settings = settings.clone();
                 self.close();
-                OverlayOutcome::ApplySettings(settings)
+                OverlayOutcome::ApplySettings(Box::new(settings))
             }
         }
     }
@@ -571,7 +571,10 @@ pub(super) enum OverlayOutcome {
     OpenThemePicker,
     OpenThemeBuilder,
     OpenKeyBindings,
-    ApplySettings(Settings),
+    /// Boxed because `Settings` is by far the largest payload across this
+    /// short-lived outcome enum; boxing keeps the enum small to move and clears
+    /// the `large_enum_variant` lint as the settings surface grows.
+    ApplySettings(Box<Settings>),
     SaveSettings(Vec<crate::settings::SettingEdit>),
     SaveTheme(ThemeBuilderSaveRequest),
     /// Run the right-click menu's Copy / Paste / Select All action (IN2). The
@@ -594,7 +597,7 @@ pub(super) enum OverlayOutcome {
 fn settings_outcome(outcome: SettingsPanelOutcome) -> OverlayOutcome {
     match outcome {
         SettingsPanelOutcome::Consumed => OverlayOutcome::Consumed,
-        SettingsPanelOutcome::Apply(settings) => OverlayOutcome::ApplySettings(settings),
+        SettingsPanelOutcome::Apply(settings) => OverlayOutcome::ApplySettings(Box::new(settings)),
         SettingsPanelOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
         SettingsPanelOutcome::OpenThemePicker => OverlayOutcome::OpenThemePicker,
         SettingsPanelOutcome::OpenThemeBuilder => OverlayOutcome::OpenThemeBuilder,

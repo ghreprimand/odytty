@@ -127,6 +127,9 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // either value changes.
     crate::settings::set_symbol_fallback_enabled(settings.symbol_fallback);
     crate::settings::set_symbol_font_path(settings.symbol_font.clone());
+    // Publish the SYMMAP override map before the atlas is built; the reload path
+    // republishes it and the renderer re-resolves/rebuilds when the map changes.
+    crate::settings::set_symbol_map(settings.symbol_map.clone());
     // Shared terminal model, sized to the initial grid. The pump thread writes
     // to it; the UI thread snapshots from it.
     let mut model = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);

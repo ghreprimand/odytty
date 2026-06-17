@@ -609,6 +609,23 @@ impl Settings {
                 numeric: None,
             },
             SettingInfo {
+                group: "Font",
+                key: "symbol_map",
+                env: SYMBOL_MAP_ENV,
+                name: "Symbol map",
+                value: if self.symbol_map.is_empty() {
+                    "none".to_owned()
+                } else {
+                    super::format_symbol_map(&self.symbol_map)
+                },
+                description: "Per-range font override: route Unicode codepoint ranges to named font families (e.g. U+E000-U+F8FF=Symbols Nerd Font; U+2500-U+257F=Fira Code). Semicolon-separated; first match wins. Leaves the body font untouched.",
+                kind: SettingKind::String,
+                range: None,
+                options: &[],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
                 group: "Theme",
                 key: "themed_ui_roles",
                 env: THEMED_UI_ROLES_ENV,
@@ -640,7 +657,7 @@ impl Settings {
                 env: CURSOR_BLINK_ENV,
                 name: "Cursor blink",
                 value: self.cursor_blink.as_str().to_owned(),
-                description: "Default cursor blink policy at startup. on blinks at a fixed rate; off keeps the cursor steady. auto currently resolves to on — an OS-preference reader is not yet implemented; auto is reserved for that future integration.",
+                description: "Default cursor blink policy at startup. on blinks at a fixed rate; off keeps the cursor steady. auto uses the conventional blinking default (Linux exposes no OS caret-blink preference). An app's DECSCUSR can override any of these at runtime.",
                 kind: SettingKind::Enum,
                 range: None,
                 options: &["auto", "on", "off"],
