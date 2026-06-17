@@ -596,6 +596,23 @@ pub struct Settings {
     /// the full correction; `0.0` is an exact passthrough. Inert while
     /// [`Settings::cvd_mode`] is `Off`.
     pub cvd_strength: f32,
+    /// Follow the OS dark/light appearance preference (OS-THEME). Off by
+    /// default; while off the OS signal is ignored and the authored
+    /// [`Settings::theme`] drives presentation byte-identically to before. When
+    /// on, the compositor's color-scheme signal selects between
+    /// [`Settings::os_theme_dark`] and [`Settings::os_theme_light`].
+    pub follow_os_theme: bool,
+    /// Theme name applied when the OS reports a dark color scheme (OS-THEME).
+    /// `None` (the default) means a dark signal keeps the authored theme rather
+    /// than switching. Resolved against the built-in theme library by name.
+    pub os_theme_dark: Option<String>,
+    /// Theme name applied when the OS reports a light color scheme (OS-THEME).
+    /// `None` (the default) means a light signal keeps the authored theme.
+    pub os_theme_light: Option<String>,
+    /// Confirm before closing while a foreground job is running (CLOSE-CONFIRM).
+    /// On by default; the dialog only appears when a program is actively running
+    /// in the terminal, so the common idle-shell close path is unaffected.
+    pub confirm_close: bool,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -650,6 +667,10 @@ impl Default for Settings {
             window_border: DEFAULT_WINDOW_BORDER,
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
+            follow_os_theme: DEFAULT_FOLLOW_OS_THEME,
+            os_theme_dark: None,
+            os_theme_light: None,
+            confirm_close: DEFAULT_CONFIRM_CLOSE,
             native_autoclose: None,
         }
     }
@@ -1041,6 +1062,29 @@ impl Settings {
         );
         let cvd_mode = parse_cvd_mode(get(CVD_MODE_ENV).as_deref(), &mut warn);
         let cvd_strength = parse_cvd_strength(get(CVD_STRENGTH_ENV).as_deref(), &mut warn);
+        let follow_os_theme = parse_bool_setting(
+            get(FOLLOW_OS_THEME_ENV).as_deref(),
+            FOLLOW_OS_THEME_ENV,
+            DEFAULT_FOLLOW_OS_THEME,
+            &mut warn,
+        );
+        // OS-THEME dark/light theme names are stored verbatim (trimmed, empty =
+        // unset) and resolved to a built-in theme lazily when the OS signal
+        // applies, so an unknown name warns at apply time, not parse time.
+        let os_theme_dark = get(OS_THEME_DARK_ENV)
+            .and_then(|value| value.into_string().ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let os_theme_light = get(OS_THEME_LIGHT_ENV)
+            .and_then(|value| value.into_string().ok())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        let confirm_close = parse_bool_setting(
+            get(CONFIRM_CLOSE_ENV).as_deref(),
+            CONFIRM_CLOSE_ENV,
+            DEFAULT_CONFIRM_CLOSE,
+            &mut warn,
+        );
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -1092,6 +1136,10 @@ impl Settings {
             window_border,
             cvd_mode,
             cvd_strength,
+            follow_os_theme,
+            os_theme_dark,
+            os_theme_light,
+            confirm_close,
             native_autoclose,
         }
     }
@@ -1211,6 +1259,20 @@ impl Settings {
         );
         values.insert(CVD_MODE_ENV, self.cvd_mode.as_str().to_owned());
         values.insert(CVD_STRENGTH_ENV, format_float(self.cvd_strength));
+        values.insert(
+            FOLLOW_OS_THEME_ENV,
+            bool_display(self.follow_os_theme).to_owned(),
+        );
+        if let Some(name) = self.os_theme_dark.as_ref() {
+            values.insert(OS_THEME_DARK_ENV, name.clone());
+        }
+        if let Some(name) = self.os_theme_light.as_ref() {
+            values.insert(OS_THEME_LIGHT_ENV, name.clone());
+        }
+        values.insert(
+            CONFIRM_CLOSE_ENV,
+            bool_display(self.confirm_close).to_owned(),
+        );
         if let Some(duration) = self.native_autoclose {
             values.insert(NATIVE_AUTOCLOSE_ENV, duration.as_millis().to_string());
         }

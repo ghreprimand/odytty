@@ -45,6 +45,10 @@ impl App {
             OverlayOutcome::ContextMenuCopy => self.handle_copy_shortcut(),
             OverlayOutcome::ContextMenuPaste => self.handle_paste_shortcut(),
             OverlayOutcome::ContextMenuSelectAll => self.handle_select_all(),
+            // CLOSE-CONFIRM: the dialog closed itself before emitting this; flag
+            // the exit so `window_event` exits the loop on this same turn (the
+            // outcome cannot reach `ActiveEventLoop` from here — `&mut self`).
+            OverlayOutcome::ForceClose => self.pending_exit = true,
         }
     }
 

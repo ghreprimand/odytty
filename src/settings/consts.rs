@@ -52,6 +52,10 @@ pub const SH_CLICK_ENV: &str = "ODYTTY_SH_CLICK";
 pub const CVD_MODE_ENV: &str = "ODYTTY_CVD_MODE";
 pub const CVD_STRENGTH_ENV: &str = "ODYTTY_CVD_STRENGTH";
 pub const NATIVE_AUTOCLOSE_ENV: &str = "ODYTTY_NATIVE_AUTOCLOSE_MS";
+pub const FOLLOW_OS_THEME_ENV: &str = "ODYTTY_FOLLOW_OS_THEME";
+pub const OS_THEME_DARK_ENV: &str = "ODYTTY_OS_THEME_DARK";
+pub const OS_THEME_LIGHT_ENV: &str = "ODYTTY_OS_THEME_LIGHT";
+pub const CONFIRM_CLOSE_ENV: &str = "ODYTTY_CONFIRM_CLOSE";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
 /// Subdirectory of the config dir where user theme files (`*.theme`) live.
@@ -106,6 +110,10 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SH_CLICK_ENV,
     CVD_MODE_ENV,
     CVD_STRENGTH_ENV,
+    FOLLOW_OS_THEME_ENV,
+    OS_THEME_DARK_ENV,
+    OS_THEME_LIGHT_ENV,
+    CONFIRM_CLOSE_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 
@@ -262,6 +270,25 @@ pub const DEFAULT_NEW_OUTPUT_FADE: bool = false;
 /// emitted and the render path is byte-identical to before. Purely
 /// presentational; never affects cell semantics.
 pub const DEFAULT_WINDOW_BORDER: bool = false;
+
+/// Follow the OS dark/light appearance preference (`ODYTTY_FOLLOW_OS_THEME`,
+/// OS-THEME): when on, OdyTTY switches between the `os_theme_dark` and
+/// `os_theme_light` themes based on the desktop's color-scheme signal (delivered
+/// live by the compositor on Wayland; seeded from `ODYTTY_APPEARANCE` on X11
+/// where no live signal exists). Off by default — while off the OS signal is
+/// ignored entirely and the authored `theme` drives presentation exactly as
+/// before. When on but a direction's theme name is unset (or unknown), that
+/// direction keeps the authored theme rather than guessing.
+pub const DEFAULT_FOLLOW_OS_THEME: bool = false;
+
+/// Confirm before closing while a foreground job is running (`ODYTTY_CONFIRM_CLOSE`,
+/// CLOSE-CONFIRM): when on, a close request (window close button / WM close)
+/// while a program is actively running in the terminal opens a confirmation
+/// dialog instead of exiting immediately. On by default — the dialog only ever
+/// appears when data would actually be lost: an idle shell (no foreground job)
+/// always closes silently, exactly as before, and any query error or dead PTY
+/// also takes the silent-close path. Off restores unconditional close-on-request.
+pub const DEFAULT_CONFIRM_CLOSE: bool = true;
 
 /// Drag-to-extend selection (`ODYTTY_SELECTION_DRAG_EXTEND`, MOUSE-EXTEND): when
 /// on, a double-click-then-drag grows the selection by whole words, a

@@ -7,16 +7,17 @@ use std::path::Path;
 
 use super::{
     BACKGROUND_TREATMENT_ENV, BLOOM_ENV, BLOOM_INTENSITY_ENV, BLOOM_RADIUS_ENV,
-    BLOOM_THRESHOLD_ENV, COMMAND_STATUS_GUTTER_ENV, COPY_ON_SELECT_ENV, CRT_ENV,
+    BLOOM_THRESHOLD_ENV, COMMAND_STATUS_GUTTER_ENV, CONFIRM_CLOSE_ENV, COPY_ON_SELECT_ENV, CRT_ENV,
     CRT_SCANLINE_INTENSITY_ENV, CRT_SCANLINE_PERIOD_ENV, CRT_VIGNETTE_STRENGTH_ENV,
     CURSOR_BLINK_ENV, CURSOR_EASING_ENV, CURSOR_GLOW_ENV, CURSOR_MOTION_ENV, CURSOR_STYLE_ENV,
-    CURSOR_TRAIL_ENV, CVD_MODE_ENV, CVD_STRENGTH_ENV, FOCUS_DIM_ENV, FONT_ENV, FONT_FAMILY_ENV,
-    FONT_SIZE_ENV, GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV, NATIVE_AUTOCLOSE_ENV,
-    NEW_OUTPUT_FADE_ENV, OSC52_READ_ENV, RENDER_QUALITY_ENV, SCROLL_DRAG_SPEED_ENV,
-    SCROLL_WHEEL_LINES_ENV, SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV, SH_CLICK_ENV,
-    STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYNTHETIC_STYLES_ENV,
-    TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV,
-    WINDOW_PADDING_ENV, normalize_name,
+    CURSOR_TRAIL_ENV, CVD_MODE_ENV, CVD_STRENGTH_ENV, FOCUS_DIM_ENV, FOLLOW_OS_THEME_ENV, FONT_ENV,
+    FONT_FAMILY_ENV, FONT_SIZE_ENV, GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV,
+    NATIVE_AUTOCLOSE_ENV, NEW_OUTPUT_FADE_ENV, OS_THEME_DARK_ENV, OS_THEME_LIGHT_ENV,
+    OSC52_READ_ENV, RENDER_QUALITY_ENV, SCROLL_DRAG_SPEED_ENV, SCROLL_WHEEL_LINES_ENV,
+    SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV, SH_CLICK_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV,
+    SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV,
+    THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_PADDING_ENV,
+    normalize_name,
 };
 use super::{BOX_THICKNESS_ENV, LINE_HEIGHT_ENV};
 #[derive(Debug, Clone, Default)]
@@ -72,6 +73,11 @@ impl ConfigValues {
 pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
     match normalize_name(key).as_str() {
         "theme" => Some(THEME_ENV),
+        "followostheme" | "followsystemtheme" | "ostheme" | "autotheme" => {
+            Some(FOLLOW_OS_THEME_ENV)
+        }
+        "osthemedark" | "darktheme" | "themedark" => Some(OS_THEME_DARK_ENV),
+        "osthemelight" | "lighttheme" | "themelight" => Some(OS_THEME_LIGHT_ENV),
         "visual" => Some(VISUAL_ENV),
         "bloom" => Some(BLOOM_ENV),
         "bloomthreshold" => Some(BLOOM_THRESHOLD_ENV),
@@ -129,6 +135,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "shclick" | "clicktoposition" | "clicktomovecursor" | "promptclick" => Some(SH_CLICK_ENV),
         "cvdmode" | "colorblindmode" | "colourblindmode" | "daltonize" => Some(CVD_MODE_ENV),
         "cvdstrength" | "colorblindstrength" | "colourblindstrength" => Some(CVD_STRENGTH_ENV),
+        "confirmclose" | "closeconfirm" | "closeconfirmation" | "confirmonclose" => {
+            Some(CONFIRM_CLOSE_ENV)
+        }
         "nativeautoclosems" => Some(NATIVE_AUTOCLOSE_ENV),
         _ => None,
     }
@@ -137,6 +146,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
 pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
     match env {
         THEME_ENV => Some("theme"),
+        FOLLOW_OS_THEME_ENV => Some("follow_os_theme"),
+        OS_THEME_DARK_ENV => Some("os_theme_dark"),
+        OS_THEME_LIGHT_ENV => Some("os_theme_light"),
         VISUAL_ENV => Some("visual"),
         BLOOM_ENV => Some("bloom"),
         BLOOM_THRESHOLD_ENV => Some("bloom_threshold"),
@@ -184,6 +196,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         WINDOW_BORDER_ENV => Some("window_border"),
         CVD_MODE_ENV => Some("cvd_mode"),
         CVD_STRENGTH_ENV => Some("cvd_strength"),
+        CONFIRM_CLOSE_ENV => Some("confirm_close"),
         NATIVE_AUTOCLOSE_ENV => Some("native_autoclose_ms"),
         _ => None,
     }

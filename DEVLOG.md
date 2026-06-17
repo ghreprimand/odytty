@@ -7,6 +7,61 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- OS-THEME follow OS dark/light + CLOSE-CONFIRM (event-loop pair)
+
+Two native features that live in the winit event-loop handlers, both with a
+byte-identical default path.
+
+- **OS-THEME — follow the OS dark/light appearance** (`follow_os_theme`, off by
+  default; `os_theme_dark` / `os_theme_light` theme names; aliases `autotheme` /
+  `darktheme` / `lighttheme`). When on, OdyTTY switches between a configured dark
+  theme and a configured light theme based on the desktop's color-scheme signal.
+  The signal source is winit's existing `WindowEvent::ThemeChanged` /
+  `Window::theme()` — **zero new dependencies**: the Wayland compositor delivers
+  it live, and X11 (where the signal never fires) is seeded by an optional
+  `ODYTTY_APPEARANCE=dark|light` env complement. A new `ThemeChanged` event arm
+  records the preference always and re-resolves the active theme only while
+  following is on; startup queries `Window::theme()` once so the first frame is
+  correct. The whole feature funnels through `resolve_active_theme()` — the
+  authored `theme` is always the fallback, so an unset or unknown dark/light
+  direction never guesses, and with `follow_os_theme` off the resolver returns
+  exactly `settings.theme` (the off path is byte-identical). The settings-reload
+  seam re-derives through the same resolver so a config reload can't clobber a
+  live OS override back to the authored theme. The republish reuses the CVD
+  pipeline (`effective_theme` → text/terminal/GPU seams) and bumps
+  `presentation_epoch`; it early-returns when the resolved theme is unchanged, so
+  repeated `ThemeChanged` events at the same preference are free. The OS-following
+  logic lives in a new focused `app/os_theme.rs` submodule (keeps `app/mod.rs`
+  under the source cap). `winit::window::Theme` vs `crate::theme::Theme` is
+  always fully qualified to avoid the name collision.
+- **CLOSE-CONFIRM — confirm before closing while a job is running**
+  (`confirm_close`, **on by default**; aliases `closeconfirm` /
+  `closeconfirmation`). A close request (window button / WM close) while a
+  foreground job is actually running now raises a centered confirmation dialog
+  instead of exiting immediately: Enter/Y confirms, Esc/N cancels. The running
+  check is the existing read-only `PtySession::foreground_job()` (`tcgetpgrp`):
+  only `ForegroundJob::Running` prompts — an idle shell (`None`), a query error
+  or dead PTY (`Unknown`), and a poisoned PTY lock all fall through to the
+  immediate exit, so the common idle-close path and the `confirm_close = false`
+  opt-out are unchanged. The dialog is a 7th `OverlayMode::ConfirmClose` riding
+  the shared centered-panel painter (no new render signature; the existing
+  `mode` field captures it). Because the overlay apply path holds only
+  `&mut self`, a confirmed close emits a new `OverlayOutcome::ForceClose` that
+  sets a `pending_exit` flag, and `window_event` performs the actual
+  `event_loop.exit()` after the event is handled. The dialog closes itself before
+  the exit (clean UI), Esc/N can never reach `ForceClose`, and `open_confirm_close`
+  is idempotent against a double `CloseRequested`.
+
+State: `cargo fmt --check` clean; `cargo test --lib` 1596 passing (+11);
+`cargo test --all-targets` 0 failed; pixel-smoke 47/0 (byte-identical default
+path); `cargo clippy --lib` 37 warnings = baseline (zero new). New tests cover
+the OS-theme resolve/switch/fallback matrix and off-path identity, the
+confirm-dialog key contract + idempotency + `pending_exit` wiring, and the
+config round-trips. `app/mod.rs` 1901 lines (under the 1950 flag) after the
+`os_theme.rs` extraction. No parser/core/PTY-parsing change ⇒ no fuzz needed.
+
+---
+
 ## 2026-06-17 -- HELP1 settings-label clarity sweep
 
 A small readability pass over settings-panel labels and help text (no behavior

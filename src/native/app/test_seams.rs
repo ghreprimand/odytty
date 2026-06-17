@@ -436,4 +436,60 @@ impl App {
         };
         self.key_bindings.action_for(logical, mods, false)
     }
+
+    /// Test seam (OS-THEME): the live active (authored-for-renderer) theme. This
+    /// is the theme OS following overrides; the CVD-adapted publish derives from
+    /// it.
+    #[cfg(test)]
+    pub(in crate::native) fn active_theme_for_test(&self) -> Theme {
+        self.theme
+    }
+
+    /// Test seam (OS-THEME): configure the follow knob, the dark/light theme
+    /// names, and the current OS appearance signal, then re-resolve and publish
+    /// through the production override path. Returns the resolved active theme so
+    /// a test can assert the switch (or the off-path identity) directly.
+    #[cfg(test)]
+    pub(in crate::native) fn apply_os_theme_for_test(
+        &mut self,
+        follow: bool,
+        dark: Option<&str>,
+        light: Option<&str>,
+        os: Option<winit::window::Theme>,
+    ) -> Theme {
+        self.settings.follow_os_theme = follow;
+        self.settings.os_theme_dark = dark.map(str::to_owned);
+        self.settings.os_theme_light = light.map(str::to_owned);
+        self.os_theme = os;
+        self.apply_os_theme_override();
+        self.resolve_active_theme()
+    }
+
+    /// Test seam (OS-THEME): resolve the active theme WITHOUT publishing — proves
+    /// the pure off-path identity (`follow_os_theme = false` ⇒ authored theme).
+    #[cfg(test)]
+    pub(in crate::native) fn resolve_active_theme_for_test(&self) -> Theme {
+        self.resolve_active_theme()
+    }
+
+    /// Test seam (CLOSE-CONFIRM): open the confirmation dialog through the same
+    /// path the `CloseRequested` handler uses.
+    #[cfg(test)]
+    pub(in crate::native) fn open_confirm_close_for_test(&mut self) {
+        self.overlay.open_confirm_close();
+    }
+
+    /// Test seam (CLOSE-CONFIRM): whether the confirmation dialog is the active
+    /// overlay mode.
+    #[cfg(test)]
+    pub(in crate::native) fn confirm_close_open_for_test(&self) -> bool {
+        self.overlay.is_confirm_close()
+    }
+
+    /// Test seam (CLOSE-CONFIRM): the pending-exit flag the `window_event` loop
+    /// consults to perform the actual close after a confirmed dialog.
+    #[cfg(test)]
+    pub(in crate::native) fn pending_exit_for_test(&self) -> bool {
+        self.pending_exit
+    }
 }

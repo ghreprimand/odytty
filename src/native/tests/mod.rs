@@ -63,6 +63,7 @@ use winit::event::{MouseButton as WinitMouseButton, MouseScrollDelta};
 use winit::keyboard::{Key as WinitKey, KeyCode, NamedKey, PhysicalKey};
 
 mod clipboard_paste;
+mod close_confirm;
 mod context_menu;
 mod cvd_wiring;
 mod gpu_render;
@@ -70,6 +71,7 @@ mod grid_scale;
 mod input_keys;
 mod key_remap_wiring;
 mod mouse_rect;
+mod os_theme;
 mod overlay_pointer;
 mod overlay_registry;
 mod scrollbar;

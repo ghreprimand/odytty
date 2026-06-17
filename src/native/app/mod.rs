@@ -11,7 +11,7 @@ use crate::core::{
 };
 use crate::grid::{CursorRenderParams, SolidQuad};
 use crate::input::{self, Key, KeyEventType, KeyModes, Modifiers};
-use crate::pty::PtySession;
+use crate::pty::{ForegroundJob, PtySession};
 use crate::selection::{
     self, AbsoluteSelectionRange, AbsoluteSelectionState, CellPoint, ClickTracker, PointerDrag,
     SelectGranularity, SelectionStyle,
@@ -78,6 +78,7 @@ mod gutter_ui;
 mod hints_ui;
 mod interaction;
 mod new_row_fade;
+mod os_theme;
 mod overlay_registry;
 mod pointer;
 mod prompt_jump;
@@ -355,6 +356,16 @@ pub(super) struct App {
     focused: bool,
     autoclose: Option<Duration>,
     deadline: Option<Instant>,
+    /// OS-THEME: last known OS dark/light appearance preference, or `None` until
+    /// the compositor surfaces one (always `None` on X11, where the signal is
+    /// absent). Read only while [`Settings::follow_os_theme`] is on; off the
+    /// default path it is never consulted.
+    os_theme: Option<winit::window::Theme>,
+    /// CLOSE-CONFIRM: set when the confirmation dialog is accepted (or the
+    /// non-confirming close path decides to exit) so `window_event` can exit the
+    /// loop after the overlay outcome is applied — `apply_overlay_outcome` only
+    /// has `&mut self` and cannot reach the `ActiveEventLoop` itself.
+    pending_exit: bool,
     pub(super) startup_error: Option<NativeError>,
 }
 
@@ -446,6 +457,8 @@ impl App {
             focused: true,
             autoclose,
             deadline: None,
+            os_theme: None,
+            pending_exit: false,
             startup_error: None,
         };
         // ONBOARD (D-OB-1/D-OB-2): open the first-run welcome card iff the
@@ -1095,7 +1108,13 @@ impl App {
 
         self.settings = next_settings;
         self.options = next_options;
-        self.theme = self.settings.theme;
+        // OS-THEME: the active theme is the authored `settings.theme` unless an
+        // OS dark/light override is active, in which case it wins — so a config
+        // reload (which may change the authored theme or the dark/light pair)
+        // re-derives the correct active theme rather than clobbering a live OS
+        // override back to the authored theme. With `follow_os_theme` off this
+        // returns exactly `self.settings.theme`, byte-identical to before.
+        self.theme = self.resolve_active_theme();
         // U4: compute the effective (CVD-adapted) theme once at this change
         // chokepoint and publish IT to every renderer seam below. Off returns
         // the authored theme unchanged (byte-identical plain path); the cache
@@ -1235,6 +1254,21 @@ impl ApplicationHandler<UserEvent> for App {
         window.request_redraw();
         self.window = Some(window);
 
+        // OS-THEME: seed the OS appearance from the window (Wayland delivers a
+        // value here; X11 returns `None`) or the `ODYTTY_APPEARANCE` env
+        // fallback, then apply the override so the very first frame already
+        // reflects the OS preference. No-op when following is off (the resolve
+        // returns the authored theme and the apply early-returns on equality),
+        // so the default startup path is unchanged.
+        if self.settings.follow_os_theme {
+            self.os_theme = self
+                .window
+                .as_ref()
+                .and_then(|window| window.theme())
+                .or_else(os_theme::env_appearance_override);
+            self.apply_os_theme_override();
+        }
+
         if let Some(delay) = self.autoclose {
             let deadline = Instant::now() + delay;
             self.deadline = Some(deadline);
@@ -1250,7 +1284,36 @@ impl ApplicationHandler<UserEvent> for App {
     ) {
         match event {
             WindowEvent::CloseRequested => {
-                event_loop.exit();
+                // CLOSE-CONFIRM: when enabled and a foreground job is actually
+                // running, intercept the close and raise the confirmation dialog
+                // instead of exiting. Only `ForegroundJob::Running` prompts —
+                // `None` (idle shell) and `Unknown` (query error / dead PTY) and
+                // a poisoned lock all fall through to the immediate exit, so the
+                // off path and the common idle-close path are unchanged (TRAP-1,
+                // TRAP-5).
+                if self.settings.confirm_close
+                    && self
+                        .pty
+                        .lock()
+                        .is_ok_and(|pty| pty.foreground_job() == ForegroundJob::Running)
+                {
+                    self.overlay.open_confirm_close();
+                    if let Some(window) = self.window.as_ref() {
+                        window.request_redraw();
+                    }
+                } else {
+                    event_loop.exit();
+                }
+            }
+            WindowEvent::ThemeChanged(os_theme) => {
+                // OS-THEME: the compositor reported a dark/light preference
+                // change (Wayland). Record it always; re-resolve the active
+                // theme only while following is on. `apply_os_theme_override`
+                // bumps the presentation epoch and requests a redraw itself.
+                self.os_theme = Some(os_theme);
+                if self.settings.follow_os_theme {
+                    self.apply_os_theme_override();
+                }
             }
             WindowEvent::Resized(size) => {
                 // Reconfigure the GPU surface (pixel size) and read the real
@@ -1625,6 +1688,15 @@ impl ApplicationHandler<UserEvent> for App {
                 );
             }
             _ => {}
+        }
+        // CLOSE-CONFIRM: an overlay outcome dispatched during this event (the
+        // confirmation dialog's Enter/Y) may have requested the window close.
+        // The overlay apply path only holds `&mut self`, so it sets this flag
+        // and the actual exit happens here where the event loop is in scope.
+        // Stays `false` on every path that does not confirm a close, so the
+        // off/default behavior is unchanged.
+        if self.pending_exit {
+            event_loop.exit();
         }
     }
 

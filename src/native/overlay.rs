@@ -139,11 +139,46 @@ impl OverlayUi {
         self.open = true;
     }
 
+    /// Open the close-confirmation dialog (CLOSE-CONFIRM). Called from the App's
+    /// `CloseRequested` handler when `confirm_close` is on and a foreground job
+    /// is running. Idempotent: starts with `close()` so a repeated close request
+    /// (some window managers fire it twice) cannot stack dialogs (TRAP-3).
+    pub(super) fn open_confirm_close(&mut self) {
+        self.close();
+        self.mode = OverlayMode::ConfirmClose;
+        self.open = true;
+    }
+
+    /// Keyboard contract for the close-confirmation dialog (CLOSE-CONFIRM).
+    /// Enter or Y confirms the close (`ForceClose`); Esc or N cancels (closes the
+    /// dialog, the window stays open); every other key is swallowed so nothing
+    /// leaks to the PTY behind the modal. The `Close` arm must emit `Close`, not
+    /// `ForceClose`, so dismissing never exits (TRAP-2).
+    fn handle_confirm_close_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match input {
+            OverlayInput::Activate | OverlayInput::Char('y') | OverlayInput::Char('Y') => {
+                self.close();
+                OverlayOutcome::ForceClose
+            }
+            OverlayInput::Close | OverlayInput::Char('n') | OverlayInput::Char('N') => {
+                OverlayOutcome::Close
+            }
+            _ => OverlayOutcome::Consumed,
+        }
+    }
+
     /// Whether the context menu is the active overlay mode (IN2). The App uses
     /// this to route bare hover Moves to the menu for hover-to-focus, alongside
     /// the slider-drag gate.
     pub(super) fn is_context_menu(&self) -> bool {
         self.open && self.mode == OverlayMode::ContextMenu
+    }
+
+    /// Whether the close-confirmation dialog is the active overlay mode
+    /// (CLOSE-CONFIRM). Used by the App's test seam to assert the dialog opened.
+    #[cfg(test)]
+    pub(super) fn is_confirm_close(&self) -> bool {
+        self.open && self.mode == OverlayMode::ConfirmClose
     }
 
     /// Lift a [`ContextMenuOutcome`] into an [`OverlayOutcome`] (IN2). An
@@ -199,6 +234,7 @@ impl OverlayUi {
             OverlayMode::KeyBindings => return self.handle_key_remap_input(input),
             OverlayMode::Onboarding => return self.handle_onboarding_input(input),
             OverlayMode::ContextMenu => return self.handle_context_menu_input(input),
+            OverlayMode::ConfirmClose => return self.handle_confirm_close_input(input),
             OverlayMode::Settings => {}
         }
 
@@ -259,7 +295,8 @@ impl OverlayUi {
                     }
                     OverlayMode::ThemePicker
                     | OverlayMode::KeyBindings
-                    | OverlayMode::Onboarding => OverlayOutcome::Consumed,
+                    | OverlayMode::Onboarding
+                    | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
             OverlayPointer::Move { cell } => {
@@ -287,7 +324,8 @@ impl OverlayUi {
                     }
                     OverlayMode::ThemePicker
                     | OverlayMode::KeyBindings
-                    | OverlayMode::Onboarding => OverlayOutcome::Consumed,
+                    | OverlayMode::Onboarding
+                    | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
             OverlayPointer::Release { .. } => {
@@ -297,7 +335,8 @@ impl OverlayUi {
                     OverlayMode::ThemePicker
                     | OverlayMode::KeyBindings
                     | OverlayMode::Onboarding
-                    | OverlayMode::ContextMenu => {}
+                    | OverlayMode::ContextMenu
+                    | OverlayMode::ConfirmClose => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -308,7 +347,8 @@ impl OverlayUi {
                     OverlayMode::KeyBindings => self.key_remap.scroll_lines(lines),
                     OverlayMode::ThemePicker
                     | OverlayMode::Onboarding
-                    | OverlayMode::ContextMenu => {}
+                    | OverlayMode::ContextMenu
+                    | OverlayMode::ConfirmClose => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -326,7 +366,8 @@ impl OverlayUi {
             OverlayMode::ThemePicker
             | OverlayMode::KeyBindings
             | OverlayMode::Onboarding
-            | OverlayMode::ContextMenu => false,
+            | OverlayMode::ContextMenu
+            | OverlayMode::ConfirmClose => false,
         }
     }
 
@@ -344,7 +385,8 @@ impl OverlayUi {
             OverlayMode::ThemePicker
             | OverlayMode::KeyBindings
             | OverlayMode::Onboarding
-            | OverlayMode::ContextMenu => {}
+            | OverlayMode::ContextMenu
+            | OverlayMode::ConfirmClose => {}
         }
     }
 
@@ -386,8 +428,9 @@ impl OverlayUi {
             // modal reports the saved count and adopts the persisted bindings as
             // its new restore baseline.
             OverlayMode::KeyBindings => self.key_remap.save_succeeded(changed),
-            // The onboarding card and context menu have no save path of their own.
-            OverlayMode::Onboarding | OverlayMode::ContextMenu => {}
+            // The onboarding card, context menu, and close dialog have no save
+            // path of their own.
+            OverlayMode::Onboarding | OverlayMode::ContextMenu | OverlayMode::ConfirmClose => {}
         }
     }
 
@@ -397,7 +440,7 @@ impl OverlayUi {
             OverlayMode::ThemePicker => self.theme_picker.save_failed(message),
             OverlayMode::ThemeBuilder => self.theme_builder.save_failed(message),
             OverlayMode::KeyBindings => self.key_remap.save_failed(message),
-            OverlayMode::Onboarding | OverlayMode::ContextMenu => {}
+            OverlayMode::Onboarding | OverlayMode::ContextMenu | OverlayMode::ConfirmClose => {}
         }
     }
 
@@ -537,6 +580,11 @@ pub(super) enum OverlayOutcome {
     ContextMenuCopy,
     ContextMenuPaste,
     ContextMenuSelectAll,
+    /// The user confirmed the close-confirmation dialog (CLOSE-CONFIRM): close
+    /// the window. The overlay has already closed itself by the time this is
+    /// emitted; the App sets its `pending_exit` flag and exits the event loop on
+    /// the same turn (the outcome can't reach `ActiveEventLoop` directly).
+    ForceClose,
 }
 
 /// Lift a [`SettingsPanelOutcome`] (from the keyboard or the pointer path) into
@@ -564,6 +612,10 @@ pub(super) enum OverlayMode {
     /// Right-click context menu (IN2). Spawns at the pointer cell rather than
     /// centered; carries no title bar.
     ContextMenu,
+    /// Close-confirmation dialog (CLOSE-CONFIRM). A centered, static two-line
+    /// modal shown when a close is requested while a foreground job is running;
+    /// Enter/Y confirms (emits [`OverlayOutcome::ForceClose`]), Esc/N cancels.
+    ConfirmClose,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -698,6 +750,11 @@ impl OverlayRect {
 /// Compute the open overlay's cell geometry for a grid of `columns`×`rows`, or
 /// `None` when the overlay is closed or the grid is empty. The math is the exact
 /// rect [`apply_overlay`] draws into, so render and hit-test stay in lockstep.
+/// Fixed body width (cells) for the close-confirmation dialog (CLOSE-CONFIRM).
+/// Wide enough for the longest static line plus the panel border inset; the
+/// `.max(36)` floor in [`overlay_rect`] keeps small grids sane.
+const CONFIRM_CLOSE_WIDTH: usize = 52;
+
 pub(super) fn overlay_rect(
     overlay: &OverlayUi,
     columns: usize,
@@ -719,6 +776,9 @@ pub(super) fn overlay_rect(
         OverlayMode::Onboarding => overlay.onboarding.desired_width(columns),
         // Unreachable: handled by the early return above.
         OverlayMode::ContextMenu => overlay.context_menu.menu_width(),
+        // Static two-line dialog; the `.max(36)` floor below gives it room and
+        // the body text fits comfortably (CLOSE-CONFIRM).
+        OverlayMode::ConfirmClose => CONFIRM_CLOSE_WIDTH,
     }
     .max(36)
     .min(columns);
@@ -759,6 +819,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
         OverlayMode::Onboarding => "Welcome to OdyTTY",
         // Unreachable: handled by the early dispatch above.
         OverlayMode::ContextMenu => "",
+        OverlayMode::ConfirmClose => "Close?",
     };
 
     fill_rect(
@@ -890,6 +951,25 @@ impl OverlayUi {
             // The context menu renders via `apply_context_menu`, not this shared
             // body walker (IN2).
             OverlayMode::ContextMenu => Vec::new(),
+            // Static confirmation copy (CLOSE-CONFIRM). No state, no swatch; the
+            // shared centered-panel painter draws it like any other modal body.
+            OverlayMode::ConfirmClose => vec![
+                OverlayLine {
+                    text: "A program is still running in this terminal.".to_owned(),
+                    focused: false,
+                    swatch: None,
+                },
+                OverlayLine {
+                    text: String::new(),
+                    focused: false,
+                    swatch: None,
+                },
+                OverlayLine {
+                    text: "Close anyway?   [Enter / Y] Yes     [Esc / N] No".to_owned(),
+                    focused: true,
+                    swatch: None,
+                },
+            ],
         }
     }
 }
@@ -1174,6 +1254,71 @@ mod tests {
             overlay.open_onboarding();
             assert_eq!(overlay.handle_input(input), OverlayOutcome::Close);
         }
+    }
+
+    #[test]
+    fn confirm_close_dialog_opens_renders_and_routes_keys() {
+        // CLOSE-CONFIRM: the dialog opens in its own mode, paints its title and
+        // copy, and routes keys per the keyboard contract.
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_close();
+        assert!(overlay.is_open());
+        assert_eq!(overlay.render_signature().mode, OverlayMode::ConfirmClose);
+
+        // The dialog paints its title and a non-empty body.
+        let mut rendered = snapshot(70, 18);
+        apply_overlay(&mut rendered, &overlay);
+        let painted: String = rendered.cells.iter().map(|cell| cell.ch).collect();
+        assert!(painted.contains("Close?"));
+        assert!(painted.contains("Close anyway?"));
+
+        // Enter confirms: emits ForceClose AND closes the dialog so the UI is
+        // clean before the App exits (TRAP-4).
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ForceClose
+        );
+        assert!(!overlay.is_open());
+
+        // 'y' / 'Y' also confirm.
+        for ch in ['y', 'Y'] {
+            overlay.open_confirm_close();
+            assert_eq!(
+                overlay.handle_input(OverlayInput::Char(ch)),
+                OverlayOutcome::ForceClose
+            );
+            assert!(!overlay.is_open());
+        }
+
+        // Esc and 'n' / 'N' cancel: they emit Close (NOT ForceClose), so the
+        // window never exits on a dismiss (TRAP-2).
+        for input in [
+            OverlayInput::Close,
+            OverlayInput::Char('n'),
+            OverlayInput::Char('N'),
+        ] {
+            overlay.open_confirm_close();
+            assert_eq!(overlay.handle_input(input), OverlayOutcome::Close);
+        }
+
+        // Any other key is swallowed (no PTY leak behind the modal).
+        overlay.open_confirm_close();
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Char('x')),
+            OverlayOutcome::Consumed
+        );
+        assert!(overlay.is_open());
+    }
+
+    #[test]
+    fn confirm_close_open_is_idempotent() {
+        // TRAP-3: a repeated close request (some window managers fire twice)
+        // must not stack dialogs — open_confirm_close starts with close().
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_close();
+        overlay.open_confirm_close();
+        assert!(overlay.is_open());
+        assert_eq!(overlay.render_signature().mode, OverlayMode::ConfirmClose);
     }
 
     #[test]

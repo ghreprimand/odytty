@@ -73,6 +73,9 @@ fn setting_info_covers_every_field_with_descriptions() {
         keys,
         vec![
             "theme",
+            "follow_os_theme",
+            "os_theme_dark",
+            "os_theme_light",
             "themed_ui_roles",
             "font",
             "font_family",
@@ -116,6 +119,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "wheel_zoom",
             "command_status_gutter",
             "sh_click",
+            "confirm_close",
             "osc52_read",
             "copy_on_select",
             "cvd_mode",
@@ -1464,5 +1468,80 @@ fn symbol_fallback_round_trips_through_config_key_mapping() {
     assert_eq!(
         settings.to_edit_values().get(SYMBOL_FONT_ENV),
         Some(&"/tmp/symbols.otf".to_owned())
+    );
+}
+
+#[test]
+fn os_theme_round_trips_through_config_key_mapping() {
+    // OS-THEME: the follow knob and the dark/light theme names map both ways.
+    assert_eq!(
+        config_key_to_env("follow_os_theme"),
+        Some(FOLLOW_OS_THEME_ENV)
+    );
+    assert_eq!(config_key_to_env("autotheme"), Some(FOLLOW_OS_THEME_ENV));
+    assert_eq!(
+        env_to_config_key(FOLLOW_OS_THEME_ENV),
+        Some("follow_os_theme")
+    );
+    assert_eq!(config_key_to_env("os_theme_dark"), Some(OS_THEME_DARK_ENV));
+    assert_eq!(config_key_to_env("darktheme"), Some(OS_THEME_DARK_ENV));
+    assert_eq!(env_to_config_key(OS_THEME_DARK_ENV), Some("os_theme_dark"));
+    assert_eq!(
+        config_key_to_env("os_theme_light"),
+        Some(OS_THEME_LIGHT_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(OS_THEME_LIGHT_ENV),
+        Some("os_theme_light")
+    );
+
+    let (settings, warnings) = settings_from([
+        (FOLLOW_OS_THEME_ENV, "true"),
+        (OS_THEME_DARK_ENV, "odyssey-noir"),
+        (OS_THEME_LIGHT_ENV, "plain"),
+    ]);
+    assert!(settings.follow_os_theme);
+    assert_eq!(settings.os_theme_dark.as_deref(), Some("odyssey-noir"));
+    assert_eq!(settings.os_theme_light.as_deref(), Some("plain"));
+    assert!(warnings.is_empty());
+
+    // The edit-values surface re-emits the live values for writeback.
+    let values = settings.to_edit_values();
+    assert_eq!(values.get(FOLLOW_OS_THEME_ENV), Some(&"on".to_owned()));
+    assert_eq!(
+        values.get(OS_THEME_DARK_ENV),
+        Some(&"odyssey-noir".to_owned())
+    );
+    assert_eq!(values.get(OS_THEME_LIGHT_ENV), Some(&"plain".to_owned()));
+
+    // Defaults: following off, both directions unset (no edit-value emitted).
+    let defaults = Settings::default();
+    assert!(!defaults.follow_os_theme);
+    assert!(defaults.os_theme_dark.is_none());
+    assert!(defaults.os_theme_light.is_none());
+    let default_values = defaults.to_edit_values();
+    assert_eq!(
+        default_values.get(FOLLOW_OS_THEME_ENV),
+        Some(&"off".to_owned())
+    );
+    assert!(default_values.get(OS_THEME_DARK_ENV).is_none());
+    assert!(default_values.get(OS_THEME_LIGHT_ENV).is_none());
+}
+
+#[test]
+fn confirm_close_round_trips_through_config_key_mapping() {
+    // CLOSE-CONFIRM: the toggle maps both ways and defaults ON.
+    assert_eq!(config_key_to_env("confirm_close"), Some(CONFIRM_CLOSE_ENV));
+    assert_eq!(config_key_to_env("closeconfirm"), Some(CONFIRM_CLOSE_ENV));
+    assert_eq!(env_to_config_key(CONFIRM_CLOSE_ENV), Some("confirm_close"));
+
+    assert!(Settings::default().confirm_close);
+
+    let (settings, warnings) = settings_from([(CONFIRM_CLOSE_ENV, "off")]);
+    assert!(!settings.confirm_close);
+    assert!(warnings.is_empty());
+    assert_eq!(
+        settings.to_edit_values().get(CONFIRM_CLOSE_ENV),
+        Some(&"off".to_owned())
     );
 }
