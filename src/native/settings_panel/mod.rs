@@ -16,7 +16,7 @@ use sections::SECTIONS;
 /// (`SectionDetail`) renders the group-filtered setting entries for one
 /// section. Entering Level 2 resets the entry scroll/selection to the top;
 /// returning to Level 1 restores `section_selected`/`section_scroll`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SettingsLevel {
     /// Level 1: the section list (`SECTIONS.len()` rows).
     SectionList,
@@ -99,7 +99,7 @@ pub(super) enum SettingsPanelOutcome {
     OpenThemeBuilder,
     OpenKeyBindings,
     /// Open the font-family picker (FONT-PICKER). Emitted from the Fonts
-    /// section's `font_family` row (Enter or Left/Right). The picker overlay
+    /// section's `font_family` row. The picker overlay
     /// is sequenced in the FONT-PICKER packet; the variant is wired here.
     OpenFontPicker,
     /// Save all pending changes and close the overlay.
@@ -290,7 +290,7 @@ impl SettingsPanel {
             return self.handle_search_input(input);
         }
 
-        match self.level.clone() {
+        match self.level {
             SettingsLevel::SectionList => self.handle_section_list_input(input),
             SettingsLevel::SectionDetail { section_index } => {
                 self.handle_section_detail_input(input, section_index)
@@ -385,6 +385,14 @@ impl SettingsPanel {
     fn back_to_section_list(&mut self) {
         self.level = SettingsLevel::SectionList;
         self.entries = self.all_entries.clone();
+    }
+
+    pub(super) fn current_level(&self) -> SettingsLevel {
+        self.level
+    }
+
+    pub(super) fn set_level(&mut self, level: SettingsLevel) {
+        self.level = level;
     }
 
     // ── Dirty-close prompt ──────────────────────────────────────────────────
@@ -610,7 +618,7 @@ impl SettingsPanel {
                 .collect(),
             query: self.query.clone(),
             search_active: self.search_active,
-            level: self.level.clone(),
+            level: self.level,
             section_selected: self.section_selected,
             pending_close_prompt: self.pending_close_prompt,
         }
@@ -744,21 +752,17 @@ impl SettingsPanel {
         let Some(entry) = self.selected_entry().cloned() else {
             return SettingsPanelOutcome::Consumed;
         };
-        // Key-specific overrides before kind dispatch.
-        if entry.key == "theme" {
-            self.message = Some("Opening built-in theme picker.".to_owned());
-            return SettingsPanelOutcome::OpenThemePicker;
-        }
-        if entry.key == "font_family" {
-            self.message = Some("Opening font picker.".to_owned());
-            return SettingsPanelOutcome::OpenFontPicker;
-        }
         match entry.kind {
             SettingKind::Enum => self.cycle_selected(direction),
             SettingKind::Number => {
-                let step = entry.numeric.map_or(1.0, |spec| spec.step) * direction as f32;
                 let parsed = entry.value.parse::<f32>().unwrap_or(0.0);
-                self.commit_value(entry.key, &format!("{:.3}", parsed + step))
+                let next = if let Some(spec) = entry.numeric {
+                    let step = spec.step * direction as f32;
+                    (parsed + step).clamp(spec.min, spec.max)
+                } else {
+                    parsed
+                };
+                self.commit_value(entry.key, &format!("{:.3}", next))
             }
             _ => SettingsPanelOutcome::Consumed,
         }
@@ -779,16 +783,19 @@ impl SettingsPanel {
     }
 
     fn commit_value(&mut self, key: &'static str, value: &str) -> SettingsPanelOutcome {
+        let before_scroll = self.scroll;
         match self.edits.apply_raw(key, value) {
             Ok(Some(settings)) => {
                 self.all_entries = self.edits.settings().setting_info();
                 self.refresh_entries_after_commit();
+                self.restore_scroll_after_commit(before_scroll);
                 self.message = Some(format!("Applied {key}."));
                 SettingsPanelOutcome::Apply(settings)
             }
             Ok(None) => {
                 self.all_entries = self.edits.settings().setting_info();
                 self.refresh_entries_after_commit();
+                self.restore_scroll_after_commit(before_scroll);
                 self.message = Some("No setting change.".to_owned());
                 SettingsPanelOutcome::Consumed
             }
@@ -797,6 +804,16 @@ impl SettingsPanel {
                 SettingsPanelOutcome::Consumed
             }
         }
+    }
+
+    fn restore_scroll_after_commit(&mut self, before_scroll: usize) {
+        if self.entries.is_empty() {
+            self.scroll = 0;
+            self.selected = 0;
+            return;
+        }
+        self.selected = self.selected.min(self.entries.len().saturating_sub(1));
+        self.scroll = before_scroll.min(self.entries.len().saturating_sub(1));
     }
 
     /// Rebuild `entries` after a commit that updated `all_entries`. Preserves
@@ -918,9 +935,9 @@ fn setting_detail(entry: &SettingInfo) -> String {
     if !entry.reloadable {
         detail.push_str(" Startup-only.");
     } else if entry.key == "theme" {
-        detail.push_str(" Left/Right opens the theme picker; Ctrl+S saves.");
+        detail.push_str(" Enter opens the picker; Ctrl+S saves.");
     } else if entry.key == "font_family" {
-        detail.push_str(" Enter or Left/Right opens the font picker; Ctrl+S saves.");
+        detail.push_str(" Enter opens the picker; Ctrl+S saves.");
     } else {
         detail.push_str(" Enter edits/applies; Ctrl+S saves; Esc cancels an edit.");
     }
@@ -1260,14 +1277,18 @@ mod tests {
     }
 
     #[test]
-    fn theme_row_left_right_opens_picker() {
+    fn theme_row_left_right_cycle_theme_without_opening_picker() {
         let mut panel = SettingsPanel::new(&Settings::default());
         select_key(&mut panel, "theme");
 
-        assert_eq!(
+        assert!(matches!(
             panel.handle_input(OverlayInput::Right),
-            SettingsPanelOutcome::OpenThemePicker
-        );
+            SettingsPanelOutcome::Apply(_)
+        ));
+        assert!(matches!(
+            panel.handle_input(OverlayInput::Left),
+            SettingsPanelOutcome::Apply(_)
+        ));
     }
 
     #[test]
@@ -1282,7 +1303,7 @@ mod tests {
     }
 
     #[test]
-    fn font_family_enter_and_arrow_emit_open_font_picker() {
+    fn font_family_enter_opens_font_picker() {
         let mut panel = SettingsPanel::new(&Settings::default());
         select_key(&mut panel, "font_family");
 
@@ -1290,9 +1311,20 @@ mod tests {
             panel.handle_input(OverlayInput::Activate),
             SettingsPanelOutcome::OpenFontPicker
         );
+    }
+
+    #[test]
+    fn font_family_left_right_are_no_op_for_picker() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "font_family");
+
         assert_eq!(
             panel.handle_input(OverlayInput::Right),
-            SettingsPanelOutcome::OpenFontPicker
+            SettingsPanelOutcome::Consumed
+        );
+        assert_eq!(
+            panel.handle_input(OverlayInput::Left),
+            SettingsPanelOutcome::Consumed
         );
     }
 
@@ -1311,6 +1343,55 @@ mod tests {
             panic!("expected number edit to apply");
         };
         assert_eq!(settings.font_size_px, crate::settings::MAX_FONT_SIZE_PX);
+    }
+
+    #[test]
+    fn number_step_is_clamped_and_does_not_reframe_scroll() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "font_size");
+        panel.update_body_height(18);
+
+        for _ in 0..200 {
+            let _ = panel.handle_input(OverlayInput::Right);
+        }
+        let max = panel
+            .entries
+            .iter()
+            .find(|entry| entry.key == "font_size")
+            .expect("font_size entry")
+            .value
+            .parse::<f32>()
+            .unwrap_or(f32::NAN);
+        assert_eq!(max, crate::settings::MAX_FONT_SIZE_PX);
+
+        let before_scroll = panel.render_signature().scroll;
+        let _ = panel.handle_input(OverlayInput::Right);
+        assert_eq!(
+            panel.render_signature().scroll,
+            before_scroll,
+            "scroll should not move when a number is clamped at max"
+        );
+
+        for _ in 0..220 {
+            let _ = panel.handle_input(OverlayInput::Left);
+        }
+        let min = panel
+            .entries
+            .iter()
+            .find(|entry| entry.key == "font_size")
+            .expect("font_size entry")
+            .value
+            .parse::<f32>()
+            .unwrap_or(f32::NAN);
+        assert_eq!(min, crate::settings::MIN_FONT_SIZE_PX);
+
+        let before_scroll = panel.render_signature().scroll;
+        let _ = panel.handle_input(OverlayInput::Left);
+        assert_eq!(
+            panel.render_signature().scroll,
+            before_scroll,
+            "scroll should stay stable at min clamp"
+        );
     }
 
     #[test]

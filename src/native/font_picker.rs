@@ -324,6 +324,7 @@ const STYLE_TOKENS: &[&str] = &[
     "bold",
     "italic",
     "light",
+    "semi",
     "semibold",
     "regular",
     "medium",
@@ -332,7 +333,9 @@ const STYLE_TOKENS: &[&str] = &[
     "oblique",
     "condensed",
     "heavy",
+    "extra",
     "extralight",
+    "ultra",
     "ultralight",
     "extrabold",
     "ultrabold",
@@ -349,6 +352,36 @@ const STYLE_TOKENS: &[&str] = &[
     "narrow",
     "wide",
 ];
+
+fn is_style_suffix_part(part: &str) -> bool {
+    let lower = part.to_lowercase();
+    if STYLE_TOKENS.contains(&lower.as_str()) {
+        return true;
+    }
+
+    let pieces = split_camel_style_pieces(part);
+    pieces.len() > 1
+        && pieces.iter().all(|piece| {
+            let lower = piece.to_lowercase();
+            STYLE_TOKENS.contains(&lower.as_str())
+        })
+}
+
+fn split_camel_style_pieces(part: &str) -> Vec<String> {
+    let mut pieces = Vec::new();
+    let mut current = String::new();
+    for ch in part.chars() {
+        if ch.is_uppercase() && !current.is_empty() {
+            pieces.push(current);
+            current = String::new();
+        }
+        current.push(ch);
+    }
+    if !current.is_empty() {
+        pieces.push(current);
+    }
+    pieces
+}
 
 /// Collapse a font inventory into unique, sorted family names (monospace only).
 pub(super) fn collapse_inventory(inventory: Vec<FontInventoryEntry>) -> Vec<String> {
@@ -390,8 +423,7 @@ pub(crate) fn collapse_to_family(stem: &str) -> String {
     // Find how many trailing parts are pure style/weight tokens.
     let mut keep = parts.len();
     while keep > 1 {
-        let lower = parts[keep - 1].to_lowercase();
-        if STYLE_TOKENS.contains(&lower.as_str()) {
+        if is_style_suffix_part(parts[keep - 1]) {
             keep -= 1;
         } else {
             break;
@@ -711,6 +743,24 @@ mod tests {
     fn collapse_strips_multiple_trailing_tokens() {
         // Hypothetical compound: both Bold and Italic are trailing tokens.
         assert_eq!(collapse_to_family("Hack-Bold-Italic"), "Hack");
+    }
+
+    #[test]
+    fn collapse_strips_compound_camel_case_style_suffixes() {
+        assert_eq!(
+            collapse_to_family("Inconsolata-CondensedBlack"),
+            "Inconsolata"
+        );
+        assert_eq!(collapse_to_family("Inconsolata-Bold"), "Inconsolata");
+        assert_eq!(collapse_to_family("Inconsolata-Regular"), "Inconsolata");
+    }
+
+    #[test]
+    fn collapse_keeps_unrecognized_compound_family_words() {
+        assert_eq!(
+            collapse_to_family("SomeMono-CondensedBlackbird"),
+            "SomeMono CondensedBlackbird"
+        );
     }
 
     #[test]

@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- SETTINGS-NAV-MODEL: consistent Enter/Esc/arrow semantics in the settings overlay
+
+Live testing of the two-level overlay surfaced an inconsistent navigation model.
+The model is now explicit and uniform: Enter goes in (drills into a section, or
+opens the theme/font picker on those rows); Esc goes back one level; Up/Down move
+the row selection; Left/Right adjust the current row's value only.
+
+- **Left/Right no longer opens a picker.** The value-step handler had duplicated
+  the theme/font-picker open that belongs only to Enter, so a left arrow on those
+  rows surprisingly opened the picker. Left/Right on a picker-backed row is now a
+  no-op; only Enter opens it.
+- **Numeric steps clamp to range.** Stepping a number with Left/Right now clamps
+  to the setting's min/max instead of running past the end (which previously let
+  the selection escape the value and jump elsewhere).
+- **Value changes no longer reframe the viewport.** Adjusting a slider/number
+  preserves the scroll position; only an Up/Down selection move scroll-follows,
+  so the panel stays put while you tune a value.
+- **Pickers opened from settings return to the panel.** Opening the theme or font
+  picker from a settings row records the originating level; cancelling or applying
+  returns to the settings panel at that level instead of closing the whole
+  overlay. A standalone picker (opened directly) still closes on Esc as before.
+- **Better font-family collapse.** The picker now strips compound camel-case
+  weight/width suffixes, so `Inconsolata-CondensedBlack`, `-Bold`, and `-Regular`
+  all collapse to the family `Inconsolata`, while a non-style compound family word
+  is preserved (no over-stripping).
+- Help text for the picker rows updated to "Enter opens the picker; Esc goes
+  back." Regression tests cover the clamp stability, picker-return on both cancel
+  and save, and the compound-suffix collapse.
+
+State: `cargo test --lib` 1673 passed / 0 failed; all-targets green
+(pixel_smoke 49, gpu_composite 3, mouse_protocol 12); `cargo fmt --check` clean;
+clippy `--lib` 38 (baseline, zero net-new).
+
+---
+
 ## 2026-06-17 -- FONT-SAVE-CORRECTNESS: stop persisting the unset-font placeholder; saves now apply live
 
 A live test surfaced two font bugs that left a chosen font apparently doing

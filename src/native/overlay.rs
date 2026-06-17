@@ -14,7 +14,9 @@ use super::context_menu_ui::{
 use super::font_picker::{FontPicker, FontPickerLine, FontPickerOutcome, FontPickerSignature};
 use super::key_remap_ui::{KeyRemapLine, KeyRemapOutcome, KeyRemapSignature, KeyRemapUi};
 use super::onboarding::{OnboardingLine, OnboardingPanel, OnboardingSignature};
-use super::settings_panel::{SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature};
+use super::settings_panel::{
+    SettingsLevel, SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature,
+};
 use super::theme_builder::{
     ThemeBuilder, ThemeBuilderLine, ThemeBuilderOutcome, ThemeBuilderSaveRequest,
     ThemeBuilderSignature,
@@ -37,6 +39,7 @@ pub(super) struct OverlayUi {
     /// close prompt). On the next `save_succeeded` call for Settings mode, the
     /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
     close_after_save: bool,
+    picker_return: Option<PickerReturn>,
 }
 
 impl Default for OverlayUi {
@@ -59,6 +62,7 @@ impl OverlayUi {
             onboarding: OnboardingPanel::new(settings),
             context_menu: ContextMenuUi::new(),
             close_after_save: false,
+            picker_return: None,
         }
     }
 
@@ -98,6 +102,7 @@ impl OverlayUi {
         self.open = false;
         self.mode = OverlayMode::Settings;
         self.close_after_save = false;
+        self.picker_return = None;
     }
 
     pub(super) fn open_theme_picker(&mut self, settings: &Settings) {
@@ -467,11 +472,19 @@ impl OverlayUi {
             }
             OverlayMode::ThemePicker => {
                 self.theme_picker.save_succeeded(changed);
-                self.close();
+                if self.picker_return.is_some() {
+                    self.return_to_settings_panel();
+                } else {
+                    self.close();
+                }
             }
             OverlayMode::FontPicker => {
                 self.font_picker.save_succeeded(changed);
-                self.close();
+                if self.picker_return.is_some() {
+                    self.return_to_settings_panel();
+                } else {
+                    self.close();
+                }
             }
             OverlayMode::ThemeBuilder => {}
             // KB-REMAP stays open after a save so the user can keep editing; the
@@ -538,7 +551,11 @@ impl OverlayUi {
             ThemePickerOutcome::Cancel(theme) => {
                 let settings = self.settings_with_theme(theme);
                 self.settings = settings.clone();
-                self.close();
+                if self.picker_return.is_some() {
+                    self.return_to_settings_panel();
+                } else {
+                    self.close();
+                }
                 OverlayOutcome::ApplySettings(Box::new(settings))
             }
         }
@@ -556,8 +573,13 @@ impl OverlayUi {
             FontPickerOutcome::Cancel(_original) => {
                 // Font was never changed in-memory (no live preview), so just
                 // close the picker — no ApplySettings needed.
-                self.close();
-                OverlayOutcome::Close
+                if self.picker_return.is_some() {
+                    self.return_to_settings_panel();
+                    OverlayOutcome::Consumed
+                } else {
+                    self.close();
+                    OverlayOutcome::Close
+                }
             }
         }
     }
@@ -672,10 +694,20 @@ impl OverlayUi {
                 OverlayOutcome::ApplySettings(Box::new(settings))
             }
             SettingsPanelOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
-            SettingsPanelOutcome::OpenThemePicker => OverlayOutcome::OpenThemePicker,
+            SettingsPanelOutcome::OpenThemePicker => {
+                self.picker_return = Some(PickerReturn {
+                    level: self.panel.current_level(),
+                });
+                OverlayOutcome::OpenThemePicker
+            }
             SettingsPanelOutcome::OpenThemeBuilder => OverlayOutcome::OpenThemeBuilder,
             SettingsPanelOutcome::OpenKeyBindings => OverlayOutcome::OpenKeyBindings,
-            SettingsPanelOutcome::OpenFontPicker => OverlayOutcome::OpenFontPicker,
+            SettingsPanelOutcome::OpenFontPicker => {
+                self.picker_return = Some(PickerReturn {
+                    level: self.panel.current_level(),
+                });
+                OverlayOutcome::OpenFontPicker
+            }
             SettingsPanelOutcome::Close => OverlayOutcome::Close,
             SettingsPanelOutcome::DiscardAndClose => OverlayOutcome::Close,
             SettingsPanelOutcome::SaveAndClose(edits) => {
@@ -684,6 +716,14 @@ impl OverlayUi {
                 OverlayOutcome::SaveSettings(edits)
             }
         }
+    }
+
+    fn return_to_settings_panel(&mut self) {
+        if let Some(PickerReturn { level }) = self.picker_return.take() {
+            self.panel.set_level(level);
+        }
+        self.mode = OverlayMode::Settings;
+        self.open = true;
     }
 }
 
@@ -704,6 +744,11 @@ pub(super) enum OverlayMode {
     /// modal shown when a close is requested while a foreground job is running;
     /// Enter/Y confirms (emits [`OverlayOutcome::ForceClose`]), Esc/N cancels.
     ConfirmClose,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PickerReturn {
+    level: SettingsLevel,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1561,6 +1606,152 @@ mod tests {
 
         assert_eq!(settings.theme, crate::theme::Theme::ODYSSEY);
         assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn theme_picker_cancel_returns_to_settings_when_launched_from_settings_panel() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        let original_theme = overlay.settings.theme;
+        // Open Themes section and activate the theme row.
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::OpenThemePicker
+        );
+
+        let settings = overlay.settings.clone();
+        overlay.open_theme_picker(&settings);
+
+        let OverlayOutcome::ApplySettings(restored) = overlay.handle_input(OverlayInput::Close)
+        else {
+            panic!("expected settings restore when canceling the theme picker");
+        };
+        assert_eq!(restored.theme, original_theme);
+        assert!(overlay.is_open());
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::Settings,
+            "cancel should return to Settings from picker"
+        );
+    }
+
+    #[test]
+    fn theme_picker_save_returns_to_settings_when_launched_from_settings_panel() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::OpenThemePicker
+        );
+
+        let settings = overlay.settings.clone();
+        overlay.open_theme_picker(&settings);
+
+        assert!(matches!(
+            overlay.handle_input(OverlayInput::Down),
+            OverlayOutcome::ApplySettings(_)
+        ));
+        let OverlayOutcome::SaveSettings(changes) = overlay.handle_input(OverlayInput::Activate)
+        else {
+            panic!("expected theme picker save request");
+        };
+        assert_eq!(changes.len(), 1);
+
+        overlay.save_succeeded(changes.len());
+        assert!(overlay.is_open());
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::Settings,
+            "theme picker apply from settings should return to settings panel"
+        );
+    }
+
+    #[test]
+    fn font_picker_cancel_returns_to_settings_when_launched_from_settings_panel() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Down),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Down),
+            OverlayOutcome::Consumed
+        );
+        let original_font_family = overlay.settings.font_family.clone();
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::OpenFontPicker
+        );
+
+        let settings = overlay.settings.clone();
+        overlay.open_font_picker(&settings);
+        let outcome = overlay.handle_input(OverlayInput::Close);
+        assert_eq!(outcome, OverlayOutcome::Consumed);
+        assert!(overlay.is_open());
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::Settings,
+            "font picker cancel should return to Settings panel"
+        );
+        assert_eq!(overlay.settings.font_family, original_font_family);
+    }
+
+    #[test]
+    fn font_picker_save_returns_to_settings_when_launched_from_settings_panel() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Down),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Down),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::OpenFontPicker
+        );
+
+        let settings = overlay.settings.clone();
+        overlay.open_font_picker(&settings);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Down),
+            OverlayOutcome::Consumed
+        );
+        let outcome = overlay.handle_input(OverlayInput::Activate);
+        let OverlayOutcome::SaveSettings(changes) = outcome else {
+            panic!("expected font picker save request");
+        };
+        assert_eq!(changes.len(), 1);
+
+        overlay.save_succeeded(changes.len());
+        assert!(overlay.is_open());
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::Settings,
+            "font picker apply from settings should return to settings panel"
+        );
     }
 
     // --- UX4-P1: pointer entry (handle_pointer / overlay_rect) ---
