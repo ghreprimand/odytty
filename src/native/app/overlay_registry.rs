@@ -149,11 +149,11 @@ impl App {
 
     /// Settings/theme overlay paint (relocated `apply_overlay`).
     pub(in crate::native) fn paint_overlay_cells(
-        &self,
+        &mut self,
         snapshot: &mut Snapshot,
         _ctx: &OverlayCtx,
     ) {
-        apply_overlay(snapshot, &self.overlay);
+        apply_overlay(snapshot, &mut self.overlay);
     }
 
     /// Hovered-hyperlink underline (relocated `apply_hyperlink_hover`).

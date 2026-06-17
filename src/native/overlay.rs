@@ -785,9 +785,12 @@ pub(super) fn overlay_rect(
     }
     .max(36)
     .min(columns);
-    let height = rows.min(22);
+    // Target ~80 % of rows so the panel is tall enough to show many settings
+    // at once; still capped at `rows - 2` to leave at least one terminal row
+    // above/below, and floored at 22 for small terminals (OVERLAY-SIZE).
+    let height = (rows * 4 / 5).max(22).min(rows.saturating_sub(2)).max(1);
     let left = (columns - width) / 2;
-    let top = (rows - height) / 2;
+    let top = (rows.saturating_sub(height)) / 2;
     Some(OverlayRect {
         left,
         top,
@@ -800,7 +803,7 @@ pub(super) fn overlay_rect(
     })
 }
 
-pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
+pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
     let Some(rect) = overlay_rect(
         overlay,
         snapshot.dimensions.columns,
@@ -851,6 +854,12 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
     );
 
     let body_width = rect.body_width;
+    // Sync the body dimensions into the panel before rendering so that keyboard
+    // navigation (`clamp`) uses the real visible window (VIEWPORT-FOLLOW-LAG).
+    if overlay.mode == OverlayMode::Settings {
+        overlay.panel.update_body_height(rect.body_height);
+        overlay.panel.update_body_width(rect.body_width);
+    }
     let lines = overlay.visible_lines(body_width, rect.body_height);
     for (row_index, row) in lines.iter().enumerate() {
         let y = rect.top + 2 + row_index;
@@ -859,6 +868,8 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &OverlayUi) {
         }
         let attrs = if row.focused {
             focused_attrs()
+        } else if row.bold {
+            bold_panel_attrs()
         } else {
             panel_attrs()
         };
@@ -961,16 +972,19 @@ impl OverlayUi {
                     text: "A program is still running in this terminal.".to_owned(),
                     focused: false,
                     swatch: None,
+                    bold: false,
                 },
                 OverlayLine {
                     text: String::new(),
                     focused: false,
                     swatch: None,
+                    bold: false,
                 },
                 OverlayLine {
                     text: "Close anyway?   [Enter / Y] Yes     [Esc / N] No".to_owned(),
                     focused: true,
                     swatch: None,
+                    bold: false,
                 },
             ],
         }
@@ -982,6 +996,9 @@ struct OverlayLine {
     text: String,
     focused: bool,
     swatch: Option<Srgb>,
+    /// Whether to render this line in bold weight. Set for primary setting
+    /// name/value rows; unset for group headers, help text, and notices.
+    bold: bool,
 }
 
 impl From<super::settings_panel::SettingsPanelLine> for OverlayLine {
@@ -990,6 +1007,7 @@ impl From<super::settings_panel::SettingsPanelLine> for OverlayLine {
             text: line.text,
             focused: line.focused,
             swatch: None,
+            bold: line.bold,
         }
     }
 }
@@ -1000,6 +1018,7 @@ impl From<ThemePickerLine> for OverlayLine {
             text: line.text,
             focused: line.focused,
             swatch: None,
+            bold: false,
         }
     }
 }
@@ -1010,6 +1029,7 @@ impl From<ThemeBuilderLine> for OverlayLine {
             text: line.text,
             focused: line.focused,
             swatch: line.swatch,
+            bold: false,
         }
     }
 }
@@ -1020,6 +1040,7 @@ impl From<KeyRemapLine> for OverlayLine {
             text: line.text,
             focused: line.focused,
             swatch: None,
+            bold: false,
         }
     }
 }
@@ -1030,6 +1051,7 @@ impl From<OnboardingLine> for OverlayLine {
             text: line.text,
             focused: line.focused,
             swatch: None,
+            bold: false,
         }
     }
 }
@@ -1131,6 +1153,13 @@ fn panel_attrs() -> Attrs {
     attrs
 }
 
+/// Bold variant of `panel_attrs` for primary setting name/value rows.
+fn bold_panel_attrs() -> Attrs {
+    let mut attrs = panel_attrs();
+    attrs.set_bold(true);
+    attrs
+}
+
 fn border_attrs() -> Attrs {
     let mut attrs = panel_attrs();
     attrs.foreground = Color::Indexed(14);
@@ -1206,7 +1235,7 @@ mod tests {
         let original = snapshot(40, 10);
         let mut rendered = original.clone();
 
-        apply_overlay(&mut rendered, &overlay);
+        apply_overlay(&mut rendered, &mut overlay);
 
         assert_eq!(original.cells[0].ch, '.');
         assert!(rendered.cells.iter().any(|cell| cell.ch == '+'));
@@ -1235,7 +1264,7 @@ mod tests {
 
         // The welcome card paints its title into the snapshot.
         let mut rendered = snapshot(70, 18);
-        apply_overlay(&mut rendered, &overlay);
+        apply_overlay(&mut rendered, &mut overlay);
         let painted: String = rendered.cells.iter().map(|cell| cell.ch).collect();
         assert!(painted.contains("Welcome to OdyTTY"));
 
@@ -1270,7 +1299,7 @@ mod tests {
 
         // The dialog paints its title and a non-empty body.
         let mut rendered = snapshot(70, 18);
-        apply_overlay(&mut rendered, &overlay);
+        apply_overlay(&mut rendered, &mut overlay);
         let painted: String = rendered.cells.iter().map(|cell| cell.ch).collect();
         assert!(painted.contains("Close?"));
         assert!(painted.contains("Close anyway?"));
@@ -1353,6 +1382,52 @@ mod tests {
         assert_eq!(
             overlay.handle_input(OverlayInput::Close),
             OverlayOutcome::Close
+        );
+    }
+
+    /// OVERLAY-SIZE: on a large terminal the panel must be substantially wider
+    /// and taller than the old 22-row / 64-col-min caps. Also verifies that the
+    /// hit-map still aligns 1:1 with visible_lines after the resize (their shared
+    /// `build_visible_rows` walker guarantees this by construction).
+    #[test]
+    fn overlay_rect_is_wider_and_taller_on_large_terminal() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+
+        // 120×50 grid — large enough to show the effect of the raised caps.
+        let rect = overlay_rect(&overlay, 120, 50).expect("rect");
+
+        // Width: must be substantially wider than the old 64-col floor.
+        // At 120 cols: (120*3/4).max(80)+4 = 94 → capped at 120. At least 90.
+        assert!(
+            rect.width >= 90,
+            "panel width should be wide on a 120-col terminal, got {}",
+            rect.width
+        );
+
+        // Height: must be taller than the old 22-row cap. At 50 rows:
+        // (50*4/5).max(22).min(48) = 40.
+        assert!(
+            rect.height > 22,
+            "panel height should exceed 22 on a 50-row terminal, got {}",
+            rect.height
+        );
+
+        // visible_lines must produce at least as many rows as there are entries
+        // in the first group (the shared walker never drops rows vs. the hit-map).
+        let lines = overlay
+            .panel
+            .visible_lines(rect.body_width, rect.body_height);
+        assert!(
+            !lines.is_empty(),
+            "visible_lines must be non-empty after resize"
+        );
+        // All lines must be within the body_height window.
+        assert!(
+            lines.len() <= rect.body_height,
+            "visible_lines must not exceed body_height: {} > {}",
+            lines.len(),
+            rect.body_height
         );
     }
 

@@ -83,6 +83,7 @@ impl SettingsPanel {
                 SettingsPanelLine {
                     text: format!("  Search: {}|", self.query),
                     focused: true,
+                    bold: false,
                 },
                 RowHit {
                     entry_index: None,
@@ -102,6 +103,7 @@ impl SettingsPanel {
                     SettingsPanelLine {
                         text: format!("  {current_group}"),
                         focused: false,
+                        bold: false,
                     },
                     RowHit {
                         entry_index: None,
@@ -138,7 +140,11 @@ impl SettingsPanel {
                 (format!("{marker} {}: {value}", entry.name), RowZone::Value)
             };
             rows.push((
-                SettingsPanelLine { text, focused },
+                SettingsPanelLine {
+                    text,
+                    focused,
+                    bold: true,
+                },
                 RowHit {
                     entry_index: Some(index),
                     zone,
@@ -157,6 +163,7 @@ impl SettingsPanel {
                     SettingsPanelLine {
                         text: format!("    {wrapped}"),
                         focused: false,
+                        bold: false,
                     },
                     RowHit {
                         entry_index: Some(index),
@@ -173,6 +180,7 @@ impl SettingsPanel {
                         SettingsPanelLine {
                             text: format!("    ! {wrapped}"),
                             focused: false,
+                            bold: false,
                         },
                         RowHit {
                             entry_index: Some(index),
@@ -190,6 +198,7 @@ impl SettingsPanel {
                 SettingsPanelLine {
                     text: format!("  No settings match \"{}\".", self.query),
                     focused: false,
+                    bold: false,
                 },
                 RowHit {
                     entry_index: None,

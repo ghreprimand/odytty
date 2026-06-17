@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- OVERLAY-UX: bigger settings panel, bold setting lines, scroll-follow fix
+
+Three friction-session fixes to the settings overlay, all in the overlay/panel
+render lane. No behavior change to terminal core; the overlay is already
+explicit-open.
+
+- **Viewport-follow lag fixed.** The panel tracked the selected row but the
+  visible window could lag behind it, leaving the selection outside the band.
+  The panel now records `last_body_height`/`last_body_width`, and the clamp uses
+  a proportional slack (`body_height/3`, min 5) plus an exact-visibility walk:
+  it rebuilds the visible rows and advances scroll until the selected entry's
+  value/slider row is genuinely inside the window (handles group-header rows
+  pushing long-description entries out of view). New test
+  `arrowing_to_last_entry_keeps_it_visible`.
+- **Bigger panel.** Height moved from a fixed `min(22)` to ~80% of terminal rows
+  (clamped to `[22, rows-2]`); width floor raised to `max(80, columns*3/4)`. On a
+  120×50 terminal the panel goes from ~68×22 to ≥94×40; an 80×24 terminal stays
+  at its sensible minimum. New test
+  `overlay_rect_is_wider_and_taller_on_large_terminal`.
+- **Bold setting lines.** Primary setting name/value rows and slider rows now
+  render bold; group headers, help/detail lines, search header and notices stay
+  regular — so the scannable structure reads at a glance. New test
+  `setting_value_rows_are_bold_and_headers_are_not`.
+
+State: lib 1629 pass, pixel-smoke 49, fmt/clippy clean (baseline 38). Sets up the
+two-level settings redesign (next).
+
 ## 2026-06-17 -- WHEEL-SENS: wheel accumulator kills high-res scroll/zoom runaway
 
 Root-cause fix for the live-test friction where Ctrl+wheel zoom leapt wildly and

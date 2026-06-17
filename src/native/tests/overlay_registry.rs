@@ -144,7 +144,7 @@ fn render_sig(overlays: OverlayCompositeSignature) -> RenderSignature {
 /// to before the registry existed.
 #[test]
 fn frame_overlay_refactor_is_pixel_identical() {
-    let Some(app) = build_app(Settings::default()) else {
+    let Some(mut app) = build_app(Settings::default()) else {
         return; // no PTY in this environment
     };
     let original = content_snapshot();

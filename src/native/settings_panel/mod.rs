@@ -26,6 +26,11 @@ pub(super) struct SettingsPanel {
     /// default to off / empty, so the panel is off-path-identical until used.
     query: String,
     search_active: bool,
+    /// The body dimensions from the most recent render call. Updated via
+    /// `update_body_height` from the render path so `clamp` can keep the
+    /// selected row within the real visible window (VIEWPORT-FOLLOW-LAG fix).
+    last_body_height: usize,
+    last_body_width: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +56,9 @@ pub(super) struct SettingsPanelEntrySignature {
 pub(super) struct SettingsPanelLine {
     pub(super) text: String,
     pub(super) focused: bool,
+    /// Whether to render this line in bold. True for primary setting name/value
+    /// rows; false for group headers, detail/help text, and notice lines.
+    pub(super) bold: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -84,9 +92,44 @@ impl SettingsPanel {
             dragging: None,
             query: String::new(),
             search_active: false,
+            last_body_height: 18,
+            last_body_width: 76,
         };
         panel.clamp();
         panel
+    }
+
+    /// Called by the render path immediately before `visible_lines` so that
+    /// keyboard navigation (`clamp`) knows the real visible window dimensions.
+    pub(super) fn update_body_height(&mut self, body_height: usize) {
+        if body_height > 0 {
+            self.last_body_height = body_height;
+        }
+    }
+
+    /// Store the body_width from the most recent render; called alongside
+    /// `update_body_height` so `selected_in_window` can use the exact geometry.
+    pub(super) fn update_body_width(&mut self, body_width: usize) {
+        if body_width > 0 {
+            self.last_body_width = body_width;
+        }
+    }
+
+    /// Returns `true` when the selected entry's primary row (value or slider)
+    /// appears within the rendered window. Uses the stored `last_body_width`
+    /// and `last_body_height` to get the exact row list via `build_visible_rows`,
+    /// so group headers and long detail lines are accounted for precisely.
+    fn selected_in_window(&self, body_height: usize) -> bool {
+        if body_height == 0 || self.entries.is_empty() {
+            return true;
+        }
+        use crate::native::settings_panel::pointer::RowZone;
+        self.build_visible_rows(self.last_body_width, body_height)
+            .iter()
+            .any(|(_, hit)| {
+                hit.entry_index == Some(self.selected)
+                    && matches!(hit.zone, RowZone::Value | RowZone::Slider { .. })
+            })
     }
 
     pub(super) fn refresh(&mut self, settings: &Settings) {
@@ -344,7 +387,10 @@ impl SettingsPanel {
             .map(|entry| entry.name.chars().count() + entry.value.chars().count() + 8)
             .max()
             .unwrap_or(48)
-            .max(64);
+            // Floor: wider panel so name+value rows have comfortable breathing
+            // room (OVERLAY-SIZE). Use 3/4 of columns or 80, whichever is larger,
+            // still capped by `columns` below.
+            .max((columns * 3 / 4).max(80));
         content_width.saturating_add(4).min(columns)
     }
 
@@ -533,12 +579,39 @@ impl SettingsPanel {
             return;
         }
         self.selected = self.selected.min(self.entries.len() - 1);
+        // Scroll up: keep selected at or after the scroll origin.
         if self.selected < self.scroll {
             self.scroll = self.selected;
         }
-        let visible_slack = 5;
+        // Scroll down: keep the selected entry within the visible window.
+        // Use a slack based on `last_body_height` to keep more entries in
+        // view on taller panels, floored at 5 for the historical small-panel
+        // default (VIEWPORT-FOLLOW-LAG fix).
+        //
+        // Note: each entry uses ~3 body lines (value + detail), plus a group
+        // header when the group changes. `visible_slack` is expressed in entry
+        // count, not body rows, so it's an approximation. The divide-by-3 floor
+        // is intentionally conservative: if we undershoot, the selected entry
+        // might still be just off-screen; the test below catches the exact case.
+        let visible_slack = (self.last_body_height / 3).max(5);
         if self.selected >= self.scroll + visible_slack {
             self.scroll = self.selected.saturating_sub(visible_slack - 1);
+        }
+        // Fine-tune: if the selected entry is STILL outside the rendered band
+        // after the entry-count scroll (because group headers pushed it past
+        // body_height), walk scroll forward one entry at a time until it fits.
+        // This loop always converges because scroll only increases and is
+        // bounded by `entries.len() - 1`; in practice it fires at most a
+        // handful of times (one per extra group-header row) and only at group
+        // boundaries near the end of the list.
+        if self.last_body_height > 0 {
+            loop {
+                let visible = self.selected_in_window(self.last_body_height);
+                if visible || self.scroll >= self.selected {
+                    break;
+                }
+                self.scroll += 1;
+            }
         }
         self.scroll = self.scroll.min(self.entries.len() - 1);
     }
@@ -1134,6 +1207,65 @@ mod tests {
         assert!(!sig.search_active);
         assert!(sig.query.is_empty());
         assert_eq!(sig.entries.len(), total);
+    }
+
+    /// VIEWPORT-FOLLOW-LAG: arrowing to the last entry must keep it within the
+    /// rendered body window (the selected entry's value row must appear in the
+    /// rendered line list). This guards the clamp fix — the old `visible_slack=5`
+    /// (fixed) would leave the selected entry off-screen on a taller panel.
+    #[test]
+    fn arrowing_to_last_entry_keeps_it_visible() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let body_height = 24;
+        // Simulate a real render syncing the body height first.
+        panel.update_body_height(body_height);
+        // Arrow all the way to the end.
+        let _ = panel.handle_input(OverlayInput::End);
+        let sig = panel.render_signature();
+        let last = sig.entries.len() - 1;
+        assert_eq!(sig.selected, last, "End navigates to the last entry");
+
+        // The selected entry's value row must appear in the rendered body.
+        let body_width = 80;
+        let lines = panel.visible_lines(body_width, body_height);
+        let selected_key = panel.entries[panel.selected].key;
+        let hit_map = panel.visible_hit_map(body_width, body_height);
+        assert_eq!(lines.len(), hit_map.len());
+        let visible_value = hit_map.iter().enumerate().any(|(row_i, hit)| {
+            use crate::native::settings_panel::pointer::RowZone;
+            hit.entry_index == Some(last)
+                && matches!(hit.zone, RowZone::Value | RowZone::Slider { .. })
+                && lines[row_i].focused
+        });
+        assert!(
+            visible_value,
+            "selected entry '{selected_key}' value/slider row must be in the rendered window \
+             (scroll={}, body_height={body_height})",
+            sig.scroll,
+        );
+    }
+
+    /// BOLD-SETTING-LINES: primary setting value/slider rows carry bold=true;
+    /// group headers, detail, and notice rows carry bold=false.
+    #[test]
+    fn setting_value_rows_are_bold_and_headers_are_not() {
+        let panel = SettingsPanel::new(&Settings::default());
+        let lines = panel.visible_lines(80, 40);
+        // The first line in the body is always a group header — not bold.
+        assert!(
+            !lines[0].bold,
+            "first line (group header) must not be bold: {:?}",
+            lines[0].text
+        );
+        // There must be at least one bold row (a value or slider row).
+        let has_bold = lines.iter().any(|line| line.bold);
+        assert!(has_bold, "no bold rows found in settings panel lines");
+        // A detail/help line (indented with spaces) must not be bold.
+        let detail_line = lines
+            .iter()
+            .find(|line| line.text.starts_with("    "))
+            .expect("at least one detail line present");
+        assert!(!detail_line.bold, "detail lines must not be bold");
     }
 
     fn select_key(panel: &mut SettingsPanel, key: &str) {
