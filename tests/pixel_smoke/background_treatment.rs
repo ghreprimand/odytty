@@ -131,3 +131,59 @@ fn vignette_darkens_toward_corners() {
         "corner (farthest) darker than edge midpoint ({corner} < {edge_mid})"
     );
 }
+
+/// KILL-SHOT (T2 / off-path identity): with `cell_bg_opacity = 1.0` the cells
+/// are fully opaque, so even with a background image present behind them the
+/// composited cell backgrounds are byte-identical to the plain render — the
+/// image is fully hidden behind opaque cells. This is the `bg[3] * 1.0 == bg[3]`
+/// guarantee at the pixel level.
+#[test]
+fn image_opaque_cells_hide_image_pixel_identical() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let snapshot = filled_bg_snapshot(12, 8);
+    let plain = composite(&snapshot, &atlas, CursorStyle::Block);
+    // A vivid image color behind fully-opaque cells must not show through.
+    let imaged =
+        composite_background_image(&snapshot, &atlas, CursorStyle::Block, 1.0, [1.0, 0.0, 0.0]);
+    assert!(
+        frames_match(&plain, &imaged),
+        "opaque cells (opacity 1.0) must hide the image — pixel-identical to plain"
+    );
+}
+
+/// With `cell_bg_opacity < 1.0` the background image shows through behind the
+/// cell backgrounds: a bright image lifts a cell's composited luminance above
+/// the opaque-cell baseline, and lower opacity reveals MORE of the image
+/// (monotonic). Proves the `bg[3] *= cell_bg_opacity` alpha path composites.
+#[test]
+fn image_translucent_cells_reveal_image() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let snapshot = filled_bg_snapshot(12, 8);
+    // The grid cells are a gray (200) background; the image is pure white, so
+    // letting it show through must raise the cell's composited luminance.
+    let opaque =
+        composite_background_image(&snapshot, &atlas, CursorStyle::Block, 1.0, [1.0, 1.0, 1.0]);
+    let half =
+        composite_background_image(&snapshot, &atlas, CursorStyle::Block, 0.5, [1.0, 1.0, 1.0]);
+    let quarter =
+        composite_background_image(&snapshot, &atlas, CursorStyle::Block, 0.25, [1.0, 1.0, 1.0]);
+
+    let l_opaque = cell_bg_luminance(&opaque, 0, 0);
+    let l_half = cell_bg_luminance(&half, 0, 0);
+    let l_quarter = cell_bg_luminance(&quarter, 0, 0);
+
+    assert!(
+        l_half > l_opaque + 1e-3,
+        "translucent cells reveal the bright image ({l_half} > {l_opaque})"
+    );
+    assert!(
+        l_quarter > l_half + 1e-3,
+        "lower opacity reveals more of the bright image ({l_quarter} > {l_half})"
+    );
+}

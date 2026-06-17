@@ -577,6 +577,87 @@ pub(super) fn parse_window_padding(raw: Option<&OsStr>, warn: &mut impl FnMut(&s
     parsed.clamp(MIN_WINDOW_PADDING_PX, MAX_WINDOW_PADDING_PX)
 }
 
+/// Parse the cell background-opacity multiplier (`ODYTTY_CELL_BG_OPACITY`).
+/// `1.0` (default) is the identity / off path. Out-of-range or invalid values
+/// warn and fall back to the opaque default; valid values clamp to `[0,1]`.
+pub(super) fn parse_cell_bg_opacity(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_CELL_BG_OPACITY;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_CELL_BG_OPACITY;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{CELL_BG_OPACITY_ENV}={trimmed:?} is not a valid opacity; using {DEFAULT_CELL_BG_OPACITY}"
+            ));
+            return DEFAULT_CELL_BG_OPACITY;
+        }
+    };
+
+    parsed.clamp(MIN_CELL_BG_OPACITY, MAX_CELL_BG_OPACITY)
+}
+
+/// Parse the background-image blur radius (`ODYTTY_BACKGROUND_BLUR_RADIUS`).
+/// `0` (default) means no blur. Invalid values warn and fall back to `0`; valid
+/// values clamp to `MAX_BACKGROUND_BLUR_RADIUS`.
+pub(super) fn parse_background_blur_radius(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> u32 {
+    let Some(raw) = raw else {
+        return DEFAULT_BACKGROUND_BLUR_RADIUS;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_BACKGROUND_BLUR_RADIUS;
+    }
+
+    match trimmed.parse::<u32>() {
+        Ok(value) => value.min(MAX_BACKGROUND_BLUR_RADIUS),
+        Err(_) => {
+            warn(&format!(
+                "{BACKGROUND_BLUR_RADIUS_ENV}={trimmed:?} is not a valid blur radius; using {DEFAULT_BACKGROUND_BLUR_RADIUS}"
+            ));
+            DEFAULT_BACKGROUND_BLUR_RADIUS
+        }
+    }
+}
+
+/// Parse the explicit background-image scrim override
+/// (`ODYTTY_BACKGROUND_IMAGE_SCRIM`). Absent / empty ⇒ `None` (auto-compute the
+/// floor-safe scrim). A valid value clamps to `[0,1]`; an invalid value warns
+/// and falls back to `None`.
+pub(super) fn parse_background_image_scrim(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> Option<f32> {
+    let raw = raw?;
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => {
+            Some(value.clamp(MIN_BACKGROUND_IMAGE_SCRIM, MAX_BACKGROUND_IMAGE_SCRIM))
+        }
+        _ => {
+            warn(&format!(
+                "{BACKGROUND_IMAGE_SCRIM_ENV}={trimmed:?} is not a valid scrim amount; using the auto-computed scrim"
+            ));
+            None
+        }
+    }
+}
+
 pub(super) fn parse_bloom_threshold(
     raw: Option<&OsStr>,
     default: f32,

@@ -107,6 +107,10 @@ fn setting_info_covers_every_field_with_descriptions() {
             "crt_scanline_period",
             "crt_vignette_strength",
             "background_treatment",
+            "background_image",
+            "cell_bg_opacity",
+            "background_blur_radius",
+            "background_image_scrim",
             "new_output_fade",
             "cursor_style",
             "cursor_blink",
@@ -181,10 +185,8 @@ fn setting_info_covers_every_field_with_descriptions() {
     assert!(info.iter().any(
         |row| row.key == "crt_vignette_strength" && row.range.as_deref() == Some("0.0..=0.16")
     ));
-    assert!(
-        info.iter().any(|row| row.key == "background_treatment"
-            && row.options == ["off", "gradient", "vignette"])
-    );
+    assert!(info.iter().any(|row| row.key == "background_treatment"
+        && row.options == ["off", "gradient", "vignette", "image"]));
 }
 
 #[test]

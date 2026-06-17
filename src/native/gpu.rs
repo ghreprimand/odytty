@@ -11,7 +11,7 @@ use crate::core::{CursorStyle, Snapshot};
 use crate::emoji::{ColorGlyphAtlas, EmojiRasterizer};
 use crate::graphics::{StoredImageId, VisiblePlacement};
 use crate::grid::{self, ColorGlyphRun, ColorGlyphVertex, CursorRenderParams, SolidQuad, Vertex};
-use crate::text::{self, FontStyle, GlyphAtlas, SubpixelMode};
+use crate::text::{self, GlyphAtlas, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};
 
 use winit::window::Window;
@@ -20,8 +20,16 @@ use super::image_layer::{ImageLayer, ImageUpload};
 use super::options::{NativeError, NativeOptions};
 use super::viewport::WindowPadding;
 
+pub(super) mod fonts;
+pub(super) mod image;
 pub(super) mod post;
 
+pub(super) use fonts::StyleFonts;
+use fonts::{
+    effective_symbol_fallback_enabled, effective_symbol_font_path, resolve_symbol_fallback,
+    resolve_symbol_map_fonts,
+};
+use image::BgImageGpu;
 pub(super) use post::{BloomOptions, CrtOptions};
 use post::{PostProcessOptions, PostProcessResources};
 
@@ -281,206 +289,6 @@ pub(super) fn create_color_atlas_bind_group(
     })
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct StyleFonts {
-    regular: Arc<FontVec>,
-    bold: Arc<FontVec>,
-    italic: Arc<FontVec>,
-    bold_italic: Arc<FontVec>,
-}
-
-impl StyleFonts {
-    pub(super) fn regular(font: FontVec) -> Self {
-        let font = Arc::new(font);
-        Self {
-            regular: font.clone(),
-            bold: font.clone(),
-            italic: font.clone(),
-            bold_italic: font,
-        }
-    }
-
-    fn load(options: &NativeOptions) -> Result<Self, NativeError> {
-        Self::load_from(
-            options.font_path.as_deref(),
-            &options.font_family,
-            &options.font_weight,
-        )
-    }
-
-    /// Resolve the four style faces for the configured family.
-    ///
-    /// RV7: `font_weight` is an optional weight-variant suffix. When empty (the
-    /// default) the regular face is loaded via [`text::load_font_with_path`]
-    /// exactly as before — byte-identical off path. When set, the effective
-    /// query is `"{font_family} {font_weight}"` resolved through the same
-    /// monospace-gated [`text::resolve_font_family`]; a missing weight face warns
-    /// and falls back to the plain regular face (real faces only — never
-    /// synthetic emboldening/thinning). Bold/italic discovery ALWAYS uses the
-    /// plain `font_family` (not the weight query), so the SGR bold attribute
-    /// stays visually distinct from the chosen base weight.
-    fn load_from(
-        font_path: Option<&Path>,
-        font_family: &str,
-        font_weight: &str,
-    ) -> Result<Self, NativeError> {
-        let regular = if font_weight.trim().is_empty() {
-            text::load_font_with_path(font_path)
-                .map_err(|err| NativeError::Text(err.to_string()))?
-        } else {
-            let weight_query = format!("{} {}", font_family.trim(), font_weight.trim());
-            match text::resolve_font_family(&weight_query, &text::font_search_dirs()) {
-                Some(matched) => match text::load_font_at(&matched.regular) {
-                    Ok(font) => font,
-                    Err(err) => {
-                        eprintln!(
-                            "odytty: font_weight: {err}; falling back to the regular face for {weight_query:?}"
-                        );
-                        text::load_font_with_path(font_path)
-                            .map_err(|err| NativeError::Text(err.to_string()))?
-                    }
-                },
-                None => {
-                    eprintln!(
-                        "odytty: font_weight: family {weight_query:?} not found (or not monospace); using the regular face"
-                    );
-                    text::load_font_with_path(font_path)
-                        .map_err(|err| NativeError::Text(err.to_string()))?
-                }
-            }
-        };
-        let mut fonts = Self::regular(regular);
-
-        // BOLD INVARIANT: bold/italic discovery always uses the PLAIN family so
-        // SGR bold contrasts with the chosen base weight (never "Light Bold").
-        if let Some(matched) = text::resolve_font_family(font_family, &text::font_search_dirs()) {
-            if let Some(font) = matched.bold.as_deref().and_then(load_optional_style_font) {
-                fonts.bold = Arc::new(font);
-            }
-            if let Some(font) = matched.italic.as_deref().and_then(load_optional_style_font) {
-                fonts.italic = Arc::new(font);
-            }
-            if let Some(font) = matched
-                .bold_italic
-                .as_deref()
-                .and_then(load_optional_style_font)
-            {
-                fonts.bold_italic = Arc::new(font);
-            }
-        }
-
-        Ok(fonts)
-    }
-
-    pub(super) fn font_for(&self, style: FontStyle) -> &FontVec {
-        match style {
-            FontStyle::Regular => &self.regular,
-            FontStyle::Bold => &self.bold,
-            FontStyle::Italic => &self.italic,
-            FontStyle::BoldItalic => &self.bold_italic,
-        }
-    }
-
-    /// Which styles have **no real face** loaded and must be synthesized from the
-    /// Regular outline. Returns `(bold, italic, bold_italic)`, each `true` when
-    /// that style slot is still the very same `Arc` as Regular — which is exactly
-    /// the state [`StyleFonts::regular`] leaves a slot in until `load_from`
-    /// replaces it with a real face from disk. Drives
-    /// [`GlyphAtlas::set_synthetic_styles`].
-    pub(super) fn synthetic_mask(&self) -> (bool, bool, bool) {
-        (
-            Arc::ptr_eq(&self.regular, &self.bold),
-            Arc::ptr_eq(&self.regular, &self.italic),
-            Arc::ptr_eq(&self.regular, &self.bold_italic),
-        )
-    }
-
-    fn regular_font(&self) -> &FontVec {
-        &self.regular
-    }
-}
-
-fn load_optional_style_font(path: &std::path::Path) -> Option<FontVec> {
-    text::load_font_at(path).ok()
-}
-
-/// Effective RV6 symbol / Nerd-font fallback switch. The legacy env var remains
-/// an override for native smoke setups; otherwise the first-class setting drives
-/// the renderer.
-fn effective_symbol_fallback_enabled() -> bool {
-    env_flag_override(crate::settings::SYMBOL_FALLBACK_ENV)
-        .unwrap_or_else(crate::settings::symbol_fallback_enabled)
-}
-
-/// Effective explicit symbol font path. The legacy env path wins when present;
-/// otherwise the first-class setting may name a font file. `None` means
-/// auto-discover a suitable symbol face.
-fn effective_symbol_font_path() -> Option<PathBuf> {
-    std::env::var_os(crate::settings::SYMBOL_FONT_ENV)
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .or_else(crate::settings::symbol_font_path)
-}
-
-/// Resolve the symbol / Nerd-font fallback face when enabled and a font is
-/// available, else `None`. A missing font with the switch on is not fatal — the
-/// renderer keeps the hollow-box behavior.
-fn resolve_symbol_fallback(enabled: bool, explicit_path: Option<&Path>) -> Option<Arc<FontVec>> {
-    if !enabled {
-        return None;
-    }
-    if let Some(path) = explicit_path {
-        match text::load_font_at(path) {
-            Ok(font) => return Some(Arc::new(font)),
-            Err(err) => {
-                eprintln!("odytty: {err}; falling back to symbol font search");
-            }
-        }
-    }
-    text::resolve_symbol_font_in(&text::font_search_dirs()).map(Arc::new)
-}
-
-/// Resolve a SYMMAP override map's font-family names to loaded faces (SYMMAP).
-///
-/// Each rule's family name is resolved against the host font search dirs; on
-/// success the regular face is loaded and paired with the rule's inclusive
-/// codepoint range. A family that does not resolve (missing, or not a monospace
-/// face) is **skipped with a warning** — the range falls through to normal font
-/// resolution rather than crashing, mirroring the resilient `symbol_fallback`
-/// path. An empty map resolves to an empty `Vec` (the identity / off path).
-fn resolve_symbol_map_fonts(map: &crate::text::SymbolMap) -> Vec<(u32, u32, Arc<FontVec>)> {
-    if map.is_empty() {
-        return Vec::new();
-    }
-    let dirs = text::font_search_dirs();
-    let mut result = Vec::with_capacity(map.len());
-    for rule in map.rules() {
-        let (start, end) = rule.bounds();
-        match text::resolve_font_family(rule.font(), &dirs) {
-            Some(matched) => match text::load_font_at(&matched.regular) {
-                Ok(font) => result.push((start, end, Arc::new(font))),
-                Err(err) => eprintln!(
-                    "odytty: symbol_map: {err}; skipping override for U+{start:04X}-U+{end:04X}"
-                ),
-            },
-            None => eprintln!(
-                "odytty: symbol_map: font family {:?} not found (or not monospace); skipping override for U+{start:04X}-U+{end:04X}",
-                rule.font()
-            ),
-        }
-    }
-    result
-}
-
-fn env_flag_override(name: &str) -> Option<bool> {
-    std::env::var(name).ok().map(|v| {
-        matches!(
-            v.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "on" | "yes"
-        )
-    })
-}
-
 /// Apply the synthetic-styles kill switch to a font set's natural synthesis
 /// mask. When synthesis is `enabled`, returns [`StyleFonts::synthetic_mask`]
 /// unchanged (each style true only when it has no real face). When disabled,
@@ -728,6 +536,14 @@ pub(super) struct GpuState {
     background_vertex_count: u32,
     color_glyph_vertex_count: u32,
     image_layer: ImageLayer,
+    /// ID3/U5 background-image pass: a full-window textured quad drawn behind
+    /// the grid with a readability scrim. `None` (the default and the off path)
+    /// skips the draw entirely, so the rendered frame is byte-identical to the
+    /// no-image path. Built/refreshed via [`Self::set_background_image`].
+    bg_image: Option<BgImageGpu>,
+    /// ID3/U5 cell background opacity multiplier fed to the cell-vertex builder.
+    /// `1.0` (the default) keeps cells fully opaque — byte-identical output.
+    cell_bg_opacity: f32,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
     pub(super) atlas: GlyphAtlas,
@@ -1084,6 +900,9 @@ impl GpuState {
             0.0,
             origin,
             grid::BackgroundTreatmentParams::default(),
+            // Initial buffer is the blank snapshot; cells stay fully opaque until
+            // a live `set_cell_bg_opacity` arrives (identity / byte-identical).
+            crate::settings::DEFAULT_CELL_BG_OPACITY,
         );
         let cell_vertex_count = vertices.len() as u32;
         grid::append_cursor_vertices_with_origin(
@@ -1155,6 +974,10 @@ impl GpuState {
             background_vertex_count,
             color_glyph_vertex_count,
             image_layer,
+            // ID3/U5: no image until the App pushes settings via
+            // `set_background_image`; cells start fully opaque (identity).
+            bg_image: None,
+            cell_bg_opacity: crate::settings::DEFAULT_CELL_BG_OPACITY,
             atlas,
             color_glyph_atlas,
             emoji_rasterizer,
@@ -1458,6 +1281,56 @@ impl GpuState {
 
     pub(super) fn set_theme(&mut self, theme: Theme) {
         self.clear_color = theme_clear_color(&theme);
+        // T10: a theme change moves `l_bg` and may flip the scrim polarity, so
+        // recompute the background-image scrim against the new theme (reusing
+        // the stored explicit override). No re-decode — a cheap uniform write.
+        if let Some(bg) = self.bg_image.as_mut() {
+            bg.refresh_for_theme(&self.queue, &theme, self.cell_bg_opacity);
+        }
+    }
+
+    /// ID3/U5: apply the background-image settings. The `treatment_is_image`
+    /// gate AND a configured `path` are both required for an image to exist;
+    /// otherwise the pass is cleared (off-path identity). A path/blur change
+    /// re-decodes; a theme/opacity/scrim-only change just refreshes the scrim
+    /// uniform (T6). `cell_bg_opacity` is stored for the cell-vertex builder.
+    pub(super) fn set_background_image(
+        &mut self,
+        treatment_is_image: bool,
+        path: Option<&Path>,
+        blur_radius: u32,
+        scrim_override: Option<f32>,
+        cell_bg_opacity: f32,
+        theme: Theme,
+    ) {
+        self.cell_bg_opacity = cell_bg_opacity;
+        let wanted = if treatment_is_image { path } else { None };
+        let Some(path) = wanted else {
+            self.bg_image = None;
+            return;
+        };
+        let clamped_blur = blur_radius.min(crate::settings::MAX_BACKGROUND_BLUR_RADIUS);
+        let needs_reload = match self.bg_image.as_ref() {
+            Some(bg) => {
+                let (cur_path, cur_blur) = bg.source();
+                cur_path != path || cur_blur != clamped_blur
+            }
+            None => true,
+        };
+        if needs_reload {
+            self.bg_image = BgImageGpu::load(
+                &self.device,
+                &self.queue,
+                self.scene_target_format,
+                path,
+                blur_radius,
+                scrim_override,
+                &theme,
+                cell_bg_opacity,
+            );
+        } else if let Some(bg) = self.bg_image.as_mut() {
+            bg.refresh_scrim(&self.queue, &theme, cell_bg_opacity, scrim_override);
+        }
     }
 
     /// Retired (UX5): the legacy ambient scanline path is folded into the
@@ -1598,6 +1471,7 @@ impl GpuState {
             focus_dim,
             origin,
             treatment,
+            self.cell_bg_opacity,
         );
         self.cell_vertex_count = self.vertices.len() as u32;
         // D-GLOW-3 draw order: cursor-layer overlays (glow/trail) are appended
@@ -1771,6 +1645,14 @@ impl GpuState {
     fn draw_scene<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
         if self.vertex_count == 0 {
             return;
+        }
+
+        // ID3/U5: the background image is drawn FIRST (over the clear colour,
+        // behind every cell quad), with its readability scrim baked in. The
+        // translucent cell layer (at `cell_bg_opacity`) composites on top, so
+        // the image shows through behind text. `None` (off path) is skipped.
+        if let Some(bg) = self.bg_image.as_ref() {
+            bg.draw(pass);
         }
 
         let background_count = self.background_vertex_count.min(self.vertex_count);

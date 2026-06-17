@@ -165,6 +165,8 @@ pub(crate) fn composite_with_padding(
         0.0,
         origin,
         grid::BackgroundTreatmentParams::default(),
+        // Identity opacity: padding smoke keeps cells fully opaque.
+        1.0,
     );
     grid::append_cursor_vertices_with_origin(
         &mut verts,
@@ -208,6 +210,57 @@ pub(crate) fn composite_background_treatment(
 
     let mut verts = Vec::new();
     grid::build_cell_vertices_with_focus_dim_into(&mut verts, snapshot, atlas, &[], 0.0, treatment);
+    grid::append_cursor_vertices(&mut verts, snapshot, atlas, cursor_style);
+
+    for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
+        composite_quad(&mut frame, atlas, quad);
+    }
+    frame
+}
+
+/// ID3/U5 image-background compositor. Models the native draw order: the
+/// scrimmed background image is drawn first (here, a uniform fill of
+/// `image_rgb`, standing in for the post-scrim image pass), then the cell
+/// background quads composite on top with their alpha scaled by
+/// `cell_bg_opacity` — exactly the `bg[3] *= cell_bg_opacity` path in the grid
+/// cell-vertex builder. At `cell_bg_opacity = 1.0` the cells are fully opaque
+/// and the image is hidden behind them (the off-path identity); below 1.0 the
+/// image shows through behind text.
+pub(crate) fn composite_background_image(
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cursor_style: CursorStyle,
+    cell_bg_opacity: f32,
+    image_rgb: [f32; 3],
+) -> Frame {
+    let cols = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    let cell_w = atlas.cell.width as usize;
+    let cell_h = atlas.cell.height as usize;
+    let width = cols * cell_w;
+    let height = rows * cell_h;
+
+    // The frame starts as the (scrimmed) background image — the image pass draws
+    // first, behind every cell quad.
+    let mut frame = Frame {
+        width,
+        height,
+        px: vec![image_rgb; width * height],
+        cell_w,
+        cell_h,
+    };
+
+    let mut verts = Vec::new();
+    grid::build_cell_vertices_with_focus_dim_and_origin_into(
+        &mut verts,
+        snapshot,
+        atlas,
+        &[],
+        0.0,
+        [0.0, 0.0],
+        grid::BackgroundTreatmentParams::default(),
+        cell_bg_opacity,
+    );
     grid::append_cursor_vertices(&mut verts, snapshot, atlas, cursor_style);
 
     for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {

@@ -33,10 +33,32 @@ pub const RENDER_QUALITY_DESC: &str = "Renderer profile: balanced is the default
 pub const BACKGROUND_TREATMENT_DESC: &str = "Background treatment: subtly darkens the cell background by position so the \
      window has depth. off (default) draws the background unchanged and is \
      pixel-identical to before. gradient darkens toward the bottom; vignette \
-     darkens toward the edges and corners. The minimum-contrast floor is applied \
-     to the treated background, so text stays legible by construction. Small \
-     extra per-frame cost only while a rebuild runs; off when the renderer \
+     darkens toward the edges and corners. image draws a PNG behind the grid \
+     (see background_image + cell_bg_opacity). The minimum-contrast floor is \
+     applied to the treated background, so text stays legible by construction. \
+     Small extra per-frame cost only while a rebuild runs; off when the renderer \
      profile is plain.";
+
+pub const BACKGROUND_IMAGE_DESC: &str = "Background image: path to a PNG drawn behind the terminal grid when the \
+     background treatment is set to image. Empty (default) means no image. Pair \
+     with cell_bg_opacity below 1.0 to let it show through behind text; a \
+     readability scrim is computed automatically so text stays legible at any \
+     opacity. A missing or non-PNG file is ignored with a warning.";
+
+pub const BACKGROUND_BLUR_RADIUS_DESC: &str = "Background blur: pixel radius of a one-time blur applied to the background \
+     image at load. 0 (default) keeps the image sharp. Larger values soften it \
+     so text stays readable over busy images. Computed once on the CPU; no \
+     per-frame cost.";
+
+pub const BACKGROUND_IMAGE_SCRIM_DESC: &str = "Background scrim override: explicit 0.0-1.0 strength of the readability \
+     overlay blended over the background image. Empty (default) auto-computes \
+     the minimum scrim that keeps text legible. Set a value only to dial the \
+     darkening/lightening up or down by hand.";
+
+pub const CELL_BG_OPACITY_DESC: &str = "Cell background opacity: how opaque each cell's background is over the \
+     background image. 1.0 (default) is fully opaque — cells hide the image and \
+     output is pixel-identical to before. Below 1.0 the image shows through \
+     behind text; the readability scrim keeps contrast safe at any value.";
 
 pub const WINDOW_PADDING_DESC: &str = "Window padding: logical pixels of inset between the window edge and the \
      terminal grid. Accepts 0.0-64.0; 0.0 restores the historical edge-to-edge \

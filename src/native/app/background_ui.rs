@@ -46,6 +46,12 @@ fn treatment_params_for(settings: &Settings) -> BackgroundTreatmentParams {
         SettingTreatment::Off => return BackgroundTreatmentParams::default(),
         SettingTreatment::Gradient => grid::BackgroundTreatment::Gradient,
         SettingTreatment::Vignette => grid::BackgroundTreatment::Vignette,
+        // T1: the image treatment lives on its own GPU pass and does NOT modulate
+        // per-cell background colours. It MUST return the identity params so the
+        // grid cell-vertex apply block is skipped — falling through to the
+        // gradient/vignette path would double-treat the background. Readability
+        // is handled by the readability scrim + `cell_bg_opacity`, not here.
+        SettingTreatment::Image => return BackgroundTreatmentParams::default(),
     };
     BackgroundTreatmentParams {
         kind,
@@ -53,11 +59,45 @@ fn treatment_params_for(settings: &Settings) -> BackgroundTreatmentParams {
     }
 }
 
+/// Stable cache key for the active background image. `None` when the image
+/// treatment is not selected or no image path is configured (then the image
+/// pass is off and the off-path identity holds). Otherwise folds the path,
+/// blur radius, cell opacity, and explicit scrim override into a `u64` so any
+/// change repaints while an at-rest frame never thrashes the cache.
+fn image_signature_for(settings: &Settings) -> Option<u64> {
+    if settings.effective_background_treatment() != SettingTreatment::Image {
+        return None;
+    }
+    let path = settings.background_image.as_ref()?;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    settings.background_blur_radius.hash(&mut hasher);
+    // Quantize the floats so noise never thrashes the cache, then fold them in.
+    let opacity_q = (settings.cell_bg_opacity.clamp(0.0, 1.0) * 1000.0).round() as u32;
+    opacity_q.hash(&mut hasher);
+    let scrim_q = settings
+        .background_image_scrim
+        .map(|s| (s.clamp(0.0, 1.0) * 1000.0).round() as i32)
+        .unwrap_or(-1);
+    scrim_q.hash(&mut hasher);
+    Some(hasher.finish())
+}
+
 /// Pure mapping from settings to the ID3/U5 cache fragment. `Inert` when off,
 /// otherwise keyed on a quantized strength and the treatment discriminant.
 fn overlay_signature_for(settings: &Settings) -> OverlayFragment {
     let params = treatment_params_for(settings);
     if !params.active() {
+        // The image treatment returns identity params (T1) yet still paints —
+        // key its cache fragment on the image signature so a path/blur/opacity/
+        // scrim change repaints. `treat = 3` is the Image discriminant; when no
+        // image is configured this is `None` and the fragment stays `Inert`,
+        // preserving the off-path identity exactly.
+        if let Some(sig) = image_signature_for(settings) {
+            let scrim_q = (sig & 0xFFFF) as u16;
+            return OverlayFragment::Background { scrim_q, treat: 3 };
+        }
         return OverlayFragment::Inert;
     }
     let treat = match params.kind {

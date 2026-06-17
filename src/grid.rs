@@ -517,9 +517,17 @@ pub fn build_cell_vertices_with_focus_dim_into(
         focus_dim,
         [0.0, 0.0],
         treatment,
+        // Identity opacity: this focus-dim/color-glyph entry never carries the
+        // image treatment, so it keeps cells fully opaque (byte-identical).
+        crate::settings::DEFAULT_CELL_BG_OPACITY,
     );
 }
 
+// ID3/U5 adds `cell_bg_opacity` as the 8th argument; the existing inputs
+// (geometry, focus dim, treatment) are already discrete render parameters and
+// bundling them into a struct would obscure the two live call sites more than
+// it helps. Matches `push_cursor`'s identical pragma.
+#[allow(clippy::too_many_arguments)]
 pub fn build_cell_vertices_with_focus_dim_and_origin_into(
     out: &mut Vec<Vertex>,
     snapshot: &Snapshot,
@@ -528,6 +536,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
     focus_dim: f32,
     origin: [f32; 2],
     treatment: BackgroundTreatmentParams,
+    cell_bg_opacity: f32,
 ) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
@@ -600,6 +609,14 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
                 continue;
             }
             let (_, bg) = resolve(cell, row, col);
+            // ID3/U5 image background: scale ONLY the background-quad alpha by
+            // `cell_bg_opacity` so a background image shows through behind text.
+            // `1.0` (the default) yields `bg[3] * 1.0 == bg[3]` — byte-identical.
+            // The floor reference inside `resolve` keeps the OPAQUE bg (alpha
+            // untouched there), so `enforce_contrast_rgba` still floors against
+            // the theme background `l_bg`; the readability scrim guarantees the
+            // composited luminance stays on the safe side of `l_bg`.
+            let bg = [bg[0], bg[1], bg[2], bg[3] * cell_bg_opacity];
             let span = span_of(row, col);
             let x0 = origin[0] + col as f32 * cell_w;
             let y0 = origin[1] + row as f32 * cell_h;

@@ -359,6 +359,12 @@ pub enum BackgroundTreatment {
     Gradient,
     /// Radial vignette: darkens toward the edges and corners.
     Vignette,
+    /// PNG background image drawn behind the grid, with a readability scrim and
+    /// `cell_bg_opacity` controlling how much shows through behind text. Unlike
+    /// `Gradient`/`Vignette`, this treatment does **not** modulate per-cell
+    /// background colours — the image lives on its own GPU pass and the RV1
+    /// floor stays valid via the scrim (see [`Settings::cell_bg_opacity`]).
+    Image,
 }
 
 impl BackgroundTreatment {
@@ -367,6 +373,7 @@ impl BackgroundTreatment {
             Self::Off => "off",
             Self::Gradient => "gradient",
             Self::Vignette => "vignette",
+            Self::Image => "image",
         }
     }
 
@@ -375,6 +382,7 @@ impl BackgroundTreatment {
             "off" | "none" | "false" | "plain" => Some(Self::Off),
             "gradient" | "linear" => Some(Self::Gradient),
             "vignette" | "radial" => Some(Self::Vignette),
+            "image" | "picture" | "photo" => Some(Self::Image),
             _ => None,
         }
     }
@@ -493,6 +501,26 @@ pub struct Settings {
     pub render_quality: RenderQuality,
     /// ID3/U5 background treatment (`off` default ⇒ pixel-identical plain path).
     pub background_treatment: BackgroundTreatment,
+    /// Optional PNG image file path for the `image` background treatment. `None`
+    /// (the default) means no image — the `image` treatment then behaves exactly
+    /// like `off`. A missing / unreadable / non-PNG file warns and falls back
+    /// gracefully (no image, no crash).
+    pub background_image: Option<PathBuf>,
+    /// CPU box-blur radius (logical pixels) applied to `background_image` once at
+    /// load time. `0` (the default) leaves the image sharp. Blur is skipped with
+    /// a warning if the image exceeds 4096×4096px.
+    pub background_blur_radius: u32,
+    /// Explicit readability-scrim override in `0.0..=1.0` for the background
+    /// image. `None` (the default) auto-computes the scrim from the image's
+    /// worst-case luminance + the theme so the RV1 floor is guaranteed; an
+    /// explicit value lets an expert dial it back.
+    pub background_image_scrim: Option<f32>,
+    /// Cell background opacity in `0.0..=1.0`. `1.0` (the default) keeps cells
+    /// fully opaque — the background image shows only in the window padding, and
+    /// the cell-vertex output is byte-identical to before. Values `< 1.0` make
+    /// cells translucent so the image shows through behind text; the RV1 floor
+    /// stays safe at any opacity via the readability scrim.
+    pub cell_bg_opacity: f32,
     /// Logical pixels of inset between the window edge and terminal grid. `0.0`
     /// preserves the historical edge-to-edge geometry exactly.
     pub window_padding_px: f32,
@@ -689,6 +717,10 @@ impl Default for Settings {
             focus_dim: DEFAULT_FOCUS_DIM,
             render_quality: RenderQuality::default(),
             background_treatment: BackgroundTreatment::default(),
+            background_image: None,
+            background_blur_radius: 0,
+            background_image_scrim: None,
+            cell_bg_opacity: DEFAULT_CELL_BG_OPACITY,
             window_padding_px: DEFAULT_WINDOW_PADDING_PX,
             bloom: DEFAULT_BLOOM,
             bloom_threshold: default_bloom_threshold_for_theme(Theme::PLAIN),
@@ -986,6 +1018,14 @@ impl Settings {
         let render_quality = parse_render_quality(get(RENDER_QUALITY_ENV).as_deref(), &mut warn);
         let background_treatment =
             parse_background_treatment(get(BACKGROUND_TREATMENT_ENV).as_deref(), &mut warn);
+        let background_image = get(BACKGROUND_IMAGE_ENV)
+            .map(PathBuf::from)
+            .filter(|path| !path.as_os_str().is_empty());
+        let background_blur_radius =
+            parse_background_blur_radius(get(BACKGROUND_BLUR_RADIUS_ENV).as_deref(), &mut warn);
+        let background_image_scrim =
+            parse_background_image_scrim(get(BACKGROUND_IMAGE_SCRIM_ENV).as_deref(), &mut warn);
+        let cell_bg_opacity = parse_cell_bg_opacity(get(CELL_BG_OPACITY_ENV).as_deref(), &mut warn);
         let window_padding_px = parse_window_padding(get(WINDOW_PADDING_ENV).as_deref(), &mut warn);
         let bloom = parse_bool_setting(get(BLOOM_ENV).as_deref(), BLOOM_ENV, false, &mut warn);
         let default_bloom_threshold = default_bloom_threshold_for_theme(theme);
@@ -1182,6 +1222,10 @@ impl Settings {
             focus_dim,
             render_quality,
             background_treatment,
+            background_image,
+            background_blur_radius,
+            background_image_scrim,
+            cell_bg_opacity,
             window_padding_px,
             bloom,
             bloom_threshold,
@@ -1255,6 +1299,17 @@ impl Settings {
             BACKGROUND_TREATMENT_ENV,
             self.background_treatment.as_str().to_owned(),
         );
+        if let Some(path) = self.background_image.as_ref() {
+            values.insert(BACKGROUND_IMAGE_ENV, path.display().to_string());
+        }
+        values.insert(
+            BACKGROUND_BLUR_RADIUS_ENV,
+            self.background_blur_radius.to_string(),
+        );
+        if let Some(scrim) = self.background_image_scrim {
+            values.insert(BACKGROUND_IMAGE_SCRIM_ENV, format_float(scrim));
+        }
+        values.insert(CELL_BG_OPACITY_ENV, format_float(self.cell_bg_opacity));
         values.insert(WINDOW_PADDING_ENV, format_float(self.window_padding_px));
         values.insert(BLOOM_ENV, bool_display(self.bloom).to_owned());
         values.insert(BLOOM_THRESHOLD_ENV, format_float(self.bloom_threshold));

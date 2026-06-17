@@ -6,19 +6,20 @@ use std::io;
 use std::path::Path;
 
 use super::{
+    BACKGROUND_BLUR_RADIUS_ENV, BACKGROUND_IMAGE_ENV, BACKGROUND_IMAGE_SCRIM_ENV,
     BACKGROUND_TREATMENT_ENV, BLOOM_ENV, BLOOM_INTENSITY_ENV, BLOOM_RADIUS_ENV,
-    BLOOM_THRESHOLD_ENV, COMMAND_STATUS_GUTTER_ENV, CONFIRM_CLOSE_ENV, COPY_ON_SELECT_ENV, CRT_ENV,
-    CRT_SCANLINE_INTENSITY_ENV, CRT_SCANLINE_PERIOD_ENV, CRT_VIGNETTE_STRENGTH_ENV,
-    CURSOR_BLINK_ENV, CURSOR_EASING_ENV, CURSOR_GLOW_ENV, CURSOR_MOTION_ENV, CURSOR_STYLE_ENV,
-    CURSOR_TRAIL_ENV, CVD_MODE_ENV, CVD_STRENGTH_ENV, FOCUS_DIM_ENV, FOLLOW_OS_THEME_ENV, FONT_ENV,
-    FONT_FAMILY_ENV, FONT_SIZE_ENV, FONT_WEIGHT_ENV, GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV,
-    MIN_CONTRAST_ENV, NATIVE_AUTOCLOSE_ENV, NEW_OUTPUT_FADE_ENV, OS_THEME_DARK_ENV,
-    OS_THEME_LIGHT_ENV, OSC52_READ_ENV, RENDER_QUALITY_ENV, SCROLL_DRAG_SPEED_ENV,
-    SCROLL_WHEEL_LINES_ENV, SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV, SH_CLICK_ENV,
-    SMOOTH_SCROLL_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV,
-    SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV,
-    VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV, WINDOW_PADDING_ENV,
-    normalize_name,
+    BLOOM_THRESHOLD_ENV, CELL_BG_OPACITY_ENV, COMMAND_STATUS_GUTTER_ENV, CONFIRM_CLOSE_ENV,
+    COPY_ON_SELECT_ENV, CRT_ENV, CRT_SCANLINE_INTENSITY_ENV, CRT_SCANLINE_PERIOD_ENV,
+    CRT_VIGNETTE_STRENGTH_ENV, CURSOR_BLINK_ENV, CURSOR_EASING_ENV, CURSOR_GLOW_ENV,
+    CURSOR_MOTION_ENV, CURSOR_STYLE_ENV, CURSOR_TRAIL_ENV, CVD_MODE_ENV, CVD_STRENGTH_ENV,
+    FOCUS_DIM_ENV, FOLLOW_OS_THEME_ENV, FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV, FONT_WEIGHT_ENV,
+    GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV, NATIVE_AUTOCLOSE_ENV,
+    NEW_OUTPUT_FADE_ENV, OS_THEME_DARK_ENV, OS_THEME_LIGHT_ENV, OSC52_READ_ENV, RENDER_QUALITY_ENV,
+    SCROLL_DRAG_SPEED_ENV, SCROLL_WHEEL_LINES_ENV, SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV,
+    SH_CLICK_ENV, SMOOTH_SCROLL_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV,
+    SYMBOL_FONT_ENV, SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV,
+    THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV,
+    WINDOW_PADDING_ENV, normalize_name,
 };
 use super::{BOX_THICKNESS_ENV, LINE_HEIGHT_ENV};
 #[derive(Debug, Clone, Default)]
@@ -100,6 +101,18 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "backgroundtreatment" | "background" | "bgtreatment" | "bg" => {
             Some(BACKGROUND_TREATMENT_ENV)
         }
+        "backgroundimage" | "bgimage" | "backgroundimagepath" | "wallpaper" => {
+            Some(BACKGROUND_IMAGE_ENV)
+        }
+        "backgroundblurradius" | "backgroundblur" | "bgblur" | "blurradius" => {
+            Some(BACKGROUND_BLUR_RADIUS_ENV)
+        }
+        "backgroundimagescrim" | "bgscrim" | "imagescrim" | "scrim" => {
+            Some(BACKGROUND_IMAGE_SCRIM_ENV)
+        }
+        "cellbgopacity" | "cellbackgroundopacity" | "cellopacity" | "bgopacity" => {
+            Some(CELL_BG_OPACITY_ENV)
+        }
         "windowpadding" | "padding" | "windowpaddingpx" => Some(WINDOW_PADDING_ENV),
         "geometricboxdraw" | "boxdraw" => Some(GEOMETRIC_BOXDRAW_ENV),
         "symbolfallback" | "symbols" | "nerdfont" => Some(SYMBOL_FALLBACK_ENV),
@@ -175,6 +188,10 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         FOCUS_DIM_ENV => Some("focus_dim"),
         RENDER_QUALITY_ENV => Some("render_quality"),
         BACKGROUND_TREATMENT_ENV => Some("background_treatment"),
+        BACKGROUND_IMAGE_ENV => Some("background_image"),
+        BACKGROUND_BLUR_RADIUS_ENV => Some("background_blur_radius"),
+        BACKGROUND_IMAGE_SCRIM_ENV => Some("background_image_scrim"),
+        CELL_BG_OPACITY_ENV => Some("cell_bg_opacity"),
         WINDOW_PADDING_ENV => Some("window_padding"),
         GEOMETRIC_BOXDRAW_ENV => Some("geometric_boxdraw"),
         SYMBOL_FALLBACK_ENV => Some("symbol_fallback"),

@@ -15,6 +15,10 @@ pub const MIN_CONTRAST_ENV: &str = "ODYTTY_MIN_CONTRAST";
 pub const FOCUS_DIM_ENV: &str = "ODYTTY_FOCUS_DIM";
 pub const RENDER_QUALITY_ENV: &str = "ODYTTY_RENDER_QUALITY";
 pub const BACKGROUND_TREATMENT_ENV: &str = "ODYTTY_BACKGROUND_TREATMENT";
+pub const BACKGROUND_IMAGE_ENV: &str = "ODYTTY_BACKGROUND_IMAGE";
+pub const BACKGROUND_BLUR_RADIUS_ENV: &str = "ODYTTY_BACKGROUND_BLUR_RADIUS";
+pub const BACKGROUND_IMAGE_SCRIM_ENV: &str = "ODYTTY_BACKGROUND_IMAGE_SCRIM";
+pub const CELL_BG_OPACITY_ENV: &str = "ODYTTY_CELL_BG_OPACITY";
 pub const WINDOW_PADDING_ENV: &str = "ODYTTY_WINDOW_PADDING";
 pub const BLOOM_ENV: &str = "ODYTTY_BLOOM";
 pub const BLOOM_THRESHOLD_ENV: &str = "ODYTTY_BLOOM_THRESHOLD";
@@ -79,6 +83,10 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     FOCUS_DIM_ENV,
     RENDER_QUALITY_ENV,
     BACKGROUND_TREATMENT_ENV,
+    BACKGROUND_IMAGE_ENV,
+    BACKGROUND_BLUR_RADIUS_ENV,
+    BACKGROUND_IMAGE_SCRIM_ENV,
+    CELL_BG_OPACITY_ENV,
     WINDOW_PADDING_ENV,
     BLOOM_ENV,
     BLOOM_THRESHOLD_ENV,
@@ -169,6 +177,28 @@ pub const MAX_FOCUS_DIM: f32 = 1.0;
 pub const DEFAULT_WINDOW_PADDING_PX: f32 = 8.0;
 pub const MIN_WINDOW_PADDING_PX: f32 = 0.0;
 pub const MAX_WINDOW_PADDING_PX: f32 = 64.0;
+
+/// Cell background opacity (`ODYTTY_CELL_BG_OPACITY`): the alpha multiplier on
+/// every cell's resolved background colour. `1.0` (default) leaves cells fully
+/// opaque so the cell-vertex output is byte-identical to before — the `image`
+/// background treatment then shows only in the window padding. Values `< 1.0`
+/// make cells translucent so a background image shows through behind text; the
+/// RV1 floor stays safe at any opacity via the readability scrim.
+pub const DEFAULT_CELL_BG_OPACITY: f32 = 1.0;
+pub const MIN_CELL_BG_OPACITY: f32 = 0.0;
+pub const MAX_CELL_BG_OPACITY: f32 = 1.0;
+
+/// Background-image CPU box-blur radius (`ODYTTY_BACKGROUND_BLUR_RADIUS`),
+/// applied once at load time. `0` (default) leaves the image sharp; the radius
+/// is clamped to `MAX_BACKGROUND_BLUR_RADIUS` and skipped for oversized images.
+pub const DEFAULT_BACKGROUND_BLUR_RADIUS: u32 = 0;
+pub const MAX_BACKGROUND_BLUR_RADIUS: u32 = 256;
+
+/// Bounds for the explicit background-image scrim override
+/// (`ODYTTY_BACKGROUND_IMAGE_SCRIM`). When unset the scrim is auto-computed to
+/// guarantee the RV1 floor; an explicit value is clamped to this range.
+pub const MIN_BACKGROUND_IMAGE_SCRIM: f32 = 0.0;
+pub const MAX_BACKGROUND_IMAGE_SCRIM: f32 = 1.0;
 
 /// Line-height multiplier (`ODYTTY_LINE_HEIGHT`, LINEHEIGHT): extra vertical
 /// leading baked into each glyph cell, expressed as a multiple of the natural

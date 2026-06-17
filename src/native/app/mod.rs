@@ -1199,6 +1199,18 @@ impl App {
             gpu.set_text_gamma(self.settings.text_gamma);
             gpu.set_bloom(bloom_options(&self.settings));
             gpu.set_crt(crt_options(&self.settings));
+            // ID3/U5: push the background-image settings. The scrim is computed
+            // against `effective_theme` (the same CVD/OS-resolved background the
+            // RV1 floor references), so the floor stays valid at any opacity.
+            gpu.set_background_image(
+                self.settings.effective_background_treatment()
+                    == crate::settings::BackgroundTreatment::Image,
+                self.settings.background_image.as_deref(),
+                self.settings.background_blur_radius,
+                self.settings.background_image_scrim,
+                self.settings.cell_bg_opacity,
+                self.effective_theme,
+            );
         }
 
         if text_rebuilt || padding_changed {
@@ -1262,7 +1274,7 @@ impl ApplicationHandler<UserEvent> for App {
             bloom_options(&self.settings),
             crt_options(&self.settings),
         ) {
-            Ok(gpu) => {
+            Ok(mut gpu) => {
                 // Push live cell pixel metrics to the terminal core so graphics
                 // placements (sixel/kitty) compute the correct cell extent.
                 let cell = gpu.cell();
@@ -1270,6 +1282,18 @@ impl ApplicationHandler<UserEvent> for App {
                     term.set_cell_metrics(cell.width, cell.height);
                 }
                 self.last_presented_snapshot = Some(initial_snapshot.clone());
+                // ID3/U5: seed the background-image pass from the launch config
+                // so the very first frame already reflects an `image` treatment
+                // (no-op / off path when no image is configured).
+                gpu.set_background_image(
+                    self.settings.effective_background_treatment()
+                        == crate::settings::BackgroundTreatment::Image,
+                    self.settings.background_image.as_deref(),
+                    self.settings.background_blur_radius,
+                    self.settings.background_image_scrim,
+                    self.settings.cell_bg_opacity,
+                    self.effective_theme,
+                );
                 self.gpu = Some(gpu);
             }
             Err(err) => {

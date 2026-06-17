@@ -7,6 +7,57 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- ID3/U5 readability-safe background image (closes the non-gated frontier)
+
+Optional PNG background image behind the grid, with a readability scrim coupled
+structurally to the RV1 minimum-contrast floor — safe-by-construction, off by
+default, byte-identical when unused, and zero new dependencies (reuses the
+existing `png` decode path).
+
+- **Four knobs, all default to identity.** `background_image` (PNG path; empty =
+  no image = prior behavior exactly), `cell_bg_opacity` (default `1.0` = opaque
+  cells = identity), `background_blur_radius` (default `0` = no blur), and
+  `background_image_scrim` (explicit override; unset = auto). A missing,
+  unreadable, or non-PNG path warns and falls back to no image — never a crash
+  (mirrors the symbol-map resilience).
+- **The floor reference stays opaque.** In the cell-vertex builder the RV1
+  contrast floor (`enforce_contrast_rgba`) runs against the cell's **opaque**
+  theme background; only afterward is the background quad's alpha scaled by
+  `cell_bg_opacity` in Pass 1. At the default `1.0` this is `bg[3] * 1.0` —
+  byte-identical to the pre-feature renderer. The image never participates in
+  the floor computation.
+- **Scrim is safe-by-construction.** The image pass paints a full-window quad
+  behind every cell quad, dimmed by a scrim computed from the **worst-case**
+  post-blur image luminance (max pixel for dark themes, min for light) so the
+  composited luminance the user sees always lands on the safe side of the
+  theme's `l_bg`. Because the cell-over-image composite is a convex blend, the
+  result stays floor-safe **independent of `cell_bg_opacity`**. The scrim auto
+  value comes from `color::readability_scrim_for`, which returns `0.0` when the
+  floor is disabled (`min_contrast <= 1.0`) or cells are opaque
+  (`cell_bg_opacity >= 1.0`).
+- **CPU blur, computed once.** A pure-Rust separable box blur runs at image-load
+  time (each pass clamps to its own dimension so thin images still blur);
+  images larger than 4096² skip blur with a warning. An opacity- or scrim-only
+  change recomputes the scrim and re-uploads the GPU uniform without re-decoding
+  the image; a theme/appearance flip (OS-theme, CVD) recomputes `l_bg` +
+  polarity and the scrim from the cached worst-case luminance.
+- **Off-path identity is proven, not asserted.** A pixel-smoke test composites a
+  vivid image behind fully-opaque cells and asserts the frame is byte-identical
+  to the plain render; a companion test proves monotonic show-through as opacity
+  drops, exercising the live composite call site with the treatment enabled.
+- **Module hygiene.** Before any image code, the style-face / symbol-fallback
+  resolver was extracted byte-identically from `gpu.rs` into a new
+  `src/native/gpu/fonts.rs` (222 lines), keeping `gpu.rs` under the soft cap
+  (1950 → 1756 → 1832 after the image pass). New `src/native/gpu/image.rs` (642)
+  holds the PNG decode + blur + scrim, and `src/shaders/background_image.wgsl`
+  is the dedicated full-window image pass (alpha-premultiplied).
+
+State: `cargo test --lib` 1619 passing (+9); `pixel_smoke` 49 (incl. 2 new image
+tests with the treatment enabled); `cargo fmt --check` clean; clippy at the
+38-warning baseline with zero new in lane; SPDX on all new files. No
+parser/core-state touched. Phase 4 ID3/U5 lands; the non-gated build frontier is
+closed.
+
 ## 2026-06-17 -- RV4 smooth scroll + RV7 font weight + WIN-DECOR (final pure-build batch)
 
 Three independent, off-by-default-or-identity knobs, all configured through the

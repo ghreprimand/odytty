@@ -202,6 +202,7 @@ fn padded_cell_vertices_start_at_window_padding_origin() {
         0.0,
         origin,
         crate::grid::BackgroundTreatmentParams::default(),
+        crate::settings::DEFAULT_CELL_BG_OPACITY,
     );
     crate::grid::append_cursor_vertices_with_origin(
         &mut vertices,

@@ -2,7 +2,7 @@
 use super::gpu::{
     BloomOptions, CrtOptions, ViewportUniform, choose_surface_format, create_atlas_bind_group,
     create_cell_pipeline, create_color_atlas_bind_group, create_color_glyph_pipeline,
-    physical_font_px, post, scene_target_format,
+    image::BgImageGpu, physical_font_px, post, scene_target_format,
 };
 use crate::grid::{ColorGlyphVertex, Vertex};
 use crate::settings::{RenderQuality, Settings};
@@ -323,6 +323,68 @@ fn post_options_from_settings(settings: &Settings) -> post::PostProcessOptions {
             vignette_strength: settings.crt_vignette_strength,
         },
     }
+}
+
+/// ID3/U5 visual gate: build the real background-image GPU pipeline from a
+/// decoded PNG. Exercises `BgImageGpu::load` end-to-end — PNG decode + box blur
+/// + worst-case luminance scan + scrim uniform + WGSL shader compile + pipeline
+/// + bind group — against a live adapter, so a malformed shader or bind-group
+/// layout fails the suite rather than only at runtime.
+#[test]
+fn background_image_pipeline_builds_from_png() {
+    let Some((device, queue)) = test_device_with_hdr() else {
+        eprintln!("skipping: no GPU adapter available");
+        return;
+    };
+    // Encode a tiny 4x4 RGBA PNG (a black/white checker) to a temp file.
+    let dir = std::env::temp_dir();
+    let path = dir.join(format!("odytty-bg-image-smoke-{}.png", std::process::id()));
+    let mut pixels = Vec::with_capacity(4 * 4 * 4);
+    for y in 0..4u8 {
+        for x in 0..4u8 {
+            let on = (x + y) % 2 == 0;
+            let v = if on { 255 } else { 0 };
+            pixels.extend_from_slice(&[v, v, v, 255]);
+        }
+    }
+    {
+        let file = std::fs::File::create(&path).expect("create temp png");
+        let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), 4, 4);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().expect("png header");
+        writer.write_image_data(&pixels).expect("png data");
+    }
+
+    // Dark theme + translucent cells + a blur ⇒ a non-trivial scrim path.
+    let mut theme = crate::theme::Theme::PLAIN;
+    theme.background = (0, 0, 0);
+    crate::text::set_min_contrast(4.5);
+    let loaded = BgImageGpu::load(
+        &device,
+        &queue,
+        TEST_SURFACE_FORMAT,
+        &path,
+        1,
+        None,
+        &theme,
+        0.5,
+    );
+    crate::text::set_min_contrast(1.0);
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        loaded.is_some(),
+        "the background-image pipeline must build from a valid PNG"
+    );
+    let mut bg = loaded.unwrap();
+    let (src_path, blur) = bg.source();
+    assert_eq!(src_path, path, "source path round-trips");
+    assert_eq!(blur, 1, "clamped blur radius round-trips");
+    // Theme change refresh path (T10) must not panic and must re-upload cleanly.
+    let mut light = crate::theme::Theme::PLAIN;
+    light.background = (255, 255, 255);
+    bg.refresh_for_theme(&queue, &light, 0.5);
+    device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
 fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {
