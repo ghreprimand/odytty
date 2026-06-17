@@ -38,9 +38,10 @@ use super::settings_panel::SettingsPanelSignature;
 use super::theme_builder::ThemeBuilderSignature;
 use super::theme_picker::ThemePickerSignature;
 use super::viewport::{
-    Viewport, WindowPadding, grid_dimensions_for, grid_dimensions_for_with_padding,
-    scroll_indicator_hit, scroll_indicator_quad, scroll_indicator_quad_with_padding,
-    scrollbar_offset_for_drag, wheel_lines, wheel_lines_scaled, wheel_zoom_steps,
+    Viewport, WheelAccumulator, WindowPadding, grid_dimensions_for,
+    grid_dimensions_for_with_padding, scroll_indicator_hit, scroll_indicator_quad,
+    scroll_indicator_quad_with_padding, scrollbar_offset_for_drag, wheel_lines, wheel_lines_scaled,
+    wheel_zoom_steps,
 };
 use crate::core::{
     Attrs, Cell, CursorStyle, Dimensions, KeyboardModes as CoreKeyboardModes,

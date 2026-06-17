@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- WHEEL-SENS: wheel accumulator kills high-res scroll/zoom runaway
+
+Root-cause fix for the live-test friction where Ctrl+wheel zoom leapt wildly and
+scrollback flew even at `scroll_wheel_lines=1`. Cause: Wayland high-res scrolling
+fires bursts of sub-notch events; zoom mapped each to ±1 step, and PixelDelta
+bypassed the `scroll_wheel_lines` multiplier entirely.
+
+- **Wheel accumulator.** A new App-resident `WheelAccumulator` (two carries:
+  scroll + zoom) integrates fractional notches and emits a synthesized discrete
+  notch only once a whole notch-equivalent accumulates, carrying the remainder.
+  The synthesized notch flows through the unchanged wheel-lines/zoom-step math,
+  so the discrete-mouse path is byte-identical by construction.
+- **Single normalization seam.** `wheel_delta_notches(delta, cell_height)`:
+  LineDelta is already in notch units; PixelDelta is normalized by cell height
+  (one notch ≈ one cell-height of pixels). Both kinds now traverse the same
+  multiplier/step path — killing the historical divergence where PixelDelta
+  skipped the multiplier.
+- **Zoom capped at one step per notch.** A burst or fast swipe can never leap
+  font sizes; the carry resets after each step fires.
+- **All four wheel paths coalesce** (local scroll, Ctrl+zoom, overlay-list
+  scroll, TUI mouse-report) — and reset on focus loss and on overlay open.
+- **Identity guaranteed by test.** A clean `LineDelta(±1.0)` passes straight
+  through (carry 0 → exactly ±step rows). +7 accumulator tests; the
+  `ctrl_wheel_clamps_at_font_size_bounds` test was updated to the intended
+  one-step-per-notch cap semantics.
+
+State: lib 1629 pass, pixel-smoke 49, mouse_protocol 12, fmt/clippy clean
+(baseline 38). app/mod.rs at 1980 lines — under the 2000 cap, flagged for a
+future split.
+
 ## 2026-06-17 -- ID3/U5 readability-safe background image (closes the non-gated frontier)
 
 Optional PNG background image behind the grid, with a readability scrim coupled

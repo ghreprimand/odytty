@@ -174,6 +174,110 @@ pub(super) fn wheel_lines_scaled(
     }
 }
 
+/// Convert a raw wheel delta into fractional wheel *notches* (sign: positive =
+/// wheel-up / toward earlier content). Discrete `LineDelta` input is already in
+/// notch units; continuous `PixelDelta` input is normalized by the cell height
+/// (one notch ≈ one cell-height of pixels) so both input kinds flow through the
+/// **same** downstream multiplier/step path. This is the single seam that ends
+/// the historical divergence where `PixelDelta` bypassed the `scroll_wheel_lines`
+/// multiplier. `cell_height` is floored at 1 to stay finite before GPU metrics
+/// exist.
+fn wheel_delta_notches(delta: MouseScrollDelta, cell_height: u32) -> f64 {
+    match delta {
+        MouseScrollDelta::LineDelta(_, y) => y as f64,
+        MouseScrollDelta::PixelDelta(pos) => pos.y / (cell_height.max(1) as f64),
+    }
+}
+
+/// Add a fresh notch delta onto a fractional carry, dropping the stale carry on
+/// a direction reversal (T-accum). Without the reversal reset a built-up
+/// remainder in one direction would partially cancel a fresh scroll the other
+/// way — and the carry could oscillate without ever settling. A zero delta
+/// leaves the carry untouched (no phantom motion).
+fn carry_add(accum: f64, delta: f64) -> f64 {
+    if accum != 0.0 && delta != 0.0 && accum.signum() != delta.signum() {
+        delta
+    } else {
+        accum + delta
+    }
+}
+
+/// Coalesces high-resolution wheel input into discrete wheel *notches*.
+///
+/// High-resolution mice / touchpads on Wayland/libinput fire a **burst** of
+/// small sub-notch events per physical detent. The historical per-event mapping
+/// turned one physical notch into many row/zoom steps — runaway scrollback and
+/// uncontrollable Ctrl+wheel zoom (the WHEEL-SENS friction blocker). This
+/// accumulator integrates the fractional notches of a burst and emits a single
+/// synthesized discrete notch only once a whole notch-equivalent has built up,
+/// carrying the remainder. The synthesized `LineDelta` then flows through the
+/// unchanged [`wheel_lines`] / [`wheel_lines_scaled`] / [`wheel_zoom_steps`]
+/// math, so the discrete-mouse path (a clean `LineDelta(_, ±1.0)`) is
+/// **byte-identical** to today: one notch in, one synthesized notch out, same
+/// rows/step as before.
+///
+/// Scroll and zoom hold separate carries so switching between scrollback and
+/// Ctrl+wheel zoom never bleeds a partial gesture across modes.
+#[derive(Debug, Default, Clone, Copy)]
+pub(super) struct WheelAccumulator {
+    /// Fractional notch carry for scrollback / list (overlay) / TUI movement.
+    scroll: f64,
+    /// Fractional notch carry for Ctrl+wheel font zoom.
+    zoom: f64,
+}
+
+impl WheelAccumulator {
+    /// Feed a raw wheel delta into the scroll carry. Returns a synthesized
+    /// discrete `LineDelta` carrying the whole notch count once at least one
+    /// full notch has accumulated, or `None` while still sub-notch. The
+    /// fractional remainder is carried to the next event. A clean
+    /// `LineDelta(_, ±1.0)` passes straight through (carry was 0 ⇒ whole = ±1 ⇒
+    /// remainder 0), preserving the discrete-mouse path exactly.
+    pub(super) fn coalesce_scroll(
+        &mut self,
+        delta: MouseScrollDelta,
+        cell_height: u32,
+    ) -> Option<MouseScrollDelta> {
+        self.scroll = carry_add(self.scroll, wheel_delta_notches(delta, cell_height));
+        let whole = self.scroll.trunc();
+        if whole == 0.0 {
+            return None;
+        }
+        self.scroll -= whole;
+        Some(MouseScrollDelta::LineDelta(0.0, whole as f32))
+    }
+
+    /// Feed a raw wheel delta into the zoom carry. Returns a synthesized
+    /// single-notch `LineDelta` (magnitude 1, sign of travel) at most ONCE per
+    /// accumulated notch-equivalent — debouncing a burst of sub-notch events
+    /// into one font step (the cap-one-step-per-notch rule). The carry resets to
+    /// zero after a step fires so a fast swipe can never leap across many sizes.
+    pub(super) fn coalesce_zoom(
+        &mut self,
+        delta: MouseScrollDelta,
+        cell_height: u32,
+    ) -> Option<MouseScrollDelta> {
+        self.zoom = carry_add(self.zoom, wheel_delta_notches(delta, cell_height));
+        if self.zoom >= 1.0 {
+            self.zoom = 0.0;
+            Some(MouseScrollDelta::LineDelta(0.0, 1.0))
+        } else if self.zoom <= -1.0 {
+            self.zoom = 0.0;
+            Some(MouseScrollDelta::LineDelta(0.0, -1.0))
+        } else {
+            None
+        }
+    }
+
+    /// Clear both carries (T-reset). Called on focus loss and on overlay open so
+    /// a partially-accumulated gesture never resumes against an unrelated
+    /// surface or after the pointer left the window.
+    pub(super) fn reset(&mut self) {
+        self.scroll = 0.0;
+        self.zoom = 0.0;
+    }
+}
+
 /// Convert a wheel delta into a signed font-size step count for Ctrl+wheel zoom
 /// (MOUSE-WHEEL): positive = wheel up = larger font, negative = smaller. One
 /// discrete wheel notch maps to one step; continuous touchpad input maps by

@@ -109,7 +109,15 @@ impl App {
     /// [`OverlayPointer::Wheel`] free-scroll of the panel list (UX4-P1).
     pub(in crate::native) fn handle_overlay_pointer_wheel(&mut self, delta: MouseScrollDelta) {
         let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
-        let lines = wheel_lines(delta, cell_height);
+        // WHEEL-SENS (T-overlay): coalesce the high-resolution burst so the
+        // settings list advances one entry per physical notch instead of flying.
+        // The overlay deliberately uses the fixed default step (the user's
+        // `scroll_wheel_lines` multiplier is a terminal-scroll knob), but it
+        // still benefits from notch-coalescing.
+        let Some(notch) = self.wheel_accum.coalesce_scroll(delta, cell_height) else {
+            return;
+        };
+        let lines = wheel_lines(notch, cell_height);
         if lines == 0 {
             return;
         }
@@ -278,7 +286,19 @@ impl App {
     }
 
     pub(super) fn handle_reported_wheel(&mut self, delta: MouseScrollDelta) -> bool {
-        let Some(button) = wheel_report_button(delta) else {
+        // WHEEL-SENS (T-overlay decision, TUI arm): coalesce the burst so a
+        // high-resolution scroll emits one wheel report per physical notch
+        // rather than one per sub-notch event (which would fly a TUI pager). The
+        // report protocol carries only a discrete up/down button — sign, not
+        // magnitude — so we emit a single report per accumulated notch and
+        // deliberately do NOT apply the user's `scroll_wheel_lines` multiplier
+        // (the app owns its own line count). A clean `LineDelta(_, ±1.0)` still
+        // yields exactly one report, byte-identical to before.
+        let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
+        let Some(notch) = self.wheel_accum.coalesce_scroll(delta, cell_height) else {
+            return false;
+        };
+        let Some(button) = wheel_report_button(notch) else {
             return false;
         };
         self.send_mouse_report(button, MouseEventKind::Press)

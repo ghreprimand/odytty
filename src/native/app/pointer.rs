@@ -175,22 +175,32 @@ impl App {
         // gesture, so it is consumed here and never also scrolls scrollback
         // (the early return holds even at the clamp boundary, where the zoom is
         // a no-op).
+        let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
         if self.settings.wheel_zoom && self.modifiers.ctrl {
-            let steps = wheel_zoom_steps(delta);
-            if steps != 0 {
-                self.adjust_font_size_by(steps);
+            // WHEEL-SENS: coalesce the burst before mapping to a font step so
+            // one physical notch is exactly one step (cap one per notch). The
+            // gesture is consumed unconditionally — even when the carry is still
+            // sub-notch or the size is clamped at a bound — so Ctrl+wheel never
+            // falls through to scrollback (T-zoom-clamp).
+            if let Some(notch) = self.wheel_accum.coalesce_zoom(delta, cell_height) {
+                let steps = wheel_zoom_steps(notch);
+                if steps != 0 {
+                    self.adjust_font_size_by(steps);
+                }
             }
             return;
         }
 
-        let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
-        // MOUSE-WHEEL-SPEED: local scrollback honors the configured
-        // per-notch multiplier (default 3 = byte-identical). The TUI
-        // reporting and overlay paths above intentionally use the fixed
+        // WHEEL-SENS + MOUSE-WHEEL-SPEED: coalesce the burst into discrete
+        // notches, then local scrollback honors the configured per-notch
+        // multiplier (default 3 = byte-identical for a clean `LineDelta(_, ±1)`).
+        // The TUI reporting and overlay paths intentionally use the fixed
         // default step, so this only affects local viewport scrolling.
-        let lines = wheel_lines_scaled(delta, cell_height, self.settings.scroll_wheel_step());
-        if lines != 0 {
-            self.scroll_viewport(lines);
+        if let Some(notch) = self.wheel_accum.coalesce_scroll(delta, cell_height) {
+            let lines = wheel_lines_scaled(notch, cell_height, self.settings.scroll_wheel_step());
+            if lines != 0 {
+                self.scroll_viewport(lines);
+            }
         }
     }
 
@@ -280,6 +290,10 @@ impl App {
         self.drag_anchor_unit = None;
         self.last_selection_autoscroll = None;
         self.report_button = None;
+        // WHEEL-SENS (T-reset): clear the wheel carry on overlay entry so a
+        // partial grid-scroll notch does not bleed into the overlay list scroll
+        // (and vice-versa) once the overlay captures the wheel.
+        self.wheel_accum.reset();
     }
 
     /// On focus loss, abandon any in-progress overlay slider drag (UX4-P2).

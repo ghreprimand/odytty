@@ -511,6 +511,130 @@ fn wheel_pixel_delta_converts_by_cell_height() {
 }
 
 #[test]
+fn wheel_accumulator_clean_notch_is_identity() {
+    // WHEEL-SENS identity guarantee: a single discrete LineDelta notch passes
+    // straight through the accumulator unchanged, so the downstream row/step
+    // math is byte-identical to the pre-accumulator path.
+    let mut accum = WheelAccumulator::default();
+    let out = accum
+        .coalesce_scroll(MouseScrollDelta::LineDelta(0.0, 1.0), 16)
+        .expect("a full notch emits immediately");
+    // The synthesized notch feeds wheel_lines_scaled exactly like a raw notch:
+    // at the default step (3) it is still 3 rows.
+    assert_eq!(wheel_lines_scaled(out, 16, 3), 3);
+    // And the down notch is symmetric.
+    let down = accum
+        .coalesce_scroll(MouseScrollDelta::LineDelta(0.0, -1.0), 16)
+        .expect("a full down notch emits immediately");
+    assert_eq!(wheel_lines_scaled(down, 16, 3), -3);
+}
+
+#[test]
+fn wheel_accumulator_coalesces_subnotch_burst_into_one_notch() {
+    // WHEEL-SENS root-cause test: a high-resolution mouse fires a burst of small
+    // PixelDelta events per physical detent. With a 16px cell, four 4px events
+    // sum to exactly one 16px notch — and must yield exactly ONE notch of
+    // scroll, not four.
+    let mut accum = WheelAccumulator::default();
+    let mut emitted = 0;
+    let mut total_rows = 0;
+    for _ in 0..4 {
+        let px = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 4.0));
+        if let Some(notch) = accum.coalesce_scroll(px, 16) {
+            emitted += 1;
+            total_rows += wheel_lines_scaled(notch, 16, 1);
+        }
+    }
+    assert_eq!(emitted, 1, "four sub-notch events coalesce to one notch");
+    assert_eq!(total_rows, 1, "one notch at step 1 == one row, not four");
+}
+
+#[test]
+fn wheel_accumulator_zoom_burst_is_one_step_per_notch() {
+    // WHEEL-SENS zoom fix: the same 4x4px burst must produce exactly ONE font
+    // step, not four — the runaway-zoom bug. Cap is one step per notch.
+    let mut accum = WheelAccumulator::default();
+    let mut steps = 0;
+    for _ in 0..4 {
+        let px = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 4.0));
+        if let Some(notch) = accum.coalesce_zoom(px, 16) {
+            steps += wheel_zoom_steps(notch);
+        }
+    }
+    assert_eq!(steps, 1, "one physical notch of burst == one zoom step");
+}
+
+#[test]
+fn wheel_accumulator_zoom_caps_one_step_per_event() {
+    // Even a large single event (3 notches at once) only steps once per call —
+    // the carry is reset after a step fires, so a fast swipe can never leap
+    // across many sizes.
+    let mut accum = WheelAccumulator::default();
+    let big = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 48.0));
+    let notch = accum.coalesce_zoom(big, 16).expect("crosses a notch");
+    assert_eq!(wheel_zoom_steps(notch), 1);
+    // The leftover (>1 notch) did not carry — a second identical magnitude is
+    // required to step again.
+    let next = accum.coalesce_zoom(
+        MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 4.0)),
+        16,
+    );
+    assert!(next.is_none(), "no residual carry leaks a phantom step");
+}
+
+#[test]
+fn wheel_accumulator_subnotch_alone_emits_nothing() {
+    // A single sub-notch event (less than one cell-height of pixels) emits no
+    // discrete notch — it is carried for the next event.
+    let mut accum = WheelAccumulator::default();
+    let px = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 4.0));
+    assert!(accum.coalesce_scroll(px, 16).is_none());
+}
+
+#[test]
+fn wheel_accumulator_direction_reversal_drops_stale_carry() {
+    // T-accum: a built-up carry in one direction must not bleed into a scroll
+    // the other way. After accumulating +0.75 notch (3x 4px at a 16px cell),
+    // a downward event starts fresh rather than netting against the stale carry.
+    let mut accum = WheelAccumulator::default();
+    for _ in 0..3 {
+        let up = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 4.0));
+        assert!(
+            accum.coalesce_scroll(up, 16).is_none(),
+            "still sub-notch up"
+        );
+    }
+    // A full downward notch now emits exactly one down notch; the stale +0.75
+    // up carry was dropped on the reversal (it did not subtract from this).
+    let down = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, -16.0));
+    let out = accum
+        .coalesce_scroll(down, 16)
+        .expect("a full down notch emits");
+    assert_eq!(wheel_lines_scaled(out, 16, 1), -1);
+}
+
+#[test]
+fn wheel_accumulator_reset_clears_both_carries() {
+    // T-reset: focus loss / overlay open clears partial carries so a gesture
+    // never resumes against an unrelated surface.
+    let mut accum = WheelAccumulator::default();
+    let px = MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 8.0));
+    assert!(
+        accum.coalesce_scroll(px, 16).is_none(),
+        "half a notch carried"
+    );
+    assert!(
+        accum.coalesce_zoom(px, 16).is_none(),
+        "half a zoom notch carried"
+    );
+    accum.reset();
+    // After reset, a fresh half-notch is still only half — the prior carry is
+    // gone (otherwise the two halves would total a full notch and emit).
+    assert!(accum.coalesce_scroll(px, 16).is_none());
+    assert!(accum.coalesce_zoom(px, 16).is_none());
+}
+
+#[test]
 fn scroll_keys_require_shift_without_ctrl_or_alt() {
     let shift = Modifiers {
         shift: true,

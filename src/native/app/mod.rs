@@ -64,9 +64,10 @@ pub(super) use super::resize::{
 };
 use super::search_ui::{SearchStyle, SearchUi, apply_search_ui};
 use super::viewport::{
-    SELECTION_AUTOSCROLL_INTERVAL, Viewport, WindowPadding, grid_dimensions_for_with_padding,
-    scroll_indicator_hit_with_padding, scroll_indicator_quad_with_padding,
-    scrollbar_offset_for_drag_with_padding, wheel_lines, wheel_lines_scaled, wheel_zoom_steps,
+    SELECTION_AUTOSCROLL_INTERVAL, Viewport, WheelAccumulator, WindowPadding,
+    grid_dimensions_for_with_padding, scroll_indicator_hit_with_padding,
+    scroll_indicator_quad_with_padding, scrollbar_offset_for_drag_with_padding, wheel_lines,
+    wheel_lines_scaled, wheel_zoom_steps,
 };
 
 mod background_ui;
@@ -377,6 +378,11 @@ pub(super) struct App {
     /// loop after the overlay outcome is applied — `apply_overlay_outcome` only
     /// has `&mut self` and cannot reach the `ActiveEventLoop` itself.
     pending_exit: bool,
+    /// WHEEL-SENS: coalesces high-resolution wheel bursts (sub-notch
+    /// `PixelDelta` events, fractional `LineDelta`) into discrete notches so one
+    /// physical detent is one scroll/zoom step. Identity for a clean
+    /// `LineDelta(_, ±1.0)`. Reset on focus loss and overlay open.
+    wheel_accum: WheelAccumulator,
     pub(super) startup_error: Option<NativeError>,
 }
 
@@ -474,6 +480,7 @@ impl App {
             deadline: None,
             os_theme: None,
             pending_exit: false,
+            wheel_accum: WheelAccumulator::default(),
             startup_error: None,
         };
         // ONBOARD (D-OB-1/D-OB-2): open the first-run welcome card iff the
@@ -1715,6 +1722,10 @@ impl ApplicationHandler<UserEvent> for App {
                 self.focused = focused;
                 if !focused {
                     self.cancel_overlay_drag_on_focus_loss();
+                    // WHEEL-SENS (T-reset): drop any partially-accumulated wheel
+                    // notch so a gesture interrupted by an alt-tab does not
+                    // resume against the next surface on focus regain.
+                    self.wheel_accum.reset();
                 }
                 // Force the cursor solid-on immediately on focus loss (and
                 // resume blinking on focus gain) by rebuilding next frame.

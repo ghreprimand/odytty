@@ -240,17 +240,29 @@ fn wheel_zoom_off_switch_routes_ctrl_wheel_as_plain_scroll() {
 fn ctrl_wheel_clamps_at_font_size_bounds() {
     // Zooming past either bound is a clean no-op (the clamp leaves the size
     // unchanged, which `apply_reloadable_values` treats as no change).
+    //
+    // WHEEL-SENS: Ctrl+wheel is now debounced to at most ONE font step per
+    // physical notch (the cap that ends runaway zoom), so reaching a bound takes
+    // one notch per pixel of headroom rather than a single giant event. Each
+    // `dispatch_wheel_for_test(1.0)` is one clean discrete notch == one step.
     let Some(mut app) = build_app(b"") else {
         eprintln!("skipping: no PTY available");
         return;
     };
     app.set_ctrl_modifier_for_test(true);
 
-    // A large notch jumps to the maximum; a further notch up stays clamped.
-    app.dispatch_wheel_for_test(200.0);
+    // Step up one notch at a time until pinned at the maximum. The font range is
+    // bounded, so enough single notches always reach the ceiling; a further
+    // notch up then stays clamped.
+    let steps_to_span =
+        (crate::settings::MAX_FONT_SIZE_PX - crate::settings::MIN_FONT_SIZE_PX).ceil() as usize + 2;
+    for _ in 0..steps_to_span {
+        app.dispatch_wheel_for_test(1.0); // one notch == one +1px step
+    }
     assert_eq!(
         app.font_size_px_for_test(),
-        crate::settings::MAX_FONT_SIZE_PX
+        crate::settings::MAX_FONT_SIZE_PX,
+        "single notches accumulate to the maximum"
     );
     app.dispatch_wheel_for_test(1.0);
     assert_eq!(
@@ -260,10 +272,13 @@ fn ctrl_wheel_clamps_at_font_size_bounds() {
     );
 
     // ...and symmetrically at the minimum.
-    app.dispatch_wheel_for_test(-400.0);
+    for _ in 0..steps_to_span {
+        app.dispatch_wheel_for_test(-1.0); // one notch == one -1px step
+    }
     assert_eq!(
         app.font_size_px_for_test(),
-        crate::settings::MIN_FONT_SIZE_PX
+        crate::settings::MIN_FONT_SIZE_PX,
+        "single notches accumulate to the minimum"
     );
     app.dispatch_wheel_for_test(-1.0);
     assert_eq!(
