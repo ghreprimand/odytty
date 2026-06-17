@@ -301,14 +301,58 @@ impl StyleFonts {
     }
 
     fn load(options: &NativeOptions) -> Result<Self, NativeError> {
-        Self::load_from(options.font_path.as_deref(), &options.font_family)
+        Self::load_from(
+            options.font_path.as_deref(),
+            &options.font_family,
+            &options.font_weight,
+        )
     }
 
-    fn load_from(font_path: Option<&Path>, font_family: &str) -> Result<Self, NativeError> {
-        let regular = text::load_font_with_path(font_path)
-            .map_err(|err| NativeError::Text(err.to_string()))?;
+    /// Resolve the four style faces for the configured family.
+    ///
+    /// RV7: `font_weight` is an optional weight-variant suffix. When empty (the
+    /// default) the regular face is loaded via [`text::load_font_with_path`]
+    /// exactly as before — byte-identical off path. When set, the effective
+    /// query is `"{font_family} {font_weight}"` resolved through the same
+    /// monospace-gated [`text::resolve_font_family`]; a missing weight face warns
+    /// and falls back to the plain regular face (real faces only — never
+    /// synthetic emboldening/thinning). Bold/italic discovery ALWAYS uses the
+    /// plain `font_family` (not the weight query), so the SGR bold attribute
+    /// stays visually distinct from the chosen base weight.
+    fn load_from(
+        font_path: Option<&Path>,
+        font_family: &str,
+        font_weight: &str,
+    ) -> Result<Self, NativeError> {
+        let regular = if font_weight.trim().is_empty() {
+            text::load_font_with_path(font_path)
+                .map_err(|err| NativeError::Text(err.to_string()))?
+        } else {
+            let weight_query = format!("{} {}", font_family.trim(), font_weight.trim());
+            match text::resolve_font_family(&weight_query, &text::font_search_dirs()) {
+                Some(matched) => match text::load_font_at(&matched.regular) {
+                    Ok(font) => font,
+                    Err(err) => {
+                        eprintln!(
+                            "odytty: font_weight: {err}; falling back to the regular face for {weight_query:?}"
+                        );
+                        text::load_font_with_path(font_path)
+                            .map_err(|err| NativeError::Text(err.to_string()))?
+                    }
+                },
+                None => {
+                    eprintln!(
+                        "odytty: font_weight: family {weight_query:?} not found (or not monospace); using the regular face"
+                    );
+                    text::load_font_with_path(font_path)
+                        .map_err(|err| NativeError::Text(err.to_string()))?
+                }
+            }
+        };
         let mut fonts = Self::regular(regular);
 
+        // BOLD INVARIANT: bold/italic discovery always uses the PLAIN family so
+        // SGR bold contrasts with the chosen base weight (never "Light Bold").
         if let Some(matched) = text::resolve_font_family(font_family, &text::font_search_dirs()) {
             if let Some(font) = matched.bold.as_deref().and_then(load_optional_style_font) {
                 fonts.bold = Arc::new(font);
@@ -763,6 +807,15 @@ pub(super) struct GpuState {
     symbol_map_fonts: Vec<(u32, u32, Arc<FontVec>)>,
     font_path: Option<PathBuf>,
     font_family: String,
+    /// Last-applied RV7 font-weight variant suffix, retained for change
+    /// detection. Empty (the default) keeps the regular-face load path, so the
+    /// stored value stays `""` and never triggers a weight-driven rebuild.
+    font_weight: String,
+    /// RV4 smooth-scroll sub-row vertical offset (pixels) added to
+    /// [`Self::content_origin`]. `0.0` at rest / on the off path keeps the
+    /// origin byte-identical. Updated each animating frame via
+    /// [`Self::set_scroll_frac_offset`].
+    scroll_frac_offset: f32,
     // Kept alive for the lifetime of the bind group; never read directly.
     atlas_texture: wgpu::Texture,
     atlas_sampler: wgpu::Sampler,
@@ -1127,6 +1180,8 @@ impl GpuState {
             symbol_map_fonts,
             font_path: options.font_path.clone(),
             font_family: options.font_family.clone(),
+            font_weight: options.font_weight.clone(),
+            scroll_frac_offset: 0.0,
             atlas_texture,
             atlas_sampler,
             color_glyph_atlas_texture,
@@ -1211,7 +1266,21 @@ impl GpuState {
     }
 
     fn content_origin(&self) -> [f32; 2] {
-        [self.window_padding.as_f32(), self.window_padding.as_f32()]
+        // RV4: the vertical origin is shifted by the smooth-scroll sub-row
+        // offset (`0.0` at rest / on the off path, so this is byte-identical to
+        // `[pad, pad]` unless a glide is in flight). Shifting the origin glides
+        // the whole rendered viewport — cells, cursor, and overlays — uniformly.
+        [
+            self.window_padding.as_f32(),
+            self.window_padding.as_f32() + self.scroll_frac_offset,
+        ]
+    }
+
+    /// RV4: set the smooth-scroll sub-row vertical offset (pixels) applied to
+    /// [`Self::content_origin`]. `0.0` (the default / settled / off-path value)
+    /// leaves the origin byte-identical to before this feature existed.
+    pub(super) fn set_scroll_frac_offset(&mut self, offset_px: f32) {
+        self.scroll_frac_offset = offset_px;
     }
 
     fn refresh_window_padding(&mut self) -> bool {
@@ -1285,8 +1354,9 @@ impl GpuState {
             );
         }
 
-        let font_changed =
-            self.font_path != options.font_path || self.font_family != options.font_family;
+        let font_changed = self.font_path != options.font_path
+            || self.font_family != options.font_family
+            || self.font_weight != options.font_weight;
         let subpixel_changed = self.subpixel != next_subpixel;
         let font_size_changed = (self.font_size_px - options.font_size_px).abs() >= f32::EPSILON;
         let stem_darken_changed = (self.stem_darken - stem_darken).abs() >= f32::EPSILON;
@@ -1329,6 +1399,7 @@ impl GpuState {
             Some(StyleFonts::load_from(
                 options.font_path.as_deref(),
                 &options.font_family,
+                &options.font_weight,
             )?)
         } else {
             None
@@ -1338,6 +1409,7 @@ impl GpuState {
             self.fonts = fonts;
             self.font_path = options.font_path.clone();
             self.font_family = options.font_family.clone();
+            self.font_weight = options.font_weight.clone();
         }
         if subpixel_changed {
             self.subpixel = next_subpixel;

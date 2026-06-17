@@ -49,6 +49,11 @@ pub struct NativeOptions {
     /// Monospace font family request. `"monospace"` defers to the system's
     /// default fixed-width face for the first prototype.
     pub font_family: String,
+    /// Optional weight-variant suffix appended to `font_family` to select a
+    /// lighter or heavier base face (RV7). Empty (the default) loads the
+    /// family's regular face exactly as before. Bold/italic discovery always
+    /// uses the plain `font_family`, so SGR bold stays distinct.
+    pub font_weight: String,
     /// Optional explicit font file from runtime settings.
     pub font_path: Option<PathBuf>,
     /// Font size in logical pixels.
@@ -78,6 +83,7 @@ impl Default for NativeOptions {
             title: "OdyTTY".to_owned(),
             initial_grid: Dimensions::new(80, 24),
             font_family: "monospace".to_owned(),
+            font_weight: String::new(),
             font_path: None,
             font_size_px: DEFAULT_FONT_SIZE_PX,
             text_gamma: crate::settings::DEFAULT_TEXT_GAMMA,
@@ -96,6 +102,7 @@ impl NativeOptions {
                 .font_family
                 .clone()
                 .unwrap_or_else(|| Self::default().font_family),
+            font_weight: settings.font_weight.clone(),
             font_path: settings.font_path.clone(),
             font_size_px: settings.font_size_px,
             text_gamma: settings.text_gamma,

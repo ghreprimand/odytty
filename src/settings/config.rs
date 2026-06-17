@@ -11,13 +11,14 @@ use super::{
     CRT_SCANLINE_INTENSITY_ENV, CRT_SCANLINE_PERIOD_ENV, CRT_VIGNETTE_STRENGTH_ENV,
     CURSOR_BLINK_ENV, CURSOR_EASING_ENV, CURSOR_GLOW_ENV, CURSOR_MOTION_ENV, CURSOR_STYLE_ENV,
     CURSOR_TRAIL_ENV, CVD_MODE_ENV, CVD_STRENGTH_ENV, FOCUS_DIM_ENV, FOLLOW_OS_THEME_ENV, FONT_ENV,
-    FONT_FAMILY_ENV, FONT_SIZE_ENV, GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV,
-    NATIVE_AUTOCLOSE_ENV, NEW_OUTPUT_FADE_ENV, OS_THEME_DARK_ENV, OS_THEME_LIGHT_ENV,
-    OSC52_READ_ENV, RENDER_QUALITY_ENV, SCROLL_DRAG_SPEED_ENV, SCROLL_WHEEL_LINES_ENV,
-    SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV, SH_CLICK_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV,
-    SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV,
-    THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV,
-    WINDOW_PADDING_ENV, normalize_name,
+    FONT_FAMILY_ENV, FONT_SIZE_ENV, FONT_WEIGHT_ENV, GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV,
+    MIN_CONTRAST_ENV, NATIVE_AUTOCLOSE_ENV, NEW_OUTPUT_FADE_ENV, OS_THEME_DARK_ENV,
+    OS_THEME_LIGHT_ENV, OSC52_READ_ENV, RENDER_QUALITY_ENV, SCROLL_DRAG_SPEED_ENV,
+    SCROLL_WHEEL_LINES_ENV, SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV, SH_CLICK_ENV,
+    SMOOTH_SCROLL_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV,
+    SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV,
+    VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV, WINDOW_PADDING_ENV,
+    normalize_name,
 };
 use super::{BOX_THICKNESS_ENV, LINE_HEIGHT_ENV};
 #[derive(Debug, Clone, Default)]
@@ -89,6 +90,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "crtvignettestrength" | "crtvignette" => Some(CRT_VIGNETTE_STRENGTH_ENV),
         "font" => Some(FONT_ENV),
         "fontfamily" => Some(FONT_FAMILY_ENV),
+        "fontweight" | "weight" | "fontweightvariant" => Some(FONT_WEIGHT_ENV),
         "fontsize" => Some(FONT_SIZE_ENV),
         "textgamma" => Some(TEXT_GAMMA_ENV),
         "stemdarken" => Some(STEM_DARKEN_ENV),
@@ -117,6 +119,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         }
         "newoutputfade" | "outputfade" | "fadein" | "newlinefade" => Some(NEW_OUTPUT_FADE_ENV),
         "windowborder" | "border" | "themedborder" | "windowframe" => Some(WINDOW_BORDER_ENV),
+        "windowdecorations" | "decorations" | "titlebar" | "borderless" => {
+            Some(WINDOW_DECORATIONS_ENV)
+        }
         "cursormotion" | "cursorslide" | "cursoranimation" => Some(CURSOR_MOTION_ENV),
         "osc52read" | "allowosc52read" | "clipboardread" => Some(OSC52_READ_ENV),
         "syntheticstyles" | "synthstyles" | "syntheticfonts" => Some(SYNTHETIC_STYLES_ENV),
@@ -126,6 +131,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "scrolldragspeed" | "dragscrollspeed" | "autoscrollspeed" | "dragautoscroll" => {
             Some(SCROLL_DRAG_SPEED_ENV)
         }
+        "smoothscroll" | "easedscroll" | "scrollanimation" => Some(SMOOTH_SCROLL_ENV),
         "copyonselect" | "selecttoclipboard" => Some(COPY_ON_SELECT_ENV),
         "selectiondragextend" | "dragextend" | "dragextendselection" => {
             Some(SELECTION_DRAG_EXTEND_ENV)
@@ -161,6 +167,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         CRT_VIGNETTE_STRENGTH_ENV => Some("crt_vignette_strength"),
         FONT_ENV => Some("font"),
         FONT_FAMILY_ENV => Some("font_family"),
+        FONT_WEIGHT_ENV => Some("font_weight"),
         FONT_SIZE_ENV => Some("font_size"),
         TEXT_GAMMA_ENV => Some("text_gamma"),
         STEM_DARKEN_ENV => Some("stem_darken"),
@@ -196,6 +203,8 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         SH_CLICK_ENV => Some("sh_click"),
         NEW_OUTPUT_FADE_ENV => Some("new_output_fade"),
         WINDOW_BORDER_ENV => Some("window_border"),
+        WINDOW_DECORATIONS_ENV => Some("window_decorations"),
+        SMOOTH_SCROLL_ENV => Some("smooth_scroll"),
         CVD_MODE_ENV => Some("cvd_mode"),
         CVD_STRENGTH_ENV => Some("cvd_strength"),
         CONFIRM_CLOSE_ENV => Some("confirm_close"),

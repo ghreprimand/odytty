@@ -776,7 +776,17 @@ impl App {
             std::cmp::Ordering::Equal => false,
         };
         if changed {
+            // `on_viewport_changed` clears any glide (snap by default, RV4
+            // D-RV4-8). Re-arm the eased glide only for a user-initiated scroll
+            // while `smooth_scroll` is on; a selection drag-autoscroll
+            // (`pointer_drag.is_selecting()`) must snap to avoid nested easing
+            // (D-RV4-10 / T5). The integer `Viewport::offset` already moved
+            // above, so the scroll TARGET is updated with zero added latency —
+            // only the visual catches up.
             self.on_viewport_changed();
+            if self.settings.smooth_scroll && !self.pointer_drag.is_selecting() {
+                self.begin_scroll_anim(delta);
+            }
         }
     }
 
@@ -792,6 +802,11 @@ impl App {
     /// selections intact and request one rebuild/redraw so their visible
     /// intersection is recomputed.
     pub(super) fn on_viewport_changed(&mut self) {
+        // RV4: snap by default — clear any in-flight smooth-scroll glide. The
+        // user `scroll_viewport` path re-arms it after this call, so every other
+        // viewport change (return-to-live, search nav, scrollbar-thumb drag,
+        // resize) snaps. No-op on the off path (the glide is always `None`).
+        self.clear_scroll_anim();
         self.hovered_hyperlink = self
             .pointer_cell
             .and_then(|point| self.visible_cell_hyperlink(point));

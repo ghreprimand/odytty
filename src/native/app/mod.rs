@@ -82,6 +82,8 @@ mod os_theme;
 mod overlay_registry;
 mod pointer;
 mod prompt_jump;
+mod scroll_anim;
+use scroll_anim::ScrollAnimState;
 #[cfg(test)]
 mod test_seams;
 mod theme_roles;
@@ -351,6 +353,15 @@ pub(super) struct App {
     /// frame (the quad alphas move while the cell content does not). Folded into
     /// the overlay composite signature; constant on the off path.
     row_fade_epoch: u64,
+    /// RV4 smooth scroll — the active eased scrollback glide, or `None` when not
+    /// animating (always `None` while `smooth_scroll` is off). See [`scroll_anim`].
+    scroll_anim: Option<ScrollAnimState>,
+    /// RV4 smooth scroll — precomputed sub-row pixel offset for the current
+    /// frame (`0.0` at rest / on the off path). Refreshed by
+    /// [`App::update_scroll_anim`] once per rebuild; pushed to the GPU
+    /// `content_origin` Y and folded into the content render signature so an
+    /// animating frame reclassifies the cache. `0.0` ⇒ byte-identical.
+    scroll_frac_offset: f32,
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
@@ -453,6 +464,10 @@ impl App {
             row_fade_starts: Vec::new(),
             last_scrollback_len_for_fade: 0,
             row_fade_epoch: 0,
+            // RV4 smooth scroll: idle at rest (no glide, zero offset, no wakes)
+            // so the default path is byte-identical until `smooth_scroll` is on.
+            scroll_anim: None,
+            scroll_frac_offset: 0.0,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
             autoclose,
@@ -999,6 +1014,7 @@ impl App {
             title: self.options.title.clone(),
             initial_grid: self.options.initial_grid,
             font_family: parsed.font_family,
+            font_weight: parsed.font_weight,
             font_path: parsed.font_path,
             font_size_px: parsed.font_size_px,
             text_gamma: parsed.text_gamma,
@@ -1108,6 +1124,14 @@ impl App {
 
         self.settings = next_settings;
         self.options = next_options;
+        // WIN-DECOR: apply a live decorations change immediately so the panel
+        // toggle takes effect without a restart. `set_decorations` is
+        // idempotent (calling it with the current value is a no-op), so this is
+        // safe to call unconditionally on every reload. The window always
+        // exists before a settings reload can fire.
+        if let Some(window) = self.window.as_ref() {
+            window.set_decorations(self.settings.window_decorations);
+        }
         // OS-THEME: the active theme is the authored `settings.theme` unless an
         // OS dark/light override is active, in which case it wins — so a config
         // reload (which may change the authored theme or the dark/light pair)
@@ -1209,9 +1233,13 @@ impl ApplicationHandler<UserEvent> for App {
         }
 
         let (w, h) = self.options.window_logical_size();
+        // WIN-DECOR: request decorations per config at creation. Default `true`
+        // matches `WindowAttributes::default()`, so the startup chain is
+        // byte-identical when unset.
         let attributes = Window::default_attributes()
             .with_title(self.options.title.clone())
-            .with_inner_size(LogicalSize::new(w, h));
+            .with_inner_size(LogicalSize::new(w, h))
+            .with_decorations(self.settings.window_decorations);
 
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
@@ -1485,6 +1513,11 @@ impl ApplicationHandler<UserEvent> for App {
                         // overlay context, so the fade quads this frame reflect
                         // this rebuild's new rows. No-op while the knob is off.
                         self.update_row_fade(now, scrollback_len);
+                        // RV4 smooth scroll: advance the eased glide for this
+                        // frame (recompute `scroll_frac_offset`, settle when the
+                        // bounded duration elapses). No-op while idle / off, so
+                        // the offset stays 0.0 and the path is byte-identical.
+                        self.update_scroll_anim(now);
                         let ctx = self.overlay_ctx(
                             scrollback_len,
                             cell,
@@ -1531,6 +1564,11 @@ impl ApplicationHandler<UserEvent> for App {
                                 terminal_revision,
                                 viewport_offset: self.viewport.offset(),
                                 scrollback_len,
+                                // RV4: the smooth-scroll sub-row offset bits.
+                                // Constant `0` on the off path / at rest (cache
+                                // decision unchanged); changes every animating
+                                // frame so the shifted vertices rebuild.
+                                scroll_frac_bits: self.scroll_frac_bits(),
                                 grid: self.grid,
                                 cell,
                                 selection: self.selection.range().map(|range| {
@@ -1583,7 +1621,13 @@ impl ApplicationHandler<UserEvent> for App {
                         // `cursor_params` was hoisted above the signature literal
                         // (it feeds the `anim` cache key); the CursorOnly arm
                         // reuses the same value so the cached cursor matches.
+                        let scroll_frac_offset = self.scroll_frac_offset;
                         if let Some(gpu) = self.gpu.as_mut() {
+                            // RV4: push the current smooth-scroll offset so the
+                            // vertex builders shift `content_origin` this frame.
+                            // `0.0` at rest / on the off path leaves the origin
+                            // byte-identical.
+                            gpu.set_scroll_frac_offset(scroll_frac_offset);
                             match update {
                                 GeometryUpdate::Full => {
                                     gpu.update_image_layer(&visible_graphics, &image_uploads);

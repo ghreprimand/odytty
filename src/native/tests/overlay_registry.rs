@@ -113,6 +113,7 @@ fn render_sig(overlays: OverlayCompositeSignature) -> RenderSignature {
             terminal_revision: 1,
             viewport_offset: 0,
             scrollback_len: 0,
+            scroll_frac_bits: 0,
             grid: Dimensions::new(COLS, ROWS),
             cell: cell(CELL_W, CELL_H),
             selection: None,

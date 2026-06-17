@@ -276,6 +276,7 @@ fn render_sig() -> RenderSignature {
             terminal_revision: 1,
             viewport_offset: 0,
             scrollback_len: 0,
+            scroll_frac_bits: 0,
             grid: Dimensions::new(4, 2),
             cell: CellSize {
                 width: 10,

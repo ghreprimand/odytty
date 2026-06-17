@@ -148,6 +148,11 @@ pub(super) struct RenderContentSignature {
     pub(super) terminal_revision: u64,
     pub(super) viewport_offset: usize,
     pub(super) scrollback_len: usize,
+    /// RV4 smooth-scroll sub-row offset, as `f32::to_bits()`. Constant `0` on
+    /// the off path / at rest (so the cache decision is unchanged), and changes
+    /// every animating frame so a glide reclassifies the cache to a Full update
+    /// and the GPU rebuilds the shifted vertices.
+    pub(super) scroll_frac_bits: u32,
     pub(super) grid: Dimensions,
     pub(super) cell: CellSize,
     pub(super) selection: Option<SelectionSignature>,

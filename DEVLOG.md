@@ -7,6 +7,61 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- RV4 smooth scroll + RV7 font weight + WIN-DECOR (final pure-build batch)
+
+Three independent, off-by-default-or-identity knobs, all configured through the
+overlay/config surface, all with structurally byte-identical default paths.
+
+- **RV4 — smooth scrolling** (`smooth_scroll`, off by default; aliases
+  `smoothscroll` / `easedscroll` / `scrollanimation`). A scrollback movement
+  glides into place over a short, hard-capped ease-out (80 ms) instead of
+  jumping. The core scroll model stays integer-row: `Viewport::offset` snaps to
+  the new row immediately, so the scroll **target** updates with zero added
+  input latency — only the **visual** position eases toward it, as a single
+  sub-row pixel offset added to the GPU `content_origin` Y, gliding the whole
+  rendered viewport (cells, cursor, overlays) uniformly. The animation is
+  bounded (it always settles; at rest it schedules zero wakes) and rides the
+  existing `animation_deadline()` aggregator as its fourth contributor.
+  **Snap-by-default**: every viewport change clears the glide, and only a
+  user-initiated wheel/keyboard scroll re-arms it — so programmatic jumps
+  (return-to-live, search nav, scrollbar-thumb drag, resize) and active
+  selection drag-autoscroll always snap (no nested easing). TUI mouse-reporting
+  is unaffected: when an app grabs the wheel, `scroll_viewport` is never called.
+  **Off path is byte-identical**: the glide is never created, the offset stays
+  `0.0`, `content_origin` is unshifted, no wake is scheduled, and the
+  `scroll_frac_bits` render-signature field is a constant `0`. New
+  `app/scroll_anim.rs` module.
+- **RV7 — font weight variant** (`font_weight`, empty by default; aliases
+  `fontweight` / `weight`). A weight-suffix string (e.g. `Light`, `SemiBold`)
+  appended to the configured family to pick a lighter or heavier **base** face;
+  the effective query `"{font_family} {font_weight}"` resolves through the same
+  monospace-gated path the family lookup already uses. The **SGR bold attribute
+  stays distinct**: bold/italic face discovery always uses the plain
+  `font_family`, never the weight query, so bold contrasts with the chosen base
+  weight. Real faces only — a missing weight face warns and falls back to the
+  regular face (never synthetic emboldening/thinning). **Off path is
+  byte-identical**: an empty value loads the identical regular face as before
+  and triggers no atlas rebuild. `regular`/`normal` normalize to the empty
+  (identity) case.
+- **WIN-DECOR — window decorations** (`window_decorations`, on by default;
+  aliases `decorations` / `titlebar` / `borderless`). When off, OdyTTY requests
+  a borderless surface; applied both at window creation (`with_decorations`) and
+  live on a settings change (`set_decorations`, idempotent). Default `true`
+  reproduces `WindowAttributes::default()`, so startup is pixel-identical.
+  Honest docs: Wayland compositors remove the title bar reliably (CSD); X11
+  window managers honor the request on a best-effort basis (SSD) — never claimed
+  as guaranteed.
+
+Verified: `cargo fmt --check` clean; `cargo test --lib` 1610 passed / 0 failed
+(+5: the scroll-anim state-machine + curve suite); `cargo test --all-targets`
+0 failed; pixel-smoke 47/0 byte-identical; `cargo clippy --lib` 37 warnings =
+baseline, zero-new; SPDX on the new module; leak scan clean. No parser/core-state
+touch ⇒ no fuzz. Caps: `app/mod.rs` 1945, `gpu.rs` 1949 — both under the 1950
+flag but tight; the next `gpu.rs` touch should extract the `StyleFonts` /
+font-resolution block into a `gpu/` submodule first.
+
+---
+
 ## 2026-06-17 -- SYMMAP per-range font override + cursor_blink=auto honesty (HELP1 close)
 
 Two native packets: a new glyph-routing feature and the final HELP1 clarity fix.

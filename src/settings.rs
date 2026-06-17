@@ -472,6 +472,15 @@ pub struct Settings {
     pub visual: VisualEffect,
     pub font_path: Option<PathBuf>,
     pub font_family: Option<String>,
+    /// Optional weight-variant suffix appended to [`Settings::font_family`] to
+    /// select a lighter or heavier base face (RV7), e.g. `"Light"`, `"Medium"`,
+    /// `"SemiBold"`. Empty (the default) uses the family's regular face exactly
+    /// as before — the off path loads the identical face and is byte-identical.
+    /// Distinct from the SGR bold attribute: bold/italic discovery always uses
+    /// the plain `font_family`, so SGR bold stays visually distinct from the
+    /// chosen base weight. Real faces only — a missing weight face warns and
+    /// falls back to the regular face (never synthetic emboldening/thinning).
+    pub font_weight: String,
     pub font_size_px: f32,
     pub text_gamma: f32,
     /// Stem-darkening strength in `0.0..=1.0` (RV5). `0.0` (default) disables
@@ -619,6 +628,22 @@ pub struct Settings {
     /// the surface DPI factor, and it tracks the content rect on resize. Purely
     /// presentational; never affects cell semantics.
     pub window_border: bool,
+    /// Whether the window keeps its decorations — title bar and borders
+    /// (WIN-DECOR). On by default; `true` reproduces the historical
+    /// window-attribute chain exactly (pixel-identical startup). When off,
+    /// OdyTTY requests a borderless surface both at window creation and live on
+    /// a settings change. Effect is environment-dependent: Wayland compositors
+    /// remove the title bar reliably, while X11 window managers honor the
+    /// request on a best-effort basis — never a hard guarantee.
+    pub window_decorations: bool,
+    /// Whether scrollback movement glides into place over a short bounded ease
+    /// instead of jumping instantly (RV4). Off by default; the off path snaps
+    /// the viewport exactly as before, is pixel-identical, and schedules zero
+    /// extra wakes. The scroll target always updates immediately (no added
+    /// input latency); only the visual position eases toward it, hard-capped so
+    /// it always settles. Programmatic jumps and active drag-autoscroll snap.
+    /// Purely presentational; never changes which rows are shown.
+    pub smooth_scroll: bool,
     /// Colour-vision-deficiency palette adaptation mode (U4, Accessibility).
     /// `Off` by default — the off path publishes the authored palette unchanged
     /// and is pixel-identical to before. The deficiency modes daltonise the
@@ -656,6 +681,7 @@ impl Default for Settings {
             visual: VisualEffect::Off,
             font_path: None,
             font_family: None,
+            font_weight: String::new(),
             font_size_px: DEFAULT_FONT_SIZE_PX,
             text_gamma: DEFAULT_TEXT_GAMMA,
             stem_darken: DEFAULT_STEM_DARKEN,
@@ -699,6 +725,8 @@ impl Default for Settings {
             sh_click: DEFAULT_SH_CLICK,
             new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
             window_border: DEFAULT_WINDOW_BORDER,
+            window_decorations: DEFAULT_WINDOW_DECORATIONS,
+            smooth_scroll: DEFAULT_SMOOTH_SCROLL,
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
             follow_os_theme: DEFAULT_FOLLOW_OS_THEME,
@@ -946,6 +974,10 @@ impl Settings {
         } else {
             None
         };
+        let font_weight = get(FONT_WEIGHT_ENV)
+            .and_then(|value| value.into_string().ok())
+            .map(|value| parse_font_weight_variant(&value))
+            .unwrap_or_default();
         let font_size_px = parse_font_size(get(FONT_SIZE_ENV).as_deref(), &mut warn);
         let text_gamma = parse_text_gamma(get(TEXT_GAMMA_ENV).as_deref(), &mut warn);
         let stem_darken = parse_stem_darken(get(STEM_DARKEN_ENV).as_deref(), &mut warn);
@@ -1050,6 +1082,12 @@ impl Settings {
             parse_scroll_wheel_lines(get(SCROLL_WHEEL_LINES_ENV).as_deref(), &mut warn);
         let scroll_drag_speed =
             parse_scroll_drag_speed(get(SCROLL_DRAG_SPEED_ENV).as_deref(), &mut warn);
+        let smooth_scroll = parse_bool_setting(
+            get(SMOOTH_SCROLL_ENV).as_deref(),
+            SMOOTH_SCROLL_ENV,
+            DEFAULT_SMOOTH_SCROLL,
+            &mut warn,
+        );
         let copy_on_select = parse_bool_setting(
             get(COPY_ON_SELECT_ENV).as_deref(),
             COPY_ON_SELECT_ENV,
@@ -1098,6 +1136,12 @@ impl Settings {
             DEFAULT_WINDOW_BORDER,
             &mut warn,
         );
+        let window_decorations = parse_bool_setting(
+            get(WINDOW_DECORATIONS_ENV).as_deref(),
+            WINDOW_DECORATIONS_ENV,
+            DEFAULT_WINDOW_DECORATIONS,
+            &mut warn,
+        );
         let cvd_mode = parse_cvd_mode(get(CVD_MODE_ENV).as_deref(), &mut warn);
         let cvd_strength = parse_cvd_strength(get(CVD_STRENGTH_ENV).as_deref(), &mut warn);
         let follow_os_theme = parse_bool_setting(
@@ -1130,6 +1174,7 @@ impl Settings {
             visual,
             font_path,
             font_family,
+            font_weight,
             font_size_px,
             text_gamma,
             stem_darken,
@@ -1173,6 +1218,8 @@ impl Settings {
             sh_click,
             new_output_fade,
             window_border,
+            window_decorations,
+            smooth_scroll,
             cvd_mode,
             cvd_strength,
             follow_os_theme,
@@ -1194,6 +1241,9 @@ impl Settings {
         }
         if let Some(family) = self.font_family.as_ref() {
             values.insert(FONT_FAMILY_ENV, family.clone());
+        }
+        if !self.font_weight.is_empty() {
+            values.insert(FONT_WEIGHT_ENV, self.font_weight.clone());
         }
         values.insert(FONT_SIZE_ENV, format_float(self.font_size_px));
         values.insert(TEXT_GAMMA_ENV, format_float(self.text_gamma));
@@ -1298,6 +1348,14 @@ impl Settings {
         values.insert(
             WINDOW_BORDER_ENV,
             bool_display(self.window_border).to_owned(),
+        );
+        values.insert(
+            WINDOW_DECORATIONS_ENV,
+            bool_display(self.window_decorations).to_owned(),
+        );
+        values.insert(
+            SMOOTH_SCROLL_ENV,
+            bool_display(self.smooth_scroll).to_owned(),
         );
         values.insert(CVD_MODE_ENV, self.cvd_mode.as_str().to_owned());
         values.insert(CVD_STRENGTH_ENV, format_float(self.cvd_strength));
@@ -1561,6 +1619,23 @@ fn parse_symbol_font_path(raw: OsString) -> Option<PathBuf> {
             }
         }
         Err(value) => Some(PathBuf::from(value)),
+    }
+}
+
+/// Normalize an `ODYTTY_FONT_WEIGHT` value (RV7). Trims surrounding whitespace
+/// and treats `regular`/`normal` (case-insensitive) as the identity case,
+/// returning an empty string so the effective font query is the plain
+/// `font_family` exactly as before. Any other token is preserved verbatim
+/// (e.g. `Light`, `SemiBold`) to be appended to the family at face resolution.
+fn parse_font_weight_variant(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_empty()
+        || trimmed.eq_ignore_ascii_case("regular")
+        || trimmed.eq_ignore_ascii_case("normal")
+    {
+        String::new()
+    } else {
+        trimmed.to_string()
     }
 }
 

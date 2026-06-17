@@ -7,6 +7,7 @@ pub const THEME_ENV: &str = "ODYTTY_THEME";
 pub const VISUAL_ENV: &str = "ODYTTY_VISUAL";
 pub const FONT_ENV: &str = "ODYTTY_FONT";
 pub const FONT_FAMILY_ENV: &str = "ODYTTY_FONT_FAMILY";
+pub const FONT_WEIGHT_ENV: &str = "ODYTTY_FONT_WEIGHT";
 pub const FONT_SIZE_ENV: &str = "ODYTTY_FONT_SIZE";
 pub const TEXT_GAMMA_ENV: &str = "ODYTTY_TEXT_GAMMA";
 pub const STEM_DARKEN_ENV: &str = "ODYTTY_STEM_DARKEN";
@@ -35,6 +36,7 @@ pub const CURSOR_GLOW_ENV: &str = "ODYTTY_CURSOR_GLOW";
 pub const CURSOR_TRAIL_ENV: &str = "ODYTTY_CURSOR_TRAIL";
 pub const NEW_OUTPUT_FADE_ENV: &str = "ODYTTY_NEW_OUTPUT_FADE";
 pub const WINDOW_BORDER_ENV: &str = "ODYTTY_WINDOW_BORDER";
+pub const WINDOW_DECORATIONS_ENV: &str = "ODYTTY_WINDOW_DECORATIONS";
 pub const OSC52_READ_ENV: &str = "ODYTTY_OSC52_READ";
 pub const SYNTHETIC_STYLES_ENV: &str = "ODYTTY_SYNTHETIC_STYLES";
 pub const GEOMETRIC_BOXDRAW_ENV: &str = "ODYTTY_GEOMETRIC_BOXDRAW";
@@ -44,6 +46,7 @@ pub const SYMBOL_MAP_ENV: &str = "ODYTTY_SYMBOL_MAP";
 pub const THEMED_UI_ROLES_ENV: &str = "ODYTTY_THEMED_UI_ROLES";
 pub const SCROLL_WHEEL_LINES_ENV: &str = "ODYTTY_SCROLL_WHEEL_LINES";
 pub const SCROLL_DRAG_SPEED_ENV: &str = "ODYTTY_SCROLL_DRAG_SPEED";
+pub const SMOOTH_SCROLL_ENV: &str = "ODYTTY_SMOOTH_SCROLL";
 pub const COPY_ON_SELECT_ENV: &str = "ODYTTY_COPY_ON_SELECT";
 pub const SELECTION_DRAG_EXTEND_ENV: &str = "ODYTTY_SELECTION_DRAG_EXTEND";
 pub const SCROLLBAR_DRAG_ENV: &str = "ODYTTY_SCROLLBAR_DRAG";
@@ -68,6 +71,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     VISUAL_ENV,
     FONT_ENV,
     FONT_FAMILY_ENV,
+    FONT_WEIGHT_ENV,
     FONT_SIZE_ENV,
     TEXT_GAMMA_ENV,
     STEM_DARKEN_ENV,
@@ -96,6 +100,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CURSOR_TRAIL_ENV,
     NEW_OUTPUT_FADE_ENV,
     WINDOW_BORDER_ENV,
+    WINDOW_DECORATIONS_ENV,
     OSC52_READ_ENV,
     SYNTHETIC_STYLES_ENV,
     GEOMETRIC_BOXDRAW_ENV,
@@ -105,6 +110,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     THEMED_UI_ROLES_ENV,
     SCROLL_WHEEL_LINES_ENV,
     SCROLL_DRAG_SPEED_ENV,
+    SMOOTH_SCROLL_ENV,
     COPY_ON_SELECT_ENV,
     SELECTION_DRAG_EXTEND_ENV,
     SCROLLBAR_DRAG_ENV,
@@ -272,6 +278,38 @@ pub const DEFAULT_NEW_OUTPUT_FADE: bool = false;
 /// emitted and the render path is byte-identical to before. Purely
 /// presentational; never affects cell semantics.
 pub const DEFAULT_WINDOW_BORDER: bool = false;
+
+/// Show window decorations (`ODYTTY_WINDOW_DECORATIONS`, WIN-DECOR): when on, the
+/// window keeps its title bar and borders; when off, OdyTTY requests a borderless
+/// surface. On by default — `true` reproduces the historical window-attribute
+/// chain (`WindowAttributes::default()` already sets `decorations = true`), so the
+/// default startup is pixel-identical. The toggle applies both at window creation
+/// and live on a settings change. Effect depends on the environment: Wayland
+/// compositors remove the title bar reliably (client-side decorations), while on
+/// X11 the request is sent to the window manager as a hint and is honored on a
+/// best-effort basis — never a hard guarantee.
+pub const DEFAULT_WINDOW_DECORATIONS: bool = true;
+
+/// Smooth (eased) scrollback animation (`ODYTTY_SMOOTH_SCROLL`, RV4): when on, a
+/// scrollback movement glides into place over a short, bounded ease-out instead
+/// of jumping instantly. Off by default — while off the viewport snaps to its new
+/// row exactly as before and the render path is pixel-identical, scheduling zero
+/// extra wakes. The scroll TARGET always updates immediately (no added input
+/// latency); only the visual position eases toward it, and the animation is hard
+/// capped so it always settles and never schedules a perpetual wake. Programmatic
+/// jumps (search navigation, return-to-live, resize, scrollbar-thumb drag) and
+/// active drag-autoscroll always snap rather than animate. Purely presentational;
+/// never affects which rows are shown or any cell semantics.
+pub const DEFAULT_SMOOTH_SCROLL: bool = false;
+
+/// Duration of the RV4 smooth-scroll ease. A short, bounded budget so the
+/// animation always settles quickly and never adds perceptible latency. Fixed
+/// for now; a future tuning knob can expose it once a measured baseline exists.
+pub const SMOOTH_SCROLL_DURATION: Duration = Duration::from_millis(80);
+
+/// Frame cadence for the RV4 smooth-scroll animation (~60 fps). Each in-flight
+/// scroll schedules at most a handful of wakes before settling.
+pub const SMOOTH_SCROLL_FRAME: Duration = Duration::from_millis(16);
 
 /// Follow the OS dark/light appearance preference (`ODYTTY_FOLLOW_OS_THEME`,
 /// OS-THEME): when on, OdyTTY switches between the `os_theme_dark` and
