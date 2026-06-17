@@ -214,6 +214,50 @@ resize snap. Off by default; only at the live tail.
 
 ---
 
+## Smooth scrolling
+
+`smooth_scroll = on` eases viewport scroll movement over a short bounded window
+(default 80 ms ease-out-cubic) so scrollback navigation feels fluid rather than
+abrupt.
+
+The scroll target updates immediately on every wheel tick or keyboard scroll —
+there is no input lag. Only the visual presentation catches up over the easing
+window. If you scroll faster than the window can settle, the animation always
+tracks the most recent target.
+
+Smooth scrolling is off by default; `off` preserves the instant-snap behavior
+and is pixel-identical to the pre-feature renderer.
+
+### Settings
+
+| Setting | Env | Type | Default |
+|---------|-----|------|---------|
+| `smooth_scroll` | `ODYTTY_SMOOTH_SCROLL` | `on` / `off` | `off` |
+| `smooth_scroll_duration` | `ODYTTY_SMOOTH_SCROLL_DURATION` | integer ms | `80` |
+
+**`smooth_scroll`** — master switch. `on` enables eased movement; `off`
+(default) is instant and pixel-identical to the pre-feature renderer.
+
+**`smooth_scroll_duration`** — animation window in milliseconds, clamped to
+`20–200`. Shorter values (`20–40`) feel snappier and closer to instant; longer
+values (`120–200`) feel smoother but can feel sluggish during rapid scrolling.
+`80` is the default.
+
+### Enabling via odytty.conf
+
+```
+smooth_scroll = on
+# smooth_scroll_duration = 80
+```
+
+### Enabling via environment
+
+```sh
+ODYTTY_SMOOTH_SCROLL=on cargo run -- --native
+```
+
+---
+
 ## Plain / fast mode
 
 Setting all effects to their defaults (`bloom = off`) and leaving `min_contrast`

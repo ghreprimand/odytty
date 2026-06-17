@@ -255,9 +255,12 @@ reload cannot override it.
 
 Reloadable settings: `theme`, `visual`, `font`, `font_family`, `font_size`,
 `text_gamma`, `subpixel`, `cursor_style`, `cursor_blink`, `keybinds`,
-`osc52_read`, `stem_darken`, `min_contrast`. Font path, family, size, and subpixel changes rebuild the glyph
-atlas and cell metrics, recompute the terminal grid, and push PTY `TIOCSWINSZ`
-through the same path used for HiDPI scale changes. A bad rewrite is a no-op; a
+`osc52_read`, `stem_darken`, `min_contrast`, `smooth_scroll`,
+`smooth_scroll_duration`, `font_weight`, `window_decorations`. Font path,
+family, size, subpixel, and font-weight changes rebuild the glyph atlas and cell
+metrics, recompute the terminal grid, and push PTY `TIOCSWINSZ` through the same
+path used for HiDPI scale changes. `window_decorations` is applied on the next
+frame: immediate on Wayland, best-effort on X11. A bad rewrite is a no-op; a
 deleted config file keeps the current settings; reload never panics.
 
 **Startup-only setting.** `native_autoclose_ms` is not reloadable. Changing a
@@ -556,6 +559,23 @@ its first stable layer.
 - Close confirmation (`confirm_close`, default on): shows a brief in-window
   prompt before closing if a foreground program is still running. An idle shell
   closes without prompting. Off disables the guard unconditionally.
+- Smooth scrolling (`smooth_scroll`, off by default): viewport scroll movement
+  eases over a short bounded window instead of jumping to the target instantly.
+  The scroll target updates immediately — no input lag — and only the visual
+  presentation catches up over the easing window (default ~80 ms, configurable
+  via `smooth_scroll_duration`). Off is pixel-identical to the instant-snap path.
+- Font weight control (`font_weight`, empty = regular by default): selects a
+  named base weight face (e.g. `Light`, `Medium`, `SemiBold`) for normal text,
+  independently of the SGR bold attribute; bold SGR still contrasts against your
+  chosen base. Uses real font weight faces only — an unresolvable weight name
+  falls back to the regular face. Changes rebuild the glyph atlas through the
+  same path as `font_family`.
+- Window decorations toggle (`window_decorations`, on by default): shows or
+  hides the native window titlebar and borders. On Wayland, client-side
+  decoration negotiation removes decorations reliably. On X11, this is a hint
+  to the window manager; whether borderless takes effect depends on the WM and
+  compositor — borderless is not guaranteed on X11. Purely a window chrome
+  preference; never affects terminal model state or PTY behavior.
 
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering

@@ -6,6 +6,7 @@
 
 font_size = 18
 font_family = DejaVu Sans Mono
+# font_weight =
 window_padding = 8
 theme = odyssey
 # Back-compat alias: "ambient" and "scanlines" enable the CRT scanline effect
@@ -19,10 +20,13 @@ cursor_blink = auto
 # cursor_trail = off
 # new_output_fade = off
 # window_border = off
+# window_decorations = on
 # follow_os_theme = off
 # os_theme_dark = odyssey
 # os_theme_light = odyssey-light
 confirm_close = on
+# smooth_scroll = off
+# smooth_scroll_duration = 80
 keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
 
 # Development smoke helper. Leave unset for normal interactive use.

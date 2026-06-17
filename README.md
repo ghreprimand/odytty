@@ -119,6 +119,8 @@ faces are absent; `ODYTTY_SYNTHETIC_STYLES=off` disables synthesis. Extended
 underline styles fully decoded and rendered (`SGR 4:0`–`4:5`: straight, double,
 curly, dotted, dashed). Underline color via `SGR 58`/`59`.
 
+**Font weight control.** `font_weight` sets a named base weight (e.g. `Light`, `Medium`, `SemiBold`) for normal text, independently of the SGR bold attribute — bold still contrasts against your chosen base. Uses real font weight faces only; a weight name that cannot be resolved against the active family falls back to the regular face.
+
 **Background treatments.** `background_treatment = gradient` subtly darkens
 each cell's background toward the bottom of the window; `background_treatment
 = vignette` darkens toward the edges and corners. Both are off by default
@@ -137,6 +139,8 @@ scrollback-aware anchors. Clipboard: chunked background writes for large pastes,
 bracketed-paste sanitization, line-ending normalization, Linux PRIMARY selection.
 Right-edge scroll indicator. Configurable cursor shapes (block/underline/bar),
 blink policy, and key bindings (`ODYTTY_KEYBINDS`).
+
+**Smooth scrolling.** `smooth_scroll = on` eases viewport scroll movement over a short bounded window (default 80 ms ease-out) so scrollback navigation feels fluid. The scroll target updates immediately on every wheel tick or keyboard scroll — no input lag — and only the visual presentation catches up over the easing window. Off by default and pixel-identical to the instant-snap path when off. `smooth_scroll_duration` adjusts the animation window in milliseconds.
 
 **In-app keybinding editor.** The settings panel's key-bindings row (`Ctrl+Shift+,` → navigate to Keybindings) opens a dedicated binding editor. Browse all 12 bindable actions, press a row to capture a new chord, and the new binding is written to your config automatically — the same overlay-writes-config flow as every other setting. `Backspace` on a row resets it to its default chord; `R` resets all bindings at once. If a new chord conflicts with an existing binding, a prompt lets you confirm or cancel the replacement. Hand-editing `ODYTTY_KEYBINDS` remains fully supported and produces byte-identical results.
 
@@ -173,6 +177,8 @@ reset support (OSC 104/110/111/112).
 **Follow OS dark/light theme.** `follow_os_theme = on` + `os_theme_dark = <name>` / `os_theme_light = <name>` switches between two configured themes automatically when the desktop color-scheme changes. The switch is live on Wayland (compositor preference signal); on X11 there is no live signal — set `ODYTTY_APPEARANCE=dark|light` at launch to seed the initial direction. Off by default; when off the active theme drives presentation.
 
 **Close confirmation.** `confirm_close = on` (the default) shows a brief confirmation prompt before closing the window if a foreground program is still running. Closing an idle shell exits immediately as before. Set to `off` to close unconditionally.
+
+**Window decorations.** `window_decorations = off` hides the native window titlebar and borders. On Wayland, decorations are removed via client-side decoration negotiation and disappear reliably. On X11, this is a hint to the window manager — whether borderless takes effect depends on your WM and compositor; borderless is not guaranteed on X11. On by default.
 
 **Synchronized output.** DEC private mode 2026 with 150 ms safety timeout.
 
@@ -293,15 +299,21 @@ inside the padding band; off by default. Follow-OS dark/light theme switching
 (`follow_os_theme` + `os_theme_dark` / `os_theme_light`) is live on Wayland;
 X11 can seed the direction at launch via `ODYTTY_APPEARANCE=dark|light`. Close
 confirmation (`confirm_close`, default on) guards against accidental window
-closure when a program is still running.
+closure when a program is still running. Smooth scrolling (`smooth_scroll = on`)
+eases viewport movement over a bounded animation window while keeping scroll
+targets updated immediately. Font weight control (`font_weight`) selects a named
+weight face for normal text independently of the SGR bold attribute. Window
+decoration toggle (`window_decorations`, default on) hides the titlebar on
+Wayland (reliable via client-side decorations) or makes a best-effort request on
+X11 (WM-dependent).
 
 ### On the horizon
 
-- **Readability-first rendering** — smooth scrolling is next. (The perceptual
-  color pipeline backs linear-space blending; the minimum-contrast floor
-  (`ODYTTY_MIN_CONTRAST`) and geometric box-drawing (`ODYTTY_GEOMETRIC_BOXDRAW`)
-  are now live in the renderer, the symbol / Nerd-font fallback
-  (`symbol_fallback`) is wired into the atlas, and stem darkening
+- **Readability-first rendering** — smooth scrolling (`smooth_scroll`) is now
+  live. (The perceptual color pipeline backs linear-space blending; the
+  minimum-contrast floor (`ODYTTY_MIN_CONTRAST`), geometric box-drawing
+  (`ODYTTY_GEOMETRIC_BOXDRAW`), and the symbol / Nerd-font fallback
+  (`symbol_fallback`) are wired into the renderer, and stem darkening
   (`ODYTTY_STEM_DARKEN`) is available — all default off / passthrough.)
 - **Atmospheric effects (opt-in)** — bloom/phosphor glow, CRT/retro profile,
   cursor glow; all off by default, perf- and readability-gated. See

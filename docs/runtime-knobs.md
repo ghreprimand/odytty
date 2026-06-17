@@ -36,6 +36,7 @@ The config file is a simple dependency-free `key = value` format:
 # ~/.config/odytty/odytty.conf
 font_size = 18
 font_family = DejaVu Sans Mono
+# font_weight =
 theme = odyssey
 visual = ambient
 subpixel = rgb
@@ -56,6 +57,7 @@ symbol_fallback = off
 symbol_font =
 themed_ui_roles = on
 window_border = off
+# window_decorations = on
 cursor_style = bar
 cursor_blink = auto
 cursor_trail = off
@@ -64,6 +66,8 @@ follow_os_theme = off
 # os_theme_dark = odyssey
 # os_theme_light = odyssey-light
 confirm_close = on
+# smooth_scroll = off
+# smooth_scroll_duration = 80
 keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
 ```
 
@@ -118,6 +122,10 @@ directory and rename it over the target, so OdyTTY never truncates
 | `os_theme_dark` | `ODYTTY_OS_THEME_DARK` | A built-in theme name | unset | Theme applied when `follow_os_theme` is on and the desktop signals a dark color scheme. Resolved by name against the built-in theme library (same rules as `theme`). When unset, the authored `theme` is kept unchanged on a dark signal. |
 | `os_theme_light` | `ODYTTY_OS_THEME_LIGHT` | A built-in theme name | unset | Theme applied when `follow_os_theme` is on and the desktop signals a light color scheme. When unset, the authored `theme` is kept unchanged on a light signal. |
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` | Close confirmation: when on, shows a brief in-window confirmation prompt before closing the window if a foreground program is still running. An idle shell (no foreground job) closes immediately without prompting. Set to `off` to close unconditionally. Invalid values fall back to `on`. |
+| `smooth_scroll` | `ODYTTY_SMOOTH_SCROLL` | `on`, `off` | `off` | Smooth scrolling: eases viewport scroll movement over a short bounded window so scrollback navigation feels fluid. The scroll target updates immediately on every wheel tick or keyboard scroll — no input lag — and only the visual presentation catches up over the easing window. Off by default and pixel-identical to the instant-snap path when off. Invalid values fall back to `off`. |
+| `smooth_scroll_duration` | `ODYTTY_SMOOTH_SCROLL_DURATION` | Integer milliseconds, clamped to `20..=200` | `80` | Animation window for smooth scrolling in milliseconds. Shorter values feel snappier; longer values feel smoother. Only active when `smooth_scroll = on`. Invalid values fall back to `80` with one stderr warning. |
+| `font_weight` | `ODYTTY_FONT_WEIGHT` | A font weight name (e.g. `Light`, `Medium`, `SemiBold`), or empty | empty (regular) | Base font weight for normal text, independent of the SGR bold attribute. Selects a named weight face from the active font family so bold SGR still contrasts against your chosen base. Uses real font weight faces only; a weight name that cannot be resolved against the current family falls back to the regular face. A change rebuilds the glyph atlas through the same font-change seam as `font_family`. Config-file and env aliases: `fontweight`. |
+| `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` | Window decorations: when `off`, hides the native window titlebar and borders. On Wayland, client-side decoration negotiation removes decorations reliably. On X11, this is a hint to the window manager — whether borderless takes effect depends on the WM and compositor; borderless is not guaranteed on X11. On by default. Invalid values fall back to `on`. |
 | `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
 
 All settings above except `native_autoclose_ms` are live-reloadable from the
@@ -148,10 +156,15 @@ rebuild the glyph atlas through that seam: toggling the fallback or changing the
 explicit symbol font re-resolves the fallback face and re-rasterizes missing PUA
 icons without a restart. `themed_ui_roles` is presentation-only and applies on
 the next frame. `window_border`, `cursor_trail`, `new_output_fade`,
-`follow_os_theme`, `os_theme_dark`, `os_theme_light`, and `confirm_close`
-apply on the next frame or event. `native_autoclose_ms` is startup-only
-because changing the smoke-test exit timer mid-session would make manual and
-automated lifecycle behavior ambiguous.
+`follow_os_theme`, `os_theme_dark`, `os_theme_light`, `confirm_close`,
+`smooth_scroll`, and `smooth_scroll_duration` apply on the next frame or event.
+`font_weight` rebuilds the glyph atlas through the same font-change seam as
+`font_family` — a change re-rasterizes the weight-selected faces without a
+restart. `window_decorations` applies on the next frame; the effect is immediate
+on Wayland (client-side decoration negotiation) and best-effort on X11 (window
+manager hint). `native_autoclose_ms` is startup-only because changing the
+smoke-test exit timer mid-session would make manual and automated lifecycle
+behavior ambiguous.
 
 ## Native Shortcuts
 
