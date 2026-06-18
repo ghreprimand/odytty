@@ -48,8 +48,6 @@ pub(super) struct SettingsPanel {
     scroll: usize,
     editing: Option<RowEdit>,
     message: Option<String>,
-    /// Numeric row whose slider is being dragged (UX4-P2).
-    dragging: Option<SliderDragState>,
     /// In-overlay search state (OB-SEARCH).
     query: String,
     search_active: bool,
@@ -117,19 +115,6 @@ struct RowEdit {
     buffer: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-struct SliderDragState {
-    key: &'static str,
-    value: String,
-    /// Body width at drag start. The drag caches
-    /// the slider track geometry so pointer-move events do not re-walk the
-    /// full visible-rows list each tick. A body-width change (resize mid-drag)
-    /// invalidates the cache and forces a recompute.
-    body_width: usize,
-    track_x0: usize,
-    track_w: usize,
-}
-
 impl SettingsPanel {
     pub(super) fn new(settings: &Settings) -> Self {
         let edits = SettingsEditOverlay::new(settings);
@@ -147,7 +132,6 @@ impl SettingsPanel {
             scroll: 0,
             editing: None,
             message: None,
-            dragging: None,
             query: String::new(),
             search_active: false,
             last_body_height: 18,
@@ -210,7 +194,6 @@ impl SettingsPanel {
             .unwrap_or(0);
         self.editing = None;
         self.message = None;
-        self.dragging = None;
         self.clamp();
     }
 
@@ -314,7 +297,7 @@ impl SettingsPanel {
     }
 
     pub(super) fn is_dragging(&self) -> bool {
-        self.dragging.is_some()
+        false
     }
 
     /// The current panel title (used by `apply_overlay` to render the title
@@ -660,7 +643,6 @@ impl SettingsPanel {
         self.editing = None;
         self.path_picker = None;
         self.message = None;
-        self.dragging = None;
         self.level = SettingsLevel::SectionDetail { section_index };
         self.clamp();
     }

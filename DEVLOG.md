@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Click-to-set settings sliders
+
+Settings sliders no longer capture live mouse motion. Clicking a slider track
+now applies that position once through the existing settings value path, while
+the numeric readout and keyboard controls remain available for precise edits.
+This removes the runtime coordinate feedback path that could make tiny mouse
+movements jump sliders to the extremes or keep changing values after release.
+
+---
+
 ## 2026-06-18 -- Simpler settings slider capture
 
 Settings slider drags now use a stricter capture path: left-button release

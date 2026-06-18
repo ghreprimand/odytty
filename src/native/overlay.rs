@@ -93,16 +93,17 @@ impl OverlayUi {
     }
 
     pub(super) fn open_settings(&mut self) {
-        // Defensive: never (re)enter with a stale slider drag armed (UX4-P2).
+        // Defensive no-op for settings click-to-set sliders; kept with the
+        // shared close/switch cleanup path.
         self.panel.end_slider_drag();
         self.open = true;
         self.mode = OverlayMode::Settings;
     }
 
     pub(super) fn close(&mut self) {
-        // Clear any in-progress slider drag on exit so a lost release (pointer
+        // Clear any in-progress overlay drag on exit so a lost release (pointer
         // left the window / focus loss mid-drag) cannot leave it armed for the
-        // next open — the P2 analogue of the P1 held-report_button cleanup.
+        // next open.
         self.panel.end_slider_drag();
         self.theme_builder.end_channel_drag();
         self.open = false;
@@ -112,7 +113,7 @@ impl OverlayUi {
     }
 
     pub(super) fn open_theme_picker(&mut self, settings: &Settings) {
-        // A mode switch also abandons any settings-panel slider drag (UX4-P2).
+        // A mode switch also runs the shared pointer-capture cleanup path.
         self.panel.end_slider_drag();
         self.settings = settings.clone();
         self.theme_picker.open(settings);
@@ -425,10 +426,9 @@ impl OverlayUi {
         }
     }
 
-    /// Whether an overlay slider drag is in progress (UX4-P2 settings slider or
-    /// U2 Step 2/3 builder channel slider). The App gates per-move routing on
-    /// this so non-drag hover stays cheap. (Name kept for the App call sites,
-    /// which live in a peer lane this wave; it now covers the builder too.)
+    /// Whether an overlay drag is in progress. Settings sliders are click-to-set,
+    /// so this is only true for modes that still capture pointer motion, such as
+    /// the theme builder channel slider.
     pub(super) fn is_settings_dragging(&self) -> bool {
         match self.mode {
             OverlayMode::Settings => self.panel.is_dragging(),
@@ -442,13 +442,9 @@ impl OverlayUi {
         }
     }
 
-    /// Abandon any in-progress settings slider drag WITHOUT closing the overlay
-    /// (UX4-P2). The App calls this on focus loss while the overlay stays open:
-    /// a press may have armed a drag whose release is delivered to another
-    /// window after an alt-tab, so without this the drag would survive and the
-    /// next bare hover Move on focus regain would commit a phantom slider value
-    /// — the overlay-stays-open analogue of the close/reopen lost-release case.
-    /// No-op unless the active mode currently holds a slider drag.
+    /// Abandon any in-progress overlay drag WITHOUT closing the overlay. The App
+    /// calls this on focus loss while the overlay stays open; no-op unless the
+    /// active mode currently holds a pointer-captured drag.
     pub(super) fn cancel_settings_drag(&mut self) {
         match self.mode {
             OverlayMode::Settings => self.panel.end_slider_drag(),
@@ -832,8 +828,8 @@ pub(super) enum PointerButton {
 }
 
 /// Pointer events delivered to the overlay (UX4-P1/P2), the mouse analogue of
-/// [`OverlayInput`]. `Press` (click) and `Wheel` (free scroll) landed with P1;
-/// `Move`/`Release` drive the UX4-P2 slider drag.
+/// [`OverlayInput`]. `Press` drives clicks, `Wheel` drives free scroll, and
+/// `Move`/`Release` drive modes that still capture pointer motion.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum OverlayPointer {
     /// A button went down at `cell` (grid coordinates over the visible grid,
@@ -845,14 +841,14 @@ pub(super) enum OverlayPointer {
         button: PointerButton,
         x_in_body: Option<f32>,
     },
-    /// The pointer moved to `cell` while a slider drag is in progress (UX4-P2).
-    /// `x_in_body` is the fractional body-relative x for pixel-precision slider
-    /// tracking; `None` in tests / headless mode.
+    /// The pointer moved to `cell` while an overlay drag is in progress (UX4-P2).
+    /// `x_in_body` is the fractional body-relative x from physical pixel data;
+    /// `None` in tests / headless mode.
     Move {
         cell: CellPoint,
         x_in_body: Option<f32>,
     },
-    /// A button was released at `cell` (UX4-P2): ends any slider drag.
+    /// A button was released at `cell` (UX4-P2): ends any overlay drag.
     Release {
         cell: CellPoint,
         button: PointerButton,
@@ -2138,10 +2134,10 @@ mod tests {
         assert_eq!(after.selected, before.selected, "selection did not move");
     }
 
-    // --- UX4-P2: slider drag through OverlayPointer Move/Release ---
+    // --- Settings sliders: click-to-set, no live drag capture ---
 
     #[test]
-    fn pointer_press_move_release_drives_a_slider_drag() {
+    fn pointer_press_sets_slider_once_and_move_release_are_inert() {
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
         // Drill into Fonts section (contains font_size, a slider row).
@@ -2152,8 +2148,8 @@ mod tests {
             .expect("a slider row is visible in Fonts section");
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
-        // Press the far-right of the track → arms the drag without jumping.
-        assert_eq!(
+        // Press the far-right of the track → applies once without arming drag.
+        assert!(matches!(
             overlay.handle_pointer(
                 OverlayPointer::Press {
                     cell: right,
@@ -2162,12 +2158,16 @@ mod tests {
                 },
                 rect,
             ),
-            OverlayOutcome::Consumed
+            OverlayOutcome::ApplySettings(_)
+        ));
+        assert!(
+            !overlay.is_settings_dragging(),
+            "settings slider click does not arm a drag"
         );
-        assert!(overlay.is_settings_dragging(), "track press arms the drag");
 
-        // Move to the far-left of the track → applies the min value.
-        assert!(matches!(
+        // Move to the far-left of the track → inert, because settings sliders
+        // no longer capture pointer motion.
+        assert_eq!(
             overlay.handle_pointer(
                 OverlayPointer::Move {
                     cell: left,
@@ -2175,10 +2175,10 @@ mod tests {
                 },
                 rect
             ),
-            OverlayOutcome::ApplySettings(_)
-        ));
+            OverlayOutcome::Consumed
+        );
 
-        // Release ends the drag; a later Move is inert.
+        // Release and later move stay inert.
         assert_eq!(
             overlay.handle_pointer(
                 OverlayPointer::Release {
@@ -2189,7 +2189,7 @@ mod tests {
             ),
             OverlayOutcome::Consumed
         );
-        assert!(!overlay.is_settings_dragging(), "release ends the drag");
+        assert!(!overlay.is_settings_dragging());
         assert_eq!(
             overlay.handle_pointer(
                 OverlayPointer::Move {
@@ -2204,11 +2204,9 @@ mod tests {
     }
 
     #[test]
-    fn a_lost_release_drag_cannot_survive_close_and_reopen() {
-        // Regression (UX4-P2): if a release is never delivered (pointer leaves
-        // the window / focus loss mid-drag), the armed drag must not persist
-        // across close/reopen, or a later hover Move would drive a phantom drag.
-        // Closing and any (re)open clear it.
+    fn settings_slider_click_cannot_leave_drag_state_across_close_reopen() {
+        // Settings sliders do not arm drag state, so a missing release cannot
+        // survive close/reopen or drive a phantom value.
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
         // Drill into Fonts section to get a slider row.
@@ -2219,7 +2217,7 @@ mod tests {
             .expect("a slider row is visible in Fonts section");
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
-        // Arm a drag, then close WITHOUT a release (the lost-release case).
+        // Click a slider, then close WITHOUT a release.
         let _ = overlay.handle_pointer(
             OverlayPointer::Press {
                 cell: right,
@@ -2229,13 +2227,13 @@ mod tests {
             rect,
         );
         assert!(
-            overlay.is_settings_dragging(),
-            "precondition: drag is armed"
+            !overlay.is_settings_dragging(),
+            "settings slider click does not arm drag state"
         );
         overlay.close();
-        assert!(!overlay.is_settings_dragging(), "close clears the drag");
+        assert!(!overlay.is_settings_dragging());
 
-        // Reopen and assert a bare Move does nothing (no phantom drag).
+        // Reopen and assert a bare Move does nothing.
         overlay.open_settings();
         assert!(!overlay.is_settings_dragging(), "reopen has no stale drag");
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
@@ -2253,12 +2251,10 @@ mod tests {
     }
 
     #[test]
-    fn focus_loss_drag_cancel_keeps_overlay_open_and_inert() {
-        // Regression (UX4-P2): a press can arm a drag whose release is delivered
-        // to ANOTHER window after an alt-tab. The overlay stays OPEN, so
-        // close/reopen never runs — only `cancel_settings_drag` (driven by
-        // `WindowEvent::Focused(false)`) clears the drag. Without it, a bare
-        // hover Move on focus regain would commit a phantom slider value.
+    fn focus_loss_after_settings_slider_click_keeps_overlay_open_and_inert() {
+        // Settings sliders no longer arm drag state. Focus-loss cleanup remains
+        // safe and a bare hover Move on focus regain cannot commit a phantom
+        // slider value.
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
         // Drill into Fonts section to get a slider row.
@@ -2269,7 +2265,7 @@ mod tests {
             .expect("a slider row is visible in Fonts section");
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
-        // Arm a drag at the right end of the track.
+        // Click at the right end of the track.
         let _ = overlay.handle_pointer(
             OverlayPointer::Press {
                 cell: right,
@@ -2279,21 +2275,16 @@ mod tests {
             rect,
         );
         assert!(
-            overlay.is_settings_dragging(),
-            "precondition: drag is armed"
+            !overlay.is_settings_dragging(),
+            "settings slider click does not arm drag state"
         );
 
-        // Focus loss WITHOUT a release and WITHOUT a close (the overlay-stays-
-        // open lost-release case).
+        // Focus loss WITHOUT a release and WITHOUT a close.
         overlay.cancel_settings_drag();
         assert!(overlay.is_open(), "focus loss does not close the overlay");
-        assert!(
-            !overlay.is_settings_dragging(),
-            "focus loss cancels the drag"
-        );
+        assert!(!overlay.is_settings_dragging());
 
-        // A bare hover Move (no held button) after focus regain is inert — no
-        // phantom drag re-armed.
+        // A bare hover Move after focus regain is inert.
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
         assert_eq!(
             overlay.handle_pointer(

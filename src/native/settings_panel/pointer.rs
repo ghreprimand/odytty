@@ -9,27 +9,39 @@
 //! helpers directly; methods the parent calls back into are `pub(super)`.
 //!
 //! Mouse is purely additive: every value change still terminates in the
-//! existing `commit_value`/`apply_raw` seam — no new write path. UX4-P2 adds the
-//! numeric slider (`Slider` zone): a draggable track plus a click-to-type
-//! readout, both committing through that same seam.
+//! existing `commit_value`/`apply_raw` seam — no new write path. Numeric slider
+//! rows use a click-to-set track plus a click-to-type readout, both committing
+//! through that same seam.
 
 use super::SettingsLevel;
 use super::sections::SECTIONS;
-use super::{
-    RowEdit, SettingKind, SettingsPanel, SettingsPanelLine, SettingsPanelOutcome, SliderDragState,
-};
+use super::{RowEdit, SettingKind, SettingsPanel, SettingsPanelLine, SettingsPanelOutcome};
 use super::{SettingInfo, ellipsize, setting_detail, wrap_words};
 use crate::native::overlay::PointerButton;
 
-/// Slider track geometry bounds (UX4-P2): the track grows to fill the value
-/// area between these widths; below the minimum the row falls back to a plain
-/// click-to-type value line.
+/// Slider track geometry bounds: the track grows to fill the value area between
+/// these widths; below the minimum the row falls back to a plain click-to-type
+/// value line.
 const MIN_SLIDER_TRACK: usize = 8;
 const MAX_SLIDER_TRACK: usize = 24;
 /// Track groove and thumb glyphs. Box-drawing/full-block render reliably in the
 /// overlay (same family as the panel border).
 const SLIDER_GROOVE: char = '─';
 const SLIDER_THUMB: char = '█';
+
+fn slider_value_for_column(
+    spec: crate::settings::NumericSpec,
+    track_x0: usize,
+    track_w: usize,
+    col_in_body: usize,
+) -> f32 {
+    let fraction = if track_w <= 1 {
+        0.0
+    } else {
+        ((col_in_body as f32 - track_x0 as f32) / (track_w - 1) as f32).clamp(0.0, 1.0)
+    };
+    spec.value_at_fraction(fraction)
+}
 
 /// The role of one rendered body line, used to dispatch a click. Produced in
 /// lockstep with the rendered text by [`SettingsPanel::build_visible_rows`] so
@@ -40,9 +52,9 @@ pub(in crate::native) enum RowZone {
     GroupHeader,
     /// The `"name: value"` line — the primary action zone.
     Value,
-    /// A numeric row rendered as a slider (UX4-P2): a click/drag on the track
-    /// sets the value; a click on the readout starts a click-to-type edit. All
-    /// columns are body-relative (0 = first body cell).
+    /// A numeric row rendered as a slider: a click on the track sets the value;
+    /// a click on the readout starts a click-to-type edit. All columns are
+    /// body-relative (0 = first body cell).
     Slider {
         track_x0: usize,
         track_w: usize,
@@ -362,7 +374,7 @@ impl SettingsPanel {
         rows
     }
 
-    /// Render a numeric row as a slider (UX4-P2): `"{marker} {name}: ───█── {value}"`.
+    /// Render a numeric row as a slider: `"{marker} {name}: ───█── {value}"`.
     /// Returns `None` (caller falls back to a plain click-to-type value line)
     /// when the row has no [`crate::settings::NumericSpec`], the value cannot be
     /// parsed, or the panel is too narrow for a usable track. The readout column
@@ -415,7 +427,7 @@ impl SettingsPanel {
         ))
     }
 
-    /// Test seam (UX4-P2): the body-row offset and track geometry
+    /// Test seam: the body-row offset and track geometry
     /// (`track_x0`, `track_w`) of the first visible slider, so the overlay/App
     /// layers can drive a real drag without widening `build_visible_rows`.
     #[cfg(test)]
@@ -485,10 +497,8 @@ impl SettingsPanel {
         row_in_body: usize,
         col_in_body: usize,
         button: PointerButton,
-        x_in_body: Option<f32>,
+        _x_in_body: Option<f32>,
     ) -> SettingsPanelOutcome {
-        // A fresh press ends any stale drag before dispatching.
-        self.dragging = None;
         let hit_map = self.visible_hit_map(body_width, body_height);
         let Some(hit) = hit_map.get(row_in_body).copied() else {
             return SettingsPanelOutcome::Consumed;
@@ -533,17 +543,15 @@ impl SettingsPanel {
                 track_w,
                 readout_x0,
                 readout_w,
-                body_width,
-                x_in_body,
             ),
         }
     }
 
-    /// Dispatch a press that landed on a numeric slider row (UX4-P2): a press on
-    /// the track sets the value and arms a drag; a press on the readout starts a
-    /// click-to-type edit; elsewhere on the row it only focuses. Right-click on
-    /// a slider has no value verb (it just focuses), keeping reverse-cycle an
-    /// enum-only gesture.
+    /// Dispatch a press that landed on a numeric slider row: a press on the
+    /// track sets that value once; the readout starts click-to-type edit;
+    /// elsewhere on the row it only focuses. Settings sliders deliberately do
+    /// not capture pointer motion because live native drag coordinates can be
+    /// unstable across overlay rebuilds and font/grid changes.
     #[allow(clippy::too_many_arguments)]
     fn slider_press(
         &mut self,
@@ -554,8 +562,6 @@ impl SettingsPanel {
         track_w: usize,
         readout_x0: usize,
         readout_w: usize,
-        body_width: usize,
-        x_in_body: Option<f32>,
     ) -> SettingsPanelOutcome {
         if button == PointerButton::Right {
             return SettingsPanelOutcome::Consumed;
@@ -575,16 +581,8 @@ impl SettingsPanel {
             let Some(spec) = spec else {
                 return SettingsPanelOutcome::Consumed;
             };
-            self.begin_slider_drag(
-                key,
-                spec,
-                track_x0,
-                track_w,
-                col_in_body,
-                body_width,
-                x_in_body,
-            );
-            SettingsPanelOutcome::Consumed
+            let value = slider_value_for_column(spec, track_x0, track_w, col_in_body);
+            self.commit_value(key, &format!("{value:.3}"))
         } else if col_in_body >= readout_x0 && col_in_body < readout_x0 + readout_w {
             self.start_numeric_edit(entry_index)
         } else {
@@ -593,98 +591,21 @@ impl SettingsPanel {
         }
     }
 
-    /// Continue an in-progress slider drag (UX4-P2): map the current cursor
-    /// column to a value for the dragged row. Geometry is recomputed from the
-    /// shared row walker each move, so a resize mid-drag can never desync it.
+    /// Settings sliders are click-to-set only. Pointer moves are ignored so a
+    /// stale native motion stream cannot keep editing values after the click.
     pub(in crate::native) fn handle_pointer_drag(
         &mut self,
-        body_width: usize,
-        body_height: usize,
-        col_in_body: usize,
+        _body_width: usize,
+        _body_height: usize,
+        _col_in_body: usize,
         _x_in_body: Option<f32>,
     ) -> SettingsPanelOutcome {
-        let Some(drag) = self.dragging.as_ref() else {
-            return SettingsPanelOutcome::Consumed;
-        };
-        let key = drag.key;
-        let Some(index) = self.entries.iter().position(|entry| entry.key == key) else {
-            return SettingsPanelOutcome::Consumed;
-        };
-        let Some(spec) = self.entries[index].numeric else {
-            return SettingsPanelOutcome::Consumed;
-        };
-        // Cache slider geometry during an active drag: reuse the slider track
-        // geometry captured at drag start instead of re-walking
-        // `build_visible_rows` on every pointer-motion event. A body-width
-        // change (resize mid-drag) invalidates the cache and falls back to a
-        // fresh `slider_zone_for`.
-        let (track_x0, track_w) = if drag.body_width == body_width {
-            (drag.track_x0, drag.track_w)
-        } else {
-            let Some(geometry) = self.slider_zone_for(index, body_width, body_height) else {
-                return SettingsPanelOutcome::Consumed;
-            };
-            geometry
-        };
-
-        let fraction = if track_w <= 1 {
-            0.0
-        } else {
-            ((col_in_body as f32 - track_x0 as f32) / (track_w - 1) as f32).clamp(0.0, 1.0)
-        };
-
-        let value = spec.value_at_fraction(fraction);
-        let value_str = format!("{value:.3}");
-
-        // Dedup: skip the commit when the snapped value has not changed.
-        if self
-            .dragging
-            .as_ref()
-            .is_some_and(|d| d.key == key && d.value == value_str)
-        {
-            return SettingsPanelOutcome::Consumed;
-        }
-
-        if let Some(drag) = self.dragging.as_mut().filter(|d| d.key == key) {
-            drag.value = value_str.clone();
-            drag.body_width = body_width;
-            drag.track_x0 = track_x0;
-            drag.track_w = track_w;
-        }
-
-        self.commit_value(key, &value_str)
+        SettingsPanelOutcome::Consumed
     }
 
-    /// End a slider drag (UX4-P2), called on pointer release.
-    pub(in crate::native) fn end_slider_drag(&mut self) {
-        self.dragging = None;
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn begin_slider_drag(
-        &mut self,
-        key: &'static str,
-        spec: crate::settings::NumericSpec,
-        track_x0: usize,
-        track_w: usize,
-        _col_in_body: usize,
-        body_width: usize,
-        _press_x_in_body: Option<f32>,
-    ) {
-        let current = self
-            .entries
-            .iter()
-            .find(|entry| entry.key == key)
-            .and_then(|entry| entry.value.parse::<f32>().ok())
-            .unwrap_or(spec.min);
-        self.dragging = Some(SliderDragState {
-            key,
-            value: format!("{current:.3}"),
-            body_width,
-            track_x0,
-            track_w,
-        });
-    }
+    /// Kept for the shared overlay close/release path. Settings sliders do not
+    /// hold drag state.
+    pub(in crate::native) fn end_slider_drag(&mut self) {}
 
     /// Begin a click-to-type numeric edit through the same `RowEdit` path the
     /// keyboard uses (Enter applies, Esc cancels), so the parser/clamp is shared.
@@ -697,25 +618,6 @@ impl SettingsPanel {
         self.editing = Some(RowEdit { key, buffer: value });
         self.message = Some("Editing: type a value, Enter applies, Esc cancels.".to_owned());
         SettingsPanelOutcome::Consumed
-    }
-
-    /// The track geometry of the slider currently rendered for entry `index`, by
-    /// scanning the shared row walker — guarantees drag geometry matches what is
-    /// drawn. `None` if that row is not currently a visible slider.
-    fn slider_zone_for(
-        &self,
-        index: usize,
-        body_width: usize,
-        body_height: usize,
-    ) -> Option<(usize, usize)> {
-        self.build_visible_rows(body_width, body_height)
-            .into_iter()
-            .find_map(|(_, hit)| match hit.zone {
-                RowZone::Slider {
-                    track_x0, track_w, ..
-                } if hit.entry_index == Some(index) => Some((track_x0, track_w)),
-                _ => None,
-            })
     }
 
     /// Act on a click on the focused row's value, mirroring `activate_selected`
@@ -810,7 +712,7 @@ mod tests {
             .expect("value row present")
     }
 
-    /// The body row offset and `Slider` zone for `key` (numeric rows, UX4-P2).
+    /// The body row offset and `Slider` zone for `key` (numeric rows).
     fn slider_row(panel: &SettingsPanel, key: &str) -> (usize, RowZone) {
         let want = entry_index(panel, key);
         panel
@@ -932,7 +834,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_the_slider_track_arms_drag_without_jumping() {
+    fn clicking_the_slider_track_sets_value_once_without_dragging() {
         let mut p = panel();
         let (row, zone) = slider_row(&p, "font_size");
         let RowZone::Slider {
@@ -941,35 +843,18 @@ mod tests {
         else {
             unreachable!()
         };
-        let before = p.render_signature().entries;
-        assert_eq!(
-            p.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left, None),
-            SettingsPanelOutcome::Consumed
-        );
-        assert_eq!(p.render_signature().entries, before);
-        assert_eq!(p.render_signature().changed_count, 0);
-        assert!(p.is_dragging(), "track press arms a drag");
+        let SettingsPanelOutcome::Apply(settings) =
+            p.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left, None)
+        else {
+            panic!("track click applies once");
+        };
+        assert_eq!(settings.font_size_px, crate::settings::MAX_FONT_SIZE_PX);
+        assert_eq!(p.render_signature().changed_count, 1);
+        assert!(!p.is_dragging(), "track click does not arm a drag");
     }
 
     #[test]
-    fn dragging_the_track_still_commits_through_the_value_seam() {
-        let mut p = panel();
-        let (row, zone) = slider_row(&p, "font_size");
-        let RowZone::Slider { track_x0, .. } = zone else {
-            unreachable!()
-        };
-        assert_eq!(
-            p.handle_pointer_press(W, H, row, track_x0, PointerButton::Left, None),
-            SettingsPanelOutcome::Consumed
-        );
-        let SettingsPanelOutcome::Apply(settings) = p.handle_pointer_drag(W, H, 0, None) else {
-            panic!("track drag applies a value");
-        };
-        assert!(settings.font_size_px < crate::settings::DEFAULT_FONT_SIZE_PX);
-    }
-
-    #[test]
-    fn dragging_the_slider_updates_live_and_release_ends_the_drag() {
+    fn slider_pointer_move_after_click_is_inert() {
         let mut p = panel();
         let (row, zone) = slider_row(&p, "font_size");
         let RowZone::Slider {
@@ -978,33 +863,32 @@ mod tests {
         else {
             unreachable!()
         };
-        // Press mid-track to start a drag.
-        let _ =
-            p.handle_pointer_press(W, H, row, track_x0 + track_w / 2, PointerButton::Left, None);
-        assert!(p.is_dragging());
-        // Drag to the right end → max; drag past the left end → min (saturates).
-        let SettingsPanelOutcome::Apply(hi) =
-            p.handle_pointer_drag(W, H, track_x0 + track_w + 50, None)
+        let SettingsPanelOutcome::Apply(settings) =
+            p.handle_pointer_press(W, H, row, track_x0, PointerButton::Left, None)
         else {
-            panic!("drag right applies");
+            panic!("track click applies a value");
         };
-        assert_eq!(hi.font_size_px, crate::settings::MAX_FONT_SIZE_PX);
-        let SettingsPanelOutcome::Apply(lo) = p.handle_pointer_drag(W, H, 0, None) else {
-            panic!("drag left applies");
-        };
-        assert_eq!(lo.font_size_px, crate::settings::MIN_FONT_SIZE_PX);
-        // Release ends the drag; a subsequent move is inert.
-        p.end_slider_drag();
-        assert!(!p.is_dragging());
+        assert_eq!(settings.font_size_px, crate::settings::MIN_FONT_SIZE_PX);
         assert_eq!(
             p.handle_pointer_drag(W, H, track_x0 + track_w - 1, None),
-            SettingsPanelOutcome::Consumed,
-            "no drag after release"
+            SettingsPanelOutcome::Consumed
+        );
+        let value_after_move = p
+            .render_signature()
+            .entries
+            .iter()
+            .find(|entry| entry.key == "font_size")
+            .and_then(|entry| entry.value.parse::<f32>().ok())
+            .expect("font_size parses");
+        assert_eq!(
+            value_after_move,
+            crate::settings::MIN_FONT_SIZE_PX,
+            "pointer move after click must not keep editing"
         );
     }
 
     #[test]
-    fn slider_drag_follows_pointer_position_without_delta_amplification() {
+    fn slider_track_click_maps_column_without_delta_amplification() {
         let mut p = panel();
         let (row, zone) = slider_row(&p, "font_size");
         let RowZone::Slider {
@@ -1013,24 +897,30 @@ mod tests {
         else {
             unreachable!()
         };
-        let _ =
-            p.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left, None);
-        assert!(p.is_dragging());
-
         let mid_col = track_x0 + track_w / 2;
-        let SettingsPanelOutcome::Apply(mid) = p.handle_pointer_drag(W, H, mid_col, None) else {
-            panic!("mid-track drag applies");
+        let SettingsPanelOutcome::Apply(mid) =
+            p.handle_pointer_press(W, H, row, mid_col, PointerButton::Left, None)
+        else {
+            panic!("mid-track click applies");
         };
         assert!(
             mid.font_size_px > crate::settings::MIN_FONT_SIZE_PX
                 && mid.font_size_px < crate::settings::MAX_FONT_SIZE_PX,
-            "mid-track cursor maps to a mid-range value"
+            "mid-track click maps to a mid-range value"
         );
 
-        let SettingsPanelOutcome::Apply(max) =
-            p.handle_pointer_drag(W, H, track_x0 + track_w - 1, None)
+        let mut p = panel();
+        let (row, zone) = slider_row(&p, "font_size");
+        let RowZone::Slider {
+            track_x0, track_w, ..
+        } = zone
         else {
-            panic!("right-edge drag applies");
+            unreachable!()
+        };
+        let SettingsPanelOutcome::Apply(max) =
+            p.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left, None)
+        else {
+            panic!("right-edge click applies");
         };
         assert_eq!(
             max.font_size_px,

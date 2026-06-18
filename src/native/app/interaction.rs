@@ -114,9 +114,10 @@ impl App {
 
     /// Translate a winit mouse button edge over an open overlay into an
     /// [`OverlayPointer::Press`]/`Release` and apply the outcome (UX4-P1/P2).
-    /// Press drives clicks and arms a slider drag; release ends a drag. Middle/
-    /// other buttons are dropped so no PRIMARY paste fires while the overlay is
-    /// up and so a stray middle release cannot disturb a drag.
+    /// Press drives clicks and may arm an overlay drag in modes that still
+    /// capture motion (theme builder). Release ends any such drag. Middle/other
+    /// buttons are dropped so no PRIMARY paste fires while the overlay is up and
+    /// so a stray middle release cannot disturb a drag.
     pub(in crate::native) fn handle_overlay_pointer_button(
         &mut self,
         state: ElementState,
@@ -128,9 +129,10 @@ impl App {
             _ => return,
         };
         // SLIDER-GUARD (D-SLIDER-GUARD): track whether the left button is held so
-        // `handle_overlay_pointer_move` can gate slider updates. Clear BEFORE the
-        // Release is processed so the Release handler never sees a stale held-flag,
-        // and set AFTER the Press lands so the flag reflects an active drag.
+        // `handle_overlay_pointer_move` can gate drag updates in modes that
+        // still capture motion. Clear BEFORE Release is processed so the
+        // Release handler never sees a stale held flag, and set AFTER Press
+        // lands so the flag reflects an active drag.
         if button == WinitMouseButton::Left {
             match state {
                 ElementState::Released => {
@@ -167,7 +169,8 @@ impl App {
             },
         };
         let outcome = self.overlay.handle_pointer(pointer, rect);
-        // After a left press, arm the held flag if a slider drag was started.
+        // After a left press, arm the held flag only if the overlay confirms a
+        // real drag. Settings sliders are click-to-set and leave this false.
         if button == WinitMouseButton::Left && state == ElementState::Pressed {
             self.overlay_left_held = self.overlay.is_settings_dragging();
         }
@@ -179,16 +182,15 @@ impl App {
         self.request_selection_redraw();
     }
 
-    /// Drive an in-progress slider drag from the cached pointer cell (UX4-P2).
+    /// Drive an in-progress overlay drag from the cached pointer cell (UX4-P2).
     /// Gated on an active drag AND the left-button-held flag so cursor movements
     /// after the button is released can never advance an armed drag
     /// (D-SLIDER-GUARD). Ordinary hover over the open overlay stays a cheap
     /// no-op (no redraw, no PTY/selection work).
     pub(in crate::native) fn handle_overlay_pointer_move(&mut self) {
-        // A bare hover is forwarded only to advance an active settings slider
-        // drag (UX4-P2, only when the left button IS held — D-SLIDER-GUARD)
-        // or to drive context-menu hover-to-focus (IN2); otherwise it is a cheap
-        // no-op.
+        // A bare hover is forwarded only to advance an active overlay drag
+        // (UX4-P2, only when the left button IS held — D-SLIDER-GUARD) or to
+        // drive context-menu hover-to-focus (IN2); otherwise it is a cheap no-op.
         let should_route = if self.overlay.is_settings_dragging() {
             // Slider move: require the left button to be held. If the drag state
             // is somehow stale (lost Release event), cancel it and return.

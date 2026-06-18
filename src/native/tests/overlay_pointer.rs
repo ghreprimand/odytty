@@ -148,10 +148,10 @@ fn overlay_open_wheel_scrolls_the_panel_not_the_scrollback() {
 }
 
 #[test]
-fn overlay_slider_drag_routes_through_cursor_move_and_release() {
-    // UX4-P2: an open-overlay slider drag is driven by the same window-event
-    // arms as P1 — MouseInput (press/release) and CursorMoved (move) — and the
-    // move only advances an armed drag. Drive the real App handlers end to end.
+fn overlay_slider_click_sets_once_and_cursor_move_is_inert() {
+    // Settings sliders are click-to-set only. CursorMoved must never continue
+    // driving values, because native pointer coordinates have proven unstable
+    // during live overlay/app rebuilds.
     let Some((mut app, _terminal)) = app_for_test() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -196,88 +196,43 @@ fn overlay_slider_drag_routes_through_cursor_move_and_release() {
             })
             .collect()
     };
-    let value_of = |app: &App, key: &'static str| -> f32 {
-        app.overlay_signature_for_test()
-            .panel
-            .entries
-            .iter()
-            .find(|entry| entry.key == key)
-            .and_then(|entry| entry.value.parse::<f32>().ok())
-            .expect("numeric value parses")
-    };
-
-    // A hover move before any press is a no-op (not dragging).
+    // A hover move before any press is a no-op.
     app.set_pointer_cell_for_test(track_left.row, track_left.column);
     app.handle_overlay_pointer_move();
     assert!(!app.overlay_is_dragging_for_test(), "hover does not drag");
-    let before = numeric_values(&app);
 
-    // Press the far-right of the track → arms the drag without jumping.
-    let app_font_before_drag = app.font_size_px_for_test();
+    // Press the far-right of the track → applies one value immediately, without
+    // arming drag state or queued live-apply state.
     app.set_pointer_cell_for_test(track_right.row, track_right.column);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
     assert!(
-        app.overlay_is_dragging_for_test(),
-        "track press arms the drag"
+        !app.overlay_is_dragging_for_test(),
+        "track click does not arm a drag"
     );
     assert!(
         !app.pending_overlay_settings_for_test(),
-        "slider press does not queue an app apply until the cursor moves"
+        "slider click applies immediately instead of queuing drag updates"
     );
     assert_eq!(
-        app.font_size_px_for_test(),
-        app_font_before_drag,
-        "drag press does not rebuild the app font state"
+        app.overlay_left_held_for_test(),
+        false,
+        "left-held drag gate stays off for settings sliders"
     );
-    assert_eq!(
-        numeric_values(&app),
-        before,
-        "drag press leaves numeric values unchanged"
-    );
+    let after_click = numeric_values(&app);
 
-    // CursorMoved to the far-left of the track → drives the value down.
+    // CursorMoved to the far-left of the track is inert.
     app.set_pointer_cell_for_test(track_left.row, track_left.column);
     app.handle_overlay_pointer_move();
-    let low_values = numeric_values(&app);
-    let (changed_key, before_value, low) = low_values
-        .iter()
-        .find_map(|(key, low)| {
-            let before = before.iter().find(|(before_key, _)| before_key == key)?.1;
-            ((*low - before).abs() > f32::EPSILON).then_some((*key, before, *low))
-        })
-        .expect("drag move changes one numeric setting");
-    assert!(
-        low < before_value,
-        "drag left lowered {changed_key} ({low} < {before_value})"
-    );
-    assert!(
-        app.pending_overlay_settings_for_test(),
-        "drag move replaces the queued app apply"
-    );
+    assert_eq!(numeric_values(&app), after_click);
+    assert!(!app.pending_overlay_settings_for_test());
 
-    // Release ends the drag, flushes the latest queued settings, and a
-    // subsequent move no longer changes the value.
+    // Release and later moves stay inert.
     app.handle_overlay_pointer_button(ElementState::Released, WinitMouseButton::Left);
-    assert!(!app.overlay_is_dragging_for_test(), "release ends the drag");
-    assert!(
-        !app.pending_overlay_settings_for_test(),
-        "release flushes the queued app apply"
-    );
-    if changed_key == "font_size" {
-        assert_eq!(
-            app.font_size_px_for_test(),
-            low,
-            "release applies the latest dragged font size"
-        );
-    }
+    assert!(!app.overlay_is_dragging_for_test());
     app.set_pointer_cell_for_test(track_right.row, track_right.column);
     app.handle_overlay_pointer_move();
-    assert_eq!(
-        value_of(&app, changed_key),
-        low,
-        "no value change after release"
-    );
-    // The drag never armed a PTY report or a local selection.
+    assert_eq!(numeric_values(&app), after_click);
+    // The click never armed a PTY report or a local selection.
     assert!(app.report_button_for_test().is_none());
     assert!(!app.selecting_for_test());
 }
@@ -360,13 +315,9 @@ fn settings_slider_key_repeat_is_coalesced_until_flush() {
 }
 
 #[test]
-fn focus_loss_cancels_an_armed_overlay_slider_drag() {
-    // Regression (UX4-P2): focus loss mid-drag while the overlay stays open
-    // (e.g. alt-tab while pressing a slider) must abandon the drag through the
-    // real `WindowEvent::Focused(false)` seam, or the next bare CursorMoved on
-    // focus regain commits a phantom value — the overlay-stays-open analogue of
-    // the lost-release close/reopen case. Drives the production helper end to
-    // end (not a parallel reimplementation).
+fn focus_loss_after_settings_slider_click_leaves_moves_inert() {
+    // Settings sliders do not arm drag state. Focus-loss cleanup must remain
+    // harmless, and the next bare CursorMoved must not commit a phantom value.
     let Some((mut app, _terminal)) = app_for_test() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -398,26 +349,21 @@ fn focus_loss_cancels_an_armed_overlay_slider_drag() {
         return;
     };
 
-    // Press the far-right of the track → arms the drag.
+    // Press the far-right of the track; this applies once without drag state.
     app.set_pointer_cell_for_test(track_right.row, track_right.column);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
     assert!(
-        app.overlay_is_dragging_for_test(),
-        "track press arms the drag"
+        !app.overlay_is_dragging_for_test(),
+        "settings slider click does not arm a drag"
     );
 
-    // Focus loss WITHOUT a release (the lost-release case): the overlay stays
-    // open, but the drag must be cancelled via the production focus handler.
+    // Focus loss WITHOUT a release: the overlay stays open and cleanup is safe.
     app.cancel_overlay_drag_on_focus_loss_for_test();
-    assert!(
-        !app.overlay_is_dragging_for_test(),
-        "focus loss cancels the drag"
-    );
+    assert!(!app.overlay_is_dragging_for_test());
 
     // Snapshot the full overlay signature, then on focus regain drive a bare
     // CursorMoved to the far-left of the track: it must be inert — no phantom
-    // value commit (signature unchanged), no re-armed drag/selection. The
-    // snapshot is key-agnostic, so it holds for whichever slider was first.
+    // value commit (signature unchanged), no re-armed drag/selection.
     let before = app.overlay_signature_for_test();
     app.set_pointer_cell_for_test(track_left.row, track_left.column);
     app.handle_overlay_pointer_move();
@@ -483,12 +429,10 @@ fn opening_overlay_clears_a_held_tui_report_button() {
     );
 }
 
-/// D-SLIDER-GUARD: after the left button is released, cursor movements must NOT
-/// continue advancing the slider. The `overlay_left_held` flag must be cleared
-/// on release so the guard in `handle_overlay_pointer_move` stops all further
-/// slider updates.
+/// D-SLIDER-GUARD: settings sliders are click-to-set only, so cursor movements
+/// must not advance a value before or after release.
 #[test]
-fn slider_move_stops_after_left_button_release() {
+fn slider_move_is_inert_after_settings_slider_click_and_release() {
     let Some((mut app, _terminal)) = app_for_test() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -519,35 +463,41 @@ fn slider_move_stops_after_left_button_release() {
         return;
     };
 
-    let value_of = |app: &App, key: &'static str| -> f32 {
-        app.overlay_signature_for_test()
-            .panel
-            .entries
-            .iter()
-            .find(|e| e.key == key)
-            .and_then(|e| e.value.parse::<f32>().ok())
-            .expect("numeric value")
-    };
-
-    // Press the far-right of the track to arm the drag.
+    // Press the far-right of the track to set once.
     app.set_pointer_cell_for_test(track_right.row, track_right.column);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
     assert!(
-        app.overlay_is_dragging_for_test(),
-        "track press arms the drag"
+        !app.overlay_is_dragging_for_test(),
+        "settings slider click does not arm a drag"
     );
     assert!(
-        app.overlay_left_held_for_test(),
-        "left held flag is set on press"
+        !app.overlay_left_held_for_test(),
+        "left held flag stays off without settings drag capture"
     );
 
-    // Drag to the far left — slider should update.
+    let after_click_entries: Vec<(&'static str, f32)> = app
+        .overlay_signature_for_test()
+        .panel
+        .entries
+        .iter()
+        .filter_map(|e| e.value.parse::<f32>().ok().map(|v| (e.key, v)))
+        .collect();
+
+    // Move to the far left — slider must not update.
     app.set_pointer_cell_for_test(track_left.row, track_left.column);
     app.handle_overlay_pointer_move();
     assert!(
-        app.overlay_is_dragging_for_test(),
-        "drag is still active while button held"
+        !app.overlay_is_dragging_for_test(),
+        "move does not start a drag"
     );
+    let after_move_entries: Vec<(&'static str, f32)> = app
+        .overlay_signature_for_test()
+        .panel
+        .entries
+        .iter()
+        .filter_map(|e| e.value.parse::<f32>().ok().map(|v| (e.key, v)))
+        .collect();
+    assert_eq!(after_move_entries, after_click_entries);
 
     // Release the button.
     app.handle_overlay_pointer_button(ElementState::Released, WinitMouseButton::Left);
@@ -560,8 +510,6 @@ fn slider_move_stops_after_left_button_release() {
         "left held flag is cleared on release"
     );
 
-    // Snapshot the value after release.
-    // The changed_key is whichever slider we moved — find it generically.
     let released_entries: Vec<(&'static str, f32)> = app
         .overlay_signature_for_test()
         .panel
@@ -577,17 +525,18 @@ fn slider_move_stops_after_left_button_release() {
         !app.overlay_is_dragging_for_test(),
         "post-release move must not re-arm the drag"
     );
-    for (key, value_at_release) in &released_entries {
-        let value_now = value_of(&app, key);
-        assert_eq!(
-            value_now, *value_at_release,
-            "slider {key} must not change after left button release (guard: D-SLIDER-GUARD)"
-        );
-    }
+    let after_release_move_entries: Vec<(&'static str, f32)> = app
+        .overlay_signature_for_test()
+        .panel
+        .entries
+        .iter()
+        .filter_map(|e| e.value.parse::<f32>().ok().map(|v| (e.key, v)))
+        .collect();
+    assert_eq!(after_release_move_entries, released_entries);
 }
 
 #[test]
-fn slider_release_without_pointer_cell_still_clears_drag() {
+fn slider_release_without_pointer_cell_stays_inert_after_click() {
     let Some((mut app, _terminal)) = app_for_test() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -617,11 +566,11 @@ fn slider_release_without_pointer_cell_still_clears_drag() {
         return;
     };
 
-    // Press to arm the drag.
+    // Press to set once without arming drag.
     app.set_pointer_cell_for_test(track_right.row, track_right.column);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
-    assert!(app.overlay_is_dragging_for_test());
-    assert!(app.overlay_left_held_for_test());
+    assert!(!app.overlay_is_dragging_for_test());
+    assert!(!app.overlay_left_held_for_test());
 
     app.clear_pointer_cell_for_test();
     app.handle_overlay_pointer_button(ElementState::Released, WinitMouseButton::Left);
@@ -631,7 +580,7 @@ fn slider_release_without_pointer_cell_still_clears_drag() {
     );
     assert!(
         !app.overlay_is_dragging_for_test(),
-        "release cancels drag even without cached pointer cell"
+        "release leaves drag off even without cached pointer cell"
     );
 
     let before = app.overlay_signature_for_test();
