@@ -586,11 +586,8 @@ fn slider_move_stops_after_left_button_release() {
     }
 }
 
-/// D-SLIDER-GUARD: a stale drag state (drag armed, button already released) is
-/// cancelled on the next cursor move rather than committed. This guards against
-/// any missed-release scenario.
 #[test]
-fn stale_drag_after_release_is_cancelled_on_next_move() {
+fn slider_release_without_pointer_cell_still_clears_drag() {
     let Some((mut app, _terminal)) = app_for_test() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -624,21 +621,19 @@ fn stale_drag_after_release_is_cancelled_on_next_move() {
     app.set_pointer_cell_for_test(track_right.row, track_right.column);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
     assert!(app.overlay_is_dragging_for_test());
+    assert!(app.overlay_left_held_for_test());
 
-    // Simulate a stale drag: release the button (drag ends) but clear only
-    // `overlay_left_held` manually to reproduce a scenario where drag state
-    // outlives the flag. (In practice this is guarded; this test proves the
-    // guard itself.)
+    app.clear_pointer_cell_for_test();
     app.handle_overlay_pointer_button(ElementState::Released, WinitMouseButton::Left);
-    assert!(!app.overlay_left_held_for_test(), "flag cleared by release");
+    assert!(
+        !app.overlay_left_held_for_test(),
+        "release clears held flag even without cached pointer cell"
+    );
     assert!(
         !app.overlay_is_dragging_for_test(),
-        "drag cleared by release"
+        "release cancels drag even without cached pointer cell"
     );
 
-    // Even if somehow the drag state were stale, a move with the flag clear
-    // should be a no-op. (We can't artificially re-arm the drag without bypassing
-    // the guard, so we just confirm the post-release move stays inert.)
     let before = app.overlay_signature_for_test();
     app.set_pointer_cell_for_test(track_left.row, track_left.column);
     app.handle_overlay_pointer_move();

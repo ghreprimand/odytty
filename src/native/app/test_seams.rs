@@ -55,6 +55,13 @@ impl App {
         self.pointer_cell = Some(CellPoint { row, column });
     }
 
+    /// Test seam: clear the cached pointer cell to exercise button events that
+    /// arrive without usable cursor coordinates.
+    #[cfg(test)]
+    pub(in crate::native) fn clear_pointer_cell_for_test(&mut self) {
+        self.pointer_cell = None;
+    }
+
     /// Test seam (UX4-P1): the live overlay rect for the current grid.
     #[cfg(test)]
     pub(in crate::native) fn overlay_rect_for_test(

@@ -596,17 +596,12 @@ impl SettingsPanel {
     /// Continue an in-progress slider drag (UX4-P2): map the current cursor
     /// column to a value for the dragged row. Geometry is recomputed from the
     /// shared row walker each move, so a resize mid-drag can never desync it.
-    ///
-    /// `x_in_body` is the fractional body-relative x coordinate from physical
-    /// pixel data. When present it is used for sub-cell precision so small
-    /// cursor movements produce proportionally small value changes. Falls back
-    /// to integer cell math when `None` (tests / headless).
     pub(in crate::native) fn handle_pointer_drag(
         &mut self,
         body_width: usize,
         body_height: usize,
         col_in_body: usize,
-        x_in_body: Option<f32>,
+        _x_in_body: Option<f32>,
     ) -> SettingsPanelOutcome {
         let Some(drag) = self.dragging.as_ref() else {
             return SettingsPanelOutcome::Consumed;
@@ -632,23 +627,10 @@ impl SettingsPanel {
             geometry
         };
 
-        // Compute the slider fraction. Prefer pixel-precision delta tracking
-        // when physical x data is available: the value changes by exactly the
-        // amount the cursor moved from the press point, giving smooth sub-cell
-        // behavior and removing the cell-resolution jump. Falls back to
-        // cell-based column math in tests / headless builds.
-        let fraction = if let (Some(x), Some(press_x)) = (x_in_body, drag.press_x_in_body) {
-            let track_span = (track_w as f32 - 1.0).max(1.0);
-            let delta_fraction = (x - press_x) / track_span;
-            (drag.initial_fraction + delta_fraction).clamp(0.0, 1.0)
+        let fraction = if track_w <= 1 {
+            0.0
         } else {
-            // Cell-based fallback: apply the grab offset then map to fraction.
-            let value_col = drag.value_column(col_in_body);
-            if track_w <= 1 {
-                0.0
-            } else {
-                ((value_col as f32 - track_x0 as f32) / (track_w - 1) as f32).clamp(0.0, 1.0)
-            }
+            ((col_in_body as f32 - track_x0 as f32) / (track_w - 1) as f32).clamp(0.0, 1.0)
         };
 
         let value = spec.value_at_fraction(fraction);
@@ -663,9 +645,6 @@ impl SettingsPanel {
             return SettingsPanelOutcome::Consumed;
         }
 
-        // Update geometry cache and value IN PLACE — preserving grab_offset,
-        // initial_fraction, and press_x_in_body so delta tracking stays intact
-        // for every subsequent move during the same drag.
         if let Some(drag) = self.dragging.as_mut().filter(|d| d.key == key) {
             drag.value = value_str.clone();
             drag.body_width = body_width;
@@ -688,9 +667,9 @@ impl SettingsPanel {
         spec: crate::settings::NumericSpec,
         track_x0: usize,
         track_w: usize,
-        col_in_body: usize,
+        _col_in_body: usize,
         body_width: usize,
-        press_x_in_body: Option<f32>,
+        _press_x_in_body: Option<f32>,
     ) {
         let current = self
             .entries
@@ -698,17 +677,12 @@ impl SettingsPanel {
             .find(|entry| entry.key == key)
             .and_then(|entry| entry.value.parse::<f32>().ok())
             .unwrap_or(spec.min);
-        let initial_fraction = spec.fraction_of(current);
-        let thumb_col = slider_thumb_col(spec, track_x0, track_w, current);
         self.dragging = Some(SliderDragState {
             key,
             value: format!("{current:.3}"),
-            grab_offset: col_in_body as isize - thumb_col as isize,
             body_width,
             track_x0,
             track_w,
-            initial_fraction,
-            press_x_in_body,
         });
     }
 
@@ -798,26 +772,6 @@ impl SettingsPanel {
                 SettingsPanelOutcome::Consumed
             }
         }
-    }
-}
-
-fn slider_thumb_col(
-    spec: crate::settings::NumericSpec,
-    track_x0: usize,
-    track_w: usize,
-    value: f32,
-) -> usize {
-    if track_w <= 1 {
-        return track_x0;
-    }
-    let last = track_w - 1;
-    track_x0 + ((spec.fraction_of(value) * last as f32).round() as usize).min(last)
-}
-
-impl SliderDragState {
-    fn value_column(&self, col_in_body: usize) -> usize {
-        let adjusted = col_in_body as isize - self.grab_offset;
-        adjusted.max(0) as usize
     }
 }
 
@@ -1049,11 +1003,8 @@ mod tests {
         );
     }
 
-    /// Pressing away from the thumb (grab_offset != 0) must track the cursor
-    /// with natural delta behavior. The grab_offset must be preserved across all
-    /// drag moves, not reset to 0 after the first move.
     #[test]
-    fn slider_drag_preserves_grab_offset_across_multiple_moves() {
+    fn slider_drag_follows_pointer_position_without_delta_amplification() {
         let mut p = panel();
         let (row, zone) = slider_row(&p, "font_size");
         let RowZone::Slider {
@@ -1062,52 +1013,30 @@ mod tests {
         else {
             unreachable!()
         };
-        // Press at the far-right of the track (grab_offset = large positive).
-        // Default font_size = 16, range 8-32. Thumb is near the 1/3 mark.
         let _ =
             p.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left, None);
         assert!(p.is_dragging());
 
-        // After the first drag move, drag should NOT jump: moving 1 cell left
-        // from the press position should produce only a small value change, not
-        // immediately snap to minimum (which would happen if grab_offset were
-        // reset to 0 after the first move).
-        let before_val = crate::settings::DEFAULT_FONT_SIZE_PX;
-        // First move: 1 cell left of the press position.
-        let after_1 = p.handle_pointer_drag(W, H, track_x0 + track_w - 2, None);
-        // Second move: same position (should dedup to Consumed).
-        let dedup = p.handle_pointer_drag(W, H, track_x0 + track_w - 2, None);
-        assert_eq!(
-            dedup,
-            SettingsPanelOutcome::Consumed,
-            "identical position dedups"
+        let mid_col = track_x0 + track_w / 2;
+        let SettingsPanelOutcome::Apply(mid) = p.handle_pointer_drag(W, H, mid_col, None) else {
+            panic!("mid-track drag applies");
+        };
+        assert!(
+            mid.font_size_px > crate::settings::MIN_FONT_SIZE_PX
+                && mid.font_size_px < crate::settings::MAX_FONT_SIZE_PX,
+            "mid-track cursor maps to a mid-range value"
         );
 
-        // Third move: back to press position (one cell right of second position).
-        let after_3 = p.handle_pointer_drag(W, H, track_x0 + track_w - 1, None);
-
-        // The grab_offset should be preserved: moving to press position should
-        // restore the value close to where it started (within 1 step, given
-        // snap rounding). If grab_offset were reset to 0, this move would snap to
-        // max (track right end), not back to the original range.
-        match after_3 {
-            SettingsPanelOutcome::Apply(s) => {
-                // The value at the press-position column is near the original value.
-                // With grab_offset preserved, it should be close to the initial value.
-                let change = (s.font_size_px - before_val).abs();
-                assert!(
-                    change <= 2.0,
-                    "drag back to press position stays near initial value (change={change}); \
-                     grab_offset must not be reset to 0 mid-drag"
-                );
-            }
-            SettingsPanelOutcome::Consumed => {
-                // Also acceptable if value snapped back exactly.
-            }
-            other => panic!("unexpected outcome: {other:?}"),
-        }
-        // Suppress unused warning for after_1.
-        let _ = after_1;
+        let SettingsPanelOutcome::Apply(max) =
+            p.handle_pointer_drag(W, H, track_x0 + track_w - 1, None)
+        else {
+            panic!("right-edge drag applies");
+        };
+        assert_eq!(
+            max.font_size_px,
+            crate::settings::MAX_FONT_SIZE_PX,
+            "right edge maps to max without accumulated delta"
+        );
     }
 
     #[test]

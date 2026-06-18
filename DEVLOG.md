@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Simpler settings slider capture
+
+Settings slider drags now use a stricter capture path: left-button release
+cancels the drag even if no cursor cell is cached, and live slider movement maps
+directly from the current cursor column over the track instead of using stored
+press deltas or pixel-coordinate math. This favors predictable mouse behavior
+over sub-cell precision and prevents stale drag state from surviving a release.
+
+---
+
 ## 2026-06-18 -- Pixel-precision settings sliders
 
 Settings slider drags now use fractional pixel coordinates when the native app

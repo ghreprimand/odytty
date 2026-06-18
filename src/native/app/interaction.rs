@@ -122,9 +122,6 @@ impl App {
         state: ElementState,
         button: WinitMouseButton,
     ) {
-        let Some(cell) = self.pointer_cell else {
-            return;
-        };
         let pointer_button = match button {
             WinitMouseButton::Left => PointerButton::Left,
             WinitMouseButton::Right => PointerButton::Right,
@@ -136,11 +133,25 @@ impl App {
         // and set AFTER the Press lands so the flag reflects an active drag.
         if button == WinitMouseButton::Left {
             match state {
-                ElementState::Released => self.overlay_left_held = false,
+                ElementState::Released => {
+                    self.overlay_left_held = false;
+                    self.overlay.cancel_settings_drag();
+                }
                 ElementState::Pressed => {} // set below, after overlay confirms a drag
             }
         }
+        let Some(cell) = self.pointer_cell else {
+            if state == ElementState::Released {
+                self.flush_pending_overlay_settings();
+                self.request_selection_redraw();
+            }
+            return;
+        };
         let Some(rect) = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows) else {
+            if state == ElementState::Released {
+                self.flush_pending_overlay_settings();
+                self.request_selection_redraw();
+            }
             return;
         };
         let x_in_body = self.pointer_x_in_body(&rect);
