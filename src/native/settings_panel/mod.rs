@@ -1206,7 +1206,7 @@ mod tests {
             .find(|line| line.text.contains("Font size:"))
             .expect("font size row present");
         assert!(
-            font_size_line.text.contains("[v]   18 [^]"),
+            font_size_line.text.contains("[<]   18  [>]"),
             "stepper readout shows the live value: {:?}",
             font_size_line.text
         );

@@ -354,7 +354,7 @@ impl SettingsPanel {
         rows
     }
 
-    /// Render a numeric row as a stepper: `"{marker} {name}: [v] {value} [^]"`.
+    /// Render a numeric row as a stepper: `"{marker} {name}: [<] {value} [>]"`.
     /// Returns `None` (caller falls back to a plain click-to-type value line)
     /// when the row has no [`crate::settings::NumericSpec`] or the panel is too
     /// narrow for both buttons plus the readout.
@@ -368,7 +368,12 @@ impl SettingsPanel {
         let prefix = format!("{marker} {}: ", entry.name);
         let prefix_w = prefix.chars().count();
         let readout = self.display_value(entry);
-        let readout_w = spec.readout_width().max(readout.chars().count());
+        let (readout_value, dirty_marker) = readout
+            .strip_suffix(" *")
+            .map(|value| (value, "*"))
+            .unwrap_or((readout.as_str(), " "));
+        let value_w = spec.readout_width().max(readout_value.chars().count());
+        let readout_w = value_w + 1;
         let total_w = STEPPER_BUTTON_W + 1 + readout_w + 1 + STEPPER_BUTTON_W;
         if body_width.checked_sub(prefix_w)? < total_w {
             return None;
@@ -376,10 +381,10 @@ impl SettingsPanel {
         let down_x0 = prefix_w;
         let readout_x0 = down_x0 + STEPPER_BUTTON_W + 1;
         let up_x0 = readout_x0 + readout_w + 1;
-        let padded_readout = format!("{readout:>readout_w$}");
+        let padded_readout = format!("{readout_value:>value_w$}{dirty_marker}");
 
         Some((
-            format!("{prefix}[v] {padded_readout} [^]"),
+            format!("{prefix}[<] {padded_readout} [>]"),
             RowZone::Stepper {
                 down_x0,
                 down_w: STEPPER_BUTTON_W,
@@ -513,8 +518,8 @@ impl SettingsPanel {
         }
     }
 
-    /// Dispatch a press that landed on a numeric stepper row: a press on `[v]`
-    /// decrements once, `[^]` increments once, the readout starts click-to-type
+    /// Dispatch a press that landed on a numeric stepper row: a press on `[<]`
+    /// decrements once, `[>]` increments once, the readout starts click-to-type
     /// edit, and elsewhere on the row only focuses.
     #[allow(clippy::too_many_arguments)]
     fn stepper_press(
@@ -788,11 +793,54 @@ mod tests {
             .unwrap()
             .0
             .text;
-        assert!(line.contains("[v]"), "down button visible: {line:?}");
-        assert!(line.contains("[^]"), "up button visible: {line:?}");
+        assert!(line.contains("[<]"), "down button visible: {line:?}");
+        assert!(line.contains("[>]"), "up button visible: {line:?}");
         assert_eq!(down_w, STEPPER_BUTTON_W);
         assert_eq!(up_w, STEPPER_BUTTON_W);
         assert!(down_x0 < readout_x0 && readout_x0 < up_x0);
+    }
+
+    #[test]
+    fn stepper_reserves_dirty_marker_column() {
+        let mut p = panel();
+        let clean_line = p
+            .build_visible_rows(W, H)
+            .into_iter()
+            .find(|(line, _)| line.text.contains("Font size:"))
+            .expect("font size row present")
+            .0
+            .text;
+        let (row, zone) = stepper_row(&p, "font_size");
+        let RowZone::Stepper { up_x0, .. } = zone else {
+            unreachable!()
+        };
+        let SettingsPanelOutcome::Apply(_) =
+            p.handle_pointer_press(W, H, row, up_x0, PointerButton::Left, None)
+        else {
+            panic!("stepper click applies a value");
+        };
+        let dirty_line = p
+            .build_visible_rows(W, H)
+            .into_iter()
+            .find(|(line, _)| line.text.contains("Font size:"))
+            .expect("font size row present")
+            .0
+            .text;
+
+        let clean_up = clean_line.find("[>]").expect("clean up button visible");
+        let dirty_up = dirty_line.find("[>]").expect("dirty up button visible");
+        assert_eq!(
+            clean_up, dirty_up,
+            "dirty marker must not shift controls: clean={clean_line:?} dirty={dirty_line:?}"
+        );
+        assert!(
+            clean_line.contains("   14  [>]"),
+            "clean spacer: {clean_line:?}"
+        );
+        assert!(
+            dirty_line.contains("   15* [>]"),
+            "dirty marker: {dirty_line:?}"
+        );
     }
 
     #[test]
