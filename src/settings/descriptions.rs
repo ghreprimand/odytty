@@ -50,15 +50,15 @@ pub const BACKGROUND_BLUR_RADIUS_DESC: &str = "Background blur: pixel radius of 
      so text stays readable over busy images. Computed once on the CPU; no \
      per-frame cost.";
 
-pub const BACKGROUND_IMAGE_SCRIM_DESC: &str = "Background scrim override: auto or explicit 0.0-1.0 strength of the readability \
-     overlay blended over the background image. auto (default) computes \
-     the minimum scrim that keeps text legible. Set a value only to dial the \
-     darkening/lightening up or down by hand.";
+pub const BACKGROUND_IMAGE_SCRIM_DESC: &str = "Wallpaper readability: auto or explicit 0.0-1.0 strength of the readability \
+     overlay blended over the wallpaper. auto (default) computes the minimum \
+     overlay that keeps text legible. Lower values keep the image clearer; \
+     higher values make text safer over busy images.";
 
-pub const CELL_BG_OPACITY_DESC: &str = "Cell background opacity: how opaque each cell's background is over the \
-     background image. 1.0 (default) is fully opaque — cells hide the image and \
-     output is pixel-identical to before. Below 1.0 the image shows through \
-     behind text; the readability scrim keeps contrast safe at any value.";
+pub const CELL_BG_OPACITY_DESC: &str = "Wallpaper visibility: how much of the wallpaper shows through terminal cell \
+     backgrounds. 0.0 (default) hides the wallpaper behind cells and preserves \
+     the original solid terminal look. Higher values reveal more of the image; \
+     the config/env key stores the inverse as cell background opacity.";
 
 pub const WINDOW_PADDING_DESC: &str = "Window padding: logical pixels of inset between the window edge and the \
      terminal grid. Accepts 0.0-64.0; 0.0 restores the historical edge-to-edge \

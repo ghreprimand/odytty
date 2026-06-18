@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use crate::settings::{SettingEdit, SettingInfo, SettingKind, Settings, SettingsEditOverlay};
+use crate::settings::{
+    DEFAULT_CELL_BG_OPACITY, SettingEdit, SettingInfo, SettingKind, Settings, SettingsEditOverlay,
+};
 
 use super::overlay::OverlayInput;
 
@@ -144,12 +146,18 @@ impl SettingsPanel {
     /// Called by the render path immediately before `visible_lines` so that
     /// keyboard navigation (`clamp`) knows the real visible window dimensions.
     pub(super) fn update_body_height(&mut self, body_height: usize) {
+        if let Some(picker) = self.path_picker.as_mut() {
+            picker.poll_pending();
+        }
         if body_height > 0 {
             self.last_body_height = body_height;
         }
     }
 
     pub(super) fn update_body_width(&mut self, body_width: usize) {
+        if let Some(picker) = self.path_picker.as_mut() {
+            picker.poll_pending();
+        }
         if body_width > 0 {
             self.last_body_width = body_width;
         }
@@ -854,6 +862,21 @@ impl SettingsPanel {
         let before_scroll = self.scroll;
         if key == "background_image" && !value.trim().is_empty() && value.trim() != "none" {
             let _ = self.edits.apply_raw("background_treatment", "image");
+            if self.edits.settings().cell_bg_opacity >= DEFAULT_CELL_BG_OPACITY - 0.001 {
+                let _ = self.edits.apply_raw("cell_bg_opacity", "0.850");
+            }
+        }
+        let commit_value;
+        let value = if key == "cell_bg_opacity" {
+            let visibility = value.trim().parse::<f32>().unwrap_or(0.0).clamp(0.0, 1.0);
+            commit_value = format!("{:.3}", 1.0 - visibility);
+            commit_value.as_str()
+        } else {
+            value
+        };
+        if key == "background_image" {
+            self.update_entry_value_in_place("background_treatment");
+            self.update_entry_value_in_place("cell_bg_opacity");
         }
         match self.edits.apply_raw(key, value) {
             Ok(Some(settings)) => {
@@ -863,6 +886,7 @@ impl SettingsPanel {
                 self.update_entry_value_in_place(key);
                 if key == "background_image" {
                     self.update_entry_value_in_place("background_treatment");
+                    self.update_entry_value_in_place("cell_bg_opacity");
                 }
                 self.restore_scroll_after_commit(before_scroll);
                 self.message = Some(format!("Applied {key}."));
@@ -872,6 +896,7 @@ impl SettingsPanel {
                 self.update_entry_value_in_place(key);
                 if key == "background_image" {
                     self.update_entry_value_in_place("background_treatment");
+                    self.update_entry_value_in_place("cell_bg_opacity");
                 }
                 self.restore_scroll_after_commit(before_scroll);
                 self.message = Some("No setting change.".to_owned());
@@ -1169,6 +1194,21 @@ mod tests {
             .unwrap_or(0);
         for _ in 0..len {
             let _ = panel.handle_input(OverlayInput::Backspace);
+        }
+    }
+
+    fn poll_path_picker(panel: &mut SettingsPanel) {
+        for _ in 0..50 {
+            panel.update_body_height(20);
+            panel.update_body_width(80);
+            if panel
+                .build_visible_rows(80, 20)
+                .iter()
+                .all(|(line, _)| !line.text.contains("Loading..."))
+            {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
         }
     }
 
@@ -1545,6 +1585,7 @@ mod tests {
             SettingsPanelOutcome::Consumed
         );
         assert!(panel.path_picker.is_some(), "path picker opened");
+        poll_path_picker(&mut panel);
 
         let rows = panel.build_visible_rows(80, 20);
         let image_row = rows
@@ -1592,6 +1633,10 @@ mod tests {
         assert_eq!(
             settings.background_image.as_deref(),
             Some(std::path::Path::new("/tmp/wall.jpg"))
+        );
+        assert!(
+            (settings.cell_bg_opacity - 0.85).abs() < 1e-3,
+            "new wallpapers get a visible default"
         );
         let treatment = panel
             .render_signature()

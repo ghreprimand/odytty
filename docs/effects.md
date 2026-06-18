@@ -273,12 +273,18 @@ backgrounds remain opaque and the image is hidden behind the cells. Values below
 scrim automatically unless `background_image_scrim` is set explicitly. Missing,
 unreadable, undecodable, or oversized inputs degrade safely with a warning.
 
+The settings panel shows `cell_bg_opacity` as **Wallpaper visibility**, the
+inverse of the config value: `0.0` hides the wallpaper behind solid cells, while
+higher values reveal more of the image. It shows `background_image_scrim` as
+**Wallpaper readability**: lower explicit values keep the image clearer, while
+higher values make text safer over busy images.
+
 Example:
 
 ```conf
 background_treatment = image
 background_image = /tmp/background.jpg
-cell_bg_opacity = 0.88
+cell_bg_opacity = 0.85
 background_blur_radius = 8
 ```
 

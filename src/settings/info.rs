@@ -589,8 +589,8 @@ impl Settings {
                 group: "Post-process",
                 key: "cell_bg_opacity",
                 env: CELL_BG_OPACITY_ENV,
-                name: "Cell background opacity",
-                value: format_float(self.cell_bg_opacity),
+                name: "Wallpaper visibility",
+                value: format_float(1.0 - self.cell_bg_opacity),
                 description: CELL_BG_OPACITY_DESC,
                 kind: SettingKind::Number,
                 range: None,
@@ -625,7 +625,7 @@ impl Settings {
                 group: "Post-process",
                 key: "background_image_scrim",
                 env: BACKGROUND_IMAGE_SCRIM_ENV,
-                name: "Background scrim override",
+                name: "Wallpaper readability",
                 value: self
                     .background_image_scrim
                     .map(format_float)
@@ -1168,7 +1168,7 @@ impl Settings {
                 .as_ref()
                 .map(|path| path.display().to_string())
                 .unwrap_or_else(|| "none".to_owned()),
-            "cell_bg_opacity" => format_float(self.cell_bg_opacity),
+            "cell_bg_opacity" => format_float(1.0 - self.cell_bg_opacity),
             "background_blur_radius" => self.background_blur_radius.to_string(),
             "background_image_scrim" => self
                 .background_image_scrim

@@ -125,7 +125,11 @@ environment variable was not set at startup.
   terminal default on Linux.
 - `background_treatment = image` draws a PNG, JPEG, or WebP behind the grid. Use
   `cell_bg_opacity < 1.0` to show it through cells; otherwise it is only visible
-  in transparent/padding areas.
+  in transparent/padding areas. The settings panel presents this inverse as
+  **Wallpaper visibility**, where higher values show more of the image.
+- `background_image_scrim = auto` is shown as **Wallpaper readability** in the
+  settings panel. Lower explicit values keep the image clearer; higher values
+  add more readability overlay.
 - `native_autoclose_ms` is a smoke-test helper and is startup-only.
 
 ## Key Bindings
@@ -193,7 +197,7 @@ ODYTTY_THEME=system cargo run -- --native
 # Background image behind translucent cells.
 ODYTTY_BACKGROUND_TREATMENT=image \
 ODYTTY_BACKGROUND_IMAGE=/tmp/background.jpg \
-ODYTTY_CELL_BG_OPACITY=0.88 \
+ODYTTY_CELL_BG_OPACITY=0.85 \
 cargo run -- --native
 
 # Non-blinking underline cursor.

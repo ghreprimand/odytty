@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, mpsc};
 
 use super::SettingsPanelLine;
 use super::pointer::{RowHit, RowZone};
@@ -27,6 +28,8 @@ pub(super) struct PathPickerState {
     /// Sorted entries in `current_dir` (dirs first, then filtered files).
     entries: Vec<PathEntry>,
     entries_cache: HashMap<PathBuf, Vec<PathEntry>>,
+    pending: Option<PendingRead>,
+    loading: bool,
     selected: usize,
     scroll: usize,
     /// The original setting value; restored on Esc. Kept for callers that
@@ -41,6 +44,19 @@ struct PathEntry {
     name: String,
     path: PathBuf,
     is_dir: bool,
+}
+
+type ReadResult = (PathBuf, Vec<PathEntry>);
+
+#[derive(Clone)]
+struct PendingRead {
+    rx: Arc<Mutex<mpsc::Receiver<ReadResult>>>,
+}
+
+impl std::fmt::Debug for PendingRead {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PendingRead").finish_non_exhaustive()
+    }
 }
 
 /// What the path picker wants the owning panel to do.
@@ -63,6 +79,8 @@ impl PathPickerState {
             current_dir: PathBuf::new(),
             entries: Vec::new(),
             entries_cache: HashMap::new(),
+            pending: None,
+            loading: false,
             selected: 0,
             scroll: 0,
             original,
@@ -74,20 +92,54 @@ impl PathPickerState {
     /// Navigate into `dir`, refreshing the entry list.
     fn navigate_to(&mut self, dir: PathBuf) {
         self.current_dir = dir;
-        self.entries = if let Some(cached) = self.entries_cache.get(&self.current_dir) {
-            cached.clone()
+        if let Some(cached) = self.entries_cache.get(&self.current_dir) {
+            self.entries = cached.clone();
+            self.pending = None;
+            self.loading = false;
         } else {
-            let entries = read_dir_entries(&self.current_dir, extension_filter(self.key));
-            self.entries_cache
-                .insert(self.current_dir.clone(), entries.clone());
-            entries
-        };
+            self.entries.clear();
+            self.pending = Some(spawn_read_dir(
+                self.current_dir.clone(),
+                extension_filter(self.key),
+            ));
+            self.loading = true;
+        }
         self.selected = 0;
         self.scroll = 0;
     }
 
+    pub(super) fn poll_pending(&mut self) {
+        let Some(pending) = self.pending.as_ref() else {
+            return;
+        };
+        let Ok(rx) = pending.rx.lock() else {
+            self.pending = None;
+            self.loading = false;
+            return;
+        };
+        let Ok((dir, entries)) = rx.try_recv() else {
+            return;
+        };
+        drop(rx);
+        self.entries_cache.insert(dir.clone(), entries.clone());
+        if dir == self.current_dir {
+            self.entries = entries;
+            self.selected = 0;
+            self.scroll = 0;
+            self.loading = false;
+            self.pending = None;
+        } else if let Some(cached) = self.entries_cache.get(&self.current_dir) {
+            self.entries = cached.clone();
+            self.selected = 0;
+            self.scroll = 0;
+            self.loading = false;
+            self.pending = None;
+        };
+    }
+
     /// Handle one key event. Returns the picker outcome.
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> PathPickerOutcome {
+        self.poll_pending();
         match input {
             OverlayInput::Up => {
                 if self.selected > 0 {
@@ -225,6 +277,16 @@ impl PathPickerState {
         }
 
         // Entry rows.
+        if self.loading && rows.len() < body_height {
+            rows.push((
+                SettingsPanelLine {
+                    text: "  Loading...".to_owned(),
+                    focused: false,
+                    bold: false,
+                },
+                inert,
+            ));
+        }
         for (index, entry) in self.entries.iter().enumerate().skip(self.scroll) {
             if rows.len() >= body_height {
                 break;
@@ -287,6 +349,20 @@ fn extension_filter(key: &str) -> &'static [&'static str] {
         "font" | "symbol_font" => &["ttf", "otf", "ttc"],
         "background_image" => &["png", "jpg", "jpeg", "webp"],
         _ => &[],
+    }
+}
+
+fn spawn_read_dir(dir: PathBuf, ext_filter: &'static [&'static str]) -> PendingRead {
+    let (tx, rx) = mpsc::channel();
+    let thread_dir = dir.clone();
+    std::thread::spawn(move || {
+        let _ = tx.send((
+            thread_dir.clone(),
+            read_dir_entries(&thread_dir, ext_filter),
+        ));
+    });
+    PendingRead {
+        rx: Arc::new(Mutex::new(rx)),
     }
 }
 
