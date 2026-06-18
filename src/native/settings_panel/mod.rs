@@ -1500,6 +1500,59 @@ mod tests {
     }
 
     #[test]
+    fn path_picker_pointer_click_activates_picker_entry() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("odytty-path-click-{unique}"));
+        fs::create_dir(&dir).expect("create temp dir");
+        let image_path = dir.join("wall.png");
+        fs::write(&image_path, b"not a real png").expect("write image path");
+
+        let mut panel = SettingsPanel::new(&Settings {
+            background_image: Some(dir.clone()),
+            ..Settings::default()
+        });
+        select_key(&mut panel, "background_image");
+        assert_eq!(
+            panel.handle_input(OverlayInput::Activate),
+            SettingsPanelOutcome::Consumed
+        );
+        assert!(panel.path_picker.is_some(), "path picker opened");
+
+        let rows = panel.build_visible_rows(80, 20);
+        let image_row = rows
+            .iter()
+            .enumerate()
+            .find_map(|(row, (line, hit))| {
+                (line.text.contains("wall.png") && hit.entry_index.is_some()).then_some(row)
+            })
+            .expect("image file row visible");
+
+        let SettingsPanelOutcome::Apply(settings) = panel.handle_pointer_press(
+            80,
+            20,
+            image_row,
+            0,
+            crate::native::overlay::PointerButton::Left,
+            None,
+        ) else {
+            panic!("path-picker click should commit the clicked path");
+        };
+        assert_eq!(
+            settings.background_image.as_deref(),
+            Some(image_path.as_path())
+        );
+        assert!(panel.path_picker.is_none(), "picker closes after selection");
+
+        fs::remove_dir_all(dir).expect("remove temp dir");
+    }
+
+    #[test]
     fn font_family_failure_surfaces_clear_overlay_message() {
         let mut panel = SettingsPanel::new(&Settings::default());
         select_key(&mut panel, "font_family");

@@ -14,6 +14,7 @@
 //! through that same seam.
 
 use super::SettingsLevel;
+use super::path_picker::PathPickerOutcome;
 use super::sections::SECTIONS;
 use super::{RowEdit, SettingKind, SettingsPanel, SettingsPanelLine, SettingsPanelOutcome};
 use super::{SettingInfo, ellipsize, setting_detail, wrap_words};
@@ -477,6 +478,10 @@ impl SettingsPanel {
             return SettingsPanelOutcome::Consumed;
         };
 
+        if self.path_picker.is_some() {
+            return self.handle_path_picker_pointer(hit, button);
+        }
+
         // SectionRow: drill into the clicked section (Level 1 only).
         // T-level-hitmap: this zone only appears in Level-1 hit-maps.
         if hit.zone == RowZone::SectionRow {
@@ -656,6 +661,41 @@ impl SettingsPanel {
                 });
                 self.message =
                     Some("Editing: type a value, Enter applies, Esc cancels.".to_owned());
+                SettingsPanelOutcome::Consumed
+            }
+        }
+    }
+
+    fn handle_path_picker_pointer(
+        &mut self,
+        hit: RowHit,
+        button: PointerButton,
+    ) -> SettingsPanelOutcome {
+        let Some(mut picker) = self.path_picker.take() else {
+            return SettingsPanelOutcome::Consumed;
+        };
+        if button == PointerButton::Right {
+            self.path_picker = Some(picker);
+            return SettingsPanelOutcome::Consumed;
+        }
+        let Some(entry_index) = hit.entry_index else {
+            self.path_picker = Some(picker);
+            return SettingsPanelOutcome::Consumed;
+        };
+
+        let key = picker.key;
+        match picker.activate_index(entry_index) {
+            PathPickerOutcome::Selected(path_str) => {
+                self.path_picker = None;
+                self.commit_value(key, &path_str)
+            }
+            PathPickerOutcome::Cancelled => {
+                self.path_picker = None;
+                self.message = Some(format!("Cancelled path selection for {key}."));
+                SettingsPanelOutcome::Consumed
+            }
+            PathPickerOutcome::Consumed => {
+                self.path_picker = Some(picker);
                 SettingsPanelOutcome::Consumed
             }
         }

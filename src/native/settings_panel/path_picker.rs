@@ -14,6 +14,8 @@ use super::SettingsPanelLine;
 use super::pointer::{RowHit, RowZone};
 use crate::native::overlay::OverlayInput;
 
+const MAX_DIR_ENTRIES: usize = 4096;
+
 /// State for an active path-picker session.
 #[derive(Debug, Clone)]
 pub(super) struct PathPickerState {
@@ -126,6 +128,15 @@ impl PathPickerState {
         } else {
             PathPickerOutcome::Selected(entry.path.display().to_string())
         }
+    }
+
+    pub(super) fn activate_index(&mut self, index: usize) -> PathPickerOutcome {
+        if index >= self.entries.len() {
+            return PathPickerOutcome::Consumed;
+        }
+        self.selected = index;
+        self.clamp_scroll();
+        self.activate_selected()
     }
 
     /// Wheel-driven free scroll.
@@ -280,28 +291,34 @@ fn read_dir_entries(dir: &Path, ext_filter: &[&str]) -> Vec<PathEntry> {
     let mut dirs: Vec<PathEntry> = Vec::new();
     let mut files: Vec<PathEntry> = Vec::new();
 
+    if let Some(parent) = dir.parent() {
+        dirs.push(PathEntry {
+            name: "../".to_owned(),
+            path: parent.to_path_buf(),
+            is_dir: true,
+        });
+    }
+
     for entry in read.flatten() {
+        if dirs.len() + files.len() >= MAX_DIR_ENTRIES {
+            break;
+        }
         let path = entry.path();
-        let Ok(meta) = entry.metadata() else {
+        let Ok(file_type) = entry.file_type() else {
             continue;
         };
-        if meta.is_dir() {
-            let name_os = entry.file_name();
-            let name = name_os.to_string_lossy();
-            if name.starts_with('.') {
-                continue;
-            }
+        let name_os = entry.file_name();
+        let name = name_os.to_string_lossy();
+        if name.starts_with('.') {
+            continue;
+        }
+        if file_type.is_dir() {
             dirs.push(PathEntry {
                 name: format!("{name}/"),
                 path,
                 is_dir: true,
             });
-        } else if meta.is_file() {
-            let name_os = entry.file_name();
-            let name = name_os.to_string_lossy();
-            if name.starts_with('.') {
-                continue;
-            }
+        } else if file_type.is_file() {
             if !ext_filter.is_empty() {
                 let ext = path
                     .extension()
@@ -320,7 +337,12 @@ fn read_dir_entries(dir: &Path, ext_filter: &[&str]) -> Vec<PathEntry> {
         }
     }
 
-    dirs.sort_by(|a, b| a.name.cmp(&b.name));
+    let has_parent = dirs.first().is_some_and(|entry| entry.name == "../");
+    if has_parent {
+        dirs[1..].sort_by(|a, b| a.name.cmp(&b.name));
+    } else {
+        dirs.sort_by(|a, b| a.name.cmp(&b.name));
+    }
     files.sort_by(|a, b| a.name.cmp(&b.name));
     dirs.extend(files);
     dirs
@@ -338,4 +360,62 @@ pub(super) fn resolve_start_dir(current_value: &str) -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("odytty-path-picker-{label}-{unique}"));
+        fs::create_dir(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn lists_parent_dirs_first_and_filters_image_files() {
+        let dir = temp_dir("filter");
+        fs::create_dir(dir.join("photos")).expect("create child dir");
+        fs::write(dir.join("wallpaper.PNG"), b"not a real png").expect("write png");
+        fs::write(dir.join("notes.txt"), b"text").expect("write text");
+
+        let entries = read_dir_entries(&dir, extension_filter("background_image"));
+        let names = entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names[0], "../");
+        assert!(names.contains(&"photos/"));
+        assert!(names.contains(&"wallpaper.PNG"));
+        assert!(!names.contains(&"notes.txt"));
+
+        fs::remove_dir_all(dir).expect("remove temp dir");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_targets_are_not_followed_during_listing() {
+        use std::os::unix::fs::symlink;
+
+        let dir = temp_dir("symlink");
+        let target = temp_dir("target");
+        fs::write(target.join("target.png"), b"png").expect("write target");
+        symlink(&target, dir.join("linked-target")).expect("create symlink");
+
+        let entries = read_dir_entries(&dir, extension_filter("background_image"));
+        assert!(
+            entries.iter().all(|entry| entry.name != "linked-target/"),
+            "listing must not follow symlinked directories"
+        );
+
+        fs::remove_dir_all(dir).expect("remove temp dir");
+        fs::remove_dir_all(target).expect("remove target dir");
+    }
 }
