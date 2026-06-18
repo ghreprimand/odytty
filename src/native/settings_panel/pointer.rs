@@ -21,6 +21,17 @@ use crate::native::overlay::PointerButton;
 
 const STEPPER_BUTTON_W: usize = 3;
 
+fn center_text(text: &str, width: usize) -> String {
+    let text_w = text.chars().count();
+    if text_w >= width {
+        return text.to_owned();
+    }
+    let pad = width - text_w;
+    let left = pad / 2;
+    let right = pad - left;
+    format!("{}{}{}", " ".repeat(left), text, " ".repeat(right))
+}
+
 /// The role of one rendered body line, used to dispatch a click. Produced in
 /// lockstep with the rendered text by [`SettingsPanel::build_visible_rows`] so
 /// the two views can never drift.
@@ -367,13 +378,8 @@ impl SettingsPanel {
         let spec = entry.numeric?;
         let prefix = format!("{marker} {}: ", entry.name);
         let prefix_w = prefix.chars().count();
-        let readout = self.display_value(entry);
-        let (readout_value, dirty_marker) = readout
-            .strip_suffix(" *")
-            .map(|value| (value, "*"))
-            .unwrap_or((readout.as_str(), " "));
-        let value_w = spec.readout_width().max(readout_value.chars().count());
-        let readout_w = value_w + 1;
+        let readout = self.display_value(entry).replace(" *", "*");
+        let readout_w = spec.readout_width().max(readout.chars().count());
         let total_w = STEPPER_BUTTON_W + 1 + readout_w + 1 + STEPPER_BUTTON_W;
         if body_width.checked_sub(prefix_w)? < total_w {
             return None;
@@ -381,7 +387,7 @@ impl SettingsPanel {
         let down_x0 = prefix_w;
         let readout_x0 = down_x0 + STEPPER_BUTTON_W + 1;
         let up_x0 = readout_x0 + readout_w + 1;
-        let padded_readout = format!("{readout_value:>value_w$}{dirty_marker}");
+        let padded_readout = center_text(&readout, readout_w);
 
         Some((
             format!("{prefix}[<] {padded_readout} [>]"),
@@ -834,12 +840,12 @@ mod tests {
             "dirty marker must not shift controls: clean={clean_line:?} dirty={dirty_line:?}"
         );
         assert!(
-            clean_line.contains("   14  [>]"),
-            "clean spacer: {clean_line:?}"
+            clean_line.contains("[<]  14  [>]"),
+            "clean centered: {clean_line:?}"
         );
         assert!(
-            dirty_line.contains("   15* [>]"),
-            "dirty marker: {dirty_line:?}"
+            dirty_line.contains("[<] 15*  [>]"),
+            "dirty centered: {dirty_line:?}"
         );
     }
 

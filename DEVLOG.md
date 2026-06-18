@@ -10,9 +10,9 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 ## 2026-06-18 -- Settings stepper alignment
 
 Settings numeric steppers now use left/right arrow labels (`[<] value [>]`) to
-match the keyboard Left/Right controls. The value field reserves a dirty-marker
-column even before an edit is pending, so the controls no longer shift when the
-`*` marker appears.
+match the keyboard Left/Right controls. The value field reserves a fixed span
+for the setting's min/max labels and dirty marker, then centers the current
+value inside it, so the controls no longer shift when the `*` marker appears.
 
 ---
 
