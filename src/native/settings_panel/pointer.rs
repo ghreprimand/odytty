@@ -9,8 +9,8 @@
 //! helpers directly; methods the parent calls back into are `pub(super)`.
 //!
 //! Mouse is purely additive: every value change still terminates in the
-//! existing `commit_value`/`apply_raw` seam — no new write path. Numeric slider
-//! rows use a click-to-set track plus a click-to-type readout, both committing
+//! existing `commit_value`/`apply_raw` seam — no new write path. Numeric rows
+//! use discrete stepper buttons plus a click-to-type readout, both committing
 //! through that same seam.
 
 use super::SettingsLevel;
@@ -19,29 +19,7 @@ use super::{RowEdit, SettingKind, SettingsPanel, SettingsPanelLine, SettingsPane
 use super::{SettingInfo, ellipsize, setting_detail, wrap_words};
 use crate::native::overlay::PointerButton;
 
-/// Slider track geometry bounds: the track grows to fill the value area between
-/// these widths; below the minimum the row falls back to a plain click-to-type
-/// value line.
-const MIN_SLIDER_TRACK: usize = 8;
-const MAX_SLIDER_TRACK: usize = 24;
-/// Track groove and thumb glyphs. Box-drawing/full-block render reliably in the
-/// overlay (same family as the panel border).
-const SLIDER_GROOVE: char = '─';
-const SLIDER_THUMB: char = '█';
-
-fn slider_value_for_column(
-    spec: crate::settings::NumericSpec,
-    track_x0: usize,
-    track_w: usize,
-    col_in_body: usize,
-) -> f32 {
-    let fraction = if track_w <= 1 {
-        0.0
-    } else {
-        ((col_in_body as f32 - track_x0 as f32) / (track_w - 1) as f32).clamp(0.0, 1.0)
-    };
-    spec.value_at_fraction(fraction)
-}
+const STEPPER_BUTTON_W: usize = 3;
 
 /// The role of one rendered body line, used to dispatch a click. Produced in
 /// lockstep with the rendered text by [`SettingsPanel::build_visible_rows`] so
@@ -52,14 +30,16 @@ pub(in crate::native) enum RowZone {
     GroupHeader,
     /// The `"name: value"` line — the primary action zone.
     Value,
-    /// A numeric row rendered as a slider: a click on the track sets the value;
-    /// a click on the readout starts a click-to-type edit. All columns are
-    /// body-relative (0 = first body cell).
-    Slider {
-        track_x0: usize,
-        track_w: usize,
+    /// A numeric row rendered as a stepper: the down/up controls decrement or
+    /// increment once per click, while the readout starts click-to-type edit.
+    /// All columns are body-relative (0 = first body cell).
+    Stepper {
+        down_x0: usize,
+        down_w: usize,
         readout_x0: usize,
         readout_w: usize,
+        up_x0: usize,
+        up_w: usize,
     },
     /// A wrapped help line — selects its owning row only, no value change.
     Detail,
@@ -285,15 +265,15 @@ impl SettingsPanel {
                 .editing
                 .as_ref()
                 .is_some_and(|edit| edit.key == entry.key);
-            // Numeric rows render as a slider unless they are being text-edited
-            // (then the edit buffer shows in a plain value line) or the panel is
-            // too narrow for a usable track (graceful fallback to click-to-type).
-            let slider = if entry.kind == SettingKind::Number && !editing_this {
-                self.slider_line(entry, marker, body_width)
+            // Numeric rows render as discrete steppers unless they are being
+            // text-edited (then the edit buffer shows in a plain value line) or
+            // the panel is too narrow (graceful fallback to click-to-type).
+            let stepper = if entry.kind == SettingKind::Number && !editing_this {
+                self.stepper_line(entry, marker, body_width)
             } else {
                 None
             };
-            let (text, zone) = if let Some((text, zone)) = slider {
+            let (text, zone) = if let Some((text, zone)) = stepper {
                 (text, zone)
             } else {
                 let mut value = self.display_value(entry);
@@ -374,13 +354,11 @@ impl SettingsPanel {
         rows
     }
 
-    /// Render a numeric row as a slider: `"{marker} {name}: ───█── {value}"`.
+    /// Render a numeric row as a stepper: `"{marker} {name}: [v] {value} [^]"`.
     /// Returns `None` (caller falls back to a plain click-to-type value line)
-    /// when the row has no [`crate::settings::NumericSpec`], the value cannot be
-    /// parsed, or the panel is too narrow for a usable track. The readout column
-    /// budget is reserved from the spec (not the live value) so the track does
-    /// not jump as the value or its changed marker grows during a drag.
-    fn slider_line(
+    /// when the row has no [`crate::settings::NumericSpec`] or the panel is too
+    /// narrow for both buttons plus the readout.
+    fn stepper_line(
         &self,
         entry: &SettingInfo,
         marker: &str,
@@ -390,48 +368,34 @@ impl SettingsPanel {
         let prefix = format!("{marker} {}: ", entry.name);
         let prefix_w = prefix.chars().count();
         let readout = self.display_value(entry);
-        let readout_budget = spec.readout_width();
-
-        let remaining = body_width.checked_sub(prefix_w)?;
-        // Need at least the track, one separating space, and the readout budget.
-        let track_avail = remaining.checked_sub(1 + readout_budget)?;
-        if track_avail < MIN_SLIDER_TRACK {
+        let readout_w = spec.readout_width().max(readout.chars().count());
+        let total_w = STEPPER_BUTTON_W + 1 + readout_w + 1 + STEPPER_BUTTON_W;
+        if body_width.checked_sub(prefix_w)? < total_w {
             return None;
         }
-        let track_w = track_avail.min(MAX_SLIDER_TRACK);
-        let track_x0 = prefix_w;
-        let readout_x0 = track_x0 + track_w + 1;
-
-        let value = entry.value.parse::<f32>().ok()?;
-        let fraction = spec.fraction_of(value);
-        let last = track_w.saturating_sub(1);
-        let thumb = ((fraction * last as f32).round() as usize).min(last);
-
-        let mut track = String::with_capacity(track_w);
-        for column in 0..track_w {
-            track.push(if column == thumb {
-                SLIDER_THUMB
-            } else {
-                SLIDER_GROOVE
-            });
-        }
+        let down_x0 = prefix_w;
+        let readout_x0 = down_x0 + STEPPER_BUTTON_W + 1;
+        let up_x0 = readout_x0 + readout_w + 1;
+        let padded_readout = format!("{readout:>readout_w$}");
 
         Some((
-            format!("{prefix}{track} {readout}"),
-            RowZone::Slider {
-                track_x0,
-                track_w,
+            format!("{prefix}[v] {padded_readout} [^]"),
+            RowZone::Stepper {
+                down_x0,
+                down_w: STEPPER_BUTTON_W,
                 readout_x0,
-                readout_w: readout_budget,
+                readout_w,
+                up_x0,
+                up_w: STEPPER_BUTTON_W,
             },
         ))
     }
 
-    /// Test seam: the body-row offset and track geometry
-    /// (`track_x0`, `track_w`) of the first visible slider, so the overlay/App
-    /// layers can drive a real drag without widening `build_visible_rows`.
+    /// Test seam: the body-row offset and button geometry of the first visible
+    /// stepper, so the overlay/App layers can drive real clicks without
+    /// widening `build_visible_rows`.
     #[cfg(test)]
-    pub(in crate::native) fn first_slider_zone_for_test(
+    pub(in crate::native) fn first_stepper_zone_for_test(
         &self,
         body_width: usize,
         body_height: usize,
@@ -440,9 +404,7 @@ impl SettingsPanel {
             .into_iter()
             .enumerate()
             .find_map(|(row, (_, hit))| match hit.zone {
-                RowZone::Slider {
-                    track_x0, track_w, ..
-                } => Some((row, track_x0, track_w)),
+                RowZone::Stepper { down_x0, up_x0, .. } => Some((row, down_x0, up_x0)),
                 _ => None,
             })
     }
@@ -530,38 +492,42 @@ impl SettingsPanel {
             // A help line only selects its owning row; no value change.
             RowZone::Detail => SettingsPanelOutcome::Consumed,
             RowZone::Value => self.click_action_on_selected(button),
-            RowZone::Slider {
-                track_x0,
-                track_w,
+            RowZone::Stepper {
+                down_x0,
+                down_w,
                 readout_x0,
                 readout_w,
-            } => self.slider_press(
+                up_x0,
+                up_w,
+            } => self.stepper_press(
                 entry_index,
                 col_in_body,
                 button,
-                track_x0,
-                track_w,
+                down_x0,
+                down_w,
                 readout_x0,
                 readout_w,
+                up_x0,
+                up_w,
             ),
         }
     }
 
-    /// Dispatch a press that landed on a numeric slider row: a press on the
-    /// track sets that value once; the readout starts click-to-type edit;
-    /// elsewhere on the row it only focuses. Settings sliders deliberately do
-    /// not capture pointer motion because live native drag coordinates can be
-    /// unstable across overlay rebuilds and font/grid changes.
+    /// Dispatch a press that landed on a numeric stepper row: a press on `[v]`
+    /// decrements once, `[^]` increments once, the readout starts click-to-type
+    /// edit, and elsewhere on the row only focuses.
     #[allow(clippy::too_many_arguments)]
-    fn slider_press(
+    fn stepper_press(
         &mut self,
         entry_index: usize,
         col_in_body: usize,
         button: PointerButton,
-        track_x0: usize,
-        track_w: usize,
+        down_x0: usize,
+        down_w: usize,
         readout_x0: usize,
         readout_w: usize,
+        up_x0: usize,
+        up_w: usize,
     ) -> SettingsPanelOutcome {
         if button == PointerButton::Right {
             return SettingsPanelOutcome::Consumed;
@@ -569,20 +535,16 @@ impl SettingsPanel {
         let Some(entry) = self.entries.get(entry_index) else {
             return SettingsPanelOutcome::Consumed;
         };
-        let key = entry.key;
         let reloadable = entry.reloadable;
-        let spec = entry.numeric;
         if !reloadable {
             self.message = Some("Startup-only setting; edit odytty.conf and restart.".to_owned());
             return SettingsPanelOutcome::Consumed;
         }
 
-        if col_in_body >= track_x0 && col_in_body < track_x0 + track_w {
-            let Some(spec) = spec else {
-                return SettingsPanelOutcome::Consumed;
-            };
-            let value = slider_value_for_column(spec, track_x0, track_w, col_in_body);
-            self.commit_value(key, &format!("{value:.3}"))
+        if col_in_body >= down_x0 && col_in_body < down_x0 + down_w {
+            self.step_numeric_entry(entry_index, -1)
+        } else if col_in_body >= up_x0 && col_in_body < up_x0 + up_w {
+            self.step_numeric_entry(entry_index, 1)
         } else if col_in_body >= readout_x0 && col_in_body < readout_x0 + readout_w {
             self.start_numeric_edit(entry_index)
         } else {
@@ -591,8 +553,20 @@ impl SettingsPanel {
         }
     }
 
-    /// Settings sliders are click-to-set only. Pointer moves are ignored so a
-    /// stale native motion stream cannot keep editing values after the click.
+    fn step_numeric_entry(&mut self, entry_index: usize, direction: isize) -> SettingsPanelOutcome {
+        let Some(entry) = self.entries.get(entry_index).cloned() else {
+            return SettingsPanelOutcome::Consumed;
+        };
+        let Some(spec) = entry.numeric else {
+            return SettingsPanelOutcome::Consumed;
+        };
+        let parsed = entry.value.parse::<f32>().unwrap_or(0.0);
+        let next = spec.snap(parsed + spec.step * direction as f32);
+        self.commit_value(entry.key, &format!("{next:.3}"))
+    }
+
+    /// Settings steppers do not drag. Pointer moves are ignored so a stale
+    /// native motion stream cannot keep editing values after the click.
     pub(in crate::native) fn handle_pointer_drag(
         &mut self,
         _body_width: usize,
@@ -603,7 +577,7 @@ impl SettingsPanel {
         SettingsPanelOutcome::Consumed
     }
 
-    /// Kept for the shared overlay close/release path. Settings sliders do not
+    /// Kept for the shared overlay close/release path. Settings steppers do not
     /// hold drag state.
     pub(in crate::native) fn end_slider_drag(&mut self) {}
 
@@ -712,20 +686,20 @@ mod tests {
             .expect("value row present")
     }
 
-    /// The body row offset and `Slider` zone for `key` (numeric rows).
-    fn slider_row(panel: &SettingsPanel, key: &str) -> (usize, RowZone) {
+    /// The body row offset and `Stepper` zone for `key` (numeric rows).
+    fn stepper_row(panel: &SettingsPanel, key: &str) -> (usize, RowZone) {
         let want = entry_index(panel, key);
         panel
             .build_visible_rows(W, H)
             .iter()
             .enumerate()
             .find_map(|(row, (_, hit))| {
-                matches!(hit.zone, RowZone::Slider { .. })
+                matches!(hit.zone, RowZone::Stepper { .. })
                     .then_some(())
                     .filter(|_| hit.entry_index == Some(want))
                     .map(|_| (row, hit.zone))
             })
-            .expect("slider row present")
+            .expect("stepper row present")
     }
 
     #[test]
@@ -793,37 +767,39 @@ mod tests {
     }
 
     #[test]
-    fn numeric_rows_render_as_a_slider_with_a_thumb() {
+    fn numeric_rows_render_as_a_stepper() {
         let p = panel();
-        let (_, zone) = slider_row(&p, "font_size");
-        let RowZone::Slider {
-            track_x0, track_w, ..
+        let (_, zone) = stepper_row(&p, "font_size");
+        let RowZone::Stepper {
+            down_x0,
+            down_w,
+            readout_x0,
+            up_x0,
+            up_w,
+            ..
         } = zone
         else {
-            panic!("font_size is a slider row");
+            panic!("font_size is a stepper row");
         };
-        assert!(track_w >= MIN_SLIDER_TRACK && track_w <= MAX_SLIDER_TRACK);
-        // The rendered track contains exactly one thumb glyph.
         let rows = p.build_visible_rows(W, H);
         let line = &rows
             .iter()
-            .find(|(_, hit)| matches!(hit.zone, RowZone::Slider { .. }))
+            .find(|(_, hit)| matches!(hit.zone, RowZone::Stepper { .. }))
             .unwrap()
             .0
             .text;
-        assert_eq!(
-            line.chars().filter(|&c| c == SLIDER_THUMB).count(),
-            1,
-            "one thumb: {line:?}"
-        );
-        assert!(track_x0 > 0, "track starts after the name prefix");
+        assert!(line.contains("[v]"), "down button visible: {line:?}");
+        assert!(line.contains("[^]"), "up button visible: {line:?}");
+        assert_eq!(down_w, STEPPER_BUTTON_W);
+        assert_eq!(up_w, STEPPER_BUTTON_W);
+        assert!(down_x0 < readout_x0 && readout_x0 < up_x0);
     }
 
     #[test]
-    fn clicking_the_slider_readout_starts_a_text_edit() {
+    fn clicking_the_stepper_readout_starts_a_text_edit() {
         let mut p = panel();
-        let (row, zone) = slider_row(&p, "font_size");
-        let RowZone::Slider { readout_x0, .. } = zone else {
+        let (row, zone) = stepper_row(&p, "font_size");
+        let RowZone::Stepper { readout_x0, .. } = zone else {
             unreachable!()
         };
         assert_eq!(
@@ -834,43 +810,63 @@ mod tests {
     }
 
     #[test]
-    fn clicking_the_slider_track_sets_value_once_without_dragging() {
+    fn clicking_stepper_up_increments_once_without_dragging() {
         let mut p = panel();
-        let (row, zone) = slider_row(&p, "font_size");
-        let RowZone::Slider {
-            track_x0, track_w, ..
-        } = zone
-        else {
+        let (row, zone) = stepper_row(&p, "font_size");
+        let RowZone::Stepper { up_x0, .. } = zone else {
             unreachable!()
         };
         let SettingsPanelOutcome::Apply(settings) =
-            p.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left, None)
+            p.handle_pointer_press(W, H, row, up_x0, PointerButton::Left, None)
         else {
-            panic!("track click applies once");
+            panic!("up click applies once");
         };
-        assert_eq!(settings.font_size_px, crate::settings::MAX_FONT_SIZE_PX);
+        assert_eq!(
+            settings.font_size_px,
+            crate::settings::DEFAULT_FONT_SIZE_PX + 1.0
+        );
         assert_eq!(p.render_signature().changed_count, 1);
-        assert!(!p.is_dragging(), "track click does not arm a drag");
+        assert!(!p.is_dragging(), "stepper click does not arm a drag");
     }
 
     #[test]
-    fn slider_pointer_move_after_click_is_inert() {
+    fn clicking_stepper_down_decrements_once_without_dragging() {
         let mut p = panel();
-        let (row, zone) = slider_row(&p, "font_size");
-        let RowZone::Slider {
-            track_x0, track_w, ..
-        } = zone
-        else {
+        let (row, zone) = stepper_row(&p, "font_size");
+        let RowZone::Stepper { down_x0, .. } = zone else {
             unreachable!()
         };
         let SettingsPanelOutcome::Apply(settings) =
-            p.handle_pointer_press(W, H, row, track_x0, PointerButton::Left, None)
+            p.handle_pointer_press(W, H, row, down_x0, PointerButton::Left, None)
         else {
-            panic!("track click applies a value");
+            panic!("down click applies once");
         };
-        assert_eq!(settings.font_size_px, crate::settings::MIN_FONT_SIZE_PX);
         assert_eq!(
-            p.handle_pointer_drag(W, H, track_x0 + track_w - 1, None),
+            settings.font_size_px,
+            crate::settings::DEFAULT_FONT_SIZE_PX - 1.0
+        );
+        assert_eq!(p.render_signature().changed_count, 1);
+        assert!(!p.is_dragging(), "stepper click does not arm a drag");
+    }
+
+    #[test]
+    fn pointer_move_after_stepper_click_is_inert() {
+        let mut p = panel();
+        let (row, zone) = stepper_row(&p, "font_size");
+        let RowZone::Stepper { down_x0, up_x0, .. } = zone else {
+            unreachable!()
+        };
+        let SettingsPanelOutcome::Apply(settings) =
+            p.handle_pointer_press(W, H, row, down_x0, PointerButton::Left, None)
+        else {
+            panic!("stepper click applies a value");
+        };
+        assert_eq!(
+            settings.font_size_px,
+            crate::settings::DEFAULT_FONT_SIZE_PX - 1.0
+        );
+        assert_eq!(
+            p.handle_pointer_drag(W, H, up_x0, None),
             SettingsPanelOutcome::Consumed
         );
         let value_after_move = p
@@ -882,62 +878,20 @@ mod tests {
             .expect("font_size parses");
         assert_eq!(
             value_after_move,
-            crate::settings::MIN_FONT_SIZE_PX,
-            "pointer move after click must not keep editing"
+            crate::settings::DEFAULT_FONT_SIZE_PX - 1.0,
+            "pointer move after stepper click must not keep editing"
         );
     }
 
     #[test]
-    fn slider_track_click_maps_column_without_delta_amplification() {
+    fn right_clicking_a_stepper_does_not_change_the_value() {
         let mut p = panel();
-        let (row, zone) = slider_row(&p, "font_size");
-        let RowZone::Slider {
-            track_x0, track_w, ..
-        } = zone
-        else {
-            unreachable!()
-        };
-        let mid_col = track_x0 + track_w / 2;
-        let SettingsPanelOutcome::Apply(mid) =
-            p.handle_pointer_press(W, H, row, mid_col, PointerButton::Left, None)
-        else {
-            panic!("mid-track click applies");
-        };
-        assert!(
-            mid.font_size_px > crate::settings::MIN_FONT_SIZE_PX
-                && mid.font_size_px < crate::settings::MAX_FONT_SIZE_PX,
-            "mid-track click maps to a mid-range value"
-        );
-
-        let mut p = panel();
-        let (row, zone) = slider_row(&p, "font_size");
-        let RowZone::Slider {
-            track_x0, track_w, ..
-        } = zone
-        else {
-            unreachable!()
-        };
-        let SettingsPanelOutcome::Apply(max) =
-            p.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left, None)
-        else {
-            panic!("right-edge click applies");
-        };
-        assert_eq!(
-            max.font_size_px,
-            crate::settings::MAX_FONT_SIZE_PX,
-            "right edge maps to max without accumulated delta"
-        );
-    }
-
-    #[test]
-    fn right_clicking_a_slider_does_not_change_the_value() {
-        let mut p = panel();
-        let (row, zone) = slider_row(&p, "font_size");
-        let RowZone::Slider { track_x0, .. } = zone else {
+        let (row, zone) = stepper_row(&p, "font_size");
+        let RowZone::Stepper { down_x0, .. } = zone else {
             unreachable!()
         };
         assert_eq!(
-            p.handle_pointer_press(W, H, row, track_x0, PointerButton::Right, None),
+            p.handle_pointer_press(W, H, row, down_x0, PointerButton::Right, None),
             SettingsPanelOutcome::Consumed
         );
         assert_eq!(
@@ -950,8 +904,8 @@ mod tests {
 
     #[test]
     fn a_narrow_panel_falls_back_to_a_click_to_type_value_row() {
-        // Too narrow for a usable track: the numeric row is a plain Value line
-        // and a click starts a text edit (keyboard parity preserved).
+        // Too narrow for usable stepper controls: the numeric row is a plain
+        // Value line and a click starts a text edit (keyboard parity preserved).
         let mut p = panel();
         let narrow = 24;
         let row = p
@@ -969,7 +923,7 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_step_and_slider_share_the_same_commit_path() {
+    fn keyboard_step_and_stepper_share_the_same_commit_path() {
         use crate::native::overlay::OverlayInput;
         // Keyboard Right still steps by the folded spec.step (font_size: +1).
         let mut kb = panel();

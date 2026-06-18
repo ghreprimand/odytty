@@ -13,12 +13,13 @@ pub enum SettingKind {
 }
 
 /// Structured numeric bounds for a [`SettingKind::Number`] row (UX4-P2): the
-/// authoritative `(min, max, step)` the slider widget and keyboard step share,
-/// plus an optional display `unit` (e.g. `"px"`). `min`/`max` mirror the same
-/// constants the parser clamps to, so the slider, the keyboard step, the derived
-/// range label, and the live-apply clamp are one source of truth and cannot
-/// drift. `unit` exists only so the derived range label keeps its suffix
-/// losslessly; the `{min, max, step}` core is exactly the modeled spec.
+/// authoritative `(min, max, step)` shared by the settings stepper, keyboard
+/// step, and any fraction-based test helpers, plus an optional display `unit`
+/// (e.g. `"px"`). `min`/`max` mirror the same constants the parser clamps to,
+/// so the UI controls, keyboard step, derived range label, and live-apply clamp
+/// are one source of truth and cannot drift. `unit` exists only so the derived
+/// range label keeps its suffix losslessly; the `{min, max, step}` core is
+/// exactly the modeled spec.
 ///
 /// `f32` fields mean this (and therefore [`SettingInfo`]) cannot derive `Eq`;
 /// `PartialEq` is sufficient for every consumer.
@@ -59,10 +60,9 @@ impl NumericSpec {
         snapped.clamp(self.min, self.max)
     }
 
-    /// Stable character budget reserved for the slider's numeric readout: the
+    /// Stable character budget reserved for the numeric readout: the
     /// wider of the two bound labels plus room for the `" *"` changed marker, so
-    /// the track geometry does not shift as the live value (or its marker)
-    /// changes during a drag.
+    /// row geometry does not shift as the live value (or its marker) changes.
     pub fn readout_width(&self) -> usize {
         let lo = format_float(self.min).chars().count();
         let hi = format_float(self.max).chars().count();

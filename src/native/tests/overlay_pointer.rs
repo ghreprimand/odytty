@@ -148,8 +148,8 @@ fn overlay_open_wheel_scrolls_the_panel_not_the_scrollback() {
 }
 
 #[test]
-fn overlay_slider_click_sets_once_and_cursor_move_is_inert() {
-    // Settings sliders are click-to-set only. CursorMoved must never continue
+fn overlay_stepper_click_sets_once_and_cursor_move_is_inert() {
+    // Settings steppers are click-only. CursorMoved must never continue
     // driving values, because native pointer coordinates have proven unstable
     // during live overlay/app rebuilds.
     let Some((mut app, _terminal)) = app_for_test() else {
@@ -158,7 +158,7 @@ fn overlay_slider_click_sets_once_and_cursor_move_is_inert() {
     };
 
     app.open_settings_overlay_for_test();
-    // Drill into Fonts section (contains font_size, a slider row).
+    // Drill into Fonts section (contains font_size, a stepper row).
     app.drive_overlay_key_for_test(
         winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
         false,
@@ -169,16 +169,16 @@ fn overlay_slider_click_sets_once_and_cursor_move_is_inert() {
         false,
         false,
     );
-    let mut tracks = app.overlay_first_slider_track_cells_for_test();
+    let mut buttons = app.overlay_first_stepper_button_cells_for_test();
     for _ in 0..12 {
-        if tracks.is_some() {
+        if buttons.is_some() {
             break;
         }
         app.handle_overlay_pointer_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
-        tracks = app.overlay_first_slider_track_cells_for_test();
+        buttons = app.overlay_first_stepper_button_cells_for_test();
     }
-    let Some((track_left, track_right)) = tracks else {
-        eprintln!("skipping: no slider row visible at this size");
+    let Some((down_button, up_button)) = buttons else {
+        eprintln!("skipping: no stepper row visible at this size");
         return;
     };
 
@@ -197,31 +197,31 @@ fn overlay_slider_click_sets_once_and_cursor_move_is_inert() {
             .collect()
     };
     // A hover move before any press is a no-op.
-    app.set_pointer_cell_for_test(track_left.row, track_left.column);
+    app.set_pointer_cell_for_test(down_button.row, down_button.column);
     app.handle_overlay_pointer_move();
     assert!(!app.overlay_is_dragging_for_test(), "hover does not drag");
 
-    // Press the far-right of the track → applies one value immediately, without
+    // Press the up button -> applies one value immediately, without
     // arming drag state or queued live-apply state.
-    app.set_pointer_cell_for_test(track_right.row, track_right.column);
+    app.set_pointer_cell_for_test(up_button.row, up_button.column);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
     assert!(
         !app.overlay_is_dragging_for_test(),
-        "track click does not arm a drag"
+        "stepper click does not arm a drag"
     );
     assert!(
         !app.pending_overlay_settings_for_test(),
-        "slider click applies immediately instead of queuing drag updates"
+        "stepper click applies immediately instead of queuing drag updates"
     );
     assert_eq!(
         app.overlay_left_held_for_test(),
         false,
-        "left-held drag gate stays off for settings sliders"
+        "left-held drag gate stays off for settings steppers"
     );
     let after_click = numeric_values(&app);
 
-    // CursorMoved to the far-left of the track is inert.
-    app.set_pointer_cell_for_test(track_left.row, track_left.column);
+    // CursorMoved to the down button is inert.
+    app.set_pointer_cell_for_test(down_button.row, down_button.column);
     app.handle_overlay_pointer_move();
     assert_eq!(numeric_values(&app), after_click);
     assert!(!app.pending_overlay_settings_for_test());
@@ -229,7 +229,7 @@ fn overlay_slider_click_sets_once_and_cursor_move_is_inert() {
     // Release and later moves stay inert.
     app.handle_overlay_pointer_button(ElementState::Released, WinitMouseButton::Left);
     assert!(!app.overlay_is_dragging_for_test());
-    app.set_pointer_cell_for_test(track_right.row, track_right.column);
+    app.set_pointer_cell_for_test(up_button.row, up_button.column);
     app.handle_overlay_pointer_move();
     assert_eq!(numeric_values(&app), after_click);
     // The click never armed a PTY report or a local selection.
@@ -315,8 +315,8 @@ fn settings_slider_key_repeat_is_coalesced_until_flush() {
 }
 
 #[test]
-fn focus_loss_after_settings_slider_click_leaves_moves_inert() {
-    // Settings sliders do not arm drag state. Focus-loss cleanup must remain
+fn focus_loss_after_settings_stepper_click_leaves_moves_inert() {
+    // Settings steppers do not arm drag state. Focus-loss cleanup must remain
     // harmless, and the next bare CursorMoved must not commit a phantom value.
     let Some((mut app, _terminal)) = app_for_test() else {
         eprintln!("skipping: no PTY available");
@@ -324,7 +324,7 @@ fn focus_loss_after_settings_slider_click_leaves_moves_inert() {
     };
 
     app.open_settings_overlay_for_test();
-    // Drill into Fonts section to get a numeric slider row.
+    // Drill into Fonts section to get a numeric stepper row.
     app.drive_overlay_key_for_test(
         winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
         false,
@@ -335,26 +335,26 @@ fn focus_loss_after_settings_slider_click_leaves_moves_inert() {
         false,
         false,
     );
-    // Scroll one notch at a time until a slider row enters the visible window.
-    let mut tracks = app.overlay_first_slider_track_cells_for_test();
+    // Scroll one notch at a time until a stepper row enters the visible window.
+    let mut buttons = app.overlay_first_stepper_button_cells_for_test();
     for _ in 0..12 {
-        if tracks.is_some() {
+        if buttons.is_some() {
             break;
         }
         app.handle_overlay_pointer_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
-        tracks = app.overlay_first_slider_track_cells_for_test();
+        buttons = app.overlay_first_stepper_button_cells_for_test();
     }
-    let Some((track_left, track_right)) = tracks else {
-        eprintln!("skipping: no slider row visible at this size");
+    let Some((down_button, up_button)) = buttons else {
+        eprintln!("skipping: no stepper row visible at this size");
         return;
     };
 
-    // Press the far-right of the track; this applies once without drag state.
-    app.set_pointer_cell_for_test(track_right.row, track_right.column);
+    // Press the up button; this applies once without drag state.
+    app.set_pointer_cell_for_test(up_button.row, up_button.column);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
     assert!(
         !app.overlay_is_dragging_for_test(),
-        "settings slider click does not arm a drag"
+        "settings stepper click does not arm a drag"
     );
 
     // Focus loss WITHOUT a release: the overlay stays open and cleanup is safe.
@@ -362,10 +362,10 @@ fn focus_loss_after_settings_slider_click_leaves_moves_inert() {
     assert!(!app.overlay_is_dragging_for_test());
 
     // Snapshot the full overlay signature, then on focus regain drive a bare
-    // CursorMoved to the far-left of the track: it must be inert — no phantom
+    // CursorMoved to the down button: it must be inert — no phantom
     // value commit (signature unchanged), no re-armed drag/selection.
     let before = app.overlay_signature_for_test();
-    app.set_pointer_cell_for_test(track_left.row, track_left.column);
+    app.set_pointer_cell_for_test(down_button.row, down_button.column);
     app.handle_overlay_pointer_move();
     assert!(
         !app.overlay_is_dragging_for_test(),
@@ -429,17 +429,17 @@ fn opening_overlay_clears_a_held_tui_report_button() {
     );
 }
 
-/// D-SLIDER-GUARD: settings sliders are click-to-set only, so cursor movements
-/// must not advance a value before or after release.
+/// D-SLIDER-GUARD: settings steppers are click-only, so cursor movements must
+/// not advance a value before or after release.
 #[test]
-fn slider_move_is_inert_after_settings_slider_click_and_release() {
+fn move_is_inert_after_settings_stepper_click_and_release() {
     let Some((mut app, _terminal)) = app_for_test() else {
         eprintln!("skipping: no PTY available");
         return;
     };
 
     app.open_settings_overlay_for_test();
-    // Navigate to Fonts section for the font_size slider.
+    // Navigate to Fonts section for the font_size stepper.
     app.drive_overlay_key_for_test(
         winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
         false,
@@ -450,25 +450,25 @@ fn slider_move_is_inert_after_settings_slider_click_and_release() {
         false,
         false,
     );
-    let mut tracks = app.overlay_first_slider_track_cells_for_test();
+    let mut buttons = app.overlay_first_stepper_button_cells_for_test();
     for _ in 0..12 {
-        if tracks.is_some() {
+        if buttons.is_some() {
             break;
         }
         app.handle_overlay_pointer_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
-        tracks = app.overlay_first_slider_track_cells_for_test();
+        buttons = app.overlay_first_stepper_button_cells_for_test();
     }
-    let Some((track_left, track_right)) = tracks else {
-        eprintln!("skipping: no slider row visible at this size");
+    let Some((down_button, up_button)) = buttons else {
+        eprintln!("skipping: no stepper row visible at this size");
         return;
     };
 
-    // Press the far-right of the track to set once.
-    app.set_pointer_cell_for_test(track_right.row, track_right.column);
+    // Press the up button to set once.
+    app.set_pointer_cell_for_test(up_button.row, up_button.column);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
     assert!(
         !app.overlay_is_dragging_for_test(),
-        "settings slider click does not arm a drag"
+        "settings stepper click does not arm a drag"
     );
     assert!(
         !app.overlay_left_held_for_test(),
@@ -483,8 +483,8 @@ fn slider_move_is_inert_after_settings_slider_click_and_release() {
         .filter_map(|e| e.value.parse::<f32>().ok().map(|v| (e.key, v)))
         .collect();
 
-    // Move to the far left — slider must not update.
-    app.set_pointer_cell_for_test(track_left.row, track_left.column);
+    // Move to the down button; stepper must not update.
+    app.set_pointer_cell_for_test(down_button.row, down_button.column);
     app.handle_overlay_pointer_move();
     assert!(
         !app.overlay_is_dragging_for_test(),
@@ -503,7 +503,7 @@ fn slider_move_is_inert_after_settings_slider_click_and_release() {
     app.handle_overlay_pointer_button(ElementState::Released, WinitMouseButton::Left);
     assert!(
         !app.overlay_is_dragging_for_test(),
-        "release ends the slider drag"
+        "release leaves drag off"
     );
     assert!(
         !app.overlay_left_held_for_test(),
@@ -518,8 +518,8 @@ fn slider_move_is_inert_after_settings_slider_click_and_release() {
         .filter_map(|e| e.value.parse::<f32>().ok().map(|v| (e.key, v)))
         .collect();
 
-    // Move to the far RIGHT after release — must not change any slider value.
-    app.set_pointer_cell_for_test(track_right.row, track_right.column);
+    // Move to the up button after release; must not change any numeric value.
+    app.set_pointer_cell_for_test(up_button.row, up_button.column);
     app.handle_overlay_pointer_move();
     assert!(
         !app.overlay_is_dragging_for_test(),
@@ -536,7 +536,7 @@ fn slider_move_is_inert_after_settings_slider_click_and_release() {
 }
 
 #[test]
-fn slider_release_without_pointer_cell_stays_inert_after_click() {
+fn stepper_release_without_pointer_cell_stays_inert_after_click() {
     let Some((mut app, _terminal)) = app_for_test() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -553,21 +553,21 @@ fn slider_release_without_pointer_cell_stays_inert_after_click() {
         false,
         false,
     );
-    let mut tracks = app.overlay_first_slider_track_cells_for_test();
+    let mut buttons = app.overlay_first_stepper_button_cells_for_test();
     for _ in 0..12 {
-        if tracks.is_some() {
+        if buttons.is_some() {
             break;
         }
         app.handle_overlay_pointer_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
-        tracks = app.overlay_first_slider_track_cells_for_test();
+        buttons = app.overlay_first_stepper_button_cells_for_test();
     }
-    let Some((track_left, track_right)) = tracks else {
-        eprintln!("skipping: no slider row visible at this size");
+    let Some((down_button, up_button)) = buttons else {
+        eprintln!("skipping: no stepper row visible at this size");
         return;
     };
 
     // Press to set once without arming drag.
-    app.set_pointer_cell_for_test(track_right.row, track_right.column);
+    app.set_pointer_cell_for_test(up_button.row, up_button.column);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
     assert!(!app.overlay_is_dragging_for_test());
     assert!(!app.overlay_left_held_for_test());
@@ -584,7 +584,7 @@ fn slider_release_without_pointer_cell_stays_inert_after_click() {
     );
 
     let before = app.overlay_signature_for_test();
-    app.set_pointer_cell_for_test(track_left.row, track_left.column);
+    app.set_pointer_cell_for_test(down_button.row, down_button.column);
     app.handle_overlay_pointer_move();
     assert!(
         !app.overlay_is_dragging_for_test(),
@@ -593,6 +593,6 @@ fn slider_release_without_pointer_cell_stays_inert_after_click() {
     assert_eq!(
         app.overlay_signature_for_test(),
         before,
-        "move after release does not change any slider (D-SLIDER-GUARD)"
+        "move after release does not change any numeric value (D-SLIDER-GUARD)"
     );
 }

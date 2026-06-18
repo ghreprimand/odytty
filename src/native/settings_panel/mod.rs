@@ -166,7 +166,7 @@ impl SettingsPanel {
             .iter()
             .any(|(_, hit)| {
                 hit.entry_index == Some(self.selected)
-                    && matches!(hit.zone, RowZone::Value | RowZone::Slider { .. })
+                    && matches!(hit.zone, RowZone::Value | RowZone::Stepper { .. })
             })
     }
 
@@ -220,7 +220,7 @@ impl SettingsPanel {
     ///     as the source of truth and never touch `self.level`,
     ///     `self.section_selected`, or `self.search_active` here.
     pub(super) fn apply_settings(&mut self, _settings: &Settings) {
-        // Avoid rebuilding the settings inventory during slider live edits: the
+        // Avoid rebuilding the settings inventory during repeated live edits: the
         // OverlayEdit echo carries values the panel already committed into
         // `self.edits`, and `commit_value` already patched into
         // `all_entries`/`entries` in place. Re-derive every entry value from the
@@ -842,8 +842,8 @@ impl SettingsPanel {
         match self.edits.apply_raw(key, value) {
             Ok(Some(settings)) => {
                 // Update only the changed row's display value in place instead
-                // of rebuilding the full `setting_info()` table on every slider
-                // tick.
+                // of rebuilding the full `setting_info()` table on every
+                // repeated edit.
                 self.update_entry_value_in_place(key);
                 self.restore_scroll_after_commit(before_scroll);
                 self.message = Some(format!("Applied {key}."));
@@ -1206,8 +1206,8 @@ mod tests {
             .find(|line| line.text.contains("Font size:"))
             .expect("font size row present");
         assert!(
-            font_size_line.text.trim_end().ends_with("18"),
-            "slider readout shows the live value: {:?}",
+            font_size_line.text.contains("[v]   18 [^]"),
+            "stepper readout shows the live value: {:?}",
             font_size_line.text
         );
         assert!(text.contains(FONT_SIZE_ENV));
@@ -1721,12 +1721,12 @@ mod tests {
         let visible_value = hit_map.iter().enumerate().any(|(row_i, hit)| {
             use crate::native::settings_panel::pointer::RowZone;
             hit.entry_index == Some(last)
-                && matches!(hit.zone, RowZone::Value | RowZone::Slider { .. })
+                && matches!(hit.zone, RowZone::Value | RowZone::Stepper { .. })
                 && lines[row_i].focused
         });
         assert!(
             visible_value,
-            "selected entry '{selected_key}' value/slider row must be in the rendered window \
+            "selected entry '{selected_key}' value/stepper row must be in the rendered window \
              (scroll={}, body_height={body_height})",
             sig.scroll,
         );
@@ -1755,7 +1755,7 @@ mod tests {
     // ── Two-level model trap tests ────────────────────────────────────────────
 
     /// T-level-hitmap: Level-1 section rows use `SectionRow` zone; Level-2
-    /// setting rows use `Value`/`Slider`. Hit-map switches correctly with level.
+    /// setting rows use `Value`/`Stepper`. Hit-map switches correctly with level.
     #[test]
     fn level_hitmap_switches_on_level_change() {
         use crate::native::settings_panel::pointer::RowZone;
@@ -1769,11 +1769,11 @@ mod tests {
         assert!(
             !hits
                 .iter()
-                .any(|h| matches!(h.zone, RowZone::Value | RowZone::Slider { .. })),
-            "Level 1 must not emit Value/Slider zones"
+                .any(|h| matches!(h.zone, RowZone::Value | RowZone::Stepper { .. })),
+            "Level 1 must not emit Value/Stepper zones"
         );
 
-        // Level 2: expect Value/Slider zones, no SectionRow.
+        // Level 2: expect Value/Stepper zones, no SectionRow.
         let mut panel2 = SettingsPanel::new(&Settings::default());
         panel2.drill_into_section(0); // Themes
         let hits2 = panel2.visible_hit_map(80, 20);
@@ -1784,8 +1784,8 @@ mod tests {
         assert!(
             hits2
                 .iter()
-                .any(|h| matches!(h.zone, RowZone::Value | RowZone::Slider { .. })),
-            "Level 2 must emit Value/Slider zones"
+                .any(|h| matches!(h.zone, RowZone::Value | RowZone::Stepper { .. })),
+            "Level 2 must emit Value/Stepper zones"
         );
     }
 
@@ -2083,7 +2083,7 @@ mod tests {
 
     // ── SETTINGS-PANEL-STATE-FIX regression tests ────────────────────────────
 
-    /// Entry indices whose Value/Slider row is currently visible at the active
+    /// Entry indices whose Value/Stepper row is currently visible at the active
     /// scroll, read from the shared row walker (the same source the pointer
     /// hit-map and `selected_in_window` consume).
     fn visible_entry_indices(panel: &SettingsPanel, w: usize, h: usize) -> Vec<usize> {
@@ -2092,7 +2092,7 @@ mod tests {
             .build_settings_rows(w, h)
             .into_iter()
             .filter_map(|(_, hit)| match hit.zone {
-                RowZone::Value | RowZone::Slider { .. } => hit.entry_index,
+                RowZone::Value | RowZone::Stepper { .. } => hit.entry_index,
                 _ => None,
             })
             .collect()

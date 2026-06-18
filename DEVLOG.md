@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Settings numeric steppers
+
+Settings numeric controls now render as discrete `[v] value [^]` steppers
+instead of horizontal sliders. Mouse clicks decrement or increment once per
+click, pointer motion is ignored, and the readout remains click-to-type for
+precise entry. Keyboard Left/Right keeps the existing step behavior so Up/Down
+can continue navigating the settings list.
+
+---
+
 ## 2026-06-18 -- Click-to-set settings sliders
 
 Settings sliders no longer capture live mouse motion. Clicking a slider track

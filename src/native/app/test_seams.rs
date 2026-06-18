@@ -227,17 +227,17 @@ impl App {
         self.overlay.render_signature()
     }
 
-    /// Test seam (UX4-P2): absolute track-end cells for the first visible
-    /// slider, so a test can drive a real press/drag/release through the App.
+    /// Test seam (UX4-P2): absolute down/up button cells for the first visible
+    /// numeric stepper, so a test can drive real clicks through the App.
     #[cfg(test)]
-    pub(in crate::native) fn overlay_first_slider_track_cells_for_test(
+    pub(in crate::native) fn overlay_first_stepper_button_cells_for_test(
         &self,
     ) -> Option<(CellPoint, CellPoint)> {
         self.overlay
-            .first_slider_track_cells(self.grid.columns, self.grid.rows)
+            .first_stepper_button_cells(self.grid.columns, self.grid.rows)
     }
 
-    /// Test seam (UX4-P2): whether a settings-panel slider drag is in progress.
+    /// Test seam (UX4-P2): whether an overlay drag is in progress.
     #[cfg(test)]
     pub(in crate::native) fn overlay_is_dragging_for_test(&self) -> bool {
         self.overlay.is_settings_dragging()
@@ -245,7 +245,7 @@ impl App {
 
     /// Test seam (UX4-P2 review): drive the exact focus-loss drag-cancel the
     /// `WindowEvent::Focused(false)` arm runs, so a regression can prove a lost
-    /// release on focus loss cannot leave a slider drag armed while the overlay
+    /// release on focus loss cannot leave a drag armed while the overlay
     /// stays open. Wraps the production helper (not a parallel reimplementation).
     #[cfg(test)]
     pub(in crate::native) fn cancel_overlay_drag_on_focus_loss_for_test(&mut self) {
@@ -565,8 +565,8 @@ impl App {
     }
 
     /// Test seam (D-SLIDER-GUARD): the current `overlay_left_held` flag value.
-    /// Lets regression tests prove that release clears the flag and that
-    /// subsequent moves cannot advance a stale slider drag.
+    /// Lets regression tests prove that release clears the flag and subsequent
+    /// moves cannot advance stale overlay adjustment state.
     #[cfg(test)]
     pub(in crate::native) fn overlay_left_held_for_test(&self) -> bool {
         self.overlay_left_held

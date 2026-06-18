@@ -93,7 +93,7 @@ impl OverlayUi {
     }
 
     pub(super) fn open_settings(&mut self) {
-        // Defensive no-op for settings click-to-set sliders; kept with the
+        // Defensive no-op for settings steppers; kept with the
         // shared close/switch cleanup path.
         self.panel.end_slider_drag();
         self.open = true;
@@ -426,8 +426,8 @@ impl OverlayUi {
         }
     }
 
-    /// Whether an overlay drag is in progress. Settings sliders are click-to-set,
-    /// so this is only true for modes that still capture pointer motion, such as
+    /// Whether an overlay drag is in progress. Settings steppers never capture
+    /// pointer motion, so this is only true for modes that still drag, such as
     /// the theme builder channel slider.
     pub(super) fn is_settings_dragging(&self) -> bool {
         match self.mode {
@@ -472,30 +472,30 @@ impl OverlayUi {
             && cell.column < rect.body_left + 3
     }
 
-    /// Test seam (UX4-P2): absolute grid cells for the first visible slider's
-    /// track ends (`track_left`, `track_right`) for a `columns`×`rows` grid, so
-    /// a test can drive a real press/move/release through the App layer without
-    /// reaching into private panel geometry.
+    /// Test seam (UX4-P2): absolute grid cells for the first visible numeric
+    /// stepper's down/up buttons for a `columns`×`rows` grid, so a test can
+    /// drive real clicks through the App layer without reaching into private
+    /// panel geometry.
     #[cfg(test)]
-    pub(super) fn first_slider_track_cells(
+    pub(super) fn first_stepper_button_cells(
         &self,
         columns: usize,
         rows: usize,
     ) -> Option<(CellPoint, CellPoint)> {
         let rect = overlay_rect(self, columns, rows)?;
-        let (row, track_x0, track_w) = self
+        let (row, down_x0, up_x0) = self
             .panel
-            .first_slider_zone_for_test(rect.body_width, rect.body_height)?;
+            .first_stepper_zone_for_test(rect.body_width, rect.body_height)?;
         let grid_row = rect.body_top + row;
-        let left = CellPoint {
+        let down = CellPoint {
             row: grid_row,
-            column: rect.body_left + track_x0,
+            column: rect.body_left + down_x0,
         };
-        let right = CellPoint {
+        let up = CellPoint {
             row: grid_row,
-            column: rect.body_left + track_x0 + track_w - 1,
+            column: rect.body_left + up_x0,
         };
-        Some((left, right))
+        Some((down, up))
     }
 
     pub(super) fn save_succeeded(&mut self, changed: usize) {
@@ -2134,25 +2134,25 @@ mod tests {
         assert_eq!(after.selected, before.selected, "selection did not move");
     }
 
-    // --- Settings sliders: click-to-set, no live drag capture ---
+    // --- Settings numeric steppers: no live drag capture ---
 
     #[test]
-    fn pointer_press_sets_slider_once_and_move_release_are_inert() {
+    fn pointer_press_steps_numeric_once_and_move_release_are_inert() {
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
-        // Drill into Fonts section (contains font_size, a slider row).
+        // Drill into Fonts section (contains font_size, a stepper row).
         overlay.handle_input(OverlayInput::Down); // section_selected = 1 (Fonts)
         overlay.handle_input(OverlayInput::Activate); // drill in
-        let (left, right) = overlay
-            .first_slider_track_cells(80, 24)
-            .expect("a slider row is visible in Fonts section");
+        let (down, up) = overlay
+            .first_stepper_button_cells(80, 24)
+            .expect("a stepper row is visible in Fonts section");
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
-        // Press the far-right of the track → applies once without arming drag.
+        // Press the up button -> applies once without arming drag.
         assert!(matches!(
             overlay.handle_pointer(
                 OverlayPointer::Press {
-                    cell: right,
+                    cell: up,
                     button: PointerButton::Left,
                     x_in_body: None,
                 },
@@ -2162,15 +2162,15 @@ mod tests {
         ));
         assert!(
             !overlay.is_settings_dragging(),
-            "settings slider click does not arm a drag"
+            "settings stepper click does not arm a drag"
         );
 
-        // Move to the far-left of the track → inert, because settings sliders
-        // no longer capture pointer motion.
+        // Move to the down button -> inert, because settings steppers do not
+        // capture pointer motion.
         assert_eq!(
             overlay.handle_pointer(
                 OverlayPointer::Move {
-                    cell: left,
+                    cell: down,
                     x_in_body: None
                 },
                 rect
@@ -2182,7 +2182,7 @@ mod tests {
         assert_eq!(
             overlay.handle_pointer(
                 OverlayPointer::Release {
-                    cell: left,
+                    cell: down,
                     button: PointerButton::Left,
                 },
                 rect,
@@ -2193,7 +2193,7 @@ mod tests {
         assert_eq!(
             overlay.handle_pointer(
                 OverlayPointer::Move {
-                    cell: right,
+                    cell: up,
                     x_in_body: None
                 },
                 rect
@@ -2204,23 +2204,23 @@ mod tests {
     }
 
     #[test]
-    fn settings_slider_click_cannot_leave_drag_state_across_close_reopen() {
-        // Settings sliders do not arm drag state, so a missing release cannot
+    fn settings_stepper_click_cannot_leave_drag_state_across_close_reopen() {
+        // Settings steppers do not arm drag state, so a missing release cannot
         // survive close/reopen or drive a phantom value.
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
-        // Drill into Fonts section to get a slider row.
+        // Drill into Fonts section to get a stepper row.
         overlay.handle_input(OverlayInput::Down); // Fonts
         overlay.handle_input(OverlayInput::Activate); // drill in
-        let (_, right) = overlay
-            .first_slider_track_cells(80, 24)
-            .expect("a slider row is visible in Fonts section");
+        let (_, up) = overlay
+            .first_stepper_button_cells(80, 24)
+            .expect("a stepper row is visible in Fonts section");
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
-        // Click a slider, then close WITHOUT a release.
+        // Click a stepper, then close WITHOUT a release.
         let _ = overlay.handle_pointer(
             OverlayPointer::Press {
-                cell: right,
+                cell: up,
                 button: PointerButton::Left,
                 x_in_body: None,
             },
@@ -2228,7 +2228,7 @@ mod tests {
         );
         assert!(
             !overlay.is_settings_dragging(),
-            "settings slider click does not arm drag state"
+            "settings stepper click does not arm drag state"
         );
         overlay.close();
         assert!(!overlay.is_settings_dragging());
@@ -2240,7 +2240,7 @@ mod tests {
         assert_eq!(
             overlay.handle_pointer(
                 OverlayPointer::Move {
-                    cell: right,
+                    cell: up,
                     x_in_body: None
                 },
                 rect
@@ -2251,24 +2251,24 @@ mod tests {
     }
 
     #[test]
-    fn focus_loss_after_settings_slider_click_keeps_overlay_open_and_inert() {
-        // Settings sliders no longer arm drag state. Focus-loss cleanup remains
+    fn focus_loss_after_settings_stepper_click_keeps_overlay_open_and_inert() {
+        // Settings steppers never arm drag state. Focus-loss cleanup remains
         // safe and a bare hover Move on focus regain cannot commit a phantom
-        // slider value.
+        // numeric value.
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
-        // Drill into Fonts section to get a slider row.
+        // Drill into Fonts section to get a stepper row.
         overlay.handle_input(OverlayInput::Down); // Fonts
         overlay.handle_input(OverlayInput::Activate); // drill in
-        let (left, right) = overlay
-            .first_slider_track_cells(80, 24)
-            .expect("a slider row is visible in Fonts section");
+        let (down, up) = overlay
+            .first_stepper_button_cells(80, 24)
+            .expect("a stepper row is visible in Fonts section");
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
-        // Click at the right end of the track.
+        // Click the up button.
         let _ = overlay.handle_pointer(
             OverlayPointer::Press {
-                cell: right,
+                cell: up,
                 button: PointerButton::Left,
                 x_in_body: None,
             },
@@ -2276,7 +2276,7 @@ mod tests {
         );
         assert!(
             !overlay.is_settings_dragging(),
-            "settings slider click does not arm drag state"
+            "settings stepper click does not arm drag state"
         );
 
         // Focus loss WITHOUT a release and WITHOUT a close.
@@ -2289,7 +2289,7 @@ mod tests {
         assert_eq!(
             overlay.handle_pointer(
                 OverlayPointer::Move {
-                    cell: left,
+                    cell: down,
                     x_in_body: None
                 },
                 rect
