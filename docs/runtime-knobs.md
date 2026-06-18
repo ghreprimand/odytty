@@ -159,8 +159,8 @@ Default local shortcuts:
 `ODYTTY_KEYBINDS` accepts comma- or semicolon-separated `chord=action` entries:
 
 ```sh
-ODYTTY_KEYBINDS="ctrl+shift+y=copy;ctrl+shift+p=paste" cargo run -- --native
-ODYTTY_KEYBINDS="super+f=search;alt+pageup=scroll-up;alt+pagedown=scroll-down" cargo run -- --native
+ODYTTY_KEYBINDS="ctrl+shift+y=copy;ctrl+shift+p=paste" cargo run --release
+ODYTTY_KEYBINDS="super+f=search;alt+pageup=scroll-up;alt+pagedown=scroll-down" cargo run --release
 ```
 
 Chord modifiers are `ctrl`, `shift`, `alt`, and `super`. Keys may be letters,
@@ -192,22 +192,22 @@ row. It covers the 12 core non-tab actions. Tab actions are configurable through
 
 ```sh
 # Plain renderer for compatibility/perf checks.
-ODYTTY_RENDER_QUALITY=plain cargo run -- --native
+ODYTTY_RENDER_QUALITY=plain cargo run --release
 
 # OS dark/light theme alias.
-ODYTTY_THEME=system cargo run -- --native
+ODYTTY_THEME=system cargo run --release
 
 # Background image behind translucent cells.
 ODYTTY_BACKGROUND_TREATMENT=image \
 ODYTTY_BACKGROUND_IMAGE=/tmp/background.jpg \
 ODYTTY_CELL_BG_OPACITY=0.85 \
-cargo run -- --native
+cargo run --release
 
 # Non-blinking underline cursor.
-ODYTTY_CURSOR_STYLE=underline ODYTTY_CURSOR_BLINK=off cargo run -- --native
+ODYTTY_CURSOR_STYLE=underline ODYTTY_CURSOR_BLINK=off cargo run --release
 
 # Development lifecycle smoke.
-ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native
+ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run --release
 ```
 
 ## Bench Environment Variables

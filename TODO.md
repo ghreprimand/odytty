@@ -924,6 +924,27 @@ feature validates against.
 - [x] Public docs and devlog describe what works, what is deferred, and what
       risks remain.
 
+## First Linux Release
+
+- [x] Make plain `odytty` launch the native terminal; keep `--native` as a
+      compatibility alias and move the legacy parser smoke output to
+      `--core-smoke`.
+- [x] Add a Freedesktop desktop entry for app-launcher registration.
+- [x] Document source installs, user-local installs, Odyssey/LFS pacman-tracked
+      source packaging, and default-terminal limitations.
+- [x] Add OdyTTY icon assets and install them under the hicolor icon theme.
+- [x] Add AppStream metainfo once the icon and release metadata are stable.
+- [ ] Add `odytty -e command args...` plus `--working-directory` and `--title`
+      so OdyTTY can advertise `X-TerminalArgExec` and work with
+      `xdg-terminal-exec`/default-terminal integrations.
+- [ ] Decide whether to keep `TERM=xterm-256color` for compatibility or ship an
+      OdyTTY-specific terminfo entry before changing `TERM`.
+- [x] Document GitHub Release/tag/checksum expectations and Odyssey-Mon
+      upstream tracking.
+- [ ] Cut a `v0.1.0` source release with checksums and an Odyssey PKGBUILD.
+- [ ] Evaluate an AppImage artifact after the source package and desktop
+      integration are proven.
+
 ## Deferred Until After the First Prototype
 
 - [x] Tabs and multiple local shell sessions: landed as the first multi-context

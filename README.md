@@ -23,8 +23,9 @@ floor.
 OdyTTY is in active development. It is already a broad prototype: a native
 window opens real local shells, supports multiple sessions with a tab bar,
 renders text and inline graphics on the GPU, and has a substantial compatibility
-and smoke-test suite. It is still Linux-first and pre-release; packaging,
-cross-platform support, panes/profiles, and release builds are not done.
+and smoke-test suite. It is still Linux-first and pre-release; official release
+artifacts, cross-platform support, panes/profiles, and release builds are not
+done.
 
 ## Highlights
 
@@ -63,26 +64,26 @@ behavior for borderless windows and OS theme detection.
 
 ```sh
 cargo build --release
-cargo run -- --native
+cargo run --release
 ```
 
 Useful launch examples:
 
 ```sh
 # Use the hard plain renderer profile.
-ODYTTY_RENDER_QUALITY=plain cargo run -- --native
+ODYTTY_RENDER_QUALITY=plain cargo run --release
 
 # Follow the desktop dark/light preference with OdyTTY defaults.
-ODYTTY_THEME=system cargo run -- --native
+ODYTTY_THEME=system cargo run --release
 
 # Larger text with a named system font.
-ODYTTY_FONT_SIZE=24 ODYTTY_FONT_FAMILY="DejaVu Sans Mono" cargo run -- --native
+ODYTTY_FONT_SIZE=24 ODYTTY_FONT_FAMILY="DejaVu Sans Mono" cargo run --release
 
 # RGB subpixel antialiasing when supported by the GPU.
-ODYTTY_SUBPIXEL=rgb cargo run -- --native
+ODYTTY_SUBPIXEL=rgb cargo run --release
 
 # Stronger phosphor reference look.
-ODYTTY_RETRO=on cargo run -- --native
+ODYTTY_RETRO=on cargo run --release
 ```
 
 CLI introspection commands print and exit without opening a window:
@@ -245,10 +246,10 @@ OSC 8/52/133, dynamic colors, prompt navigation, command status gutter,
 readability and accessibility settings, bloom/CRT/retro effects, background
 treatments, and a large compatibility test surface.
 
-**Known gaps:** pre-release packaging, macOS/Windows support, panes, profiles,
-session persistence, Kitty animation, Kitty Unicode placeholders, iTerm2
-graphics, COLR/CPAL color fonts, broader ligature/stylistic-set shaping, custom
-tab-bar polish, and the current tab-bar image-placement offset issue.
+**Known gaps:** official release artifacts, macOS/Windows support, panes,
+profiles, session persistence, Kitty animation, Kitty Unicode placeholders,
+iTerm2 graphics, COLR/CPAL color fonts, broader ligature/stylistic-set shaping,
+custom tab-bar polish, and the current tab-bar image-placement offset issue.
 
 The running history lives in [`DEVLOG.md`](DEVLOG.md). The current public
 roadmap lives in [`TODO.md`](TODO.md) and
@@ -271,6 +272,13 @@ analytics, no crash reporting, and no update pings.
 - [`DEVLOG.md`](DEVLOG.md) — reverse-chronological development record.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution, testing, and public-repo
   safety rules.
+- [`PACKAGING.md`](PACKAGING.md) — downstream package install surface and
+  release packaging notes.
+- [`docs/install.md`](docs/install.md) — source builds, desktop launcher
+  registration, AppStream metadata, Odyssey/LFS packaging, and default-terminal
+  notes.
+- [`docs/release.md`](docs/release.md) — release artifact checklist and
+  Odyssey-Mon upstream tracking notes.
 - [`docs/runtime-knobs.md`](docs/runtime-knobs.md) — settings reference.
 - [`docs/themes.md`](docs/themes.md) — theme format and built-in library.
 - [`docs/graphics.md`](docs/graphics.md) — Kitty graphics and Sixel support.

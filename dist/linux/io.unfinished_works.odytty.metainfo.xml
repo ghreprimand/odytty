@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.unfinished_works.odytty</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
+  <name>OdyTTY</name>
+  <summary>GPU-rendered terminal emulator with an Odyssey visual identity</summary>
+  <developer id="io.unfinished_works">
+    <name>Unfinished Works</name>
+  </developer>
+  <launchable type="desktop-id">io.unfinished_works.odytty.desktop</launchable>
+  <provides>
+    <binary>odytty</binary>
+  </provides>
+  <categories>
+    <category>System</category>
+    <category>TerminalEmulator</category>
+  </categories>
+  <description>
+    <p>
+      OdyTTY is a from-scratch Rust terminal emulator for Linux. It owns the
+      terminal byte path from PTY allocation through escape parsing, terminal
+      state, render geometry, and GPU presentation.
+    </p>
+    <p>
+      The project explores a distinctive Odyssey visual identity while keeping
+      terminal correctness, readable text, predictable input, local privacy, and
+      performance as hard requirements.
+    </p>
+  </description>
+  <url type="homepage">https://odytty.unfinished-works.com</url>
+  <url type="bugtracker">https://github.com/ghreprimand/odytty/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-06-18">
+      <description>
+        <p>Initial Linux pre-release target with source packaging, desktop launcher metadata, and hicolor icon assets.</p>
+      </description>
+    </release>
+  </releases>
+</component>

@@ -1,0 +1,18 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=OdyTTY
+GenericName=Terminal Emulator
+Comment=GPU-rendered terminal emulator with an Odyssey visual identity
+TryExec=odytty
+Exec=odytty
+Icon=io.unfinished_works.odytty
+Categories=System;TerminalEmulator;
+Keywords=terminal;tty;pty;shell;
+StartupNotify=true
+Terminal=false
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Exec=odytty

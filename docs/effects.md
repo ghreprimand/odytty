@@ -325,7 +325,7 @@ smooth_scroll = on
 ### Enabling via environment
 
 ```sh
-ODYTTY_SMOOTH_SCROLL=on cargo run -- --native
+ODYTTY_SMOOTH_SCROLL=on cargo run --release
 ```
 
 ---

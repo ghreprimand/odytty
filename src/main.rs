@@ -17,6 +17,16 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if args.first().map(String::as_str) == Some("--version") {
+        println!("odytty {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
+    if matches!(args.first().map(String::as_str), Some("--help" | "-h")) {
+        print_usage();
+        return Ok(());
+    }
+
     if args.first().map(String::as_str) == Some("--dump-command") {
         let command = args
             .get(1)
@@ -29,7 +39,7 @@ fn main() -> Result<()> {
         return run_interactive();
     }
 
-    if args.first().map(String::as_str) == Some("--native") {
+    if args.is_empty() || args.first().map(String::as_str) == Some("--native") {
         // Opens a real native window and runs the event loop until the window is
         // closed, with runtime settings loaded once for the native session.
         let settings = Settings::from_env();
@@ -37,6 +47,34 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if args.first().map(String::as_str) == Some("--core-smoke") {
+        return core_smoke();
+    }
+
+    eprintln!("unknown argument: {}", args[0]);
+    eprintln!(
+        "usage: odytty [--native|--version|--list-themes|--list-fonts|--show-config|--core-smoke]"
+    );
+    std::process::exit(2);
+}
+
+fn print_usage() {
+    println!("OdyTTY {}", env!("CARGO_PKG_VERSION"));
+    println!("usage: odytty [OPTION]");
+    println!();
+    println!("With no option, launch the native terminal.");
+    println!();
+    println!("Options:");
+    println!("  --native        launch the native terminal");
+    println!("  --version       print the OdyTTY version and exit");
+    println!("  --list-themes   list built-in themes and exit");
+    println!("  --list-fonts    list discoverable monospace fonts and exit");
+    println!("  --show-config   print the effective configuration and exit");
+    println!("  --core-smoke    print a parser/core smoke transcript and exit");
+    println!("  -h, --help      print this help");
+}
+
+fn core_smoke() -> Result<()> {
     let mut terminal = Terminal::new(80, 24);
     terminal.advance(b"\x1b[1;36mOdyTTY\x1b[0m core skeleton\r\n");
     terminal.advance(b"owned grid + owned parser are online\r\n");
