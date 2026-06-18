@@ -257,26 +257,27 @@ resize snap. Off by default; only at the live tail.
 | Setting | Env | Type | Default |
 |---------|-----|------|---------|
 | `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`, `gradient`, `vignette`, `image` | `off` |
-| `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG path | unset |
+| `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG, JPEG, or WebP path | unset |
 | `cell_bg_opacity` | `ODYTTY_CELL_BG_OPACITY` | float `0.0–1.0` | `1.0` |
 | `background_blur_radius` | `ODYTTY_BACKGROUND_BLUR_RADIUS` | integer px `0–256` | `0` |
-| `background_image_scrim` | `ODYTTY_BACKGROUND_IMAGE_SCRIM` | float `0.0–1.0` or empty | auto |
+| `background_image_scrim` | `ODYTTY_BACKGROUND_IMAGE_SCRIM` | `auto`, empty, or float `0.0–1.0` | auto |
 
 `gradient` darkens toward the bottom of the grid. `vignette` darkens toward the
 edges and corners. Both are applied before the minimum-contrast floor, so the
 foreground is re-lifted over the treated background cell by cell.
 
-`image` draws a PNG behind the grid. With `cell_bg_opacity = 1.0`, cell
+`image` draws a PNG, JPEG, or WebP behind the grid. With
+`cell_bg_opacity = 1.0`, cell
 backgrounds remain opaque and the image is hidden behind the cells. Values below
 `1.0` let the image show through behind text. OdyTTY computes a readability
 scrim automatically unless `background_image_scrim` is set explicitly. Missing,
-unreadable, non-PNG, or oversized inputs degrade safely with a warning.
+unreadable, undecodable, or oversized inputs degrade safely with a warning.
 
 Example:
 
 ```conf
 background_treatment = image
-background_image = /tmp/background.png
+background_image = /tmp/background.jpg
 cell_bg_opacity = 0.88
 background_blur_radius = 8
 ```

@@ -631,11 +631,16 @@ impl Settings {
                     .map(format_float)
                     .unwrap_or_else(|| "auto".to_owned()),
                 description: BACKGROUND_IMAGE_SCRIM_DESC,
-                kind: SettingKind::String,
+                kind: SettingKind::Number,
                 range: None,
                 options: &[],
                 reloadable: true,
-                numeric: None,
+                numeric: Some(NumericSpec {
+                    min: MIN_BACKGROUND_IMAGE_SCRIM,
+                    max: MAX_BACKGROUND_IMAGE_SCRIM,
+                    step: 0.05,
+                    unit: "",
+                }),
             },
             SettingInfo {
                 group: "Post-process",

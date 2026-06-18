@@ -8,13 +8,14 @@
 //! cancels without changing the setting. v1 is select-only (no typed input
 //! in the picker itself).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::SettingsPanelLine;
 use super::pointer::{RowHit, RowZone};
 use crate::native::overlay::OverlayInput;
 
-const MAX_DIR_ENTRIES: usize = 4096;
+const MAX_DIR_ENTRIES: usize = 1024;
 
 /// State for an active path-picker session.
 #[derive(Debug, Clone)]
@@ -25,6 +26,7 @@ pub(super) struct PathPickerState {
     current_dir: PathBuf,
     /// Sorted entries in `current_dir` (dirs first, then filtered files).
     entries: Vec<PathEntry>,
+    entries_cache: HashMap<PathBuf, Vec<PathEntry>>,
     selected: usize,
     scroll: usize,
     /// The original setting value; restored on Esc. Kept for callers that
@@ -60,6 +62,7 @@ impl PathPickerState {
             key,
             current_dir: PathBuf::new(),
             entries: Vec::new(),
+            entries_cache: HashMap::new(),
             selected: 0,
             scroll: 0,
             original,
@@ -71,7 +74,14 @@ impl PathPickerState {
     /// Navigate into `dir`, refreshing the entry list.
     fn navigate_to(&mut self, dir: PathBuf) {
         self.current_dir = dir;
-        self.entries = read_dir_entries(&self.current_dir, extension_filter(self.key));
+        self.entries = if let Some(cached) = self.entries_cache.get(&self.current_dir) {
+            cached.clone()
+        } else {
+            let entries = read_dir_entries(&self.current_dir, extension_filter(self.key));
+            self.entries_cache
+                .insert(self.current_dir.clone(), entries.clone());
+            entries
+        };
         self.selected = 0;
         self.scroll = 0;
     }

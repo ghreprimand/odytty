@@ -547,7 +547,7 @@ pub(super) fn parse_background_treatment(
         Some(treatment) => treatment,
         None => {
             warn(&format!(
-                "{BACKGROUND_TREATMENT_ENV}={trimmed:?} is not off|gradient|vignette; using off"
+                "{BACKGROUND_TREATMENT_ENV}={trimmed:?} is not off|gradient|vignette|image; using off"
             ));
             BackgroundTreatment::default()
         }
@@ -631,9 +631,9 @@ pub(super) fn parse_background_blur_radius(
 }
 
 /// Parse the explicit background-image scrim override
-/// (`ODYTTY_BACKGROUND_IMAGE_SCRIM`). Absent / empty ⇒ `None` (auto-compute the
-/// floor-safe scrim). A valid value clamps to `[0,1]`; an invalid value warns
-/// and falls back to `None`.
+/// (`ODYTTY_BACKGROUND_IMAGE_SCRIM`). Absent / empty / `auto` ⇒ `None`
+/// (auto-compute the floor-safe scrim). A valid value clamps to `[0,1]`; an
+/// invalid value warns and falls back to `None`.
 pub(super) fn parse_background_image_scrim(
     raw: Option<&OsStr>,
     warn: &mut impl FnMut(&str),
@@ -641,7 +641,7 @@ pub(super) fn parse_background_image_scrim(
     let raw = raw?;
     let value = raw.to_string_lossy();
     let trimmed = value.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty() || normalize_name(trimmed) == "auto" {
         return None;
     }
 

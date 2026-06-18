@@ -576,7 +576,13 @@ impl SettingsPanel {
         let Some(spec) = entry.numeric else {
             return SettingsPanelOutcome::Consumed;
         };
-        let parsed = entry.value.parse::<f32>().unwrap_or(0.0);
+        let parsed = entry.value.parse::<f32>().unwrap_or_else(|_| {
+            if entry.key == "background_image_scrim" && direction < 0 {
+                1.0
+            } else {
+                0.0
+            }
+        });
         let next = spec.snap(parsed + spec.step * direction as f32);
         self.commit_value(entry.key, &format!("{next:.3}"))
     }

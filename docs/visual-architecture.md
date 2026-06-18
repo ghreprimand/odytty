@@ -256,9 +256,9 @@ Distinctive treatments that direct attention without harming legibility.
   contrast floor sees the dimmed background and re-lifts text if needed. Focused frames
   are never dimmed: the effective amount is always `0.0` when focused, keeping
   focused frames byte-identical to the unfocused-off path.
-- **Background treatments (landed):** optional gradient, vignette, and PNG image
-  backgrounds. Image mode uses `cell_bg_opacity`, a one-time CPU blur, and an
-  automatic readability scrim so text remains legible.
+- **Background treatments (landed):** optional gradient, vignette, and
+  PNG/JPEG/WebP image backgrounds. Image mode uses `cell_bg_opacity`, a one-time
+  CPU blur, and an automatic readability scrim so text remains legible.
 - **Window chrome / padding identity (landed):** themed padding, optional thin
   semantic-role border, and a live window-decoration toggle.
 

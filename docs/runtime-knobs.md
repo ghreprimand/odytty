@@ -59,10 +59,10 @@ environment variable was not set at startup.
 | `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` |
 | `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` |
 | `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`, `gradient`, `vignette`, `image` | `off` |
-| `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG path or empty | empty |
+| `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG, JPEG, or WebP path or empty | empty |
 | `cell_bg_opacity` | `ODYTTY_CELL_BG_OPACITY` | Float, `0.0..=1.0` | `1.0` |
 | `background_blur_radius` | `ODYTTY_BACKGROUND_BLUR_RADIUS` | Integer, `0..=256` px | `0` |
-| `background_image_scrim` | `ODYTTY_BACKGROUND_IMAGE_SCRIM` | Float, `0.0..=1.0`, or empty for auto | auto |
+| `background_image_scrim` | `ODYTTY_BACKGROUND_IMAGE_SCRIM` | `auto`, empty, or float `0.0..=1.0` | auto |
 | `bloom` | `ODYTTY_BLOOM` | `on`, `off` | `on` |
 | `bloom_threshold` | `ODYTTY_BLOOM_THRESHOLD` | Float, `0.70..=1.25`, or `auto` | `0.75` |
 | `bloom_intensity` | `ODYTTY_BLOOM_INTENSITY` | Float, `0.0..=1.0` | `0.8` |
@@ -123,7 +123,7 @@ environment variable was not set at startup.
   `smooth_scroll_duration` config key.
 - `cursor_blink = auto` currently resolves to the conventional blinking
   terminal default on Linux.
-- `background_treatment = image` draws a PNG behind the grid. Use
+- `background_treatment = image` draws a PNG, JPEG, or WebP behind the grid. Use
   `cell_bg_opacity < 1.0` to show it through cells; otherwise it is only visible
   in transparent/padding areas.
 - `native_autoclose_ms` is a smoke-test helper and is startup-only.
@@ -192,7 +192,7 @@ ODYTTY_THEME=system cargo run -- --native
 
 # Background image behind translucent cells.
 ODYTTY_BACKGROUND_TREATMENT=image \
-ODYTTY_BACKGROUND_IMAGE=/tmp/background.png \
+ODYTTY_BACKGROUND_IMAGE=/tmp/background.jpg \
 ODYTTY_CELL_BG_OPACITY=0.88 \
 cargo run -- --native
 

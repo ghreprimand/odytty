@@ -807,6 +807,19 @@ impl SettingsPanel {
         let Some(entry) = self.selected_entry().cloned() else {
             return SettingsPanelOutcome::Consumed;
         };
+        if entry.key == "background_image_scrim" {
+            let parsed = entry
+                .value
+                .parse::<f32>()
+                .unwrap_or_else(|_| if direction < 0 { 1.0 } else { 0.0 });
+            let next = if let Some(spec) = entry.numeric {
+                let step = spec.step * direction as f32;
+                (parsed + step).clamp(spec.min, spec.max)
+            } else {
+                parsed
+            };
+            return self.commit_value(entry.key, &format!("{next:.3}"));
+        }
         match entry.kind {
             SettingKind::Enum => self.cycle_selected(direction),
             SettingKind::Number => {
@@ -839,18 +852,27 @@ impl SettingsPanel {
 
     fn commit_value(&mut self, key: &'static str, value: &str) -> SettingsPanelOutcome {
         let before_scroll = self.scroll;
+        if key == "background_image" && !value.trim().is_empty() && value.trim() != "none" {
+            let _ = self.edits.apply_raw("background_treatment", "image");
+        }
         match self.edits.apply_raw(key, value) {
             Ok(Some(settings)) => {
                 // Update only the changed row's display value in place instead
                 // of rebuilding the full `setting_info()` table on every
                 // repeated edit.
                 self.update_entry_value_in_place(key);
+                if key == "background_image" {
+                    self.update_entry_value_in_place("background_treatment");
+                }
                 self.restore_scroll_after_commit(before_scroll);
                 self.message = Some(format!("Applied {key}."));
                 SettingsPanelOutcome::Apply(settings)
             }
             Ok(None) => {
                 self.update_entry_value_in_place(key);
+                if key == "background_image" {
+                    self.update_entry_value_in_place("background_treatment");
+                }
                 self.restore_scroll_after_commit(before_scroll);
                 self.message = Some("No setting change.".to_owned());
                 SettingsPanelOutcome::Consumed
@@ -1550,6 +1572,50 @@ mod tests {
         assert!(panel.path_picker.is_none(), "picker closes after selection");
 
         fs::remove_dir_all(dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn committing_background_image_also_enables_image_treatment() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "background_image");
+
+        let SettingsPanelOutcome::Apply(settings) =
+            panel.commit_value("background_image", "/tmp/wall.jpg")
+        else {
+            panic!("background image commit should apply");
+        };
+
+        assert_eq!(
+            settings.background_treatment,
+            crate::settings::BackgroundTreatment::Image
+        );
+        assert_eq!(
+            settings.background_image.as_deref(),
+            Some(std::path::Path::new("/tmp/wall.jpg"))
+        );
+        let treatment = panel
+            .render_signature()
+            .entries
+            .into_iter()
+            .find(|entry| entry.key == "background_treatment")
+            .expect("background treatment entry present");
+        assert_eq!(treatment.value, "image");
+    }
+
+    #[test]
+    fn background_scrim_auto_steps_to_numeric_override() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "background_image_scrim");
+
+        let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Right) else {
+            panic!("scrim step should apply");
+        };
+
+        assert_eq!(settings.background_image_scrim, Some(0.05));
+        assert_eq!(
+            panel.selected_entry().expect("selected entry").value,
+            "0.05"
+        );
     }
 
     #[test]

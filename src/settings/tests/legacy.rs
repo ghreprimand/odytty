@@ -89,6 +89,14 @@ fn defaults_are_stable_without_env() {
 }
 
 #[test]
+fn background_scrim_auto_is_valid_and_clears_override() {
+    let (settings, warnings) = settings_from([(BACKGROUND_IMAGE_SCRIM_ENV, "auto")]);
+
+    assert_eq!(settings.background_image_scrim, None);
+    assert!(warnings.is_empty());
+}
+
+#[test]
 fn setting_info_covers_every_field_with_descriptions() {
     let settings = Settings::default();
     let info = settings.setting_info();

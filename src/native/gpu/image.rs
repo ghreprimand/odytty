@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! ID3/U5 background-image pass: PNG decode + CPU blur + readability scrim.
+//! ID3/U5 background-image pass: image decode + CPU blur + readability scrim.
 //!
 //! A full-window textured quad drawn behind the terminal grid. The image is
-//! decoded once (PNG-only, reusing the `png` crate already vendored for the
-//! graphics protocol — zero new deps), optionally CPU box-blurred at load time,
-//! and scanned for its worst-case luminance so a [readability scrim] can be
-//! computed that keeps the composited luminance behind text on the safe side of
-//! the theme background `l_bg`. The per-cell RV1 floor therefore stays a valid
-//! lower bound at any `cell_bg_opacity` — see [`crate::color::readability_scrim_for`].
+//! decoded once, optionally CPU box-blurred at load time, and scanned for its
+//! worst-case luminance so a [readability scrim] can be computed that keeps the
+//! composited luminance behind text on the safe side of the theme background
+//! `l_bg`. The per-cell RV1 floor therefore stays a valid lower bound at any
+//! `cell_bg_opacity` — see [`crate::color::readability_scrim_for`].
 //!
 //! Off-path: this module is only ever instantiated when `background_treatment =
 //! image` AND a `background_image` path is configured. With no image the
@@ -58,9 +57,9 @@ impl BgImageGpu {
         (self.source.0.as_path(), self.source.1)
     }
 
-    /// Load + blur + scan a PNG and build the GPU pipeline/texture/uniform.
+    /// Load + blur + scan an image and build the GPU pipeline/texture/uniform.
     /// Returns `None` (with a warning) when the file is missing, unreadable, or
-    /// not a decodable PNG — the caller then falls back to the no-image path.
+    /// not decodable — the caller then falls back to the no-image path.
     //
     // The 8 inputs are all distinct load-time parameters (GPU handles, the
     // source path, blur, and the three scrim inputs); a struct wrapper would not
@@ -76,7 +75,7 @@ impl BgImageGpu {
         theme: &Theme,
         cell_bg_opacity: f32,
     ) -> Option<Self> {
-        let (mut rgba, width, height) = load_png_rgba(path)?;
+        let (mut rgba, width, height) = load_image_rgba(path)?;
         let blur_radius = blur_radius.min(MAX_BACKGROUND_BLUR_RADIUS);
         if blur_radius > 0 {
             if width > MAX_BG_IMAGE_DIM || height > MAX_BG_IMAGE_DIM {
@@ -317,14 +316,11 @@ fn compute_scrim(
     (alpha, matches!(polarity, ScrimPolarity::Light))
 }
 
-/// Decode a PNG file to RGBA8 + dimensions, mirroring the graphics-protocol
-/// decode (normalize to 8-bit + add alpha). Returns `None` with a warning on
-/// any failure — missing file, unreadable, not a PNG, or an indexed PNG the
-/// `ALPHA` transform did not expand. Resilient by design, consistent with the
-/// SYMMAP / font-load fallbacks: a bad path never crashes the renderer.
-fn load_png_rgba(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
-    let bytes = match std::fs::read(path) {
-        Ok(bytes) => bytes,
+/// Decode a PNG/JPEG/WebP file to tightly-packed RGBA8 + dimensions. Resilient
+/// by design: a bad path never crashes the renderer.
+fn load_image_rgba(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
+    let reader = match image::ImageReader::open(path) {
+        Ok(reader) => reader,
         Err(err) => {
             eprintln!(
                 "odytty: background_image: cannot read {}: {err}; no image",
@@ -333,32 +329,18 @@ fn load_png_rgba(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
             return None;
         }
     };
-    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-    decoder.set_ignore_text_chunk(true);
-    decoder.set_ignore_iccp_chunk(true);
-    decoder.set_transformations(
-        png::Transformations::normalize_to_color8() | png::Transformations::ALPHA,
-    );
-    let mut reader = match decoder.read_info() {
+    let reader = match reader.with_guessed_format() {
         Ok(reader) => reader,
         Err(err) => {
             eprintln!(
-                "odytty: background_image: {} is not a decodable PNG: {err}; no image",
+                "odytty: background_image: cannot identify {}: {err}; no image",
                 path.display()
             );
             return None;
         }
     };
-    let Some(output_size) = reader.output_buffer_size() else {
-        eprintln!(
-            "odytty: background_image: {} reports no buffer size; no image",
-            path.display()
-        );
-        return None;
-    };
-    let mut buf = vec![0u8; output_size];
-    let output = match reader.next_frame(&mut buf) {
-        Ok(output) => output,
+    let image = match reader.decode() {
+        Ok(image) => image.into_rgba8(),
         Err(err) => {
             eprintln!(
                 "odytty: background_image: failed to decode {}: {err}; no image",
@@ -367,45 +349,8 @@ fn load_png_rgba(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
             return None;
         }
     };
-    let frame_bytes = &buf[..output.buffer_size()];
-    let rgba = png_frame_to_rgba(output.color_type, frame_bytes)?;
-    Some((rgba, output.width, output.height))
-}
-
-/// Convert a normalized PNG frame to tightly-packed RGBA8. With the `ALPHA`
-/// transform applied at decode the common output types are `Rgba` and
-/// `GrayscaleAlpha`; `Rgb`/`Grayscale` are handled for completeness. `Indexed`
-/// should have been expanded by the transform; if it survives we decline.
-fn png_frame_to_rgba(color_type: png::ColorType, bytes: &[u8]) -> Option<Vec<u8>> {
-    match color_type {
-        png::ColorType::Rgba => Some(bytes.to_vec()),
-        png::ColorType::Rgb => {
-            if !bytes.len().is_multiple_of(3) {
-                return None;
-            }
-            let mut rgba = Vec::with_capacity(bytes.len() / 3 * 4);
-            for rgb in bytes.chunks_exact(3) {
-                rgba.extend_from_slice(rgb);
-                rgba.push(255);
-            }
-            Some(rgba)
-        }
-        png::ColorType::GrayscaleAlpha => {
-            if !bytes.len().is_multiple_of(2) {
-                return None;
-            }
-            let mut rgba = Vec::with_capacity(bytes.len() / 2 * 4);
-            for ga in bytes.chunks_exact(2) {
-                rgba.extend_from_slice(&[ga[0], ga[0], ga[0], ga[1]]);
-            }
-            Some(rgba)
-        }
-        png::ColorType::Grayscale => Some(bytes.iter().flat_map(|g| [*g, *g, *g, 255]).collect()),
-        png::ColorType::Indexed => {
-            eprintln!("odytty: background_image: indexed PNGs are unsupported; no image");
-            None
-        }
-    }
+    let (width, height) = image.dimensions();
+    Some((image.into_raw(), width, height))
 }
 
 /// Worst-case post-blur luminances over the whole image: `(max, min)` WCAG

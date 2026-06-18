@@ -43,10 +43,10 @@ background_treatment = off
 # background_treatment = gradient
 # background_treatment = vignette
 # background_treatment = image
-# background_image = /path/to/background.png
+# background_image = /path/to/background.jpg
 cell_bg_opacity = 1.0
 background_blur_radius = 0
-# background_image_scrim =
+# background_image_scrim = auto
 
 # Post-process effects. "ambient" is a compatibility alias for the CRT path
 # when no explicit "crt" setting is present. "crt" always wins.
