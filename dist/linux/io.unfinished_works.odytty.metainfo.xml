@@ -32,6 +32,11 @@
   <url type="bugtracker">https://github.com/ghreprimand/odytty/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.1" date="2026-06-18">
+      <description>
+        <p>Refreshes the public README install guide so the release archive matches the documented user-local install flow.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-06-18">
       <description>
         <p>Initial Linux pre-release target with source packaging, desktop launcher metadata, and hicolor icon assets.</p>

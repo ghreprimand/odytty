@@ -62,21 +62,38 @@ Requires Linux and a Vulkan-capable GPU. Wayland is the primary target; X11
 works through the current `winit`/GPU stack with some window-manager-dependent
 behavior for borderless windows and OS theme detection.
 
-For the current source release, install OdyTTY for the current user with:
+For the current source release, install OdyTTY for the current user.
+
+Download and verify the release archive:
 
 ```sh
-version=0.1.0
-mkdir -p /tmp/odytty-install
-cd /tmp/odytty-install
+version=0.1.1
+workdir=$(mktemp -d /tmp/odytty-install.XXXXXX)
+cd "$workdir"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/SHA256SUMS"
 sha256sum -c SHA256SUMS
 tar -xf "odytty-${version}.tar.gz"
 cd "odytty-${version}"
+```
+
+Build the release:
+
+```sh
 cargo build --release --locked
+```
+
+Install a versioned binary and point `~/.local/bin/odytty` at it:
+
+```sh
 install -Dm755 target/release/odytty "$HOME/.local/opt/odytty/$version/bin/odytty"
 mkdir -p "$HOME/.local/bin"
 ln -sfn "$HOME/.local/opt/odytty/$version/bin/odytty" "$HOME/.local/bin/odytty"
+```
+
+Register the app launcher, metadata, and icon:
+
+```sh
 install -Dm644 dist/linux/io.unfinished_works.odytty.desktop \
   "$HOME/.local/share/applications/io.unfinished_works.odytty.desktop"
 install -Dm644 dist/linux/io.unfinished_works.odytty.metainfo.xml \
@@ -87,8 +104,8 @@ update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 gtk-update-icon-cache "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 ```
 
-Make sure `$HOME/.local/bin` is on `PATH`. After installation, launch OdyTTY as
-a normal application:
+Make sure `$HOME/.local/bin` is on `PATH`, then launch OdyTTY as a normal
+application:
 
 ```sh
 odytty

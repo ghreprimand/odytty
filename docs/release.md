@@ -1,12 +1,13 @@
 # OdyTTY Release Process
 
 OdyTTY releases should create both a source tag and a release entry that package
-monitors can discover. For the first release, use `v0.1.0`; `Cargo.toml`
-already declares `0.1.0`.
+monitors can discover. The first public release was `v0.1.0`; the current
+release target is `v0.1.1` because it includes the corrected README install
+guide. `Cargo.toml` should match the release version.
 
 ## Current Release Readiness
 
-Ready for `v0.1.0`:
+Ready for `v0.1.1`:
 
 - plain `odytty` launches the native terminal;
 - `odytty --version`, `--help`, `--list-themes`, `--list-fonts`, and
@@ -16,7 +17,7 @@ Ready for `v0.1.0`:
 - source, user-local, system, Odyssey/LFS, and downstream packaging
   instructions are documented.
 
-Deferred until after `v0.1.0`:
+Deferred until after `v0.1.1`:
 
 - binary AppImage artifacts;
 - `.deb`, `.rpm`, Nix, Flatpak, Snap, or AUR packages maintained upstream;
@@ -32,14 +33,14 @@ claim full default-terminal compatibility until `-e` support exists.
 A minimal release should include:
 
 ```text
-odytty-0.1.0.tar.gz
+odytty-0.1.1.tar.gz
 SHA256SUMS
 ```
 
 Recommended once signing is set up:
 
 ```text
-odytty-0.1.0.tar.gz.minisig
+odytty-0.1.1.tar.gz.minisig
 ```
 
 Later binary releases may add:
@@ -67,18 +68,18 @@ appstreamcli validate --pedantic dist/linux/io.unfinished_works.odytty.metainfo.
 3. Tag the release:
 
 ```sh
-git tag -a v0.1.0 -m "OdyTTY v0.1.0"
+git tag -a v0.1.1 -m "OdyTTY v0.1.1"
 ```
 
 4. Create a source archive from the tag:
 
 ```sh
-git archive --format=tar.gz --prefix=odytty-0.1.0/ \
-  -o odytty-0.1.0.tar.gz v0.1.0
-sha256sum odytty-0.1.0.tar.gz > SHA256SUMS
+git archive --format=tar.gz --prefix=odytty-0.1.1/ \
+  -o odytty-0.1.1.tar.gz v0.1.1
+sha256sum odytty-0.1.1.tar.gz > SHA256SUMS
 ```
 
-5. Publish a GitHub Release named `v0.1.0` and attach the archive and
+5. Publish a GitHub Release named `v0.1.1` and attach the archive and
    `SHA256SUMS`. Use the project-generated archive above for packaging
    instructions instead of relying on GitHub's auto-generated source archives.
 
@@ -102,10 +103,10 @@ release title, source archive, checksum file, and `Cargo.toml` version should
 all agree:
 
 ```text
-tag: v0.1.0
-release title: v0.1.0
-Cargo.toml version: 0.1.0
-archive: odytty-0.1.0.tar.gz
+tag: v0.1.1
+release title: v0.1.1
+Cargo.toml version: 0.1.1
+archive: odytty-0.1.1.tar.gz
 ```
 
 Do not publish a release entry for a tag whose source archive cannot be built
@@ -114,7 +115,7 @@ with `cargo build --release --locked`.
 ## Odyssey-Mon Upstream Tracking
 
 After OdyTTY is installed as a local pacman package, Odyssey-Mon sees the local
-installed version from `pacman -Qi odytty`, for example `0.1.0-1`.
+installed version from `pacman -Qi odytty`, for example `0.1.1-1`.
 
 Configure upstream tracking as a GitHub source:
 
@@ -125,9 +126,9 @@ repo: odytty
 tag_prefix: v
 ```
 
-With that mapping, an upstream `v0.1.1` release can be compared against the
-installed pacman version `0.1.0-1`, after Odyssey-Mon normalizes the `v` prefix
-and package-release suffix.
+With that mapping, upstream releases such as `v0.1.1` can be compared against
+the installed pacman version `0.1.1-1`, after Odyssey-Mon normalizes the `v`
+prefix and package-release suffix.
 
 ## Versioning
 
