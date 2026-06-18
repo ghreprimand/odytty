@@ -309,7 +309,13 @@ impl OverlayUi {
                     return self.handle_input(OverlayInput::Close);
                 }
                 let Some(row_in_body) = cell.row.checked_sub(rect.body_top) else {
-                    // The title row / top border: inside the box, inert.
+                    if self.mode == OverlayMode::Settings
+                        && self.settings_title_back_hit(cell, rect)
+                    {
+                        return self.handle_input(OverlayInput::Close);
+                    }
+                    // The title row / top border outside the back affordance:
+                    // inside the box, inert.
                     return OverlayOutcome::Consumed;
                 };
                 let col_in_body = cell.column.saturating_sub(rect.body_left);
@@ -448,6 +454,17 @@ impl OverlayUi {
             | OverlayMode::ContextMenu
             | OverlayMode::ConfirmClose => {}
         }
+    }
+
+    fn settings_title_back_hit(&self, cell: CellPoint, rect: OverlayRect) -> bool {
+        self.mode == OverlayMode::Settings
+            && matches!(
+                self.panel.current_level(),
+                SettingsLevel::SectionDetail { .. }
+            )
+            && cell.row == rect.top + 1
+            && cell.column >= rect.body_left
+            && cell.column < rect.body_left + 3
     }
 
     /// Test seam (UX4-P2): absolute grid cells for the first visible slider's
@@ -2018,7 +2035,7 @@ mod tests {
         let mut overlay = OverlayUi::default();
         overlay.open_settings();
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
-        // The title row sits above body_top but inside the panel box.
+        // The top border row sits above body_top but inside the panel box.
         let outcome = overlay.handle_pointer(
             OverlayPointer::Press {
                 cell: CellPoint {
@@ -2030,6 +2047,31 @@ mod tests {
             rect,
         );
         assert_eq!(outcome, OverlayOutcome::Consumed);
+    }
+
+    #[test]
+    fn pointer_press_on_settings_back_arrow_returns_to_sections() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        overlay.handle_input(OverlayInput::Down); // Fonts
+        overlay.handle_input(OverlayInput::Activate); // drill in
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.top + 1,
+                    column: rect.body_left,
+                },
+                button: PointerButton::Left,
+            },
+            rect,
+        );
+        assert_eq!(outcome, OverlayOutcome::Consumed);
+        assert_eq!(
+            overlay.render_signature().panel.level,
+            SettingsLevel::SectionList
+        );
     }
 
     #[test]
@@ -2064,8 +2106,8 @@ mod tests {
             .expect("a slider row is visible in Fonts section");
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
-        // Press the far-right of the track → applies a value + arms the drag.
-        assert!(matches!(
+        // Press the far-right of the track → arms the drag without jumping.
+        assert_eq!(
             overlay.handle_pointer(
                 OverlayPointer::Press {
                     cell: right,
@@ -2073,8 +2115,8 @@ mod tests {
                 },
                 rect,
             ),
-            OverlayOutcome::ApplySettings(_)
-        ));
+            OverlayOutcome::Consumed
+        );
         assert!(overlay.is_settings_dragging(), "track press arms the drag");
 
         // Move to the far-left of the track → applies the min value.

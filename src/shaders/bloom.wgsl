@@ -143,7 +143,8 @@ fn crt_curved_uv(uv: vec2<f32>) -> vec2<f32> {
     }
     let ndc = uv * 2.0 - vec2<f32>(1.0, 1.0);
     let r2 = dot(ndc, ndc);
-    let scale = 1.0 + amount * r2;
+    let corner_r2 = 2.0;
+    let scale = (1.0 + amount * r2) / (1.0 + amount * corner_r2);
     let curved = ndc * scale;
     return clamp(curved * 0.5 + vec2<f32>(0.5, 0.5), vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
 }

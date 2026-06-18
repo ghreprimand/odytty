@@ -121,6 +121,10 @@ struct RowEdit {
 struct SliderDragState {
     key: &'static str,
     value: String,
+    /// Offset from the pointer column to the current thumb column at drag start.
+    /// Preserving it avoids a jump when the user grabs a slider away from the
+    /// exact thumb cell.
+    grab_offset: isize,
     /// Body width at drag start. The drag caches
     /// the slider track geometry so pointer-move events do not re-walk the
     /// full visible-rows list each tick. A body-width change (resize mid-drag)

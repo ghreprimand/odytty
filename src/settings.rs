@@ -546,7 +546,7 @@ pub struct Settings {
     pub crt_scanline_intensity: f32,
     pub crt_scanline_period: f32,
     pub crt_vignette_strength: f32,
-    /// CRT screen curvature (`CRT_CURVATURE`, 0.0–0.5). `0.0` (default) is
+    /// CRT screen curvature (`CRT_CURVATURE`, 0.0–0.12). `0.0` (default) is
     /// flat; higher values barrel-distort the composited frame toward the
     /// screen edges. Inert on the plain renderer profile and forced `0.0`
     /// there; the retro preset overrides it to a subtle curve via

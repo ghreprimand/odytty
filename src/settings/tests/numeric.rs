@@ -116,7 +116,7 @@ fn numeric_spec_steps_preserve_the_folded_keyboard_steps() {
         ("crt_scanline_intensity", 0.01),
         ("crt_scanline_period", 0.5),
         ("crt_vignette_strength", 0.01),
-        ("crt_curvature", 0.05),
+        ("crt_curvature", 0.005),
         ("scroll_wheel_lines", 1.0),
     ] {
         assert_eq!(step(key), expected, "{key} keyboard step");

@@ -212,7 +212,7 @@ fn overlay_slider_drag_routes_through_cursor_move_and_release() {
     assert!(!app.overlay_is_dragging_for_test(), "hover does not drag");
     let before = numeric_values(&app);
 
-    // Press the far-right of the track → arms the drag and pushes the value up.
+    // Press the far-right of the track → arms the drag without jumping.
     let app_font_before_drag = app.font_size_px_for_test();
     app.set_pointer_cell_for_test(track_right.row, track_right.column);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
@@ -221,30 +221,34 @@ fn overlay_slider_drag_routes_through_cursor_move_and_release() {
         "track press arms the drag"
     );
     assert!(
-        app.pending_overlay_settings_for_test(),
-        "slider press queues the expensive app apply"
+        !app.pending_overlay_settings_for_test(),
+        "slider press does not queue an app apply until the cursor moves"
     );
     assert_eq!(
         app.font_size_px_for_test(),
         app_font_before_drag,
-        "drag press updates the panel before rebuilding the app font state"
+        "drag press does not rebuild the app font state"
     );
-    let high_values = numeric_values(&app);
-    let (changed_key, high) = high_values
-        .iter()
-        .find_map(|(key, high)| {
-            let before = before.iter().find(|(before_key, _)| before_key == key)?.1;
-            ((*high - before).abs() > f32::EPSILON).then_some((*key, *high))
-        })
-        .expect("track press changes one numeric setting");
+    assert_eq!(
+        numeric_values(&app),
+        before,
+        "drag press leaves numeric values unchanged"
+    );
 
     // CursorMoved to the far-left of the track → drives the value down.
     app.set_pointer_cell_for_test(track_left.row, track_left.column);
     app.handle_overlay_pointer_move();
-    let low = value_of(&app, changed_key);
+    let low_values = numeric_values(&app);
+    let (changed_key, before_value, low) = low_values
+        .iter()
+        .find_map(|(key, low)| {
+            let before = before.iter().find(|(before_key, _)| before_key == key)?.1;
+            ((*low - before).abs() > f32::EPSILON).then_some((*key, before, *low))
+        })
+        .expect("drag move changes one numeric setting");
     assert!(
-        low < high,
-        "drag left lowered {changed_key} ({low} < {high})"
+        low < before_value,
+        "drag left lowered {changed_key} ({low} < {before_value})"
     );
     assert!(
         app.pending_overlay_settings_for_test(),

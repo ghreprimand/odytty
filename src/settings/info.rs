@@ -543,7 +543,7 @@ impl Settings {
                 numeric: Some(NumericSpec {
                     min: MIN_CRT_CURVATURE,
                     max: MAX_CRT_CURVATURE,
-                    step: 0.05,
+                    step: 0.005,
                     unit: "",
                 }),
             },

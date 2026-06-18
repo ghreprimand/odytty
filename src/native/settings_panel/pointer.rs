@@ -572,7 +572,8 @@ impl SettingsPanel {
             let Some(spec) = spec else {
                 return SettingsPanelOutcome::Consumed;
             };
-            self.set_value_from_slider(key, spec, track_x0, track_w, col_in_body, true, body_width)
+            self.begin_slider_drag(key, spec, track_x0, track_w, col_in_body, body_width);
+            SettingsPanelOutcome::Consumed
         } else if col_in_body >= readout_x0 && col_in_body < readout_x0 + readout_w {
             self.start_numeric_edit(entry_index)
         } else {
@@ -613,7 +614,8 @@ impl SettingsPanel {
             };
             geometry
         };
-        self.set_value_from_slider(key, spec, track_x0, track_w, col_in_body, true, body_width)
+        let value_col = drag.value_column(col_in_body);
+        self.set_value_from_slider(key, spec, track_x0, track_w, value_col, true, body_width)
     }
 
     /// End a slider drag (UX4-P2), called on pointer release.
@@ -654,12 +656,39 @@ impl SettingsPanel {
             self.dragging = Some(SliderDragState {
                 key,
                 value: value.clone(),
+                grab_offset: 0,
                 body_width,
                 track_x0,
                 track_w,
             });
         }
         self.commit_value(key, &value)
+    }
+
+    fn begin_slider_drag(
+        &mut self,
+        key: &'static str,
+        spec: crate::settings::NumericSpec,
+        track_x0: usize,
+        track_w: usize,
+        col_in_body: usize,
+        body_width: usize,
+    ) {
+        let current = self
+            .entries
+            .iter()
+            .find(|entry| entry.key == key)
+            .and_then(|entry| entry.value.parse::<f32>().ok())
+            .unwrap_or(spec.min);
+        let thumb_col = slider_thumb_col(spec, track_x0, track_w, current);
+        self.dragging = Some(SliderDragState {
+            key,
+            value: format!("{current:.3}"),
+            grab_offset: col_in_body as isize - thumb_col as isize,
+            body_width,
+            track_x0,
+            track_w,
+        });
     }
 
     /// Begin a click-to-type numeric edit through the same `RowEdit` path the
@@ -748,6 +777,26 @@ impl SettingsPanel {
                 SettingsPanelOutcome::Consumed
             }
         }
+    }
+}
+
+fn slider_thumb_col(
+    spec: crate::settings::NumericSpec,
+    track_x0: usize,
+    track_w: usize,
+    value: f32,
+) -> usize {
+    if track_w <= 1 {
+        return track_x0;
+    }
+    let last = track_w - 1;
+    track_x0 + ((spec.fraction_of(value) * last as f32).round() as usize).min(last)
+}
+
+impl SliderDragState {
+    fn value_column(&self, col_in_body: usize) -> usize {
+        let adjusted = col_in_body as isize - self.grab_offset;
+        adjusted.max(0) as usize
     }
 }
 
@@ -908,7 +957,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_the_slider_track_sets_the_value_through_the_commit_seam() {
+    fn clicking_the_slider_track_arms_drag_without_jumping() {
         let mut p = panel();
         let (row, zone) = slider_row(&p, "font_size");
         let RowZone::Slider {
@@ -917,31 +966,31 @@ mod tests {
         else {
             unreachable!()
         };
-        // Click the far right of the track → saturates to the max (72 px).
-        let SettingsPanelOutcome::Apply(settings) =
-            p.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left)
-        else {
-            panic!("track click applies a value");
-        };
-        assert_eq!(settings.font_size_px, crate::settings::MAX_FONT_SIZE_PX);
-        assert_eq!(p.render_signature().changed_count, 1);
-        // The press also armed a drag.
+        let before = p.render_signature().entries;
+        assert_eq!(
+            p.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left),
+            SettingsPanelOutcome::Consumed
+        );
+        assert_eq!(p.render_signature().entries, before);
+        assert_eq!(p.render_signature().changed_count, 0);
         assert!(p.is_dragging(), "track press arms a drag");
     }
 
     #[test]
-    fn clicking_the_far_left_of_the_track_sets_the_minimum() {
+    fn dragging_the_track_still_commits_through_the_value_seam() {
         let mut p = panel();
         let (row, zone) = slider_row(&p, "font_size");
         let RowZone::Slider { track_x0, .. } = zone else {
             unreachable!()
         };
-        let SettingsPanelOutcome::Apply(settings) =
-            p.handle_pointer_press(W, H, row, track_x0, PointerButton::Left)
-        else {
-            panic!("track click applies a value");
+        assert_eq!(
+            p.handle_pointer_press(W, H, row, track_x0, PointerButton::Left),
+            SettingsPanelOutcome::Consumed
+        );
+        let SettingsPanelOutcome::Apply(settings) = p.handle_pointer_drag(W, H, 0) else {
+            panic!("track drag applies a value");
         };
-        assert_eq!(settings.font_size_px, crate::settings::MIN_FONT_SIZE_PX);
+        assert!(settings.font_size_px < crate::settings::DEFAULT_FONT_SIZE_PX);
     }
 
     #[test]

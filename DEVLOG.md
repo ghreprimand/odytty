@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Settings mouse fixes and softer CRT curvature
+
+Settings slider drags now preserve the pointer's grab offset instead of jumping
+to the clicked track position, so dragging follows the cursor more naturally
+while still requiring the left mouse button to remain held. The settings title
+back arrow is also clickable at level two and routes through the same back path
+as Esc.
+
+The CRT curvature control is capped to a subtler `0.0..=0.12` range with finer
+`0.005` steps, and the retro preset's automatic curve is reduced to `0.025`.
+The post-process shader now normalizes the curved UV scale so enabling curvature
+does not shrink the whole terminal view.
+
+---
+
 ## 2026-06-18 -- INPUT-CONTEXT-ACTIONS: editable context actions and settings entry
 
 The right-click context menu now supports Cut and Delete for OSC 133-aware live
@@ -25,8 +40,8 @@ the last clicked slider as the pointer moves.
 ## 2026-06-18 -- VE6-CURVATURE: optional CRT screen curvature
 
 The CRT post-process now has a `crt_curvature` / `ODYTTY_CRT_CURVATURE` knob in
-the `0.0..=0.5` range. It defaults to flat, is forced off by
-`render_quality = plain`, and the retro preset supplies a subtle `0.15` curve.
+the `0.0..=0.12` range. It defaults to flat, is forced off by
+`render_quality = plain`, and the retro preset supplies a subtle `0.025` curve.
 The composite shader applies barrel-distortion sampling with clamped UVs in the
 post-process path, leaving scanline/vignette brightness math unchanged and
 deferring chromatic aberration.

@@ -225,7 +225,7 @@ fn setting_info_covers_every_field_with_descriptions() {
     ));
     assert!(
         info.iter()
-            .any(|row| row.key == "crt_curvature" && row.range.as_deref() == Some("0.0..=0.5"))
+            .any(|row| row.key == "crt_curvature" && row.range.as_deref() == Some("0.0..=0.12"))
     );
     assert!(info.iter().any(|row| row.key == "background_treatment"
         && row.options == ["off", "gradient", "vignette", "image"]));
@@ -1798,11 +1798,11 @@ fn crt_curvature_defaults_off_and_parses_valid_values() {
     assert_eq!(settings.effective_crt_curvature(), 0.0);
     assert!(warnings.is_empty());
 
-    let (settings, warnings) = settings_from([(CRT_CURVATURE_ENV, "0.3")]);
-    assert_eq!(settings.crt_curvature, 0.3);
+    let (settings, warnings) = settings_from([(CRT_CURVATURE_ENV, "0.08")]);
+    assert_eq!(settings.crt_curvature, 0.08);
     assert!(settings.crt);
     // crt is on (ambient default) but not retro, so the knob wins.
-    assert_eq!(settings.effective_crt_curvature(), 0.3);
+    assert_eq!(settings.effective_crt_curvature(), 0.08);
     assert!(warnings.is_empty());
 }
 
@@ -1829,10 +1829,10 @@ fn crt_curvature_forced_off_on_plain_render_quality() {
     let (settings, _) = settings_from([
         (RENDER_QUALITY_ENV, "plain"),
         (CRT_ENV, "on"),
-        (CRT_CURVATURE_ENV, "0.4"),
+        (CRT_CURVATURE_ENV, "0.1"),
     ]);
     assert!(settings.plain_render_quality());
-    assert_eq!(settings.crt_curvature, 0.4);
+    assert_eq!(settings.crt_curvature, 0.1);
     // Plain path always exposes flat sampling, regardless of the knob.
     assert_eq!(settings.effective_crt_curvature(), 0.0);
 }
@@ -1843,11 +1843,11 @@ fn crt_curvature_retro_preset_overrides_to_subtle_curve() {
     let (settings, warnings) = settings_from([
         (RETRO_ENV, "on"),
         (CRT_ENV, "off"),
-        (CRT_CURVATURE_ENV, "0.02"),
+        (CRT_CURVATURE_ENV, "0.01"),
     ]);
     assert!(settings.retro);
     assert!(settings.effective_crt_enabled());
-    assert_eq!(settings.crt_curvature, 0.02);
+    assert_eq!(settings.crt_curvature, 0.01);
     assert_eq!(settings.effective_crt_curvature(), RETRO_CRT_CURVATURE);
     assert!(warnings.is_empty());
 }
