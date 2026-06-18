@@ -7,7 +7,7 @@ use ab_glyph::FontVec;
 use wgpu::util::DeviceExt;
 
 use crate::atlas;
-use crate::core::{CursorStyle, Snapshot};
+use crate::core::{CursorStyle, RgbColor, Snapshot};
 use crate::emoji::{ColorGlyphAtlas, EmojiRasterizer};
 use crate::graphics::{StoredImageId, VisiblePlacement};
 use crate::grid::{self, ColorGlyphRun, ColorGlyphVertex, CursorRenderParams, SolidQuad, Vertex};
@@ -342,6 +342,46 @@ fn background_vertex_count(snapshot: &Snapshot) -> u32 {
         .filter(|cell| !cell.wide_continuation)
         .count();
     (cells * grid::VERTS_PER_QUAD) as u32
+}
+
+fn linear_rgba(color: RgbColor, alpha: f32) -> [f32; 4] {
+    [
+        text::srgb_to_linear(color.red),
+        text::srgb_to_linear(color.green),
+        text::srgb_to_linear(color.blue),
+        alpha.clamp(0.0, 1.0),
+    ]
+}
+
+pub(super) fn wallpaper_edge_wash_quads(
+    snapshot: &Snapshot,
+    cell: atlas::CellSize,
+    origin: [f32; 2],
+    surface_size: [u32; 2],
+    opacity: f32,
+) -> Vec<SolidQuad> {
+    let color = linear_rgba(snapshot.colors.background, opacity);
+    let surface_w = surface_size[0] as f32;
+    let surface_h = surface_size[1] as f32;
+    let grid_x0 = origin[0].clamp(0.0, surface_w);
+    let grid_y0 = origin[1].clamp(0.0, surface_h);
+    let grid_x1 =
+        (origin[0] + snapshot.dimensions.columns as f32 * cell.width as f32).clamp(0.0, surface_w);
+    let grid_y1 =
+        (origin[1] + snapshot.dimensions.rows as f32 * cell.height as f32).clamp(0.0, surface_h);
+
+    let mut quads = Vec::with_capacity(4);
+    let mut push = |rect: [f32; 4]| {
+        if rect[2] > rect[0] && rect[3] > rect[1] {
+            quads.push(SolidQuad { rect, color });
+        }
+    };
+
+    push([0.0, 0.0, surface_w, grid_y0]);
+    push([0.0, grid_y0, grid_x0, grid_y1]);
+    push([grid_x1, grid_y0, surface_w, grid_y1]);
+    push([0.0, grid_y1, surface_w, surface_h]);
+    quads
 }
 
 pub(super) fn grow_vertex_buffer_capacity(current: u64, needed: u64) -> u64 {
@@ -1475,6 +1515,30 @@ impl GpuState {
             treatment,
             self.cell_bg_opacity,
         );
+        let background_vertices = background_vertex_count(snapshot).min(self.vertices.len() as u32);
+        if self.bg_image.is_some() && self.cell_bg_opacity < 1.0 {
+            let edge_quads = wallpaper_edge_wash_quads(
+                snapshot,
+                self.atlas.cell,
+                origin,
+                [self.config.width, self.config.height],
+                self.cell_bg_opacity,
+            );
+            if !edge_quads.is_empty() {
+                let insert_at = background_vertices as usize;
+                let mut edge_vertices = Vec::with_capacity(edge_quads.len() * grid::VERTS_PER_QUAD);
+                for quad in edge_quads {
+                    grid::push_solid_quad(&mut edge_vertices, quad);
+                }
+                let added = edge_vertices.len() as u32;
+                self.vertices.splice(insert_at..insert_at, edge_vertices);
+                self.background_vertex_count = background_vertices.saturating_add(added);
+            } else {
+                self.background_vertex_count = background_vertices;
+            }
+        } else {
+            self.background_vertex_count = background_vertices;
+        }
         self.cell_vertex_count = self.vertices.len() as u32;
         // D-GLOW-3 draw order: cursor-layer overlays (glow/trail) are appended
         // BEFORE the cursor block so they composite behind it. Both live in the
@@ -1494,7 +1558,7 @@ impl GpuState {
             CursorRenderParams::default(),
         );
         self.vertex_count = self.vertices.len() as u32;
-        self.background_vertex_count = background_vertex_count(snapshot).min(self.vertex_count);
+        self.background_vertex_count = self.background_vertex_count.min(self.vertex_count);
         let needed = vertex_bytes_len(&self.vertices);
         let capacity = grow_vertex_buffer_capacity(self.vertex_buf_capacity_bytes, needed);
         if capacity != self.vertex_buf_capacity_bytes {

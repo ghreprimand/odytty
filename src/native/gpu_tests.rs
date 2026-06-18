@@ -2,8 +2,10 @@
 use super::gpu::{
     BloomOptions, CrtOptions, ViewportUniform, choose_surface_format, create_atlas_bind_group,
     create_cell_pipeline, create_color_atlas_bind_group, create_color_glyph_pipeline,
-    image::BgImageGpu, physical_font_px, post, scene_target_format,
+    image::BgImageGpu, physical_font_px, post, scene_target_format, wallpaper_edge_wash_quads,
 };
+use crate::atlas::CellSize;
+use crate::core::Terminal;
 use crate::grid::{ColorGlyphVertex, Vertex};
 use crate::settings::{RenderQuality, Settings};
 use crate::text::SubpixelMode;
@@ -80,6 +82,39 @@ fn surface_format_falls_back_to_first_non_srgb() {
     assert_eq!(
         choose_surface_format(&formats),
         (wgpu::TextureFormat::Bgra8Unorm, false)
+    );
+}
+
+#[test]
+fn wallpaper_edge_wash_covers_only_non_grid_regions() {
+    let term = Terminal::new(10, 4);
+    let snapshot = term.snapshot();
+    let quads = wallpaper_edge_wash_quads(
+        &snapshot,
+        CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        },
+        [4.0, 4.0],
+        [100, 80],
+        0.6,
+    );
+    let rects = quads.iter().map(|quad| quad.rect).collect::<Vec<_>>();
+
+    assert_eq!(
+        rects,
+        vec![
+            [0.0, 0.0, 100.0, 4.0],
+            [0.0, 4.0, 4.0, 68.0],
+            [84.0, 4.0, 100.0, 68.0],
+            [0.0, 68.0, 100.0, 80.0],
+        ]
+    );
+    assert!(
+        quads
+            .iter()
+            .all(|quad| (quad.color[3] - 0.6).abs() < f32::EPSILON)
     );
 }
 

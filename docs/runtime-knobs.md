@@ -126,7 +126,10 @@ environment variable was not set at startup.
 - `background_treatment = image` draws a PNG, JPEG, or WebP behind the grid. Use
   `cell_bg_opacity < 1.0` to show it through cells; otherwise it is only visible
   in transparent/padding areas. The settings panel presents this inverse as
-  **Wallpaper visibility**, where higher values show more of the image.
+  **Wallpaper visibility**, where higher values show more of the image. When
+  cell backgrounds are translucent, OdyTTY applies the matching wallpaper wash
+  to padding and non-grid edge regions so the image strength stays even across
+  the full window.
 - `background_image_scrim = auto` is shown as **Wallpaper readability** in the
   settings panel. Lower explicit values keep the image clearer; higher values
   add more readability overlay.

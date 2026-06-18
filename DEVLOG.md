@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Linux release command launch and wallpaper edge wash
+
+OdyTTY now has the missing terminal-emulator command launch surface: `odytty -e
+command args...` execs the command directly in the initial PTY, `--working-directory
+DIR` sets the initial shell/command directory, and `--title TITLE` sets the
+initial window title. The desktop entry advertises `X-TerminalArgExec=-e`,
+`X-TerminalArgDir=--working-directory=`, and `X-TerminalArgTitle=--title=` so
+default-terminal selectors and app launchers can discover the command-exec
+contract. A real smoke run confirmed `--working-directory /tmp -e sh -lc ...`
+executes under OdyTTY and exits cleanly.
+
+The Linux release track is now versioned through GitHub releases and Odyssey
+source packages. `v0.1.3` shipped the command-exec surface; `v0.1.4` follows it
+with a background-image fix. The wallpaper/readability wash now covers padding
+and non-grid edge regions when translucent cell backgrounds are active, so the
+background image no longer appears stronger at the bottom or window edges than
+it does behind the terminal grid. The fix inserts non-overlapping edge quads
+into the background segment instead of double-darkening the cell grid.
+
+Docs were updated in README, install/release/packaging notes, AppStream
+metadata, and runtime knob documentation. Verification for `v0.1.4`: `cargo
+fmt --check`, `cargo check --locked`, `cargo test --lib --locked` (1796 passed,
+7 ignored), `cargo test --bin odytty --locked`, `desktop-file-validate`, and
+`appstreamcli validate --pedantic` all pass. `target/release/odytty --version`
+reports `odytty 0.1.4`.
+
+---
+
 ## 2026-06-18 -- Visible tab bar
 
 The multi-session tab strip is now composited into the native render. With two or more sessions open, a one-row tab bar spans the top of the window: each tab shows its session title (the shell's OSC title), the active tab is highlighted, and a hover state previews the tab under the pointer. Click a tab to switch, click its close affordance to close it, click `+` for a new tab, and right-click in the bar to open the context menu. With a single session the bar stays hidden, so a lone shell looks identical to before.
