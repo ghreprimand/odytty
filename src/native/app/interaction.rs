@@ -143,10 +143,12 @@ impl App {
         let Some(rect) = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows) else {
             return;
         };
+        let x_in_body = self.pointer_x_in_body(&rect);
         let pointer = match state {
             ElementState::Pressed => OverlayPointer::Press {
                 cell,
                 button: pointer_button,
+                x_in_body,
             },
             ElementState::Released => OverlayPointer::Release {
                 cell,
@@ -196,9 +198,10 @@ impl App {
         let Some(rect) = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows) else {
             return;
         };
+        let x_in_body = self.pointer_x_in_body(&rect);
         let outcome = self
             .overlay
-            .handle_pointer(OverlayPointer::Move { cell }, rect);
+            .handle_pointer(OverlayPointer::Move { cell, x_in_body }, rect);
         let coalesce_apply = self.overlay.is_settings_dragging();
         self.apply_overlay_outcome_with_policy(outcome, coalesce_apply);
         self.request_selection_redraw();
@@ -230,6 +233,25 @@ impl App {
             .handle_pointer(OverlayPointer::Wheel { lines: -lines }, rect);
         self.apply_overlay_outcome(outcome);
         self.request_selection_redraw();
+    }
+
+    /// Compute the fractional body-relative x coordinate from the cached
+    /// physical pixel position. Returns `None` when pixel data or GPU cell info
+    /// is unavailable (tests, headless mode).
+    ///
+    /// The value is body-relative: 0.0 = left edge of the first body cell,
+    /// 1.0 = right edge of the first body cell, etc. Non-integer values give
+    /// sub-cell precision for smooth slider tracking.
+    fn pointer_x_in_body(&self, rect: &crate::native::overlay::OverlayRect) -> Option<f32> {
+        let (x_px, _) = self.pointer_px?;
+        let cell = self.gpu.as_ref().map(GpuState::cell)?;
+        let padding = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO);
+        let body_left_px = rect.body_left as f32 * cell.width as f32 + padding.as_f32();
+        Some((x_px as f32 - body_left_px) / cell.width.max(1) as f32)
     }
 
     fn update_hover_hyperlink(&mut self) {

@@ -485,6 +485,7 @@ impl SettingsPanel {
         row_in_body: usize,
         col_in_body: usize,
         button: PointerButton,
+        x_in_body: Option<f32>,
     ) -> SettingsPanelOutcome {
         // A fresh press ends any stale drag before dispatching.
         self.dragging = None;
@@ -533,6 +534,7 @@ impl SettingsPanel {
                 readout_x0,
                 readout_w,
                 body_width,
+                x_in_body,
             ),
         }
     }
@@ -553,6 +555,7 @@ impl SettingsPanel {
         readout_x0: usize,
         readout_w: usize,
         body_width: usize,
+        x_in_body: Option<f32>,
     ) -> SettingsPanelOutcome {
         if button == PointerButton::Right {
             return SettingsPanelOutcome::Consumed;
@@ -572,7 +575,15 @@ impl SettingsPanel {
             let Some(spec) = spec else {
                 return SettingsPanelOutcome::Consumed;
             };
-            self.begin_slider_drag(key, spec, track_x0, track_w, col_in_body, body_width);
+            self.begin_slider_drag(
+                key,
+                spec,
+                track_x0,
+                track_w,
+                col_in_body,
+                body_width,
+                x_in_body,
+            );
             SettingsPanelOutcome::Consumed
         } else if col_in_body >= readout_x0 && col_in_body < readout_x0 + readout_w {
             self.start_numeric_edit(entry_index)
@@ -585,11 +596,17 @@ impl SettingsPanel {
     /// Continue an in-progress slider drag (UX4-P2): map the current cursor
     /// column to a value for the dragged row. Geometry is recomputed from the
     /// shared row walker each move, so a resize mid-drag can never desync it.
+    ///
+    /// `x_in_body` is the fractional body-relative x coordinate from physical
+    /// pixel data. When present it is used for sub-cell precision so small
+    /// cursor movements produce proportionally small value changes. Falls back
+    /// to integer cell math when `None` (tests / headless).
     pub(in crate::native) fn handle_pointer_drag(
         &mut self,
         body_width: usize,
         body_height: usize,
         col_in_body: usize,
+        x_in_body: Option<f32>,
     ) -> SettingsPanelOutcome {
         let Some(drag) = self.dragging.as_ref() else {
             return SettingsPanelOutcome::Consumed;
@@ -614,8 +631,49 @@ impl SettingsPanel {
             };
             geometry
         };
-        let value_col = drag.value_column(col_in_body);
-        self.set_value_from_slider(key, spec, track_x0, track_w, value_col, true, body_width)
+
+        // Compute the slider fraction. Prefer pixel-precision delta tracking
+        // when physical x data is available: the value changes by exactly the
+        // amount the cursor moved from the press point, giving smooth sub-cell
+        // behavior and removing the cell-resolution jump. Falls back to
+        // cell-based column math in tests / headless builds.
+        let fraction = if let (Some(x), Some(press_x)) = (x_in_body, drag.press_x_in_body) {
+            let track_span = (track_w as f32 - 1.0).max(1.0);
+            let delta_fraction = (x - press_x) / track_span;
+            (drag.initial_fraction + delta_fraction).clamp(0.0, 1.0)
+        } else {
+            // Cell-based fallback: apply the grab offset then map to fraction.
+            let value_col = drag.value_column(col_in_body);
+            if track_w <= 1 {
+                0.0
+            } else {
+                ((value_col as f32 - track_x0 as f32) / (track_w - 1) as f32).clamp(0.0, 1.0)
+            }
+        };
+
+        let value = spec.value_at_fraction(fraction);
+        let value_str = format!("{value:.3}");
+
+        // Dedup: skip the commit when the snapped value has not changed.
+        if self
+            .dragging
+            .as_ref()
+            .is_some_and(|d| d.key == key && d.value == value_str)
+        {
+            return SettingsPanelOutcome::Consumed;
+        }
+
+        // Update geometry cache and value IN PLACE — preserving grab_offset,
+        // initial_fraction, and press_x_in_body so delta tracking stays intact
+        // for every subsequent move during the same drag.
+        if let Some(drag) = self.dragging.as_mut().filter(|d| d.key == key) {
+            drag.value = value_str.clone();
+            drag.body_width = body_width;
+            drag.track_x0 = track_x0;
+            drag.track_w = track_w;
+        }
+
+        self.commit_value(key, &value_str)
     }
 
     /// End a slider drag (UX4-P2), called on pointer release.
@@ -623,48 +681,7 @@ impl SettingsPanel {
         self.dragging = None;
     }
 
-    /// Map a body-relative column on a slider track to a committed value. Columns
-    /// left of / right of the track saturate to min / max, mirroring how the
-    /// selection path saturates a drag past an edge. Commit flows through the
-    /// existing `commit_value` → `apply_raw` clamp/parse seam.
     #[allow(clippy::too_many_arguments)]
-    fn set_value_from_slider(
-        &mut self,
-        key: &'static str,
-        spec: crate::settings::NumericSpec,
-        track_x0: usize,
-        track_w: usize,
-        col_in_body: usize,
-        dragging: bool,
-        body_width: usize,
-    ) -> SettingsPanelOutcome {
-        let fraction = if track_w <= 1 {
-            0.0
-        } else {
-            ((col_in_body as f32 - track_x0 as f32) / (track_w - 1) as f32).clamp(0.0, 1.0)
-        };
-        let value = spec.value_at_fraction(fraction);
-        let value = format!("{value:.3}");
-        if dragging {
-            if self
-                .dragging
-                .as_ref()
-                .is_some_and(|drag| drag.key == key && drag.value == value)
-            {
-                return SettingsPanelOutcome::Consumed;
-            }
-            self.dragging = Some(SliderDragState {
-                key,
-                value: value.clone(),
-                grab_offset: 0,
-                body_width,
-                track_x0,
-                track_w,
-            });
-        }
-        self.commit_value(key, &value)
-    }
-
     fn begin_slider_drag(
         &mut self,
         key: &'static str,
@@ -673,6 +690,7 @@ impl SettingsPanel {
         track_w: usize,
         col_in_body: usize,
         body_width: usize,
+        press_x_in_body: Option<f32>,
     ) {
         let current = self
             .entries
@@ -680,6 +698,7 @@ impl SettingsPanel {
             .find(|entry| entry.key == key)
             .and_then(|entry| entry.value.parse::<f32>().ok())
             .unwrap_or(spec.min);
+        let initial_fraction = spec.fraction_of(current);
         let thumb_col = slider_thumb_col(spec, track_x0, track_w, current);
         self.dragging = Some(SliderDragState {
             key,
@@ -688,6 +707,8 @@ impl SettingsPanel {
             body_width,
             track_x0,
             track_w,
+            initial_fraction,
+            press_x_in_body,
         });
     }
 
@@ -876,7 +897,7 @@ mod tests {
         let mut p = panel();
         let row = value_row(&p, "synthetic_styles");
         let SettingsPanelOutcome::Apply(settings) =
-            p.handle_pointer_press(W, H, row, 0, PointerButton::Left)
+            p.handle_pointer_press(W, H, row, 0, PointerButton::Left, None)
         else {
             panic!("bool click should apply");
         };
@@ -889,7 +910,7 @@ mod tests {
         let mut p = panel();
         let row = value_row(&p, "theme");
         assert_eq!(
-            p.handle_pointer_press(W, H, row, 0, PointerButton::Left),
+            p.handle_pointer_press(W, H, row, 0, PointerButton::Left, None),
             SettingsPanelOutcome::OpenThemePicker
         );
     }
@@ -899,13 +920,13 @@ mod tests {
         let row = value_row(&panel(), "subpixel");
         let mut fwd_panel = panel();
         let SettingsPanelOutcome::Apply(fwd) =
-            fwd_panel.handle_pointer_press(W, H, row, 0, PointerButton::Left)
+            fwd_panel.handle_pointer_press(W, H, row, 0, PointerButton::Left, None)
         else {
             panic!("enum left-click cycles forward");
         };
         let mut back_panel = panel();
         let SettingsPanelOutcome::Apply(back) =
-            back_panel.handle_pointer_press(W, H, row, 0, PointerButton::Right)
+            back_panel.handle_pointer_press(W, H, row, 0, PointerButton::Right, None)
         else {
             panic!("enum right-click cycles backward");
         };
@@ -950,7 +971,7 @@ mod tests {
             unreachable!()
         };
         assert_eq!(
-            p.handle_pointer_press(W, H, row, readout_x0, PointerButton::Left),
+            p.handle_pointer_press(W, H, row, readout_x0, PointerButton::Left, None),
             SettingsPanelOutcome::Consumed
         );
         assert_eq!(p.render_signature().editing_key, Some("font_size"));
@@ -968,7 +989,7 @@ mod tests {
         };
         let before = p.render_signature().entries;
         assert_eq!(
-            p.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left),
+            p.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left, None),
             SettingsPanelOutcome::Consumed
         );
         assert_eq!(p.render_signature().entries, before);
@@ -984,10 +1005,10 @@ mod tests {
             unreachable!()
         };
         assert_eq!(
-            p.handle_pointer_press(W, H, row, track_x0, PointerButton::Left),
+            p.handle_pointer_press(W, H, row, track_x0, PointerButton::Left, None),
             SettingsPanelOutcome::Consumed
         );
-        let SettingsPanelOutcome::Apply(settings) = p.handle_pointer_drag(W, H, 0) else {
+        let SettingsPanelOutcome::Apply(settings) = p.handle_pointer_drag(W, H, 0, None) else {
             panic!("track drag applies a value");
         };
         assert!(settings.font_size_px < crate::settings::DEFAULT_FONT_SIZE_PX);
@@ -1004,15 +1025,17 @@ mod tests {
             unreachable!()
         };
         // Press mid-track to start a drag.
-        let _ = p.handle_pointer_press(W, H, row, track_x0 + track_w / 2, PointerButton::Left);
+        let _ =
+            p.handle_pointer_press(W, H, row, track_x0 + track_w / 2, PointerButton::Left, None);
         assert!(p.is_dragging());
         // Drag to the right end → max; drag past the left end → min (saturates).
-        let SettingsPanelOutcome::Apply(hi) = p.handle_pointer_drag(W, H, track_x0 + track_w + 50)
+        let SettingsPanelOutcome::Apply(hi) =
+            p.handle_pointer_drag(W, H, track_x0 + track_w + 50, None)
         else {
             panic!("drag right applies");
         };
         assert_eq!(hi.font_size_px, crate::settings::MAX_FONT_SIZE_PX);
-        let SettingsPanelOutcome::Apply(lo) = p.handle_pointer_drag(W, H, 0) else {
+        let SettingsPanelOutcome::Apply(lo) = p.handle_pointer_drag(W, H, 0, None) else {
             panic!("drag left applies");
         };
         assert_eq!(lo.font_size_px, crate::settings::MIN_FONT_SIZE_PX);
@@ -1020,10 +1043,71 @@ mod tests {
         p.end_slider_drag();
         assert!(!p.is_dragging());
         assert_eq!(
-            p.handle_pointer_drag(W, H, track_x0 + track_w - 1),
+            p.handle_pointer_drag(W, H, track_x0 + track_w - 1, None),
             SettingsPanelOutcome::Consumed,
             "no drag after release"
         );
+    }
+
+    /// Pressing away from the thumb (grab_offset != 0) must track the cursor
+    /// with natural delta behavior. The grab_offset must be preserved across all
+    /// drag moves, not reset to 0 after the first move.
+    #[test]
+    fn slider_drag_preserves_grab_offset_across_multiple_moves() {
+        let mut p = panel();
+        let (row, zone) = slider_row(&p, "font_size");
+        let RowZone::Slider {
+            track_x0, track_w, ..
+        } = zone
+        else {
+            unreachable!()
+        };
+        // Press at the far-right of the track (grab_offset = large positive).
+        // Default font_size = 16, range 8-32. Thumb is near the 1/3 mark.
+        let _ =
+            p.handle_pointer_press(W, H, row, track_x0 + track_w - 1, PointerButton::Left, None);
+        assert!(p.is_dragging());
+
+        // After the first drag move, drag should NOT jump: moving 1 cell left
+        // from the press position should produce only a small value change, not
+        // immediately snap to minimum (which would happen if grab_offset were
+        // reset to 0 after the first move).
+        let before_val = crate::settings::DEFAULT_FONT_SIZE_PX;
+        // First move: 1 cell left of the press position.
+        let after_1 = p.handle_pointer_drag(W, H, track_x0 + track_w - 2, None);
+        // Second move: same position (should dedup to Consumed).
+        let dedup = p.handle_pointer_drag(W, H, track_x0 + track_w - 2, None);
+        assert_eq!(
+            dedup,
+            SettingsPanelOutcome::Consumed,
+            "identical position dedups"
+        );
+
+        // Third move: back to press position (one cell right of second position).
+        let after_3 = p.handle_pointer_drag(W, H, track_x0 + track_w - 1, None);
+
+        // The grab_offset should be preserved: moving to press position should
+        // restore the value close to where it started (within 1 step, given
+        // snap rounding). If grab_offset were reset to 0, this move would snap to
+        // max (track right end), not back to the original range.
+        match after_3 {
+            SettingsPanelOutcome::Apply(s) => {
+                // The value at the press-position column is near the original value.
+                // With grab_offset preserved, it should be close to the initial value.
+                let change = (s.font_size_px - before_val).abs();
+                assert!(
+                    change <= 2.0,
+                    "drag back to press position stays near initial value (change={change}); \
+                     grab_offset must not be reset to 0 mid-drag"
+                );
+            }
+            SettingsPanelOutcome::Consumed => {
+                // Also acceptable if value snapped back exactly.
+            }
+            other => panic!("unexpected outcome: {other:?}"),
+        }
+        // Suppress unused warning for after_1.
+        let _ = after_1;
     }
 
     #[test]
@@ -1034,7 +1118,7 @@ mod tests {
             unreachable!()
         };
         assert_eq!(
-            p.handle_pointer_press(W, H, row, track_x0, PointerButton::Right),
+            p.handle_pointer_press(W, H, row, track_x0, PointerButton::Right, None),
             SettingsPanelOutcome::Consumed
         );
         assert_eq!(
@@ -1059,7 +1143,7 @@ mod tests {
             })
             .expect("font_size falls back to a Value row when narrow");
         assert_eq!(
-            p.handle_pointer_press(narrow, H, row, 0, PointerButton::Left),
+            p.handle_pointer_press(narrow, H, row, 0, PointerButton::Left, None),
             SettingsPanelOutcome::Consumed
         );
         assert_eq!(p.render_signature().editing_key, Some("font_size"));
@@ -1087,7 +1171,7 @@ mod tests {
         assert_eq!(hits[0].zone, RowZone::GroupHeader);
         let before = p.render_signature().selected;
         assert_eq!(
-            p.handle_pointer_press(W, H, 0, 0, PointerButton::Left),
+            p.handle_pointer_press(W, H, 0, 0, PointerButton::Left, None),
             SettingsPanelOutcome::Consumed
         );
         assert_eq!(
@@ -1109,7 +1193,7 @@ mod tests {
             })
             .expect("a detail line exists");
         assert_eq!(
-            p.handle_pointer_press(W, H, detail_row, 0, PointerButton::Left),
+            p.handle_pointer_press(W, H, detail_row, 0, PointerButton::Left, None),
             SettingsPanelOutcome::Consumed
         );
         assert_eq!(
@@ -1128,7 +1212,7 @@ mod tests {
     fn out_of_range_body_row_is_inert() {
         let mut p = panel();
         assert_eq!(
-            p.handle_pointer_press(W, H, 100_000, 0, PointerButton::Left),
+            p.handle_pointer_press(W, H, 100_000, 0, PointerButton::Left, None),
             SettingsPanelOutcome::Consumed
         );
     }
@@ -1168,7 +1252,7 @@ mod tests {
         let mut ms = panel();
         let row = value_row(&ms, target);
         let SettingsPanelOutcome::Apply(via_pointer) =
-            ms.handle_pointer_press(W, H, row, 0, PointerButton::Left)
+            ms.handle_pointer_press(W, H, row, 0, PointerButton::Left, None)
         else {
             panic!("pointer click applies the bool toggle");
         };

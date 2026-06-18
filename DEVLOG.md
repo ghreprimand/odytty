@@ -7,6 +7,17 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Pixel-precision settings sliders
+
+Settings slider drags now use fractional pixel coordinates when the native app
+has live GPU geometry, so the thumb follows the mouse smoothly instead of
+snapping one terminal cell at a time. Headless tests and non-GPU paths keep the
+existing cell-based fallback, and the title back arrow click target now covers
+the row where the arrow is drawn plus the adjacent gap row for easier mouse
+navigation.
+
+---
+
 ## 2026-06-18 -- Output dither for non-CRT banding
 
 The post-process composite shader now applies its tiny ordered output dither

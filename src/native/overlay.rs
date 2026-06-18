@@ -302,7 +302,11 @@ impl OverlayUi {
         rect: OverlayRect,
     ) -> OverlayOutcome {
         match pointer {
-            OverlayPointer::Press { cell, button } => {
+            OverlayPointer::Press {
+                cell,
+                button,
+                x_in_body,
+            } => {
                 if !rect.contains(cell) {
                     // Click-away = Esc; routes through the per-mode close path so
                     // the theme picker/builder restore their original theme.
@@ -327,6 +331,7 @@ impl OverlayUi {
                             row_in_body,
                             col_in_body,
                             button,
+                            x_in_body,
                         );
                         self.map_settings_outcome(o)
                     }
@@ -351,7 +356,7 @@ impl OverlayUi {
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
-            OverlayPointer::Move { cell } => {
+            OverlayPointer::Move { cell, x_in_body } => {
                 let col_in_body = cell.column.saturating_sub(rect.body_left);
                 match self.mode {
                     OverlayMode::Settings => {
@@ -359,6 +364,7 @@ impl OverlayUi {
                             rect.body_width,
                             rect.body_height,
                             col_in_body,
+                            x_in_body,
                         );
                         self.map_settings_outcome(o)
                     }
@@ -462,7 +468,10 @@ impl OverlayUi {
                 self.panel.current_level(),
                 SettingsLevel::SectionDetail { .. }
             )
-            && cell.row == rect.top + 1
+            // The ← arrow is drawn at rect.top (the title/border row); also
+            // accept rect.top + 1 (the gap row) for a forgiving click target.
+            && cell.row >= rect.top
+            && cell.row < rect.body_top
             && cell.column >= rect.body_left
             && cell.column < rect.body_left + 3
     }
@@ -825,18 +834,24 @@ pub(super) enum PointerButton {
 /// Pointer events delivered to the overlay (UX4-P1/P2), the mouse analogue of
 /// [`OverlayInput`]. `Press` (click) and `Wheel` (free scroll) landed with P1;
 /// `Move`/`Release` drive the UX4-P2 slider drag.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum OverlayPointer {
     /// A button went down at `cell` (grid coordinates over the visible grid,
-    /// the same space the overlay is drawn in).
+    /// the same space the overlay is drawn in). `x_in_body` is the fractional
+    /// body-relative x from physical pixel data; `None` in tests / headless
+    /// mode.
     Press {
         cell: CellPoint,
         button: PointerButton,
+        x_in_body: Option<f32>,
     },
     /// The pointer moved to `cell` while a slider drag is in progress (UX4-P2).
-    /// The App only routes this during an active drag (drag state lives on the
-    /// panel), so no "button held" flag is needed.
-    Move { cell: CellPoint },
+    /// `x_in_body` is the fractional body-relative x for pixel-precision slider
+    /// tracking; `None` in tests / headless mode.
+    Move {
+        cell: CellPoint,
+        x_in_body: Option<f32>,
+    },
     /// A button was released at `cell` (UX4-P2): ends any slider drag.
     Release {
         cell: CellPoint,
@@ -1978,6 +1993,7 @@ mod tests {
             OverlayPointer::Press {
                 cell: CellPoint { row: 0, column: 0 },
                 button: PointerButton::Left,
+                x_in_body: None,
             },
             rect,
         );
@@ -2003,6 +2019,7 @@ mod tests {
             OverlayPointer::Press {
                 cell: CellPoint { row: 0, column: 0 },
                 button: PointerButton::Left,
+                x_in_body: None,
             },
             rect,
         ) else {
@@ -2024,6 +2041,7 @@ mod tests {
             OverlayPointer::Press {
                 cell: theme_value_cell(rect),
                 button: PointerButton::Left,
+                x_in_body: None,
             },
             rect,
         );
@@ -2043,6 +2061,7 @@ mod tests {
                     column: rect.body_left,
                 },
                 button: PointerButton::Left,
+                x_in_body: None,
             },
             rect,
         );
@@ -2057,20 +2076,47 @@ mod tests {
         overlay.handle_input(OverlayInput::Activate); // drill in
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
 
+        // Clicking the TITLE ROW (rect.top) where the ← arrow is actually drawn.
+        // This is the correct click target; the previous test used rect.top + 1
+        // (the row below the title) which was wrong — the arrow is at rect.top.
         let outcome = overlay.handle_pointer(
             OverlayPointer::Press {
                 cell: CellPoint {
-                    row: rect.top + 1,
+                    row: rect.top,
                     column: rect.body_left,
                 },
                 button: PointerButton::Left,
+                x_in_body: None,
             },
             rect,
         );
         assert_eq!(outcome, OverlayOutcome::Consumed);
         assert_eq!(
             overlay.render_signature().panel.level,
-            SettingsLevel::SectionList
+            SettingsLevel::SectionList,
+            "clicking the title row ← arrow returns to section list"
+        );
+
+        // The row below the title (rect.top + 1) is also accepted as a forgiving
+        // click target for the back affordance.
+        overlay.handle_input(OverlayInput::Activate); // re-enter detail
+        let rect2 = overlay_rect(&overlay, 80, 24).expect("rect");
+        let outcome2 = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect2.top + 1,
+                    column: rect2.body_left,
+                },
+                button: PointerButton::Left,
+                x_in_body: None,
+            },
+            rect2,
+        );
+        assert_eq!(outcome2, OverlayOutcome::Consumed);
+        assert_eq!(
+            overlay.render_signature().panel.level,
+            SettingsLevel::SectionList,
+            "clicking one row below title also navigates back"
         );
     }
 
@@ -2112,6 +2158,7 @@ mod tests {
                 OverlayPointer::Press {
                     cell: right,
                     button: PointerButton::Left,
+                    x_in_body: None,
                 },
                 rect,
             ),
@@ -2121,7 +2168,13 @@ mod tests {
 
         // Move to the far-left of the track → applies the min value.
         assert!(matches!(
-            overlay.handle_pointer(OverlayPointer::Move { cell: left }, rect),
+            overlay.handle_pointer(
+                OverlayPointer::Move {
+                    cell: left,
+                    x_in_body: None
+                },
+                rect
+            ),
             OverlayOutcome::ApplySettings(_)
         ));
 
@@ -2138,7 +2191,13 @@ mod tests {
         );
         assert!(!overlay.is_settings_dragging(), "release ends the drag");
         assert_eq!(
-            overlay.handle_pointer(OverlayPointer::Move { cell: right }, rect),
+            overlay.handle_pointer(
+                OverlayPointer::Move {
+                    cell: right,
+                    x_in_body: None
+                },
+                rect
+            ),
             OverlayOutcome::Consumed,
             "no drag after release"
         );
@@ -2165,6 +2224,7 @@ mod tests {
             OverlayPointer::Press {
                 cell: right,
                 button: PointerButton::Left,
+                x_in_body: None,
             },
             rect,
         );
@@ -2180,7 +2240,13 @@ mod tests {
         assert!(!overlay.is_settings_dragging(), "reopen has no stale drag");
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
         assert_eq!(
-            overlay.handle_pointer(OverlayPointer::Move { cell: right }, rect),
+            overlay.handle_pointer(
+                OverlayPointer::Move {
+                    cell: right,
+                    x_in_body: None
+                },
+                rect
+            ),
             OverlayOutcome::Consumed,
             "hover after reopen is inert"
         );
@@ -2208,6 +2274,7 @@ mod tests {
             OverlayPointer::Press {
                 cell: right,
                 button: PointerButton::Left,
+                x_in_body: None,
             },
             rect,
         );
@@ -2229,7 +2296,13 @@ mod tests {
         // phantom drag re-armed.
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
         assert_eq!(
-            overlay.handle_pointer(OverlayPointer::Move { cell: left }, rect),
+            overlay.handle_pointer(
+                OverlayPointer::Move {
+                    cell: left,
+                    x_in_body: None
+                },
+                rect
+            ),
             OverlayOutcome::Consumed,
             "hover after focus regain is inert"
         );
@@ -2259,6 +2332,7 @@ mod tests {
             OverlayPointer::Press {
                 cell,
                 button: PointerButton::Left,
+                x_in_body: None,
             },
             rect,
         );
@@ -2298,6 +2372,7 @@ mod tests {
             OverlayPointer::Press {
                 cell: CellPoint { row: 0, column: 0 },
                 button: PointerButton::Left,
+                x_in_body: None,
             },
             rect,
         ) else {

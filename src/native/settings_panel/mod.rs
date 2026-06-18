@@ -117,13 +117,13 @@ struct RowEdit {
     buffer: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct SliderDragState {
     key: &'static str,
     value: String,
     /// Offset from the pointer column to the current thumb column at drag start.
     /// Preserving it avoids a jump when the user grabs a slider away from the
-    /// exact thumb cell.
+    /// exact thumb cell. Held constant throughout the drag (never reset to 0).
     grab_offset: isize,
     /// Body width at drag start. The drag caches
     /// the slider track geometry so pointer-move events do not re-walk the
@@ -132,6 +132,14 @@ struct SliderDragState {
     body_width: usize,
     track_x0: usize,
     track_w: usize,
+    /// Slider fraction at press time, used with `press_x_in_body` for
+    /// pixel-precise sub-cell tracking.
+    initial_fraction: f32,
+    /// Fractional body-relative x at press time (where body x=0.0 is the first
+    /// body cell left edge). `None` when pixel info is unavailable (tests,
+    /// headless). When `Some`, drag moves use pixel-precision delta tracking
+    /// rather than cell-based column math.
+    press_x_in_body: Option<f32>,
 }
 
 impl SettingsPanel {
