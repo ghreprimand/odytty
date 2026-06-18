@@ -7,6 +7,17 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-17 -- SETTINGS-SLIDER-LAG: avoid panel rebuilds during slider ticks
+
+The settings panel now updates live slider values in place instead of rebuilding
+the full settings inventory on every key-repeat, drag, and live-apply echo.
+Each changed row re-derives only its display value from the edit overlay, while a
+parity test keeps that single-key path byte-identical to the full settings table.
+Mouse slider drags also cache their track geometry for the duration of the drag,
+falling back to a fresh lookup only if the panel is resized mid-drag. This layers
+on top of the redraw/release coalescing fix so the UI does less work both inside
+the panel and at the app settings-apply seam.
+
 ## 2026-06-17 -- SETTINGS-SLIDER-LAG: coalesce live applies to redraw/release
 
 Settings slider drags and key-repeat steps now keep their expensive live apply

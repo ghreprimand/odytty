@@ -1073,6 +1073,120 @@ impl Settings {
         }
         rows
     }
+
+    /// Return only the human-readable `value` string for a single setting key,
+    /// mirroring the per-field derivation in [`Self::setting_info`]. Used by the
+    /// settings panel to update one row in place after a live edit instead of
+    /// rebuilding the full [`SettingInfo`] table.
+    /// Returns `None` for an unknown key so callers can fall back to a full
+    /// rebuild if the inventory changes shape.
+    pub fn display_value_for_key(&self, key: &str) -> Option<String> {
+        let value = match key {
+            "theme" => self.theme.name.to_owned(),
+            "follow_os_theme" => bool_display(self.follow_os_theme).to_owned(),
+            "os_theme_dark" => self
+                .os_theme_dark
+                .clone()
+                .unwrap_or_else(|| "unset".to_owned()),
+            "os_theme_light" => self
+                .os_theme_light
+                .clone()
+                .unwrap_or_else(|| "unset".to_owned()),
+            "visual" => self.visual.as_str().to_owned(),
+            "font" => self
+                .explicit_font_path
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
+            "font_family" => self
+                .font_family
+                .clone()
+                .unwrap_or_else(|| "unset".to_owned()),
+            "font_weight" => {
+                if self.font_weight.is_empty() {
+                    "regular".to_owned()
+                } else {
+                    self.font_weight.clone()
+                }
+            }
+            "font_size" => format_float(self.font_size_px),
+            "text_gamma" => format_float(self.text_gamma),
+            "stem_darken" => format_float(self.stem_darken),
+            "min_contrast" => format_float(self.min_contrast),
+            "focus_dim" => format_float(self.focus_dim),
+            "render_quality" => self.render_quality.as_str().to_owned(),
+            "window_padding" => format_float(self.window_padding_px),
+            "window_border" => bool_display(self.window_border).to_owned(),
+            "window_decorations" => bool_display(self.window_decorations).to_owned(),
+            "retro" => bool_display(self.retro).to_owned(),
+            "crt" => bool_display(self.crt).to_owned(),
+            "bloom" => bool_display(self.bloom).to_owned(),
+            "bloom_threshold" => format_float(self.bloom_threshold),
+            "bloom_intensity" => format_float(self.bloom_intensity),
+            "bloom_radius" => format_float(self.bloom_radius),
+            "crt_scanline_intensity" => format_float(self.crt_scanline_intensity),
+            "crt_scanline_period" => format_float(self.crt_scanline_period),
+            "crt_vignette_strength" => format_float(self.crt_vignette_strength),
+            "background_treatment" => self.background_treatment.as_str().to_owned(),
+            "background_image" => self
+                .background_image
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "none".to_owned()),
+            "cell_bg_opacity" => format_float(self.cell_bg_opacity),
+            "background_blur_radius" => self.background_blur_radius.to_string(),
+            "background_image_scrim" => self
+                .background_image_scrim
+                .map(format_float)
+                .unwrap_or_else(|| "auto".to_owned()),
+            "new_output_fade" => bool_display(self.new_output_fade).to_owned(),
+            "subpixel" => subpixel_display(self.subpixel).to_owned(),
+            "line_height" => format_float(self.line_height),
+            "synthetic_styles" => bool_display(self.synthetic_styles).to_owned(),
+            "geometric_boxdraw" => bool_display(self.geometric_boxdraw).to_owned(),
+            "box_thickness" => format_float(self.box_thickness),
+            "symbol_fallback" => bool_display(self.symbol_fallback).to_owned(),
+            "symbol_font" => self
+                .symbol_font
+                .as_ref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "auto".to_owned()),
+            "symbol_map" => {
+                if self.symbol_map.is_empty() {
+                    "none".to_owned()
+                } else {
+                    super::format_symbol_map(&self.symbol_map)
+                }
+            }
+            "themed_ui_roles" => bool_display(self.themed_ui_roles).to_owned(),
+            "cursor_style" => cursor_style_display(self.cursor_style).to_owned(),
+            "cursor_blink" => self.cursor_blink.as_str().to_owned(),
+            "cursor_easing" => bool_display(self.cursor_easing).to_owned(),
+            "cursor_glow" => bool_display(self.cursor_glow).to_owned(),
+            "cursor_trail" => bool_display(self.cursor_trail).to_owned(),
+            "cursor_motion" => bool_display(self.cursor_motion).to_owned(),
+            "keybinds" => key_bindings_display(&self.key_bindings),
+            "scroll_wheel_lines" => format_float(self.scroll_wheel_lines),
+            "selection_drag_extend" => bool_display(self.selection_drag_extend).to_owned(),
+            "scroll_drag_speed" => self.scroll_drag_speed.as_str().to_owned(),
+            "smooth_scroll" => bool_display(self.smooth_scroll).to_owned(),
+            "scrollbar_drag" => bool_display(self.scrollbar_drag).to_owned(),
+            "wheel_zoom" => bool_display(self.wheel_zoom).to_owned(),
+            "command_status_gutter" => bool_display(self.command_status_gutter).to_owned(),
+            "sh_click" => bool_display(self.sh_click).to_owned(),
+            "confirm_close" => bool_display(self.confirm_close).to_owned(),
+            "osc52_read" => bool_display(self.osc52_read).to_owned(),
+            "copy_on_select" => bool_display(self.copy_on_select).to_owned(),
+            "cvd_mode" => self.cvd_mode.as_str().to_owned(),
+            "cvd_strength" => format_float(self.cvd_strength),
+            "native_autoclose_ms" => self
+                .native_autoclose
+                .map(|duration| format!("{} ms", duration.as_millis()))
+                .unwrap_or_else(|| "unset".to_owned()),
+            _ => return None,
+        };
+        Some(value)
+    }
 }
 
 fn setting_group_rank(group: &str) -> usize {

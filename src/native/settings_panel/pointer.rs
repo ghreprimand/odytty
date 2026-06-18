@@ -532,6 +532,7 @@ impl SettingsPanel {
                 track_w,
                 readout_x0,
                 readout_w,
+                body_width,
             ),
         }
     }
@@ -551,6 +552,7 @@ impl SettingsPanel {
         track_w: usize,
         readout_x0: usize,
         readout_w: usize,
+        body_width: usize,
     ) -> SettingsPanelOutcome {
         if button == PointerButton::Right {
             return SettingsPanelOutcome::Consumed;
@@ -570,7 +572,7 @@ impl SettingsPanel {
             let Some(spec) = spec else {
                 return SettingsPanelOutcome::Consumed;
             };
-            self.set_value_from_slider(key, spec, track_x0, track_w, col_in_body, true)
+            self.set_value_from_slider(key, spec, track_x0, track_w, col_in_body, true, body_width)
         } else if col_in_body >= readout_x0 && col_in_body < readout_x0 + readout_w {
             self.start_numeric_edit(entry_index)
         } else {
@@ -598,10 +600,20 @@ impl SettingsPanel {
         let Some(spec) = self.entries[index].numeric else {
             return SettingsPanelOutcome::Consumed;
         };
-        let Some((track_x0, track_w)) = self.slider_zone_for(index, body_width, body_height) else {
-            return SettingsPanelOutcome::Consumed;
+        // Cache slider geometry during an active drag: reuse the slider track
+        // geometry captured at drag start instead of re-walking
+        // `build_visible_rows` on every pointer-motion event. A body-width
+        // change (resize mid-drag) invalidates the cache and falls back to a
+        // fresh `slider_zone_for`.
+        let (track_x0, track_w) = if drag.body_width == body_width {
+            (drag.track_x0, drag.track_w)
+        } else {
+            let Some(geometry) = self.slider_zone_for(index, body_width, body_height) else {
+                return SettingsPanelOutcome::Consumed;
+            };
+            geometry
         };
-        self.set_value_from_slider(key, spec, track_x0, track_w, col_in_body, true)
+        self.set_value_from_slider(key, spec, track_x0, track_w, col_in_body, true, body_width)
     }
 
     /// End a slider drag (UX4-P2), called on pointer release.
@@ -613,6 +625,7 @@ impl SettingsPanel {
     /// left of / right of the track saturate to min / max, mirroring how the
     /// selection path saturates a drag past an edge. Commit flows through the
     /// existing `commit_value` → `apply_raw` clamp/parse seam.
+    #[allow(clippy::too_many_arguments)]
     fn set_value_from_slider(
         &mut self,
         key: &'static str,
@@ -621,6 +634,7 @@ impl SettingsPanel {
         track_w: usize,
         col_in_body: usize,
         dragging: bool,
+        body_width: usize,
     ) -> SettingsPanelOutcome {
         let fraction = if track_w <= 1 {
             0.0
@@ -640,6 +654,9 @@ impl SettingsPanel {
             self.dragging = Some(SliderDragState {
                 key,
                 value: value.clone(),
+                body_width,
+                track_x0,
+                track_w,
             });
         }
         self.commit_value(key, &value)

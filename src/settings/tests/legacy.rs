@@ -1748,3 +1748,40 @@ fn confirm_close_round_trips_through_config_key_mapping() {
         Some(&"off".to_owned())
     );
 }
+
+#[test]
+fn display_value_for_key_matches_setting_info_for_every_key() {
+    // The single-key display-value derivation must stay byte-identical to the
+    // full `setting_info()` table for every key, so the in-place panel update
+    // can never drift from a full rebuild.
+    let settings = Settings {
+        theme: Theme::ODYSSEY,
+        font_family: Some("JetBrains Mono".to_owned()),
+        font_size_px: 18.0,
+        bloom: true,
+        bloom_threshold: 0.9,
+        bloom_intensity: 0.35,
+        bloom_radius: 4.5,
+        render_quality: RenderQuality::High,
+        window_padding_px: 12.0,
+        crt: true,
+        crt_scanline_intensity: 0.12,
+        crt_scanline_period: 4.0,
+        crt_vignette_strength: 0.14,
+        symbol_font: Some(PathBuf::from("fixtures/symbols.otf")),
+        cursor_blink: CursorBlink::Off,
+        osc52_read: true,
+        ..Settings::default()
+    };
+    let info = settings.setting_info();
+    for row in &info {
+        let single = settings
+            .display_value_for_key(row.key)
+            .unwrap_or_else(|| panic!("display_value_for_key missing key {}", row.key));
+        assert_eq!(
+            single, row.value,
+            "display_value_for_key drift on key {}",
+            row.key
+        );
+    }
+}

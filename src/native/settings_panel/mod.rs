@@ -121,6 +121,13 @@ struct RowEdit {
 struct SliderDragState {
     key: &'static str,
     value: String,
+    /// Body width at drag start. The drag caches
+    /// the slider track geometry so pointer-move events do not re-walk the
+    /// full visible-rows list each tick. A body-width change (resize mid-drag)
+    /// invalidates the cache and forces a recompute.
+    body_width: usize,
+    track_x0: usize,
+    track_w: usize,
 }
 
 impl SettingsPanel {
@@ -230,22 +237,42 @@ impl SettingsPanel {
     ///     as the source of truth and never touch `self.level`,
     ///     `self.section_selected`, or `self.search_active` here.
     pub(super) fn apply_settings(&mut self, _settings: &Settings) {
-        let selected_key = self
-            .entries
-            .get(self.selected)
-            .map(|entry| entry.key)
-            .unwrap_or("theme");
-        self.all_entries = self.edits.settings().setting_info();
-        self.refresh_entries_after_commit();
-        // Re-find the selected key within the (section/search-aware) list. The
-        // SectionDetail branch of refresh_entries_after_commit already re-finds,
-        // so this only fixes up the Level-1 / search branches; if the key is no
-        // longer present we keep the filter-aware selection rather than jumping
-        // to row 0.
-        if let Some(pos) = self.entries.iter().position(|e| e.key == selected_key) {
-            self.selected = pos;
+        // Avoid rebuilding the settings inventory during slider live edits: the
+        // OverlayEdit echo carries values the panel already committed into
+        // `self.edits`, and `commit_value` already patched into
+        // `all_entries`/`entries` in place. Re-derive every entry value from the
+        // edit overlay in place rather than rebuilding the full `setting_info()`
+        // table on every echo. A full rebuild is the fallback only if a key is
+        // unknown to `display_value_for_key` (inventory shape changed).
+        let needs_full_rebuild = self.sync_all_entry_values_in_place();
+        if needs_full_rebuild {
+            self.all_entries = self.edits.settings().setting_info();
+            self.refresh_entries_after_commit();
         }
         self.clamp();
+    }
+
+    /// Patch every entry's `value` field in `all_entries` and the filtered
+    /// `entries` from the current edit-overlay settings, in place. Returns
+    /// `true` if any key was unknown to [`Settings::display_value_for_key`],
+    /// signalling the caller should fall back to a full `setting_info()`
+    /// rebuild.
+    fn sync_all_entry_values_in_place(&mut self) -> bool {
+        let settings = self.edits.settings().clone();
+        let mut unknown = false;
+        for entry in &mut self.all_entries {
+            match settings.display_value_for_key(entry.key) {
+                Some(value) => entry.value = value,
+                None => unknown = true,
+            }
+        }
+        for entry in &mut self.entries {
+            match settings.display_value_for_key(entry.key) {
+                Some(value) => entry.value = value,
+                None => unknown = true,
+            }
+        }
+        unknown
     }
 
     /// Reconcile an externally-applied `Settings` from a picker into the edit
@@ -832,15 +859,16 @@ impl SettingsPanel {
         let before_scroll = self.scroll;
         match self.edits.apply_raw(key, value) {
             Ok(Some(settings)) => {
-                self.all_entries = self.edits.settings().setting_info();
-                self.refresh_entries_after_commit();
+                // Update only the changed row's display value in place instead
+                // of rebuilding the full `setting_info()` table on every slider
+                // tick.
+                self.update_entry_value_in_place(key);
                 self.restore_scroll_after_commit(before_scroll);
                 self.message = Some(format!("Applied {key}."));
                 SettingsPanelOutcome::Apply(settings)
             }
             Ok(None) => {
-                self.all_entries = self.edits.settings().setting_info();
-                self.refresh_entries_after_commit();
+                self.update_entry_value_in_place(key);
                 self.restore_scroll_after_commit(before_scroll);
                 self.message = Some("No setting change.".to_owned());
                 SettingsPanelOutcome::Consumed
@@ -848,6 +876,31 @@ impl SettingsPanel {
             Err(error) => {
                 self.message = Some(error.message);
                 SettingsPanelOutcome::Consumed
+            }
+        }
+    }
+
+    /// Re-derive the display `value` for a single setting key from the current
+    /// edit-overlay settings and patch it into `all_entries` and the filtered
+    /// `entries` list in place. Falls back to a
+    /// full `setting_info()` rebuild if the key is not found or the single-key
+    /// derivation is unavailable, so the panel stays correct if the inventory
+    /// shape ever changes. Only the `value` field can change from a live edit;
+    /// group/key/name/description/kind/numeric/options/reloadable are static.
+    fn update_entry_value_in_place(&mut self, key: &'static str) {
+        let Some(new_value) = self.edits.settings().display_value_for_key(key) else {
+            self.all_entries = self.edits.settings().setting_info();
+            self.refresh_entries_after_commit();
+            return;
+        };
+        for entry in &mut self.all_entries {
+            if entry.key == key {
+                entry.value.clone_from(&new_value);
+            }
+        }
+        for entry in &mut self.entries {
+            if entry.key == key {
+                entry.value = new_value.clone();
             }
         }
     }
