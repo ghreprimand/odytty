@@ -769,6 +769,17 @@ pub(super) fn parse_crt_vignette_strength(raw: Option<&OsStr>, warn: &mut impl F
         warn,
     )
 }
+pub(super) fn parse_crt_curvature(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    parse_bounded_float(
+        raw,
+        CRT_CURVATURE_ENV,
+        "CRT curvature",
+        DEFAULT_CRT_CURVATURE,
+        MIN_CRT_CURVATURE,
+        MAX_CRT_CURVATURE,
+        warn,
+    )
+}
 
 pub(super) fn parse_subpixel(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> SubpixelMode {
     let Some(raw) = raw else {

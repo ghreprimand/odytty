@@ -869,6 +869,10 @@ impl Screen {
             active_hyperlink: self.active_hyperlink,
             kitty_keyboard_flags: self.keyboard.kitty_keyboard_flags,
             kitty_keyboard_stack: std::mem::take(&mut self.kitty_keyboard_stack),
+            // ALT-SCREEN-ISOLATION: save and clear the primary's input boundary
+            // so the native editing layer cannot read stale primary state while
+            // an alternate-screen TUI is running (D-IN2-ALT-ISOLATION).
+            active_prompt_input_start: self.active_prompt_input_start.take(),
         };
         self.keyboard.kitty_keyboard_flags = 0;
 
@@ -936,6 +940,12 @@ impl Screen {
             self.auto_wrap = primary_screen.auto_wrap;
             self.keyboard.kitty_keyboard_flags = primary_screen.kitty_keyboard_flags;
             self.kitty_keyboard_stack = primary_screen.kitty_keyboard_stack;
+            // ALT-SCREEN-ISOLATION: restore the primary's OSC 133 input
+            // boundary. The alternate screen's value (which was already cleared
+            // on enter) is discarded; the primary's saved value takes effect so
+            // the native editing layer immediately sees the correct boundary
+            // again (D-IN2-ALT-ISOLATION).
+            self.active_prompt_input_start = primary_screen.active_prompt_input_start;
             self.graphics.leave_alternate();
             self.mark_dirty();
         }
@@ -1003,6 +1013,7 @@ impl Screen {
         self.kitty_keyboard_stack.clear();
         self.focus_reporting = false;
         self.click_events_enabled = false;
+        self.active_prompt_input_start = None;
         // RIS returns the cursor shape/blink to the host default policy.
         self.cursor_style = self.default_cursor_style;
         self.cursor_blink = self.default_cursor_blink;

@@ -16,6 +16,7 @@ struct Crt {
     scanline_intensity: f32,
     scanline_period: f32,
     vignette_strength: f32,
+    curvature: f32,
 };
 
 @group(0) @binding(0) var source_tex: texture_2d<f32>;
@@ -129,12 +130,31 @@ fn crt_dither(pos: vec2<f32>) -> f32 {
     return (((bayer[index] + 0.5) / 64.0) - 0.5) * CRT_DITHER_AMPLITUDE;
 }
 
+// Barrel distortion for CRT screen curvature. Maps the flat NDC-space UV to
+// a curved sample location so the composited frame appears to bulge toward
+// the viewer at the center and recede at the edges. `amount` is clamped
+// server-side (0.0–0.5); the shader re-clamps defensively and returns the
+// original UV at zero so the flat path stays pixel-identical. UVs are then
+// clamped to [0,1] to avoid black seams at the frame border.
+fn crt_curved_uv(uv: vec2<f32>) -> vec2<f32> {
+    let amount = clamp(crt.curvature, 0.0, 0.5);
+    if amount <= 0.0 {
+        return uv;
+    }
+    let ndc = uv * 2.0 - vec2<f32>(1.0, 1.0);
+    let r2 = dot(ndc, ndc);
+    let scale = 1.0 + amount * r2;
+    let curved = ndc * scale;
+    return clamp(curved * 0.5 + vec2<f32>(0.5, 0.5), vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
+}
+
 @fragment
 fn fs_composite_bloom(in: VsOut) -> @location(0) vec4<f32> {
-    let scene = textureSample(source_tex, source_sampler, in.uv);
+    let curved = crt_curved_uv(in.uv);
+    let scene = textureSample(source_tex, source_sampler, curved);
     var rgb = scene.rgb;
     if bloom.intensity > 0.0 {
-        let glow = textureSample(bloom_tex, bloom_sampler, in.uv).rgb;
+        let glow = textureSample(bloom_tex, bloom_sampler, curved).rgb;
         rgb += glow * bloom.intensity;
     }
     rgb *= crt_brightness(in.uv);

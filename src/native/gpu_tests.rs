@@ -304,6 +304,7 @@ fn post_options(bloom_enabled: bool, crt_enabled: bool) -> post::PostProcessOpti
             scanline_intensity: 0.08,
             scanline_period: 3.0,
             vignette_strength: 0.1,
+            curvature: 0.0,
         },
     }
 }
@@ -321,6 +322,7 @@ fn post_options_from_settings(settings: &Settings) -> post::PostProcessOptions {
             scanline_intensity: settings.effective_crt_scanline_intensity(),
             scanline_period: settings.crt_scanline_period,
             vignette_strength: settings.effective_crt_vignette_strength(),
+            curvature: settings.effective_crt_curvature(),
         },
     }
 }

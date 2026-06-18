@@ -132,6 +132,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "crt_scanline_intensity",
             "crt_scanline_period",
             "crt_vignette_strength",
+            "crt_curvature",
             "background_treatment",
             "background_image",
             "cell_bg_opacity",
@@ -222,6 +223,10 @@ fn setting_info_covers_every_field_with_descriptions() {
     assert!(info.iter().any(
         |row| row.key == "crt_vignette_strength" && row.range.as_deref() == Some("0.0..=0.45")
     ));
+    assert!(
+        info.iter()
+            .any(|row| row.key == "crt_curvature" && row.range.as_deref() == Some("0.0..=0.5"))
+    );
     assert!(info.iter().any(|row| row.key == "background_treatment"
         && row.options == ["off", "gradient", "vignette", "image"]));
 }
@@ -1784,4 +1789,72 @@ fn display_value_for_key_matches_setting_info_for_every_key() {
             row.key
         );
     }
+}
+
+#[test]
+fn crt_curvature_defaults_off_and_parses_valid_values() {
+    let (settings, warnings) = settings_from([]);
+    assert_eq!(settings.crt_curvature, DEFAULT_CRT_CURVATURE);
+    assert_eq!(settings.effective_crt_curvature(), 0.0);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from([(CRT_CURVATURE_ENV, "0.3")]);
+    assert_eq!(settings.crt_curvature, 0.3);
+    assert!(settings.crt);
+    // crt is on (ambient default) but not retro, so the knob wins.
+    assert_eq!(settings.effective_crt_curvature(), 0.3);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn crt_curvature_clamps_to_supported_range() {
+    let (small, small_warnings) = settings_from([(CRT_CURVATURE_ENV, "-1")]);
+    let (large, large_warnings) = settings_from([(CRT_CURVATURE_ENV, "9")]);
+    assert_eq!(small.crt_curvature, MIN_CRT_CURVATURE);
+    assert_eq!(large.crt_curvature, MAX_CRT_CURVATURE);
+    assert!(small_warnings.is_empty());
+    assert!(large_warnings.is_empty());
+}
+
+#[test]
+fn crt_curvature_garbage_falls_back_with_warning() {
+    let (settings, warnings) = settings_from([(CRT_CURVATURE_ENV, "warped")]);
+    assert_eq!(settings.crt_curvature, DEFAULT_CRT_CURVATURE);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(CRT_CURVATURE_ENV));
+}
+
+#[test]
+fn crt_curvature_forced_off_on_plain_render_quality() {
+    let (settings, _) = settings_from([
+        (RENDER_QUALITY_ENV, "plain"),
+        (CRT_ENV, "on"),
+        (CRT_CURVATURE_ENV, "0.4"),
+    ]);
+    assert!(settings.plain_render_quality());
+    assert_eq!(settings.crt_curvature, 0.4);
+    // Plain path always exposes flat sampling, regardless of the knob.
+    assert_eq!(settings.effective_crt_curvature(), 0.0);
+}
+
+#[test]
+fn crt_curvature_retro_preset_overrides_to_subtle_curve() {
+    // Explicit knob is set lower than the retro override; retro must win.
+    let (settings, warnings) = settings_from([
+        (RETRO_ENV, "on"),
+        (CRT_ENV, "off"),
+        (CRT_CURVATURE_ENV, "0.02"),
+    ]);
+    assert!(settings.retro);
+    assert!(settings.effective_crt_enabled());
+    assert_eq!(settings.crt_curvature, 0.02);
+    assert_eq!(settings.effective_crt_curvature(), RETRO_CRT_CURVATURE);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn crt_curvature_round_trips_through_config_key_mapping() {
+    assert_eq!(config_key_to_env("crt_curvature"), Some(CRT_CURVATURE_ENV));
+    assert_eq!(config_key_to_env("curvature"), Some(CRT_CURVATURE_ENV));
+    assert_eq!(env_to_config_key(CRT_CURVATURE_ENV), Some("crt_curvature"));
 }

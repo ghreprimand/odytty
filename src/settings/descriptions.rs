@@ -88,6 +88,7 @@ pub const CRT_SCANLINE_PERIOD_DESC: &str = "CRT scanline spacing: vertical dista
      larger values spread them out for a coarser look. Accepts 2.0–12.0; 7.0 is the \
      ambient default. Only takes effect when the CRT profile is on.";
 pub const CRT_VIGNETTE_STRENGTH_DESC: &str = "CRT vignette strength: bounded edge dimming. Accepts 0.0–0.45; the shader enforces a brightness floor so corners recede without erasing lit cells.";
+pub const CRT_CURVATURE_DESC: &str = "CRT curvature: barrel-distortion screen curvature. Accepts 0.0–0.5; 0.0 (default) is flat and pixel-identical to the plain renderer, higher values bulge the screen toward the edges with UV clamping so borders stay free of black seams. Only takes effect when the CRT profile is on; the retro preset overrides it to a subtle curve.";
 
 /// Human-readable help for the geometric box-drawing knob (RV2), shown in the
 /// in-app settings panel. Follows the every-knob-carries-a-description convention.

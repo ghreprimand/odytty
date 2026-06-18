@@ -80,13 +80,27 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.handle_copy_shortcut();
             }
+            OverlayOutcome::ContextMenuCut => {
+                self.flush_pending_overlay_settings();
+                self.handle_context_menu_cut();
+            }
             OverlayOutcome::ContextMenuPaste => {
                 self.flush_pending_overlay_settings();
                 self.handle_paste_shortcut();
             }
+            OverlayOutcome::ContextMenuDelete => {
+                self.flush_pending_overlay_settings();
+                self.handle_context_menu_delete();
+            }
             OverlayOutcome::ContextMenuSelectAll => {
                 self.flush_pending_overlay_settings();
                 self.handle_select_all();
+            }
+            // D-IN2-SETTINGS: the context menu closed itself; open the settings
+            // panel through the existing toggle path (same destination as
+            // Ctrl+Shift+,). No extra state: the toggle path handles open/close.
+            OverlayOutcome::ContextMenuSettings => {
+                self.toggle_settings_overlay();
             }
             // CLOSE-CONFIRM: the dialog closed itself before emitting this; flag
             // the exit so `window_event` exits the loop on this same turn (the
@@ -111,19 +125,39 @@ impl App {
         let Some(cell) = self.pointer_cell else {
             return;
         };
-        let button = match button {
+        let pointer_button = match button {
             WinitMouseButton::Left => PointerButton::Left,
             WinitMouseButton::Right => PointerButton::Right,
             _ => return,
         };
+        // SLIDER-GUARD (D-SLIDER-GUARD): track whether the left button is held so
+        // `handle_overlay_pointer_move` can gate slider updates. Clear BEFORE the
+        // Release is processed so the Release handler never sees a stale held-flag,
+        // and set AFTER the Press lands so the flag reflects an active drag.
+        if button == WinitMouseButton::Left {
+            match state {
+                ElementState::Released => self.overlay_left_held = false,
+                ElementState::Pressed => {} // set below, after overlay confirms a drag
+            }
+        }
         let Some(rect) = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows) else {
             return;
         };
         let pointer = match state {
-            ElementState::Pressed => OverlayPointer::Press { cell, button },
-            ElementState::Released => OverlayPointer::Release { cell, button },
+            ElementState::Pressed => OverlayPointer::Press {
+                cell,
+                button: pointer_button,
+            },
+            ElementState::Released => OverlayPointer::Release {
+                cell,
+                button: pointer_button,
+            },
         };
         let outcome = self.overlay.handle_pointer(pointer, rect);
+        // After a left press, arm the held flag if a slider drag was started.
+        if button == WinitMouseButton::Left && state == ElementState::Pressed {
+            self.overlay_left_held = self.overlay.is_settings_dragging();
+        }
         let coalesce_apply = state == ElementState::Pressed && self.overlay.is_settings_dragging();
         self.apply_overlay_outcome_with_policy(outcome, coalesce_apply);
         if state == ElementState::Released {
@@ -133,13 +167,27 @@ impl App {
     }
 
     /// Drive an in-progress slider drag from the cached pointer cell (UX4-P2).
-    /// Gated on an active drag so ordinary hover over the open overlay stays a
-    /// cheap no-op (no redraw, no PTY/selection work).
+    /// Gated on an active drag AND the left-button-held flag so cursor movements
+    /// after the button is released can never advance an armed drag
+    /// (D-SLIDER-GUARD). Ordinary hover over the open overlay stays a cheap
+    /// no-op (no redraw, no PTY/selection work).
     pub(in crate::native) fn handle_overlay_pointer_move(&mut self) {
-        // A bare hover is forwarded only to advance an active slider drag
-        // (UX4-P2) or to drive context-menu hover-to-focus (IN2); otherwise it
-        // is a cheap no-op.
-        if !self.overlay.is_settings_dragging() && !self.overlay.is_context_menu() {
+        // A bare hover is forwarded only to advance an active settings slider
+        // drag (UX4-P2, only when the left button IS held — D-SLIDER-GUARD)
+        // or to drive context-menu hover-to-focus (IN2); otherwise it is a cheap
+        // no-op.
+        let should_route = if self.overlay.is_settings_dragging() {
+            // Slider move: require the left button to be held. If the drag state
+            // is somehow stale (lost Release event), cancel it and return.
+            if !self.overlay_left_held {
+                self.overlay.cancel_settings_drag();
+                return;
+            }
+            true
+        } else {
+            self.overlay.is_context_menu()
+        };
+        if !should_route {
             return;
         }
         let Some(cell) = self.pointer_cell else {

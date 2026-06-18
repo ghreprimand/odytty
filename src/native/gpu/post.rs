@@ -17,6 +17,7 @@ pub(crate) struct CrtOptions {
     pub(crate) scanline_intensity: f32,
     pub(crate) scanline_period: f32,
     pub(crate) vignette_strength: f32,
+    pub(crate) curvature: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -47,6 +48,8 @@ struct CrtUniform {
     scanline_intensity: f32,
     scanline_period: f32,
     vignette_strength: f32,
+    curvature: f32,
+    _pad: f32,
 }
 
 pub(in crate::native) struct PostProcessResources {
@@ -155,6 +158,8 @@ impl PostProcessResources {
                 scanline_intensity: 0.0,
                 scanline_period: 3.0,
                 vignette_strength: 0.0,
+                curvature: 0.0,
+                _pad: 0.0,
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -267,6 +272,8 @@ impl PostProcessResources {
                 scanline_intensity: crt.scanline_intensity,
                 scanline_period: crt.scanline_period,
                 vignette_strength: crt.vignette_strength,
+                curvature: crt.curvature,
+                _pad: 0.0,
             }),
         );
         if bloom.enabled {

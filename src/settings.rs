@@ -546,6 +546,12 @@ pub struct Settings {
     pub crt_scanline_intensity: f32,
     pub crt_scanline_period: f32,
     pub crt_vignette_strength: f32,
+    /// CRT screen curvature (`CRT_CURVATURE`, 0.0–0.5). `0.0` (default) is
+    /// flat; higher values barrel-distort the composited frame toward the
+    /// screen edges. Inert on the plain renderer profile and forced `0.0`
+    /// there; the retro preset overrides it to a subtle curve via
+    /// [`Self::effective_crt_curvature`].
+    pub crt_curvature: f32,
     pub subpixel: SubpixelMode,
     /// Line-height multiplier baked into the glyph cell (LINEHEIGHT). `1.0`
     /// (default) adds zero leading and is pixel-identical to before; higher
@@ -746,6 +752,7 @@ impl Default for Settings {
             crt_scanline_intensity: DEFAULT_CRT_SCANLINE_INTENSITY,
             crt_scanline_period: DEFAULT_CRT_SCANLINE_PERIOD,
             crt_vignette_strength: DEFAULT_CRT_VIGNETTE_STRENGTH,
+            crt_curvature: DEFAULT_CRT_CURVATURE,
             subpixel: SubpixelMode::Off,
             line_height: DEFAULT_LINE_HEIGHT,
             box_thickness: DEFAULT_BOX_THICKNESS,
@@ -871,6 +878,15 @@ impl Settings {
             RETRO_CRT_VIGNETTE_STRENGTH
         } else {
             self.crt_vignette_strength
+        }
+    }
+    pub fn effective_crt_curvature(&self) -> f32 {
+        if self.plain_render_quality() {
+            0.0
+        } else if self.retro {
+            RETRO_CRT_CURVATURE
+        } else {
+            self.crt_curvature
         }
     }
 
@@ -1124,6 +1140,7 @@ impl Settings {
             parse_crt_scanline_period(get(CRT_SCANLINE_PERIOD_ENV).as_deref(), &mut warn);
         let crt_vignette_strength =
             parse_crt_vignette_strength(get(CRT_VIGNETTE_STRENGTH_ENV).as_deref(), &mut warn);
+        let crt_curvature = parse_crt_curvature(get(CRT_CURVATURE_ENV).as_deref(), &mut warn);
         let subpixel = parse_subpixel(get(SUBPIXEL_ENV).as_deref(), &mut warn);
         let line_height = parse_line_height(get(LINE_HEIGHT_ENV).as_deref(), &mut warn);
         let box_thickness = parse_box_thickness(get(BOX_THICKNESS_ENV).as_deref(), &mut warn);
@@ -1308,6 +1325,7 @@ impl Settings {
             crt_scanline_intensity,
             crt_scanline_period,
             crt_vignette_strength,
+            crt_curvature,
             subpixel,
             line_height,
             box_thickness,
@@ -1405,6 +1423,7 @@ impl Settings {
             CRT_VIGNETTE_STRENGTH_ENV,
             format_float(self.crt_vignette_strength),
         );
+        values.insert(CRT_CURVATURE_ENV, format_float(self.crt_curvature));
         values.insert(SUBPIXEL_ENV, subpixel_display(self.subpixel).to_owned());
         values.insert(LINE_HEIGHT_ENV, format_float(self.line_height));
         values.insert(BOX_THICKNESS_ENV, format_float(self.box_thickness));

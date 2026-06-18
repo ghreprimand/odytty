@@ -531,6 +531,24 @@ impl Settings {
             },
             SettingInfo {
                 group: "Post-process",
+                key: "crt_curvature",
+                env: CRT_CURVATURE_ENV,
+                name: "CRT curvature",
+                value: format_float(self.crt_curvature),
+                description: CRT_CURVATURE_DESC,
+                kind: SettingKind::Number,
+                range: None,
+                options: &[],
+                reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_CRT_CURVATURE,
+                    max: MAX_CRT_CURVATURE,
+                    step: 0.05,
+                    unit: "",
+                }),
+            },
+            SettingInfo {
+                group: "Post-process",
                 key: "background_treatment",
                 env: BACKGROUND_TREATMENT_ENV,
                 name: "Background treatment",
@@ -1127,6 +1145,7 @@ impl Settings {
             "crt_scanline_intensity" => format_float(self.crt_scanline_intensity),
             "crt_scanline_period" => format_float(self.crt_scanline_period),
             "crt_vignette_strength" => format_float(self.crt_vignette_strength),
+            "crt_curvature" => format_float(self.crt_curvature),
             "background_treatment" => self.background_treatment.as_str().to_owned(),
             "background_image" => self
                 .background_image

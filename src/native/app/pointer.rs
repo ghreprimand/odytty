@@ -13,6 +13,12 @@
 
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct EditableInputSelection {
+    pub(super) text: String,
+    edit_bytes: Vec<u8>,
+}
+
 impl App {
     /// Handle a window-level mouse button event (the `WindowEvent::MouseInput`
     /// dispatch). Precedence is unchanged: an open overlay captures the button
@@ -266,6 +272,74 @@ impl App {
         }
     }
 
+    pub(super) fn editable_input_selection_for_context_menu(
+        &self,
+    ) -> Option<EditableInputSelection> {
+        if self.selection_block || self.viewport.offset() != 0 {
+            return None;
+        }
+        let range = self.selection.range()?;
+        let terminal = self.terminal.lock().ok()?;
+        let modes = key_modes_from_core(terminal.keyboard_modes());
+        let (input_row, input_column) = terminal.active_prompt_input_start()?;
+        let scrollback_len = terminal.screen().scrollback_len();
+        let cursor = terminal.screen().cursor();
+        let cursor_row = scrollback_len.saturating_add(cursor.row);
+        if input_row != cursor_row || input_row < scrollback_len {
+            return None;
+        }
+        let visible_row = input_row - scrollback_len;
+        if visible_row >= self.grid.rows {
+            return None;
+        }
+        let (selected_start, selected_end) =
+            selected_columns_on_row(range, input_row, self.grid.columns)?;
+        let snapshot = terminal.snapshot_with_scrollback(0);
+        let editable_end = editable_input_end_column(&snapshot, visible_row, input_column, cursor)?;
+        let start = selected_start.max(input_column);
+        let end = selected_end.min(editable_end);
+        if start > end {
+            return None;
+        }
+        let text = snapshot_row_text(&snapshot, visible_row, start, end);
+        let delete_count = snapshot_row_cell_count(&snapshot, visible_row, start, end);
+        if text.is_empty() || delete_count == 0 {
+            return None;
+        }
+        let edit_bytes =
+            delete_selection_bytes(&snapshot, visible_row, start, cursor, delete_count, modes)?;
+        Some(EditableInputSelection { text, edit_bytes })
+    }
+
+    pub(super) fn handle_context_menu_cut(&mut self) {
+        let Some(selection) = self.editable_input_selection_for_context_menu() else {
+            return;
+        };
+        // Fail-safe: if the clipboard write fails, do not delete the editable
+        // input and do not clear the selection — the text stays in-place as
+        // if Cut had not been invoked. Only proceed with the delete when the
+        // write actually succeeded (D-IN2-CUT-SAFE).
+        if self.clipboard.write_text(&selection.text).is_none() {
+            return;
+        }
+        self.delete_editable_input_selection(selection);
+    }
+
+    pub(super) fn handle_context_menu_delete(&mut self) {
+        let Some(selection) = self.editable_input_selection_for_context_menu() else {
+            return;
+        };
+        self.delete_editable_input_selection(selection);
+    }
+
+    fn delete_editable_input_selection(&mut self, selection: EditableInputSelection) {
+        self.return_to_live();
+        self.write_pty_bytes(&selection.edit_bytes);
+        self.selection.clear();
+        self.selection_block = false;
+        self.request_selection_redraw();
+    }
+
     pub(super) fn write_primary_selection(&mut self) {
         let Some(text) = self.current_selection_text() else {
             return;
@@ -306,6 +380,115 @@ impl App {
     pub(super) fn cancel_overlay_drag_on_focus_loss(&mut self) {
         if self.overlay.is_open() {
             self.overlay.cancel_settings_drag();
+            // SLIDER-GUARD: clear the held flag so a focus-regain move cannot
+            // advance a stale drag even if the Release event was lost.
+            self.overlay_left_held = false;
         }
     }
+}
+
+fn selected_columns_on_row(
+    range: AbsoluteSelectionRange,
+    row: usize,
+    columns: usize,
+) -> Option<(usize, usize)> {
+    if row < range.start.row || row > range.end.row || columns == 0 {
+        return None;
+    }
+    let start = if row == range.start.row {
+        range.start.column
+    } else {
+        0
+    };
+    let end = if row == range.end.row {
+        range.end.column
+    } else {
+        columns - 1
+    };
+    Some((start.min(columns - 1), end.min(columns - 1)))
+}
+
+fn editable_input_end_column(
+    snapshot: &Snapshot,
+    row: usize,
+    input_column: usize,
+    cursor: Position,
+) -> Option<usize> {
+    if row >= snapshot.dimensions.rows || input_column >= snapshot.dimensions.columns {
+        return None;
+    }
+    let offset = row * snapshot.dimensions.columns;
+    let row_cells = &snapshot.cells[offset..offset + snapshot.dimensions.columns];
+    let last_content = row_cells
+        .iter()
+        .enumerate()
+        .rev()
+        .find(|(_, cell)| {
+            !cell.wide_continuation && (cell.ch != ' ' || !cell.combining().is_empty())
+        })
+        .map(|(column, _)| column);
+    let cursor_end = if cursor.row == row {
+        cursor.column.saturating_sub(1)
+    } else {
+        0
+    };
+    let end = last_content.map_or(cursor_end, |column| column.max(cursor_end));
+    (end >= input_column).then_some(end.min(snapshot.dimensions.columns - 1))
+}
+
+fn snapshot_row_text(snapshot: &Snapshot, row: usize, start: usize, end: usize) -> String {
+    snapshot_row_cells(snapshot, row, start, end)
+        .filter(|cell| !cell.wide_continuation)
+        .map(|cell| cell.grapheme())
+        .collect()
+}
+
+fn snapshot_row_cell_count(snapshot: &Snapshot, row: usize, start: usize, end: usize) -> usize {
+    snapshot_row_cells(snapshot, row, start, end)
+        .filter(|cell| !cell.wide_continuation)
+        .count()
+}
+
+fn snapshot_row_cells(
+    snapshot: &Snapshot,
+    row: usize,
+    start: usize,
+    end: usize,
+) -> impl Iterator<Item = &crate::core::Cell> {
+    let columns = snapshot.dimensions.columns;
+    let offset = row * columns;
+    snapshot.cells[offset + start..=offset + end].iter()
+}
+
+fn delete_selection_bytes(
+    snapshot: &Snapshot,
+    row: usize,
+    selection_start: usize,
+    cursor: Position,
+    delete_count: usize,
+    modes: KeyModes,
+) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    if selection_start < cursor.column {
+        let move_count = snapshot_row_cell_count(snapshot, row, selection_start, cursor.column - 1);
+        let left = input::encode_key_event(Key::Left, Modifiers::NONE, modes, KeyEventType::Press);
+        if move_count > 0 && left.is_empty() {
+            return None;
+        }
+        bytes.extend(left.repeat(move_count));
+    } else if selection_start > cursor.column {
+        let move_count = snapshot_row_cell_count(snapshot, row, cursor.column, selection_start - 1);
+        let right =
+            input::encode_key_event(Key::Right, Modifiers::NONE, modes, KeyEventType::Press);
+        if move_count > 0 && right.is_empty() {
+            return None;
+        }
+        bytes.extend(right.repeat(move_count));
+    }
+    let delete = input::encode_key_event(Key::Delete, Modifiers::NONE, modes, KeyEventType::Press);
+    if delete.is_empty() {
+        return None;
+    }
+    bytes.extend(delete.repeat(delete_count));
+    Some(bytes)
 }

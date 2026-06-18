@@ -387,6 +387,14 @@ pub(super) struct App {
     /// physical detent is one scroll/zoom step. Identity for a clean
     /// `LineDelta(_, ±1.0)`. Reset on focus loss and overlay open.
     wheel_accum: WheelAccumulator,
+    /// SLIDER-GUARD: whether the left mouse button is currently held while the
+    /// overlay is open. Set on `MouseInput { Pressed, Left }` and cleared on
+    /// `MouseInput { Released, Left }` through the overlay pointer path. Used to
+    /// gate overlay slider drag moves so that cursor movements after the button
+    /// is released can NEVER advance an armed drag — even if the drag state is
+    /// somehow stale. `CursorMoved` carries no button state, so this flag is the
+    /// reliable held-button seam for the settings-slider path (D-SLIDER-GUARD).
+    overlay_left_held: bool,
     pub(super) startup_error: Option<NativeError>,
 }
 
@@ -486,6 +494,7 @@ impl App {
             os_theme: None,
             pending_exit: false,
             wheel_accum: WheelAccumulator::default(),
+            overlay_left_held: false,
             startup_error: None,
         };
         // ONBOARD (D-OB-1/D-OB-2): open the first-run welcome card iff the
@@ -948,9 +957,15 @@ impl App {
             return;
         };
         let copy_enabled = self.selection.range().is_some();
+        let editable_selection = self.editable_input_selection_for_context_menu();
         let paste_enabled = self.clipboard.read_text().is_some();
-        self.overlay
-            .open_context_menu(spawn, copy_enabled, paste_enabled);
+        self.overlay.open_context_menu(
+            spawn,
+            copy_enabled,
+            editable_selection.is_some(),
+            paste_enabled,
+            editable_selection.is_some(),
+        );
         self.request_selection_redraw();
     }
 
@@ -1912,6 +1927,7 @@ fn crt_options(settings: &Settings) -> CrtOptions {
         scanline_intensity: settings.effective_crt_scanline_intensity(),
         scanline_period: settings.crt_scanline_period,
         vignette_strength: settings.effective_crt_vignette_strength(),
+        curvature: settings.effective_crt_curvature(),
     }
 }
 

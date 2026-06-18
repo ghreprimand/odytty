@@ -29,6 +29,7 @@ pub const CRT_ENV: &str = "ODYTTY_CRT";
 pub const CRT_SCANLINE_INTENSITY_ENV: &str = "ODYTTY_CRT_SCANLINE_INTENSITY";
 pub const CRT_SCANLINE_PERIOD_ENV: &str = "ODYTTY_CRT_SCANLINE_PERIOD";
 pub const CRT_VIGNETTE_STRENGTH_ENV: &str = "ODYTTY_CRT_VIGNETTE_STRENGTH";
+pub const CRT_CURVATURE_ENV: &str = "ODYTTY_CRT_CURVATURE";
 pub const SUBPIXEL_ENV: &str = "ODYTTY_SUBPIXEL";
 pub const LINE_HEIGHT_ENV: &str = "ODYTTY_LINE_HEIGHT";
 pub const BOX_THICKNESS_ENV: &str = "ODYTTY_BOX_THICKNESS";
@@ -98,6 +99,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CRT_SCANLINE_INTENSITY_ENV,
     CRT_SCANLINE_PERIOD_ENV,
     CRT_VIGNETTE_STRENGTH_ENV,
+    CRT_CURVATURE_ENV,
     SUBPIXEL_ENV,
     LINE_HEIGHT_ENV,
     BOX_THICKNESS_ENV,
@@ -425,6 +427,7 @@ pub const RETRO_BLOOM_INTENSITY: f32 = 1.0;
 pub const RETRO_BLOOM_RADIUS: f32 = 8.0;
 pub const RETRO_CRT_SCANLINE_INTENSITY: f32 = 0.35;
 pub const RETRO_CRT_VIGNETTE_STRENGTH: f32 = 0.35;
+pub const RETRO_CRT_CURVATURE: f32 = 0.15;
 
 pub fn default_bloom_threshold_for_theme(theme: Theme) -> f32 {
     (crate::theme::relative_luminance(theme.foreground) as f32 + BLOOM_THRESHOLD_MARGIN)
@@ -441,6 +444,9 @@ pub const MAX_CRT_SCANLINE_PERIOD: f32 = 12.0;
 pub const DEFAULT_CRT_VIGNETTE_STRENGTH: f32 = 0.10;
 pub const MIN_CRT_VIGNETTE_STRENGTH: f32 = 0.0;
 pub const MAX_CRT_VIGNETTE_STRENGTH: f32 = 0.45;
+pub const DEFAULT_CRT_CURVATURE: f32 = 0.0;
+pub const MIN_CRT_CURVATURE: f32 = 0.0;
+pub const MAX_CRT_CURVATURE: f32 = 0.5;
 
 /// Colour-vision-deficiency adaptation strength (`ODYTTY_CVD_STRENGTH`, U4): how
 /// strongly the palette is daltonised toward separability for the selected

@@ -55,6 +55,11 @@ impl<T> Default for ClipboardSlot<T> {
 #[derive(Default)]
 pub(super) struct NativeClipboard {
     slot: ClipboardSlot<Clipboard>,
+    /// Test-only: when set, `write_text` returns `None` without touching the
+    /// clipboard. Lets regression tests prove the Cut fail-safe path without
+    /// needing a real clipboard to error.
+    #[cfg(test)]
+    pub(super) force_write_fail: bool,
 }
 
 pub(super) trait ClipboardSelectionIo {
@@ -164,6 +169,10 @@ impl NativeClipboard {
     }
 
     pub(super) fn write_text(&mut self, text: &str) -> Option<()> {
+        #[cfg(test)]
+        if self.force_write_fail {
+            return None;
+        }
         self.write_clipboard_text(text)
     }
 

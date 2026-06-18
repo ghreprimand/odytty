@@ -164,9 +164,16 @@ impl OverlayUi {
     /// clipboard. Unlike the other openers this does NOT clear the selection —
     /// the Copy item needs it — so the App must not route through
     /// `reset_pointer_state_for_overlay` here.
-    pub(super) fn open_context_menu(&mut self, spawn: CellPoint, copy: bool, paste: bool) {
+    pub(super) fn open_context_menu(
+        &mut self,
+        spawn: CellPoint,
+        copy: bool,
+        cut: bool,
+        paste: bool,
+        delete: bool,
+    ) {
         self.panel.end_slider_drag();
-        self.context_menu.open(spawn, copy, paste);
+        self.context_menu.open(spawn, copy, cut, paste, delete);
         self.mode = OverlayMode::ContextMenu;
         self.open = true;
     }
@@ -224,8 +231,11 @@ impl OverlayUi {
                 self.close();
                 match item {
                     ContextMenuItem::Copy => OverlayOutcome::ContextMenuCopy,
+                    ContextMenuItem::Cut => OverlayOutcome::ContextMenuCut,
                     ContextMenuItem::Paste => OverlayOutcome::ContextMenuPaste,
+                    ContextMenuItem::Delete => OverlayOutcome::ContextMenuDelete,
                     ContextMenuItem::SelectAll => OverlayOutcome::ContextMenuSelectAll,
+                    ContextMenuItem::Settings => OverlayOutcome::ContextMenuSettings,
                 }
             }
         }
@@ -679,8 +689,14 @@ pub(super) enum OverlayOutcome {
     /// overlay has already closed itself by the time these are emitted; the App
     /// dispatches them to the existing copy/paste shortcuts and `handle_select_all`.
     ContextMenuCopy,
+    ContextMenuCut,
     ContextMenuPaste,
+    ContextMenuDelete,
     ContextMenuSelectAll,
+    /// Open the settings panel from the context menu (D-IN2-SETTINGS). The
+    /// overlay has already closed itself; the App opens the settings panel
+    /// through the existing toggle path.
+    ContextMenuSettings,
     /// The user confirmed the close-confirmation dialog (CLOSE-CONFIRM): close
     /// the window. The overlay has already closed itself by the time this is
     /// emitted; the App sets its `pending_exit` flag and exits the event loop on
@@ -1035,6 +1051,8 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
 /// title row. Item text starts at `left + 2` (border + one pad column), matching
 /// the centered panels' body inset.
 fn apply_context_menu(snapshot: &mut Snapshot, overlay: &OverlayUi, rect: OverlayRect) {
+    use super::context_menu_ui::ContextMenuRow;
+
     fill_rect(
         snapshot,
         rect.left,
@@ -1053,24 +1071,38 @@ fn apply_context_menu(snapshot: &mut Snapshot, overlay: &OverlayUi, rect: Overla
     );
     let text_column = rect.left + 2;
     let text_width = rect.width.saturating_sub(4);
-    for (index, (label, focused, enabled)) in overlay.context_menu.rows().iter().enumerate() {
+    for (index, row) in overlay.context_menu.rows().iter().enumerate() {
         let y = rect.body_top + index;
         // Guard against a grid so short the body row falls on/under the bottom
         // border (defensive; `rect()` already sizes the box to fit).
         if y >= rect.top + rect.height.saturating_sub(1) || y >= snapshot.dimensions.rows {
             break;
         }
-        let attrs = if *focused {
-            focused_attrs()
-        } else if *enabled {
-            panel_attrs()
-        } else {
-            dim_attrs()
-        };
-        // Paint the full item row in its attrs so the focus highlight spans the
-        // whole width, then write the label over it.
-        fill_rect(snapshot, text_column, y, text_width, 1, attrs);
-        write_text(snapshot, y, text_column, text_width, label, attrs);
+        match row {
+            ContextMenuRow::Separator => {
+                // Render a full-width horizontal rule in the border style.
+                let sep = "─".repeat(text_width);
+                fill_rect(snapshot, text_column, y, text_width, 1, border_attrs());
+                write_text(snapshot, y, text_column, text_width, &sep, border_attrs());
+            }
+            ContextMenuRow::Item {
+                label,
+                focused,
+                enabled,
+            } => {
+                let attrs = if *focused {
+                    focused_attrs()
+                } else if *enabled {
+                    panel_attrs()
+                } else {
+                    dim_attrs()
+                };
+                // Paint the full item row in its attrs so the focus highlight
+                // spans the whole width, then write the label over it.
+                fill_rect(snapshot, text_column, y, text_width, 1, attrs);
+                write_text(snapshot, y, text_column, text_width, label, attrs);
+            }
+        }
     }
 }
 

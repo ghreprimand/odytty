@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- INPUT-CONTEXT-ACTIONS: editable context actions and settings entry
+
+The right-click context menu now supports Cut and Delete for OSC 133-aware live
+prompt input, clipping selections to the editable input span and emitting shell
+edit keys instead of mutating the terminal model directly. Cut is fail-safe: if
+the clipboard write fails, the input text and visual selection remain intact,
+while Delete never touches the clipboard. The prompt input boundary is also
+isolated across alternate-screen swaps so fullscreen TUIs cannot inherit stale
+primary prompt state.
+
+The same menu now has a separated Settings item at the bottom, giving users a
+mouse path to the existing settings panel. Settings slider drags gained an
+explicit left-button-held guard so a released or stale drag cannot keep changing
+the last clicked slider as the pointer moves.
+
+## 2026-06-18 -- VE6-CURVATURE: optional CRT screen curvature
+
+The CRT post-process now has a `crt_curvature` / `ODYTTY_CRT_CURVATURE` knob in
+the `0.0..=0.5` range. It defaults to flat, is forced off by
+`render_quality = plain`, and the retro preset supplies a subtle `0.15` curve.
+The composite shader applies barrel-distortion sampling with clamped UVs in the
+post-process path, leaving scanline/vignette brightness math unchanged and
+deferring chromatic aberration.
+
 ## 2026-06-17 -- SETTINGS-SLIDER-LAG: avoid panel rebuilds during slider ticks
 
 The settings panel now updates live slider values in place instead of rebuilding

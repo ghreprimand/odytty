@@ -81,6 +81,7 @@ pub fn show_config_output(settings: &Settings) -> String {
             "crt_vignette_strength",
             float_value(settings.crt_vignette_strength),
         ),
+        ("crt_curvature", float_value(settings.crt_curvature)),
         ("cursor_blink", settings.cursor_blink.as_str().to_owned()),
         (
             "cursor_style",

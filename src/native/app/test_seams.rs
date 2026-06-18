@@ -105,6 +105,12 @@ impl App {
         self.current_selection_text()
     }
 
+    #[cfg(test)]
+    pub(in crate::native) fn editable_input_selection_text_for_test(&self) -> Option<String> {
+        self.editable_input_selection_for_context_menu()
+            .map(|selection| selection.text)
+    }
+
     /// Test seam (MOUSE-EXTEND): whether finishing the current drag would write
     /// PRIMARY. Lets a regression prove a plain double/triple-click (no drag)
     /// stays no-write (parity) while a drag that extended does write.
@@ -540,5 +546,22 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn apply_saved_settings_live_for_test(&mut self, reloaded: Settings) {
         self.apply_overlay_settings(reloaded);
+    }
+
+    /// Test seam (D-IN2-CUT-SAFE): force clipboard `write_text` to return `None`
+    /// so the Cut fail-safe path can be exercised without needing the system
+    /// clipboard to actually fail. The flag is consumed by `NativeClipboard`'s
+    /// `write_text` in `#[cfg(test)]` mode only.
+    #[cfg(test)]
+    pub(in crate::native) fn force_clipboard_write_fail_for_test(&mut self) {
+        self.clipboard.force_write_fail = true;
+    }
+
+    /// Test seam (D-SLIDER-GUARD): the current `overlay_left_held` flag value.
+    /// Lets regression tests prove that release clears the flag and that
+    /// subsequent moves cannot advance a stale slider drag.
+    #[cfg(test)]
+    pub(in crate::native) fn overlay_left_held_for_test(&self) -> bool {
+        self.overlay_left_held
     }
 }

@@ -184,6 +184,10 @@ pub struct Screen {
     /// to cursor-key presses. Default-off means the emit path is inert until the
     /// app opts in.
     click_events_enabled: bool,
+    /// Column where the active OSC 133 `B` input boundary was reported, in the
+    /// absolute row coordinate space used by prompt marks. This is advisory
+    /// live-prompt state for native input editing; it never reaches snapshots.
+    active_prompt_input_start: Option<(usize, usize)>,
     /// Effective cursor shape (DECSCUSR `CSI Ps SP q`, or the host default).
     cursor_style: CursorStyle,
     /// Effective cursor blink policy (DECSCUSR, or the host default).
@@ -229,6 +233,12 @@ struct StoredScreen {
     active_hyperlink: Option<LinkId>,
     kitty_keyboard_flags: u16,
     kitty_keyboard_stack: Vec<u16>,
+    /// OSC 133 `B` input-start from the primary screen, saved on entering the
+    /// alternate screen and restored on leaving it. Alternate-screen apps have
+    /// no prompt input boundary of their own — storing and clearing the primary
+    /// value on enter prevents the native input-editing layer from reading stale
+    /// primary state while an alternate-screen TUI is running.
+    active_prompt_input_start: Option<(usize, usize)>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SavedCursor {
@@ -294,6 +304,7 @@ impl Screen {
             kitty_keyboard_stack: Vec::new(),
             focus_reporting: false,
             click_events_enabled: false,
+            active_prompt_input_start: None,
             cursor_style: CursorStyle::default(),
             cursor_blink: true,
             default_cursor_style: CursorStyle::default(),
@@ -935,6 +946,13 @@ impl Screen {
         self.click_events_enabled
     }
 
+    /// Active OSC 133 `B` input-start boundary as `(absolute_row, column)`.
+    /// Returns `None` before a cooperating shell reports `B`, after command
+    /// output starts, or after reset. Advisory state only.
+    pub fn active_prompt_input_start(&self) -> Option<(usize, usize)> {
+        self.active_prompt_input_start
+    }
+
     pub fn hyperlink(&self, id: LinkId) -> Option<&Hyperlink> {
         self.hyperlinks.get(id)
     }
@@ -1026,9 +1044,21 @@ impl Screen {
         if let Some(directive) = prompt_marks::parse_click_events(parts) {
             self.click_events_enabled = matches!(directive, prompt_marks::ClickEvents::Enable);
         }
+        let code = parts.first().and_then(|p| p.first()).copied();
         let Some(kind) = prompt_marks::parse_osc133(parts) else {
             return;
         };
+        match code {
+            Some(b'B') => {
+                let absolute_row = self
+                    .scrollback
+                    .physical_len(self.dimensions.columns)
+                    .saturating_add(self.cursor.row);
+                self.active_prompt_input_start = Some((absolute_row, self.cursor.column));
+            }
+            Some(b'A' | b'C' | b'D') => self.active_prompt_input_start = None,
+            _ => {}
+        }
         // Walk back to the first physical row of the cursor's logical line: a
         // row is a soft-wrap continuation iff its predecessor is `wrapped`.
         let mut row = self.cursor.row.min(self.rows.len().saturating_sub(1));
@@ -1616,6 +1646,12 @@ impl Terminal {
     /// shell; see [`Screen::click_events_enabled`].
     pub fn click_events_enabled(&self) -> bool {
         self.screen.click_events_enabled()
+    }
+
+    /// Active OSC 133 `B` input-start boundary as `(absolute_row, column)`;
+    /// see [`Screen::active_prompt_input_start`].
+    pub fn active_prompt_input_start(&self) -> Option<(usize, usize)> {
+        self.screen.active_prompt_input_start()
     }
 
     pub fn hyperlink(&self, id: LinkId) -> Option<&Hyperlink> {

@@ -727,3 +727,96 @@ fn mode_1049_saves_cursor_via_decsc_on_enter() {
     // DECRC restores the saved cursor from DECSC at enter time: (1, 5).
     assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 5 });
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// D-IN2-ALT-ISOLATION: active_prompt_input_start isolation across alt screen
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Entering the alternate screen must clear `active_prompt_input_start` so the
+/// native input-editing layer cannot read stale primary state while a TUI is
+/// running. Leaving must restore the primary's saved value.
+#[test]
+fn active_prompt_input_start_cleared_on_alt_enter_restored_on_leave() {
+    let mut terminal = Terminal::new(20, 5);
+
+    // Establish a prompt input boundary on the primary screen via OSC 133.
+    // Sequence: A (prompt start) → print prompt → B (input boundary).
+    terminal.advance(b"\x1b]133;A\x07$ \x1b]133;B\x07");
+    let primary_input_start = terminal.active_prompt_input_start();
+    assert!(
+        primary_input_start.is_some(),
+        "OSC 133 B should set active_prompt_input_start on primary"
+    );
+
+    // Enter alternate screen (mode 1049).
+    terminal.advance(b"\x1b[?1049h");
+    assert_eq!(
+        terminal.active_prompt_input_start(),
+        None,
+        "entering alt screen must clear active_prompt_input_start"
+    );
+
+    // Any OSC 133 from the TUI (e.g. a nested shell in the TUI) stays local.
+    terminal.advance(b"\x1b]133;A\x07alt $ \x1b]133;B\x07");
+    // We don't assert on this value — just confirming it doesn't crash.
+
+    // Leave alternate screen: primary's saved value is restored.
+    terminal.advance(b"\x1b[?1049l");
+    assert_eq!(
+        terminal.active_prompt_input_start(),
+        primary_input_start,
+        "leaving alt screen must restore the primary's active_prompt_input_start"
+    );
+}
+
+/// The alternate screen starting blank means it has no `active_prompt_input_start`
+/// until an OSC 133 B is received. The primary's value is unaffected.
+#[test]
+fn primary_input_start_unaffected_by_alt_screen_osc133() {
+    let mut terminal = Terminal::new(20, 5);
+
+    // Set input start on primary.
+    terminal.advance(b"\x1b]133;A\x07$ \x1b]133;B\x07");
+    let primary_val = terminal.active_prompt_input_start();
+    assert!(primary_val.is_some());
+
+    terminal.advance(b"\x1b[?1049h");
+    // Alt starts with None.
+    assert_eq!(terminal.active_prompt_input_start(), None);
+
+    // Emit an OSC 133 C (command start) in alt — this clears active_prompt_input_start
+    // for the alt screen, which was already None: no effect.
+    terminal.advance(b"\x1b]133;C\x07");
+    assert_eq!(terminal.active_prompt_input_start(), None);
+
+    terminal.advance(b"\x1b[?1049l");
+    assert_eq!(
+        terminal.active_prompt_input_start(),
+        primary_val,
+        "primary input start is unchanged by alt-screen OSC 133 activity"
+    );
+}
+
+/// Mode 47 (plain switch, no clear) also isolates `active_prompt_input_start`.
+#[test]
+fn active_prompt_input_start_isolated_via_mode_47() {
+    let mut terminal = Terminal::new(20, 5);
+
+    terminal.advance(b"\x1b]133;A\x07$ \x1b]133;B\x07");
+    let primary_val = terminal.active_prompt_input_start();
+    assert!(primary_val.is_some());
+
+    terminal.advance(b"\x1b[?47h");
+    assert_eq!(
+        terminal.active_prompt_input_start(),
+        None,
+        "mode 47 enter must clear active_prompt_input_start"
+    );
+
+    terminal.advance(b"\x1b[?47l");
+    assert_eq!(
+        terminal.active_prompt_input_start(),
+        primary_val,
+        "mode 47 leave must restore active_prompt_input_start"
+    );
+}
