@@ -38,6 +38,16 @@ pub(super) struct PathPickerState {
     pub(super) original: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::native) struct PathPickerSignature {
+    pub(super) key: &'static str,
+    pub(super) current_dir: PathBuf,
+    pub(super) loading: bool,
+    pub(super) selected: usize,
+    pub(super) scroll: usize,
+    pub(super) entry_count: usize,
+}
+
 #[derive(Debug, Clone)]
 struct PathEntry {
     /// Display name (filename + "/" suffix for directories).
@@ -97,7 +107,7 @@ impl PathPickerState {
             self.pending = None;
             self.loading = false;
         } else {
-            self.entries.clear();
+            self.entries = parent_entry_for(&self.current_dir).into_iter().collect();
             self.pending = Some(spawn_read_dir(
                 self.current_dir.clone(),
                 extension_filter(self.key),
@@ -106,6 +116,17 @@ impl PathPickerState {
         }
         self.selected = 0;
         self.scroll = 0;
+    }
+
+    pub(super) fn render_signature(&self) -> PathPickerSignature {
+        PathPickerSignature {
+            key: self.key,
+            current_dir: self.current_dir.clone(),
+            loading: self.loading,
+            selected: self.selected,
+            scroll: self.scroll,
+            entry_count: self.entries.len(),
+        }
     }
 
     pub(super) fn poll_pending(&mut self) {
@@ -140,6 +161,14 @@ impl PathPickerState {
     /// Handle one key event. Returns the picker outcome.
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> PathPickerOutcome {
         self.poll_pending();
+        if self.loading
+            && matches!(
+                input,
+                OverlayInput::Down | OverlayInput::PageDown | OverlayInput::End
+            )
+        {
+            return PathPickerOutcome::Consumed;
+        }
         match input {
             OverlayInput::Up => {
                 if self.selected > 0 {
@@ -377,12 +406,8 @@ fn read_dir_entries(dir: &Path, ext_filter: &[&str]) -> Vec<PathEntry> {
     let mut dirs: Vec<PathEntry> = Vec::new();
     let mut files: Vec<PathEntry> = Vec::new();
 
-    if let Some(parent) = dir.parent() {
-        dirs.push(PathEntry {
-            name: "../".to_owned(),
-            path: parent.to_path_buf(),
-            is_dir: true,
-        });
+    if let Some(parent) = parent_entry_for(dir) {
+        dirs.push(parent);
     }
 
     for entry in read.flatten() {
@@ -432,6 +457,14 @@ fn read_dir_entries(dir: &Path, ext_filter: &[&str]) -> Vec<PathEntry> {
     files.sort_by(|a, b| a.name.cmp(&b.name));
     dirs.extend(files);
     dirs
+}
+
+fn parent_entry_for(dir: &Path) -> Option<PathEntry> {
+    dir.parent().map(|parent| PathEntry {
+        name: "../".to_owned(),
+        path: parent.to_path_buf(),
+        is_dir: true,
+    })
 }
 
 /// Resolve the starting directory for a picker from the setting's current value.

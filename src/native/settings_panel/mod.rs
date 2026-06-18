@@ -9,7 +9,7 @@ mod path_picker;
 mod pointer;
 mod sections;
 
-use path_picker::{PathPickerOutcome, PathPickerState, resolve_start_dir};
+use path_picker::{PathPickerOutcome, PathPickerSignature, PathPickerState, resolve_start_dir};
 use sections::SECTIONS;
 
 /// Two-level navigation state for `SettingsPanel`.
@@ -72,6 +72,7 @@ pub(super) struct SettingsPanelSignature {
     pub(super) level: SettingsLevel,
     pub(super) section_selected: usize,
     pub(super) pending_close_prompt: bool,
+    pub(super) path_picker: Option<PathPickerSignature>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -684,6 +685,10 @@ impl SettingsPanel {
             level: self.level,
             section_selected: self.section_selected,
             pending_close_prompt: self.pending_close_prompt,
+            path_picker: self
+                .path_picker
+                .as_ref()
+                .map(PathPickerState::render_signature),
         }
     }
 
@@ -1559,6 +1564,55 @@ mod tests {
             0,
             "no change after cancel"
         );
+    }
+
+    #[test]
+    fn path_picker_state_is_render_observable() {
+        use std::fs;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("odytty-path-sig-{unique}"));
+        fs::create_dir(&dir).expect("create temp dir");
+        fs::create_dir(dir.join("child")).expect("create child dir");
+        fs::write(dir.join("wall.png"), b"not a real png").expect("write image path");
+
+        let mut panel = SettingsPanel::new(&Settings {
+            background_image: Some(dir.clone()),
+            ..Settings::default()
+        });
+        select_key(&mut panel, "background_image");
+
+        let before_open = panel.render_signature();
+        assert_eq!(
+            panel.handle_input(OverlayInput::Activate),
+            SettingsPanelOutcome::Consumed
+        );
+        let opened = panel.render_signature();
+        assert_ne!(before_open, opened, "opening picker must repaint overlay");
+        assert!(
+            opened.path_picker.is_some(),
+            "picker state participates in render signature"
+        );
+
+        poll_path_picker(&mut panel);
+        let loaded = panel.render_signature();
+        assert!(
+            loaded.path_picker.as_ref().is_some_and(|sig| !sig.loading),
+            "loaded picker state is observable"
+        );
+
+        let _ = panel.handle_input(OverlayInput::Down);
+        assert_ne!(
+            loaded,
+            panel.render_signature(),
+            "picker selection changes must repaint overlay"
+        );
+
+        fs::remove_dir_all(dir).expect("remove temp dir");
     }
 
     #[test]

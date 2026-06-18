@@ -78,6 +78,7 @@ fn closed_overlay_sig() -> OverlayRenderSignature {
             level: SettingsLevel::SectionList,
             section_selected: 0,
             pending_close_prompt: false,
+            path_picker: None,
         },
         theme_picker: ThemePickerSignature {
             selected: 0,
