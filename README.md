@@ -56,34 +56,43 @@ done.
   cloud sync, or update ping. The only network-capable action is explicit
   Ctrl-click link opening through `xdg-open` with a scheme allowlist.
 
-## Build And Run
+## Install And Run
 
 Requires Linux and a Vulkan-capable GPU. Wayland is the primary target; X11
 works through the current `winit`/GPU stack with some window-manager-dependent
 behavior for borderless windows and OS theme detection.
 
+After installation, launch OdyTTY as a normal application:
+
 ```sh
-cargo build --release
-cargo run --release
+odytty
 ```
 
 Useful launch examples:
 
 ```sh
 # Use the hard plain renderer profile.
-ODYTTY_RENDER_QUALITY=plain cargo run --release
+ODYTTY_RENDER_QUALITY=plain odytty
 
 # Follow the desktop dark/light preference with OdyTTY defaults.
-ODYTTY_THEME=system cargo run --release
+ODYTTY_THEME=system odytty
 
 # Larger text with a named system font.
-ODYTTY_FONT_SIZE=24 ODYTTY_FONT_FAMILY="DejaVu Sans Mono" cargo run --release
+ODYTTY_FONT_SIZE=24 ODYTTY_FONT_FAMILY="DejaVu Sans Mono" odytty
 
 # RGB subpixel antialiasing when supported by the GPU.
-ODYTTY_SUBPIXEL=rgb cargo run --release
+ODYTTY_SUBPIXEL=rgb odytty
 
 # Stronger phosphor reference look.
-ODYTTY_RETRO=on cargo run --release
+ODYTTY_RETRO=on odytty
+```
+
+For source builds and desktop launcher registration, see
+[`docs/install.md`](docs/install.md). A quick source-tree smoke run is:
+
+```sh
+cargo build --release --locked
+./target/release/odytty
 ```
 
 CLI introspection commands print and exit without opening a window:
@@ -94,12 +103,12 @@ odytty --list-fonts
 odytty --show-config
 ```
 
-From the source tree, pass OdyTTY flags after Cargo's `--` separator:
+From the source tree without installing:
 
 ```sh
-cargo run --release -- --list-themes
-cargo run --release -- --list-fonts
-cargo run --release -- --show-config
+./target/release/odytty --list-themes
+./target/release/odytty --list-fonts
+./target/release/odytty --show-config
 ```
 
 `--list-themes` prints the 100 built-in themes as stable
