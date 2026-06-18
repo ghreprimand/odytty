@@ -74,7 +74,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
   - [x] Headless interactive mode now owns raw-mode restore via termios, uses
         ANSI screen control directly, forwards raw stdin bytes, and reserves
         Ctrl-Q as the local quit affordance.
-- [ ] Graphics-protocol architecture lands on the owned DCS/APC parser plumbing
+- [x] Graphics-protocol architecture lands on the owned DCS/APC parser plumbing
       after PA2.
 
 ## Stage 1: Prototype Stabilization
@@ -344,8 +344,9 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         copies the match the user types; `Esc` dismisses. Labels are
         prefix-free (no mismatch on multi-character labels). Binding is
         configurable via `ODYTTY_KEYBINDS` (action name `hints`).
-- [x] Keyboard copy mode (off by default; bind via `ODYTTY_KEYBINDS` action
-      `copy_mode`): keyboard-driven scrollback selection with vim-style motions.
+- [x] Keyboard copy mode (`Ctrl+Shift+Space` by default; configurable via
+      `ODYTTY_KEYBINDS` action `copy-mode`): keyboard-driven scrollback
+      selection with vim-style motions.
   - [x] `h/j/k/l`, `w/b/e`, `0/^/$`, `gg/G` move the caret; arrow keys,
         PageUp/Down, Home/End, and `Ctrl-u/d/b/f` paging are also bound.
   - [x] `v` starts character selection, `V` starts line selection, `o` swaps
@@ -504,12 +505,17 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
 - [x] Settings description clarity sweep — rewrote in-panel descriptions for
       `text_gamma`, `visual`, `cursor_style`, and `cursor_blink` to lead with
       what each setting does and the effect of changing it.
-  - [ ] Fix the inert `cursor_blink = auto` logic branch (currently behaves
-        identically to `on`; tied to a future OS-theme follow-on setting).
+  - [x] Clarify `cursor_blink = auto`: on Linux it intentionally resolves to
+        the conventional blinking terminal default because `winit` exposes no
+        OS caret-blink preference; the settings help text now says this plainly.
 - [ ] Profiles and CLI config introspection.
+  - [x] `--list-themes`: enumerate the 100 built-in themes as
+        `name`/appearance/family rows.
   - [x] `--list-fonts`: enumerate discoverable font files (path, filename-stem
         name, monospace on/off) from the renderer's bounded search directories.
         Pure introspection; no settings key or render-path change.
+  - [x] `--show-config`: print the current stable effective-config dump. The
+        full settings authority remains `docs/runtime-knobs.md`.
 
 ## Visual Capability Parity (Stage 6 parity half)
 
@@ -752,7 +758,7 @@ Visual/effect items stay behind settings with explicit opt-outs and a
 pixel-identical plain path; the readability floor is the safety net every color
 feature validates against.
 
-- [ ] Shell integration on OSC 133 semantic prompt marks.
+- [x] Shell integration on OSC 133 semantic prompt marks.
   - [x] OSC 133 prompt/command/output boundary marking — the parser arms
         the sequence and per-row prompt marks are stored with no render change,
         the foundation for command-aware UX.
@@ -764,8 +770,9 @@ feature validates against.
         signature guarantees the bar repaints on a pure status transition.
   - [x] Core: absolute cell range for a command's output, so the native
         select/copy path can highlight an exact command's output span.
-  - [ ] Click-to-position cursor via OSC 133 click events (the click slice
-        only, not a shell-input takeover).
+  - [x] Click-to-position cursor via OSC 133 click events (`sh_click`, off by
+        default): the click slice only, not a shell-input takeover, and inert
+        unless a cooperating shell advertises click support.
 - [ ] Perceptual color moat (OKLab/OKLCH pipeline + readability floor).
   - [x] Universal legibility: the contrast floor provably covers every
         text color type (ANSI, 256-color, truecolor, explicit underline color),
@@ -792,8 +799,10 @@ feature validates against.
         the minimum-contrast floor so the floor re-lifts the foreground over the
         treated background. Pixel-identical to before when off; forced off under
         the plain renderer profile.
-  - [ ] Image/blur-behind support (future slice): static image behind the grid
-        with a configurable blur and readability dim tied to the contrast floor.
+  - [x] Static image background support: `background_treatment = image` draws a
+        PNG behind the grid, with `background_image`, `background_blur_radius`,
+        `cell_bg_opacity`, and optional `background_image_scrim` tied to the
+        contrast-floor scrim. Blur-behind transparency remains future work.
 - [ ] Pointer excellence — make the mouse a joy, without disturbing TUI mouse
       reporting (Shift stays the selection-vs-passthrough seam).
   - [x] Extend an existing selection: Shift+click, double-click-then-drag by
@@ -811,11 +820,12 @@ feature validates against.
         entry.
   - [x] Surface font-load failures in the overlay instead of failing silently.
   - [x] In-app keybinding editor: the settings panel's Keybindings row opens a
-        dedicated editor where all 12 bindable actions are listed; pressing a row
-        captures a new chord, `Backspace` resets a row to its default,
+        dedicated editor where the 12 core non-tab actions are listed; pressing
+        a row captures a new chord, `Backspace` resets a row to its default,
         `R` resets all bindings, and conflicts prompt before replacing. Changes
         are written to `odytty.conf` via the preservation-first writeback path;
-        `ODYTTY_KEYBINDS` hand-editing is byte-identical.
+        all 16 bindable actions, including tab actions, remain configurable
+        through `ODYTTY_KEYBINDS` / `keybinds`.
   - [x] First-run onboarding and settings search: on first launch (no config
         file yet, or `ODYTTY_ONBOARDING=1`) a welcome card shows the core
         keyboard shortcuts, read live from the active bindings so rebinds are
@@ -823,6 +833,25 @@ feature validates against.
         is the config file's existence — no flag file, no telemetry, no account.
         `/` in the settings panel filters rows by name, key, description, or
         group; Esc once clears the filter, a second Esc closes the panel.
+
+## Stage 8: Multi-session tabs
+
+- [x] Multi-session native model: per-session terminal, PTY, scrollback,
+      selection, viewport, search, cursor animation, synchronized-output hold,
+      and render invalidation state.
+- [x] Session-id routed PTY pump and native input routing, so background shells
+      keep their own state and the active tab alone receives keyboard/pointer
+      input.
+- [x] Conventional tab keybindings: `Ctrl+Shift+T` new tab,
+      `Ctrl+Shift+W` close tab, `Ctrl+PageDown` next tab, `Ctrl+PageUp`
+      previous tab.
+- [x] Visible one-row tab bar once two or more sessions exist, with active and
+      hover styling, click-to-switch, close affordance, new-tab affordance, and
+      context-menu entries.
+- [ ] Offset in-band image placements correctly while the tab bar is visible.
+- [ ] Custom tab renaming if shell titles prove insufficient.
+- [ ] Panes/splits, profiles, detachable sessions, and session persistence
+      remain future work.
 
 ## Archived First Prototype Checklist
 
@@ -894,7 +923,9 @@ feature validates against.
 
 ## Deferred Until After the First Prototype
 
-- [ ] Tabs, panes, sessions, profiles, and multiplexing.
+- [x] Tabs and multiple local shell sessions: landed as the first multi-context
+      slice. Panes, detachable sessions, profiles, and multiplexing remain
+      deferred.
 - [x] Shell integration beyond basic PTY behavior — landed: OSC 133 semantic
       prompt marks and command-aware UX (see Stage 7). Further shell-integration
       surface (click-to-position) is tracked there.

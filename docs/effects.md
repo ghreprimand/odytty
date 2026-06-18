@@ -144,6 +144,7 @@ retro = on
 # bloom_radius = 8.0
 # crt_scanline_intensity = 0.35
 # crt_vignette_strength = 0.35
+# crt_curvature = 0.025
 ```
 
 `render_quality = plain` still bypasses the preset and renders through the direct
@@ -154,9 +155,8 @@ path.
 ## CRT / retro profile
 
 The CRT profile adds refined scanlines and a subtle vignette over the same HDR
-offscreen target used by bloom. Curvature and chromatic aberration are deferred:
-they are more likely to affect readability, so the first shipped profile keeps
-to brightness-only treatments.
+offscreen target used by bloom. It also has an optional subtle curvature pass.
+Chromatic aberration is deferred because it carries a higher readability risk.
 
 CRT is on by default in the Odyssey ambient baseline and pixel-identical to the
 plain renderer when disabled.
@@ -165,7 +165,7 @@ one final composite pass.
 
 ### Settings
 
-All four settings are live-reloadable: changes in `odytty.conf` or the settings
+All CRT settings are live-reloadable: changes in `odytty.conf` or the settings
 overlay take effect on the next frame without restarting.
 
 | Setting | Env | Type | Default | Range |
@@ -174,6 +174,7 @@ overlay take effect on the next frame without restarting.
 | `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | float | `0.17` | `0.0–0.35` |
 | `crt_scanline_period` | `ODYTTY_CRT_SCANLINE_PERIOD` | float | `7.0` | `2.0–12.0` |
 | `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | float | `0.10` | `0.0–0.45` |
+| `crt_curvature` | `ODYTTY_CRT_CURVATURE` | float | `0.0` | `0.0–0.12` |
 
 **`crt`** — master switch. `on` enables the scanline/vignette profile; `off`
 returns to the direct scene path when no other post effect is active.
@@ -191,6 +192,10 @@ rather than a hard clamp, so the edge gradient stays smooth instead of forming a
 visible banding ring, and a CRT-only 8-bit ordered dither breaks up any residual
 8-bit posterization. Lit cells are never zeroed by the vignette.
 
+**`crt_curvature`** — subtle barrel-distortion screen curvature. `0.0` is flat
+and pixel-identical to the no-curvature path. The cap is intentionally low
+(`0.12`) and the retro preset uses a light `0.025` curve.
+
 ### Enabling via odytty.conf
 
 ```
@@ -198,6 +203,7 @@ crt = on
 crt_scanline_intensity = 0.17
 crt_scanline_period = 7.0
 crt_vignette_strength = 0.10
+crt_curvature = 0.0
 ```
 
 ### Enabling via environment
@@ -244,6 +250,39 @@ resize snap. Off by default; only at the live tail.
 
 ---
 
+## Background treatments
+
+`background_treatment` controls depth behind the terminal grid:
+
+| Setting | Env | Type | Default |
+|---------|-----|------|---------|
+| `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`, `gradient`, `vignette`, `image` | `off` |
+| `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG path | unset |
+| `cell_bg_opacity` | `ODYTTY_CELL_BG_OPACITY` | float `0.0–1.0` | `1.0` |
+| `background_blur_radius` | `ODYTTY_BACKGROUND_BLUR_RADIUS` | integer px `0–256` | `0` |
+| `background_image_scrim` | `ODYTTY_BACKGROUND_IMAGE_SCRIM` | float `0.0–1.0` or empty | auto |
+
+`gradient` darkens toward the bottom of the grid. `vignette` darkens toward the
+edges and corners. Both are applied before the minimum-contrast floor, so the
+foreground is re-lifted over the treated background cell by cell.
+
+`image` draws a PNG behind the grid. With `cell_bg_opacity = 1.0`, cell
+backgrounds remain opaque and the image is hidden behind the cells. Values below
+`1.0` let the image show through behind text. OdyTTY computes a readability
+scrim automatically unless `background_image_scrim` is set explicitly. Missing,
+unreadable, non-PNG, or oversized inputs degrade safely with a warning.
+
+Example:
+
+```conf
+background_treatment = image
+background_image = /tmp/background.png
+cell_bg_opacity = 0.88
+background_blur_radius = 8
+```
+
+---
+
 ## Smooth scrolling
 
 `smooth_scroll = on` eases viewport scroll movement over a short bounded window
@@ -263,21 +302,14 @@ and is pixel-identical to the pre-feature renderer.
 | Setting | Env | Type | Default |
 |---------|-----|------|---------|
 | `smooth_scroll` | `ODYTTY_SMOOTH_SCROLL` | `on` / `off` | `off` |
-| `smooth_scroll_duration` | `ODYTTY_SMOOTH_SCROLL_DURATION` | integer ms | `80` |
 
 **`smooth_scroll`** — master switch. `on` enables eased movement; `off`
 (default) is instant and pixel-identical to the pre-feature renderer.
-
-**`smooth_scroll_duration`** — animation window in milliseconds, clamped to
-`20–200`. Shorter values (`20–40`) feel snappier and closer to instant; longer
-values (`120–200`) feel smoother but can feel sluggish during rapid scrolling.
-`80` is the default.
 
 ### Enabling via odytty.conf
 
 ```
 smooth_scroll = on
-# smooth_scroll_duration = 80
 ```
 
 ### Enabling via environment

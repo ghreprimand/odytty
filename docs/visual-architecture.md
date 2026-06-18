@@ -1,9 +1,8 @@
 # OdyTTY Visual Architecture
 
-This document describes the current renderer pipeline, the color resolution
-model, and the visual-enhancement direction. Claims marked **(landed)** are
-grounded in source; all other enhancement items are design intent, not yet
-built.
+This document describes the current renderer pipeline, color resolution model,
+and visual-enhancement boundaries. It is a companion to the user-facing
+settings guide in [`docs/runtime-knobs.md`](runtime-knobs.md).
 
 ---
 
@@ -13,14 +12,16 @@ built.
 `src/shaders/cell_subpixel.wgsl`, `src/grid.rs`, `src/atlas/mod.rs`,
 `src/emoji/color_atlas.rs`.*
 
-OdyTTY uses a **single-pass forward renderer**: one render pass writes directly
-to the swapchain surface; there is no offscreen render target, no post-process
-composite step, and no multi-sample resolve in the default path.
+OdyTTY uses a forward cell/image renderer with a lazy post-process branch. When
+`post_active()` is false, the scene writes directly to the swapchain. When bloom,
+CRT, retro, or another post-process effect is active and the adapter supports
+the required HDR format, the same scene is rendered to a linear `Rgba16Float`
+offscreen target and composited back through a fullscreen pass. The
+`render_quality = plain` profile forces the direct path.
 
-### Draw order within the single pass
+### Draw order within the scene pass
 
-The canonical order (`src/native/gpu.rs`, `fn render`, the `pass.draw` calls)
-is:
+The canonical scene order is:
 
 1. **Surface clear** — the swapchain attachment is cleared to the theme's
    `clear` color before any draw calls.
@@ -120,13 +121,13 @@ up to a cap of 4096 slots (`MAX_COLOR_GLYPH_SLOTS`).
 
 ## Current color model
 
-*Source: `src/theme.rs` (`Theme`), `src/core/types.rs` (`DynamicColors`),
+*Source: `src/theme/mod.rs` (`Theme`), `src/core/types.rs` (`DynamicColors`),
 `src/grid.rs` (`foreground_linear`, `background_linear`), `src/text.rs`
 (`indexed_srgb`, `srgb_to_linear`).*
 
 ### Theme system (landed)
 
-*Source: `src/theme.rs` (commit `fa857f0`).*
+*Source: `src/theme/mod.rs`, `src/theme/builtins.rs`, `src/theme/spec.rs`.*
 
 `Theme` now carries the full 16-color ANSI palette (indices 0–7 normal, 8–15
 bright), semantic-role colors (cursor, selection, search highlight, reserved
@@ -135,9 +136,9 @@ clear). At startup the native layer calls `text::set_ansi_palette` to publish
 the theme's 16-color palette alongside the default fg/bg, and passes `clear` to
 `gpu.rs` as the wgpu surface clear color.
 
-Three built-in themes: `plain` (`#CCCCCC` / `#0B0C10`, palette reproduces the
-historical xterm table byte-for-byte), `odyssey`, and `odyssey-noir`. Unknown
-names fall back to `plain`.
+The built-in library contains 100 contrast-validated themes. `plain`
+reproduces the historical xterm table byte-for-byte, while `odyssey` is the
+fresh-install default. Unknown names fall back to `odyssey`.
 
 The indexed-color resolution chain is now theme-driven for indices 0–15:
 `text::indexed_srgb(0..=15)` reads the published theme palette override before
@@ -176,21 +177,11 @@ Theme and appearance system section below and `docs/themes.md` for details.
 
 ## Visual-enhancement direction
 
-> **Tier 1 (Readability-first) is fully delivered** as of the current HEAD —
-> the readability foundations — minimum-contrast floor, geometric box-drawing,
-> perceptual color pipeline, stem darkening, and symbol fallback — are all live.
-> **Tier 2 is partially delivered** — themed cursor/selection/search roles
-> (default on) and focus dimming have landed; cursor glow/easing, background
-> treatments, and window chrome remain open. **Tier 3 is underway** — VE1
-> (post-process pipeline: linear `Rgba16Float` offscreen + composite,
-> adapter-gated), VE2 (bloom / phosphor glow), and CRT scanlines are live;
-> a one-switch stronger retro preset is live; cursor motion / new-output fade
-> and additional GPU quality settings remain open.
-> Sub-sections marked **(landed)** are grounded in source; all other items are
-> design intent, not yet built.
-
-The enhancement work is organized into three tiers, ordered by risk and
-default-on policy.
+The enhancement work is organized into three tiers. Tier 1 readability
+foundations are shipped. Tier 2 identity/depth work now includes themed roles,
+focus dimming, cursor motion/glow/trail, background treatments, padding, border,
+and window decoration controls. Tier 3 atmospheric work now includes the HDR
+post-process branch, bloom, CRT/retro, curvature, and new-output fade.
 
 ### Hard rule (enforced across all tiers)
 
@@ -205,9 +196,9 @@ Every atmospheric or decorative effect must:
   renderer (grayscale cell pipeline, no post-process). The bypass must be
   tested as such.
 
-The plain/fast bypass today is the absence of a post-process pass and the
-`VisualEffect::Off` shader branch — both of which are the current defaults and
-are always tested.
+The plain/fast bypass today is `render_quality = plain`, which forces the
+direct path and disables post-process effects and visual treatments for
+benchmarking and compatibility checks.
 
 ### Tier 1 — Readability-first enhancements
 
@@ -224,15 +215,16 @@ highest-priority additions.
   paths: `mix_oklab` for blends and the OKLab bisect for the contrast floor.
 - **Minimum-contrast guarantee (landed):** configurable perceptual fg/bg
   contrast floor applied at render time (`ODYTTY_MIN_CONTRAST`, `min_contrast`).
-  Value `1.0` = exact passthrough (default). The floor is measured via WCAG
+  Value `1.0` = exact passthrough; the fresh-install default is `13.0`.
+  The floor is measured via WCAG
   relative luminance; lift is applied by bisecting OKLab lightness while
   preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
 - **Geometric box-drawing / Powerline rendering (landed):** U+2500–257F,
   U+2580–259F, Braille, and Powerline separators rendered as pixel-perfect
   geometry at exact cell size rather than font glyphs. Controlled by
-  `ODYTTY_GEOMETRIC_BOXDRAW` / `geometric_boxdraw`; default on.
-- **Smooth scrolling:** interpolated viewport movement within a strict
-  bounded latency budget; instant/off mode preserved and default-safe.
+  `ODYTTY_GEOMETRIC_BOXDRAW` / `geometric_boxdraw`; default off.
+- **Smooth scrolling (landed):** interpolated viewport movement within a strict
+  bounded 80 ms latency budget; instant/off mode preserved and default-safe.
 - **Stem darkening for light-on-dark text (landed, default-on):** a coverage
   boost that keeps glyph stroke weight on light-on-dark displays.
   `ODYTTY_STEM_DARKEN` / `stem_darken`, range `0.0`–`1.0`, default `0.5`.
@@ -248,13 +240,13 @@ highest-priority additions.
 
 Distinctive treatments that direct attention without harming legibility.
 
-- **Cursor and selection treatments (partially landed):** themed
-  cursor/selection/search semantic roles are delivered (landed): when
+- **Cursor and selection treatments (landed):** themed
+  cursor/selection/search semantic roles are delivered: when
   `themed_ui_roles` is on (default), the cursor uses the theme cursor color,
   selections use the theme selection color, and search highlights use the theme
-  search color rather than raw cell inversion. `ODYTTY_THEMED_UI_ROLES=off`
-  restores the classic inversion behavior. Remaining work: optional soft
-  glow on cursor, cursor-position easing.
+  search color rather than raw cell inversion. Cursor blink fade, glow, slide,
+  and trail are also shipped as opt-in settings. `ODYTTY_THEMED_UI_ROLES=off`
+  restores the classic inversion behavior.
 - **Focus dimming (landed):** dims the whole grid — both text foreground
   and background — perceptually in OKLab while the window is unfocused, so it
   recedes visually without color shifts. `ODYTTY_FOCUS_DIM` / `focus_dim`,
@@ -264,10 +256,11 @@ Distinctive treatments that direct attention without harming legibility.
   contrast floor sees the dimmed background and re-lifts text if needed. Focused frames
   are never dimmed: the effective amount is always `0.0` when focused, keeping
   focused frames byte-identical to the unfocused-off path.
-- **Background treatments:** optional gradient/vignette/image background
-  and blur-behind transparency, each with automatic readability-preserving dim.
-- **Window chrome / padding identity:** themed padding and optional thin
-  semantic-role border using the theme clear color.
+- **Background treatments (landed):** optional gradient, vignette, and PNG image
+  backgrounds. Image mode uses `cell_bg_opacity`, a one-time CPU blur, and an
+  automatic readability scrim so text remains legible.
+- **Window chrome / padding identity (landed):** themed padding, optional thin
+  semantic-role border, and a live window-decoration toggle.
 
 ### Tier 3 — Atmospheric effects (opt-in post-process)
 
@@ -283,11 +276,11 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
   bright-pass threshold + half-res separable blur + additive composite. Enabled
   in the fresh-install ambient baseline behind the `bloom` setting and
   adapter-gated.
-- **CRT / retro profile (landed):** refined scanlines and vignette, with a
-  separate `retro=on` preset for a stronger phosphor reference look. Curvature
-  and chromatic aberration remain deferred.
-- **Subtle motion:** optional cursor glow/trail and fade-in of new
-  output; bounded, disable-able, strict latency budget.
+- **CRT / retro profile (landed):** refined scanlines, vignette, subtle
+  curvature, and a separate `retro=on` preset for a stronger phosphor reference
+  look. Chromatic aberration remains deferred.
+- **Subtle motion (landed):** optional cursor glow, blink fade, slide, trail,
+  and fade-in of new output; bounded and disable-able.
 - **GPU quality + effect settings:** per-effect toggles in the settings
   panel; hard plain/fast mode bypasses all post-process.
 
@@ -295,9 +288,9 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
 
 **The full theme system has landed** — a 16-color ANSI palette with semantic
 roles, a dependency-free `.theme` file format with built-in themes and live
-reload via `SIGHUP` or the settings panel, 53 built-in themes across three
-families (Odyssey identity, Community, Retro/phosphor), and an in-app theme
-builder with live preview saved to a user theme file. `Theme` carries the full
+reload through the settings/config seam, 100 built-in themes across Odyssey,
+community, and retro/phosphor families, and an in-app theme builder with live
+preview saved to a user theme file. `Theme` carries the full
 16-color ANSI palette plus semantic roles (cursor, selection, search, reserved
 border/inactive). The indexed-color render path is theme-driven; OSC-4 /
 dynamic-color overrides layer on top with correct precedence. See
@@ -322,8 +315,7 @@ terminal core:
 - `src/core/` never imports windowing, GPU, or rendering code.
 - All visual settings are in `src/settings.rs`; they flow to the renderer
   through the `Settings` struct and the config-reload seam.
-- The post-process pipeline (Tier 3) will slot in as an additional render pass
-  without changing the existing cell or color-glyph pipelines.
-- The plain/fast bypass is the absence of a post-process pass and the
-  `VisualEffect::Off` shader branch — both of which are the current defaults
-  and are always tested.
+- The post-process pipeline is an additional render branch that reuses the same
+  scene draw sequence and does not change terminal state.
+- The plain/fast bypass is `render_quality = plain`, which is tested as the
+  compatibility/performance escape hatch.

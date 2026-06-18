@@ -24,7 +24,7 @@ Status: turnkey — run each cell, record pass/fail in the rightmost column.
 | Variable                   | Purpose                                      |
 |----------------------------|----------------------------------------------|
 | `WINIT_X11_SCALE_FACTOR=N` | Force X11 scale to N (e.g. 1.25, 2.0)       |
-| `ODYTTY_FONT_SIZE=N`       | Override logical font size (default 14)      |
+| `ODYTTY_FONT_SIZE=N`       | Override logical font size (default 22)      |
 | `ODYTTY_THEME=name`        | Theme selection (default `odyssey`)          |
 
 ---
@@ -37,12 +37,12 @@ Launch OdyTTY at each scale; verify text is crisp from frame one.
 
 | # | Scale | Font | Command | Check | Result |
 |---|-------|------|---------|-------|--------|
-| A1 | 1.0 | default | `cargo run --release` | Crisp glyphs, correct grid size (`tput cols; tput lines`) | |
-| A2 | 1.25 | default | `WINIT_X11_SCALE_FACTOR=1.25 cargo run --release` | Crisp, no blur, grid fits window | |
-| A3 | 1.5 | default | `WINIT_X11_SCALE_FACTOR=1.5 cargo run --release` | Crisp, no seams between cells | |
-| A4 | 1.75 | default | `WINIT_X11_SCALE_FACTOR=1.75 cargo run --release` | Crisp, baseline consistency across glyphs | |
-| A5 | 2.0 | default | `WINIT_X11_SCALE_FACTOR=2 cargo run --release` | Crisp HiDPI, no oversized or undersized glyphs | |
-| A6 | 2.0 | 18px | `WINIT_X11_SCALE_FACTOR=2 ODYTTY_FONT_SIZE=18 cargo run --release` | Crisp at larger font, atlas memory sane (no OOM) | |
+| A1 | 1.0 | default | `cargo run --release -- --native` | Crisp glyphs, correct grid size (`tput cols; tput lines`) | |
+| A2 | 1.25 | default | `WINIT_X11_SCALE_FACTOR=1.25 cargo run --release -- --native` | Crisp, no blur, grid fits window | |
+| A3 | 1.5 | default | `WINIT_X11_SCALE_FACTOR=1.5 cargo run --release -- --native` | Crisp, no seams between cells | |
+| A4 | 1.75 | default | `WINIT_X11_SCALE_FACTOR=1.75 cargo run --release -- --native` | Crisp, baseline consistency across glyphs | |
+| A5 | 2.0 | default | `WINIT_X11_SCALE_FACTOR=2 cargo run --release -- --native` | Crisp HiDPI, no oversized or undersized glyphs | |
+| A6 | 2.0 | 18px | `WINIT_X11_SCALE_FACTOR=2 ODYTTY_FONT_SIZE=18 cargo run --release -- --native` | Crisp at larger font, atlas memory sane (no OOM) | |
 
 ### B. Live scale-factor transitions (multi-monitor drag)
 

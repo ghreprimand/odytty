@@ -29,11 +29,10 @@ use crate::settings::{
 use super::bindings::KeyBindings;
 use super::overlay::OverlayInput;
 
-/// Every bindable action, in the canonical order shared with
-/// `default_key_bindings` and the `bindable_action_name` authority. This is the
-/// single source the remap list iterates — so a new `BindableAction` variant
-/// surfaces here the moment it is added (the `all_actions_match_enum` test pins
-/// the count to the enum).
+/// Core non-tab actions exposed by the in-app remap UI. The lower-level
+/// `keybinds` config surface supports every `BindableAction`, including tab
+/// actions; this list intentionally limits the modal to the 12 workflow actions
+/// that fit the current overlay.
 const ACTIONS: [BindableAction; 12] = [
     BindableAction::Search,
     BindableAction::SettingsPanel,
@@ -495,9 +494,9 @@ mod tests {
 
     #[test]
     fn actions_list_matches_enum_size() {
-        // The remap list must offer EVERY bindable action; if a variant is added
-        // without extending ACTIONS this fails (the names also pin to the
-        // authority via the info.rs test).
+        // The remap modal currently offers the 12 core non-tab actions. The
+        // broader settings info test pins the full `keybinds` config surface,
+        // including tab actions.
         assert_eq!(ACTIONS.len(), 12);
         for (i, a) in ACTIONS.iter().enumerate() {
             for b in &ACTIONS[i + 1..] {

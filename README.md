@@ -2,455 +2,291 @@
 
 **Website:** [odytty.unfinished-works.com](https://odytty.unfinished-works.com)
 
-OdyTTY is a custom Rust terminal emulator built from the ground up for
-OdysseyOS. Every byte from the PTY to the rendered glyph passes through
-OdyTTY-owned code — the PTY layer, escape-sequence parser, terminal model,
-renderer geometry, and GPU shaders are all original. External crates handle
-font rasterization, GPU API, windowing, and clipboard transport, which is the
-same boundary mature independent terminals draw.
+OdyTTY is a from-scratch, GPU-rendered Rust terminal emulator for Linux and
+OdysseyOS. It owns the terminal byte path from PTY allocation through escape
+parsing, terminal state, render geometry, and shaders, while relying on focused
+external crates for lower-level infrastructure such as `wgpu`, `winit`,
+`ab_glyph`, `swash`, `arboard`, and Unicode width tables.
 
-The terminal is GPU-backed (`wgpu`/Vulkan), Linux-first, and designed to be
-reliable enough for daily use. It has a handful of features you won't find
-combined in most terminals: live color emoji with ZWJ sequence / flag /
-skin-tone cluster support, the Kitty graphics protocol plus Sixel, the Kitty
-keyboard protocol, SGR-pixel mouse reporting (mode 1016), a fully theme-driven
-ANSI palette with semantic roles, bundled JetBrains Mono font faces, and the
-Odyssey ambient visual baseline: `theme=odyssey`, JetBrains Mono regular at
-22px with line height 1.0, bloom, and CRT scanlines are enabled on a fresh
-install, while `render_quality=plain` keeps the direct renderer available. A
-separate `retro=on` preset raises the phosphor/CRT effect strength as an opt-in
-reference look.
+The project goal is not to skin an existing terminal. OdyTTY is testing whether
+a terminal can carry a distinctive Odyssey visual identity, richer in-app
+configuration, inline media, motion, and accessibility features while remaining
+practical for real command-line work. Terminal correctness, readable text,
+input behavior, stable rendering, local privacy, and performance are the hard
+floor.
 
----
+OdyTTY is in active development. It is already a broad prototype: a native
+window opens real local shells, supports multiple sessions with a tab bar,
+renders text and inline graphics on the GPU, and has a substantial compatibility
+and smoke-test suite. It is still Linux-first and pre-release; packaging,
+cross-platform support, panes/profiles, and release builds are not done.
 
-## Features
+## Highlights
 
-### Full byte-path ownership
+- **Owned terminal core:** Linux PTY layer via `rustix`, clean-room DEC/xterm
+  parser, OdyTTY terminal model, scrollback, alternate screen, mouse, keyboard,
+  OSC, DCS, APC, and render geometry.
+- **GPU renderer:** `wgpu`/Vulkan path with dynamic glyph atlas, bundled
+  JetBrains Mono, bold/italic/weight faces, optional synthetic styles,
+  subpixel AA, HiDPI-aware atlas rebuilds, color emoji atlas, and GPU image
+  layer.
+- **Inline media:** Kitty graphics protocol and Sixel, including direct,
+  file/temp-file, and shared-memory Kitty transports with conservative local
+  file-safety restrictions.
+- **Modern input:** Kitty keyboard protocol, SGR pixel mouse mode 1016, focus
+  reporting, configurable local keybindings, keyboard hints, keyboard copy
+  mode, and OSC 8 hyperlink hover/open.
+- **Daily workflow:** search, refined selection, PRIMARY selection,
+  bracketed-paste hardening, chunked large paste, right-click context menu,
+  command-aware prompt navigation from OSC 133, close confirmation, and tabs.
+- **Odyssey visual layer:** 100 built-in themes, user `.theme` files, live theme
+  picker, theme builder, semantic cursor/selection/search roles, optional
+  bloom/CRT/retro effects, background treatments, cursor motion, focus dimming,
+  new-output fade, window padding, and window border.
+- **Local configuration UX:** `odytty.conf`, live reload, in-app settings panel,
+  atomic preservation-first writeback, mouse-friendly controls, font picker,
+  keybinding editor, and first-run onboarding. Environment variables always win.
+- **Privacy posture:** no telemetry, analytics, crash reporting, account,
+  cloud sync, or update ping. The only network-capable action is explicit
+  Ctrl-click link opening through `xdg-open` with a scheme allowlist.
 
-The PTY layer (`src/pty.rs`) uses `rustix` directly for
-`openpt`/`grantpt`/`unlockpt` and session-leader spawn. The VT parser
-(`src/parser/`) is a clean-room two-layer pipeline built from primary
-specifications (vt100.net, ECMA-48, xterm `ctlseqs`) — not derived from `vte`
-or any other terminal's source. `vte`, `portable-pty`, and `crossterm` are not
-in the dependency tree.
+## Build And Run
 
-### Live color emoji
-
-Full cluster rendering via `swash`: ZWJ family sequences, flag pairs, skin-tone
-modifiers, keycap sequences, and variation-selector policy (VS15 forces text
-presentation, VS16 forces color, `Emoji_Presentation`-default characters choose
-color automatically). Multi-codepoint clusters whose cells carry trailing ZWJ
-marks are stitched into a single wide atlas slot. Noto Color Emoji CBDT/CBLC
-bitmaps are rasterized and stored in a dedicated `ColorGlyphAtlas` (premultiplied
-RGBA, keyed by shaped cluster identity rather than Unicode scalar). Emoji pixels
-are never SGR-tinted. Falls back gracefully if Noto Color Emoji is not installed.
-
-### Kitty graphics protocol + Sixel
-
-The full Kitty APC-based graphics surface: actions `t/T/p/d/q`, raw RGB/RGBA
-(`f=24`/`f=32`) and PNG (`f=100`) formats, direct and file/shared-memory
-transports (`t=d/f/t/s`), chunked transfer, placement ids, z-index, source crop,
-cell scaling, and pixel offsets. File transports apply conservative security
-restrictions (temp-dir allowlist, `O_NOFOLLOW`, delete-before-decode). Sixel
-(`DCS q`) covers the complete data language: RGB/HLS color introducers, repeat,
-raster attributes, VT340 16-color default palette, and `DECSDM`.
-
-### Kitty keyboard protocol
-
-Progressive keyboard enhancement as a negotiated overlay: flags for
-disambiguation, event types (press/repeat/release), alternate keys,
-report-all, and associated text. The stack is bounded at 16 entries;
-`RIS`/`DECSTR` resets it. At flags 0 the output is byte-identical to legacy
-key encoding.
-
-### SGR-pixel mouse reporting (mode 1016)
-
-Full end-to-end support: `DECSET`/`DECRST`/`DECRQM` wired, native pixel-to-cell
-coordinate seam closed, pixel reports emitted as `CSI < Cb ; Px ; Py M|m` with
-true physical pixel coordinates.
-
-### Theme-driven ANSI palette + semantic roles
-
-`Theme` carries the full 16-color ANSI palette (indices 0–7 normal, 8–15
-bright) plus semantic-role colors (cursor, selection, search highlight, and
-reserved border/inactive). The library ships 100 contrast-validated built-in
-themes: the Odyssey identity family (`odyssey` — the fresh-install default —
-plus `plain`, which reproduces historical xterm defaults byte-for-byte,
-`odyssey-noir`,
-`odyssey-light`, `odyssey-aurora`, and more), a set of widely-used community
-palettes (`solarized-dark`/`-light`, `gruvbox-dark`, `nord`, `dracula`,
-`tokyo-night`, `catppuccin-mocha`/`-latte`, `one-dark`, `monokai`, and others),
-and a retro / phosphor family (`green-phosphor`, `amber-crt`, and more). See
-[`docs/themes.md`](docs/themes.md) for the full roster. OSC-4 and OSC-10/11/12 dynamic
-overrides layer on top with correct precedence. Select with
-`ODYTTY_THEME=odyssey` or `theme = odyssey` in the config file. User theme
-files are supported: write a `.theme` file and drop it in
-`~/.config/odytty/themes/` or point `ODYTTY_THEME` at a path.
-
-### Terminal compatibility
-
-Comprehensive VT sequence coverage confirmed across the fixture suite: SGR
-(all standard attributes, 256-color, truecolor; colon-form `38:2::r:g:b` and
-`48:2::r:g:b` alongside semicolon form), cursor movement and position reporting,
-scroll regions (DECSTBM, DECOM), alternate screen (modes 47/1047/1048/1049 with
-correct per-mode cursor save/restore), mouse reporting (modes 9/1000/1002/1003
-with encodings 1005/1006/1015/1016/legacy), focus reporting (DECSET 1004),
-DECSCUSR cursor-style overrides, OSC 0/2 window title, wide-character handling
-(CJK/emoji combining marks, overwrite-half coherence), ICH/DCH/ECH/REP, tab
-stops, BCE, RI, SU/SD, IL/DL, RIS/DECSTR, DA, and bracketed paste.
-
-**Capability queries.** XTGETTCAP (`DCS +q`) answers the conservative truth set:
-`TN=xterm-256color`, `Co=256`, `RGB=1`; unknown names get the xterm-style
-invalid response. DECRQSS (`DCS $q`) reports live SGR (including extended
-underline styles and underline color), DECSCUSR, DECSCA, and DECSTBM.
-
-**Rectangle operations.** DECCRA (snapshot-copy, overlap-safe), DECFRA, DECERA,
-DECSERA, DECCARA/DECRARA attribute rectangle ops (bold, underline, blink,
-inverse; stream and exact extents via DECSACE), DECSCA protection,
-DECSED/DECSEL selective erase, wide-pair edge sanitization.
-
-See [`SPEC.md`](SPEC.md) for the complete architecture and sequence reference.
-
-### Text and rendering quality
-
-GPU-backed via `ab_glyph` into a dynamic glyph atlas. The fresh-install default
-is bundled JetBrains Mono with real regular, italic, bold, and intermediate
-weight faces; host font lookup remains available through `font_family` and
-`font`. Wide-glyph (CJK/width-2)
-atlas slots span two physical cells. Bearing-aware quad geometry sizes each
-glyph to its real ink bounds so italic side-bearings and tall glyphs render
-uncropped. Optional subpixel AA (`ODYTTY_SUBPIXEL=rgb|bgr`) uses dual-source
-blending when the GPU supports it. Tunable coverage gamma (`ODYTTY_TEXT_GAMMA`,
-default 1.5). Synthetic bold (double-strike) and italic (12° shear) when real
-faces are absent; `ODYTTY_SYNTHETIC_STYLES=off` disables synthesis. Extended
-underline styles fully decoded and rendered (`SGR 4:0`–`4:5`: straight, double,
-curly, dotted, dashed). Underline color via `SGR 58`/`59`.
-
-**Font weight control.** `font_weight` sets a named base weight (e.g. `Light`, `Medium`, `SemiBold`) for normal text, independently of the SGR bold attribute — bold still contrasts against your chosen base. Uses real font weight faces only; a weight name that cannot be resolved against the active family falls back to the regular face.
-
-**Background treatments.** `background_treatment = gradient` subtly darkens
-each cell's background toward the bottom of the window; `background_treatment
-= vignette` darkens toward the edges and corners. Both are off by default
-(`background_treatment = off`), pixel-identical to the plain renderer when off,
-and forced off under the `render_quality = plain` profile. Readability is
-safe-by-construction: the treatment darkens the per-cell background before the
-minimum-contrast floor runs, so the floor re-lifts the foreground over the
-treated background cell by cell. Image/blur-behind support is a planned future
-extension.
-
-### Daily-driver interaction
-
-Scrollback search (`Ctrl+Shift+F`) with next/prev navigation and match
-highlights. Refined selection: double-click word, triple-click line, drag-scroll,
-scrollback-aware anchors. Clipboard: chunked background writes for large pastes,
-bracketed-paste sanitization, line-ending normalization, Linux PRIMARY selection.
-Right-edge scroll indicator. Configurable cursor shapes (block/underline/bar),
-blink policy, and key bindings (`ODYTTY_KEYBINDS`).
-
-**Smooth scrolling.** `smooth_scroll = on` eases viewport scroll movement over a short bounded window (default 80 ms ease-out) so scrollback navigation feels fluid. The scroll target updates immediately on every wheel tick or keyboard scroll — no input lag — and only the visual presentation catches up over the easing window. Off by default and pixel-identical to the instant-snap path when off. `smooth_scroll_duration` adjusts the animation window in milliseconds.
-
-**In-app keybinding editor.** The settings panel's key-bindings row (`Ctrl+Shift+,` → navigate to Keybindings) opens a dedicated binding editor. Browse all 12 bindable actions, press a row to capture a new chord, and the new binding is written to your config automatically — the same overlay-writes-config flow as every other setting. `Backspace` on a row resets it to its default chord; `R` resets all bindings at once. If a new chord conflicts with an existing binding, a prompt lets you confirm or cancel the replacement. Hand-editing `ODYTTY_KEYBINDS` remains fully supported and produces byte-identical results.
-
-**Keyboard quick-select.** `Ctrl+Shift+L` scans the visible screen for URLs,
-file paths, and short identifiers (Git SHAs and similar hex strings), labels
-each match with a short home-row key sequence, and copies the one you type.
-`Esc` dismisses without copying. Labels are prefix-free, so a two-character
-label never misfires on a partial keystroke. The binding is configurable via
-`ODYTTY_KEYBINDS` (action name `hints`).
-
-**Keyboard copy mode.** A keyboard-driven scrollback selection mode, bound via
-`ODYTTY_KEYBINDS` (action name `copy_mode`) and off by default. Once open, vim
-motions navigate the scrollback (`hjkl`, `w`/`b`/`e`, `0`/`^`/`$`, `gg`/`G`);
-`v` starts character selection, `V` starts line selection, `y` or Enter yanks
-the selected text to the clipboard, and `Esc`/`q` cancel. Arrow keys,
-PageUp/Down, Home/End, and `Ctrl-u`/`d`/`b`/`f` paging are also bound.
-Terminal state is never modified while copy mode is active.
-
-**OSC 8 hyperlinks.** Shell output with OSC 8 sequences renders hover underline
-highlighting. Ctrl+click opens links via `xdg-open` through a scheme allowlist
-(`http`, `https`, `file`, `mailto`); links are never auto-opened from input.
-
-**OSC 7 working directory.** `file://` URLs from the shell's `chpwd` hook are
-parsed and stored as advisory state for native consumers (e.g. open-in-directory).
-Localhost-only; foreign hosts are ignored; no filesystem access.
-
-**OSC 52 + dynamic colors.** Clipboard write via OSC 52 with cap and UTF-8
-validation. Read disabled by default (`osc52_read = off`); opt-in with
-`ODYTTY_OSC52_READ=on`. OSC 10/11/12 and OSC 4 palette entries with full
-reset support (OSC 104/110/111/112).
-
-**Window border.** `window_border = on` draws a thin frame around the terminal grid in the theme's border color. The border sits inside the window padding so it never covers cell text, scales with display DPI, and tracks the grid on resize. Off by default; purely visual.
-
-**Follow OS dark/light theme.** `follow_os_theme = on` + `os_theme_dark = <name>` / `os_theme_light = <name>` switches between two configured themes automatically when the desktop color-scheme changes. The switch is live on Wayland (compositor preference signal); on X11 there is no live signal — set `ODYTTY_APPEARANCE=dark|light` at launch to seed the initial direction. Off by default; when off the active theme drives presentation.
-
-**Close confirmation.** `confirm_close = on` (the default) shows a brief confirmation prompt before closing the window if a foreground program is still running. Closing an idle shell exits immediately as before. Set to `off` to close unconditionally.
-
-**Window decorations.** `window_decorations = off` hides the native window titlebar and borders. On Wayland, decorations are removed via client-side decoration negotiation and disappear reliably. On X11, this is a hint to the window manager — whether borderless takes effect depends on your WM and compositor; borderless is not guaranteed on X11. On by default.
-
-**Synchronized output.** DEC private mode 2026 with 150 ms safety timeout.
-
-### Configuration
-
-Settings load from built-in defaults → `~/.config/odytty/odytty.conf` →
-environment variables; env always wins. The config file uses a simple
-`key = value` format with `#` comments. The native app polls for live reloads
-about once per second. See [`docs/runtime-knobs.md`](docs/runtime-knobs.md)
-for the full knob reference and [`docs/odytty.conf.example`](docs/odytty.conf.example)
-for an annotated example.
-
-**In-app settings panel.** `Ctrl+Shift+,` opens a keyboard-driven settings
-editor covering font, theme, cursor, keybinds, and all runtime knobs. Edits
-apply live through the existing reload seam. `Ctrl+S` writes changed rows back
-to `odytty.conf` without destroying comments, blank lines, or unknown keys
-(preservation-first writeback via same-directory atomic rename). When a
-`font_family` edit names a family that can't be resolved — not found, or found
-but not monospace — the panel shows a clear, family-named error instead of
-silently keeping the previous font. Typing `/` while the panel is open filters
-the roster by name, key, description, or group; `Esc` once clears the filter,
-a second `Esc` closes the panel.
-
-**First-run welcome card.** On first launch — when no config file exists yet,
-or with `ODYTTY_ONBOARDING=1` — OdyTTY shows a welcome overlay listing the
-core keyboard shortcuts. Shortcut labels are read live from the active bindings,
-so if you have already customized them the card shows your actual chords.
-Dismiss with `Enter`, `Esc`, or `Space`. First-run memory is the config file's
-existence — no flag file, no telemetry, no account.
-
-**Theme picker.** `Ctrl+Shift+H` opens a built-in theme picker. Arrowing through
-the library previews each theme immediately, `Enter` persists the selected
-theme to `odytty.conf`, and `Esc` restores the theme that was active when the
-picker opened.
-
-### HiDPI
-
-Scale-factor changes rebuild the atlas and recompute cell metrics through the
-same path as a font-size change. Resize events are debounced to avoid
-per-frame reflow during drag.
-
-### Privacy
-
-OdyTTY runs entirely on your machine. No telemetry, no analytics, no crash
-reporting, no update pings, no account, no cloud sync — there is no network
-client in the terminal because none is built. Your settings, themes, and
-scrollback never leave the local filesystem, and `odytty.conf` is a plain file
-you own and can read in full. Because the source is open (GPL-3.0), the absence
-of any data collection is verifiable rather than promised. The only
-network-capable action is Ctrl+click to open a hyperlink — explicit,
-user-initiated, routed through `xdg-open`, and gated by a scheme allowlist;
-links are never opened from terminal output automatically.
-
----
-
-## Build and run
+Requires Linux and a Vulkan-capable GPU. Wayland is the primary target; X11
+works through the current `winit`/GPU stack with some window-manager-dependent
+behavior for borderless windows and OS theme detection.
 
 ```sh
 cargo build --release
 cargo run -- --native
 ```
 
-Requires a Vulkan-capable GPU. Tested on Linux (Wayland + X11 via XWayland).
-
-Quick launch examples:
+Useful launch examples:
 
 ```sh
-# Larger text with the Odyssey theme
-ODYTTY_FONT_SIZE=18 ODYTTY_THEME=odyssey cargo run -- --native
+# Use the hard plain renderer profile.
+ODYTTY_RENDER_QUALITY=plain cargo run -- --native
 
-# Custom font family
-ODYTTY_FONT_FAMILY="DejaVu Sans Mono" cargo run -- --native
+# Follow the desktop dark/light preference with Odyssey defaults.
+ODYTTY_THEME=system cargo run -- --native
 
-# RGB subpixel AA
+# Larger text with a named system font.
+ODYTTY_FONT_SIZE=24 ODYTTY_FONT_FAMILY="DejaVu Sans Mono" cargo run -- --native
+
+# RGB subpixel antialiasing when supported by the GPU.
 ODYTTY_SUBPIXEL=rgb cargo run -- --native
+
+# Stronger phosphor reference look.
+ODYTTY_RETRO=on cargo run -- --native
 ```
 
-CLI helpers (print and exit, no window): `odytty --list-themes` lists the
-built-in themes as stable `name`/appearance/family rows; `odytty --show-config`
-prints the effective merged configuration (defaults + `odytty.conf` +
-environment overrides) as sorted `key=value` lines for scripts and debugging.
+CLI introspection commands print and exit without opening a window:
 
----
+```sh
+cargo run -- --list-themes
+cargo run -- --list-fonts
+cargo run -- --show-config
+```
 
-## Status
+`--list-themes` prints the 100 built-in themes as stable
+`name`/`appearance`/`family` rows. `--list-fonts` prints discoverable system
+font files. `--show-config` prints the current stable config-dump subset; the
+full settings authority is [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
 
-**Active development.** The foundation is solid and the feature surface is
-broad. The current focus is visual identity — themes, appearance settings, and
-progressive rendering enhancements — while keeping terminal correctness as the
-non-negotiable floor.
+## Current Feature Surface
 
-### What works today
+### Terminal Compatibility
 
-Everything in the Features section above. The full owned byte path is real and
-in production. Color emoji, Kitty graphics, Sixel, the Kitty keyboard protocol,
-SGR-pixel mouse, the theme palette and user theme file format, the 100-theme
-built-in library, the in-window overlay framework, the in-app settings
-panel plus live theme picker, the in-app custom theme builder, and CLI config
-introspection have all landed. The minimum-contrast readability floor
-(`min_contrast` / `ODYTTY_MIN_CONTRAST`) and geometric box-drawing/block/Powerline
-rendering (`geometric_boxdraw` / `ODYTTY_GEOMETRIC_BOXDRAW`) are wired into the
-live renderer. The contrast floor is part of the fresh-install readability
-baseline; geometric box drawing remains default-off / pixel-identical until
-enabled. Themed
-cursor/selection/search roles (`themed_ui_roles`) are live and default-on, so a
-theme's authored selection and cursor colors drive the UI out of the box;
-`themed_ui_roles = off` restores the classic inverse rendering. A symbol /
-Nerd-font fallback for Private-Use-Area prompt icons is wired into the live
-atlas behind the `symbol_fallback` setting (with an optional `symbol_font`
-path; `ODYTTY_SYMBOL_FALLBACK` / `ODYTTY_SYMBOL_FONT` remain as env overrides),
-default-off / byte-identical until enabled. Focus dimming (`focus_dim` /
-`ODYTTY_FOCUS_DIM`) perceptually dims the whole grid while the window is
-unfocused so it recedes, with the contrast floor keeping text legible;
-default-off / focused frames byte-identical. Opt-in cursor animations are live:
-cursor blink fade (`cursor_easing`), cursor slide between cells (`cursor_motion`),
-and cursor trail — a short fading after-image that trails the gliding cursor
-(`cursor_trail`, rides cursor slide); all three off by default. A themed window
-border (`window_border = on`) draws a thin frame in the theme's border color
-inside the padding band; off by default. Follow-OS dark/light theme switching
-(`follow_os_theme` + `os_theme_dark` / `os_theme_light`) is live on Wayland;
-X11 can seed the direction at launch via `ODYTTY_APPEARANCE=dark|light`. Close
-confirmation (`confirm_close`, default on) guards against accidental window
-closure when a program is still running. Smooth scrolling (`smooth_scroll = on`)
-eases viewport movement over a bounded animation window while keeping scroll
-targets updated immediately. Font weight control (`font_weight`) selects a named
-weight face for normal text independently of the SGR bold attribute. Bundled
-JetBrains Mono provides the default real weight faces. Window
-decoration toggle (`window_decorations`, default on) hides the titlebar on
-Wayland (reliable via client-side decorations) or makes a best-effort request on
-X11 (WM-dependent).
+The owned parser and terminal core cover common shell and TUI behavior:
+printing, UTF-8 chunking, SGR attributes including 256-color and truecolor,
+cursor movement, erase, insert/delete character and line, repeat, reverse index,
+scroll regions, origin mode, tab stops, bracketed paste, focus reporting,
+alternate screen modes 47/1047/1048/1049, OSC 0/2 titles, OSC 7 working
+directory tracking, OSC 8 hyperlinks, OSC 52 clipboard write plus opt-in read,
+OSC 133 prompt marks, OSC 4/10/11/12 dynamic colors, DECRQM/DECRPM, XTWINOPS,
+XTGETTCAP, DECRQSS, rectangle operations, selective erase, synchronized output
+mode 2026, and broad mouse reporting.
 
-### On the horizon
+Mouse support includes X10/normal/button-event/any-event tracking, focus
+events, UTF-8, SGR, urxvt, legacy encodings, and SGR-pixel mode 1016 with true
+physical pixel coordinates from the native window.
 
-- **Readability-first rendering** — smooth scrolling (`smooth_scroll`) is now
-  live. (The perceptual color pipeline backs linear-space blending; the
-  minimum-contrast floor (`ODYTTY_MIN_CONTRAST`), geometric box-drawing
-  (`ODYTTY_GEOMETRIC_BOXDRAW`), and the symbol / Nerd-font fallback
-  (`symbol_fallback`) are wired into the renderer, and stem darkening
-  (`ODYTTY_STEM_DARKEN`) is available. The fresh-install baseline enables the
-  contrast floor and stem darkening; `min_contrast=1.0` and `stem_darken=0.0`
-  remain the passthrough opt-outs.)
-- **Atmospheric effects** — bloom/phosphor glow and CRT scanlines are part of
-  the Odyssey ambient default, remain perf- and readability-gated, and can be
-  disabled with settings or bypassed with `render_quality=plain`. `retro=on`
-  enables a stronger phosphor preset without overwriting the individual knobs.
-  See [`docs/effects.md`](docs/effects.md) for settings and tuning.
-- **Ligature / stylistic-set shaping** (strategy decided, implementation
-  deferred).
-- **Shell integration** — native working-directory consumer (OSC 7 core
-  tracking already landed).
+Keyboard support includes mode-aware legacy encoding and the Kitty keyboard
+protocol as a negotiated overlay. With no Kitty flags active, legacy bytes are
+preserved.
 
-### Known gaps
+### Text, Emoji, And Graphics
 
-- No tabs, panes, sessions, or multiplexing.
-- Linux-first; no macOS or Windows support.
-- Shell integration beyond OSC 7 cwd core not yet implemented.
+Text rendering uses bundled JetBrains Mono by default at 22 logical pixels with
+line height `1.0`. System font families, direct font files, font-weight
+variants, symbol/Nerd-font fallback, per-range symbol maps, synthetic styles,
+subpixel AA, glyph coverage gamma, stem darkening, and minimum-contrast
+enforcement are configurable.
 
----
+Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. Noto Color
+Emoji CBDT/CBLC is supported on Linux, including variation selectors, flags,
+keycaps, skin tones, and common ZWJ clusters. Emoji pixels are not SGR-tinted.
+COLR/CPAL and SVG-in-OpenType expansion remain future work.
+
+Kitty graphics support includes actions `t`, `T`, `p`, `d`, and `q`; raw RGB,
+raw RGBA, and PNG still images; direct, file, temp-file, and POSIX shared-memory
+transports; chunking; image and placement ids; z-index; crop; cell scaling; and
+pixel offsets. Sixel supports the DEC/xterm data language, RGB/HLS color
+introducers, repeat, raster attributes, transparency, VT340 palette, and DECSDM.
+Animation and Kitty Unicode placeholders are not supported.
+
+### Native App Workflow
+
+The native app runs multiple sessions. `Ctrl+Shift+T` opens a new tab,
+`Ctrl+Shift+W` closes the active tab, and `Ctrl+PageDown` /
+`Ctrl+PageUp` switch tabs. The tab bar appears when two or more sessions exist;
+a single shell keeps the original full-grid view. Current limitation: in-band
+image placements can sit one row high while the tab bar is visible.
+
+Core local shortcuts:
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+Shift+F` | Search scrollback |
+| `Ctrl+Shift+,` | Settings panel |
+| `Ctrl+Shift+H` | Theme picker |
+| `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste |
+| `Shift+PageUp` / `Shift+PageDown` | Scroll local viewport |
+| `Ctrl+Shift+L` | Keyboard quick-select hints |
+| `Ctrl+Shift+Space` | Keyboard copy mode |
+| `Ctrl+Shift+Up` / `Ctrl+Shift+Down` | Jump to previous / next prompt mark |
+| `Ctrl+Shift+K` | Clear editable prompt input when shell integration allows it |
+
+`ODYTTY_KEYBINDS` can rebind local actions: `search`, `settings`,
+`theme-picker`, `copy`, `paste`, `scroll-up`, `scroll-down`,
+`jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`, `clear-input`,
+`new-tab`, `next-tab`, `prev-tab`, and `close-tab`.
+
+### Settings And Themes
+
+Settings load in this order:
+
+1. Built-in defaults.
+2. `$XDG_CONFIG_HOME/odytty/odytty.conf`, or
+   `~/.config/odytty/odytty.conf`.
+3. `ODYTTY_*` environment variables.
+
+The config file format is `key = value` with `#` comments. The native app polls
+the resolved file about once per second; env-pinned keys stay pinned for the
+session. The settings panel live-applies changes and writes only changed keys
+back to `odytty.conf`, preserving comments, blank lines, unknown keys, and
+ordering via same-directory atomic rename.
+
+`theme = system` or `ODYTTY_THEME=system` follows the desktop dark/light
+preference using Odyssey defaults (`odyssey` dark, `odyssey-light` light).
+Explicit `follow_os_theme`, `os_theme_dark`, and `os_theme_light` settings allow
+custom mappings.
+
+See:
+
+- [`docs/runtime-knobs.md`](docs/runtime-knobs.md) for every config key,
+  environment variable, range, default, and reload behavior.
+- [`docs/odytty.conf.example`](docs/odytty.conf.example) for an annotated config.
+- [`docs/themes.md`](docs/themes.md) for the theme format and built-in roster.
+- [`docs/effects.md`](docs/effects.md) for bloom, CRT, retro, background, and
+  motion effects.
+
+## Architecture
+
+The terminal core and visual layer are deliberately separate:
+
+| Area | Path |
+| --- | --- |
+| PTY | `src/pty.rs` |
+| Parser | `src/parser/` |
+| Terminal model | `src/core/` |
+| Render geometry | `src/grid.rs`, `src/render.rs`, `src/boxdraw.rs` |
+| Text atlas and font resolution | `src/atlas/`, `src/text.rs`, `src/emoji/` |
+| Graphics protocols | `src/graphics/`, `src/core/graphics_routing.rs` |
+| Settings | `src/settings.rs`, `src/settings/` |
+| Theme system | `src/theme/`, `src/theme_author.rs`, `src/palette_gen.rs` |
+| Native app and GPU | `src/native/` |
+
+External crates do not own terminal semantics. `vte`, `portable-pty`, and
+`crossterm` are not in the dependency tree.
 
 ## Testing
 
-**Testing.** Over 1400 tests passing: 1456 unit/integration, 12 mouse-protocol
-(hermetic encoder coverage: legacy byte boundaries, UTF-8 coordinate extension,
-SGR and urxvt decimal coordinates, wheel, modifier folding, X10 modifier
-stripping, protocol-specific release encoding, motion gating for
-normal/button-event/any-event modes, and SGR-pixel (1016) encoder coverage —
-press/release/wheel/motion with 1-based pixel coordinates, boundary at `(1,1)`,
-large coordinate values, modifier folding, not-1016 guard, and cell-path
-pass-through; run via
-`cargo test --test mouse_protocol`), 42 pixel-smoke (headless CPU compositor
-asserting structural raster invariants for text rendering and graphics
-placement; two pixel-smoke tests — color-glyph segment draw ordering between coverage
-text and above-image layers, and wide color glyph lead-cell quad emission —
-the themed-roles default-on update added three covering the now-default themed selection/cursor
-colors plus the `themed_ui_roles = off` legacy inverse parity, the perceptual-dim update added
-one asserting the perceptual dim delta stays confined to dim cells, and focus-dim support added
-two — a focus-dim-off identity gate and an unfocused-dimmed baseline that
-recedes while still clearing a raised contrast floor, and contrast-floor coverage added
-three — the minimum-contrast floor at its cursor-block under-glyph resolve site,
-the focus-dim × floor background-dim precondition, and themed selection/cursor
-role resolution against real light and dark built-ins), 4
-box-drawing pixel-smoke (geometric box/block/Powerline: corner↔line seam, cross
-join, full-block solidity, and the off/on distinction), 11 protocol-fuzz smoke (never-panic, bounded-host-output, post-RIS,
-and grid-self-consistency invariants across seven fuzzed surfaces: extended
-underline SGR, Kitty keyboard protocol stack, synchronized output mode 2026, OSC
-52 / dynamic colors, DECRQM / XTWINOPS, DCS query reports (XTGETTCAP / DECRQSS),
-and DEC rectangle / selective-erase ops), 9 PTY alternate-screen smoke, 10
-transcript smoke, 8 emoji pixel-smoke (real Noto color-emoji composition,
-VS15/VS16 presentation policy, multi-codepoint cluster stitching/fallback, and
-monochrome-foreground suppression for resident color-emoji cells), 3 CLI
-introspection (theme enumeration, config-dump formatting, and a spawned
-`--show-config` over a temp config), 3 GPU composite smoke (one renders a tiny
-scene direct-to-swapchain vs. through the offscreen→composite seam and asserts
-byte-equality, guarding the plain post-process path; one proves the bloom
-pass leaves the off path exact, keeps sub-threshold body text unchanged, and
-gives a bright HDR cell a bounded halo; and one proves the CRT pass leaves the
-off path exact and dims lit cells only within the capped scanline/vignette band
-without zeroing them; adapter-gated), and 3 stem-raster smoke (proving stem darkening is wired
-through the live glyph-atlas raster: the default-on boost raises midtone
-coverage monotonically with the `0`/`255` endpoints pinned, and the `0.0`
-opt-out restores the classic raster byte-for-byte), and 1 license-header
-guard (asserting every tracked Rust and WGSL source file carries the
-`SPDX-License-Identifier: GPL-3.0-only` tag on its first line). Deep fuzz
-tiers are `#[ignore]`-gated and run via
-`ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored`.
-The emoji-probe work added three hermetic tests (fixed representative-sequence list,
-bounded filename discovery in a temp directory, and non-color format detection
-for outline fonts); the host-dependent full probe against an installed Noto Color
-Emoji is `#[ignore]`-gated and runs via
-`cargo test emoji -- --ignored`.
-`cargo bench --bench perf` runs headless throughput benchmarks for the
-terminal model and parser separately from the default suite. B3 added four
-surface rows: DECFRA full-page fill (~2.3 µs/op, ~1.2 ns/cell), DECCRA
-overlapping copy (~3.0 µs/op), DECSERA mixed-protection erase (~5.5 µs/op),
-and an SGR colon-subparam storm (`4:n` + `58:2:r:g:b` per cell) that
-exercises the extended-underline parse path the semicolon heavy-SGR row never
-reaches. A per-cell size diagnostic prints `Cell 36 B / Attrs 20 B` at the
-current baseline. Three profiles are selectable via `ODYTTY_PERF_PROFILE`:
-`default` (bounded, routine acceptance runs), `legacy` (pre-B2 workload sizes),
-and `quick` (smoke); see [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
+The repository carries unit, integration, fuzz-smoke, pixel-smoke, PTY-smoke,
+GPU-composite, and CLI tests. The default suite is intended to be deterministic
+and host-independent; PTY smoke and deep fuzz tiers are ignored by default.
 
----
+```sh
+cargo test
+cargo fmt --check
 
-## Project docs
+# Parser/protocol deep tier when touching those paths:
+ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture
 
-- [odytty.unfinished-works.com](https://odytty.unfinished-works.com) — the OdyTTY website.
-- [`DEVLOG.md`](DEVLOG.md) — running record of what has landed.
-- [`TODO.md`](TODO.md) — milestone checklist.
-- [`SPEC.md`](SPEC.md) — durable product and architecture decisions.
-- [`docs/runtime-knobs.md`](docs/runtime-knobs.md) — all settings and launch examples.
-- [`docs/themes.md`](docs/themes.md) — theme file format, built-ins, and user theme directory.
-- [`docs/odytty.conf.example`](docs/odytty.conf.example) — annotated example config file.
-- [`docs/effects.md`](docs/effects.md) — visual effects guide (bloom, CRT profile, plain/fast mode).
-- [`docs/graphics.md`](docs/graphics.md) — Kitty and Sixel protocol reference.
-- [`docs/visual-architecture.md`](docs/visual-architecture.md) — renderer pipeline and visual-enhancement direction.
-- [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) — full build roadmap (everything still planned).
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — change, commit, and safety conventions.
+# Evidence-only performance harness:
+cargo bench --bench perf
+```
 
----
+Recent library-only checks in the devlog show `cargo test --lib` at 1778
+passing tests, with the full tree carrying additional integration and smoke
+suites. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the commit gate.
+
+## Status
+
+**Works today:** real shells, multi-session tabs, scrollback, search, selection,
+copy/paste, font/theme/settings overlays, theme builder, 100 themes, color
+emoji, Kitty graphics, Sixel, Kitty keyboard protocol, SGR-pixel mouse,
+OSC 8/52/133, dynamic colors, prompt navigation, command status gutter,
+readability and accessibility settings, bloom/CRT/retro effects, background
+treatments, and a large compatibility test surface.
+
+**Known gaps:** pre-release packaging, macOS/Windows support, panes, profiles,
+session persistence, Kitty animation, Kitty Unicode placeholders, iTerm2
+graphics, COLR/CPAL color fonts, broader ligature/stylistic-set shaping, custom
+tab-bar polish, and the current tab-bar image-placement offset issue.
+
+The running history lives in [`DEVLOG.md`](DEVLOG.md). The current public
+roadmap lives in [`TODO.md`](TODO.md) and
+[`docs/full-build-roadmap.md`](docs/full-build-roadmap.md).
+
+## Public Repository Safety
+
+This repository is public. Do not commit secrets, credentials, API keys, tokens,
+private hostnames or URLs, personal data, `.env` files, local-only config, or
+machine-specific notes. Before any commit or push, inspect staged changes for
+sensitive content.
+
+OdyTTY itself is local-first: no telemetry, no account, no cloud sync, no
+analytics, no crash reporting, and no update pings.
+
+## Project Docs
+
+- [`SPEC.md`](SPEC.md) — product charter and architecture decisions.
+- [`TODO.md`](TODO.md) — current milestone checklist and remaining work.
+- [`DEVLOG.md`](DEVLOG.md) — reverse-chronological development record.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution, testing, and public-repo
+  safety rules.
+- [`docs/runtime-knobs.md`](docs/runtime-knobs.md) — settings reference.
+- [`docs/themes.md`](docs/themes.md) — theme format and built-in library.
+- [`docs/graphics.md`](docs/graphics.md) — Kitty graphics and Sixel support.
+- [`docs/visual-architecture.md`](docs/visual-architecture.md) — renderer and
+  visual-layer architecture.
+- [`docs/hidpi-validation.md`](docs/hidpi-validation.md) — manual HiDPI checks.
+- [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) — long-range map.
 
 ## License
 
-OdyTTY is licensed under the **GNU General Public License v3.0 only**
-(GPL-3.0-only). See the [`LICENSE`](LICENSE) file for the full text.
+OdyTTY is licensed under **GPL-3.0-only**. See [`LICENSE`](LICENSE).
 
-You are free to use, study, share, and modify OdyTTY. If you distribute a
-modified version, you must release your changes under the same license (strong
-copyleft).
+You may use, study, share, and modify the source under that license. If you
+distribute a modified version, you must release your changes under the same
+license.
 
 Copyright (C) 2026 Unfinished Works and the OdyTTY contributors.
 
-### Name & branding
+The OdyTTY name and branding are separate from the source license. Forks and
+modified builds should use their own name and must not imply endorsement by
+Unfinished Works. See [`NOTICE`](NOTICE).
 
-OdyTTY's **source code** is free and open source under the GPL-3.0 — you're
-welcome to use, study, modify, fork, and redistribute it under that license.
-
-The **OdyTTY name and logo** are a separate matter from the code license.
-They're how people recognize this specific project, so we ask one thing: if you
-ship a modified version or a fork, please give it your own name and don't
-present it as the official OdyTTY or imply it's endorsed by Unfinished Works.
-Calling it *"based on OdyTTY"* or *"a fork of OdyTTY"* is perfectly fine and
-welcome — just don't call it *OdyTTY*. See the [`NOTICE`](NOTICE) file for the
-full note.
-
-Thanks for helping keep the name clear for everyone.
-
-**Contributing:** contributions are welcome under the Developer Certificate of
-Origin (DCO) — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for details.
+Contributions are accepted under the Developer Certificate of Origin. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md).

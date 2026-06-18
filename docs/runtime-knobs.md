@@ -1,365 +1,213 @@
 # OdyTTY Runtime Knobs
 
-OdyTTY loads runtime configuration at native startup and polls the config file
-for live reloads while the native window is running. Defaults are chosen for the
-current Odyssey appearance baseline:
+OdyTTY loads native runtime settings from built-in defaults, then
+`odytty.conf`, then environment variables. Environment variables always win and
+remain pinned for the session.
 
-```sh
-cargo run -- --native
-```
+Config path:
 
-Configuration precedence is:
+- `$XDG_CONFIG_HOME/odytty/odytty.conf`
+- `~/.config/odytty/odytty.conf` when `XDG_CONFIG_HOME` is unset
 
-1. Built-in defaults.
-2. `$XDG_CONFIG_HOME/odytty/odytty.conf`, or
-   `~/.config/odytty/odytty.conf` when `XDG_CONFIG_HOME` is unset.
-3. Environment variables.
+The native app polls the resolved config file about once per second. Invalid
+rewrites, unknown keys, malformed values, unreadable files, and unresolved font
+families are non-fatal: OdyTTY keeps the last valid active settings and prints a
+warning. Deleting the config file also keeps the current settings until a later
+valid rewrite appears.
 
-Environment variables always win, so existing env-based launch scripts keep the
-same behavior. Missing config files are ignored at startup. Unreadable or
-malformed startup config files print stderr warnings, skip bad lines, and keep
-good values.
+## Config Format
 
-The native app polls the resolved config path about once per second on the
-existing event-loop wake path. No watcher thread and no `notify`/inotify
-dependency are used. On live reload, environment-overridden keys are pinned to
-their startup env values and never change until restart. A bad rewrite
-(malformed line, unknown key, invalid value, or unresolved font family) is a
-no-op: the current settings stay active. Deleting the config file also keeps
-the current settings until a later valid rewrite appears.
-
-## Config File Format
-
-The config file is a simple dependency-free `key = value` format:
+`odytty.conf` is a dependency-free `key = value` file with `#` comments:
 
 ```conf
-# ~/.config/odytty/odytty.conf
-font_size = 18
-font_family = JetBrains Mono
-# font_weight =
 theme = odyssey
-visual = ambient
-subpixel = off
-text_gamma = 1.5
-stem_darken = 0.5
+font_family = JetBrains Mono
+font_size = 22
+render_quality = balanced
 min_contrast = 13.0
-focus_dim = 0.0
-bloom = on
-bloom_threshold = 0.75
-bloom_intensity = 0.8
-bloom_radius = 8.0
-retro = off
-crt = on
-crt_scanline_intensity = 0.17
-crt_scanline_period = 7.0
-crt_vignette_strength = 0.10
-geometric_boxdraw = off
-symbol_fallback = off
-symbol_font =
-themed_ui_roles = on
-window_border = off
-# window_decorations = on
-cursor_style = bar
-cursor_blink = auto
-cursor_trail = off
-new_output_fade = off
-follow_os_theme = off
-# os_theme_dark = odyssey
-# os_theme_light = odyssey-light
-confirm_close = on
-# smooth_scroll = off
-# smooth_scroll_duration = 80
-keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
 ```
 
-Blank lines are ignored. `#` starts a comment, including after a value. Duplicate
-keys are allowed; the last valid value wins. Unknown keys and malformed lines
-are skipped with stderr warnings.
+Blank lines are ignored. Duplicate keys are allowed; the last valid value wins.
+The in-app settings panel writes this same file with preservation-first
+writeback: comments, blank lines, ordering, and unknown/future keys stay in
+place, changed keys are rewritten, missing changed keys are appended, and saves
+use a same-directory temporary file plus rename.
 
-The in-app settings panel writes back to this same file on explicit save
-(`Ctrl+S` while the panel is open). Writeback is preservation-first: comments,
-blank lines, key order, and unknown/future keys remain in place; only changed
-keys are rewritten. Changed keys that are not already present are appended under
-an `# OdyTTY settings panel` section. Saves use a temporary file in the same
-directory and rename it over the target, so OdyTTY never truncates
-`odytty.conf` in place.
+## Settings Reference
 
-## Native Settings
+All settings except `native_autoclose_ms` are live-reloadable when their
+environment variable was not set at startup.
 
-| Config key | Environment variable | Values | Default | Notes |
-| --- | --- | --- | --- | --- |
-| `font_size` | `ODYTTY_FONT_SIZE` | Logical pixel size, clamped to `6.0..=72.0` | `14.0` | Controls native glyph rasterization, cell size, initial window size, and resize grid fitting. The renderer folds the active window scale factor into the physical atlas size, so this value is logical rather than point-sized. Invalid values fall back to `14.0` with one stderr warning. |
-| `text_gamma` | `ODYTTY_TEXT_GAMMA` | Floating-point gamma, clamped to `0.5..=3.0` | `1.5` | Adjusts glyph coverage in the shader for text weight/contrast. `1.0` is the exact legacy linear blend path. Invalid values fall back to `1.5` with one stderr warning. |
-| `stem_darken` | `ODYTTY_STEM_DARKEN` | Floating-point strength, clamped to `0.0..=1.0` | `0.5` | Stem darkening: a raster-time coverage boost so light-on-dark body text holds weight at small sizes. Ships default-on at `0.5`. `0.0` is the opt-out and is pixel-identical to the pre-feature renderer; `1.0` is the strongest boost. Applied to anti-aliased glyph edges/thin stems only — fully-covered and fully-uncovered pixels are never moved. Invalid values fall back to `0.5` with one stderr warning. |
-| `min_contrast` | `ODYTTY_MIN_CONTRAST` | Floating-point WCAG ratio, clamped to `1.0..=21.0` | `13.0` | Minimum contrast guarantee: lifts each cell's foreground until its WCAG contrast against the background meets at least this ratio, so low-contrast apps stay legible. `1.0` disables the floor and is pixel-identical to the pre-feature renderer; `4.5` is the WCAG AA body-text threshold and `7.0` is AAA. The lift moves only perceptual (OKLab) lightness, preserving hue; against a near-mid-grey background where the ratio is unreachable it makes a best-effort move to the most-contrasting shade. Invalid values fall back to `13.0` with one stderr warning. |
-| `focus_dim` | `ODYTTY_FOCUS_DIM` | Floating-point amount, clamped to `0.0..=1.0` | `0.0` | Focus dimming: while the window is unfocused, dims the whole grid — both text and background — so it recedes visually and the focused window stands out. `0.0` disables it and is pixel-identical to the pre-feature renderer (focused and unfocused frames are byte-identical); `0.15`–`0.30` is a subtle recede. The dim is perceptual (OKLab), preserving hue, and is applied before the `min_contrast` floor so text stays legible against the dimmed background. The focused window is never dimmed regardless of this value. Invalid values fall back to `0.0` with one stderr warning. Config-file aliases: `unfocuseddim`. |
-| `bloom` | `ODYTTY_BLOOM` | `on`, `off` | `on` | Bloom / phosphor glow (VE2): renders the scene into an HDR offscreen target, extracts bright cells, blurs them at half resolution, then composites the glow additively. Requires an adapter where `Rgba16Float` is renderable, texture-bindable, and filterable; unsupported adapters use the plain path with one notice. |
-| `bloom_threshold` | `ODYTTY_BLOOM_THRESHOLD` | Floating-point luminance knee, clamped to `0.70..=1.25`, or `auto` | `0.75` | Bright-pass threshold for bloom. `auto` derives `relative_luminance(theme.foreground) + 0.12`, clamped to the supported range; unset/invalid values fall back to `0.75` with one stderr warning. |
-| `bloom_intensity` | `ODYTTY_BLOOM_INTENSITY` | Floating-point strength, clamped to `0.0..=1.0` | `0.8` | Additive bloom strength. `0.0` produces no glow; `1.0` is the cap. Invalid values fall back to `0.8` with one stderr warning. |
-| `bloom_radius` | `ODYTTY_BLOOM_RADIUS` | Floating-point half-resolution blur radius, clamped to `0.5..=8.0` | `8.0` | Blur spread for the separable bloom pass. Smaller values keep glow tight around bright glyphs; larger values create a wider phosphor wash. Invalid values fall back to `8.0` with one stderr warning. |
-| `retro` | `ODYTTY_RETRO` | `on`, `off` | `off` | One-switch stronger phosphor preset. When on, bloom and CRT use a tuned high-visibility profile (`bloom_threshold=0.70`, `bloom_intensity=1.0`, `bloom_radius=8.0`, `crt_scanline_intensity=0.35`, `crt_vignette_strength=0.35`) without overwriting the individual knobs. `render_quality=plain` still forces the direct path. Config-file aliases: `retropreset`, `phosphor`. |
-| `crt` | `ODYTTY_CRT` | `on`, `off` | `on` | CRT / retro profile: renders bounded scanlines and vignette in the same HDR composite chain as bloom. Requires the same adapter support as bloom; unsupported adapters use the plain path with one notice. |
-| `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | Floating-point strength, clamped to `0.0..=0.35` | `0.17` | Dark-band scanline strength. The shader keeps a brightness floor so stronger scanlines remain bounded rather than becoming an opaque overlay. Invalid values fall back to `0.17` with one stderr warning. |
-| `crt_scanline_period` | `ODYTTY_CRT_SCANLINE_PERIOD` | Floating-point physical-pixel period, clamped to `2.0..=12.0` | `7.0` | Vertical distance between scanline bands. Invalid values fall back to `7.0` with one stderr warning. Config-file alias: `crtscanlinedensity`. |
-| `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | Floating-point strength, clamped to `0.0..=0.45` | `0.10` | Edge dimming strength. The shader applies a brightness floor so lit cells are never zeroed by the vignette. Invalid values fall back to `0.10` with one stderr warning. |
-| `subpixel` | `ODYTTY_SUBPIXEL` | `off` (also `none`), `rgb`, `bgr` | `off` | Enables optional RGB/BGR subpixel text coverage when the GPU supports dual-source blending. Unsupported adapters fall back to grayscale text with one stderr notice; startup never fails because of this setting. |
-| `font` | `ODYTTY_FONT` | Path to a `.ttf` or `.otf` font file | bundled JetBrains Mono, then host probe fallback | Overrides the bundled default. A missing or unparseable path no longer aborts startup: it logs one stderr notice and falls back to JetBrains Mono or the host probe list. |
-| `font_family` | `ODYTTY_FONT_FAMILY` | A font family name (system lookup) or a direct `.ttf`/`.otf`/`.ttc` path | `JetBrains Mono` | Selects the regular face by family name or path. The bundled `JetBrains Mono` family is always available; other matches are validated as monospace. A proportional or unresolved value logs one stderr notice and falls back to the bundled/default path, so a bad value never aborts startup. `font` / `ODYTTY_FONT` takes precedence when both are set. Bold/italic faces are discovered and used for styled text when present, with regular-face fallback. |
-| `window_padding` | `ODYTTY_WINDOW_PADDING` | Floating-point logical pixels, clamped to `0.0..=64.0` | `4.0` | Inset in logical pixels on every window edge before the terminal grid begins, so text does not touch the window frame. The padding is applied to both the forward render path (glyph/cursor/quad/image vertices and the scroll indicator are offset by the padding) and the inverse input path (selection hit-test, drag autoscroll, and SGR-1016 pixel mouse reports subtract the padding), so mouse and selection stay aligned. `0.0` restores the historical exact edge-to-edge layout and is pixel-identical to the pre-feature renderer. Invalid values fall back to `4.0` with one stderr warning. Config-file aliases: `windowpadding`, `padding`, `windowpaddingpx`. |
-| `keybinds` | `ODYTTY_KEYBINDS` | Comma- or semicolon-separated `chord=action` entries | unset | Rebinds native terminal-local actions only. Invalid entries log one stderr warning and are skipped; duplicate chords use the last valid entry. PTY key encoding is unchanged. |
-| `cursor_style` | `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `block` | Sets the host default cursor shape. Applications can override at runtime via DECSCUSR (`CSI Ps SP q`). Invalid values fall back to `block` with one stderr warning. |
-| `cursor_blink` | `ODYTTY_CURSOR_BLINK` | `on` (also `blink`), `off` (also `steady`), `auto` (also `default`) | `auto` | Sets the host default cursor blink policy. `on` and `auto` both resolve to blinking; `auto` is reserved to follow a system or app preference in a future version. DECSCUSR from applications overrides at runtime. Invalid values fall back to `auto` with one stderr warning. |
-| `theme` | `ODYTTY_THEME` | any built-in name (100 in the library — `plain`, the `odyssey-*` family, community palettes, and retro/phosphor profiles; run `odytty --list-themes` or see [themes.md](themes.md) for the full roster), a user theme name in the theme directory, or a path to a `.theme` file | `odyssey` | Selects the full appearance profile: default foreground/background, window clear color, the 16-color ANSI palette, and semantic role colors. A built-in name wins; otherwise the value is resolved as a path or a `<name>.theme` file in `<config>/odytty/themes/`. An unknown or unreadable value falls back to `odyssey` with one stderr warning — a bad theme never aborts startup. See [themes.md](themes.md) for the theme file format. |
-| `visual` | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `ambient` | Back-compat alias for the CRT scanline effect. `ambient` and `scanlines` turn on CRT scanlines when no explicit `crt` setting is present; an explicit `crt` setting always wins. Requires a GPU adapter with filterable 16-bit float support; silently no-ops otherwise. `off`/`none`/`plain` opt out of the legacy visual alias; use `render_quality = plain` for the hard direct-render fast path. |
-| `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` | Enables OSC 52 clipboard read replies. Off by default: a terminal that replies to read requests allows any remote program to exfiltrate local clipboard contents. Set to `on` only in trusted sessions. Config-file aliases: `osc52read`, `allowosc52read`, `clipboardread`. |
-| `synthetic_styles` | `ODYTTY_SYNTHETIC_STYLES` | `on`, `off` | `on` | Controls whether the renderer synthesizes missing bold/italic faces from the regular outline (double-strike emboldening + oblique shear). When `off`, styled cells render as plain regular glyphs wherever no real bold/italic face is loaded; a real face always wins regardless. Purely presentational — never affects cell semantics or selection. Invalid values fall back to `on` with one stderr warning. Config-file aliases: `syntheticstyles`, `synthstyles`, `syntheticfonts`. |
-| `geometric_boxdraw` | `ODYTTY_GEOMETRIC_BOXDRAW` | `on`, `off` | `off` | Geometric box-drawing: renders box-drawing (`U+2500..=257F`), block-element (`U+2580..=259F`) and Powerline (`U+E0B0..=E0B3`) glyphs from cell-aligned computed geometry (rectangles, rails, arcs, triangles) instead of the font glyph, so TUI borders, progress bars and powerline prompts are pixel-perfect and join seamlessly at any cell size. Codepoints outside the covered ranges always use the font. When `off` (the default) every glyph takes the font path and the atlas is byte-identical to before. Purely presentational — never affects cell semantics. Invalid values fall back to `off` with one stderr warning. |
-| `symbol_fallback` | `ODYTTY_SYMBOL_FALLBACK` | `on`, `off` | `off` | Symbol / Nerd-font fallback: installs a secondary symbol font for private-use prompt icons when the primary font has no glyph. Off by default: the missing-glyph path is byte-identical to the plain renderer. `ODYTTY_SYMBOL_FALLBACK` remains a compatibility override and wins over the config value when set. Invalid values fall back to `off` with one stderr warning. Config-file aliases: `symbolfallback`, `symbols`, `nerdfont`. |
-| `symbol_font` | `ODYTTY_SYMBOL_FONT` | Path to a `.ttf` or `.otf`, empty, or `auto` | `auto` | Optional explicit symbol / Nerd-font file used when `symbol_fallback` is on. Empty, unset, or `auto` uses OdyTTY's automatic symbol-font search. `ODYTTY_SYMBOL_FONT` wins over the config value when set, preserving the original env-only launch path. A bad explicit path logs one stderr notice and falls back to automatic search rather than aborting startup. Config-file aliases: `symbolfont`, `symbolfontpath`, `nerdfontpath`. |
-| `themed_ui_roles` | `ODYTTY_THEMED_UI_ROLES` | `on`, `off` | `on` | Themed native UI roles: uses the active theme's semantic `cursor`, `selection`, and `search` colors for the cursor default, mouse selection fill, and search highlights. This is the default appearance. Set to `off` for the legacy path: foreground-colored cursor, inverse selection, inverse non-active search matches, and black-on-yellow active search matches. Invalid values fall back to `on` with one stderr warning. Config-file aliases: `themedroles`, `uiroles`. |
-| `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` | Themed window border: draws a thin frame around the terminal grid in the active theme's `border` role color, scaled to the display DPI. The border sits inside the window padding band so it never covers cell text. Off by default; purely visual; pixel-identical to before when off. Invalid values fall back to `off`. |
-| `cursor_trail` | `ODYTTY_CURSOR_TRAIL` | `on`, `off` | `off` | Cursor trail: a short fading after-image that trails the cursor as it glides between cells, drawn behind the cursor block in the theme cursor color. Only visible while `cursor_motion` (cursor slide) is also on; fully decays as the glide settles. Off by default; purely visual. Invalid values fall back to `off`. |
-| `new_output_fade` | `ODYTTY_NEW_OUTPUT_FADE` | `on`, `off` | `off` | New-output fade-in: freshly arrived output rows fade in over a short ramp at the live tail instead of appearing instantly. The text is always fully rendered; the fade is a brief opacity ramp only. Scrollback and resize snap immediately. Off by default; only at the live tail. Invalid values fall back to `off`. |
-| `follow_os_theme` | `ODYTTY_FOLLOW_OS_THEME` | `on`, `off` | `off` | Follow OS dark/light theme: when on, switches between `os_theme_dark` and `os_theme_light` based on the desktop's color-scheme signal. The signal is live on Wayland (via `org.freedesktop.portal.Settings`); on X11 there is no live signal — set `ODYTTY_APPEARANCE=dark\|light` at launch to seed the direction. Off by default; when off the active `theme` drives presentation. Invalid values fall back to `off`. |
-| `os_theme_dark` | `ODYTTY_OS_THEME_DARK` | A built-in theme name | unset | Theme applied when `follow_os_theme` is on and the desktop signals a dark color scheme. Resolved by name against the built-in theme library (same rules as `theme`). When unset, the authored `theme` is kept unchanged on a dark signal. |
-| `os_theme_light` | `ODYTTY_OS_THEME_LIGHT` | A built-in theme name | unset | Theme applied when `follow_os_theme` is on and the desktop signals a light color scheme. When unset, the authored `theme` is kept unchanged on a light signal. |
-| `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` | Close confirmation: when on, shows a brief in-window confirmation prompt before closing the window if a foreground program is still running. An idle shell (no foreground job) closes immediately without prompting. Set to `off` to close unconditionally. Invalid values fall back to `on`. |
-| `smooth_scroll` | `ODYTTY_SMOOTH_SCROLL` | `on`, `off` | `off` | Smooth scrolling: eases viewport scroll movement over a short bounded window so scrollback navigation feels fluid. The scroll target updates immediately on every wheel tick or keyboard scroll — no input lag — and only the visual presentation catches up over the easing window. Off by default and pixel-identical to the instant-snap path when off. Invalid values fall back to `off`. |
-| `smooth_scroll_duration` | `ODYTTY_SMOOTH_SCROLL_DURATION` | Integer milliseconds, clamped to `20..=200` | `80` | Animation window for smooth scrolling in milliseconds. Shorter values feel snappier; longer values feel smoother. Only active when `smooth_scroll = on`. Invalid values fall back to `80` with one stderr warning. |
-| `font_weight` | `ODYTTY_FONT_WEIGHT` | A font weight name (e.g. `Light`, `Medium`, `SemiBold`), or empty | empty (regular) | Base font weight for normal text, independent of the SGR bold attribute. Selects a named weight face from the active font family so bold SGR still contrasts against your chosen base. Uses real font weight faces only; a weight name that cannot be resolved against the current family falls back to the regular face. A change rebuilds the glyph atlas through the same font-change seam as `font_family`. Config-file and env aliases: `fontweight`. |
-| `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` | Window decorations: when `off`, hides the native window titlebar and borders. On Wayland, client-side decoration negotiation removes decorations reliably. On X11, this is a hint to the window manager — whether borderless takes effect depends on the WM and compositor; borderless is not guaranteed on X11. On by default. Invalid values fall back to `on`. |
-| `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer milliseconds | unset | Development/smoke-test helper that closes the native window after the delay. `0`, unset, or invalid values disable autoclose. |
+| Config key | Environment variable | Values | Default |
+| --- | --- | --- | --- |
+| `theme` | `ODYTTY_THEME` | Built-in name, user theme name, `.theme` path, or `system` | `odyssey` |
+| `follow_os_theme` | `ODYTTY_FOLLOW_OS_THEME` | `on`, `off` | `off` |
+| `os_theme_dark` | `ODYTTY_OS_THEME_DARK` | Built-in theme name | unset |
+| `os_theme_light` | `ODYTTY_OS_THEME_LIGHT` | Built-in theme name | unset |
+| `visual` | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `ambient` |
+| `font` | `ODYTTY_FONT` | `.ttf`, `.otf`, or `.ttc` path | unset |
+| `font_family` | `ODYTTY_FONT_FAMILY` | Monospace family name or font path | `JetBrains Mono` |
+| `font_weight` | `ODYTTY_FONT_WEIGHT` | Weight suffix such as `Light`, `Medium`, `SemiBold`, or empty | empty |
+| `font_size` | `ODYTTY_FONT_SIZE` | Float, `6.0..=72.0` px | `22.0` |
+| `line_height` | `ODYTTY_LINE_HEIGHT` | Float, `1.0..=2.0` | `1.0` |
+| `text_gamma` | `ODYTTY_TEXT_GAMMA` | Float, `0.5..=3.0` | `1.5` |
+| `stem_darken` | `ODYTTY_STEM_DARKEN` | Float, `0.0..=1.0` | `0.5` |
+| `min_contrast` | `ODYTTY_MIN_CONTRAST` | WCAG contrast ratio, `1.0..=21.0` | `13.0` |
+| `focus_dim` | `ODYTTY_FOCUS_DIM` | Float, `0.0..=1.0` | `0.0` |
+| `render_quality` | `ODYTTY_RENDER_QUALITY` | `plain`, `balanced`, `high` | `balanced` |
+| `window_padding` | `ODYTTY_WINDOW_PADDING` | Float, `0.0..=64.0` px | `4.0` |
+| `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` |
+| `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` |
+| `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`, `gradient`, `vignette`, `image` | `off` |
+| `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG path or empty | empty |
+| `cell_bg_opacity` | `ODYTTY_CELL_BG_OPACITY` | Float, `0.0..=1.0` | `1.0` |
+| `background_blur_radius` | `ODYTTY_BACKGROUND_BLUR_RADIUS` | Integer, `0..=256` px | `0` |
+| `background_image_scrim` | `ODYTTY_BACKGROUND_IMAGE_SCRIM` | Float, `0.0..=1.0`, or empty for auto | auto |
+| `bloom` | `ODYTTY_BLOOM` | `on`, `off` | `on` |
+| `bloom_threshold` | `ODYTTY_BLOOM_THRESHOLD` | Float, `0.70..=1.25`, or `auto` | `0.75` |
+| `bloom_intensity` | `ODYTTY_BLOOM_INTENSITY` | Float, `0.0..=1.0` | `0.8` |
+| `bloom_radius` | `ODYTTY_BLOOM_RADIUS` | Float, `0.5..=8.0` px | `8.0` |
+| `retro` | `ODYTTY_RETRO` | `on`, `off` | `off` |
+| `crt` | `ODYTTY_CRT` | `on`, `off` | `on` |
+| `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | Float, `0.0..=0.35` | `0.17` |
+| `crt_scanline_period` | `ODYTTY_CRT_SCANLINE_PERIOD` | Float, `2.0..=12.0` px | `7.0` |
+| `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | Float, `0.0..=0.45` | `0.10` |
+| `crt_curvature` | `ODYTTY_CRT_CURVATURE` | Float, `0.0..=0.12` | `0.0` |
+| `subpixel` | `ODYTTY_SUBPIXEL` | `off`, `rgb`, `bgr` | `off` |
+| `synthetic_styles` | `ODYTTY_SYNTHETIC_STYLES` | `on`, `off` | `on` |
+| `geometric_boxdraw` | `ODYTTY_GEOMETRIC_BOXDRAW` | `on`, `off` | `off` |
+| `box_thickness` | `ODYTTY_BOX_THICKNESS` | Float, `0.5..=3.0` | `1.0` |
+| `symbol_fallback` | `ODYTTY_SYMBOL_FALLBACK` | `on`, `off` | `off` |
+| `symbol_font` | `ODYTTY_SYMBOL_FONT` | `.ttf`/`.otf` path, empty, or `auto` | auto |
+| `symbol_map` | `ODYTTY_SYMBOL_MAP` | Semicolon-separated `range=family` entries | empty |
+| `themed_ui_roles` | `ODYTTY_THEMED_UI_ROLES` | `on`, `off` | `on` |
+| `cursor_style` | `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `block` |
+| `cursor_blink` | `ODYTTY_CURSOR_BLINK` | `auto`, `on`, `off` | `auto` |
+| `cursor_easing` | `ODYTTY_CURSOR_EASING` | `on`, `off` | `off` |
+| `cursor_motion` | `ODYTTY_CURSOR_MOTION` | `on`, `off` | `off` |
+| `cursor_glow` | `ODYTTY_CURSOR_GLOW` | `on`, `off` | `off` |
+| `cursor_trail` | `ODYTTY_CURSOR_TRAIL` | `on`, `off` | `off` |
+| `new_output_fade` | `ODYTTY_NEW_OUTPUT_FADE` | `on`, `off` | `off` |
+| `keybinds` | `ODYTTY_KEYBINDS` | `chord=action` list | empty |
+| `scroll_wheel_lines` | `ODYTTY_SCROLL_WHEEL_LINES` | Float, `1.0..=10.0` lines | `3.0` |
+| `scroll_drag_speed` | `ODYTTY_SCROLL_DRAG_SPEED` | `ramp`, `legacy` | `ramp` |
+| `smooth_scroll` | `ODYTTY_SMOOTH_SCROLL` | `on`, `off` | `off` |
+| `selection_drag_extend` | `ODYTTY_SELECTION_DRAG_EXTEND` | `on`, `off` | `on` |
+| `scrollbar_drag` | `ODYTTY_SCROLLBAR_DRAG` | `on`, `off` | `on` |
+| `wheel_zoom` | `ODYTTY_WHEEL_ZOOM` | `on`, `off` | `on` |
+| `command_status_gutter` | `ODYTTY_COMMAND_STATUS_GUTTER` | `on`, `off` | `off` |
+| `sh_click` | `ODYTTY_SH_CLICK` | `on`, `off` | `off` |
+| `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
+| `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |
+| `copy_on_select` | `ODYTTY_COPY_ON_SELECT` | `on`, `off` | `off` |
+| `cvd_mode` | `ODYTTY_CVD_MODE` | `off`, `protan`, `deutan`, `tritan` | `off` |
+| `cvd_strength` | `ODYTTY_CVD_STRENGTH` | Float, `0.0..=1.0` | `1.0` |
+| `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer ms | unset |
 
-All settings above except `native_autoclose_ms` are live-reloadable from the
-config file when their environment variable was not set at startup. `font_size`,
-`font`, and `font_family` rebuild the glyph atlas, recompute the grid, and push
-the resulting PTY window size through the same path used for HiDPI scale
-changes. `subpixel` rebuilds the atlas and cell pipeline; it still falls back to
-grayscale if the adapter lacks dual-source blending. `synthetic_styles` rebuilds
-the glyph atlas through the same font-change seam so a toggle re-rasterizes (or
-drops) the synthesized bold/italic slots without a restart. `stem_darken` also
-rebuilds the glyph atlas (the boost is baked into coverage at raster time), so a
-change re-rasterizes every slot at the new strength. `min_contrast` applies at
-color-resolution time (no atlas rebuild), so a change takes effect on the next
-frame. `focus_dim` likewise applies at color-resolution time (no atlas rebuild)
-and only while the window is unfocused, so a change takes effect on the next
-unfocused frame; a focus gain/loss forces a full geometry rebuild so the dim
-appears and clears immediately. `retro`, `bloom`, `bloom_threshold`, `bloom_intensity`,
-and `bloom_radius` apply on the next frame; enabling bloom lazily initializes
-the post-process textures/pipelines when the adapter supports the HDR format.
-`crt`, `crt_scanline_intensity`, `crt_scanline_period`, and
-`crt_vignette_strength` apply on the next frame through the same post-process
-chain; CRT and bloom share one offscreen scene render and one final composite
-pass. Disabling the last active post effect returns to the direct scene path.
-`geometric_boxdraw` rebuilds the glyph atlas through the same font-change
-seam so a toggle re-rasterizes the covered codepoints geometrically (or restores
-their font glyphs) without a restart. `symbol_fallback` and `symbol_font` also
-rebuild the glyph atlas through that seam: toggling the fallback or changing the
-explicit symbol font re-resolves the fallback face and re-rasterizes missing PUA
-icons without a restart. `themed_ui_roles` is presentation-only and applies on
-the next frame. `window_border`, `cursor_trail`, `new_output_fade`,
-`follow_os_theme`, `os_theme_dark`, `os_theme_light`, `confirm_close`,
-`smooth_scroll`, and `smooth_scroll_duration` apply on the next frame or event.
-`font_weight` rebuilds the glyph atlas through the same font-change seam as
-`font_family` — a change re-rasterizes the weight-selected faces without a
-restart. `window_decorations` applies on the next frame; the effect is immediate
-on Wayland (client-side decoration negotiation) and best-effort on X11 (window
-manager hint). `native_autoclose_ms` is startup-only because changing the
-smoke-test exit timer mid-session would make manual and automated lifecycle
-behavior ambiguous.
+### Notes
 
-## Native Shortcuts
+- `theme = system` is a convenience alias. It enables OS dark/light following
+  and maps dark to `odyssey`, light to `odyssey-light`, unless explicit
+  `os_theme_dark` / `os_theme_light` values are set.
+- `visual = ambient` and `visual = scanlines` are compatibility aliases for the
+  CRT path when no explicit `crt` setting is present. `crt` wins when set.
+- `render_quality = plain` is the hard direct-render fast path. It bypasses
+  post-process effects and visual treatments even if individual effect knobs
+  are enabled.
+- Bloom and CRT require filterable `Rgba16Float` render targets. Unsupported
+  adapters fall back to the plain direct path with one stderr notice.
+- `retro = on` promotes effective bloom/CRT settings to a stronger phosphor
+  profile without overwriting individual values: threshold `0.70`, intensity
+  `1.0`, radius `8.0`, scanlines `0.35`, vignette `0.35`, curvature `0.025`.
+- `smooth_scroll` uses a fixed bounded ease of 80 ms. There is no current
+  `smooth_scroll_duration` config key.
+- `cursor_blink = auto` currently resolves to the conventional blinking
+  terminal default on Linux.
+- `background_treatment = image` draws a PNG behind the grid. Use
+  `cell_bg_opacity < 1.0` to show it through cells; otherwise it is only visible
+  in transparent/padding areas.
+- `native_autoclose_ms` is a smoke-test helper and is startup-only.
 
-| Shortcut | Behavior |
+## Key Bindings
+
+Default local shortcuts:
+
+| Shortcut | Action |
 | --- | --- |
-| `Ctrl+Shift+F` | Open or close the scrollback search bar. Search is case-insensitive by default. |
-| `Ctrl+Shift+,` | Open or close the settings panel. The panel lists every runtime setting with its current value and help text; editable reloadable rows apply live. |
-| `Ctrl+Shift+H` | Open the theme picker. Arrow keys preview built-in themes immediately, `Enter` saves the selected theme to `odytty.conf`, and `Esc` restores the theme that was active when the picker opened. |
-| `Ctrl+S` while the settings panel is open | Save the panel's live-applied setting changes to `odytty.conf`. |
-| `Enter` while searching | Jump to the next match, wrapping at the end. |
-| `Shift+Enter` while searching | Jump to the previous match, wrapping at the start. |
-| `Backspace` while searching | Edit the query. |
-| `Esc` while searching | Close search, restore the pre-search viewport, and return keyboard input to the PTY. |
-| `Ctrl+Shift+C` | Copy the current selection. |
-| `Ctrl+Shift+V` | Paste clipboard text into the PTY path. |
-| `Shift+PageUp` / `Shift+PageDown` | Move the scrollback viewport when mouse reporting is not using the wheel. |
+| `Ctrl+Shift+F` | `search` |
+| `Ctrl+Shift+,` | `settings` |
+| `Ctrl+Shift+H` | `theme-picker` |
+| `Ctrl+Shift+C` | `copy` |
+| `Ctrl+Shift+V` | `paste` |
+| `Shift+PageUp` / `Shift+PageDown` | `scroll-up` / `scroll-down` |
+| `Ctrl+Shift+Up` / `Ctrl+Shift+P` | `jump-prompt-prev` |
+| `Ctrl+Shift+Down` / `Ctrl+Shift+N` | `jump-prompt-next` |
+| `Ctrl+Shift+Space` | `copy-mode` |
+| `Ctrl+Shift+L` | `hints` |
+| `Ctrl+Shift+K` | `clear-input` |
+| `Ctrl+Shift+T` | `new-tab` |
+| `Ctrl+Shift+W` | `close-tab` |
+| `Ctrl+PageDown` / `Ctrl+PageUp` | `next-tab` / `prev-tab` |
 
-`ODYTTY_KEYBINDS` accepts chords with `ctrl`, `shift`, `alt`, and `super`
-modifiers plus a key name, separated by `+`. Keys may be letters, digits,
-`f1`-`f24`, or common named keys such as `pageup`, `pagedown`, `home`, `end`,
-`enter`, `esc`, `backspace`, `delete`, `insert`, `tab`, `space`, and arrow
-keys. Use `comma` for `,` in keybinding strings because literal commas also
-separate entries. All 12 bindable actions are: `search`, `settings`, `theme-picker`, `copy`,
-`paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`,
-`copy-mode`, `hints`, and `clear-input`.
-
-The in-app keybinding editor (settings panel → Keybindings row) is the
-no-hand-edit path: browse all 12 actions, press a row to capture a new chord,
-`Backspace` resets a row to its default, `R` resets all. Conflicts prompt before
-replacing. Changes are written to `odytty.conf` via the same preservation-first
-writeback path as all other settings. `ODYTTY_KEYBINDS` hand-editing is
-byte-identical to the in-app editor.
-Examples:
+`ODYTTY_KEYBINDS` accepts comma- or semicolon-separated `chord=action` entries:
 
 ```sh
-ODYTTY_KEYBINDS="ctrl+shift+y=copy,ctrl+shift+p=paste" cargo run -- --native
+ODYTTY_KEYBINDS="ctrl+shift+y=copy;ctrl+shift+p=paste" cargo run -- --native
 ODYTTY_KEYBINDS="super+f=search;alt+pageup=scroll-up;alt+pagedown=scroll-down" cargo run -- --native
-ODYTTY_KEYBINDS="ctrl+shift+comma=settings" cargo run -- --native
-ODYTTY_KEYBINDS="ctrl+alt+t=theme-picker" cargo run -- --native
 ```
 
-Valid entries override the default chord for that action only. For example,
-rebinding `copy` to `Ctrl+Shift+Y` leaves paste/search/scroll defaults intact
-and frees `Ctrl+Shift+C` to reach the PTY path.
+Chord modifiers are `ctrl`, `shift`, `alt`, and `super`. Keys may be letters,
+digits, `f1`-`f24`, `pageup`, `pagedown`, `home`, `end`, `enter`, `esc`,
+`backspace`, `delete`, `insert`, `tab`, `space`, arrow keys, or `comma`.
 
-When the settings panel is open, keyboard input is consumed by the panel rather
-than sent to the PTY. `Up`/`Down`, `PageUp`/`PageDown`, `Home`, and `End`
-navigate the rows. Reloadable rows are editable: `Enter` starts or commits a
-text/number edit, toggles booleans, and cycles most enums; the theme row uses
-`Enter` for a text edit so built-in names, user theme names, and theme paths are
-all reachable, while `Left`/`Right` opens the built-in theme picker.
-`Left`/`Right` cycle other enum values or nudge numeric values; `Backspace`
-edits a text buffer. `Esc` cancels an in-progress row edit, or closes the panel
-when no row edit is active. Committed edits apply live through the same reload
-path as `odytty.conf`; `Ctrl+S` persists the current unsaved diff to the config
-file. `native_autoclose_ms` remains startup-only and is shown as non-editable.
+Valid actions are `search`, `settings`, `theme-picker`, `copy`, `paste`,
+`scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`,
+`copy-mode`, `hints`, `clear-input`, `new-tab`, `next-tab`, `prev-tab`, and
+`close-tab`.
 
-The theme picker currently enumerates built-in themes only. User theme files can
-still be selected from the settings panel's theme text edit by typing the user
-theme name or a theme file path. Directory enumeration for user themes is a
-follow-up.
+The in-app keybinding editor is opened from the Settings panel's Keybindings
+row. It covers the 12 core non-tab actions. Tab actions are configurable through
+`keybinds` / `ODYTTY_KEYBINDS`.
 
-When the search bar is open, keyboard input is consumed by search rather than
-sent to the PTY. Closing search restores the viewport offset that was active
-before search opened. Resizing the native window closes the search bar because
-reflow changes absolute match rows.
+## Native UI
 
-## Native Clipboard And Paste
-
-Clipboard operations are non-fatal: backend failures are reported to stderr and
-the terminal keeps running.
-
-Native paste writes to the PTY on a background writer thread in 16 KiB chunks so
-large clipboard payloads do not block the window event loop. The writer lock is
-held for the whole paste, preserving byte order and preventing other PTY writes
-from interleaving with the payload.
-
-When bracketed paste mode is active, OdyTTY sends one `ESC[200~` opener, then
-the sanitized payload chunks, then one `ESC[201~` closer. Embedded `ESC[201~`
-sequences inside clipboard text are stripped so pasted content cannot close the
-guard early and inject live input.
-
-When bracketed paste mode is inactive, pasted line endings are normalized to
-terminal carriage returns before writing: LF, CRLF, and CR all become `\r`.
-This matches the native key path, where Enter sends carriage return.
-
-On Linux, local text selection writes the selected text to PRIMARY when the
-clipboard backend supports it. Middle-click reads PRIMARY and pastes through the
-same native paste path as `Ctrl+Shift+V`, so bracketed-paste wrapping,
-sanitization, line-ending normalization, and chunked PTY writes all still
-apply. When a TUI has enabled mouse reporting, mouse reports stay ahead of
-local middle-click paste; hold Shift to use local terminal mouse behavior.
-
-## Native Cursor
-
-The host default cursor shape and blink policy come from `ODYTTY_CURSOR_STYLE`
-and `ODYTTY_CURSOR_BLINK`. Applications can override both at runtime with
-DECSCUSR (`CSI Ps SP q`): `Ps` 0 returns to the host default, 1/2 select a
-blinking/steady block, 3/4 a blinking/steady underline, and 5/6 a
-blinking/steady bar. `RIS` and `DECSTR` reset the cursor to the host default
-policy.
-
-The three shapes render through the existing cell quad path: block is the
-inverse cell, underline is a thin bar at the cell bottom, and bar is a thin
-vertical bar at the cell left. Blink is focus-aware — the cursor only blinks
-when the active style blinks and the window is focused; otherwise it stays solid
-with no scheduled redraw, so an unfocused or non-blinking cursor never spins the
-event loop. Losing focus forces the cursor solid.
+- `Ctrl+Shift+,` opens Settings. `/` filters by name, key, description, or
+  group. `Esc` clears the filter or closes the panel. `Ctrl+S` persists changes.
+- Theme and font rows open pickers. Mouse wheel scrolls pickers; title back
+  affordances return to Settings when launched from Settings.
+- Numeric rows use discrete steppers and click-to-type entry.
+- Right-click opens the context menu. On OSC 133-aware prompts it can copy, cut,
+  delete, clear input, open settings, and create or close tabs.
+- First launch without a config file shows an onboarding card. Set
+  `ODYTTY_ONBOARDING=1` to force it.
 
 ## Examples
 
-Run with larger text:
-
 ```sh
-ODYTTY_FONT_SIZE=18 cargo run -- --native
-```
+# Plain renderer for compatibility/perf checks.
+ODYTTY_RENDER_QUALITY=plain cargo run -- --native
 
-Run with the legacy text coverage blend:
+# OS dark/light theme alias.
+ODYTTY_THEME=system cargo run -- --native
 
-```sh
-ODYTTY_TEXT_GAMMA=1.0 cargo run -- --native
-```
+# Background image behind translucent cells.
+ODYTTY_BACKGROUND_TREATMENT=image \
+ODYTTY_BACKGROUND_IMAGE=/tmp/background.png \
+ODYTTY_CELL_BG_OPACITY=0.88 \
+cargo run -- --native
 
-Run with RGB subpixel text coverage when supported by the GPU:
-
-```sh
-ODYTTY_SUBPIXEL=rgb cargo run -- --native
-```
-
-`ODYTTY_SUBPIXEL=bgr` is for panels with the opposite stripe order. Subpixel
-coverage uses the same glyph geometry as grayscale text, including wide
-two-cell atlas slots and bearing-aware overflow quads. The atlas texture stores
-RGBA coverage instead of R8 coverage when enabled, so glyph coverage memory is
-roughly 4x the grayscale atlas for the same slot count. `ODYTTY_TEXT_GAMMA`
-still applies before compositing: grayscale corrects one coverage channel,
-while subpixel corrects the red, green, and blue coverage channels independently.
-
-An energy-conserving LCD filter (a 5-tap `[1,2,3,2,1]/9` weighting over the
-physical subpixel axis) is applied to subpixel coverage so vertical stem edges
-do not show colored fringing; it redistributes a little coverage between
-neighboring subpixels while preserving per-row luminance. The filter is
-intrinsic to subpixel mode and only runs when `subpixel` is `rgb` or `bgr`; the
-default grayscale path is unaffected.
-
-Run with an Odyssey theme and the CRT scanline effect (via the back-compat `visual=ambient` key):
-
-```sh
-ODYTTY_THEME=odyssey ODYTTY_VISUAL=ambient cargo run -- --native
-```
-
-Run with a reduced bloom wash on supported GPUs:
-
-```sh
-ODYTTY_BLOOM=on ODYTTY_BLOOM_INTENSITY=0.4 ODYTTY_BLOOM_RADIUS=3 cargo run -- --native
-```
-
-Run with an explicit font:
-
-```sh
-ODYTTY_FONT=/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf cargo run -- --native
-```
-
-Run with a font family resolved by name (falls back to the default if it is not
-found or is not monospace):
-
-```sh
-ODYTTY_FONT_FAMILY="DejaVu Sans Mono" cargo run -- --native
-```
-
-Run with remapped copy/paste shortcuts:
-
-```sh
-ODYTTY_KEYBINDS="ctrl+shift+y=copy,ctrl+shift+p=paste" cargo run -- --native
-```
-
-Run with a non-blinking underline cursor:
-
-```sh
+# Non-blinking underline cursor.
 ODYTTY_CURSOR_STYLE=underline ODYTTY_CURSOR_BLINK=off cargo run -- --native
-```
 
-Run a non-interactive native lifecycle smoke check:
-
-```sh
+# Development lifecycle smoke.
 ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native
 ```
 
-## Benchmark Environment Variables
+## Bench Environment Variables
 
-These variables control the `cargo bench --bench perf` harness only. They have
-no effect on the native app or `cargo test`.
+These affect `cargo bench --bench perf` only.
 
-| Variable | Values | Default | Notes |
-| --- | --- | --- | --- |
-| `ODYTTY_PERF_PROFILE` | `default`, `legacy`, `quick` | `default` | Selects the bench workload profile. `default` is bounded for routine acceptance runs. `legacy` restores the pre-B2 large workloads (~10× per row) for historical comparison against older baselines. `quick` is a short smoke pass. |
-| `ODYTTY_PERF_GEOMETRY_ONLY` | Any non-empty value | unset | Skips feed and resize rows; runs only snapshot and vertex-geometry benches at the `quick` profile scale. Useful for isolated render-path timing. |
+| Variable | Values | Default |
+| --- | --- | --- |
+| `ODYTTY_PERF_PROFILE` | `default`, `legacy`, `quick` | `default` |
+| `ODYTTY_PERF_GEOMETRY_ONLY` | Any non-empty value | unset |

@@ -1,23 +1,56 @@
 # Example OdyTTY config.
-# Copy values into $XDG_CONFIG_HOME/odytty/odytty.conf or
+#
+# Save as $XDG_CONFIG_HOME/odytty/odytty.conf or
 # ~/.config/odytty/odytty.conf.
-# Most values below reload live while the native window is running, unless the
-# matching ODYTTY_* environment variable was set at startup.
+#
+# Most values reload live while the native window is running. Environment
+# variables set at startup override these keys for the whole session.
 
-font_size = 18
-font_family = JetBrains Mono
-# font_weight =
-window_padding = 4
+# Theme and OS appearance.
 theme = odyssey
-# Back-compat alias: "ambient" and "scanlines" enable the CRT scanline effect
-# when no explicit "crt" setting is present; "crt = on/off" always wins.
-# Requires a GPU with filterable 16-bit float support; silently no-ops otherwise.
-visual = ambient
-subpixel = off
+# theme = system
+follow_os_theme = off
+# os_theme_dark = odyssey
+# os_theme_light = odyssey-light
+themed_ui_roles = on
+
+# Font and text.
+font_family = JetBrains Mono
+# font =
+# font_weight =
+font_size = 22
+line_height = 1.0
 text_gamma = 1.5
 stem_darken = 0.5
+subpixel = off
+synthetic_styles = on
+symbol_fallback = off
+# symbol_font = auto
+# symbol_map = U+E000-U+F8FF=Symbols Nerd Font
+
+# Readability and rendering.
+render_quality = balanced
 min_contrast = 13.0
 focus_dim = 0.0
+geometric_boxdraw = off
+box_thickness = 1.0
+window_padding = 4
+window_border = off
+window_decorations = on
+
+# Background treatments.
+background_treatment = off
+# background_treatment = gradient
+# background_treatment = vignette
+# background_treatment = image
+# background_image = /path/to/background.png
+cell_bg_opacity = 1.0
+background_blur_radius = 0
+# background_image_scrim =
+
+# Post-process effects. "ambient" is a compatibility alias for the CRT path
+# when no explicit "crt" setting is present. "crt" always wins.
+visual = ambient
 bloom = on
 bloom_threshold = 0.75
 bloom_intensity = 0.8
@@ -27,19 +60,36 @@ crt = on
 crt_scanline_intensity = 0.17
 crt_scanline_period = 7.0
 crt_vignette_strength = 0.10
+crt_curvature = 0.0
+
+# Cursor and motion.
 cursor_style = block
 cursor_blink = auto
-# cursor_trail = off
-# new_output_fade = off
-# window_border = off
-# window_decorations = on
-# follow_os_theme = off
-# os_theme_dark = odyssey
-# os_theme_light = odyssey-light
+cursor_easing = off
+cursor_motion = off
+cursor_glow = off
+cursor_trail = off
+new_output_fade = off
+
+# Input, selection, and tabs.
+scroll_wheel_lines = 3
+scroll_drag_speed = ramp
+smooth_scroll = off
+selection_drag_extend = on
+scrollbar_drag = on
+wheel_zoom = on
+copy_on_select = off
 confirm_close = on
-# smooth_scroll = off
-# smooth_scroll_duration = 80
-keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
+command_status_gutter = off
+sh_click = off
+keybinds =
+# Example:
+# keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
+
+# Clipboard and accessibility.
+osc52_read = off
+cvd_mode = off
+cvd_strength = 1.0
 
 # Development smoke helper. Leave unset for normal interactive use.
 # Startup-only; changing it in a live config file has no effect.

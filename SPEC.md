@@ -253,27 +253,26 @@ immediately. Env-pinned keys are preserved: any setting that was supplied via
 `ODYTTY_*` at startup is held at that value for the session lifetime; live
 reload cannot override it.
 
-Reloadable settings: `theme`, `visual`, `font`, `font_family`, `font_size`,
-`text_gamma`, `subpixel`, `cursor_style`, `cursor_blink`, `keybinds`,
-`osc52_read`, `stem_darken`, `min_contrast`, `smooth_scroll`,
-`smooth_scroll_duration`, `font_weight`, `window_decorations`. Font path,
-family, size, subpixel, and font-weight changes rebuild the glyph atlas and cell
-metrics, recompute the terminal grid, and push PTY `TIOCSWINSZ` through the same
-path used for HiDPI scale changes. `window_decorations` is applied on the next
-frame: immediate on Wayland, best-effort on X11. A bad rewrite is a no-op; a
-deleted config file keeps the current settings; reload never panics.
+All settings in `docs/runtime-knobs.md` except `native_autoclose_ms` are
+live-reloadable when their environment variable was not set at startup. Font
+path, family, size, weight, line height, subpixel, synthetic style, stem
+darkening, symbol fallback, and geometric box-drawing changes rebuild or
+re-rasterize the glyph atlas as needed, recompute cell metrics when those
+metrics change, and push PTY `TIOCSWINSZ` through the same path used for HiDPI
+scale changes. Presentation-only knobs apply on the next frame/event.
+`window_decorations` is immediate on Wayland and best-effort on X11. A bad
+rewrite is a no-op; a deleted config file keeps the current settings; reload
+never panics.
 
 **Startup-only setting.** `native_autoclose_ms` is not reloadable. Changing a
 lifecycle smoke timer mid-session would make manual and automated test behavior
 ambiguous.
 
-**CLI introspection.** Two startup flags (`src/cli.rs`) print information and
-exit without opening a window: `--list-themes` prints the names of all
-available built-in themes; `--show-config` prints the active settings resolved
-from defaults, config file, and environment, together with per-setting
-descriptions. Both are driven by the same `SettingInfo` table used by the
-in-app settings panel, so they stay in sync with the runtime knob surface
-automatically.
+**CLI introspection.** Startup flags (`src/cli.rs`) print information and exit
+without opening a window: `--list-themes` prints built-in themes,
+`--list-fonts` inventories discoverable system font files, and `--show-config`
+prints the current stable effective-config dump. `docs/runtime-knobs.md` remains
+the full settings authority.
 
 **Settings search.** Typing `/` while the in-app settings panel is open
 filters the displayed roster by name, config key, description, or group label.
@@ -438,13 +437,19 @@ its first stable layer.
 - Dynamic colors: OSC 10/11/12, OSC 4 palette entries, and reset/query support
 - Right-edge scroll position indicator
 - Configurable cursor shapes and blink policy (DECSCUSR + settings)
-- Configurable terminal-local key bindings; in-app keybinding editor in the settings panel (browse all 12 bindable actions, capture a new chord by pressing a row, `Backspace` resets to default, `R` resets all, conflict prompt on clash, writes to `odytty.conf` via the preservation-first writeback path; `ODYTTY_KEYBINDS` hand-editing is byte-identical)
-- Keyboard copy mode (`copy_mode` action, off by default): a keyboard-driven
-  scrollback selection mode. `h/j/k/l`, `w/b/e`, `0/^/$`, `gg/G` move the
+- Configurable terminal-local key bindings; `keybinds` / `ODYTTY_KEYBINDS`
+  supports all 16 bindable actions, including tabs. The in-app keybinding
+  editor in the settings panel currently covers the 12 core non-tab actions
+  (capture a new chord by pressing a row, `Backspace` resets to default,
+  `R` resets all, conflict prompt on clash, writes to `odytty.conf` via the
+  preservation-first writeback path).
+- Keyboard copy mode (`copy-mode` action, `Ctrl+Shift+Space` by default): a
+  keyboard-driven scrollback selection mode. `h/j/k/l`, `w/b/e`, `0/^/$`,
+  `gg/G` move the
   caret; `v` and `V` start character and line selection; `y` / Enter yanks the
   selected text to the clipboard; `Esc`/`q` cancel. Arrow keys, PageUp/Down,
-  Home/End, and `Ctrl-u/d/b/f` paging are also bound. Off by default — nothing
-  changes until the action is bound via `ODYTTY_KEYBINDS` and invoked.
+  Home/End, and `Ctrl-u/d/b/f` paging are also bound. Terminal state is never
+  modified while copy mode is active.
 - Mouse reporting: tracking modes 9 (X10), 1000 (normal), 1002 (button-event),
   1003 (any-event), focus reporting (1004); encodings 1005 (UTF-8 coordinate
   extension), 1006 (SGR decimal), 1015 (urxvt decimal); legacy byte protocol
@@ -492,6 +497,13 @@ its first stable layer.
   navigation, persists the selected built-in with `Enter`, and restores the
   originally active theme with `Esc`. The custom theme builder has landed:
   clone/tweak/author with live preview, saved to a user `.theme` file.
+- Multi-session tabs: the native app runs multiple PTY/terminal sessions in a
+  `SessionSet`, routes PTY output by session id, and shows a one-row tab bar
+  once two or more sessions exist. `Ctrl+Shift+T` opens a tab,
+  `Ctrl+Shift+W` closes one, and `Ctrl+PageDown` / `Ctrl+PageUp` switch. The
+  single-session view stays visually identical to the original full-grid view.
+  Current limitation: in-band image placements can sit one row high while the
+  tab bar is visible.
 - Readability pipeline: visual enhancements are explicit settings with
   individual opt-outs, and `render_quality=plain` preserves the pixel-identical
   plain/fast path that bypasses extras. Three delivered knobs:
@@ -563,8 +575,8 @@ its first stable layer.
 - Smooth scrolling (`smooth_scroll`, off by default): viewport scroll movement
   eases over a short bounded window instead of jumping to the target instantly.
   The scroll target updates immediately — no input lag — and only the visual
-  presentation catches up over the easing window (default ~80 ms, configurable
-  via `smooth_scroll_duration`). Off is pixel-identical to the instant-snap path.
+  presentation catches up over the fixed ~80 ms easing window. Off is
+  pixel-identical to the instant-snap path.
 - Font weight control (`font_weight`, empty = regular by default): selects a
   named base weight face (e.g. `Light`, `Medium`, `SemiBold`) for normal text,
   independently of the SGR bold attribute; bold SGR still contrasts against your
@@ -577,14 +589,19 @@ its first stable layer.
   to the window manager; whether borderless takes effect depends on the WM and
   compositor — borderless is not guaranteed on X11. Purely a window chrome
   preference; never affects terminal model state or PTY behavior.
+- Basic native tabs: each tab owns an independent local PTY session, terminal
+  model, scrollback, and title. The default bindings are `Ctrl+Shift+T` for a
+  new tab, `Ctrl+Shift+W` to close, and `Ctrl+PageUp` / `Ctrl+PageDown` to
+  switch.
 
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering
 - iTerm2 graphics protocol
 - Ligature/stylistic-set shaping (strategy decided; implementation deferred
   until a specific trigger condition is met)
-- Tabs, panes, sessions, profiles, and multiplexing
-- Shell integration beyond basic PTY behavior
+- Panes, profiles, detachable/persistent sessions, and multiplexing
+- Shell integration beyond OSC 7 cwd tracking and OSC 133 prompt/command marks
+  plus the current command-aware native actions
 - Plugin systems, AI features, command palettes, rich dashboards, or nonstandard
   terminal semantics
 - Heavy animation or effects that compromise readability or latency
@@ -677,13 +694,14 @@ be **structurally unable** to harm body-text legibility by construction:
   legibility floor. The user-configured `min_contrast` floor is the explicit
   safety net at the CPU level; effects must not require it.
 - **Background treatments** (`background_treatment`, `off`/`gradient`/`vignette`,
-  default `off`): position-based per-cell background darkening (gradient toward
-  the bottom; vignette toward the edges/corners). Legibility is
-  safe-by-construction: the darken is applied to the per-cell background
-  **before** the minimum-contrast floor resolves, so the floor sees the treated
-  background and re-lifts the foreground as needed. A `MAX_BG_TREATMENT_DARKEN`
-  cap keeps the worst-case dimming bounded; the knob is forced off under the
-  plain renderer profile. Image/blur-behind is a planned future extension.
+  `image`, default `off`): position-based per-cell background darkening
+  (gradient toward the bottom; vignette toward the edges/corners) and static
+  PNG background images behind the grid. Legibility is safe-by-construction:
+  gradient/vignette darken is applied to the per-cell background **before** the
+  minimum-contrast floor resolves, and image backgrounds use a readability scrim
+  plus `cell_bg_opacity` so the floor sees a bounded background. The knob is
+  forced off under the plain renderer profile. Blur-behind transparency remains
+  a planned future extension.
 - Any new Tier-3 effect must document its structural legibility guarantee
   before landing.
 
@@ -747,8 +765,8 @@ unsupported clusters degrade per-codepoint to the existing fallback path.
 Draw order: cell backgrounds → below-text images → coverage glyphs and line
 decorations → color emoji glyphs → cursor and overlays. COLR v1 and SVG-in-OT
 are deferred but architecturally permitted; the boundary rule (rasterization
-external, placement owned) applies to those paths as well. Implementation
-the delivery ladder is tracked in `TODO.md`.
+external, placement owned) applies to those paths as well. The delivery ladder
+is tracked in `TODO.md`.
 
 **First increment (delivered).** The first `src/emoji/` packet was a renderer-free probe
 module: no atlas, GPU, shader, or core terminal code. Discovery runs in two
@@ -792,10 +810,9 @@ VS15 (`U+FE0E`) forces the text/coverage path; VS16 (`U+FE0F`) and default
 emoji-presentation codepoints request color. The native renderer computes runs
 from the snapshot before coverage-atlas insertion, skips normal monochrome
 foreground quads only for resident color runs, uploads dirty color-atlas pixels,
-and draws the dedicated color segment in the established draw order. If discovery, shaping,
-bitmap rendering, or atlas insertion fails, no color run is emitted and the
-existing coverage/fallback path remains visible. Multi-codepoint RGI stitching
-such as flags, keycaps, skin-tone modifiers, and ZWJ families remains for a future increment.
+and draws the dedicated color segment in the established draw order. If
+discovery, shaping, bitmap rendering, or atlas insertion fails, no color run is
+emitted and the existing coverage/fallback path remains visible.
 
 **Fourth increment (delivered).** The live color path reconstructs bounded multi-codepoint
 emoji clusters from the snapshot before shaping. Flags are assembled from

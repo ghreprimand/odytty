@@ -120,18 +120,18 @@ overlay framework; an in-app settings panel where every setting is editable,
 live-applied, and written back to the config file; a live theme picker; an
 in-app custom theme builder (clone, tweak, live preview, save); and CLI config
 introspection. A dependency-free `.theme` format, a full 16-color + bright ANSI
-palette plus semantic roles, and a curated 84-theme built-in library (dark and
+palette plus semantic roles, and a curated 100-theme built-in library (dark and
 light, all contrast-validated).
 
 **The visual engine.** A perceptual color pipeline (OKLab/OKLCH) with linear-
 space blending; a configurable minimum-contrast readability floor; geometric
 box-drawing, block, and Powerline rendering at exact cell geometry; symbol /
 Nerd-font fallback for prompt icons; themed cursor/selection/search roles; focus
-dimming; a post-process pipeline on an HDR offscreen target; bloom / phosphor
-glow; a CRT/retro profile (scanlines + a banding-free soft-knee vignette); and a
-render-quality master control with a hard plain/fast bypass. Effects are
-configurable with explicit opt-outs, and the plain renderer remains
-pixel-identical when selected.
+dimming; background gradient/vignette/image treatments; a post-process pipeline
+on an HDR offscreen target; bloom / phosphor glow; a CRT/retro profile
+(scanlines, soft-knee vignette, subtle curvature); and a render-quality master
+control with a hard plain/fast bypass. Effects are configurable with explicit
+opt-outs, and the plain renderer remains pixel-identical when selected.
 
 **Readability & accessibility.** The perceptual pipeline now carries four
 readability flagships, each pure readability or accessibility: a universal
@@ -145,7 +145,8 @@ a readability-validated theme starting point; and colorblind palette adaptation
 that remaps the ANSI palette in perceptual space for color-vision deficiencies.
 
 **Window & identity.** Adjustable window padding with a fully aligned
-pixel↔cell coordinate seam.
+pixel↔cell coordinate seam, optional themed border, decoration toggle, OS
+dark/light following, and a visible tab bar once multiple sessions exist.
 
 **Privacy posture.** No telemetry, no cloud, no account — fully local. The
 absence of any phone-home path is a deliberate, stated feature.
@@ -162,19 +163,19 @@ The mouse-driven settings panel (click to toggle and cycle, scroll, click-to-
 focus, drag-a-slider, click-to-type numeric entry), effect grouping with clearer
 labels, and visible font-load failure reporting all ship today.
 
-- **Next — In-panel help clarity.** A clarity sweep over terse setting names and
-  help text, and a fix for one inert option branch.
+- **Shipped — In-panel help clarity.** Setting labels and descriptions have
+  been swept, grouped, and exposed through the settings panel.
 - **Shipped — Consolidated the legacy ambient-scanline path** into the unified
   CRT effects model. `visual=ambient`/`scanlines` are now back-compat aliases
   that route to the CRT scanline effect when no explicit `crt` setting is
   present; the old cell-shader scanline wash is retired.
-- **Later — First-run onboarding overlay** plus search within the settings and
-  theme overlays, so features are discoverable without a separate command
-  palette.
-- **Later — Customizable keybinding remap UI.** Remap a key combination to an
-  action from the overlay, written back to the config.
-- **Later — CLI introspection: list available fonts**, completing the existing
-  introspection helpers.
+- **Shipped — First-run onboarding overlay** plus search within the settings
+  panel, so features are discoverable without a separate command palette.
+- **Shipped — Customizable keybinding remap UI.** The settings panel can remap
+  the 12 core non-tab actions and writes back to the config. The `keybinds`
+  config surface supports all 16 bindable actions, including tabs.
+- **Shipped — CLI introspection: list available fonts**, completing the
+  existing introspection helpers.
 - **Someday — Profiles.** Named configuration profiles once the base config
   model has settled.
 
@@ -185,18 +186,18 @@ Sharp, stable, comfortable text is a primary product pillar.
 - **Next — Effect default-tuning pass.** Once a human-eye baseline exists,
   revisit the conservative default strengths of stem darkening, standalone
   scanlines, and bloom.
-- **Later — Font weight control.** A global weight/boldness knob, distinct from
-  the bold attribute.
-- **Later — Line-height / cell-leading knob.** Adjustable vertical spacing
+- **Shipped — Font weight control.** A global weight knob, distinct from the
+  bold attribute.
+- **Shipped — Line-height / cell-leading knob.** Adjustable vertical spacing
   between lines.
-- **Later — Box-drawing thickness knob.** Extends the geometric box-drawing
+- **Shipped — Box-drawing thickness knob.** Extends the geometric box-drawing
   renderer.
-- **Later — Per-codepoint font override.** Map specific codepoints to a chosen
-  fallback font, in keeping with the no-patched-font philosophy.
-- **Later — Smooth scrolling** on a bounded latency budget, with instant scroll
-  preserved as the default-safe path.
-- **Later — Stem-darkening default activation.** The rasterization machinery
-  already ships behind a knob; turning it on by default waits on an eye baseline.
+- **Shipped — Per-codepoint font override.** `symbol_map` maps codepoint ranges
+  to chosen fallback font families.
+- **Shipped — Smooth scrolling** on a bounded latency budget, with instant
+  scroll preserved as the default-safe path.
+- **Shipped — Stem-darkening default activation.** The rasterization machinery
+  ships default-on at `0.5`, with `0.0` as the byte-identical opt-out.
 - **Someday — Legibility font features.** A narrow, charter-clean subset (such
   as a slashed or dotted zero) is the near-term slice; broader ligatures and
   arbitrary font features remain deferred pending an explicit shaping decision.
@@ -216,7 +217,7 @@ aware palette generation from a seed, and colorblind palette adaptation. The
 readability foundation is in place and is the safety net the visual-identity
 work in Track 4 validates against.
 
-- **Now — Readability scrim primitive.** A computed-bound dim that lets a
+- **Shipped — Readability scrim primitive.** A computed-bound dim that lets a
   background treatment (Track 4) keep the contrast floor valid by construction,
   bounding the effective luminance behind text to the theme background the floor
   already references. The pure core of the safe-by-construction background work.
@@ -227,19 +228,20 @@ Tier-2/Tier-3 visual character. Each ships behind a setting, validated against
 the readability floor, with a documented performance cost and a pixel-identical
 plain bypass.
 
-- **Later — Distinctive cursor / selection / search treatments.** Light up the
+- **Shipped — Distinctive cursor / selection / search treatments.** Light up the
   themed selection and search roles with distinct colors, with optional soft
   glow and easing.
-- **Later — Readability-safe background treatments.** Gradient, vignette, or
-  image backgrounds with blur-behind, where the readability dimming is tied
-  structurally to the contrast floor so it is safe by construction.
-- **Later — Window-chrome identity.** Themed padding already ships; the
-  remaining piece is an optional thin semantic-role border.
-- **Later — Subtle motion.** Cursor glow or trail and fade-in of new output —
+- **Shipped — Readability-safe background treatments.** Gradient, vignette, and
+  static image backgrounds, where readability dimming is tied structurally to
+  the contrast floor. Blur-behind remains future.
+- **Shipped — Window-chrome identity.** Themed padding and optional thin
+  semantic-role border.
+- **Shipped — Subtle motion.** Cursor glow, trail, slide, blink fade, and
+  fade-in of new output —
   bounded, and fully disable-able.
-- **Now — Cohesive opt-in retro mode.** A single switch raises bloom, scanlines,
-  and vignette into a stronger phosphor reference look. Screen curvature remains
-  a later refinement.
+- **Shipped — Cohesive opt-in retro mode.** A single switch raises bloom, scanlines,
+  and vignette into a stronger phosphor reference look. Subtle screen curvature
+  is delivered as a setting; chromatic aberration remains deferred.
 
 ## Track 5 — Shell & prompt integration
 
@@ -247,10 +249,10 @@ The terminal cooperating with the shell and prompt. This is the highest-leverage
 gap to close and unlocks the most downstream value. Semantic prompt marking
 (OSC 133) ships today as the foundation.
 
-- **Now — Command-aware UX.** Built on prompt marking: jump to the previous or
+- **Shipped — Command-aware UX.** Built on prompt marking: jump to the previous or
   next prompt, select and copy a single command's output, and show a per-command
   success/failure indicator in the gutter.
-- **Later — Click to position the cursor** at a prompt, using the prompt-marking
+- **Shipped — Click to position the cursor** at a prompt, using the prompt-marking
   click events. The click slice only — not a takeover of shell input editing.
 - **Someday — Remote shell integration.** Automatically carrying terminal info
   and shell integration to a remote host over SSH; depends on shell-integration
@@ -273,23 +275,22 @@ scroll-thumb; the full set of TUI mouse-reporting modes (including pixel-precise
 reporting); and hyperlink hover with modifier-click to open. Each behavior change
 is opt-in or configurable and never disturbs an application's own mouse handling.
 
-- **Next — Right-click context menu** (copy / paste / select-all).
+- **Shipped — Right-click context menu** (copy, paste, selection/input actions,
+  settings, and tab actions).
 - (See also: click-to-position-cursor in Track 5, and the mouse-driven settings
   panel in Track 1.)
 
 ### Other ergonomics
 
-- **Now — Keyboard pattern-select / quick-select.** Label on-screen URLs,
-  paths, and hashes for keyboard selection and copy. The scanner core ships; the
-  activation and label overlay are the active next step.
-- **Now — Copy mode.** Vim-key keyboard selection of scrollback — standalone, no
-  multiplexer required. The selection state machine ships; the activation and
-  render wiring are the active next step.
-- **Later — Close-confirmation prompt** when a child process or job is still
+- **Shipped — Keyboard pattern-select / quick-select.** Label on-screen URLs,
+  paths, and hashes for keyboard selection and copy.
+- **Shipped — Copy mode.** Vim-key keyboard selection of scrollback —
+  standalone, no multiplexer required.
+- **Shipped — Close-confirmation prompt** when a child process or job is still
   running.
-- **Later — Window-decoration control.** Toggle client-side vs server-side
+- **Shipped — Window-decoration control.** Toggle client-side vs server-side
   decorations or borderless mode (compositor-dependent on Linux).
-- **Later — Bindable clear-input action** (low priority; the standard key
+- **Shipped — Bindable clear-input action** (low priority; the standard key
   combinations already cover the common case).
 
 ## Track 7 — Theming & palettes
@@ -299,7 +300,7 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   community palettes under their real names only where the upstream license
   permits redistribution and brand guidelines are followed and attributed,
   without implying endorsement.
-- **Ongoing — Theme-library expansion** past the current 84 (data-only).
+- **Ongoing — Theme-library expansion** past the current 100 (data-only).
 
 ## Track 8 — Positioning & performance posture
 
@@ -311,16 +312,19 @@ and open — ships today (see *What's shipped today*).
 
 ## Track 9 — Multiple contexts: tabs, panes, sessions
 
-Deliberately deferred so the single-window foundation gets fully solid first.
-Recorded in full so the design intent survives. Promoted only on an explicit
-decision. All of this is off by default.
+The first slice has shipped: OdyTTY can run multiple shell sessions in one
+window and shows a one-row tab bar when two or more sessions exist. Remaining
+work is the heavier session-management surface.
 
-- **Someday — Tabs.** The natural first step: cheap, and it de-risks running
-  multiple shells and the surrounding UI. Ties into the tab-strip chrome.
-- **Someday — A detachable-capable core.** When this epic is taken on, architect
-  the core to support detaching from day one, even before sessions ship.
+- **Shipped — Tabs.** Multiple PTY/terminal sessions, tab switching, tab close,
+  tab rename, new-tab affordance, and conventional tab keybindings.
+- **Next — Tab polish.** Offset in-band image placements correctly while the
+  tab bar is visible; continue tightening tab interaction details as evidence
+  appears.
+- **Someday — A detachable-capable core.** If persistent sessions are promoted,
+  architect detaching from day one rather than retrofitting it later.
 - **Someday — Panes / splits.** Split position, ratio, and direction;
-  table-stakes once tabs exist.
+  table-stakes once session persistence and tab polish justify the complexity.
 - **Someday — Broadcast input** to multiple panes at once.
 - **Someday — Persistent / detachable sessions** that survive disconnect. This
   is the loudest real-user demand and the headline when this epic is promoted —

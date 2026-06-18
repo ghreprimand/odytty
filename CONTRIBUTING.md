@@ -96,7 +96,7 @@ The source tree is organized into clear ownership lanes:
 |------|---------------|
 | `src/parser/` | Clean-room VT parser: segmenter, state machine, action dispatch, driver. No external parser crate. |
 | `src/core/` | Terminal model, screen, grid state, SGR/mode dispatch, protocol handlers (Kitty, Sixel routing, query, rect ops, search). Core never imports windowing, GPU, or rendering code. |
-| `src/grid.rs` | Render color resolve path: attribute → linear RGB. Houses the inverse → `dim_perceptual` → minimum-contrast-floor resolve closure, `enforce_contrast_rgba`, and `dim_color`. |
+| `src/grid.rs` | Render geometry and color resolution: backgrounds, glyphs, decorations, cursor/selection/search overlays, inverse/dim/minimum-contrast handling, and image/emoji ordering seams. |
 | `src/text.rs` + `src/atlas/` | Glyph rasterization: font loading, R8 and RGBA atlas, coverage/subpixel paths, synthetic bold/italic, symbol fallback chain. |
 | `src/native/` | GPU renderer (`gpu.rs`, WGSL shaders), event loop (`app/mod.rs`), settings panel and overlay (`settings_panel.rs`, `overlay.rs`, `theme_builder.rs`), selection, search, input. |
 | `src/theme/` | `Theme` struct, `.theme` file format and parser (`spec.rs`), built-in registry (`builtins.rs`, `builtins/`), contrast validation, live reload. |
@@ -109,8 +109,8 @@ to the renderer; the core is never aware of them.
 
 ## Test battery
 
-The default `cargo test` run is deterministic and host-independent: ~1456 tests
-spread across unit and integration suites. Integration test buckets include
+The default `cargo test` run is deterministic and host-independent. Integration
+test buckets include
 `mouse_protocol`, `pixel_smoke` (42 compositor checks), `protocol_fuzz_*_smoke`
 (quick fuzzer tiers), `pty_alt_screen_smoke`, `transcript_smoke`,
 `emoji_pixel_smoke`, `boxdraw_pixel_smoke`, and `cli`. PTY smoke tests are
@@ -121,10 +121,11 @@ run them).
 `grid::build_vertices*` geometry through a headless CPU compositor and asserts
 structural invariants: blank-cell purity, glyph ink within bounds, inverse
 fg/bg swap, dim luminance drop, underline/strikethrough rows, box-drawing seam
-continuity, wide-char single-draw, and bar-cursor stripe. The plain/fast path
-must stay **byte-identical** to the minimal renderer at default settings; every
-visual feature is off by default and asserted as such. Add a pixel-smoke case
-for any new default-path change.
+continuity, wide-char single-draw, and bar-cursor stripe. The plain/fast profile
+must stay **byte-identical** when `render_quality=plain` and relevant feature
+opt-outs are selected. Default-on readability and identity settings need
+explicit identity or bounded-effect coverage. Add a pixel-smoke case for any
+default-path change.
 
 **Deep fuzz tier.** `tests/protocol_fuzz.rs` has `#[ignore]`-gated deep tiers
 that run at 40 000 iterations. Run them before touching the parser or core
@@ -183,11 +184,12 @@ configuration. If anything looks ambiguous, stop and confirm before committing.
 OdyTTY's visual work is organized in three tiers. Every tier obeys the same
 hard rules:
 
-- **Off by default.** Every enhancement is behind an explicit setting or env
-  var; default behavior is the plain path.
+- **Disable-able.** Every enhancement is behind an explicit setting or env var;
+  default behavior may use the Odyssey baseline, but the plain profile and
+  per-feature opt-outs must remain available.
 - **Plain/fast bypass is pixel-identical.** The grayscale cell pipeline with no
-  post-process must produce byte-identical output to the minimal renderer at
-  default settings. Pixel-smoke tests assert this.
+  post-process must produce byte-identical output to the minimal renderer when
+  the plain profile and opt-outs are selected. Pixel-smoke tests assert this.
 - **Perf-gated.** A weak adapter or a budget-exceeded frame must auto-downgrade
   to the plain path without visual corruption or a crash.
 - **Readability-gated.** The minimum-contrast floor (`min_contrast`) is the
@@ -196,16 +198,16 @@ hard rules:
 
 | Tier | Label | Examples | Status |
 |------|-------|---------|--------|
-| 1 | Readability-first | Minimum-contrast floor, geometric box-drawing, perceptual color pipeline, stem darkening, symbol fallback | Minimum-contrast floor, box-drawing, perceptual pipeline, stem darkening, and symbol fallback delivered; smooth scrolling open |
-| 2 | Identity and depth | Themed cursor/selection/search, focus dimming, background treatments, chrome/padding | Themed cursor/selection/search and focus dimming delivered; background treatments and chrome/padding open |
-| 3 | Atmospheric (opt-in) | Post-process pipeline, bloom/glow, CRT profile, cursor motion, GPU quality | Post-process pipeline, bloom/glow, and CRT profile core delivered; cursor motion and GPU quality open |
+| 1 | Readability-first | Minimum-contrast floor, geometric box-drawing, perceptual color pipeline, stem darkening, symbol fallback, smooth scrolling | Delivered behind settings/profile gates |
+| 2 | Identity and depth | Themed cursor/selection/search, focus dimming, background treatments, chrome/padding | Delivered for themed roles, focus dimming, padding, border, gradient/vignette, and static image backgrounds; blur-behind remains future |
+| 3 | Atmospheric (opt-in) | Post-process pipeline, bloom/glow, CRT profile, cursor motion, GPU quality | Delivered for post-process, bloom, CRT/retro, cursor glow/motion/trail, and new-output fade |
 
 See `docs/visual-architecture.md` for the full tier breakdown and source
 references.
 
 ## Adding a built-in theme
 
-All 88 built-in themes live in `src/theme/builtins/` as `.theme` files.
+All 100 built-in themes live in `src/theme/builtins/` as `.theme` files.
 The `REGISTRY` slice in `src/theme/builtins.rs` maps names to
 `include_str!`-embedded sources. Adding a new built-in is four steps:
 

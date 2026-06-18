@@ -35,8 +35,8 @@ Resolution order for the `theme` value:
    `<name>.theme`, then `<name>`.
 
 If the value resolves to nothing, or the file cannot be read, OdyTTY falls back
-to the `plain` theme and logs a warning. **A bad or missing theme value never
-prevents startup.**
+to the default `odyssey` theme and logs a warning. **A bad or missing theme
+value never prevents startup.**
 
 ### Theme directory
 
@@ -64,7 +64,7 @@ path — so the file format is exercised by the library on every startup.
 
 ### Theme families
 
-**Odyssey identity** — `plain` plus sixty-three `odyssey-*` variants are
+**Odyssey identity** — `plain`, `odyssey`, and the `odyssey-*` variants are
 original themes designed for OdysseyOS. `odyssey` is the fresh-install default;
 `plain` reproduces the historical xterm default palette byte-for-byte and
 remains available as an explicit compatibility choice.
@@ -81,8 +81,8 @@ cool natural (`odyssey-glacier`, `odyssey-voyager`, `odyssey-fathom`,
 `odyssey-moss`, `odyssey-chartreuse`, `odyssey-pine`), warm and cool text
 focus (`odyssey-meridian`, `odyssey-graphite`, `odyssey-sepia`), vivid accents
 (`odyssey-violet`, `odyssey-fuchsia`, `odyssey-orchid`), deep indigo and berry
-(`odyssey-indigo`, `odyssey-raspberry`), and twenty-two light
-companions (`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`,
+(`odyssey-indigo`, `odyssey-raspberry`), and light companions
+(`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`,
 `odyssey-cloud-light`, `odyssey-coral-light`, `odyssey-mist-light`,
 `odyssey-meadow-light`, `odyssey-parchment-light`, `odyssey-blossom-light`,
 `odyssey-linen-light`, `odyssey-lilac-light`, `odyssey-pearl-light`,
@@ -92,12 +92,11 @@ companions (`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`,
 `odyssey-periwinkle-light`). These carry the strongest OdysseyOS visual
 identity.
 
-**Community** — twenty-eight themes ported from widely-used open-source
-color-scheme palettes. The dark side covers the ten palettes that formed the
-original community batch (Solarized, Gruvbox, Nord, Dracula, Tokyo Night,
-Catppuccin Mocha, One Dark, Monokai) plus an extended set including Everforest,
-Kanagawa, Rose Pine, Ayu Mirage, Night Owl, Palenight, GitHub-style dark,
-Zenburn, Oceanic Next, and Iceberg. The light side covers ten counterparts:
+**Community** — themes ported from widely-used open-source color-scheme
+palettes. The dark side covers the original community batch (Solarized, Gruvbox,
+Nord, Dracula, Tokyo Night, Catppuccin Mocha, One Dark, Monokai) plus an
+extended set including Everforest, Kanagawa, Rose Pine, Ayu Mirage, Night Owl,
+Palenight, GitHub-style dark, Zenburn, Oceanic Next, and Iceberg. The light side covers counterparts:
 Solarized Light, Catppuccin Latte, GitHub-style light, Gruvbox Light, One
 Light, Ayu Light, Rose Pine Dawn, Tokyo Night Day, PaperColor, and Everforest
 Light. Sources and licenses are listed in the
@@ -309,14 +308,14 @@ Colors are written as `#RRGGBB` or `#RGB` (the leading `#` is optional;
 | `border` | Border/frame color (semantic role; reserved). |
 | `inactive` | Inactive/dim color (semantic role; reserved). |
 | `color0` … `color15` | The 16 ANSI colors (0–7 normal, 8–15 bright). Alias: `palette0` … `palette15`. |
-| `font_family` | Optional font-family hint (forward-compat; not yet applied). |
-| `font_size` | Optional font-size hint in px (forward-compat; not yet applied). |
-| `visual` | Bundled visual-effect profile: `off`, `ambient`, or `scanlines`. `ambient`/`scanlines` are back-compat aliases for the CRT scanline effect (parsed and stored; not yet auto-applied at theme load time). |
+| `font_family` | Optional font-family hint (schema metadata; not applied by theme selection). |
+| `font_size` | Optional font-size hint in px (schema metadata; not applied by theme selection). |
+| `visual` | Bundled visual-effect profile metadata: `off`, `ambient`, or `scanlines`. `ambient`/`scanlines` are back-compat aliases for the CRT scanline effect in settings, but theme selection does not auto-apply this field. |
 
 `appearance`, `font_family`, `font_size`, and `visual` are parsed, validated,
-and round-tripped today but are **not yet applied at runtime** — they are part
-of the theme schema so that future packets (a settings panel, a theme picker,
-and the visual engine) can consume them without a format change.
+and round-tripped. `appearance` is used as metadata by theme-listing and picker
+surfaces; the font and visual fields are retained as schema metadata rather
+than auto-applied when the theme changes.
 
 ## Example
 
