@@ -1427,6 +1427,7 @@ impl GpuState {
         &mut self,
         placements: &[VisiblePlacement],
         uploads: &[ImageUpload],
+        row_offset: usize,
     ) {
         self.image_layer.update_with_padding(
             &self.device,
@@ -1436,6 +1437,7 @@ impl GpuState {
             uploads,
             self.atlas.cell,
             self.window_padding,
+            row_offset,
         );
     }
 

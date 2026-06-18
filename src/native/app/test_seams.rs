@@ -297,6 +297,24 @@ impl App {
         }
     }
 
+    #[cfg(test)]
+    pub(in crate::native) fn tab_bar_row_backgrounds_for_test(&self) -> Option<Vec<Color>> {
+        let cell = self.resolved_cell()?;
+        let snapshot = self
+            .terminal
+            .lock()
+            .ok()?
+            .snapshot_with_scrollback(self.viewport.offset());
+        let (decorated, _) =
+            self.decorate_snapshot_with_tab_bar(&snapshot, snapshot.cursor_visible, cell);
+        Some(
+            decorated.cells[..decorated.dimensions.columns]
+                .iter()
+                .map(|cell| cell.attrs.background)
+                .collect(),
+        )
+    }
+
     /// Test seam (MOUSE-SCROLLBAR): scroll the viewport up into history so the
     /// scroll thumb becomes visible (offset clamps to the scrollback length).
     #[cfg(test)]

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Headless multi-session foundation tests for the tabs packet.
 
+use crate::core::Color;
+
 use super::super::pty::UserEvent;
 use super::*;
 
@@ -250,6 +252,21 @@ fn tab_bar_hit_test_reports_switch_close_and_new_actions() {
 
     app.set_pointer_px_for_test(628.0, 8.0);
     assert_eq!(app.tab_bar_hit_for_test(), Some("new"));
+}
+
+#[test]
+fn visible_tab_bar_row_has_no_default_background_cells() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+
+    let backgrounds = app
+        .tab_bar_row_backgrounds_for_test()
+        .expect("tab bar backgrounds");
+    assert!(!backgrounds.is_empty());
+    assert!(backgrounds.iter().all(|bg| *bg != Color::Default));
 }
 
 #[test]

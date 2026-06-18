@@ -1095,15 +1095,17 @@ impl App {
         let top = columns * TAB_BAR_ROWS as usize;
         decorated.cells[top..top + snapshot.cells.len()].clone_from_slice(&snapshot.cells);
 
-        let Some(gpu) = self.gpu.as_ref() else {
-            return (decorated, Vec::new());
-        };
+        let padding = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO);
         let output = self.tab_bar.render(
             &self.sessions,
             columns,
-            gpu.window_padding().as_f32(),
+            padding.as_f32(),
             cell,
-            gpu.window_padding(),
+            padding,
             self.effective_theme.foreground,
             self.effective_theme.background,
             self.effective_theme.selection,
@@ -1114,6 +1116,14 @@ impl App {
             }
         }
         (decorated, output.quads)
+    }
+
+    fn tab_bar_row_offset(&self) -> usize {
+        if self.should_show_tab_bar() {
+            TAB_BAR_ROWS as usize
+        } else {
+            0
+        }
     }
 
     fn apply_user_event(&mut self, event: UserEvent) -> bool {
@@ -1858,6 +1868,7 @@ impl ApplicationHandler<UserEvent> for App {
                         // (it feeds the `anim` cache key); the CursorOnly arm
                         // reuses the same value so the cached cursor matches.
                         let scroll_frac_offset = self.scroll_frac_offset;
+                        let tab_bar_row_offset = self.tab_bar_row_offset();
                         if let Some(gpu) = self.gpu.as_mut() {
                             // RV4: push the current smooth-scroll offset so the
                             // vertex builders shift `content_origin` this frame.
@@ -1866,7 +1877,11 @@ impl ApplicationHandler<UserEvent> for App {
                             gpu.set_scroll_frac_offset(scroll_frac_offset);
                             match update {
                                 GeometryUpdate::Full => {
-                                    gpu.update_image_layer(&visible_graphics, &image_uploads);
+                                    gpu.update_image_layer(
+                                        &visible_graphics,
+                                        &image_uploads,
+                                        tab_bar_row_offset,
+                                    );
                                     if overlays.is_empty() {
                                         gpu.update_from_snapshot(
                                             &snapshot,

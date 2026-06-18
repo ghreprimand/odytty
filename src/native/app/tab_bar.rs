@@ -57,17 +57,6 @@ const TAB_PADDING: usize = 1;
 const CLOSE_COLS: usize = 2;
 
 // ---------------------------------------------------------------------------
-// Private alpha constants
-// ---------------------------------------------------------------------------
-
-/// Alpha for the full-width tab bar background quad.
-const TAB_BG_ALPHA: f32 = 0.95;
-/// Alpha for the active-tab highlight quad.
-const TAB_ACTIVE_ALPHA: f32 = 0.85;
-/// Alpha for the hover-tab highlight quad (dimmer than active).
-const TAB_HOVER_ALPHA: f32 = 0.35;
-
-// ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
@@ -114,16 +103,18 @@ pub(super) struct TabBarGlyph {
     pub(super) attrs: Attrs,
 }
 
-/// Output from [`TabBar::render`]: background quads plus glyph runs.
+/// Output from [`TabBar::render`]: fully specified row cells plus any optional
+/// pixel-space quads the integration layer wants to composite separately.
 ///
 /// Integration code pushes `quads` into the overlay quad list and writes each
 /// glyph into the reserved snapshot row:
 /// `snapshot.cells[glyph.col] = Cell::new(glyph.ch, glyph.attrs)`.
 #[derive(Debug, Default)]
 pub(super) struct TabBarOutput {
-    /// Solid pixel-space quads (bar background, active/hover highlights).
+    /// Solid pixel-space quads. The current integration leaves this empty and
+    /// relies on explicit cell backgrounds for correct text contrast.
     pub(super) quads: Vec<SolidQuad>,
-    /// Glyph runs to composite into the tab bar row.
+    /// One glyph per column to composite into the reserved tab bar row.
     pub(super) glyphs: Vec<TabBarGlyph>,
 }
 
@@ -179,7 +170,7 @@ impl TabBar {
     /// - `active_bg` — sRGB highlight colour for active/hover slots (e.g.
     ///   theme `cursor` or `selection` role).
     ///
-    /// Returns [`TabBarOutput`] with quads and glyph runs ready for compositing.
+    /// Returns [`TabBarOutput`] with one explicit-background glyph per column.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn render(
         &self,
@@ -197,105 +188,69 @@ impl TabBar {
         }
         let layout = compute_layout(source, grid_cols);
         let mut out = TabBarOutput::default();
-        let pad = padding.as_f32();
-        let cw = cell.width as f32;
-        let ch = cell.height as f32;
-        let y0 = y_offset_px;
-        let y1 = y0 + ch;
-
-        // Full-width tab bar background quad.
-        out.quads.push(SolidQuad {
-            rect: [pad, y0, pad + grid_cols as f32 * cw, y1],
-            color: srgb_alpha(background, TAB_BG_ALPHA),
-        });
+        let base_fg = Color::Rgb(foreground.0, foreground.1, foreground.2);
+        let base_bg = Color::Rgb(background.0, background.1, background.2);
+        let active_bg_color = Color::Rgb(active_bg.0, active_bg.1, active_bg.2);
+        let mut row = vec![blank_glyph(0, base_fg, base_bg); grid_cols];
+        for (col, glyph) in row.iter_mut().enumerate() {
+            glyph.col = col;
+        }
 
         for slot in &layout.slots {
             let is_active = slot.idx == source.active_tab();
             let is_hovered = is_slot_hovered(self.hover, slot.idx);
+            let slot_bg = if is_active || is_hovered {
+                active_bg_color
+            } else {
+                base_bg
+            };
 
-            // Per-slot highlight quad for active / hovered tabs.
-            if is_active || is_hovered {
-                let alpha = if is_active {
-                    TAB_ACTIVE_ALPHA
-                } else {
-                    TAB_HOVER_ALPHA
-                };
-                out.quads.push(SolidQuad {
-                    rect: [
-                        pad + slot.start_col as f32 * cw,
-                        y0,
-                        pad + slot.end_col as f32 * cw,
-                        y1,
-                    ],
-                    color: srgb_alpha(active_bg, alpha),
-                });
+            for col in slot.start_col..slot.end_col.min(row.len()) {
+                row[col].attrs.background = slot_bg;
             }
 
-            // Label glyphs.
-            let fg = Color::Rgb(foreground.0, foreground.1, foreground.2);
-            let bg = if is_active {
-                Color::Rgb(active_bg.0, active_bg.1, active_bg.2)
-            } else {
-                Color::Rgb(background.0, background.1, background.2)
-            };
             let mut la = Attrs::default();
-            la.foreground = fg;
-            la.background = bg;
+            la.foreground = base_fg;
+            la.background = slot_bg;
             if is_active {
                 la.set_bold(true);
             }
             for (i, ch_char) in slot.label.chars().enumerate() {
-                out.glyphs.push(TabBarGlyph {
-                    col: slot.label_col + i,
-                    ch: ch_char,
-                    attrs: la,
-                });
+                let col = slot.label_col + i;
+                if let Some(glyph) = row.get_mut(col) {
+                    glyph.ch = ch_char;
+                    glyph.attrs = la;
+                }
             }
 
             // Close `×` glyph — rendered only for the active or hovered tab.
-            if let Some(close_col) = slot.close_col.filter(|_| is_active || is_hovered) {
-                let mut ca = Attrs::default();
-                ca.foreground = fg;
-                ca.background = bg;
-                out.glyphs.push(TabBarGlyph {
-                    col: close_col,
-                    ch: '×',
-                    attrs: ca,
-                });
+            if let Some(close_col) = slot.close_col.filter(|_| is_active || is_hovered)
+                && let Some(glyph) = row.get_mut(close_col)
+            {
+                glyph.ch = '×';
+                glyph.attrs = la;
             }
         }
 
         // New-tab `+` affordance.
         if let Some(nt_col) = layout.new_tab_col {
             let is_hovered = matches!(self.hover, Some(TabHit::NewTab));
-            if is_hovered {
-                out.quads.push(SolidQuad {
-                    rect: [
-                        pad + nt_col as f32 * cw,
-                        y0,
-                        pad + (nt_col + NEW_TAB_COLS) as f32 * cw,
-                        y1,
-                    ],
-                    color: srgb_alpha(active_bg, TAB_HOVER_ALPHA),
-                });
+            let new_tab_bg = if is_hovered { active_bg_color } else { base_bg };
+            for col in nt_col..(nt_col + NEW_TAB_COLS).min(row.len()) {
+                row[col].attrs.background = new_tab_bg;
             }
-            let fg = Color::Rgb(foreground.0, foreground.1, foreground.2);
-            let bg_role = if is_hovered {
-                Color::Rgb(active_bg.0, active_bg.1, active_bg.2)
-            } else {
-                Color::Rgb(background.0, background.1, background.2)
-            };
             let mut a = Attrs::default();
-            a.foreground = fg;
-            a.background = bg_role;
+            a.foreground = base_fg;
+            a.background = new_tab_bg;
             // Centre the `+` in the NEW_TAB_COLS block (offset 1 from block start).
-            out.glyphs.push(TabBarGlyph {
-                col: nt_col + 1,
-                ch: '+',
-                attrs: a,
-            });
+            if let Some(glyph) = row.get_mut(nt_col + 1) {
+                glyph.ch = '+';
+                glyph.attrs = a;
+            }
         }
 
+        let _ = (padding, y_offset_px, cell);
+        out.glyphs = row;
         out
     }
 
@@ -438,6 +393,17 @@ fn compute_layout(source: &dyn TabBarSource, grid_cols: usize) -> TabLayout {
     TabLayout { slots, new_tab_col }
 }
 
+fn blank_glyph(col: usize, foreground: Color, background: Color) -> TabBarGlyph {
+    let mut attrs = Attrs::default();
+    attrs.foreground = foreground;
+    attrs.background = background;
+    TabBarGlyph {
+        col,
+        ch: ' ',
+        attrs,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helper functions
 // ---------------------------------------------------------------------------
@@ -564,14 +530,17 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn zero_tabs_produces_only_bg_quad() {
+    fn zero_tabs_produces_explicit_row_cells_and_new_tab_affordance() {
         let src = MockSource::empty();
         let out = render_default(&src);
-        // Only the full-width background quad; no per-tab glyphs except `+`.
-        assert_eq!(out.quads.len(), 1, "one background quad with zero tabs");
         assert!(
-            out.glyphs.iter().all(|g| g.ch == '+'),
-            "only the new-tab glyph (if any) present with zero tabs"
+            out.quads.is_empty(),
+            "cell backgrounds replace tab-bar quads"
+        );
+        assert_eq!(out.glyphs.len(), GRID_COLS, "one glyph per column");
+        assert!(
+            out.glyphs.iter().filter(|g| g.ch == '+').count() == 1,
+            "only one new-tab glyph is present with zero tabs"
         );
     }
 
@@ -595,7 +564,7 @@ mod tests {
         let label: String = out
             .glyphs
             .iter()
-            .filter(|g| g.ch != '+' && g.ch != '×')
+            .filter(|g| g.ch != '+' && g.ch != '×' && g.ch != ' ')
             .map(|g| g.ch)
             .collect();
         assert!(label.contains("zsh"), "label 'zsh' present in glyphs");
@@ -663,16 +632,14 @@ mod tests {
         let out = render_default(&src);
         let layout = compute_layout(&src, GRID_COLS);
         let mid = &layout.slots[1];
-        let label_start = mid.label_col;
-        let label_end = mid.close_col.unwrap_or(mid.end_col);
         for g in &out.glyphs {
             if g.attrs.bold() {
                 assert!(
-                    g.col >= label_start && g.col < label_end,
+                    g.col >= mid.start_col && g.col < mid.end_col,
                     "bold glyph col {} outside middle slot {}..{}",
                     g.col,
-                    label_start,
-                    label_end,
+                    mid.start_col,
+                    mid.end_col,
                 );
             }
         }
@@ -684,16 +651,14 @@ mod tests {
         let out = render_default(&src);
         let layout = compute_layout(&src, GRID_COLS);
         let last = layout.slots.last().expect("three slots");
-        let label_start = last.label_col;
-        let label_end = last.close_col.unwrap_or(last.end_col);
         for g in &out.glyphs {
             if g.attrs.bold() {
                 assert!(
-                    g.col >= label_start && g.col < label_end,
+                    g.col >= last.start_col && g.col < last.end_col,
                     "bold glyph col {} not in last slot {}..{}",
                     g.col,
-                    label_start,
-                    label_end,
+                    last.start_col,
+                    last.end_col,
                 );
             }
         }
@@ -711,7 +676,7 @@ mod tests {
         let label: String = out
             .glyphs
             .iter()
-            .filter(|g| g.ch != '+' && g.ch != '×')
+            .filter(|g| g.ch != '+' && g.ch != '×' && g.ch != ' ')
             .map(|g| g.ch)
             .collect();
         assert!(label.contains('…'), "long title ends with '…'");
@@ -734,7 +699,7 @@ mod tests {
         let label: String = out
             .glyphs
             .iter()
-            .filter(|g| g.ch != '+' && g.ch != '×')
+            .filter(|g| g.ch != '+' && g.ch != '×' && g.ch != ' ')
             .map(|g| g.ch)
             .collect();
         assert!(!label.contains('…'), "short title is not truncated");
@@ -874,44 +839,31 @@ mod tests {
             (0x10, 0x10, 0x10),
             (0x40, 0x60, 0x90),
         );
-        assert!(!out.quads.is_empty(), "at least one quad for narrow grid");
+        assert_eq!(out.glyphs.len(), 20, "one glyph per column");
     }
 
     // -----------------------------------------------------------------------
-    // Geometry: background quad dimensions
+    // Geometry: explicit cell backgrounds
     // -----------------------------------------------------------------------
 
     #[test]
-    fn background_quad_spans_full_width() {
+    fn render_emits_one_cell_per_column() {
         let src = MockSource::new(&["a"], 0);
         let out = render_default(&src);
-        let bg = &out.quads[0];
-        assert_eq!(bg.rect[0], 0.0, "left at x=0 with zero padding");
-        assert_eq!(
-            bg.rect[2],
-            GRID_COLS as f32 * CELL.width as f32,
-            "right at grid width"
-        );
-        assert_eq!(bg.rect[1], 0.0, "top at y=0");
-        assert_eq!(bg.rect[3], CELL.height as f32, "bottom at cell height");
+        assert_eq!(out.glyphs.len(), GRID_COLS, "all columns are explicit");
     }
 
     #[test]
-    fn background_quad_respects_window_padding() {
+    fn active_tab_background_covers_gap_before_close_button() {
         let src = MockSource::new(&["a"], 0);
-        let pad = WindowPadding::from_logical(10.0, 1.0);
-        let out = bar().render(
-            &src,
-            GRID_COLS,
-            0.0,
-            CELL,
-            pad,
-            (0xCC, 0xCC, 0xCC),
-            (0x10, 0x10, 0x10),
-            (0x40, 0x60, 0x90),
+        let out = render_default(&src);
+        let layout = compute_layout(&src, GRID_COLS);
+        let slot = &layout.slots[0];
+        let gap_col = slot.end_col - CLOSE_COLS;
+        assert_eq!(
+            out.glyphs[gap_col].attrs.background,
+            out.glyphs[slot.label_col].attrs.background
         );
-        let bg = &out.quads[0];
-        assert_eq!(bg.rect[0], pad.as_f32(), "left shifted by padding");
     }
 
     // -----------------------------------------------------------------------

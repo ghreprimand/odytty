@@ -5,7 +5,8 @@ use crate::atlas::CellSize;
 use crate::graphics::{GraphicsProtocol, PlacementId, SourceRect, StoredImageId, VisiblePlacement};
 
 use super::image_layer::{
-    ImageUpload, cache_sync_plan, placement_quad, placement_quad_with_padding, visible_image_ids,
+    ImageUpload, cache_sync_plan, placement_quad, placement_quad_with_padding,
+    placement_quad_with_padding_and_row_offset, visible_image_ids,
 };
 use super::viewport::WindowPadding;
 
@@ -74,6 +75,29 @@ fn placement_geometry_is_offset_by_window_padding() {
     .expect("quad");
 
     assert_eq!(quad.rect, [33.0, 38.0, 53.0, 50.0]);
+}
+
+#[test]
+fn placement_geometry_is_offset_by_reserved_top_rows() {
+    let mut placement = placement(2, 3, StoredImageId(7));
+    placement.pixel_offset_x = 1;
+    placement.pixel_offset_y = -2;
+
+    let quad = placement_quad_with_padding_and_row_offset(
+        &placement,
+        20,
+        12,
+        CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        },
+        WindowPadding::ZERO,
+        1,
+    )
+    .expect("quad");
+
+    assert_eq!(quad.rect, [25.0, 46.0, 45.0, 58.0]);
 }
 
 #[test]

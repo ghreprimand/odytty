@@ -95,21 +95,41 @@ pub(super) fn placement_quad(
     image_height: u32,
     cell: CellSize,
 ) -> Option<ImageQuad> {
-    placement_quad_with_padding(
+    placement_quad_with_padding_and_row_offset(
         placement,
         image_width,
         image_height,
         cell,
         WindowPadding::ZERO,
+        0,
     )
 }
 
+#[cfg(test)]
 pub(super) fn placement_quad_with_padding(
     placement: &VisiblePlacement,
     image_width: u32,
     image_height: u32,
     cell: CellSize,
     padding: WindowPadding,
+) -> Option<ImageQuad> {
+    placement_quad_with_padding_and_row_offset(
+        placement,
+        image_width,
+        image_height,
+        cell,
+        padding,
+        0,
+    )
+}
+
+pub(super) fn placement_quad_with_padding_and_row_offset(
+    placement: &VisiblePlacement,
+    image_width: u32,
+    image_height: u32,
+    cell: CellSize,
+    padding: WindowPadding,
+    row_offset: usize,
 ) -> Option<ImageQuad> {
     if image_width == 0 || image_height == 0 || placement.display_columns == 0 {
         return None;
@@ -147,7 +167,9 @@ pub(super) fn placement_quad_with_padding(
 
     let pad = padding.as_f32();
     let x0 = pad + placement.column as f32 * cell.width as f32 + placement.pixel_offset_x as f32;
-    let y0 = pad + placement.row as f32 * cell.height as f32 + placement.pixel_offset_y as f32;
+    let y0 = pad
+        + (placement.row + row_offset) as f32 * cell.height as f32
+        + placement.pixel_offset_y as f32;
     let x1 = x0 + visible_w as f32;
     let y1 = y0 + visible_h as f32;
 
@@ -278,6 +300,7 @@ impl ImageLayer {
         self.textures.keys().copied().collect()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn update_with_padding(
         &mut self,
         device: &wgpu::Device,
@@ -287,6 +310,7 @@ impl ImageLayer {
         uploads: &[ImageUpload],
         cell: CellSize,
         padding: WindowPadding,
+        row_offset: usize,
     ) {
         let cached = self.cached_ids();
         let plan = cache_sync_plan(&cached, placements, uploads);
@@ -312,7 +336,7 @@ impl ImageLayer {
             }
         }
 
-        self.rebuild_vertices_with_padding(device, queue, placements, cell, padding);
+        self.rebuild_vertices_with_padding(device, queue, placements, cell, padding, row_offset);
     }
 
     fn rebuild_vertices_with_padding(
@@ -322,6 +346,7 @@ impl ImageLayer {
         placements: &[VisiblePlacement],
         cell: CellSize,
         padding: WindowPadding,
+        row_offset: usize,
     ) {
         self.vertices.clear();
         self.draws.clear();
@@ -330,9 +355,14 @@ impl ImageLayer {
             let Some(cached) = self.textures.get(&placement.image_id) else {
                 continue;
             };
-            let Some(quad) =
-                placement_quad_with_padding(placement, cached.width, cached.height, cell, padding)
-            else {
+            let Some(quad) = placement_quad_with_padding_and_row_offset(
+                placement,
+                cached.width,
+                cached.height,
+                cell,
+                padding,
+                row_offset,
+            ) else {
                 continue;
             };
 
