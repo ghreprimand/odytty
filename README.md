@@ -62,7 +62,33 @@ Requires Linux and a Vulkan-capable GPU. Wayland is the primary target; X11
 works through the current `winit`/GPU stack with some window-manager-dependent
 behavior for borderless windows and OS theme detection.
 
-After installation, launch OdyTTY as a normal application:
+For the current source release, install OdyTTY for the current user with:
+
+```sh
+version=0.1.0
+mkdir -p /tmp/odytty-install
+cd /tmp/odytty-install
+curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
+curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/SHA256SUMS"
+sha256sum -c SHA256SUMS
+tar -xf "odytty-${version}.tar.gz"
+cd "odytty-${version}"
+cargo build --release --locked
+install -Dm755 target/release/odytty "$HOME/.local/opt/odytty/$version/bin/odytty"
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$HOME/.local/opt/odytty/$version/bin/odytty" "$HOME/.local/bin/odytty"
+install -Dm644 dist/linux/io.unfinished_works.odytty.desktop \
+  "$HOME/.local/share/applications/io.unfinished_works.odytty.desktop"
+install -Dm644 dist/linux/io.unfinished_works.odytty.metainfo.xml \
+  "$HOME/.local/share/metainfo/io.unfinished_works.odytty.metainfo.xml"
+install -d "$HOME/.local/share/icons/hicolor"
+cp -a dist/icons/hicolor/* "$HOME/.local/share/icons/hicolor/"
+update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+gtk-update-icon-cache "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
+```
+
+Make sure `$HOME/.local/bin` is on `PATH`. After installation, launch OdyTTY as
+a normal application:
 
 ```sh
 odytty
@@ -87,8 +113,9 @@ ODYTTY_SUBPIXEL=rgb odytty
 ODYTTY_RETRO=on odytty
 ```
 
-For source builds and desktop launcher registration, see
-[`docs/install.md`](docs/install.md). A quick source-tree smoke run is:
+For system installs, Odyssey/LFS packaging, rollback, and default-terminal
+notes, see [`docs/install.md`](docs/install.md). A quick source-tree smoke run
+is:
 
 ```sh
 cargo build --release --locked
