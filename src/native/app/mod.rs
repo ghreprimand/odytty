@@ -1856,6 +1856,7 @@ impl ApplicationHandler<UserEvent> for App {
                                     cursor_glow: self.cursor_glow_overlay_signature(),
                                     background: self.background_overlay_signature(),
                                     new_row_fade: self.new_row_fade_overlay_signature(),
+                                    rename: self.rename_overlay_signature(),
                                 },
                             },
                             cursor: CursorRenderSignature {

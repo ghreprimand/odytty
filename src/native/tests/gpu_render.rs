@@ -310,6 +310,7 @@ fn render_sig() -> RenderSignature {
                 cursor_glow: OverlayFragment::Inert,
                 background: OverlayFragment::Inert,
                 new_row_fade: OverlayFragment::Inert,
+                rename: OverlayFragment::Inert,
             },
         },
         cursor: CursorRenderSignature {

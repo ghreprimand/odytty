@@ -57,6 +57,7 @@ fn inert_composite() -> OverlayCompositeSignature {
         cursor_glow: OverlayFragment::Inert,
         background: OverlayFragment::Inert,
         new_row_fade: OverlayFragment::Inert,
+        rename: OverlayFragment::Inert,
     }
 }
 

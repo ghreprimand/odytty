@@ -121,6 +121,9 @@ pub(super) enum OverlayFragment {
     CursorGlow { phase: u32 },
     /// ID3/U5 background treatment (quantized scrim + treatment discriminant).
     Background { scrim_q: u16, treat: u8 },
+    /// RENAME modal text + cursor. Changes on every keystroke so the painted
+    /// input overlay repaints via a Full geometry update.
+    Rename { text: String, cursor: usize },
     /// VE4 new-output fade: a monotonic epoch bumped once per rebuild while any
     /// row is mid-fade, so each animation frame reclassifies (the quad alphas
     /// change while the cell content does not). `Inert` once every row settles.
@@ -141,6 +144,7 @@ pub(super) struct OverlayCompositeSignature {
     pub(super) cursor_glow: OverlayFragment,
     pub(super) background: OverlayFragment,
     pub(super) new_row_fade: OverlayFragment,
+    pub(super) rename: OverlayFragment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -326,6 +326,16 @@ impl App {
         )
     }
 
+    pub(in crate::native) fn rename_overlay_signature(&self) -> OverlayFragment {
+        match &self.rename_state {
+            Some(state) => OverlayFragment::Rename {
+                text: state.text.clone(),
+                cursor: state.cursor,
+            },
+            None => OverlayFragment::Inert,
+        }
+    }
+
     pub(super) fn enter_rename_tab(&mut self, target: SessionToken) {
         let Some(title) = self
             .sessions
