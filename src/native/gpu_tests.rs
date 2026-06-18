@@ -291,6 +291,30 @@ fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
         .expect("device poll");
 }
 
+#[test]
+fn composite_shader_applies_output_dither_without_crt_gate() {
+    let shader = include_str!("../shaders/bloom.wgsl");
+    let composite = shader
+        .split("@fragment\nfn fs_composite_bloom")
+        .nth(1)
+        .expect("composite fragment exists");
+    let brightness_pos = composite
+        .find("crt_brightness")
+        .expect("composite applies CRT brightness seam");
+    let dither_pos = composite
+        .find("output_dither")
+        .expect("composite applies output dither");
+
+    assert!(
+        dither_pos > brightness_pos,
+        "output dither should be applied after effect brightness"
+    );
+    assert!(
+        !composite.contains("if crt.enabled"),
+        "output dither must not be gated by the CRT profile"
+    );
+}
+
 fn post_options(bloom_enabled: bool, crt_enabled: bool) -> post::PostProcessOptions {
     post::PostProcessOptions {
         bloom: BloomOptions {

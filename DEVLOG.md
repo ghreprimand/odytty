@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Output dither for non-CRT banding
+
+The post-process composite shader now applies its tiny ordered output dither
+even when the CRT profile is off. This keeps dark background gradients from
+showing visible quantization bands without requiring scanlines, vignette, or CRT
+curvature. The plain renderer bypass remains unchanged because it still skips
+the post-process path.
+
+---
+
 ## 2026-06-18 -- Settings mouse fixes and softer CRT curvature
 
 Settings slider drags now preserve the pointer's grab offset instead of jumping

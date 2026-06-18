@@ -86,7 +86,10 @@ fn fs_blur_v(in: VsOut) -> @location(0) vec4<f32> {
 const PI: f32 = 3.141592653589793;
 const CRT_SOFT_DIM_MAX: f32 = 0.30;
 const CRT_SOFT_KNEE_WIDTH: f32 = 0.08;
-const CRT_DITHER_AMPLITUDE: f32 = 1.0 / 255.0;
+// Tiny ordered output dither, applied in the composite path whether CRT is on
+// or off. This masks dark-gradient quantization without requiring scanlines or
+// vignette.
+const OUTPUT_DITHER_AMPLITUDE: f32 = 1.0 / 255.0;
 
 fn crt_brightness(uv: vec2<f32>) -> f32 {
     if crt.enabled <= 0.5 {
@@ -114,7 +117,7 @@ fn crt_brightness(uv: vec2<f32>) -> f32 {
     return 1.0 - min(soft_dim, CRT_SOFT_DIM_MAX);
 }
 
-fn crt_dither(pos: vec2<f32>) -> f32 {
+fn output_dither(pos: vec2<f32>) -> f32 {
     let bayer = array<f32, 64>(
          0.0, 48.0, 12.0, 60.0,  3.0, 51.0, 15.0, 63.0,
         32.0, 16.0, 44.0, 28.0, 35.0, 19.0, 47.0, 31.0,
@@ -127,7 +130,7 @@ fn crt_dither(pos: vec2<f32>) -> f32 {
     );
     let pixel = vec2<u32>(u32(pos.x), u32(pos.y));
     let index = (pixel.y & 7u) * 8u + (pixel.x & 7u);
-    return (((bayer[index] + 0.5) / 64.0) - 0.5) * CRT_DITHER_AMPLITUDE;
+    return (((bayer[index] + 0.5) / 64.0) - 0.5) * OUTPUT_DITHER_AMPLITUDE;
 }
 
 // Barrel distortion for CRT screen curvature. Maps the flat NDC-space UV to
@@ -159,9 +162,7 @@ fn fs_composite_bloom(in: VsOut) -> @location(0) vec4<f32> {
         rgb += glow * bloom.intensity;
     }
     rgb *= crt_brightness(in.uv);
-    if crt.enabled > 0.5 {
-        let channel_gate = select(vec3<f32>(0.0), vec3<f32>(1.0), rgb > vec3<f32>(0.0));
-        rgb = max(rgb + vec3<f32>(crt_dither(in.pos.xy)) * channel_gate, vec3<f32>(0.0));
-    }
+    let channel_gate = select(vec3<f32>(0.0), vec3<f32>(1.0), rgb > vec3<f32>(0.0));
+    rgb = max(rgb + vec3<f32>(output_dither(in.pos.xy)) * channel_gate, vec3<f32>(0.0));
     return vec4<f32>(rgb, scene.a);
 }
