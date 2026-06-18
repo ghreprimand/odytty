@@ -200,6 +200,44 @@ fn quadrant_lower_left_fills_only_that_quarter() {
 }
 
 #[test]
+fn braille_blank_is_covered_but_empty() {
+    let buf = cov('\u{2800}'); // blank Braille pattern
+    assert!(buf.iter().all(|&v| v == 0));
+}
+
+#[test]
+fn braille_dot_bits_land_in_their_grid_positions() {
+    let dot1 = cov('\u{2801}'); // dot 1: upper-left
+    assert!(at(&dot1, 2, 2) > 0);
+    assert_eq!(at(&dot1, W - 2, H - 2), 0);
+
+    let dot4 = cov('\u{2808}'); // dot 4: upper-right
+    assert!(at(&dot4, W - 2, 2) > 0);
+    assert_eq!(at(&dot4, 2, 2), 0);
+
+    let dot8 = cov('\u{2880}'); // dot 8: lower-right
+    assert!(at(&dot8, W - 2, H - 2) > 0);
+    assert_eq!(at(&dot8, 2, H - 2), 0);
+}
+
+#[test]
+fn braille_full_inks_all_eight_dot_regions() {
+    let buf = cov('\u{28FF}'); // all eight dots
+    for &(x, y) in &[
+        (2, 2),
+        (2, H / 4 + 2),
+        (2, H / 2 + 2),
+        (2, H - 2),
+        (W - 2, 2),
+        (W - 2, H / 4 + 2),
+        (W - 2, H / 2 + 2),
+        (W - 2, H - 2),
+    ] {
+        assert!(at(&buf, x, y) > 0, "missing Braille dot at {x},{y}");
+    }
+}
+
+#[test]
 fn double_horizontal_has_two_separated_rails() {
     let buf = cov('\u{2550}'); // ═
     let midy = H / 2;
@@ -331,6 +369,11 @@ fn covered_ranges_all_produce_buffers() {
     for code in 0x2580u32..=0x259F {
         let ch = char::from_u32(code).unwrap();
         assert!(covers(ch), "block {code:#x} should be covered");
+    }
+    for code in 0x2800u32..=0x28FF {
+        let ch = char::from_u32(code).unwrap();
+        assert!(covers(ch), "Braille pattern {code:#x} should be covered");
+        assert!(coverage(ch, W, H).is_some());
     }
     for code in 0xE0B0u32..=0xE0B3 {
         let ch = char::from_u32(code).unwrap();

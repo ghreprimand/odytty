@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Braille graph glyphs for btop
+
+OdyTTY now renders Unicode Braille patterns (`U+2800..=U+28FF`) through the
+geometric glyph path. This closes the btop graph failure where Braille-based
+CPU/GPU/network charts appeared as missing-glyph boxes even though Ghostty
+rendered them. The fix extends `src/boxdraw.rs` with a cell-size-aware 2x4 dot
+renderer, so graph output works when `geometric_boxdraw` is enabled without
+depending on the primary terminal font carrying Braille outlines.
+
+Focused coverage now verifies that the whole Braille range is classified, the
+blank Braille cell remains empty, and representative dot bits land in the
+expected 2x4 positions. This is queued as `v0.1.5`, following `v0.1.4`'s
+wallpaper edge-wash release.
+
+---
+
 ## 2026-06-18 -- Linux release command launch and wallpaper edge wash
 
 OdyTTY now has the missing terminal-emulator command launch surface: `odytty -e

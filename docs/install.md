@@ -2,7 +2,7 @@
 
 OdyTTY is pre-release. The current recommended release shape is:
 
-- `v0.1.4` git tag and source tarball;
+- `v0.1.5` git tag and source tarball;
 - GitHub Release entry with checksums for release artifacts;
 - source-build instructions for Odyssey/LFS and other developer systems;
 - a desktop entry, AppStream metadata, and icon installed into Freedesktop
@@ -94,7 +94,7 @@ installing each release under a versioned directory and pointing
 `~/.local/bin/odytty` at the selected version:
 
 ```sh
-version=0.1.4
+version=0.1.5
 cargo build --release --locked
 install -Dm755 target/release/odytty \
   "$HOME/.local/opt/odytty/$version/bin/odytty"
@@ -117,8 +117,8 @@ To roll back, repoint the symlink to an older directory under
 ## Odyssey/LFS Versioned Install
 
 Odyssey source builds are versioned by pacman, not by leaving build products in
-the source tree. A release tag such as `v0.1.4` should be archived into
-`/sources/odytty-0.1.4.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
+the source tree. A release tag such as `v0.1.5` should be archived into
+`/sources/odytty-0.1.5.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
 with `odyssey-build`.
 
 Example PKGBUILD:
@@ -126,7 +126,7 @@ Example PKGBUILD:
 ```bash
 # Maintainer: Joel <joel@odyssey>
 pkgname=odytty
-pkgver=0.1.4
+pkgver=0.1.5
 pkgrel=1
 pkgdesc="GPU-rendered Rust terminal emulator with an Odyssey visual identity"
 arch=('x86_64')
@@ -289,7 +289,7 @@ the distribution or local system owner installs it.
 
 For an upstream release that avoids maintaining many distro-specific packages:
 
-- publish `v0.1.4` source tarballs with checksums/signatures;
+- publish `v0.1.5` source tarballs with checksums/signatures;
 - create a GitHub Release for the tag so package monitors can track upstream
   versions;
 - include `dist/linux/io.unfinished_works.odytty.desktop`;

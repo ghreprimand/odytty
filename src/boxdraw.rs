@@ -25,6 +25,8 @@
 //! - **Block elements** `U+2580..=259F`: full block, the upper/lower/left/right
 //!   halves, the lower and left eighth ladders, the upper/right one-eighth bars,
 //!   the four shade levels (`░▒▓`) and the quadrant blocks.
+//! - **Braille patterns** `U+2800..=U+28FF`: the 2×4 dot cells used by tools such
+//!   as btop for high-resolution terminal graphs.
 //! - **Powerline** `U+E0B0..=E0B3`: the right/left filled triangles and their
 //!   outline variants used by powerline / starship-style prompts.
 //!
@@ -140,6 +142,7 @@ enum Glyph {
     Rounded(Corner),
     Diagonal(Diagonal),
     Block(Block),
+    Braille(u8),
     Powerline(Powerline),
 }
 
@@ -180,6 +183,7 @@ pub fn coverage(ch: char, width: u32, height: u32) -> Option<Vec<u8>> {
         Glyph::Rounded(corner) => render_rounded(&mut canvas, corner),
         Glyph::Diagonal(diag) => render_diagonal(&mut canvas, diag),
         Glyph::Block(block) => render_block(&mut canvas, block),
+        Glyph::Braille(mask) => render_braille(&mut canvas, mask),
         Glyph::Powerline(pl) => render_powerline(&mut canvas, pl),
     }
     Some(canvas.data)
@@ -208,6 +212,9 @@ fn classify(ch: char) -> Option<Glyph> {
     }
     if let Some(block) = block_table(ch) {
         return Some(Glyph::Block(block));
+    }
+    if let Some(mask) = braille_table(ch) {
+        return Some(Glyph::Braille(mask));
     }
     if let Some(pl) = powerline_table(ch) {
         return Some(Glyph::Powerline(pl));
@@ -431,6 +438,16 @@ fn block_table(ch: char) -> Option<Block> {
         '\u{259F}' => Block::Quadrant([false, true, true, true]),   // ▟
         _ => return None,
     })
+}
+
+/// Braille patterns `U+2800..=U+28FF`.
+fn braille_table(ch: char) -> Option<u8> {
+    let code = ch as u32;
+    if (0x2800..=0x28FF).contains(&code) {
+        Some((code - 0x2800) as u8)
+    } else {
+        None
+    }
 }
 
 /// Powerline separators `U+E0B0..=E0B3`.
@@ -878,6 +895,51 @@ fn render_block(c: &mut Canvas, block: Block) {
             }
             if lr {
                 c.fill(mx, w as i32, my, h as i32);
+            }
+        }
+    }
+}
+
+/// Render a Unicode Braille pattern as a 2×4 field of dot ellipses.
+fn render_braille(c: &mut Canvas, mask: u8) {
+    if mask == 0 {
+        return;
+    }
+
+    let wf = c.w as f32;
+    let hf = c.h as f32;
+    let rx = (wf / 5.0).clamp(0.75, 2.25);
+    let ry = (hf / 9.0).clamp(0.75, 2.5);
+    let positions = [
+        (0x01, 0usize, 0usize), // dot 1
+        (0x02, 0, 1),           // dot 2
+        (0x04, 0, 2),           // dot 3
+        (0x08, 1, 0),           // dot 4
+        (0x10, 1, 1),           // dot 5
+        (0x20, 1, 2),           // dot 6
+        (0x40, 0, 3),           // dot 7
+        (0x80, 1, 3),           // dot 8
+    ];
+
+    for &(bit, col, row) in &positions {
+        if mask & bit == 0 {
+            continue;
+        }
+        let cx = wf * ((col as f32) + 0.5) / 2.0;
+        let cy = hf * ((row as f32) + 0.5) / 4.0;
+        let x0 = (cx - rx - 1.0).floor() as i32;
+        let x1 = (cx + rx + 1.0).ceil() as i32;
+        let y0 = (cy - ry - 1.0).floor() as i32;
+        let y1 = (cy + ry + 1.0).ceil() as i32;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let dx = (x as f32 + 0.5 - cx) / rx;
+                let dy = (y as f32 + 0.5 - cy) / ry;
+                let dist = (dx * dx + dy * dy).sqrt();
+                let cov = (1.25 - dist).clamp(0.0, 1.0);
+                if cov > 0.0 {
+                    c.put(x, y, (cov * 255.0).round() as u8);
+                }
             }
         }
     }

@@ -119,6 +119,9 @@ environment variable was not set at startup.
 - `retro = on` promotes effective bloom/CRT settings to a stronger phosphor
   profile without overwriting individual values: threshold `0.70`, intensity
   `1.0`, radius `8.0`, scanlines `0.35`, vignette `0.35`, curvature `0.025`.
+- `geometric_boxdraw = on` renders supported box-drawing, block-element,
+  Braille (`U+2800..=U+28FF`), and Powerline glyphs from cell geometry instead
+  of relying on the active font.
 - `smooth_scroll` uses a fixed bounded ease of 80 ms. There is no current
   `smooth_scroll_duration` config key.
 - `cursor_blink = auto` currently resolves to the conventional blinking
