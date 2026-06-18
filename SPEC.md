@@ -714,7 +714,7 @@ be **structurally unable** to harm body-text legibility by construction:
 - **Background treatments** (`background_treatment`, `off`/`gradient`/`vignette`,
   `image`, default `off`): position-based per-cell background darkening
   (gradient toward the bottom; vignette toward the edges/corners) and static
-  PNG background images behind the grid. Legibility is safe-by-construction:
+  PNG/JPEG/WebP background images behind the grid. Legibility is safe-by-construction:
   gradient/vignette darken is applied to the per-cell background **before** the
   minimum-contrast floor resolves, and image backgrounds use a readability scrim
   plus `cell_bg_opacity` so the floor sees a bounded background. The knob is
@@ -729,7 +729,8 @@ The stack is: Rust, Linux-first, `winit` (windowing), `wgpu` (GPU/Vulkan),
 `ab_glyph` (font rasterization for normal text), `swash` (emoji font discovery,
 shaping, and color-font probe — emoji/color-font path only; normal text stays on
 `ab_glyph`), `unicode-width` (cell widths), `arboard` (clipboard), `rustix`
-(PTY/termios), `png` (PNG decode for Kitty `f=100`).
+(PTY/termios), `png` (PNG decode for Kitty `f=100`), `image` (PNG/JPEG/WebP
+wallpaper decode).
 
 The terminal core is a distinct boundary from the native app. The `core` module
 never imports windowing, GPU, or rendering code; it consumes VT bytes via the

@@ -43,6 +43,7 @@ background_treatment = off
 # background_treatment = gradient
 # background_treatment = vignette
 # background_treatment = image
+# PNG, JPEG, and WebP wallpapers are supported.
 # background_image = /path/to/background.jpg
 cell_bg_opacity = 1.0
 background_blur_radius = 0

@@ -272,6 +272,9 @@ backgrounds remain opaque and the image is hidden behind the cells. Values below
 `1.0` let the image show through behind text. OdyTTY computes a readability
 scrim automatically unless `background_image_scrim` is set explicitly. Missing,
 unreadable, undecodable, or oversized inputs degrade safely with a warning.
+The settings panel's `Background image` row opens an inline path picker that
+enumerates directories off the UI path, so navigation remains responsive while
+large folders load.
 
 The settings panel shows `cell_bg_opacity` as **Wallpaper visibility**, the
 inverse of the config value: `0.0` hides the wallpaper behind solid cells, while

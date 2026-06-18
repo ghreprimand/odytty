@@ -800,9 +800,12 @@ feature validates against.
         treated background. Pixel-identical to before when off; forced off under
         the plain renderer profile.
   - [x] Static image background support: `background_treatment = image` draws a
-        PNG behind the grid, with `background_image`, `background_blur_radius`,
-        `cell_bg_opacity`, and optional `background_image_scrim` tied to the
-        contrast-floor scrim. Blur-behind transparency remains future work.
+        PNG/JPEG/WebP wallpaper behind the grid, with `background_image`,
+        `background_blur_radius`, `cell_bg_opacity`, and optional
+        `background_image_scrim` tied to the contrast-floor scrim. The settings
+        panel uses an inline path picker for `background_image` without blocking
+        overlay navigation while directories are enumerated. Blur-behind
+        transparency remains future work.
 - [ ] Pointer excellence — make the mouse a joy, without disturbing TUI mouse
       reporting (Shift stays the selection-vs-passthrough seam).
   - [x] Extend an existing selection: Shift+click, double-click-then-drag by

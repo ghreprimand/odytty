@@ -130,6 +130,9 @@ environment variable was not set at startup.
 - `background_image_scrim = auto` is shown as **Wallpaper readability** in the
   settings panel. Lower explicit values keep the image clearer; higher values
   add more readability overlay.
+- Path settings, including `background_image`, open an inline file picker in
+  Settings. Directories are enumerated off the UI path so keyboard and mouse
+  navigation remain responsive while large folders load.
 - `native_autoclose_ms` is a smoke-test helper and is startup-only.
 
 ## Key Bindings
@@ -177,8 +180,8 @@ row. It covers the 12 core non-tab actions. Tab actions are configurable through
 
 - `Ctrl+Shift+,` opens Settings. `/` filters by name, key, description, or
   group. `Esc` clears the filter or closes the panel. `Ctrl+S` persists changes.
-- Theme and font rows open pickers. Mouse wheel scrolls pickers; title back
-  affordances return to Settings when launched from Settings.
+- Theme, font, and path rows open pickers. Mouse wheel scrolls pickers; title
+  back affordances return to Settings when launched from Settings.
 - Numeric rows use discrete steppers and click-to-type entry.
 - Right-click opens the context menu. On OSC 133-aware prompts it can copy, cut,
   delete, clear input, open settings, and create or close tabs.
