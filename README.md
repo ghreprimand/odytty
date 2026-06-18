@@ -2,14 +2,19 @@
 
 **Website:** [odytty.unfinished-works.com](https://odytty.unfinished-works.com)
 
-OdyTTY is a from-scratch, GPU-rendered Rust terminal emulator for Linux and
-OdysseyOS. It owns the terminal byte path from PTY allocation through escape
+OdyTTY is a standalone, from-scratch, GPU-rendered Rust terminal emulator for
+Linux. It owns the terminal byte path from PTY allocation through escape
 parsing, terminal state, render geometry, and shaders, while relying on focused
 external crates for lower-level infrastructure such as `wgpu`, `winit`,
 `ab_glyph`, `swash`, `arboard`, and Unicode width tables.
 
+The name and visual direction come from OdysseyOS, the maintainer's private
+Linux From Scratch system. That system is inspiration, not a platform
+requirement: OdyTTY is a public Linux application and does not require
+OdysseyOS or any custom distribution.
+
 The project goal is not to skin an existing terminal. OdyTTY is testing whether
-a terminal can carry a distinctive Odyssey visual identity, richer in-app
+a terminal can carry a distinctive OdyTTY visual identity, richer in-app
 configuration, inline media, motion, and accessibility features while remaining
 practical for real command-line work. Terminal correctness, readable text,
 input behavior, stable rendering, local privacy, and performance are the hard
@@ -39,7 +44,7 @@ cross-platform support, panes/profiles, and release builds are not done.
 - **Daily workflow:** search, refined selection, PRIMARY selection,
   bracketed-paste hardening, chunked large paste, right-click context menu,
   command-aware prompt navigation from OSC 133, close confirmation, and tabs.
-- **Odyssey visual layer:** 100 built-in themes, user `.theme` files, live theme
+- **Visual experience layer:** 100 built-in themes, user `.theme` files, live theme
   picker, theme builder, semantic cursor/selection/search roles, optional
   bloom/CRT/retro effects, background treatments, cursor motion, focus dimming,
   new-output fade, window padding, and window border.
@@ -67,7 +72,7 @@ Useful launch examples:
 # Use the hard plain renderer profile.
 ODYTTY_RENDER_QUALITY=plain cargo run -- --native
 
-# Follow the desktop dark/light preference with Odyssey defaults.
+# Follow the desktop dark/light preference with OdyTTY defaults.
 ODYTTY_THEME=system cargo run -- --native
 
 # Larger text with a named system font.
@@ -178,7 +183,7 @@ back to `odytty.conf`, preserving comments, blank lines, unknown keys, and
 ordering via same-directory atomic rename.
 
 `theme = system` or `ODYTTY_THEME=system` follows the desktop dark/light
-preference using Odyssey defaults (`odyssey` dark, `odyssey-light` light).
+preference using OdyTTY defaults (`odyssey` dark, `odyssey-light` light).
 Explicit `follow_os_theme`, `os_theme_dark`, and `os_theme_light` settings allow
 custom mappings.
 

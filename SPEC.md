@@ -2,12 +2,16 @@
 
 ## The Spark
 
-OdysseyOS needs its own terminal — one that carries its own visual identity
-and has features worth having, built from the ground up rather than skinned
-from something else. The open questions that drive the project: can a terminal
-emulator add richer visual effects, better themes, a stronger sense of identity,
-and features that make command-line work feel more alive — while staying fast,
-correct, and trustworthy for real daily use?
+OdyTTY began as an answer to a private Linux From Scratch system called
+OdysseyOS: if a system has a distinct working environment, what would its
+terminal feel like if it were built from the ground up rather than skinned from
+something else? OdysseyOS remains the naming and visual inspiration, but OdyTTY
+is a standalone public Linux terminal emulator, not an OdysseyOS-only tool.
+
+The open questions that drive the project: can a terminal emulator add richer
+visual effects, better themes, a stronger sense of identity, and features that
+make command-line work feel more alive — while staying fast, correct, and
+trustworthy for real daily use?
 
 The project pursues genuinely original terminal work. If that path cannot
 produce something interesting, useful, and reliable enough to justify itself,
@@ -16,11 +20,25 @@ terminal.
 
 ## Concept
 
-Odyssey Terminal is a reliable terminal emulator with an OdysseyOS visual identity, exploring how motion, themes, effects, and interface details can make command-line work feel more alive without weakening core terminal behavior. Its central question is whether a terminal can add useful, nonstandard features and a richer experience while staying fast, solid, and practical for daily use.
+OdyTTY is a reliable terminal emulator with its own Odyssey-inspired visual
+identity, exploring how motion, themes, effects, and interface details can make
+command-line work feel more alive without weakening core terminal behavior. Its
+central question is whether a terminal can add useful, nonstandard features and
+a richer experience while staying fast, solid, and practical for daily use.
 
 ## The Case
 
-Odyssey Terminal is worth exploring because the terminal is a daily operating surface, not just a utility, and OdysseyOS needs one that carries its own visual identity without compromising trust. It is for the operator who wants command-line work to feel more expressive, polished, and alive while remaining dependable enough for real use. The friction it removes is the gap between solid existing terminals and a more personal, visually distinctive environment: instead of accepting either reliability with generic presentation or flashiness that risks distraction, the project tests whether both can coexist. Scope should stop before novelty damages terminal fundamentals; speed, compatibility, input correctness, readable text, stable rendering, and predictable behavior matter more than effects, themes, or nonstandard features.
+OdyTTY is worth exploring because the terminal is a daily operating surface, not
+just a utility, and there is room for one with a more personal, visually
+distinctive identity that does not compromise trust. It is for the operator who
+wants command-line work to feel more expressive, polished, and alive while
+remaining dependable enough for real use. The friction it removes is the gap
+between solid existing terminals and a more personal environment: instead of
+accepting either reliability with generic presentation or flashiness that risks
+distraction, the project tests whether both can coexist. Scope should stop
+before novelty damages terminal fundamentals; speed, compatibility, input
+correctness, readable text, stable rendering, and predictable behavior matter
+more than effects, themes, or nonstandard features.
 
 ## Privacy & Data Posture
 
@@ -43,7 +61,7 @@ links are never opened from terminal output automatically.
 
 The project owns its full byte path from PTY to glyph quad. Shell process and
 PTY handling, escape-sequence parsing, input mapping, text layout, renderer
-geometry, and shaders are OdyTTY-originated code. The Odyssey experience layer
+geometry, and shaders are OdyTTY-originated code. The visual experience layer
 (themes, visual effects, and identity treatments) sits above that core; visual
 experiments must not destabilize terminal correctness and must be
 off-switch-able at all times.

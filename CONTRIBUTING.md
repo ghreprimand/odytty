@@ -71,7 +71,7 @@ By making a contribution to this project, I certify that:
 
 - Keep changes small and reviewable, tied to a milestone in `TODO.md`.
 - Preserve the separation between terminal correctness (the owned core) and the
-  Odyssey visual/experience layer. Visual experiments must not destabilize core
+  visual experience layer. Visual experiments must not destabilize core
   behavior.
 - Prefer adding deterministic tests for new terminal behavior over manual checks.
 - Keep source files under approximately 2000 lines. Prefer new focused modules
@@ -185,7 +185,7 @@ OdyTTY's visual work is organized in three tiers. Every tier obeys the same
 hard rules:
 
 - **Disable-able.** Every enhancement is behind an explicit setting or env var;
-  default behavior may use the Odyssey baseline, but the plain profile and
+  default behavior may use the OdyTTY visual baseline, but the plain profile and
   per-feature opt-outs must remain available.
 - **Plain/fast bypass is pixel-identical.** The grayscale cell pipeline with no
   post-process must produce byte-identical output to the minimal renderer when

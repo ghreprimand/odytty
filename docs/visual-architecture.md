@@ -288,8 +288,8 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
 
 **The full theme system has landed** — a 16-color ANSI palette with semantic
 roles, a dependency-free `.theme` file format with built-in themes and live
-reload through the settings/config seam, 100 built-in themes across Odyssey,
-community, and retro/phosphor families, and an in-app theme builder with live
+reload through the settings/config seam, 100 built-in themes across OdyTTY
+original, community, and retro/phosphor families, and an in-app theme builder with live
 preview saved to a user theme file. `Theme` carries the full
 16-color ANSI palette plus semantic roles (cursor, selection, search, reserved
 border/inactive). The indexed-color render path is theme-driven; OSC-4 /

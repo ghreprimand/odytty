@@ -296,8 +296,8 @@ is opt-in or configurable and never disturbs an application's own mouse handling
 ## Track 7 — Theming & palettes
 
 - **Later — Theme-naming standard.** A two-tier approach: keep the original
-  Odyssey-named family as the primary identity, and optionally ship popular
-  community palettes under their real names only where the upstream license
+  `odyssey`-named family as the primary OdyTTY identity, and optionally ship
+  popular community palettes under their real names only where the upstream license
   permits redistribution and brand guidelines are followed and attributed,
   without implying endorsement.
 - **Ongoing — Theme-library expansion** past the current 100 (data-only).

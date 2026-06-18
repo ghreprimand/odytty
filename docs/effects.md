@@ -45,7 +45,7 @@ extracting bright pixels in a threshold pass, blurring them at half resolution
 with a separable Gaussian, and compositing the result additively back onto the
 scene.
 
-Bloom is on by default in the Odyssey ambient baseline and pixel-identical to
+Bloom is on by default in the OdyTTY ambient baseline and pixel-identical to
 the plain renderer when disabled.
 
 ### Settings
@@ -158,7 +158,7 @@ The CRT profile adds refined scanlines and a subtle vignette over the same HDR
 offscreen target used by bloom. It also has an optional subtle curvature pass.
 Chromatic aberration is deferred because it carries a higher readability risk.
 
-CRT is on by default in the Odyssey ambient baseline and pixel-identical to the
+CRT is on by default in the OdyTTY ambient baseline and pixel-identical to the
 plain renderer when disabled.
 When CRT and bloom are both enabled they share one offscreen scene render and
 one final composite pass.

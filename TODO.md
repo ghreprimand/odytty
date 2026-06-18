@@ -902,9 +902,9 @@ feature validates against.
 - [x] Validate basic commands interactively: prompt display, `ls --color`,
       `clear`, simple editor/pager enter-exit behavior, and resize.
 
-## Odyssey Layer
+## Visual Experience Layer
 
-- [x] Small theme system with a plain baseline and 1–2 Odyssey presets.
+- [x] Small theme system with a plain baseline and 1–2 OdyTTY presets.
 - [x] One optional visual treatment behind a setting, isolated from terminal
       correctness.
 - [x] Verify the visual layer can be disabled and does not affect compatibility
@@ -917,7 +917,7 @@ feature validates against.
 - [x] Common shell output is readable and responsive.
 - [x] Resize, paste, selection/copy, cursor, and scrollback work at a basic level.
 - [x] The compatibility test suite and transcript smoke suite pass.
-- [x] One Odyssey visual treatment exists and can be disabled.
+- [x] One OdyTTY visual treatment exists and can be disabled.
 - [x] Public docs and devlog describe what works, what is deferred, and what
       risks remain.
 

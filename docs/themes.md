@@ -10,7 +10,7 @@ There are two kinds of theme:
 
 - **Built-in themes**, selected by name — `odyssey` is the fresh-install
   default, while `plain` remains available as the pixel-identical pre-theme
-  appearance plus a curated library of Odyssey-identity and community themes
+  appearance plus a curated library of OdyTTY-original and community themes
   (see [Built-in theme
   library](#built-in-theme-library)).
 - **User theme files**, written in the dependency-free theme file format
@@ -64,8 +64,11 @@ path — so the file format is exercised by the library on every startup.
 
 ### Theme families
 
-**Odyssey identity** — `plain`, `odyssey`, and the `odyssey-*` variants are
-original themes designed for OdysseyOS. `odyssey` is the fresh-install default;
+**OdyTTY original** — `plain`, `odyssey`, and the `odyssey-*` variants are
+original themes designed for OdyTTY's public visual identity. The `odyssey`
+name comes from OdysseyOS, the maintainer's private Linux From Scratch system,
+but these themes are built into OdyTTY and do not require that system.
+`odyssey` is the fresh-install default;
 `plain` reproduces the historical xterm default palette byte-for-byte and
 remains available as an explicit compatibility choice.
 The `odyssey-*` variants span a range of visual moods across dark and light
@@ -89,8 +92,7 @@ focus (`odyssey-meridian`, `odyssey-graphite`, `odyssey-sepia`), vivid accents
 `odyssey-apricot-light`, `odyssey-butter-light`, `odyssey-sage-light`,
 `odyssey-slate-light`, `odyssey-seafoam-light`, `odyssey-citrus-light`,
 `odyssey-mauve-light`, `odyssey-clover-light`, `odyssey-sienna-light`,
-`odyssey-periwinkle-light`). These carry the strongest OdysseyOS visual
-identity.
+`odyssey-periwinkle-light`). These carry the strongest OdyTTY visual identity.
 
 **Community** — themes ported from widely-used open-source color-scheme
 palettes. The dark side covers the original community batch (Solarized, Gruvbox,
@@ -116,69 +118,69 @@ OdyTTY has no affiliation with or endorsement from any of those vendors.
 | Name | Appearance | Family |
 | --- | --- | --- |
 | `plain` | dark | Pixel-identical to the pre-theme look |
-| `odyssey` | dark | OdyTTY default Odyssey identity |
-| `odyssey-noir` | dark | Odyssey identity (deep, low-key) |
-| `odyssey-light` | light | Odyssey identity (light) |
-| `odyssey-aurora` | dark | Odyssey identity (high-contrast) |
-| `odyssey-deepspace` | dark | Odyssey identity (near-black interstellar void with cold starlight accents) |
-| `odyssey-nebula` | dark | Odyssey identity (magenta and violet emission clouds with teal stellar accents) |
-| `odyssey-solar` | dark | Odyssey identity (warm amber solar flare over a dark sunspot field) |
-| `odyssey-abyss` | dark | Odyssey identity (deep teal hadal voyage with bioluminescent cyan) |
-| `odyssey-ember` | dark | Odyssey identity (banked coals and forge orange against charcoal) |
-| `odyssey-glacier` | dark | Odyssey identity (polar blue ice with cold high-legibility contrast) |
-| `odyssey-meridian` | dark | Odyssey identity (warm parchment text on indigo twilight) |
-| `odyssey-voyager` | dark | Odyssey identity (muted expedition greens with logbook warmth) |
-| `odyssey-pulsar` | dark | Odyssey identity (neutron-star neon over near-black) |
-| `odyssey-dawn-light` | light | Odyssey identity (violet-white morning companion to deep space) |
-| `odyssey-sandstone-light` | light | Odyssey identity (sunlit dune and planetary-surface warmth) |
-| `odyssey-graphite` | dark | Odyssey identity (minimal neutral graphite focus mode) |
-| `odyssey-fathom` | dark | Odyssey identity (deep-ocean teal over near-black abyss) |
-| `odyssey-harbor` | dark | Odyssey identity (cool naval blue with clear high-legibility text) |
-| `odyssey-ion` | dark | Odyssey identity (electric indigo-violet over deep space) |
-| `odyssey-orchard` | dark | Odyssey identity (cultivated greens on dark loam) |
-| `odyssey-volcanic` | dark | Odyssey identity (ember warmth and ash over basalt) |
-| `odyssey-cloud-light` | light | Odyssey identity (cool cloud-white with slate-blue text) |
-| `odyssey-coral-light` | light | Odyssey identity (warm coral daylight companion) |
-| `odyssey-mist-light` | light | Odyssey identity (soft misted green-grey morning) |
-| `odyssey-twilight` | dark | Odyssey identity (indigo dusk with magenta and violet afterglow) |
-| `odyssey-verdant` | dark | Odyssey identity (deep evergreen canopy over forest-floor dark) |
-| `odyssey-quasar` | dark | Odyssey identity (brilliant cyan-blue jet over a near-black void) |
-| `odyssey-meadow-light` | light | Odyssey identity (sunlit spring-green meadow companion) |
-| `odyssey-parchment-light` | light | Odyssey identity (warm aged-parchment daylight with ink-brown text) |
-| `odyssey-tidepool` | dark | Odyssey identity (teal-aqua tidepool over deep coastal dark) |
-| `odyssey-moss` | dark | Odyssey identity (olive and moss greens on forest-floor dark) |
-| `odyssey-rosewood` | dark | Odyssey identity (warm rose and wine over a dark grain) |
-| `odyssey-slate` | dark | Odyssey identity (cool steel-blue neutral focus mode) |
-| `odyssey-blossom-light` | light | Odyssey identity (soft rose-blossom daylight companion) |
-| `odyssey-linen-light` | light | Odyssey identity (warm neutral linen daylight with ink text) |
-| `odyssey-garnet` | dark | Odyssey identity (deep crimson and wine-red over a maroon-black grain) |
-| `odyssey-sepia` | dark | Odyssey identity (warm sepia-brown monochrome focus mode) |
-| `odyssey-cobalt` | dark | Odyssey identity (electric royal-blue jet over deep cobalt navy) |
-| `odyssey-lilac-light` | light | Odyssey identity (soft lavender daylight with violet accents) |
-| `odyssey-pearl-light` | light | Odyssey identity (cool neutral pearl-grey daylight) |
-| `odyssey-apricot-light` | light | Odyssey identity (warm apricot-peach daylight companion) |
-| `odyssey-chartreuse` | dark | Odyssey identity (yellow-green chartreuse accent on deep olive-black) |
-| `odyssey-violet` | dark | Odyssey identity (amethyst violet accent on deep indigo-black) |
-| `odyssey-fuchsia` | dark | Odyssey identity (vivid magenta-pink accent on deep magenta-black) |
-| `odyssey-butter-light` | light | Odyssey identity (warm golden-yellow honey daylight companion) |
-| `odyssey-sage-light` | light | Odyssey identity (muted herbal sage-green daylight companion) |
-| `odyssey-slate-light` | light | Odyssey identity (cool blue-slate daylight companion) |
-| `odyssey-amber` | dark | Odyssey identity (warm golden amber on deep warm-dark) |
-| `odyssey-jungle` | dark | Odyssey identity (deep tropical green canopy on forest-floor dark) |
-| `odyssey-orchid` | dark | Odyssey identity (rich orchid purple-pink on deep mauve-dark) |
-| `odyssey-seafoam-light` | light | Odyssey identity (soft seafoam-green daylight companion) |
-| `odyssey-indigo` | dark | Odyssey identity (deep indigo blue-violet between the blue and purple clusters) |
-| `odyssey-raspberry` | dark | Odyssey identity (deep berry raspberry between magenta-pink and rose-red) |
-| `odyssey-citrus-light` | light | Odyssey identity (fresh lime-citrus daylight companion) |
-| `odyssey-mauve-light` | light | Odyssey identity (dusty mauve daylight companion between lavender and rose) |
-| `odyssey-terracotta` | dark | Odyssey identity (warm clay and terracotta over a near-black hearth ground) |
-| `odyssey-harvest` | dark | Odyssey identity (golden wheat harvest on deep autumn dark) |
-| `odyssey-lagoon` | dark | Odyssey identity (bright cyan-azure lagoon surface over deep teal-blue depths) |
-| `odyssey-clover-light` | light | Odyssey identity (spring green clover daylight companion) |
-| `odyssey-midnight` | dark | Odyssey identity (maximum-contrast blue-black midnight with stark blue-white text) |
-| `odyssey-sienna-light` | light | Odyssey identity (warm sienna-cream daylight companion with terracotta accents) |
-| `odyssey-periwinkle-light` | light | Odyssey identity (cool blue-violet periwinkle daylight companion) |
-| `odyssey-pine` | dark | Odyssey identity (muted forest-pine dark with sage-green text) |
+| `odyssey` | dark | OdyTTY original default |
+| `odyssey-noir` | dark | OdyTTY original (deep, low-key) |
+| `odyssey-light` | light | OdyTTY original (light) |
+| `odyssey-aurora` | dark | OdyTTY original (high-contrast) |
+| `odyssey-deepspace` | dark | OdyTTY original (near-black interstellar void with cold starlight accents) |
+| `odyssey-nebula` | dark | OdyTTY original (magenta and violet emission clouds with teal stellar accents) |
+| `odyssey-solar` | dark | OdyTTY original (warm amber solar flare over a dark sunspot field) |
+| `odyssey-abyss` | dark | OdyTTY original (deep teal hadal voyage with bioluminescent cyan) |
+| `odyssey-ember` | dark | OdyTTY original (banked coals and forge orange against charcoal) |
+| `odyssey-glacier` | dark | OdyTTY original (polar blue ice with cold high-legibility contrast) |
+| `odyssey-meridian` | dark | OdyTTY original (warm parchment text on indigo twilight) |
+| `odyssey-voyager` | dark | OdyTTY original (muted expedition greens with logbook warmth) |
+| `odyssey-pulsar` | dark | OdyTTY original (neutron-star neon over near-black) |
+| `odyssey-dawn-light` | light | OdyTTY original (violet-white morning companion to deep space) |
+| `odyssey-sandstone-light` | light | OdyTTY original (sunlit dune and planetary-surface warmth) |
+| `odyssey-graphite` | dark | OdyTTY original (minimal neutral graphite focus mode) |
+| `odyssey-fathom` | dark | OdyTTY original (deep-ocean teal over near-black abyss) |
+| `odyssey-harbor` | dark | OdyTTY original (cool naval blue with clear high-legibility text) |
+| `odyssey-ion` | dark | OdyTTY original (electric indigo-violet over deep space) |
+| `odyssey-orchard` | dark | OdyTTY original (cultivated greens on dark loam) |
+| `odyssey-volcanic` | dark | OdyTTY original (ember warmth and ash over basalt) |
+| `odyssey-cloud-light` | light | OdyTTY original (cool cloud-white with slate-blue text) |
+| `odyssey-coral-light` | light | OdyTTY original (warm coral daylight companion) |
+| `odyssey-mist-light` | light | OdyTTY original (soft misted green-grey morning) |
+| `odyssey-twilight` | dark | OdyTTY original (indigo dusk with magenta and violet afterglow) |
+| `odyssey-verdant` | dark | OdyTTY original (deep evergreen canopy over forest-floor dark) |
+| `odyssey-quasar` | dark | OdyTTY original (brilliant cyan-blue jet over a near-black void) |
+| `odyssey-meadow-light` | light | OdyTTY original (sunlit spring-green meadow companion) |
+| `odyssey-parchment-light` | light | OdyTTY original (warm aged-parchment daylight with ink-brown text) |
+| `odyssey-tidepool` | dark | OdyTTY original (teal-aqua tidepool over deep coastal dark) |
+| `odyssey-moss` | dark | OdyTTY original (olive and moss greens on forest-floor dark) |
+| `odyssey-rosewood` | dark | OdyTTY original (warm rose and wine over a dark grain) |
+| `odyssey-slate` | dark | OdyTTY original (cool steel-blue neutral focus mode) |
+| `odyssey-blossom-light` | light | OdyTTY original (soft rose-blossom daylight companion) |
+| `odyssey-linen-light` | light | OdyTTY original (warm neutral linen daylight with ink text) |
+| `odyssey-garnet` | dark | OdyTTY original (deep crimson and wine-red over a maroon-black grain) |
+| `odyssey-sepia` | dark | OdyTTY original (warm sepia-brown monochrome focus mode) |
+| `odyssey-cobalt` | dark | OdyTTY original (electric royal-blue jet over deep cobalt navy) |
+| `odyssey-lilac-light` | light | OdyTTY original (soft lavender daylight with violet accents) |
+| `odyssey-pearl-light` | light | OdyTTY original (cool neutral pearl-grey daylight) |
+| `odyssey-apricot-light` | light | OdyTTY original (warm apricot-peach daylight companion) |
+| `odyssey-chartreuse` | dark | OdyTTY original (yellow-green chartreuse accent on deep olive-black) |
+| `odyssey-violet` | dark | OdyTTY original (amethyst violet accent on deep indigo-black) |
+| `odyssey-fuchsia` | dark | OdyTTY original (vivid magenta-pink accent on deep magenta-black) |
+| `odyssey-butter-light` | light | OdyTTY original (warm golden-yellow honey daylight companion) |
+| `odyssey-sage-light` | light | OdyTTY original (muted herbal sage-green daylight companion) |
+| `odyssey-slate-light` | light | OdyTTY original (cool blue-slate daylight companion) |
+| `odyssey-amber` | dark | OdyTTY original (warm golden amber on deep warm-dark) |
+| `odyssey-jungle` | dark | OdyTTY original (deep tropical green canopy on forest-floor dark) |
+| `odyssey-orchid` | dark | OdyTTY original (rich orchid purple-pink on deep mauve-dark) |
+| `odyssey-seafoam-light` | light | OdyTTY original (soft seafoam-green daylight companion) |
+| `odyssey-indigo` | dark | OdyTTY original (deep indigo blue-violet between the blue and purple clusters) |
+| `odyssey-raspberry` | dark | OdyTTY original (deep berry raspberry between magenta-pink and rose-red) |
+| `odyssey-citrus-light` | light | OdyTTY original (fresh lime-citrus daylight companion) |
+| `odyssey-mauve-light` | light | OdyTTY original (dusty mauve daylight companion between lavender and rose) |
+| `odyssey-terracotta` | dark | OdyTTY original (warm clay and terracotta over a near-black hearth ground) |
+| `odyssey-harvest` | dark | OdyTTY original (golden wheat harvest on deep autumn dark) |
+| `odyssey-lagoon` | dark | OdyTTY original (bright cyan-azure lagoon surface over deep teal-blue depths) |
+| `odyssey-clover-light` | light | OdyTTY original (spring green clover daylight companion) |
+| `odyssey-midnight` | dark | OdyTTY original (maximum-contrast blue-black midnight with stark blue-white text) |
+| `odyssey-sienna-light` | light | OdyTTY original (warm sienna-cream daylight companion with terracotta accents) |
+| `odyssey-periwinkle-light` | light | OdyTTY original (cool blue-violet periwinkle daylight companion) |
+| `odyssey-pine` | dark | OdyTTY original (muted forest-pine dark with sage-green text) |
 | `solarized-dark` | dark | Community |
 | `solarized-light` | light | Community |
 | `gruvbox-dark` | dark | Community |
