@@ -284,7 +284,13 @@ impl App {
         settings: Settings,
         settings_reloader: SettingsReloader,
     ) -> Self {
-        let session = Session::new(terminal, writer, pty, None);
+        let session = Session::new(
+            crate::native::session::SessionToken(0),
+            terminal,
+            writer,
+            pty,
+            None,
+        );
         Self::new_with_sessions(
             options,
             SessionSet::new(session, None),
@@ -496,7 +502,10 @@ impl App {
 
     pub(super) fn close_all_sessions(&mut self) {
         while !self.sessions.is_empty() {
-            let _ = self.sessions.close(0);
+            let Some(token) = self.sessions.token_at_position(0) else {
+                break;
+            };
+            let _ = self.sessions.close(token);
         }
     }
 

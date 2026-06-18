@@ -94,7 +94,7 @@ pub(crate) use viewport::WindowPadding;
 
 use app::App;
 use pty::{PtyWriter, UserEvent, spawn_pty_pump};
-use session::{Session, SessionSet};
+use session::{Session, SessionSet, SessionToken};
 
 pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), NativeError> {
     let event_loop = EventLoop::<UserEvent>::with_user_event()
@@ -168,13 +168,25 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     ));
 
     let proxy = event_loop.create_proxy();
-    let pump_thread = spawn_pty_pump(reader, writer.clone(), terminal.clone(), proxy.clone(), 0);
+    let pump_thread = spawn_pty_pump(
+        reader,
+        writer.clone(),
+        terminal.clone(),
+        proxy.clone(),
+        SessionToken(0),
+    );
 
     // Share the session: the App pushes window-size changes to it on resize,
     // and this function reaps the child on the way out.
     let session = Arc::new(Mutex::new(session));
     let session_set = SessionSet::new(
-        Session::new(terminal, writer, session.clone(), Some(pump_thread)),
+        Session::new(
+            SessionToken(0),
+            terminal,
+            writer,
+            session.clone(),
+            Some(pump_thread),
+        ),
         Some(proxy),
     );
 

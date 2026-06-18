@@ -23,9 +23,11 @@ use super::render_helpers::RenderSignature;
 use super::search_ui::SearchUi;
 use super::viewport::Viewport;
 
-pub(super) type SessionId = usize;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) struct SessionToken(pub(super) u64);
 
 pub(super) struct Session {
+    pub(super) id: SessionToken,
     pub(super) terminal: Arc<Mutex<Terminal>>,
     pub(super) writer: PtyWriter,
     pub(super) pty: Arc<Mutex<PtySession>>,
@@ -73,6 +75,7 @@ pub(super) struct Session {
 
 impl Session {
     pub(super) fn new(
+        id: SessionToken,
         terminal: Arc<Mutex<Terminal>>,
         writer: PtyWriter,
         pty: Arc<Mutex<PtySession>>,
@@ -85,6 +88,7 @@ impl Session {
             .filter(|title| !title.is_empty())
             .unwrap_or_else(|| "odytty".to_owned());
         Self {
+            id,
             terminal,
             writer,
             pty,
@@ -171,33 +175,49 @@ impl Session {
 
 pub(super) struct SessionSet {
     sessions: Vec<Session>,
-    active: SessionId,
+    active_token: SessionToken,
+    next_token: u64,
     proxy: Option<EventLoopProxy<UserEvent>>,
 }
 
 impl SessionSet {
     pub(super) fn new(initial: Session, proxy: Option<EventLoopProxy<UserEvent>>) -> Self {
+        let active_token = initial.id;
         Self {
             sessions: vec![initial],
-            active: 0,
+            active_token,
+            next_token: active_token.0.saturating_add(1),
             proxy,
         }
     }
 
     pub(super) fn active(&self) -> &Session {
-        &self.sessions[self.active]
+        if let Some(position) = self.position_of_token(self.active_token) {
+            &self.sessions[position]
+        } else {
+            &self.sessions[0]
+        }
     }
 
     pub(super) fn active_mut(&mut self) -> &mut Session {
-        &mut self.sessions[self.active]
+        if let Some(position) = self.position_of_token(self.active_token) {
+            &mut self.sessions[position]
+        } else {
+            &mut self.sessions[0]
+        }
     }
 
-    pub(super) fn active_id(&self) -> SessionId {
-        self.active
+    pub(super) fn active_id(&self) -> SessionToken {
+        self.active_token
     }
 
-    pub(super) fn get_mut(&mut self, index: SessionId) -> Option<&mut Session> {
-        self.sessions.get_mut(index)
+    pub(super) fn active_position(&self) -> usize {
+        self.position_of_token(self.active_token).unwrap_or(0)
+    }
+
+    pub(super) fn get_mut(&mut self, token: SessionToken) -> Option<&mut Session> {
+        let position = self.position_of_token(token)?;
+        self.sessions.get_mut(position)
     }
 
     pub(super) fn iter(&self) -> impl Iterator<Item = &Session> {
@@ -216,13 +236,14 @@ impl SessionSet {
     pub(super) fn spawn(
         &mut self,
         grid: crate::core::Dimensions,
-    ) -> Result<SessionId, std::io::Error> {
+    ) -> Result<SessionToken, std::io::Error> {
         let Some(proxy) = self.proxy.clone() else {
             return Err(std::io::Error::other(
                 "session spawn unavailable without event loop proxy",
             ));
         };
-        let session_id = self.sessions.len();
+        let session_id = SessionToken(self.next_token);
+        self.next_token = self.next_token.saturating_add(1);
         let session = PtySession::spawn_default_shell(grid).map_err(std::io::Error::other)?;
         let reader = session.try_clone_reader().map_err(std::io::Error::other)?;
         let writer: PtyWriter = Arc::new(Mutex::new(
@@ -232,16 +253,29 @@ impl SessionSet {
         let pump_thread =
             spawn_pty_pump(reader, writer.clone(), terminal.clone(), proxy, session_id);
         let pty = Arc::new(Mutex::new(session));
-        self.sessions
-            .push(Session::new(terminal, writer, pty, Some(pump_thread)));
+        self.sessions.push(Session::new(
+            session_id,
+            terminal,
+            writer,
+            pty,
+            Some(pump_thread),
+        ));
         Ok(session_id)
     }
 
-    pub(super) fn switch(&mut self, index: SessionId) -> bool {
-        if index >= self.sessions.len() || index == self.active {
+    pub(super) fn token_at_position(&self, position: usize) -> Option<SessionToken> {
+        self.sessions.get(position).map(|session| session.id)
+    }
+
+    pub(super) fn position_of_token(&self, token: SessionToken) -> Option<usize> {
+        self.sessions.iter().position(|session| session.id == token)
+    }
+
+    pub(super) fn switch(&mut self, token: SessionToken) -> bool {
+        if self.position_of_token(token).is_none() || token == self.active_token {
             return false;
         }
-        self.active = index;
+        self.active_token = token;
         true
     }
 
@@ -249,7 +283,8 @@ impl SessionSet {
         if self.sessions.len() <= 1 {
             return false;
         }
-        self.active = (self.active + 1) % self.sessions.len();
+        let next_position = (self.active_position() + 1) % self.sessions.len();
+        self.active_token = self.sessions[next_position].id;
         true
     }
 
@@ -257,47 +292,49 @@ impl SessionSet {
         if self.sessions.len() <= 1 {
             return false;
         }
-        self.active = if self.active == 0 {
+        let active = self.active_position();
+        let previous_position = if active == 0 {
             self.sessions.len() - 1
         } else {
-            self.active - 1
+            active - 1
         };
+        self.active_token = self.sessions[previous_position].id;
         true
     }
 
-    pub(super) fn close(&mut self, index: SessionId) -> bool {
-        self.close_with(index, Session::close)
+    pub(super) fn close(&mut self, token: SessionToken) -> bool {
+        self.close_with(token, Session::close)
     }
 
-    pub(super) fn close_shell_exited(&mut self, index: SessionId) -> bool {
-        self.close_with(index, Session::close_after_shell_exit)
+    pub(super) fn close_shell_exited(&mut self, token: SessionToken) -> bool {
+        self.close_with(token, Session::close_after_shell_exit)
     }
 
     fn close_with(
         &mut self,
-        index: SessionId,
+        token: SessionToken,
         close_session: impl FnOnce(Session) -> bool,
     ) -> bool {
-        if index >= self.sessions.len() {
+        let Some(index) = self.position_of_token(token) else {
             return self.sessions.is_empty();
-        }
+        };
         let session = self.sessions.remove(index);
         let _ = close_session(session);
         if self.sessions.is_empty() {
-            self.active = 0;
+            self.active_token = token;
             return true;
         }
-        if self.active > index {
-            self.active -= 1;
-        } else if self.active >= self.sessions.len() {
-            self.active = self.sessions.len() - 1;
+        let next_position = index.min(self.sessions.len() - 1);
+        if self.active_token == token || self.position_of_token(self.active_token).is_none() {
+            self.active_token = self.sessions[next_position].id;
         }
         false
     }
 
     #[cfg(test)]
-    pub(in crate::native) fn push(&mut self, session: Session) -> SessionId {
-        let id = self.sessions.len();
+    pub(in crate::native) fn push(&mut self, session: Session) -> SessionToken {
+        let id = session.id;
+        self.next_token = self.next_token.max(id.0.saturating_add(1));
         self.sessions.push(session);
         id
     }
@@ -316,7 +353,7 @@ impl TabBarSource for SessionSet {
     }
 
     fn active_tab(&self) -> usize {
-        self.active
+        self.active_position()
     }
 }
 
@@ -339,13 +376,17 @@ mod tests {
     use super::*;
     use crate::core::Dimensions;
 
-    fn build_session() -> Session {
+    fn build_session_with_id(id: SessionToken) -> Session {
         let dims = Dimensions::new(20, 8);
         let pty = PtySession::spawn_shell_command(dims, "sleep 1").expect("spawn test shell");
         let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().expect("writer")));
         let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
         let pty = Arc::new(Mutex::new(pty));
-        Session::new(terminal, writer, pty, None)
+        Session::new(id, terminal, writer, pty, None)
+    }
+
+    fn build_session() -> Session {
+        build_session_with_id(SessionToken(0))
     }
 
     #[test]
@@ -357,27 +398,29 @@ mod tests {
     #[test]
     fn session_set_switches_wraps_and_closes() {
         let mut sessions = SessionSet::new(build_session(), None);
-        sessions.push(build_session());
-        sessions.push(build_session());
+        let second = SessionToken(1);
+        let third = SessionToken(2);
+        sessions.push(build_session_with_id(second));
+        sessions.push(build_session_with_id(third));
 
-        assert_eq!(sessions.active_id(), 0);
+        assert_eq!(sessions.active_id(), SessionToken(0));
         assert!(sessions.next());
-        assert_eq!(sessions.active_id(), 1);
+        assert_eq!(sessions.active_id(), second);
         assert!(sessions.prev());
-        assert_eq!(sessions.active_id(), 0);
-        assert!(sessions.switch(2));
-        assert_eq!(sessions.active_id(), 2);
+        assert_eq!(sessions.active_id(), SessionToken(0));
+        assert!(sessions.switch(third));
+        assert_eq!(sessions.active_id(), third);
 
-        let last = sessions.close(2);
+        let last = sessions.close(third);
         assert!(!last);
         assert_eq!(sessions.len(), 2);
-        assert_eq!(sessions.active_id(), 1);
+        assert_eq!(sessions.active_id(), second);
 
-        assert!(!sessions.close(1));
+        assert!(!sessions.close(second));
         assert_eq!(sessions.len(), 1);
-        assert_eq!(sessions.active_id(), 0);
+        assert_eq!(sessions.active_id(), SessionToken(0));
 
-        assert!(sessions.close(0));
+        assert!(sessions.close(SessionToken(0)));
         assert!(sessions.is_empty());
     }
 }

@@ -7,7 +7,7 @@ use crate::core::Terminal;
 
 use winit::event_loop::EventLoopProxy;
 
-use super::session::SessionId;
+use super::session::SessionToken;
 
 /// Events the PTY pump thread sends to wake the `winit` event loop.
 ///
@@ -17,9 +17,9 @@ use super::session::SessionId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum UserEvent {
     /// New PTY output landed in the shared terminal; rebuild + redraw.
-    Redraw { session: SessionId },
+    Redraw { session: SessionToken },
     /// The shell's PTY reached EOF (shell exited): exit the loop.
-    ShellExited { session: SessionId },
+    ShellExited { session: SessionToken },
 }
 
 /// The single PTY master writer, shared behind a lock.
@@ -63,7 +63,7 @@ pub(super) fn spawn_pty_pump(
     writer: PtyWriter,
     terminal: Arc<Mutex<Terminal>>,
     proxy: EventLoopProxy<UserEvent>,
-    session: SessionId,
+    session: SessionToken,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         let mut buffer = [0u8; 8192];

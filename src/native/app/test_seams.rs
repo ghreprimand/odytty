@@ -579,7 +579,22 @@ impl App {
 
     #[cfg(test)]
     pub(in crate::native) fn active_session_id_for_test(&self) -> usize {
+        self.sessions.active_position()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn active_session_token_for_test(
+        &self,
+    ) -> crate::native::session::SessionToken {
         self.sessions.active_id()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn session_token_at_position_for_test(
+        &self,
+        session: usize,
+    ) -> Option<crate::native::session::SessionToken> {
+        self.sessions.token_at_position(session)
     }
 
     #[cfg(test)]
@@ -594,13 +609,29 @@ impl App {
         writer: PtyWriter,
         pty: Arc<Mutex<PtySession>>,
     ) -> usize {
-        self.sessions
-            .push(Session::new(terminal, writer, pty, None))
+        let id = self.sessions.push(Session::new(
+            crate::native::session::SessionToken(
+                self.sessions
+                    .iter()
+                    .map(|session| session.id.0)
+                    .max()
+                    .unwrap_or(0)
+                    .saturating_add(1),
+            ),
+            terminal,
+            writer,
+            pty,
+            None,
+        ));
+        self.sessions.position_of_token(id).unwrap_or(0)
     }
 
     #[cfg(test)]
     pub(in crate::native) fn switch_to_session_for_test(&mut self, session: usize) -> bool {
-        if !self.sessions.switch(session) {
+        let Some(token) = self.sessions.token_at_position(session) else {
+            return false;
+        };
+        if !self.sessions.switch(token) {
             return false;
         }
         self.on_active_session_changed();
@@ -610,6 +641,11 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn close_active_tab_for_test(&mut self) -> bool {
         self.close_active_tab()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn close_all_sessions_for_test(&mut self) {
+        self.close_all_sessions();
     }
 
     #[cfg(test)]
@@ -631,7 +667,10 @@ impl App {
         session: usize,
         needs_rebuild: bool,
     ) {
-        if let Some(session) = self.sessions.get_mut(session) {
+        let Some(token) = self.sessions.token_at_position(session) else {
+            return;
+        };
+        if let Some(session) = self.sessions.get_mut(token) {
             session.needs_rebuild = needs_rebuild;
         }
     }
@@ -653,7 +692,10 @@ impl App {
         session: usize,
         bytes: &[u8],
     ) {
-        if let Some(session) = self.sessions.get_mut(session)
+        let Some(token) = self.sessions.token_at_position(session) else {
+            return;
+        };
+        if let Some(session) = self.sessions.get_mut(token)
             && let Ok(mut terminal) = session.terminal.lock()
         {
             terminal.advance(bytes);

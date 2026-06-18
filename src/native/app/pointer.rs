@@ -43,13 +43,19 @@ impl App {
         if self.should_show_tab_bar() {
             match (button, state, self.current_tab_bar_hit()) {
                 (WinitMouseButton::Left, ElementState::Pressed, Some(TabHit::Switch(idx))) => {
-                    if self.sessions.switch(idx) {
+                    let Some(token) = self.sessions.token_at_position(idx) else {
+                        return;
+                    };
+                    if self.sessions.switch(token) {
                         self.on_active_session_changed();
                     }
                     return;
                 }
                 (WinitMouseButton::Left, ElementState::Pressed, Some(TabHit::Close(idx))) => {
-                    let is_last = self.sessions.close(idx);
+                    let Some(token) = self.sessions.token_at_position(idx) else {
+                        return;
+                    };
+                    let is_last = self.sessions.close(token);
                     if is_last {
                         self.pending_exit = true;
                     } else {

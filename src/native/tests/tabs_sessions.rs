@@ -162,7 +162,10 @@ fn shell_exit_for_non_last_session_does_not_exit_app() {
         return;
     };
 
-    let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session: 1 });
+    let session = app
+        .session_token_at_position_for_test(1)
+        .expect("session token");
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session });
 
     assert!(!should_exit);
     assert_eq!(app.session_count_for_test(), 1);
@@ -286,7 +289,10 @@ fn shell_exit_for_last_session_requests_app_exit() {
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
 
-    let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session: 0 });
+    let session = app
+        .session_token_at_position_for_test(0)
+        .expect("session token");
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session });
 
     assert!(should_exit);
     assert_eq!(app.session_count_for_test(), 0);
@@ -335,10 +341,117 @@ fn redraw_for_non_active_session_only_marks_that_session_dirty() {
     app.set_session_needs_rebuild_for_test(0, false);
     app.set_session_needs_rebuild_for_test(1, false);
 
-    let should_exit = app.dispatch_user_event_for_test(UserEvent::Redraw { session: 1 });
+    let session = app
+        .session_token_at_position_for_test(1)
+        .expect("session token");
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::Redraw { session });
 
     assert!(!should_exit);
     assert_eq!(app.active_session_id_for_test(), 0);
     assert_eq!(app.session_needs_rebuild_for_test(0), Some(false));
     assert_eq!(app.session_needs_rebuild_for_test(1), Some(true));
+}
+
+#[test]
+fn stale_shell_exit_for_closed_first_tab_is_a_no_op() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    let removed = app
+        .session_token_at_position_for_test(0)
+        .expect("removed token");
+
+    assert!(!app.close_active_tab_for_test());
+    assert_eq!(app.session_count_for_test(), 1);
+
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session: removed });
+
+    assert!(!should_exit);
+    assert_eq!(app.session_count_for_test(), 1);
+    assert_eq!(app.active_session_id_for_test(), 0);
+    assert!(!app.pending_exit_for_test());
+}
+
+#[test]
+fn closing_middle_tab_preserves_remaining_session_tokens_and_active_session() {
+    let options = NativeOptions::default();
+    let dims = options.initial_grid;
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_c, writer_c, pty_c, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    let mut app = App::new(
+        options,
+        terminal_a,
+        writer_a,
+        pty_a,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.push_session_for_test(terminal_b, writer_b, pty_b);
+    app.push_session_for_test(terminal_c, writer_c, pty_c);
+
+    let first = app
+        .session_token_at_position_for_test(0)
+        .expect("first token");
+    let middle = app
+        .session_token_at_position_for_test(1)
+        .expect("middle token");
+    let last = app
+        .session_token_at_position_for_test(2)
+        .expect("last token");
+
+    assert!(app.switch_to_session_for_test(2));
+    assert_eq!(app.active_session_token_for_test(), last);
+
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session: middle });
+
+    assert!(!should_exit);
+    assert_eq!(app.session_count_for_test(), 2);
+    assert_eq!(app.session_token_at_position_for_test(0), Some(first));
+    assert_eq!(app.session_token_at_position_for_test(1), Some(last));
+    assert_eq!(app.active_session_token_for_test(), last);
+}
+
+#[test]
+fn token_position_round_trip_holds_after_switches() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    assert!(app.switch_to_session_for_test(1));
+    let first = app
+        .session_token_at_position_for_test(0)
+        .expect("first token");
+    let second = app
+        .session_token_at_position_for_test(1)
+        .expect("second token");
+
+    assert_ne!(first, second);
+    assert_eq!(app.session_token_at_position_for_test(0), Some(first));
+    assert_eq!(app.session_token_at_position_for_test(1), Some(second));
+}
+
+#[test]
+fn close_all_sessions_empties_and_terminates() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    app.close_all_sessions_for_test();
+
+    assert_eq!(app.session_count_for_test(), 0);
 }
