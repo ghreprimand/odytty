@@ -934,14 +934,14 @@ feature validates against.
       source packaging, and default-terminal limitations.
 - [x] Add OdyTTY icon assets and install them under the hicolor icon theme.
 - [x] Add AppStream metainfo once the icon and release metadata are stable.
-- [ ] Add `odytty -e command args...` plus `--working-directory` and `--title`
+- [x] Add `odytty -e command args...` plus `--working-directory` and `--title`
       so OdyTTY can advertise `X-TerminalArgExec` and work with
       `xdg-terminal-exec`/default-terminal integrations.
 - [ ] Decide whether to keep `TERM=xterm-256color` for compatibility or ship an
       OdyTTY-specific terminfo entry before changing `TERM`.
 - [x] Document GitHub Release/tag/checksum expectations and Odyssey-Mon
       upstream tracking.
-- [x] Cut a `v0.1.2` source release with checksums and an Odyssey PKGBUILD.
+- [x] Cut a `v0.1.3` source release with checksums and an Odyssey PKGBUILD.
 - [ ] Evaluate an AppImage artifact after the source package and desktop
       integration are proven.
 

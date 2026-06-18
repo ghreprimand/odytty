@@ -11,6 +11,9 @@ Categories=System;TerminalEmulator;
 Keywords=terminal;tty;pty;shell;
 StartupNotify=true
 Terminal=false
+X-TerminalArgExec=-e
+X-TerminalArgDir=--working-directory=
+X-TerminalArgTitle=--title=
 Actions=new-window;
 
 [Desktop Action new-window]

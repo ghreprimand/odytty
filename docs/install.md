@@ -2,7 +2,7 @@
 
 OdyTTY is pre-release. The current recommended release shape is:
 
-- `v0.1.2` git tag and source tarball;
+- `v0.1.3` git tag and source tarball;
 - GitHub Release entry with checksums for release artifacts;
 - source-build instructions for Odyssey/LFS and other developer systems;
 - a desktop entry, AppStream metadata, and icon installed into Freedesktop
@@ -38,6 +38,14 @@ Check the installed version:
 
 ```sh
 odytty --version
+```
+
+Run a command directly inside OdyTTY:
+
+```sh
+odytty -e btop
+odytty --working-directory /tmp -e sh -lc 'pwd; exec "$SHELL"'
+odytty --title Monitor -e btop
 ```
 
 ## User-Local Install
@@ -86,7 +94,7 @@ installing each release under a versioned directory and pointing
 `~/.local/bin/odytty` at the selected version:
 
 ```sh
-version=0.1.2
+version=0.1.3
 cargo build --release --locked
 install -Dm755 target/release/odytty \
   "$HOME/.local/opt/odytty/$version/bin/odytty"
@@ -109,8 +117,8 @@ To roll back, repoint the symlink to an older directory under
 ## Odyssey/LFS Versioned Install
 
 Odyssey source builds are versioned by pacman, not by leaving build products in
-the source tree. A release tag such as `v0.1.2` should be archived into
-`/sources/odytty-0.1.2.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
+the source tree. A release tag such as `v0.1.3` should be archived into
+`/sources/odytty-0.1.3.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
 with `odyssey-build`.
 
 Example PKGBUILD:
@@ -118,7 +126,7 @@ Example PKGBUILD:
 ```bash
 # Maintainer: Joel <joel@odyssey>
 pkgname=odytty
-pkgver=0.1.2
+pkgver=0.1.3
 pkgrel=1
 pkgdesc="GPU-rendered Rust terminal emulator with an Odyssey visual identity"
 arch=('x86_64')
@@ -180,6 +188,9 @@ application in the `System` and `TerminalEmulator` categories:
 Exec=odytty
 Terminal=false
 Categories=System;TerminalEmulator;
+X-TerminalArgExec=-e
+X-TerminalArgDir=--working-directory=
+X-TerminalArgTitle=--title=
 ```
 
 The entry uses the OdyTTY icon name. Packages should install the SVG and PNG
@@ -246,8 +257,7 @@ preference file such as:
 $HOME/.config/xdg-terminals.list
 ```
 
-After OdyTTY supports command execution arguments such as `-e`, the desktop
-entry should grow:
+The desktop entry advertises OdyTTY's command execution arguments:
 
 ```ini
 X-TerminalArgExec=-e
@@ -261,15 +271,10 @@ Then a user can prefer OdyTTY with:
 printf 'io.unfinished_works.odytty.desktop\n' > "$HOME/.config/xdg-terminals.list"
 ```
 
-Current limitation: OdyTTY does not yet support `odytty -e command args...`, so
-it should not advertise `X-TerminalArgExec` as a fully compatible default
-terminal yet.
-
 ### Debian-Style `x-terminal-emulator`
 
 Debian-family systems often use `update-alternatives` for
-`x-terminal-emulator`. Once OdyTTY supports `-e` command execution, a package
-can register it as an alternative:
+`x-terminal-emulator`. A package can register OdyTTY as an alternative:
 
 ```sh
 sudo update-alternatives --install \
@@ -284,7 +289,7 @@ the distribution or local system owner installs it.
 
 For an upstream release that avoids maintaining many distro-specific packages:
 
-- publish `v0.1.2` source tarballs with checksums/signatures;
+- publish `v0.1.3` source tarballs with checksums/signatures;
 - create a GitHub Release for the tag so package monitors can track upstream
   versions;
 - include `dist/linux/io.unfinished_works.odytty.desktop`;

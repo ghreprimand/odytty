@@ -2,7 +2,7 @@
 use anyhow::Result;
 use odytty::app::run_interactive;
 use odytty::core::Terminal;
-use odytty::native::{NativeOptions, run_native};
+use odytty::native::run_native;
 use odytty::pty::PtySession;
 use odytty::settings::Settings;
 
@@ -39,11 +39,13 @@ fn main() -> Result<()> {
         return run_interactive();
     }
 
-    if args.is_empty() || args.first().map(String::as_str) == Some("--native") {
+    let settings = Settings::from_env();
+    if let Some(options) =
+        cli::native_options_for_args(&args, &settings).map_err(|err| anyhow::anyhow!(err))?
+    {
         // Opens a real native window and runs the event loop until the window is
         // closed, with runtime settings loaded once for the native session.
-        let settings = Settings::from_env();
-        run_native(NativeOptions::from_settings(&settings), settings)?;
+        run_native(options, settings)?;
         return Ok(());
     }
 
@@ -53,7 +55,7 @@ fn main() -> Result<()> {
 
     eprintln!("unknown argument: {}", args[0]);
     eprintln!(
-        "usage: odytty [--native|--version|--list-themes|--list-fonts|--show-config|--core-smoke]"
+        "usage: odytty [--native] [--title TITLE] [--working-directory DIR] [-e COMMAND [ARGS...]]"
     );
     std::process::exit(2);
 }
@@ -66,6 +68,10 @@ fn print_usage() {
     println!();
     println!("Options:");
     println!("  --native        launch the native terminal");
+    println!("  -e COMMAND...   execute a command instead of the user's shell");
+    println!("  --working-directory DIR");
+    println!("                  set the initial working directory");
+    println!("  --title TITLE   set the initial window title");
     println!("  --version       print the OdyTTY version and exit");
     println!("  --list-themes   list built-in themes and exit");
     println!("  --list-fonts    list discoverable monospace fonts and exit");

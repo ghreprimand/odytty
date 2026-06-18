@@ -89,7 +89,7 @@ use crate::text;
 
 use winit::event_loop::{ControlFlow, EventLoop};
 
-pub use options::{NativeError, NativeOptions};
+pub use options::{NativeCommand, NativeError, NativeOptions};
 pub(crate) use viewport::WindowPadding;
 
 use app::App;
@@ -154,8 +154,17 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     let terminal = Arc::new(Mutex::new(model));
 
     // Spawn the shell PTY and start pumping its output into the shared terminal.
-    let session = PtySession::spawn_default_shell(options.initial_grid)
-        .map_err(|err| NativeError::Pty(err.to_string()))?;
+    let session = if let Some(command) = &options.command {
+        PtySession::spawn_exec(
+            options.initial_grid,
+            command.program.clone(),
+            command.args.clone(),
+            options.working_directory.clone(),
+        )
+    } else {
+        PtySession::spawn_default_shell_in(options.initial_grid, options.working_directory.clone())
+    }
+    .map_err(|err| NativeError::Pty(err.to_string()))?;
     let reader = session
         .try_clone_reader()
         .map_err(|err| NativeError::Pty(err.to_string()))?;

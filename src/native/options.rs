@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use crate::atlas::SubpixelMode;
@@ -35,6 +36,13 @@ pub enum NativeError {
     Pty(String),
 }
 
+/// Command to execute as the initial PTY child instead of the user's shell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeCommand {
+    pub program: OsString,
+    pub args: Vec<OsString>,
+}
+
 /// Initial native window and text assumptions.
 ///
 /// These are the documented starting defaults for the Linux-first prototype.
@@ -44,6 +52,10 @@ pub enum NativeError {
 pub struct NativeOptions {
     /// Window title.
     pub title: String,
+    /// Directory used for the initial shell/command.
+    pub working_directory: Option<PathBuf>,
+    /// Optional command to exec as the initial PTY child.
+    pub command: Option<NativeCommand>,
     /// Initial terminal grid size in columns/rows.
     pub initial_grid: Dimensions,
     /// Monospace font family request. Defaults to bundled JetBrains Mono unless
@@ -81,6 +93,8 @@ impl Default for NativeOptions {
     fn default() -> Self {
         Self {
             title: "OdyTTY".to_owned(),
+            working_directory: None,
+            command: None,
             initial_grid: Dimensions::new(80, 24),
             font_family: crate::text::BUNDLED_FONT_FAMILY.to_owned(),
             font_weight: String::new(),

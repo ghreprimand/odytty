@@ -1186,6 +1186,8 @@ impl App {
         let parsed = NativeOptions::from_settings(settings);
         NativeOptions {
             title: self.options.title.clone(),
+            working_directory: self.options.working_directory.clone(),
+            command: self.options.command.clone(),
             initial_grid: self.options.initial_grid,
             font_family: parsed.font_family,
             font_weight: parsed.font_weight,

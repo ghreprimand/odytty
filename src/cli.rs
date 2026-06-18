@@ -4,11 +4,13 @@
 //! These commands print stable, script-friendly snapshots and exit before the
 //! native window or PTY paths start.
 
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use odytty::atlas::SubpixelMode;
 use odytty::core::CursorStyle;
+use odytty::native::{NativeCommand, NativeOptions};
 use odytty::settings::{
     BindableAction, KeyBindingKey, KeyBindingNamedKey, KeyBindingOverride, KeyChord, Settings,
 };
@@ -23,6 +25,86 @@ pub fn output_for_args(args: &[String]) -> Option<String> {
         Some("--show-config") => Some(show_config_output(&Settings::from_env())),
         _ => None,
     }
+}
+
+/// Parse arguments that launch the native terminal.
+///
+/// `-e` consumes the rest of the command line as the command argv, matching the
+/// convention used by terminal-emulator desktop integration. Options after
+/// `-e` are passed to the child command unchanged.
+pub fn native_options_for_args(
+    args: &[String],
+    settings: &Settings,
+) -> Result<Option<NativeOptions>, String> {
+    let mut options = NativeOptions::from_settings(settings);
+    let mut launch_native = args.is_empty();
+    let mut index = 0;
+
+    while index < args.len() {
+        let arg = &args[index];
+        match arg.as_str() {
+            "--native" => {
+                launch_native = true;
+                index += 1;
+            }
+            "--title" => {
+                index += 1;
+                let title = args
+                    .get(index)
+                    .ok_or_else(|| "--title requires a value".to_owned())?;
+                options.title = title.clone();
+                launch_native = true;
+                index += 1;
+            }
+            "--working-directory" | "--working-dir" => {
+                index += 1;
+                let path = args
+                    .get(index)
+                    .ok_or_else(|| format!("{arg} requires a value"))?;
+                options.working_directory = Some(PathBuf::from(path));
+                launch_native = true;
+                index += 1;
+            }
+            "-e" | "--execute" => {
+                let command = command_from_rest(&args[index + 1..])?;
+                options.command = Some(command);
+                return Ok(Some(options));
+            }
+            "--" => {
+                let command = command_from_rest(&args[index + 1..])?;
+                options.command = Some(command);
+                return Ok(Some(options));
+            }
+            _ if let Some(title) = arg.strip_prefix("--title=") => {
+                options.title = title.to_owned();
+                launch_native = true;
+                index += 1;
+            }
+            _ if let Some(path) = arg.strip_prefix("--working-directory=") => {
+                options.working_directory = Some(PathBuf::from(path));
+                launch_native = true;
+                index += 1;
+            }
+            _ if let Some(path) = arg.strip_prefix("--working-dir=") => {
+                options.working_directory = Some(PathBuf::from(path));
+                launch_native = true;
+                index += 1;
+            }
+            _ => return Ok(None),
+        }
+    }
+
+    Ok(launch_native.then_some(options))
+}
+
+fn command_from_rest(rest: &[String]) -> Result<NativeCommand, String> {
+    let program = rest
+        .first()
+        .ok_or_else(|| "-e requires a command".to_owned())?;
+    Ok(NativeCommand {
+        program: OsString::from(program),
+        args: rest[1..].iter().map(OsString::from).collect(),
+    })
 }
 
 /// Machine-friendly system font inventory.
@@ -272,5 +354,54 @@ fn action_value(action: BindableAction) -> &'static str {
         BindableAction::NextTab => "next-tab",
         BindableAction::PrevTab => "prev-tab",
         BindableAction::CloseTab => "close-tab",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|arg| (*arg).to_owned()).collect()
+    }
+
+    #[test]
+    fn native_parse_exec_consumes_rest_as_child_argv() {
+        let options = native_options_for_args(
+            &strings(&[
+                "--title",
+                "Monitor",
+                "--working-directory",
+                "/tmp",
+                "-e",
+                "btop",
+                "--utf-force",
+            ]),
+            &Settings::default(),
+        )
+        .expect("parse")
+        .expect("native options");
+
+        assert_eq!(options.title, "Monitor");
+        assert_eq!(options.working_directory, Some(PathBuf::from("/tmp")));
+        let command = options.command.expect("command");
+        assert_eq!(command.program, OsString::from("btop"));
+        assert_eq!(command.args, vec![OsString::from("--utf-force")]);
+    }
+
+    #[test]
+    fn native_parse_rejects_empty_exec() {
+        let err = native_options_for_args(&strings(&["-e"]), &Settings::default())
+            .expect_err("empty -e should fail");
+        assert_eq!(err, "-e requires a command");
+    }
+
+    #[test]
+    fn native_parse_unknown_argument_is_not_native() {
+        assert!(
+            native_options_for_args(&strings(&["--bogus"]), &Settings::default())
+                .expect("parse")
+                .is_none()
+        );
     }
 }

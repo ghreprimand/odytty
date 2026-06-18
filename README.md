@@ -24,8 +24,7 @@ OdyTTY is in active development. It is already a broad prototype: a native
 window opens real local shells, supports multiple sessions with a tab bar,
 renders text and inline graphics on the GPU, and has a substantial compatibility
 and smoke-test suite. It is still Linux-first and pre-release; official release
-artifacts, cross-platform support, panes/profiles, and release builds are not
-done.
+binary artifacts, cross-platform support, panes, and profiles are not done.
 
 ## Highlights
 
@@ -67,7 +66,7 @@ For the current source release, install OdyTTY for the current user.
 Download and verify the release archive:
 
 ```sh
-version=0.1.2
+version=0.1.3
 workdir=$(mktemp -d /tmp/odytty-install.XXXXXX)
 cd "$workdir"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
@@ -109,6 +108,14 @@ application:
 
 ```sh
 odytty
+```
+
+Run a command directly inside OdyTTY:
+
+```sh
+odytty -e btop
+odytty --working-directory /tmp -e sh -lc 'pwd; exec "$SHELL"'
+odytty --title Monitor -e btop
 ```
 
 Useful launch examples:

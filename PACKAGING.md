@@ -1,7 +1,7 @@
 # Packaging OdyTTY
 
 OdyTTY is pre-release. The first Linux release target is a versioned source
-release (`v0.1.2`) plus desktop integration files that downstream packages can
+release (`v0.1.3`) plus desktop integration files that downstream packages can
 install in normal XDG locations.
 
 This file describes the packaging surface for the source tree it ships with.
@@ -24,7 +24,7 @@ Packages should install:
 The desktop entry uses `Icon=io.unfinished_works.odytty`, so the hicolor icon
 theme assets need to be installed with that basename.
 
-The AppStream metadata is intentionally small for `v0.1.2`: it gives software
+The AppStream metadata is intentionally small for `v0.1.3`: it gives software
 centers and inventory tools a stable component id, homepage, bug tracker,
 license, summary, and release version.
 
@@ -45,8 +45,16 @@ The installed binary should be launched as:
 odytty
 ```
 
-`odytty --native` remains accepted as a compatibility alias. Introspection
-commands that print and exit without opening a window are:
+`odytty --native` remains accepted as a compatibility alias. Command launchers
+can run a program directly in the initial PTY:
+
+```sh
+odytty -e btop
+odytty --working-directory /tmp -e sh -lc 'pwd; exec "$SHELL"'
+odytty --title Monitor -e btop
+```
+
+Introspection commands that print and exit without opening a window are:
 
 ```sh
 odytty --list-themes
@@ -85,10 +93,14 @@ See [`docs/release.md`](docs/release.md) for the release artifact checklist.
 
 ## Default-Terminal Integration
 
-OdyTTY should not yet advertise `X-TerminalArgExec` because `odytty -e command
-args...` is not implemented. After `-e`, `--working-directory`, and `--title`
-land, the desktop entry can grow the relevant `X-TerminalArg*` keys for
-`xdg-terminal-exec`-style integrations.
+OdyTTY's desktop entry advertises the relevant terminal execution keys for
+`xdg-terminal-exec`-style integrations:
+
+```ini
+X-TerminalArgExec=-e
+X-TerminalArgDir=--working-directory=
+X-TerminalArgTitle=--title=
+```
 
 Do not silently set OdyTTY as the user's default terminal in package install
 scripts. Register it as an available terminal where the target distribution has
@@ -98,7 +110,7 @@ a standard mechanism, then let the user choose it.
 
 On Odyssey, package OdyTTY as a normal source-build PKGBUILD in `~/pkgbuilds`
 and build it with `odyssey-build`. That makes pacman own `/usr/bin/odytty` and
-the desktop entry, giving a versioned install such as `odytty 0.1.2-1`.
+the desktop entry, giving a versioned install such as `odytty 0.1.3-1`.
 
 See [`docs/install.md`](docs/install.md) for a concrete Odyssey PKGBUILD
 example and default-terminal notes.

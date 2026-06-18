@@ -5,6 +5,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 
 use anyhow::{Context, Result, bail};
@@ -58,6 +59,7 @@ pub struct CommandBuilder {
     program: OsString,
     args: Vec<OsString>,
     env: Vec<(OsString, OsString)>,
+    current_dir: Option<PathBuf>,
 }
 
 impl CommandBuilder {
@@ -66,6 +68,7 @@ impl CommandBuilder {
             program: program.into(),
             args: Vec::new(),
             env: Vec::new(),
+            current_dir: None,
         }
     }
 
@@ -79,9 +82,17 @@ impl CommandBuilder {
         self
     }
 
+    pub fn current_dir(&mut self, path: impl Into<PathBuf>) -> &mut Self {
+        self.current_dir = Some(path.into());
+        self
+    }
+
     fn into_command(self) -> Command {
         let mut command = Command::new(self.program);
         command.args(self.args);
+        if let Some(path) = self.current_dir {
+            command.current_dir(path);
+        }
         for (key, value) in self.env {
             command.env(key, value);
         }
@@ -96,9 +107,19 @@ pub struct PtySession {
 
 impl PtySession {
     pub fn spawn_default_shell(dimensions: Dimensions) -> Result<Self> {
+        Self::spawn_default_shell_in(dimensions, None)
+    }
+
+    pub fn spawn_default_shell_in(
+        dimensions: Dimensions,
+        working_directory: Option<PathBuf>,
+    ) -> Result<Self> {
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
         let mut command = CommandBuilder::new(shell);
         command.env("TERM", "xterm-256color");
+        if let Some(path) = working_directory {
+            command.current_dir(path);
+        }
         Self::spawn_command(dimensions, command)
     }
 
@@ -110,6 +131,23 @@ impl PtySession {
         command_builder.env("TERM", "xterm-256color");
 
         Self::spawn_command(dimensions, command_builder)
+    }
+
+    pub fn spawn_exec(
+        dimensions: Dimensions,
+        program: OsString,
+        args: Vec<OsString>,
+        working_directory: Option<PathBuf>,
+    ) -> Result<Self> {
+        let mut command = CommandBuilder::new(program);
+        for arg in args {
+            command.arg(arg);
+        }
+        command.env("TERM", "xterm-256color");
+        if let Some(path) = working_directory {
+            command.current_dir(path);
+        }
+        Self::spawn_command(dimensions, command)
     }
 
     pub fn spawn_command(dimensions: Dimensions, command: CommandBuilder) -> Result<Self> {
