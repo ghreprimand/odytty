@@ -89,9 +89,17 @@ ODYTTY_RETRO=on cargo run --release
 CLI introspection commands print and exit without opening a window:
 
 ```sh
-cargo run -- --list-themes
-cargo run -- --list-fonts
-cargo run -- --show-config
+odytty --list-themes
+odytty --list-fonts
+odytty --show-config
+```
+
+From the source tree, pass OdyTTY flags after Cargo's `--` separator:
+
+```sh
+cargo run --release -- --list-themes
+cargo run --release -- --list-fonts
+cargo run --release -- --show-config
 ```
 
 `--list-themes` prints the 100 built-in themes as stable
