@@ -159,9 +159,11 @@ impl App {
             return false;
         };
 
-        let cursor_on =
-            self.cursor_blink
-                .poll(now, self.last_presented_cursor_blinking, self.focused);
+        let last_presented_cursor_blinking = self.last_presented_cursor_blinking;
+        let focused = self.focused;
+        let cursor_on = self
+            .cursor_blink
+            .poll(now, last_presented_cursor_blinking, focused);
         // Easing keeps the cursor visible through the blink off-phase (the
         // precomputed alpha carries the fade); the hard-hide applies only when
         // easing is off, matching the main rebuild path so the two stay in sync.
@@ -184,12 +186,13 @@ impl App {
             },
         };
         let update = RenderSignature::update_from(self.last_render_signature.as_ref(), &signature);
+        let last_presented_cursor_style = self.last_presented_cursor_style;
         if let Some(gpu) = self.gpu.as_mut() {
             match update {
                 GeometryUpdate::Full | GeometryUpdate::CursorOnly => {
                     gpu.update_cursor_and_overlays(
                         &snapshot,
-                        self.last_presented_cursor_style,
+                        last_presented_cursor_style,
                         &[],
                         params,
                     );

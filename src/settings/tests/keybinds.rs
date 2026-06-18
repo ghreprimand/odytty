@@ -145,6 +145,10 @@ fn bindable_action_names_round_trip_through_parse() {
         CopyMode,
         Hints,
         ClearInput,
+        NewTab,
+        NextTab,
+        PrevTab,
+        CloseTab,
     ] {
         assert_eq!(
             BindableAction::parse(bindable_action_name(action)),

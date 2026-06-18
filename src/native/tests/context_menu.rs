@@ -8,7 +8,18 @@
 //! by the compiler; the per-item gating/focus logic is unit-tested in
 //! `context_menu_ui`.
 
+use super::super::context_menu_ui::{
+    CONTEXT_MENU_BODY_ROWS, CONTEXT_MENU_SECOND_SEPARATOR_ROW, CONTEXT_MENU_SEPARATOR_ROW,
+    ContextMenuRow, ContextMenuUi,
+};
+use super::super::pty::UserEvent;
+use super::super::session::{Session, SessionSet};
 use super::*;
+use winit::event_loop::EventLoop;
+#[cfg(target_os = "linux")]
+use winit::platform::wayland::EventLoopBuilderExtWayland;
+#[cfg(target_os = "linux")]
+use winit::platform::x11::EventLoopBuilderExtX11;
 
 fn app_for_test() -> Option<(App, Arc<Mutex<Terminal>>)> {
     let dims = Dimensions::new(80, 24);
@@ -25,6 +36,30 @@ fn app_for_test() -> Option<(App, Arc<Mutex<Terminal>>)> {
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
     Some((app, terminal))
+}
+
+fn app_for_test_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
+    let dims = Dimensions::new(80, 24);
+    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
+    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let pty = Arc::new(Mutex::new(session));
+    let mut builder = EventLoop::<UserEvent>::with_user_event();
+    #[cfg(target_os = "linux")]
+    {
+        EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
+        EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
+    }
+    let event_loop = builder.build().ok()?;
+    let proxy = event_loop.create_proxy();
+    let sessions = SessionSet::new(Session::new(terminal, writer, pty, None), Some(proxy));
+    let app = App::new_with_sessions(
+        NativeOptions::default(),
+        sessions,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    Some((app, event_loop))
 }
 
 #[derive(Clone, Default)]
@@ -68,6 +103,47 @@ fn enable_tui_mouse_reporting(terminal: &Arc<Mutex<Terminal>>) {
     let mut t = terminal.lock().expect("terminal");
     // DECSET 1000 + SGR 1006 — the mode where a no-overlay press reports to PTY.
     t.advance(b"\x1b[?1000h\x1b[?1006h");
+}
+
+#[test]
+fn context_menu_rows_include_tab_items_and_two_separators() {
+    let mut menu = ContextMenuUi::new();
+    menu.open(CellPoint { row: 5, column: 10 }, false, false, false, false);
+
+    let rows = menu.rows();
+    assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS);
+    assert!(matches!(
+        rows[CONTEXT_MENU_SEPARATOR_ROW],
+        ContextMenuRow::Separator
+    ));
+    assert!(matches!(
+        rows[CONTEXT_MENU_SECOND_SEPARATOR_ROW],
+        ContextMenuRow::Separator
+    ));
+    assert!(matches!(
+        rows[6],
+        ContextMenuRow::Item {
+            label: "New Tab",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[7],
+        ContextMenuRow::Item {
+            label: "Close Tab",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[9],
+        ContextMenuRow::Item {
+            label: "Settings",
+            enabled: true,
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -420,9 +496,62 @@ fn clicking_outside_the_menu_dismisses_it() {
     );
 }
 
+#[test]
+fn clicking_new_tab_spawns_session_and_closes_menu() {
+    let Some((mut app, _event_loop)) = app_for_test_with_proxy() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    assert_eq!(app.session_count_for_test(), 1);
+    app.set_pointer_cell_for_test(5, 10);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+    assert!(app.context_menu_open_for_test());
+
+    // Body row 6 = New Tab => grid row 12.
+    app.set_pointer_cell_for_test(12, 12);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+
+    assert!(!app.context_menu_open_for_test());
+    assert_eq!(app.session_count_for_test(), 2);
+    assert_eq!(app.active_session_id_for_test(), 1);
+}
+
+#[test]
+fn clicking_close_tab_closes_active_session_and_keeps_neighbor_active() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let dims = Dimensions::new(80, 24);
+    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok();
+    let Some(session) = session else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().expect("writer")));
+    let terminal2 = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let pty2 = Arc::new(Mutex::new(session));
+    app.push_session_for_test(terminal2, writer, pty2);
+    assert!(app.switch_to_session_for_test(1));
+    assert_eq!(app.session_count_for_test(), 2);
+    assert_eq!(app.active_session_id_for_test(), 1);
+
+    app.set_pointer_cell_for_test(5, 10);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+    assert!(app.context_menu_open_for_test());
+
+    // Body row 7 = Close Tab => grid row 13.
+    app.set_pointer_cell_for_test(13, 12);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+
+    assert!(!app.context_menu_open_for_test());
+    assert_eq!(app.session_count_for_test(), 1);
+    assert_eq!(app.active_session_id_for_test(), 0);
+}
+
 /// D-IN2-SETTINGS: clicking the Settings item closes the context menu and
 /// opens the settings panel. Settings is at the bottom of the menu, below
-/// the separator. The item is always enabled.
+/// the second separator. The item is always enabled.
 ///
 /// Menu spawned at (5, 10):
 ///   top = 5, body_top = 6
@@ -431,7 +560,10 @@ fn clicking_outside_the_menu_dismisses_it() {
 ///   ...
 ///   Body row 4 = SelectAll → grid row 10
 ///   Body row 5 = Separator → grid row 11
-///   Body row 6 = Settings  → grid row 12
+///   Body row 6 = New Tab   → grid row 12
+///   Body row 7 = Close Tab → grid row 13
+///   Body row 8 = Separator → grid row 14
+///   Body row 9 = Settings  → grid row 15
 #[test]
 fn clicking_settings_opens_settings_panel_and_closes_menu() {
     let Some((mut app, _terminal)) = app_for_test() else {
@@ -445,8 +577,8 @@ fn clicking_settings_opens_settings_panel_and_closes_menu() {
         "right-click opens the context menu"
     );
 
-    // Click the Settings item (body row 6, grid row 12).
-    app.set_pointer_cell_for_test(12, 12);
+    // Click the Settings item (body row 9, grid row 15).
+    app.set_pointer_cell_for_test(15, 12);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 
     assert!(
@@ -460,11 +592,11 @@ fn clicking_settings_opens_settings_panel_and_closes_menu() {
     );
 }
 
-/// D-IN2-SETTINGS: clicking the separator row between Select All and Settings
-/// is inert — the separator is inside the rect so the press is consumed and the
-/// menu stays open; no action is taken.
+/// D-IN2-SETTINGS: clicking either separator row is inert — the separator is
+/// inside the rect so the press is consumed and the menu stays open; no action
+/// is taken.
 #[test]
-fn clicking_separator_row_is_inert() {
+fn clicking_separator_rows_is_inert() {
     let Some((mut app, _terminal)) = app_for_test() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -473,19 +605,31 @@ fn clicking_separator_row_is_inert() {
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
 
-    // Click the separator (body row 5, grid row 11). The separator is inside
-    // the menu rect, so the press is Consumed and the menu stays open.
+    // Click the first separator (body row 5, grid row 11).
     app.set_pointer_cell_for_test(11, 12);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 
-    // Separator press is Consumed — context menu stays open.
     assert!(
         app.context_menu_open_for_test(),
-        "separator click is inert: context menu stays open"
+        "first separator click is inert: context menu stays open"
     );
     assert_ne!(
         app.overlay_signature_for_test().mode,
         OverlayMode::Settings,
-        "separator click must not open the settings panel"
+        "first separator click must not open the settings panel"
+    );
+
+    // Click the second separator (body row 8, grid row 14).
+    app.set_pointer_cell_for_test(14, 12);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+
+    assert!(
+        app.context_menu_open_for_test(),
+        "second separator click is inert: context menu stays open"
+    );
+    assert_ne!(
+        app.overlay_signature_for_test().mode,
+        OverlayMode::Settings,
+        "second separator click must not open the settings panel"
     );
 }

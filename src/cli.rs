@@ -268,5 +268,9 @@ fn action_value(action: BindableAction) -> &'static str {
         BindableAction::CopyMode => "copy-mode",
         BindableAction::Hints => "hints",
         BindableAction::ClearInput => "clear-input",
+        BindableAction::NewTab => "new-tab",
+        BindableAction::NextTab => "next-tab",
+        BindableAction::PrevTab => "prev-tab",
+        BindableAction::CloseTab => "close-tab",
     }
 }

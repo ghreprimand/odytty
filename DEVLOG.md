@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Multi-session foundation and tab bar
+
+The native app now runs on a multi-session model instead of a single hardcoded shell. Per-session state (terminal model, PTY, scrollback, selection, viewport, search, cursor and scroll animation, synchronized-output hold, rebuild flags) lives in a new `Session`/`SessionSet` in `src/native/session.rs`; the pump thread and `UserEvent` carry a session id so each shell's output routes to its own terminal. The `App` derefs to the active session and routes keyboard, pointer, paste, and resize to it. Resize is applied to all sessions so background tabs track window size; only the active tab triggers a GPU geometry update. Window title follows the active session's OSC title on switch and on close.
+
+Keybindings follow conventional terminal muscle memory: `new-tab` is `Ctrl+Shift+T`, `close-tab` is `Ctrl+Shift+W`, and `next-tab`/`prev-tab` are `Ctrl+PageDown`/`Ctrl+PageUp`. To free the conventional new-tab chord, the theme picker moved from `Ctrl+Shift+T` to `Ctrl+Shift+H`. Closing the last tab or the last shell exiting closes the app, matching the common terminal-emulator convention, and the right-click context menu also offers New Tab and Close Tab. Shell-exit teardown now runs on a background thread, so the last shell exiting no longer stalls the UI event loop.
+
+A self-contained tab-bar widget (`src/native/app/tab_bar.rs`) renders tab labels, an active highlight, per-tab close, and a trailing new-tab affordance, behind a read-only `TabBarSource` trait that `SessionSet` implements. The bar is not yet composited into the active redraw or given reserved top padding; that integration is a follow-up packet, so this commit is visually byte-identical to a single-session launch.
+
+Eight headless multi-session tests cover input routing after switch, independent scrollback, resize across sessions, close-activates-neighbor, last-close-sets-exit, non-last shell-exit does not exit, single-session shell exit requests app exit, and per-session title/viewport/selection/search restoration on switch. `cargo test --lib` is 1775 passed; `cargo clippy --lib` holds at the 38-warning baseline.
+
+---
+
 ## 2026-06-18 -- Menu back navigation
 
 Settings-launched submenus now expose mouse-clickable back affordances consistently. Key Bindings returns to Settings via the title back arrow or Esc, while Theme Builder returns to the theme picker when opened from there and keeps the standalone close behavior for direct launches. Intentionally modal or standalone overlays such as close confirmation and first-run onboarding keep their existing dismissal controls.

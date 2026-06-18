@@ -448,7 +448,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         directory when missing, and surface non-fatal in-panel errors on write
         failure.
 - [x] Theme picker with live preview.
-  - [x] `Ctrl+Shift+T` opens a built-in theme picker; the settings panel's
+  - [x] `Ctrl+Shift+H` opens a built-in theme picker; the settings panel's
         theme row also opens it with `Left`/`Right` while `Enter` remains the
         text-edit path for custom theme names and files.
   - [x] Arrow navigation applies each built-in immediately through the same

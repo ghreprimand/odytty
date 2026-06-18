@@ -174,7 +174,7 @@ behavior ambiguous.
 | --- | --- |
 | `Ctrl+Shift+F` | Open or close the scrollback search bar. Search is case-insensitive by default. |
 | `Ctrl+Shift+,` | Open or close the settings panel. The panel lists every runtime setting with its current value and help text; editable reloadable rows apply live. |
-| `Ctrl+Shift+T` | Open the theme picker. Arrow keys preview built-in themes immediately, `Enter` saves the selected theme to `odytty.conf`, and `Esc` restores the theme that was active when the picker opened. |
+| `Ctrl+Shift+H` | Open the theme picker. Arrow keys preview built-in themes immediately, `Enter` saves the selected theme to `odytty.conf`, and `Esc` restores the theme that was active when the picker opened. |
 | `Ctrl+S` while the settings panel is open | Save the panel's live-applied setting changes to `odytty.conf`. |
 | `Enter` while searching | Jump to the next match, wrapping at the end. |
 | `Shift+Enter` while searching | Jump to the previous match, wrapping at the start. |

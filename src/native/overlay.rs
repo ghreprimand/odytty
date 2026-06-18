@@ -245,6 +245,8 @@ impl OverlayUi {
                     ContextMenuItem::Paste => OverlayOutcome::ContextMenuPaste,
                     ContextMenuItem::Delete => OverlayOutcome::ContextMenuDelete,
                     ContextMenuItem::SelectAll => OverlayOutcome::ContextMenuSelectAll,
+                    ContextMenuItem::NewTab => OverlayOutcome::ContextMenuNewTab,
+                    ContextMenuItem::CloseTab => OverlayOutcome::ContextMenuCloseTab,
                     ContextMenuItem::Settings => OverlayOutcome::ContextMenuSettings,
                 }
             }
@@ -764,6 +766,8 @@ pub(super) enum OverlayOutcome {
     ContextMenuPaste,
     ContextMenuDelete,
     ContextMenuSelectAll,
+    ContextMenuNewTab,
+    ContextMenuCloseTab,
     /// Open the settings panel from the context menu (D-IN2-SETTINGS). The
     /// overlay has already closed itself; the App opens the settings panel
     /// through the existing toggle path.

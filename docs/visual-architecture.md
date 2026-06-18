@@ -308,7 +308,7 @@ dynamic-color overrides layer on top with correct precedence. See
 **Delivered.** The cell-rendered overlay framework (keyboard-driven, never
 mutates terminal state), the full settings panel (`Ctrl+Shift+,`; every setting
 editable with help text, live-applied, written back to `odytty.conf` on confirm
-via atomic rename), the live theme picker (`Ctrl+Shift+T`; arrow-to-preview,
+via atomic rename), the live theme picker (`Ctrl+Shift+H`; arrow-to-preview,
 `Enter` to persist, `Esc` to restore), and the in-app theme builder with live
 preview are all shipped.
 

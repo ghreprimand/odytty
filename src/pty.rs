@@ -212,6 +212,30 @@ impl PtySession {
         reader.read_to_end(&mut bytes).context("read pty output")?;
         Ok(bytes)
     }
+
+    #[cfg(test)]
+    pub fn dimensions_for_test(&self) -> Result<Dimensions> {
+        let mut winsize = Winsize {
+            ws_row: 0,
+            ws_col: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        let result = unsafe {
+            libc::ioctl(
+                self.master.as_raw_fd(),
+                libc::TIOCGWINSZ as libc::c_ulong,
+                &mut winsize,
+            )
+        };
+        if result == -1 {
+            return Err(std::io::Error::last_os_error()).context("query pty size");
+        }
+        Ok(Dimensions::new(
+            winsize.ws_col as usize,
+            winsize.ws_row as usize,
+        ))
+    }
 }
 
 struct PtyReader {

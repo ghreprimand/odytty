@@ -80,7 +80,7 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             BindableAction::SettingsPanel,
         ),
         (
-            char_chord('t', true, true, false, false),
+            char_chord('h', true, true, false, false),
             BindableAction::ThemePicker,
         ),
         (
@@ -130,6 +130,22 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
         (
             char_chord('k', true, true, false, false),
             BindableAction::ClearInput,
+        ),
+        (
+            char_chord('t', true, true, false, false),
+            BindableAction::NewTab,
+        ),
+        (
+            char_chord('w', true, true, false, false),
+            BindableAction::CloseTab,
+        ),
+        (
+            named_chord(KeyBindingNamedKey::PageDown, true, false, false, false),
+            BindableAction::NextTab,
+        ),
+        (
+            named_chord(KeyBindingNamedKey::PageUp, true, false, false, false),
+            BindableAction::PrevTab,
         ),
     ]
 }
@@ -394,4 +410,23 @@ pub(super) fn map_winit_mouse_button(button: WinitMouseButton) -> Option<CoreMou
         WinitMouseButton::Right => CoreMouseButton::Right,
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_key_bindings_have_no_duplicate_chords() {
+        let bindings = default_key_bindings();
+        for (i, (chord, action)) in bindings.iter().enumerate() {
+            for (other_chord, other_action) in bindings.iter().skip(i + 1) {
+                assert_ne!(
+                    chord, other_chord,
+                    "duplicate default chord {:?} for {:?} and {:?}",
+                    chord, action, other_action
+                );
+            }
+        }
+    }
 }

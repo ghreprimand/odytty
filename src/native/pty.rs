@@ -7,6 +7,8 @@ use crate::core::Terminal;
 
 use winit::event_loop::EventLoopProxy;
 
+use super::session::SessionId;
+
 /// Events the PTY pump thread sends to wake the `winit` event loop.
 ///
 /// The loop otherwise sleeps (`ControlFlow::Wait`) with no input wired this
@@ -15,9 +17,9 @@ use winit::event_loop::EventLoopProxy;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum UserEvent {
     /// New PTY output landed in the shared terminal; rebuild + redraw.
-    Redraw,
+    Redraw { session: SessionId },
     /// The shell's PTY reached EOF (shell exited): exit the loop.
-    ShellExited,
+    ShellExited { session: SessionId },
 }
 
 /// The single PTY master writer, shared behind a lock.
@@ -61,13 +63,14 @@ pub(super) fn spawn_pty_pump(
     writer: PtyWriter,
     terminal: Arc<Mutex<Terminal>>,
     proxy: EventLoopProxy<UserEvent>,
+    session: SessionId,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         let mut buffer = [0u8; 8192];
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => {
-                    let _ = proxy.send_event(UserEvent::ShellExited);
+                    let _ = proxy.send_event(UserEvent::ShellExited { session });
                     break;
                 }
                 Ok(len) => {
@@ -83,13 +86,13 @@ pub(super) fn spawn_pty_pump(
                         let _ = writer.flush();
                     }
                     // If the loop has shut down, the proxy is closed: stop.
-                    if proxy.send_event(UserEvent::Redraw).is_err() {
+                    if proxy.send_event(UserEvent::Redraw { session }).is_err() {
                         break;
                     }
                 }
                 Err(ref err) if err.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => {
-                    let _ = proxy.send_event(UserEvent::ShellExited);
+                    let _ = proxy.send_event(UserEvent::ShellExited { session });
                     break;
                 }
             }

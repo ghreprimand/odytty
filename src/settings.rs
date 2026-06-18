@@ -210,6 +210,10 @@ pub enum BindableAction {
     /// Clear the current shell input line (IN1). Writes a readline-style
     /// kill-whole-line sequence to the PTY; inert when unbound.
     ClearInput,
+    NewTab,
+    NextTab,
+    PrevTab,
+    CloseTab,
 }
 
 impl BindableAction {
@@ -237,6 +241,10 @@ impl BindableAction {
             "copymode" | "selectmode" => Some(Self::CopyMode),
             "hints" | "hint" | "quickselect" | "patternselect" => Some(Self::Hints),
             "clearinput" | "clearline" | "killline" | "clear" => Some(Self::ClearInput),
+            "newtab" | "tabnew" => Some(Self::NewTab),
+            "nexttab" | "tabnext" => Some(Self::NextTab),
+            "prevtab" | "previoustab" | "tabprev" => Some(Self::PrevTab),
+            "closetab" | "tabclose" => Some(Self::CloseTab),
             _ => None,
         }
     }

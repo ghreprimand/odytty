@@ -43,7 +43,7 @@ pub(super) struct HintStyle {
 /// Live HINTS-select state: the labeled matches (absolute cell coordinates), the
 /// typed prefix narrowing them, and the monotonic invalidation epoch.
 #[derive(Debug, Clone)]
-pub(super) struct HintsUi {
+pub(in crate::native) struct HintsUi {
     /// `(label, match)` in reading order; coordinates are absolute (scrollback
     /// rows), so the paint transform follows the viewport exactly like search.
     labeled: Vec<(String, HintMatch)>,

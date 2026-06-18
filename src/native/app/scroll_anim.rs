@@ -38,7 +38,7 @@ fn ease_out_cubic(p: f32) -> f32 {
 /// sub-row pixel displacement at `t = 0`, which decays to `0.0` over
 /// [`crate::settings::SMOOTH_SCROLL_DURATION`].
 #[derive(Debug, Clone, Copy)]
-pub(super) struct ScrollAnimState {
+pub(in crate::native) struct ScrollAnimState {
     start: Instant,
     /// Pixel displacement at `t = 0`. Positive = content shifted DOWN (a
     /// scroll-up, where new content enters from the top); negative = up.

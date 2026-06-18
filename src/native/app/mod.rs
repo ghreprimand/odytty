@@ -1,20 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use std::io::Write;
+use std::ops::{Deref, DerefMut};
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+use crate::core::Terminal;
 use crate::core::{
     ClipboardRequest, Color, Dimensions, LinkId, MouseButton as CoreMouseButton, MouseEncoding,
-    MouseEventKind, MouseModifiers, MouseProtocol, Position, RgbColor, Snapshot, Terminal,
+    MouseEventKind, MouseModifiers, MouseProtocol, Position, RgbColor, Snapshot,
     encode_mouse_event_pixel,
 };
 use crate::grid::{CursorRenderParams, SolidQuad};
 use crate::input::{self, Key, KeyEventType, KeyModes, Modifiers};
-use crate::pty::{ForegroundJob, PtySession};
+use crate::pty::ForegroundJob;
+#[cfg(test)]
+use crate::pty::PtySession;
 use crate::selection::{
-    self, AbsoluteSelectionRange, AbsoluteSelectionState, CellPoint, ClickTracker, PointerDrag,
-    SelectGranularity, SelectionStyle,
+    self, AbsoluteSelectionRange, CellPoint, PointerDrag, SelectGranularity, SelectionStyle,
 };
 use crate::settings::{
     BindableAction, SettingEdit, Settings, SettingsReloadOutcome, SettingsReloader, THEME_ENV,
@@ -48,7 +54,9 @@ use super::overlay::{
     OverlayOutcome, OverlayPointer, OverlayUi, PointerButton, apply_overlay,
     overlay_input_from_winit, overlay_rect,
 };
-use super::pty::{PtyWriter, UserEvent};
+#[cfg(test)]
+use super::pty::PtyWriter;
+use super::pty::UserEvent;
 use super::render_helpers::{
     CursorAnimKey, CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature,
     OverlayFragment, RenderContentSignature, RenderSignature, SelectionSignature,
@@ -62,9 +70,10 @@ pub(super) use super::resize::{
     PendingResize, RESIZE_DEBOUNCE_INTERVAL, ResizeDebouncer, pending_resize_for_surface,
     scale_factor_changed,
 };
-use super::search_ui::{SearchStyle, SearchUi, apply_search_ui};
+use super::search_ui::{SearchStyle, apply_search_ui};
+use super::session::{Session, SessionSet};
 use super::viewport::{
-    SELECTION_AUTOSCROLL_INTERVAL, Viewport, WheelAccumulator, WindowPadding,
+    SELECTION_AUTOSCROLL_INTERVAL, WheelAccumulator, WindowPadding,
     grid_dimensions_for_with_padding, scroll_indicator_hit_with_padding,
     scroll_indicator_quad_with_padding, scrollbar_offset_for_drag_with_padding, wheel_lines,
     wheel_lines_scaled, wheel_zoom_steps,
@@ -84,12 +93,15 @@ mod overlay_registry;
 mod pointer;
 mod prompt_jump;
 mod scroll_anim;
-use scroll_anim::ScrollAnimState;
+mod tab_bar;
 #[cfg(test)]
 mod test_seams;
 mod theme_roles;
 mod window_border;
 
+pub(in crate::native) use self::hints_ui::HintsUi;
+pub(in crate::native) use self::scroll_anim::ScrollAnimState as SessionScrollAnimState;
+pub(in crate::native) use self::tab_bar::TabBarSource;
 pub(in crate::native) use overlay_registry::ActiveModal;
 
 pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(150);
@@ -169,17 +181,7 @@ pub(super) struct App {
     visual: VisualEffect,
     window: Option<Arc<Window>>,
     gpu: Option<GpuState>,
-    /// The terminal model shared with the PTY pump thread. Snapshots are taken
-    /// under this lock on the UI thread, then the lock is dropped before any GPU
-    /// work so it is never held across `wgpu` calls.
-    terminal: Arc<Mutex<Terminal>>,
-    /// Set when the pump thread reports new output; the next `RedrawRequested`
-    /// rebuilds the vertex buffer once (coalescing many wakes into one rebuild).
-    needs_rebuild: bool,
-    /// Signature of the geometry currently uploaded to the retained GPU vertex
-    /// buffer. Used to distinguish full rebuilds, bounded cursor-tail updates,
-    /// and retained-buffer redraws.
-    last_render_signature: Option<RenderSignature>,
+    sessions: SessionSet,
     /// Native presentation epoch for pixel-affecting state outside the terminal
     /// core revision: theme/default-color changes, atlas/font changes, and
     /// other settings that make identical snapshots build different vertices.
@@ -190,23 +192,6 @@ pub(super) struct App {
     /// still forces a non-retained redraw and the gutter repaints. Stays at its
     /// initial value while the gutter is off — the default path is unaffected.
     prompt_marks_epoch: u64,
-    /// DECSET 2026 presentation hold state. While active, terminal model/input
-    /// keep advancing, but new grid-content uploads are delayed until DECRST or
-    /// this state machine's timeout releases the hold.
-    synchronized_output_hold: SynchronizedOutputHold,
-    /// Last uploaded content snapshot before cursor blink visibility was
-    /// applied. This lets cursor-only redraws continue during a synchronized
-    /// output hold without exposing newer terminal grid content.
-    last_presented_snapshot: Option<Snapshot>,
-    last_presented_cursor_style: crate::core::CursorStyle,
-    last_presented_cursor_blinking: bool,
-    /// The shared PTY writer. Key presses are encoded to bytes and written here,
-    /// completing the read+write loop with the pump thread that owns the reader.
-    writer: PtyWriter,
-    /// The shared PTY session, used to push the new window size to the kernel
-    /// (`TIOCSWINSZ`) on resize so shell/TUI programs see the updated `$COLUMNS`
-    /// and `$LINES`. Shared with `run_native`, which reaps the child on exit.
-    pty: Arc<Mutex<PtySession>>,
     /// The terminal grid size last applied to the model and PTY. Tracked so a
     /// `Resized` event that does not change the whole-cell grid skips redundant
     /// model/PTY resize work (idempotence): only surface reconfigure runs.
@@ -227,146 +212,19 @@ pub(super) struct App {
     /// (slider drag / key repeat). Coalesced so expensive live applies such as
     /// font-size atlas rebuilds happen at most once per frame/event burst.
     pending_overlay_settings: Option<Settings>,
-    /// Current selection anchored to absolute rows in the
-    /// scrollback+visible-screen space. Native owns this UI state; the terminal
-    /// core remains unaware of selections and clipboard operations.
-    selection: AbsoluteSelectionState,
     /// ID1: when set, the authored theme `cursor`/`selection`/`search` roles
     /// drive cursor color and selection/search highlight fills (with
     /// RV1-floored foregrounds) instead of the historical inverse / hardcoded
     /// treatments. Default-on by operator decision; `themed_ui_roles = off`
     /// restores the legacy rendering path.
     themed_ui_roles: bool,
-    /// Most recent pointer position mapped to a terminal cell. `winit` mouse
-    /// button events do not carry coordinates, so press/release use this cached
-    /// cell from the latest cursor movement.
-    pointer_cell: Option<CellPoint>,
-    /// Most recent pointer position in physical pixels (the raw `winit`
-    /// `CursorMoved` coordinates), cached alongside `pointer_cell`. SGR-pixel
-    /// mouse reporting (DECSET 1016) needs true pixel coordinates, which the
-    /// cell cache cannot reconstruct; button/wheel events carry no coordinates
-    /// so they reuse this cached position. `None` until the first cursor move
-    /// and after a resize (geometry changed).
-    pointer_px: Option<(f64, f64)>,
-    /// Test-only cell-size override (MOUSE-SCROLLBAR). Headless tests have no
-    /// GPU, so the cell size that the pointer hit-tests need cannot come from
-    /// `GpuState`. When set, [`App::resolved_cell`] returns it; in non-test
-    /// builds this field does not exist and the cell always comes from the GPU,
-    /// so production is byte-identical.
-    #[cfg(test)]
-    test_cell: Option<CellSize>,
-    /// Hyperlink currently under the pointer in the visible viewport.
-    hovered_hyperlink: Option<LinkId>,
-    /// Typed pointer-drag state (MOUSE-EXTEND scaffold): `None` when idle,
-    /// `Select { granularity, .. }` while the left button extends a selection
-    /// (char / word / line). Replaces the bare `selecting` boolean so word/line
-    /// drags can stay live and so later pointer gestures (block select, scroll
-    /// thumb) get one mutually-exclusive home.
-    pointer_drag: PointerDrag,
-    /// Whether the live selection is a rectangular/column (block) selection
-    /// (MOUSE-RECT) rather than a wrapped one. Set once at every selection's
-    /// entry (`begin_selection`) from the Alt modifier, so it stays correct for
-    /// the whole gesture and a prior block selection cannot leak into a new
-    /// wrapped one. Read by the render highlight and the copy choke point, both
-    /// of which only act when `selection.range()` is `Some`, so a stale value
-    /// after the selection clears is inert until the next selection resets it.
-    selection_block: bool,
-    /// The anchored word/line range for an in-progress word/line drag-extend
-    /// (MOUSE-EXTEND). Fixed at the double/triple-click unit; each drag motion
-    /// unions it with the unit under the pointer. `None` for char drags and when
-    /// no drag is active.
-    drag_anchor_unit: Option<AbsoluteSelectionRange>,
-    /// Same-cell click counter for double-click word and triple-click line
-    /// selection.
-    clicks: ClickTracker,
-    /// Last bounded drag-edge autoscroll step while extending a selection.
-    last_selection_autoscroll: Option<Instant>,
-    /// Button currently held for host mouse reporting. Kept separate from local
-    /// selection so TUI mouse mode can suppress selection without losing drag
-    /// reports.
-    report_button: Option<CoreMouseButton>,
-    /// Scrollback viewport offset (0 == live). Mouse wheel and Shift+PageUp/
-    /// PageDown move it; any PTY-bound input snaps it back to live.
-    viewport: Viewport,
-    /// Native scrollback search state. It is UI-only: queries and highlights
-    /// mutate snapshot copies, never terminal-core state.
-    search: SearchUi,
-    /// HINTS pattern-select state (URLs / paths / SHAs → label → copy). `None`
-    /// when inactive — the byte-identical default path. UI-only: label badges
-    /// mutate snapshot copies, never terminal-core state.
-    hints: Option<hints_ui::HintsUi>,
-    /// COPYMODE: live vim-key scrollback-selection state, or `None` (the
-    /// byte-identical default path). Presentation-only — the selection band and
-    /// caret mutate snapshot copies, never terminal-core state.
-    copy_mode: Option<crate::native::copy_mode::CopyModeState>,
     /// Native in-window overlay state. It is presentation-only: widgets
     /// composite into snapshot copies and never mutate terminal state or PTY.
     overlay: OverlayUi,
-    /// Viewport offset to restore when the search bar closes. Search result
-    /// navigation is temporary UI movement; closing search returns to the view
-    /// the operator was inspecting before opening the bar.
-    search_restore_viewport: Option<usize>,
-    /// Scrollback length observed at the last rebuild, used to anchor the
-    /// scrolled-back view as new output grows scrollback (the "stay scrolled"
-    /// policy in [`Viewport::anchor_after_growth`]).
-    last_scrollback_len: usize,
     /// Native-side clipboard owner. Kept alive across copy/paste operations so
     /// Linux clipboard contents remain served after Ctrl+Shift+C.
     clipboard: NativeClipboard,
     resize_debounce: ResizeDebouncer,
-    /// Cursor blink phase driver. Toggles only when the active cursor style
-    /// blinks and the window is focused; otherwise the cursor is solid and the
-    /// loop is not woken for it.
-    cursor_blink: CursorBlinkState,
-    /// ID1 cursor blink-fade easing — precomputed alpha multiplier for the
-    /// current frame (`1.0` = opaque). Refreshed by [`App::update_cursor_easing`]
-    /// once per rebuild; read by the `cursor_blink_alpha` contributor. `1.0`
-    /// whenever easing is off, so the cursor renders byte-identically.
-    cursor_anim_alpha: f32,
-    /// ID1 easing — next fade wake, or `None` once the ramp settles. Folded into
-    /// [`App::animation_deadline`]; `None` on the default path.
-    cursor_ease_deadline: Option<Instant>,
-    /// ID1 easing — the blink phase at the last observed edge, used to time the
-    /// opacity ramp from each on/off transition independently of the blink clock.
-    cursor_ease_phase_on: bool,
-    /// ID1 easing — instant of the last blink edge the easing ramp is measured
-    /// from.
-    cursor_ease_toggle_at: Option<Instant>,
-    /// VE4 cursor slide — precomputed sub-cell pixel offset for the current
-    /// frame (`[0.0, 0.0]` at rest). Refreshed by [`App::update_cursor_motion`]
-    /// once per rebuild; read by the `cursor_motion_offset` contributor.
-    cursor_anim_offset: [f32; 2],
-    /// VE4 slide — next glide wake, or `None` once the slide settles. Folded into
-    /// [`App::animation_deadline`]; `None` on the default path.
-    cursor_slide_deadline: Option<Instant>,
-    /// VE4 slide — start instant of the active glide, or `None` when not sliding.
-    cursor_slide_start: Option<Instant>,
-    /// VE4 slide — the full initial displacement (in pixels) from the prior cell
-    /// to the destination cell; decays to zero across the glide.
-    cursor_slide_from_px: [f32; 2],
-    /// VE4 new-output fade — per-row fade-start instants, indexed by viewport
-    /// row. `Some(t)` = the row is fading in from `t`; `None` = full opacity.
-    /// Length tracks `grid.rows`; always empty while the feature is off, and
-    /// cleared on resize, scroll-back, and feature-off so a stale fade never
-    /// persists. See [`new_row_fade`].
-    row_fade_starts: Vec<Option<Instant>>,
-    /// VE4 new-output fade — the `scrollback_len` observed at the previous
-    /// fade update, used to derive how many new rows arrived since.
-    last_scrollback_len_for_fade: usize,
-    /// VE4 new-output fade — monotonic epoch bumped once per rebuild while any
-    /// row is mid-fade, so the render-cache fragment changes each animation
-    /// frame (the quad alphas move while the cell content does not). Folded into
-    /// the overlay composite signature; constant on the off path.
-    row_fade_epoch: u64,
-    /// RV4 smooth scroll — the active eased scrollback glide, or `None` when not
-    /// animating (always `None` while `smooth_scroll` is off). See [`scroll_anim`].
-    scroll_anim: Option<ScrollAnimState>,
-    /// RV4 smooth scroll — precomputed sub-row pixel offset for the current
-    /// frame (`0.0` at rest / on the off path). Refreshed by
-    /// [`App::update_scroll_anim`] once per rebuild; pushed to the GPU
-    /// `content_origin` Y and folded into the content render signature so an
-    /// animating frame reclassifies the cache. `0.0` ⇒ byte-identical.
-    scroll_frac_offset: f32,
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
@@ -398,12 +256,42 @@ pub(super) struct App {
     pub(super) startup_error: Option<NativeError>,
 }
 
+impl Deref for App {
+    type Target = Session;
+
+    fn deref(&self) -> &Self::Target {
+        self.sessions.active()
+    }
+}
+
+impl DerefMut for App {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.sessions.active_mut()
+    }
+}
+
 impl App {
+    #[cfg(test)]
     pub(super) fn new(
         options: NativeOptions,
         terminal: Arc<Mutex<Terminal>>,
         writer: PtyWriter,
         pty: Arc<Mutex<PtySession>>,
+        settings: Settings,
+        settings_reloader: SettingsReloader,
+    ) -> Self {
+        let session = Session::new(terminal, writer, pty, None);
+        Self::new_with_sessions(
+            options,
+            SessionSet::new(session, None),
+            settings,
+            settings_reloader,
+        )
+    }
+
+    pub(super) fn new_with_sessions(
+        options: NativeOptions,
+        sessions: SessionSet,
         settings: Settings,
         settings_reloader: SettingsReloader,
     ) -> Self {
@@ -428,17 +316,9 @@ impl App {
             visual,
             window: None,
             gpu: None,
-            terminal,
-            needs_rebuild: true,
-            last_render_signature: None,
+            sessions,
             presentation_epoch: 0,
             prompt_marks_epoch: 0,
-            synchronized_output_hold: SynchronizedOutputHold::default(),
-            last_presented_snapshot: None,
-            last_presented_cursor_style: crate::core::CursorStyle::default(),
-            last_presented_cursor_blinking: true,
-            writer,
-            pty,
             grid,
             modifiers: Modifiers::default(),
             super_key: false,
@@ -446,47 +326,10 @@ impl App {
             settings,
             settings_reloader,
             pending_overlay_settings: None,
-            selection: AbsoluteSelectionState::default(),
             themed_ui_roles,
-            pointer_cell: None,
-            pointer_px: None,
-            #[cfg(test)]
-            test_cell: None,
-            hovered_hyperlink: None,
-            pointer_drag: PointerDrag::None,
-            selection_block: false,
-            drag_anchor_unit: None,
-            clicks: ClickTracker::default(),
-            last_selection_autoscroll: None,
-            report_button: None,
-            viewport: Viewport::default(),
-            search: SearchUi::default(),
-            hints: None,
-            copy_mode: None,
             overlay,
-            search_restore_viewport: None,
-            last_scrollback_len: 0,
             clipboard: NativeClipboard::default(),
             resize_debounce: ResizeDebouncer::new(RESIZE_DEBOUNCE_INTERVAL),
-            cursor_blink: CursorBlinkState::new(CURSOR_BLINK_INTERVAL),
-            // Cursor-animation state: identity at rest (ID1 easing alpha 1.0,
-            // VE4 slide offset zero, no wakes) so the default path is
-            // byte-identical until a feature is enabled.
-            cursor_anim_alpha: 1.0,
-            cursor_ease_deadline: None,
-            cursor_ease_phase_on: true,
-            cursor_ease_toggle_at: None,
-            cursor_anim_offset: [0.0, 0.0],
-            cursor_slide_deadline: None,
-            cursor_slide_start: None,
-            cursor_slide_from_px: [0.0, 0.0],
-            row_fade_starts: Vec::new(),
-            last_scrollback_len_for_fade: 0,
-            row_fade_epoch: 0,
-            // RV4 smooth scroll: idle at rest (no glide, zero offset, no wakes)
-            // so the default path is byte-identical until `smooth_scroll` is on.
-            scroll_anim: None,
-            scroll_frac_offset: 0.0,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
             autoclose,
@@ -520,14 +363,14 @@ impl App {
         }
         self.grid = new_grid;
 
-        if let Ok(mut terminal) = self.terminal.lock() {
-            terminal.resize(new_grid.columns, new_grid.rows);
-            // Update cell metrics on every resize/rescale so new graphics
-            // placements use the current pixel cell size.
-            terminal.set_cell_metrics(cell.width, cell.height);
-        }
-        if let Ok(pty) = self.pty.lock() {
-            let _ = pty.resize(new_grid);
+        for session in self.sessions.iter() {
+            if let Ok(mut terminal) = session.terminal.lock() {
+                terminal.resize(new_grid.columns, new_grid.rows);
+                terminal.set_cell_metrics(cell.width, cell.height);
+            }
+            if let Ok(pty) = session.pty.lock() {
+                let _ = pty.resize(new_grid);
+            }
         }
         true
     }
@@ -569,17 +412,112 @@ impl App {
         }
     }
 
+    fn initialize_session_with(
+        session: &mut Session,
+        effective_theme: Theme,
+        themed_ui_roles: bool,
+        osc52_read: bool,
+        cursor_style: crate::core::CursorStyle,
+        cursor_blink: crate::settings::CursorBlink,
+        cell: Option<CellSize>,
+    ) {
+        if let Ok(mut terminal) = session.terminal.lock() {
+            let cursor_default = if themed_ui_roles {
+                rgb(effective_theme.cursor)
+            } else {
+                rgb(effective_theme.foreground)
+            };
+            terminal.set_base_colors(
+                rgb(effective_theme.foreground),
+                rgb(effective_theme.background),
+                cursor_default,
+            );
+            terminal.set_osc52_read_enabled(osc52_read);
+            terminal.set_cursor_defaults(cursor_style, cursor_blink.enabled());
+            if let Some(cell) = cell {
+                terminal.set_cell_metrics(cell.width, cell.height);
+            }
+        }
+    }
+
+    fn handle_new_tab(&mut self) {
+        if let Ok(session_id) = self.sessions.spawn(self.grid) {
+            let effective_theme = self.effective_theme;
+            let themed_ui_roles = self.themed_ui_roles;
+            let osc52_read = self.settings.osc52_read;
+            let cursor_style = self.settings.cursor_style;
+            let cursor_blink = self.settings.cursor_blink;
+            let cell = self.gpu.as_ref().map(GpuState::cell);
+            if let Some(session) = self.sessions.get_mut(session_id) {
+                Self::initialize_session_with(
+                    session,
+                    effective_theme,
+                    themed_ui_roles,
+                    osc52_read,
+                    cursor_style,
+                    cursor_blink,
+                    cell,
+                );
+            }
+            let _ = self.sessions.switch(session_id);
+            self.on_active_session_changed();
+        }
+    }
+
+    fn switch_to_next_tab(&mut self) {
+        if self.sessions.next() {
+            self.on_active_session_changed();
+        }
+    }
+
+    fn switch_to_prev_tab(&mut self) {
+        if self.sessions.prev() {
+            self.on_active_session_changed();
+        }
+    }
+
+    fn close_active_tab(&mut self) -> bool {
+        let is_last = self.sessions.close(self.sessions.active_id());
+        if !is_last {
+            self.on_active_session_changed();
+        } else {
+            self.pending_exit = true;
+        }
+        is_last
+    }
+
+    pub(super) fn close_all_sessions(&mut self) {
+        while !self.sessions.is_empty() {
+            let _ = self.sessions.close(0);
+        }
+    }
+
     fn update_control_flow_deadline(&self, event_loop: &ActiveEventLoop) {
         let next = [
             self.deadline,
             self.resize_debounce.deadline(),
-            self.cursor_blink.deadline(),
+            self.sessions
+                .iter()
+                .filter_map(|session| session.cursor_blink.deadline())
+                .min(),
             self.settings_reloader.deadline(),
-            self.synchronized_output_hold.deadline(),
+            self.sessions
+                .iter()
+                .filter_map(|session| session.synchronized_output_hold.deadline())
+                .min(),
             // Wave-15b: aggregated cursor-animation wake source. `None` at rest
             // (both contributor stubs return `None`), so the at-rest min is
             // unchanged and no spurious wakeup is scheduled.
-            self.animation_deadline(),
+            self.sessions
+                .iter()
+                .filter_map(|session| {
+                    let mut next = session.cursor_ease_deadline;
+                    if let Some(deadline) = session.cursor_slide_deadline {
+                        next = Some(next.map_or(deadline, |current| current.min(deadline)));
+                    }
+                    next
+                })
+                .min(),
         ]
         .into_iter()
         .flatten()
@@ -697,6 +635,24 @@ impl App {
                     // keystroke that reaches the shell, then consumes the chord.
                     self.return_to_live();
                     self.write_pty_bytes(&[0x01, 0x0b]);
+                    return;
+                }
+                Some(BindableAction::NewTab) => {
+                    self.handle_new_tab();
+                    return;
+                }
+                Some(BindableAction::NextTab) => {
+                    self.switch_to_next_tab();
+                    return;
+                }
+                Some(BindableAction::PrevTab) => {
+                    self.switch_to_prev_tab();
+                    return;
+                }
+                Some(BindableAction::CloseTab) => {
+                    if self.close_active_tab() {
+                        return;
+                    }
                     return;
                 }
                 Some(BindableAction::Search)
@@ -906,8 +862,9 @@ impl App {
         if !self.search.is_open() {
             return;
         }
-        if let Ok(terminal) = self.terminal.lock() {
-            self.search.refresh(&terminal);
+        let session = self.sessions.active_mut();
+        if let Ok(terminal) = session.terminal.lock() {
+            session.search.refresh(&terminal);
         }
     }
 
@@ -1042,6 +999,56 @@ impl App {
         };
 
         window.set_title(&title);
+    }
+
+    fn active_window_title(&self) -> String {
+        self.terminal
+            .lock()
+            .ok()
+            .and_then(|terminal| terminal.title().map(ToOwned::to_owned))
+            .unwrap_or_else(|| self.options.title.clone())
+    }
+
+    fn sync_active_window_title(&self) {
+        if let Some(window) = self.window.as_ref() {
+            window.set_title(&self.active_window_title());
+        }
+    }
+
+    fn on_active_session_changed(&mut self) {
+        self.last_render_signature = None;
+        self.needs_rebuild = true;
+        self.sync_active_window_title();
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
+    fn apply_user_event(&mut self, event: UserEvent) -> bool {
+        match event {
+            UserEvent::Redraw { session } => {
+                if let Some(target) = self.sessions.get_mut(session) {
+                    target.needs_rebuild = true;
+                    target.refresh_tab_title();
+                }
+                if self.sessions.active_id() == session
+                    && let Some(window) = self.window.as_ref()
+                {
+                    window.request_redraw();
+                }
+                false
+            }
+            UserEvent::ShellExited { session } => {
+                let is_last = self.sessions.close_shell_exited(session);
+                if is_last {
+                    self.pending_exit = true;
+                    true
+                } else {
+                    self.on_active_session_changed();
+                    false
+                }
+            }
+        }
     }
 
     fn options_for_settings(&self, settings: &Settings) -> NativeOptions {
@@ -1560,47 +1567,45 @@ impl ApplicationHandler<UserEvent> for App {
                             visible_graphics,
                             image_uploads,
                         ) = {
-                            let mut terminal = self.terminal.lock().expect("terminal mutex");
-                            let scrollback_len = terminal.screen().scrollback_len();
-                            // "Stay scrolled": as new output grows scrollback while
-                            // the user is scrolled back, anchor the view to the same
-                            // absolute rows instead of letting it scroll away. Only
-                            // explicit input (handle_key_press/paste) returns to live.
+                            let (scrollback_len, prompt_marks_changed) = {
+                                let mut terminal = self.terminal.lock().expect("terminal mutex");
+                                (
+                                    terminal.screen().scrollback_len(),
+                                    self.settings.command_status_gutter
+                                        && terminal.take_prompt_marks_changed(),
+                                )
+                            };
                             let added = scrollback_len.saturating_sub(self.last_scrollback_len);
                             self.viewport.anchor_after_growth(added, scrollback_len);
                             self.last_scrollback_len = scrollback_len;
                             self.viewport.clamp(scrollback_len);
-                            // SH2 status-gutter invalidation: a pure OSC 133
-                            // status transition (e.g. a command reporting its
-                            // exit) can update prompt marks without bumping the
-                            // terminal render revision. Poll the core's
-                            // conservative marks-changed flag and fold a monotonic
-                            // epoch into the render signature so the gutter
-                            // repaints on that transition. Gated on the setting:
-                            // while the gutter is off the flag is never consumed
-                            // and the epoch never moves, so the default render
-                            // path stays byte-identical.
-                            if self.settings.command_status_gutter
-                                && terminal.take_prompt_marks_changed()
-                            {
+                            if prompt_marks_changed {
                                 self.prompt_marks_epoch = self.prompt_marks_epoch.wrapping_add(1);
                             }
-                            if self.search.is_open() {
-                                self.search.refresh(&terminal);
-                            }
                             let offset = self.viewport.offset();
+                            let mut search = std::mem::take(&mut self.search);
+                            let terminal = self.terminal.lock().expect("terminal mutex");
+                            if search.is_open() {
+                                search.refresh(&terminal);
+                            }
                             let visible_graphics = terminal.visible_graphics(offset);
                             let image_uploads = image_uploads_for_visible(
                                 &terminal,
                                 &visible_graphics,
                                 &cached_image_ids,
                             );
+                            let snapshot = terminal.snapshot_with_scrollback(offset);
+                            let cursor_style = terminal.cursor_style();
+                            let cursor_blinking = terminal.cursor_blinking();
+                            let terminal_revision = terminal.render_revision();
+                            drop(terminal);
+                            self.search = search;
                             (
-                                terminal.snapshot_with_scrollback(offset),
+                                snapshot,
                                 scrollback_len,
-                                terminal.cursor_style(),
-                                terminal.cursor_blinking(),
-                                terminal.render_revision(),
+                                cursor_style,
+                                cursor_blinking,
+                                terminal_revision,
                                 visible_graphics,
                                 image_uploads,
                             )
@@ -1609,7 +1614,8 @@ impl ApplicationHandler<UserEvent> for App {
                         // live view (offset 0) shows a cursor; the blink driver holds
                         // it solid when not blinking or unfocused.
                         let base_cursor_visible = snapshot.cursor_visible;
-                        let cursor_on = self.cursor_blink.poll(now, cursor_blinking, self.focused);
+                        let focused = self.focused;
+                        let cursor_on = self.cursor_blink.poll(now, cursor_blinking, focused);
                         // ID1 easing + VE4 slide: refresh the precomputed cursor
                         // animation params for this frame from the injected `now`
                         // and the blink phase / logical cursor move. Both no-op to
@@ -1877,19 +1883,8 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
-        match event {
-            // Coalesce: flag a rebuild and ask for one redraw. Many output
-            // chunks between frames collapse into a single snapshot+rebuild
-            // because `winit` merges redundant `request_redraw` calls and we
-            // only rebuild when `needs_rebuild` is set.
-            UserEvent::Redraw => {
-                self.needs_rebuild = true;
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
-            }
-            // The shell exited (PTY EOF): close the window cleanly.
-            UserEvent::ShellExited => event_loop.exit(),
+        if self.apply_user_event(event) {
+            event_loop.exit();
         }
     }
 

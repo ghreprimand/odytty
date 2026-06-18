@@ -209,8 +209,8 @@ fn overlay_shortcut_is_ctrl_shift_comma_only() {
 }
 
 #[test]
-fn theme_picker_shortcut_is_ctrl_shift_t_only() {
-    let key = WinitKey::Character("t".into());
+fn theme_picker_shortcut_is_ctrl_shift_h_only() {
+    let key = WinitKey::Character("h".into());
     let mods = Modifiers {
         ctrl: true,
         shift: true,
@@ -220,7 +220,7 @@ fn theme_picker_shortcut_is_ctrl_shift_t_only() {
     assert!(is_theme_picker_shortcut(&key, mods, false));
     assert!(!is_theme_picker_shortcut(&key, mods, true));
     assert!(!is_theme_picker_shortcut(
-        &WinitKey::Character("y".into()),
+        &WinitKey::Character("t".into()),
         mods,
         false
     ));
@@ -365,7 +365,7 @@ fn key_bindings_preserve_default_shortcuts_when_unset() {
         Some(BindableAction::SettingsPanel)
     );
     assert_eq!(
-        bindings.action_for(&WinitKey::Character("t".into()), ctrl_shift, false),
+        bindings.action_for(&WinitKey::Character("h".into()), ctrl_shift, false),
         Some(BindableAction::ThemePicker)
     );
     assert_eq!(
@@ -425,6 +425,38 @@ fn key_bindings_default_prompt_copymode_and_hints_chords() {
     assert_eq!(
         bindings.action_for(&WinitKey::Character("k".into()), ctrl_shift, false),
         Some(BindableAction::ClearInput)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("t".into()), ctrl_shift, false),
+        Some(BindableAction::NewTab)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Character("w".into()), ctrl_shift, false),
+        Some(BindableAction::CloseTab)
+    );
+    assert_eq!(
+        bindings.action_for(
+            &WinitKey::Named(NamedKey::PageDown),
+            Modifiers {
+                ctrl: true,
+                shift: false,
+                alt: false,
+            },
+            false
+        ),
+        Some(BindableAction::NextTab)
+    );
+    assert_eq!(
+        bindings.action_for(
+            &WinitKey::Named(NamedKey::PageUp),
+            Modifiers {
+                ctrl: true,
+                shift: false,
+                alt: false,
+            },
+            false
+        ),
+        Some(BindableAction::PrevTab)
     );
 }
 

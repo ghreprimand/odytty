@@ -96,6 +96,14 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.handle_select_all();
             }
+            OverlayOutcome::ContextMenuNewTab => {
+                self.flush_pending_overlay_settings();
+                self.handle_new_tab();
+            }
+            OverlayOutcome::ContextMenuCloseTab => {
+                self.flush_pending_overlay_settings();
+                let _ = self.close_active_tab();
+            }
             // D-IN2-SETTINGS: the context menu closed itself; open the settings
             // panel through the existing toggle path (same destination as
             // Ctrl+Shift+,). No extra state: the toggle path handles open/close.
@@ -536,9 +544,10 @@ impl App {
             && self.selection.range().is_some()
         {
             let scrollback_len = self.scrollback_len();
+            let viewport_offset = self.viewport.offset();
             self.selection.update(selection::visible_to_absolute(
                 point,
-                self.viewport.offset(),
+                viewport_offset,
                 scrollback_len,
             ));
             self.pointer_drag = PointerDrag::Select {
@@ -559,9 +568,10 @@ impl App {
 
     fn begin_drag_selection(&mut self, point: CellPoint) {
         let scrollback_len = self.scrollback_len();
+        let viewport_offset = self.viewport.offset();
         self.selection.begin(selection::visible_to_absolute(
             point,
-            self.viewport.offset(),
+            viewport_offset,
             scrollback_len,
         ));
         self.pointer_drag = PointerDrag::Select {
@@ -582,9 +592,10 @@ impl App {
     /// block. Constructs the reserved `PointerDrag::Select { block: true }`.
     fn begin_block_drag(&mut self, point: CellPoint) {
         let scrollback_len = self.scrollback_len();
+        let viewport_offset = self.viewport.offset();
         self.selection.begin(selection::visible_to_absolute(
             point,
-            self.viewport.offset(),
+            viewport_offset,
             scrollback_len,
         ));
         self.pointer_drag = PointerDrag::Select {
@@ -659,9 +670,10 @@ impl App {
                 ..
             } => {
                 let scrollback_len = self.scrollback_len();
+                let viewport_offset = self.viewport.offset();
                 self.selection.update(selection::visible_to_absolute(
                     point,
-                    self.viewport.offset(),
+                    viewport_offset,
                     scrollback_len,
                 ));
             }
@@ -922,10 +934,9 @@ impl App {
     /// absolute rows, so moving the viewport keeps their anchors meaningful.
     /// With no scrollback this is a clamped no-op (never panics).
     pub(super) fn scroll_viewport(&mut self, delta: isize) {
+        let scrollback_len = self.scrollback_len();
         let changed = match delta.cmp(&0) {
-            std::cmp::Ordering::Greater => self
-                .viewport
-                .scroll_up(delta as usize, self.scrollback_len()),
+            std::cmp::Ordering::Greater => self.viewport.scroll_up(delta as usize, scrollback_len),
             std::cmp::Ordering::Less => self.viewport.scroll_down((-delta) as usize),
             std::cmp::Ordering::Equal => false,
         };

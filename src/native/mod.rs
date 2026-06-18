@@ -66,6 +66,7 @@ mod pty;
 mod render_helpers;
 mod resize;
 mod search_ui;
+mod session;
 mod settings_panel;
 mod theme_builder;
 mod theme_picker;
@@ -93,6 +94,7 @@ pub(crate) use viewport::WindowPadding;
 
 use app::App;
 use pty::{PtyWriter, UserEvent, spawn_pty_pump};
+use session::{Session, SessionSet};
 
 pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), NativeError> {
     let event_loop = EventLoop::<UserEvent>::with_user_event()
@@ -166,17 +168,19 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     ));
 
     let proxy = event_loop.create_proxy();
-    let pump_thread = spawn_pty_pump(reader, writer.clone(), terminal.clone(), proxy);
+    let pump_thread = spawn_pty_pump(reader, writer.clone(), terminal.clone(), proxy.clone(), 0);
 
     // Share the session: the App pushes window-size changes to it on resize,
     // and this function reaps the child on the way out.
     let session = Arc::new(Mutex::new(session));
+    let session_set = SessionSet::new(
+        Session::new(terminal, writer, session.clone(), Some(pump_thread)),
+        Some(proxy),
+    );
 
-    let mut app = App::new(
+    let mut app = App::new_with_sessions(
         options,
-        terminal,
-        writer,
-        session.clone(),
+        session_set,
         settings.clone(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
@@ -188,12 +192,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // master and unblocks the pump thread's `read`, then join the thread. The
     // App's session clone is dropped with `app` after this; reaping the child
     // is what EOFs the pump's reader, independent of master drop order.
-    {
-        let mut session = session.lock().expect("pty session");
-        let _ = session.kill();
-        let _ = session.wait();
-    }
-    let _ = pump_thread.join();
+    app.close_all_sessions();
 
     run_result?;
     if let Some(err) = app.startup_error {

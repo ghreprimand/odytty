@@ -488,7 +488,7 @@ its first stable layer.
   live through the existing reload seam; `Ctrl+S` writes changed rows back to
   `odytty.conf` with preservation-first writeback (comments, blank lines, and
   unknown keys untouched; same-directory atomic rename). Live theme picker:
-  `Ctrl+Shift+T` lists built-ins, previews each theme on arrow
+  `Ctrl+Shift+H` lists built-ins, previews each theme on arrow
   navigation, persists the selected built-in with `Enter`, and restores the
   originally active theme with `Esc`. The custom theme builder has landed:
   clone/tweak/author with live preview, saved to a user `.theme` file.

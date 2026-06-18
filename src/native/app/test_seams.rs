@@ -10,6 +10,7 @@
 //! required visibility widening, from the in-`app` `pub(super)`).
 
 use super::*;
+use winit::keyboard::KeyCode;
 
 impl App {
     /// Resize the terminal model and PTY to fit the new physical surface size.
@@ -541,6 +542,143 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn pending_exit_for_test(&self) -> bool {
         self.pending_exit
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn active_session_id_for_test(&self) -> usize {
+        self.sessions.active_id()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn session_count_for_test(&self) -> usize {
+        self.sessions.iter().count()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn push_session_for_test(
+        &mut self,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        pty: Arc<Mutex<PtySession>>,
+    ) -> usize {
+        self.sessions
+            .push(Session::new(terminal, writer, pty, None))
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn switch_to_session_for_test(&mut self, session: usize) -> bool {
+        if !self.sessions.switch(session) {
+            return false;
+        }
+        self.on_active_session_changed();
+        true
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn close_active_tab_for_test(&mut self) -> bool {
+        self.close_active_tab()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn dispatch_user_event_for_test(&mut self, event: UserEvent) -> bool {
+        self.apply_user_event(event)
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn session_needs_rebuild_for_test(&self, session: usize) -> Option<bool> {
+        self.sessions
+            .iter()
+            .nth(session)
+            .map(|session| session.needs_rebuild)
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn set_session_needs_rebuild_for_test(
+        &mut self,
+        session: usize,
+        needs_rebuild: bool,
+    ) {
+        if let Some(session) = self.sessions.get_mut(session) {
+            session.needs_rebuild = needs_rebuild;
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn drive_text_key_for_test(&mut self, text: &str) {
+        let logical = WinitKey::Character(text.to_owned().into());
+        self.handle_key_event(
+            logical.clone(),
+            logical,
+            PhysicalKey::Code(KeyCode::KeyA),
+            KeyEventType::Press,
+        );
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn advance_session_bytes_for_test(
+        &mut self,
+        session: usize,
+        bytes: &[u8],
+    ) {
+        if let Some(session) = self.sessions.get_mut(session)
+            && let Ok(mut terminal) = session.terminal.lock()
+        {
+            terminal.advance(bytes);
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn session_plain_text_for_test(&self, session: usize) -> Option<String> {
+        self.sessions.iter().nth(session).and_then(|session| {
+            session
+                .terminal
+                .lock()
+                .ok()
+                .map(|terminal| terminal.screen().plain_text())
+        })
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn session_dimensions_for_test(
+        &self,
+        session: usize,
+    ) -> Option<Dimensions> {
+        self.sessions.iter().nth(session).and_then(|session| {
+            session
+                .terminal
+                .lock()
+                .ok()
+                .map(|terminal| terminal.screen().dimensions())
+        })
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn session_pty_dimensions_for_test(
+        &self,
+        session: usize,
+    ) -> Option<Dimensions> {
+        self.sessions.iter().nth(session).and_then(|session| {
+            session
+                .pty
+                .lock()
+                .ok()
+                .and_then(|pty| pty.dimensions_for_test().ok())
+        })
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn active_window_title_for_test(&self) -> String {
+        self.active_window_title()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn open_search_for_test(&mut self) {
+        self.toggle_search();
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn search_open_for_test(&self) -> bool {
+        self.search.is_open()
     }
 
     /// Test seam (FONT-SAVE-CORRECTNESS BUG 2): drive the post-write live-apply

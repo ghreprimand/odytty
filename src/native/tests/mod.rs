@@ -82,6 +82,7 @@ mod selection_extend;
 mod sh2_native;
 mod sh_click;
 mod synchronized_output;
+mod tabs_sessions;
 mod viewport;
 mod wheel_zoom;
 

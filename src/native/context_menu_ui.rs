@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Right-click context menu (IN2). A small, cell-rendered popup offering Copy /
-//! Cut / Paste / Delete / Select All / Settings, spawned at the pointer cell and
-//! edge-clamped to the grid.
+//! Cut / Paste / Delete / Select All / New Tab / Close Tab / Settings, spawned
+//! at the pointer cell and edge-clamped to the grid.
 //!
 //! The menu is *always available* — there is no `context_menu` enable bool. The
 //! TUI mouse-reporting passthrough guard in [`super::app`] is the effective off
@@ -19,28 +19,31 @@
 //! Item gating (D-IN2-6): Copy is enabled only when a selection exists, Cut and
 //! Delete only when that selection intersects editable prompt input, Paste only
 //! when the clipboard holds text; states are snapshotted at open time. Select
-//! All and Settings are always enabled. A disabled item renders dim and its
-//! activation is a no-op.
+//! All, New Tab, Close Tab, and Settings are always enabled. A disabled item
+//! renders dim and its activation is a no-op.
 //!
-//! A visual separator line sits between the editing/selection commands (Copy…
-//! Select All) and the Settings launcher. The separator occupies one body row
-//! but is neither selectable nor focusable (D-IN2-SETTINGS).
+//! Two visual separator lines partition the menu into editing/selection
+//! commands (Copy…Select All), tab actions (New Tab / Close Tab), and the
+//! Settings launcher. Separators occupy body rows but are neither selectable
+//! nor focusable (D-IN2-SETTINGS).
 
 use crate::selection::CellPoint;
 
 use super::overlay::{OverlayInput, OverlayRect, PointerButton};
 
-/// Number of selectable items (Copy / Cut / Paste / Delete / Select All /
-/// Settings).
-pub(super) const CONTEXT_MENU_ITEMS: usize = 6;
+/// Number of selectable items (Copy / Cut / Paste / Delete / Select All / New
+/// Tab / Close Tab / Settings).
+pub(super) const CONTEXT_MENU_ITEMS: usize = 8;
 
-/// Body row index of the visual separator between Select All and Settings.
-/// Rows 0–4 are the five edit/selection items; row 5 is the separator; row 6 is
-/// the Settings item.
+/// Body row index of the first visual separator, between Select All and New Tab.
 pub(super) const CONTEXT_MENU_SEPARATOR_ROW: usize = 5;
 
-/// Total body rows: six selectable items plus one separator line.
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = CONTEXT_MENU_ITEMS + 1;
+/// Body row index of the second visual separator, between Close Tab and
+/// Settings.
+pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 8;
+
+/// Total body rows: eight selectable items plus two separator lines.
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = CONTEXT_MENU_ITEMS + 2;
 
 /// The selectable actions in the menu, in display order (separator excluded).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,6 +53,8 @@ pub(super) enum ContextMenuItem {
     Paste,
     Delete,
     SelectAll,
+    NewTab,
+    CloseTab,
     /// Open the settings panel (always enabled, D-IN2-SETTINGS).
     Settings,
 }
@@ -62,6 +67,8 @@ impl ContextMenuItem {
         Self::Paste,
         Self::Delete,
         Self::SelectAll,
+        Self::NewTab,
+        Self::CloseTab,
         Self::Settings,
     ];
 
@@ -73,27 +80,33 @@ impl ContextMenuItem {
             Self::Paste => "Paste",
             Self::Delete => "Delete",
             Self::SelectAll => "Select All",
+            Self::NewTab => "New Tab",
+            Self::CloseTab => "Close Tab",
             Self::Settings => "Settings",
         }
     }
 }
 
-/// Map a selectable item index (0–5) to its body row, accounting for the
-/// separator at row 5. Items 0–4 sit at body rows 0–4; Settings (index 5)
-/// sits at body row 6.
+/// Map a selectable item index to its body row, accounting for the two
+/// separators. Items 0–4 sit at body rows 0–4; items 5–6 sit at body rows 6–7;
+/// Settings (index 7) sits at body row 9.
 #[cfg(test)]
 fn item_to_body_row(item_index: usize) -> usize {
-    if item_index >= CONTEXT_MENU_SEPARATOR_ROW {
+    if item_index >= 7 {
+        item_index + 2
+    } else if item_index >= CONTEXT_MENU_SEPARATOR_ROW {
         item_index + 1
     } else {
         item_index
     }
 }
 
-/// Map a body row to a selectable item index, or `None` for the separator row.
+/// Map a body row to a selectable item index, or `None` for a separator row.
 fn body_row_to_item(body_row: usize) -> Option<usize> {
-    if body_row == CONTEXT_MENU_SEPARATOR_ROW {
+    if body_row == CONTEXT_MENU_SEPARATOR_ROW || body_row == CONTEXT_MENU_SECOND_SEPARATOR_ROW {
         None
+    } else if body_row > CONTEXT_MENU_SECOND_SEPARATOR_ROW {
+        Some(body_row - 2)
     } else if body_row > CONTEXT_MENU_SEPARATOR_ROW {
         Some(body_row - 1)
     } else {
@@ -200,6 +213,8 @@ impl ContextMenuUi {
             ContextMenuItem::Paste => self.paste_enabled,
             ContextMenuItem::Delete => self.delete_enabled,
             ContextMenuItem::SelectAll => true,
+            ContextMenuItem::NewTab => true,
+            ContextMenuItem::CloseTab => true,
             ContextMenuItem::Settings => true,
         }
     }
@@ -323,8 +338,9 @@ impl ContextMenuUi {
     pub(super) fn rows(&self) -> Vec<ContextMenuRow> {
         let mut out = Vec::with_capacity(CONTEXT_MENU_BODY_ROWS);
         for (item_index, item) in ContextMenuItem::ALL.iter().enumerate() {
-            // Insert the separator before the Settings item.
-            if item_index == CONTEXT_MENU_SEPARATOR_ROW {
+            // Insert the first separator before the tab actions, and the second
+            // before Settings.
+            if item_index == CONTEXT_MENU_SEPARATOR_ROW || item_index == 7 {
                 out.push(ContextMenuRow::Separator);
             }
             out.push(ContextMenuRow::Item {
@@ -436,12 +452,27 @@ mod tests {
     }
 
     #[test]
-    fn settings_always_activates() {
+    fn new_tab_and_close_tab_are_always_enabled() {
         let mut m = menu(false, false);
-        // Settings is at item index 5 → body row 6 (separator at row 5).
-        assert_eq!(item_to_body_row(5), 6, "Settings item is at body row 6");
+        assert_eq!(item_to_body_row(5), 6, "New Tab item is at body row 6");
         assert_eq!(
             m.handle_press(6, PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::NewTab)
+        );
+        assert_eq!(item_to_body_row(6), 7, "Close Tab item is at body row 7");
+        assert_eq!(
+            m.handle_press(7, PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::CloseTab)
+        );
+    }
+
+    #[test]
+    fn settings_always_activates() {
+        let mut m = menu(false, false);
+        // Settings is at item index 7 → body row 9.
+        assert_eq!(item_to_body_row(7), 9, "Settings item is at body row 9");
+        assert_eq!(
+            m.handle_press(9, PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::Settings)
         );
     }
@@ -449,13 +480,21 @@ mod tests {
     #[test]
     fn separator_row_is_inert() {
         let mut m = menu(true, true);
-        // Body row 5 is the separator — press is consumed without changing focus.
+        // Body row 5 is the first separator — press is consumed without changing focus.
         let before = m.focused;
         assert_eq!(
             m.handle_press(CONTEXT_MENU_SEPARATOR_ROW, PointerButton::Left),
             ContextMenuOutcome::Consumed
         );
         assert_eq!(m.focused, before, "separator press does not move focus");
+        assert_eq!(
+            m.handle_press(CONTEXT_MENU_SECOND_SEPARATOR_ROW, PointerButton::Left),
+            ContextMenuOutcome::Consumed
+        );
+        assert_eq!(
+            m.focused, before,
+            "second separator press does not move focus"
+        );
     }
 
     #[test]
@@ -466,9 +505,11 @@ mod tests {
         // Hovering the separator leaves focus unchanged.
         m.handle_hover(Some(CONTEXT_MENU_SEPARATOR_ROW));
         assert_eq!(m.focused, 2, "separator hover is inert");
-        // Hovering Settings (body row 6) focuses it (item index 5).
-        m.handle_hover(Some(6));
-        assert_eq!(m.focused, 5, "hover Settings focuses it");
+        m.handle_hover(Some(CONTEXT_MENU_SECOND_SEPARATOR_ROW));
+        assert_eq!(m.focused, 2, "second separator hover is inert");
+        // Hovering Settings (body row 9) focuses it (item index 7).
+        m.handle_hover(Some(9));
+        assert_eq!(m.focused, 7, "hover Settings focuses it");
     }
 
     #[test]
@@ -590,6 +631,23 @@ mod tests {
         assert_eq!(
             rows[6],
             ContextMenuRow::Item {
+                label: "New Tab",
+                focused: false,
+                enabled: true,
+            }
+        );
+        assert_eq!(
+            rows[7],
+            ContextMenuRow::Item {
+                label: "Close Tab",
+                focused: false,
+                enabled: true,
+            }
+        );
+        assert_eq!(rows[8], ContextMenuRow::Separator);
+        assert_eq!(
+            rows[9],
+            ContextMenuRow::Item {
                 label: "Settings",
                 focused: false,
                 enabled: true,
@@ -606,8 +664,13 @@ mod tests {
         }
         // Body row 5 is the separator.
         assert_eq!(body_row_to_item(CONTEXT_MENU_SEPARATOR_ROW), None);
-        // Settings (item 5) is at body row 6.
+        // New Tab / Close Tab / Settings shift after the two separators.
         assert_eq!(item_to_body_row(5), 6);
         assert_eq!(body_row_to_item(6), Some(5));
+        assert_eq!(item_to_body_row(6), 7);
+        assert_eq!(body_row_to_item(7), Some(6));
+        assert_eq!(body_row_to_item(CONTEXT_MENU_SECOND_SEPARATOR_ROW), None);
+        assert_eq!(item_to_body_row(7), 9);
+        assert_eq!(body_row_to_item(9), Some(7));
     }
 }

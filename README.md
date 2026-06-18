@@ -216,7 +216,7 @@ so if you have already customized them the card shows your actual chords.
 Dismiss with `Enter`, `Esc`, or `Space`. First-run memory is the config file's
 existence — no flag file, no telemetry, no account.
 
-**Theme picker.** `Ctrl+Shift+T` opens a built-in theme picker. Arrowing through
+**Theme picker.** `Ctrl+Shift+H` opens a built-in theme picker. Arrowing through
 the library previews each theme immediately, `Enter` persists the selected
 theme to `odytty.conf`, and `Esc` restores the theme that was active when the
 picker opened.
