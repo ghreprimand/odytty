@@ -23,9 +23,25 @@ impl App {
     /// byte-identical to before the feature existed.
     pub(super) fn resolve_active_theme(&self) -> Theme {
         if self.settings.follow_os_theme {
+            // `theme = system` is an alias for following with default dark/light
+            // mappings. A user-supplied `os_theme_dark`/`os_theme_light`
+            // override always wins; the defaults apply only when the alias is
+            // active AND that direction is unset.
+            let default_dark = self
+                .settings
+                .theme_is_system
+                .then_some(crate::settings::DEFAULT_OS_THEME_DARK);
+            let default_light = self
+                .settings
+                .theme_is_system
+                .then_some(crate::settings::DEFAULT_OS_THEME_LIGHT);
             let name = match self.os_theme {
-                Some(winit::window::Theme::Dark) => self.settings.os_theme_dark.as_deref(),
-                Some(winit::window::Theme::Light) => self.settings.os_theme_light.as_deref(),
+                Some(winit::window::Theme::Dark) => {
+                    self.settings.os_theme_dark.as_deref().or(default_dark)
+                }
+                Some(winit::window::Theme::Light) => {
+                    self.settings.os_theme_light.as_deref().or(default_light)
+                }
                 None => None,
             };
             if let Some(name) = name

@@ -356,6 +356,23 @@ pub const SMOOTH_SCROLL_FRAME: Duration = Duration::from_millis(16);
 /// direction keeps the authored theme rather than guessing.
 pub const DEFAULT_FOLLOW_OS_THEME: bool = false;
 
+/// The sentinel theme value that follows the OS dark/light appearance
+/// (OS-THEME alias). When `ODYTTY_THEME` is set to this value, OdyTTY enables
+/// [`Settings::follow_os_theme`] and maps the OS dark signal to the default
+/// dark Odyssey theme and the OS light signal to the default light Odyssey
+/// theme. The individual `os_theme_dark`/`os_theme_light` settings remain
+/// available for custom overrides. This is a config-layer alias only — it never
+/// extracts the desktop palette or accent colors.
+pub const SYSTEM_THEME_NAME: &str = "system";
+
+/// Default theme name applied to an OS dark signal when `theme = system` is
+/// active and the user has not set an explicit `os_theme_dark` override.
+pub const DEFAULT_OS_THEME_DARK: &str = "odyssey";
+
+/// Default theme name applied to an OS light signal when `theme = system` is
+/// active and the user has not set an explicit `os_theme_light` override.
+pub const DEFAULT_OS_THEME_LIGHT: &str = "odyssey-light";
+
 /// Confirm before closing while a foreground job is running (`ODYTTY_CONFIRM_CLOSE`,
 /// CLOSE-CONFIRM): when on, a close request (window close button / WM close)
 /// while a program is actively running in the terminal opens a confirmation

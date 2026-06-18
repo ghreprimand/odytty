@@ -7,6 +7,17 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Menu back navigation
+
+Settings-launched submenus now expose mouse-clickable back affordances consistently. Key Bindings returns to Settings via the title back arrow or Esc, while Theme Builder returns to the theme picker when opened from there and keeps the standalone close behavior for direct launches. Intentionally modal or standalone overlays such as close confirmation and first-run onboarding keep their existing dismissal controls.
+
+---
+
+## 2026-06-18 -- System theme alias
+
+`ODYTTY_THEME=system` is now a single-key alias that follows the desktop dark/light appearance. It enables the existing OS-theme machinery with default mappings (dark -> Odyssey dark, light -> Odyssey light), so users get automatic theme switching without touching the separate `follow_os_theme`/`os_theme_dark`/`os_theme_light` knobs. The individual OS-theme overrides remain available for custom mappings. The theme picker lists `system` as its first row. This is a config alias only; no desktop palette or accent-color extraction.
+
+---
 ## 2026-06-18 -- Picker mouse navigation
 
 Theme and font picker overlays now show a mouse-clickable back affordance in

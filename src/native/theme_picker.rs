@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use crate::settings::{SettingEdit, Settings, THEME_ENV};
+use crate::settings::{SYSTEM_THEME_NAME, SettingEdit, Settings, THEME_ENV};
 use crate::theme::{Theme, all as built_in_themes, relative_luminance};
 
 use super::overlay::OverlayInput;
@@ -10,6 +10,9 @@ pub(super) struct ThemePicker {
     selected: usize,
     scroll: usize,
     original: Theme,
+    /// Whether the picker was opened with `theme = system` active, so the
+    /// `original` marker lands on the system alias row.
+    original_is_system: bool,
     message: Option<String>,
 }
 
@@ -63,37 +66,45 @@ pub(super) enum ThemePickerOutcome {
 struct ThemeEntry {
     theme: Theme,
     appearance: ThemeAppearance,
+    /// Whether this row represents the `system` alias rather than a concrete
+    /// built-in theme. The `theme` field then holds the entry used for live
+    /// preview rendering only; persistence emits the `system` token.
+    is_system: bool,
 }
 
 impl ThemePicker {
     pub(super) fn new(settings: &Settings) -> Self {
         let mut picker = Self {
-            entries: built_in_themes()
-                .iter()
-                .copied()
-                .map(ThemeEntry::new)
+            // The `system` alias is offered as the first row so users can opt
+            // into OS dark/light following from the picker without editing raw
+            // config. Its `theme` is the default dark theme for preview only.
+            entries: std::iter::once(ThemeEntry::system_alias())
+                .chain(built_in_themes().iter().copied().map(ThemeEntry::new))
                 .collect(),
             selected: 0,
             scroll: 0,
             original: settings.theme,
+            original_is_system: settings.theme_is_system,
             message: None,
         };
-        picker.select_theme(settings.theme);
+        picker.select_theme(settings);
         picker
     }
 
     pub(super) fn open(&mut self, settings: &Settings) {
         self.original = settings.theme;
+        self.original_is_system = settings.theme_is_system;
         self.message = Some(
             "Built-in themes only in this picker. User theme files remain editable in settings."
                 .to_owned(),
         );
-        self.select_theme(settings.theme);
+        self.select_theme(settings);
     }
 
     pub(super) fn refresh(&mut self, settings: &Settings) {
         self.original = settings.theme;
-        self.select_theme(settings.theme);
+        self.original_is_system = settings.theme_is_system;
+        self.select_theme(settings);
     }
 
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> ThemePickerOutcome {
@@ -134,15 +145,15 @@ impl ThemePicker {
             scroll: self.scroll,
             original: self.original.name,
             current: self
-                .selected_theme()
-                .map(|theme| theme.name)
+                .selected_entry()
+                .map(|entry| entry.display_name())
                 .unwrap_or(self.original.name),
             message: self.message.clone(),
             entries: self
                 .entries
                 .iter()
                 .map(|entry| ThemePickerEntrySignature {
-                    name: entry.theme.name,
+                    name: entry.display_name(),
                     appearance: entry.appearance,
                 })
                 .collect(),
@@ -156,7 +167,7 @@ impl ThemePicker {
         let longest = self
             .entries
             .iter()
-            .map(|entry| entry.theme.name.chars().count())
+            .map(|entry| entry.display_name().chars().count())
             .max()
             .unwrap_or(16);
         longest.saturating_add(28).max(54).min(columns)
@@ -198,15 +209,18 @@ impl ThemePicker {
             }
             let focused = index == self.selected;
             let marker = if focused { ">" } else { " " };
-            let original = if entry.theme == self.original {
-                " original"
+            let is_original = entry.is_system && self.original_is_system
+                || !entry.is_system && entry.theme == self.original;
+            let original = if is_original { " original" } else { "" };
+            let label = if entry.is_system {
+                "auto "
             } else {
-                ""
+                entry.appearance.label()
             };
             let text = format!(
                 "{marker} {:<20} {:<5}{original}",
-                entry.theme.name,
-                entry.appearance.label()
+                entry.display_name(),
+                label
             );
             lines.push(ThemePickerLine {
                 text: ellipsize(&text, body_width),
@@ -219,25 +233,49 @@ impl ThemePicker {
     }
 
     fn persist_selected(&mut self) -> ThemePickerOutcome {
-        let Some(theme) = self.selected_theme() else {
+        let Some(entry) = self.entries.get(self.selected) else {
             return ThemePickerOutcome::Consumed;
+        };
+        // The system alias persists the `system` token; concrete themes persist
+        // their canonical name.
+        let value = if entry.is_system {
+            SYSTEM_THEME_NAME.to_owned()
+        } else {
+            entry.theme.name.to_owned()
         };
         ThemePickerOutcome::Persist(vec![SettingEdit {
             key: "theme",
             env: THEME_ENV,
-            value: theme.name.to_owned(),
+            value,
         }])
     }
 
-    fn selected_theme(&self) -> Option<Theme> {
-        self.entries.get(self.selected).map(|entry| entry.theme)
+    fn selected_entry(&self) -> Option<&ThemeEntry> {
+        self.entries.get(self.selected)
     }
 
-    fn select_theme(&mut self, theme: Theme) {
+    /// The concrete theme for live preview rendering. The system alias row
+    /// previews as its underlying default theme; it is never persisted as that
+    /// name (see [`Self::persist_selected`]).
+    fn selected_theme(&self) -> Option<Theme> {
+        self.selected_entry().map(|entry| entry.theme)
+    }
+
+    /// Select the row matching the active settings. When `theme = system` is
+    /// active the system alias row is selected; otherwise the concrete theme.
+    fn select_theme(&mut self, settings: &Settings) {
+        let target_is_system = settings.theme_is_system;
+        let target_name = settings.theme.name;
         self.selected = self
             .entries
             .iter()
-            .position(|entry| entry.theme.name == theme.name)
+            .position(|entry| {
+                if target_is_system {
+                    entry.is_system
+                } else {
+                    !entry.is_system && entry.theme.name == target_name
+                }
+            })
             .unwrap_or(0);
         self.clamp();
     }
@@ -275,6 +313,27 @@ impl ThemeEntry {
         Self {
             theme,
             appearance: appearance_for(theme),
+            is_system: false,
+        }
+    }
+
+    /// The `system` alias row. Preview rendering uses the default dark theme;
+    /// persistence emits the `system` token via [`Self::is_system`].
+    fn system_alias() -> Self {
+        Self {
+            theme: Theme::ODYSSEY,
+            appearance: ThemeAppearance::Dark,
+            is_system: true,
+        }
+    }
+
+    /// Display label for this row: the alias token for `system`, otherwise the
+    /// built-in theme name.
+    fn display_name(&self) -> &'static str {
+        if self.is_system {
+            SYSTEM_THEME_NAME
+        } else {
+            self.theme.name
         }
     }
 }
@@ -338,25 +397,28 @@ mod tests {
         let index = picker
             .entries
             .iter()
-            .position(|entry| entry.theme.name == name)
+            .position(|entry| entry.display_name() == name)
             .unwrap_or_else(|| panic!("missing theme {name}"));
         picker.set_selection(index);
     }
 
     #[test]
-    fn picker_enumerates_every_builtin_theme() {
+    fn picker_lists_system_alias_then_every_builtin_theme() {
         let picker = ThemePicker::new(&Settings::default());
         let signature = picker.render_signature();
-        let expected = crate::theme::names().collect::<Vec<_>>();
+        let builtins = crate::theme::names().collect::<Vec<_>>();
 
-        assert_eq!(signature.entries.len(), expected.len());
+        // system alias first, then the full builtin roster.
+        assert_eq!(signature.entries.len(), builtins.len() + 1);
+        assert_eq!(signature.entries[0].name, SYSTEM_THEME_NAME);
         assert_eq!(
             signature
                 .entries
                 .iter()
+                .skip(1)
                 .map(|entry| entry.name)
                 .collect::<Vec<_>>(),
-            expected
+            builtins
         );
     }
 
@@ -431,5 +493,28 @@ mod tests {
         assert!(!written.contains("/home/"));
 
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn system_alias_row_persists_system_token() {
+        let mut picker = ThemePicker::new(&Settings::default());
+        select_theme(&mut picker, SYSTEM_THEME_NAME);
+        let ThemePickerOutcome::Persist(changes) = picker.handle_input(OverlayInput::Activate)
+        else {
+            panic!("expected persistence request");
+        };
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0].key, "theme");
+        assert_eq!(changes[0].env, THEME_ENV);
+        assert_eq!(changes[0].value, SYSTEM_THEME_NAME);
+    }
+
+    #[test]
+    fn system_alias_row_is_selected_when_settings_use_system() {
+        let mut settings = Settings::default();
+        settings.theme_is_system = true;
+        let picker = ThemePicker::new(&settings);
+        let entry = picker.selected_entry().expect("an entry must be selected");
+        assert!(entry.is_system, "system alias must be selected");
     }
 }

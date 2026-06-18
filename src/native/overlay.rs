@@ -40,6 +40,11 @@ pub(super) struct OverlayUi {
     /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
     close_after_save: bool,
     picker_return: Option<PickerReturn>,
+    /// True while `ThemeBuilder` is the active mode AND it was entered from
+    /// `ThemePicker` (via `ThemePickerOutcome::OpenBuilder`). Esc / back-button
+    /// in this state navigates back to `ThemePicker` rather than closing the
+    /// whole overlay. False for the standalone / Settings-launched path.
+    builder_from_picker: bool,
 }
 
 impl Default for OverlayUi {
@@ -63,6 +68,7 @@ impl OverlayUi {
             context_menu: ContextMenuUi::new(),
             close_after_save: false,
             picker_return: None,
+            builder_from_picker: false,
         }
     }
 
@@ -110,6 +116,7 @@ impl OverlayUi {
         self.mode = OverlayMode::Settings;
         self.close_after_save = false;
         self.picker_return = None;
+        self.builder_from_picker = false;
     }
 
     pub(super) fn open_theme_picker(&mut self, settings: &Settings) {
@@ -127,6 +134,8 @@ impl OverlayUi {
         self.theme_builder.open(settings);
         self.mode = OverlayMode::ThemeBuilder;
         self.open = true;
+        // Standalone / Settings-launched path: back-button closes, not ThemePicker.
+        self.builder_from_picker = false;
     }
 
     /// Open the font-family picker (FONT-PICKER). Runs a fresh metadata scan on
@@ -480,12 +489,15 @@ impl OverlayUi {
     }
 
     /// True if `cell` is in the `←` back-arrow hit zone of the theme or font
-    /// picker title row. Both pickers always show `← … (Esc = back)` in their
-    /// title, so this hit-test is unconditional on those modes.
+    /// picker/builder/key-bindings title row. All four modes show `← … (Esc =
+    /// back)` in their title, so this hit-test is unconditional on those modes.
     fn picker_title_back_hit(&self, cell: CellPoint, rect: OverlayRect) -> bool {
         matches!(
             self.mode,
-            OverlayMode::ThemePicker | OverlayMode::FontPicker
+            OverlayMode::ThemePicker
+                | OverlayMode::FontPicker
+                | OverlayMode::ThemeBuilder
+                | OverlayMode::KeyBindings
         )
         // Accept the title row and the gap row (rect.top through body_top - 1)
         // for a forgiving click target matching the Settings back-arrow zone.
@@ -608,6 +620,9 @@ impl OverlayUi {
                 self.settings = settings.clone();
                 self.theme_builder.open(&settings);
                 self.mode = OverlayMode::ThemeBuilder;
+                // Remember we came from ThemePicker so Esc / back navigates
+                // back to it rather than closing the overlay entirely.
+                self.builder_from_picker = true;
                 OverlayOutcome::ApplySettings(Box::new(settings))
             }
             ThemePickerOutcome::Cancel(theme) => {
@@ -662,7 +677,15 @@ impl OverlayUi {
             ThemeBuilderOutcome::Cancel(theme) => {
                 let settings = self.settings_with_theme(theme);
                 self.settings = settings.clone();
-                self.close();
+                // If the builder was opened from ThemePicker, Esc / back-button
+                // navigates back to it rather than closing the whole overlay.
+                // For the standalone / Settings-launched path, close as before.
+                if self.builder_from_picker {
+                    self.builder_from_picker = false;
+                    self.mode = OverlayMode::ThemePicker;
+                } else {
+                    self.close();
+                }
                 OverlayOutcome::ApplySettings(Box::new(settings))
             }
         }
@@ -687,7 +710,10 @@ impl OverlayUi {
             KeyRemapOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
             KeyRemapOutcome::Cancel(settings) => {
                 self.settings = settings.clone();
-                self.close();
+                // KeyBindings is always opened from Settings; Esc / back-button
+                // navigates back to the Settings panel rather than closing the
+                // whole overlay (consistent with the pickers' return path).
+                self.return_to_settings_panel();
                 OverlayOutcome::ApplySettings(Box::new(settings))
             }
         }
@@ -1024,14 +1050,14 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
     }
     let rows = snapshot.dimensions.rows;
     // The Settings title is dynamic (shows level, editing state, search query).
-    // The theme/font pickers always show a ← back affordance so mouse users can
-    // click to dismiss (same hit-zone as the Settings section-detail back arrow).
+    // ThemePicker, FontPicker, ThemeBuilder, and KeyBindings show a ← back
+    // affordance so mouse users can click to return to the parent screen.
     let title: String = match overlay.mode {
         OverlayMode::Settings => overlay.panel.panel_title(),
         OverlayMode::ThemePicker => "\u{2190} OdyTTY Themes  (Esc = back)".to_owned(),
-        OverlayMode::ThemeBuilder => "OdyTTY Theme Builder".to_owned(),
+        OverlayMode::ThemeBuilder => "\u{2190} OdyTTY Theme Builder  (Esc = back)".to_owned(),
         OverlayMode::FontPicker => "\u{2190} OdyTTY Font Picker  (Esc = back)".to_owned(),
-        OverlayMode::KeyBindings => "OdyTTY Key Bindings".to_owned(),
+        OverlayMode::KeyBindings => "\u{2190} OdyTTY Key Bindings  (Esc = back)".to_owned(),
         OverlayMode::Onboarding => "Welcome to OdyTTY".to_owned(),
         // Unreachable: handled by the early dispatch above.
         OverlayMode::ContextMenu => String::new(),
@@ -2635,6 +2661,202 @@ mod tests {
         assert!(
             overlay.is_open(),
             "inert title click does not close the picker"
+        );
+    }
+
+    // --- KeyBindings back-button ---
+
+    #[test]
+    fn key_bindings_title_back_arrow_click_returns_to_settings() {
+        // KeyBindings is always opened from Settings. Clicking ← in the title
+        // area must return to Settings (not close the overlay entirely).
+        let mut overlay = OverlayUi::default();
+        let settings = overlay.settings.clone();
+        overlay.open_settings();
+        overlay.open_key_bindings(&settings);
+        assert_eq!(overlay.render_signature().mode, OverlayMode::KeyBindings);
+
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.top,
+                    column: rect.body_left,
+                },
+                button: PointerButton::Left,
+                x_in_body: None,
+            },
+            rect,
+        );
+        // Returns ApplySettings (restores undone key-binding changes) and stays open.
+        assert!(
+            matches!(outcome, OverlayOutcome::ApplySettings(_)),
+            "key bindings ← click should emit ApplySettings"
+        );
+        assert!(
+            overlay.is_open(),
+            "overlay stays open after returning to settings"
+        );
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::Settings,
+            "key bindings ← click returns to Settings panel"
+        );
+    }
+
+    #[test]
+    fn key_bindings_esc_returns_to_settings() {
+        // Keyboard Esc in KeyBindings navigates back to Settings (consistent
+        // with pickers' cancel-to-return path).
+        let mut overlay = OverlayUi::default();
+        let settings = overlay.settings.clone();
+        overlay.open_settings();
+        overlay.open_key_bindings(&settings);
+        assert_eq!(overlay.render_signature().mode, OverlayMode::KeyBindings);
+
+        let outcome = overlay.handle_input(OverlayInput::Close);
+        assert!(
+            matches!(outcome, OverlayOutcome::ApplySettings(_)),
+            "key bindings Esc should emit ApplySettings"
+        );
+        assert!(overlay.is_open(), "overlay stays open after Esc");
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::Settings,
+            "key bindings Esc returns to Settings panel"
+        );
+    }
+
+    #[test]
+    fn key_bindings_title_back_zone_not_matched_outside_arrow_area() {
+        // Clicking outside the ← zone in the KeyBindings title row is inert.
+        let mut overlay = OverlayUi::default();
+        let settings = overlay.settings.clone();
+        overlay.open_key_bindings(&settings);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.top,
+                    column: rect.body_left + 20, // far right, outside ← zone
+                },
+                button: PointerButton::Left,
+                x_in_body: None,
+            },
+            rect,
+        );
+        assert_eq!(
+            outcome,
+            OverlayOutcome::Consumed,
+            "title click outside ← zone in key bindings is inert"
+        );
+        assert!(
+            overlay.is_open(),
+            "inert title click does not close key bindings"
+        );
+    }
+
+    // --- ThemeBuilder back-button ---
+
+    #[test]
+    fn theme_builder_title_back_arrow_click_from_picker_returns_to_picker() {
+        // ThemeBuilder opened from ThemePicker: clicking ← in the title area
+        // must return to ThemePicker (not close the overlay).
+        let mut overlay = OverlayUi::new(&Settings {
+            theme: crate::theme::Theme::ODYSSEY,
+            ..Settings::default()
+        });
+        let settings = overlay.settings.clone();
+        overlay.open_theme_picker(&settings);
+        // Simulate opening the builder from the picker (sets builder_from_picker).
+        let _ = overlay.handle_input(OverlayInput::Activate); // OpenBuilder for focused theme
+        // If OpenBuilder wasn't triggered (no customizable theme focused), open manually.
+        if overlay.render_signature().mode != OverlayMode::ThemeBuilder {
+            // Force into ThemeBuilder via the picker outcome path.
+            overlay.open_theme_picker(&settings);
+            // Directly transition as the picker would.
+            overlay.theme_builder.open(&settings);
+            overlay.mode = OverlayMode::ThemeBuilder;
+            overlay.builder_from_picker = true;
+        }
+        assert_eq!(overlay.render_signature().mode, OverlayMode::ThemeBuilder);
+
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.top,
+                    column: rect.body_left,
+                },
+                button: PointerButton::Left,
+                x_in_body: None,
+            },
+            rect,
+        );
+        assert!(
+            matches!(outcome, OverlayOutcome::ApplySettings(_)),
+            "theme builder ← click should emit ApplySettings (restore theme)"
+        );
+        assert!(
+            overlay.is_open(),
+            "overlay stays open after returning to theme picker"
+        );
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::ThemePicker,
+            "theme builder ← click returns to ThemePicker"
+        );
+    }
+
+    #[test]
+    fn theme_builder_esc_from_picker_returns_to_theme_picker() {
+        // ThemeBuilder opened from ThemePicker: keyboard Esc returns to
+        // ThemePicker (cancel edits, restore original theme, stay open).
+        let mut overlay = OverlayUi::new(&Settings {
+            theme: crate::theme::Theme::ODYSSEY,
+            ..Settings::default()
+        });
+        let settings = overlay.settings.clone();
+        // Manually set up the picker → builder transition.
+        overlay.open_theme_picker(&settings);
+        overlay.theme_builder.open(&settings);
+        overlay.mode = OverlayMode::ThemeBuilder;
+        overlay.builder_from_picker = true;
+
+        let outcome = overlay.handle_input(OverlayInput::Close);
+        assert!(
+            matches!(outcome, OverlayOutcome::ApplySettings(_)),
+            "theme builder Esc should emit ApplySettings"
+        );
+        assert!(overlay.is_open(), "overlay stays open after Esc");
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::ThemePicker,
+            "theme builder Esc returns to ThemePicker when opened from picker"
+        );
+    }
+
+    #[test]
+    fn theme_builder_esc_standalone_closes_overlay() {
+        // ThemeBuilder opened standalone (not from ThemePicker): Esc / click-away
+        // closes the overlay entirely (existing behavior, unaffected by back-nav).
+        let mut overlay = OverlayUi::new(&Settings {
+            theme: crate::theme::Theme::ODYSSEY,
+            ..Settings::default()
+        });
+        let settings = overlay.settings.clone();
+        overlay.open_theme_builder(&settings); // standalone path, builder_from_picker = false
+        assert_eq!(overlay.render_signature().mode, OverlayMode::ThemeBuilder);
+
+        let outcome = overlay.handle_input(OverlayInput::Close);
+        assert!(
+            matches!(outcome, OverlayOutcome::ApplySettings(_)),
+            "standalone builder Esc emits ApplySettings (restore theme)"
+        );
+        assert!(
+            !overlay.is_open(),
+            "standalone builder Esc closes the overlay"
         );
     }
 }

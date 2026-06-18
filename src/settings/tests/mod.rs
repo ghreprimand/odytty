@@ -29,3 +29,4 @@ mod mouse;
 mod numeric;
 mod overlay;
 mod sh2;
+mod system_theme;

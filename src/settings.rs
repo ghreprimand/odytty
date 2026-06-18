@@ -702,6 +702,16 @@ pub struct Settings {
     /// the full correction; `0.0` is an exact passthrough. Inert while
     /// [`Settings::cvd_mode`] is `Off`.
     pub cvd_strength: f32,
+    /// Whether `ODYTTY_THEME=system` was set: a single-key alias that enables
+    /// [`Settings::follow_os_theme`] with default dark/light theme mappings
+    /// (OS-THEME alias). `false` (the default) means the authored
+    /// [`Settings::theme`] drives presentation as before. When `true`,
+    /// [`Settings::follow_os_theme`] is forced on regardless of its parsed
+    /// value, and the OS signal maps to [`crate::settings::DEFAULT_OS_THEME_DARK`]
+    /// / [`crate::settings::DEFAULT_OS_THEME_LIGHT`] unless the user set an
+    /// explicit `os_theme_dark`/`os_theme_light` override. This is a config
+    /// alias only — it never extracts the desktop palette.
+    pub theme_is_system: bool,
     /// Follow the OS dark/light appearance preference (OS-THEME). Off by
     /// default; while off the OS signal is ignored and the authored
     /// [`Settings::theme`] drives presentation byte-identically to before. When
@@ -784,6 +794,7 @@ impl Default for Settings {
             smooth_scroll: DEFAULT_SMOOTH_SCROLL,
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
+            theme_is_system: false,
             follow_os_theme: DEFAULT_FOLLOW_OS_THEME,
             os_theme_dark: None,
             os_theme_light: None,
@@ -1021,6 +1032,14 @@ impl Settings {
         // shared `ThemeSpec` path. A missing/garbage value falls back to the
         // configured default with a warning — startup never fails from a bad
         // theme setting.
+        // `ODYTTY_THEME=system` is a single-key alias (OS-THEME alias) that
+        // enables OS dark/light following with default mappings. It is NOT a
+        // built-in theme: the authored `theme` falls back to the configured
+        // default, and `theme_is_system` carries the alias intent so
+        // [`Settings::resolve_active_theme`] and writeback can honor it. The
+        // individual `os_theme_dark`/`os_theme_light` overrides remain
+        // available for custom mappings.
+        let mut theme_is_system = false;
         let theme = match get(THEME_ENV)
             .and_then(|value| value.into_string().ok())
             .map(|value| value.trim().to_string())
@@ -1028,7 +1047,10 @@ impl Settings {
         {
             None => DEFAULT_THEME,
             Some(value) => {
-                if let Some(builtin) = Theme::from_name(&value) {
+                if value.eq_ignore_ascii_case(crate::settings::SYSTEM_THEME_NAME) {
+                    theme_is_system = true;
+                    DEFAULT_THEME
+                } else if let Some(builtin) = Theme::from_name(&value) {
                     builtin
                 } else if let Some(contents) = read_theme(&value) {
                     let spec = ThemeSpec::parse(&contents, |message| {
@@ -1272,12 +1294,16 @@ impl Settings {
         );
         let cvd_mode = parse_cvd_mode(get(CVD_MODE_ENV).as_deref(), &mut warn);
         let cvd_strength = parse_cvd_strength(get(CVD_STRENGTH_ENV).as_deref(), &mut warn);
-        let follow_os_theme = parse_bool_setting(
+        // `theme = system` forces OS following on regardless of the explicit
+        // `follow_os_theme` value, so the alias is self-sufficient. The explicit
+        // setting still wins for display/writeback of that specific key.
+        let explicit_follow_os_theme = parse_bool_setting(
             get(FOLLOW_OS_THEME_ENV).as_deref(),
             FOLLOW_OS_THEME_ENV,
             DEFAULT_FOLLOW_OS_THEME,
             &mut warn,
         );
+        let follow_os_theme = theme_is_system || explicit_follow_os_theme;
         // OS-THEME dark/light theme names are stored verbatim (trimmed, empty =
         // unset) and resolved to a built-in theme lazily when the OS signal
         // applies, so an unknown name warns at apply time, not parse time.
@@ -1357,6 +1383,7 @@ impl Settings {
             smooth_scroll,
             cvd_mode,
             cvd_strength,
+            theme_is_system,
             follow_os_theme,
             os_theme_dark,
             os_theme_light,
@@ -1369,7 +1396,15 @@ impl Settings {
 impl Settings {
     fn to_edit_values(&self) -> BTreeMap<&'static str, String> {
         let mut values = BTreeMap::new();
-        values.insert(THEME_ENV, self.theme.name.to_owned());
+        // When the `system` alias is active, write back the alias token (not the
+        // internal fallback theme name) so the config round-trips as `theme =
+        // system` and the user's intent is preserved.
+        let theme_value = if self.theme_is_system {
+            crate::settings::SYSTEM_THEME_NAME.to_owned()
+        } else {
+            self.theme.name.to_owned()
+        };
+        values.insert(THEME_ENV, theme_value);
         values.insert(VISUAL_ENV, self.visual.as_str().to_owned());
         // The `font` config key reflects the RAW explicit override, never the
         // face resolved from `font_family` (RC4): a family pick must not make the

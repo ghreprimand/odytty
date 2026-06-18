@@ -104,11 +104,19 @@ impl Settings {
                 key: "theme",
                 env: THEME_ENV,
                 name: "Theme",
-                value: self.theme.name.to_owned(),
+                // When the `system` alias is active the displayed value is the
+                // alias token, matching the config writeback, so the panel
+                // reads "system" instead of the internal fallback theme name.
+                value: if self.theme_is_system {
+                    crate::settings::SYSTEM_THEME_NAME.to_owned()
+                } else {
+                    self.theme.name.to_owned()
+                },
                 description: "Full appearance profile: default colors, ANSI palette, semantic role colors, and optional user theme files.",
                 kind: SettingKind::Enum,
                 range: None,
                 options: &[
+                    "system",
                     "plain",
                     "odyssey",
                     "odyssey-noir",
