@@ -7,6 +7,15 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Picker mouse navigation
+
+Theme and font picker overlays now show a mouse-clickable back affordance in
+their titles. The back action returns to Settings when the picker was opened
+from Settings, or closes the standalone picker otherwise. The OdyTTY theme
+picker also supports mouse-wheel scrolling, matching the font picker behavior.
+
+---
+
 ## 2026-06-18 -- Default font baseline and DPI closeout
 
 The fresh-install text baseline now uses bundled JetBrains Mono regular at

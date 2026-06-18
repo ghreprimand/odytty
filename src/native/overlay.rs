@@ -295,8 +295,9 @@ impl OverlayUi {
     /// its original theme). Inside the Settings panel a press is hit-tested to a
     /// row+zone and dispatched through the existing value seam. Inside the theme
     /// builder a press routes to role/channel focus and starts a slider drag on
-    /// the focused-channel track (U2 Step 2/3); only the theme picker stays
-    /// keyboard-driven (its inside presses remain inert).
+    /// the focused-channel track (U2 Step 2/3); inside the theme/font pickers,
+    /// title-area presses route to Close (the `←` back affordance) and body
+    /// presses are inert.
     pub(super) fn handle_pointer(
         &mut self,
         pointer: OverlayPointer,
@@ -314,8 +315,8 @@ impl OverlayUi {
                     return self.handle_input(OverlayInput::Close);
                 }
                 let Some(row_in_body) = cell.row.checked_sub(rect.body_top) else {
-                    if self.mode == OverlayMode::Settings
-                        && self.settings_title_back_hit(cell, rect)
+                    if self.settings_title_back_hit(cell, rect)
+                        || self.picker_title_back_hit(cell, rect)
                     {
                         return self.handle_input(OverlayInput::Close);
                     }
@@ -416,8 +417,14 @@ impl OverlayUi {
                             OverlayInput::Down
                         });
                     }
-                    OverlayMode::ThemePicker
-                    | OverlayMode::Onboarding
+                    OverlayMode::ThemePicker => {
+                        self.theme_picker.handle_input(if lines < 0 {
+                            OverlayInput::Up
+                        } else {
+                            OverlayInput::Down
+                        });
+                    }
+                    OverlayMode::Onboarding
                     | OverlayMode::ContextMenu
                     | OverlayMode::ConfirmClose => {}
                 }
@@ -470,6 +477,22 @@ impl OverlayUi {
             && cell.row < rect.body_top
             && cell.column >= rect.body_left
             && cell.column < rect.body_left + 3
+    }
+
+    /// True if `cell` is in the `←` back-arrow hit zone of the theme or font
+    /// picker title row. Both pickers always show `← … (Esc = back)` in their
+    /// title, so this hit-test is unconditional on those modes.
+    fn picker_title_back_hit(&self, cell: CellPoint, rect: OverlayRect) -> bool {
+        matches!(
+            self.mode,
+            OverlayMode::ThemePicker | OverlayMode::FontPicker
+        )
+        // Accept the title row and the gap row (rect.top through body_top - 1)
+        // for a forgiving click target matching the Settings back-arrow zone.
+        && cell.row >= rect.top
+        && cell.row < rect.body_top
+        && cell.column >= rect.body_left
+        && cell.column < rect.body_left + 3
     }
 
     /// Test seam (UX4-P2): absolute grid cells for the first visible numeric
@@ -1001,20 +1024,18 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
     }
     let rows = snapshot.dimensions.rows;
     // The Settings title is dynamic (shows level, editing state, search query).
-    let title_owned: String;
-    let title: &str = match overlay.mode {
-        OverlayMode::Settings => {
-            title_owned = overlay.panel.panel_title();
-            &title_owned
-        }
-        OverlayMode::ThemePicker => "OdyTTY Themes",
-        OverlayMode::ThemeBuilder => "OdyTTY Theme Builder",
-        OverlayMode::FontPicker => "OdyTTY Font Picker",
-        OverlayMode::KeyBindings => "OdyTTY Key Bindings",
-        OverlayMode::Onboarding => "Welcome to OdyTTY",
+    // The theme/font pickers always show a ← back affordance so mouse users can
+    // click to dismiss (same hit-zone as the Settings section-detail back arrow).
+    let title: String = match overlay.mode {
+        OverlayMode::Settings => overlay.panel.panel_title(),
+        OverlayMode::ThemePicker => "\u{2190} OdyTTY Themes  (Esc = back)".to_owned(),
+        OverlayMode::ThemeBuilder => "OdyTTY Theme Builder".to_owned(),
+        OverlayMode::FontPicker => "\u{2190} OdyTTY Font Picker  (Esc = back)".to_owned(),
+        OverlayMode::KeyBindings => "OdyTTY Key Bindings".to_owned(),
+        OverlayMode::Onboarding => "Welcome to OdyTTY".to_owned(),
         // Unreachable: handled by the early dispatch above.
-        OverlayMode::ContextMenu => "",
-        OverlayMode::ConfirmClose => "Close?",
+        OverlayMode::ContextMenu => String::new(),
+        OverlayMode::ConfirmClose => "Close?".to_owned(),
     };
 
     fill_rect(
@@ -1038,7 +1059,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         rect.top,
         rect.left + 2,
         rect.width.saturating_sub(4),
-        title,
+        &title,
         title_attrs(),
     );
 
@@ -2371,5 +2392,249 @@ mod tests {
         };
         assert_eq!(restored.theme, crate::theme::Theme::ODYSSEY);
         assert!(!overlay.is_open(), "click-away closes the builder");
+    }
+
+    // --- Picker back-button mouse click ---
+
+    #[test]
+    fn theme_picker_title_back_arrow_click_closes_standalone() {
+        // Standalone ThemePicker (no picker_return): clicking the ← title area
+        // restores the original theme and closes the overlay.
+        let mut overlay = OverlayUi::new(&Settings {
+            theme: crate::theme::Theme::ODYSSEY,
+            ..Settings::default()
+        });
+        let settings = overlay.settings.clone();
+        overlay.open_theme_picker(&settings);
+        // Navigate away from the original so cancel is visible.
+        let _ = overlay.handle_input(OverlayInput::Down);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.top,
+                    column: rect.body_left,
+                },
+                button: PointerButton::Left,
+                x_in_body: None,
+            },
+            rect,
+        );
+        // Restores theme (ApplySettings) and closes.
+        assert!(
+            matches!(outcome, OverlayOutcome::ApplySettings(_)),
+            "theme picker ← click should restore theme"
+        );
+        assert!(
+            !overlay.is_open(),
+            "standalone theme picker ← click closes the overlay"
+        );
+    }
+
+    #[test]
+    fn theme_picker_title_back_arrow_click_returns_to_settings_when_from_settings() {
+        // ThemePicker opened from settings: clicking ← should return to settings.
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        // Drill into Themes section then activate the theme row to set picker_return.
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::OpenThemePicker
+        );
+        let settings = overlay.settings.clone();
+        overlay.open_theme_picker(&settings);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+
+        // Click the ← area in the title row.
+        let _outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.top,
+                    column: rect.body_left,
+                },
+                button: PointerButton::Left,
+                x_in_body: None,
+            },
+            rect,
+        );
+        assert!(
+            overlay.is_open(),
+            "overlay stays open after returning to settings"
+        );
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::Settings,
+            "theme picker ← click returns to settings panel"
+        );
+    }
+
+    #[test]
+    fn font_picker_title_back_arrow_click_closes_standalone() {
+        // Standalone FontPicker (no picker_return): clicking the ← title area
+        // closes the overlay.
+        let mut overlay = OverlayUi::default();
+        overlay.open_font_picker(&overlay.settings.clone());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.top,
+                    column: rect.body_left,
+                },
+                button: PointerButton::Left,
+                x_in_body: None,
+            },
+            rect,
+        );
+        assert_eq!(
+            outcome,
+            OverlayOutcome::Close,
+            "standalone font picker ← click emits Close"
+        );
+        assert!(
+            !overlay.is_open(),
+            "standalone font picker ← click closes the overlay"
+        );
+    }
+
+    #[test]
+    fn font_picker_title_back_arrow_click_returns_to_settings_when_from_settings() {
+        // FontPicker opened from settings: clicking ← should return to settings.
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        // Navigate: Down → Fonts section, Activate → drill in, Down → font_family
+        // row, Activate → OpenFontPicker (sets picker_return).
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Down),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Down),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::OpenFontPicker
+        );
+        let settings = overlay.settings.clone();
+        overlay.open_font_picker(&settings);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+
+        // Click the ← area in the title row.
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.top,
+                    column: rect.body_left,
+                },
+                button: PointerButton::Left,
+                x_in_body: None,
+            },
+            rect,
+        );
+        assert_eq!(
+            outcome,
+            OverlayOutcome::Consumed,
+            "font picker ← click from settings emits Consumed"
+        );
+        assert!(
+            overlay.is_open(),
+            "overlay stays open after returning to settings"
+        );
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::Settings,
+            "font picker ← click returns to settings panel"
+        );
+    }
+
+    // --- Theme picker mouse wheel scrolling ---
+
+    #[test]
+    fn theme_picker_wheel_scrolls_selection() {
+        let mut overlay = OverlayUi::new(&Settings {
+            theme: crate::theme::Theme::ODYSSEY,
+            ..Settings::default()
+        });
+        let settings = overlay.settings.clone();
+        overlay.open_theme_picker(&settings);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let before = overlay.render_signature().theme_picker.selected;
+
+        // Wheel down moves selection forward.
+        let outcome = overlay.handle_pointer(OverlayPointer::Wheel { lines: 1 }, rect);
+        assert_eq!(outcome, OverlayOutcome::Consumed);
+        let after = overlay.render_signature().theme_picker.selected;
+        assert!(
+            after > before,
+            "wheel down advances selection in theme picker"
+        );
+    }
+
+    #[test]
+    fn theme_picker_wheel_up_moves_selection_back() {
+        let mut overlay = OverlayUi::new(&Settings {
+            theme: crate::theme::Theme::ODYSSEY,
+            ..Settings::default()
+        });
+        let settings = overlay.settings.clone();
+        overlay.open_theme_picker(&settings);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        // First advance a few entries so there's room to scroll back.
+        for _ in 0..3 {
+            overlay.handle_pointer(OverlayPointer::Wheel { lines: 1 }, rect);
+        }
+        let mid = overlay.render_signature().theme_picker.selected;
+        assert!(mid >= 3, "should have advanced at least 3 entries");
+
+        // Wheel up moves selection backward.
+        overlay.handle_pointer(OverlayPointer::Wheel { lines: -1 }, rect);
+        let after = overlay.render_signature().theme_picker.selected;
+        assert!(after < mid, "wheel up moves selection back in theme picker");
+    }
+
+    // --- Picker title back-arrow: non-back-area title click is inert ---
+
+    #[test]
+    fn theme_picker_title_click_far_right_is_inert() {
+        // Clicking outside the ← area in the title row (far right) is inert.
+        let mut overlay = OverlayUi::new(&Settings {
+            theme: crate::theme::Theme::ODYSSEY,
+            ..Settings::default()
+        });
+        let settings = overlay.settings.clone();
+        overlay.open_theme_picker(&settings);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.top,
+                    column: rect.body_left + 20, // far right of title, outside ← zone
+                },
+                button: PointerButton::Left,
+                x_in_body: None,
+            },
+            rect,
+        );
+        assert_eq!(
+            outcome,
+            OverlayOutcome::Consumed,
+            "title click outside ← zone is inert"
+        );
+        assert!(
+            overlay.is_open(),
+            "inert title click does not close the picker"
+        );
     }
 }
