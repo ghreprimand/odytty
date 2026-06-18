@@ -941,7 +941,7 @@ feature validates against.
       OdyTTY-specific terminfo entry before changing `TERM`.
 - [x] Document GitHub Release/tag/checksum expectations and Odyssey-Mon
       upstream tracking.
-- [ ] Cut a `v0.1.1` source release with checksums and an Odyssey PKGBUILD.
+- [ ] Cut a `v0.1.2` source release with checksums and an Odyssey PKGBUILD.
 - [ ] Evaluate an AppImage artifact after the source package and desktop
       integration are proven.
 

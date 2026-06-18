@@ -152,6 +152,8 @@ fn closing_active_session_activates_neighbor_and_last_close_sets_exit() {
     assert!(!app.pending_exit_for_test());
 
     assert!(app.close_active_tab_for_test());
+    assert_eq!(app.session_count_for_test(), 1);
+    assert_eq!(app.active_window_title_for_test(), "OdyTTY");
     assert!(app.pending_exit_for_test());
 }
 
@@ -365,7 +367,8 @@ fn shell_exit_for_last_session_requests_app_exit() {
     let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session });
 
     assert!(should_exit);
-    assert_eq!(app.session_count_for_test(), 0);
+    assert_eq!(app.session_count_for_test(), 1);
+    assert_eq!(app.active_window_title_for_test(), "OdyTTY");
     assert!(app.pending_exit_for_test());
 }
 

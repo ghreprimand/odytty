@@ -500,6 +500,10 @@ impl App {
     }
 
     fn close_active_tab(&mut self) -> bool {
+        if self.sessions.iter().count() <= 1 {
+            self.pending_exit = true;
+            return true;
+        }
         let is_last = self.sessions.close(self.sessions.active_id());
         if !is_last {
             self.on_active_session_changed();
@@ -1160,6 +1164,12 @@ impl App {
                 false
             }
             UserEvent::ShellExited { session } => {
+                if self.sessions.position_of_token(session).is_some()
+                    && self.sessions.iter().count() <= 1
+                {
+                    self.pending_exit = true;
+                    return true;
+                }
                 let is_last = self.sessions.close_shell_exited(session);
                 if is_last {
                     self.pending_exit = true;
