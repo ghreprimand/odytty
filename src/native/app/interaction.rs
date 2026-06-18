@@ -447,7 +447,7 @@ impl App {
     }
 
     pub(super) fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
-        let Some(cell) = self.gpu.as_ref().map(GpuState::cell) else {
+        let Some(cell) = self.resolved_cell() else {
             return;
         };
         let padding = self
@@ -455,9 +455,45 @@ impl App {
             .as_ref()
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
+        self.pointer_px = Some((x_px, y_px));
+        let tab_bar_hit = if self.should_show_tab_bar() {
+            let hit = self.tab_bar.hit_test(
+                x_px,
+                y_px,
+                &self.sessions,
+                self.grid.columns,
+                padding.as_f32(),
+                cell,
+                padding,
+            );
+            let hover = (hit != TabHit::None).then_some(hit);
+            if self.tab_bar.hover != hover {
+                self.tab_bar.set_hover(hover);
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
+            hover
+        } else {
+            self.tab_bar.set_hover(None);
+            None
+        };
+        if tab_bar_hit.is_some() {
+            let x = (x_px as f32 - padding.as_f32()).max(0.0);
+            let col = (x / cell.width as f32) as usize;
+            self.pointer_cell = Some(CellPoint {
+                row: 0,
+                column: col.min(self.grid.columns.saturating_sub(1)),
+            });
+            return;
+        }
+        let y_px = if self.should_show_tab_bar() {
+            y_px - f64::from(self.tab_bar_height_px(cell))
+        } else {
+            y_px
+        };
         let point = selection::cell_at_physical_with_padding(x_px, y_px, cell, self.grid, padding);
         self.pointer_cell = Some(point);
-        self.pointer_px = Some((x_px, y_px));
         // UX4-P1/P2: while an overlay is open it owns the pointer. Keep caching
         // the coordinates above (a press needs them), but skip link hover, local
         // selection, and PTY motion reports — they belong to the terminal grid
@@ -498,6 +534,11 @@ impl App {
         cell: CellSize,
         padding: WindowPadding,
     ) {
+        let y_px = if self.should_show_tab_bar() {
+            y_px - f64::from(self.tab_bar_height_px(cell))
+        } else {
+            y_px
+        };
         let scrollback_len = self.scrollback_len();
         let Some(target) = scrollbar_offset_for_drag_with_padding(
             y_px as f32,

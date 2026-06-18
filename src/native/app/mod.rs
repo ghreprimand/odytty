@@ -102,6 +102,7 @@ mod window_border;
 pub(in crate::native) use self::hints_ui::HintsUi;
 pub(in crate::native) use self::scroll_anim::ScrollAnimState as SessionScrollAnimState;
 pub(in crate::native) use self::tab_bar::TabBarSource;
+use self::tab_bar::{TAB_BAR_ROWS, TabBar, TabHit};
 pub(in crate::native) use overlay_registry::ActiveModal;
 
 pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(150);
@@ -245,6 +246,9 @@ pub(super) struct App {
     /// physical detent is one scroll/zoom step. Identity for a clean
     /// `LineDelta(_, ±1.0)`. Reset on focus loss and overlay open.
     wheel_accum: WheelAccumulator,
+    /// Visible multi-session tab strip state. Presentation-only; the session
+    /// model stays in `SessionSet`.
+    tab_bar: TabBar,
     /// SLIDER-GUARD: whether the left mouse button is currently held while the
     /// overlay is open. Set on `MouseInput { Pressed, Left }` and cleared on
     /// `MouseInput { Released, Left }` through the overlay pointer path. Used to
@@ -337,6 +341,7 @@ impl App {
             os_theme: None,
             pending_exit: false,
             wheel_accum: WheelAccumulator::default(),
+            tab_bar: TabBar::default(),
             overlay_left_held: false,
             startup_error: None,
         };
@@ -357,7 +362,10 @@ impl App {
         width_px: u32,
         height_px: u32,
     ) -> bool {
-        let new_grid = grid_dimensions_for_with_padding(width_px, height_px, cell, padding);
+        let mut new_grid = grid_dimensions_for_with_padding(width_px, height_px, cell, padding);
+        if self.should_show_tab_bar() {
+            new_grid.rows = new_grid.rows.saturating_sub(TAB_BAR_ROWS as usize).max(1);
+        }
         if new_grid == self.grid {
             return false;
         }
@@ -1016,12 +1024,96 @@ impl App {
     }
 
     fn on_active_session_changed(&mut self) {
+        self.recompute_grid_for_tab_bar();
+        self.tab_bar.set_hover(None);
         self.last_render_signature = None;
         self.needs_rebuild = true;
         self.sync_active_window_title();
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
+    }
+
+    fn should_show_tab_bar(&self) -> bool {
+        self.sessions.tab_count() >= 2
+    }
+
+    fn tab_bar_height_px(&self, cell: CellSize) -> f32 {
+        if self.should_show_tab_bar() {
+            cell.height as f32 * TAB_BAR_ROWS as f32
+        } else {
+            0.0
+        }
+    }
+
+    fn recompute_grid_for_tab_bar(&mut self) {
+        let Some(gpu) = self.gpu.as_ref() else {
+            return;
+        };
+        let Some(window) = self.window.as_ref() else {
+            return;
+        };
+        let _ = self.resize_grid_with_padding(
+            gpu.cell(),
+            gpu.window_padding(),
+            window.inner_size().width,
+            window.inner_size().height,
+        );
+    }
+
+    fn shift_overlays_for_tab_bar(&self, overlays: &mut [SolidQuad], offset_px: f32) {
+        if offset_px <= 0.0 {
+            return;
+        }
+        for overlay in overlays {
+            overlay.rect[1] += offset_px;
+            overlay.rect[3] += offset_px;
+        }
+    }
+
+    fn decorate_snapshot_with_tab_bar(
+        &self,
+        snapshot: &Snapshot,
+        cursor_visible: bool,
+        cell: CellSize,
+    ) -> (Snapshot, Vec<SolidQuad>) {
+        if !self.should_show_tab_bar() {
+            return (snapshot.clone(), Vec::new());
+        }
+        let columns = snapshot.dimensions.columns;
+        let rows = snapshot.dimensions.rows + TAB_BAR_ROWS as usize;
+        let mut decorated = Snapshot {
+            dimensions: Dimensions::new(columns, rows),
+            cursor: Position {
+                row: snapshot.cursor.row + TAB_BAR_ROWS as usize,
+                column: snapshot.cursor.column,
+            },
+            cursor_visible,
+            colors: snapshot.colors.clone(),
+            cells: vec![crate::core::Cell::default(); columns * rows],
+        };
+        let top = columns * TAB_BAR_ROWS as usize;
+        decorated.cells[top..top + snapshot.cells.len()].clone_from_slice(&snapshot.cells);
+
+        let Some(gpu) = self.gpu.as_ref() else {
+            return (decorated, Vec::new());
+        };
+        let output = self.tab_bar.render(
+            &self.sessions,
+            columns,
+            gpu.window_padding().as_f32(),
+            cell,
+            gpu.window_padding(),
+            self.effective_theme.foreground,
+            self.effective_theme.background,
+            self.effective_theme.selection,
+        );
+        for glyph in output.glyphs {
+            if glyph.col < columns {
+                decorated.cells[glyph.col] = crate::core::Cell::new(glyph.ch, glyph.attrs);
+            }
+        }
+        (decorated, output.quads)
     }
 
     fn apply_user_event(&mut self, event: UserEvent) -> bool {
@@ -1665,11 +1757,6 @@ impl ApplicationHandler<UserEvent> for App {
                         self.paint_hyperlink_cells(&mut snapshot, &ctx);
                         self.paint_hints_cells(&mut snapshot, &ctx);
                         self.paint_copy_mode_cells(&mut snapshot, &ctx);
-                        let content_snapshot = {
-                            let mut content_snapshot = snapshot.clone();
-                            content_snapshot.cursor_visible = base_cursor_visible;
-                            content_snapshot
-                        };
                         // Frame-overlay quad manifest: scroll indicator, then the
                         // off-by-default SH2 gutter, then the no-op new slots.
                         let mut overlays: Vec<SolidQuad> = Vec::new();
@@ -1687,6 +1774,21 @@ impl ApplicationHandler<UserEvent> for App {
                         // empty on the off path. The cursor block draws after
                         // overlays (ID1 reorder), so it is never hidden.
                         self.paint_new_row_fade_quads(&ctx, &mut overlays);
+                        let tab_bar_offset = self.tab_bar_height_px(cell);
+                        if tab_bar_offset > 0.0 {
+                            self.shift_overlays_for_tab_bar(&mut overlays, tab_bar_offset);
+                        }
+                        let (snapshot, tab_bar_quads) = self.decorate_snapshot_with_tab_bar(
+                            &snapshot,
+                            snapshot.cursor_visible,
+                            cell,
+                        );
+                        let content_snapshot = {
+                            let mut content_snapshot = snapshot.clone();
+                            content_snapshot.cursor_visible = base_cursor_visible;
+                            content_snapshot
+                        };
+                        overlays.extend(tab_bar_quads);
                         // R3 call-site parity + A2 cache observability: compute
                         // the live cursor params ONCE so the signature `anim` key
                         // and the GPU CursorOnly call derive from the same source.

@@ -40,6 +40,36 @@ impl App {
         if self.modal_captures_pointer() {
             return;
         }
+        if self.should_show_tab_bar() {
+            match (button, state, self.current_tab_bar_hit()) {
+                (WinitMouseButton::Left, ElementState::Pressed, Some(TabHit::Switch(idx))) => {
+                    if self.sessions.switch(idx) {
+                        self.on_active_session_changed();
+                    }
+                    return;
+                }
+                (WinitMouseButton::Left, ElementState::Pressed, Some(TabHit::Close(idx))) => {
+                    let is_last = self.sessions.close(idx);
+                    if is_last {
+                        self.pending_exit = true;
+                    } else {
+                        self.on_active_session_changed();
+                    }
+                    return;
+                }
+                (WinitMouseButton::Left, ElementState::Pressed, Some(TabHit::NewTab)) => {
+                    self.handle_new_tab();
+                    return;
+                }
+                (WinitMouseButton::Left, ElementState::Released, Some(_)) => return,
+                (WinitMouseButton::Right, ElementState::Pressed, Some(_)) => {
+                    self.open_context_menu();
+                    return;
+                }
+                (WinitMouseButton::Right, ElementState::Released, Some(_)) => return,
+                _ => {}
+            }
+        }
         if self.pointer_drag.is_selecting() {
             if button == WinitMouseButton::Left && state == ElementState::Released {
                 self.finish_selection();
@@ -126,6 +156,11 @@ impl App {
             .as_ref()
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
+        let y_px = if self.should_show_tab_bar() {
+            y_px - f64::from(self.tab_bar_height_px(cell))
+        } else {
+            y_px
+        };
         let scrollback_len = self.scrollback_len();
         scroll_indicator_hit_with_padding(
             x_px as f32,
@@ -138,11 +173,36 @@ impl App {
         )
     }
 
+    pub(in crate::native) fn current_tab_bar_hit(&self) -> Option<TabHit> {
+        if !self.should_show_tab_bar() {
+            return None;
+        }
+        let (x_px, y_px) = self.pointer_px?;
+        let cell = self.resolved_cell()?;
+        let padding = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO);
+        match self.tab_bar.hit_test(
+            x_px,
+            y_px,
+            &self.sessions,
+            self.grid.columns,
+            padding.as_f32(),
+            cell,
+            padding,
+        ) {
+            TabHit::None => None,
+            hit => Some(hit),
+        }
+    }
+
     /// The current cell size for pointer geometry. From the GPU in production;
     /// in headless tests (no GPU) a [`App::test_cell`] override stands in. In
     /// non-test builds the override does not exist, so this is exactly
     /// `self.gpu.as_ref().map(GpuState::cell)`.
-    fn resolved_cell(&self) -> Option<CellSize> {
+    pub(in crate::native) fn resolved_cell(&self) -> Option<CellSize> {
         #[cfg(test)]
         if let Some(cell) = self.test_cell {
             return Some(cell);

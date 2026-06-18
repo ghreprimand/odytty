@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Visible tab bar
+
+The multi-session tab strip is now composited into the native render. With two or more sessions open, a one-row tab bar spans the top of the window: each tab shows its session title (the shell's OSC title), the active tab is highlighted, and a hover state previews the tab under the pointer. Click a tab to switch, click its close affordance to close it, click `+` for a new tab, and right-click in the bar to open the context menu. With a single session the bar stays hidden, so a lone shell looks identical to before.
+
+Reserving the top row shrinks the shell grid by one row while the bar is visible, and the terminal snapshot, cursor, and scroll/gutter overlays are shifted down by the same cell height so everything stays aligned; pointer coordinates are offset to match. Three new headless tests cover the show rule (hidden for one session, visible for two), the one-row shell reservation, and App-level hit classification for switch/close/new. `cargo test --lib` is 1778 passed; `cargo clippy --lib` holds at the 38-warning baseline.
+
+Known limitation: the in-band image layer (sixel/kitty graphics) is not yet offset for the tab-bar row, so inline graphics can sit one row high while two or more tabs are open. Custom tab renaming is a follow-up slice; today's titles come from the shell.
+
+---
+
 ## 2026-06-18 -- Multi-session foundation and tab bar
 
 The native app now runs on a multi-session model instead of a single hardcoded shell. Per-session state (terminal model, PTY, scrollback, selection, viewport, search, cursor and scroll animation, synchronized-output hold, rebuild flags) lives in a new `Session`/`SessionSet` in `src/native/session.rs`; the pump thread and `UserEvent` carry a session id so each shell's output routes to its own terminal. The `App` derefs to the active session and routes keyboard, pointer, paste, and resize to it. Resize is applied to all sessions so background tabs track window size; only the active tab triggers a GPU geometry update. Window title follows the active session's OSC title on switch and on close.

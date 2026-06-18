@@ -84,7 +84,7 @@ pub(in crate::native) trait TabBarSource {
 
 /// Result of a pointer hit test against the tab bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum TabHit {
+pub(in crate::native) enum TabHit {
     /// The pointer is over the body of tab `idx` → switch to it on press.
     Switch(usize),
     /// The pointer is over the `×` close affordance of tab `idx`.

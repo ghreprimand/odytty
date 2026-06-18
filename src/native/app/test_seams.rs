@@ -282,6 +282,21 @@ impl App {
         self.pointer_px = Some((x, y));
     }
 
+    #[cfg(test)]
+    pub(in crate::native) fn tab_bar_visible_for_test(&self) -> bool {
+        self.should_show_tab_bar()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn tab_bar_hit_for_test(&self) -> Option<&'static str> {
+        match self.current_tab_bar_hit()? {
+            TabHit::Switch(_) => Some("switch"),
+            TabHit::Close(_) => Some("close"),
+            TabHit::NewTab => Some("new"),
+            TabHit::None => None,
+        }
+    }
+
     /// Test seam (MOUSE-SCROLLBAR): scroll the viewport up into history so the
     /// scroll thumb becomes visible (offset clamps to the scrollback length).
     #[cfg(test)]

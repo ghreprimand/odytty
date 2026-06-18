@@ -64,6 +64,13 @@ fn app_with_two_sessions() -> Option<(App, [SessionFixture; 2])> {
     ))
 }
 
+fn tab_bar_app() -> Option<App> {
+    let Some((app, _fixtures)) = app_with_two_sessions() else {
+        return None;
+    };
+    Some(app)
+}
+
 fn scrollback_bytes(lines: usize) -> Vec<u8> {
     let mut text = String::new();
     for i in 0..lines {
@@ -119,7 +126,7 @@ fn resize_updates_both_terminals_and_ptys() {
 
     let cell = cell(8, 16);
     assert!(app.resize_grid(cell, 512, 256));
-    let expected = Dimensions::new(64, 16);
+    let expected = Dimensions::new(64, 15);
 
     assert_eq!(app.session_dimensions_for_test(0), Some(expected));
     assert_eq!(app.session_dimensions_for_test(1), Some(expected));
@@ -159,6 +166,90 @@ fn shell_exit_for_non_last_session_does_not_exit_app() {
     assert_eq!(app.session_count_for_test(), 1);
     assert_eq!(app.active_session_id_for_test(), 0);
     assert!(!app.pending_exit_for_test());
+}
+
+#[test]
+fn tab_bar_show_rule_is_hidden_for_one_session_and_visible_for_two() {
+    let options = NativeOptions::default();
+    let dims = options.initial_grid;
+    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        options,
+        terminal.clone(),
+        writer,
+        pty,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    assert!(!app.tab_bar_visible_for_test());
+
+    let Some((terminal_b, writer_b, pty_b, _bytes_b)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.push_session_for_test(terminal_b, writer_b, pty_b);
+    assert!(app.tab_bar_visible_for_test());
+}
+
+#[test]
+fn tab_bar_reservation_reduces_shell_rows_by_one_when_visible() {
+    let options = NativeOptions::default();
+    let dims = options.initial_grid;
+    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        options,
+        terminal.clone(),
+        writer,
+        pty,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+
+    let cell = cell(8, 16);
+    assert!(!app.resize_grid(cell, 640, 384));
+    assert_eq!(
+        app.session_dimensions_for_test(0),
+        Some(Dimensions::new(80, 24))
+    );
+
+    let Some((terminal_b, writer_b, pty_b, _bytes_b)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.push_session_for_test(terminal_b, writer_b, pty_b);
+    assert!(app.resize_grid(cell, 640, 384));
+    assert_eq!(
+        app.session_dimensions_for_test(0),
+        Some(Dimensions::new(80, 23))
+    );
+    assert_eq!(
+        app.session_dimensions_for_test(1),
+        Some(Dimensions::new(80, 23))
+    );
+}
+
+#[test]
+fn tab_bar_hit_test_reports_switch_close_and_new_actions() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+
+    app.set_pointer_px_for_test(12.0, 8.0);
+    assert_eq!(app.tab_bar_hit_for_test(), Some("switch"));
+
+    app.set_pointer_px_for_test(188.0, 8.0);
+    assert_eq!(app.tab_bar_hit_for_test(), Some("close"));
+
+    app.set_pointer_px_for_test(628.0, 8.0);
+    assert_eq!(app.tab_bar_hit_for_test(), Some("new"));
 }
 
 #[test]
