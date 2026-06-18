@@ -18,31 +18,32 @@
 //!
 //! Item gating (D-IN2-6): Copy is enabled only when a selection exists, Cut and
 //! Delete only when that selection intersects editable prompt input, Paste only
-//! when the clipboard holds text; states are snapshotted at open time. Select
-//! All, New Tab, Close Tab, and Settings are always enabled. A disabled item
-//! renders dim and its activation is a no-op.
+//! when the clipboard holds text, and Rename Tab only when the menu was opened
+//! from a specific tab; states are snapshotted at open time. Select All, New
+//! Tab, Close Tab, and Settings are always enabled. A disabled item renders dim
+//! and its activation is a no-op.
 //!
 //! Two visual separator lines partition the menu into editing/selection
-//! commands (Copy…Select All), tab actions (New Tab / Close Tab), and the
-//! Settings launcher. Separators occupy body rows but are neither selectable
-//! nor focusable (D-IN2-SETTINGS).
-
-use crate::selection::CellPoint;
+//! commands (Copy…Select All), tab actions (New Tab / Rename Tab / Close Tab),
+//! and the Settings launcher. Separators occupy body rows but are neither
+//! selectable nor focusable (D-IN2-SETTINGS).
 
 use super::overlay::{OverlayInput, OverlayRect, PointerButton};
+use super::session::SessionToken;
+use crate::selection::CellPoint;
 
 /// Number of selectable items (Copy / Cut / Paste / Delete / Select All / New
-/// Tab / Close Tab / Settings).
-pub(super) const CONTEXT_MENU_ITEMS: usize = 8;
+/// Tab / Rename Tab / Close Tab / Settings).
+pub(super) const CONTEXT_MENU_ITEMS: usize = 9;
 
 /// Body row index of the first visual separator, between Select All and New Tab.
 pub(super) const CONTEXT_MENU_SEPARATOR_ROW: usize = 5;
 
 /// Body row index of the second visual separator, between Close Tab and
 /// Settings.
-pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 8;
+pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 9;
 
-/// Total body rows: eight selectable items plus two separator lines.
+/// Total body rows: nine selectable items plus two separator lines.
 pub(super) const CONTEXT_MENU_BODY_ROWS: usize = CONTEXT_MENU_ITEMS + 2;
 
 /// The selectable actions in the menu, in display order (separator excluded).
@@ -54,6 +55,7 @@ pub(super) enum ContextMenuItem {
     Delete,
     SelectAll,
     NewTab,
+    RenameTab,
     CloseTab,
     /// Open the settings panel (always enabled, D-IN2-SETTINGS).
     Settings,
@@ -68,6 +70,7 @@ impl ContextMenuItem {
         Self::Delete,
         Self::SelectAll,
         Self::NewTab,
+        Self::RenameTab,
         Self::CloseTab,
         Self::Settings,
     ];
@@ -81,6 +84,7 @@ impl ContextMenuItem {
             Self::Delete => "Delete",
             Self::SelectAll => "Select All",
             Self::NewTab => "New Tab",
+            Self::RenameTab => "Rename Tab",
             Self::CloseTab => "Close Tab",
             Self::Settings => "Settings",
         }
@@ -88,11 +92,11 @@ impl ContextMenuItem {
 }
 
 /// Map a selectable item index to its body row, accounting for the two
-/// separators. Items 0–4 sit at body rows 0–4; items 5–6 sit at body rows 6–7;
-/// Settings (index 7) sits at body row 9.
+/// separators. Items 0–4 sit at body rows 0–4; items 5–7 sit at body rows 6–8;
+/// Settings (index 8) sits at body row 10.
 #[cfg(test)]
 fn item_to_body_row(item_index: usize) -> usize {
-    if item_index >= 7 {
+    if item_index >= 8 {
         item_index + 2
     } else if item_index >= CONTEXT_MENU_SEPARATOR_ROW {
         item_index + 1
@@ -154,6 +158,7 @@ pub(super) struct ContextMenuSignature {
     pub(super) cut_enabled: bool,
     pub(super) paste_enabled: bool,
     pub(super) delete_enabled: bool,
+    pub(super) rename_enabled: bool,
 }
 
 /// The right-click context menu state. Holds the spawn cell, the focused item,
@@ -167,6 +172,7 @@ pub(super) struct ContextMenuUi {
     cut_enabled: bool,
     paste_enabled: bool,
     delete_enabled: bool,
+    rename_target: Option<SessionToken>,
 }
 
 impl Default for ContextMenuUi {
@@ -178,6 +184,7 @@ impl Default for ContextMenuUi {
             cut_enabled: false,
             paste_enabled: false,
             delete_enabled: false,
+            rename_target: None,
         }
     }
 }
@@ -197,13 +204,19 @@ impl ContextMenuUi {
         cut_enabled: bool,
         paste_enabled: bool,
         delete_enabled: bool,
+        rename_target: Option<SessionToken>,
     ) {
         self.spawn = spawn;
         self.copy_enabled = copy_enabled;
         self.cut_enabled = cut_enabled;
         self.paste_enabled = paste_enabled;
         self.delete_enabled = delete_enabled;
+        self.rename_target = rename_target;
         self.focused = 0;
+    }
+
+    pub(super) fn rename_target(&self) -> Option<SessionToken> {
+        self.rename_target
     }
 
     fn item_enabled(&self, item: ContextMenuItem) -> bool {
@@ -214,6 +227,7 @@ impl ContextMenuUi {
             ContextMenuItem::Delete => self.delete_enabled,
             ContextMenuItem::SelectAll => true,
             ContextMenuItem::NewTab => true,
+            ContextMenuItem::RenameTab => self.rename_target.is_some(),
             ContextMenuItem::CloseTab => true,
             ContextMenuItem::Settings => true,
         }
@@ -340,7 +354,7 @@ impl ContextMenuUi {
         for (item_index, item) in ContextMenuItem::ALL.iter().enumerate() {
             // Insert the first separator before the tab actions, and the second
             // before Settings.
-            if item_index == CONTEXT_MENU_SEPARATOR_ROW || item_index == 7 {
+            if item_index == CONTEXT_MENU_SEPARATOR_ROW || item_index == 8 {
                 out.push(ContextMenuRow::Separator);
             }
             out.push(ContextMenuRow::Item {
@@ -360,6 +374,7 @@ impl ContextMenuUi {
             cut_enabled: self.cut_enabled,
             paste_enabled: self.paste_enabled,
             delete_enabled: self.delete_enabled,
+            rename_enabled: self.rename_target.is_some(),
         }
     }
 }
@@ -370,7 +385,14 @@ mod tests {
 
     fn menu(copy: bool, paste: bool) -> ContextMenuUi {
         let mut m = ContextMenuUi::new();
-        m.open(CellPoint { row: 4, column: 7 }, copy, copy, paste, copy);
+        m.open(
+            CellPoint { row: 4, column: 7 },
+            copy,
+            copy,
+            paste,
+            copy,
+            None,
+        );
         m
     }
 
@@ -387,6 +409,7 @@ mod tests {
             true,
             true,
             true,
+            None,
         );
         let rect = m.rect(40, 20);
         assert!(rect.left + rect.width <= 40);
@@ -452,16 +475,34 @@ mod tests {
     }
 
     #[test]
-    fn new_tab_and_close_tab_are_always_enabled() {
+    fn new_tab_rename_tab_and_close_tab_gating() {
         let mut m = menu(false, false);
         assert_eq!(item_to_body_row(5), 6, "New Tab item is at body row 6");
         assert_eq!(
             m.handle_press(6, PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::NewTab)
         );
-        assert_eq!(item_to_body_row(6), 7, "Close Tab item is at body row 7");
+        assert_eq!(item_to_body_row(6), 7, "Rename Tab item is at body row 7");
         assert_eq!(
             m.handle_press(7, PointerButton::Left),
+            ContextMenuOutcome::Consumed
+        );
+        m.open(
+            CellPoint { row: 4, column: 7 },
+            false,
+            false,
+            false,
+            false,
+            Some(SessionToken(9)),
+        );
+        assert_eq!(
+            m.handle_press(7, PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::RenameTab)
+        );
+        assert_eq!(m.rename_target(), Some(SessionToken(9)));
+        assert_eq!(item_to_body_row(7), 8, "Close Tab item is at body row 8");
+        assert_eq!(
+            m.handle_press(8, PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::CloseTab)
         );
     }
@@ -469,10 +510,10 @@ mod tests {
     #[test]
     fn settings_always_activates() {
         let mut m = menu(false, false);
-        // Settings is at item index 7 → body row 9.
-        assert_eq!(item_to_body_row(7), 9, "Settings item is at body row 9");
+        // Settings is at item index 8 → body row 10.
+        assert_eq!(item_to_body_row(8), 10, "Settings item is at body row 10");
         assert_eq!(
-            m.handle_press(9, PointerButton::Left),
+            m.handle_press(10, PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::Settings)
         );
     }
@@ -507,9 +548,9 @@ mod tests {
         assert_eq!(m.focused, 2, "separator hover is inert");
         m.handle_hover(Some(CONTEXT_MENU_SECOND_SEPARATOR_ROW));
         assert_eq!(m.focused, 2, "second separator hover is inert");
-        // Hovering Settings (body row 9) focuses it (item index 7).
-        m.handle_hover(Some(9));
-        assert_eq!(m.focused, 7, "hover Settings focuses it");
+        // Hovering Settings (body row 10) focuses it (item index 8).
+        m.handle_hover(Some(10));
+        assert_eq!(m.focused, 8, "hover Settings focuses it");
     }
 
     #[test]
@@ -528,7 +569,14 @@ mod tests {
     #[test]
     fn cut_and_delete_disabled_swallow_activation() {
         let mut m = ContextMenuUi::new();
-        m.open(CellPoint { row: 4, column: 7 }, true, false, true, false);
+        m.open(
+            CellPoint { row: 4, column: 7 },
+            true,
+            false,
+            true,
+            false,
+            None,
+        );
         assert_eq!(
             m.handle_press(1, PointerButton::Left),
             ContextMenuOutcome::Consumed
@@ -639,14 +687,22 @@ mod tests {
         assert_eq!(
             rows[7],
             ContextMenuRow::Item {
+                label: "Rename Tab",
+                focused: false,
+                enabled: false,
+            }
+        );
+        assert_eq!(
+            rows[8],
+            ContextMenuRow::Item {
                 label: "Close Tab",
                 focused: false,
                 enabled: true,
             }
         );
-        assert_eq!(rows[8], ContextMenuRow::Separator);
+        assert_eq!(rows[9], ContextMenuRow::Separator);
         assert_eq!(
-            rows[9],
+            rows[10],
             ContextMenuRow::Item {
                 label: "Settings",
                 focused: false,
@@ -664,13 +720,15 @@ mod tests {
         }
         // Body row 5 is the separator.
         assert_eq!(body_row_to_item(CONTEXT_MENU_SEPARATOR_ROW), None);
-        // New Tab / Close Tab / Settings shift after the two separators.
+        // New Tab / Rename Tab / Close Tab / Settings shift after separators.
         assert_eq!(item_to_body_row(5), 6);
         assert_eq!(body_row_to_item(6), Some(5));
         assert_eq!(item_to_body_row(6), 7);
         assert_eq!(body_row_to_item(7), Some(6));
+        assert_eq!(item_to_body_row(7), 8);
+        assert_eq!(body_row_to_item(8), Some(7));
         assert_eq!(body_row_to_item(CONTEXT_MENU_SECOND_SEPARATOR_ROW), None);
-        assert_eq!(item_to_body_row(7), 9);
-        assert_eq!(body_row_to_item(9), Some(7));
+        assert_eq!(item_to_body_row(8), 10);
+        assert_eq!(body_row_to_item(10), Some(8));
     }
 }

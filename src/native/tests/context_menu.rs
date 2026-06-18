@@ -111,7 +111,14 @@ fn enable_tui_mouse_reporting(terminal: &Arc<Mutex<Terminal>>) {
 #[test]
 fn context_menu_rows_include_tab_items_and_two_separators() {
     let mut menu = ContextMenuUi::new();
-    menu.open(CellPoint { row: 5, column: 10 }, false, false, false, false);
+    menu.open(
+        CellPoint { row: 5, column: 10 },
+        false,
+        false,
+        false,
+        false,
+        None,
+    );
 
     let rows = menu.rows();
     assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS);
@@ -134,13 +141,21 @@ fn context_menu_rows_include_tab_items_and_two_separators() {
     assert!(matches!(
         rows[7],
         ContextMenuRow::Item {
+            label: "Rename Tab",
+            enabled: false,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[8],
+        ContextMenuRow::Item {
             label: "Close Tab",
             enabled: true,
             ..
         }
     ));
     assert!(matches!(
-        rows[9],
+        rows[10],
         ContextMenuRow::Item {
             label: "Settings",
             enabled: true,
@@ -168,6 +183,70 @@ fn right_click_opens_menu_in_a_plain_shell() {
         sig.context_menu.spawn,
         (5, 10),
         "menu spawns at the click cell"
+    );
+}
+
+#[test]
+fn right_clicking_tab_enables_rename_for_that_tab() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let dims = Dimensions::new(80, 24);
+    let Some(session) = PtySession::spawn_shell_command(dims, "sleep 1").ok() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().expect("writer")));
+    let terminal2 = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let pty2 = Arc::new(Mutex::new(session));
+    app.push_session_for_test(terminal2, writer, pty2);
+    app.set_session_tab_title_for_test(0, "first-tab");
+    app.set_session_tab_title_for_test(1, "second-tab");
+    app.set_test_cell_for_test(cell(8, 16));
+
+    app.set_pointer_px_for_test(12.0, 8.0);
+    app.set_pointer_cell_for_test(0, 0);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+
+    assert!(app.context_menu_open_for_test());
+    assert!(
+        app.overlay_signature_for_test().context_menu.rename_enabled,
+        "right-clicking a tab body enables Rename Tab"
+    );
+
+    // Menu spawned at top-left: body row 7 = Rename Tab => grid row 8.
+    app.set_pointer_cell_for_test(8, 2);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+
+    assert!(app.rename_active_for_test());
+    assert_eq!(app.rename_text_for_test().as_deref(), Some("first-tab"));
+}
+
+#[test]
+fn plain_context_menu_open_disables_rename_tab() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let dims = Dimensions::new(80, 24);
+    let Some(session) = PtySession::spawn_shell_command(dims, "sleep 1").ok() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().expect("writer")));
+    let terminal2 = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let pty2 = Arc::new(Mutex::new(session));
+    app.push_session_for_test(terminal2, writer, pty2);
+    app.set_test_cell_for_test(cell(8, 16));
+
+    app.set_pointer_cell_for_test(5, 10);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+
+    assert!(app.context_menu_open_for_test());
+    assert!(
+        !app.overlay_signature_for_test().context_menu.rename_enabled,
+        "terminal-area right-click has no tab target"
     );
 }
 
@@ -543,8 +622,8 @@ fn clicking_close_tab_closes_active_session_and_keeps_neighbor_active() {
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
 
-    // Body row 7 = Close Tab => grid row 13.
-    app.set_pointer_cell_for_test(13, 12);
+    // Body row 8 = Close Tab => grid row 14.
+    app.set_pointer_cell_for_test(14, 12);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 
     assert!(!app.context_menu_open_for_test());
@@ -564,9 +643,10 @@ fn clicking_close_tab_closes_active_session_and_keeps_neighbor_active() {
 ///   Body row 4 = SelectAll → grid row 10
 ///   Body row 5 = Separator → grid row 11
 ///   Body row 6 = New Tab   → grid row 12
-///   Body row 7 = Close Tab → grid row 13
-///   Body row 8 = Separator → grid row 14
-///   Body row 9 = Settings  → grid row 15
+///   Body row 7 = Rename Tab → grid row 13
+///   Body row 8 = Close Tab  → grid row 14
+///   Body row 9 = Separator  → grid row 15
+///   Body row 10 = Settings  → grid row 16
 #[test]
 fn clicking_settings_opens_settings_panel_and_closes_menu() {
     let Some((mut app, _terminal)) = app_for_test() else {
@@ -580,8 +660,8 @@ fn clicking_settings_opens_settings_panel_and_closes_menu() {
         "right-click opens the context menu"
     );
 
-    // Click the Settings item (body row 9, grid row 15).
-    app.set_pointer_cell_for_test(15, 12);
+    // Click the Settings item (body row 10, grid row 16).
+    app.set_pointer_cell_for_test(16, 12);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 
     assert!(
@@ -622,8 +702,8 @@ fn clicking_separator_rows_is_inert() {
         "first separator click must not open the settings panel"
     );
 
-    // Click the second separator (body row 8, grid row 14).
-    app.set_pointer_cell_for_test(14, 12);
+    // Click the second separator (body row 9, grid row 15).
+    app.set_pointer_cell_for_test(15, 12);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 
     assert!(

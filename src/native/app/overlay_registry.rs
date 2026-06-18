@@ -25,6 +25,8 @@
 //! nothing — so the frame bytes and the input routing are identical to HEAD.
 
 use super::*;
+use crate::core::{Attrs, Cell};
+use unicode_width::UnicodeWidthChar;
 
 /// ID1 v1 cursor-glow halo rings as `(extend_px, alpha)`, emitted outer-first so
 /// the more opaque inner rings composite over the faint outer one. The pixel
@@ -73,6 +75,7 @@ pub(in crate::native) enum ActiveModal {
     None,
     CopyMode,
     HintsSelect,
+    RenameTab,
 }
 
 impl App {
@@ -297,6 +300,9 @@ impl App {
         if self.hints_selecting() {
             return ActiveModal::HintsSelect;
         }
+        if self.rename_state.is_some() {
+            return ActiveModal::RenameTab;
+        }
         ActiveModal::None
     }
 
@@ -307,14 +313,116 @@ impl App {
         match modal {
             ActiveModal::CopyMode => self.copy_mode_key(key),
             ActiveModal::HintsSelect => self.hints_key(key),
+            ActiveModal::RenameTab => self.rename_key(key),
             ActiveModal::None => {}
         }
     }
 
-    /// Whether the active modal owns the mouse (COPYMODE does; HINTS does not).
-    /// `false` whenever no modal is active, so the pointer guard is dead today.
+    /// Whether the active modal owns the mouse.
     pub(in crate::native) fn modal_captures_pointer(&self) -> bool {
-        matches!(self.active_modal(), ActiveModal::CopyMode)
+        matches!(
+            self.active_modal(),
+            ActiveModal::CopyMode | ActiveModal::RenameTab
+        )
+    }
+
+    pub(super) fn enter_rename_tab(&mut self, target: SessionToken) {
+        let Some(title) = self
+            .sessions
+            .iter()
+            .find(|session| session.id == target)
+            .map(|session| session.effective_tab_title().to_owned())
+        else {
+            return;
+        };
+        let cursor = title.chars().count();
+        self.rename_state = Some(RenameState {
+            target,
+            text: title,
+            cursor,
+        });
+        self.request_selection_redraw();
+    }
+
+    pub(super) fn rename_key(&mut self, key: &WinitKey) {
+        let Some(state) = self.rename_state.as_mut() else {
+            return;
+        };
+        match key {
+            WinitKey::Named(NamedKey::Escape) => {
+                self.rename_state = None;
+            }
+            WinitKey::Named(NamedKey::Enter) => {
+                let target = state.target;
+                let text = state.text.trim().to_owned();
+                let override_name = (!text.is_empty()).then_some(text);
+                if let Some(session) = self.sessions.get_mut(target) {
+                    session.set_title_override(override_name);
+                }
+                self.rename_state = None;
+            }
+            WinitKey::Named(NamedKey::Backspace) => {
+                if state.cursor > 0 {
+                    let remove_at = rename_byte_index(&state.text, state.cursor - 1);
+                    state.text.remove(remove_at);
+                    state.cursor -= 1;
+                }
+            }
+            WinitKey::Named(NamedKey::ArrowLeft) => {
+                state.cursor = state.cursor.saturating_sub(1);
+            }
+            WinitKey::Named(NamedKey::ArrowRight) => {
+                state.cursor = (state.cursor + 1).min(state.text.chars().count());
+            }
+            WinitKey::Named(NamedKey::Home) => {
+                state.cursor = 0;
+            }
+            WinitKey::Named(NamedKey::End) => {
+                state.cursor = state.text.chars().count();
+            }
+            WinitKey::Character(text) if !self.modifiers.ctrl && !self.modifiers.alt => {
+                for ch in text.chars().filter(|ch| !ch.is_control()) {
+                    let insert_at = rename_byte_index(&state.text, state.cursor);
+                    state.text.insert(insert_at, ch);
+                    state.cursor += 1;
+                }
+            }
+            _ => {}
+        }
+        self.request_selection_redraw();
+    }
+
+    pub(in crate::native) fn paint_rename_tab_cells(&self, snapshot: &mut Snapshot) {
+        let Some(state) = self.rename_state.as_ref() else {
+            return;
+        };
+        let columns = snapshot.dimensions.columns;
+        let rows = snapshot.dimensions.rows;
+        if columns < 8 || rows < 3 {
+            return;
+        }
+        let width = columns.clamp(8, 48);
+        let height = 3;
+        let left = (columns - width) / 2;
+        let top = (rows - height) / 2;
+        let panel = rename_panel_attrs();
+        let border = rename_border_attrs();
+        rename_fill_rect(snapshot, left, top, width, height, panel);
+        rename_draw_border(snapshot, left, top, width, height, border);
+
+        let body_left = left + 2;
+        let body_width = width.saturating_sub(4);
+        if body_width == 0 {
+            return;
+        }
+        let prompt = "Tab name: ";
+        let prompt_width = prompt.chars().count().min(body_width);
+        rename_write_text(snapshot, top + 1, body_left, prompt_width, prompt, panel);
+        let input_left = body_left + prompt_width;
+        let input_width = body_width.saturating_sub(prompt_width);
+        if input_width > 0 {
+            rename_write_input(snapshot, top + 1, input_left, input_width, state, panel);
+        }
     }
 
     // --- cursor render-params aggregator (Wave-15b foundation) ---------------
@@ -357,4 +465,138 @@ impl App {
         .flatten()
         .min()
     }
+}
+
+fn rename_byte_index(text: &str, char_index: usize) -> usize {
+    text.char_indices()
+        .nth(char_index)
+        .map(|(idx, _)| idx)
+        .unwrap_or(text.len())
+}
+
+fn rename_panel_attrs() -> Attrs {
+    let mut attrs = Attrs::default();
+    attrs.foreground = Color::Default;
+    attrs.background = Color::Default;
+    attrs.set_inverse(true);
+    attrs
+}
+
+fn rename_border_attrs() -> Attrs {
+    let mut attrs = rename_panel_attrs();
+    attrs.foreground = Color::Indexed(14);
+    attrs
+}
+
+fn rename_cursor_attrs() -> Attrs {
+    let mut attrs = Attrs::default();
+    attrs.foreground = Color::Indexed(0);
+    attrs.background = Color::Indexed(11);
+    attrs
+}
+
+fn rename_fill_rect(
+    snapshot: &mut Snapshot,
+    left: usize,
+    top: usize,
+    width: usize,
+    height: usize,
+    attrs: Attrs,
+) {
+    for row in top..(top + height).min(snapshot.dimensions.rows) {
+        let offset = row * snapshot.dimensions.columns;
+        for column in left..(left + width).min(snapshot.dimensions.columns) {
+            snapshot.cells[offset + column] = Cell::new(' ', attrs);
+        }
+    }
+}
+
+fn rename_draw_border(
+    snapshot: &mut Snapshot,
+    left: usize,
+    top: usize,
+    width: usize,
+    height: usize,
+    attrs: Attrs,
+) {
+    if width < 2 || height < 2 {
+        return;
+    }
+    let right = left + width - 1;
+    let bottom = top + height - 1;
+    rename_write_cell(snapshot, top, left, '+', attrs);
+    rename_write_cell(snapshot, top, right, '+', attrs);
+    rename_write_cell(snapshot, bottom, left, '+', attrs);
+    rename_write_cell(snapshot, bottom, right, '+', attrs);
+    for column in left + 1..right {
+        rename_write_cell(snapshot, top, column, '-', attrs);
+        rename_write_cell(snapshot, bottom, column, '-', attrs);
+    }
+    for row in top + 1..bottom {
+        rename_write_cell(snapshot, row, left, '|', attrs);
+        rename_write_cell(snapshot, row, right, '|', attrs);
+    }
+}
+
+fn rename_write_text(
+    snapshot: &mut Snapshot,
+    row: usize,
+    column: usize,
+    max_width: usize,
+    text: &str,
+    attrs: Attrs,
+) {
+    if row >= snapshot.dimensions.rows || column >= snapshot.dimensions.columns || max_width == 0 {
+        return;
+    }
+    let mut x = column;
+    let right = (column + max_width).min(snapshot.dimensions.columns);
+    for ch in text.chars() {
+        if ch.is_control() {
+            continue;
+        }
+        let width = UnicodeWidthChar::width(ch).unwrap_or(1).max(1);
+        if width > 2 || x + width > right {
+            break;
+        }
+        rename_write_cell(snapshot, row, x, ch, attrs);
+        if width == 2 {
+            rename_write_cell(snapshot, row, x + 1, ' ', attrs);
+        }
+        x += width;
+    }
+}
+
+fn rename_write_input(
+    snapshot: &mut Snapshot,
+    row: usize,
+    column: usize,
+    width: usize,
+    state: &RenameState,
+    attrs: Attrs,
+) {
+    let cursor = state.cursor.min(state.text.chars().count());
+    let chars: Vec<char> = state.text.chars().collect();
+    let start = if chars.len() > width {
+        cursor.saturating_sub(width.saturating_sub(1))
+    } else {
+        0
+    };
+    let visible_cursor = cursor.saturating_sub(start).min(width.saturating_sub(1));
+    for col in 0..width {
+        let cell_attrs = if col == visible_cursor {
+            rename_cursor_attrs()
+        } else {
+            attrs
+        };
+        let ch = chars.get(start + col).copied().unwrap_or(' ');
+        rename_write_cell(snapshot, row, column + col, ch, cell_attrs);
+    }
+}
+
+fn rename_write_cell(snapshot: &mut Snapshot, row: usize, column: usize, ch: char, attrs: Attrs) {
+    if row >= snapshot.dimensions.rows || column >= snapshot.dimensions.columns {
+        return;
+    }
+    snapshot.cells[row * snapshot.dimensions.columns + column] = Cell::new(ch, attrs);
 }

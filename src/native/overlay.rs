@@ -14,6 +14,7 @@ use super::context_menu_ui::{
 use super::font_picker::{FontPicker, FontPickerLine, FontPickerOutcome, FontPickerSignature};
 use super::key_remap_ui::{KeyRemapLine, KeyRemapOutcome, KeyRemapSignature, KeyRemapUi};
 use super::onboarding::{OnboardingLine, OnboardingPanel, OnboardingSignature};
+use super::session::SessionToken;
 use super::settings_panel::{
     SettingsLevel, SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature,
 };
@@ -181,9 +182,11 @@ impl OverlayUi {
         cut: bool,
         paste: bool,
         delete: bool,
+        rename_target: Option<SessionToken>,
     ) {
         self.panel.end_slider_drag();
-        self.context_menu.open(spawn, copy, cut, paste, delete);
+        self.context_menu
+            .open(spawn, copy, cut, paste, delete, rename_target);
         self.mode = OverlayMode::ContextMenu;
         self.open = true;
     }
@@ -246,6 +249,13 @@ impl OverlayUi {
                     ContextMenuItem::Delete => OverlayOutcome::ContextMenuDelete,
                     ContextMenuItem::SelectAll => OverlayOutcome::ContextMenuSelectAll,
                     ContextMenuItem::NewTab => OverlayOutcome::ContextMenuNewTab,
+                    ContextMenuItem::RenameTab => {
+                        if let Some(target) = self.context_menu.rename_target() {
+                            OverlayOutcome::ContextMenuRenameTab(target)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
                     ContextMenuItem::CloseTab => OverlayOutcome::ContextMenuCloseTab,
                     ContextMenuItem::Settings => OverlayOutcome::ContextMenuSettings,
                 }
@@ -767,6 +777,7 @@ pub(super) enum OverlayOutcome {
     ContextMenuDelete,
     ContextMenuSelectAll,
     ContextMenuNewTab,
+    ContextMenuRenameTab(SessionToken),
     ContextMenuCloseTab,
     /// Open the settings panel from the context menu (D-IN2-SETTINGS). The
     /// overlay has already closed itself; the App opens the settings panel

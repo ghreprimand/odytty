@@ -687,6 +687,72 @@ impl App {
     }
 
     #[cfg(test)]
+    pub(in crate::native) fn drive_named_key_for_test(&mut self, key: NamedKey) {
+        let logical = WinitKey::Named(key);
+        self.handle_key_event(
+            logical.clone(),
+            logical,
+            PhysicalKey::Code(KeyCode::Enter),
+            KeyEventType::Press,
+        );
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn set_session_tab_title_for_test(
+        &mut self,
+        session: usize,
+        title: &str,
+    ) {
+        let Some(token) = self.sessions.token_at_position(session) else {
+            return;
+        };
+        if let Some(session) = self.sessions.get_mut(token) {
+            session.tab_title = title.to_owned();
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn set_session_title_override_for_test(
+        &mut self,
+        session: usize,
+        title: Option<&str>,
+    ) {
+        let Some(token) = self.sessions.token_at_position(session) else {
+            return;
+        };
+        if let Some(session) = self.sessions.get_mut(token) {
+            session.set_title_override(title.map(ToOwned::to_owned));
+        }
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn session_tab_title_for_test(&self, session: usize) -> Option<String> {
+        self.sessions
+            .iter()
+            .nth(session)
+            .map(|session| session.effective_tab_title().to_owned())
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn begin_rename_tab_for_test(&mut self, session: usize) -> bool {
+        let Some(token) = self.sessions.token_at_position(session) else {
+            return false;
+        };
+        self.enter_rename_tab(token);
+        self.rename_state.is_some()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn rename_active_for_test(&self) -> bool {
+        self.rename_state.is_some()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn rename_text_for_test(&self) -> Option<String> {
+        self.rename_state.as_ref().map(|state| state.text.clone())
+    }
+
+    #[cfg(test)]
     pub(in crate::native) fn advance_session_bytes_for_test(
         &mut self,
         session: usize,

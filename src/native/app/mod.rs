@@ -71,7 +71,7 @@ pub(super) use super::resize::{
     scale_factor_changed,
 };
 use super::search_ui::{SearchStyle, apply_search_ui};
-use super::session::{Session, SessionSet};
+use super::session::{Session, SessionSet, SessionToken};
 use super::viewport::{
     SELECTION_AUTOSCROLL_INTERVAL, WheelAccumulator, WindowPadding,
     grid_dimensions_for_with_padding, scroll_indicator_hit_with_padding,
@@ -148,6 +148,13 @@ impl SynchronizedOutputHold {
     pub(super) fn is_due(&self, now: Instant) -> bool {
         self.deadline().is_some_and(|deadline| now >= deadline)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RenameState {
+    target: SessionToken,
+    text: String,
+    cursor: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -249,6 +256,7 @@ pub(super) struct App {
     /// Visible multi-session tab strip state. Presentation-only; the session
     /// model stays in `SessionSet`.
     tab_bar: TabBar,
+    rename_state: Option<RenameState>,
     /// SLIDER-GUARD: whether the left mouse button is currently held while the
     /// overlay is open. Set on `MouseInput { Pressed, Left }` and cleared on
     /// `MouseInput { Released, Left }` through the overlay pointer path. Used to
@@ -348,6 +356,7 @@ impl App {
             pending_exit: false,
             wheel_accum: WheelAccumulator::default(),
             tab_bar: TabBar::default(),
+            rename_state: None,
             overlay_left_held: false,
             startup_error: None,
         };
@@ -926,7 +935,7 @@ impl App {
     /// does NOT call `reset_pointer_state_for_overlay`: that would clear the
     /// selection the Copy item needs. No pointer cell (e.g. before the first
     /// move) means no menu.
-    pub(super) fn open_context_menu(&mut self) {
+    pub(super) fn open_context_menu(&mut self, rename_target: Option<SessionToken>) {
         let Some(spawn) = self.pointer_cell else {
             return;
         };
@@ -939,6 +948,7 @@ impl App {
             editable_selection.is_some(),
             paste_enabled,
             editable_selection.is_some(),
+            rename_target,
         );
         self.request_selection_redraw();
     }
@@ -1776,6 +1786,7 @@ impl ApplicationHandler<UserEvent> for App {
                         self.paint_hyperlink_cells(&mut snapshot, &ctx);
                         self.paint_hints_cells(&mut snapshot, &ctx);
                         self.paint_copy_mode_cells(&mut snapshot, &ctx);
+                        self.paint_rename_tab_cells(&mut snapshot);
                         // Frame-overlay quad manifest: scroll indicator, then the
                         // off-by-default SH2 gutter, then the no-op new slots.
                         let mut overlays: Vec<SolidQuad> = Vec::new();

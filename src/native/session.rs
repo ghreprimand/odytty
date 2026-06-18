@@ -33,6 +33,7 @@ pub(super) struct Session {
     pub(super) pty: Arc<Mutex<PtySession>>,
     pub(super) pump_thread: Option<JoinHandle<()>>,
     pub(super) tab_title: String,
+    pub(super) title_override: Option<String>,
     pub(super) needs_rebuild: bool,
     pub(super) last_render_signature: Option<RenderSignature>,
     pub(super) synchronized_output_hold: SynchronizedOutputHold,
@@ -94,6 +95,7 @@ impl Session {
             pty,
             pump_thread,
             tab_title,
+            title_override: None,
             needs_rebuild: true,
             last_render_signature: None,
             synchronized_output_hold: SynchronizedOutputHold::default(),
@@ -143,6 +145,17 @@ impl Session {
             .and_then(|terminal| terminal.title().map(ToOwned::to_owned))
             .filter(|title| !title.is_empty())
             .unwrap_or_else(|| "odytty".to_owned());
+    }
+
+    pub(super) fn effective_tab_title(&self) -> &str {
+        self.title_override
+            .as_deref()
+            .unwrap_or(self.tab_title.as_str())
+    }
+
+    pub(super) fn set_title_override(&mut self, name: Option<String>) {
+        self.title_override = name;
+        self.needs_rebuild = true;
     }
 
     fn close(mut self) -> bool {
@@ -348,7 +361,7 @@ impl TabBarSource for SessionSet {
     fn tab_title(&self, idx: usize) -> &str {
         self.sessions
             .get(idx)
-            .map(|session| session.tab_title.as_str())
+            .map(Session::effective_tab_title)
             .unwrap_or("odytty")
     }
 

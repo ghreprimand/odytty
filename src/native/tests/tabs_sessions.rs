@@ -273,6 +273,76 @@ fn visible_tab_bar_row_has_no_default_background_cells() {
 }
 
 #[test]
+fn title_override_controls_effective_tab_label_and_clear_restores_osc_title() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    app.set_session_tab_title_for_test(0, "osc-title");
+    assert_eq!(
+        app.session_tab_title_for_test(0).as_deref(),
+        Some("osc-title")
+    );
+
+    app.set_session_title_override_for_test(0, Some("work"));
+    assert_eq!(app.session_tab_title_for_test(0).as_deref(), Some("work"));
+
+    app.set_session_title_override_for_test(0, None);
+    assert_eq!(
+        app.session_tab_title_for_test(0).as_deref(),
+        Some("osc-title")
+    );
+}
+
+#[test]
+fn rename_modal_commits_edits_cancels_and_empty_commit_clears_override() {
+    let Some((mut app, fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let [(_, _, bytes_a), _] = fixtures;
+
+    app.set_session_tab_title_for_test(0, "shell");
+    assert!(app.begin_rename_tab_for_test(0));
+    app.drive_text_key_for_test("!");
+    assert_eq!(
+        &*bytes_a.lock().expect("bytes a"),
+        b"",
+        "rename modal captures typed text before the PTY path"
+    );
+    app.drive_named_key_for_test(NamedKey::ArrowLeft);
+    app.drive_named_key_for_test(NamedKey::Backspace);
+    app.drive_text_key_for_test("work");
+    app.drive_named_key_for_test(NamedKey::Enter);
+    assert!(!app.rename_active_for_test());
+    assert_eq!(
+        app.session_tab_title_for_test(0).as_deref(),
+        Some("shelwork!")
+    );
+
+    assert!(app.begin_rename_tab_for_test(0));
+    app.drive_text_key_for_test(" discarded");
+    app.drive_named_key_for_test(NamedKey::Escape);
+    assert_eq!(
+        app.session_tab_title_for_test(0).as_deref(),
+        Some("shelwork!"),
+        "Esc cancels without changing the committed override"
+    );
+
+    assert!(app.begin_rename_tab_for_test(0));
+    for _ in 0.."shelwork!".chars().count() {
+        app.drive_named_key_for_test(NamedKey::Backspace);
+    }
+    app.drive_named_key_for_test(NamedKey::Enter);
+    assert_eq!(
+        app.session_tab_title_for_test(0).as_deref(),
+        Some("shell"),
+        "empty commit clears the override and restores the OSC title"
+    );
+}
+
+#[test]
 fn shell_exit_for_last_session_requests_app_exit() {
     let options = NativeOptions::default();
     let dims = options.initial_grid;

@@ -68,8 +68,12 @@ impl App {
                     return;
                 }
                 (WinitMouseButton::Left, ElementState::Released, Some(_)) => return,
-                (WinitMouseButton::Right, ElementState::Pressed, Some(_)) => {
-                    self.open_context_menu();
+                (WinitMouseButton::Right, ElementState::Pressed, Some(hit)) => {
+                    let rename_target = match hit {
+                        TabHit::Switch(idx) => self.sessions.token_at_position(idx),
+                        TabHit::Close(_) | TabHit::NewTab | TabHit::None => None,
+                    };
+                    self.open_context_menu(rename_target);
                     return;
                 }
                 (WinitMouseButton::Right, ElementState::Released, Some(_)) => return,
@@ -127,7 +131,7 @@ impl App {
         // local selection. In a plain shell the gate is skipped and the menu
         // opens. No enable bool: the report gate IS the off switch (D-IN2-1).
         if button == WinitMouseButton::Right && state == ElementState::Pressed {
-            self.open_context_menu();
+            self.open_context_menu(None);
             return;
         }
 

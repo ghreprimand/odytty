@@ -100,6 +100,10 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.handle_new_tab();
             }
+            OverlayOutcome::ContextMenuRenameTab(target) => {
+                self.flush_pending_overlay_settings();
+                self.enter_rename_tab(target);
+            }
             OverlayOutcome::ContextMenuCloseTab => {
                 self.flush_pending_overlay_settings();
                 let _ = self.close_active_tab();
