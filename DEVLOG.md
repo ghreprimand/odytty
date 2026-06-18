@@ -7,6 +7,17 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-18 -- Default font baseline and DPI closeout
+
+The fresh-install text baseline now uses bundled JetBrains Mono regular at
+22px with line height `1.0`. JetBrains Mono and regular weight were already the
+default face/weight path; this raises the default logical font size from 14px to
+22px. The current DPI/Wayland audit is closed on the operator's confirmation
+that sizing is uniform between monitors; no further DPI work remains unless a
+point-vs-pixel mismatch reappears.
+
+---
+
 ## 2026-06-18 -- Settings stepper alignment
 
 Settings numeric steppers now use left/right arrow labels (`[<] value [>]`) to

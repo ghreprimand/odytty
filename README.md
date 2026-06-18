@@ -15,10 +15,11 @@ combined in most terminals: live color emoji with ZWJ sequence / flag /
 skin-tone cluster support, the Kitty graphics protocol plus Sixel, the Kitty
 keyboard protocol, SGR-pixel mouse reporting (mode 1016), a fully theme-driven
 ANSI palette with semantic roles, bundled JetBrains Mono font faces, and the
-Odyssey ambient visual baseline: `theme=odyssey`, bloom, and CRT scanlines are
-enabled on a fresh install, while `render_quality=plain` keeps the direct
-renderer available. A separate `retro=on` preset raises the phosphor/CRT effect
-strength as an opt-in reference look.
+Odyssey ambient visual baseline: `theme=odyssey`, JetBrains Mono regular at
+22px with line height 1.0, bloom, and CRT scanlines are enabled on a fresh
+install, while `render_quality=plain` keeps the direct renderer available. A
+separate `retro=on` preset raises the phosphor/CRT effect strength as an opt-in
+reference look.
 
 ---
 

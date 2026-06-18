@@ -137,7 +137,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     NATIVE_AUTOCLOSE_ENV,
 ];
 
-pub const DEFAULT_FONT_SIZE_PX: f32 = 14.0;
+pub const DEFAULT_FONT_SIZE_PX: f32 = 22.0;
 pub const MIN_FONT_SIZE_PX: f32 = 6.0;
 pub const MAX_FONT_SIZE_PX: f32 = 72.0;
 pub const DEFAULT_THEME: Theme = Theme::ODYSSEY;

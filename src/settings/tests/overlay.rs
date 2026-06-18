@@ -193,10 +193,11 @@ fn settings_edit_overlay_tracks_edit_revert_and_clear_diff() {
         vec![("font_size", "20")]
     );
 
+    let default_font_size = crate::settings::DEFAULT_FONT_SIZE_PX;
     let changed = edits
-        .apply_raw("font_size", "14")
+        .apply_raw("font_size", &default_font_size.to_string())
         .expect("valid font size revert");
-    assert_eq!(changed.unwrap().font_size_px, 14.0);
+    assert_eq!(changed.unwrap().font_size_px, default_font_size);
     assert!(edits.changes().is_empty());
 
     let changed = edits.apply_raw("font", "").expect("valid font clear");

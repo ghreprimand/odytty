@@ -839,12 +839,16 @@ mod tests {
             clean_up, dirty_up,
             "dirty marker must not shift controls: clean={clean_line:?} dirty={dirty_line:?}"
         );
+        let default_font_size = crate::settings::DEFAULT_FONT_SIZE_PX as u32;
+        let stepped_font_size = default_font_size + 1;
+        let clean_expected = format!("[<]  {default_font_size}  [>]");
+        let dirty_expected = format!("[<] {stepped_font_size}*  [>]");
         assert!(
-            clean_line.contains("[<]  14  [>]"),
+            clean_line.contains(&clean_expected),
             "clean centered: {clean_line:?}"
         );
         assert!(
-            dirty_line.contains("[<] 15*  [>]"),
+            dirty_line.contains(&dirty_expected),
             "dirty centered: {dirty_line:?}"
         );
     }
