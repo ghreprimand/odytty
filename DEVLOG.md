@@ -52,6 +52,18 @@ arm (PRIMARY selection is X11/Wayland-only), and the Linux-only
 `OpenptFlags::CLOEXEC` (replaced off Linux by an explicit `fcntl_setfd`) — all
 fixed before the release published.
 
+Follow-up (docs): the published `.dmg` is unsigned, so on first launch macOS
+Gatekeeper blocks it (on macOS 15 Sequoia the old right-click → Open bypass is
+gone; the route is now `xattr -cr` or System Settings → Privacy & Security →
+Open Anyway). The README macOS section now leads with a **from-source** install,
+which avoids Gatekeeper entirely — a locally compiled binary is never
+quarantined and the toolchain ad-hoc-signs it for execution, so no signing or
+workaround is needed — and keeps the unsigned `.dmg` as a documented fallback.
+Proper code signing + notarization (Apple Developer ID, $99/yr) is the only way
+to make the prebuilt `.dmg` open with zero warnings; deferred while macOS is
+experimental. Also fixed the checksum-verify lines (Linux + macOS) to check only
+the downloaded file, since `SHA256SUMS` now lists both the tarball and the dmg.
+
 ## 2026-06-19 -- Pre-release audit fixes: bell + IME (v0.1.7)
 
 Pre-release audit of the whole codebase (correctness, security, gaps vs Ghostty

@@ -74,7 +74,7 @@ workdir=$(mktemp -d /tmp/odytty-install.XXXXXX)
 cd "$workdir"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/SHA256SUMS"
-sha256sum -c SHA256SUMS
+grep "odytty-${version}.tar.gz" SHA256SUMS | sha256sum -c -
 tar -xf "odytty-${version}.tar.gz"
 cd "odytty-${version}"
 ```
@@ -115,26 +115,62 @@ odytty
 
 ### macOS (experimental)
 
-As of v0.1.8, OdyTTY publishes an experimental **universal** macOS build (Apple
-Silicon and Intel). macOS support is new and not yet as battle-tested as Linux.
-The build is **unsigned**, so Gatekeeper blocks it on first launch until you
-clear the quarantine flag.
+macOS support is new as of v0.1.8 and not yet as battle-tested as Linux. There
+are two ways to install. **Building from source is recommended** — a binary you
+compile locally is never quarantined, so it launches with no Gatekeeper warning
+and needs no signing or workaround.
 
-1. From the
-   [latest release](https://github.com/ghreprimand/odytty/releases/latest),
-   download `odytty-<version>-macos-universal.dmg` and `SHA256SUMS`, then verify:
+#### Build from source (recommended)
 
-   ```sh
-   shasum -a 256 -c SHA256SUMS
-   ```
+Requires the Rust toolchain ([rustup](https://rustup.rs)) and the Xcode Command
+Line Tools. Nothing produced locally is quarantined, so macOS runs the result
+without complaint.
 
-2. Open the `.dmg` and drag **OdyTTY** into Applications.
-3. On first launch, right-click the app and choose **Open**, or clear the
-   quarantine flag once:
+```sh
+xcode-select --install   # once, if you don't already have the Command Line Tools
+version=0.1.8
+curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
+curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/SHA256SUMS"
+grep "odytty-${version}.tar.gz" SHA256SUMS | shasum -a 256 -c -
+tar -xf "odytty-${version}.tar.gz"
+cd "odytty-${version}"
+cargo build --release --locked
+./target/release/odytty
+```
 
-   ```sh
-   xattr -cr "/Applications/OdyTTY.app"
-   ```
+To get a double-clickable **OdyTTY.app** in Applications (a locally built bundle
+is also not quarantined):
+
+```sh
+mkdir -p dist/build
+cp target/release/odytty dist/build/odytty
+bash dist/macos/make-app.sh "$version"
+cp -R dist/build/OdyTTY.app /Applications/
+```
+
+#### Prebuilt universal .dmg (unsigned)
+
+The published `.dmg` is a universal binary (Apple Silicon and Intel) but is
+**unsigned**, so Gatekeeper blocks it on first launch. Download
+`odytty-<version>-macos-universal.dmg` and `SHA256SUMS` from the
+[latest release](https://github.com/ghreprimand/odytty/releases/latest), verify,
+and drag **OdyTTY** into Applications:
+
+```sh
+grep "macos-universal.dmg" SHA256SUMS | shasum -a 256 -c -
+```
+
+Then clear the quarantine flag once:
+
+```sh
+xattr -cr "/Applications/OdyTTY.app"
+open "/Applications/OdyTTY.app"
+```
+
+Without Terminal: try to open the app, dismiss the warning, then go to **System
+Settings → Privacy & Security**, find the "OdyTTY.app was blocked" notice, and
+click **Open Anyway**. (On macOS 15 Sequoia the older right-click → Open shortcut
+no longer bypasses this.)
 
 Run a command directly inside OdyTTY:
 
