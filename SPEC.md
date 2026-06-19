@@ -739,8 +739,13 @@ module owns the `winit` event loop, `wgpu` surface, glyph atlas, grid vertex
 builder, and image layer, consuming core snapshots through a narrow seam.
 
 Text is cell-based: each codepoint occupies one or two columns (`unicode-width`
-consistent with core), and all coordinate systems are per-cell. The glyph atlas
-uses one monospace face for regular text, with bold/italic/bold-italic faces
+consistent with core), and all coordinate systems are per-cell. The default
+body font is bundled **Victor Mono** (SIL OFL 1.1) at 22 logical pixels;
+**JetBrains Mono** is also bundled and remains selectable. SGR italic maps to
+Victor Mono's roman-slant Oblique faces. PUA prompt/Nerd-font icons resolve
+through a bundled **Symbols Nerd Font Mono** fallback (enabled by default;
+override via `ODYTTY_SYMBOL_FONT`, `symbol_map`, or the settings toggle). The
+glyph atlas uses one monospace face for regular text, with bold/italic/bold-italic faces
 loaded when discovered by filename convention. When a style face is absent,
 `StyleFonts::synthetic_mask()` derives a per-face synthesis flag by comparing
 loaded `Arc` identities; `GlyphAtlas::set_synthetic_styles` receives those bits
