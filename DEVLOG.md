@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Release v0.1.6 (glyph coverage + Victor Mono default)
+
+Version bump to `0.1.6` (`Cargo.toml`, `Cargo.lock`, README install snippet).
+This release ships the glyph/font work landed across the day plus the
+narrow-resize correctness fix:
+
+- Victor Mono is the bundled default body font at size 20; JetBrains Mono stays
+  bundled and selectable. Italic maps to the real Oblique faces (no synthetic
+  shear), with the full weight ladder locked by regression tests.
+- Symbol/Nerd-font fallback defaults on, backed by a bundled
+  `SymbolsNerdFontMono` face with explicit > bundled > host precedence, so PUA
+  prompt icons render out of the box regardless of host fonts. The classifier
+  covers PUA plus standard symbol blocks (fixes the `❯` prompt-char tofu).
+  `--show-config` now reports `symbol_fallback` and `symbol_font_source`.
+- Geometric Symbols for Legacy Computing expanded: sextants, octants, triangles,
+  eighth strips/ladders, L-combo eighth blocks, and segmented digits.
+  Deferred to a post-v0.1.6 packet: diagonal-edged blocks `U+1FB3C..1FB67` and
+  negative diagonals `U+1FBBD..1FBBF` (need an antialiased polygon filler).
+- OSC 133 narrow-resize prompt repaint fix: the live prompt region collapses to
+  its anchor row on a width change instead of rewrapping, so a shell's
+  fixed-height repaint (verified against real fish 4.7) no longer stacks
+  duplicate prompts.
+
+Verified before tag: `cargo fmt --check` clean, `cargo test` all suites green
+(lib 1830 passed / 0 failed / 7 ignored), `cargo build --release` clean. Bundled
+font assets ship with their license files (OFL for Victor Mono and JetBrains
+Mono; MIT + per-set credits for the Nerd Fonts symbols face) and are recorded in
+`NOTICE`. Known gap: one intermittently-flaky test
+(`native::gpu::image::tests::floor_disabled_needs_no_scrim`) shares a global
+floor/scrim atomic with another test under suite parallelism; passes in isolation
+and on re-run — tracked for a serial/reset fix.
+
 ## 2026-06-19 -- Close Legacy Computing holes: L-combo eighths + segmented digits (Phase 3)
 
 Packet A of the deferred geometric-hole closure. Closes 16 codepoints across 2 of

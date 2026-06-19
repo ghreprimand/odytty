@@ -1,6 +1,6 @@
 [package]
 name = "odytty"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2024"
 license = "GPL-3.0-only"
 description = "A from-scratch, GPU-rendered Rust terminal emulator with an Odyssey visual identity."

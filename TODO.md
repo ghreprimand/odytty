@@ -206,6 +206,19 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
   - [x] Native render loop calls `ensure()` for non-ASCII cells, re-uploads the
         atlas texture on `take_dirty()`, and rebuilds vertices against the
         current atlas so real resident glyphs render instead of fallback boxes.
+  - [x] Symbol/Nerd-font fallback (v0.1.6): `symbol_fallback` defaults on, backed
+        by a bundled `SymbolsNerdFontMono` face with explicit > bundled > host
+        precedence so PUA prompt icons render out of the box; the classifier
+        covers PUA plus standard symbol blocks (Arrows, Misc Technical, Geometric
+        Shapes, Misc Symbols, Dingbats incl. `❯`, Misc Symbols+Arrows).
+        `ODYTTY_SYMBOL_FONT`/`symbol_font`/SYMMAP/settings override; `--show-config`
+        reports `symbol_fallback` + `symbol_font_source`.
+  - [x] Geometric Symbols for Legacy Computing (v0.1.6): sextants, octants,
+        triangles, eighth strips/ladders, L-combo eighth blocks
+        (`U+1FB7C..1FB81`), and segmented digits (`U+1FBF0..1FBF9`) render from
+        cell geometry. Deferred (Packet B, post-v0.1.6): diagonal-edged blocks
+        `U+1FB3C..1FB67` and negative diagonals `U+1FBBD..1FBBF` (need a general
+        antialiased polygon filler).
 - [ ] Decide the shaping strategy for ligatures/stylistic sets behind settings
       while preserving cell correctness.
 - [ ] Improve rasterization quality: pixel alignment, baseline consistency,
@@ -944,6 +957,10 @@ feature validates against.
 - [x] Document GitHub Release/tag/checksum expectations and Odyssey-Mon
       upstream tracking.
 - [x] Cut a `v0.1.4` source release with checksums and an Odyssey PKGBUILD.
+- [x] Cut a `v0.1.6` glyph/font release: Victor Mono default body font (size 20,
+      bundled, JetBrains Mono retained/selectable), bundled symbol fallback on by
+      default, expanded geometric coverage, and the OSC 133 narrow-resize prompt
+      repaint fix.
 - [ ] Evaluate an AppImage artifact after the source package and desktop
       integration are proven.
 
