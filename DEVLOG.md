@@ -45,8 +45,12 @@ a separate, larger effort (needs a ConPTY backend) and is investigated but not
 started. Both platforms stay on `main` behind `#[cfg(...)]` — no per-OS branches.
 
 Gates: `cargo fmt --check` clean, full `cargo test` green (1983 tests). The
-macOS arms are verified to compile-gate cleanly on Linux; actual macOS
-compilation is verified by the first CI build.
+macOS arms compile-gate cleanly on Linux; the first tagged CI build surfaced
+three macOS-only errors — a missing rustix `process` feature (needed for
+`RawPid`), the `ClipboardSelectionIo` primary-selection methods having no macOS
+arm (PRIMARY selection is X11/Wayland-only), and the Linux-only
+`OpenptFlags::CLOEXEC` (replaced off Linux by an explicit `fcntl_setfd`) — all
+fixed before the release published.
 
 ## 2026-06-19 -- Pre-release audit fixes: bell + IME (v0.1.7)
 

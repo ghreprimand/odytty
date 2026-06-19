@@ -302,10 +302,23 @@ impl Drop for PtySession {
 }
 
 fn open_pty_pair(dimensions: Dimensions) -> Result<(File, File)> {
+    // `posix_openpt` only accepts a CLOEXEC flag on Linux; elsewhere the flag is
+    // set on the master fd explicitly after opening (see below).
+    #[cfg(target_os = "linux")]
     let flags = OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC;
+    #[cfg(not(target_os = "linux"))]
+    let flags = OpenptFlags::RDWR | OpenptFlags::NOCTTY;
+
     let master = openpt(flags).context("open pty master")?;
     grantpt(&master).context("grant pty")?;
     unlockpt(&master).context("unlock pty")?;
+
+    // Ensure the master is close-on-exec so the spawned child never inherits it.
+    // On Linux this came from `OpenptFlags::CLOEXEC`; off Linux set it directly.
+    #[cfg(not(target_os = "linux"))]
+    rustix::io::fcntl_setfd(&master, rustix::io::FdFlags::CLOEXEC)
+        .context("set cloexec on pty master")?;
+
     let slave = open_pty_slave(&master, flags)?;
 
     tcsetwinsize(&slave, winsize(dimensions)).context("set pty window size")?;

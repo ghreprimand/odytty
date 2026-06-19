@@ -22,7 +22,7 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 libc = "0.2.178"
 png = "0.18.1"
 pollster = "0.4.0"
-rustix = { version = "1.1.4", features = ["pty", "termios"] }
+rustix = { version = "1.1.4", features = ["pty", "termios", "process"] }
 swash = "0.2.9"
 thiserror = "2.0.18"
 # Read-only access to font name/metadata tables (real family name, OS/2 weight,

@@ -161,6 +161,26 @@ impl ClipboardSelectionIo for NativeClipboard {
             }
         }
     }
+
+    // Platforms without an X11/Wayland-style PRIMARY selection (macOS, Android,
+    // emscripten, non-unix) have no primary selection to read or write. These
+    // are no-ops so selection-driven copy/paste silently falls back to the
+    // regular clipboard path.
+    #[cfg(not(all(
+        unix,
+        not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
+    )))]
+    fn read_primary_selection_text(&mut self) -> Option<String> {
+        None
+    }
+
+    #[cfg(not(all(
+        unix,
+        not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
+    )))]
+    fn write_primary_selection_text(&mut self, _text: &str) -> Option<()> {
+        None
+    }
 }
 
 impl NativeClipboard {
