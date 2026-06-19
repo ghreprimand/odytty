@@ -165,9 +165,9 @@ From the source tree without installing:
 `--list-themes` prints the 100 built-in themes as stable
 `name`/`appearance`/`family` rows. `--list-fonts` prints discoverable system
 font files. `--show-config` prints the current stable config-dump subset (including
-`symbol_fallback` and `symbol_font_source`, which reports whether the
-symbol/Nerd-font fallback resolves the `explicit:<path>`, `bundled`, or
-`host:<path>` face, or is `disabled`); the full settings authority is
+`symbol_fallback` and `symbol_font_source`, which reports the resolved
+symbol/Nerd-font fallback **chain**, joined with ` > ` — e.g.
+`bundled > bundled > host:<path>`, or `disabled`); the full settings authority is
 [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
 
 ## Current Feature Surface
@@ -196,10 +196,15 @@ preserved.
 
 Text rendering uses bundled Victor Mono by default at 20 logical pixels with
 line height `1.0`. JetBrains Mono is also bundled and remains selectable via
-`font_family`. System font families, direct font files, font-weight
-variants, symbol/Nerd-font fallback, per-range symbol maps, synthetic styles,
-subpixel AA, glyph coverage gamma, stem darkening, and minimum-contrast
-enforcement are configurable.
+`font_family`. The font picker groups families into **Bundled Fonts** (Victor
+Mono, JetBrains Mono — always available) and **System Fonts** (host monospace
+families), and either resolves with zero config. The symbol/Nerd-font fallback
+is a **chain** of bundled faces — Nerd Fonts **v3** and **v2** — so PUA prompt
+icons render out of the box regardless of which Nerd Font era a config emits or
+whether the host has any Nerd font installed. System font families, direct font
+files, font-weight variants, per-range symbol maps, synthetic styles, subpixel
+AA, glyph coverage gamma, stem darkening, and minimum-contrast enforcement are
+configurable.
 
 Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. Noto Color
 Emoji CBDT/CBLC is supported on Linux, including variation selectors, flags,

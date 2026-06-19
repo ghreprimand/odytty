@@ -94,7 +94,7 @@ fn symbol_map_font_for_wins_over_installed_fallback() {
     let fallback = Arc::new(fallback_face);
     let override_font = Arc::new(override_face);
     let mut atlas = GlyphAtlas::build(&font, 24.0);
-    atlas.set_fallback_font(Some(Arc::clone(&fallback)));
+    atlas.set_fallback_fonts(vec![Arc::clone(&fallback)]);
     atlas.set_symbol_map_fonts(vec![(0xE000, 0xE000, Arc::clone(&override_font))]);
 
     let got = atlas

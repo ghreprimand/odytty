@@ -42,9 +42,23 @@ pub const BUNDLED_SYMBOL_FONT_FILENAME: &str = "SymbolsNerdFontMono-Regular.ttf"
 pub const BUNDLED_SYMBOL_FONT_RELATIVE_PATH: &str =
     "assets/fonts/nerd-fonts-symbols/SymbolsNerdFontMono-Regular.ttf";
 
+/// Bundled **legacy v2** symbols face (Nerd Fonts 2.3.3). Shipped alongside the
+/// v3 face above so the glyph pack covers *both* codepoint eras out of the box:
+/// Nerd Fonts v3 relocated thousands of PUA icons (Material Design, Weather,
+/// Font Awesome, …) and emptied their v2 slots, but real-world shell configs
+/// still emit the v2 codepoints (e.g. the archway `U+F557` and python `U+F81F`).
+/// The v2 face fills exactly those gaps in the symbol-fallback chain.
+pub const BUNDLED_SYMBOL_FONT_V2_FILENAME: &str = "SymbolsNerdFontMono-v2-Regular.ttf";
+pub const BUNDLED_SYMBOL_FONT_V2_RELATIVE_PATH: &str =
+    "assets/fonts/nerd-fonts-symbols-v2/SymbolsNerdFontMono-v2-Regular.ttf";
+
 #[cfg(feature = "bundled-symbols-font")]
 const BUNDLED_SYMBOL_FONT_BYTES: &[u8] =
     include_bytes!("../assets/fonts/nerd-fonts-symbols/SymbolsNerdFontMono-Regular.ttf");
+
+#[cfg(feature = "bundled-symbols-font")]
+const BUNDLED_SYMBOL_FONT_V2_BYTES: &[u8] =
+    include_bytes!("../assets/fonts/nerd-fonts-symbols-v2/SymbolsNerdFontMono-v2-Regular.ttf");
 
 struct BundledFace {
     family: &'static str,
@@ -469,7 +483,7 @@ fn bundled_face_bytes(family: &str, weight: &str, italic: bool) -> Option<&'stat
         .map(|face| face.bytes)
 }
 
-/// Load the bundled symbols-only Nerd Font face when the asset feature is
+/// Load the bundled symbols-only Nerd Font face (v3) when the asset feature is
 /// enabled. Default builds enable it so the RV6 PUA-icon fallback works without
 /// host Nerd Font installation; `--no-default-features` leaves this as `None`.
 pub fn resolve_bundled_symbol_font() -> Option<FontVec> {
@@ -487,6 +501,41 @@ pub fn resolve_bundled_symbol_font() -> Option<FontVec> {
     {
         None
     }
+}
+
+/// Load the bundled **legacy v2** symbols face (Nerd Fonts 2.3.3) when the asset
+/// feature is enabled. Paired with [`resolve_bundled_symbol_font`] (v3) in the
+/// fallback chain so the v2 codepoints v3 relocated still resolve out of the box.
+pub fn resolve_bundled_symbol_font_v2() -> Option<FontVec> {
+    #[cfg(feature = "bundled-symbols-font")]
+    {
+        return FontVec::try_from_vec(BUNDLED_SYMBOL_FONT_V2_BYTES.to_vec())
+            .map_err(|source| TextError::Parse {
+                path: format!("bundled {}", BUNDLED_SYMBOL_FONT_V2_FILENAME),
+                source,
+            })
+            .ok();
+    }
+
+    #[cfg(not(feature = "bundled-symbols-font"))]
+    {
+        None
+    }
+}
+
+/// The bundled symbol faces in chain order: **v3 first, then v2**. v3 carries
+/// the current Nerd Fonts layout (and the bulk of modern config icons); v2 fills
+/// only the slots v3 emptied. Empty when the `bundled-symbols-font` feature is
+/// off. Order matters: a codepoint present in both resolves to its v3 rendition.
+pub fn resolve_bundled_symbol_fonts() -> Vec<FontVec> {
+    let mut fonts = Vec::new();
+    if let Some(v3) = resolve_bundled_symbol_font() {
+        fonts.push(v3);
+    }
+    if let Some(v2) = resolve_bundled_symbol_font_v2() {
+        fonts.push(v2);
+    }
+    fonts
 }
 
 /// A resolved font family: the validated monospace `regular` face plus any
@@ -690,6 +739,53 @@ pub fn font_families() -> Vec<String> {
         families.sort_by_key(|name| name.to_lowercase());
     }
     families
+}
+
+/// The two font families OdyTTY bundles and can always load from compiled-in
+/// bytes, regardless of host installation: the default (Victor Mono) first,
+/// then JetBrains Mono. Both are always selectable in the picker's **Bundled
+/// Fonts** group.
+pub const BUNDLED_FONT_FAMILIES: [&str; 2] = [BUNDLED_FONT_FAMILY, JETBRAINS_FONT_FAMILY];
+
+/// Font families split into picker subgroups: **bundled** (always present,
+/// loaded from compiled-in bytes) and **system** (host monospace families read
+/// from [`font_search_dirs`]). A host copy of a bundled family is dropped from
+/// `system` so it is not listed twice — picking the bundled entry always
+/// resolves the version-pinned shipped face.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FontFamilyGroups {
+    /// Bundled families, in ship order (default first). Always non-empty.
+    pub bundled: Vec<String>,
+    /// Host monospace families, sorted, excluding any bundled family name.
+    pub system: Vec<String>,
+}
+
+/// Build the picker's grouped family inventory from the live host search dirs.
+/// See [`font_families_grouped_in_dirs`] for the hermetic, dir-scoped core.
+pub fn font_families_grouped() -> FontFamilyGroups {
+    font_families_grouped_in_dirs(&font_search_dirs())
+}
+
+/// [`font_families_grouped`] over an explicit directory set, for hermetic tests.
+///
+/// The bundled group is fixed ([`BUNDLED_FONT_FAMILIES`]); the system group is
+/// the distinct host monospace families under `dirs` with any bundled family
+/// removed (case-insensitive), so a host-installed copy of Victor / JetBrains
+/// Mono never double-lists — the bundled entry already covers it.
+pub fn font_families_grouped_in_dirs(dirs: &[PathBuf]) -> FontFamilyGroups {
+    let bundled: Vec<String> = BUNDLED_FONT_FAMILIES
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let bundled_keys: Vec<String> = bundled.iter().map(|f| normalize_family(f)).collect();
+    let system = font_families_in_dirs(dirs)
+        .into_iter()
+        .filter(|family| {
+            let key = normalize_family(family);
+            !bundled_keys.contains(&key)
+        })
+        .collect();
+    FontFamilyGroups { bundled, system }
 }
 
 /// [`font_families`] over an explicit directory set, for hermetic tests.
@@ -1055,6 +1151,62 @@ pub fn resolve_symbol_font_with_source(
         }
     }
     (SymbolFontSource::None, None)
+}
+
+/// Resolve the **ordered symbol-fallback chain** and report where each face came
+/// from. This is the coverage-composing counterpart to
+/// [`resolve_symbol_font_with_source`] (which returns only the single best
+/// face): the atlas walks the chain per glyph and rasterizes from the first face
+/// that actually has the codepoint, so coverage is the *union* of every face.
+///
+/// Chain order (precedence **explicit > bundled > host**):
+/// 1. An explicit [`SYMBOL_FONT_ENV`] / `symbol_font` override (a bad path is
+///    reported and skipped rather than aborting).
+/// 2. The bundled faces — v3 then v2 (see [`resolve_bundled_symbol_fonts`]) —
+///    so the out-of-the-box glyph pack covers both Nerd Font codepoint eras
+///    regardless of host font installation.
+/// 3. A host-discovered "* Nerd Font" face, which can extend coverage with any
+///    extra glyphs the bundled faces lack.
+///
+/// The returned `sources` and `fonts` are index-aligned. An empty `fonts`
+/// (every source failed and no bundled asset) keeps the historical hollow-box
+/// behavior.
+pub fn resolve_symbol_fonts_with_source(
+    explicit_path: Option<&Path>,
+    dirs: &[PathBuf],
+) -> (Vec<SymbolFontSource>, Vec<FontVec>) {
+    let mut sources = Vec::new();
+    let mut fonts = Vec::new();
+
+    if let Some(path) = explicit_path {
+        match load_font_at(path) {
+            Ok(font) => {
+                sources.push(SymbolFontSource::Explicit(path.to_path_buf()));
+                fonts.push(font);
+            }
+            Err(err) => {
+                eprintln!("odytty: {err}; falling back to the bundled symbol fonts");
+            }
+        }
+    }
+
+    // Bundled faces (v3 then v2): the known-good, version-pinned core of the
+    // chain, identical on every machine.
+    for font in resolve_bundled_symbol_fonts() {
+        sources.push(SymbolFontSource::Bundled);
+        fonts.push(font);
+    }
+
+    // Host-discovered symbol/Nerd face: extends coverage for any glyph the
+    // bundled faces lack, and is the sole source under `--no-default-features`.
+    if let Some(path) = resolve_symbol_font_path_in(dirs) {
+        if let Ok(font) = load_font_at(&path) {
+            sources.push(SymbolFontSource::Host(path));
+            fonts.push(font);
+        }
+    }
+
+    (sources, fonts)
 }
 
 /// Resolve only the **source** of the symbol-fallback face. Convenience wrapper
@@ -2025,6 +2177,48 @@ mod tests {
         }
     }
 
+    /// The bundled **v2** face must cover the legacy codepoints Nerd Fonts v3
+    /// relocated (emptying their old slots), so the bundled chain renders both
+    /// eras. These are exactly the glyphs that tofu'd under the v3-only bundle —
+    /// the archway `U+F557` and python `U+F81F` a real fish prompt emits.
+    #[cfg(feature = "bundled-symbols-font")]
+    #[test]
+    fn bundled_v2_symbol_font_covers_relocated_legacy_codepoints() {
+        let v2 = resolve_bundled_symbol_font_v2().expect("bundled v2 symbols font parses");
+        for ch in ['\u{F557}', '\u{F81F}', '\u{FC5B}', '\u{F5B0}'] {
+            assert_ne!(
+                v2.glyph_id(ch).0,
+                0,
+                "bundled v2 symbols font must cover legacy U+{:04X}",
+                ch as u32
+            );
+        }
+    }
+
+    /// The bundled chain composes coverage: v3 leads, v2 fills the gaps. Every
+    /// representative codepoint from *either* era must be covered by *some* face
+    /// in [`resolve_bundled_symbol_fonts`], which is what the atlas walk relies on.
+    #[cfg(feature = "bundled-symbols-font")]
+    #[test]
+    fn bundled_symbol_chain_unions_v2_and_v3_coverage() {
+        let chain = resolve_bundled_symbol_fonts();
+        assert_eq!(chain.len(), 2, "default bundle ships v3 + v2 faces");
+        // v3-era and v2-era representatives; each must resolve in at least one
+        // chain face (first-hit-wins is the atlas's job, union is ours).
+        for ch in [
+            '\u{E0B0}',  // Powerline (both eras)
+            '\u{F0001}', // Material Design Icons (v3 layout)
+            '\u{F557}',  // archway — v2-only slot
+            '\u{F81F}',  // python — v2-only slot
+        ] {
+            assert!(
+                chain.iter().any(|f| f.glyph_id(ch).0 != 0),
+                "no bundled chain face covers U+{:04X}",
+                ch as u32
+            );
+        }
+    }
+
     /// A real monospace family installed on this host (read from metadata), with
     /// the live search dirs, or `None` when the host has no monospace face.
     fn a_real_monospace_family() -> Option<(String, Vec<PathBuf>)> {
@@ -2060,6 +2254,45 @@ mod tests {
                 .any(|f| normalize_family(f) == normalize_family(&family)),
             "font_families lists the resolved real family"
         );
+    }
+
+    /// The grouped inventory always exposes the two bundled families (regardless
+    /// of host installation) and never empty: this is what makes the picker's
+    /// **Bundled Fonts** subgroup work out of the box.
+    #[test]
+    fn grouped_inventory_always_has_the_bundled_families() {
+        // An empty search dir => no system families, but the bundled group is
+        // fixed and present.
+        let empty = unique_tmp_dir("grouped-empty");
+        let groups = font_families_grouped_in_dirs(&[empty]);
+        assert_eq!(
+            groups.bundled,
+            vec![
+                BUNDLED_FONT_FAMILY.to_owned(),
+                JETBRAINS_FONT_FAMILY.to_owned()
+            ],
+            "bundled group is the fixed Victor Mono + JetBrains Mono list"
+        );
+        assert!(
+            groups.system.is_empty(),
+            "an empty dir yields no system families"
+        );
+    }
+
+    /// A host-installed copy of a bundled family must not double-list: it is
+    /// dropped from the system group (the bundled entry already covers it), so
+    /// picking it always resolves the version-pinned shipped face.
+    #[test]
+    fn grouped_inventory_dedups_a_host_copy_of_a_bundled_family() {
+        let groups = font_families_grouped();
+        for sys in &groups.system {
+            let key = normalize_family(sys);
+            assert!(
+                key != normalize_family(BUNDLED_FONT_FAMILY)
+                    && key != normalize_family(JETBRAINS_FONT_FAMILY),
+                "system group must not repeat a bundled family: {sys:?}"
+            );
+        }
     }
 
     /// Lay down a multi-weight family fixture and return `(dir, dirs)`. Faces are

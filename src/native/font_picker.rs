@@ -25,15 +25,39 @@ use super::overlay::OverlayInput;
 // Public types
 // ---------------------------------------------------------------------------
 
+/// One row in the picker's ordered model: a non-selectable group header, or a
+/// selectable monospace family. Headers split the list into **Bundled Fonts**
+/// and **System Fonts** subgroups; navigation and Enter skip headers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum PickerEntry {
+    /// A group label (e.g. "Bundled Fonts"). Rendered dimmed, never focusable.
+    Header(String),
+    /// A selectable family name.
+    Family(String),
+}
+
+impl PickerEntry {
+    /// The selectable family name, or `None` for a header.
+    fn family(&self) -> Option<&str> {
+        match self {
+            PickerEntry::Family(name) => Some(name),
+            PickerEntry::Header(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub(super) struct FontPicker {
-    /// Monospace-only real family names (unique, sorted).
-    all_families: Vec<String>,
-    /// Indices into `all_families` that match the current `query`.
+    /// Ordered model: group headers interleaved with monospace family rows.
+    entries: Vec<PickerEntry>,
+    /// Indices into `entries` visible under the current `query`: matching
+    /// families plus any header whose group still has a match. Headers are
+    /// retained for context but are never selection targets.
     filtered: Vec<usize>,
     /// Current type-to-filter query.
     query: String,
-    /// Index into `filtered` (NOT into `all_families`).
+    /// Index into `filtered` (NOT into `entries`). Always points at a
+    /// `Family` row when one exists (navigation snaps past headers).
     selected: usize,
     scroll: usize,
     /// The font_family value when the picker was opened (restored on cancel).
@@ -79,9 +103,8 @@ pub(super) enum FontPickerOutcome {
 impl FontPicker {
     /// Build a picker from a live font inventory.
     pub(super) fn new(settings: &Settings) -> Self {
-        let all_families = Vec::new(); // populated lazily on open()
         let mut picker = Self {
-            all_families,
+            entries: Vec::new(), // populated lazily on open()
             filtered: Vec::new(),
             query: String::new(),
             selected: 0,
@@ -94,13 +117,16 @@ impl FontPicker {
     }
 
     /// (Re)open the picker: snapshot the current font_family as the restore
-    /// point and refresh the family list from a fresh metadata scan.
+    /// point and refresh the grouped family list from a fresh metadata scan.
     ///
-    /// `families` is the distinct, sorted, monospace-only real family list (from
-    /// [`crate::text::font_families`]); the picker stores it verbatim.
-    pub(super) fn open(&mut self, settings: &Settings, families: Vec<String>) {
+    /// `groups` carries the **Bundled Fonts** (always present) and **System
+    /// Fonts** (host monospace families) subgroups (from
+    /// [`crate::text::font_families_grouped`]); the picker builds its ordered
+    /// header+family model from them. A group with no families is omitted (no
+    /// empty header is shown).
+    pub(super) fn open(&mut self, settings: &Settings, groups: crate::text::FontFamilyGroups) {
         self.original = current_font_family(settings);
-        self.all_families = families;
+        self.entries = build_entries(&groups);
         self.query.clear();
         self.message = Some(
             "Select a font family — type to filter, Enter to apply, Esc to cancel.".to_owned(),
@@ -159,7 +185,10 @@ impl FontPicker {
             entries: self
                 .filtered
                 .iter()
-                .map(|&i| self.all_families[i].clone())
+                .map(|&i| match &self.entries[i] {
+                    PickerEntry::Header(label) => format!("# {label}"),
+                    PickerEntry::Family(name) => name.clone(),
+                })
                 .collect(),
         }
     }
@@ -171,7 +200,10 @@ impl FontPicker {
         let longest = self
             .filtered
             .iter()
-            .map(|&i| self.all_families[i].chars().count())
+            .map(|&i| match &self.entries[i] {
+                PickerEntry::Header(label) => label.chars().count(),
+                PickerEntry::Family(name) => name.chars().count(),
+            })
             .max()
             .unwrap_or(20);
         longest.saturating_add(10).max(54).min(columns)
@@ -222,21 +254,28 @@ impl FontPicker {
             return lines;
         }
 
-        for (vis_index, &family_index) in self.filtered.iter().enumerate().skip(self.scroll) {
+        for (vis_index, &entry_index) in self.filtered.iter().enumerate().skip(self.scroll) {
             if lines.len() >= body_height {
                 break;
             }
-            let focused = vis_index == self.selected;
-            let marker = if focused { ">" } else { " " };
-            let original_mark = if self.all_families[family_index] == self.original {
-                " current"
-            } else {
-                ""
+            let text = match &self.entries[entry_index] {
+                PickerEntry::Header(label) => {
+                    // Group label: never focusable, visually set apart.
+                    format!("  ── {label} ──")
+                }
+                PickerEntry::Family(name) => {
+                    let focused = vis_index == self.selected;
+                    let marker = if focused { ">" } else { " " };
+                    let original_mark = if *name == self.original {
+                        " current"
+                    } else {
+                        ""
+                    };
+                    format!("{marker}   {name}{original_mark}")
+                }
             };
-            let text = format!(
-                "{marker} {}{original_mark}",
-                self.all_families[family_index]
-            );
+            let focused = vis_index == self.selected
+                && matches!(self.entries[entry_index], PickerEntry::Family(_));
             lines.push(FontPickerLine {
                 text: ellipsize(&text, body_width),
                 focused,
@@ -263,42 +302,140 @@ impl FontPicker {
     fn selected_family(&self) -> Option<String> {
         self.filtered
             .get(self.selected)
-            .map(|&i| self.all_families[i].clone())
+            .and_then(|&i| self.entries[i].family())
+            .map(str::to_owned)
     }
 
     fn select_family(&mut self, family: &str) {
         let norm = family.trim().to_lowercase();
-        // Try to find a filtered entry whose collapsed name matches
-        // (case-insensitive); fall back to index 0.
+        // Find a filtered family entry whose name matches (case-insensitive);
+        // fall back to the first selectable family (never a header).
         self.selected = self
             .filtered
             .iter()
-            .position(|&i| self.all_families[i].to_lowercase() == norm)
-            .unwrap_or(0);
+            .position(|&i| {
+                self.entries[i]
+                    .family()
+                    .is_some_and(|n| n.to_lowercase() == norm)
+            })
+            .unwrap_or_else(|| self.first_selectable().unwrap_or(0));
         self.clamp();
     }
 
+    /// Rebuild the visible (`filtered`) row set for the current query. Includes
+    /// every matching family plus any group header that still has ≥1 match, so
+    /// the subgroup labels follow the filter. A group filtered down to nothing
+    /// drops its header too. Selection snaps to the first selectable family.
     fn rebuild_filter(&mut self) {
         let needle = self.query.to_lowercase();
-        self.filtered = self
-            .all_families
-            .iter()
-            .enumerate()
-            .filter(|(_, name)| needle.is_empty() || name.to_lowercase().contains(&needle))
-            .map(|(i, _)| i)
-            .collect();
-        // Reset selection to 0 after filter rebuild (clamp will adjust scroll).
-        self.selected = 0;
+        let matches = |name: &str| needle.is_empty() || name.to_lowercase().contains(&needle);
+
+        let mut visible: Vec<usize> = Vec::new();
+        let mut i = 0;
+        while i < self.entries.len() {
+            match &self.entries[i] {
+                PickerEntry::Header(_) => {
+                    let header_idx = i;
+                    let mut group: Vec<usize> = Vec::new();
+                    let mut j = i + 1;
+                    while j < self.entries.len() {
+                        match &self.entries[j] {
+                            PickerEntry::Header(_) => break,
+                            PickerEntry::Family(name) => {
+                                if matches(name) {
+                                    group.push(j);
+                                }
+                            }
+                        }
+                        j += 1;
+                    }
+                    if !group.is_empty() {
+                        visible.push(header_idx);
+                        visible.extend(group);
+                    }
+                    i = j;
+                }
+                PickerEntry::Family(name) => {
+                    // A family with no preceding header (defensive; not produced
+                    // by `build_entries`).
+                    if matches(name) {
+                        visible.push(i);
+                    }
+                    i += 1;
+                }
+            }
+        }
+        self.filtered = visible;
+        self.selected = self.first_selectable().unwrap_or(0);
     }
 
+    /// The first `filtered` position that is a selectable family (skips a
+    /// leading header), or `None` when nothing is selectable.
+    fn first_selectable(&self) -> Option<usize> {
+        self.filtered
+            .iter()
+            .position(|&i| self.entries[i].family().is_some())
+    }
+
+    /// Whether the `filtered` position `pos` is a selectable family row.
+    fn is_selectable(&self, pos: usize) -> bool {
+        self.filtered
+            .get(pos)
+            .is_some_and(|&i| self.entries[i].family().is_some())
+    }
+
+    /// Move the selection by `delta` **selectable** rows, skipping headers and
+    /// stopping at the list edges.
     fn move_selection(&mut self, delta: isize) {
-        let next = self.selected as isize + delta;
-        self.set_selection(next.clamp(0, self.filtered.len().saturating_sub(1) as isize) as usize);
+        if self.filtered.is_empty() || delta == 0 {
+            return;
+        }
+        let len = self.filtered.len() as isize;
+        let step = delta.signum();
+        let mut pos = self.selected as isize;
+        let mut remaining = delta.abs();
+        while remaining > 0 {
+            let mut next = pos + step;
+            while next >= 0 && next < len && !self.is_selectable(next as usize) {
+                next += step;
+            }
+            if next < 0 || next >= len {
+                break; // edge reached; keep the last selectable position
+            }
+            pos = next;
+            remaining -= 1;
+        }
+        self.set_selection(pos.max(0) as usize);
     }
 
     fn set_selection(&mut self, selected: usize) {
-        self.selected = selected.min(self.filtered.len().saturating_sub(1));
+        if self.filtered.is_empty() {
+            self.selected = 0;
+            self.clamp();
+            return;
+        }
+        let clamped = selected.min(self.filtered.len() - 1);
+        self.selected = self.snap_to_selectable(clamped);
         self.clamp();
+    }
+
+    /// Nearest selectable `filtered` position to `pos`: `pos` itself if it is a
+    /// family, else the closest family searching forward, else backward.
+    fn snap_to_selectable(&self, pos: usize) -> usize {
+        if self.is_selectable(pos) {
+            return pos;
+        }
+        for p in (pos + 1)..self.filtered.len() {
+            if self.is_selectable(p) {
+                return p;
+            }
+        }
+        for p in (0..pos).rev() {
+            if self.is_selectable(p) {
+                return p;
+            }
+        }
+        pos
     }
 
     fn clamp(&mut self) {
@@ -317,6 +454,22 @@ impl FontPicker {
         }
         self.scroll = self.scroll.min(self.filtered.len() - 1);
     }
+}
+
+/// Build the picker's ordered header+family model from the grouped inventory.
+/// Each non-empty group contributes a header followed by its families; an empty
+/// group is omitted so no bare header is ever shown.
+fn build_entries(groups: &crate::text::FontFamilyGroups) -> Vec<PickerEntry> {
+    let mut entries = Vec::new();
+    if !groups.bundled.is_empty() {
+        entries.push(PickerEntry::Header("Bundled Fonts".to_owned()));
+        entries.extend(groups.bundled.iter().cloned().map(PickerEntry::Family));
+    }
+    if !groups.system.is_empty() {
+        entries.push(PickerEntry::Header("System Fonts".to_owned()));
+        entries.extend(groups.system.iter().cloned().map(PickerEntry::Family));
+    }
+    entries
 }
 
 // ---------------------------------------------------------------------------
@@ -381,12 +534,28 @@ mod tests {
     use super::*;
     use crate::settings::write_settings_changes_to_path;
 
-    /// The picker now consumes a ready-made real-family list (from
-    /// `crate::text::font_families`); family derivation/dedup/mono-filtering is
-    /// tested at that source in `crate::text`. These tests feed the list
-    /// directly to exercise navigation, filtering, cancel, and apply.
-    fn make_families(names: &[&str]) -> Vec<String> {
-        names.iter().map(|n| n.to_string()).collect()
+    use crate::text::FontFamilyGroups;
+
+    /// The picker consumes the grouped inventory (from
+    /// `crate::text::font_families_grouped`); family derivation/dedup/mono-
+    /// filtering is tested at that source in `crate::text`. Most picker tests
+    /// only need a flat selectable list, so this helper drops the names into the
+    /// **System Fonts** group (one header, no bundled rows).
+    fn make_families(names: &[&str]) -> FontFamilyGroups {
+        FontFamilyGroups {
+            bundled: Vec::new(),
+            system: names.iter().map(|n| n.to_string()).collect(),
+        }
+    }
+
+    /// The selectable family labels among the rendered rows (drops group-header
+    /// rows, which `render_signature` prefixes with `# `).
+    fn family_entries(sig: &FontPickerSignature) -> Vec<String> {
+        sig.entries
+            .iter()
+            .filter(|e| !e.starts_with("# "))
+            .cloned()
+            .collect()
     }
 
     // T-empty: an empty family list opens without panic; list is empty.
@@ -394,7 +563,7 @@ mod tests {
     fn t_empty_families_no_panic() {
         let settings = Settings::default();
         let mut picker = FontPicker::new(&settings);
-        picker.open(&settings, Vec::new());
+        picker.open(&settings, FontFamilyGroups::default());
         let sig = picker.render_signature();
         assert!(sig.entries.is_empty());
         // Pressing Enter on an empty picker is a no-op (Consumed, not panic).
@@ -511,21 +680,21 @@ mod tests {
         picker.open(&settings, families);
 
         // All 4 visible initially.
-        assert_eq!(picker.render_signature().entries.len(), 4);
+        assert_eq!(family_entries(&picker.render_signature()).len(), 4);
 
         // Type "hack".
         for ch in "hack".chars() {
             picker.handle_input(OverlayInput::Char(ch));
         }
-        let sig = picker.render_signature();
-        assert_eq!(sig.entries.len(), 1);
-        assert_eq!(sig.entries[0], "Hack");
+        let families = family_entries(&picker.render_signature());
+        assert_eq!(families.len(), 1);
+        assert_eq!(families[0], "Hack");
 
         // Clear filter.
         for _ in 0..4 {
             picker.handle_input(OverlayInput::Backspace);
         }
-        assert_eq!(picker.render_signature().entries.len(), 4);
+        assert_eq!(family_entries(&picker.render_signature()).len(), 4);
     }
 
     // T-filter: filter is case-insensitive and matches inside multi-word names.
@@ -539,8 +708,111 @@ mod tests {
         for ch in "CASCADIA".chars() {
             picker.handle_input(OverlayInput::Char(ch));
         }
+        let families = family_entries(&picker.render_signature());
+        assert_eq!(families.len(), 1);
+        assert_eq!(families[0], "Cascadia Code");
+    }
+
+    // T-groups: both subgroups render with their headers, headers are never
+    // focusable, and navigation skips over them.
+    #[test]
+    fn t_groups_render_with_unselectable_headers() {
+        let settings = Settings::default();
+        let groups = FontFamilyGroups {
+            bundled: vec!["Victor Mono".to_owned(), "JetBrains Mono".to_owned()],
+            system: vec!["Cascadia Code".to_owned(), "Hack".to_owned()],
+        };
+        let mut picker = FontPicker::new(&settings);
+        picker.open(&settings, groups);
+
+        // Rendered rows include both headers (prefixed with "# ") and 4 families.
         let sig = picker.render_signature();
-        assert_eq!(sig.entries.len(), 1);
-        assert_eq!(sig.entries[0], "Cascadia Code");
+        assert!(sig.entries.iter().any(|e| e == "# Bundled Fonts"));
+        assert!(sig.entries.iter().any(|e| e == "# System Fonts"));
+        assert_eq!(family_entries(&sig).len(), 4);
+
+        // Initial selection lands on a family (the first selectable), never the
+        // leading header.
+        assert_eq!(picker.selected_family().as_deref(), Some("Victor Mono"));
+
+        // Walking down past the end of the bundled group must skip the
+        // "System Fonts" header and land on the first system family.
+        let _ = picker.handle_input(OverlayInput::Down); // JetBrains Mono
+        assert_eq!(picker.selected_family().as_deref(), Some("JetBrains Mono"));
+        let _ = picker.handle_input(OverlayInput::Down); // skip header → Cascadia
+        assert_eq!(picker.selected_family().as_deref(), Some("Cascadia Code"));
+        let _ = picker.handle_input(OverlayInput::Down); // Hack
+        assert_eq!(picker.selected_family().as_deref(), Some("Hack"));
+
+        // No rendered line that is a header is ever focused.
+        for line in picker.visible_lines(60, 40) {
+            if line.text.contains("──") {
+                assert!(!line.focused, "header line must not be focusable");
+            }
+        }
+    }
+
+    // T-groups: a filter that matches in both groups keeps both headers; one
+    // that matches a single group drops the empty group's header.
+    #[test]
+    fn t_filter_spans_groups_and_drops_empty_group_headers() {
+        let settings = Settings::default();
+        let groups = FontFamilyGroups {
+            bundled: vec!["Victor Mono".to_owned(), "JetBrains Mono".to_owned()],
+            system: vec!["Cascadia Code".to_owned(), "Hack Mono".to_owned()],
+        };
+        let mut picker = FontPicker::new(&settings);
+        picker.open(&settings, groups);
+
+        // "mono" matches in both groups → both headers remain.
+        for ch in "mono".chars() {
+            picker.handle_input(OverlayInput::Char(ch));
+        }
+        let sig = picker.render_signature();
+        assert!(sig.entries.iter().any(|e| e == "# Bundled Fonts"));
+        assert!(sig.entries.iter().any(|e| e == "# System Fonts"));
+        assert_eq!(family_entries(&sig).len(), 3); // JetBrains Mono, Hack Mono, Victor Mono
+
+        // "cascadia" matches only the system group → the bundled header drops.
+        for _ in 0..4 {
+            picker.handle_input(OverlayInput::Backspace);
+        }
+        for ch in "cascadia".chars() {
+            picker.handle_input(OverlayInput::Char(ch));
+        }
+        let sig = picker.render_signature();
+        assert!(!sig.entries.iter().any(|e| e == "# Bundled Fonts"));
+        assert!(sig.entries.iter().any(|e| e == "# System Fonts"));
+        assert_eq!(family_entries(&sig), vec!["Cascadia Code".to_owned()]);
+    }
+
+    // T-groups: a bundled pick and a system pick both persist the exact family
+    // name, proving either group resolves with zero further config.
+    #[test]
+    fn t_both_groups_persist_their_family_name() {
+        let settings = Settings::default();
+        let groups = FontFamilyGroups {
+            bundled: vec!["Victor Mono".to_owned(), "JetBrains Mono".to_owned()],
+            system: vec!["Cascadia Code".to_owned()],
+        };
+
+        // Bundled pick: the first selectable family is Victor Mono.
+        let mut picker = FontPicker::new(&settings);
+        picker.open(&settings, groups.clone());
+        let FontPickerOutcome::Persist(changes) = picker.handle_input(OverlayInput::Activate)
+        else {
+            panic!("expected Persist for bundled pick");
+        };
+        assert_eq!(changes[0].value, "Victor Mono");
+
+        // System pick: navigate to the system family and apply.
+        let mut picker = FontPicker::new(&settings);
+        picker.open(&settings, groups);
+        let _ = picker.handle_input(OverlayInput::End); // last selectable
+        let FontPickerOutcome::Persist(changes) = picker.handle_input(OverlayInput::Activate)
+        else {
+            panic!("expected Persist for system pick");
+        };
+        assert_eq!(changes[0].value, "Cascadia Code");
     }
 }

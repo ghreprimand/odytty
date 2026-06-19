@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Universal glyph pack (v2+v3 chain) + grouped font picker
+
+Made the bundled glyph pack render correctly on any machine regardless of which
+Nerd Font codepoint era a shell config emits, and reworked the font picker so
+bundled and system fonts are both first-class.
+
+- **Root cause of the tofu sigil:** the bundled `Symbols Nerd Font Mono` was
+  **v3-only (Nerd Fonts 3.4.0)**. v3 relocated thousands of PUA icons and
+  emptied their v2 slots, so configs still emitting v2 codepoints (e.g. a fish
+  prompt's archway `U+F557` and python `U+F81F`) rendered the hollow box. Host
+  Nerd fonts didn't help — modern hosts are v3 too.
+- **Symbol fallback is now an ordered chain**, not a single face. The atlas
+  holds `fallback_chain: Vec<Arc<FontVec>>` and rasterizes each glyph from the
+  first chain face that has it, so coverage is the *union* of every face. Chain
+  order is **explicit > bundled (v3, then v2) > host**.
+- **Bundled a second symbols face — Nerd Fonts v2.3.3** (MIT, unmodified) under
+  `assets/fonts/nerd-fonts-symbols-v2/`. The chain is `[v3, v2]`, so v3-era
+  glyphs render in their current form and the v2 face fills only the slots v3
+  emptied. Verified end-to-end: `U+F557`/`U+F81F` now resolve from the v2 face;
+  no fish-config change was needed.
+- **Font picker now has two subgroups** — **Bundled Fonts** (Victor Mono,
+  JetBrains Mono — always present from compiled-in bytes) and **System Fonts**
+  (host monospace families). A host copy of a bundled family is de-duplicated
+  into the bundled group. Group headers render dimmed and are never selectable;
+  navigation and filtering skip them; either group resolves with zero config.
+- `--show-config`'s `symbol_font_source` now reports the full chain joined with
+  ` > ` (e.g. `bundled > bundled > host:<path>`).
+- Docs updated: `SPEC.md`, `README.md`, `NOTICE` (second font + license),
+  `TODO.md`. Removed a stray no-op fish backup the prior agent left in the
+  user's config (not tracked here).
+
+Verified: `cargo fmt --check` clean; `cargo test` all suites green (lib 1847
+passed / 0 failed / 7 ignored, plus integration suites); `cargo build --release`
+clean. New tests cover the chain walk (first-hit-wins), empty-chain hollow-box
+parity, v2-coverage of relocated codepoints, the bundled-chain union, grouped
+inventory (always-present bundled group + system dedup), and the picker's
+grouped rendering / header-skipping / both-groups-persist behavior.
+
+---
+
 ## 2026-06-19 -- Release v0.1.6 (glyph coverage + Victor Mono default)
 
 Version bump to `0.1.6` (`Cargo.toml`, `Cargo.lock`, README install snippet).

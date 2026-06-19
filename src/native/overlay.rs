@@ -140,13 +140,15 @@ impl OverlayUi {
     }
 
     /// Open the font-family picker (FONT-PICKER). Runs a fresh metadata scan on
-    /// open (typically <100 ms). Backs the picker list with the host's distinct
-    /// real monospace family names (from [`crate::text::font_families`]).
+    /// open (typically <100 ms). Backs the picker with the grouped inventory
+    /// (from [`crate::text::font_families_grouped`]): the always-present
+    /// **Bundled Fonts** (Victor Mono, JetBrains Mono) and the host's distinct
+    /// real monospace **System Fonts**.
     pub(super) fn open_font_picker(&mut self, settings: &Settings) {
         self.panel.end_slider_drag();
         self.settings = settings.clone();
-        let families = crate::text::font_families();
-        self.font_picker.open(settings, families);
+        let groups = crate::text::font_families_grouped();
+        self.font_picker.open(settings, groups);
         self.mode = OverlayMode::FontPicker;
         self.open = true;
     }
@@ -1955,6 +1957,10 @@ mod tests {
             panic!("expected font picker save request");
         };
         assert_eq!(changes.len(), 1);
+        // The applied family is the value in the SettingEdit (the source of
+        // truth for what was just applied); `overlay.settings` is only refreshed
+        // by the app's reload path, not by `save_succeeded`.
+        let applied = changes[0].value.clone();
 
         overlay.save_succeeded(changes.len());
         // Stay-open contract: still open, still in FontPicker mode.
@@ -1967,16 +1973,13 @@ mod tests {
 
         // The applied family now shows the "current" marker in the rendered list
         // (font_picker.save_succeeded adopts it as self.original).
-        let applied = overlay.settings.font_family.clone();
         let rect = overlay_rect(&overlay, 80, 24).expect("rect");
         let lines = overlay.visible_lines(rect.body_width, rect.body_height);
         assert!(
-            lines.iter().any(|line| line.text.contains("current")
-                && applied
-                    .as_deref()
-                    .map(|f| line.text.contains(f))
-                    .unwrap_or(true)),
-            "applied family must render with the current marker after apply"
+            lines
+                .iter()
+                .any(|line| line.text.contains("current") && line.text.contains(&applied)),
+            "applied family {applied:?} must render with the current marker after apply"
         );
 
         // Esc still returns to the settings panel (the panel-launched path).

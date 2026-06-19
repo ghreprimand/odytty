@@ -742,17 +742,26 @@ Text is cell-based: each codepoint occupies one or two columns (`unicode-width`
 consistent with core), and all coordinate systems are per-cell. The default
 body font is bundled **Victor Mono** (SIL OFL 1.1) at 20 logical pixels;
 **JetBrains Mono** is also bundled and remains selectable. SGR italic maps to
-Victor Mono's roman-slant Oblique faces. Symbol/Nerd-font icons — both the
-Private Use Area sets and the standard symbol blocks body fonts lack (arrows,
-power symbols, Dingbats such as the prompt `❯`, …) — resolve through a bundled
-**Symbols Nerd Font Mono** fallback (enabled by default). Resolution precedence
-is **explicit > bundled > host**: an explicit `ODYTTY_SYMBOL_FONT` / `symbol_font`
-override wins, otherwise the version-pinned bundled face is used so the
-out-of-the-box icon path never depends on host-installed Nerd fonts, and a
-host-discovered face is the last resort (only when the bundled asset is absent).
-`symbol_map` per-range overrides and the settings toggle remain in effect.
+Victor Mono's roman-slant Oblique faces. The font picker lists families in two
+subgroups — **Bundled Fonts** (Victor Mono, JetBrains Mono — always present,
+loaded from compiled-in bytes) and **System Fonts** (host monospace families); a
+host copy of a bundled family is shown once, in the bundled group. Either group
+resolves with zero further config. Symbol/Nerd-font icons — both the Private Use
+Area sets and the standard symbol blocks body fonts lack (arrows, power symbols,
+Dingbats such as the prompt `❯`, …) — resolve through a bundled **Symbols Nerd
+Font fallback chain** (enabled by default). The chain order is **explicit >
+bundled > host**, where *bundled* is **two** version-pinned faces — Nerd Fonts
+**v3.4.0** then **v2.3.3** — so the glyph pack covers both codepoint eras out of
+the box (v3 relocated PUA icons such as the archway `U+F557` and python `U+F81F`
+into new slots; the v2 face fills the ones it emptied). The atlas walks the chain
+per glyph and rasterizes from the first face that has it, so coverage is the
+union of every face: an explicit `ODYTTY_SYMBOL_FONT` / `symbol_font` override
+leads, the bundled faces guarantee the out-of-the-box path never depends on
+host-installed Nerd fonts, and a host-discovered face can extend coverage at the
+tail. `symbol_map` per-range overrides and the settings toggle remain in effect.
 `--show-config` reports the live `symbol_fallback` state and the resolved
-`symbol_font_source` (`explicit:<path>` / `bundled` / `host:<path>` / `disabled`). The
+`symbol_font_source` as the full chain, joined with ` > ` (e.g.
+`bundled > bundled > host:<path>`, or `disabled`). The
 glyph atlas uses one monospace face for regular text, with bold/italic/bold-italic faces
 loaded when discovered by filename convention. When a style face is absent,
 `StyleFonts::synthetic_mask()` derives a per-face synthesis flag by comparing

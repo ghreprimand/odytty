@@ -71,7 +71,7 @@ fn fallback_present_but_lacking_glyph_uses_box() {
         return;
     };
     let mut atlas = GlyphAtlas::build(&font, 24.0);
-    atlas.set_fallback_font(Some(Arc::new(fb)));
+    atlas.set_fallback_fonts(vec![Arc::new(fb)]);
     let box_uv = atlas.slot_uv(FALLBACK_SLOT);
     let count = atlas.slot_count();
     let uv = atlas.ensure(&font, absent).expect("fallback uv");
@@ -129,7 +129,7 @@ fn fallback_renders_pua_glyph_when_a_symbol_font_is_available() {
     let mut atlas = GlyphAtlas::build(&primary, 24.0);
     let box_uv = atlas.slot_uv(FALLBACK_SLOT);
     let count = atlas.slot_count();
-    atlas.set_fallback_font(Some(Arc::new(symbol)));
+    atlas.set_fallback_fonts(vec![Arc::new(symbol)]);
     let uv = atlas.ensure(&primary, icon).expect("fallback glyph uv");
     assert_ne!(uv, box_uv, "fallback glyph must not use the hollow box");
     assert!(
@@ -140,4 +140,63 @@ fn fallback_renders_pua_glyph_when_a_symbol_font_is_available() {
         cell_ink(&atlas, uv) > 0,
         "fallback glyph should rasterize visible ink"
     );
+}
+
+#[test]
+fn chain_walk_resolves_from_a_later_face_when_the_first_lacks_the_glyph() {
+    let Some(primary) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // Two-face chain: the first face lacks `icon`, the second has it. The atlas
+    // must skip the first and rasterize from the second (first-hit-wins), which
+    // is exactly how the bundled v3→v2 chain covers v2-only codepoints.
+    let Some(first) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let Some(second) = crate::text::resolve_symbol_font() else {
+        eprintln!("skipping: no symbol / Nerd font on this host");
+        return;
+    };
+    let Some(icon) = (0xE000u32..=0xF8FF).filter_map(char::from_u32).find(|&ch| {
+        is_symbol_codepoint(ch)
+            && font_has_glyph(&second, ch)
+            && !font_has_glyph(&first, ch)
+            && !font_has_glyph(&primary, ch)
+    }) else {
+        eprintln!("skipping: no PUA codepoint unique to the second face");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&primary, 24.0);
+    let box_uv = atlas.slot_uv(FALLBACK_SLOT);
+    // Order matters: `first` (no glyph) leads, `second` (has glyph) follows.
+    atlas.set_fallback_fonts(vec![Arc::new(first), Arc::new(second)]);
+    let uv = atlas.ensure(&primary, icon).expect("chain fallback uv");
+    assert_ne!(
+        uv, box_uv,
+        "chain must resolve the glyph from the later face, not the hollow box"
+    );
+    assert!(
+        cell_ink(&atlas, uv) > 0,
+        "chain-resolved glyph should rasterize visible ink"
+    );
+}
+
+#[test]
+fn empty_chain_keeps_the_hollow_box() {
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let Some(absent) = pua_absent(&font) else {
+        eprintln!("skipping: font covers all of the BMP PUA");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    // Explicitly installing an empty chain is identical to never installing one.
+    atlas.set_fallback_fonts(Vec::new());
+    let box_uv = atlas.slot_uv(FALLBACK_SLOT);
+    let uv = atlas.ensure(&font, absent).expect("fallback uv");
+    assert_eq!(uv, box_uv, "empty chain must keep the hollow-box path");
 }

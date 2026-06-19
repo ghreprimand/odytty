@@ -330,18 +330,21 @@ pub struct GlyphAtlas {
     /// after [`Self::build`] and rebuilds the atlas when the setting changes, so
     /// the dynamic region never holds a stale mix of geometric and font glyphs.
     geometric: bool,
-    /// Optional symbol / Nerd-font fallback (RV6). When set, a printable
-    /// codepoint the **primary** font lacks is rasterized from this font
-    /// instead of the hollow-box tofu slot — but only when
-    /// [`fallback::is_symbol_codepoint`] classifies it as a symbol/icon codepoint
-    /// (PUA Nerd Font set or a standard symbol block such as Dingbats) **and**
-    /// this fallback font actually has the glyph. `None` (the default, and the
-    /// state on any freshly built atlas) preserves the historical missing-glyph
-    /// path byte-for-byte. Held as an `Arc` so the per-glyph lookup can clone a
-    /// handle and rasterize without conflicting with the `&mut self` bitmap
-    /// borrow. The native layer resolves and sets it after build, mirroring the
-    /// synthetic-styles / geometric switches.
-    fallback: Option<Arc<FontVec>>,
+    /// Ordered symbol / Nerd-font fallback **chain** (RV6). When non-empty, a
+    /// printable codepoint the **primary** font lacks is rasterized from the
+    /// first chain face that has a glyph for it, instead of the hollow-box tofu
+    /// slot — but only when [`fallback::is_symbol_codepoint`] classifies it as a
+    /// symbol/icon codepoint (PUA Nerd Font set or a standard symbol block such
+    /// as Dingbats). The chain composes coverage from multiple faces (e.g.
+    /// bundled Nerd Fonts v3 then v2, then a host face), so a glyph missing from
+    /// the first face still resolves from a later one; a codepoint no face
+    /// provides falls through to the historical missing-glyph path. An empty
+    /// chain (the default, and the state on any freshly built atlas) preserves
+    /// that path byte-for-byte. Faces are held as `Arc`s so the per-glyph lookup
+    /// can clone a handle and rasterize without conflicting with the `&mut self`
+    /// bitmap borrow. The native layer resolves and sets it after build,
+    /// mirroring the synthetic-styles / geometric switches.
+    fallback_chain: Vec<Arc<FontVec>>,
     /// SYMMAP: per-codepoint-range override faces (resolved from the user's
     /// `symbol_map` config). Each entry is an inclusive `(start, end, face)`
     /// range; [`Self::symbol_map_font_for`] returns the first range that
@@ -483,7 +486,7 @@ impl GlyphAtlas {
             subpixel,
             synthetic: 0,
             geometric: false,
-            fallback: None,
+            fallback_chain: Vec::new(),
             symbol_map_fonts: Vec::new(),
         }
     }
@@ -853,23 +856,24 @@ impl GlyphAtlas {
         self.geometric = on;
     }
 
-    /// Install (or clear) the symbol / Nerd-font fallback (RV6).
+    /// Install (or clear) the symbol / Nerd-font fallback **chain** (RV6).
     ///
-    /// When `Some`, a printable codepoint the **primary** font lacks is
-    /// rasterized from this font — but only when
-    /// [`fallback::is_symbol_codepoint`] classifies it as a symbol/icon codepoint (PUA or a standard symbol
-    /// block) and
-    /// this font actually has the glyph; otherwise the historical hollow-box
-    /// slot is used. `None` (the default) restores the pre-feature missing-glyph
-    /// path exactly, so a build with no fallback is byte-identical to the
-    /// minimal renderer.
+    /// When non-empty, a printable codepoint the **primary** font lacks is
+    /// rasterized from the first chain face that has it — but only when
+    /// [`fallback::is_symbol_codepoint`] classifies it as a symbol/icon codepoint
+    /// (PUA or a standard symbol block); otherwise the historical hollow-box slot
+    /// is used. The chain composes coverage across faces (bundled v3, then v2,
+    /// then a host face), so a glyph absent from earlier faces still resolves
+    /// from a later one. An empty `Vec` (the default) restores the pre-feature
+    /// missing-glyph path exactly, so a build with no fallback is byte-identical
+    /// to the minimal renderer.
     ///
     /// Like [`Self::set_synthetic_styles`] / [`Self::set_geometric_boxdraw`],
     /// this only governs glyphs rasterized after it is set; the native layer
     /// installs it on a freshly built atlas and reinstalls it after a rebuild,
     /// so the dynamic region never mixes resolved and unresolved fallbacks.
-    pub fn set_fallback_font(&mut self, font: Option<Arc<FontVec>>) {
-        self.fallback = font;
+    pub fn set_fallback_fonts(&mut self, fonts: Vec<Arc<FontVec>>) {
+        self.fallback_chain = fonts;
     }
 
     /// Install the resolved SYMMAP override faces (`(start, end, face)` ranges,
@@ -898,16 +902,18 @@ impl GlyphAtlas {
     }
 
     /// The fallback font to rasterize `ch` from when the primary lacks it, or
-    /// `None` to keep the hollow-box behavior. Returns the configured fallback
-    /// only when `ch` is a symbol/icon codepoint and the fallback face actually
-    /// has a glyph for it.
+    /// `None` to keep the hollow-box behavior. Walks the fallback chain and
+    /// returns the **first** face that has a glyph for `ch` — but only when `ch`
+    /// is a symbol/icon codepoint. A codepoint no chain face provides (or an
+    /// empty chain) yields `None`, preserving the hollow-box path.
     fn symbol_fallback(&self, ch: char) -> Option<Arc<FontVec>> {
-        let fb = self.fallback.as_ref()?;
-        if fallback::is_symbol_codepoint(ch) && font_has_glyph(fb, ch) {
-            Some(Arc::clone(fb))
-        } else {
-            None
+        if self.fallback_chain.is_empty() || !fallback::is_symbol_codepoint(ch) {
+            return None;
         }
+        self.fallback_chain
+            .iter()
+            .find(|fb| font_has_glyph(fb, ch))
+            .map(Arc::clone)
     }
 
     /// The [`SynthTransform`] to apply when rasterizing `style`. Returns the

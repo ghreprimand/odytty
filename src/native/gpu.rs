@@ -650,10 +650,11 @@ pub(super) struct GpuState {
     /// Last-applied effective explicit fallback path, after env override
     /// precedence. A change requires re-resolving and rebuilding the atlas.
     symbol_font_path: Option<PathBuf>,
-    /// Symbol / Nerd-font fallback face for PUA prompt icons (RV6), resolved
-    /// when the effective switch is enabled and a font is available; `None`
-    /// otherwise. Reinstalled whenever the glyph atlas is rebuilt.
-    symbol_fallback: Option<Arc<FontVec>>,
+    /// Symbol / Nerd-font fallback **chain** for PUA prompt icons (RV6),
+    /// resolved when the effective switch is enabled (order explicit > bundled
+    /// v3,v2 > host); empty otherwise. The atlas walks it per glyph so coverage
+    /// is the union of all faces. Reinstalled whenever the glyph atlas is rebuilt.
+    symbol_fallback: Vec<Arc<FontVec>>,
     /// Last-applied SYMMAP override map (raw rules), retained for change
     /// detection: when the live map differs the atlas is rebuilt with freshly
     /// resolved override faces. Empty (the default) keeps the no-override path.
@@ -786,7 +787,7 @@ impl GpuState {
         let symbol_font_path = effective_symbol_font_path();
         let symbol_fallback =
             resolve_symbol_fallback(symbol_fallback_enabled, symbol_font_path.as_deref());
-        atlas.set_fallback_font(symbol_fallback.clone());
+        atlas.set_fallback_fonts(symbol_fallback.clone());
         let symbol_map = crate::settings::symbol_map();
         let symbol_map_fonts = resolve_symbol_map_fonts(&symbol_map);
         atlas.set_symbol_map_fonts(symbol_map_fonts.clone());
@@ -1089,7 +1090,7 @@ impl GpuState {
             masked_synthetic(&self.fonts, self.synthetic_enabled);
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
         atlas.set_geometric_boxdraw(self.geometric_enabled);
-        atlas.set_fallback_font(self.symbol_fallback.clone());
+        atlas.set_fallback_fonts(self.symbol_fallback.clone());
         atlas.set_symbol_map_fonts(self.symbol_map_fonts.clone());
         let _ = atlas.take_dirty();
         self.atlas = atlas;

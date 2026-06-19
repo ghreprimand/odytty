@@ -209,24 +209,27 @@ pub(super) fn effective_symbol_font_path() -> Option<PathBuf> {
         .or_else(crate::settings::symbol_font_path)
 }
 
-/// Resolve the symbol / Nerd-font fallback face when enabled and a font is
-/// available, else `None`. A missing font with the switch on is not fatal --
-/// the renderer keeps the hollow-box behavior.
+/// Resolve the ordered symbol / Nerd-font fallback **chain** when enabled, else
+/// an empty `Vec`. A missing chain with the switch on is not fatal -- the
+/// renderer keeps the hollow-box behavior.
 ///
-/// Precedence is **explicit > bundled > host**, owned by
-/// [`text::resolve_symbol_font_with_source`] so the renderer and `--show-config`
-/// agree on which face is in play. The bundled face is the reliable default, so
-/// the out-of-the-box icon path does not depend on host-installed Nerd fonts.
+/// Chain order is **explicit > bundled (v3, then v2) > host**, owned by
+/// [`text::resolve_symbol_fonts_with_source`] so the renderer and `--show-config`
+/// agree on which faces are in play. The bundled faces are the reliable default,
+/// so the out-of-the-box icon path does not depend on host-installed Nerd fonts;
+/// the atlas walks the chain per glyph, so coverage is the union of all faces.
 pub(super) fn resolve_symbol_fallback(
     enabled: bool,
     explicit_path: Option<&Path>,
-) -> Option<Arc<FontVec>> {
+) -> Vec<Arc<FontVec>> {
     if !enabled {
-        return None;
+        return Vec::new();
     }
-    text::resolve_symbol_font_with_source(explicit_path, &text::font_search_dirs())
+    text::resolve_symbol_fonts_with_source(explicit_path, &text::font_search_dirs())
         .1
+        .into_iter()
         .map(Arc::new)
+        .collect()
 }
 
 /// Resolve a SYMMAP override map's font-family names to loaded faces (SYMMAP).
@@ -282,28 +285,36 @@ mod tests {
     }
 
     #[test]
-    fn symbol_fallback_off_resolves_none() {
+    fn symbol_fallback_off_resolves_empty_chain() {
         // The enable gate short-circuits before any font resolution, so a
         // disabled fallback never installs a face regardless of what is bundled
         // or on the host.
-        assert!(resolve_symbol_fallback(false, None).is_none());
+        assert!(resolve_symbol_fallback(false, None).is_empty());
     }
 
     #[test]
-    fn symbol_fallback_default_on_resolves_bundled_face() {
+    fn symbol_fallback_default_on_resolves_bundled_chain() {
         // Out-of-the-box: enabled, no explicit override -> the bundled symbols
-        // face resolves (precedence explicit > bundled > host, bundled present).
-        // This is the path the default-on `symbol_fallback` setting exercises.
+        // chain resolves (order explicit > bundled v3,v2 > host). The default
+        // build bundles two faces (v3 + v2), so the chain has at least two.
+        let chain = resolve_symbol_fallback(true, None);
         assert!(
-            resolve_symbol_fallback(true, None).is_some(),
-            "enabled fallback with no override must resolve the bundled face"
+            chain.len() >= 2,
+            "enabled fallback with no override must resolve the bundled v3+v2 chain, got {}",
+            chain.len()
         );
     }
 
     #[test]
-    fn explicit_symbol_font_path_resolves() {
-        // A valid explicit override loads and wins over bundled/host.
+    fn explicit_symbol_font_path_leads_the_chain() {
+        // A valid explicit override loads and leads the chain (the bundled faces
+        // still follow it to compose coverage).
         let path = bundled_regular_path();
-        assert!(resolve_symbol_fallback(true, Some(&path)).is_some());
+        let chain = resolve_symbol_fallback(true, Some(&path));
+        assert!(
+            chain.len() >= 3,
+            "explicit override must lead, with bundled v3+v2 following, got {}",
+            chain.len()
+        );
     }
 }

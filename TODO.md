@@ -213,6 +213,18 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         Shapes, Misc Symbols, Dingbats incl. `❯`, Misc Symbols+Arrows).
         `ODYTTY_SYMBOL_FONT`/`symbol_font`/SYMMAP/settings override; `--show-config`
         reports `symbol_fallback` + `symbol_font_source`.
+  - [x] Universal glyph pack — v2+v3 chain: the single fallback face became an
+        ordered chain (`fallback_chain: Vec<Arc<FontVec>>`) that rasterizes each
+        glyph from the first face that has it, so coverage is the union. Bundled
+        a second symbols face (Nerd Fonts **v2.3.3**) after the v3 face, so PUA
+        icons render whatever codepoint era a config emits (fixes the v2 archway
+        `U+F557` / python `U+F81F` tofu). `symbol_font_source` reports the full
+        chain joined with ` > `.
+  - [x] Grouped font picker: families split into **Bundled Fonts** (Victor Mono,
+        JetBrains Mono — always present) and **System Fonts** (host families),
+        with a host copy of a bundled family de-duplicated into the bundled
+        group. Headers are non-selectable; navigation/filtering skip them; either
+        group resolves with zero config.
   - [x] Geometric Symbols for Legacy Computing (v0.1.6): sextants, octants,
         triangles, eighth strips/ladders, L-combo eighth blocks
         (`U+1FB7C..1FB81`), and segmented digits (`U+1FBF0..1FBF9`) render from

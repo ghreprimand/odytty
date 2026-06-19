@@ -90,9 +90,17 @@ fn show_config_output_formats_default_settings() {
     assert_contains_line(&output, "crt=on");
     assert_contains_line(&output, "keybinds=");
     assert_contains_line(&output, "synthetic_styles=on");
-    // Symbol-fallback diagnostics: on by default, backed by the bundled face.
+    // Symbol-fallback diagnostics: on by default, backed by the bundled chain.
+    // The chain leads with both bundled faces (v3, then v2); a host Nerd font,
+    // if present, appends a machine-specific `host:<path>`, so assert the
+    // deterministic bundled prefix rather than an exact line.
     assert_contains_line(&output, "symbol_fallback=on");
-    assert_contains_line(&output, "symbol_font_source=bundled");
+    assert!(
+        output
+            .lines()
+            .any(|line| line.starts_with("symbol_font_source=bundled > bundled")),
+        "output missing symbol_font_source bundled v3+v2 chain prefix:\n{output}"
+    );
 
     let lines = output.lines().collect::<Vec<_>>();
     let mut sorted = lines.clone();

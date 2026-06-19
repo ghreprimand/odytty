@@ -226,17 +226,29 @@ pub fn show_config_output(settings: &Settings) -> String {
 
 /// The symbol / Nerd-font fallback source for `--show-config` diagnostics.
 ///
-/// Reports `disabled` when the fallback is off; otherwise the source the
-/// renderer would install under the precedence explicit > bundled > host
-/// (`explicit:<path>`, `bundled`, `host:<path>`, or `none`). This is exactly
-/// the diagnostic that makes "why is my prompt icon tofu / which font is in
-/// play" answerable without source diving.
+/// Reports `disabled` when the fallback is off; otherwise the **chain** the
+/// renderer would install, in order, under the precedence explicit > bundled
+/// (v3, then v2) > host — joined with ` > ` (e.g. `bundled > bundled > host`,
+/// or `none` when no face resolved). The atlas walks this chain per glyph, so
+/// coverage is the union of all listed faces. This is exactly the diagnostic
+/// that makes "why is my prompt icon tofu / which fonts are in play" answerable
+/// without source diving.
 fn symbol_font_source_value(settings: &Settings) -> String {
     if !settings.symbol_fallback {
         return "disabled".to_owned();
     }
-    text::resolve_symbol_font_source(settings.symbol_font.as_deref(), &text::font_search_dirs())
-        .describe()
+    let (sources, _) = text::resolve_symbol_fonts_with_source(
+        settings.symbol_font.as_deref(),
+        &text::font_search_dirs(),
+    );
+    if sources.is_empty() {
+        return "none".to_owned();
+    }
+    sources
+        .iter()
+        .map(|s| s.describe())
+        .collect::<Vec<_>>()
+        .join(" > ")
 }
 
 fn appearance(theme: Theme) -> &'static str {
