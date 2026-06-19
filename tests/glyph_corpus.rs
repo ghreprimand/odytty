@@ -43,17 +43,17 @@ const COVERED_RANGES: &[(u32, u32)] = &[
     (0x1CD00, 0x1CDE5), // octants
     (0x1FB68, 0x1FB6F), // triangular blocks
     (0x1FB70, 0x1FB7B), // vertical/horizontal eighth strips
+    (0x1FB7C, 0x1FB81), // L-combo one-eighth blocks + horizontal block-1358
     (0x1FB82, 0x1FB8B), // upper/right eighth ladders
     (0x1FB8C, 0x1FB8F), // half-shades
+    (0x1FBF0, 0x1FBF9), // segmented digits 0-9
 ];
 
 /// Documented holes. None of these may be geometrically covered yet; the corpus
 /// deliberately surfaces them so the gap stays visible.
 const HOLE_RANGES: &[(u32, u32)] = &[
-    (0x1FB3C, 0x1FB67), // diagonal-edged blocks
-    (0x1FB7C, 0x1FB81), // L-combo one-eighth blocks
-    (0x1FBBD, 0x1FBBF), // miscellaneous
-    (0x1FBF0, 0x1FBF9), // segmented digits
+    (0x1FB3C, 0x1FB67), // diagonal-edged blocks (need an AA polygon filler)
+    (0x1FBBD, 0x1FBBF), // negative diagonals (need an AA polygon filler)
 ];
 
 #[test]

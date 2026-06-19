@@ -131,12 +131,16 @@
 
 # ========================================================================
 # Symbols for Legacy Computing — eighth strips, ladders, half-shades
-# Vertical/horizontal one-eighth strips and upper/right eighth ladders,
-# plus 50% half-shades. Rendered geometrically.
-# # Covered: U+1FB70..U+1FB7B, U+1FB82..U+1FB8B, U+1FB8C..U+1FB8F (geometric)
+# Vertical/horizontal one-eighth strips, L-combo one-eighth edge blocks,
+# upper/right eighth ladders, half-shades, and seven-segment digits 0-9.
+# All rendered geometrically.
+# # Covered: U+1FB70..U+1FB81, U+1FB82..U+1FB8B, U+1FB8C..U+1FB8F, U+1FBF0..U+1FBF9 (geometric)
 # ------------------------------------------------------------------------
 # U+1FB70..U+1FB7B
 🭰 🭱 🭲 🭳 🭴 🭵 🭶 🭷 🭸 🭹 🭺 🭻
+
+# L-combo one-eighth blocks + horizontal block-1358  (U+1FB7C..U+1FB81)
+🭼 🭽 🭾 🭿 🮀 🮁
 
 # U+1FB82..U+1FB8B
 🮂 🮃 🮄 🮅 🮆 🮇 🮈 🮉 🮊 🮋
@@ -144,13 +148,16 @@
 # U+1FB8C..U+1FB8F
 🮌 🮍 🮎 🮏
 
+# seven-segment digits 0-9  (U+1FBF0..U+1FBF9)
+🯰 🯱 🯲 🯳 🯴 🯵 🯶 🯷 🯸 🯹
+
 # ========================================================================
 # DEFERRED — known holes (expect font fallback / tofu)
 # These Symbols for Legacy Computing ranges are NOT yet rendered
 # geometrically. With symbol_fallback on they may resolve via the bundled
 # symbols font; otherwise expect tofu. The corpus intentionally surfaces
 # them so progress is visible.
-# # Holes: U+1FB3C..U+1FB67, U+1FB7C..U+1FB81, U+1FBBD..U+1FBBF, U+1FBF0..U+1FBF9
+# # Holes: U+1FB3C..U+1FB67, U+1FBBD..U+1FBBF (need an AA polygon filler)
 # ------------------------------------------------------------------------
 # diagonal-edged blocks  (U+1FB3C..U+1FB67)
 # U+1FB3C..U+1FB4A
@@ -160,14 +167,8 @@
 # U+1FB5A..U+1FB67
 🭚 🭛 🭜 🭝 🭞 🭟 🭠 🭡 🭢 🭣 🭤 🭥 🭦 🭧
 
-# L-combo one-eighth blocks  (U+1FB7C..U+1FB81)
-🭼 🭽 🭾 🭿 🮀 🮁
-
-# miscellaneous  (U+1FBBD..U+1FBBF)
+# negative diagonals  (U+1FBBD..U+1FBBF)
 🮽 🮾 🮿
-
-# segmented digits  (U+1FBF0..U+1FBF9)
-🯰 🯱 🯲 🯳 🯴 🯵 🯶 🯷 🯸 🯹
 
 # ========================================================================
 # Powerline symbols  (U+E0A0..U+E0C0 area)

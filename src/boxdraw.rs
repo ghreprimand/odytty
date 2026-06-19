@@ -162,6 +162,16 @@ enum Block {
     HalfShade(Half, u8),
     /// Quadrant fill, `[upper-left, upper-right, lower-left, lower-right]`.
     Quadrant([bool; 4]),
+    /// Combination of `1/8`-wide edge strips, `[upper, right, lower, left]`
+    /// (the L-combo one-eighth blocks `U+1FB7C..=U+1FB80`). Each present edge is
+    /// a single one-eighth strip along that side; two strips form an L (or two
+    /// opposite bars), reusing the same eighth geometry as the single-edge
+    /// `UpperEighths(1)` / `LeftEighths(1)` / … blocks.
+    EighthEdges([bool; 4]),
+    /// A set of `1/8`-tall horizontal rows as a 1-based row bit mask (bit
+    /// `row-1` set ⇒ that one-eighth row is filled). Used by HORIZONTAL ONE
+    /// EIGHTH BLOCK-1358 (`U+1FB81`: rows 1, 3, 5, 8).
+    HorizontalEighthRows(u8),
 }
 
 /// A Powerline separator descriptor.
@@ -198,6 +208,9 @@ enum Glyph {
     Octant(u8),
     /// A triangular block (`U+1FB68..=U+1FB6F`).
     Triangle(Triangle),
+    /// A seven-segment display digit 0-9 (`U+1FBF0..=U+1FBF9`), as the standard
+    /// `abcdefg` segment bit mask.
+    SegmentedDigit(u8),
 }
 
 // Compact aliases for the arm tables below.
@@ -242,6 +255,7 @@ pub fn coverage(ch: char, width: u32, height: u32) -> Option<Vec<u8>> {
         Glyph::Sextant(mask) => render_sextant(&mut canvas, mask),
         Glyph::Octant(mask) => render_octant(&mut canvas, mask),
         Glyph::Triangle(tri) => render_triangle(&mut canvas, tri),
+        Glyph::SegmentedDigit(mask) => render_segmented_digit(&mut canvas, mask),
     }
     Some(canvas.data)
 }
@@ -284,6 +298,9 @@ fn classify(ch: char) -> Option<Glyph> {
     }
     if let Some(tri) = triangle_table(ch) {
         return Some(Glyph::Triangle(tri));
+    }
+    if let Some(mask) = segmented_digit_table(ch) {
+        return Some(Glyph::SegmentedDigit(mask));
     }
     None
 }
@@ -527,6 +544,14 @@ fn block_table(ch: char) -> Option<Block> {
         '\u{1FB89}' => Block::RightEighths(5),
         '\u{1FB8A}' => Block::RightEighths(6),
         '\u{1FB8B}' => Block::RightEighths(7),
+        // L-combo one-eighth edge blocks (`[upper, right, lower, left]`).
+        '\u{1FB7C}' => Block::EighthEdges([false, false, true, true]), // left + lower
+        '\u{1FB7D}' => Block::EighthEdges([true, false, false, true]), // left + upper
+        '\u{1FB7E}' => Block::EighthEdges([true, true, false, false]), // right + upper
+        '\u{1FB7F}' => Block::EighthEdges([false, true, true, false]), // right + lower
+        '\u{1FB80}' => Block::EighthEdges([true, false, true, false]), // upper + lower
+        // Horizontal one-eighth rows 1, 3, 5, 8 (bits 0,2,4,7 => 0x95).
+        '\u{1FB81}' => Block::HorizontalEighthRows(0b1001_0101),
         // Half-cell medium shade (▒-level coverage on one half).
         '\u{1FB8C}' => Block::HalfShade(Half::Left, 128),
         '\u{1FB8D}' => Block::HalfShade(Half::Right, 128),
@@ -628,6 +653,28 @@ fn triangle_table(ch: char) -> Option<Triangle> {
         '\u{1FB6F}' => Triangle::Quarter(Edge::Lower),
         _ => return None,
     })
+}
+
+/// Seven-segment digits `U+1FBF0..=U+1FBF9` → standard `abcdefg` segment mask.
+///
+/// Segment bits: `a`=0 (top), `b`=1 (top-right), `c`=2 (bottom-right),
+/// `d`=3 (bottom), `e`=4 (bottom-left), `f`=5 (top-left), `g`=6 (middle).
+fn segmented_digit_table(ch: char) -> Option<u8> {
+    // Index 0..=9 ⇒ the seven-segment encoding of that decimal digit.
+    const DIGIT_SEGMENTS: [u8; 10] = [
+        0x3F, // 0: a b c d e f
+        0x06, // 1: b c
+        0x5B, // 2: a b d e g
+        0x4F, // 3: a b c d g
+        0x66, // 4: b c f g
+        0x6D, // 5: a c d f g
+        0x7D, // 6: a c d e f g
+        0x07, // 7: a b c
+        0x7F, // 8: a b c d e f g
+        0x6F, // 9: a b c d f g
+    ];
+    let i = usize::try_from((ch as u32).checked_sub(0x1FBF0)?).ok()?;
+    DIGIT_SEGMENTS.get(i).copied()
 }
 
 // ---------------------------------------------------------------------------
@@ -1093,6 +1140,42 @@ fn render_block(c: &mut Canvas, block: Block) {
                 c.fill(mx, w as i32, my, h as i32);
             }
         }
+        Block::EighthEdges([upper, right, lower, left]) => {
+            // Each present edge is one 1/8 strip along that side, matching the
+            // single-edge eighth blocks so an L-combo joins seamlessly with its
+            // neighbors. Strips are at least one pixel so they never vanish on
+            // small cells.
+            let ex = (wf / 8.0).round().max(1.0) as i32;
+            let ey = (hf / 8.0).round().max(1.0) as i32;
+            if upper {
+                c.fill(0, w as i32, 0, ey);
+            }
+            if lower {
+                c.fill(0, w as i32, h as i32 - ey, h as i32);
+            }
+            if left {
+                c.fill(0, ex, 0, h as i32);
+            }
+            if right {
+                c.fill(w as i32 - ex, w as i32, 0, h as i32);
+            }
+        }
+        Block::HorizontalEighthRows(rows) => {
+            // Fill each 1/8-tall row whose 1-based bit is set, clamping to at
+            // least one pixel per row so no row disappears on small cells.
+            for row in 1..=8u32 {
+                if rows & (1 << (row - 1)) == 0 {
+                    continue;
+                }
+                let mut y0 = (hf * (row - 1) as f32 / 8.0).round() as i32;
+                let mut y1 = (hf * row as f32 / 8.0).round() as i32;
+                if y1 <= y0 {
+                    y1 = (y0 + 1).min(h as i32);
+                    y0 = (y1 - 1).max(0);
+                }
+                c.fill(0, w as i32, y0, y1);
+            }
+        }
     }
 }
 
@@ -1213,6 +1296,59 @@ fn perp_dist(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
         return 0.0;
     }
     (dx * (a.1 - p.1) - (a.0 - p.0) * dy).abs() / len
+}
+
+/// Render a seven-segment digit (`U+1FBF0..=U+1FBF9`) from its `abcdefg`
+/// segment mask. Each segment is an axis-aligned rectangle inset from the cell
+/// edges, with the three horizontal bars (top/middle/bottom) and four vertical
+/// bars (the two left and two right halves) sized from the cell so the digit
+/// scales with DPI. Segments overlap at the corners so the strokes join into a
+/// continuous figure; every bar is at least one pixel so no segment vanishes on
+/// small cells.
+fn render_segmented_digit(c: &mut Canvas, mask: u8) {
+    let (w, h) = (c.w as f32, c.h as f32);
+    // Inset from the cell edges so the digit reads as a glyph, not a full block.
+    let mx = (w / 6.0).round().max(1.0);
+    let my = (h / 8.0).round().max(1.0);
+    // Segment thickness, scaled from the smaller dimension; never zero.
+    let t = (w.min(h) / 7.0).round().max(1.0);
+    let left = mx;
+    let right = (w - mx).max(left + t);
+    let top = my;
+    let bot = (h - my).max(top + t);
+    let midy = h / 2.0;
+    let half_t = t / 2.0;
+    // Rectangle filler (x0,x1,y0,y1) as floats, rounded, min one pixel each way.
+    let mut bar = |x0: f32, x1: f32, y0: f32, y1: f32| {
+        let xi0 = x0.round() as i32;
+        let xi1 = (x1.round() as i32).max(xi0 + 1);
+        let yi0 = y0.round() as i32;
+        let yi1 = (y1.round() as i32).max(yi0 + 1);
+        c.fill(xi0, xi1, yi0, yi1);
+    };
+    // Horizontal bars span the full inner width; verticals span half-height and
+    // overlap the middle bar by half its thickness so corners connect.
+    if mask & (1 << 0) != 0 {
+        bar(left, right, top, top + t); // a: top
+    }
+    if mask & (1 << 6) != 0 {
+        bar(left, right, midy - half_t, midy + half_t); // g: middle
+    }
+    if mask & (1 << 3) != 0 {
+        bar(left, right, bot - t, bot); // d: bottom
+    }
+    if mask & (1 << 5) != 0 {
+        bar(left, left + t, top, midy + half_t); // f: top-left
+    }
+    if mask & (1 << 1) != 0 {
+        bar(right - t, right, top, midy + half_t); // b: top-right
+    }
+    if mask & (1 << 4) != 0 {
+        bar(left, left + t, midy - half_t, bot); // e: bottom-left
+    }
+    if mask & (1 << 2) != 0 {
+        bar(right - t, right, midy - half_t, bot); // c: bottom-right
+    }
 }
 
 /// Render a Unicode Braille pattern as a 2×4 field of dot ellipses.

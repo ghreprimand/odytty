@@ -156,14 +156,21 @@ chunked(0x1FB68, 0x1FB6F, per_line=8)
 section(
     "Symbols for Legacy Computing — eighth strips, ladders, half-shades",
     [
-        "Vertical/horizontal one-eighth strips and upper/right eighth ladders,",
-        "plus 50% half-shades. Rendered geometrically.",
+        "Vertical/horizontal one-eighth strips, L-combo one-eighth edge blocks,",
+        "upper/right eighth ladders, half-shades, and seven-segment digits 0-9.",
+        "All rendered geometrically.",
     ],
-    ranges_blurb="# Covered: U+1FB70..U+1FB7B, U+1FB82..U+1FB8B, U+1FB8C..U+1FB8F (geometric)",
+    ranges_blurb="# Covered: U+1FB70..U+1FB81, U+1FB82..U+1FB8B, U+1FB8C..U+1FB8F, U+1FBF0..U+1FBF9 (geometric)",
 )
 chunked(0x1FB70, 0x1FB7B, per_line=12)
+line("# L-combo one-eighth blocks + horizontal block-1358  (U+1FB7C..U+1FB81)")
+line(" ".join(chr(c) for c in range(0x1FB7C, 0x1FB81 + 1)))
+line()
 chunked(0x1FB82, 0x1FB8B, per_line=10)
 chunked(0x1FB8C, 0x1FB8F, per_line=8)
+line("# seven-segment digits 0-9  (U+1FBF0..U+1FBF9)")
+line(" ".join(chr(c) for c in range(0x1FBF0, 0x1FBF9 + 1)))
+line()
 
 # ----------------------------------------------------- deferred holes
 section(
@@ -174,18 +181,12 @@ section(
         "symbols font; otherwise expect tofu. The corpus intentionally surfaces",
         "them so progress is visible.",
     ],
-    ranges_blurb="# Holes: U+1FB3C..U+1FB67, U+1FB7C..U+1FB81, U+1FBBD..U+1FBBF, U+1FBF0..U+1FBF9",
+    ranges_blurb="# Holes: U+1FB3C..U+1FB67, U+1FBBD..U+1FBBF (need an AA polygon filler)",
 )
 line("# diagonal-edged blocks  (U+1FB3C..U+1FB67)")
 chunked(0x1FB3C, 0x1FB67, per_line=15)
-line("# L-combo one-eighth blocks  (U+1FB7C..U+1FB81)")
-line(" ".join(chr(c) for c in range(0x1FB7C, 0x1FB81 + 1)))
-line()
-line("# miscellaneous  (U+1FBBD..U+1FBBF)")
+line("# negative diagonals  (U+1FBBD..U+1FBBF)")
 line(" ".join(chr(c) for c in range(0x1FBBD, 0x1FBBF + 1)))
-line()
-line("# segmented digits  (U+1FBF0..U+1FBF9)")
-line(" ".join(chr(c) for c in range(0x1FBF0, 0x1FBF9 + 1)))
 end_section()
 
 # ----------------------------------------------------- powerline

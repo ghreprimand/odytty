@@ -7,6 +7,54 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Close Legacy Computing holes: L-combo eighths + segmented digits (Phase 3)
+
+Packet A of the deferred geometric-hole closure. Closes 16 codepoints across 2 of
+the 4 deferred Symbols for Legacy Computing ranges using only rectangle fills
+(Canvas::fill),
+no new rasterizer. The remaining two ranges (diagonal-edged blocks
+U+1FB3C..1FB67 and negative diagonals U+1FBBD..1FBBF, 47 cps) need a general
+antialiased polygon filler and are deferred to Packet B (post-v0.1.6).
+
+Closed (now rendered geometrically):
+- U+1FB7C..1FB80 L-combo one-eighth edge blocks: each is one or two 1/8 edge
+  strips (left/right/upper/lower), reusing the single-edge eighth geometry so
+  L-combos join their neighbors seamlessly. New Block::EighthEdges([bool;4]).
+- U+1FB81 HORIZONTAL ONE EIGHTH BLOCK-1358: 1/8-tall rows 1,3,5,8. New
+  Block::HorizontalEighthRows(u8) row bitmask.
+- U+1FBF0..1FBF9 SEGMENTED DIGIT ZERO..NINE: seven-segment digits 0-9, fixed
+  abcdefg segment mask per digit (segmented_digit_table), drawn as inset
+  axis-aligned bars that scale with the cell and overlap at corners. New
+  Glyph::SegmentedDigit(u8) + render_segmented_digit.
+
+All bars/strips clamp to at least one pixel so nothing vanishes on small cells.
+Geometric precedence is unchanged (these run in the same classify() chain, above
+the font path).
+
+Lockstep (same commit, or the corpus test fails):
+- tests/glyph_corpus.rs: moved U+1FB7C..1FB81 and U+1FBF0..1FBF9 from
+  HOLE_RANGES to COVERED_RANGES; HOLE_RANGES now holds only the two AA-polygon
+  ranges. documented_holes_remain_uncovered + advertised_geometric_ranges_are_
+  actually_covered both green.
+- scripts/glyph-fixture.py: moved the 16 cps into the covered eighths/shades
+  section; the DEFERRED section now lists only diagonal-edged + negative
+  diagonals. Regenerated tests/fixtures/glyphs.txt; public-safety guard passes
+  (no paths/usernames/emails/IPs).
+
+Tests (src/boxdraw/tests.rs): per-codepoint covers()+non-empty-bitmap for all
+16 cps; edge-placement checks for L-combo left+lower / right+upper / upper+lower;
+row-1358 placement; segmented digit 1 (right verticals only, left third clear),
+digit 8 (all three horizontal bars), and digit-mask distinctness.
+
+Verified: cargo fmt --check clean; cargo test all 15 suites green (boxdraw 52
+passed); cargo build --release clean. DEVLOG before commit, no AI attribution.
+
+Gaps: Packet B (AA polygon filler + diagonal-edged blocks + negative diagonals,
+47 cps) deferred past v0.1.6 by director decision — rarely emitted by real
+tools, real engineering. After this we're at Phase 5 (v0.1.6 ship).
+
+---
+
 ## 2026-06-19 -- Victor face/weight/oblique mapping regression tests (Phase 4)
 
 Lock the bundled Victor Mono face table now that Victor is the default family

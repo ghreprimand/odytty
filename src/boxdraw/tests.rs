@@ -584,3 +584,116 @@ fn half_shade_inks_one_half_at_partial_coverage() {
     assert_eq!(at(&right, 0, H / 2), 0, "left half clear");
     assert!(0 < at(&right, W - 1, H / 2) && at(&right, W - 1, H / 2) < 255);
 }
+
+// --- Packet A: L-combo eighth blocks + segmented digits (Legacy Computing) ---
+
+#[test]
+fn lcombo_eighth_blocks_and_segmented_digits_cover_and_render() {
+    // Every newly-closed Legacy Computing codepoint must be geometrically
+    // covered and produce a non-empty coverage bitmap at a real cell size.
+    for code in (0x1FB7Cu32..=0x1FB81).chain(0x1FBF0..=0x1FBF9) {
+        let ch = char::from_u32(code).unwrap();
+        assert!(covers(ch), "U+{code:04X} should be covered");
+        let buf = coverage(ch, W, H).expect("covered codepoint renders");
+        assert_eq!(buf.len(), (W * H) as usize);
+        assert!(
+            buf.iter().any(|&v| v > 0),
+            "U+{code:04X} produced an empty (all-zero) coverage bitmap"
+        );
+    }
+}
+
+#[test]
+fn lcombo_left_and_lower_inks_left_and_bottom_edges_only() {
+    // U+1FB7C LEFT AND LOWER ONE EIGHTH BLOCK: the left column and bottom row
+    // are inked; the top-right interior is clear.
+    let buf = cov('\u{1FB7C}');
+    assert!(col_has_ink(&buf, 0), "left edge inked");
+    assert!(row_has_ink(&buf, H - 1), "bottom edge inked");
+    // Top-right interior (well away from the left/bottom strips) is clear.
+    assert_eq!(at(&buf, W - 1, 0), 0, "top-right corner clear");
+}
+
+#[test]
+fn lcombo_right_and_upper_inks_right_and_top_edges_only() {
+    // U+1FB7E RIGHT AND UPPER ONE EIGHTH BLOCK: the right column and top row
+    // are inked; the bottom-left corner is clear.
+    let buf = cov('\u{1FB7E}');
+    assert!(col_has_ink(&buf, W - 1), "right edge inked");
+    assert!(row_has_ink(&buf, 0), "top edge inked");
+    assert_eq!(at(&buf, 0, H - 1), 0, "bottom-left corner clear");
+}
+
+#[test]
+fn upper_and_lower_eighth_inks_both_horizontal_edges_not_middle() {
+    // U+1FB80 UPPER AND LOWER ONE EIGHTH BLOCK: top and bottom rows inked,
+    // the vertical middle is clear.
+    let buf = cov('\u{1FB80}');
+    assert!(row_has_ink(&buf, 0), "top edge inked");
+    assert!(row_has_ink(&buf, H - 1), "bottom edge inked");
+    assert!(!row_has_ink(&buf, H / 2), "middle row clear");
+}
+
+#[test]
+fn horizontal_eighth_block_1358_inks_rows_one_three_five_eight() {
+    // U+1FB81 HORIZONTAL ONE EIGHTH BLOCK-1358: 1/8-tall rows 1, 3, 5, 8 inked;
+    // rows 2, 4, 6, 7 clear. Probe the vertical center of each 1/8 band.
+    let buf = cov('\u{1FB81}');
+    let band_mid = |row: u32| ((H as f32 * (row as f32 - 0.5) / 8.0) as u32).min(H - 1);
+    for row in [1u32, 3, 5, 8] {
+        assert!(
+            row_has_ink(&buf, band_mid(row)),
+            "row {row} should be inked"
+        );
+    }
+    for row in [2u32, 4, 6, 7] {
+        assert!(
+            !row_has_ink(&buf, band_mid(row)),
+            "row {row} should be clear"
+        );
+    }
+}
+
+#[test]
+fn segmented_digit_one_inks_only_the_two_right_verticals() {
+    // U+1FBF1 SEGMENTED DIGIT ONE = segments b + c (the right-hand verticals).
+    // The digit is inset from the cell edges, so check the right *half* has
+    // ink and the left third is entirely clear (no a/d/e/f/g segments).
+    let buf = cov('\u{1FBF1}');
+    assert!(
+        (W / 2..W).any(|x| col_has_ink(&buf, x)),
+        "right verticals inked"
+    );
+    assert!(
+        !(0..W / 3).any(|x| col_has_ink(&buf, x)),
+        "left third clear for digit 1"
+    );
+}
+
+#[test]
+fn segmented_digit_eight_inks_all_three_horizontal_bars() {
+    // U+1FBF8 SEGMENTED DIGIT EIGHT lights every segment: the top, middle, and
+    // bottom horizontal bars are all inked. The digit is inset, so probe within
+    // thirds rather than the exact cell edges.
+    let buf = cov('\u{1FBF8}');
+    assert!((0..H / 3).any(|y| row_has_ink(&buf, y)), "top bar inked");
+    assert!(row_has_ink(&buf, H / 2), "middle bar inked");
+    assert!(
+        (2 * H / 3..H).any(|y| row_has_ink(&buf, y)),
+        "bottom bar inked"
+    );
+}
+
+#[test]
+fn segmented_digit_masks_are_distinct_per_digit() {
+    // The 10 digits must map to 10 distinct segment masks (no two digits share
+    // a seven-segment encoding).
+    let masks: Vec<u8> = (0x1FBF0u32..=0x1FBF9)
+        .map(|c| segmented_digit_table(char::from_u32(c).unwrap()).unwrap())
+        .collect();
+    for (i, a) in masks.iter().enumerate() {
+        for b in masks.iter().skip(i + 1) {
+            assert_ne!(a, b, "two segmented digits share a mask");
+        }
+    }
+}
