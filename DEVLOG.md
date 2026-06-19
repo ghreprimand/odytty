@@ -7,6 +7,57 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Public-safe glyph fixture corpus (execution plan Phase 1/4)
+
+Added a fully-synthetic Unicode corpus that exercises every glyph family OdyTTY
+must render, plus an integration test that ties the corpus to the geometric
+renderer. This is the execution plan's "glyph corpus for terminal drawing
+characters" and its non-interactive fixture runner, pulled forward to drive the
+remaining "audit/close corpus holes" work.
+
+Files:
+- `scripts/glyph-fixture.py` — python3-only generator and runner. Emits the
+  corpus to stdout for eyeballing in odytty (`python3 scripts/glyph-fixture.py`)
+  and regenerates the committed copy
+  (`python3 scripts/glyph-fixture.py > tests/fixtures/glyphs.txt`). No deps.
+- `tests/fixtures/glyphs.txt` — the committed static corpus (UTF-8). The eyeball
+  artifact; also embedded by the test via `include_str!`.
+- `tests/glyph_corpus.rs` — integration test (5 cases).
+
+Coverage in the corpus: box drawing (U+2500..U+257F, full), block elements
+(U+2580..U+259F, full), Braille (U+2800..U+28FF, full), Symbols for Legacy
+Computing sextants (U+1FB00..U+1FB3B, full), octants (U+1CD00..U+1CDE5, full),
+triangular blocks (U+1FB68..U+1FB6F, full), the eighth strips/ladders/shades
+added in Phase 3, Powerline (E0A0..E0CE area), Nerd Font PUA samples (folder,
+git, home, terminal, distro logos — the symbol-fallback regression path), CJK
+wide ideographs + fullwidth Latin, combining marks (base + diacritics), and
+emoji clusters (ZWJ family/technologist, regional-indicator flags, keycap).
+
+The corpus also surfaces the documented holes so progress stays visible:
+diagonal-edged blocks (U+1FB3C..U+1FB67), L-combo one-eighth blocks
+(U+1FB7C..U+1FB81), miscellaneous (U+1FBBD..U+1FBBF), and segmented digits
+(U+1FBF0..U+1FBF9). These render via font/symbol fallback (or tofu) until a
+later phase closes them.
+
+The test asserts: the fixture is present, non-empty, and carries every expected
+section; it contains no private/local data (no `/home/`, `/Users/`, `/var/`,
+`/etc/`, `c:\`, no `@`, no `joel@`/`@odyssey`, no IPv4) — a public-repo guard;
+every codepoint in an "advertised geometric" range actually satisfies
+`boxdraw::covers` and yields a coverage bitmap; and every documented hole range
+remains uncovered (so a silently-closed hole without a label update fails CI).
+
+Verification: `cargo fmt --check` clean; `cargo build --release` clean;
+`cargo test --lib` 1821 passed / 0 failed / 7 ignored; `cargo test --test
+glyph_corpus` 5 passed.
+
+Gaps: the corpus is eyeball-only for the font-resolved families (Powerline
+extras, Nerd Font PUA, CJK, combining, emoji) — there is no automated pixel
+oracle for them yet. Nerd Font PUA codepoints are version-dependent and may
+shift between Nerd Font releases; the sample documents the path rather than
+pinning a version.
+
+---
+
 ## 2026-06-19 -- OSC 133 prompt resize collapse for fish repaint
 
 The narrow-resize prompt duplication fix now handles real fish 4.7-style
