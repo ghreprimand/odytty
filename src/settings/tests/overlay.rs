@@ -181,16 +181,16 @@ fn settings_edit_overlay_tracks_edit_revert_and_clear_diff() {
     let mut edits = SettingsEditOverlay::new(&base);
 
     let changed = edits
-        .apply_raw("font_size", "20")
+        .apply_raw("font_size", "24")
         .expect("valid font size edit");
-    assert_eq!(changed.unwrap().font_size_px, 20.0);
+    assert_eq!(changed.unwrap().font_size_px, 24.0);
     assert_eq!(
         edits
             .changes()
             .iter()
             .map(|change| (change.key, change.value.as_str()))
             .collect::<Vec<_>>(),
-        vec![("font_size", "20")]
+        vec![("font_size", "24")]
     );
 
     let default_font_size = crate::settings::DEFAULT_FONT_SIZE_PX;
@@ -310,7 +310,7 @@ fn rebase_onto_adopts_external_theme_and_preserves_dirty_edit() {
     let mut edits = SettingsEditOverlay::new(&base);
 
     edits
-        .apply_raw("font_size", "20")
+        .apply_raw("font_size", "24")
         .expect("valid font size edit");
     assert_eq!(edits.changes().len(), 1);
     assert_eq!(edits.settings().theme, Theme::PLAIN);
@@ -326,7 +326,7 @@ fn rebase_onto_adopts_external_theme_and_preserves_dirty_edit() {
             .iter()
             .map(|c| (c.key, c.value.as_str()))
             .collect::<Vec<_>>(),
-        vec![("font_size", "20")],
+        vec![("font_size", "24")],
         "pending dirty edit must survive rebase"
     );
     assert_eq!(edits.settings().theme, Theme::ODYSSEY);

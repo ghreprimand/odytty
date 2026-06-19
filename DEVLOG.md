@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Default font size 20 for Victor Mono
+
+Lowered `DEFAULT_FONT_SIZE_PX` from 22.0 to 20.0 on a fresh install, tuned for
+the new bundled default family (Victor Mono), which reads comfortably a notch
+smaller than the prior JetBrains-era default. Existing user `font_size` config
+and the `ODYTTY_FONT_SIZE` override are unaffected; only the out-of-box default
+changes. Updated README/SPEC/runtime-knobs docs (and the runtime-knobs
+`font_family` default, which still listed JetBrains Mono). Two settings-overlay
+tests that used a literal `font_size = 20` edit as their "non-default" value
+collided with the new default (the edit became a no-op) and were rebased onto a
+distinct non-default value.
+
+Verification: `cargo fmt --check` clean; `cargo test` 1808 lib tests passed,
+7 ignored; `cargo build --release` clean.
+
+---
+
 ## 2026-06-19 -- Narrow-resize prompt repaint fix
 
 Width-changing primary-screen resize now keeps the active cursor line

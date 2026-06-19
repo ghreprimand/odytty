@@ -191,7 +191,7 @@ preserved.
 
 ### Text, Emoji, And Graphics
 
-Text rendering uses bundled Victor Mono by default at 22 logical pixels with
+Text rendering uses bundled Victor Mono by default at 20 logical pixels with
 line height `1.0`. JetBrains Mono is also bundled and remains selectable via
 `font_family`. System font families, direct font files, font-weight
 variants, symbol/Nerd-font fallback, per-range symbol maps, synthetic styles,

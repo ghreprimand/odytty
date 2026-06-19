@@ -740,7 +740,7 @@ builder, and image layer, consuming core snapshots through a narrow seam.
 
 Text is cell-based: each codepoint occupies one or two columns (`unicode-width`
 consistent with core), and all coordinate systems are per-cell. The default
-body font is bundled **Victor Mono** (SIL OFL 1.1) at 22 logical pixels;
+body font is bundled **Victor Mono** (SIL OFL 1.1) at 20 logical pixels;
 **JetBrains Mono** is also bundled and remains selectable. SGR italic maps to
 Victor Mono's roman-slant Oblique faces. PUA prompt/Nerd-font icons resolve
 through a bundled **Symbols Nerd Font Mono** fallback (enabled by default;

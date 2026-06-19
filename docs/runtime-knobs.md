@@ -46,9 +46,9 @@ environment variable was not set at startup.
 | `os_theme_light` | `ODYTTY_OS_THEME_LIGHT` | Built-in theme name | unset |
 | `visual` | `ODYTTY_VISUAL` | `off`, `none`, `plain`, `ambient`, `scanlines` | `ambient` |
 | `font` | `ODYTTY_FONT` | `.ttf`, `.otf`, or `.ttc` path | unset |
-| `font_family` | `ODYTTY_FONT_FAMILY` | Monospace family name or font path | `JetBrains Mono` |
+| `font_family` | `ODYTTY_FONT_FAMILY` | Monospace family name or font path | `Victor Mono` |
 | `font_weight` | `ODYTTY_FONT_WEIGHT` | Weight suffix such as `Light`, `Medium`, `SemiBold`, or empty | empty |
-| `font_size` | `ODYTTY_FONT_SIZE` | Float, `6.0..=72.0` px | `22.0` |
+| `font_size` | `ODYTTY_FONT_SIZE` | Float, `6.0..=72.0` px | `20.0` |
 | `line_height` | `ODYTTY_LINE_HEIGHT` | Float, `1.0..=2.0` | `1.0` |
 | `text_gamma` | `ODYTTY_TEXT_GAMMA` | Float, `0.5..=3.0` | `1.5` |
 | `stem_darken` | `ODYTTY_STEM_DARKEN` | Float, `0.0..=1.0` | `0.5` |
