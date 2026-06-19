@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Victor face/weight/oblique mapping regression tests (Phase 4)
+
+Lock the bundled Victor Mono face table now that Victor is the default family
+with italic→Oblique mapping. No production code change — pure regression tests
+plus a test-only `bundled_face_bytes` accessor that returns the embedded bytes
+for a `(family, weight, italic)` face, so a test can prove two selections load
+*genuinely distinct* embedded files (not the same face collapsed via a
+fallback).
+
+New tests (src/text.rs):
+- `victor_styles_map_to_distinct_oblique_faces_not_synthetic_regular`: the four
+  SGR styles map to VictorMono-Regular / -Bold / -Oblique / -BoldOblique by
+  filename, the four loaded faces are pairwise byte-distinct (so no style
+  collapses to regular / synthetic shear), and each loads parseable + monospace.
+  Locks the italic→Oblique (roman slant) decision — italic resolves to the
+  Oblique face, never a cursive Italic (Victor bundles none) and never Regular.
+- `victor_weight_ladder_maps_each_weight_to_its_own_roman_and_oblique`: the full
+  weight ladder (Thin / ExtraLight / Light / Regular / Medium / SemiBold / Bold)
+  maps each weight to its own roman and Oblique file, all 14 faces are distinct
+  embedded files, and `load_bundled_weight_for` resolves each (roman + oblique)
+  as parseable monospace. Regular's oblique has no infix (VictorMono-Oblique.otf),
+  matching upstream naming.
+
+The existing `bundled_default_and_jetbrains_faces_are_parseable_and_monospace`
+already covers `is_bundled_font_family("Victor Mono")`/JetBrains/monospace,
+family routing, and JetBrains staying bundled+selectable; the new tests extend
+the mapping coverage to all four styles and the whole weight ladder at the
+byte-distinctness level.
+
+Verified: `cargo fmt --check` clean, `cargo test --lib` 1830 passed / 0 failed
+(+2 new), `cargo build --release` clean.
+
+Gaps: geometric-hole closure (Legacy Computing diagonal-edged blocks, L-combo
+eighth blocks, negative diagonals, segmented digits) is a separate scoped
+packet — assessment delivered to the director; not started pending confirmation.
+
+---
+
 ## 2026-06-19 -- Symbol fallback: bundled-first precedence + resolution diagnostics
 
 Closes the still-open Phase 1 bundled-symbols resolution items. Two functional

@@ -456,6 +456,19 @@ fn bundled_face_filename(family: &str, weight: &str, italic: bool) -> Option<&'s
         .map(|face| face.filename)
 }
 
+/// The embedded bytes of the bundled face `(family, weight, italic)` resolves
+/// to, or `None`. Test-only: lets a regression assert that two style/weight
+/// selections load **genuinely distinct** faces (different embedded files), not
+/// the same face collapsed via a fallback, without decoding font tables.
+#[cfg(test)]
+fn bundled_face_bytes(family: &str, weight: &str, italic: bool) -> Option<&'static [u8]> {
+    let family = bundled_family_for(family);
+    BUNDLED_FACES
+        .iter()
+        .find(|face| face.family == family && face.weight == weight && face.italic == italic)
+        .map(|face| face.bytes)
+}
+
 /// Load the bundled symbols-only Nerd Font face when the asset feature is
 /// enabled. Default builds enable it so the RV6 PUA-icon fallback works without
 /// host Nerd Font installation; `--no-default-features` leaves this as `None`.
@@ -1866,6 +1879,136 @@ mod tests {
         let jb_italic = load_bundled_style_for(JETBRAINS_FONT_FAMILY, FontStyle::Italic)
             .expect("JetBrains italic parses");
         assert!(is_monospace(&jb_italic), "JetBrains italic is monospace");
+    }
+
+    /// The default family (Victor Mono) must map each SGR style to its OWN
+    /// face — Regular/Bold/Oblique/BoldOblique — and never collapse a style to
+    /// the regular face (which would happen if a style row were dropped or the
+    /// `load_bundled_style_for` arm regressed). Asserts both the filename
+    /// routing and that the four LOADED faces are pairwise distinct embedded
+    /// files, so the italic→Oblique decision is locked at the byte level.
+    #[test]
+    fn victor_styles_map_to_distinct_oblique_faces_not_synthetic_regular() {
+        // Filename routing: italic resolves to the roman-slant *Oblique* faces,
+        // never the regular face and never a cursive *Italic* face (Victor
+        // bundles no cursive italic).
+        assert_eq!(
+            bundled_face_filename(BUNDLED_FONT_FAMILY, "Regular", false),
+            Some("VictorMono-Regular.otf")
+        );
+        assert_eq!(
+            bundled_face_filename(BUNDLED_FONT_FAMILY, "Bold", false),
+            Some("VictorMono-Bold.otf")
+        );
+        assert_eq!(
+            bundled_face_filename(BUNDLED_FONT_FAMILY, "Regular", true),
+            Some("VictorMono-Oblique.otf")
+        );
+        assert_eq!(
+            bundled_face_filename(BUNDLED_FONT_FAMILY, "Bold", true),
+            Some("VictorMono-BoldOblique.otf")
+        );
+
+        // The four SGR styles must select four distinct embedded faces. If any
+        // style fell back to Regular, two of these byte slices would be equal.
+        let regular = bundled_face_bytes(BUNDLED_FONT_FAMILY, "Regular", false).unwrap();
+        let bold = bundled_face_bytes(BUNDLED_FONT_FAMILY, "Bold", false).unwrap();
+        let oblique = bundled_face_bytes(BUNDLED_FONT_FAMILY, "Regular", true).unwrap();
+        let bold_oblique = bundled_face_bytes(BUNDLED_FONT_FAMILY, "Bold", true).unwrap();
+        let faces = [regular, bold, oblique, bold_oblique];
+        for (i, a) in faces.iter().enumerate() {
+            for b in faces.iter().skip(i + 1) {
+                assert_ne!(
+                    a, b,
+                    "two Victor style faces share embedded bytes (a style collapsed to regular?)"
+                );
+            }
+        }
+
+        // And the public style loader returns the same distinct faces, parsed
+        // and monospace, for every SGR style — the live render path.
+        for style in [
+            FontStyle::Regular,
+            FontStyle::Bold,
+            FontStyle::Italic,
+            FontStyle::BoldItalic,
+        ] {
+            let font = load_bundled_style(style).expect("victor style parses");
+            assert!(is_monospace(&font), "victor {style:?} is monospace");
+        }
+    }
+
+    /// The full Victor weight ladder (Thin..Bold) must each resolve to its own
+    /// roman and Oblique face files, so `font_weight` selection and the
+    /// italic→Oblique convention hold across every weight, not just Regular/Bold.
+    #[test]
+    fn victor_weight_ladder_maps_each_weight_to_its_own_roman_and_oblique() {
+        // (weight term, roman filename, oblique filename). Regular has no infix
+        // on its oblique file (VictorMono-Oblique.otf), matching upstream naming.
+        let ladder: &[(&str, &str, &str)] = &[
+            ("Thin", "VictorMono-Thin.otf", "VictorMono-ThinOblique.otf"),
+            (
+                "ExtraLight",
+                "VictorMono-ExtraLight.otf",
+                "VictorMono-ExtraLightOblique.otf",
+            ),
+            (
+                "Light",
+                "VictorMono-Light.otf",
+                "VictorMono-LightOblique.otf",
+            ),
+            (
+                "Regular",
+                "VictorMono-Regular.otf",
+                "VictorMono-Oblique.otf",
+            ),
+            (
+                "Medium",
+                "VictorMono-Medium.otf",
+                "VictorMono-MediumOblique.otf",
+            ),
+            (
+                "SemiBold",
+                "VictorMono-SemiBold.otf",
+                "VictorMono-SemiBoldOblique.otf",
+            ),
+            ("Bold", "VictorMono-Bold.otf", "VictorMono-BoldOblique.otf"),
+        ];
+        let mut seen: Vec<&[u8]> = Vec::new();
+        for (weight, roman, oblique) in ladder {
+            assert_eq!(
+                bundled_face_filename(BUNDLED_FONT_FAMILY, weight, false),
+                Some(*roman),
+                "{weight} roman face filename"
+            );
+            assert_eq!(
+                bundled_face_filename(BUNDLED_FONT_FAMILY, weight, true),
+                Some(*oblique),
+                "{weight} oblique face filename"
+            );
+            // load_bundled_weight_for resolves the weight (roman + oblique) and
+            // each is parseable + monospace.
+            let roman_font =
+                load_bundled_weight_for(BUNDLED_FONT_FAMILY, weight, false).expect("roman parses");
+            assert!(is_monospace(&roman_font), "{weight} roman is monospace");
+            let oblique_font =
+                load_bundled_weight_for(BUNDLED_FONT_FAMILY, weight, true).expect("oblique parses");
+            assert!(is_monospace(&oblique_font), "{weight} oblique is monospace");
+            // Every one of the 14 faces is a distinct embedded file.
+            for (kind, italic) in [("roman", false), ("oblique", true)] {
+                let bytes = bundled_face_bytes(BUNDLED_FONT_FAMILY, weight, italic).unwrap();
+                assert!(
+                    !seen.iter().any(|s| *s == bytes),
+                    "{weight} {kind} face duplicates another weight's embedded bytes"
+                );
+                seen.push(bytes);
+            }
+        }
+        assert_eq!(
+            seen.len(),
+            14,
+            "Victor ladder must expose 14 distinct faces"
+        );
     }
 
     #[cfg(feature = "bundled-symbols-font")]
