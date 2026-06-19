@@ -7,7 +7,64 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-06-19 -- Public-safe glyph fixture corpus (execution plan Phase 1/4)
+## 2026-06-19 -- Symbol fallback: classify non-PUA symbol blocks (fixes ❯ tofu)
+
+The starship/fish prompt char `❯` (U+276F, Dingbats) rendered as tofu even with
+the bundled symbol font installed. Root cause: `is_symbol_codepoint` in
+`src/atlas/fallback.rs` only classified the Private Use Area as symbol, so the
+symbol/Nerd-font fallback was never *attempted* for U+276F (it is not in the
+PUA). The glyph existed in the bundled face — the classifier was the only gate
+blocking it.
+
+Fix: expand the classifier to also cover the standard Unicode symbol/pictograph
+blocks body fonts commonly lack, via a new `SYMBOL_BLOCKS` table consulted by
+`is_symbol_codepoint`:
+- Arrows `U+2190..=21FF`
+- Miscellaneous Technical `U+2300..=23FF`
+- Geometric Shapes `U+25A0..=25FF` (starts one past block elements — no overlap)
+- Miscellaneous Symbols `U+2600..=26FF`
+- Dingbats `U+2700..=27BF` (contains the must-fix `❯` U+276F)
+- Miscellaneous Symbols and Arrows `U+2B00..=2BFF`
+
+The classifier is a *gate to attempt* the fallback; `font_has_glyph` on the
+installed face still decides per glyph, so a codepoint no symbol font provides
+falls through to the tofu box exactly as before. This makes broadening safe and
+lets a richer override/system Nerd Font (`ODYTTY_SYMBOL_FONT`, SYMMAP) resolve
+blocks the bundled face lacks.
+
+Validation against the bundled `SymbolsNerdFontMono-Regular.ttf` (it is an
+icon-only "Mono" face): it covers only 14 non-PUA codepoints — the angle
+brackets `U+276C..=2771` (incl. `❯`), IEC power symbols `U+23FB..=23FE`,
+`U+2630`/`U+2665`/`U+26A1`, and `U+2B58`. The remaining block codepoints
+correctly stay tofu under the bundled face until a fuller fallback is installed.
+PUA, SYMMAP override, and `ODYTTY_SYMBOL_FONT` paths are unchanged.
+
+Excluded by design (geometric path owns them, runs first): box drawing
+`U+2500..257F`, block elements `U+2580..259F`, Braille `U+2800..28FF`, Legacy
+Computing `U+1FB00..1FBFF`. The replacement codepoint `U+10FFFD` and ordinary
+text stay non-symbol.
+
+Files: `src/atlas/fallback.rs` (classifier + `SYMBOL_BLOCKS` table + module/doc
+rewrite from "PUA-only" to "PUA + standard symbol blocks"), `src/atlas/mod.rs`
+(doc-comment drift fixes only — no logic change).
+
+Tests: added `prompt_chevron_is_symbol`, `standard_symbol_blocks_are_symbol`,
+`geometric_owned_ranges_are_not_symbol`,
+`symbol_blocks_are_within_the_predicate_and_disjoint_from_geometric`; kept
+`ordinary_text_is_not_symbol` (+ replacement-char) and the PUA tests green.
+
+Verified: `cargo fmt --check` clean, `cargo test --lib` 1825 passed / 0 failed,
+`cargo build --release` clean. (One pre-existing flaky test,
+`native::gpu::image::tests::floor_disabled_needs_no_scrim`, intermittently fails
+under full-suite parallelism due to shared global floor/scrim state — unrelated
+to this change; passes in isolation and on re-run.)
+
+Gaps: the bundled-symbols resolution code path (use the bundled face when no
+env/system override is set) and the symbol-fallback default-on flip are tracked
+separately in the cluster plan (Phase 1). This packet only fixes the classifier.
+
+---
+
 
 Added a fully-synthetic Unicode corpus that exercises every glyph family OdyTTY
 must render, plus an integration test that ties the corpus to the geometric

@@ -333,7 +333,8 @@ pub struct GlyphAtlas {
     /// Optional symbol / Nerd-font fallback (RV6). When set, a printable
     /// codepoint the **primary** font lacks is rasterized from this font
     /// instead of the hollow-box tofu slot — but only when
-    /// [`fallback::is_symbol_codepoint`] classifies it as a PUA icon **and**
+    /// [`fallback::is_symbol_codepoint`] classifies it as a symbol/icon codepoint
+    /// (PUA Nerd Font set or a standard symbol block such as Dingbats) **and**
     /// this fallback font actually has the glyph. `None` (the default, and the
     /// state on any freshly built atlas) preserves the historical missing-glyph
     /// path byte-for-byte. Held as an `Arc` so the per-glyph lookup can clone a
@@ -650,7 +651,8 @@ impl GlyphAtlas {
         //   SYMMAP override > geometric (handled above) > RV6 symbol fallback >
         //   primary font > hollow-box tofu.
         // RV6: when the primary font lacks the glyph, a symbol/Nerd fallback
-        // font (if configured) rasterizes PUA prompt icons instead of tofu.
+        // font (if configured) rasterizes symbol/icon codepoints (PUA Nerd Font
+        // sets or standard symbol blocks like Dingbats) instead of tofu.
         // `None` here means either no fallback is set, the codepoint is not a
         // symbol, or the fallback also lacks it — all of which fall through to
         // the historical hollow-box slot, keeping the default path identical.
@@ -658,7 +660,7 @@ impl GlyphAtlas {
         if let Some(ov) = override_arc {
             // SYMMAP: rasterize from the override face directly (no synthetic
             // transform — icon faces are not emboldened/sheared), bypassing the
-            // primary-font glyph-presence check and the PUA symbol fallback.
+            // primary-font glyph-presence check and the symbol fallback.
             symbol_font = Some(ov);
         } else if !geometric && !font_has_glyph(font, ch) {
             match self.symbol_fallback(ch) {
@@ -855,7 +857,8 @@ impl GlyphAtlas {
     ///
     /// When `Some`, a printable codepoint the **primary** font lacks is
     /// rasterized from this font — but only when
-    /// [`fallback::is_symbol_codepoint`] classifies it as a PUA prompt icon and
+    /// [`fallback::is_symbol_codepoint`] classifies it as a symbol/icon codepoint (PUA or a standard symbol
+    /// block) and
     /// this font actually has the glyph; otherwise the historical hollow-box
     /// slot is used. `None` (the default) restores the pre-feature missing-glyph
     /// path exactly, so a build with no fallback is byte-identical to the
@@ -896,7 +899,7 @@ impl GlyphAtlas {
 
     /// The fallback font to rasterize `ch` from when the primary lacks it, or
     /// `None` to keep the hollow-box behavior. Returns the configured fallback
-    /// only when `ch` is a PUA symbol codepoint and the fallback face actually
+    /// only when `ch` is a symbol/icon codepoint and the fallback face actually
     /// has a glyph for it.
     fn symbol_fallback(&self, ch: char) -> Option<Arc<FontVec>> {
         let fb = self.fallback.as_ref()?;
