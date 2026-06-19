@@ -7,6 +7,52 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Victor Mono default body font (bundled)
+
+Victor Mono is now the bundled default body font at 22 logical pixels
+(`DEFAULT_FONT_SIZE_PX` unchanged), superseding JetBrains Mono as the
+out-of-the-box face. JetBrains Mono remains bundled and selectable via
+`font_family`, so existing configs keep working.
+
+- **CFF/OTF spike confirmed.** A standalone `ab_glyph` test rasterized Victor
+  Mono `.otf` (CFF/cubic) outlines cleanly at 22px: 'M' produces a non-empty
+  outline, the Bold face is visibly heavier, and the Oblique face shows the
+  expected slant. Metrics match (`ab_glyph` line height = 22.0 exactly). This
+  removes the glyf/quadratic-only assumption that had kept JetBrains (`.ttf`)
+  as the default.
+- **Faces bundled unmodified.** 14 Victor Mono faces (7 weights × roman + the
+  **Oblique** roman-slant pair) ship byte-for-byte identical to the upstream
+  v1.560 OTFs via `include_bytes!`. SGR italic maps to the **Oblique** face
+  (readable roman slant), not Victor's cursive Italic face, per the operator's
+  decision. The Regular-weight oblique file is `VictorMono-Oblique.otf`.
+- **Two-family bundled table.** `BundledFace` gained a `family` field;
+  `BUNDLED_FACES` now carries both families. `is_bundled_font_family` accepts
+  Victor Mono, JetBrains Mono, and `monospace`; `bundled_family_for` routes an
+  explicit JetBrains Mono request to the JetBrains faces and falls everything
+  else back to the Victor default. New `load_bundled_{style,weight}_for` and an
+  internal `load_bundled_face_for` select faces within a named family;
+  `StyleFonts::load_bundled` is now family-aware so a JetBrains Mono +
+  weight selection no longer silently loads the default's weight face.
+- **Licensing.** Victor Mono is SIL OFL 1.1 (© 2024 Rune Bjørnerås, upstream
+  rubjo/victor-mono). Canonical `OFL.txt` and an `AUTHORS.txt` ship in
+  `assets/fonts/victor-mono/`, and the `NOTICE` "Bundled fonts" stanza now
+  lists Victor Mono (default) and JetBrains Mono (selectable).
+
+Verification: `cargo fmt --check` clean; `cargo test --lib` 1804 passed, 0
+failed, 7 ignored (full suite green — the one
+`enforce_contrast_rgba_seam_gates_on_the_global_floor` failure seen when
+filtering to `text::` is a pre-existing process-global-ordering flake,
+reproduced on the clean tree); `cargo build --release` clean. A new test
+covers both families' parseability/monospace, family routing, and asserts the
+SGR-italic→Oblique filename mapping deterministically.
+
+Gaps: the host-driven font picker lists only families present on the host
+(pre-existing), so a bundled family not installed locally won't appear in the
+picker — it is still usable via `font_family` config/env. Cursive Victor Italic
+faces are intentionally not bundled (Oblique is used for italic).
+
+---
+
 ## 2026-06-18 -- Braille graph glyphs for btop
 
 OdyTTY now renders Unicode Braille patterns (`U+2800..=U+28FF`) through the
@@ -701,6 +747,29 @@ baseline, zero-new; SPDX on the new module; leak scan clean. No parser/core-stat
 touch ⇒ no fuzz. Caps: `app/mod.rs` 1945, `gpu.rs` 1949 — both under the 1950
 flag but tight; the next `gpu.rs` touch should extract the `StyleFonts` /
 font-resolution block into a `gpu/` submodule first.
+
+---
+
+## 2026-06-19 -- Glyph release Phase 1: bundled-symbols fallback path
+
+- Added the bundled Nerd Fonts Symbols Only face
+  (`assets/fonts/nerd-fonts-symbols/SymbolsNerdFontMono-Regular.ttf`) plus
+  upstream MIT license text, per-set glyph credits/license references, and
+  NOTICE attribution. Default builds enable the `bundled-symbols-font` feature,
+  so the resolver has an in-repo symbols face without host font installation.
+- Changed symbol fallback defaults to on in settings and the runtime published
+  flag. Users can still set `symbol_fallback = false` /
+  `ODYTTY_SYMBOL_FALLBACK=off` to force the plain missing-glyph path.
+- Updated fallback resolution precedence to explicit path, then host Nerd font,
+  then bundled symbols face, and added resolver tests for off, bundled, explicit
+  path, and host-precedence paths.
+- Refreshed `gpu_composite_smoke`'s CRT uniform fixture to match the production
+  post-process uniform (`curvature` field) and to assert the documented bounded
+  output dither in the bloom-off composite path.
+- Verified: `cargo fmt --check` clean; `cargo test` clean;
+  `cargo build --release` clean.
+- Remaining gap: visual screenshot verification still belongs to integration
+  with fish/starship/eza in the operator environment.
 
 ---
 

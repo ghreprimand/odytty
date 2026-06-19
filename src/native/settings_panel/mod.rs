@@ -1334,15 +1334,15 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(text.contains("Symbol fallback: off"));
+        assert!(text.contains("Symbol fallback: on"));
         assert!(text.contains(crate::settings::SYMBOL_FALLBACK_ENV));
-        assert!(text.contains("missing-glyph path"));
+        assert!(text.contains("plain missing-glyph path"));
 
         let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Activate)
         else {
             panic!("expected bool toggle to apply");
         };
-        assert!(settings.symbol_fallback);
+        assert!(!settings.symbol_fallback);
         assert_eq!(panel.render_signature().changed_count, 1);
 
         // symbol_font is a Path row → opens path picker in the new model.
@@ -1355,7 +1355,7 @@ mod tests {
             .join("\n");
         assert!(text.contains("Symbol font file: auto"));
         assert!(text.contains(crate::settings::SYMBOL_FONT_ENV));
-        assert!(text.contains("automatic symbol-font search"));
+        assert!(text.contains("bundled symbols face"));
 
         // Enter opens the path picker (new behaviour; was RowEdit).
         assert_eq!(

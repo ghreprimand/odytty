@@ -100,12 +100,12 @@ pub const GEOMETRIC_BOXDRAW_DESC: &str = "Geometric box-drawing: renders line, b
 /// Human-readable help for the symbol / Nerd-font fallback enable switch
 /// (RV6), shown in the in-app settings panel.
 pub const SYMBOL_FALLBACK_DESC: &str = "Symbol fallback: enables a secondary symbol/Nerd-font face for private-use \
-     prompt icons when the main font lacks a glyph. Off by default and \
-     identical to the plain missing-glyph path. Environment override wins.";
+     prompt icons when the main font lacks a glyph. On by default for common \
+     shell prompts; switch off to force the plain missing-glyph path. Environment override wins.";
 
 /// Human-readable help for the optional explicit symbol / Nerd-font path
 /// shown in the in-app settings panel.
 pub const SYMBOL_FONT_DESC: &str = "Symbol font file: optional .ttf/.otf path used when symbol fallback is on; \
      routes Private-Use-Area icon codepoints (Nerd Font prompt icons) to this \
-     face. Empty or auto uses OdyTTY's automatic symbol-font search. \
+     face. Empty or auto uses OdyTTY's host search, then the bundled symbols face. \
      ODYTTY_SYMBOL_FONT wins.";

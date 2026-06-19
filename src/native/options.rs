@@ -58,7 +58,7 @@ pub struct NativeOptions {
     pub command: Option<NativeCommand>,
     /// Initial terminal grid size in columns/rows.
     pub initial_grid: Dimensions,
-    /// Monospace font family request. Defaults to bundled JetBrains Mono unless
+    /// Monospace font family request. Defaults to bundled Victor Mono unless
     /// `font_path` points at a direct file or settings request another family.
     pub font_family: String,
     /// Optional weight-variant suffix appended to `font_family` to select a

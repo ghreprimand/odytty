@@ -695,10 +695,12 @@ a floor; surpassing it is the standing ambition.
 - [x] Symbol / Nerd-font fallback chain for PUA prompt icons (starship,
       powerlevel10k, eza).
   - [x] Core wiring landed: the fallback path is live; automatic font search or
-        a user-specified font path cover common Nerd-font installs.
+        a user-specified font path cover common Nerd-font installs; the resolver
+        now falls through to the bundled Symbols Nerd Font Mono face.
   - [x] First-class `symbol_fallback` / `symbol_font` settings knob with
         in-panel control, config round-trip, and help text; `ODYTTY_SYMBOL_FALLBACK`
-        / `ODYTTY_SYMBOL_FONT` remain as env overrides.
+        / `ODYTTY_SYMBOL_FONT` remain as env overrides. `symbol_fallback` now
+        defaults on, with `off` preserving the explicit tofu path.
 - [x] Themed cursor, selection, and search roles (`themed_ui_roles`,
       default on): cursor uses the theme cursor color, selection uses the theme
       selection color, and search highlight uses the theme search color rather

@@ -82,6 +82,31 @@ fn symbol_map_font_for_matches_range_and_first_wins() {
 }
 
 #[test]
+fn symbol_map_font_for_wins_over_installed_fallback() {
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let (Some(fallback_face), Some(override_face)) = (test_font(), test_font()) else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let fallback = Arc::new(fallback_face);
+    let override_font = Arc::new(override_face);
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    atlas.set_fallback_font(Some(Arc::clone(&fallback)));
+    atlas.set_symbol_map_fonts(vec![(0xE000, 0xE000, Arc::clone(&override_font))]);
+
+    let got = atlas
+        .symbol_map_font_for('\u{E000}')
+        .expect("SYMMAP range should match");
+    assert!(
+        Arc::ptr_eq(&got, &override_font),
+        "SYMMAP must remain the first glyph-source decision when fallback is installed"
+    );
+}
+
+#[test]
 fn empty_map_ensure_styled_is_byte_identical() {
     let Some(font) = test_font() else {
         eprintln!("skipping: no system font available");

@@ -7,6 +7,12 @@ description = "A from-scratch, GPU-rendered Rust terminal emulator with an Odyss
 homepage = "https://odytty.unfinished-works.com"
 repository = "https://github.com/ghreprimand/odytty"
 
+[features]
+# Default builds include the bundled symbols-only Nerd Font face so PUA prompt
+# icons render out of the box without host Nerd Font installation.
+default = ["bundled-symbols-font"]
+bundled-symbols-font = []
+
 [dependencies]
 ab_glyph = "0.2.32"
 anyhow = "1.0.102"

@@ -89,9 +89,10 @@ pub fn geometric_boxdraw_enabled() -> bool {
 /// Runtime flag mirroring [`Settings::symbol_fallback`], published
 /// process-wide so the GPU renderer can rebuild the glyph atlas when live
 /// settings enable or disable the RV6 symbol / Nerd-font fallback. Defaults to
-/// `false`, preserving the missing-glyph path unless explicitly enabled.
+/// `true`, with a bundled symbols face intended to make PUA prompt icons work
+/// out of the box; users can still disable it explicitly.
 static SYMBOL_FALLBACK_ENABLED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+    std::sync::atomic::AtomicBool::new(true);
 
 /// Optional explicit symbol / Nerd-font path mirroring [`Settings::symbol_font`].
 /// `None` means the renderer falls back to its host font search.
@@ -608,8 +609,8 @@ pub struct Settings {
     /// before. Purely presentational — never affects cell semantics.
     pub geometric_boxdraw: bool,
     /// Whether to install a symbol / Nerd-font fallback face for private-use
-    /// prompt icons (RV6). Off by default so the plain missing-glyph path is
-    /// byte-identical unless explicitly enabled.
+    /// prompt icons (RV6). On by default so common PUA prompt icons render out
+    /// of the box; set to `false` to force the plain missing-glyph path.
     pub symbol_fallback: bool,
     /// Optional explicit symbol / Nerd-font file path. `None` means auto-resolve
     /// a suitable symbol face when [`Settings::symbol_fallback`] is enabled.
@@ -784,7 +785,7 @@ impl Default for Settings {
             osc52_read: false,
             synthetic_styles: true,
             geometric_boxdraw: false,
-            symbol_fallback: false,
+            symbol_fallback: true,
             symbol_font: None,
             symbol_map: crate::text::SymbolMap::new(),
             themed_ui_roles: true,
@@ -1222,7 +1223,7 @@ impl Settings {
         let symbol_fallback = parse_bool_setting(
             get(SYMBOL_FALLBACK_ENV).as_deref(),
             SYMBOL_FALLBACK_ENV,
-            false,
+            true,
             &mut warn,
         );
         let symbol_font = get(SYMBOL_FONT_ENV).and_then(parse_symbol_font_path);

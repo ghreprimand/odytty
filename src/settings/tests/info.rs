@@ -171,11 +171,7 @@ fn help1_cryptic_settings_have_actionable_descriptions() {
     assert_eq!(symbol_font.name, "Symbol font file");
     assert!(symbol_font.description.contains(".ttf/.otf path"));
     assert!(symbol_font.description.contains("symbol fallback"));
-    assert!(
-        symbol_font
-            .description
-            .contains("automatic symbol-font search")
-    );
+    assert!(symbol_font.description.contains("bundled symbols face"));
 
     let render_quality = row(&rows, "render_quality");
     assert_eq!(render_quality.name, "Renderer profile");

@@ -64,7 +64,7 @@ impl StyleFonts {
         font_weight: &str,
     ) -> Result<Self, NativeError> {
         if font_path.is_none() && text::is_bundled_font_family(font_family) {
-            return Self::load_bundled(font_weight);
+            return Self::load_bundled(font_family, font_weight);
         }
 
         let regular = if font_weight.trim().is_empty() {
@@ -116,18 +116,22 @@ impl StyleFonts {
         Ok(fonts)
     }
 
-    fn load_bundled(font_weight: &str) -> Result<Self, NativeError> {
+    fn load_bundled(font_family: &str, font_weight: &str) -> Result<Self, NativeError> {
+        // Resolve the concrete bundled family (Victor Mono default, JetBrains
+        // Mono selectable, "monospace"/empty → default). All weight/style faces
+        // are then drawn from that one family.
+        let family = text::bundled_family_for(font_family);
         let regular = if font_weight.trim().is_empty() {
-            text::load_bundled_style(FontStyle::Regular)
+            text::load_bundled_style_for(family, FontStyle::Regular)
         } else {
-            match text::load_bundled_weight(font_weight.trim(), false) {
+            match text::load_bundled_weight_for(family, font_weight.trim(), false) {
                 Some(font) => Ok(font),
                 None => {
                     eprintln!(
-                        "odytty: font_weight: bundled JetBrains Mono has no {:?} weight face; using the regular face",
+                        "odytty: font_weight: bundled {family} has no {:?} weight face; using the regular face",
                         font_weight.trim()
                     );
-                    text::load_bundled_style(FontStyle::Regular)
+                    text::load_bundled_style_for(family, FontStyle::Regular)
                 }
             }
         }
@@ -135,15 +139,15 @@ impl StyleFonts {
 
         let regular = Arc::new(regular);
         let bold = Arc::new(
-            text::load_bundled_style(FontStyle::Bold)
+            text::load_bundled_style_for(family, FontStyle::Bold)
                 .map_err(|err| NativeError::Text(err.to_string()))?,
         );
         let italic = Arc::new(
-            text::load_bundled_style(FontStyle::Italic)
+            text::load_bundled_style_for(family, FontStyle::Italic)
                 .map_err(|err| NativeError::Text(err.to_string()))?,
         );
         let bold_italic = Arc::new(
-            text::load_bundled_style(FontStyle::BoldItalic)
+            text::load_bundled_style_for(family, FontStyle::BoldItalic)
                 .map_err(|err| NativeError::Text(err.to_string()))?,
         );
 
@@ -212,6 +216,20 @@ pub(super) fn resolve_symbol_fallback(
     enabled: bool,
     explicit_path: Option<&Path>,
 ) -> Option<Arc<FontVec>> {
+    resolve_symbol_fallback_with_dirs(
+        enabled,
+        explicit_path,
+        &text::font_search_dirs(),
+        text::resolve_bundled_symbol_font,
+    )
+}
+
+fn resolve_symbol_fallback_with_dirs(
+    enabled: bool,
+    explicit_path: Option<&Path>,
+    search_dirs: &[PathBuf],
+    bundled: impl FnOnce() -> Option<FontVec>,
+) -> Option<Arc<FontVec>> {
     if !enabled {
         return None;
     }
@@ -223,7 +241,9 @@ pub(super) fn resolve_symbol_fallback(
             }
         }
     }
-    text::resolve_symbol_font_in(&text::font_search_dirs()).map(Arc::new)
+    text::resolve_symbol_font_in(search_dirs)
+        .or_else(bundled)
+        .map(Arc::new)
 }
 
 /// Resolve a SYMMAP override map's font-family names to loaded faces (SYMMAP).
@@ -267,4 +287,70 @@ fn env_flag_override(name: &str) -> Option<bool> {
             "1" | "true" | "on" | "yes"
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn bundled_regular_path() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf")
+    }
+
+    fn unique_tmp_dir(tag: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock before epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "odytty-gpu-fonts-{tag}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn symbol_fallback_off_resolves_none_without_touching_loaders() {
+        let resolved = resolve_symbol_fallback_with_dirs(false, None, &[], || {
+            panic!("bundled loader must not run when fallback is off")
+        });
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn symbol_fallback_default_on_can_resolve_bundled_face() {
+        let resolved =
+            resolve_symbol_fallback_with_dirs(true, None, &[], text::resolve_bundled_symbol_font);
+        assert!(
+            resolved.is_some(),
+            "enabled fallback should use the bundled face after host search misses"
+        );
+    }
+
+    #[test]
+    fn explicit_symbol_font_path_beats_bundled_face() {
+        let path = bundled_regular_path();
+        let resolved = resolve_symbol_fallback_with_dirs(true, Some(&path), &[], || {
+            panic!("bundled loader must not run after a valid explicit path")
+        });
+        assert!(resolved.is_some());
+    }
+
+    #[test]
+    fn host_symbol_font_beats_bundled_face() {
+        let dir = unique_tmp_dir("host-symbol");
+        let src = bundled_regular_path();
+        let dst = dir.join("SymbolsNerdFont-Regular.ttf");
+        std::fs::copy(src, &dst).expect("copy fixture font");
+
+        let resolved = resolve_symbol_fallback_with_dirs(true, None, &[dir.clone()], || {
+            panic!("bundled loader must not run after host symbol search resolves")
+        });
+        assert!(resolved.is_some());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

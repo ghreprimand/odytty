@@ -29,8 +29,22 @@ just ask.
 Bundled fonts
 --------------------------------------------------------------------------------
 
-JetBrains Mono
+Victor Mono  (default body font)
+Copyright (c) 2019-2024 Rune Bjoerneraas
+Licensed under the SIL Open Font License, Version 1.1.
+
+The bundled font files and license text live in `assets/fonts/victor-mono/`.
+
+JetBrains Mono  (also bundled, selectable)
 Copyright 2020 The JetBrains Mono Project Authors
 Licensed under the SIL Open Font License, Version 1.1.
 
 The bundled font files and license text live in `assets/fonts/jetbrains-mono/`.
+
+Nerd Fonts Symbols Only / Symbols Nerd Font Mono  (symbol fallback font)
+Bundled from Nerd Fonts v3.4.0, `NerdFontsSymbolsOnly`, unmodified.
+Font-level license: MIT. Aggregated glyph sources include MIT, Apache-2.0,
+CC-BY-4.0, OFL-1.1, and Unlicense components.
+
+The bundled symbols font, MIT license text, per-set credits, license references,
+and trademark note live in `assets/fonts/nerd-fonts-symbols/`.

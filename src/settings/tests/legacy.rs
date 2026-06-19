@@ -1531,29 +1531,29 @@ fn garbage_geometric_boxdraw_falls_back_off_with_warning() {
 }
 
 #[test]
-fn symbol_fallback_defaults_off_and_parses_on() {
+fn symbol_fallback_defaults_on_and_parses_off() {
     let (settings, warnings) = settings_from([]);
-    assert!(!settings.symbol_fallback);
+    assert!(settings.symbol_fallback);
     assert!(settings.symbol_font.is_none());
     assert!(warnings.is_empty());
 
-    let (settings, warnings) = settings_from([(SYMBOL_FALLBACK_ENV, "on")]);
-    assert!(settings.symbol_fallback);
+    let (settings, warnings) = settings_from([(SYMBOL_FALLBACK_ENV, "off")]);
+    assert!(!settings.symbol_fallback);
     assert!(warnings.is_empty());
 
-    let (settings, warnings) = settings_from_config_and_env("symbol_fallback = true", []);
-    assert!(settings.symbol_fallback);
+    let (settings, warnings) = settings_from_config_and_env("symbol_fallback = false", []);
+    assert!(!settings.symbol_fallback);
     assert!(warnings.is_empty());
 
-    let (settings, warnings) = settings_from_config_and_env("nerdfont = yes", []);
-    assert!(settings.symbol_fallback);
+    let (settings, warnings) = settings_from_config_and_env("nerdfont = no", []);
+    assert!(!settings.symbol_fallback);
     assert!(warnings.is_empty());
 }
 
 #[test]
-fn garbage_symbol_fallback_falls_back_off_with_warning() {
+fn garbage_symbol_fallback_falls_back_on_with_warning() {
     let (settings, warnings) = settings_from([(SYMBOL_FALLBACK_ENV, "sometimes")]);
-    assert!(!settings.symbol_fallback);
+    assert!(settings.symbol_fallback);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(SYMBOL_FALLBACK_ENV));
 }

@@ -9,7 +9,8 @@
 //!
 //! ## Font sourcing
 //!
-//! The default text face is bundled JetBrains Mono. The settings layer can still
+//! The default text face is bundled Victor Mono (JetBrains Mono is also bundled
+//! and selectable). The settings layer can still
 //! provide an explicit font path or system font family; bad overrides fall back
 //! to the bundled face so startup never depends on host font installation.
 
@@ -25,10 +26,28 @@ use crate::settings::FONT_ENV;
 /// here so `crate::text::{CellSize, GlyphAtlas}` call sites keep resolving.
 pub use crate::atlas::{CellSize, FontStyle, GlyphAtlas, SubpixelMode};
 
-pub const BUNDLED_FONT_FAMILY: &str = "JetBrains Mono";
-pub const BUNDLED_FONT_VERSION: &str = "2.304";
+/// Default bundled body font family. Victor Mono is the out-of-the-box default
+/// (its `.otf`/CFF outlines rasterize cleanly through `ab_glyph`); JetBrains
+/// Mono is also bundled and remains selectable via `font_family`.
+pub const BUNDLED_FONT_FAMILY: &str = "Victor Mono";
+/// Version of the bundled **default** family (Victor Mono).
+pub const BUNDLED_FONT_VERSION: &str = "1.560";
+/// Bundled but non-default family: JetBrains Mono is still shipped so existing
+/// configs keep working and it stays selectable in the picker.
+pub const JETBRAINS_FONT_FAMILY: &str = "JetBrains Mono";
+/// Version of the bundled JetBrains Mono faces.
+pub const JETBRAINS_FONT_VERSION: &str = "2.304";
+pub const BUNDLED_SYMBOL_FONT_FAMILY: &str = "Symbols Nerd Font Mono";
+pub const BUNDLED_SYMBOL_FONT_FILENAME: &str = "SymbolsNerdFontMono-Regular.ttf";
+pub const BUNDLED_SYMBOL_FONT_RELATIVE_PATH: &str =
+    "assets/fonts/nerd-fonts-symbols/SymbolsNerdFontMono-Regular.ttf";
+
+#[cfg(feature = "bundled-symbols-font")]
+const BUNDLED_SYMBOL_FONT_BYTES: &[u8] =
+    include_bytes!("../assets/fonts/nerd-fonts-symbols/SymbolsNerdFontMono-Regular.ttf");
 
 struct BundledFace {
+    family: &'static str,
     weight: &'static str,
     italic: bool,
     filename: &'static str,
@@ -36,97 +55,217 @@ struct BundledFace {
 }
 
 const BUNDLED_FACES: &[BundledFace] = &[
+    // Victor Mono (default family). SGR italic maps to the **Oblique** face
+    // (roman slant) for readability, not the cursive Italic face — so the italic
+    // row for each weight points at the `…Oblique.otf` file. The Regular weight's
+    // oblique file is named `VictorMono-Oblique.otf` (no `Regular` infix).
     BundledFace {
+        family: "Victor Mono",
+        weight: "Thin",
+        italic: false,
+        filename: "VictorMono-Thin.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-Thin.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "Thin",
+        italic: true,
+        filename: "VictorMono-ThinOblique.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-ThinOblique.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "ExtraLight",
+        italic: false,
+        filename: "VictorMono-ExtraLight.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-ExtraLight.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "ExtraLight",
+        italic: true,
+        filename: "VictorMono-ExtraLightOblique.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-ExtraLightOblique.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "Light",
+        italic: false,
+        filename: "VictorMono-Light.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-Light.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "Light",
+        italic: true,
+        filename: "VictorMono-LightOblique.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-LightOblique.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "Regular",
+        italic: false,
+        filename: "VictorMono-Regular.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-Regular.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "Regular",
+        italic: true,
+        filename: "VictorMono-Oblique.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-Oblique.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "Medium",
+        italic: false,
+        filename: "VictorMono-Medium.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-Medium.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "Medium",
+        italic: true,
+        filename: "VictorMono-MediumOblique.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-MediumOblique.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "SemiBold",
+        italic: false,
+        filename: "VictorMono-SemiBold.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-SemiBold.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "SemiBold",
+        italic: true,
+        filename: "VictorMono-SemiBoldOblique.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-SemiBoldOblique.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "Bold",
+        italic: false,
+        filename: "VictorMono-Bold.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-Bold.otf"),
+    },
+    BundledFace {
+        family: "Victor Mono",
+        weight: "Bold",
+        italic: true,
+        filename: "VictorMono-BoldOblique.otf",
+        bytes: include_bytes!("../assets/fonts/victor-mono/VictorMono-BoldOblique.otf"),
+    },
+    // JetBrains Mono (bundled, selectable). JetBrains has no separate oblique
+    // variant, so italic rows use its italic faces.
+    BundledFace {
+        family: "JetBrains Mono",
         weight: "Thin",
         italic: false,
         filename: "JetBrainsMono-Thin.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-Thin.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "Thin",
         italic: true,
         filename: "JetBrainsMono-ThinItalic.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-ThinItalic.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "ExtraLight",
         italic: false,
         filename: "JetBrainsMono-ExtraLight.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-ExtraLight.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "ExtraLight",
         italic: true,
         filename: "JetBrainsMono-ExtraLightItalic.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-ExtraLightItalic.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "Light",
         italic: false,
         filename: "JetBrainsMono-Light.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-Light.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "Light",
         italic: true,
         filename: "JetBrainsMono-LightItalic.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-LightItalic.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "Regular",
         italic: false,
         filename: "JetBrainsMono-Regular.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "Regular",
         italic: true,
         filename: "JetBrainsMono-Italic.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-Italic.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "Medium",
         italic: false,
         filename: "JetBrainsMono-Medium.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-Medium.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "Medium",
         italic: true,
         filename: "JetBrainsMono-MediumItalic.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-MediumItalic.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "SemiBold",
         italic: false,
         filename: "JetBrainsMono-SemiBold.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-SemiBold.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "SemiBold",
         italic: true,
         filename: "JetBrainsMono-SemiBoldItalic.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-SemiBoldItalic.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "Bold",
         italic: false,
         filename: "JetBrainsMono-Bold.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "Bold",
         italic: true,
         filename: "JetBrainsMono-BoldItalic.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-BoldItalic.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "ExtraBold",
         italic: false,
         filename: "JetBrainsMono-ExtraBold.ttf",
         bytes: include_bytes!("../assets/fonts/jetbrains-mono/JetBrainsMono-ExtraBold.ttf"),
     },
     BundledFace {
+        family: "JetBrains Mono",
         weight: "ExtraBold",
         italic: true,
         filename: "JetBrainsMono-ExtraBoldItalic.ttf",
@@ -223,38 +362,75 @@ pub fn load_font_at(path: &Path) -> Result<FontVec, TextError> {
 
 pub fn is_bundled_font_family(query: &str) -> bool {
     let normalized = normalize_family(query);
-    normalized == normalize_family(BUNDLED_FONT_FAMILY) || normalized == "monospace"
+    normalized == normalize_family(BUNDLED_FONT_FAMILY)
+        || normalized == normalize_family(JETBRAINS_FONT_FAMILY)
+        || normalized == "monospace"
+}
+
+/// Resolve a family name (possibly `"monospace"` or empty) to a concrete bundled
+/// family. Unknown names fall back to the default family
+/// ([`BUNDLED_FONT_FAMILY`], Victor Mono) so the bundled path always picks a
+/// real face. Callers only reach the bundled path after
+/// [`is_bundled_font_family`] is true, so the only realistic inputs here are the
+/// two bundled family names, `"monospace"`, or an empty string.
+pub fn bundled_family_for(query: &str) -> &'static str {
+    let normalized = normalize_family(query);
+    if normalized == normalize_family(JETBRAINS_FONT_FAMILY) {
+        JETBRAINS_FONT_FAMILY
+    } else {
+        BUNDLED_FONT_FAMILY
+    }
 }
 
 pub fn load_bundled_font() -> Result<FontVec, TextError> {
-    load_bundled_face("Regular", false).ok_or(TextError::NoFont)
+    load_bundled_face_for(BUNDLED_FONT_FAMILY, "Regular", false).ok_or(TextError::NoFont)
 }
 
 pub fn load_bundled_style(style: FontStyle) -> Result<FontVec, TextError> {
+    load_bundled_style_for(BUNDLED_FONT_FAMILY, style)
+}
+
+pub fn load_bundled_weight(weight: &str, italic: bool) -> Option<FontVec> {
+    load_bundled_weight_for(BUNDLED_FONT_FAMILY, weight, italic)
+}
+
+/// Load a specific style face from a named bundled family. Mirrors
+/// [`load_bundled_style`] but for the explicitly chosen family (Victor Mono or
+/// JetBrains Mono) rather than the default.
+pub fn load_bundled_style_for(family: &str, style: FontStyle) -> Result<FontVec, TextError> {
+    let family = bundled_family_for(family);
     match style {
-        FontStyle::Regular => load_bundled_face("Regular", false),
-        FontStyle::Bold => load_bundled_face("Bold", false),
-        FontStyle::Italic => load_bundled_face("Regular", true),
-        FontStyle::BoldItalic => load_bundled_face("Bold", true),
+        FontStyle::Regular => load_bundled_face_for(family, "Regular", false),
+        FontStyle::Bold => load_bundled_face_for(family, "Bold", false),
+        FontStyle::Italic => load_bundled_face_for(family, "Regular", true),
+        FontStyle::BoldItalic => load_bundled_face_for(family, "Bold", true),
     }
     .ok_or(TextError::NoFont)
 }
 
-pub fn load_bundled_weight(weight: &str, italic: bool) -> Option<FontVec> {
+/// Resolve a weight (possibly `"regular"`/empty) within a named bundled family.
+/// Falls back to the `Regular` face of that family when the weight is empty or
+/// names the regular/normal variant.
+pub fn load_bundled_weight_for(family: &str, weight: &str, italic: bool) -> Option<FontVec> {
+    let family = bundled_family_for(family);
     let target = normalize_family(weight);
     if target.is_empty() || target == "regular" || target == "normal" {
-        return load_bundled_face("Regular", italic);
+        return load_bundled_face_for(family, "Regular", italic);
     }
     BUNDLED_FACES
         .iter()
-        .find(|face| normalize_family(face.weight) == target && face.italic == italic)
+        .find(|face| {
+            face.family == family
+                && normalize_family(face.weight) == target
+                && face.italic == italic
+        })
         .and_then(parse_bundled_face)
 }
 
-fn load_bundled_face(weight: &str, italic: bool) -> Option<FontVec> {
+fn load_bundled_face_for(family: &str, weight: &str, italic: bool) -> Option<FontVec> {
     BUNDLED_FACES
         .iter()
-        .find(|face| face.weight == weight && face.italic == italic)
+        .find(|face| face.family == family && face.weight == weight && face.italic == italic)
         .and_then(parse_bundled_face)
 }
 
@@ -265,6 +441,39 @@ fn parse_bundled_face(face: &BundledFace) -> Option<FontVec> {
             source,
         })
         .ok()
+}
+
+/// The recorded filename of the bundled face that `(family, weight, italic)`
+/// resolves to, or `None` when no such face is bundled. Used by tests to assert
+/// the Oblique-vs-cursive-italic and family-routing decisions deterministically
+/// (filename strings), independent of font-table decoding.
+#[cfg(test)]
+fn bundled_face_filename(family: &str, weight: &str, italic: bool) -> Option<&'static str> {
+    let family = bundled_family_for(family);
+    BUNDLED_FACES
+        .iter()
+        .find(|face| face.family == family && face.weight == weight && face.italic == italic)
+        .map(|face| face.filename)
+}
+
+/// Load the bundled symbols-only Nerd Font face when the asset feature is
+/// enabled. Default builds enable it so the RV6 PUA-icon fallback works without
+/// host Nerd Font installation; `--no-default-features` leaves this as `None`.
+pub fn resolve_bundled_symbol_font() -> Option<FontVec> {
+    #[cfg(feature = "bundled-symbols-font")]
+    {
+        return FontVec::try_from_vec(BUNDLED_SYMBOL_FONT_BYTES.to_vec())
+            .map_err(|source| TextError::Parse {
+                path: format!("bundled {}", BUNDLED_SYMBOL_FONT_FILENAME),
+                source,
+            })
+            .ok();
+    }
+
+    #[cfg(not(feature = "bundled-symbols-font"))]
+    {
+        None
+    }
 }
 
 /// A resolved font family: the validated monospace `regular` face plus any
@@ -744,14 +953,16 @@ pub const SYMBOL_FONT_ENV: &str = "ODYTTY_SYMBOL_FONT";
 const SYMBOL_FONT_HINTS: &[&str] = &["symbolsnerdfont", "nerdfont"];
 
 /// Resolve a symbol / Nerd-font face for the RV6 PUA-icon fallback, or `None`
-/// when the host has none.
+/// when neither the host nor the gated bundled asset can provide one.
 ///
 /// Resolution order:
 /// 1. An explicit [`SYMBOL_FONT_ENV`] path (loaded directly; a bad path yields
-///    `None` rather than aborting).
+///    fallback search rather than aborting).
 /// 2. The first file under [`font_search_dirs`] whose normalized stem contains
 ///    a [`SYMBOL_FONT_HINTS`] fragment, preferring the dedicated symbols-only
 ///    face.
+/// 3. The bundled symbols-only face, when the default `bundled-symbols-font`
+///    feature is enabled.
 ///
 /// The font is only *loaded*; whether it is *used* is the caller's gate (the
 /// native layer reads its enable switch before installing it on the atlas).
@@ -767,7 +978,7 @@ pub fn resolve_symbol_font() -> Option<FontVec> {
             }
         }
     }
-    resolve_symbol_font_in(&font_search_dirs())
+    resolve_symbol_font_in(&font_search_dirs()).or_else(resolve_bundled_symbol_font)
 }
 
 /// Family-search half of [`resolve_symbol_font`], factored out so tests can
@@ -1496,18 +1707,98 @@ mod tests {
     }
 
     #[test]
-    fn bundled_jetbrains_mono_faces_are_parseable_and_monospace() {
-        assert!(is_bundled_font_family("JetBrains Mono"));
+    fn bundled_default_and_jetbrains_faces_are_parseable_and_monospace() {
+        // Both bundled families are recognized, plus the generic "monospace".
+        assert!(is_bundled_font_family(BUNDLED_FONT_FAMILY)); // Victor Mono
+        assert!(is_bundled_font_family(JETBRAINS_FONT_FAMILY));
         assert!(is_bundled_font_family("monospace"));
+        assert!(!is_bundled_font_family("Comic Sans"));
 
-        let regular = load_bundled_font().expect("bundled regular parses");
-        assert!(is_monospace(&regular), "bundled regular is monospace");
+        // Family routing: explicit JetBrains stays JetBrains; everything else
+        // (monospace/empty/unknown) falls back to the default (Victor Mono).
+        assert_eq!(
+            bundled_family_for(JETBRAINS_FONT_FAMILY),
+            JETBRAINS_FONT_FAMILY
+        );
+        assert_eq!(bundled_family_for(BUNDLED_FONT_FAMILY), BUNDLED_FONT_FAMILY);
+        assert_eq!(bundled_family_for("monospace"), BUNDLED_FONT_FAMILY);
+        assert_eq!(bundled_family_for(""), BUNDLED_FONT_FAMILY);
 
-        let semibold = load_bundled_weight("SemiBold", false).expect("bundled semibold parses");
-        assert!(is_monospace(&semibold), "bundled semibold is monospace");
+        // Filename routing proves the Oblique-vs-cursive decision and the family
+        // split without depending on font-table decoding in tests.
+        assert_eq!(
+            bundled_face_filename(BUNDLED_FONT_FAMILY, "Regular", false),
+            Some("VictorMono-Regular.otf")
+        );
+        // SGR italic for the default family resolves to the **Oblique** (roman
+        // slant) face, NOT the cursive Italic face.
+        assert_eq!(
+            bundled_face_filename(BUNDLED_FONT_FAMILY, "Regular", true),
+            Some("VictorMono-Oblique.otf")
+        );
+        assert_eq!(
+            bundled_face_filename(BUNDLED_FONT_FAMILY, "Bold", true),
+            Some("VictorMono-BoldOblique.otf")
+        );
+        assert_eq!(
+            bundled_face_filename(JETBRAINS_FONT_FAMILY, "Regular", true),
+            Some("JetBrainsMono-Italic.ttf")
+        );
+        assert_eq!(
+            bundled_face_filename(JETBRAINS_FONT_FAMILY, "ExtraBold", false),
+            Some("JetBrainsMono-ExtraBold.ttf")
+        );
+        // No cursive Italic face is bundled for the default family.
+        assert_eq!(
+            bundled_face_filename(BUNDLED_FONT_FAMILY, "Regular", false)
+                .unwrap()
+                .contains("Italic"),
+            false
+        );
 
-        let italic = load_bundled_style(FontStyle::Italic).expect("bundled italic parses");
-        assert!(is_monospace(&italic), "bundled italic is monospace");
+        // Default family (Victor Mono): regular, a non-default weight, and the
+        // SGR-italic face all parse and are monospace.
+        let regular = load_bundled_font().expect("bundled default regular parses");
+        assert!(
+            is_monospace(&regular),
+            "bundled default regular is monospace"
+        );
+        let semibold =
+            load_bundled_weight("SemiBold", false).expect("bundled default semibold parses");
+        assert!(
+            is_monospace(&semibold),
+            "bundled default semibold is monospace"
+        );
+        let italic = load_bundled_style(FontStyle::Italic).expect("bundled default italic parses");
+        assert!(is_monospace(&italic), "bundled default italic is monospace");
+
+        // JetBrains Mono remains bundled and selectable by family name.
+        let jb_regular = load_bundled_style_for(JETBRAINS_FONT_FAMILY, FontStyle::Regular)
+            .expect("JetBrains regular parses");
+        assert!(is_monospace(&jb_regular), "JetBrains regular is monospace");
+        let jb_semibold = load_bundled_weight_for(JETBRAINS_FONT_FAMILY, "SemiBold", false)
+            .expect("JetBrains semibold parses");
+        assert!(
+            is_monospace(&jb_semibold),
+            "JetBrains semibold is monospace"
+        );
+        let jb_italic = load_bundled_style_for(JETBRAINS_FONT_FAMILY, FontStyle::Italic)
+            .expect("JetBrains italic parses");
+        assert!(is_monospace(&jb_italic), "JetBrains italic is monospace");
+    }
+
+    #[cfg(feature = "bundled-symbols-font")]
+    #[test]
+    fn bundled_symbol_font_is_parseable_and_covers_representative_pua_icons() {
+        let font = resolve_bundled_symbol_font().expect("bundled symbols font parses");
+        for ch in ['\u{E0B0}', '\u{E700}', '\u{F031}', '\u{F0001}'] {
+            assert_ne!(
+                font.glyph_id(ch).0,
+                0,
+                "bundled symbols font must cover U+{:04X}",
+                ch as u32
+            );
+        }
     }
 
     /// A real monospace family installed on this host (read from metadata), with

@@ -85,6 +85,8 @@ struct CrtUniform {
     scanline_intensity: f32,
     scanline_period: f32,
     vignette_strength: f32,
+    curvature: f32,
+    _pad: f32,
 }
 
 #[test]
@@ -320,13 +322,18 @@ fn bloom_preserves_body_text_and_adds_bounded_halo() {
     let direct_bytes = readback(&device, &direct_buffer);
     let off_bytes = readback(&device, &off_buffer);
     let on_bytes = readback(&device, &on_buffer);
-    assert_eq!(direct_bytes, off_bytes, "bloom off path must be exact");
+    assert_bounded_rgb_delta(
+        &direct_bytes,
+        &off_bytes,
+        1,
+        "bloom off path should only add output dither",
+    );
 
     for y in 0..4 {
         for x in 0..4 {
             let i = pixel_index(x, y);
             assert_eq!(
-                &direct_bytes[i..i + 4],
+                &off_bytes[i..i + 4],
                 &on_bytes[i..i + 4],
                 "body text below threshold must not bloom at {x},{y}"
             );
@@ -335,7 +342,7 @@ fn bloom_preserves_body_text_and_adds_bounded_halo() {
 
     let halo = pixel_index(10, 8);
     assert!(
-        on_bytes[halo] > direct_bytes[halo],
+        on_bytes[halo] > off_bytes[halo],
         "halo pixel should gain red light"
     );
     assert!(
@@ -612,6 +619,8 @@ fn create_crt_uniform(
             scanline_intensity,
             scanline_period,
             vignette_strength,
+            curvature: 0.0,
+            _pad: 0.0,
         }),
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     })
@@ -892,6 +901,20 @@ fn readback(device: &wgpu::Device, buffer: &wgpu::Buffer) -> Vec<u8> {
     drop(mapped);
     buffer.unmap();
     rows
+}
+
+fn assert_bounded_rgb_delta(left: &[u8], right: &[u8], max_delta: u8, label: &str) {
+    assert_eq!(left.len(), right.len(), "{label}: lengths differ");
+    for (px, (a, b)) in left.chunks_exact(4).zip(right.chunks_exact(4)).enumerate() {
+        for channel in 0..3 {
+            let delta = a[channel].abs_diff(b[channel]);
+            assert!(
+                delta <= max_delta,
+                "{label}: pixel {px} channel {channel} delta {delta} exceeds {max_delta}"
+            );
+        }
+        assert_eq!(a[3], b[3], "{label}: pixel {px} alpha differs");
+    }
 }
 
 fn padded_bytes_per_row() -> u32 {

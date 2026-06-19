@@ -32,9 +32,9 @@ binary artifacts, cross-platform support, panes, and profiles are not done.
   parser, OdyTTY terminal model, scrollback, alternate screen, mouse, keyboard,
   OSC, DCS, APC, and render geometry.
 - **GPU renderer:** `wgpu`/Vulkan path with dynamic glyph atlas, bundled
-  JetBrains Mono, bold/italic/weight faces, optional synthetic styles,
-  subpixel AA, HiDPI-aware atlas rebuilds, color emoji atlas, and GPU image
-  layer.
+  Victor Mono (default) plus JetBrains Mono, bold/italic/weight faces, optional
+  synthetic styles, subpixel AA, HiDPI-aware atlas rebuilds, color emoji atlas,
+  and GPU image layer.
 - **Inline media:** Kitty graphics protocol and Sixel, including direct,
   file/temp-file, and shared-memory Kitty transports with conservative local
   file-safety restrictions.
@@ -191,8 +191,9 @@ preserved.
 
 ### Text, Emoji, And Graphics
 
-Text rendering uses bundled JetBrains Mono by default at 22 logical pixels with
-line height `1.0`. System font families, direct font files, font-weight
+Text rendering uses bundled Victor Mono by default at 22 logical pixels with
+line height `1.0`. JetBrains Mono is also bundled and remains selectable via
+`font_family`. System font families, direct font files, font-weight
 variants, symbol/Nerd-font fallback, per-range symbol maps, synthetic styles,
 subpixel AA, glyph coverage gamma, stem darkening, and minimum-contrast
 enforcement are configurable.
