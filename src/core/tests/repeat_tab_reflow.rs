@@ -100,6 +100,48 @@ fn repeat_char_repeats_wide_glyph() {
     assert!(terminal.screen().cell(0, 3).unwrap().wide_continuation);
 }
 
+#[test]
+fn narrow_resize_then_fish_old_height_repaint_does_not_duplicate_prompt() {
+    let prompt = b"joel@odyssey ~/Pr/odytty master > ";
+    let mut terminal = Terminal::new(24, 8);
+
+    terminal.advance(prompt);
+    terminal.resize(10, 8);
+    terminal.advance(b"\x1b[1A\r\x1b[J");
+    terminal.advance(prompt);
+
+    let text = terminal.screen().plain_text();
+    assert_eq!(
+        text.matches("joel@odyss").count(),
+        1,
+        "prompt duplicated:\n{text}"
+    );
+}
+
+#[test]
+fn narrow_resize_preserves_cursor_line_old_row_offset_for_clear() {
+    let mut terminal = Terminal::new(8, 5);
+
+    terminal.advance(b"abcdefghi");
+    assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 1 });
+    terminal.resize(4, 5);
+
+    assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 1 });
+    terminal.advance(b"\x1b[1A\r\x1b[J");
+    assert_eq!(terminal.screen().plain_text(), "\n\n\n\n");
+}
+
+#[test]
+fn resize_preserves_pending_wrap_until_next_print() {
+    let mut terminal = Terminal::new(4, 2);
+
+    terminal.advance(b"abcd");
+    terminal.resize(2, 2);
+    terminal.advance(b"Z");
+
+    assert_eq!(terminal.screen().plain_text(), "ab\nZd");
+}
+
 // Tab stops (HT / HTS / TBC): owned every-8 default model. HT advances to
 // the next stop right of the cursor or clamps to the right edge; HTS (ESC H)
 // sets a stop at the current column; TBC (CSI Ps g) clears current (0) or
@@ -283,24 +325,26 @@ fn reflow_does_not_join_hard_newlines() {
 }
 
 #[test]
-fn reflow_keeps_cursor_on_its_character() {
-    // The cursor must follow its logical character through a re-wrap so an
-    // active prompt stays put.
+fn reflow_keeps_cursor_clear_compatible_for_live_line() {
+    // Width-changing reflow keeps content intact but leaves the live cursor at
+    // the old row offset within the active logical line. Shells such as fish
+    // repaint prompts with relative cursor-up + clear based on the pre-resize
+    // prompt height; this placement lets that clear start at the reflowed line
+    // top instead of below newly-created wrap rows.
     let mut terminal = Terminal::new(20, 3);
     terminal.advance(b"$ hello"); // cursor at col 7, row 0
     assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 7 });
 
-    // Shrink to 4: "$ hello" wraps to "$ he" / "llo"; the cursor sits just
-    // past the last char on the second wrapped row.
+    // Shrink to 4: "$ hello" wraps to "$ he" / "llo"; the cursor remains on
+    // the old row offset so a shell repaint clear from the cursor row removes
+    // the whole prompt.
     terminal.resize(4, 3);
     let cursor = terminal.screen().cursor();
-    assert_eq!(cursor, Position { row: 1, column: 3 });
+    assert_eq!(cursor, Position { row: 0, column: 3 });
+    assert_eq!(visible_text(&terminal), "$ he\nllo");
 
-    // Typing continues the same logical line from the cursor; widening
-    // rejoins it into the expected text.
-    terminal.advance(b"!");
-    terminal.resize(20, 3);
-    assert_eq!(visible_text(&terminal), "$ hello!");
+    terminal.advance(b"\r\x1b[J");
+    assert_eq!(visible_text(&terminal), "");
 }
 
 #[test]

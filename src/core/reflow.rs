@@ -49,10 +49,24 @@ pub(in crate::core) fn resize_buffer_rows(
 struct LogicalLine {
     cells: Vec<Cell>,
     cursor_offset: Option<usize>,
+    cursor_row_offset: Option<usize>,
+    cursor_column: Option<usize>,
     /// OSC 133 prompt mark (SH1) captured from the first physical row of this
     /// logical line; re-stamped onto the first re-wrapped physical row so marks
     /// survive a width-changing resize.
     prompt_mark: Option<PromptKind>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(in crate::core) struct ReflowOptions {
+    pub preserve_cursor_physical_line: bool,
+    pub cursor_pending_wrap: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::core) struct ReflowResult {
+    pub cursor: Position,
+    pub pending_wrap: bool,
 }
 /// Reflow the combined `scrollback` + `rows` buffer to `dimensions`, preserving
 /// content by rejoining soft-wrapped rows into logical lines and re-wrapping
@@ -69,12 +83,30 @@ struct LogicalLine {
 /// - The visible window is the bottom `dimensions.rows` rows of the reflowed
 ///   buffer; everything above becomes scrollback. The cursor is mapped to its
 ///   character's new location and clamped into the visible grid.
+#[cfg(test)]
 pub(in crate::core) fn reflow_lines(
     scrollback: &mut Vec<Line>,
     rows: &mut Vec<Line>,
     dimensions: Dimensions,
     cursor: Position,
 ) -> Position {
+    reflow_lines_with_options(
+        scrollback,
+        rows,
+        dimensions,
+        cursor,
+        ReflowOptions::default(),
+    )
+    .cursor
+}
+
+pub(in crate::core) fn reflow_lines_with_options(
+    scrollback: &mut Vec<Line>,
+    rows: &mut Vec<Line>,
+    dimensions: Dimensions,
+    cursor: Position,
+    options: ReflowOptions,
+) -> ReflowResult {
     let new_cols = dimensions.columns;
     let new_rows = dimensions.rows;
 
@@ -90,6 +122,9 @@ pub(in crate::core) fn reflow_lines(
     let mut logicals: Vec<LogicalLine> = Vec::new();
     let mut current: Vec<Cell> = Vec::new();
     let mut current_cursor: Option<usize> = None;
+    let mut current_cursor_row_offset: Option<usize> = None;
+    let mut current_cursor_column: Option<usize> = None;
+    let mut current_row_count = 0usize;
     let mut current_mark: Option<PromptKind> = None;
     for (idx, line) in combined.iter().enumerate() {
         if current.is_empty() {
@@ -101,15 +136,26 @@ pub(in crate::core) fn reflow_lines(
             current_mark = line.prompt_mark;
         }
         if idx == cursor_abs_row {
-            current_cursor = Some(current.len() + cursor.column.min(line.cells.len()));
+            let column = if options.cursor_pending_wrap {
+                line.cells.len()
+            } else {
+                cursor.column.min(line.cells.len())
+            };
+            current_cursor = Some(current.len() + column);
+            current_cursor_row_offset = Some(current_row_count);
+            current_cursor_column = Some(cursor.column);
         }
         current.extend(line.cells.iter().copied());
+        current_row_count += 1;
         if !line.wrapped {
             logicals.push(LogicalLine {
                 cells: std::mem::take(&mut current),
                 cursor_offset: current_cursor.take(),
+                cursor_row_offset: current_cursor_row_offset.take(),
+                cursor_column: current_cursor_column.take(),
                 prompt_mark: current_mark.take(),
             });
+            current_row_count = 0;
         }
     }
     // Flush a trailing logical line whose last row was still marked wrapped.
@@ -117,6 +163,8 @@ pub(in crate::core) fn reflow_lines(
         logicals.push(LogicalLine {
             cells: current,
             cursor_offset: current_cursor,
+            cursor_row_offset: current_cursor_row_offset,
+            cursor_column: current_cursor_column,
             prompt_mark: current_mark,
         });
     }
@@ -142,6 +190,7 @@ pub(in crate::core) fn reflow_lines(
     // 2) Re-wrap each logical line to the new width.
     let mut new_combined: Vec<Line> = Vec::new();
     let mut cursor_dest: Option<(usize, usize)> = None;
+    let mut pending_wrap_dest = false;
 
     for logical in &logicals {
         // First physical row this logical line will produce; the prompt mark is
@@ -249,6 +298,18 @@ pub(in crate::core) fn reflow_lines(
         if let Some(first) = new_combined.get_mut(first_row) {
             first.prompt_mark = logical.prompt_mark;
         }
+
+        if options.preserve_cursor_physical_line && logical.cursor_offset.is_some() {
+            let last_row = new_combined.len().saturating_sub(1);
+            let row_offset = logical.cursor_row_offset.unwrap_or(0);
+            let row = first_row + row_offset.min(last_row.saturating_sub(first_row));
+            let column = logical
+                .cursor_column
+                .unwrap_or(cursor.column)
+                .min(new_cols - 1);
+            cursor_dest = Some((row, column));
+            pending_wrap_dest = options.cursor_pending_wrap && column == new_cols - 1;
+        }
     }
 
     // 3) Split into scrollback + a bottom-anchored visible window.
@@ -263,15 +324,23 @@ pub(in crate::core) fn reflow_lines(
     *scrollback = new_scrollback;
     *rows = visible;
 
-    match cursor_dest {
-        Some((abs_row, col)) => Position {
-            row: abs_row.saturating_sub(visible_start).min(new_rows - 1),
-            column: col.min(new_cols - 1),
-        },
+    let cursor = match cursor_dest {
+        Some((abs_row, col)) => {
+            let column = col.min(new_cols - 1);
+            pending_wrap_dest |= options.cursor_pending_wrap && column == new_cols - 1;
+            Position {
+                row: abs_row.saturating_sub(visible_start).min(new_rows - 1),
+                column,
+            }
+        }
         None => Position {
             row: cursor.row.min(new_rows - 1),
             column: cursor.column.min(new_cols - 1),
         },
+    };
+    ReflowResult {
+        cursor,
+        pending_wrap: pending_wrap_dest,
     }
 }
 /// Width-unchanged resize fast path: produces the byte-identical

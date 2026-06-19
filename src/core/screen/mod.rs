@@ -16,7 +16,7 @@ use super::kitty::{decode_base64_bytes, encode_base64_bytes};
 
 use super::prompt_marks::{self, PromptKind};
 use super::reflow::resize_buffer_rows;
-use super::scrollback::{Scrollback, resize_lazy};
+use super::scrollback::{ResizeOptions, Scrollback, resize_lazy_with_options};
 use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
 use super::types::*;
 
@@ -650,14 +650,19 @@ impl Screen {
             if let Some(mut primary) = self.primary_screen.take() {
                 // The stored primary shares the (old) width, so the same
                 // width-unchanged decision applies.
-                primary.cursor = resize_lazy(
+                let result = resize_lazy_with_options(
                     &mut primary.scrollback,
                     &mut primary.rows,
                     dimensions,
                     primary.cursor,
                     width_unchanged,
+                    ResizeOptions {
+                        preserve_cursor_physical_line: false,
+                        cursor_pending_wrap: primary.pending_wrap,
+                    },
                 );
-                primary.pending_wrap = false;
+                primary.cursor = result.cursor;
+                primary.pending_wrap = result.pending_wrap;
                 primary.scroll_region = clamp_scroll_region(primary.scroll_region, dimensions);
                 self.primary_screen = Some(primary);
             }
@@ -666,17 +671,25 @@ impl Screen {
             // new window; deep history stays logical and is projected on access.
             // The width-unchanged path uses the O(rows) keep-width fast path
             // (preserving P1-a).
-            self.cursor = resize_lazy(
+            let result = resize_lazy_with_options(
                 &mut self.scrollback,
                 &mut self.rows,
                 dimensions,
                 self.cursor,
                 width_unchanged,
+                ResizeOptions {
+                    preserve_cursor_physical_line: !width_unchanged,
+                    cursor_pending_wrap: self.pending_wrap,
+                },
             );
+            self.cursor = result.cursor;
+            self.pending_wrap = result.pending_wrap;
         }
 
         self.dimensions = dimensions;
-        self.pending_wrap = false;
+        if self.primary_screen.is_some() {
+            self.pending_wrap = false;
+        }
         self.resize_tab_stops(dimensions.columns);
         self.scroll_region = clamp_scroll_region(self.scroll_region, dimensions);
         self.graphics

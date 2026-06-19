@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Narrow-resize prompt repaint fix
+
+Width-changing primary-screen resize now keeps the active cursor line
+clear-compatible with shells that repaint prompts from pre-resize row counts
+(fish/starship style `CUU` + `ED`) while still reflowing visible content and
+scrollback normally. The lazy resize path gained an options-bearing result that
+threads pending-wrap state and lets the live primary screen preserve the
+cursor's old physical row offset within the reflowed logical line. Alternate
+screen resize remains app-managed and repaint-oriented.
+
+Regression coverage now includes the exact narrow-resize + fish old-height
+repaint transcript that used to duplicate the prompt, a cursor-row invariant
+test for old-footprint clears, pending-wrap survival through shrink, and updated
+reflow coverage documenting the new shell-repaint cursor contract. Existing
+content-preservation tests still verify shrink/grow recovery through visible
+rows, scrollback, and alt-screen round trips.
+
+Verification: `cargo fmt --check` clean; `cargo test` clean (1808 lib tests
+passed, 7 ignored; integration/doc suites clean); `cargo build --release`
+clean.
+
+Gaps: live visual verification against the operator's fish + starship narrow
+drag screenshots is still pending in the operator environment.
+
+---
+
 ## 2026-06-19 -- Victor Mono default body font (bundled)
 
 Victor Mono is now the bundled default body font at 22 logical pixels

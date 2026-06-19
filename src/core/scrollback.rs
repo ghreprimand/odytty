@@ -52,7 +52,7 @@ use std::cell::{Ref, RefCell};
 use unicode_width::UnicodeWidthChar;
 
 use super::prompt_marks::PromptKind;
-use super::reflow::{reflow_lines, resize_keep_width};
+use super::reflow::{ReflowOptions, reflow_lines_with_options, resize_keep_width};
 use super::screen::Line;
 use super::types::{Cell, Dimensions, Position};
 
@@ -94,6 +94,18 @@ impl Projection {
 pub(in crate::core) struct Scrollback {
     lines: Vec<LogicalLine>,
     cache: RefCell<Projection>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(in crate::core) struct ResizeOptions {
+    pub preserve_cursor_physical_line: bool,
+    pub cursor_pending_wrap: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::core) struct ResizeResult {
+    pub cursor: Position,
+    pub pending_wrap: bool,
 }
 
 impl Scrollback {
@@ -203,6 +215,7 @@ impl Scrollback {
 /// exactly (proven by the differential parity suite). `width_unchanged` selects
 /// the O(rows) [`resize_keep_width`] fast path (preserving P1-a) over the general
 /// [`reflow_lines`].
+#[cfg(test)]
 pub(in crate::core) fn resize_lazy(
     sb: &mut Scrollback,
     rows: &mut Vec<Line>,
@@ -210,6 +223,25 @@ pub(in crate::core) fn resize_lazy(
     cursor: Position,
     width_unchanged: bool,
 ) -> Position {
+    resize_lazy_with_options(
+        sb,
+        rows,
+        new_dims,
+        cursor,
+        width_unchanged,
+        ResizeOptions::default(),
+    )
+    .cursor
+}
+
+pub(in crate::core) fn resize_lazy_with_options(
+    sb: &mut Scrollback,
+    rows: &mut Vec<Line>,
+    new_dims: Dimensions,
+    cursor: Position,
+    width_unchanged: bool,
+    options: ResizeOptions,
+) -> ResizeResult {
     let new_rows = new_dims.rows;
     let new_width = new_dims.columns;
 
@@ -270,10 +302,27 @@ pub(in crate::core) fn resize_lazy(
     // Reflow the subset; `overflow` is the part above the new window that returns
     // to scrollback, `subset` becomes the new visible window.
     let mut overflow: Vec<Line> = Vec::new();
-    let new_cursor = if width_unchanged {
-        resize_keep_width(&mut overflow, &mut subset, new_dims, cursor_in)
+    let result = if width_unchanged {
+        let cursor = resize_keep_width(&mut overflow, &mut subset, new_dims, cursor_in);
+        ResizeResult {
+            cursor,
+            pending_wrap: options.cursor_pending_wrap && cursor.column == new_width - 1,
+        }
     } else {
-        reflow_lines(&mut overflow, &mut subset, new_dims, cursor_in)
+        let reflow = reflow_lines_with_options(
+            &mut overflow,
+            &mut subset,
+            new_dims,
+            cursor_in,
+            ReflowOptions {
+                preserve_cursor_physical_line: options.preserve_cursor_physical_line,
+                cursor_pending_wrap: options.cursor_pending_wrap,
+            },
+        );
+        ResizeResult {
+            cursor: reflow.cursor,
+            pending_wrap: reflow.pending_wrap,
+        }
     };
 
     *rows = subset;
@@ -283,7 +332,7 @@ pub(in crate::core) fn resize_lazy(
         sb.push_row(row);
     }
     sb.invalidate();
-    new_cursor
+    result
 }
 
 /// Rebuild logical lines from physical rows (the inverse of [`project_logical`]).
