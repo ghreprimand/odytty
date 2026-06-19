@@ -23,8 +23,9 @@ floor.
 OdyTTY is in active development. It is already a broad prototype: a native
 window opens real local shells, supports multiple sessions with a tab bar,
 renders text and inline graphics on the GPU, and has a substantial compatibility
-and smoke-test suite. It is still Linux-first and pre-release; official release
-binary artifacts, cross-platform support, panes, and profiles are not done.
+and smoke-test suite. It is still Linux-first and pre-release; an experimental
+universal macOS build is published as of v0.1.8 (unsigned — see the macOS install
+notes below), while panes and profiles are not done.
 
 ## Highlights
 
@@ -68,7 +69,7 @@ For the current source release, install OdyTTY for the current user.
 Download and verify the release archive:
 
 ```sh
-version=0.1.7
+version=0.1.8
 workdir=$(mktemp -d /tmp/odytty-install.XXXXXX)
 cd "$workdir"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
@@ -111,6 +112,29 @@ application:
 ```sh
 odytty
 ```
+
+### macOS (experimental)
+
+As of v0.1.8, OdyTTY publishes an experimental **universal** macOS build (Apple
+Silicon and Intel). macOS support is new and not yet as battle-tested as Linux.
+The build is **unsigned**, so Gatekeeper blocks it on first launch until you
+clear the quarantine flag.
+
+1. From the
+   [latest release](https://github.com/ghreprimand/odytty/releases/latest),
+   download `odytty-<version>-macos-universal.dmg` and `SHA256SUMS`, then verify:
+
+   ```sh
+   shasum -a 256 -c SHA256SUMS
+   ```
+
+2. Open the `.dmg` and drag **OdyTTY** into Applications.
+3. On first launch, right-click the app and choose **Open**, or clear the
+   quarantine flag once:
+
+   ```sh
+   xattr -cr "/Applications/OdyTTY.app"
+   ```
 
 Run a command directly inside OdyTTY:
 

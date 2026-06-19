@@ -572,14 +572,25 @@ pub struct FontInventoryEntry {
 /// Only existing directories are returned. Used by the settings layer to resolve
 /// `ODYTTY_FONT_FAMILY`; tests pass explicit dirs instead for hermeticity.
 pub fn font_search_dirs() -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    let mut dirs = vec![
+        PathBuf::from("/System/Library/Fonts"),
+        PathBuf::from("/Library/Fonts"),
+    ];
+    #[cfg(not(target_os = "macos"))]
     let mut dirs = vec![
         PathBuf::from("/usr/share/fonts"),
         PathBuf::from("/usr/local/share/fonts"),
     ];
     if let Some(home) = std::env::var_os("HOME") {
         let home = PathBuf::from(home);
-        dirs.push(home.join(".local/share/fonts"));
-        dirs.push(home.join(".fonts"));
+        #[cfg(target_os = "macos")]
+        dirs.push(home.join("Library/Fonts"));
+        #[cfg(not(target_os = "macos"))]
+        {
+            dirs.push(home.join(".local/share/fonts"));
+            dirs.push(home.join(".fonts"));
+        }
     }
     dirs.retain(|d| d.is_dir());
     dirs

@@ -32,6 +32,11 @@
   <url type="bugtracker">https://github.com/ghreprimand/odytty/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.8" date="2026-06-19">
+      <description>
+        <p>Adds an experimental universal macOS build and a tag-triggered release pipeline that publishes the Linux source archive and the macOS disk image together. No functional change for Linux.</p>
+      </description>
+    </release>
     <release version="0.1.7" date="2026-06-19">
       <description>
         <p>Adds bell handling (visual flash or window urgency, configurable) and IME composition input so CJK input methods and compose-key accents work.</p>

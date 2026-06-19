@@ -1,0 +1,111 @@
+name: Release
+
+# Builds platform artifacts and publishes a GitHub Release when a version tag
+# (vX.Y.Z) is pushed. Tag pushes are restricted to maintainers, so this never
+# runs from fork pull requests. A failed build publishes nothing: the release
+# job runs only after both build jobs succeed.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  source:
+    name: Source tarball
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create source archive
+        run: |
+          mkdir -p dist/build
+          git archive --format=tar.gz \
+            --prefix="odytty-${{ steps.ver.outputs.version }}/" \
+            -o "dist/build/odytty-${{ steps.ver.outputs.version }}.tar.gz" HEAD
+
+      - name: Upload source artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: source
+          path: dist/build/*.tar.gz
+
+  macos:
+    name: macOS universal .dmg
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Add Rust targets
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: macos-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: macos-cargo-
+
+      - name: Build universal binary
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+          mkdir -p dist/build
+          lipo -create -output dist/build/odytty \
+            target/aarch64-apple-darwin/release/odytty \
+            target/x86_64-apple-darwin/release/odytty
+          lipo -info dist/build/odytty
+
+      - name: Assemble .app bundle
+        run: bash dist/macos/make-app.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Build .dmg
+        run: bash dist/macos/make-dmg.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Upload dmg artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/build/*.dmg
+
+  release:
+    name: Publish release
+    needs: [source, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect artifacts and checksum
+        run: |
+          mkdir -p out
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.dmg' \) -exec cp {} out/ \;
+          cd out
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/*.tar.gz
+            out/*.dmg
+            out/SHA256SUMS
+          generate_release_notes: true
+          fail_on_unmatched_files: true

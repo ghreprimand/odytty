@@ -350,14 +350,25 @@ fn discover_with_fontconfig() -> Option<EmojiFontMatch> {
 }
 
 fn default_emoji_font_dirs() -> Vec<PathBuf> {
+    #[cfg(target_os = "macos")]
+    let mut dirs = vec![
+        PathBuf::from("/System/Library/Fonts"),
+        PathBuf::from("/Library/Fonts"),
+    ];
+    #[cfg(not(target_os = "macos"))]
     let mut dirs = vec![
         PathBuf::from("/usr/share/fonts"),
         PathBuf::from("/usr/local/share/fonts"),
     ];
     if let Some(home) = std::env::var_os("HOME") {
         let home = PathBuf::from(home);
-        dirs.push(home.join(".local/share/fonts"));
-        dirs.push(home.join(".fonts"));
+        #[cfg(target_os = "macos")]
+        dirs.push(home.join("Library/Fonts"));
+        #[cfg(not(target_os = "macos"))]
+        {
+            dirs.push(home.join(".local/share/fonts"));
+            dirs.push(home.join(".fonts"));
+        }
     }
     dirs.retain(|dir| dir.is_dir());
     dirs

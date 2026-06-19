@@ -11,7 +11,9 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use anyhow::{Context, Result, bail};
 use rustix::fd::AsFd;
 use rustix::process::RawPid;
-use rustix::pty::{OpenptFlags, grantpt, ioctl_tiocgptpeer, openpt, unlockpt};
+#[cfg(target_os = "linux")]
+use rustix::pty::ioctl_tiocgptpeer;
+use rustix::pty::{OpenptFlags, grantpt, openpt, unlockpt};
 use rustix::termios::{Winsize, tcgetpgrp, tcsetwinsize};
 
 use crate::core::Dimensions;
@@ -165,7 +167,8 @@ impl PtySession {
 
         // The child becomes a session leader and claims the slave side as its
         // controlling terminal before exec. rustix covers the PTY plumbing, but
-        // Linux TIOCSCTTY is not exposed as a focused rustix helper.
+        // TIOCSCTTY (present on both Linux and macOS) is not exposed as a
+        // focused rustix helper, so it goes through libc directly.
         unsafe {
             command.pre_exec(move || {
                 if libc::setsid() == -1 {
@@ -229,7 +232,7 @@ impl PtySession {
 
         let pid = self.child.id();
         if pid > i32::MAX as u32 {
-            bail!("child pid {pid} is too large for Linux pid_t");
+            bail!("child pid {pid} is too large for pid_t");
         }
 
         let process_group = -(pid as libc::pid_t);
@@ -300,16 +303,42 @@ impl Drop for PtySession {
 
 fn open_pty_pair(dimensions: Dimensions) -> Result<(File, File)> {
     let flags = OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC;
-    let master = openpt(flags).context("open /dev/ptmx")?;
+    let master = openpt(flags).context("open pty master")?;
     grantpt(&master).context("grant pty")?;
     unlockpt(&master).context("unlock pty")?;
-    let slave = ioctl_tiocgptpeer(&master, flags).context("open pty slave")?;
+    let slave = open_pty_slave(&master, flags)?;
 
     tcsetwinsize(&slave, winsize(dimensions)).context("set pty window size")?;
 
     let master = unsafe { File::from_raw_fd(master.into_raw_fd()) };
     let slave = unsafe { File::from_raw_fd(slave.into_raw_fd()) };
     Ok((master, slave))
+}
+
+/// Open the slave (user) side of a freshly created, granted, and unlocked PTY
+/// master.
+///
+/// Linux exposes the focused `TIOCGPTPEER` ioctl, which returns the slave fd
+/// directly with no race on its name. macOS and the BSDs have no such ioctl, so
+/// the slave is opened by name via the POSIX `ptsname` path instead. Both paths
+/// honor the same `O_RDWR | O_NOCTTY | O_CLOEXEC` semantics as the master.
+#[cfg(target_os = "linux")]
+fn open_pty_slave<Fd: AsFd>(master: Fd, flags: OpenptFlags) -> Result<rustix::fd::OwnedFd> {
+    ioctl_tiocgptpeer(master, flags).context("open pty slave (TIOCGPTPEER)")
+}
+
+#[cfg(not(target_os = "linux"))]
+fn open_pty_slave<Fd: AsFd>(master: Fd, _flags: OpenptFlags) -> Result<rustix::fd::OwnedFd> {
+    use rustix::fs::{Mode, OFlags, open};
+    use rustix::pty::ptsname;
+
+    let name = ptsname(master, Vec::new()).context("ptsname")?;
+    open(
+        name.as_c_str(),
+        OFlags::RDWR | OFlags::NOCTTY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .context("open pty slave (ptsname)")
 }
 
 fn winsize(dimensions: Dimensions) -> Winsize {

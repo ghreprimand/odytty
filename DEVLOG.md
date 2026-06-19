@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- macOS port + cross-platform release pipeline (v0.1.8)
+
+First step toward cross-platform support: OdyTTY now compiles for macOS and ships
+an experimental universal (Apple Silicon + Intel) `.dmg`. The terminal core was
+already ~95% portable — almost all platform code was gated `#[cfg(unix)]` (which
+includes macOS), not `linux`, and the dependency stack maps cleanly (wgpu→Metal,
+winit→AppKit, arboard→NSPasteboard, rustix/libc POSIX). Three changes closed the
+gap:
+
+- **PTY slave-open (`src/pty.rs`).** The one hard compile blocker: the slave side
+  was opened with `rustix::pty::ioctl_tiocgptpeer` (TIOCGPTPEER), which is
+  Linux-only. Split into `open_pty_slave` — Linux keeps the focused
+  `TIOCGPTPEER` ioctl; non-Linux (macOS/BSD) opens the slave by name via POSIX
+  `ptsname` + `open` with the same `O_RDWR | O_NOCTTY | O_CLOEXEC` semantics. The
+  Linux path is byte-for-byte unchanged.
+- **Font discovery (`src/text.rs`, `src/emoji/mod.rs`).** `font_search_dirs` and
+  `default_emoji_font_dirs` now use macOS font locations
+  (`/System/Library/Fonts`, `/Library/Fonts`, `~/Library/Fonts`) under
+  `#[cfg(target_os = "macos")]`; Linux/XDG paths unchanged elsewhere.
+- **Packaging + CI.** New `dist/macos/` assets (`Info.plist`, `make-app.sh`,
+  `make-dmg.sh`, a 1024px icon source rendered from the SVG) build an
+  `OdyTTY.app` (icns via native `sips`/`iconutil`) inside a drag-to-install
+  `.dmg`. A new `.github/workflows/release.yml` triggers on `vX.Y.Z` tags and
+  runs three jobs — source tarball, macOS universal dmg, and a release job that
+  combines them with one `SHA256SUMS`. The release job runs only after both
+  builds pass, so a failed compile publishes nothing.
+
+Decided to build the macOS release on the **GitHub-hosted** macOS runner: odytty
+is a public repo, so standard runners (including macOS) are free — no self-hosted
+runner needed. The first tagged build doubles as the macOS compile verification.
+
+Known macOS gap to verify after first run: color emoji resolution looks for
+`NotoColorEmoji` (CBDT/COLR); macOS ships Apple Color Emoji (`sbix`), so emoji
+may not render until `sbix` is supported. Not a compile blocker. Windows remains
+a separate, larger effort (needs a ConPTY backend) and is investigated but not
+started. Both platforms stay on `main` behind `#[cfg(...)]` — no per-OS branches.
+
+Gates: `cargo fmt --check` clean, full `cargo test` green (1983 tests). The
+macOS arms are verified to compile-gate cleanly on Linux; actual macOS
+compilation is verified by the first CI build.
+
 ## 2026-06-19 -- Pre-release audit fixes: bell + IME (v0.1.7)
 
 Pre-release audit of the whole codebase (correctness, security, gaps vs Ghostty

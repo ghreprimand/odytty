@@ -12,3 +12,6 @@ GEMINI.md
 
 # Added by cargo
 /target
+
+# macOS release build output
+/dist/build
