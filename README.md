@@ -164,8 +164,11 @@ From the source tree without installing:
 
 `--list-themes` prints the 100 built-in themes as stable
 `name`/`appearance`/`family` rows. `--list-fonts` prints discoverable system
-font files. `--show-config` prints the current stable config-dump subset; the
-full settings authority is [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
+font files. `--show-config` prints the current stable config-dump subset (including
+`symbol_fallback` and `symbol_font_source`, which reports whether the
+symbol/Nerd-font fallback resolves the `explicit:<path>`, `bundled`, or
+`host:<path>` face, or is `disabled`); the full settings authority is
+[`docs/runtime-knobs.md`](docs/runtime-knobs.md).
 
 ## Current Feature Surface
 

@@ -742,9 +742,17 @@ Text is cell-based: each codepoint occupies one or two columns (`unicode-width`
 consistent with core), and all coordinate systems are per-cell. The default
 body font is bundled **Victor Mono** (SIL OFL 1.1) at 20 logical pixels;
 **JetBrains Mono** is also bundled and remains selectable. SGR italic maps to
-Victor Mono's roman-slant Oblique faces. PUA prompt/Nerd-font icons resolve
-through a bundled **Symbols Nerd Font Mono** fallback (enabled by default;
-override via `ODYTTY_SYMBOL_FONT`, `symbol_map`, or the settings toggle). The
+Victor Mono's roman-slant Oblique faces. Symbol/Nerd-font icons — both the
+Private Use Area sets and the standard symbol blocks body fonts lack (arrows,
+power symbols, Dingbats such as the prompt `❯`, …) — resolve through a bundled
+**Symbols Nerd Font Mono** fallback (enabled by default). Resolution precedence
+is **explicit > bundled > host**: an explicit `ODYTTY_SYMBOL_FONT` / `symbol_font`
+override wins, otherwise the version-pinned bundled face is used so the
+out-of-the-box icon path never depends on host-installed Nerd fonts, and a
+host-discovered face is the last resort (only when the bundled asset is absent).
+`symbol_map` per-range overrides and the settings toggle remain in effect.
+`--show-config` reports the live `symbol_fallback` state and the resolved
+`symbol_font_source` (`explicit:<path>` / `bundled` / `host:<path>` / `disabled`). The
 glyph atlas uses one monospace face for regular text, with bold/italic/bold-italic faces
 loaded when discovered by filename convention. When a style face is absent,
 `StyleFonts::synthetic_mask()` derives a per-face synthesis flag by comparing

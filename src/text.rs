@@ -953,38 +953,120 @@ pub const SYMBOL_FONT_ENV: &str = "ODYTTY_SYMBOL_FONT";
 const SYMBOL_FONT_HINTS: &[&str] = &["symbolsnerdfont", "nerdfont"];
 
 /// Resolve a symbol / Nerd-font face for the RV6 PUA-icon fallback, or `None`
-/// when neither the host nor the gated bundled asset can provide one.
+/// when neither the bundled asset nor the host can provide one.
 ///
-/// Resolution order:
+/// Resolution order (precedence: **explicit > bundled > host**):
 /// 1. An explicit [`SYMBOL_FONT_ENV`] path (loaded directly; a bad path yields
-///    fallback search rather than aborting).
-/// 2. The first file under [`font_search_dirs`] whose normalized stem contains
-///    a [`SYMBOL_FONT_HINTS`] fragment, preferring the dedicated symbols-only
-///    face.
-/// 3. The bundled symbols-only face, when the default `bundled-symbols-font`
-///    feature is enabled.
+///    fallback resolution rather than aborting).
+/// 2. The bundled symbols-only face, when the default `bundled-symbols-font`
+///    feature is enabled. This is the reliable, version-pinned default so the
+///    out-of-the-box icon path never depends on which fonts the host happens to
+///    have installed.
+/// 3. The first file under [`font_search_dirs`] whose normalized stem contains
+///    a [`SYMBOL_FONT_HINTS`] fragment -- only reached when the bundled asset is
+///    absent (e.g. `--no-default-features`).
 ///
 /// The font is only *loaded*; whether it is *used* is the caller's gate (the
 /// native layer reads its enable switch before installing it on the atlas).
 pub fn resolve_symbol_font() -> Option<FontVec> {
-    if let Some(path) = std::env::var_os(SYMBOL_FONT_ENV) {
-        let path = PathBuf::from(path);
-        if !path.as_os_str().is_empty() {
-            match load_font_at(&path) {
-                Ok(font) => return Some(font),
-                Err(err) => {
-                    eprintln!("odytty: {err}; ignoring {SYMBOL_FONT_ENV}");
-                }
+    let explicit = std::env::var_os(SYMBOL_FONT_ENV)
+        .map(PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty());
+    resolve_symbol_font_with_source(explicit.as_deref(), &font_search_dirs()).1
+}
+
+/// Where the RV6 symbol / Nerd-font fallback face resolved from, for
+/// diagnostics (`--show-config`). Carries the concrete path for the explicit
+/// and host cases so operators can see exactly which file is in play.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SymbolFontSource {
+    /// No fallback face is available (the bundled asset is absent and neither
+    /// an explicit nor a host face resolved).
+    None,
+    /// An explicit user-named file (`ODYTTY_SYMBOL_FONT` env or the
+    /// `symbol_font` setting).
+    Explicit(PathBuf),
+    /// The bundled symbols-only face shipped with odytty (version-pinned).
+    Bundled,
+    /// A host-discovered "* Nerd Font" face (only when no bundled asset).
+    Host(PathBuf),
+}
+
+impl SymbolFontSource {
+    /// Stable, script-friendly description for `--show-config`:
+    /// `none`, `explicit:<path>`, `bundled`, or `host:<path>`.
+    pub fn describe(&self) -> String {
+        match self {
+            SymbolFontSource::None => "none".to_owned(),
+            SymbolFontSource::Explicit(path) => format!("explicit:{}", path.display()),
+            SymbolFontSource::Bundled => "bundled".to_owned(),
+            SymbolFontSource::Host(path) => format!("host:{}", path.display()),
+        }
+    }
+}
+
+/// Resolve the symbol / Nerd-font fallback face and report **where** it came
+/// from, under the precedence **explicit > bundled > host**.
+///
+/// This is the single source of truth for symbol-fallback resolution: the
+/// native renderer uses the loaded `FontVec`, and `--show-config` uses the
+/// [`SymbolFontSource`] for diagnostics, so the reported source can never drift
+/// from what the renderer actually installs.
+///
+/// `explicit_path` is the user's explicit override (`ODYTTY_SYMBOL_FONT` or the
+/// `symbol_font` setting); a path that fails to load is reported via `eprintln!`
+/// and resolution falls through to the bundled/host search rather than aborting.
+pub fn resolve_symbol_font_with_source(
+    explicit_path: Option<&Path>,
+    dirs: &[PathBuf],
+) -> (SymbolFontSource, Option<FontVec>) {
+    if let Some(path) = explicit_path {
+        match load_font_at(path) {
+            Ok(font) => return (SymbolFontSource::Explicit(path.to_path_buf()), Some(font)),
+            Err(err) => {
+                eprintln!("odytty: {err}; falling back to the bundled symbol font");
             }
         }
     }
-    resolve_symbol_font_in(&font_search_dirs()).or_else(resolve_bundled_symbol_font)
+    // Bundled before host: the shipped face is known-good and version-pinned, so
+    // the out-of-the-box icon path is identical on every machine regardless of
+    // which Nerd fonts the host has installed.
+    if let Some(font) = resolve_bundled_symbol_font() {
+        return (SymbolFontSource::Bundled, Some(font));
+    }
+    // Last resort (bundled asset absent, e.g. `--no-default-features`): a
+    // host-discovered symbol/Nerd face.
+    if let Some(path) = resolve_symbol_font_path_in(dirs) {
+        if let Ok(font) = load_font_at(&path) {
+            return (SymbolFontSource::Host(path), Some(font));
+        }
+    }
+    (SymbolFontSource::None, None)
+}
+
+/// Resolve only the **source** of the symbol-fallback face. Convenience wrapper
+/// over [`resolve_symbol_font_with_source`] for `--show-config`, which needs the
+/// label but not the rasterizable `FontVec`.
+pub fn resolve_symbol_font_source(
+    explicit_path: Option<&Path>,
+    dirs: &[PathBuf],
+) -> SymbolFontSource {
+    resolve_symbol_font_with_source(explicit_path, dirs).0
 }
 
 /// Family-search half of [`resolve_symbol_font`], factored out so tests can
 /// pass a hermetic fixture directory. Prefers the dedicated "Symbols Nerd Font"
 /// face (hint index 0) over a general patched "* Nerd Font" face.
 pub fn resolve_symbol_font_in(dirs: &[PathBuf]) -> Option<FontVec> {
+    resolve_symbol_font_path_in(dirs).and_then(|path| load_font_at(&path).ok())
+}
+
+/// The path of the best host-discovered symbol / Nerd font under `dirs`, or
+/// `None`. The path-returning core of [`resolve_symbol_font_in`]: prefers the
+/// dedicated "Symbols Nerd Font" face (hint index 0) over a general patched
+/// "* Nerd Font" face. Exposed so [`resolve_symbol_font_with_source`] can label
+/// the resolved host file without re-scanning.
+pub fn resolve_symbol_font_path_in(dirs: &[PathBuf]) -> Option<PathBuf> {
     let files = collect_font_files(dirs);
     let mut best: Option<(usize, PathBuf)> = None;
     for f in &files {
@@ -996,8 +1078,7 @@ pub fn resolve_symbol_font_in(dirs: &[PathBuf]) -> Option<FontVec> {
             }
         }
     }
-    let (_, path) = best?;
-    load_font_at(&path).ok()
+    best.map(|(_, path)| path)
 }
 
 /// Whether a font's representative glyphs share one advance width (monospace).
@@ -2300,6 +2381,75 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&plain);
+    }
+
+    // --- symbol-fallback precedence (explicit > bundled > host) -----------
+
+    #[test]
+    fn symbol_source_no_override_with_bundled_present_is_bundled_not_host() {
+        // The out-of-the-box default: no explicit override. Even when a host
+        // "* Nerd Font" face is present in the search dirs, the bundled,
+        // version-pinned face wins, so icon rendering is identical on every
+        // machine regardless of host fonts.
+        let Some(bytes) = system_mono_bytes() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let dir = unique_tmp_dir("symbol-source-bundled");
+        std::fs::write(dir.join("SymbolsNerdFont-Regular.ttf"), &bytes).expect("write host symbol");
+
+        let (source, font) = resolve_symbol_font_with_source(None, &[dir.clone()]);
+        assert_eq!(
+            source,
+            SymbolFontSource::Bundled,
+            "bundled face must win over a host symbol font when no override is set"
+        );
+        assert!(font.is_some(), "bundled face must load");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn symbol_source_explicit_path_wins_over_bundled() {
+        // A valid explicit override is reported as Explicit and takes priority
+        // over the bundled face.
+        let Some(bytes) = system_mono_bytes() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let dir = unique_tmp_dir("symbol-source-explicit");
+        let explicit = dir.join("MyExplicitSymbols.ttf");
+        std::fs::write(&explicit, &bytes).expect("write explicit font");
+
+        let (source, font) = resolve_symbol_font_with_source(Some(&explicit), &[]);
+        assert_eq!(source, SymbolFontSource::Explicit(explicit.clone()));
+        assert!(font.is_some());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn symbol_source_bad_explicit_path_falls_through_to_bundled() {
+        // An explicit path that fails to load must not abort resolution: it
+        // falls through to the bundled face.
+        let bogus = PathBuf::from("/nonexistent/odytty-no-such-symbol-font.ttf");
+        let (source, font) = resolve_symbol_font_with_source(Some(&bogus), &[]);
+        assert_eq!(source, SymbolFontSource::Bundled);
+        assert!(font.is_some());
+    }
+
+    #[test]
+    fn symbol_source_describe_is_stable() {
+        assert_eq!(SymbolFontSource::None.describe(), "none");
+        assert_eq!(SymbolFontSource::Bundled.describe(), "bundled");
+        assert_eq!(
+            SymbolFontSource::Explicit(PathBuf::from("/a/b.ttf")).describe(),
+            "explicit:/a/b.ttf"
+        );
+        assert_eq!(
+            SymbolFontSource::Host(PathBuf::from("/c/d.ttf")).describe(),
+            "host:/c/d.ttf"
+        );
     }
 
     // --- SYMMAP core ------------------------------------------------------

@@ -90,6 +90,9 @@ fn show_config_output_formats_default_settings() {
     assert_contains_line(&output, "crt=on");
     assert_contains_line(&output, "keybinds=");
     assert_contains_line(&output, "synthetic_styles=on");
+    // Symbol-fallback diagnostics: on by default, backed by the bundled face.
+    assert_contains_line(&output, "symbol_fallback=on");
+    assert_contains_line(&output, "symbol_font_source=bundled");
 
     let lines = output.lines().collect::<Vec<_>>();
     let mut sorted = lines.clone();

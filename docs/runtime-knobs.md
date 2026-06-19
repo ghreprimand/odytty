@@ -77,7 +77,7 @@ environment variable was not set at startup.
 | `synthetic_styles` | `ODYTTY_SYNTHETIC_STYLES` | `on`, `off` | `on` |
 | `geometric_boxdraw` | `ODYTTY_GEOMETRIC_BOXDRAW` | `on`, `off` | `off` |
 | `box_thickness` | `ODYTTY_BOX_THICKNESS` | Float, `0.5..=3.0` | `1.0` |
-| `symbol_fallback` | `ODYTTY_SYMBOL_FALLBACK` | `on`, `off` | `off` |
+| `symbol_fallback` | `ODYTTY_SYMBOL_FALLBACK` | `on`, `off` | `on` |
 | `symbol_font` | `ODYTTY_SYMBOL_FONT` | `.ttf`/`.otf` path, empty, or `auto` | auto |
 | `symbol_map` | `ODYTTY_SYMBOL_MAP` | Semicolon-separated `range=family` entries | empty |
 | `themed_ui_roles` | `ODYTTY_THEMED_UI_ROLES` | `on`, `off` | `on` |

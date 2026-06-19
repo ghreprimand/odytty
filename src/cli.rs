@@ -197,6 +197,11 @@ pub fn show_config_output(settings: &Settings) -> String {
         ),
         ("retro", bool_value(settings.retro).to_owned()),
         ("stem_darken", float_value(settings.stem_darken)),
+        (
+            "symbol_fallback",
+            bool_value(settings.symbol_fallback).to_owned(),
+        ),
+        ("symbol_font_source", symbol_font_source_value(settings)),
         ("subpixel", subpixel_value(settings.subpixel).to_owned()),
         (
             "synthetic_styles",
@@ -217,6 +222,21 @@ pub fn show_config_output(settings: &Settings) -> String {
         out.push('\n');
     }
     out
+}
+
+/// The symbol / Nerd-font fallback source for `--show-config` diagnostics.
+///
+/// Reports `disabled` when the fallback is off; otherwise the source the
+/// renderer would install under the precedence explicit > bundled > host
+/// (`explicit:<path>`, `bundled`, `host:<path>`, or `none`). This is exactly
+/// the diagnostic that makes "why is my prompt icon tofu / which font is in
+/// play" answerable without source diving.
+fn symbol_font_source_value(settings: &Settings) -> String {
+    if !settings.symbol_fallback {
+        return "disabled".to_owned();
+    }
+    text::resolve_symbol_font_source(settings.symbol_font.as_deref(), &text::font_search_dirs())
+        .describe()
 }
 
 fn appearance(theme: Theme) -> &'static str {

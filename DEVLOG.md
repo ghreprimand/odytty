@@ -7,6 +7,71 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Symbol fallback: bundled-first precedence + resolution diagnostics
+
+Closes the still-open Phase 1 bundled-symbols resolution items. Two functional
+changes plus a diagnostic, all behind the existing default-on `symbol_fallback`.
+
+1. Bundled-first precedence. Resolution is now **explicit > bundled > host**
+   (was explicit > host > bundled). Previously, if the host had any "* Nerd
+   Font" face, `resolve_symbol_font_in` returned it and the bundled
+   SymbolsNerdFontMono was never used — so out-of-the-box icon rendering
+   depended on host fonts. The version-pinned bundled face is now the reliable
+   default; host discovery is the last resort, reached only when the bundled
+   asset is absent (`--no-default-features`). `ODYTTY_SYMBOL_FONT` / `symbol_font`
+   explicit overrides, `symbol_map` SYMMAP, and the settings toggle all still
+   take priority / remain in effect.
+
+2. Single source of truth. New `text::resolve_symbol_font_with_source` owns the
+   precedence and returns both the loaded face and a `SymbolFontSource`
+   (`None`/`Explicit`/`Bundled`/`Host`). The native renderer
+   (`gpu::fonts::resolve_symbol_fallback`) and `--show-config` both go through
+   it, so the reported source can never drift from what the renderer installs.
+   `text::resolve_symbol_font` and `resolve_symbol_font_in` now delegate to it
+   (added `resolve_symbol_font_path_in` to expose the host path for labeling).
+
+3. `--show-config` diagnostics. Added two rows: `symbol_fallback` (on/off) and
+   `symbol_font_source` (`explicit:<path>` / `bundled` / `host:<path>` /
+   `disabled`). This is the diagnostic that makes "why is my prompt icon tofu /
+   which symbol font is in play" answerable without source diving.
+
+Files: `src/text.rs` (SymbolFontSource enum + describe(), resolve_symbol_font_
+with_source / _source, path-returning resolve_symbol_font_path_in, bundled-first
+resolve_symbol_font), `src/native/gpu/fonts.rs` (resolve_symbol_fallback
+delegates to the shared resolver; removed the host-first
+resolve_symbol_fallback_with_dirs and its now-wrong host-beats-bundled test),
+`src/cli.rs` (symbol_fallback + symbol_font_source rows, symbol_font_source_
+value helper), `tests/cli.rs` (assert the new rows), `README.md` /
+`docs/runtime-knobs.md` (fixed stale `symbol_fallback` default `off` -> `on`,
+documented the diagnostic) / `SPEC.md` (precedence + standard-symbol-block
+coverage + diagnostic).
+
+Tests: text.rs — symbol_source_no_override_with_bundled_present_is_bundled_not_
+host (proves bundled beats a host symbol font with no override),
+symbol_source_explicit_path_wins_over_bundled, symbol_source_bad_explicit_path_
+falls_through_to_bundled, symbol_source_describe_is_stable. fonts.rs —
+symbol_fallback_off_resolves_none, symbol_fallback_default_on_resolves_bundled_
+face (the out-of-the-box default-on path), explicit_symbol_font_path_resolves.
+cli.rs — default show-config asserts symbol_fallback=on + symbol_font_source=
+bundled. Manually verified the four --show-config states (default=bundled,
+valid explicit=explicit:<path>, bad explicit=bundled, disabled=disabled).
+
+Verified: `cargo fmt --check` clean, `cargo test` all suites green (lib 1828
+passed / 0 failed; cli 8/8; all integration suites pass), `cargo build
+--release` clean.
+
+Pre-existing flaky tests unrelated to this change: the global-floor-atomic
+tests (`floor_disabled_needs_no_scrim`, `enforce_contrast_rgba_seam_gates_on_
+the_global_floor`) are order/state-dependent — they fail in isolation on the
+clean tree too and pass in the full suite. Logged for a later serial-test /
+per-test-reset packet.
+
+Gaps: none for Phase 1 symbol fallback. Remaining v0.1.6 items (resize bug
+research, Phase 4 regression coverage rounding-out, ship/tag) are tracked in the
+cluster plan.
+
+---
+
 ## 2026-06-19 -- Symbol fallback: classify non-PUA symbol blocks (fixes ❯ tofu)
 
 The starship/fish prompt char `❯` (U+276F, Dingbats) rendered as tofu even with

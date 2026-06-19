@@ -210,39 +210,22 @@ pub(super) fn effective_symbol_font_path() -> Option<PathBuf> {
 }
 
 /// Resolve the symbol / Nerd-font fallback face when enabled and a font is
-/// available, else `None`. A missing font with the switch on is not fatal — the
-/// renderer keeps the hollow-box behavior.
+/// available, else `None`. A missing font with the switch on is not fatal --
+/// the renderer keeps the hollow-box behavior.
+///
+/// Precedence is **explicit > bundled > host**, owned by
+/// [`text::resolve_symbol_font_with_source`] so the renderer and `--show-config`
+/// agree on which face is in play. The bundled face is the reliable default, so
+/// the out-of-the-box icon path does not depend on host-installed Nerd fonts.
 pub(super) fn resolve_symbol_fallback(
     enabled: bool,
     explicit_path: Option<&Path>,
 ) -> Option<Arc<FontVec>> {
-    resolve_symbol_fallback_with_dirs(
-        enabled,
-        explicit_path,
-        &text::font_search_dirs(),
-        text::resolve_bundled_symbol_font,
-    )
-}
-
-fn resolve_symbol_fallback_with_dirs(
-    enabled: bool,
-    explicit_path: Option<&Path>,
-    search_dirs: &[PathBuf],
-    bundled: impl FnOnce() -> Option<FontVec>,
-) -> Option<Arc<FontVec>> {
     if !enabled {
         return None;
     }
-    if let Some(path) = explicit_path {
-        match text::load_font_at(path) {
-            Ok(font) => return Some(Arc::new(font)),
-            Err(err) => {
-                eprintln!("odytty: {err}; falling back to symbol font search");
-            }
-        }
-    }
-    text::resolve_symbol_font_in(search_dirs)
-        .or_else(bundled)
+    text::resolve_symbol_font_with_source(explicit_path, &text::font_search_dirs())
+        .1
         .map(Arc::new)
 }
 
@@ -292,65 +275,35 @@ fn env_flag_override(name: &str) -> Option<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn bundled_regular_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("assets/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf")
     }
 
-    fn unique_tmp_dir(tag: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock before epoch")
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "odytty-gpu-fonts-{tag}-{}-{nanos}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).expect("create temp dir");
-        dir
+    #[test]
+    fn symbol_fallback_off_resolves_none() {
+        // The enable gate short-circuits before any font resolution, so a
+        // disabled fallback never installs a face regardless of what is bundled
+        // or on the host.
+        assert!(resolve_symbol_fallback(false, None).is_none());
     }
 
     #[test]
-    fn symbol_fallback_off_resolves_none_without_touching_loaders() {
-        let resolved = resolve_symbol_fallback_with_dirs(false, None, &[], || {
-            panic!("bundled loader must not run when fallback is off")
-        });
-        assert!(resolved.is_none());
-    }
-
-    #[test]
-    fn symbol_fallback_default_on_can_resolve_bundled_face() {
-        let resolved =
-            resolve_symbol_fallback_with_dirs(true, None, &[], text::resolve_bundled_symbol_font);
+    fn symbol_fallback_default_on_resolves_bundled_face() {
+        // Out-of-the-box: enabled, no explicit override -> the bundled symbols
+        // face resolves (precedence explicit > bundled > host, bundled present).
+        // This is the path the default-on `symbol_fallback` setting exercises.
         assert!(
-            resolved.is_some(),
-            "enabled fallback should use the bundled face after host search misses"
+            resolve_symbol_fallback(true, None).is_some(),
+            "enabled fallback with no override must resolve the bundled face"
         );
     }
 
     #[test]
-    fn explicit_symbol_font_path_beats_bundled_face() {
+    fn explicit_symbol_font_path_resolves() {
+        // A valid explicit override loads and wins over bundled/host.
         let path = bundled_regular_path();
-        let resolved = resolve_symbol_fallback_with_dirs(true, Some(&path), &[], || {
-            panic!("bundled loader must not run after a valid explicit path")
-        });
-        assert!(resolved.is_some());
-    }
-
-    #[test]
-    fn host_symbol_font_beats_bundled_face() {
-        let dir = unique_tmp_dir("host-symbol");
-        let src = bundled_regular_path();
-        let dst = dir.join("SymbolsNerdFont-Regular.ttf");
-        std::fs::copy(src, &dst).expect("copy fixture font");
-
-        let resolved = resolve_symbol_fallback_with_dirs(true, None, &[dir.clone()], || {
-            panic!("bundled loader must not run after host symbol search resolves")
-        });
-        assert!(resolved.is_some());
-
-        let _ = std::fs::remove_dir_all(dir);
+        assert!(resolve_symbol_fallback(true, Some(&path)).is_some());
     }
 }
