@@ -146,6 +146,7 @@ pub fn list_themes_output() -> String {
 /// Stable effective settings dump.
 pub fn show_config_output(settings: &Settings) -> String {
     let mut rows = vec![
+        ("bell", settings.bell.as_str().to_owned()),
         ("bloom", bool_value(settings.bloom).to_owned()),
         ("bloom_intensity", float_value(settings.bloom_intensity)),
         ("bloom_radius", float_value(settings.bloom_radius)),

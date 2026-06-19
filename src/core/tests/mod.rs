@@ -6,6 +6,7 @@
 
 use super::*;
 
+mod bell;
 mod chars_unicode;
 mod erase_scroll;
 mod kitty_keyboard;

@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Pre-release audit fixes: bell + IME (v0.1.7)
+
+Pre-release audit of the whole codebase (correctness, security, gaps vs Ghostty
+minus splits). Gates were already green — 1974 tests, `cargo fmt --check` clean,
+zero build warnings — and the security posture held up: OSC 52 remote read is
+default-deny, bracketed-paste injection is defended (embedded `\x1b[201~`
+stripped), parser buffers are capped, and the 16 `unsafe` blocks are all
+standard PTY/shm/validated-prefix FFI. The audit found **two user-facing gaps**;
+both are now fixed. Full writeup in the workflow artifact `audit-pre-release.md`.
+
+- **Bell was silently dropped.** `dispatch_execute` routed every C0 byte except
+  BS/HT/LF/VT/FF/CR to `_ => {}`, so BEL `0x07` did nothing — no audible, no
+  visual, no urgency. Now the core latches a one-shot `bell_pending` drained
+  edge-not-level by `Terminal::take_bell()` (never touches the grid; pinned by
+  `src/core/tests/bell.rs`). The native layer presents it per a new `bell`
+  setting (`BellMode`): `off`, `visual` (a full-viewport flash decaying to
+  transparent over 150 ms, painted as one `SolidQuad` overlay so cells beneath
+  stay at full opacity — RV1-safe), `urgent` (**default**: window
+  user-attention when unfocused, zero pixel change while focused), or `all`. No
+  audio backend, so no audible mode. The flash reuses the overlay-registry
+  animation infra (a `BellFlash` cache fragment + an `animation_deadline`
+  contributor, both inert on the off/urgent path).
+- **IME composition was not wired.** No `set_ime_allowed`, no `Ime` handling, so
+  CJK input methods and compose-key/dead-key accents never reached the shell.
+  Now IME is enabled at window creation; `src/native/app/ime.rs` routes the four
+  `Ime` events — `Commit` writes finalized UTF-8 to the PTY like typed input,
+  `Preedit` renders inline at the cursor with an underline and positions the
+  candidate area, `Enabled`/`Disabled` clear stale pre-edit (an `ImePreedit`
+  overlay fragment forces a per-keystroke repaint).
+- **Settings:** `bell` is live-reloadable, config-file + env (`ODYTTY_BELL`)
+  aliased, in the Input group of the settings panel, and reported by
+  `--show-config`.
+- **Tests:** +9 (3 core bell-latch, 3 native bell-flash, 3 IME). Total **1983
+  passing**, fmt clean, zero warnings.
+- **Deliberate non-gaps:** splits (operator-excluded), programming ligatures
+  (already deferred), macOS/Windows (Linux-first by design).
+- Docs updated: `SPEC.md` (new Bell + IME subsections), `README.md`, `TODO.md`,
+  version bumped to `0.1.7`.
+
+---
+
 ## 2026-06-19 -- Universal glyph pack (v2+v3 chain) + grouped font picker
 
 Made the bundled glyph pack render correctly on any machine regardless of which

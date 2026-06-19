@@ -482,6 +482,57 @@ impl CvdMode {
     }
 }
 
+/// How the terminal responds when the host writes BEL (`0x07`). Presentation-
+/// only — the core merely latches that a bell was requested (see
+/// [`crate::core::Terminal::take_bell`]); this setting decides what the native
+/// layer does with that signal. OdyTTY has no audio backend, so there is no
+/// audible mode; the bell is conveyed visually and/or via window urgency.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BellMode {
+    /// Drain and ignore. The pre-bell-fix behavior, kept as an explicit opt-out.
+    Off,
+    /// Brief readability-safe screen flash on every bell, focused or not.
+    Visual,
+    /// Request window user-attention (effective when unfocused); no flash. The
+    /// do-no-harm default: a finished long-running job pings the taskbar, but a
+    /// focused shell never flashes on tab-completion bells.
+    #[default]
+    Urgent,
+    /// Both the visual flash and the window-urgency request.
+    All,
+}
+
+impl BellMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Visual => "visual",
+            Self::Urgent => "urgent",
+            Self::All => "all",
+        }
+    }
+
+    /// Whether a bell should paint the visual flash.
+    pub fn wants_visual(self) -> bool {
+        matches!(self, Self::Visual | Self::All)
+    }
+
+    /// Whether a bell should request window user-attention.
+    pub fn wants_urgent(self) -> bool {
+        matches!(self, Self::Urgent | Self::All)
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "off" | "none" | "disabled" => Some(Self::Off),
+            "visual" | "flash" => Some(Self::Visual),
+            "urgent" | "attention" => Some(Self::Urgent),
+            "all" | "both" => Some(Self::All),
+            _ => None,
+        }
+    }
+}
+
 /// Typed runtime settings used by the native prototype.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
@@ -711,6 +762,9 @@ pub struct Settings {
     /// the full correction; `0.0` is an exact passthrough. Inert while
     /// [`Settings::cvd_mode`] is `Off`.
     pub cvd_strength: f32,
+    /// How the terminal reacts to BEL (`0x07`). Defaults to `Urgent` (window
+    /// attention when unfocused, no flash). See [`BellMode`].
+    pub bell: BellMode,
     /// Whether `ODYTTY_THEME=system` was set: a single-key alias that enables
     /// [`Settings::follow_os_theme`] with default dark/light theme mappings
     /// (OS-THEME alias). `false` (the default) means the authored
@@ -803,6 +857,7 @@ impl Default for Settings {
             smooth_scroll: DEFAULT_SMOOTH_SCROLL,
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
+            bell: BellMode::default(),
             theme_is_system: false,
             follow_os_theme: DEFAULT_FOLLOW_OS_THEME,
             os_theme_dark: None,
@@ -1303,6 +1358,7 @@ impl Settings {
         );
         let cvd_mode = parse_cvd_mode(get(CVD_MODE_ENV).as_deref(), &mut warn);
         let cvd_strength = parse_cvd_strength(get(CVD_STRENGTH_ENV).as_deref(), &mut warn);
+        let bell = parse_bell(get(BELL_ENV).as_deref(), &mut warn);
         // `theme = system` forces OS following on regardless of the explicit
         // `follow_os_theme` value, so the alias is self-sufficient. The explicit
         // setting still wins for display/writeback of that specific key.
@@ -1392,6 +1448,7 @@ impl Settings {
             smooth_scroll,
             cvd_mode,
             cvd_strength,
+            bell,
             theme_is_system,
             follow_os_theme,
             os_theme_dark,
@@ -1554,6 +1611,7 @@ impl Settings {
         );
         values.insert(CVD_MODE_ENV, self.cvd_mode.as_str().to_owned());
         values.insert(CVD_STRENGTH_ENV, format_float(self.cvd_strength));
+        values.insert(BELL_ENV, self.bell.as_str().to_owned());
         values.insert(
             FOLLOW_OS_THEME_ENV,
             bool_display(self.follow_os_theme).to_owned(),

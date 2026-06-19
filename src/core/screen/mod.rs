@@ -140,6 +140,11 @@ pub struct Screen {
     host_output: Vec<u8>,
     clipboard_requests: Vec<ClipboardRequest>,
     osc52_read_enabled: bool,
+    /// BEL (`0x07`) latch. Set when the host writes a bell control; drained by
+    /// the native layer once per frame to drive the visual/urgency bell. The
+    /// core never makes noise or touches the grid — it only records that a bell
+    /// was requested.
+    bell_pending: bool,
     base_colors: DynamicColors,
     dynamic_colors: DynamicColors,
     last_graphic_char: Option<char>,
@@ -296,6 +301,7 @@ impl Screen {
             host_output: Vec::new(),
             clipboard_requests: Vec::new(),
             osc52_read_enabled: false,
+            bell_pending: false,
             base_colors: DynamicColors::default(),
             dynamic_colors: DynamicColors::default(),
             last_graphic_char: None,
@@ -1348,8 +1354,15 @@ impl Screen {
             b'\t' => self.tab(),
             b'\n' | b'\x0b' | b'\x0c' => self.line_feed(),
             b'\r' => self.carriage_return(),
+            b'\x07' => self.bell_pending = true,
             _ => {}
         }
+    }
+
+    /// Drain the BEL latch. Returns whether a bell was requested since the last
+    /// drain and clears the flag. The native layer calls this once per frame.
+    fn take_bell(&mut self) -> bool {
+        std::mem::take(&mut self.bell_pending)
     }
 
     /// OSC handler. Title controls (OSC 0/2) set the window title; OSC 8 opens
@@ -1607,6 +1620,12 @@ impl Terminal {
 
     pub fn take_clipboard_requests(&mut self) -> Vec<ClipboardRequest> {
         self.screen.take_clipboard_requests()
+    }
+
+    /// Drain the BEL latch (see [`Screen::take_bell`]). `true` means the host
+    /// rang the bell at least once since the previous drain.
+    pub fn take_bell(&mut self) -> bool {
+        self.screen.take_bell()
     }
 
     pub fn set_osc52_read_enabled(&mut self, enabled: bool) {

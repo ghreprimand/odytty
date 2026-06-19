@@ -7,7 +7,7 @@ use std::path::Path;
 
 use super::{
     BACKGROUND_BLUR_RADIUS_ENV, BACKGROUND_IMAGE_ENV, BACKGROUND_IMAGE_SCRIM_ENV,
-    BACKGROUND_TREATMENT_ENV, BLOOM_ENV, BLOOM_INTENSITY_ENV, BLOOM_RADIUS_ENV,
+    BACKGROUND_TREATMENT_ENV, BELL_ENV, BLOOM_ENV, BLOOM_INTENSITY_ENV, BLOOM_RADIUS_ENV,
     BLOOM_THRESHOLD_ENV, CELL_BG_OPACITY_ENV, COMMAND_STATUS_GUTTER_ENV, CONFIRM_CLOSE_ENV,
     COPY_ON_SELECT_ENV, CRT_CURVATURE_ENV, CRT_ENV, CRT_SCANLINE_INTENSITY_ENV,
     CRT_SCANLINE_PERIOD_ENV, CRT_VIGNETTE_STRENGTH_ENV, CURSOR_BLINK_ENV, CURSOR_EASING_ENV,
@@ -157,6 +157,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "shclick" | "clicktoposition" | "clicktomovecursor" | "promptclick" => Some(SH_CLICK_ENV),
         "cvdmode" | "colorblindmode" | "colourblindmode" | "daltonize" => Some(CVD_MODE_ENV),
         "cvdstrength" | "colorblindstrength" | "colourblindstrength" => Some(CVD_STRENGTH_ENV),
+        "bell" | "bellmode" | "audiblebell" | "visualbell" => Some(BELL_ENV),
         "confirmclose" | "closeconfirm" | "closeconfirmation" | "confirmonclose" => {
             Some(CONFIRM_CLOSE_ENV)
         }
@@ -228,6 +229,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         SMOOTH_SCROLL_ENV => Some("smooth_scroll"),
         CVD_MODE_ENV => Some("cvd_mode"),
         CVD_STRENGTH_ENV => Some("cvd_strength"),
+        BELL_ENV => Some("bell"),
         CONFIRM_CLOSE_ENV => Some("confirm_close"),
         NATIVE_AUTOCLOSE_ENV => Some("native_autoclose_ms"),
         _ => None,

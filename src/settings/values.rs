@@ -485,6 +485,26 @@ pub(super) fn parse_cvd_mode(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -
     }
 }
 
+pub(super) fn parse_bell(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> BellMode {
+    let Some(raw) = raw else {
+        return BellMode::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return BellMode::default();
+    }
+    match BellMode::parse(trimmed) {
+        Some(mode) => mode,
+        None => {
+            warn(&format!(
+                "{BELL_ENV}={trimmed:?} is not off|visual|urgent|all; using urgent"
+            ));
+            BellMode::default()
+        }
+    }
+}
+
 pub(super) fn parse_cvd_strength(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     let Some(raw) = raw else {
         return DEFAULT_CVD_STRENGTH;

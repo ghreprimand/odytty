@@ -163,6 +163,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "command_status_gutter",
             "sh_click",
             "confirm_close",
+            "bell",
             "osc52_read",
             "copy_on_select",
             "cvd_mode",

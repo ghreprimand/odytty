@@ -128,6 +128,14 @@ pub(super) enum OverlayFragment {
     /// row is mid-fade, so each animation frame reclassifies (the quad alphas
     /// change while the cell content does not). `Inert` once every row settles.
     NewRowFade { epoch: u64 },
+    /// BELL visual flash: a monotonic epoch bumped once per rebuild while the
+    /// flash is decaying, so each animation frame reclassifies. `Inert` once the
+    /// flash settles and on the off / urgent-only path.
+    BellFlash { epoch: u64 },
+    /// Active IME pre-edit string. Changes on every composition keystroke so the
+    /// inline pre-edit overlay repaints via a Full geometry update. `Inert` when
+    /// no composition is in progress.
+    ImePreedit { text: String },
 }
 
 /// Folds the NEW overlay contributors' fragments into one hashable cache key.
@@ -145,6 +153,8 @@ pub(super) struct OverlayCompositeSignature {
     pub(super) background: OverlayFragment,
     pub(super) new_row_fade: OverlayFragment,
     pub(super) rename: OverlayFragment,
+    pub(super) bell_flash: OverlayFragment,
+    pub(super) ime_preedit: OverlayFragment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

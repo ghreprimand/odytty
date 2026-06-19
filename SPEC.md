@@ -420,6 +420,41 @@ plain renderer is byte-identical with or without OSC 133 in the stream. The
 command-aware UX that consumes these marks (jump-to-prompt, per-command output
 selection, success/fail gutter) is separate downstream work.
 
+### Bell (BEL)
+
+BEL (`0x07`) is split across the ownership boundary the same way clipboard and
+prompt marks are. The terminal core (`src/core/screen/mod.rs`) does nothing
+audible or visual: `dispatch_execute` sets a one-shot `bell_pending` latch, and
+`Terminal::take_bell()` drains it edge-not-level (coalesced, cleared on read).
+BEL never touches the grid or moves the cursor — a regression suite
+(`src/core/tests/bell.rs`) pins that invariant.
+
+The native layer decides presentation, gated by the `bell` setting
+(`BellMode`): `off` (drain and ignore), `visual` (a brief full-viewport flash
+that decays to transparent over 150 ms on an ease-out curve, painted as a single
+`SolidQuad` overlay so the cells beneath stay at full opacity — the RV1
+readability floor is preserved by construction), `urgent` (the **default** —
+`Window::request_user_attention` when unfocused, no pixels change while focused,
+so a foreground shell never flashes on tab-completion bells), or `all`. OdyTTY
+has no audio backend, so there is no audible mode. The flash joins the existing
+overlay-registry animation infrastructure: a `BellFlash { epoch }` render-cache
+fragment and an `animation_deadline` contributor, both `Inert`/`None` on the off
+and urgent-only paths so the default render path is byte-identical.
+
+### IME Composition
+
+IME input is enabled at window creation (`Window::set_ime_allowed(true)`) so
+`winit` delivers the four `Ime` events. `src/native/app/ime.rs` routes them:
+`Enabled`/`Disabled` clear any stale pre-edit; `Preedit(text, _)` stores the
+in-progress composition and positions the IME candidate area at the cursor;
+`Commit(text)` writes the finalized UTF-8 to the active PTY exactly like typed
+`Character` input and clears the pre-edit. The pre-edit is rendered inline at the
+cursor cell with a straight underline (an `ImePreedit` overlay fragment forces a
+full repaint per composition keystroke); it is never sent to the shell until
+commit. This makes CJK input methods and compose-key/dead-key accents work.
+With no composition in progress the pre-edit is empty and the render path is
+unchanged.
+
 ## Scope
 
 v0 is complete. Stages 1 through 4.5 are substantially complete. The parity

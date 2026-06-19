@@ -80,12 +80,14 @@ use super::viewport::{
 };
 
 mod background_ui;
+mod bell;
 mod copy_mode_ui;
 mod cursor;
 mod cursor_frame;
 mod cursor_trail;
 mod gutter_ui;
 mod hints_ui;
+mod ime;
 mod interaction;
 mod new_row_fade;
 mod os_theme;
@@ -236,6 +238,18 @@ pub(super) struct App {
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
+    /// BELL visual-flash start instant, set when a bell is drained while the
+    /// bell mode wants a visual flash. `None` when no flash is in flight (the
+    /// off / urgent-only path), so the default render path emits no flash quad.
+    bell_flash_start: Option<Instant>,
+    /// Monotonic epoch bumped once per rebuild while the bell flash is active so
+    /// each animation frame reclassifies the render cache (the flash alpha moves
+    /// while cell content does not). Constant while no flash is in flight.
+    bell_flash_epoch: u64,
+    /// Active IME pre-edit (composition) string as delivered by `winit`'s
+    /// `Ime::Preedit`. Empty when no composition is in progress. Rendered inline
+    /// at the terminal cursor; never sent to the PTY until the IME commits.
+    ime_preedit: String,
     autoclose: Option<Duration>,
     deadline: Option<Instant>,
     /// OS-THEME: last known OS dark/light appearance preference, or `None` until
@@ -350,6 +364,9 @@ impl App {
             resize_debounce: ResizeDebouncer::new(RESIZE_DEBOUNCE_INTERVAL),
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
+            bell_flash_start: None,
+            bell_flash_epoch: 0,
+            ime_preedit: String::new(),
             autoclose,
             deadline: None,
             os_theme: None,
@@ -1504,6 +1521,11 @@ impl ApplicationHandler<UserEvent> for App {
             }
         };
 
+        // IME: allow composition input (CJK input methods, compose/dead-key
+        // accents) to deliver `Ime::Preedit`/`Ime::Commit` events. Without this
+        // winit suppresses IME and composed text never reaches the terminal.
+        window.set_ime_allowed(true);
+
         // Seed the first buffer from the current shared-terminal snapshot (any
         // PTY output already pumped is picked up by the first redraw below).
         let initial_snapshot = self.terminal.lock().expect("terminal mutex").snapshot();
@@ -1700,14 +1722,20 @@ impl ApplicationHandler<UserEvent> for App {
                             visible_graphics,
                             image_uploads,
                         ) = {
-                            let (scrollback_len, prompt_marks_changed) = {
+                            let (scrollback_len, prompt_marks_changed, bell_rang) = {
                                 let mut terminal = self.terminal.lock().expect("terminal mutex");
                                 (
                                     terminal.screen().scrollback_len(),
                                     self.settings.command_status_gutter
                                         && terminal.take_prompt_marks_changed(),
+                                    terminal.take_bell(),
                                 )
                             };
+                            if bell_rang {
+                                let window = self.window.clone();
+                                self.note_bell(now, window.as_deref());
+                            }
+                            self.update_bell_flash(now);
                             let added = scrollback_len.saturating_sub(self.last_scrollback_len);
                             self.viewport.anchor_after_growth(added, scrollback_len);
                             self.last_scrollback_len = scrollback_len;
@@ -1799,6 +1827,9 @@ impl ApplicationHandler<UserEvent> for App {
                         self.paint_hints_cells(&mut snapshot, &ctx);
                         self.paint_copy_mode_cells(&mut snapshot, &ctx);
                         self.paint_rename_tab_cells(&mut snapshot);
+                        // IME pre-edit: paint the in-progress composition inline
+                        // at the cursor; empty on the no-composition path.
+                        self.paint_ime_preedit_cells(&mut snapshot);
                         // Frame-overlay quad manifest: scroll indicator, then the
                         // off-by-default SH2 gutter, then the no-op new slots.
                         let mut overlays: Vec<SolidQuad> = Vec::new();
@@ -1816,6 +1847,9 @@ impl ApplicationHandler<UserEvent> for App {
                         // empty on the off path. The cursor block draws after
                         // overlays (ID1 reorder), so it is never hidden.
                         self.paint_new_row_fade_quads(&ctx, &mut overlays);
+                        // BELL visual flash — a full-viewport decaying tint over
+                        // everything; empty on the off / urgent-only path.
+                        self.paint_bell_flash_quad(&ctx, &mut overlays);
                         let tab_bar_offset = self.tab_bar_height_px(cell);
                         if tab_bar_offset > 0.0 {
                             self.shift_overlays_for_tab_bar(&mut overlays, tab_bar_offset);
@@ -1869,6 +1903,8 @@ impl ApplicationHandler<UserEvent> for App {
                                     background: self.background_overlay_signature(),
                                     new_row_fade: self.new_row_fade_overlay_signature(),
                                     rename: self.rename_overlay_signature(),
+                                    bell_flash: self.bell_flash_overlay_signature(),
+                                    ime_preedit: self.ime_overlay_signature(),
                                 },
                             },
                             cursor: CursorRenderSignature {
@@ -2018,6 +2054,9 @@ impl ApplicationHandler<UserEvent> for App {
                     event.physical_key,
                     event_type,
                 );
+            }
+            WindowEvent::Ime(ime) => {
+                self.handle_ime(ime);
             }
             _ => {}
         }

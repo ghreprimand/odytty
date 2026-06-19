@@ -405,6 +405,15 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
 - [ ] Add window title and focus behavior.
   - [x] Apply OSC title changes to the native window title.
   - [x] Emit DECSET 1004 focus-in/out reports from native window focus events.
+- [x] Handle the bell (BEL `0x07`). Core latches a one-shot `bell_pending`
+      drained edge-not-level by `Terminal::take_bell()`; never touches the grid.
+      Native presentation gated by the `bell` setting: `off`, `visual` (decaying
+      full-viewport flash, RV1-safe), `urgent` (default; window attention when
+      unfocused), `all`. No audible bell (no audio backend).
+- [x] Enable IME composition input. `set_ime_allowed` at window creation;
+      `Ime::Commit` writes to the PTY; `Ime::Preedit` renders inline at the
+      cursor with an underline and positions the candidate area. Makes CJK input
+      methods and compose-key/dead-key accents work.
 - [x] Improve mouse and keyboard interaction in TUI apps.
   - [x] Emit native mouse reports to PTY apps when DECSET mouse tracking is
         active.

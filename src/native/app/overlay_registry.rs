@@ -470,6 +470,8 @@ impl App {
             self.new_row_fade_deadline(),
             // RV4 smooth scroll — 4th contributor; `None` on the off path.
             self.scroll_anim_deadline(),
+            // BELL visual flash — `None` on the off / urgent-only path.
+            self.bell_flash_deadline(),
         ]
         .into_iter()
         .flatten()

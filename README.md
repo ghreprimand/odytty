@@ -39,11 +39,13 @@ binary artifacts, cross-platform support, panes, and profiles are not done.
   file/temp-file, and shared-memory Kitty transports with conservative local
   file-safety restrictions.
 - **Modern input:** Kitty keyboard protocol, SGR pixel mouse mode 1016, focus
-  reporting, configurable local keybindings, keyboard hints, keyboard copy
-  mode, and OSC 8 hyperlink hover/open.
+  reporting, IME composition input (CJK / compose-key accents), configurable
+  local keybindings, keyboard hints, keyboard copy mode, and OSC 8 hyperlink
+  hover/open.
 - **Daily workflow:** search, refined selection, PRIMARY selection,
   bracketed-paste hardening, chunked large paste, right-click context menu,
-  command-aware prompt navigation from OSC 133, close confirmation, and tabs.
+  command-aware prompt navigation from OSC 133, configurable bell (visual flash
+  / window urgency), close confirmation, and tabs.
 - **Visual experience layer:** 100 built-in themes, user `.theme` files, live theme
   picker, theme builder, semantic cursor/selection/search roles, optional
   bloom/CRT/retro effects, background treatments, cursor motion, focus dimming,
@@ -66,7 +68,7 @@ For the current source release, install OdyTTY for the current user.
 Download and verify the release archive:
 
 ```sh
-version=0.1.6
+version=0.1.7
 workdir=$(mktemp -d /tmp/odytty-install.XXXXXX)
 cd "$workdir"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
@@ -190,7 +192,13 @@ physical pixel coordinates from the native window.
 
 Keyboard support includes mode-aware legacy encoding and the Kitty keyboard
 protocol as a negotiated overlay. With no Kitty flags active, legacy bytes are
-preserved.
+preserved. IME composition is enabled: input-method pre-edit is rendered inline
+at the cursor and committed text is sent to the shell, so CJK input methods and
+compose-key/dead-key accents work.
+
+The bell (BEL) is configurable via the `bell` setting: `urgent` (default,
+requests window attention when unfocused), `visual` (a brief readability-safe
+screen flash), `all` (both), or `off`. There is no audible bell.
 
 ### Text, Emoji, And Graphics
 

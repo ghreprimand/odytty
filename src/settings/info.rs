@@ -1024,6 +1024,19 @@ impl Settings {
                 numeric: None,
             },
             SettingInfo {
+                group: "Input",
+                key: "bell",
+                env: BELL_ENV,
+                name: "Bell",
+                value: self.bell.as_str().to_owned(),
+                description: "How the terminal reacts when a program rings the bell (BEL). Off ignores it. Visual flashes the screen briefly. Urgent (default) requests window attention when unfocused without flashing. All does both. There is no audible bell.",
+                kind: SettingKind::Enum,
+                range: None,
+                options: &["off", "visual", "urgent", "all"],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
                 group: "Clipboard",
                 key: "osc52_read",
                 env: OSC52_READ_ENV,
@@ -1214,6 +1227,7 @@ impl Settings {
             "copy_on_select" => bool_display(self.copy_on_select).to_owned(),
             "cvd_mode" => self.cvd_mode.as_str().to_owned(),
             "cvd_strength" => format_float(self.cvd_strength),
+            "bell" => self.bell.as_str().to_owned(),
             "native_autoclose_ms" => self
                 .native_autoclose
                 .map(|duration| format!("{} ms", duration.as_millis()))
