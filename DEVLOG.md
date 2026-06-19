@@ -7,6 +7,48 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Geometric Symbols for Legacy Computing (sextants, octants, triangles, eighths)
+
+`src/boxdraw.rs` now renders large parts of the Symbols for Legacy Computing
+block (`U+1FB00..=U+1FBFF`) and its Supplement (`U+1CD00..`) geometrically, so
+2×3 / 2×4 cell-division charts (btop-style graphs) and edge-pointing triangles
+work without depending on the primary font carrying those glyphs.
+
+- **Sextants (`U+1FB00..=U+1FB3B`, 60 glyphs):** 2-column × 3-row fills. The
+  code-point→region-mask lookup is a generated table (`SEXTANT_MASKS`) sourced
+  from the authoritative Unicode 16 names — there is no closed form for the
+  offset ordering. Region layout verified against a real font (Iosevka):
+  SEXTANT-123 == the LEFT HALF block, SEXTANT-14 == the top row.
+- **Octants (`U+1CD00..=U+1CDE5`, 230 glyphs):** 2-column × 4-row fills via the
+  generated `OCTANT_MASKS` table, same scheme.
+- **Triangular blocks (`U+1FB68..=U+1FB6F`, 8 glyphs):** four edge-pointing
+  quarter-triangles (apex at the edge center, base on the perpendicular
+  midline, ¼ of the cell) and their ¾ complements, with a 1px anti-aliased
+  slanted edge. Geometry decoded and verified against Iosevka.
+- **Eighth ladders & strips:** upper-eighth (`U+1FB82..`) and right-eighth
+  (`U+1FB87..`) ladders, single 1/8 vertical/horizontal strips
+  (`U+1FB70..=U+1FB7B`), and half-cell medium shades (`U+1FB8C..=U+1FB8F`),
+  extending the existing `LowerEighths`/`LeftEighths` block-element path.
+
+New top-level `Glyph` variants `Sextant`/`Octant`/`Triangle` plus
+`render_sextant`/`render_octant` (shared `render_grid`) and `render_triangle`;
+the `Block` enum gained `UpperEighths`/`RightEighths`/`VerticalEighthStrip`/
+`HorizontalEighthStrip`/`HalfShade`. Geometric precedence above font glyphs is
+unchanged (already in the atlas path). 13 new unit tests cover the ranges,
+the mask-table integrity, single-region fills, triangle apexes, and the
+ladder/strip/shade invariants.
+
+Verification: `cargo fmt --check` clean; `cargo build --release` clean;
+`cargo test --lib` 1820 passed, 0 failed, 7 ignored.
+
+Gaps (deferred to a follow-up): the 1/8 L-combos (`U+1FB7C..=U+1FB81`), the
+44 fine diagonal-edged blocks (`U+1FB3C..=U+1FB67`), negative diagonals
+(`U+1FBBD..=U+1FBBF`), inverse/checkerboard shades, and segmented digits
+(`U+1FBF0..=U+1FBF9`). These need either an L-strip descriptor or a general
+polygon scanline filler and per-glyph anchor verification.
+
+---
+
 ## 2026-06-19 -- Default font size 20 for Victor Mono
 
 Lowered `DEFAULT_FONT_SIZE_PX` from 22.0 to 20.0 on a fresh install, tuned for

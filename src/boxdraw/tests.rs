@@ -380,3 +380,207 @@ fn covered_ranges_all_produce_buffers() {
         assert!(covers(ch), "powerline {code:#x} should be covered");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Symbols for Legacy Computing: sextants, octants, triangular blocks.
+// ---------------------------------------------------------------------------
+
+/// A point deep inside sextant region `r` (1..=6) of a 2-col × 3-row cell.
+fn sextant_point(r: u32) -> (u32, u32) {
+    // left column top→bottom = 1,2,3; right column = 4,5,6.
+    let (col, row) = if r <= 3 { (0u32, r - 1) } else { (1, r - 4) };
+    (col * W / 2 + 1, row * H / 3 + H / 6)
+}
+
+/// A point deep inside octant region `r` (1..=8) of a 2-col × 4-row cell.
+fn octant_point(r: u32) -> (u32, u32) {
+    let (col, row) = if r <= 4 { (0u32, r - 1) } else { (1, r - 5) };
+    (col * W / 2 + 1, row * H / 4 + H / 8)
+}
+
+#[test]
+fn sextant_masks_table_is_valid_and_distinct() {
+    assert_eq!(SEXTANT_MASKS.len(), 60);
+    // Region bits 1..=6 ⇒ masks fit in 6 bits and are non-empty.
+    for &m in SEXTANT_MASKS {
+        assert!(m != 0 && m <= 0x3F, "sextant mask {m:#x} out of range");
+    }
+    // All distinct — the offset→mask mapping must be one-to-one.
+    let mut sorted = SEXTANT_MASKS.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), 60, "duplicate sextant masks");
+    // Spot-check the offset↔region mapping against the Unicode names.
+    assert_eq!(SEXTANT_MASKS[0], 0x01, "1FB00 = SEXTANT-1 (region 1)");
+    assert_eq!(
+        SEXTANT_MASKS[59], 0x3E,
+        "1FB3B = SEXTANT-23456 (regions 2-6)"
+    );
+}
+
+#[test]
+fn octant_masks_table_is_valid_and_distinct() {
+    assert_eq!(OCTANT_MASKS.len(), 230);
+    for &m in OCTANT_MASKS {
+        assert!(m != 0 && m <= 0xFF, "octant mask {m:#x} out of range");
+    }
+    let mut sorted = OCTANT_MASKS.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), 230, "duplicate octant masks");
+    assert_eq!(OCTANT_MASKS[0], 0x04, "1CD00 = OCTANT-3 (region 3)");
+}
+
+#[test]
+fn sextants_cover_the_full_range_and_render() {
+    for code in 0x1FB00u32..=0x1FB3B {
+        let ch = char::from_u32(code).unwrap();
+        assert!(covers(ch), "sextant {code:#x} should be covered");
+        assert_eq!(cov(ch).len(), (W * H) as usize);
+    }
+}
+
+#[test]
+fn octants_cover_the_full_range_and_render() {
+    for code in 0x1CD00u32..=0x1CDE5 {
+        let ch = char::from_u32(code).unwrap();
+        assert!(covers(ch), "octant {code:#x} should be covered");
+        assert!(coverage(ch, W, H).is_some());
+    }
+}
+
+#[test]
+fn sextant_single_region_inks_only_that_region() {
+    // SEXTANT-1 (1FB00) = region 1 only: top-left sixth inked, the rest clear.
+    let buf = cov('\u{1FB00}');
+    let (x, y) = sextant_point(1);
+    assert!(at(&buf, x, y) > 0, "region 1 should be inked");
+    for r in 2..=6 {
+        let (x, y) = sextant_point(r);
+        assert_eq!(
+            at(&buf, x, y),
+            0,
+            "region {r} should be clear for SEXTANT-1"
+        );
+    }
+    // SEXTANT-6 (1FB1E) = region 6 only: bottom-right sixth inked.
+    let buf = cov('\u{1FB1E}');
+    let (x, y) = sextant_point(6);
+    assert!(at(&buf, x, y) > 0, "region 6 should be inked");
+    for r in 1..=5 {
+        let (x, y) = sextant_point(r);
+        assert_eq!(
+            at(&buf, x, y),
+            0,
+            "region {r} should be clear for SEXTANT-6"
+        );
+    }
+}
+
+#[test]
+fn sextant_left_column_matches_left_half_block() {
+    // SEXTANT-123 (1FB06) fills the whole left column, so its left-column ink
+    // matches the LEFT HALF block (U+258C) and its right column is clear.
+    let sext = cov('\u{1FB06}');
+    let half = cov('\u{258C}');
+    for r in [1u32, 2, 3] {
+        let (x, y) = sextant_point(r);
+        assert!(at(&sext, x, y) > 0, "left region {r} inked");
+    }
+    for r in [4u32, 5, 6] {
+        let (x, y) = sextant_point(r);
+        assert_eq!(at(&sext, x, y), 0, "right region {r} clear");
+    }
+    // Same left-column sample inked in both glyphs.
+    assert_eq!(at(&sext, 1, H / 2) > 0, at(&half, 1, H / 2) > 0);
+}
+
+#[test]
+fn octant_single_region_inks_only_that_region() {
+    // OCTANT-3 (1CD00) = region 3 only: left column, third row down.
+    let buf = cov('\u{1CD00}');
+    let (x, y) = octant_point(3);
+    assert!(at(&buf, x, y) > 0, "octant region 3 should be inked");
+    for r in [1u32, 2, 4, 5, 6, 7, 8] {
+        let (x, y) = octant_point(r);
+        assert_eq!(at(&buf, x, y), 0, "octant region {r} should be clear");
+    }
+}
+
+#[test]
+fn triangular_quarter_block_inks_apex_corner_only() {
+    // LEFT TRIANGULAR ONE QUARTER (1FB6C): apex at the left edge, so it inks
+    // the left side and leaves the far-right column clear.
+    let buf = cov('\u{1FB6C}');
+    assert!(at(&buf, 0, H / 2) > 0, "apex (left-center) should be inked");
+    assert_eq!(at(&buf, W - 1, H / 2), 0, "right edge should be clear");
+    // UPPER (1FB6D): apex at the top.
+    let buf = cov('\u{1FB6D}');
+    assert!(at(&buf, W / 2, 0) > 0, "apex (top-center) should be inked");
+    assert_eq!(at(&buf, W / 2, H - 1), 0, "bottom edge should be clear");
+}
+
+#[test]
+fn triangular_three_quarters_inverts_the_quarter() {
+    // The three-quarters block inks strictly more than its quarter counterpart
+    // and reaches the edge opposite the apex.
+    let q = cov('\u{1FB6C}'); // LEFT quarter
+    let tq = cov('\u{1FB6B}'); // complement of LOWER quarter → broad fill
+    let count = |b: &[u8]| b.iter().filter(|&&v| v > 0).count();
+    let three_q = cov('\u{1FB68}'); // complement of LEFT quarter
+    assert!(
+        count(&three_q) > count(&q),
+        "three-quarters must ink more than one quarter"
+    );
+    // Complement of LEFT reaches the right edge.
+    assert!(at(&three_q, W - 1, H / 2) > 0, "right edge should be inked");
+    let _ = tq;
+}
+
+#[test]
+fn eighth_ladders_grow_monotonically_and_reach_the_named_edge() {
+    let count = |ch: char| cov(ch).iter().filter(|&&v| v > 0).count();
+    // Upper-eighth ladder: more eighths ⇒ more ink, all at the top.
+    assert!(count('\u{1FB82}') < count('\u{1FB86}')); // 1/8 < 7/8
+    let upper = cov('\u{1FB86}'); // upper 7/8
+    assert!(at(&upper, W / 2, 0) > 0, "top row inked");
+    assert_eq!(
+        at(&upper, W / 2, H - 1),
+        0,
+        "bottom row clear for upper 7/8"
+    );
+    // Right-eighth ladder reaches the right edge.
+    let right = cov('\u{1FB8B}'); // right 7/8
+    assert!(at(&right, W - 1, H / 2) > 0, "right column inked");
+    assert_eq!(at(&right, 0, H / 2), 0, "left column clear for right 7/8");
+}
+
+#[test]
+fn vertical_and_horizontal_eighth_strips_are_thin() {
+    // A vertical 1/8 strip inks a narrow band and spans the full height.
+    let v = cov('\u{1FB73}'); // column 5
+    let inked_cols: Vec<u32> = (0..W).filter(|&x| col_has_ink(&v, x)).collect();
+    assert!(inked_cols.len() <= 2, "vertical strip should be ~1/8 wide");
+    assert!(v.iter().any(|&p| p > 0));
+    // A horizontal 1/8 strip spans a narrow band of rows.
+    let hbuf = cov('\u{1FB78}'); // row 4
+    let inked_rows: Vec<u32> = (0..H).filter(|&y| row_has_ink(&hbuf, y)).collect();
+    assert!(
+        inked_rows.len() <= 3,
+        "horizontal strip should be ~1/8 tall"
+    );
+}
+
+#[test]
+fn half_shade_inks_one_half_at_partial_coverage() {
+    let left = cov('\u{1FB8C}'); // LEFT HALF medium shade
+    // Left half has mid coverage, right half is clear.
+    assert!(
+        0 < at(&left, 1, H / 2) && at(&left, 1, H / 2) < 255,
+        "partial shade"
+    );
+    assert_eq!(at(&left, W - 1, H / 2), 0, "right half clear");
+    let right = cov('\u{1FB8D}'); // RIGHT HALF medium shade
+    assert_eq!(at(&right, 0, H / 2), 0, "left half clear");
+    assert!(0 < at(&right, W - 1, H / 2) && at(&right, W - 1, H / 2) < 255);
+}

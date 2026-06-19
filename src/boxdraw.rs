@@ -97,6 +97,37 @@ enum Diagonal {
     Cross,   // ╳  (both)
 }
 
+/// One of the four cell edges, used by the Symbols for Legacy Computing
+/// triangular blocks (`U+1FB68..=U+1FB6F`). Each edge names the apex direction
+/// of the quarter-triangle (e.g. [`Edge::Left`] points at the left edge).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Edge {
+    Left,
+    Upper,
+    Right,
+    Lower,
+}
+
+/// A triangular block from `U+1FB68..=U+1FB6F`. [`Triangle::Quarter`] is a
+/// right triangle filling one quarter of the cell (apex at [`Edge`]); the
+/// [`Triangle::ThreeQuarters`] variants are its complement (the cell minus that
+/// quarter-triangle).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Triangle {
+    Quarter(Edge),
+    ThreeQuarters(Edge),
+}
+
+/// One of the four cell halves, for the half-cell medium-shade blocks
+/// (`U+1FB8C..=U+1FB8F`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Half {
+    Left,
+    Right,
+    Upper,
+    Lower,
+}
+
 /// A block-element fill descriptor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Block {
@@ -104,6 +135,18 @@ enum Block {
     LowerEighths(u32),
     /// Left `n`/8 of the cell (`n` in `1..=8`).
     LeftEighths(u32),
+    /// Upper `n`/8 of the cell (`n` in `1..=8`); Symbols for Legacy Computing
+    /// upper-eighth ladder (`U+1FB82..=U+1FB86`).
+    UpperEighths(u32),
+    /// Right `n`/8 of the cell (`n` in `1..=8`); Symbols for Legacy Computing
+    /// right-eighth ladder (`U+1FB87..=U+1FB8B`).
+    RightEighths(u32),
+    /// A single `1/8`-wide vertical strip at the 1-based column `col` (the
+    /// VERTICAL ONE EIGHTH BLOCK-N glyphs, `U+1FB70..=U+1FB75`, `col` 2..=7).
+    VerticalEighthStrip(u32),
+    /// A single `1/8`-tall horizontal strip at the 1-based row `row` (the
+    /// HORIZONTAL ONE EIGHTH BLOCK-N glyphs, `U+1FB76..=U+1FB7B`, `row` 2..=7).
+    HorizontalEighthStrip(u32),
     /// Right half (`▐`).
     RightHalf,
     /// Upper half (`▀`).
@@ -114,6 +157,9 @@ enum Block {
     RightEighth,
     /// Uniform shade at the given coverage value (`░▒▓`).
     Shade(u8),
+    /// Half-cell medium shade at the given coverage value (the half-medium-shade
+    /// glyphs `U+1FB8C..=U+1FB8F`).
+    HalfShade(Half, u8),
     /// Quadrant fill, `[upper-left, upper-right, lower-left, lower-right]`.
     Quadrant([bool; 4]),
 }
@@ -144,6 +190,14 @@ enum Glyph {
     Block(Block),
     Braille(u8),
     Powerline(Powerline),
+    /// A Symbols for Legacy Computing sextant (`U+1FB00..=U+1FB3B`): a 2-column
+    /// × 3-row bit mask (region `r` ⇒ bit `r-1`).
+    Sextant(u8),
+    /// A Symbols for Legacy Computing Supplement octant (`U+1CD00..=U+1CDE5`):
+    /// a 2-column × 4-row bit mask (region `r` ⇒ bit `r-1`).
+    Octant(u8),
+    /// A triangular block (`U+1FB68..=U+1FB6F`).
+    Triangle(Triangle),
 }
 
 // Compact aliases for the arm tables below.
@@ -185,6 +239,9 @@ pub fn coverage(ch: char, width: u32, height: u32) -> Option<Vec<u8>> {
         Glyph::Block(block) => render_block(&mut canvas, block),
         Glyph::Braille(mask) => render_braille(&mut canvas, mask),
         Glyph::Powerline(pl) => render_powerline(&mut canvas, pl),
+        Glyph::Sextant(mask) => render_sextant(&mut canvas, mask),
+        Glyph::Octant(mask) => render_octant(&mut canvas, mask),
+        Glyph::Triangle(tri) => render_triangle(&mut canvas, tri),
     }
     Some(canvas.data)
 }
@@ -218,6 +275,15 @@ fn classify(ch: char) -> Option<Glyph> {
     }
     if let Some(pl) = powerline_table(ch) {
         return Some(Glyph::Powerline(pl));
+    }
+    if let Some(mask) = sextant_table(ch) {
+        return Some(Glyph::Sextant(mask));
+    }
+    if let Some(mask) = octant_table(ch) {
+        return Some(Glyph::Octant(mask));
+    }
+    if let Some(tri) = triangle_table(ch) {
+        return Some(Glyph::Triangle(tri));
     }
     None
 }
@@ -436,6 +502,36 @@ fn block_table(ch: char) -> Option<Block> {
         '\u{259D}' => Block::Quadrant([false, true, false, false]), // ▝
         '\u{259E}' => Block::Quadrant([false, true, true, false]),  // ▞
         '\u{259F}' => Block::Quadrant([false, true, true, true]),   // ▟
+        // Symbols for Legacy Computing: vertical one-eighth strips (1-based col).
+        '\u{1FB70}' => Block::VerticalEighthStrip(2),
+        '\u{1FB71}' => Block::VerticalEighthStrip(3),
+        '\u{1FB72}' => Block::VerticalEighthStrip(4),
+        '\u{1FB73}' => Block::VerticalEighthStrip(5),
+        '\u{1FB74}' => Block::VerticalEighthStrip(6),
+        '\u{1FB75}' => Block::VerticalEighthStrip(7),
+        // Horizontal one-eighth strips (1-based row).
+        '\u{1FB76}' => Block::HorizontalEighthStrip(2),
+        '\u{1FB77}' => Block::HorizontalEighthStrip(3),
+        '\u{1FB78}' => Block::HorizontalEighthStrip(4),
+        '\u{1FB79}' => Block::HorizontalEighthStrip(5),
+        '\u{1FB7A}' => Block::HorizontalEighthStrip(6),
+        '\u{1FB7B}' => Block::HorizontalEighthStrip(7),
+        // Upper-eighth ladder (top n/8) and right-eighth ladder (right n/8).
+        '\u{1FB82}' => Block::UpperEighths(1),
+        '\u{1FB83}' => Block::UpperEighths(3),
+        '\u{1FB84}' => Block::UpperEighths(5),
+        '\u{1FB85}' => Block::UpperEighths(6),
+        '\u{1FB86}' => Block::UpperEighths(7),
+        '\u{1FB87}' => Block::RightEighths(1),
+        '\u{1FB88}' => Block::RightEighths(3),
+        '\u{1FB89}' => Block::RightEighths(5),
+        '\u{1FB8A}' => Block::RightEighths(6),
+        '\u{1FB8B}' => Block::RightEighths(7),
+        // Half-cell medium shade (▒-level coverage on one half).
+        '\u{1FB8C}' => Block::HalfShade(Half::Left, 128),
+        '\u{1FB8D}' => Block::HalfShade(Half::Right, 128),
+        '\u{1FB8E}' => Block::HalfShade(Half::Upper, 128),
+        '\u{1FB8F}' => Block::HalfShade(Half::Lower, 128),
         _ => return None,
     })
 }
@@ -457,6 +553,79 @@ fn powerline_table(ch: char) -> Option<Powerline> {
         '\u{E0B1}' => Powerline::RightOutline,
         '\u{E0B2}' => Powerline::LeftFilled,
         '\u{E0B3}' => Powerline::LeftOutline,
+        _ => return None,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Symbols for Legacy Computing: sextants / octants / triangular blocks.
+//
+// Sextant (`U+1FB00..=U+1FB3B`) and octant (`U+1CD00..=U+1CDE5`) code points
+// each divide the cell into a 2×N grid (N=3 sextant, N=4 octant) and name the
+// filled regions directly. Region `r` maps to bit `r-1`; the layout is
+// `1..=N` down the left column then `N+1..=2N` down the right column:
+//
+//     sextant   1 4      octant   1 5
+//               2 5                2 6
+//               3 6                3 7
+//                                  4 8
+//
+// The `*_MASKS` tables are the code-point-offset → region-mask lookup,
+// generated from the authoritative Unicode 16 names (there is no simple closed
+// form for the offset ordering). `sextant_and_octant_masks_match_unicode_names`
+// regenerates them at test time to guard against transcription drift.
+// ---------------------------------------------------------------------------
+
+/// Sextant region masks in `U+1FB00` code-point order (60 entries).
+const SEXTANT_MASKS: &[u8] = &[
+    0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+    0x11, 0x12, 0x13, 0x14, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21,
+    0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32,
+    0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e,
+];
+
+/// Octant region masks in `U+1CD00` code-point order (230 entries).
+const OCTANT_MASKS: &[u8] = &[
+    0x04, 0x06, 0x07, 0x08, 0x09, 0x0b, 0x0c, 0x0d, 0x0e, 0x10, 0x11, 0x12, 0x13, 0x15, 0x16, 0x17,
+    0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+    0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x2e, 0x2f, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38,
+    0x39, 0x3a, 0x3b, 0x3c, 0x3d, 0x3e, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a,
+    0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x51, 0x52, 0x53, 0x54, 0x56, 0x57, 0x58, 0x59, 0x5b, 0x5c, 0x5d,
+    0x5e, 0x60, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e,
+    0x6f, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7a, 0x7b, 0x7c, 0x7d, 0x7e,
+    0x7f, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f,
+    0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e, 0x9f,
+    0xa1, 0xa2, 0xa3, 0xa4, 0xa6, 0xa7, 0xa8, 0xa9, 0xab, 0xac, 0xad, 0xae, 0xb0, 0xb1, 0xb2, 0xb3,
+    0xb4, 0xb5, 0xb6, 0xb7, 0xb8, 0xb9, 0xba, 0xbb, 0xbc, 0xbd, 0xbe, 0xbf, 0xc1, 0xc2, 0xc3, 0xc4,
+    0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd, 0xce, 0xcf, 0xd0, 0xd1, 0xd2, 0xd3, 0xd4,
+    0xd5, 0xd6, 0xd7, 0xd8, 0xd9, 0xda, 0xdb, 0xdc, 0xdd, 0xde, 0xdf, 0xe0, 0xe1, 0xe2, 0xe3, 0xe4,
+    0xe5, 0xe6, 0xe7, 0xe8, 0xe9, 0xea, 0xeb, 0xec, 0xed, 0xee, 0xef, 0xf1, 0xf2, 0xf3, 0xf4, 0xf6,
+    0xf7, 0xf8, 0xf9, 0xfb, 0xfd, 0xfe,
+];
+
+/// Sextant glyphs `U+1FB00..=U+1FB3B` → 2×3 region mask.
+fn sextant_table(ch: char) -> Option<u8> {
+    let i = usize::try_from((ch as u32).checked_sub(0x1FB00)?).ok()?;
+    SEXTANT_MASKS.get(i).copied()
+}
+
+/// Octant glyphs `U+1CD00..=U+1CDE5` → 2×4 region mask.
+fn octant_table(ch: char) -> Option<u8> {
+    let i = usize::try_from((ch as u32).checked_sub(0x1CD00)?).ok()?;
+    OCTANT_MASKS.get(i).copied()
+}
+
+/// Triangular blocks `U+1FB68..=U+1FB6F`.
+fn triangle_table(ch: char) -> Option<Triangle> {
+    Some(match ch {
+        '\u{1FB68}' => Triangle::ThreeQuarters(Edge::Left),
+        '\u{1FB69}' => Triangle::ThreeQuarters(Edge::Upper),
+        '\u{1FB6A}' => Triangle::ThreeQuarters(Edge::Right),
+        '\u{1FB6B}' => Triangle::ThreeQuarters(Edge::Lower),
+        '\u{1FB6C}' => Triangle::Quarter(Edge::Left),
+        '\u{1FB6D}' => Triangle::Quarter(Edge::Upper),
+        '\u{1FB6E}' => Triangle::Quarter(Edge::Right),
+        '\u{1FB6F}' => Triangle::Quarter(Edge::Lower),
         _ => return None,
     })
 }
@@ -877,10 +1046,37 @@ fn render_block(c: &mut Canvas, block: Block) {
             let x1 = (wf * n as f32 / 8.0).round() as i32;
             c.fill(0, x1, 0, h as i32);
         }
+        Block::UpperEighths(n) => {
+            let y1 = (hf * n as f32 / 8.0).round() as i32;
+            c.fill(0, w as i32, 0, y1);
+        }
+        Block::RightEighths(n) => {
+            let x0 = (wf * (8 - n) as f32 / 8.0).round() as i32;
+            c.fill(x0, w as i32, 0, h as i32);
+        }
+        Block::VerticalEighthStrip(col) => {
+            let x0 = (wf * (col - 1) as f32 / 8.0).round() as i32;
+            let x1 = (wf * col as f32 / 8.0).round() as i32;
+            c.fill(x0, x1, 0, h as i32);
+        }
+        Block::HorizontalEighthStrip(row) => {
+            let y0 = (hf * (row - 1) as f32 / 8.0).round() as i32;
+            let y1 = (hf * row as f32 / 8.0).round() as i32;
+            c.fill(0, w as i32, y0, y1);
+        }
         Block::RightHalf => c.fill((wf / 2.0).round() as i32, w as i32, 0, h as i32),
         Block::UpperEighth => c.fill(0, w as i32, 0, (hf / 8.0).round() as i32),
         Block::RightEighth => c.fill((wf * 7.0 / 8.0).round() as i32, w as i32, 0, h as i32),
         Block::Shade(v) => c.fill_value(v),
+        Block::HalfShade(half, v) => {
+            let (x0, x1, y0, y1) = match half {
+                Half::Left => (0, (wf / 2.0).round() as i32, 0, h as i32),
+                Half::Right => ((wf / 2.0).round() as i32, w as i32, 0, h as i32),
+                Half::Upper => (0, w as i32, 0, (hf / 2.0).round() as i32),
+                Half::Lower => (0, w as i32, (hf / 2.0).round() as i32, h as i32),
+            };
+            shade_rect(c, x0, x1, y0, y1, v);
+        }
         Block::Quadrant([ul, ur, ll, lr]) => {
             let mx = (wf / 2.0).round() as i32;
             let my = (hf / 2.0).round() as i32;
@@ -898,6 +1094,125 @@ fn render_block(c: &mut Canvas, block: Block) {
             }
         }
     }
+}
+
+/// Fill a rectangle with a uniform shade coverage value, matching the flat
+/// coverage treatment used for the `░▒▓` shade blocks.
+fn shade_rect(c: &mut Canvas, x0: i32, x1: i32, y0: i32, y1: i32, v: u8) {
+    let xs = x0.max(0);
+    let xe = x1.min(c.w as i32);
+    let ys = y0.max(0);
+    let ye = y1.min(c.h as i32);
+    for y in ys..ye {
+        for x in xs..xe {
+            let idx = (y as u32 * c.w + x as u32) as usize;
+            if v > c.data[idx] {
+                c.data[idx] = v;
+            }
+        }
+    }
+}
+
+/// Render a Symbols for Legacy Computing sextant as a 2×3 filled grid. Region
+/// `r` (1..=6): left column top→bottom for 1,2,3 and right column for 4,5,6.
+fn render_sextant(c: &mut Canvas, mask: u8) {
+    render_grid(c, mask, 3, |r| if r <= 3 { (0, r - 1) } else { (1, r - 4) });
+}
+
+/// Render a Symbols for Legacy Computing Supplement octant as a 2×4 filled grid.
+/// Region `r` (1..=8): left column 1..=4, right column 5..=8.
+fn render_octant(c: &mut Canvas, mask: u8) {
+    render_grid(c, mask, 4, |r| if r <= 4 { (0, r - 1) } else { (1, r - 5) });
+}
+
+/// Shared 2-column × `nrow` grid renderer for sextants (`nrow`=3) and octants
+/// (`nrow`=4). For each set region `r` (1-based) in `mask`, `region_to_cell(r)`
+/// gives its `(col, row)`; that sub-rectangle is filled solid.
+fn render_grid<F: Fn(u8) -> (u8, u8)>(c: &mut Canvas, mask: u8, nrow: u8, region_to_cell: F) {
+    if mask == 0 {
+        return;
+    }
+    let (w, h) = (c.w as f32, c.h as f32);
+    let nrowf = nrow as f32;
+    for r in 1u8..=8 {
+        if mask & (1 << (r - 1)) == 0 {
+            continue;
+        }
+        let (col, row) = region_to_cell(r);
+        let x0 = (w * col as f32 / 2.0).round() as i32;
+        let x1 = (w * (col as f32 + 1.0) / 2.0).round() as i32;
+        let y0 = (h * row as f32 / nrowf).round() as i32;
+        let y1 = (h * (row as f32 + 1.0) / nrowf).round() as i32;
+        c.fill(x0, x1, y0, y1);
+    }
+}
+
+/// Render a triangular block from `U+1FB68..=U+1FB6F`. Each quarter-triangle has
+/// its apex at the named [`Edge`] center and a base along the perpendicular cell
+/// midline, covering one quarter of the cell; the three-quarters variants fill
+/// the complement. The slanted edges are anti-aliased with a 1px band.
+fn render_triangle(c: &mut Canvas, tri: Triangle) {
+    let (w, h) = (c.w as f32, c.h as f32);
+    let invert = matches!(tri, Triangle::ThreeQuarters(_));
+    let edge = match tri {
+        Triangle::Quarter(e) | Triangle::ThreeQuarters(e) => e,
+    };
+    // Three vertices in pixel space (origin top-left). Apex at the named edge's
+    // center; the two base corners sit on the perpendicular midline at the cell
+    // corners, so the triangle covers exactly one quarter of the cell.
+    let (apex, b1, b2) = match edge {
+        Edge::Left => ((0.0, h / 2.0), (w / 2.0, 0.0), (w / 2.0, h)),
+        Edge::Upper => ((w / 2.0, 0.0), (0.0, h / 2.0), (w, h / 2.0)),
+        Edge::Right => ((w, h / 2.0), (w / 2.0, 0.0), (w / 2.0, h)),
+        Edge::Lower => ((w / 2.0, h), (0.0, h / 2.0), (w, h / 2.0)),
+    };
+    let v = [apex, b1, b2];
+    for y in 0..c.h {
+        for x in 0..c.w {
+            let p = (x as f32 + 0.5, y as f32 + 0.5);
+            // Inside iff the point is on the same side of all three directed
+            // edges (winding-independent: the crosses share a sign or are zero).
+            let crosses = [
+                cross(v[0], v[1], p),
+                cross(v[1], v[2], p),
+                cross(v[2], v[0], p),
+            ];
+            let inside = crosses.iter().all(|&s| s >= 0.0) || crosses.iter().all(|&s| s <= 0.0);
+            // Nearest-edge perpendicular distance (pixels) drives the AA ramp.
+            let min_dist = [(v[0], v[1]), (v[1], v[2]), (v[2], v[0])]
+                .iter()
+                .map(|(a, b)| perp_dist(p, *a, *b))
+                .fold(f32::INFINITY, f32::min);
+            let raw = if inside {
+                min_dist + 0.5
+            } else {
+                0.5 - min_dist
+            };
+            let mut cov = raw.clamp(0.0, 1.0);
+            if invert {
+                cov = 1.0 - cov;
+            }
+            if cov > 0.0 {
+                c.put(x as i32, y as i32, (cov * 255.0).round() as u8);
+            }
+        }
+    }
+}
+
+/// Z-component of the cross product of `a→b` and `a→p` (pixel space, y-down).
+fn cross(a: (f32, f32), b: (f32, f32), p: (f32, f32)) -> f32 {
+    (b.0 - a.0) * (p.1 - a.1) - (p.0 - a.0) * (b.1 - a.1)
+}
+
+/// Perpendicular distance from point `p` to the line through `a`–`b` (pixels).
+fn perp_dist(p: (f32, f32), a: (f32, f32), b: (f32, f32)) -> f32 {
+    let dx = b.0 - a.0;
+    let dy = b.1 - a.1;
+    let len = (dx * dx + dy * dy).sqrt();
+    if len <= f32::EPSILON {
+        return 0.0;
+    }
+    (dx * (a.1 - p.1) - (a.0 - p.0) * dy).abs() / len
 }
 
 /// Render a Unicode Braille pattern as a 2×4 field of dot ellipses.
