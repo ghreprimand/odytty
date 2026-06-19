@@ -100,12 +100,14 @@ pub(in crate::core) struct Scrollback {
 pub(in crate::core) struct ResizeOptions {
     pub preserve_cursor_physical_line: bool,
     pub cursor_pending_wrap: bool,
+    pub collapse_prompt_start_row: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::core) struct ResizeResult {
     pub cursor: Position,
     pub pending_wrap: bool,
+    pub collapsed_prompt_start_row: Option<usize>,
 }
 
 impl Scrollback {
@@ -307,8 +309,12 @@ pub(in crate::core) fn resize_lazy_with_options(
         ResizeResult {
             cursor,
             pending_wrap: options.cursor_pending_wrap && cursor.column == new_width - 1,
+            collapsed_prompt_start_row: None,
         }
     } else {
+        let collapse_prompt_start_row = options
+            .collapse_prompt_start_row
+            .map(|row| cursor_prefix + row);
         let reflow = reflow_lines_with_options(
             &mut overflow,
             &mut subset,
@@ -317,11 +323,13 @@ pub(in crate::core) fn resize_lazy_with_options(
             ReflowOptions {
                 preserve_cursor_physical_line: options.preserve_cursor_physical_line,
                 cursor_pending_wrap: options.cursor_pending_wrap,
+                collapse_prompt_start_row,
             },
         );
         ResizeResult {
             cursor: reflow.cursor,
             pending_wrap: reflow.pending_wrap,
+            collapsed_prompt_start_row: reflow.collapsed_prompt_start_row,
         }
     };
 

@@ -119,6 +119,64 @@ fn narrow_resize_then_fish_old_height_repaint_does_not_duplicate_prompt() {
 }
 
 #[test]
+fn osc133_prompt_resize_then_fish_fixed_height_repaint_does_not_stack() {
+    const OSC_A: &[u8] = b"\x1b]133;A\x07";
+    const OSC_B: &[u8] = b"\x1b]133;B\x07";
+
+    fn paint_prompt(terminal: &mut Terminal, line1: &str) {
+        terminal.advance(OSC_A);
+        terminal.advance(line1.as_bytes());
+        terminal.advance(b"\r\n> ");
+        terminal.advance(OSC_B);
+    }
+
+    fn fish_repaint(terminal: &mut Terminal, line1: &str) {
+        terminal.advance(b"\r\r\x1b[A\x1b[K");
+        paint_prompt(terminal, line1);
+        terminal.advance(b"\x1b[J\r\x1b[2C");
+    }
+
+    fn assert_single_prompt(terminal: &Terminal, current: &str, stale: &[&str]) {
+        let text = terminal.screen().plain_text();
+        assert_eq!(
+            text.matches(current).count(),
+            1,
+            "current prompt should appear once:\n{text}"
+        );
+        assert_eq!(
+            text.lines().filter(|line| *line == ">").count(),
+            1,
+            "prompt input row should appear once:\n{text}"
+        );
+        for old in stale {
+            assert!(
+                !text.contains(old),
+                "stale prompt fragment {old:?} survived:\n{text}"
+            );
+        }
+    }
+
+    let initial = "user  segchain  ~/p/project  branch  status-long-wide";
+    let mut terminal = Terminal::new(80, 8);
+    paint_prompt(&mut terminal, initial);
+
+    terminal.resize(42, 8);
+    let line42 = "A42  ~/p/project  branch  status-ok";
+    fish_repaint(&mut terminal, line42);
+    assert_single_prompt(&terminal, line42, &[initial]);
+
+    terminal.resize(28, 8);
+    let line28 = "A28  project branch ok";
+    fish_repaint(&mut terminal, line28);
+    assert_single_prompt(&terminal, line28, &[initial, line42]);
+
+    terminal.resize(20, 8);
+    let line20 = "A20  branch ok";
+    fish_repaint(&mut terminal, line20);
+    assert_single_prompt(&terminal, line20, &[initial, line42, line28]);
+}
+
+#[test]
 fn narrow_resize_preserves_cursor_line_old_row_offset_for_clear() {
     let mut terminal = Terminal::new(8, 5);
 

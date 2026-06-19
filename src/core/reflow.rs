@@ -51,6 +51,7 @@ struct LogicalLine {
     cursor_offset: Option<usize>,
     cursor_row_offset: Option<usize>,
     cursor_column: Option<usize>,
+    start_row: usize,
     /// OSC 133 prompt mark (SH1) captured from the first physical row of this
     /// logical line; re-stamped onto the first re-wrapped physical row so marks
     /// survive a width-changing resize.
@@ -61,12 +62,14 @@ struct LogicalLine {
 pub(in crate::core) struct ReflowOptions {
     pub preserve_cursor_physical_line: bool,
     pub cursor_pending_wrap: bool,
+    pub collapse_prompt_start_row: Option<usize>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::core) struct ReflowResult {
     pub cursor: Position,
     pub pending_wrap: bool,
+    pub collapsed_prompt_start_row: Option<usize>,
 }
 /// Reflow the combined `scrollback` + `rows` buffer to `dimensions`, preserving
 /// content by rejoining soft-wrapped rows into logical lines and re-wrapping
@@ -125,11 +128,13 @@ pub(in crate::core) fn reflow_lines_with_options(
     let mut current_cursor_row_offset: Option<usize> = None;
     let mut current_cursor_column: Option<usize> = None;
     let mut current_row_count = 0usize;
+    let mut current_start_row = 0usize;
     let mut current_mark: Option<PromptKind> = None;
     for (idx, line) in combined.iter().enumerate() {
         if current.is_empty() {
             // First physical row of a new logical line: capture its mark.
             current_mark = line.prompt_mark;
+            current_start_row = idx;
         } else if current_mark.is_none() {
             // Adopt a mark stamped on a continuation row when the first row
             // carried none (first non-`None` mark in the logical line wins).
@@ -153,6 +158,7 @@ pub(in crate::core) fn reflow_lines_with_options(
                 cursor_offset: current_cursor.take(),
                 cursor_row_offset: current_cursor_row_offset.take(),
                 cursor_column: current_cursor_column.take(),
+                start_row: current_start_row,
                 prompt_mark: current_mark.take(),
             });
             current_row_count = 0;
@@ -165,6 +171,7 @@ pub(in crate::core) fn reflow_lines_with_options(
             cursor_offset: current_cursor,
             cursor_row_offset: current_cursor_row_offset,
             cursor_column: current_cursor_column,
+            start_row: current_start_row,
             prompt_mark: current_mark,
         });
     }
@@ -191,8 +198,35 @@ pub(in crate::core) fn reflow_lines_with_options(
     let mut new_combined: Vec<Line> = Vec::new();
     let mut cursor_dest: Option<(usize, usize)> = None;
     let mut pending_wrap_dest = false;
+    let mut collapsed_prompt_start_dest: Option<usize> = None;
 
     for logical in &logicals {
+        if let Some(start_row) = options.collapse_prompt_start_row
+            && logical.start_row >= start_row
+            && logical.start_row <= cursor_abs_row
+        {
+            let row_index = new_combined.len();
+            let mut row_cells = logical.cells.clone();
+            row_cells.truncate(new_cols);
+            row_cells.resize(new_cols, plain);
+            let mut row = Line::unwrapped(row_cells);
+            row.prompt_mark = logical.prompt_mark;
+            new_combined.push(row);
+
+            if logical.start_row == start_row {
+                collapsed_prompt_start_dest = Some(row_index);
+            }
+            if logical.cursor_offset.is_some() {
+                let column = logical
+                    .cursor_column
+                    .unwrap_or(cursor.column)
+                    .min(new_cols - 1);
+                cursor_dest = Some((row_index, column));
+                pending_wrap_dest = options.cursor_pending_wrap && column == new_cols - 1;
+            }
+            continue;
+        }
+
         // First physical row this logical line will produce; the prompt mark is
         // re-anchored here after re-wrapping. A logical line always produces at
         // least one row, so this index is valid afterward.
@@ -341,6 +375,9 @@ pub(in crate::core) fn reflow_lines_with_options(
     ReflowResult {
         cursor,
         pending_wrap: pending_wrap_dest,
+        collapsed_prompt_start_row: collapsed_prompt_start_dest
+            .and_then(|row| row.checked_sub(visible_start))
+            .filter(|row| *row < new_rows),
     }
 }
 /// Width-unchanged resize fast path: produces the byte-identical

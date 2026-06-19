@@ -76,7 +76,13 @@ fn show_config_output_formats_default_settings() {
         &output,
         &format!("font_family={}", odytty::text::BUNDLED_FONT_FAMILY),
     );
-    assert_contains_line(&output, "font_size=22");
+    assert_contains_line(
+        &output,
+        &format!(
+            "font_size={}",
+            odytty::settings::DEFAULT_FONT_SIZE_PX as usize
+        ),
+    );
     assert_contains_line(&output, "render_quality=balanced");
     assert_contains_line(&output, "retro=off");
     assert_contains_line(&output, "window_padding=4");

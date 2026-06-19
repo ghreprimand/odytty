@@ -422,7 +422,7 @@ fn sextant_masks_table_is_valid_and_distinct() {
 fn octant_masks_table_is_valid_and_distinct() {
     assert_eq!(OCTANT_MASKS.len(), 230);
     for &m in OCTANT_MASKS {
-        assert!(m != 0 && m <= 0xFF, "octant mask {m:#x} out of range");
+        assert!(m != 0, "octant mask {m:#x} out of range");
     }
     let mut sorted = OCTANT_MASKS.to_vec();
     sorted.sort_unstable();

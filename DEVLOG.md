@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- OSC 133 prompt resize collapse for fish repaint
+
+The narrow-resize prompt duplication fix now handles real fish 4.7-style
+SIGWINCH repaint bytes. Fish bounds a two-line prompt by abbreviating the first
+line to one row and then repaints with a fixed `CUU 1` + clear-below sequence;
+if OdyTTY rewrapped the old, unabbreviated OSC 133 prompt into extra rows before
+that repaint, the rows above fish's redraw start survived and stacked.
+
+OdyTTY now tracks the active OSC 133 `A` prompt-start anchor separately from the
+OSC 133 `B` input boundary. On width-changing primary-screen resize, if that
+anchor is visible and at/before the cursor, the live prompt region is projected
+as one physical row per logical prompt line instead of being rewrapped into
+extra rows. Committed output, scrollback, no-mark shells, width-unchanged resize,
+and alternate-screen resize keep the existing reflow behavior.
+
+Regression coverage adds a public-safe synthetic transcript that models fish's
+fixed-height repaint across multiple narrowing steps and asserts that stale
+prompt fragments do not survive. While verifying the current tree, a stale
+`--show-config` fixture was updated for the new default font size 20 and a
+boxdraw test warning was removed.
+
+Verification: `cargo fmt --check` clean; `cargo test` clean (1821 lib tests
+passed, 7 ignored; integration/doc suites clean); `cargo build --release`
+clean.
+
+Gaps: the local `.archon/tmp/fish_capture.py` helper produced generic initial
+fish prompt bytes with OSC 133 but no SIGWINCH repaint bytes in this session, so
+live real-fish replay could not validate the duplication path here. The
+committed synthetic regression follows the real repaint sequence from the
+root-cause artifact.
+
+---
+
 ## 2026-06-19 -- Geometric Symbols for Legacy Computing (sextants, octants, triangles, eighths)
 
 `src/boxdraw.rs` now renders large parts of the Symbols for Legacy Computing

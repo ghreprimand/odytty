@@ -188,6 +188,10 @@ pub struct Screen {
     /// absolute row coordinate space used by prompt marks. This is advisory
     /// live-prompt state for native input editing; it never reaches snapshots.
     active_prompt_input_start: Option<(usize, usize)>,
+    /// Absolute row of the active OSC 133 `A` prompt-start boundary. During a
+    /// width-changing resize, rows from this anchor through the cursor belong
+    /// to the shell's live prompt repaint and must not grow extra wrap rows.
+    active_prompt_start: Option<usize>,
     /// Effective cursor shape (DECSCUSR `CSI Ps SP q`, or the host default).
     cursor_style: CursorStyle,
     /// Effective cursor blink policy (DECSCUSR, or the host default).
@@ -239,6 +243,8 @@ struct StoredScreen {
     /// value on enter prevents the native input-editing layer from reading stale
     /// primary state while an alternate-screen TUI is running.
     active_prompt_input_start: Option<(usize, usize)>,
+    /// OSC 133 `A` prompt-start anchor saved with the primary buffer.
+    active_prompt_start: Option<usize>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct SavedCursor {
@@ -305,6 +311,7 @@ impl Screen {
             focus_reporting: false,
             click_events_enabled: false,
             active_prompt_input_start: None,
+            active_prompt_start: None,
             cursor_style: CursorStyle::default(),
             cursor_blink: true,
             default_cursor_style: CursorStyle::default(),
@@ -659,6 +666,7 @@ impl Screen {
                     ResizeOptions {
                         preserve_cursor_physical_line: false,
                         cursor_pending_wrap: primary.pending_wrap,
+                        collapse_prompt_start_row: None,
                     },
                 );
                 primary.cursor = result.cursor;
@@ -667,6 +675,14 @@ impl Screen {
                 self.primary_screen = Some(primary);
             }
         } else {
+            let old_scrollback_rows = self.scrollback.physical_len(self.dimensions.columns);
+            let collapse_prompt_start_row = active_prompt_start_visible_row(
+                self.active_prompt_start,
+                old_scrollback_rows,
+                self.cursor.row,
+                self.rows.len(),
+                width_unchanged,
+            );
             // Lazy resize: re-wrap only the bottom of the buffer needed for the
             // new window; deep history stays logical and is projected on access.
             // The width-unchanged path uses the O(rows) keep-width fast path
@@ -680,10 +696,15 @@ impl Screen {
                 ResizeOptions {
                     preserve_cursor_physical_line: !width_unchanged,
                     cursor_pending_wrap: self.pending_wrap,
+                    collapse_prompt_start_row,
                 },
             );
             self.cursor = result.cursor;
             self.pending_wrap = result.pending_wrap;
+            if let Some(row) = result.collapsed_prompt_start_row {
+                let scrollback_rows = self.scrollback.physical_len(dimensions.columns);
+                self.active_prompt_start = Some(scrollback_rows + row);
+            }
         }
 
         self.dimensions = dimensions;
@@ -1069,7 +1090,11 @@ impl Screen {
                     .saturating_add(self.cursor.row);
                 self.active_prompt_input_start = Some((absolute_row, self.cursor.column));
             }
-            Some(b'A' | b'C' | b'D') => self.active_prompt_input_start = None,
+            Some(b'C' | b'D') => {
+                self.active_prompt_input_start = None;
+                self.active_prompt_start = None;
+            }
+            Some(b'A') => self.active_prompt_input_start = None,
             _ => {}
         }
         // Walk back to the first physical row of the cursor's logical line: a
@@ -1081,6 +1106,13 @@ impl Screen {
         if let Some(line) = self.rows.get_mut(row) {
             line.prompt_mark = Some(kind);
             self.prompt_marks_changed = true;
+        }
+        if code == Some(b'A') {
+            let absolute_row = self
+                .scrollback
+                .physical_len(self.dimensions.columns)
+                .saturating_add(row);
+            self.active_prompt_start = Some(absolute_row);
         }
     }
 
@@ -1761,6 +1793,20 @@ fn default_tab_stops(columns: usize) -> Vec<bool> {
         stops[column] = true;
     }
     stops
+}
+fn active_prompt_start_visible_row(
+    active_prompt_start: Option<usize>,
+    scrollback_rows: usize,
+    cursor_row: usize,
+    visible_rows: usize,
+    width_unchanged: bool,
+) -> Option<usize> {
+    if width_unchanged {
+        return None;
+    }
+    let start = active_prompt_start?;
+    let visible = start.checked_sub(scrollback_rows)?;
+    (visible < visible_rows && visible <= cursor_row).then_some(visible)
 }
 /// Repair wide-character pairs broken by a row-local shift (ICH/DCH). A
 /// wide glyph occupies a lead cell plus a `wide_continuation` spacer; shifting
