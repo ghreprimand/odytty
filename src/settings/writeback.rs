@@ -96,6 +96,45 @@ pub fn write_settings_changes_to_path(
     })
 }
 
+/// First-run marker written when the user dismisses the onboarding card without
+/// having saved any setting. Comment-only, so it parses to all defaults; its
+/// mere existence is what suppresses the onboarding card on later launches
+/// (onboarding's first-run gate is "does `odytty.conf` exist").
+const FIRST_RUN_STUB: &str = concat!(
+    "# OdyTTY configuration\n",
+    "# Created on first launch. Edit settings here or use the in-app settings\n",
+    "# panel. This file existing is what stops the welcome card from reshowing.\n",
+);
+
+/// Ensure the user's `odytty.conf` exists so first-run onboarding does not
+/// reshow after the user dismisses the welcome card. Resolves the path with the
+/// same rules as [`write_settings_changes`].
+pub fn ensure_config_file_exists() -> Result<ConfigWritebackResult, ConfigWritebackError> {
+    let path = config_file_path().ok_or_else(|| {
+        ConfigWritebackError::new("could not resolve odytty.conf path; set XDG_CONFIG_HOME or HOME")
+    })?;
+    ensure_config_file_exists_at(&path)
+}
+
+/// Path-explicit form of [`ensure_config_file_exists`]. No-op (reports
+/// `changed: 0`) when the file already exists, so it never clobbers user
+/// content; otherwise atomically writes a comment-only first-run stub.
+pub fn ensure_config_file_exists_at(
+    path: &Path,
+) -> Result<ConfigWritebackResult, ConfigWritebackError> {
+    if path.exists() {
+        return Ok(ConfigWritebackResult {
+            path: path.to_path_buf(),
+            changed: 0,
+        });
+    }
+    atomic_write(path, FIRST_RUN_STUB.as_bytes())?;
+    Ok(ConfigWritebackResult {
+        path: path.to_path_buf(),
+        changed: 1,
+    })
+}
+
 fn canonical_changes(changes: &[SettingEdit]) -> BTreeMap<&'static str, String> {
     changes
         .iter()
@@ -350,5 +389,34 @@ mod tests {
 
         assert!(output.contains("# disabled by OdyTTY settings panel: font = fonts/Old.ttf"));
         assert!(output.contains("# disabled by OdyTTY settings panel: font = fonts/New.ttf"));
+    }
+
+    #[test]
+    fn ensure_config_file_creates_when_missing_and_preserves_when_present() {
+        let dir = std::env::temp_dir().join(format!("odytty-ensure-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join("odytty.conf");
+
+        // Missing -> created with the first-run stub, reported as one change.
+        assert!(!path.exists());
+        let created = ensure_config_file_exists_at(&path).expect("create config");
+        assert_eq!(created.changed, 1);
+        assert!(path.exists());
+        assert!(
+            fs::read_to_string(&path)
+                .expect("read stub")
+                .contains("OdyTTY configuration")
+        );
+
+        // Already present -> no-op; never clobbers existing user content.
+        fs::write(&path, "font_size = 22\n").expect("write user conf");
+        let again = ensure_config_file_exists_at(&path).expect("idempotent");
+        assert_eq!(again.changed, 0);
+        assert_eq!(
+            fs::read_to_string(&path).expect("reread"),
+            "font_size = 22\n"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }

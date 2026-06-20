@@ -46,6 +46,14 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.overlay.close();
             }
+            // First-run onboarding dismissal: persist a marker so the welcome
+            // card does not reshow next launch (best-effort; a write failure
+            // must never block dismissal), then close like any other overlay.
+            OverlayOutcome::CloseOnboarding => {
+                self.flush_pending_overlay_settings();
+                self.persist_first_run_config();
+                self.overlay.close();
+            }
             OverlayOutcome::OpenThemePicker => {
                 self.flush_pending_overlay_settings();
                 self.open_theme_picker_overlay();

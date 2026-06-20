@@ -740,7 +740,7 @@ impl OverlayUi {
     fn handle_onboarding_input(&mut self, input: OverlayInput) -> OverlayOutcome {
         match input {
             OverlayInput::Close | OverlayInput::Activate | OverlayInput::Char(' ') => {
-                OverlayOutcome::Close
+                OverlayOutcome::CloseOnboarding
             }
             _ => OverlayOutcome::Consumed,
         }
@@ -757,6 +757,11 @@ impl OverlayUi {
 pub(super) enum OverlayOutcome {
     Consumed,
     Close,
+    /// Dismiss the first-run onboarding card. Like `Close`, but the App also
+    /// persists a first-run marker (ensures `odytty.conf` exists) so the welcome
+    /// card does not reshow on the next launch — dismissal alone otherwise
+    /// writes nothing, and onboarding's gate is purely "does the config exist".
+    CloseOnboarding,
     OpenThemePicker,
     OpenThemeBuilder,
     OpenKeyBindings,
@@ -1562,7 +1567,7 @@ mod tests {
         assert!(overlay.is_open());
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
-            OverlayOutcome::Close
+            OverlayOutcome::CloseOnboarding
         );
         for input in [
             OverlayInput::Close,
@@ -1570,7 +1575,7 @@ mod tests {
             OverlayInput::Activate,
         ] {
             overlay.open_onboarding();
-            assert_eq!(overlay.handle_input(input), OverlayOutcome::Close);
+            assert_eq!(overlay.handle_input(input), OverlayOutcome::CloseOnboarding);
         }
     }
 

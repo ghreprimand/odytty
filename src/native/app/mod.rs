@@ -24,7 +24,7 @@ use crate::selection::{
 };
 use crate::settings::{
     BindableAction, SettingEdit, Settings, SettingsReloadOutcome, SettingsReloader, THEME_ENV,
-    apply_reloadable_values, write_settings_changes_to_path,
+    apply_reloadable_values, ensure_config_file_exists_at, write_settings_changes_to_path,
 };
 use crate::text::{self, CellSize};
 use crate::theme::{Theme, VisualEffect};
@@ -1251,6 +1251,22 @@ impl App {
     fn flush_pending_overlay_settings(&mut self) {
         if let Some(settings) = self.pending_overlay_settings.take() {
             self.apply_overlay_settings(settings);
+        }
+    }
+
+    /// Persist a first-run marker when the onboarding card is dismissed, so it
+    /// does not reshow on the next launch. Onboarding's gate is purely whether
+    /// `odytty.conf` exists, and plain dismissal writes nothing; this ensures
+    /// the file exists (without clobbering it if the user already has one).
+    ///
+    /// Best-effort: a write failure is logged but never blocks dismissal, and
+    /// the onboarding overlay has no save UI to surface an error through.
+    fn persist_first_run_config(&mut self) {
+        let Some(path) = self.settings_reloader.config_path() else {
+            return;
+        };
+        if let Err(error) = ensure_config_file_exists_at(path) {
+            eprintln!("odytty: could not record first-run marker: {error}");
         }
     }
 

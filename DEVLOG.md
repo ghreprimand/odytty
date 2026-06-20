@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- First-run onboarding now persists on dismiss (unreleased)
+
+Fixed a first-run UX bug surfaced on a fresh macOS install: the onboarding
+welcome card reshowed on every launch. Root cause was not macOS-specific —
+onboarding's only first-run signal is whether `odytty.conf` exists, the file
+materialises only when the user *saves* a setting, and dismissing the card wrote
+nothing. Existing machines never hit it because they already had a config from
+prior use; a clean install had none, so the card returned forever.
+
+Dismissing onboarding now persists a first-run marker. Added
+`writeback::ensure_config_file_exists{,_at}` (atomically creates `odytty.conf`
+with a comment-only stub if missing; a no-op that never clobbers an existing
+file), a new `OverlayOutcome::CloseOnboarding` emitted by the onboarding handler,
+and an `App::persist_first_run_config` that writes the marker on dismissal —
+best-effort, so a write failure logs but never blocks the dismiss. The config
+path comes from the same `SettingsReloader::config_path` the onboarding gate
+reads, so the write and the check can't diverge.
+
+Gates: `cargo fmt --check` clean, full `cargo test` green (1984 tests, +1 new
+writeback test covering create-when-missing and preserve-when-present). Landed on
+`master` **untagged** — to be verified on macOS before the next release tag.
+
 ## 2026-06-19 -- macOS port + cross-platform release pipeline (v0.1.8)
 
 First step toward cross-platform support: OdyTTY now compiles for macOS and ships

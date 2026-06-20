@@ -33,8 +33,8 @@ pub use reload::{
     ConfigReloadPoller, SettingsReloadOutcome, SettingsReloader, apply_reloadable_values,
 };
 pub use writeback::{
-    ConfigWritebackError, ConfigWritebackResult, write_settings_changes,
-    write_settings_changes_to_path,
+    ConfigWritebackError, ConfigWritebackResult, ensure_config_file_exists,
+    ensure_config_file_exists_at, write_settings_changes, write_settings_changes_to_path,
 };
 
 use self::values::*;
