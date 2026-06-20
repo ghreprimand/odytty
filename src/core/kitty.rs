@@ -280,8 +280,22 @@ fn process_complete_command(
         's' => {
             // Shared memory: payload is base64-encoded shm name.
             let name_bytes = decode_base64(&command.payload, 4096)?;
-            kitty_transport::read_shm_transport(&name_bytes, max_decoded)
-                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))?
+            let mut bytes = kitty_transport::read_shm_transport(&name_bytes, max_decoded)
+                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))?;
+            // POSIX shm objects are rounded up to a page boundary on macOS, so
+            // the mapped segment can be larger than the logical payload. For
+            // fixed-size raw formats the exact length is known from the
+            // dimensions — trim trailing padding to it so the strict length
+            // check in `rgba_from_payload` still holds. PNG (self-delimiting)
+            // and segments already at the exact size (every Linux segment) are
+            // unaffected.
+            if let Some(expected) = expected_raw_payload_len(&command.control) {
+                if bytes.len() < expected {
+                    return Err(KittyError::InvalidPayload);
+                }
+                bytes.truncate(expected);
+            }
+            bytes
         }
         _ => return Err(KittyError::UnsupportedTransmission),
     };
@@ -555,6 +569,20 @@ fn display_rows(control: &ControlData, height: u32, cell_metrics: CellMetrics) -
             ((height + cell_metrics.height_px - 1) / cell_metrics.height_px) as usize
         })
         .max(1)
+}
+
+/// Exact byte length of a fixed-size raw payload (`f=24` / `f=32`) given the
+/// declared dimensions, or `None` for variable-size formats (e.g. PNG) or when
+/// dimensions are absent. Used to trim page-padding off shared-memory segments
+/// (see the `t=s` arm of [`process_complete_command`]).
+fn expected_raw_payload_len(control: &ControlData) -> Option<usize> {
+    let bpp = match control.format {
+        Some(32) => 4,
+        Some(24) => 3,
+        _ => return None,
+    };
+    let pixels = (control.width? as usize).checked_mul(control.height? as usize)?;
+    pixels.checked_mul(bpp)
 }
 
 fn rgba_from_payload(

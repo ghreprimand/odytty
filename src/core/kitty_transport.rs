@@ -48,7 +48,6 @@
 
 use std::ffi::CString;
 use std::io::Read;
-use std::os::fd::FromRawFd;
 use std::path::{Path, PathBuf};
 
 /// Maximum file/shm read size — enforced before decode.
@@ -226,10 +225,13 @@ pub(super) fn read_shm_transport(
         libc::shm_unlink(c_name.as_ptr());
     }
 
-    // Read the data via the fd, capped.
-    let result = read_fd_capped(fd, max_read);
+    // Map the data via the fd, capped. POSIX shm objects are mmap-only on
+    // macOS (read() returns ENXIO, "Device not configured"); mmap is equally
+    // valid on Linux, so this is one portable path rather than per-OS branches.
+    let result = read_fd_via_mmap(fd, max_read);
 
-    // Close the fd regardless.
+    // Close the fd regardless. The mapping made above (if any) survives the
+    // close until it is munmap'd inside `read_fd_via_mmap`.
     unsafe {
         libc::close(fd);
     }
@@ -297,7 +299,14 @@ fn read_regular_file(path: &Path, max_read: usize) -> Result<Vec<u8>, TransportE
     Ok(buf)
 }
 
-fn read_fd_capped(fd: i32, max_read: usize) -> Result<Vec<u8>, TransportError> {
+/// Copy the contents of a (shm) fd into an owned buffer via `mmap`.
+///
+/// `read()`/`write()` are not valid on POSIX shm objects on macOS — only
+/// `mmap` is — so this is the portable way to pull bytes out of a `t=s`
+/// segment. The DoS byte cap is enforced *before* mapping: a segment larger
+/// than the cap is rejected outright, so we never map (or copy) more than the
+/// cap's worth of bytes.
+fn read_fd_via_mmap(fd: i32, max_read: usize) -> Result<Vec<u8>, TransportError> {
     let cap = max_read.min(MAX_TRANSPORT_READ_BYTES);
 
     // Get the size via fstat.
@@ -307,28 +316,44 @@ fn read_fd_capped(fd: i32, max_read: usize) -> Result<Vec<u8>, TransportError> {
         let err = std::io::Error::last_os_error();
         return Err(TransportError::ShmError(format!("fstat: {err}")));
     }
-    let size = unsafe { stat.assume_init() }.st_size as usize;
+    let raw_size = unsafe { stat.assume_init() }.st_size;
+    if raw_size <= 0 {
+        return Err(TransportError::ShmError("empty shm segment".into()));
+    }
+    let size = raw_size as usize;
+    // Enforce the cap before mapping — never map more than the cap allows.
     if size > cap {
         return Err(TransportError::TooLarge);
     }
-    if size == 0 {
-        return Err(TransportError::ShmError("empty shm segment".into()));
+
+    // Map read-only. MAP_SHARED is the conventional way to view a shm object;
+    // PROT_READ keeps the mapping immutable.
+    let addr = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            size,
+            libc::PROT_READ,
+            libc::MAP_SHARED,
+            fd,
+            0,
+        )
+    };
+    if addr == libc::MAP_FAILED {
+        let err = std::io::Error::last_os_error();
+        return Err(TransportError::ShmError(format!("mmap: {err}")));
     }
 
-    // Read via a File wrapper using a dup'd fd (caller closes the original).
-    let dup_fd = unsafe { libc::dup(fd) };
-    if dup_fd < 0 {
-        let err = std::io::Error::last_os_error();
-        return Err(TransportError::ShmError(format!("dup: {err}")));
-    }
-    let file = unsafe { std::fs::File::from_raw_fd(dup_fd) };
-    let mut buf = Vec::with_capacity(size.min(cap));
-    let read = file
-        .take((cap as u64) + 1)
-        .read_to_end(&mut buf)
-        .map_err(|e| TransportError::ShmError(format!("read: {e}")))?;
-    if read > cap {
-        return Err(TransportError::TooLarge);
+    // Copy out of the mapping into an owned buffer. `size` is already ≤ cap,
+    // so this copies no more than the cap permits.
+    //
+    // SAFETY: `mmap` returned a valid mapping of exactly `size` bytes that we
+    // own until the `munmap` below; the region is readable (PROT_READ) and not
+    // aliased mutably here.
+    let buf = unsafe { std::slice::from_raw_parts(addr as *const u8, size).to_vec() };
+
+    // Unmap regardless of outcome.
+    unsafe {
+        libc::munmap(addr, size);
     }
 
     Ok(buf)

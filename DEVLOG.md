@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-20 -- t=s shared-memory transport works on macOS (mmap, not read)
+
+The `t=s` Kitty transport was Linux-only: `read_shm_transport` pulled bytes off
+the shm fd with `read()`, which returns ENXIO ("Device not configured") on
+macOS, where POSIX shm objects are **mmap-only**. It failed safe (a `ShmError`,
+never a crash) but was non-functional. Replaced the `read()` path with `mmap`:
+`shm_open(O_RDONLY)` → immediate `shm_unlink` (unchanged squat defense) →
+`fstat` → cap check → `mmap(PROT_READ, MAP_SHARED)` → copy out → `munmap` →
+`close`. One portable path — `mmap` is equally correct on Linux, so there are no
+per-OS branches. All three mitigations are preserved: immediate unlink, the
+96 MiB byte cap (now enforced *before* mapping, so we never map more than the
+cap), and the strict shm-name validation.
+
+One macOS-only wrinkle surfaced on real hardware: macOS rounds shm objects up to
+a page boundary, so `fstat` on a 16-byte segment reports **16384**. PNG (`f=100`,
+self-delimiting) is unaffected, but fixed-size raw formats (`f=24`/`f=32`) hit
+the exact-length check in `rgba_from_payload` and were rejected. Fix: in the
+`t=s` arm, when the format is raw and the logical size is known from the
+dimensions (`pixels × bpp`), trim the trailing page-padding to that length
+(rejecting segments *shorter* than expected). This mirrors how a producer sizes
+the data and is a no-op on Linux (segments are already exact) and for PNG.
+
+Test helper `create_shm` now populates the segment via `ftruncate` + `mmap`
+(also mmap-only-safe), and the three segment-creating tests
+(`shm_transport_{png,rgba_2x2,without_leading_slash}`) plus the helpers/imports
+are un-gated — they run on Linux and macOS alike. All seven `shm_transport_*`
+tests pass on macOS, including the four security cases (`rejects_path_traversal`,
+`rejects_nested_slash`, `empty_name`, `nonexistent`).
+
+Gates: `cargo fmt --check` clean; lib suite 1870 pass / 8 ignored (was 1867,
++3 from the newly-portable shm tests). No Linux-specific code remains in the
+path; Linux CI must confirm the mmap path there (can't run Linux locally).
+
+---
+
 ## 2026-06-20 -- Fuzz tests: compile under current stable rustc (mmap shm prep)
 
 Picking up the macOS handoff on real hardware (rustc 1.94.0, Homebrew stable),
