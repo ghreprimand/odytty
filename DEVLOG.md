@@ -62,11 +62,14 @@ save/restore invariant this guards is also covered by the vim cases, which run
 everywhere. (IRM is a real, separate feature gap — noted for follow-up, not
 implemented here.)
 
-A separate, rare (~1 in 10) intermittent *hang* in a font/IME native test
-remains under investigation — it is not clipboard-related (the gated paths now
-return instantly) and predates these changes.
+(An apparent intermittent test *hang* chased during this work turned out to be a
+measurement artifact — a raw `target/debug/deps/odytty-*` glob occasionally
+selected the GUI binary, which correctly runs its event loop forever, and a too
+-tight timeout fired under concurrent load. The real lib test harness ran 12/12
+clean with no hang once measured properly.)
 
-Gates: `cargo fmt --check` clean; lib suite green and no longer SIGSEGVs.
+Gates: `cargo fmt --check` clean; lib suite 12/12 clean (0 SIGSEGV, 0 hang) and
+full `cargo test --locked` green across 3 consecutive runs.
 
 ---
 
