@@ -454,21 +454,6 @@ fn render_signature_update_matrix_covers_pixel_invalidators() {
 }
 
 #[test]
-fn hyperlink_hover_underlines_every_visible_cell_with_link() {
-    let mut terminal = Terminal::new(10, 2);
-    terminal.advance(b"\x1b]8;id=docs;https://example.com\x07AB\x1b]8;;\x07 C");
-    let id = terminal.screen().cell(0, 0).unwrap().attrs.hyperlink;
-    let mut snapshot = terminal.snapshot();
-
-    apply_hyperlink_hover(&mut snapshot, id);
-
-    assert!(snapshot.cells[0].attrs.underline());
-    assert!(snapshot.cells[1].attrs.underline());
-    assert!(!snapshot.cells[2].attrs.underline());
-    assert!(!snapshot.cells[3].attrs.underline());
-}
-
-#[test]
 fn hyperlink_click_policy_respects_mouse_tracking_escape_hatch() {
     assert!(hyperlink_action_allowed(Modifiers::CTRL, false));
     assert!(!hyperlink_action_allowed(Modifiers::CTRL, true));

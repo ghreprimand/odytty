@@ -31,7 +31,7 @@ use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 use super::render_helpers::{
     CursorAnimKey, CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature,
     OverlayFragment, RenderContentSignature, RenderSignature, SelectionSignature,
-    VisibleGraphicSignature, apply_hyperlink_hover, hyperlink_action_allowed, key_modes_from_core,
+    VisibleGraphicSignature, hyperlink_action_allowed, key_modes_from_core,
     openable_hyperlink_uri,
 };
 use super::search_ui::SearchRenderSignature;

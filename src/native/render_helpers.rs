@@ -2,7 +2,7 @@
 use std::collections::BTreeSet;
 
 use crate::core::{
-    CursorStyle, Dimensions, KeyboardModes as CoreKeyboardModes, LinkId, Snapshot, Terminal,
+    CursorStyle, Dimensions, KeyboardModes as CoreKeyboardModes, LinkId, Terminal,
     uri_has_openable_scheme,
 };
 use crate::graphics::{StoredImageId, VisiblePlacement};
@@ -43,17 +43,6 @@ pub(super) fn image_uploads_for_visible(
                 .map(ImageUpload::from)
         })
         .collect()
-}
-
-pub(super) fn apply_hyperlink_hover(snapshot: &mut Snapshot, hovered: Option<LinkId>) {
-    let Some(hovered) = hovered else {
-        return;
-    };
-    for cell in &mut snapshot.cells {
-        if cell.attrs.hyperlink == Some(hovered) {
-            cell.attrs.set_underline(true);
-        }
-    }
 }
 
 pub(super) fn hyperlink_action_allowed(mods: Modifiers, mouse_reporting_enabled: bool) -> bool {

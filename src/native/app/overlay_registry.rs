@@ -159,13 +159,18 @@ impl App {
         apply_overlay(snapshot, &mut self.overlay);
     }
 
-    /// Hovered-hyperlink underline (relocated `apply_hyperlink_hover`).
+    /// Hovered links are signalled by the pointer shape (hand) only — OdyTTY does
+    /// not draw a hover underline. A render-time underline keyed on the hovered
+    /// `LinkId` smeared across unrelated cells: `hovered_hyperlink` is not
+    /// recomputed while live output streams under a stationary pointer, and
+    /// `HyperlinkTable::clear()` resets the id counter, so a stale/reused id
+    /// matched freshly drawn content every frame. The cell paint is intentionally
+    /// a no-op; the slot is kept in the manifest for the renderer.
     pub(in crate::native) fn paint_hyperlink_cells(
         &self,
-        snapshot: &mut Snapshot,
+        _snapshot: &mut Snapshot,
         _ctx: &OverlayCtx,
     ) {
-        apply_hyperlink_hover(snapshot, self.hovered_hyperlink);
     }
 
     // --- quads (scroll-indicator first, then status gutter, then the new
