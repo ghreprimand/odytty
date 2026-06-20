@@ -343,8 +343,6 @@ impl App {
         let autoclose = settings.native_autoclose;
         let themed_ui_roles = settings.themed_ui_roles;
         let overlay = OverlayUi::new(&settings);
-        // ONBOARD: decide before construction whether this is a first launch.
-        let onboarding_override = std::env::var_os("ODYTTY_ONBOARDING").is_some();
         let mut app = Self {
             options,
             theme,
@@ -387,8 +385,20 @@ impl App {
         // config file does not yet exist (or the env override is set). First-run
         // memory is the user-owned config's existence — no telemetry, no flag
         // file (U6). Materializing the config (saving any setting) retires it.
-        if should_show_onboarding(onboarding_override, app.settings_reloader.config_path()) {
-            app.overlay.open_onboarding();
+        //
+        // Gated out of test builds: the unit-test harness constructs many Apps
+        // through this path with the *host* config-resolver, so a machine
+        // without a materialized `odytty.conf` (every fresh CI runner, and any
+        // contributor who hasn't saved a setting) would auto-open the overlay
+        // and make every overlay-sensitive test non-hermetic. Production
+        // (`cfg(not(test))`) is unchanged; the decision itself is covered by the
+        // `should_show_onboarding` unit test and the overlay state-machine tests.
+        #[cfg(not(test))]
+        {
+            let onboarding_override = std::env::var_os("ODYTTY_ONBOARDING").is_some();
+            if should_show_onboarding(onboarding_override, app.settings_reloader.config_path()) {
+                app.overlay.open_onboarding();
+            }
         }
         app
     }

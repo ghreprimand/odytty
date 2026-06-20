@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-20 -- CI hardening: hermetic test harness + Linux-only shm tests
+
+The new dual-platform CI immediately paid for itself a second time: after the
+`cargo-test` compile fix, the test *run* failed — 26 tests on Linux and 31 on
+macOS. Both were pre-existing and latent (no prior CI ran `cargo test` on macOS,
+and the Linux failures were masked on dev boxes that happen to have a config
+file). Two independent root causes:
+
+**1. Non-hermetic onboarding (26 tests, both platforms).** `App::new` opens the
+first-run onboarding overlay when no `~/.config/odytty/odytty.conf` exists. The
+unit-test harness builds many `App`s through this path, so on any machine
+*without* a materialized config — every fresh CI runner, and any new contributor
+— the overlay auto-opened and every overlay-sensitive test (`copy_mode_ui`,
+`hints_ui`, `alt_scroll`, `context_menu`) failed because `enter_copy_mode()` /
+context-menu-open / hint activation all correctly refuse while an overlay owns
+input. My local box passed only because it has a config. Fix: gate the
+onboarding auto-open to `#[cfg(not(test))]` so production is byte-identical while
+the harness is hermetic regardless of host config. Verified by running the full
+suite under an isolated empty `HOME`/`XDG_CONFIG_HOME` (simulating a fresh
+runner): 1998 pass, 0 fail — previously 26 failed there.
+
+**2. Linux-only shm transport tests (3, macOS-only).** `shm_transport_{png,
+rgba_2x2,without_leading_slash}` populate a POSIX shm segment by `write()`-ing
+the shm fd; the production `t=s` reader uses `read()`. Both are valid on Linux
+but return ENXIO ("Device not configured") on macOS, where shm objects are
+`mmap`-only. The transport is therefore Linux-validated and degrades safely
+(a `ShmError`, never a panic) on macOS. Gated those 3 segment-creating tests and
+their `create_shm`/`cleanup_shm` helpers (and the now-Linux-only imports) to
+`#[cfg(target_os = "linux")]`; the name-validation / missing-segment shm tests
+need no real segment and still run everywhere. (Making `t=s` work on macOS via
+`mmap` is a possible future enhancement; deferred — it touches the
+security-hardened transport path and can't be tested locally.)
+
+Gates: `cargo fmt --check` clean; full `cargo test` green both in the normal
+environment and under the isolated-HOME fresh-machine simulation (1998, 0
+failed). No production code path changed on either OS. macOS CI re-verification
+pending the push.
+
 ## 2026-06-20 -- Source-only distribution + dual-platform CI (v0.2.0)
 
 Cut the macOS prebuilt `.dmg` and made OdyTTY a build-from-source project on

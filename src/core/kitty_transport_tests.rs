@@ -5,8 +5,12 @@
 //! plus security-critical path validation and rejection cases.
 
 use super::*;
+// Used only by the Linux-gated shm-segment test helpers below.
+#[cfg(target_os = "linux")]
 use std::ffi::CString;
+#[cfg(target_os = "linux")]
 use std::io::Write;
+#[cfg(target_os = "linux")]
 use std::os::fd::FromRawFd;
 
 // ---------------------------------------------------------------------------
@@ -89,6 +93,16 @@ fn kitty_file_transmit_only(path: &str, format: u32, id: u32) -> Vec<u8> {
 }
 
 /// Create a POSIX shm segment with the given data.
+///
+/// Linux-only: this populates the segment with `write()` on the shm fd, which
+/// is valid on Linux but returns ENXIO ("Device not configured") on macOS,
+/// where POSIX shm objects can only be accessed via `mmap`. The production
+/// `t=s` reader (`read_shm_transport`) likewise uses `read()` on the fd, so the
+/// shared-memory transport is exercised on Linux and degrades safely (a
+/// `ShmError`, never a panic) elsewhere. The three segment-creating tests below
+/// are gated to match; the name-validation / missing-segment tests need no real
+/// segment and run on every platform.
+#[cfg(target_os = "linux")]
 fn create_shm(name: &str, data: &[u8]) {
     let c_name = CString::new(name).unwrap();
     let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) };
@@ -101,7 +115,8 @@ fn create_shm(name: &str, data: &[u8]) {
     drop(file); // closes fd
 }
 
-/// Cleanup a shm segment (best-effort).
+/// Cleanup a shm segment (best-effort). Linux-only; see [`create_shm`].
+#[cfg(target_os = "linux")]
 fn cleanup_shm(name: &str) {
     let c_name = CString::new(name).unwrap();
     unsafe {
@@ -269,6 +284,8 @@ fn temp_transport_rejects_symlink() {
 // t=s: Shared memory transport
 // ---------------------------------------------------------------------------
 
+// Linux-only: creates a real shm segment via fd `write()` (see `create_shm`).
+#[cfg(target_os = "linux")]
 #[test]
 fn shm_transport_rgba_2x2() {
     let name = "/odytty_g25_shm_rgba";
@@ -292,6 +309,8 @@ fn shm_transport_rgba_2x2() {
     }
 }
 
+// Linux-only: creates a real shm segment via fd `write()` (see `create_shm`).
+#[cfg(target_os = "linux")]
 #[test]
 fn shm_transport_without_leading_slash() {
     let name_with = "/odytty_g25_shm_noslash";
@@ -418,6 +437,8 @@ fn file_transport_dimension_mismatch() {
     std::fs::remove_file(&path).ok();
 }
 
+// Linux-only: creates a real shm segment via fd `write()` (see `create_shm`).
+#[cfg(target_os = "linux")]
 #[test]
 fn shm_transport_png() {
     let png_data = make_2x2_png();
