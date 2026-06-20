@@ -119,6 +119,7 @@ impl PtySession {
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
         let mut command = CommandBuilder::new(shell);
         command.env("TERM", "xterm-256color");
+        command.env("COLORTERM", "truecolor");
         if let Some(path) = working_directory {
             command.current_dir(path);
         }
@@ -131,6 +132,7 @@ impl PtySession {
         command_builder.arg("-lc");
         command_builder.arg(command);
         command_builder.env("TERM", "xterm-256color");
+        command_builder.env("COLORTERM", "truecolor");
 
         Self::spawn_command(dimensions, command_builder)
     }
@@ -146,6 +148,7 @@ impl PtySession {
             command.arg(arg);
         }
         command.env("TERM", "xterm-256color");
+        command.env("COLORTERM", "truecolor");
         if let Some(path) = working_directory {
             command.current_dir(path);
         }
