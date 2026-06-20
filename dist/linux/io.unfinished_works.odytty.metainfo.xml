@@ -32,6 +32,11 @@
   <url type="bugtracker">https://github.com/ghreprimand/odytty/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.1.9" date="2026-06-19">
+      <description>
+        <p>Fixes scrollback not filling when a program leaves a full-screen scroll region set (so the mouse wheel and Shift+PageUp could not scroll back), adds alternate scroll mode so the wheel scrolls full-screen TUIs like pagers, discovers Apple Color Emoji on macOS, persists first-run onboarding dismissal, and builds from source on older stable Rust toolchains.</p>
+      </description>
+    </release>
     <release version="0.1.8" date="2026-06-19">
       <description>
         <p>Adds an experimental universal macOS build and a tag-triggered release pipeline that publishes the Linux source archive and the macOS disk image together. No functional change for Linux.</p>

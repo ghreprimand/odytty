@@ -7,7 +7,7 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-06-19 -- Lower the from-source toolchain floor (unreleased)
+## 2026-06-19 -- Lower the from-source toolchain floor (v0.1.9)
 
 A from-source build on a Mac with a slightly older stable Rust failed: `src/cli.rs`
 used `if let` match guards (`_ if let Some(x) = arg.strip_prefix(..) =>`), which
@@ -27,7 +27,7 @@ newest-syntax dependency that was blocking older stable compilers.
 Gates: `cargo fmt --check` clean, full `cargo test` green (1995). Landed on
 `master` **untagged**.
 
-## 2026-06-19 -- Full-screen scroll region broke scrollback (unreleased)
+## 2026-06-19 -- Full-screen scroll region broke scrollback (v0.1.9)
 
 Fixed the real cause of "can't scroll back in the terminal." A full-screen
 DECSTBM region — `ESC[1;<rows>r`, which spans the whole screen and is set (and
@@ -54,7 +54,7 @@ full-screen region feeds scrollback, partial region does not). Landed on `master
 **untagged** — to be verified on Linux (local snapshot package) and macOS before
 the next release tag.
 
-## 2026-06-19 -- Color emoji on macOS: discover Apple Color Emoji (unreleased)
+## 2026-06-19 -- Color emoji on macOS: discover Apple Color Emoji (v0.1.9)
 
 Fixed color emoji not rendering on macOS. The rasterizer was never the problem —
 it renders via swash's `Source::ColorBitmap`, which reads both CBDT/CBLC (Noto,
@@ -83,7 +83,7 @@ floor_disabled_needs_no_scrim` flaked once under the full parallel run but passe
 consistently in isolation and on re-run — a test-isolation issue, not a
 regression from this change.
 
-## 2026-06-19 -- Alternate scroll mode (DECSET 1007) (unreleased)
+## 2026-06-19 -- Alternate scroll mode (DECSET 1007) (v0.1.9)
 
 Fixed mouse-wheel scrolling inside full-screen TUIs on the alternate screen
 (e.g. Claude CLI, `less`, `man`): the wheel did nothing. The alternate screen
@@ -112,7 +112,7 @@ six native routing cases covering the alt-screen/CSI/SS3/primary/reporting/1007-
 off matrix, plus a core toggle+report test). Landed on `master` **untagged** —
 to be verified on macOS (Claude CLI scroll) before the next release tag.
 
-## 2026-06-19 -- First-run onboarding now persists on dismiss (unreleased)
+## 2026-06-19 -- First-run onboarding now persists on dismiss (v0.1.9)
 
 Fixed a first-run UX bug surfaced on a fresh macOS install: the onboarding
 welcome card reshowed on every launch. Root cause was not macOS-specific —

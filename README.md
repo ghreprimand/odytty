@@ -60,6 +60,11 @@ notes below), while panes and profiles are not done.
 
 ## Install And Run
 
+OdyTTY is Linux-first; an experimental universal macOS build is also available
+(see [macOS](#macos-experimental) below). Windows is not yet supported.
+
+### Linux
+
 Requires Linux and a Vulkan-capable GPU. Wayland is the primary target; X11
 works through the current `winit`/GPU stack with some window-manager-dependent
 behavior for borderless windows and OS theme detection.
@@ -69,7 +74,7 @@ For the current source release, install OdyTTY for the current user.
 Download and verify the release archive:
 
 ```sh
-version=0.1.8
+version=0.1.9
 workdir=$(mktemp -d /tmp/odytty-install.XXXXXX)
 cd "$workdir"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
@@ -128,7 +133,7 @@ without complaint.
 
 ```sh
 xcode-select --install   # once, if you don't already have the Command Line Tools
-version=0.1.8
+version=0.1.9
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/SHA256SUMS"
 grep "odytty-${version}.tar.gz" SHA256SUMS | shasum -a 256 -c -
@@ -248,7 +253,10 @@ mode 2026, and broad mouse reporting.
 
 Mouse support includes X10/normal/button-event/any-event tracking, focus
 events, UTF-8, SGR, urxvt, legacy encodings, and SGR-pixel mode 1016 with true
-physical pixel coordinates from the native window.
+physical pixel coordinates from the native window. Alternate scroll mode (1007,
+default on) translates the wheel into cursor-key presses on the alternate
+screen, so full-screen TUIs that do not track the mouse — pagers and similar —
+scroll with the wheel.
 
 Keyboard support includes mode-aware legacy encoding and the Kitty keyboard
 protocol as a negotiated overlay. With no Kitty flags active, legacy bytes are
@@ -274,10 +282,11 @@ files, font-weight variants, per-range symbol maps, synthetic styles, subpixel
 AA, glyph coverage gamma, stem darkening, and minimum-contrast enforcement are
 configurable.
 
-Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. Noto Color
-Emoji CBDT/CBLC is supported on Linux, including variation selectors, flags,
-keycaps, skin tones, and common ZWJ clusters. Emoji pixels are not SGR-tinted.
-COLR/CPAL and SVG-in-OpenType expansion remain future work.
+Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. Bitmap-strike
+color fonts are supported — Noto Color Emoji (CBDT/CBLC) on Linux and Apple Color
+Emoji (sbix) on macOS — including variation selectors, flags, keycaps, skin
+tones, and common ZWJ clusters. Emoji pixels are not SGR-tinted. COLR/CPAL and
+SVG-in-OpenType expansion remain future work.
 
 Kitty graphics support includes actions `t`, `T`, `p`, `d`, and `q`; raw RGB,
 raw RGBA, and PNG still images; direct, file, temp-file, and POSIX shared-memory
@@ -391,10 +400,13 @@ OSC 8/52/133, dynamic colors, prompt navigation, command status gutter,
 readability and accessibility settings, bloom/CRT/retro effects, background
 treatments, and a large compatibility test surface.
 
-**Known gaps:** official release artifacts, macOS/Windows support, panes,
-profiles, session persistence, Kitty animation, Kitty Unicode placeholders,
-iTerm2 graphics, COLR/CPAL color fonts, broader ligature/stylistic-set shaping,
-custom tab-bar polish, and the current tab-bar image-placement offset issue.
+**Platforms:** Linux is the primary, battle-tested target. macOS has an
+experimental universal build (see Install And Run). Windows is not yet supported.
+
+**Known gaps:** Windows support, panes, profiles, session persistence, Kitty
+animation, Kitty Unicode placeholders, iTerm2 graphics, COLR/CPAL color fonts,
+broader ligature/stylistic-set shaping, custom tab-bar polish, and the current
+tab-bar image-placement offset issue.
 
 The running history lives in [`DEVLOG.md`](DEVLOG.md). The current public
 roadmap lives in [`TODO.md`](TODO.md) and

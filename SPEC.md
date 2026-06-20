@@ -658,8 +658,8 @@ its first stable layer.
 - Plugin systems, AI features, command palettes, rich dashboards, or nonstandard
   terminal semantics
 - Heavy animation or effects that compromise readability or latency
-- Broad cross-platform support beyond Linux-first validation
-- Packaging, CI, release builds
+- Windows support (Linux is the primary target; macOS now has an experimental
+  universal build with its own packaging and CI release path)
 
 ## Post-Process Pipeline Architecture
 
