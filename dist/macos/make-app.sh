@@ -2,7 +2,9 @@
 # Assemble OdyTTY.app from a pre-built universal `odytty` binary.
 #
 # Usage: bash dist/macos/make-app.sh <version>
-# Expects: dist/build/odytty            (universal Mach-O, built by the workflow)
+# Expects: dist/build/odytty            (the `odytty` binary from a local
+#                                        `cargo build --release`; see the macOS
+#                                        install steps in README.md)
 #          dist/macos/odytty-1024.png   (icon source, committed)
 #          dist/macos/Info.plist        (manifest template with __VERSION__)
 # Produces: dist/build/OdyTTY.app

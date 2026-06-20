@@ -154,6 +154,16 @@ bash dist/macos/make-app.sh "$version"
 cp -R dist/build/OdyTTY.app /Applications/
 ```
 
+To run it as just `odytty` from any shell (as the examples below show), symlink
+the built binary onto your `PATH`:
+
+```sh
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$PWD/target/release/odytty" "$HOME/.local/bin/odytty"
+# Make sure ~/.local/bin is on PATH (add to ~/.zshrc if needed):
+#   export PATH="$HOME/.local/bin:$PATH"
+```
+
 Run a command directly inside OdyTTY:
 
 ```sh
