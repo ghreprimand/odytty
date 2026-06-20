@@ -1072,6 +1072,29 @@ pub const SYMBOL_FONT_ENV: &str = "ODYTTY_SYMBOL_FONT";
 /// accepted as a secondary match.
 const SYMBOL_FONT_HINTS: &[&str] = &["symbolsnerdfont", "nerdfont"];
 
+/// macOS system faces appended to the tail of the symbol-fallback chain. The
+/// bundled and host Nerd faces patch the Private Use Area but cover only a
+/// sparse subset of the *standard* Unicode symbol/dingbat/pictograph blocks, so
+/// glyphs TUIs emit outside the PUA — the teardrop-asterisk spinner `U+273B`,
+/// the `U+2733`/`U+2736`/`U+2737` star asterisks, the `U+2713`/`U+2717` check
+/// and ballot marks, the `U+23BF` result-branch — fall through to the hollow-box
+/// tofu slot. Menlo (the system monospace) covers the dingbats/marks; Apple
+/// Symbols covers Miscellaneous Technical glyphs like `U+23BF`. STIX Two Math
+/// backstops the rest — it is the only commonly-present face with *monochrome*
+/// (SGR-colorable, unlike the color-emoji face) glyphs for the record bullet
+/// `U+23FA` and the large squares `U+2B1B`/`U+2B1C` that drive a TUI's status
+/// markers and block grids. They sit *after* the Nerd faces so PUA icons still
+/// resolve from the pinned faces first, and their Latin glyphs never shadow the
+/// body font because the symbol fallback is only consulted for
+/// [`crate::atlas::fallback::is_symbol_codepoint`] codepoints. Broadest coverage
+/// first; each is skipped silently if absent.
+#[cfg(target_os = "macos")]
+const SYSTEM_SYMBOL_FALLBACK_FONTS: &[&str] = &[
+    "/System/Library/Fonts/Menlo.ttc",
+    "/System/Library/Fonts/Apple Symbols.ttf",
+    "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
+];
+
 /// Resolve a symbol / Nerd-font face for the RV6 PUA-icon fallback, or `None`
 /// when neither the bundled asset nor the host can provide one.
 ///
@@ -1213,6 +1236,19 @@ pub fn resolve_symbol_fonts_with_source(
     if let Some(path) = resolve_symbol_font_path_in(dirs) {
         if let Ok(font) = load_font_at(&path) {
             sources.push(SymbolFontSource::Host(path));
+            fonts.push(font);
+        }
+    }
+
+    // macOS: the Nerd faces above cover the PUA icon ranges but lack most
+    // standard Unicode dingbats/symbols/pictographs that TUIs emit. Append the
+    // always-present system faces that DO cover them (see
+    // [`SYSTEM_SYMBOL_FALLBACK_FONTS`]) so they render instead of tofu.
+    #[cfg(target_os = "macos")]
+    for path in SYSTEM_SYMBOL_FALLBACK_FONTS {
+        let path = Path::new(path);
+        if let Ok(font) = load_font_at(path) {
+            sources.push(SymbolFontSource::Host(path.to_path_buf()));
             fonts.push(font);
         }
     }
