@@ -75,22 +75,27 @@ pub fn native_options_for_args(
                 options.command = Some(command);
                 return Ok(Some(options));
             }
-            _ if let Some(title) = arg.strip_prefix("--title=") => {
-                options.title = title.to_owned();
-                launch_native = true;
-                index += 1;
+            // Prefix-form flags. Written as a plain `if let` chain rather than
+            // `if let` match guards (an unstable feature on older toolchains) so
+            // the crate builds on a wider range of Rust versions — important for
+            // the recommended from-source install path.
+            _ => {
+                if let Some(title) = arg.strip_prefix("--title=") {
+                    options.title = title.to_owned();
+                    launch_native = true;
+                    index += 1;
+                } else if let Some(path) = arg.strip_prefix("--working-directory=") {
+                    options.working_directory = Some(PathBuf::from(path));
+                    launch_native = true;
+                    index += 1;
+                } else if let Some(path) = arg.strip_prefix("--working-dir=") {
+                    options.working_directory = Some(PathBuf::from(path));
+                    launch_native = true;
+                    index += 1;
+                } else {
+                    return Ok(None);
+                }
             }
-            _ if let Some(path) = arg.strip_prefix("--working-directory=") => {
-                options.working_directory = Some(PathBuf::from(path));
-                launch_native = true;
-                index += 1;
-            }
-            _ if let Some(path) = arg.strip_prefix("--working-dir=") => {
-                options.working_directory = Some(PathBuf::from(path));
-                launch_native = true;
-                index += 1;
-            }
-            _ => return Ok(None),
         }
     }
 

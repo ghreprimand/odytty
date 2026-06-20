@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Lower the from-source toolchain floor (unreleased)
+
+A from-source build on a Mac with a slightly older stable Rust failed: `src/cli.rs`
+used `if let` match guards (`_ if let Some(x) = arg.strip_prefix(..) =>`), which
+are stable on current Rust (CI and the Linux dev box build fine) but unstable on
+the older toolchain — `error[E0658]: 'if let' guards are experimental`. Since the
+README now recommends building from source as the primary macOS install path,
+the crate should build on a wider range of toolchains.
+
+Rewrote the three guard arms in the CLI parser as a plain `if let` / `else if
+let` chain inside the wildcard arm — behaviour-identical (same match order, same
+fallthrough to `Ok(None)`), but using only long-stable syntax. Audited the rest
+of the tree: the 17 let-chains (`&& let`) elsewhere are fine (the Mac compiled
+past them — only the if-let guards errored), and there are no other if-let
+guards. No `rust-toolchain.toml`/MSRV is declared; this just removes the single
+newest-syntax dependency that was blocking older stable compilers.
+
+Gates: `cargo fmt --check` clean, full `cargo test` green (1995). Landed on
+`master` **untagged**.
+
 ## 2026-06-19 -- Full-screen scroll region broke scrollback (unreleased)
 
 Fixed the real cause of "can't scroll back in the terminal." A full-screen
