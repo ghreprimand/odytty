@@ -276,7 +276,7 @@ fn fuzz_chunked_stream(rng: &mut FuzzRng) -> Vec<u8> {
         out.extend_from_slice(b"\x1b\\");
         // Interleave unrelated sequences mid-transmission (the abuse case).
         if rng.below(3) == 0 {
-            let injected: &[u8] = rng.pick(&[
+            let injected: &[u8] = *rng.pick(&[
                 b"\x1b[31m".as_slice(),
                 b"hello".as_slice(),
                 b"\x1b[2J".as_slice(),

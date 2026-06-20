@@ -370,7 +370,7 @@ fn gen_kitty_keyboard(rng: &mut FuzzRng) -> Vec<u8> {
 fn gen_mode_2026(rng: &mut FuzzRng) -> Vec<u8> {
     let modes = ["2026", "2025", "2027", "1049", "25", "2004", "1004", "0"];
     let mut s = String::from("\x1b[?");
-    s.push_str(rng.pick(&modes));
+    s.push_str(*rng.pick(&modes));
     match rng.below(4) {
         0 => s.push('h'),      // set
         1 => s.push('l'),      // reset
@@ -378,7 +378,7 @@ fn gen_mode_2026(rng: &mut FuzzRng) -> Vec<u8> {
         _ => {
             // Multi-mode list (illegal for DECSET but must not panic).
             s.push(';');
-            s.push_str(rng.pick(&modes));
+            s.push_str(*rng.pick(&modes));
             s.push(*rng.pick(&['h', 'l']));
         }
     }
@@ -417,7 +417,7 @@ fn gen_osc(rng: &mut FuzzRng) -> Vec<u8> {
         }
         4 => {
             // OSC 10/11/12 fg/bg/cursor color set or query.
-            s.extend_from_slice(rng.pick(&[&b"10"[..], &b"11"[..], &b"12"[..]]));
+            s.extend_from_slice(*rng.pick(&[&b"10"[..], &b"11"[..], &b"12"[..]]));
             s.push(b';');
             if rng.bool() {
                 s.push(b'?');
@@ -477,7 +477,7 @@ fn gen_decrqm_xtwinops(rng: &mut FuzzRng) -> Vec<u8> {
             "1", "6", "7", "12", "25", "47", "80", "1000", "1002", "1003", "1004", "1006", "1047",
             "1048", "1049", "2004", "2026", "9999", "0",
         ];
-        s.push_str(rng.pick(&modes));
+        s.push_str(*rng.pick(&modes));
         s.push_str("$p");
     } else {
         // XTWINOPS: CSI Ps ; a ; b t — many ops, some unsupported.
@@ -522,7 +522,7 @@ fn build_xtgettcap_body(rng: &mut FuzzRng, s: &mut String) {
             2 => hex_encode(b"RGB", s), // known: direct color
             3 => {
                 // Valid hex that decodes to an unknown capability name.
-                hex_encode(rng.pick(&[&b"ZZ"[..], b"bce", b"colors", b"kbs"]), s);
+                hex_encode(*rng.pick(&[&b"ZZ"[..], b"bce", b"colors", b"kbs"]), s);
             }
             4 => {
                 // Malformed: odd-length and/or non-hex characters.
@@ -563,7 +563,7 @@ fn build_decrqss_body(rng: &mut FuzzRng, s: &mut String) {
         5 => {}                // empty selector
         _ => {
             // Valid selector with trailing junk.
-            s.push_str(rng.pick(&[" q", "m", "r"]));
+            s.push_str(*rng.pick(&[" q", "m", "r"]));
             s.push(*rng.pick(&[';', ' ', 'x']));
         }
     }
@@ -701,7 +701,7 @@ fn push_attr_list(rng: &mut FuzzRng, s: &mut String) {
         if rng.below(4) == 0 {
             s.push_str(&fuzz_num(rng)); // garbage / out-of-subset
         } else {
-            s.push_str(rng.pick(&codes));
+            s.push_str(*rng.pick(&codes));
         }
     }
 }
@@ -778,7 +778,7 @@ fn gen_wide_seed(rng: &mut FuzzRng) -> Vec<u8> {
     push_coords(rng, &mut s, 2);
     s.push('H');
     let glyphs = ["世界", "你好", "한글", "日本語", "🌍🚀", "ＡＢ", "漢字"];
-    s.push_str(rng.pick(&glyphs));
+    s.push_str(*rng.pick(&glyphs));
     s.into_bytes()
 }
 
@@ -874,7 +874,7 @@ fn run_query_flood_bounded(iters: u64) {
                 // Color queries return their spec on host_output directly.
                 _ => {
                     let mut s: Vec<u8> = Vec::from(&b"\x1b]"[..]);
-                    s.extend_from_slice(rng.pick(&[&b"4;1;?"[..], &b"10;?"[..], &b"11;?"[..]]));
+                    s.extend_from_slice(*rng.pick(&[&b"4;1;?"[..], &b"10;?"[..], &b"11;?"[..]]));
                     s.extend_from_slice(b"\x1b\\");
                     s
                 }
@@ -1149,7 +1149,7 @@ fn run_decrqss_sgr_churn(iters: u64) {
                 // Also move the scroll region so the `r` selector varies.
                 t.advance(b"\x1b[2;3r");
             }
-            let query: &[u8] = rng.pick(&[
+            let query: &[u8] = *rng.pick(&[
                 &b"\x1bP$qm\x1b\\"[..],
                 b"\x1bP$q q\x1b\\",
                 b"\x1bP$qr\x1b\\",

@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-20 -- Fuzz tests: compile under current stable rustc (mmap shm prep)
+
+Picking up the macOS handoff on real hardware (rustc 1.94.0, Homebrew stable),
+`cargo test` would not *compile*: `graphics_fuzz_tests` (lib) and `protocol_fuzz`
+both failed to build. The `FuzzRng::pick<T>(&[T]) -> &T` helper returns a
+reference to the element, so for a `[&str; N]` / `[&[u8]; N]` table it yields
+`&&str` / `&&[u8]`. A dozen call sites fed that straight into `String::push_str`
+/ `Vec::extend_from_slice` / `hex_encode` (which want `&str` / `&[u8]`) or into a
+`let x: &[u8] = …` binding. Type inference latches `&T = &str` ⇒ `T = str` (an
+unsized type) *before* deref-coercion can fire, so it errored with E0308 +
+E0277. Sibling sites that already wrote `*rng.pick(…)` compiled fine.
+
+Fix: make the deref explicit at the eleven affected sites (`*rng.pick(…)`),
+matching the working sites. This is a semantic no-op — the value is the same
+`&str` / `&[u8]` the deref-coercion would have produced — but it compiles on
+every toolchain instead of relying on inference order. No production code
+touched; the fuzz suites still pass (and keep their per-platform `#[ignore]`s).
+
+Gates: `cargo fmt --check` clean; full `cargo test` now builds and runs on
+macOS (previously a hard compile error blocked the entire suite).
+
+---
+
 ## 2026-06-20 -- CI hardening: hermetic test harness + Linux-only shm tests
 
 The new dual-platform CI immediately paid for itself a second time: after the
