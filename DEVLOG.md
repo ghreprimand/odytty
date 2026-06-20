@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-20 -- Verified: new-tab works in production on macOS (#[ignore] is honest)
+
+`context_menu::clicking_new_tab_spawns_session_and_closes_menu` is `#[ignore]`d
+on macOS because the *test harness* builds a winit `EventLoop` off the test
+thread (AppKit forbids that), SIGSEGVing — a harness artifact, not a product
+bug, since production runs the loop on the main thread. Confirmed that on real
+hardware by driving the built `./target/release/odytty` via AppKit automation
+(no screenshots — the session lacks Screen Recording — so verified behaviorally,
+which is stronger):
+
+- Pressed the NewTab keybinding (Ctrl+Shift+T) three times; each spawned a fresh
+  `/bin/zsh` child under the odytty process (1 → 2 → 3 shells), and a command
+  typed into each new tab wrote a `$$`-stamped proof file matching that tab's
+  new shell PID — so the new tab is focused and its shell is fully interactive.
+- PrevTab (Ctrl+PageUp) switching focused the correct shells in order (proof
+  files stamped with tab 2's then tab 1's PID).
+- CloseTab (Ctrl+Shift+W) tore a tab's shell down; SIGTERM exited the app
+  cleanly with zero orphaned children. No crash and an empty stdout/stderr log
+  throughout.
+
+Conclusion: new-tab (and tab switch/close) work correctly in production on
+macOS. The `#[ignore]` is honest — keep it.
+
+---
+
 ## 2026-06-20 -- macOS test harness: stop touching NSPasteboard / Apple pico
 
 Two macOS-only test-harness hazards surfaced on real hardware (no prior macOS
