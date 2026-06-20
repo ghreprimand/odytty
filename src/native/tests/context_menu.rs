@@ -578,6 +578,17 @@ fn clicking_outside_the_menu_dismisses_it() {
     );
 }
 
+// Linux-only at runtime: the proxy harness (`app_for_test_with_proxy`) builds a
+// real winit `EventLoop` off the test thread. Linux permits that via the
+// `with_any_thread` builder shim; macOS has no equivalent because AppKit must
+// own the main thread, so constructing/using the loop off-main-thread aborts
+// (SIGSEGV). The new-tab path itself runs on the main thread in production and
+// is exercised on Linux here; the test stays compiled on macOS (so the helper
+// and its imports are still used) but is skipped at runtime.
+#[cfg_attr(
+    not(target_os = "linux"),
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS (AppKit main-thread requirement)"
+)]
 #[test]
 fn clicking_new_tab_spawns_session_and_closes_menu() {
     let Some((mut app, _event_loop)) = app_for_test_with_proxy() else {

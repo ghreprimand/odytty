@@ -42,8 +42,29 @@ security-hardened transport path and can't be tested locally.)
 
 Gates: `cargo fmt --check` clean; full `cargo test` green both in the normal
 environment and under the isolated-HOME fresh-machine simulation (1998, 0
-failed). No production code path changed on either OS. macOS CI re-verification
-pending the push.
+failed). No production code path changed on either OS.
+
+After the push, the Linux job went fully green and macOS narrowed to a single
+remaining failure: `context_menu::clicking_new_tab_spawns_session_and_closes_menu`
+**SIGSEGV**ed (not an assertion). Root cause is the test harness, not the
+product: `app_for_test_with_proxy` builds a real winit `EventLoop` off the test
+thread. Linux allows that via the `with_any_thread` builder shim (already
+`#[cfg(target_os = "linux")]`-gated here); macOS has no equivalent because
+AppKit requires the main thread, so an off-main-thread loop aborts. Production
+creates the event loop on the main thread, so new-tab is unaffected — only the
+harness can't be constructed on macOS. Marked the test
+`#[cfg_attr(not(target_os = "linux"), ignore = "…")]`: it still runs on Linux
+(passes) and is skipped at runtime on macOS, while staying compiled there so the
+helper/imports are not flagged unused.
+
+Two macOS items remain known-and-tracked, to be resolved on real hardware
+(deliberately not papered over): (1) the `t=s` POSIX shared-memory transport is
+non-functional on macOS — production `read_shm_transport` and the gated tests
+use fd `read()`/`write()`, but macOS shm is `mmap`-only (ENXIO); it fails safe
+(`ShmError`, no crash). The real fix is to switch the reader to `mmap` (correct
+on both OSes). (2) The new-tab `#[ignore]` rests on reasoning that production
+new-tab works on macOS; that should be confirmed by actually opening a tab in a
+real macOS build.
 
 ## 2026-06-20 -- Source-only distribution + dual-platform CI (v0.2.0)
 
