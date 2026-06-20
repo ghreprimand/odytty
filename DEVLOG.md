@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-20 -- macOS test harness: stop touching NSPasteboard / Apple pico
+
+Two macOS-only test-harness hazards surfaced on real hardware (no prior macOS
+CI had run the suite to completion locally).
+
+**1. Intermittent SIGSEGV in the native tests (~1 in 3 runs).** A crash report
+pinned it precisely: `App::open_context_menu` → `NativeClipboard::read_text` →
+`arboard` → `NSPasteboard` → `objc_msgSend`, on a cargo-test worker thread.
+NSPasteboard is main-thread-only; the test runner gives every test its own
+thread, so reading the system clipboard from a test is undefined behaviour and
+crashes (and, on every platform, it would read/clobber the developer's live
+clipboard). Production is unaffected — it runs on the main thread. Fix: compile
+the real-clipboard I/O out of `read_clipboard_text` / `write_clipboard_text`
+under `#[cfg(test)]` (read → `None`, write → no-op `Some(())`); the `Cut`
+fail-safe path still tests via the existing `force_write_fail` seam, and tests
+that need real clipboard contents already inject a `MockClipboard` through the
+`ClipboardSelectionIo` trait. Verified: 0 SIGSEGV across 10 full lib-suite runs
+(was failing ~1 in 3 before).
+
+**2. `nano` alt-screen smoke fails: macOS ships pico-as-nano.** `/usr/bin/nano`
+on macOS is Apple's *UW PICO 5.09*, not GNU nano. Pico inserts typed text using
+terminal insert mode (IRM, `CSI 4 h`/`l`), which OdyTTY does not implement, so
+its incremental redraw can't be asserted against the GNU-nano-shaped test. Gated
+the test to run only against real GNU nano, detected by scanning the binary for
+its embedded "GNU nano" banner (probing `nano --version` is impossible — pico
+ignores the flag and opens an interactive editor that hangs). The alt-screen
+save/restore invariant this guards is also covered by the vim cases, which run
+everywhere. (IRM is a real, separate feature gap — noted for follow-up, not
+implemented here.)
+
+A separate, rare (~1 in 10) intermittent *hang* in a font/IME native test
+remains under investigation — it is not clipboard-related (the gated paths now
+return instantly) and predates these changes.
+
+Gates: `cargo fmt --check` clean; lib suite green and no longer SIGSEGVs.
+
+---
+
 ## 2026-06-20 -- t=s shared-memory transport works on macOS (mmap, not read)
 
 The `t=s` Kitty transport was Linux-only: `read_shm_transport` pulled bytes off

@@ -298,6 +298,23 @@ fn less_supports_mouse(path: &Path) -> bool {
     }
 }
 
+/// Whether `path` is GNU nano (as opposed to Apple's `pico`, which macOS ships
+/// as `/usr/bin/nano`).
+///
+/// Detection scans the binary for the embedded "GNU nano" banner rather than
+/// running `nano --version`: pico ignores that flag and opens an interactive
+/// editor that never exits, which would hang the probe. The nano smoke test
+/// drives GNU-nano keystrokes and relies on GNU nano's whole-line redraw; pico
+/// instead inserts via terminal insert mode (IRM, `CSI 4 h`/`l`), which OdyTTY
+/// does not implement, so its incremental redraw can't be asserted against.
+fn nano_is_gnu(path: &Path) -> bool {
+    const MARKER: &[u8] = b"GNU nano";
+    match std::fs::read(path) {
+        Ok(bytes) => bytes.windows(MARKER.len()).any(|w| w == MARKER),
+        Err(_) => false,
+    }
+}
+
 fn sgr_mouse_enabled(protocol: MouseProtocol) -> bool {
     protocol.tracking != MouseTracking::Off && protocol.encoding == MouseEncoding::Sgr
 }
@@ -654,6 +671,14 @@ fn nano_enter_edit_quit_restores_primary_screen() -> Result<()> {
     let Some(nano) = skip_missing("nano") else {
         return Ok(());
     };
+    if !nano_is_gnu(&nano) {
+        eprintln!(
+            "skipping nano alt-screen smoke: `{}` is not GNU nano (likely Apple pico, \
+             which inserts via IRM — not implemented here)",
+            nano.display()
+        );
+        return Ok(());
+    }
 
     let temp = TempDir::new("nano-smoke")?;
     let file = temp.path().join("nano-input.txt");

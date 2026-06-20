@@ -54,6 +54,9 @@ impl<T> Default for ClipboardSlot<T> {
 
 #[derive(Default)]
 pub(super) struct NativeClipboard {
+    // Unused under `cfg(test)`: the real-clipboard I/O that holds it is compiled
+    // out of test builds (see `read_clipboard_text` / `write_clipboard_text`).
+    #[cfg_attr(test, allow(dead_code))]
     slot: ClipboardSlot<Clipboard>,
     /// Test-only: when set, `write_text` returns `None` without touching the
     /// clipboard. Lets regression tests prove the Cut fail-safe path without
@@ -71,39 +74,64 @@ pub(super) trait ClipboardSelectionIo {
 
 impl ClipboardSelectionIo for NativeClipboard {
     fn read_clipboard_text(&mut self) -> Option<String> {
-        let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
-            Ok(clipboard) => clipboard,
-            Err(err) => {
-                eprintln!("odytty: clipboard unavailable for paste: {err}");
-                return None;
-            }
-        };
+        // Unit tests must never reach the real system clipboard. On macOS the
+        // backing NSPasteboard is main-thread-only and SIGSEGVs when the test
+        // harness reads it from a worker thread (every test runs on its own
+        // thread); on every platform it would also read the developer's live
+        // clipboard. Tests that need real contents inject a `MockClipboard`
+        // through `ClipboardSelectionIo`. Production (`not(test)`) is unchanged.
+        #[cfg(test)]
+        {
+            None
+        }
+        #[cfg(not(test))]
+        {
+            let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
+                Ok(clipboard) => clipboard,
+                Err(err) => {
+                    eprintln!("odytty: clipboard unavailable for paste: {err}");
+                    return None;
+                }
+            };
 
-        match clipboard.get_text() {
-            Ok(text) => Some(text),
-            Err(err) => {
-                eprintln!("odytty: clipboard paste failed: {err}");
-                self.slot.clear();
-                None
+            match clipboard.get_text() {
+                Ok(text) => Some(text),
+                Err(err) => {
+                    eprintln!("odytty: clipboard paste failed: {err}");
+                    self.slot.clear();
+                    None
+                }
             }
         }
     }
 
     fn write_clipboard_text(&mut self, text: &str) -> Option<()> {
-        let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
-            Ok(clipboard) => clipboard,
-            Err(err) => {
-                eprintln!("odytty: clipboard unavailable for copy: {err}");
-                return None;
-            }
-        };
+        // See `read_clipboard_text`: tests never write the real clipboard
+        // (NSPasteboard off-main-thread crash + clobbering the developer's
+        // clipboard). A no-op success keeps copy paths happy; the `Cut`
+        // fail-safe path is exercised separately via `force_write_fail`.
+        #[cfg(test)]
+        {
+            let _ = text;
+            Some(())
+        }
+        #[cfg(not(test))]
+        {
+            let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
+                Ok(clipboard) => clipboard,
+                Err(err) => {
+                    eprintln!("odytty: clipboard unavailable for copy: {err}");
+                    return None;
+                }
+            };
 
-        match clipboard.set_text(text.to_owned()) {
-            Ok(()) => Some(()),
-            Err(err) => {
-                eprintln!("odytty: clipboard copy failed: {err}");
-                self.slot.clear();
-                None
+            match clipboard.set_text(text.to_owned()) {
+                Ok(()) => Some(()),
+                Err(err) => {
+                    eprintln!("odytty: clipboard copy failed: {err}");
+                    self.slot.clear();
+                    None
+                }
             }
         }
     }
