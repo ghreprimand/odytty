@@ -29,6 +29,27 @@ fn applies_basic_sgr_attributes() {
 }
 
 #[test]
+fn private_prefixed_m_is_not_sgr() {
+    // `CSI > 4 ; 2 m` is XTMODKEYS (set modifyOtherKeys), which apps emit at
+    // startup to enable enhanced keyboard input. It must NOT be parsed as SGR
+    // `4;2` (underline + dim) — doing so set those attributes globally and
+    // smeared them across all subsequent text. The `>` private prefix arrives
+    // in `intermediates`, so the SGR path is gated on empty intermediates.
+    let mut terminal = Terminal::new(10, 2);
+    terminal.advance(b"\x1b[>4;2mX");
+    let cell = terminal.screen().cell(0, 0).unwrap();
+    assert_eq!(cell.ch, 'X');
+    assert!(!cell.attrs.underline(), "XTMODKEYS must not enable underline");
+    assert!(!cell.attrs.dim(), "XTMODKEYS must not enable dim");
+    assert_eq!(cell.attrs, Attrs::default());
+
+    // A bare `CSI 4 m` is still a real SGR underline.
+    let mut terminal = Terminal::new(10, 2);
+    terminal.advance(b"\x1b[4mU");
+    assert!(terminal.screen().cell(0, 0).unwrap().attrs.underline());
+}
+
+#[test]
 fn applies_extended_sgr_text_attributes() {
     let mut terminal = Terminal::new(10, 2);
 

@@ -1471,7 +1471,14 @@ impl Screen {
             'd' => self.move_to_origin(param_or_one(params, 0), self.cursor.column + 1),
             'g' => self.clear_tab_stop(param_or(params, 0, 0)),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
-            'm' => self.apply_sgr(params),
+            // SGR is `CSI Ps … m` with no private-parameter prefix. `CSI > Ps ; Ps m`
+            // is XTMODKEYS (set modifyOtherKeys), `CSI ? Ps m` / `CSI = Ps m` are
+            // other private forms — none are SGR. Without this gate, the
+            // `CSI > 4 ; 2 m` apps emit at startup to enable modifyOtherKeys was
+            // parsed as SGR 4;2 (underline + dim) and smeared those attributes
+            // across all subsequent text. Private/intermediate `m` forms are not
+            // rendition changes; ignore them.
+            'm' if intermediates.is_empty() => self.apply_sgr(params),
             'p' if intermediates == b"$" || intermediates == b"?$" => {
                 self.request_mode_report(params, intermediates)
             }
