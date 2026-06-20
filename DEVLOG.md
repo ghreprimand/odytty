@@ -7,6 +7,69 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-20 -- macOS underline smear + missing glyphs + truecolor (unfreezes release)
+
+Resolved the two issues that had frozen the macOS release (the row "lines" and
+missing glyphs), plus the `COLORTERM` gap surfaced along the way. All three
+reproduced in OdyTTY but not in Ghostty on the same Mac with the same config,
+which is what pointed at OdyTTY-side causes.
+
+**The "underlines under everything" (the row "lines").** Not CRT scanlines, not
+bloom, not a Retina/compositing artifact, and not the SGR underline parser
+(which handles `4`/`24`/`0`/`4:x` correctly). The real cause was a CSI dispatch
+bug: `dispatch_csi` routed **every** `m` to `apply_sgr`, ignoring the
+private-parameter prefix. Apps (Claude Code, and others) emit `CSI > 4 ; 2 m`
+at startup — **XTMODKEYS**, set `modifyOtherKeys` level 2 — where the `>` arrives
+in `intermediates`. OdyTTY parsed it as SGR `4;2` → **underline + dim**, applied
+to `current_attrs` once at launch and never reset, so every cell drawn afterward
+inherited underline (and dim). That is why it smeared across the whole screen,
+got worse after a transcript replay/resume, and was absent in Ghostty (which
+treats the `>` form as XTMODKEYS, not SGR). Fix: gate the SGR arm on
+`intermediates.is_empty()`, so `CSI > … m` / `CSI ? … m` / `CSI = … m` are no
+longer mistaken for rendition changes. Diagnosed by replaying a real captured
+Claude byte stream through the core parser: it underlined 3199 live cells before
+the fix and 0 after. Regression test:
+`core::tests::sgr_cursor::private_prefixed_m_is_not_sgr`.
+
+**Missing glyphs (tofu).** The marker glyphs a TUI leans on — the record bullet
+`U+23FA` ⏺, the result-branch `U+23BF` ⎿, the spinner asterisks
+`U+273B`/`U+2733`/`U+2736`/`U+2737`, the check/ballot `U+2713`/`U+2717`, the
+`/context` block squares `U+2B1B`/`U+2B1C` — are classified as symbols (so the
+fallback is attempted) but live in *no* face of the chain: the primary
+(Victor Mono), the bundled Symbols Nerd Font (icon/PUA only, sparse on these
+standard blocks), and the host Hack Nerd Font all lack them. On Linux fontconfig
+backfills via Noto/DejaVu; on macOS the host fallback only ever matched a Nerd
+font, exposing the gap. Fix: `resolve_symbol_fonts_with_source` now appends, on
+macOS, the always-present system faces that *do* cover these blocks —
+`Menlo.ttc` (dingbats/marks), `Apple Symbols.ttf` (Misc Technical), and
+`STIXTwoMath.otf` (the record bullet and large squares, as *monochrome* glyphs
+so they stay SGR-colorable, unlike the color-emoji face). They sit after the
+Nerd faces (PUA icons still resolve from the pinned faces first) and their Latin
+glyphs never shadow the body font because the symbol fallback is consulted only
+for `is_symbol_codepoint` codepoints. End-to-end probe through the real chain:
+all of the above now resolve.
+
+**`COLORTERM`.** OdyTTY set `TERM=xterm-256color` but never `COLORTERM`, and a
+GUI-launched macOS app does not inherit a shell's `COLORTERM`. With it unset,
+truecolor-aware apps degrade to 256-color styling. `pty.rs` now sets
+`COLORTERM=truecolor` at every spawn site, matching alacritty/kitty/wezterm.
+
+**Hover underline removed.** While chasing the smear, the render-time
+`apply_hyperlink_hover` (which underlined every cell whose `LinkId` matched the
+hovered one, each frame) turned out to be a separate latent bug: `hovered` is
+not recomputed while live output streams under a stationary pointer, and
+`HyperlinkTable::clear()` resets the id counter, so a stale/reused id matched
+fresh content. It was not the reported smear (XTMODKEYS was), but it is removed —
+hovered links are signalled by the pointer shape (hand) only, matching Ghostty.
+
+Gates: `cargo fmt --check` clean; release build clean (0 warnings). The XTMODKEYS
+fix is verified by capture replay (3199 → 0 underlined cells) and a new headless
+regression test; the glyph fix by a chain-coverage probe. The full `cargo test`
+suite was **not** run on this macOS dev box — a pre-existing `rustix 1.1.4`
+failure in the unit-test build profile blocks it here (it fails identically on a
+clean tree) — so the Linux box should run `cargo test` before tagging. Landed on
+`master` **untagged**; this unfreezes the macOS release pending that test run.
+
 ## 2026-06-20 -- Mouse cursor shape: I-beam over the grid (unreleased)
 
 Fixed the mouse pointer never changing shape. OdyTTY never called
