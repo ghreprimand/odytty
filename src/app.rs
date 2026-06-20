@@ -334,9 +334,6 @@ impl Drop for RawModeGuard {
 #[cfg(test)]
 mod tests {
     use std::fs::File;
-    use std::os::fd::{FromRawFd, IntoRawFd};
-
-    use rustix::pty::{OpenptFlags, grantpt, ioctl_tiocgptpeer, openpt, unlockpt};
 
     use super::*;
 
@@ -400,15 +397,11 @@ mod tests {
         Ok(())
     }
 
+    // Reuse the production PTY opener so this stays cross-platform: the
+    // Linux/macOS slave-open split lives in one place (`pty::open_pty_pair`).
+    // A hand-rolled copy here previously used the Linux-only `TIOCGPTPEER` /
+    // `OpenptFlags::CLOEXEC` and failed to compile `cargo test` on macOS.
     fn test_pty_pair() -> Result<(File, File)> {
-        let flags = OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC;
-        let master = openpt(flags).context("open test pty master")?;
-        grantpt(&master).context("grant test pty")?;
-        unlockpt(&master).context("unlock test pty")?;
-        let slave = ioctl_tiocgptpeer(&master, flags).context("open test pty slave")?;
-
-        let master = unsafe { File::from_raw_fd(master.into_raw_fd()) };
-        let slave = unsafe { File::from_raw_fd(slave.into_raw_fd()) };
-        Ok((master, slave))
+        crate::pty::open_pty_pair(Dimensions::new(80, 24))
     }
 }

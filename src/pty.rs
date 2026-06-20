@@ -304,7 +304,7 @@ impl Drop for PtySession {
     }
 }
 
-fn open_pty_pair(dimensions: Dimensions) -> Result<(File, File)> {
+pub(crate) fn open_pty_pair(dimensions: Dimensions) -> Result<(File, File)> {
     // `posix_openpt` only accepts a CLOEXEC flag on Linux; elsewhere the flag is
     // set on the master fd explicitly after opening (see below).
     #[cfg(target_os = "linux")]

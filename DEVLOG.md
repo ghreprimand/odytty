@@ -53,6 +53,16 @@ validates. Old published `.dmg` assets on v0.1.8/v0.1.9 to be removed and their
 `SHA256SUMS` regenerated as part of this release. Tag `v0.2.0` pending operator
 confirmation.
 
+**`ci.yml`'s first run immediately earned it:** the macOS job failed to compile
+`cargo test` (the release build passed). `src/app.rs`'s `#[cfg(test)]`
+`test_pty_pair` helper had a hand-rolled copy of the PTY-open logic using the
+Linux-only `ioctl_tiocgptpeer` (`TIOCGPTPEER`) and `OpenptFlags::CLOEXEC` — the
+exact pattern `src/pty.rs` already gates per-OS. No prior CI caught it because
+the old release workflow only ran `cargo build` on macOS, never `cargo test`.
+Fix: delete the duplicate and reuse the single gated `pty::open_pty_pair`
+(now `pub(crate)`), so the Linux/macOS slave-open split lives in one place and
+can't drift again. Linux full suite still green (1998).
+
 ## 2026-06-20 -- macOS underline smear + missing glyphs + truecolor (unfreezes release)
 
 Resolved the two issues that had frozen the macOS release (the row "lines" and
