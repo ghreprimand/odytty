@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-20 -- Released v0.2.0 (source-only); GitHub releases pruned to v0.2.0 only
+
+Tagged and published **v0.2.0** — the first source-build-only release. The
+tag-triggered `release.yml` produced exactly two assets: `odytty-0.2.0.tar.gz`
++ `SHA256SUMS` (no dmg, no prebuilt binaries). Dual-platform CI (`ci.yml`) is
+green on both `ubuntu-latest` and `macos-latest` for the release commit — the
+first fully-green macOS run, which is what lifted the release freeze.
+
+Reconciliation before tagging: pulled the six macOS-agent commits
+(`73bd655`..`194b6e3`) and verified them on Linux — `cargo fmt --check` clean,
+full `cargo test` green (1871 lib pass / 7 ignored), and the cross-platform
+mmap `t=s` shm path passes all 7 `shm_transport_*` tests here (the 3 formerly
+Linux-only ones now run on both). The fuzz-suite compile fix builds under both
+rustc 1.96 (Linux) and 1.94 (the Mac agent's toolchain). Privacy sweep over the
+whole tracked tree: no secrets, tokens, IPs, private hostnames, or private-repo
+references introduced.
+
+Verified the README download/verify snippet verbatim against the live published
+URLs (`odytty-0.2.0.tar.gz: OK`), then staged that exact tarball into `/sources/`
+and rebuilt the local Linux package to **0.2.0-1** via `odyssey-build` (its
+`check()` ran the lib suite + desktop/metainfo validation). This machine now runs
+odytty 0.2.0; the manifest reflects `0.2.0-1`, no drift.
+
+GitHub housekeeping: per operator decision, deleted **all** old release objects
+(v0.1.0–v0.1.9), leaving v0.2.0 as the only release. All 11 version **tags** are
+retained for git-history provenance (release objects removed, tags kept).
+
+---
+
 ## 2026-06-20 -- Verified: new-tab works in production on macOS (#[ignore] is honest)
 
 `context_menu::clicking_new_tab_spawns_session_and_closes_menu` is `#[ignore]`d
