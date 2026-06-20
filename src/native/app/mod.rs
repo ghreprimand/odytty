@@ -60,8 +60,8 @@ use super::pty::UserEvent;
 use super::render_helpers::{
     CursorAnimKey, CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature,
     OverlayFragment, RenderContentSignature, RenderSignature, SelectionSignature,
-    hyperlink_action_allowed, image_uploads_for_visible,
-    key_modes_from_core, openable_hyperlink_uri, visible_graphics_signature,
+    hyperlink_action_allowed, image_uploads_for_visible, key_modes_from_core,
+    openable_hyperlink_uri, visible_graphics_signature,
 };
 use super::theme_builder::{save_theme_to_dir, user_theme_dir_for_config};
 

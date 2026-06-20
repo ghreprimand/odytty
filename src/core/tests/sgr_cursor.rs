@@ -39,7 +39,10 @@ fn private_prefixed_m_is_not_sgr() {
     terminal.advance(b"\x1b[>4;2mX");
     let cell = terminal.screen().cell(0, 0).unwrap();
     assert_eq!(cell.ch, 'X');
-    assert!(!cell.attrs.underline(), "XTMODKEYS must not enable underline");
+    assert!(
+        !cell.attrs.underline(),
+        "XTMODKEYS must not enable underline"
+    );
     assert!(!cell.attrs.dim(), "XTMODKEYS must not enable dim");
     assert_eq!(cell.attrs, Attrs::default());
 
