@@ -23,8 +23,8 @@ floor.
 OdyTTY is in active development. It is already a broad prototype: a native
 window opens real local shells, supports multiple sessions with a tab bar,
 renders text and inline graphics on the GPU, and has a substantial compatibility
-and smoke-test suite. It is still Linux-first and pre-release; an experimental
-universal macOS build is published as of v0.1.8 (unsigned — see the macOS install
+and smoke-test suite. It is still Linux-first and pre-release; macOS is
+supported as an experimental build-from-source target (see the macOS install
 notes below), while panes and profiles are not done.
 
 ## Highlights
@@ -60,8 +60,10 @@ notes below), while panes and profiles are not done.
 
 ## Install And Run
 
-OdyTTY is Linux-first; an experimental universal macOS build is also available
-(see [macOS](#macos-experimental) below). Windows is not yet supported.
+OdyTTY ships as source. Linux is the primary, battle-tested target; macOS is an
+experimental build-from-source target (see [macOS](#macos-experimental) below).
+Both build from the same source archive with `cargo build --release`. Windows is
+not yet supported.
 
 ### Linux
 
@@ -74,7 +76,7 @@ For the current source release, install OdyTTY for the current user.
 Download and verify the release archive:
 
 ```sh
-version=0.1.9
+version=0.2.0
 workdir=$(mktemp -d /tmp/odytty-install.XXXXXX)
 cd "$workdir"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
@@ -120,20 +122,19 @@ odytty
 
 ### macOS (experimental)
 
-macOS support is new as of v0.1.8 and not yet as battle-tested as Linux. There
-are two ways to install. **Building from source is recommended** — a binary you
-compile locally is never quarantined, so it launches with no Gatekeeper warning
-and needs no signing or workaround.
-
-#### Build from source (recommended)
+macOS is experimental and not yet as battle-tested as Linux. OdyTTY is built
+from source: a binary you compile locally is never quarantined, so it launches
+with no Gatekeeper warning and needs no signing, notarization, or workaround.
+There is no prebuilt download — and that is deliberate, since an unsigned
+prebuilt would otherwise be blocked by Gatekeeper on first launch.
 
 Requires the Rust toolchain ([rustup](https://rustup.rs)) and the Xcode Command
-Line Tools. Nothing produced locally is quarantined, so macOS runs the result
-without complaint.
+Line Tools. Both Apple Silicon and Intel are supported (whatever `cargo` targets
+natively on your machine).
 
 ```sh
 xcode-select --install   # once, if you don't already have the Command Line Tools
-version=0.1.9
+version=0.2.0
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/SHA256SUMS"
 grep "odytty-${version}.tar.gz" SHA256SUMS | shasum -a 256 -c -
@@ -144,7 +145,7 @@ cargo build --release --locked
 ```
 
 To get a double-clickable **OdyTTY.app** in Applications (a locally built bundle
-is also not quarantined):
+is also not quarantined, so it opens with no Gatekeeper prompt):
 
 ```sh
 mkdir -p dist/build
@@ -152,30 +153,6 @@ cp target/release/odytty dist/build/odytty
 bash dist/macos/make-app.sh "$version"
 cp -R dist/build/OdyTTY.app /Applications/
 ```
-
-#### Prebuilt universal .dmg (unsigned)
-
-The published `.dmg` is a universal binary (Apple Silicon and Intel) but is
-**unsigned**, so Gatekeeper blocks it on first launch. Download
-`odytty-<version>-macos-universal.dmg` and `SHA256SUMS` from the
-[latest release](https://github.com/ghreprimand/odytty/releases/latest), verify,
-and drag **OdyTTY** into Applications:
-
-```sh
-grep "macos-universal.dmg" SHA256SUMS | shasum -a 256 -c -
-```
-
-Then clear the quarantine flag once:
-
-```sh
-xattr -cr "/Applications/OdyTTY.app"
-open "/Applications/OdyTTY.app"
-```
-
-Without Terminal: try to open the app, dismiss the warning, then go to **System
-Settings → Privacy & Security**, find the "OdyTTY.app was blocked" notice, and
-click **Open Anyway**. (On macOS 15 Sequoia the older right-click → Open shortcut
-no longer bypasses this.)
 
 Run a command directly inside OdyTTY:
 
@@ -400,8 +377,9 @@ OSC 8/52/133, dynamic colors, prompt navigation, command status gutter,
 readability and accessibility settings, bloom/CRT/retro effects, background
 treatments, and a large compatibility test surface.
 
-**Platforms:** Linux is the primary, battle-tested target. macOS has an
-experimental universal build (see Install And Run). Windows is not yet supported.
+**Platforms:** Linux is the primary, battle-tested target. macOS is an
+experimental build-from-source target (see Install And Run). Both are exercised
+in CI. Windows is not yet supported.
 
 **Known gaps:** Windows support, panes, profiles, session persistence, Kitty
 animation, Kitty Unicode placeholders, iTerm2 graphics, COLR/CPAL color fonts,

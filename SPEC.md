@@ -658,8 +658,8 @@ its first stable layer.
 - Plugin systems, AI features, command palettes, rich dashboards, or nonstandard
   terminal semantics
 - Heavy animation or effects that compromise readability or latency
-- Windows support (Linux is the primary target; macOS now has an experimental
-  universal build with its own packaging and CI release path)
+- Windows support (Linux is the primary target; macOS is an experimental
+  build-from-source target, exercised in CI, with no prebuilt artifact)
 
 ## Post-Process Pipeline Architecture
 

@@ -7,6 +7,52 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-20 -- Source-only distribution + dual-platform CI (v0.2.0)
+
+Cut the macOS prebuilt `.dmg` and made OdyTTY a build-from-source project on
+both platforms. Rationale is project shape, not cost: an unsigned `.dmg` needs
+the paid Apple Developer Program for a clean Gatekeeper experience, while a
+locally compiled binary is never quarantined and launches with no warning,
+signing, or workaround. A prebuilt download was also a misleading "official
+binary" signal for an experimental target. (Cost was a non-factor: public repos
+get free, unlimited standard GitHub-hosted runner minutes — including macOS — so
+the dmg build never drew down the private-repo spending limit; the billing
+overview shows a *gross* list-price figure that nets to $0 for public repos.)
+
+CI split into two workflows, both on standard hosted runners only (never the
+self-hosted runner, which is unsafe on a public repo: a fork PR could run
+arbitrary code on the local machine):
+
+- `release.yml` (rewritten) — on a `vX.Y.Z` tag, builds the source tarball,
+  writes `SHA256SUMS`, and publishes the GitHub Release. The macOS dmg job and
+  all `*.dmg` collection/publish steps are gone; `needs: [source]` only.
+- `ci.yml` (new) — on push/PR to `master`, a `{ubuntu-latest, macos-latest}`
+  matrix runs `cargo fmt --check` + `cargo build --release --locked` +
+  `cargo test --locked`. Cross-platform correctness gate, no artifacts,
+  `cancel-in-progress` concurrency so superseded runs don't pile up macOS
+  minutes.
+
+Removed `dist/macos/make-dmg.sh`; kept `make-app.sh` + `Info.plist` so a local
+source build still yields a double-clickable `OdyTTY.app` (also unquarantined).
+
+Docs reconciled for source-only + `0.2.0`: README (macOS section rewritten to a
+single build-from-source path, dmg/`xattr`/Gatekeeper-bypass subsection removed,
+intro/Status/Install lede, version refs), SPEC (macOS scope = build-from-source,
+no packaging/CI-release path), `docs/release.md` (rewritten to describe the
+tag-triggered CI flow as primary with the manual archive as fallback; also fixed
+long-standing `v0.1.5` drift), `docs/install.md` + `PACKAGING.md` (stale `0.1.5`
+example pins → `0.2.0`), metainfo (`0.2.0` release entry; historical dmg entries
+left truthful), `Cargo.toml`/`Cargo.lock` → `0.2.0`.
+
+Also folds in the mouse-cursor-shape fix from earlier today (`c95029d`): the
+pointer is now an I-beam over the grid, a hand over hyperlinks, and an arrow over
+chrome / mouse-reporting TUIs.
+
+Gates: `cargo fmt --check` clean, full `cargo test` green (1998), metainfo
+validates. Old published `.dmg` assets on v0.1.8/v0.1.9 to be removed and their
+`SHA256SUMS` regenerated as part of this release. Tag `v0.2.0` pending operator
+confirmation.
+
 ## 2026-06-20 -- macOS underline smear + missing glyphs + truecolor (unfreezes release)
 
 Resolved the two issues that had frozen the macOS release (the row "lines" and

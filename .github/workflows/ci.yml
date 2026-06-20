@@ -1,0 +1,48 @@
+name: CI
+
+# Build + test on both supported platforms. Runs on pushes to master and on
+# pull requests. Uses only standard GitHub-hosted runners (ubuntu-latest,
+# macos-latest) — free with no quota for public repositories, and ephemeral, so
+# this never touches a self-hosted runner. Produces no artifacts; this is a
+# correctness gate, not a packaging job.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Cancel superseded runs on the same ref to avoid piling up macOS minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: Build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ matrix.os }}-cargo-
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Test
+        run: cargo test --locked

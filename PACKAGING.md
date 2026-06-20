@@ -1,8 +1,8 @@
 # Packaging OdyTTY
 
-OdyTTY is pre-release. The first Linux release target is a versioned source
-release (`v0.1.5`) plus desktop integration files that downstream packages can
-install in normal XDG locations.
+OdyTTY is pre-release. The Linux release shape is a versioned source release
+(`v0.2.0`) plus desktop integration files that downstream packages can install
+in normal XDG locations.
 
 This file describes the packaging surface for the source tree it ships with.
 For a tagged release, read the `PACKAGING.md` from that same tag.
@@ -24,7 +24,7 @@ Packages should install:
 The desktop entry uses `Icon=io.unfinished_works.odytty`, so the hicolor icon
 theme assets need to be installed with that basename.
 
-The AppStream metadata is intentionally small for `v0.1.5`: it gives software
+The AppStream metadata is intentionally small for `v0.2.0`: it gives software
 centers and inventory tools a stable component id, homepage, bug tracker,
 license, summary, and release version.
 
@@ -110,7 +110,7 @@ a standard mechanism, then let the user choose it.
 
 On Odyssey, package OdyTTY as a normal source-build PKGBUILD in `~/pkgbuilds`
 and build it with `odyssey-build`. That makes pacman own `/usr/bin/odytty` and
-the desktop entry, giving a versioned install such as `odytty 0.1.5-1`.
+the desktop entry, giving a versioned install such as `odytty 0.2.0-1`.
 
 See [`docs/install.md`](docs/install.md) for a concrete Odyssey PKGBUILD
 example and default-terminal notes.
