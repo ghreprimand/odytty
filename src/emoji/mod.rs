@@ -159,7 +159,7 @@ pub fn discover_noto_color_emoji() -> Option<EmojiFontMatch> {
 pub fn discover_noto_color_emoji_in(dirs: &[PathBuf]) -> Option<EmojiFontMatch> {
     collect_font_files(dirs)
         .into_iter()
-        .find(|path| normalized_stem(path).contains("notocoloremoji"))
+        .find(|path| is_color_emoji_name(&normalized_stem(path)))
         .map(|path| EmojiFontMatch {
             path,
             source: EmojiFontSource::SearchDirs,
@@ -337,8 +337,8 @@ fn discover_with_fontconfig() -> Option<EmojiFontMatch> {
     let path = PathBuf::from(lines.next()?.trim());
     let family = lines.next().unwrap_or_default();
     if path.is_file()
-        && (normalized_stem(&path).contains("notocoloremoji")
-            || normalize_name(family).contains("notocoloremoji"))
+        && (is_color_emoji_name(&normalized_stem(&path))
+            || is_color_emoji_name(&normalize_name(family)))
     {
         Some(EmojiFontMatch {
             path,
@@ -430,6 +430,15 @@ fn normalize_name(name: &str) -> String {
         .filter(|ch| ch.is_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+/// Whether an alphanumeric-normalized stem or family names a color-emoji font
+/// OdyTTY can rasterize: Noto Color Emoji (Linux; CBDT/CBLC) or Apple Color
+/// Emoji (macOS; sbix). Both are bitmap-strike formats swash renders through the
+/// shared `Source::ColorBitmap` path, so discovery is the only platform-specific
+/// piece — once the face is found, the rasterizer is format-agnostic.
+fn is_color_emoji_name(normalized: &str) -> bool {
+    normalized.contains("notocoloremoji") || normalized.contains("applecoloremoji")
 }
 
 #[cfg(test)]

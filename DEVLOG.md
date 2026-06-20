@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Color emoji on macOS: discover Apple Color Emoji (unreleased)
+
+Fixed color emoji not rendering on macOS. The rasterizer was never the problem —
+it renders via swash's `Source::ColorBitmap`, which reads both CBDT/CBLC (Noto,
+Linux) and sbix (Apple, macOS) bitmap strikes, and `color_formats` already
+detects `sbix`. The gap was purely discovery: the face lookup matched only the
+`notocoloremoji` filename/family, so `Apple Color Emoji.ttc`
+(`/System/Library/Fonts`, sbix) was never found and every emoji fell back to the
+monochrome coverage path.
+
+Broadened discovery with a shared `is_color_emoji_name` predicate that accepts
+both `notocoloremoji` and `applecoloremoji` (alphanumeric-normalized, so
+separators/case do not matter), used by both the fontconfig validator and the
+search-directory finder. The macOS font dirs added with the port already feed
+the finder, and `.ttc` is already an accepted font extension, so once the name
+matches, the existing format-agnostic rasterizer handles the sbix strikes. (The
+`discover_noto_color_emoji*` function names are now slightly broader than their
+name implies; left as-is to keep the change small — a rename is a separate
+cleanup.)
+
+Gates: `cargo fmt --check` clean, full `cargo test` green (1993 tests; +2 new:
+Apple Color Emoji `.ttc` discovery and the name-predicate matrix). Landed on
+`master` **untagged** — to be verified on macOS before the next release tag.
+
+Note (pre-existing, unrelated): `native::gpu::image::tests::
+floor_disabled_needs_no_scrim` flaked once under the full parallel run but passes
+consistently in isolation and on re-run — a test-isolation issue, not a
+regression from this change.
+
 ## 2026-06-19 -- Alternate scroll mode (DECSET 1007) (unreleased)
 
 Fixed mouse-wheel scrolling inside full-screen TUIs on the alternate screen

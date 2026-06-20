@@ -9,7 +9,8 @@ use crate::core::Terminal;
 use super::{
     ColorGlyphAtlas, ColorGlyphFormat, EmojiFont, EmojiPresentation, EmojiRasterizer,
     EmojiSequenceKind, color_formats, discover_noto_color_emoji, discover_noto_color_emoji_in,
-    emoji_presentation, probe_font, representative_sequences, summarize_report,
+    emoji_presentation, is_color_emoji_name, probe_font, representative_sequences,
+    summarize_report,
 };
 
 #[test]
@@ -61,6 +62,33 @@ fn directory_discovery_finds_noto_color_emoji_by_filename() {
     assert_eq!(found.path, font_path);
 
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn directory_discovery_finds_apple_color_emoji_ttc() {
+    // macOS ships Apple Color Emoji as a .ttc (sbix). Discovery must find it by
+    // filename just like Noto, so emoji render on macOS out of the box. The
+    // `.ttc` extension is part of the gap: it must be collected as a font file.
+    let root = unique_temp_dir("odytty-emoji-apple");
+    let nested = root.join("System/Library/Fonts");
+    std::fs::create_dir_all(&nested).expect("create temp font dir");
+    let font_path = nested.join("Apple Color Emoji.ttc");
+    std::fs::write(&font_path, b"not a real font").expect("write marker");
+
+    let found = discover_noto_color_emoji_in(&[root.clone()]).expect("apple emoji path found");
+    assert_eq!(found.path, font_path);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn color_emoji_name_matches_known_faces_only() {
+    // Both shipped color-emoji faces match regardless of separators/case; an
+    // ordinary monospace family does not.
+    assert!(is_color_emoji_name("notocoloremoji"));
+    assert!(is_color_emoji_name("applecoloremoji"));
+    assert!(!is_color_emoji_name("dejavusansmono"));
+    assert!(!is_color_emoji_name("victormono"));
 }
 
 #[test]
