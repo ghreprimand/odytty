@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-20 -- Mouse cursor shape: I-beam over the grid (unreleased)
+
+Fixed the mouse pointer never changing shape. OdyTTY never called
+`Window::set_cursor` anywhere, so the pointer stayed the OS default arrow over
+the terminal grid — unlike every mainstream terminal (and Ghostty), which show
+an I-beam over selectable text. Reported on both Linux and macOS.
+
+`update_pointer_cell` now selects a cursor shape per pointer location and pushes
+it through a new `apply_cursor_icon` helper that dedupes against the last shape
+(winit issues a platform request on every `set_cursor`, and `CursorMoved` fires
+on every pixel of motion). The grid shows an I-beam (`Text`); a hovered OSC 8
+hyperlink shows a hand (`Pointer`); window chrome (tab bar, open overlay,
+scroll-thumb drag) and mouse-reporting TUIs show the arrow (`Default`, since the
+app owns clicks and an I-beam would mislead). A `CursorIcon` field on `App`
+tracks the current shape; it starts at `Default`, matching a freshly created
+window.
+
+Gates: `cargo fmt --check` clean, full `cargo test` green (1998; +3 new:
+plain-grid I-beam, mouse-reporting arrow, hovered-hyperlink hand — all headless
+via new `pointer_move_for_test`/`cursor_icon_for_test` seams). Landed on
+`master` **untagged**. Two reported issues remain under investigation and the
+macOS release is frozen until they are resolved: (1) horizontal "lines" under
+every text row in the Claude Code TUI on macOS (not CRT scanlines — persists
+with `crt = off`; cause not yet identified), and (2) missing glyphs on macOS.
+
 ## 2026-06-19 -- Lower the from-source toolchain floor (v0.1.9)
 
 A from-source build on a Mac with a slightly older stable Rust failed: `src/cli.rs`

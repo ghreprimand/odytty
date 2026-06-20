@@ -36,7 +36,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::NamedKey;
 use winit::keyboard::{Key as WinitKey, PhysicalKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
-use winit::window::{Window, WindowId};
+use winit::window::{CursorIcon, Window, WindowId};
 
 use super::bindings::{
     KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
@@ -191,6 +191,11 @@ pub(super) struct App {
     visual: VisualEffect,
     window: Option<Arc<Window>>,
     gpu: Option<GpuState>,
+    /// Last mouse-cursor shape pushed to the window. Tracked so
+    /// [`Self::apply_cursor_icon`] only calls `Window::set_cursor` on an actual
+    /// change (winit issues a platform request each call). Starts at the winit
+    /// default (`Default` arrow) which matches a freshly created window.
+    cursor_icon: CursorIcon,
     sessions: SessionSet,
     /// Native presentation epoch for pixel-affecting state outside the terminal
     /// core revision: theme/default-color changes, atlas/font changes, and
@@ -348,6 +353,7 @@ impl App {
             visual,
             window: None,
             gpu: None,
+            cursor_icon: CursorIcon::Default,
             sessions,
             presentation_epoch: 0,
             prompt_marks_epoch: 0,

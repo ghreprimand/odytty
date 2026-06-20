@@ -458,6 +458,24 @@ impl App {
         self.send_mouse_report(button, MouseEventKind::Press)
     }
 
+    /// Push a mouse-cursor shape to the window, but only when it actually
+    /// changes — winit issues a platform request on every `set_cursor` call, so
+    /// the dedupe keeps `CursorMoved` (which fires on every pixel of motion)
+    /// from spamming the windowing system. The terminal grid shows an I-beam
+    /// (`Text`), a hovered hyperlink shows a hand (`Pointer`), and window chrome
+    /// (tab bar, open overlay) plus mouse-reporting TUIs show the arrow
+    /// (`Default`). Before this, OdyTTY never called `set_cursor` at all, so the
+    /// pointer stayed the OS default arrow everywhere.
+    pub(super) fn apply_cursor_icon(&mut self, icon: CursorIcon) {
+        if self.cursor_icon == icon {
+            return;
+        }
+        self.cursor_icon = icon;
+        if let Some(window) = self.window.as_ref() {
+            window.set_cursor(icon);
+        }
+    }
+
     pub(super) fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
         let Some(cell) = self.resolved_cell() else {
             return;
@@ -497,6 +515,7 @@ impl App {
                 row: 0,
                 column: col.min(self.grid.columns.saturating_sub(1)),
             });
+            self.apply_cursor_icon(CursorIcon::Default);
             return;
         }
         let y_px = if self.should_show_tab_bar() {
@@ -512,6 +531,7 @@ impl App {
         // beneath the panel. A move is forwarded to the overlay only to advance
         // an active slider drag (UX4-P2); non-drag hover is a no-op.
         if self.overlay.is_open() {
+            self.apply_cursor_icon(CursorIcon::Default);
             self.handle_overlay_pointer_move();
             return;
         }
@@ -522,10 +542,23 @@ impl App {
         // selection (one `pointer_drag` enum); the grab decision already ran at
         // press time.
         if let Some(grab_dy) = self.pointer_drag.scrollbar_grab() {
+            self.apply_cursor_icon(CursorIcon::Default);
             self.drag_scrollbar_to(y_px, grab_dy, cell, padding);
             return;
         }
         self.update_hover_hyperlink();
+        // Cursor shape over the terminal grid: a hand on a hovered hyperlink, the
+        // arrow while a TUI has mouse reporting enabled (it owns clicks, so an
+        // I-beam would mislead), and the I-beam over plain selectable text — the
+        // standard terminal affordance OdyTTY previously never set.
+        let grid_icon = if self.hovered_hyperlink.is_some() {
+            CursorIcon::Pointer
+        } else if self.mouse_reporting_enabled() {
+            CursorIcon::Default
+        } else {
+            CursorIcon::Text
+        };
+        self.apply_cursor_icon(grid_icon);
         if self.pointer_drag.is_selecting() {
             self.autoscroll_selection_if_needed(y_px, cell, padding);
             self.extend_drag_to(point);

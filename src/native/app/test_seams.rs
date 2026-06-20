@@ -268,6 +268,22 @@ impl App {
         self.test_cell = Some(cell);
     }
 
+    /// Test seam (CURSOR-ICON): drive the production `CursorMoved` handler
+    /// headlessly so the cursor-shape selection (I-beam / hand / arrow) can be
+    /// asserted without a window or GPU.
+    #[cfg(test)]
+    pub(in crate::native) fn pointer_move_for_test(&mut self, x_px: f64, y_px: f64) {
+        self.update_pointer_cell(x_px, y_px);
+    }
+
+    /// Test seam (CURSOR-ICON): the mouse-cursor shape last selected by the
+    /// pointer path. `apply_cursor_icon` updates this even with no window, so it
+    /// reflects the decision the production code would push to `set_cursor`.
+    #[cfg(test)]
+    pub(in crate::native) fn cursor_icon_for_test(&self) -> winit::window::CursorIcon {
+        self.cursor_icon
+    }
+
     /// Test seam (MOUSE-SCROLLBAR): toggle the `scrollbar_drag` setting so the
     /// inverted-gate (off-switch) parity can be pinned.
     #[cfg(test)]

@@ -68,6 +68,7 @@ mod alt_scroll;
 mod clipboard_paste;
 mod close_confirm;
 mod context_menu;
+mod cursor_icon;
 mod cvd_wiring;
 mod font_save;
 mod gpu_render;
