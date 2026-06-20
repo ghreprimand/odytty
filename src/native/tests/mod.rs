@@ -64,6 +64,7 @@ use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::{MouseButton as WinitMouseButton, MouseScrollDelta};
 use winit::keyboard::{Key as WinitKey, KeyCode, NamedKey, PhysicalKey};
 
+mod alt_scroll;
 mod clipboard_paste;
 mod close_confirm;
 mod context_menu;

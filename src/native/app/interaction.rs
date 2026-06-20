@@ -1008,6 +1008,39 @@ impl App {
         }
     }
 
+    /// Whether wheel events should be translated into cursor keys (alternate
+    /// scroll mode, DECSET 1007). True only on the alternate screen with the
+    /// mode enabled; the caller has already excluded the mouse-reporting case.
+    pub(super) fn alternate_scroll_active(&self) -> bool {
+        self.terminal
+            .lock()
+            .map(|t| t.on_alternate_screen() && t.alternate_scroll_enabled())
+            .unwrap_or(false)
+    }
+
+    /// Translate a wheel movement of `lines` into that many Up/Down cursor-key
+    /// presses sent to the PTY (alternate scroll mode). `lines > 0` is a
+    /// scroll-up (toward earlier content) → Up; `lines < 0` → Down. Arrows are
+    /// encoded through the shared key encoder so DECCKM application-cursor mode
+    /// gets the SS3 form (`\x1bOA`/`\x1bOB`), byte-identical to a real arrow key.
+    pub(super) fn send_wheel_as_arrows(&mut self, lines: isize) {
+        let key = if lines > 0 { Key::Up } else { Key::Down };
+        let count = lines.unsigned_abs();
+        if count == 0 {
+            return;
+        }
+        let modes = self.key_modes();
+        let arrow = input::encode_key_event(key, Modifiers::NONE, modes, KeyEventType::Press);
+        if arrow.is_empty() {
+            return;
+        }
+        let mut bytes = Vec::with_capacity(arrow.len() * count);
+        for _ in 0..count {
+            bytes.extend_from_slice(&arrow);
+        }
+        self.write_pty_bytes(&bytes);
+    }
+
     /// Return the viewport to the live bottom (offset 0). Called whenever input
     /// is written to the PTY so typing always jumps back to the prompt.
     pub(super) fn return_to_live(&mut self) {

@@ -131,6 +131,11 @@ pub struct Screen {
     /// the next row; when reset, the rightmost cell is overwritten in place.
     auto_wrap: bool,
     bracketed_paste: bool,
+    /// DECSET 1007 (alternate scroll mode). When set and the alternate screen is
+    /// active, the host layer translates wheel events into cursor-key presses so
+    /// full-screen TUIs that do not track the mouse still scroll. Default on, to
+    /// match xterm/iTerm2/Terminal.app/Ghostty.
+    alternate_scroll: bool,
     current_attrs: Attrs,
     current_protected: bool,
     rect_attr_extent: RectAttributeExtent,
@@ -292,6 +297,7 @@ impl Screen {
             origin_mode: false,
             auto_wrap: true,
             bracketed_paste: false,
+            alternate_scroll: true,
             current_attrs: Attrs::default(),
             current_protected: false,
             rect_attr_extent: RectAttributeExtent::default(),
@@ -843,6 +849,21 @@ impl Screen {
 
     pub fn bracketed_paste_enabled(&self) -> bool {
         self.bracketed_paste
+    }
+
+    /// DECSET 1007 (alternate scroll mode) state. Default on; the host layer
+    /// only acts on it while the alternate screen is active and the application
+    /// is not tracking the mouse.
+    pub fn alternate_scroll_enabled(&self) -> bool {
+        self.alternate_scroll
+    }
+
+    /// Whether the alternate screen buffer is currently active (the primary
+    /// buffer is stored). The alternate screen has no scrollback, so the host
+    /// uses this to decide between scrollback movement and alternate-scroll
+    /// cursor-key translation.
+    pub fn on_alternate_screen(&self) -> bool {
+        self.primary_screen.is_some()
     }
 
     /// The current window title, or `None` if no OSC 0/2 has set one. An
@@ -1647,6 +1668,18 @@ impl Terminal {
 
     pub fn bracketed_paste_enabled(&self) -> bool {
         self.screen.bracketed_paste_enabled()
+    }
+
+    /// DECSET 1007 (alternate scroll mode) state. See
+    /// [`Screen::alternate_scroll_enabled`].
+    pub fn alternate_scroll_enabled(&self) -> bool {
+        self.screen.alternate_scroll_enabled()
+    }
+
+    /// Whether the alternate screen buffer is currently active. See
+    /// [`Screen::on_alternate_screen`].
+    pub fn on_alternate_screen(&self) -> bool {
+        self.screen.on_alternate_screen()
     }
 
     /// The current window title (OSC 0/2), or `None` if never set.

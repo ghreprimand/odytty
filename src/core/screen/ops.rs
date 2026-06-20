@@ -568,6 +568,10 @@ impl Screen {
                         self.restore_cursor();
                     }
                 }
+                // 1007: alternate scroll mode. The host layer turns wheel events
+                // into cursor-key presses while the alt screen is active; core
+                // only tracks the flag and reports it. Default on (set in `new`).
+                1007 => self.alternate_scroll = action == 'h',
                 2004 => {
                     self.bracketed_paste = action == 'h';
                 }
@@ -657,8 +661,9 @@ impl Screen {
             1016 => mode_status(self.mouse.encoding == MouseEncoding::SgrPixel),
             2004 => mode_status(self.bracketed_paste),
             2026 => mode_status(self.synchronized_output),
+            1007 => mode_status(self.alternate_scroll),
             // Known xterm private modes that OdyTTY does not implement.
-            1001 | 1007 => 4,
+            1001 => 4,
             _ => 0,
         }
     }

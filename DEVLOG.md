@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Alternate scroll mode (DECSET 1007) (unreleased)
+
+Fixed mouse-wheel scrolling inside full-screen TUIs on the alternate screen
+(e.g. Claude CLI, `less`, `man`): the wheel did nothing. The alternate screen
+has no scrollback by design, so a plain wheel — which moves the local scrollback
+viewport — was a no-op there, and odytty had `1007` stubbed as "permanently
+unimplemented." Other terminals (xterm, iTerm2, Terminal.app, Ghostty) implement
+alternate scroll mode, default-on, which translates wheel notches into cursor-key
+presses so a TUI that does not track the mouse still scrolls. That was the gap.
+
+- **Core:** added an `alternate_scroll` flag (default on), wired DECSET/DECRST
+  `1007` to toggle it, and made the DECRPM report return the real state instead
+  of "permanently reset." Exposed `Terminal::alternate_scroll_enabled()` and
+  `on_alternate_screen()`.
+- **Native:** in `handle_mouse_wheel`, when the alt screen is active, mouse
+  reporting is off, and 1007 is on, the wheel is translated into Up/Down cursor
+  keys (default 3 per notch, the xterm convention) and written to the PTY. The
+  arrows route through the same `encode_key_event` the keyboard uses, so DECCKM
+  application-cursor mode gets the SS3 form (`\x1bOA`/`\x1bOB`) — byte-identical
+  to real arrow keys. The mouse-reporting path (report gate) and primary-screen
+  scrollback path are unchanged.
+- **Precedence:** overlay wheel → mouse-report gate → Ctrl+wheel zoom →
+  alt-scroll (alt screen) / scrollback (primary). Shift still bypasses reporting.
+
+Gates: `cargo fmt --check` clean, full `cargo test` green (1991 tests; +7 new:
+six native routing cases covering the alt-screen/CSI/SS3/primary/reporting/1007-
+off matrix, plus a core toggle+report test). Landed on `master` **untagged** —
+to be verified on macOS (Claude CLI scroll) before the next release tag.
+
 ## 2026-06-19 -- First-run onboarding now persists on dismiss (unreleased)
 
 Fixed a first-run UX bug surfaced on a fresh macOS install: the onboarding

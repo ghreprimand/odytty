@@ -274,7 +274,17 @@ impl App {
         // default step, so this only affects local viewport scrolling.
         if let Some(notch) = self.wheel_accum.coalesce_scroll(delta, cell_height) {
             let lines = wheel_lines_scaled(notch, cell_height, self.settings.scroll_wheel_step());
-            if lines != 0 {
+            if lines == 0 {
+                return;
+            }
+            // ALT-SCROLL (DECSET 1007): on the alternate screen (which has no
+            // scrollback) a non-mouse-tracking TUI like a pager or Claude CLI
+            // expects the wheel to move via cursor keys. Reporting is already off
+            // here (the report gate returned above), so translate the wheel into
+            // Up/Down presses; otherwise move the local scrollback viewport.
+            if self.alternate_scroll_active() {
+                self.send_wheel_as_arrows(lines);
+            } else {
                 self.scroll_viewport(lines);
             }
         }

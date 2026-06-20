@@ -26,10 +26,33 @@ fn decrqm_reports_default_dec_mode_inventory() {
           \x1b[?12;1$y\
           \x1b[?25;1$y\
           \x1b[?1006;2$y\
-          \x1b[?1007;4$y\
+          \x1b[?1007;1$y\
           \x1b[?2026;2$y\
           \x1b[?4242;0$y"
     );
+}
+
+#[test]
+fn alternate_scroll_mode_defaults_on_and_toggles() {
+    let mut terminal = Terminal::new(10, 4);
+
+    // Default on (xterm parity), and not on the alternate screen yet.
+    assert!(terminal.alternate_scroll_enabled());
+    assert!(!terminal.on_alternate_screen());
+
+    // DECRST 1007 disables it; DECSET 1007 re-enables.
+    terminal.advance(b"\x1b[?1007l");
+    assert!(!terminal.alternate_scroll_enabled());
+    terminal.advance(b"\x1b[?1007h");
+    assert!(terminal.alternate_scroll_enabled());
+
+    // Entering/leaving the alternate screen is tracked, and the 1007 flag
+    // survives the switch (it is a terminal mode, not buffer state).
+    terminal.advance(b"\x1b[?1049h");
+    assert!(terminal.on_alternate_screen());
+    assert!(terminal.alternate_scroll_enabled());
+    terminal.advance(b"\x1b[?1049l");
+    assert!(!terminal.on_alternate_screen());
 }
 
 #[test]
