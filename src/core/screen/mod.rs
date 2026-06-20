@@ -1327,7 +1327,21 @@ impl Screen {
             .scroll_region
             .is_some_and(|region| self.cursor.row == region.bottom)
         {
-            self.scroll_up_region();
+            // A full-screen region (top row 0 through the last row) is
+            // equivalent to no region: lines scrolled off the top leave the
+            // screen entirely, so they must feed scrollback exactly as the
+            // no-region path does. Many TUIs set `ESC[1;<rows>r` and never reset
+            // it; routing that through the discard path silently breaks
+            // scrollback. A PARTIAL region (content preserved above) still
+            // discards, matching xterm.
+            if self
+                .scroll_region
+                .is_some_and(|region| region.top == 0 && region.bottom + 1 == self.dimensions.rows)
+            {
+                self.scroll_up_full();
+            } else {
+                self.scroll_up_region();
+            }
         } else if self.cursor.row + 1 == self.dimensions.rows && self.scroll_region.is_none() {
             self.scroll_up_full();
         } else if self.cursor.row + 1 < self.dimensions.rows {

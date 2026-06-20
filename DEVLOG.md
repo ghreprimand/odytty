@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-19 -- Full-screen scroll region broke scrollback (unreleased)
+
+Fixed the real cause of "can't scroll back in the terminal." A full-screen
+DECSTBM region — `ESC[1;<rows>r`, which spans the whole screen and is set (and
+often not reset) by many TUIs/CLIs including Claude Code and codex — was stored
+as a `Some(region)` and routed line feeds through `scroll_up_region`, which never
+feeds scrollback. So after any program left a full-screen region set, every line
+that scrolled off the top was discarded instead of saved, `scrollback_len()`
+stayed 0, and both the mouse wheel and Shift+PageUp (which share the
+`scroll_viewport` path) did nothing. This was not the alt-scroll/mouse layer at
+all — those were red herrings; the alternate-scroll (1007) work still stands for
+true alt-screen pagers like `less`.
+
+Diagnosis used a PTY capture of the shells/CLIs (confirming primary-screen, no
+mouse reporting) plus the window-state clue (it worked on macOS in some states):
+the core scrollback code is identical cross-platform, so the bug had to be a mode
+left set, not platform code. `line_feed` now treats a full-screen region (top row
+0 through the last row) as equivalent to no region and routes it to
+`scroll_up_full`, which feeds scrollback and handles graphics placements exactly
+as the no-region path. A PARTIAL region (content preserved above the top margin)
+still discards, matching xterm.
+
+Gates: `cargo fmt --check` clean, full `cargo test` green (1995 tests; +2 new:
+full-screen region feeds scrollback, partial region does not). Landed on `master`
+**untagged** — to be verified on Linux (local snapshot package) and macOS before
+the next release tag.
+
 ## 2026-06-19 -- Color emoji on macOS: discover Apple Color Emoji (unreleased)
 
 Fixed color emoji not rendering on macOS. The rasterizer was never the problem —

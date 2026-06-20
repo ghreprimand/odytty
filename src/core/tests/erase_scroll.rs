@@ -4,6 +4,44 @@
 use super::*;
 
 #[test]
+fn full_screen_scroll_region_still_feeds_scrollback() {
+    // A full-screen DECSTBM region (ESC[1;<rows>r) is equivalent to no region:
+    // lines scrolled off the top leave the screen entirely, so they must enter
+    // scrollback exactly as the no-region path does. Many TUIs set a full-screen
+    // region and never reset it; without this, scrollback silently stops filling
+    // and the user cannot scroll back at all.
+    let mut terminal = Terminal::new(4, 3);
+    // Set the scroll region to the entire screen (rows 1..=3 in 1-based DECSTBM).
+    terminal.advance(b"\x1b[1;3r");
+    // Print 8 lines into a 3-row screen: 5 rows must scroll off into scrollback.
+    for i in 1..=8 {
+        terminal.advance(format!("L{i}\r\n").as_bytes());
+    }
+    assert!(
+        terminal.screen().scrollback_len() >= 5,
+        "full-screen region must still feed scrollback, got {}",
+        terminal.screen().scrollback_len()
+    );
+}
+
+#[test]
+fn partial_scroll_region_does_not_feed_scrollback() {
+    // A PARTIAL region (top margin below the screen top) preserves content above
+    // it, so scrolled-out lines are discarded, not saved — matching xterm.
+    let mut terminal = Terminal::new(4, 4);
+    // Region rows 2..=4 (1-based): top margin is row 1 (0-based), content above.
+    terminal.advance(b"\x1b[2;4r");
+    for i in 1..=10 {
+        terminal.advance(format!("L{i}\r\n").as_bytes());
+    }
+    assert_eq!(
+        terminal.screen().scrollback_len(),
+        0,
+        "a partial region must not feed scrollback"
+    );
+}
+
+#[test]
 fn background_color_erase_applies_to_ed_el_and_ech() {
     let mut terminal = Terminal::new(6, 3);
     let red = Color::Indexed(1);
