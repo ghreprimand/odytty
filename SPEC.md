@@ -687,8 +687,11 @@ its first stable layer.
   `odytty session-host` mode hosts one PTY + terminal model, exposes only a
   per-user Unix-domain socket under `$XDG_RUNTIME_DIR/odytty/`, requires a
   `0700` current-user runtime directory, rejects incompatible protocol/snapshot
-  versions, sends an initial `SnapshotEnvelope`, streams output/invalidation
-  frames, and reaps the child process. Public CLI commands now cover
+  versions, sends a current `SnapshotEnvelope` on every attach, streams
+  output/invalidation frames, and reaps the child process. Client detach or
+  socket close removes only that client; the hosted PTY and bounded terminal
+  model continue until the child exits or the detached idle timeout kills and
+  reaps it. Public CLI commands now cover
   `odytty new --detached`, `odytty list`, and diagnostic `odytty attach <id>`.
   `list` prints metadata-only rows and never scrollback/command output; the
   diagnostic attach validates the session and decodes the initial snapshot but

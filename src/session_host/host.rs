@@ -171,6 +171,7 @@ pub fn spawn_host_on_demand(config: &HostConfig) -> Result<SpawnedHost> {
     if UnixStream::connect(&paths.socket).is_ok() {
         bail!("session-host is already running for {}", config.session_id);
     }
+    validate_scrollback_bound(config.snapshot_limits)?;
 
     let mut command = Command::new(env::current_exe().context("resolve current executable")?);
     command
@@ -181,6 +182,8 @@ pub fn spawn_host_on_demand(config: &HostConfig) -> Result<SpawnedHost> {
         .arg(&paths.socket)
         .arg("--idle-timeout-ms")
         .arg(config.detached_idle_timeout.as_millis().to_string())
+        .arg("--max-scrollback-rows")
+        .arg(config.snapshot_limits.max_scrollback_rows.to_string())
         .arg("--cols")
         .arg(config.dimensions.columns.to_string())
         .arg("--rows")
@@ -210,10 +213,12 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
     if config.max_clients == 0 {
         bail!("session-host max_clients must be nonzero");
     }
+    validate_scrollback_bound(config.snapshot_limits)?;
 
     let paths = config.runtime_paths()?;
     let (listener, _lock) = bind_listener(&paths.socket, &paths.lock)?;
     let mut terminal = Terminal::new(config.dimensions.columns, config.dimensions.rows);
+    terminal.set_scrollback_limit(config.snapshot_limits.max_scrollback_rows);
     let mut session = config.command.spawn(config.dimensions)?;
     let mut pty_writer = session.take_writer()?;
 
@@ -247,6 +252,14 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
             &mut exit_code,
         )?;
 
+        if !session_alive {
+            let _ = std::fs::remove_file(&paths.socket);
+            return Ok(HostExit {
+                reason: HostExitReason::SessionExited,
+                exit_code,
+            });
+        }
+
         drain_client_events(
             &client_rx,
             &mut clients,
@@ -255,21 +268,8 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
             &mut session,
         )?;
 
-        if session_alive && let Some(status) = session.try_wait()? {
-            session_alive = false;
-            exit_code = status.code();
-            broadcast(&mut clients, &HostFrame::SessionExit { exit_code });
-        }
-
         if clients.is_empty() {
             let since = *detached_since.get_or_insert_with(Instant::now);
-            if !session_alive {
-                let _ = std::fs::remove_file(&paths.socket);
-                return Ok(HostExit {
-                    reason: HostExitReason::SessionExited,
-                    exit_code,
-                });
-            }
             if since.elapsed() >= config.detached_idle_timeout {
                 let _ = session.kill();
                 let status = session.wait().ok();
@@ -591,6 +591,12 @@ fn parse_internal_host_args(args: &[String]) -> Result<HostConfig> {
                 config.detached_idle_timeout = Duration::from_millis(millis);
                 index += 1;
             }
+            "--max-scrollback-rows" => {
+                index += 1;
+                config.snapshot_limits.max_scrollback_rows =
+                    parse_usize(args.get(index), "--max-scrollback-rows")?;
+                index += 1;
+            }
             "--cols" => {
                 index += 1;
                 let columns = parse_usize(args.get(index), "--cols")?;
@@ -650,6 +656,13 @@ fn parse_internal_host_args(args: &[String]) -> Result<HostConfig> {
         bail!("session-host dimensions must be nonzero");
     }
     Ok(config)
+}
+
+fn validate_scrollback_bound(limits: SnapshotCaptureLimits) -> Result<()> {
+    if limits.max_scrollback_rows == 0 {
+        bail!("session-host max_scrollback_rows must be nonzero");
+    }
+    Ok(())
 }
 
 fn parse_usize(value: Option<&String>, name: &str) -> Result<usize> {

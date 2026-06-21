@@ -8,7 +8,9 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use crate::core::{Dimensions, SnapshotEnvelope, SnapshotEnvelopeCaps};
+use crate::core::{
+    Dimensions, SnapshotCaptureLimits, SnapshotEnvelope, SnapshotEnvelopeCaps, Terminal,
+};
 
 use super::protocol::{
     ClientHello, HOST_PROTOCOL_VERSION, HostFrame, HostHello, ProtocolError, read_client_hello,
@@ -115,6 +117,7 @@ fn host_detach_keeps_session_alive_then_idle_timeout_exits() {
         SnapshotEnvelope::decode(&snapshot, SnapshotEnvelopeCaps::default()).expect("snapshot");
     assert_eq!(decoded.terminal.dimensions, Dimensions::new(80, 24));
     wait_for_output(&mut client, "ready");
+    client.detach().expect("detach");
     drop(client);
 
     thread::sleep(Duration::from_millis(100));
@@ -122,8 +125,9 @@ fn host_detach_keeps_session_alive_then_idle_timeout_exits() {
     let snapshot = expect_snapshot(&mut reattached);
     let decoded =
         SnapshotEnvelope::decode(&snapshot, SnapshotEnvelopeCaps::default()).expect("snapshot");
-    let restored = crate::core::Terminal::from_snapshot_envelope(&decoded).expect("restore");
+    let restored = Terminal::from_snapshot_envelope(&decoded).expect("restore");
     assert!(restored.screen().plain_text().contains("ready"));
+    reattached.detach().expect("detach reattached");
     drop(reattached);
 
     let exit = host
@@ -134,9 +138,51 @@ fn host_detach_keeps_session_alive_then_idle_timeout_exits() {
 }
 
 #[test]
-fn host_exits_when_child_exits_and_no_clients_remain() {
+fn host_reattach_replays_output_produced_while_detached() {
+    let temp = TempDir::new("odytty-host-reattach");
+    let config = host_config(
+        temp.path(),
+        "reattach",
+        "printf before; sleep 0.2; printf after; sleep 2",
+        Duration::from_millis(800),
+    );
+    let socket_path = config.runtime_paths().expect("runtime paths").socket;
+    let host = thread::spawn(move || run_host(config));
+
+    wait_for_socket(&socket_path);
+    let mut client = SessionHostClient::connect(&socket_path, "reattach").expect("attach");
+    expect_snapshot(&mut client);
+    wait_for_output(&mut client, "before");
+    client.detach().expect("detach");
+    drop(client);
+
+    thread::sleep(Duration::from_millis(350));
+    let mut reattached = SessionHostClient::connect(&socket_path, "reattach").expect("reattach");
+    let snapshot = expect_snapshot(&mut reattached);
+    let text = snapshot_plain_text(&snapshot);
+    assert!(
+        text.contains("before") && text.contains("after"),
+        "reattach snapshot did not replay detached output: {text:?}"
+    );
+    reattached.detach().expect("detach reattached");
+    drop(reattached);
+
+    let exit = host
+        .join()
+        .expect("host thread")
+        .expect("host exits cleanly");
+    assert_eq!(exit.reason, HostExitReason::DetachedIdleTimeout);
+}
+
+#[test]
+fn host_exits_when_child_exits_even_with_client_attached() {
     let temp = TempDir::new("odytty-host-exit");
-    let config = host_config(temp.path(), "exits", "printf done", Duration::from_secs(10));
+    let config = host_config(
+        temp.path(),
+        "exits",
+        "printf done; exit 7",
+        Duration::from_secs(10),
+    );
     let socket_path = config.runtime_paths().expect("runtime paths").socket;
     let host = thread::spawn(move || run_host(config));
 
@@ -144,13 +190,59 @@ fn host_exits_when_child_exits_and_no_clients_remain() {
     let mut client = SessionHostClient::connect(&socket_path, "exits").expect("attach");
     expect_snapshot(&mut client);
     wait_for_output(&mut client, "done");
-    drop(client);
+    expect_session_exit(&mut client, Some(7));
 
     let exit = host
         .join()
         .expect("host thread")
         .expect("host exits cleanly");
     assert_eq!(exit.reason, HostExitReason::SessionExited);
+    assert_eq!(exit.exit_code, Some(7));
+    assert!(!socket_path.exists(), "host socket must be removed on exit");
+}
+
+#[test]
+fn host_enforces_configured_scrollback_bound_on_reattach() {
+    let temp = TempDir::new("odytty-host-scrollback-bound");
+    let mut config = host_config_with_sh(
+        temp.path(),
+        "bounded",
+        "i=0; while [ \"$i\" -lt 24 ]; do printf 'line%02d\\n' \"$i\"; i=$((i + 1)); done; sleep 2",
+        Duration::from_millis(500),
+    );
+    config.dimensions = Dimensions::new(8, 3);
+    config.snapshot_limits = SnapshotCaptureLimits {
+        max_scrollback_rows: 4,
+    };
+    let socket_path = config.runtime_paths().expect("runtime paths").socket;
+    let host = thread::spawn(move || run_host(config));
+
+    wait_for_socket(&socket_path);
+    let mut client = SessionHostClient::connect(&socket_path, "bounded").expect("attach");
+    expect_snapshot(&mut client);
+    client.detach().expect("detach");
+    drop(client);
+
+    let snapshot = reattach_snapshot_with_text(&socket_path, "bounded", "line");
+    let decoded =
+        SnapshotEnvelope::decode(&snapshot, SnapshotEnvelopeCaps::default()).expect("snapshot");
+    assert!(
+        decoded.terminal.scrollback_rows.len() <= 4,
+        "snapshot scrollback exceeded host cap: {}",
+        decoded.terminal.scrollback_rows.len()
+    );
+    let restored = Terminal::from_snapshot_envelope(&decoded).expect("restore");
+    assert!(
+        restored.screen().scrollback_len() <= 4,
+        "restored scrollback exceeded host cap: {}",
+        restored.screen().scrollback_len()
+    );
+
+    let exit = host
+        .join()
+        .expect("host thread")
+        .expect("host exits cleanly");
+    assert_eq!(exit.reason, HostExitReason::DetachedIdleTimeout);
 }
 
 fn host_config(
@@ -164,6 +256,21 @@ fn host_config(
     config.command = HostCommand::ShellCommand(command.to_owned());
     config.detached_idle_timeout = idle_timeout;
     config.dimensions = Dimensions::new(80, 24);
+    config
+}
+
+fn host_config_with_sh(
+    runtime_base: &Path,
+    session_id: &str,
+    command: &str,
+    idle_timeout: Duration,
+) -> HostConfig {
+    let mut config = host_config(runtime_base, session_id, ":", idle_timeout);
+    config.command = HostCommand::Exec {
+        program: "/bin/sh".into(),
+        args: vec!["-lc".into(), command.into()],
+        working_directory: None,
+    };
     config
 }
 
@@ -199,6 +306,50 @@ fn wait_for_output(client: &mut SessionHostClient, needle: &str) {
         "timed out waiting for {needle:?}; output={}",
         String::from_utf8_lossy(&bytes)
     );
+}
+
+fn expect_session_exit(client: &mut SessionHostClient, expected_code: Option<i32>) {
+    let deadline = Instant::now() + SHORT_WAIT;
+    loop {
+        match client
+            .read_frame(Duration::from_millis(50))
+            .expect("read frame")
+        {
+            Some(HostFrame::SessionExit { exit_code }) => {
+                assert_eq!(exit_code, expected_code);
+                return;
+            }
+            Some(_) | None if Instant::now() < deadline => {}
+            other => panic!("missing session exit, got {other:?}"),
+        }
+    }
+}
+
+fn snapshot_plain_text(snapshot: &[u8]) -> String {
+    let decoded =
+        SnapshotEnvelope::decode(snapshot, SnapshotEnvelopeCaps::default()).expect("snapshot");
+    Terminal::from_snapshot_envelope(&decoded)
+        .expect("restore")
+        .screen()
+        .plain_text()
+}
+
+fn reattach_snapshot_with_text(socket_path: &Path, session_id: &str, needle: &str) -> Vec<u8> {
+    let deadline = Instant::now() + SHORT_WAIT;
+    loop {
+        let mut client = SessionHostClient::connect(socket_path, session_id).expect("reattach");
+        let snapshot = expect_snapshot(&mut client);
+        let text = snapshot_plain_text(&snapshot);
+        client.detach().expect("detach reattached");
+        drop(client);
+        if text.contains(needle) {
+            return snapshot;
+        }
+        if Instant::now() >= deadline {
+            panic!("reattach snapshot never contained {needle:?}; last text={text:?}");
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
 }
 
 fn wait_for_socket(socket_path: &Path) {

@@ -105,7 +105,9 @@ pane_prefix = ctrl+b
 
 # Detached-session CLI commands (`odytty new --detached`, `odytty list`,
 # `odytty attach <id>`) do not have config-file keys yet. `attach` is diagnostic
-# in this slice; native window reattach is pending.
+# in this slice: it receives the current host snapshot, sends Detach, and exits.
+# The host keeps the PTY and bounded terminal model alive until the child exits
+# or the detached idle timeout reaps it. Native window reattach is pending.
 
 # Clipboard and accessibility.
 osc52_read = off

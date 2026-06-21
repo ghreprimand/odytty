@@ -247,8 +247,10 @@ symbol/Nerd-font fallback **chain**, joined with ` > ` — e.g.
 `id=...` row. `odytty list` prints live detached sessions as metadata-only rows
 (`id`, `name`, `state`, `age_ms`, `panes`) and never dumps scrollback or command
 output. `odytty attach <id>` is a diagnostic attach in this slice: it validates
-the session, receives the initial snapshot, prints dimensions, and exits. Native
-window reattach is a follow-up.
+the session, receives the current snapshot, prints dimensions, detaches, and
+exits. The host keeps the PTY and bounded terminal model alive across
+attach/detach cycles until the child exits or the detached idle timeout reaps
+it. Native window reattach is a follow-up.
 
 ## Current Feature Surface
 

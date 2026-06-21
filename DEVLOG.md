@@ -38,6 +38,24 @@ plain-path-safe.
 This closes Phase 1 (native splits/panes). Docs updated in lockstep
 (`runtime-knobs.md`, `odytty.conf.example`).
 
+## 2026-06-21 -- persistent session-host attach/detach (Phase 2)
+
+Hardened the host-side detach/reattach lifecycle without touching `src/native/`.
+
+- Session-hosts now apply the configured snapshot scrollback cap to the live
+  hosted terminal model and pass that cap through hidden `odytty session-host`
+  process args, so detached output remains bounded before any client reattaches.
+- A client attach always receives the current `SnapshotEnvelope` first, then
+  live `Output` and `Invalidate` frames. An explicit `Detach` (or socket close)
+  removes only that client; the PTY and terminal model keep running until the
+  child exits or the detached idle timeout kills and reaps it.
+- Host shutdown now waits for PTY EOF before returning `SessionExited`, so final
+  child output is drained into the terminal model before the exit frame and
+  socket cleanup.
+- Tests cover explicit detach keeping the session alive, reattach replaying
+  output produced while detached, child exit reaping while a client is still
+  attached, and host-enforced scrollback bounds on reattach snapshots.
+
 ## 2026-06-21 -- detached-session CLI surface (Phase 2)
 
 Added the public CLI surface for the session-host substrate without touching

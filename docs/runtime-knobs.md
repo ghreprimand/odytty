@@ -48,7 +48,15 @@ odytty attach <id>
 `list` reports live local sessions as metadata-only rows (`id`, `name`, `state`,
 `age_ms`, `panes`) and never prints scrollback or command output. `attach <id>`
 is diagnostic-only until native window reattach lands: it connects, receives the
-initial snapshot, prints dimensions, and exits.
+current snapshot, prints dimensions, sends `Detach`, and exits.
+
+Host lifecycle is local-only and bounded. Each attach receives a current
+`SnapshotEnvelope` first, then future `Output` and `Invalidate` frames while it
+stays connected. Detach or socket close removes only that client; the hosted PTY
+and terminal model keep running with bounded scrollback until the child exits or
+the detached idle timeout kills and reaps it. Scrollback is not printed by
+`list` and is not sent anywhere except over the per-user Unix-domain socket to an
+attaching local client.
 
 ## Settings Reference
 

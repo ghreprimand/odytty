@@ -915,6 +915,12 @@ feature validates against.
       protocol/snapshot version mismatches, sends an initial snapshot followed
       by output/invalidation frames, keeps detached sessions alive until the
       bounded idle timeout, and reaps child processes cleanly.
+- [x] Persistent session-host attach/detach lifecycle: explicit client detach
+      and socket close remove only that client while the PTY and terminal model
+      continue running; reattach by id receives a fresh `SnapshotEnvelope` of
+      the current bounded scrollback/live grid before live output resumes; host
+      shutdown drains PTY EOF, broadcasts session exit, removes the socket, and
+      returns when the child exits or the detached idle timeout kills it.
 - [x] Detached-session CLI surface: `odytty new --detached` starts a local
       session host and prints `id=...`; `odytty list` reports live sessions in
       metadata-only script rows (`id`, `name`, `state`, `age_ms`, `panes`);

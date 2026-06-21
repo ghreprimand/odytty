@@ -482,7 +482,7 @@ CLI surface status:
   live host, and prints metadata-only rows (`id`, `name`, `state`, `age_ms`,
   `panes`). It never prints scrollback or command output.
 - `odytty attach <id>` is diagnostic-only in this slice. It validates the id,
-  connects to the host, receives and decodes the initial `SnapshotEnvelope`,
+  connects to the host, receives and decodes the current `SnapshotEnvelope`,
   prints `id`, `state=attached`, `mode=diagnostic`, `columns`, `rows`, and
   `panes`, then detaches. Native window-as-client rendering is a later packet.
 
@@ -509,15 +509,31 @@ Session-host foundation status:
   socket, protocol, and PTY lifecycle code. It imports `src/core/` and
   `src/pty.rs`, not `src/native/`.
 - The first slice is one session per host process. The host owns the PTY and
-  `Terminal`, accepts local Unix-domain attach clients, sends an initial
+  `Terminal`, accepts local Unix-domain attach clients, sends a current
   `SnapshotEnvelope`, then streams raw output and render-invalidation frames.
+- Attach/detach wire sequence is stable for native follow-up work:
+  1. Client connects to the per-session Unix-domain socket and sends
+     `ClientHello` with host protocol, snapshot format, snapshot protocol, and
+     session id.
+  2. Host replies with accepted/rejected `HostHello`. Rejection closes the
+     attach attempt without mutating the hosted session.
+  3. On accept, host sends one current `HostFrame::Snapshot` encoded as
+     `SnapshotEnvelope` v2 before any live frames for that client.
+  4. While attached, host sends future `HostFrame::Output` bytes and
+     `HostFrame::Invalidate { render_revision }`; it sends
+     `HostFrame::SessionExit` before closing when the child exits.
+  5. Client `Input` and `Resize` frames apply only while that client remains
+     attached. Client `Detach`, EOF, or socket close removes only that client;
+     the PTY and terminal model keep running for later attach by id.
 - The control socket lives under `$XDG_RUNTIME_DIR/odytty/`; the runtime
   directory must be owned by the current uid and mode `0700`. A startup lock
   serializes bind attempts, and stale sockets are removed only after a live-peer
   connection probe fails.
 - Resource bounds are explicit: one hosted session, bounded attach clients,
-  snapshot decode caps inherited from the envelope layer, and a detached idle
-  timeout so a host cannot run forever without an attached window.
+  host-applied scrollback capture caps, snapshot decode caps inherited from the
+  envelope layer, and a detached idle timeout so a host cannot run forever
+  without an attached window. Host shutdown drains PTY EOF into the terminal
+  model before returning `SessionExited`; idle timeout kills and reaps the child.
 - Public CLI wiring exists for detached create/list/diagnostic attach. Native
   window-as-client attach wiring remains a later packet. The hidden
   `odytty session-host ...` process mode remains internal substrate.
