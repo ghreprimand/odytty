@@ -122,6 +122,14 @@ impl App {
             OverlayOutcome::ContextMenuSettings => {
                 self.toggle_settings_overlay();
             }
+            OverlayOutcome::PaletteTypeText(text) => {
+                self.flush_pending_overlay_settings();
+                self.handle_palette_type_text(text);
+            }
+            OverlayOutcome::PaletteAction(id) => {
+                self.flush_pending_overlay_settings();
+                self.handle_palette_action(id);
+            }
             // CLOSE-CONFIRM: the dialog closed itself before emitting this; flag
             // the exit so `window_event` exits the loop on this same turn (the
             // outcome cannot reach `ActiveEventLoop` from here — `&mut self`).

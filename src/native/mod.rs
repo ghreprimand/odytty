@@ -64,6 +64,7 @@ mod layout;
 mod onboarding;
 mod options;
 mod overlay;
+mod palette_overlay;
 mod pty;
 mod render_helpers;
 mod resize;

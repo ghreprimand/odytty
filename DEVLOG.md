@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Native command-palette overlay
+
+Built the in-window fuzzy command palette on top of the existing scorer,
+action catalog, and bounded history/directory sources.
+
+- Added `src/native/palette_overlay.rs`, a presentation-only overlay model with
+  an input row, fuzzy-ranked results, bounded rendering, keyboard navigation,
+  and accept outcomes. While open it mutates no terminal core state and writes
+  nothing to the PTY.
+- The palette merges terminal-local actions, read-only bounded shell-history
+  candidates, and recent directories fed from the focused terminal's OSC 7 cwd.
+  History is read only at palette-open time, never logged, never persisted, and
+  never sent anywhere.
+- Accepting a history or directory row types the selected text into the active
+  pane's PTY without appending a newline. Accepting an action closes the overlay
+  and dispatches the matching existing local action.
+- Added the `command-palette` action to `keybinds` / `ODYTTY_KEYBINDS`. It has
+  no default chord so the unset input path stays byte-identical; docs recommend
+  the opt-in chord `ctrl+alt+p=command-palette`.
+- Tests cover fuzzy ranking integration, inactive-overlay pixel identity,
+  palette rendering into snapshot copies only, no-newline PTY insertion, and
+  the unbound default chord.
+
 ## 2026-06-21 -- Palette history source provider
 
 Completed the headless history/directory source layer for the future fuzzy

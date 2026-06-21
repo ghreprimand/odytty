@@ -14,6 +14,9 @@ use super::context_menu_ui::{
 use super::font_picker::{FontPicker, FontPickerLine, FontPickerOutcome, FontPickerSignature};
 use super::key_remap_ui::{KeyRemapLine, KeyRemapOutcome, KeyRemapSignature, KeyRemapUi};
 use super::onboarding::{OnboardingLine, OnboardingPanel, OnboardingSignature};
+use super::palette_overlay::{
+    PaletteOverlay, PaletteOverlayLine, PaletteOverlayOutcome, PaletteOverlaySignature,
+};
 use super::session::SessionToken;
 use super::settings_panel::{
     SettingsLevel, SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature,
@@ -36,6 +39,7 @@ pub(super) struct OverlayUi {
     key_remap: KeyRemapUi,
     onboarding: OnboardingPanel,
     context_menu: ContextMenuUi,
+    command_palette: PaletteOverlay,
     /// Set when a `SaveAndClose` outcome arrives from the settings panel (dirty
     /// close prompt). On the next `save_succeeded` call for Settings mode, the
     /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
@@ -67,6 +71,7 @@ impl OverlayUi {
             key_remap: KeyRemapUi::new(settings),
             onboarding: OnboardingPanel::new(settings),
             context_menu: ContextMenuUi::new(),
+            command_palette: PaletteOverlay::new(),
             close_after_save: false,
             picker_return: None,
             builder_from_picker: false,
@@ -158,6 +163,27 @@ impl OverlayUi {
         self.settings = settings.clone();
         self.key_remap.open(settings);
         self.mode = OverlayMode::KeyBindings;
+        self.open = true;
+    }
+
+    pub(super) fn open_command_palette(&mut self, cwd: Option<&str>) {
+        self.panel.end_slider_drag();
+        self.theme_builder.end_channel_drag();
+        self.command_palette.open_from_process_env(cwd);
+        self.mode = OverlayMode::CommandPalette;
+        self.open = true;
+    }
+
+    #[cfg(test)]
+    pub(super) fn open_command_palette_for_test<H, S>(&mut self, history: H, cwd: Option<&str>)
+    where
+        H: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.panel.end_slider_drag();
+        self.theme_builder.end_channel_drag();
+        self.command_palette.open_for_test(history, cwd);
+        self.mode = OverlayMode::CommandPalette;
         self.open = true;
     }
 
@@ -302,6 +328,7 @@ impl OverlayUi {
             OverlayMode::Onboarding => return self.handle_onboarding_input(input),
             OverlayMode::ContextMenu => return self.handle_context_menu_input(input),
             OverlayMode::ConfirmClose => return self.handle_confirm_close_input(input),
+            OverlayMode::CommandPalette => return self.handle_command_palette_input(input),
             OverlayMode::Settings => {}
         }
 
@@ -378,6 +405,7 @@ impl OverlayUi {
                     | OverlayMode::FontPicker
                     | OverlayMode::KeyBindings
                     | OverlayMode::Onboarding
+                    | OverlayMode::CommandPalette
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
@@ -412,6 +440,7 @@ impl OverlayUi {
                     | OverlayMode::FontPicker
                     | OverlayMode::KeyBindings
                     | OverlayMode::Onboarding
+                    | OverlayMode::CommandPalette
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
@@ -424,6 +453,7 @@ impl OverlayUi {
                     | OverlayMode::KeyBindings
                     | OverlayMode::Onboarding
                     | OverlayMode::ContextMenu
+                    | OverlayMode::CommandPalette
                     | OverlayMode::ConfirmClose => {}
                 }
                 OverlayOutcome::Consumed
@@ -442,6 +472,13 @@ impl OverlayUi {
                     }
                     OverlayMode::ThemePicker => {
                         self.theme_picker.handle_input(if lines < 0 {
+                            OverlayInput::Up
+                        } else {
+                            OverlayInput::Down
+                        });
+                    }
+                    OverlayMode::CommandPalette => {
+                        self.command_palette.handle_input(if lines < 0 {
                             OverlayInput::Up
                         } else {
                             OverlayInput::Down
@@ -468,6 +505,7 @@ impl OverlayUi {
             | OverlayMode::KeyBindings
             | OverlayMode::Onboarding
             | OverlayMode::ContextMenu
+            | OverlayMode::CommandPalette
             | OverlayMode::ConfirmClose => false,
         }
     }
@@ -484,6 +522,7 @@ impl OverlayUi {
             | OverlayMode::KeyBindings
             | OverlayMode::Onboarding
             | OverlayMode::ContextMenu
+            | OverlayMode::CommandPalette
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -581,7 +620,10 @@ impl OverlayUi {
             OverlayMode::KeyBindings => self.key_remap.save_succeeded(changed),
             // The onboarding card, context menu, and close dialog have no save
             // path of their own.
-            OverlayMode::Onboarding | OverlayMode::ContextMenu | OverlayMode::ConfirmClose => {}
+            OverlayMode::Onboarding
+            | OverlayMode::ContextMenu
+            | OverlayMode::CommandPalette
+            | OverlayMode::ConfirmClose => {}
         }
     }
 
@@ -592,7 +634,10 @@ impl OverlayUi {
             OverlayMode::ThemeBuilder => self.theme_builder.save_failed(message),
             OverlayMode::FontPicker => self.font_picker.save_failed(message),
             OverlayMode::KeyBindings => self.key_remap.save_failed(message),
-            OverlayMode::Onboarding | OverlayMode::ContextMenu | OverlayMode::ConfirmClose => {}
+            OverlayMode::Onboarding
+            | OverlayMode::ContextMenu
+            | OverlayMode::CommandPalette
+            | OverlayMode::ConfirmClose => {}
         }
     }
 
@@ -617,6 +662,7 @@ impl OverlayUi {
             key_remap: self.key_remap.render_signature(),
             onboarding: self.onboarding.render_signature(),
             context_menu: self.context_menu.render_signature(),
+            command_palette: self.command_palette.render_signature(),
         }
     }
 
@@ -746,6 +792,21 @@ impl OverlayUi {
         }
     }
 
+    fn handle_command_palette_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match self.command_palette.handle_input(input) {
+            PaletteOverlayOutcome::Consumed => OverlayOutcome::Consumed,
+            PaletteOverlayOutcome::Close => OverlayOutcome::Close,
+            PaletteOverlayOutcome::TypeText(text) => {
+                self.close();
+                OverlayOutcome::PaletteTypeText(text)
+            }
+            PaletteOverlayOutcome::Action(id) => {
+                self.close();
+                OverlayOutcome::PaletteAction(id)
+            }
+        }
+    }
+
     fn settings_with_theme(&self, theme: Theme) -> Settings {
         let mut settings = self.settings.clone();
         settings.theme = theme;
@@ -790,6 +851,11 @@ pub(super) enum OverlayOutcome {
     /// overlay has already closed itself; the App opens the settings panel
     /// through the existing toggle path.
     ContextMenuSettings,
+    /// Type text accepted from the command palette into the active pane's PTY.
+    /// The App writes the exact bytes with no trailing newline.
+    PaletteTypeText(String),
+    /// Run a local terminal action accepted from the command palette.
+    PaletteAction(String),
     /// The user confirmed the close-confirmation dialog (CLOSE-CONFIRM): close
     /// the window. The overlay has already closed itself by the time this is
     /// emitted; the App sets its `pending_exit` flag and exits the event loop on
@@ -856,6 +922,9 @@ pub(super) enum OverlayMode {
     /// Right-click context menu (IN2). Spawns at the pointer cell rather than
     /// centered; carries no title bar.
     ContextMenu,
+    /// Command palette over local actions, shell-history rows, and recent OSC 7
+    /// directories. Presentation-only while open.
+    CommandPalette,
     /// Close-confirmation dialog (CLOSE-CONFIRM). A centered, static two-line
     /// modal shown when a close is requested while a foreground job is running;
     /// Enter/Y confirms (emits [`OverlayOutcome::ForceClose`]), Esc/N cancels.
@@ -940,6 +1009,7 @@ pub(super) struct OverlayRenderSignature {
     pub(super) key_remap: KeyRemapSignature,
     pub(super) onboarding: OnboardingSignature,
     pub(super) context_menu: ContextMenuSignature,
+    pub(super) command_palette: PaletteOverlaySignature,
 }
 
 pub(super) fn overlay_input_from_winit(
@@ -1031,6 +1101,7 @@ pub(super) fn overlay_rect(
         OverlayMode::FontPicker => overlay.font_picker.desired_width(columns),
         OverlayMode::KeyBindings => overlay.key_remap.desired_width(columns),
         OverlayMode::Onboarding => overlay.onboarding.desired_width(columns),
+        OverlayMode::CommandPalette => overlay.command_palette.desired_width(columns),
         // Unreachable: handled by the early return above.
         OverlayMode::ContextMenu => overlay.context_menu.menu_width(),
         // Static two-line dialog; the `.max(36)` floor below gives it room and
@@ -1081,6 +1152,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         OverlayMode::FontPicker => "\u{2190} OdyTTY Font Picker  (Esc = back)".to_owned(),
         OverlayMode::KeyBindings => "\u{2190} OdyTTY Key Bindings  (Esc = back)".to_owned(),
         OverlayMode::Onboarding => "Welcome to OdyTTY".to_owned(),
+        OverlayMode::CommandPalette => "Command Palette".to_owned(),
         // Unreachable: handled by the early dispatch above.
         OverlayMode::ContextMenu => String::new(),
         OverlayMode::ConfirmClose => "Close?".to_owned(),
@@ -1242,6 +1314,12 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
+            OverlayMode::CommandPalette => self
+                .command_palette
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
             // The context menu renders via `apply_context_menu`, not this shared
             // body walker (IN2).
             OverlayMode::ContextMenu => Vec::new(),
@@ -1343,6 +1421,17 @@ impl From<OnboardingLine> for OverlayLine {
             focused: line.focused,
             swatch: None,
             bold: false,
+        }
+    }
+}
+
+impl From<PaletteOverlayLine> for OverlayLine {
+    fn from(line: PaletteOverlayLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: None,
+            bold: line.bold,
         }
     }
 }
@@ -1531,6 +1620,36 @@ mod tests {
         assert_eq!(original.cells[0].ch, '.');
         assert!(rendered.cells.iter().any(|cell| cell.ch == '+'));
         assert!(rendered.cells.iter().any(|cell| cell.ch == '>'));
+    }
+
+    #[test]
+    fn command_palette_draws_into_snapshot_copy_only() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_command_palette_for_test(["git status"], Some("/work/demo"));
+        let original = snapshot(80, 20);
+        let mut rendered = original.clone();
+
+        apply_overlay(&mut rendered, &mut overlay);
+
+        assert_eq!(
+            original.cells,
+            vec![Cell::new('.', Attrs::default()); 80 * 20]
+        );
+        assert!(rendered.cells.iter().any(|cell| cell.ch == '+'));
+        assert!(rendered.cells.iter().any(|cell| cell.ch == 'g'));
+    }
+
+    #[test]
+    fn closed_command_palette_is_pixel_inert() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_command_palette_for_test(["git status"], Some("/work/demo"));
+        overlay.close();
+        let original = snapshot(80, 20);
+        let mut rendered = original.clone();
+
+        apply_overlay(&mut rendered, &mut overlay);
+
+        assert_eq!(rendered, original);
     }
 
     #[test]

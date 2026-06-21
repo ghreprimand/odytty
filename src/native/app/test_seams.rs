@@ -685,6 +685,11 @@ impl App {
     }
 
     #[cfg(test)]
+    pub(in crate::native) fn handle_palette_type_text_for_test(&mut self, text: String) {
+        self.handle_palette_type_text(text);
+    }
+
+    #[cfg(test)]
     pub(in crate::native) fn close_all_sessions_for_test(&mut self) {
         self.close_all_sessions();
     }

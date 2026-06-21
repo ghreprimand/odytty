@@ -892,7 +892,7 @@ impl Settings {
                 env: KEYBINDS_ENV,
                 name: "Key bindings",
                 value: key_bindings_display(&self.key_bindings),
-                description: "Terminal-local shortcut overrides for search, settings, theme picker, copy, paste, and scrollback actions. PTY key encoding is unchanged.",
+                description: "Terminal-local shortcut overrides for search, settings, theme picker, command palette, copy, paste, and scrollback actions. PTY key encoding is unchanged unless an override captures that chord.",
                 kind: SettingKind::List,
                 range: None,
                 // D-KBR-2: all BindableAction names, in the same order as the
@@ -911,6 +911,7 @@ impl Settings {
                     "copy-mode",
                     "hints",
                     "clear-input",
+                    "command-palette",
                     "new-tab",
                     "next-tab",
                     "prev-tab",

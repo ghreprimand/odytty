@@ -118,6 +118,12 @@ fn closed_overlay_sig() -> OverlayRenderSignature {
         },
         onboarding: OnboardingSignature::default(),
         context_menu: ContextMenuSignature::default(),
+        command_palette: PaletteOverlaySignature {
+            query: String::new(),
+            selected: None,
+            results_len: 0,
+            results_fingerprint: 0,
+        },
     }
 }
 

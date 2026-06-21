@@ -27,6 +27,7 @@ use super::key_remap_ui::KeyRemapSignature;
 use super::onboarding::OnboardingSignature;
 use super::options::NativeOptions;
 use super::overlay::{OverlayMode, OverlayRenderSignature};
+use super::palette_overlay::PaletteOverlaySignature;
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 use super::render_helpers::{
     CursorAnimKey, CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature,
@@ -66,6 +67,7 @@ use winit::keyboard::{Key as WinitKey, KeyCode, NamedKey, PhysicalKey};
 mod alt_scroll;
 mod clipboard_paste;
 mod close_confirm;
+mod command_palette;
 mod context_menu;
 mod cursor_icon;
 mod cvd_wiring;

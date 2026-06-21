@@ -360,10 +360,23 @@ Core local shortcuts:
 | `Ctrl+Shift+Up` / `Ctrl+Shift+Down` | Jump to previous / next prompt mark |
 | `Ctrl+Shift+K` | Clear editable prompt input when shell integration allows it |
 
+The command palette is available as the `command-palette` action, but it is
+unbound by default so existing PTY input stays unchanged. Opt in with a free
+chord, for example:
+
+```sh
+ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" odytty
+```
+
+The palette fuzzy-filters local actions, bounded read-only shell history, and
+recent OSC 7 directories. Selecting a history or directory row types that text
+into the active pane without pressing Enter; selecting an action runs the local
+action after the overlay closes.
+
 `ODYTTY_KEYBINDS` can rebind local actions: `search`, `settings`,
 `theme-picker`, `copy`, `paste`, `scroll-up`, `scroll-down`,
 `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`, `clear-input`,
-`new-tab`, `next-tab`, `prev-tab`, and `close-tab`. The pane actions
+`command-palette`, `new-tab`, `next-tab`, `prev-tab`, and `close-tab`. The pane actions
 (`split-columns`, `split-rows`, `focus-pane-left` / `-right` / `-up` / `-down`,
 `focus-pane-next`, `close-pane`, `zoom-pane`, `equalize-panes`) are rebindable
 too — the chord is the key pressed *after* the prefix, e.g.
@@ -412,7 +425,7 @@ The terminal core and visual layer are deliberately separate:
 | Graphics protocols | `src/graphics/`, `src/core/graphics_routing.rs` |
 | Settings | `src/settings.rs`, `src/settings/` |
 | Theme system | `src/theme/`, `src/theme_author.rs`, `src/palette_gen.rs` |
-| Command palette substrate | `src/fuzzy.rs`, `src/palette.rs`, `src/palette_catalog.rs`, `src/palette_sources.rs` |
+| Command palette | `src/fuzzy.rs`, `src/palette.rs`, `src/palette_catalog.rs`, `src/palette_sources.rs`, `src/native/palette_overlay.rs` |
 | Native app and GPU | `src/native/` |
 
 External crates do not own terminal semantics. `vte`, `portable-pty`, and

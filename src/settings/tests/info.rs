@@ -150,6 +150,7 @@ fn keybinds_info_options_lists_all_actions() {
         BindableAction::CopyMode,
         BindableAction::Hints,
         BindableAction::ClearInput,
+        BindableAction::CommandPalette,
         BindableAction::NewTab,
         BindableAction::NextTab,
         BindableAction::PrevTab,
@@ -170,7 +171,7 @@ fn keybinds_info_options_lists_all_actions() {
         .map(|action| bindable_action_display_name(*action))
         .collect();
     assert_eq!(keybinds.options, expected_names.as_slice());
-    assert_eq!(keybinds.options.len(), 26, "all 26 actions selectable");
+    assert_eq!(keybinds.options.len(), 27, "all 27 actions selectable");
 }
 
 #[test]

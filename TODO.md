@@ -868,8 +868,8 @@ feature validates against.
         a row captures a new chord, `Backspace` resets a row to its default,
         `R` resets all bindings, and conflicts prompt before replacing. Changes
         are written to `odytty.conf` via the preservation-first writeback path;
-        all 16 bindable actions, including tab actions, remain configurable
-        through `ODYTTY_KEYBINDS` / `keybinds`.
+        all bindable actions, including command-palette, tab, and pane actions,
+        remain configurable through `ODYTTY_KEYBINDS` / `keybinds`.
   - [x] First-run onboarding and settings search: on first launch (no config
         file yet, or `ODYTTY_ONBOARDING=1`) a welcome card shows the core
         keyboard shortcuts, read live from the active bindings so rebinds are
@@ -1083,8 +1083,13 @@ feature validates against.
       bash `.bash_history`, zsh `.zsh_history` extended history, and Fish
       `fish_history`; tests use synthetic fixtures only and never read real
       user history.
-- [ ] In-window command-palette overlay, plugin systems, AI features, dashboards,
-      or rich nonstandard workflows.
+- [x] In-window command-palette overlay: keyboard-driven fuzzy picker over local
+      actions, bounded shell history, and recent OSC 7 directories. Exposed as
+      the opt-in `command-palette` keybind action (unbound by default; suggested
+      `ctrl+alt+p=command-palette`). Selecting history/directories types text
+      into the active pane without pressing Enter; selecting actions dispatches
+      the local action after the overlay closes.
+- [ ] Plugin systems, AI features, dashboards, or rich nonstandard workflows.
 - [ ] Heavy animation or effects that can compromise readability or latency.
 - [ ] Broad cross-platform support beyond Linux-first validation.
 - [ ] Daily-driver claims against Ghostty/Konsole before compatibility and

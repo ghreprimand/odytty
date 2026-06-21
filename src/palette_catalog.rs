@@ -82,6 +82,40 @@ pub enum PaletteAction {
 }
 
 impl PaletteAction {
+    /// Resolve a stable dispatch id.
+    pub fn from_id(id: &str) -> Option<Self> {
+        Some(match id {
+            "search" => Self::Search,
+            "settings" => Self::OpenSettings,
+            "theme-picker" => Self::OpenThemePicker,
+            "copy" => Self::CopySelection,
+            "paste" => Self::Paste,
+            "scroll-up" => Self::ScrollPageUp,
+            "scroll-down" => Self::ScrollPageDown,
+            "jump-prompt-prev" => Self::JumpPromptPrev,
+            "jump-prompt-next" => Self::JumpPromptNext,
+            "copy-mode" => Self::CopyMode,
+            "hints" => Self::Hints,
+            "clear-input" => Self::ClearInput,
+            "new-tab" => Self::NewTab,
+            "close-tab" => Self::CloseTab,
+            "next-tab" => Self::NextTab,
+            "prev-tab" => Self::PrevTab,
+            "rename-tab" => Self::RenameTab,
+            "split-pane-columns" => Self::SplitPaneColumns,
+            "split-pane-rows" => Self::SplitPaneRows,
+            "focus-pane-left" => Self::FocusPaneLeft,
+            "focus-pane-right" => Self::FocusPaneRight,
+            "focus-pane-up" => Self::FocusPaneUp,
+            "focus-pane-down" => Self::FocusPaneDown,
+            "focus-pane-next" => Self::FocusPaneNext,
+            "close-pane" => Self::ClosePane,
+            "zoom-pane" => Self::ZoomPane,
+            "equalize-panes" => Self::EqualizePanes,
+            _ => return None,
+        })
+    }
+
     /// Stable dispatch id.
     pub fn id(self) -> &'static str {
         match self {

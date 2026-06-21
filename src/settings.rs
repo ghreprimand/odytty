@@ -211,6 +211,10 @@ pub enum BindableAction {
     /// Clear the current shell input line (IN1). Writes a readline-style
     /// kill-whole-line sequence to the PTY; inert when unbound.
     ClearInput,
+    /// Open the in-window command palette. No default chord is installed; users
+    /// opt in with `keybinds` / `ODYTTY_KEYBINDS` so the unset input path stays
+    /// byte-identical.
+    CommandPalette,
     NewTab,
     NextTab,
     PrevTab,
@@ -265,6 +269,9 @@ impl BindableAction {
             "copymode" | "selectmode" => Some(Self::CopyMode),
             "hints" | "hint" | "quickselect" | "patternselect" => Some(Self::Hints),
             "clearinput" | "clearline" | "killline" | "clear" => Some(Self::ClearInput),
+            "commandpalette" | "palette" | "cmdpalette" | "fuzzypalette" => {
+                Some(Self::CommandPalette)
+            }
             "newtab" | "tabnew" => Some(Self::NewTab),
             "nexttab" | "tabnext" => Some(Self::NextTab),
             "prevtab" | "previoustab" | "tabprev" => Some(Self::PrevTab),

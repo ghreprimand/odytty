@@ -90,7 +90,9 @@ command_status_gutter = off
 sh_click = off
 keybinds =
 # Example:
-# keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
+# keybinds = ctrl+shift+y=copy;ctrl+alt+v=paste
+# Command palette opt-in example (unbound by default):
+# keybinds = ctrl+alt+p=command-palette
 
 # Multiplexer prefix for pane/split management (tmux-style). Press the prefix,
 # then a pane key: % / " split, arrows / o focus, x close, z zoom, space / =
@@ -109,9 +111,10 @@ pane_prefix = ctrl+b
 # The host keeps the PTY and bounded terminal model alive until the child exits
 # or the detached idle timeout reaps it. Native window reattach is pending.
 
-# Command-palette history/directory sources have no config-file keys yet. The
-# source layer reads conventional shell history files read-only with fixed caps:
-# 1 MiB tail, 20,000 physical lines, 5,000 entries, 4,096 chars per entry.
+# The command palette is configured through keybinds above. When opened it reads
+# conventional shell history files read-only with fixed caps: 1 MiB tail,
+# 20,000 physical lines, 5,000 entries, 4,096 chars per entry. Accepting a
+# history/directory row types it into the active pane without pressing Enter.
 
 # Clipboard and accessibility.
 osc52_read = off

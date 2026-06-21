@@ -94,6 +94,7 @@ mod interaction;
 mod new_row_fade;
 mod os_theme;
 mod overlay_registry;
+mod palette_ui;
 mod panes;
 mod pointer;
 mod prompt_jump;
@@ -818,6 +819,10 @@ impl App {
                 self.handle_overlay_key(&logical, event_type);
                 return;
             }
+            if action == Some(BindableAction::CommandPalette) {
+                self.open_command_palette_overlay();
+                return;
+            }
             if action == Some(BindableAction::Search) {
                 self.toggle_search();
                 return;
@@ -908,6 +913,7 @@ impl App {
                     return;
                 }
                 Some(BindableAction::Search)
+                | Some(BindableAction::CommandPalette)
                 | Some(BindableAction::SettingsPanel)
                 | Some(BindableAction::ThemePicker)
                 | None => {}

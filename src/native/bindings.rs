@@ -683,6 +683,14 @@ mod tests {
         }
     }
 
+    #[test]
+    fn command_palette_has_no_default_chord() {
+        let bindings = KeyBindings::default();
+        let recommended = char_chord('p', true, false, true, false);
+
+        assert_eq!(bindings.action_for_chord(recommended), None);
+    }
+
     // ----- §7 K1 prefix-engine state machine -----
 
     fn ctrl_b() -> KeyChord {

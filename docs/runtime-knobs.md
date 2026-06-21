@@ -58,18 +58,29 @@ the detached idle timeout kills and reaps it. Scrollback is not printed by
 `list` and is not sent anywhere except over the per-user Unix-domain socket to an
 attaching local client.
 
-## Command-Palette Sources
+## Command Palette
 
-The command-palette overlay is pending, but the headless source provider is in
-place. It has no `odytty.conf` keys in this slice. It resolves conventional
-history files from a supplied shell/home pair (`.bash_history`, `.zsh_history`,
-and Fish `fish/fish_history`) and reads them read-only with hard default caps:
-1 MiB from the file tail, 20,000 physical lines scanned, 5,000 returned entries,
-and 4,096 characters per entry. Missing, unreadable, malformed, oversized, or
-non-UTF-8 files return empty or partial in-memory candidates without panicking.
-Recent directories are fed from already-parsed OSC 7 cwd values; the source
-layer does not query the filesystem for directories and never logs, writes, or
-transmits history contents.
+The command palette is exposed through the `command-palette` action in
+`keybinds` / `ODYTTY_KEYBINDS`. It is unbound by default so existing input stays
+byte-identical until the user opts in:
+
+```sh
+ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" cargo run --release
+```
+
+When opened, the native overlay fuzzy-filters three bounded sources:
+terminal-local actions, shell history, and recent directories. History is read
+read-only from the foreground shell's conventional file using the same hard caps
+as the source provider: 1 MiB from the file tail, 20,000 physical lines scanned,
+5,000 returned entries, and 4,096 characters per entry. Missing, unreadable,
+malformed, oversized, or non-UTF-8 files return empty or partial in-memory
+candidates without panicking. Recent directories are fed from already-parsed OSC
+7 cwd values; OdyTTY does not query the filesystem for directories and never
+logs, writes, or transmits history contents.
+
+Selecting a history or directory row types that text into the active pane's PTY
+without appending a newline. Selecting an action closes the overlay and runs the
+local action.
 
 ## Settings Reference
 
@@ -222,7 +233,7 @@ Default local shortcuts:
 `ODYTTY_KEYBINDS` accepts comma- or semicolon-separated `chord=action` entries:
 
 ```sh
-ODYTTY_KEYBINDS="ctrl+shift+y=copy;ctrl+shift+p=paste" cargo run --release
+ODYTTY_KEYBINDS="ctrl+shift+y=copy;ctrl+alt+v=paste" cargo run --release
 ODYTTY_KEYBINDS="super+f=search;alt+pageup=scroll-up;alt+pagedown=scroll-down" cargo run --release
 ```
 
@@ -232,11 +243,11 @@ digits, `f1`-`f24`, `pageup`, `pagedown`, `home`, `end`, `enter`, `esc`,
 
 Valid actions are `search`, `settings`, `theme-picker`, `copy`, `paste`,
 `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`,
-`copy-mode`, `hints`, `clear-input`, `new-tab`, `next-tab`, `prev-tab`, and
-`close-tab`, plus the pane-management actions below.
+`copy-mode`, `hints`, `clear-input`, `command-palette`, `new-tab`, `next-tab`,
+`prev-tab`, and `close-tab`, plus the pane-management actions below.
 
 The in-app keybinding editor is opened from the Settings panel's Keybindings
-row. It covers the 12 core non-tab actions. Tab and pane actions are
+row. It covers the 12 core non-tab actions. Palette, tab, and pane actions are
 configurable through `keybinds` / `ODYTTY_KEYBINDS`.
 
 ### Panes — multiplexer prefix (`pane_prefix`)

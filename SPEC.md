@@ -498,8 +498,8 @@ its first stable layer.
 - Right-edge scroll position indicator
 - Configurable cursor shapes and blink policy (DECSCUSR + settings)
 - Configurable terminal-local key bindings; `keybinds` / `ODYTTY_KEYBINDS`
-  supports all 16 bindable actions, including tabs. The in-app keybinding
-  editor in the settings panel currently covers the 12 core non-tab actions
+  supports all bindable local, tab, palette, and pane actions. The in-app
+  keybinding editor in the settings panel currently covers the 12 core non-tab actions
   (capture a new chord by pressing a row, `Backspace` resets to default,
   `R` resets all, conflict prompt on clash, writes to `odytty.conf` via the
   preservation-first writeback path).
@@ -705,6 +705,13 @@ its first stable layer.
   block commands. Recent directories are fed from already-parsed OSC 7 cwd
   values; the source layer never writes history files, never logs history
   contents, and never sends candidates over the network.
+- Native command-palette overlay: exposed as the `command-palette` bindable
+  action, unbound by default to preserve existing input. When bound (for
+  example `ODYTTY_KEYBINDS="ctrl+alt+p=command-palette"`), it presents a
+  keyboard-driven fuzzy picker over local actions, bounded shell history, and
+  recent OSC 7 directories. Accepting a history or directory row types that
+  text into the active pane without appending a newline; accepting an action
+  dispatches the local action after the overlay closes.
 
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering
@@ -715,8 +722,8 @@ its first stable layer.
   multiplexing (panes/splits within a window are now supported — see above)
 - Shell integration beyond OSC 7 cwd tracking and OSC 133 prompt/command marks
   plus the current command-aware native actions
-- Plugin systems, AI features, the in-window command-palette overlay, rich
-  dashboards, or nonstandard terminal semantics
+- Plugin systems, AI features, rich dashboards, or nonstandard terminal
+  semantics
 - Heavy animation or effects that compromise readability or latency
 - Windows support (Linux is the primary target; macOS is an experimental
   build-from-source target, exercised in CI, with no prebuilt artifact)
