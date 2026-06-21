@@ -47,6 +47,21 @@ fn recorded_session(
     Some((terminal, writer, pty, bytes))
 }
 
+fn single_session_app() -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+    let options = NativeOptions::default();
+    let dims = options.initial_grid;
+    let (terminal, writer, pty, bytes) = recorded_session(dims)?;
+    let app = App::new(
+        options,
+        terminal,
+        writer,
+        pty,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    Some((app, bytes))
+}
+
 fn app_with_two_sessions() -> Option<(App, [SessionFixture; 2])> {
     let options = NativeOptions::default();
     let dims = options.initial_grid;
@@ -612,4 +627,137 @@ fn focused_pane_overlay_paints_focused_pane_search_matches() {
         changed_cells(&before, &snap) > 0,
         "the focused pane's search match must highlight its own snapshot"
     );
+}
+
+// ----- §7 K2: prefix engine wired into the App key path -----
+
+#[test]
+fn bare_pane_chord_without_prefix_is_plain_input() {
+    let Some((mut app, bytes)) = single_session_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // `%` (Shift+%) with no pending prefix is ordinary text — the engine returns
+    // Inactive and the byte reaches the PTY exactly as before §7.
+    app.drive_char_with_mods_for_test('%', false, true);
+    assert_eq!(&*bytes.lock().expect("bytes"), b"%");
+    // It did not split.
+    assert_eq!(app.active_pane_count_for_test(), 1);
+}
+
+#[test]
+fn lone_prefix_is_swallowed_and_sends_nothing() {
+    let Some((mut app, bytes)) = single_session_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Pressing the prefix (Ctrl-b) enters pending and forwards nothing — unlike
+    // pre-§7 where Ctrl-b sent the literal 0x02. This is the one accepted new
+    // capture.
+    app.drive_char_with_mods_for_test('b', true, false);
+    assert!(bytes.lock().expect("bytes").is_empty());
+}
+
+#[test]
+fn prefix_then_unknown_key_fires_nothing() {
+    let Some((mut app, bytes)) = single_session_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.drive_char_with_mods_for_test('b', true, false); // prefix
+    app.drive_char_with_mods_for_test('q', false, false); // not in the table
+    // The unknown second key is swallowed (cancel), so nothing reaches the PTY
+    // and no pane op ran.
+    assert!(bytes.lock().expect("bytes").is_empty());
+    assert_eq!(app.active_pane_count_for_test(), 1);
+}
+
+#[test]
+fn prefix_focus_next_cycles_panes() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Seed the active tab into a two-pane column split; focus lands on the new
+    // (right) pane.
+    let Some((terminal, writer, pty, _)) = recorded_session(NativeOptions::default().initial_grid)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let new_pane = app.seed_split_pane_for_test(true, terminal, writer, pty);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+    assert_eq!(app.focused_pane_id_for_test(), new_pane);
+    // Ctrl-b o cycles focus to the other pane in tree order.
+    app.drive_char_with_mods_for_test('b', true, false);
+    app.drive_char_with_mods_for_test('o', false, false);
+    assert_ne!(
+        app.focused_pane_id_for_test(),
+        new_pane,
+        "Ctrl-b o moved focus off the new pane"
+    );
+}
+
+#[test]
+fn prefix_close_pane_collapses_the_split() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal, writer, pty, _)) = recorded_session(NativeOptions::default().initial_grid)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.seed_split_pane_for_test(false, terminal, writer, pty);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+    // Ctrl-b x closes the focused pane, collapsing the split back to one pane.
+    app.drive_char_with_mods_for_test('b', true, false);
+    app.drive_char_with_mods_for_test('x', false, false);
+    assert_eq!(app.active_pane_count_for_test(), 1);
+}
+
+#[test]
+fn prefix_equalize_keeps_the_split_intact() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal, writer, pty, _)) = recorded_session(NativeOptions::default().initial_grid)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    // Ctrl-b = equalizes split ratios; the dispatch runs without disturbing the
+    // pane structure.
+    app.drive_char_with_mods_for_test('b', true, false);
+    app.drive_char_with_mods_for_test('=', false, false);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+}
+
+#[test]
+fn prefix_is_disabled_when_set_off() {
+    let options = NativeOptions::default();
+    let dims = options.initial_grid;
+    let Some((terminal, writer, pty, bytes)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let settings = Settings {
+        pane_prefix: None, // prefix model off
+        ..Settings::default()
+    };
+    let mut app = App::new(
+        options,
+        terminal,
+        writer,
+        pty,
+        settings,
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    // With the prefix off, Ctrl-b is ordinary input again: it sends the literal
+    // 0x02, byte-identical to the pre-§7 build.
+    app.drive_char_with_mods_for_test('b', true, false);
+    assert_eq!(&*bytes.lock().expect("bytes"), &[0x02]);
 }

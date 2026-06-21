@@ -22,13 +22,7 @@ use super::viewport::wheel_lines;
 /// deliberate two-key sequence, short enough that a stray prefix clears fast.
 pub(super) const PREFIX_TIMEOUT: Duration = Duration::from_secs(2);
 
-// The prefix engine below is fully exercised by the K1 state-machine unit tests
-// but is not yet wired into the production `App` key path — that is K2. The
-// `allow(dead_code)` markers come off when K2 calls `on_chord` from
-// `handle_key_event`. (Project convention: dead-code-until-wired.)
-
 /// Outcome of feeding a keychord to the multiplexer prefix engine (§7).
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PrefixOutcome {
     /// No prefix configured, or not pending and this chord is not the prefix —
@@ -59,7 +53,6 @@ pub(super) enum PrefixOutcome {
 /// pending state. Additive by construction: when `prefix` is `None` or the
 /// engine is not pending, [`Self::on_chord`] returns [`PrefixOutcome::Inactive`]
 /// for every chord, so the existing input path is byte-identical.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub(super) struct PrefixEngine {
     /// The configured prefix chord; `None` disables the whole feature.
@@ -73,7 +66,6 @@ pub(super) struct PrefixEngine {
     timeout: Duration,
 }
 
-#[allow(dead_code)]
 impl PrefixEngine {
     /// Build the engine from the configured prefix chord, the user's key-binding
     /// overrides (pane-action entries rebind the prefix table), and a timeout.
@@ -107,7 +99,10 @@ impl PrefixEngine {
     }
 
     /// Whether a prefix is currently pending (the next key resolves against the
-    /// prefix table).
+    /// prefix table). Used by the K1 state-machine tests and reserved for the
+    /// pending-state visual affordance; not yet read on the production frame
+    /// path.
+    #[allow(dead_code)]
     pub(super) fn is_pending(&self) -> bool {
         self.pending_since.is_some()
     }
@@ -126,6 +121,8 @@ impl PrefixEngine {
     /// The literal bytes to forward to the PTY for the doubled-prefix passthrough
     /// (K3). For a `Ctrl+<letter>` prefix this is the corresponding C0 control
     /// byte (`Ctrl-b` → `0x02`); empty for prefixes with no single-byte literal.
+    /// Wired into the `Passthrough` arm in K3; the `allow` comes off then.
+    #[allow(dead_code)]
     pub(super) fn passthrough_bytes(&self) -> Vec<u8> {
         let Some(chord) = self.prefix else {
             return Vec::new();
@@ -202,7 +199,6 @@ impl PrefixEngine {
 /// shift modifier, because the produced character already encodes shift (`%`
 /// arrives as Shift+`%` on a US layout but should match a stored `%`). Named
 /// keys (arrows, Space) keep their modifiers exactly.
-#[allow(dead_code)]
 fn normalize_lookup_chord(chord: KeyChord) -> KeyChord {
     match chord.key {
         KeyBindingKey::Character(_) => KeyChord {
@@ -218,7 +214,6 @@ fn normalize_lookup_chord(chord: KeyChord) -> KeyChord {
 
 /// The default tmux-matching prefix bindings (§7, K2). Chords are the *second*
 /// key after the prefix; the prefix itself is configured separately.
-#[allow(dead_code)]
 fn default_prefix_bindings() -> Vec<(KeyChord, BindableAction)> {
     vec![
         (

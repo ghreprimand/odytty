@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- prefix engine wired + pane-op dispatch (Phase 1, §7 K2)
+
+Wired the K1 prefix engine into the live App key path and dispatched the tmux
+pane ops onto the Phase-1c `TabSet` methods. Panes are now user-reachable:
+`Ctrl-b %` / `"` split, `Ctrl-b` arrows / `o` focus, `Ctrl-b x` close,
+`Ctrl-b Space` / `=` equalize.
+
+- `App` gains a `prefix_engine: PrefixEngine` field (built in `new_with_sessions`
+  and rebuilt on settings reload). `handle_key_event` calls `on_chord` first —
+  but only when no overlay/search/modal is capturing, so those paths stay
+  byte-identical — and acts on the outcome: `Entered`/`Cancelled` swallow the
+  key, `Action(a)` dispatches, `Inactive` falls through to the unchanged normal
+  path. Because pane chords are excluded from the flat global table, a bare `%`
+  with no prefix is still ordinary input.
+- `apply_pane_action` maps each pane action onto the existing ops:
+  `split_active` (+ new-session init, mirroring `handle_new_tab`),
+  `focus_move_active` (new directional-focus `TabSet` bridge over
+  `layout::focus_move`), `focus_next_pane`, `close`, `equalize_active`. Each
+  structural change reflows pane geometry (`resize_all_panes`) and repaints.
+  `ZoomPane` is a documented no-op (the K2-zoom follow-up owns per-tab zoom
+  state + render branch).
+- Lifecycle: a pending prefix is cancelled on focus loss and its timeout is
+  added to the event-loop wait deadline. The K1 `allow(dead_code)` markers came
+  off; only `is_pending` (tests + reserved affordance) and `passthrough_bytes`
+  (K3) keep a targeted allow.
+- Tests: 6 App-level integration tests (bare pane chord is plain input; lone
+  prefix swallowed; prefix-then-unknown fires nothing; `Ctrl-b o` cycles focus;
+  `Ctrl-b x` collapses a split; `Ctrl-b =` keeps the split; `pane_prefix=off`
+  restores literal `0x02`) plus a `focus_move_active` `TabSet` unit. Directional
+  focus + split spawn need a live GPU/event-loop, so those land at the
+  geometry-free `TabSet`/unit level (the App seam seeds a split without a PTY
+  spawn).
+
+Verified: `cargo test` 1992 lib + all integration green / 0 failed, `cargo
+clippy --all-targets -- -D warnings` clean, `cargo fmt --check` clean. The
+single-pane / no-prefix-pending path stays byte-identical.
+
+Still open: K3 (doubled-prefix PTY passthrough wiring + docs lockstep:
+`docs/runtime-knobs.md`, `docs/odytty.conf.example`) and the K2-zoom sub-packet.
+
 ## 2026-06-21 -- multiplexer prefix engine (Phase 1, §7 K1)
 
 Built the additive tmux-style prefix-sequence engine — the multiplexer trigger

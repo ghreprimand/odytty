@@ -39,9 +39,9 @@ use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::window::{CursorIcon, Window, WindowId};
 
 use super::bindings::{
-    KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
-    map_keypad_physical_key, map_named_key, map_winit_mouse_button, motion_report_button,
-    wheel_report_button,
+    KeyBindings, PrefixEngine, PrefixOutcome, changed_window_title, chord_from_winit,
+    encode_native_focus_report, encode_native_mouse_report, map_keypad_physical_key, map_named_key,
+    map_winit_mouse_button, motion_report_button, wheel_report_button,
 };
 use super::clipboard::{
     NativeClipboard, read_clipboard_selection, selected_clipboard_text, write_clipboard_selection,
@@ -67,6 +67,7 @@ use super::theme_builder::{save_theme_to_dir, user_theme_dir_for_config};
 
 use self::panes::{DIVIDER_GRAB_PX, PANE_DIVIDER_PX, pane_content_rect};
 pub(super) use super::cursor::{CURSOR_BLINK_INTERVAL, CursorBlinkState};
+use super::layout::{FocusDir, SplitAxis};
 pub(super) use super::resize::{
     PendingResize, RESIZE_DEBOUNCE_INTERVAL, ResizeDebouncer, pending_resize_for_surface,
     scale_factor_changed,
@@ -223,6 +224,11 @@ pub(super) struct App {
     /// PTY key encoding.
     super_key: bool,
     key_bindings: KeyBindings,
+    /// Multiplexer prefix engine (§7). Holds the configurable prefix chord, the
+    /// pane-action table, and the transient prefix-pending state. Additive: when
+    /// no prefix is pending (or the prefix is `off`), it leaves the input path
+    /// byte-identical.
+    prefix_engine: PrefixEngine,
     settings: Settings,
     settings_reloader: SettingsReloader,
     /// Latest settings produced by a high-frequency overlay interaction
@@ -347,6 +353,7 @@ impl App {
         let effective_theme = cvd_cache.resolve(&theme, settings.cvd_mode, settings.cvd_strength);
         let visual = settings.visual;
         let key_bindings = KeyBindings::from_overrides(&settings.key_bindings);
+        let prefix_engine = PrefixEngine::from_settings(&settings);
         let autoclose = settings.native_autoclose;
         let themed_ui_roles = settings.themed_ui_roles;
         let overlay = OverlayUi::new(&settings);
@@ -369,6 +376,7 @@ impl App {
             modifiers: Modifiers::default(),
             super_key: false,
             key_bindings,
+            prefix_engine,
             settings,
             settings_reloader,
             pending_overlay_settings: None,
@@ -566,6 +574,110 @@ impl App {
         is_last
     }
 
+    /// Dispatch a multiplexer pane action resolved on the prefix (§7, K2). The
+    /// prefix engine only ever returns pane actions here; the catch-all is for
+    /// exhaustiveness. Each op routes onto the `TabSet` pane methods built in
+    /// Phase 1c, then reflows pane geometry and repaints as needed.
+    pub(super) fn apply_pane_action(&mut self, action: BindableAction) {
+        match action {
+            BindableAction::SplitColumns => self.split_active_pane(SplitAxis::Columns),
+            BindableAction::SplitRows => self.split_active_pane(SplitAxis::Rows),
+            BindableAction::FocusPaneLeft => self.focus_pane_dir(FocusDir::Left),
+            BindableAction::FocusPaneRight => self.focus_pane_dir(FocusDir::Right),
+            BindableAction::FocusPaneUp => self.focus_pane_dir(FocusDir::Up),
+            BindableAction::FocusPaneDown => self.focus_pane_dir(FocusDir::Down),
+            BindableAction::FocusPaneNext => {
+                if self.sessions.focus_next_pane() {
+                    self.on_active_session_changed();
+                }
+            }
+            BindableAction::ClosePane => self.close_focused_pane(),
+            BindableAction::EqualizePanes => {
+                self.sessions.equalize_active();
+                // Equalize changes split ratios, so each pane's cell dimensions
+                // change — reflow before repaint.
+                self.reflow_active_panes_and_redraw();
+            }
+            BindableAction::ZoomPane => {
+                // Zoom / toggle-fullscreen-pane (tmux `Ctrl-b z`) is a dedicated
+                // follow-up sub-packet (K2-zoom): it needs per-tab zoom state and
+                // a render branch that draws only the focused pane full-bleed
+                // while preserving the layout tree. No-op until that lands; the
+                // binding + config name + docs slot already exist so wiring it is
+                // additive. Documented as a v1 limitation.
+            }
+            // The prefix engine only returns pane actions; other variants never
+            // reach here.
+            _ => {}
+        }
+    }
+
+    /// Split the focused pane along `axis` (tmux `Ctrl-b %` / `"`). Spawns and
+    /// initializes a new session for the new pane, then reflows every pane to
+    /// its new sub-rect and repaints.
+    fn split_active_pane(&mut self, axis: SplitAxis) {
+        let Ok(new_token) = self.sessions.split_active(axis, self.grid) else {
+            return;
+        };
+        let effective_theme = self.effective_theme;
+        let themed_ui_roles = self.themed_ui_roles;
+        let osc52_read = self.settings.osc52_read;
+        let cursor_style = self.settings.cursor_style;
+        let cursor_blink = self.settings.cursor_blink;
+        let cell = self.gpu.as_ref().map(GpuState::cell);
+        let scrollback_limit = self.settings.scrollback_limit();
+        if let Some(session) = self.sessions.get_mut(new_token) {
+            Self::initialize_session_with(
+                session,
+                effective_theme,
+                themed_ui_roles,
+                osc52_read,
+                cursor_style,
+                cursor_blink,
+                cell,
+                scrollback_limit,
+            );
+        }
+        self.reflow_active_panes_and_redraw();
+    }
+
+    /// Directional pane focus (tmux `Ctrl-b` arrows). A no-op in a single-pane
+    /// tab (`multipane_geometry` is `None`), so the single-pane path is
+    /// unaffected.
+    fn focus_pane_dir(&mut self, dir: FocusDir) {
+        if let Some((content, _cell)) = self.multipane_geometry()
+            && self
+                .sessions
+                .focus_move_active(content, PANE_DIVIDER_PX, dir)
+        {
+            self.on_active_session_changed();
+        }
+    }
+
+    /// Close the focused pane (tmux `Ctrl-b x`). Collapses the split into its
+    /// sibling; closing the last pane of the last tab exits, mirroring
+    /// [`Self::close_active_tab`].
+    fn close_focused_pane(&mut self) {
+        let focused = self.sessions.active_id();
+        if self.sessions.close(focused) {
+            self.pending_exit = true;
+        } else {
+            self.reflow_active_panes_and_redraw();
+        }
+    }
+
+    /// Reflow every pane of the active tab to its laid-out sub-rect (after a
+    /// structural change: split, close, equalize) and request a repaint. A
+    /// single-pane tab resizes its lone pane to the full content rect, matching
+    /// the window-resize path.
+    fn reflow_active_panes_and_redraw(&mut self) {
+        if let Some((content, cell)) = self.multipane_geometry() {
+            self.sessions
+                .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
+        }
+        self.on_active_session_changed();
+    }
+
     pub(super) fn close_all_sessions(&mut self) {
         while !self.sessions.is_empty() {
             let Some(token) = self.sessions.token_at_position(0) else {
@@ -579,6 +691,10 @@ impl App {
         let next = [
             self.deadline,
             self.resize_debounce.deadline(),
+            // §7: wake when a pending multiplexer prefix times out, so the
+            // pending state clears promptly even with no further input. `None`
+            // (the at-rest case) leaves the min unchanged.
+            self.prefix_engine.pending_deadline(),
             self.sessions
                 .iter()
                 .filter_map(|session| session.cursor_blink.deadline())
@@ -634,6 +750,48 @@ impl App {
         let mods = self.modifiers;
         let key_modes = self.key_modes();
         if event_type != KeyEventType::Release {
+            // Multiplexer prefix engine (§7, K2). Runs first so that, once a
+            // prefix is pending, the next chord resolves against the prefix
+            // table before any global chord (Settings/Search/etc.) — tmux
+            // semantics: the key after the prefix is a pane command, and an
+            // unknown one cancels. The engine is suppressed while an overlay /
+            // search / modal is capturing, so those paths stay byte-identical;
+            // and when not pending it returns `Inactive` for every non-prefix
+            // chord, leaving the entire path below unchanged. Pane-management
+            // chords (`%`, arrows, `x`, …) are excluded from the global table,
+            // so they never reach the normal dispatch as bare keys.
+            if !self.overlay.is_open()
+                && !self.search.is_open()
+                && self.active_modal() == ActiveModal::None
+                && let Some(chord) = chord_from_winit(&binding_key, mods, self.super_key)
+            {
+                match self.prefix_engine.on_chord(chord, Instant::now()) {
+                    PrefixOutcome::Inactive => {}
+                    PrefixOutcome::Entered => {
+                        // Prefix captured; await the second key. Repaint so a
+                        // future pending-state affordance can show (none yet).
+                        if let Some(window) = self.window.as_ref() {
+                            window.request_redraw();
+                        }
+                        return;
+                    }
+                    PrefixOutcome::Cancelled => {
+                        // Unknown second key (or timed-out prefix that did not
+                        // re-enter): swallow it, fire nothing, back to normal.
+                        return;
+                    }
+                    PrefixOutcome::Passthrough => {
+                        // Doubled prefix → send the literal prefix byte to the
+                        // focused pane's PTY (nested multiplexer). Wired in K3;
+                        // for now the chord is swallowed.
+                        return;
+                    }
+                    PrefixOutcome::Action(action) => {
+                        self.apply_pane_action(action);
+                        return;
+                    }
+                }
+            }
             let action = self
                 .key_bindings
                 .action_for(&binding_key, mods, self.super_key);
@@ -1446,6 +1604,7 @@ impl App {
         self.visual = self.settings.visual;
         self.themed_ui_roles = self.settings.themed_ui_roles;
         self.key_bindings = KeyBindings::from_overrides(&self.settings.key_bindings);
+        self.prefix_engine = PrefixEngine::from_settings(&self.settings);
         match source {
             SettingsApplySource::ConfigReload => self.overlay.refresh_settings(&self.settings),
             SettingsApplySource::OverlayEdit => self.overlay.apply_settings(&self.settings),
@@ -2104,6 +2263,10 @@ impl ApplicationHandler<UserEvent> for App {
                     // notch so a gesture interrupted by an alt-tab does not
                     // resume against the next surface on focus regain.
                     self.wheel_accum.reset();
+                    // §7: drop any pending multiplexer prefix on focus loss so a
+                    // half-entered prefix does not survive an alt-tab and capture
+                    // the first key on focus regain.
+                    self.prefix_engine.cancel();
                 }
                 // Force the cursor solid-on immediately on focus loss (and
                 // resume blinking on focus gain) by rebuilding next frame.

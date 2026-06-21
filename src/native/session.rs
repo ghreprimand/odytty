@@ -20,8 +20,8 @@ use super::app::{
 };
 use super::copy_mode::CopyModeState;
 use super::layout::{
-    EVEN_RATIO, PaneNode, PaneRect, SplitAxis, divider_at_point, drag_divider_to,
-    grid_dims_for_rect, layout_rects, pane_at_point,
+    EVEN_RATIO, FocusDir, PaneNode, PaneRect, SplitAxis, divider_at_point, drag_divider_to,
+    focus_move, grid_dims_for_rect, layout_rects, pane_at_point,
 };
 use super::pty::{PtyWriter, UserEvent, spawn_pty_pump};
 use super::render_helpers::RenderSignature;
@@ -329,6 +329,24 @@ impl TabSet {
         pane_at_point(&rects, x, y)
     }
 
+    /// Move focus within the active tab to the spatial neighbor of the focused
+    /// pane in direction `dir` (tmux `Ctrl-b` arrows, §4.3 / §7). Builds the
+    /// pane rects within `content` and resolves the neighbor via
+    /// [`layout::focus_move`]. Returns true if focus changed.
+    pub(super) fn focus_move_active(
+        &mut self,
+        content: PaneRect,
+        divider_px: f32,
+        dir: FocusDir,
+    ) -> bool {
+        let focused = self.active_id();
+        let rects = self.active_pane_rects(content, divider_px);
+        match focus_move(&rects, focused, dir) {
+            Some(target) => self.set_active_focus(target),
+            None => false,
+        }
+    }
+
     /// The tree-order index of the active tab's divider under a pixel point
     /// (widened by `grab_px`), to start a divider drag. `None` when no divider
     /// is grabbed.
@@ -601,9 +619,15 @@ impl TabSet {
 
     /// Test-only driver for a split: arena-insert `session` then graft it into
     /// the active tab by splitting the focused leaf along `axis`. Mirrors the
-    /// production [`Self::split_active`] minus the PTY spawn.
+    /// production [`Self::split_active`] minus the PTY spawn. `pub(in
+    /// crate::native)` so App-level seams can seed a multi-pane tab headlessly
+    /// (the production split needs an event-loop proxy to spawn a PTY).
     #[cfg(test)]
-    fn split_active_for_test(&mut self, axis: SplitAxis, session: Session) -> SessionToken {
+    pub(in crate::native) fn split_active_for_test(
+        &mut self,
+        axis: SplitAxis,
+        session: Session,
+    ) -> SessionToken {
         let token = self.push_arena_only(session);
         self.split_active_with(axis, token);
         token
@@ -1013,5 +1037,24 @@ mod tests {
         assert!((left.w - 200.0).abs() < 1.0);
         // An out-of-range divider index leaves the tree unchanged.
         assert_eq!(set.drag_active_divider(content, 1.0, 9, 50.0, 50.0), None);
+    }
+
+    #[test]
+    fn focus_move_active_lands_on_the_spatial_neighbor() {
+        let mut set = TabSet::new(build_session(), None);
+        let right =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        // After the split focus is on the right pane.
+        assert_eq!(set.active_id(), right);
+        let content = PaneRect::new(0.0, 0.0, 801.0, 200.0);
+        // Move focus left → the original pane; returns true (focus changed).
+        assert!(set.focus_move_active(content, 1.0, FocusDir::Left));
+        assert_eq!(set.active_id(), SessionToken(0));
+        // No neighbor to the left of the leftmost pane → no change, false.
+        assert!(!set.focus_move_active(content, 1.0, FocusDir::Left));
+        assert_eq!(set.active_id(), SessionToken(0));
+        // Move right → back to the right pane.
+        assert!(set.focus_move_active(content, 1.0, FocusDir::Right));
+        assert_eq!(set.active_id(), right);
     }
 }

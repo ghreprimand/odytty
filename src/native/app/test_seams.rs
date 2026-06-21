@@ -738,6 +738,82 @@ impl App {
         );
     }
 
+    /// Test seam (§7 K2): drive a character key with explicit ctrl/shift
+    /// modifiers through the production `handle_key_event` path (so the prefix
+    /// engine sees the real chord). Restores the prior modifier state after.
+    #[cfg(test)]
+    pub(in crate::native) fn drive_char_with_mods_for_test(
+        &mut self,
+        ch: char,
+        ctrl: bool,
+        shift: bool,
+    ) {
+        let prev = self.modifiers;
+        self.modifiers = crate::input::Modifiers {
+            ctrl,
+            shift,
+            ..crate::input::Modifiers::default()
+        };
+        let logical = WinitKey::Character(ch.to_string().into());
+        self.handle_key_event(
+            logical.clone(),
+            logical,
+            PhysicalKey::Code(KeyCode::KeyB),
+            KeyEventType::Press,
+        );
+        self.modifiers = prev;
+    }
+
+    /// Test seam (§7 K2): the number of panes in the active tab (1 ⇒ the
+    /// single-pane byte-identical path).
+    #[cfg(test)]
+    pub(in crate::native) fn active_pane_count_for_test(&self) -> usize {
+        self.sessions.active_pane_count()
+    }
+
+    /// Test seam (§7 K2): the focused pane's session token id, to assert focus
+    /// moves across panes.
+    #[cfg(test)]
+    pub(in crate::native) fn focused_pane_id_for_test(&self) -> usize {
+        self.sessions.active_id().0 as usize
+    }
+
+    /// Test seam (§7 K2): seed the active tab into a two-pane split headlessly
+    /// (the production split spawns a PTY, which needs an event-loop proxy the
+    /// test App lacks). Splits the focused leaf along `columns ? Columns : Rows`
+    /// using the supplied recorded session as the new pane. Returns the new
+    /// pane's focused-pane id.
+    #[cfg(test)]
+    pub(in crate::native) fn seed_split_pane_for_test(
+        &mut self,
+        columns: bool,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        pty: Arc<Mutex<PtySession>>,
+    ) -> usize {
+        let axis = if columns {
+            crate::native::layout::SplitAxis::Columns
+        } else {
+            crate::native::layout::SplitAxis::Rows
+        };
+        let next_id = self
+            .sessions
+            .iter()
+            .map(|session| session.id.0)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let session = crate::native::session::Session::new(
+            crate::native::session::SessionToken(next_id),
+            terminal,
+            writer,
+            pty,
+            None,
+        );
+        let token = self.sessions.split_active_for_test(axis, session);
+        token.0 as usize
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn set_session_tab_title_for_test(
         &mut self,
