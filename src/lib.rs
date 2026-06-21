@@ -6,6 +6,7 @@ pub mod color;
 pub mod core;
 pub mod cvd;
 pub mod emoji;
+pub mod fuzzy;
 pub mod graphics;
 pub mod grid;
 pub mod hints;

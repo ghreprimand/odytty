@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Fuzzy scorer foundation
+
+Added `src/fuzzy.rs`, a pure dependency-free subsequence scorer for the future
+command palette. The public API exposes `score`, `score_with_options`, `rank`,
+and `rank_with_options`; ranking is best-first, stable on ties, and reports
+candidate indexes plus `Score`.
+
+The scorer rewards consecutive runs, start/word/camel boundaries, exact-case
+matches, earlier matches, and shorter candidates. Empty queries match every
+candidate and prefer shorter entries. Tests pin non-match filtering, concrete
+ordering, case-sensitive behavior, and stable tie order.
+
+---
+
 ## 2026-06-21 -- Custom tab renaming
 
 Closed the Stage 8 custom-tab-name gap. Tabs can be renamed from the tab context
