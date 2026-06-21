@@ -597,6 +597,80 @@ mod tests {
         assert!(divider_rects(&tree, content(), 1.0).is_empty());
     }
 
+    /// §8 pixel-smoke: the exact geometry contract `GpuState::update_from_panes`
+    /// relies on for divider + multi-grid composition. For every split, the
+    /// divider is a crisp 1px strip that exactly fills the gap between the two
+    /// child panes — `first.right == divider near edge`, `divider far edge ==
+    /// second near edge`, and `first + divider + second == parent` with no gap
+    /// or overlap, on both axes and when nested. This is the headless analogue
+    /// of the divider/multi-grid pixel render (the GPU draws these rects as
+    /// themed solid quads in panes that tile exactly).
+    #[test]
+    fn pixel_smoke_divider_fills_gap_with_no_overlap() {
+        let divider_px = 1.0;
+        // A columns split nested with a rows split → two dividers, both axes.
+        let tree = PaneNode::Split {
+            axis: SplitAxis::Columns,
+            ratio: 0.4,
+            first: Box::new(PaneNode::Leaf(tok(0))),
+            second: Box::new(PaneNode::Split {
+                axis: SplitAxis::Rows,
+                ratio: 0.6,
+                first: Box::new(PaneNode::Leaf(tok(1))),
+                second: Box::new(PaneNode::Leaf(tok(2))),
+            }),
+        };
+        let c = content();
+        let rects: std::collections::HashMap<_, _> =
+            layout_rects(&tree, c, divider_px).into_iter().collect();
+        let dividers = divider_rects(&tree, c, divider_px);
+        assert_eq!(dividers.len(), 2);
+
+        // Outer columns divider: crisp 1px vertical strip between left pane and
+        // the right column, full content height, exactly filling the gap.
+        let left = rects[&tok(0)];
+        let top_right = rects[&tok(1)];
+        let col_div = dividers
+            .iter()
+            .find(|d| d.w == divider_px && d.h == c.h)
+            .expect("vertical divider spanning full height");
+        assert_eq!(col_div.w, 1.0, "divider is crisp 1px");
+        assert_eq!(
+            col_div.x,
+            left.right(),
+            "divider starts at first pane's edge"
+        );
+        assert_eq!(
+            col_div.right(),
+            top_right.x,
+            "second column starts at divider's far edge"
+        );
+        // No gap / no overlap across the whole content width.
+        assert!((left.w + divider_px + top_right.w - c.w).abs() < f32::EPSILON);
+
+        // Inner rows divider: crisp 1px horizontal strip between the two
+        // right-column panes, full column width, exactly filling the gap.
+        let bot_right = rects[&tok(2)];
+        let row_div = dividers
+            .iter()
+            .find(|d| d.h == divider_px && (d.w - top_right.w).abs() < f32::EPSILON)
+            .expect("horizontal divider spanning the right column width");
+        assert_eq!(row_div.h, 1.0, "divider is crisp 1px");
+        assert_eq!(row_div.y, top_right.bottom(), "divider at top pane's edge");
+        assert_eq!(
+            row_div.bottom(),
+            bot_right.y,
+            "bottom pane starts at divider's far edge"
+        );
+        assert!((top_right.h + divider_px + bot_right.h - c.h).abs() < f32::EPSILON);
+
+        // Integer-pixel boundaries keep dividers crisp (no sub-pixel seam).
+        for d in &dividers {
+            assert_eq!(d.x, d.x.floor());
+            assert_eq!(d.y, d.y.floor());
+        }
+    }
+
     // ----- grid_dims_for_rect -----
 
     #[test]

@@ -33,6 +33,39 @@ use image::BgImageGpu;
 pub(super) use post::{BloomOptions, CrtOptions};
 use post::{PostProcessOptions, PostProcessResources};
 
+/// One pane's render inputs for [`GpuState::update_from_panes`] (design doc
+/// §3.2). All geometry is physical pixels in the same origin-top-left basis as
+/// `grid.rs` vertices. The caller (the App multi-pane render dispatch) owns
+/// layout: `origin` is the pane rect's top-left already folded with that pane's
+/// own `scroll_frac_offset` on the y axis, and `overlays` are already shifted
+/// into the pane's coordinate space.
+///
+/// Scaffold note: `allow(dead_code)` until the App multi-pane render dispatch
+/// (Phase 1c-3) constructs these and calls `update_from_panes` — parity with
+/// the `layout.rs` / `TabSet` pane-ops scaffolding. The single-pane path never
+/// touches this type.
+#[allow(dead_code)]
+pub(super) struct PaneRender<'a> {
+    /// This pane's terminal snapshot (its own grid, scrollback viewport, cursor).
+    pub(super) snapshot: &'a Snapshot,
+    /// Pane top-left in physical px, with this pane's scroll glide folded into y.
+    pub(super) origin: [f32; 2],
+    /// Whether this pane has keyboard focus — only the focused pane draws a
+    /// live cursor (unfocused panes draw none this packet; hollow/dim is a
+    /// later refinement per §3.3).
+    pub(super) focused: bool,
+    /// Cursor style for the focused pane (ignored when `focused` is false).
+    pub(super) cursor_style: CursorStyle,
+    /// Inactive-pane dim applied to this pane's cells (0.0 = none); reuses the
+    /// existing focus-dim path. Single-pane never sets this.
+    pub(super) focus_dim: f32,
+    /// Presentation-only solid overlays (selection/search/hints) already shifted
+    /// into this pane's origin space.
+    pub(super) overlays: &'a [SolidQuad],
+    /// Background treatment params for this pane's cells.
+    pub(super) treatment: grid::BackgroundTreatmentParams,
+}
+
 pub(super) fn theme_clear_color(theme: &Theme) -> wgpu::Color {
     let (r, g, b) = theme.clear;
     wgpu::Color {
@@ -1459,6 +1492,145 @@ impl GpuState {
         treatment: grid::BackgroundTreatmentParams,
     ) {
         self.update_from_snapshot_with_overlays(snapshot, cursor_style, &[], focus_dim, treatment);
+    }
+
+    /// Rebuild the vertex buffers from **several panes** drawn into one window,
+    /// each at its own pixel origin, plus the themed divider quads between them
+    /// (design doc §3.2). This is the multi-pane analogue of
+    /// [`Self::update_from_snapshot_with_overlays`]; the single-pane path never
+    /// calls it, so the byte-identical fast path is untouched.
+    ///
+    /// Buffer layout matches the single path so `draw_scene` is unchanged: all
+    /// panes' background quads accumulate first (`[0..background_vertex_count]`),
+    /// then all panes' coverage glyphs (`..cell_vertex_count`), then the
+    /// dividers + per-pane overlays + the focused pane's cursor
+    /// (`..vertex_count`). Color glyphs accumulate into the dedicated buffer.
+    ///
+    /// Glyph caching is done in two passes: every pane's glyphs are ensured in
+    /// the atlas *before* any pane's vertices are built, so a later pane growing
+    /// the atlas can never invalidate an earlier pane's UVs (the single path
+    /// gets this for free with one snapshot; multi-pane must order it
+    /// explicitly).
+    ///
+    /// Scaffold note: `allow(dead_code)` until the Phase 1c-3 App render
+    /// dispatch calls it; the single-pane path keeps using
+    /// `update_from_snapshot*`.
+    #[allow(dead_code)]
+    pub(super) fn update_from_panes(&mut self, panes: &[PaneRender], dividers: &[SolidQuad]) {
+        // Pass A: ensure all panes' glyphs in both atlases, capturing each
+        // pane's color-glyph runs for the build pass.
+        let mut pane_runs: Vec<Vec<ColorGlyphRun>> = Vec::with_capacity(panes.len());
+        for pane in panes {
+            let runs = self
+                .emoji_rasterizer
+                .build_color_glyph_runs(pane.snapshot, &mut self.color_glyph_atlas);
+            ensure_snapshot_glyphs_excluding_color_runs(
+                &mut self.atlas,
+                &self.fonts,
+                pane.snapshot,
+                &runs,
+            );
+            pane_runs.push(runs);
+        }
+        if self.atlas.take_dirty() {
+            self.refresh_atlas_texture();
+        }
+        if self.color_glyph_atlas.take_dirty() {
+            self.refresh_color_glyph_atlas_texture();
+        }
+
+        // Pass B: build vertices. Backgrounds accumulate into `self.vertices`
+        // directly; glyphs into `glyph_segment`; dividers + overlays + cursor
+        // into `tail`. Color glyphs accumulate straight into their buffer.
+        self.vertices.clear();
+        self.color_glyph_vertices.clear();
+        let mut glyph_segment: Vec<Vertex> = Vec::new();
+        let mut tail: Vec<Vertex> = Vec::new();
+        let mut pane_buf: Vec<Vertex> = Vec::new();
+        for (pane, runs) in panes.iter().zip(pane_runs.iter()) {
+            pane_buf.clear();
+            grid::build_cell_vertices_with_focus_dim_and_origin_into(
+                &mut pane_buf,
+                pane.snapshot,
+                &self.atlas,
+                runs,
+                pane.focus_dim,
+                pane.origin,
+                pane.treatment,
+                self.cell_bg_opacity,
+            );
+            let bg = background_vertex_count(pane.snapshot).min(pane_buf.len() as u32) as usize;
+            self.vertices.extend_from_slice(&pane_buf[..bg]);
+            glyph_segment.extend_from_slice(&pane_buf[bg..]);
+
+            grid::build_color_glyph_vertices_with_origin_into(
+                &mut self.color_glyph_vertices,
+                pane.snapshot,
+                &self.color_glyph_atlas,
+                runs,
+                pane.origin,
+            );
+
+            tail.reserve(pane.overlays.len() * grid::VERTS_PER_QUAD);
+            for &overlay in pane.overlays {
+                grid::push_solid_quad(&mut tail, overlay);
+            }
+            if pane.focused {
+                grid::append_cursor_vertices_with_origin(
+                    &mut tail,
+                    pane.snapshot,
+                    &self.atlas,
+                    pane.cursor_style,
+                    pane.origin,
+                    CursorRenderParams::default(),
+                );
+            }
+        }
+
+        // Assemble the single buffer in draw order: bg | glyph | dividers+tail.
+        self.background_vertex_count = self.vertices.len() as u32;
+        self.vertices.extend_from_slice(&glyph_segment);
+        self.cell_vertex_count = self.vertices.len() as u32;
+        // Dividers are themed solid quads in the pane gaps; they live in the
+        // overlay segment (after glyphs) and never overlap glyph ink.
+        self.vertices
+            .reserve(dividers.len() * grid::VERTS_PER_QUAD + tail.len());
+        for &divider in dividers {
+            grid::push_solid_quad(&mut self.vertices, divider);
+        }
+        self.vertices.extend_from_slice(&tail);
+        self.vertex_count = self.vertices.len() as u32;
+        self.background_vertex_count = self.background_vertex_count.min(self.vertex_count);
+        self.color_glyph_vertex_count = self.color_glyph_vertices.len() as u32;
+
+        // Upload the cell/overlay buffer.
+        let needed = vertex_bytes_len(&self.vertices);
+        let capacity = grow_vertex_buffer_capacity(self.vertex_buf_capacity_bytes, needed);
+        if capacity != self.vertex_buf_capacity_bytes {
+            self.vertex_buf = create_vertex_buffer(&self.device, capacity);
+            self.vertex_buf_capacity_bytes = capacity;
+        }
+        if self.vertex_count > 0 {
+            self.queue
+                .write_buffer(&self.vertex_buf, 0, bytemuck::cast_slice(&self.vertices));
+        }
+
+        // Upload the color-glyph buffer (mirrors `rebuild_color_glyph_segment`).
+        let cg_needed = std::mem::size_of_val(self.color_glyph_vertices.as_slice()) as u64;
+        if cg_needed > self.color_glyph_vertex_buf_capacity_bytes {
+            self.color_glyph_vertex_buf_capacity_bytes = cg_needed.next_power_of_two();
+            self.color_glyph_vertex_buf = create_color_glyph_vertex_buffer(
+                &self.device,
+                self.color_glyph_vertex_buf_capacity_bytes,
+            );
+        }
+        if !self.color_glyph_vertices.is_empty() {
+            self.queue.write_buffer(
+                &self.color_glyph_vertex_buf,
+                0,
+                bytemuck::cast_slice(&self.color_glyph_vertices),
+            );
+        }
     }
 
     pub(super) fn cached_image_ids(&self) -> BTreeSet<StoredImageId> {

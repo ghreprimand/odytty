@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- update_from_panes GPU integration (Phase 1c-2)
+
+Added the multi-pane GPU render seam (design doc §3.2): `GpuState::update_from_panes(&[PaneRender], &[SolidQuad])`
+plus the `PaneRender` struct. This is the multi-pane analogue of
+`update_from_snapshot_with_overlays`; the single-pane path never calls it, so
+the byte-identical fast path is untouched.
+
+- `PaneRender` carries one pane's snapshot, its physical-pixel `origin` (pane
+  top-left with that pane's own `scroll_frac_offset` folded into y), `focused`
+  flag, cursor style, `focus_dim`, origin-shifted overlays, and background
+  treatment. The renderer is already origin-parameterized (Research-confirmed),
+  so this needs zero `src/grid.rs` changes.
+- `update_from_panes` keeps the existing buffer layout so `draw_scene` is
+  unchanged: all panes' background quads accumulate first
+  (`[0..background_vertex_count]`), then all panes' coverage glyphs
+  (`..cell_vertex_count`), then dividers + per-pane overlays + the focused
+  pane's cursor (`..vertex_count`); color glyphs accumulate into the dedicated
+  buffer. Dividers are themed solid quads drawn in the (glyph-free) pane gaps.
+- Glyph caching runs in two passes — ensure every pane's glyphs in both atlases
+  *before* building any pane's vertices — so a later pane growing the atlas can
+  never invalidate an earlier pane's UVs (the single path gets this free with
+  one snapshot; multi-pane must order it explicitly). Only the focused pane
+  draws a live cursor this packet (unfocused hollow/dim is a later §3.3 refinement).
+- Scaffold parity with `layout.rs` / the `TabSet` pane-ops: `#[allow(dead_code)]`
+  until the Phase 1c-3 App render dispatch constructs `PaneRender`s and calls
+  this. A true GPU-level test needs a full `GpuState` (surface-bound), so it is
+  exercised once dispatch lands; the §8 geometry contract it consumes is covered
+  headlessly now.
+- §8 pixel-smoke (`layout.rs::pixel_smoke_divider_fills_gap_with_no_overlap`):
+  asserts the exact divider/multi-grid invariants the GPU relies on — crisp 1px
+  divider, `first.right == divider near edge`, `divider far edge == second near
+  edge`, `first + divider + second == parent` with no gap/overlap, on both axes
+  and nested, with integer-pixel divider boundaries.
+
+Verified: `cargo test --lib` 0 failed (new pixel-smoke green); `cargo fmt
+--check` clean; `cargo clippy --lib -- -D warnings` clean. Next sub-commit
+(1c-3): App multi-pane render dispatch (audit #2/#3/#10/#11) + per-leaf resize +
+divider drag + redraw suppression (#4) + pointer hit-test (#6).
+
+---
+
 ## 2026-06-21 -- Pane ops on TabSet (Phase 1c-1, geometry-free)
 
 Added the geometry-free half of splits/panes: the pane-management operations on
