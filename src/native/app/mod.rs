@@ -599,12 +599,16 @@ impl App {
                 self.reflow_active_panes_and_redraw();
             }
             BindableAction::ZoomPane => {
-                // Zoom / toggle-fullscreen-pane (tmux `Ctrl-b z`) is a dedicated
-                // follow-up sub-packet (K2-zoom): it needs per-tab zoom state and
-                // a render branch that draws only the focused pane full-bleed
-                // while preserving the layout tree. No-op until that lands; the
-                // binding + config name + docs slot already exist so wiring it is
-                // additive. Documented as a v1 limitation.
+                // Zoom / toggle-fullscreen-pane (tmux `Ctrl-b z`). Flips the
+                // active tab's zoom flag (a no-op on a single-pane tab) without
+                // mutating the layout tree, then reflows: the focused pane sizes
+                // to the full content rect on zoom and back to its split sub-rect
+                // on un-zoom, and the render path draws only that pane full-bleed
+                // with no dividers (see `rebuild_multipane`).
+                let toggled = self.sessions.toggle_active_zoom();
+                if toggled {
+                    self.reflow_active_panes_and_redraw();
+                }
             }
             // The prefix engine only returns pane actions; other variants never
             // reach here.

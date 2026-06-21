@@ -778,6 +778,14 @@ impl App {
         self.sessions.active_id().0 as usize
     }
 
+    /// Test seam (§7 K2-zoom): whether the active tab is rendering one pane
+    /// full-bleed (zoom mode), so a chord-driven toggle can be asserted through
+    /// the production `handle_key_event` path.
+    #[cfg(test)]
+    pub(in crate::native) fn active_is_zoomed_for_test(&self) -> bool {
+        self.sessions.active_is_zoomed()
+    }
+
     /// Test seam (§7 K2): seed the active tab into a two-pane split headlessly
     /// (the production split spawns a PTY, which needs an event-loop proxy the
     /// test App lacks). Splits the focused leaf along `columns ? Columns : Rows`

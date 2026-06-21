@@ -737,6 +737,51 @@ fn prefix_equalize_keeps_the_split_intact() {
 }
 
 #[test]
+fn prefix_zoom_toggles_full_bleed_pane() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal, writer, pty, _)) = recorded_session(NativeOptions::default().initial_grid)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+    assert!(!app.active_is_zoomed_for_test());
+    // Ctrl-b z zooms the focused pane full-bleed; the layout tree is preserved
+    // (still two panes), only the render/resize collapses to the focused one.
+    app.drive_char_with_mods_for_test('b', true, false);
+    app.drive_char_with_mods_for_test('z', false, false);
+    assert!(app.active_is_zoomed_for_test(), "Ctrl-b z zoomed the pane");
+    assert_eq!(
+        app.active_pane_count_for_test(),
+        2,
+        "zoom preserves the layout tree"
+    );
+    // Ctrl-b z again un-zooms.
+    app.drive_char_with_mods_for_test('b', true, false);
+    app.drive_char_with_mods_for_test('z', false, false);
+    assert!(!app.active_is_zoomed_for_test(), "Ctrl-b z un-zoomed");
+}
+
+#[test]
+fn prefix_zoom_is_a_noop_on_a_single_pane() {
+    let Some((mut app, _bytes)) = single_session_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    assert_eq!(app.active_pane_count_for_test(), 1);
+    // Ctrl-b z on a lone pane is a no-op: zoom is meaningless, the single-pane
+    // render path is untouched.
+    app.drive_char_with_mods_for_test('b', true, false);
+    app.drive_char_with_mods_for_test('z', false, false);
+    assert!(!app.active_is_zoomed_for_test());
+    assert_eq!(app.active_pane_count_for_test(), 1);
+}
+
+#[test]
 fn prefix_is_disabled_when_set_off() {
     let options = NativeOptions::default();
     let dims = options.initial_grid;

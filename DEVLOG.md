@@ -7,6 +7,48 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- pane zoom / toggle-fullscreen (Phase 1, §7 K2-zoom)
+
+Made `Ctrl-b z` real: the focused pane can now fill the whole content area while
+the split layout underneath is preserved, and un-zoom restores the exact prior
+geometry. This was the last unfilled tmux default in the prefix table.
+
+- Per-tab state: `Tab` gains a `zoomed: bool` flag plus
+  `Tab::is_effectively_zoomed()` (zoom is only meaningful on a multi-pane tab
+  with a present focused leaf — a single-pane tab can never be zoomed, so the
+  byte-identical fast path is guarded twice).
+- `TabSet::toggle_active_zoom()` flips the flag (a no-op returning `false` on a
+  single-pane tab so the caller skips the reflow) **without mutating the layout
+  tree**; `active_is_zoomed()` drives the render-path divider suppression and the
+  redraw decision.
+- Render branch: `active_pane_rects` collapses to a single `(focused, content)`
+  entry while zoomed, so `rebuild_multipane` draws only the focused pane
+  full-bleed; divider quads are suppressed in the same path. The layout tree is
+  untouched, so un-zoom re-derives the original rects exactly.
+- Resize: `resize_all_panes` sizes a zoomed tab's focused pane to the whole
+  content rect while keeping background panes at their split sub-rects, so
+  un-zoom is instantly correct without a second reflow (window resize while
+  zoomed stays correct too). `is_visible_pane` and the divider hit-test both
+  honour zoom (only the focused pane is visible; no dividers are grabbable).
+- Structural changes clear zoom: split, close, and equalize all reset the flag
+  (tmux semantics) — closing the zoomed pane un-zooms the survivor.
+- Dispatch: `BindableAction::ZoomPane` flips the stub to a real toggle +
+  conditional reflow in `apply_pane_action`.
+- Tests: 7 `TabSet` units (toggle/no-op-on-single, renders-only-focused-leaf,
+  un-zoom-restores-rects, close-unzooms, split-unzooms, resize-sizes-zoomed,
+  visibility) + 2 App-level integration tests driving the real `Ctrl-b z` chord
+  (toggle on a split; no-op on a lone pane). Docs: `docs/runtime-knobs.md` drops
+  the `zoom-pane`-is-reserved caveat and documents the live behaviour.
+
+Verified: `cargo test --lib` 2009 passed / 0 failed; `license_headers` (SPDX),
+`cli`, `gpu_composite_smoke` integration binaries green; `cargo clippy --lib
+--tests -- -D warnings` clean; `cargo fmt --check` clean. Single-pane and
+non-zoomed multi-pane render/resize paths are unchanged.
+
+§7 K1+K2+K3 + K2-zoom complete: all tmux default pane actions are live. Remaining
+Phase-1 pane items: the optional inactive-pane focus dim and the Docs+TODO
+Stage 8 lockstep (README/SPEC panes feature list).
+
 ## 2026-06-21 -- doubled-prefix passthrough + docs (Phase 1, §7 K3)
 
 Completed the nested-multiplexer story and the config/docs lockstep for the

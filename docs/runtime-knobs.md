@@ -199,7 +199,7 @@ disable the feature entirely and free `Ctrl+b`.
 | `←` / `→` / `↑` / `↓` | Move focus to the neighbor pane | `focus-pane-left` / `-right` / `-up` / `-down` |
 | `o` | Cycle focus to the next pane | `focus-pane-next` |
 | `x` | Close the focused pane | `close-pane` |
-| `z` | Zoom / toggle-fullscreen the pane | `zoom-pane` |
+| `z` | Zoom / toggle-fullscreen the focused pane | `zoom-pane` |
 | `Space` / `=` | Equalize split sizes | `equalize-panes` |
 
 The prefix itself is reconfigurable:
@@ -217,8 +217,10 @@ differ. Individual pane actions are rebindable via `keybinds` (the chord is the
 *second* key, after the prefix), e.g. `ODYTTY_KEYBINDS="ctrl+f=zoom-pane"`
 rebinds zoom to `<prefix> Ctrl+f`.
 
-> Note: `zoom-pane` is reserved — the binding and config name exist, but the
-> zoom render path is a planned follow-up; the key is currently a no-op.
+> Zoom (`<prefix> z`) makes the focused pane fill the whole content area while
+> the split layout underneath is preserved; press it again to restore the exact
+> prior geometry. Splitting, closing a pane, or equalizing also clears zoom.
+> Zoom is a no-op in a single-pane tab.
 
 ## Native UI
 

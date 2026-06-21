@@ -178,23 +178,28 @@ impl App {
             None
         };
 
-        // Themed 1px dividers in the gaps between panes.
-        let divider_quads = self
-            .sessions
-            .active_layout()
-            .map(|layout| {
-                let (r, g, b) = self.effective_theme.border;
-                let mut color = text::foreground_linear(Color::Rgb(r, g, b));
-                color[3] = 1.0;
-                divider_rects(layout, content, PANE_DIVIDER_PX)
-                    .into_iter()
-                    .map(|d| SolidQuad {
-                        rect: [d.x, d.y, d.x + d.w, d.y + d.h],
-                        color,
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        // Themed 1px dividers in the gaps between panes. None while zoomed: the
+        // focused pane is full-bleed and the layout tree underneath is hidden,
+        // so no divider should overdraw it.
+        let divider_quads = if self.sessions.active_is_zoomed() {
+            Vec::new()
+        } else {
+            self.sessions
+                .active_layout()
+                .map(|layout| {
+                    let (r, g, b) = self.effective_theme.border;
+                    let mut color = text::foreground_linear(Color::Rgb(r, g, b));
+                    color[3] = 1.0;
+                    divider_rects(layout, content, PANE_DIVIDER_PX)
+                        .into_iter()
+                        .map(|d| SolidQuad {
+                            rect: [d.x, d.y, d.x + d.w, d.y + d.h],
+                            color,
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        };
 
         // Assemble the borrow-bound `PaneRender` list.
         let pad = padding.as_f32();

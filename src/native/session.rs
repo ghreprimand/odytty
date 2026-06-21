@@ -192,6 +192,14 @@ pub(super) struct Tab {
     /// tab can hold several panes the name is no longer 1:1 with a session, so
     /// the override lives on the tab, not the session (design doc §2.4/§9.5).
     pub(super) title_override: Option<String>,
+    /// Zoom / toggle-fullscreen-pane state (tmux `Ctrl-b z`, §7 K2-zoom). When
+    /// `true` the focused pane is rendered full-bleed across the whole content
+    /// rect while the **layout tree underneath is preserved**, so un-zoom
+    /// restores the exact prior geometry. A structural change (split, close,
+    /// equalize) clears it. Zoom on a single-pane tab is meaningless and never
+    /// set (the toggle is a no-op there), but every zoom-aware path also guards
+    /// on pane count so a stray flag can never perturb the single-pane render.
+    pub(super) zoomed: bool,
 }
 
 impl Tab {
@@ -201,7 +209,17 @@ impl Tab {
             layout: PaneNode::leaf(token),
             focused: token,
             title_override: None,
+            zoomed: false,
         }
+    }
+
+    /// True when this tab should render/resize as a single full-bleed pane: it
+    /// is in zoom mode AND zoom is meaningful (multi-pane, focused leaf present).
+    /// A zoomed single-pane tab is impossible (the toggle is a no-op there), but
+    /// the pane-count guard keeps the single-pane fast path byte-identical even
+    /// if the flag were ever set spuriously.
+    fn is_effectively_zoomed(&self) -> bool {
+        self.zoomed && !self.layout.is_single_pane() && self.layout.contains(self.focused)
     }
 }
 
@@ -294,10 +312,13 @@ impl TabSet {
     /// single-pane tab this is exactly `active_id() == token`, so the
     /// single-pane redraw decision is unchanged.
     pub(super) fn is_visible_pane(&self, token: SessionToken) -> bool {
-        self.tabs
-            .get(self.active_tab)
-            .map(|tab| tab.layout.contains(token))
-            .unwrap_or(false)
+        match self.tabs.get(self.active_tab) {
+            // While zoomed only the focused pane is on screen, so background
+            // panes' output must not drive a redraw (it would not be visible).
+            Some(tab) if tab.is_effectively_zoomed() => tab.focused == token,
+            Some(tab) => tab.layout.contains(token),
+            None => false,
+        }
     }
 
     /// The (token, pixel-rect) layout of the **active** tab's panes within
@@ -310,6 +331,10 @@ impl TabSet {
         divider_px: f32,
     ) -> Vec<(SessionToken, PaneRect)> {
         match self.tabs.get(self.active_tab) {
+            // Zoomed tab: only the focused pane is rendered, spanning the whole
+            // content rect (the layout tree underneath is untouched, so un-zoom
+            // restores the prior geometry exactly).
+            Some(tab) if tab.is_effectively_zoomed() => vec![(tab.focused, content)],
             Some(tab) => layout_rects(&tab.layout, content, divider_px),
             None => Vec::new(),
         }
@@ -360,6 +385,8 @@ impl TabSet {
     ) -> Option<usize> {
         self.tabs
             .get(self.active_tab)
+            // No dividers are drawn while zoomed, so none can be grabbed.
+            .filter(|tab| !tab.is_effectively_zoomed())
             .and_then(|tab| divider_at_point(&tab.layout, content, divider_px, x, y, grab_px))
     }
 
@@ -393,7 +420,16 @@ impl TabSet {
         divider_px: f32,
     ) {
         for tab in &self.tabs {
+            // A zoomed tab sizes its focused pane to the whole content rect
+            // (it is rendered full-bleed); background panes keep their layout
+            // sub-rect so un-zoom is instantly correct without a second reflow.
+            let zoomed = tab.is_effectively_zoomed();
             for (token, rect) in layout_rects(&tab.layout, content, divider_px) {
+                let rect = if zoomed && token == tab.focused {
+                    content
+                } else {
+                    rect
+                };
                 let (cols, rows) = grid_dims_for_rect(rect, cell_w, cell_h);
                 let Some(session) = self.sessions.get(&token) else {
                     continue;
@@ -592,6 +628,11 @@ impl TabSet {
                     self.tabs[tab_idx].focused = first;
                 }
                 self.tabs[tab_idx].layout = layout;
+                // Closing a pane changes the tree; un-zoom so the survivor(s)
+                // render at their layout geometry. Closing the zoomed pane must
+                // un-zoom (Director's explicit case), and closing a background
+                // pane while zoomed also re-tiles, so clear unconditionally.
+                self.tabs[tab_idx].zoomed = false;
                 false
             }
         }
@@ -675,6 +716,9 @@ impl TabSet {
         let layout = std::mem::replace(&mut tab.layout, PaneNode::leaf(new_token));
         tab.layout = layout.split_leaf(focused, axis, EVEN_RATIO, new_token);
         tab.focused = new_token;
+        // Splitting changes the tree, so any prior zoom no longer applies
+        // (tmux un-zooms on split).
+        tab.zoomed = false;
     }
 
     /// Reset every split ratio in the active tab to even (tmux `Ctrl-b =`).
@@ -682,7 +726,35 @@ impl TabSet {
         if let Some(tab) = self.tabs.get_mut(self.active_tab) {
             let layout = std::mem::replace(&mut tab.layout, PaneNode::leaf(tab.focused));
             tab.layout = layout.equalized();
+            // Equalize re-tiles every pane, so a zoom (which hides all but one)
+            // is cleared — the user asked to see the balanced layout.
+            tab.zoomed = false;
         }
+    }
+
+    /// Toggle zoom (tmux `Ctrl-b z`) on the active tab. A no-op on a single-pane
+    /// tab (zoom is meaningless), where it returns `false` so the caller skips
+    /// the reflow/redraw. Returns `true` when the zoom state flipped. The layout
+    /// tree is never mutated — only the `zoomed` flag — so un-zoom restores the
+    /// prior geometry exactly.
+    pub(super) fn toggle_active_zoom(&mut self) -> bool {
+        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+            return false;
+        };
+        if tab.layout.is_single_pane() {
+            return false;
+        }
+        tab.zoomed = !tab.zoomed;
+        true
+    }
+
+    /// True when the active tab is rendering one pane full-bleed (zoom mode).
+    /// Drives the render path's divider suppression and the redraw decision.
+    pub(super) fn active_is_zoomed(&self) -> bool {
+        self.tabs
+            .get(self.active_tab)
+            .map(Tab::is_effectively_zoomed)
+            .unwrap_or(false)
     }
 
     /// Cycle focus to the next pane of the active tab in tree order (tmux
@@ -902,6 +974,117 @@ mod tests {
         set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         set.equalize_active();
         assert_eq!(set.active_pane_count(), 2);
+    }
+
+    #[test]
+    fn toggle_zoom_flips_and_is_a_noop_on_single_pane() {
+        let mut set = TabSet::new(build_session(), None);
+        // Single pane: zoom is meaningless, toggle is a no-op.
+        assert!(!set.toggle_active_zoom());
+        assert!(!set.active_is_zoomed());
+
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        // Multi-pane: toggle on, then off.
+        assert!(set.toggle_active_zoom());
+        assert!(set.active_is_zoomed());
+        assert!(set.toggle_active_zoom());
+        assert!(!set.active_is_zoomed());
+    }
+
+    #[test]
+    fn zoomed_tab_renders_only_the_focused_leaf_full_content() {
+        let mut set = TabSet::new(build_session(), None);
+        let right =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        let content = PaneRect::new(5.0, 7.0, 401.0, 200.0);
+        // Un-zoomed: two tiled rects.
+        assert_eq!(set.active_pane_rects(content, 1.0).len(), 2);
+
+        assert!(set.toggle_active_zoom());
+        let rects = set.active_pane_rects(content, 1.0);
+        assert_eq!(rects.len(), 1, "only the focused pane renders while zoomed");
+        let (token, rect) = rects[0];
+        assert_eq!(token, right, "the focused pane is the one shown");
+        // It spans the whole content rect.
+        assert!((rect.x - content.x).abs() < f32::EPSILON);
+        assert!((rect.y - content.y).abs() < f32::EPSILON);
+        assert!((rect.w - content.w).abs() < f32::EPSILON);
+        assert!((rect.h - content.h).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn unzoom_restores_the_prior_pane_rects_exactly() {
+        let mut set = TabSet::new(build_session(), None);
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        let content = PaneRect::new(5.0, 7.0, 401.0, 200.0);
+        let before = set.active_pane_rects(content, 1.0);
+
+        assert!(set.toggle_active_zoom());
+        assert!(set.toggle_active_zoom());
+        let after = set.active_pane_rects(content, 1.0);
+
+        assert_eq!(before.len(), after.len());
+        for ((tb, rb), (ta, ra)) in before.iter().zip(after.iter()) {
+            assert_eq!(tb, ta);
+            assert!((rb.x - ra.x).abs() < f32::EPSILON);
+            assert!((rb.y - ra.y).abs() < f32::EPSILON);
+            assert!((rb.w - ra.w).abs() < f32::EPSILON);
+            assert!((rb.h - ra.h).abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn closing_a_pane_unzooms_the_tab() {
+        let mut set = TabSet::new(build_session(), None);
+        let right =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        assert!(set.toggle_active_zoom());
+        assert!(set.active_is_zoomed());
+        // Close the zoomed (focused) pane: the tab survives and is no longer
+        // zoomed.
+        assert!(!set.close(right));
+        assert!(!set.active_is_zoomed());
+        assert!(set.active_is_single_pane());
+    }
+
+    #[test]
+    fn splitting_a_zoomed_tab_unzooms_it() {
+        let mut set = TabSet::new(build_session(), None);
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        assert!(set.toggle_active_zoom());
+        assert!(set.active_is_zoomed());
+        set.split_active_for_test(SplitAxis::Rows, build_session_with_id(SessionToken(2)));
+        assert!(!set.active_is_zoomed(), "split clears zoom");
+    }
+
+    #[test]
+    fn resize_sizes_the_zoomed_focused_pane_to_full_content() {
+        let mut set = TabSet::new(build_session(), None);
+        let right =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        let content = PaneRect::new(0.0, 0.0, 801.0, 400.0);
+        assert!(set.toggle_active_zoom());
+        set.resize_all_panes(content, 10, 20, 1.0);
+        // The focused (zoomed) pane fills the whole content → 80 cols, 20 rows.
+        assert_eq!(pane_dims(&set, right), (80, 20));
+        // The background pane keeps its split sub-rect (40 cols) so un-zoom is
+        // instantly correct.
+        assert_eq!(pane_dims(&set, SessionToken(0)), (40, 20));
+    }
+
+    #[test]
+    fn zoom_hides_background_panes_from_visibility() {
+        let mut set = TabSet::new(build_session(), None);
+        let right =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        assert!(set.toggle_active_zoom());
+        // While zoomed only the focused pane is visible (drives redraw).
+        assert!(set.is_visible_pane(right));
+        assert!(!set.is_visible_pane(SessionToken(0)));
+        // Un-zoom restores both as visible.
+        assert!(set.toggle_active_zoom());
+        assert!(set.is_visible_pane(right));
+        assert!(set.is_visible_pane(SessionToken(0)));
     }
 
     #[test]
