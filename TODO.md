@@ -893,7 +893,7 @@ feature validates against.
       hover styling, click-to-switch, close affordance, new-tab affordance, and
       context-menu entries.
 - [x] Offset in-band image placements correctly while the tab bar is visible.
-- [ ] Custom tab renaming if shell titles prove insufficient.
+- [x] Custom tab renaming if shell titles prove insufficient.
 - [ ] Panes/splits, profiles, detachable sessions, and session persistence
       remain future work.
 

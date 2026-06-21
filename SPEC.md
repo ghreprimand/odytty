@@ -569,6 +569,9 @@ its first stable layer.
   single-session view stays visually identical to the original full-grid view.
   Inline graphics use the same reserved top-row offset as cell geometry, so
   Kitty/Sixel placements remain aligned with text while the tab bar is visible.
+  The tab context menu can assign a session-lifetime custom tab name; while set,
+  shell title updates refresh the underlying title but do not replace the
+  displayed custom label. Submitting an empty rename clears the override.
 - Readability pipeline: visual enhancements are explicit settings with
   individual opt-outs, and `render_quality=plain` preserves the pixel-identical
   plain/fast path that bypasses extras. Three delivered knobs:

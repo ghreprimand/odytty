@@ -293,7 +293,8 @@ The native app runs multiple sessions. `Ctrl+Shift+T` opens a new tab,
 `Ctrl+PageUp` switch tabs. The tab bar appears when two or more sessions exist;
 a single shell keeps the original full-grid view. Inline graphics are offset by
 the same reserved tab-bar row as text, so Kitty/Sixel placements stay aligned
-with the visible grid while the bar is shown.
+with the visible grid while the bar is shown. Right-click a tab to rename it for
+the session; the custom name overrides shell title updates until cleared.
 
 Core local shortcuts:
 
@@ -398,7 +399,7 @@ in CI. Windows is not yet supported.
 
 **Known gaps:** Windows support, panes, profiles, session persistence, Kitty
 animation, Kitty Unicode placeholders, iTerm2 graphics, COLR/CPAL color fonts,
-broader ligature/stylistic-set shaping, and custom tab-bar polish.
+and broader ligature/stylistic-set shaping.
 
 The running history lives in [`DEVLOG.md`](DEVLOG.md). The current public
 roadmap lives in [`TODO.md`](TODO.md) and

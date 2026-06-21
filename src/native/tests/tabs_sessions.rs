@@ -289,10 +289,17 @@ fn title_override_controls_effective_tab_label_and_clear_restores_osc_title() {
     app.set_session_title_override_for_test(0, Some("work"));
     assert_eq!(app.session_tab_title_for_test(0).as_deref(), Some("work"));
 
+    app.set_session_tab_title_for_test(0, "shell-updated");
+    assert_eq!(
+        app.session_tab_title_for_test(0).as_deref(),
+        Some("work"),
+        "shell titles stop overriding a custom tab name"
+    );
+
     app.set_session_title_override_for_test(0, None);
     assert_eq!(
         app.session_tab_title_for_test(0).as_deref(),
-        Some("osc-title")
+        Some("shell-updated")
     );
 }
 

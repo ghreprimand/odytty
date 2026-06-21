@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Custom tab renaming
+
+Closed the Stage 8 custom-tab-name gap. Tabs can be renamed from the tab context
+menu; the rename modal captures input locally, commits a session-lifetime title
+override, and empty commit clears the override back to the latest shell title.
+While an override is set, shell title changes update the stored fallback but no
+longer replace the displayed tab label.
+
+Docs now describe the context-menu rename affordance, and the Stage 8 TODO item
+is checked.
+
+---
+
 ## 2026-06-21 -- Tab-bar image placement alignment
 
 Closed the Stage 8 image-placement gap for tabs. The native GPU image layer now

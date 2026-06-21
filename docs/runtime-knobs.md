@@ -191,7 +191,9 @@ row. It covers the 12 core non-tab actions. Tab actions are configurable through
   back affordances return to Settings when launched from Settings.
 - Numeric rows use discrete steppers and click-to-type entry.
 - Right-click opens the context menu. On OSC 133-aware prompts it can copy, cut,
-  delete, clear input, open settings, and create or close tabs.
+  delete, clear input, open settings, and create, rename, or close tabs. A
+  custom tab name is session-local; it overrides shell title updates until an
+  empty rename clears it.
 - First launch without a config file shows an onboarding card. Set
   `ODYTTY_ONBOARDING=1` to force it.
 
