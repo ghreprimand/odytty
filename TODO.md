@@ -927,6 +927,21 @@ feature validates against.
       `odytty attach <id>` performs a diagnostic attach that validates the id,
       receives/decodes the initial snapshot, prints dimensions, and exits.
       Native window reattach remains a follow-up.
+- [x] Native window-as-client attach core (`src/native/attach.rs`): builds the
+      GUI client against the public session-host wire contract. `AttachClient`
+      does the handshake, decodes the initial `SnapshotEnvelope` v2 under bounded
+      caps, and restores a full mirror `Terminal` (grid + scrollback + modes +
+      cursor). A split-socket pump (`spawn_attach_pump`) applies live
+      `Output`/`Invalidate` frames to the mirror and wakes the UI through an
+      `AttachEventSink`; `SessionExit`/`Error`/EOF signal session end. Input,
+      resize, and a clean `Detach` (host survives) are framed back to the host.
+      Render mirror discards device-query replies (host is authoritative).
+      Additive alternate session source; the local-PTY path stays
+      byte-identical. Headlessly tested via an in-process fake host.
+- [ ] Native window-as-client live wiring: generalize `Session` so a tab can
+      hold an attached source (route resize to either a local PTY or the attach
+      socket) and surface a SessionExit UX, making `odytty attach <id>` open a
+      real rendering window. Builds on the tested attach core above.
 - [x] Native splits / panes: a tab owns a binary pane layout tree (leaf =
       session, node = H/V split + ratio) backing a two-level `TabSet` model;
       single-pane tabs stay byte-identical. Per-pane render dispatch lays out

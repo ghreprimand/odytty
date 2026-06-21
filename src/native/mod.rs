@@ -49,6 +49,7 @@
 //! default backends (Vulkan on Linux), so the GPU path is Wayland-native too.
 
 mod app;
+mod attach;
 mod bindings;
 mod clipboard;
 mod context_menu_ui;

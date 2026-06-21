@@ -30,6 +30,52 @@ overlay and does not touch `src/native/`.
 - Tests use synthetic temp fixtures only. No real shell history, local
   directories, or host data are read, logged, committed, or transmitted.
 
+## 2026-06-21 -- Native window-as-client attach core (Phase 2)
+
+Built the GUI consumer of GPTH's persistent session-host: the contract-facing
+half of "close window, reopen, full scrollback intact." New module
+`src/native/attach.rs` (native domain; `src/core` never imports it), built
+directly against the **public** `session_host::protocol` wire contract + public
+socket helpers -- a separate consumer from GPTH's CLI/diagnostic
+`SessionHostClient`, so file ownership stays clean and the GUI can split
+read/write across threads.
+
+- `AttachClient::connect`: handshake (`ClientHello` -> `HostHello::into_result`),
+  reads exactly one initial `HostFrame::Snapshot`, decodes the `SnapshotEnvelope`
+  v2 under bounded caps, restores a full mirror `Terminal` via
+  `Terminal::from_snapshot_envelope` (grid + bounded scrollback + modes +
+  cursor). Bounded snapshot deadline so a stalled host can't hang startup.
+- Split I/O: the connected `UnixStream` is `try_clone`d -- original is the write
+  side (input/resize/detach), clone is the read side driven by
+  `spawn_attach_pump` on a dedicated thread. One kernel socket preserves frame
+  order; no lock on the keystroke path (mirrors the local-PTY pump).
+- `run_attach_pump`: `Output` advances the mirror + redraw; `Invalidate` ->
+  redraw; mid-stream `Snapshot` -> restore; `SessionExit`/`Error`/EOF/disconnect
+  -> exited. The mirror's `take_host_output` is **discarded** -- the host owns
+  the authoritative model and already answered device queries, so replaying
+  replies would double-respond.
+- Wake seam: `AttachEventSink` trait (`redraw`/`exited` by `SessionToken`),
+  implemented for winit's `EventLoopProxy<UserEvent>` in production and an `mpsc`
+  sender in tests, so the whole pump is headlessly testable.
+- Input/resize/detach framed as `ClientFrame::Input`/`Resize`/`Detach`; window
+  close sends a clean `Detach` (host keeps the session) and `Drop` is a
+  best-effort idempotent detach.
+- Byte-identity: attach is an additive alternate session **source**; the normal
+  locally-spawned single-session/single-pane path is untouched.
+- Dead-code-until-wired: a dedicated module-level `#![allow(dead_code)]` with a
+  note; lifts when the live App wiring lands. That follow-up generalizes
+  `Session` so a tab can hold an attached source (route resize to a local PTY or
+  the attach socket) -- the one structural change left to make `odytty attach
+  <id>` open a real rendering window. Recorded as design doc 6.2 + a TODO item.
+- Tests (9 new, hermetic via an in-process fake host on a synthetic `0700`
+  runtime dir; no real host data): snapshot-decode-repaints-full-state (full
+  mirror cell equality), live-output-incremental-repaint, session-exit-handled,
+  window-close-detaches-host-survives, resize-forwarded, input-forwarded,
+  empty-input-no-frame, rejected-attach-errors, resize-zero-rejected.
+- Verified: `cargo test --lib` 2049 passed / 0 failed (+15 this packet);
+  `cargo fmt --check` clean; `cargo clippy --lib --tests -- -D warnings` clean;
+  `gpu_composite_smoke` (byte-identity) + `license_headers` green.
+
 ## 2026-06-21 -- Linux symbol-glyph fallback backfill (pre-existing bug fix)
 
 Fixed tofu (missing-glyph boxes) on Linux for standard symbol codepoints the

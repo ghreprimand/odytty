@@ -556,6 +556,55 @@ Session-host foundation status:
 Long form: see `phase2-resumable-sessions-decision.md` in the Archon workflow
 artifacts.
 
+### 6.2 Native window-as-client attach (decision record)
+
+**Decision status: implementer record (2026-06-21).** The GUI consumer of the
+session-host runs in `src/native/attach.rs` (native domain; `src/core` never
+imports it). It is built directly against the **public** `session_host::protocol`
+wire contract and the public socket helpers -- not by extending the GPTH-owned
+`SessionHostClient` (which stays the CLI/diagnostic client). Two separate
+consumers of one stable public protocol keeps file ownership clean and lets the
+GUI split read/write across threads, which the diagnostic client does not need.
+
+Architecture:
+
+- **Connect** (`AttachClient::connect`) performs the documented handshake
+  (`ClientHello` -> `HostHello::into_result`), then reads exactly one initial
+  `HostFrame::Snapshot`, decodes it with `SnapshotEnvelope::decode` under bounded
+  caps, and restores a live `Terminal` via `Terminal::from_snapshot_envelope`.
+  This is the "close window, reopen, full scrollback intact" step.
+- **Split I/O.** The connected `UnixStream` is `try_clone`d: the original handle
+  is the write side (App thread: input/resize/detach), the clone is the read side
+  (a dedicated pump thread). Both share one kernel socket, so frame ordering is
+  preserved and no lock sits on the keystroke path -- mirroring how the local PTY
+  path uses a separate pump thread + shared writer.
+- **Pump** (`spawn_attach_pump`) loops `read_host_frame`: `Output` advances the
+  mirror terminal and signals redraw; `Invalidate` signals redraw; `SessionExit`
+  and `Error` signal exit; EOF / disconnect signal exit. The client terminal is a
+  **render mirror** -- the host owns the authoritative model and already answered
+  device queries against its own terminal, so the mirror's `take_host_output` is
+  intentionally **discarded** (sending it back would double-respond).
+- **Wake seam.** The pump notifies the UI through an `AttachEventSink` trait
+  (`redraw`/`exited` by `SessionToken`), implemented for winit's
+  `EventLoopProxy<UserEvent>` in production and for an `mpsc` channel in tests, so
+  the whole pump is headlessly testable without an event loop.
+- **Input/resize/detach** are framed as `ClientFrame::Input` / `Resize` /
+  `Detach`. Window close sends a clean `Detach`; `Drop` is a best-effort detach.
+  The host keeps the PTY + terminal model alive for later attach by id (host-side
+  guarantee, already shipped).
+
+Byte-identity: a normal locally-spawned session is untouched -- attach is an
+alternate session **source**, additive to the local-PTY path; single-session /
+single-pane rendering is unchanged.
+
+Remaining for full live-window wiring (follow-up packet): generalizing `Session`
+so a tab can hold an *attached* source as cleanly as a local PTY. Today `Session`
+hardcodes a concrete local `PtySession` for the resize path
+(`pty.lock().resize(...)`); routing resize to either a local PTY or an attach
+socket is the one structural change needed to make an attached session a live tab
+without disturbing the default path. The attach module lands first so that
+refactor builds on a tested client.
+
 ---
 
 ## 7. Phase 0 decision record — tmux-compatibility keybinding stance
