@@ -71,7 +71,7 @@ pub(super) use super::resize::{
     scale_factor_changed,
 };
 use super::search_ui::{SearchStyle, apply_search_ui};
-use super::session::{Session, SessionSet, SessionToken};
+use super::session::{Session, SessionToken, TabSet};
 use super::viewport::{
     SELECTION_AUTOSCROLL_INTERVAL, WheelAccumulator, WindowPadding,
     grid_dimensions_for_with_padding, scroll_indicator_hit_with_padding,
@@ -196,7 +196,7 @@ pub(super) struct App {
     /// change (winit issues a platform request each call). Starts at the winit
     /// default (`Default` arrow) which matches a freshly created window.
     cursor_icon: CursorIcon,
-    sessions: SessionSet,
+    sessions: TabSet,
     /// Native presentation epoch for pixel-affecting state outside the terminal
     /// core revision: theme/default-color changes, atlas/font changes, and
     /// other settings that make identical snapshots build different vertices.
@@ -273,7 +273,7 @@ pub(super) struct App {
     /// `LineDelta(_, ±1.0)`. Reset on focus loss and overlay open.
     wheel_accum: WheelAccumulator,
     /// Visible multi-session tab strip state. Presentation-only; the session
-    /// model stays in `SessionSet`.
+    /// model stays in `TabSet`.
     tab_bar: TabBar,
     rename_state: Option<RenameState>,
     /// SLIDER-GUARD: whether the left mouse button is currently held while the
@@ -320,7 +320,7 @@ impl App {
         );
         Self::new_with_sessions(
             options,
-            SessionSet::new(session, None),
+            TabSet::new(session, None),
             settings,
             settings_reloader,
         )
@@ -328,7 +328,7 @@ impl App {
 
     pub(super) fn new_with_sessions(
         options: NativeOptions,
-        sessions: SessionSet,
+        sessions: TabSet,
         settings: Settings,
         settings_reloader: SettingsReloader,
     ) -> Self {

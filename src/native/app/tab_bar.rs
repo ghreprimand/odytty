@@ -3,7 +3,7 @@
 //!
 //! Renders a one-row tab strip across the top of the window.  The widget is
 //! purely geometrical: it reads layout from a [`TabBarSource`] trait object
-//! (GPT will implement this on `SessionSet`) and produces solid quads + glyph
+//! (GPT will implement this on `TabSet`) and produces solid quads + glyph
 //! outputs that integration code composites into the frame.  It never touches
 //! terminal state, PTY, or settings.
 //!
@@ -61,7 +61,7 @@ const CLOSE_COLS: usize = 2;
 // ---------------------------------------------------------------------------
 
 /// Read-only interface to the session model.  GPT will `impl TabBarSource for
-/// SessionSet`; unit tests use an inline mock.
+/// TabSet`; unit tests use an inline mock.
 pub(in crate::native) trait TabBarSource {
     /// Number of open tabs (0 means the bar renders empty).
     fn tab_count(&self) -> usize;
@@ -160,7 +160,7 @@ impl TabBar {
 
     /// Render the tab bar for the current frame.
     ///
-    /// - `source` — session model accessor (mock or real `SessionSet`).
+    /// - `source` — session model accessor (mock or real `TabSet`).
     /// - `grid_cols` — number of terminal columns in the window.
     /// - `y_offset_px` — physical-pixel Y of the top of the tab bar row.
     /// - `cell` — cell metrics (width / height in physical pixels).

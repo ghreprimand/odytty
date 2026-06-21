@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Arena/TabSet refactor (Phase 1b-1, behavior-preserving)
+
+Evolved the flat session model into the two-level tab/arena structure the
+splits/panes feature builds on (design doc §2.1/§2.2), as a **behavior-preserving**
+first sub-commit — every tab is still a single pane, so the single-pane path is
+byte-identical and the whole suite stays green.
+
+- Renamed `SessionSet` → `TabSet`. It no longer owns a `Vec<Session>`; it owns a
+  **session arena** (`HashMap<SessionToken, Session>`) plus an ordered
+  `Vec<Tab>`, where each `Tab` holds a `PaneNode` layout tree (from the Phase-1a
+  `layout.rs`) and a `focused` token. A fresh tab is a single `PaneNode::Leaf`.
+- Pump-thread lookup (`get_mut(token)`) is now an O(1) arena hit instead of a
+  linear scan. `Deref`/`DerefMut` still resolve to the focused pane of the active
+  tab — the correct target for every keyboard/cursor/selection site — so the
+  hundreds of `self.sessions.<field>` call sites compile and behave unchanged.
+- Every public method preserves its signature and single-pane semantics:
+  `active`/`active_mut`/`active_id`/`get_mut`/`iter`/`spawn`/`token_at_position`/
+  `position_of_token`/`switch`/`next`/`prev`/`close`/`close_shell_exited`. `iter()`
+  now walks tabs in order emitting each tab's leaves, so it still visits every
+  session and keeps position-indexed callers (resize loop, scrollback cap, test
+  seams) order-stable. `close` removes a pane leaf and collapses its split parent
+  into the sibling; for a single-pane tab that closes the whole tab — the exact
+  analogue of removing a session from the old `Vec`.
+- `TabBarSource` now reports `tab_count = tabs.len()` (tabs, not panes) and the
+  focused pane's title per tab. Pane splitting, multi-pane render, and the
+  remaining §2.5 audit-site rewrites (redraw suppression, per-pane resize/render)
+  land in later packets; nothing multi-pane is wired yet, so this commit changes
+  no behaviour.
+
+Verified: `cargo test --lib` 1937 passed / 0 failed / 7 ignored; `cargo fmt
+--check` clean; `cargo clippy --lib -- -D warnings` clean. Next sub-commit (1b-2):
+move `title_override` from `Session` to `Tab` (§9.5).
+
+---
+
 ## 2026-06-21 -- Palette model/controller foundation
 
 Added `src/palette.rs`, a pure command-palette model that composes the fuzzy

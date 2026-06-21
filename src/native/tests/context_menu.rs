@@ -13,7 +13,7 @@ use super::super::context_menu_ui::{
     ContextMenuRow, ContextMenuUi,
 };
 use super::super::pty::UserEvent;
-use super::super::session::{Session, SessionSet, SessionToken};
+use super::super::session::{Session, SessionToken, TabSet};
 use super::*;
 use winit::event_loop::EventLoop;
 #[cfg(target_os = "linux")]
@@ -52,7 +52,7 @@ fn app_for_test_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
     }
     let event_loop = builder.build().ok()?;
     let proxy = event_loop.create_proxy();
-    let sessions = SessionSet::new(
+    let sessions = TabSet::new(
         Session::new(SessionToken(0), terminal, writer, pty, None),
         Some(proxy),
     );

@@ -95,7 +95,7 @@ pub(crate) use viewport::WindowPadding;
 
 use app::App;
 use pty::{PtyWriter, UserEvent, spawn_pty_pump};
-use session::{Session, SessionSet, SessionToken};
+use session::{Session, SessionToken, TabSet};
 
 pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), NativeError> {
     let event_loop = EventLoop::<UserEvent>::with_user_event()
@@ -192,7 +192,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // Share the session: the App pushes window-size changes to it on resize,
     // and this function reaps the child on the way out.
     let session = Arc::new(Mutex::new(session));
-    let session_set = SessionSet::new(
+    let session_set = TabSet::new(
         Session::new(
             SessionToken(0),
             terminal,

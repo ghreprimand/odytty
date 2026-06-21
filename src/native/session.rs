@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -18,6 +19,7 @@ use super::app::{
     CursorBlinkState, HintsUi, SessionScrollAnimState, SynchronizedOutputHold, TabBarSource,
 };
 use super::copy_mode::CopyModeState;
+use super::layout::PaneNode;
 use super::pty::{PtyWriter, UserEvent, spawn_pty_pump};
 use super::render_helpers::RenderSignature;
 use super::search_ui::SearchUi;
@@ -186,55 +188,114 @@ impl Session {
     }
 }
 
-pub(super) struct SessionSet {
-    sessions: Vec<Session>,
-    active_token: SessionToken,
+/// One tab in the strip. It owns a layout tree of panes (a binary
+/// [`PaneNode`]) and tracks which pane within the tab is focused. A fresh tab
+/// is a single [`PaneNode::Leaf`], which the render/resize paths treat
+/// byte-identically to today's single-session window (design doc §2.3). Pane
+/// splitting is wired in a later Phase-1 packet; for now every tab is a single
+/// leaf, so `tabs.len()` equals the session count and behaviour is unchanged.
+pub(super) struct Tab {
+    pub(super) layout: PaneNode,
+    pub(super) focused: SessionToken,
+}
+
+impl Tab {
+    /// A single-pane tab wrapping one session.
+    fn single(token: SessionToken) -> Self {
+        Self {
+            layout: PaneNode::leaf(token),
+            focused: token,
+        }
+    }
+}
+
+/// The tab strip and the session arena that backs it (design doc §2.1/§2.2).
+///
+/// Sessions live in an arena keyed by [`SessionToken`] so pump-thread lookup by
+/// token stays O(1) and ordering lives entirely in `tabs`. Each tab owns a
+/// [`PaneNode`] layout tree whose leaves reference sessions by token. While
+/// every tab is still a single leaf this is behaviourally identical to the old
+/// `Vec<Session>` model; the two-level structure is what later packets build
+/// pane splitting on. `Deref`/`DerefMut` resolve to the focused pane of the
+/// active tab — the correct target for all keyboard/cursor/selection sites.
+pub(super) struct TabSet {
+    sessions: HashMap<SessionToken, Session>,
+    tabs: Vec<Tab>,
+    active_tab: usize,
     next_token: u64,
     proxy: Option<EventLoopProxy<UserEvent>>,
 }
 
-impl SessionSet {
+impl TabSet {
     pub(super) fn new(initial: Session, proxy: Option<EventLoopProxy<UserEvent>>) -> Self {
-        let active_token = initial.id;
+        let token = initial.id;
+        let next_token = token.0.saturating_add(1);
+        let mut sessions = HashMap::new();
+        sessions.insert(token, initial);
         Self {
-            sessions: vec![initial],
-            active_token,
-            next_token: active_token.0.saturating_add(1),
+            sessions,
+            tabs: vec![Tab::single(token)],
+            active_tab: 0,
+            next_token,
             proxy,
         }
     }
 
+    /// The token of the focused pane of the active tab — the `Deref` target.
+    fn active_focused_token(&self) -> SessionToken {
+        self.tabs
+            .get(self.active_tab)
+            .or_else(|| self.tabs.first())
+            .map(|tab| tab.focused)
+            .unwrap_or(SessionToken(0))
+    }
+
     pub(super) fn active(&self) -> &Session {
-        if let Some(position) = self.position_of_token(self.active_token) {
-            &self.sessions[position]
-        } else {
-            &self.sessions[0]
-        }
+        let token = self.active_focused_token();
+        self.sessions
+            .get(&token)
+            .or_else(|| self.sessions.values().next())
+            .expect("TabSet always holds at least one session while active() is called")
     }
 
     pub(super) fn active_mut(&mut self) -> &mut Session {
-        if let Some(position) = self.position_of_token(self.active_token) {
-            &mut self.sessions[position]
-        } else {
-            &mut self.sessions[0]
+        let token = self.active_focused_token();
+        if self.sessions.contains_key(&token) {
+            return self
+                .sessions
+                .get_mut(&token)
+                .expect("token presence just checked");
         }
+        self.sessions
+            .values_mut()
+            .next()
+            .expect("TabSet always holds at least one session while active_mut() is called")
     }
 
     pub(super) fn active_id(&self) -> SessionToken {
-        self.active_token
+        self.active_focused_token()
     }
 
+    #[cfg(test)]
     pub(super) fn active_position(&self) -> usize {
-        self.position_of_token(self.active_token).unwrap_or(0)
+        self.active_tab
     }
 
     pub(super) fn get_mut(&mut self, token: SessionToken) -> Option<&mut Session> {
-        let position = self.position_of_token(token)?;
-        self.sessions.get_mut(position)
+        self.sessions.get_mut(&token)
     }
 
+    /// Every session, in tab order (and, within a tab, tree order). For
+    /// single-pane tabs this is exactly the old `Vec<Session>` order, so
+    /// position-indexed callers (resize, scrollback cap, test seams) are
+    /// unchanged; it still visits every pane once.
     pub(super) fn iter(&self) -> impl Iterator<Item = &Session> {
-        self.sessions.iter()
+        self.tabs.iter().flat_map(move |tab| {
+            tab.layout
+                .leaves()
+                .into_iter()
+                .filter_map(move |token| self.sessions.get(&token))
+        })
     }
 
     #[cfg(test)]
@@ -266,52 +327,53 @@ impl SessionSet {
         let pump_thread =
             spawn_pty_pump(reader, writer.clone(), terminal.clone(), proxy, session_id);
         let pty = Arc::new(Mutex::new(session));
-        self.sessions.push(Session::new(
+        self.sessions.insert(
             session_id,
-            terminal,
-            writer,
-            pty,
-            Some(pump_thread),
-        ));
+            Session::new(session_id, terminal, writer, pty, Some(pump_thread)),
+        );
+        self.tabs.push(Tab::single(session_id));
         Ok(session_id)
     }
 
+    /// The focused-pane token of the tab at `position` in the strip.
     pub(super) fn token_at_position(&self, position: usize) -> Option<SessionToken> {
-        self.sessions.get(position).map(|session| session.id)
+        self.tabs.get(position).map(|tab| tab.focused)
     }
 
+    /// The strip index of the tab that contains `token` as one of its panes.
     pub(super) fn position_of_token(&self, token: SessionToken) -> Option<usize> {
-        self.sessions.iter().position(|session| session.id == token)
+        self.tabs.iter().position(|tab| tab.layout.contains(token))
     }
 
     pub(super) fn switch(&mut self, token: SessionToken) -> bool {
-        if self.position_of_token(token).is_none() || token == self.active_token {
+        let Some(tab_idx) = self.position_of_token(token) else {
+            return false;
+        };
+        if tab_idx == self.active_tab && self.tabs[tab_idx].focused == token {
             return false;
         }
-        self.active_token = token;
+        self.active_tab = tab_idx;
+        self.tabs[tab_idx].focused = token;
         true
     }
 
     pub(super) fn next(&mut self) -> bool {
-        if self.sessions.len() <= 1 {
+        if self.tabs.len() <= 1 {
             return false;
         }
-        let next_position = (self.active_position() + 1) % self.sessions.len();
-        self.active_token = self.sessions[next_position].id;
+        self.active_tab = (self.active_tab + 1) % self.tabs.len();
         true
     }
 
     pub(super) fn prev(&mut self) -> bool {
-        if self.sessions.len() <= 1 {
+        if self.tabs.len() <= 1 {
             return false;
         }
-        let active = self.active_position();
-        let previous_position = if active == 0 {
-            self.sessions.len() - 1
+        self.active_tab = if self.active_tab == 0 {
+            self.tabs.len() - 1
         } else {
-            active - 1
+            self.active_tab - 1
         };
-        self.active_token = self.sessions[previous_position].id;
         true
     }
 
@@ -328,49 +390,74 @@ impl SessionSet {
         token: SessionToken,
         close_session: impl FnOnce(Session) -> bool,
     ) -> bool {
-        let Some(index) = self.position_of_token(token) else {
+        let Some(tab_idx) = self.position_of_token(token) else {
             return self.sessions.is_empty();
         };
-        let session = self.sessions.remove(index);
-        let _ = close_session(session);
-        if self.sessions.is_empty() {
-            self.active_token = token;
-            return true;
+        // Reap the session itself.
+        if let Some(session) = self.sessions.remove(&token) {
+            let _ = close_session(session);
         }
-        let next_position = index.min(self.sessions.len() - 1);
-        if self.active_token == token || self.position_of_token(self.active_token).is_none() {
-            self.active_token = self.sessions[next_position].id;
+        // Remove the pane leaf, collapsing its split parent into the sibling.
+        // For a single-pane tab this yields `None`, i.e. the tab closes — the
+        // byte-identical analogue of removing a session from the old Vec.
+        match self.tabs[tab_idx].layout.clone().close_leaf(token) {
+            None => {
+                let was_active = self.active_tab == tab_idx;
+                self.tabs.remove(tab_idx);
+                if self.tabs.is_empty() {
+                    self.active_tab = 0;
+                    return true;
+                }
+                if was_active {
+                    self.active_tab = tab_idx.min(self.tabs.len() - 1);
+                } else if self.active_tab > tab_idx {
+                    self.active_tab -= 1;
+                }
+                false
+            }
+            Some(layout) => {
+                // The tab survives (a multi-pane tab lost one pane). Refocus a
+                // surviving leaf if the closed pane held focus.
+                if self.tabs[tab_idx].focused == token
+                    && let Some(first) = layout.leaves().first().copied()
+                {
+                    self.tabs[tab_idx].focused = first;
+                }
+                self.tabs[tab_idx].layout = layout;
+                false
+            }
         }
-        false
     }
 
     #[cfg(test)]
     pub(in crate::native) fn push(&mut self, session: Session) -> SessionToken {
         let id = session.id;
         self.next_token = self.next_token.max(id.0.saturating_add(1));
-        self.sessions.push(session);
+        self.sessions.insert(id, session);
+        self.tabs.push(Tab::single(id));
         id
     }
 }
 
-impl TabBarSource for SessionSet {
+impl TabBarSource for TabSet {
     fn tab_count(&self) -> usize {
-        self.sessions.len()
+        self.tabs.len()
     }
 
     fn tab_title(&self, idx: usize) -> &str {
-        self.sessions
+        self.tabs
             .get(idx)
+            .and_then(|tab| self.sessions.get(&tab.focused))
             .map(Session::effective_tab_title)
             .unwrap_or("odytty")
     }
 
     fn active_tab(&self) -> usize {
-        self.active_position()
+        self.active_tab
     }
 }
 
-impl Deref for SessionSet {
+impl Deref for TabSet {
     type Target = Session;
 
     fn deref(&self) -> &Self::Target {
@@ -378,7 +465,7 @@ impl Deref for SessionSet {
     }
 }
 
-impl DerefMut for SessionSet {
+impl DerefMut for TabSet {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.active_mut()
     }
@@ -410,7 +497,7 @@ mod tests {
 
     #[test]
     fn session_set_switches_wraps_and_closes() {
-        let mut sessions = SessionSet::new(build_session(), None);
+        let mut sessions = TabSet::new(build_session(), None);
         let second = SessionToken(1);
         let third = SessionToken(2);
         sessions.push(build_session_with_id(second));
