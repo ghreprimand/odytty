@@ -7,6 +7,58 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Clippy cleanup: warning-free tree + CI gate
+
+Swept the **87 pre-existing `cargo clippy --all-targets` warnings** (manual-judgment
+lints an earlier `--fix` pass could not auto-apply) to zero, with no runtime
+behavior change — every fix is a pure refactor or a scoped allow-attribute. Then
+added a clippy gate to CI so warnings can't regress.
+
+**Fixed by real refactor (~70 warnings):**
+- `field_reassign_with_default` (12) → struct-update syntax (`Foo { field, ..Default::default() }`).
+- `collapsible_if` (8) → `let`-chains / merged conditions.
+- `doc_lazy_continuation` (5) → escaped a `>` parsed as a blockquote in
+  `parser/machine.rs`; indented a wrapped doc-list line.
+- `needless_borrows_for_generic_args` (4) + `len_zero` (1) in kitty transport tests.
+- `manual_div_ceil` (4) → `u32::div_ceil`.
+- `cloned_ref_to_slice_refs` (4) → `std::slice::from_ref`.
+- `manual_is_multiple_of` (3) → `usize::is_multiple_of`.
+- `unnecessary_get_then_check` (3) → `!map.contains_key(..)`.
+- `question_mark` (3), `needless_range_loop` (3), `unnecessary_unwrap` (2,
+  `input.rs` Kitty key encoders rewritten `if is_none/else` → `if let Some`),
+  `needless_return` (2), `manual_repeat_n` (2), `manual_range_patterns` (2),
+  `derivable_impls` (2, `Color`/`RenderQuality` → `#[derive(Default)] + #[default]`),
+  `bool_assert_comparison` (2), and the long-tail singles (`manual_strip`,
+  `manual_memcpy`, `manual_contains`, `if_same_then_else`, `explicit_auto_deref`,
+  `unnecessary_cast`, `unnecessary_lazy_evaluations`, `useless_format`,
+  `assertions_on_constants` → `const { assert!(..) }`, `unused_braces`/`unused_parens`).
+
+**Resolved by allow-attribute (with justification):**
+- `too_many_arguments` (9) → `#[allow(clippy::too_many_arguments)]` on the
+  specific fns, matching the codebase's established convention (refactoring into
+  structs was explicitly out of scope as a behavior-risk change).
+- `large_enum_variant` (2, `SettingsPanelOutcome::Apply`, `SettingsReloadOutcome::Reloaded`)
+  → `#[allow(clippy::large_enum_variant)]` with a one-line comment. Boxing the
+  `Settings` payload would ripple through every construction/match site on a cold
+  path for no runtime gain.
+- `collapsible_match` (1, `theme_builder.rs`) → scoped `#[allow]` on the arm:
+  clippy's guard rewrite would make the `match` non-exhaustive (a `Name` with a
+  rejected char would fall through).
+- `type_complexity` (1) → `#[allow]` on a test helper's return tuple.
+- `unused_mut` (1, `App::new`) → `#[cfg_attr(test, allow(unused_mut))]`: the `mut`
+  is live in production via the `cfg(not(test))` onboarding block, so the
+  suppression is scoped to test config only (never masks a real production lint).
+
+**CI gate.** Added a `Clippy` step (`cargo clippy --all-targets --locked -- -D warnings`)
+to `.github/workflows/ci.yml`, after Build and before Test, running on both
+ubuntu-latest and macos-latest. Workflow YAML validated.
+
+**Verified gates:** `cargo clippy --all-targets --locked -- -D warnings` clean;
+`cargo fmt --check` clean; `cargo build --release --locked` clean; `cargo test`
+green across 3 consecutive runs (1883 passed, 7 ignored, 0 failed, deterministic).
+
+---
+
 ## 2026-06-21 -- Pre-publicity hardening: bounded scrollback, deterministic tests, IRM, min_contrast 16
 
 A pre-publicity audit (artifact `pre-publicity-audit.md`) flagged two release
