@@ -480,6 +480,20 @@ Smallest viable ordering:
 3. Detach/attach using the snapshot envelope, then expand the state sections as
    needed.
 
+Snapshot envelope status:
+
+- **v1** stores the required terminal section: dimensions, visible grid, bounded
+  physical scrollback, cursor, and basic modes.
+- **v2** adds optional versioned sections for dynamic colors, OSC metadata
+  (title + OSC 7 cwd), prompt marks, and layout-affecting state (scroll region +
+  tab stops). Decoding accepts v1 and fills these sections from deterministic
+  defaults.
+- Deferred sections: graphics / Kitty / Sixel payload state and complete
+  dual-buffer alternate-screen restore. v2 records whether the alternate screen
+  is active and captures the active grid, but it does not yet serialize both the
+  active alternate buffer and the stored primary buffer as separately restorable
+  buffers.
+
 Long form: see `phase2-resumable-sessions-decision.md` in the Archon workflow
 artifacts.
 

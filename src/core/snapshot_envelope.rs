@@ -10,17 +10,22 @@
 use std::fmt;
 use std::num::NonZeroU32;
 
+use super::prompt_marks::PromptKind;
 use super::screen::Terminal;
 use super::types::{
-    Attrs, Cell, Color, CursorStyle, Dimensions, KeyboardModes, LinkId, MouseEncoding,
-    MouseProtocol, MouseTracking, Position, UnderlineStyle,
+    Attrs, Cell, Color, CursorStyle, Dimensions, DynamicColors, KeyboardModes, LinkId,
+    MouseEncoding, MouseProtocol, MouseTracking, Position, RgbColor, UnderlineStyle,
 };
 
 pub const SNAPSHOT_MAGIC: &[u8; 15] = b"ODYTTY-SNAPSHOT";
-pub const SNAPSHOT_FORMAT_VERSION: u16 = 1;
+pub const SNAPSHOT_FORMAT_VERSION: u16 = 2;
 pub const SNAPSHOT_PROTOCOL_VERSION: u16 = 1;
 
 const SECTION_TERMINAL_STATE: u16 = 1;
+const SECTION_DYNAMIC_COLORS: u16 = 2;
+const SECTION_METADATA: u16 = 3;
+const SECTION_PROMPT_MARKS: u16 = 4;
+const SECTION_LAYOUT_STATE: u16 = 5;
 const SECTION_FLAG_REQUIRED: u8 = 0x01;
 
 /// Capture-side bounds for copying terminal state into an owned DTO.
@@ -72,14 +77,27 @@ pub struct SnapshotEnvelope {
     pub producer_version: String,
     pub protocol_version: u16,
     pub terminal: SnapshotTerminalState,
+    pub dynamic_colors: DynamicColors,
+    pub metadata: SnapshotMetadata,
+    pub prompt_marks: Vec<SnapshotPromptMark>,
+    pub layout: SnapshotLayoutState,
 }
 
 impl SnapshotEnvelope {
     pub fn from_terminal(terminal: &Terminal, limits: SnapshotCaptureLimits) -> Self {
+        let terminal_state = terminal.snapshot_state(limits.max_scrollback_rows);
         Self {
             producer_version: env!("CARGO_PKG_VERSION").to_owned(),
             protocol_version: SNAPSHOT_PROTOCOL_VERSION,
-            terminal: terminal.snapshot_state(limits.max_scrollback_rows),
+            terminal: terminal_state,
+            dynamic_colors: terminal.dynamic_colors().clone(),
+            metadata: SnapshotMetadata::from_terminal(terminal),
+            prompt_marks: terminal
+                .prompt_marks()
+                .into_iter()
+                .map(|(row, kind)| SnapshotPromptMark { row, kind })
+                .collect(),
+            layout: terminal.snapshot_layout_state(),
         }
     }
 
@@ -88,11 +106,33 @@ impl SnapshotEnvelope {
         encode_sections(
             &self.producer_version,
             self.protocol_version,
-            &[SectionPayload {
-                id: SECTION_TERMINAL_STATE,
-                flags: SECTION_FLAG_REQUIRED,
-                payload: terminal,
-            }],
+            &[
+                SectionPayload {
+                    id: SECTION_TERMINAL_STATE,
+                    flags: SECTION_FLAG_REQUIRED,
+                    payload: terminal,
+                },
+                SectionPayload {
+                    id: SECTION_DYNAMIC_COLORS,
+                    flags: 0,
+                    payload: encode_dynamic_colors(&self.dynamic_colors),
+                },
+                SectionPayload {
+                    id: SECTION_METADATA,
+                    flags: 0,
+                    payload: self.metadata.encode(),
+                },
+                SectionPayload {
+                    id: SECTION_PROMPT_MARKS,
+                    flags: 0,
+                    payload: encode_prompt_marks(&self.prompt_marks),
+                },
+                SectionPayload {
+                    id: SECTION_LAYOUT_STATE,
+                    flags: 0,
+                    payload: self.layout.encode(),
+                },
+            ],
         )
     }
 
@@ -108,7 +148,7 @@ impl SnapshotEnvelope {
         reader.read_magic()?;
         let format_version = reader.read_u16()?;
         let protocol_version = reader.read_u16()?;
-        if format_version != SNAPSHOT_FORMAT_VERSION
+        if !(1..=SNAPSHOT_FORMAT_VERSION).contains(&format_version)
             || protocol_version != SNAPSHOT_PROTOCOL_VERSION
         {
             return Err(SnapshotEnvelopeError::UnsupportedVersion {
@@ -142,12 +182,28 @@ impl SnapshotEnvelope {
         }
 
         let mut terminal = None;
+        let mut dynamic_colors = None;
+        let mut metadata = None;
+        let mut prompt_marks = None;
+        let mut layout = None;
         for section in table {
             let payload = reader.read_bytes(section.len)?;
             match section.id {
                 SECTION_TERMINAL_STATE => {
                     let state = SnapshotTerminalState::decode(payload, caps)?;
                     terminal = Some(state);
+                }
+                SECTION_DYNAMIC_COLORS => {
+                    dynamic_colors = Some(decode_dynamic_colors(payload)?);
+                }
+                SECTION_METADATA => {
+                    metadata = Some(SnapshotMetadata::decode(payload, caps)?);
+                }
+                SECTION_PROMPT_MARKS => {
+                    prompt_marks = Some(decode_prompt_marks(payload, caps)?);
+                }
+                SECTION_LAYOUT_STATE => {
+                    layout = Some(SnapshotLayoutState::decode(payload, caps)?);
                 }
                 _ if section.flags & SECTION_FLAG_REQUIRED != 0 => {
                     return Err(SnapshotEnvelopeError::UnknownRequiredSection(section.id));
@@ -164,13 +220,148 @@ impl SnapshotEnvelope {
                 SECTION_TERMINAL_STATE,
             ));
         };
+        let layout =
+            layout.unwrap_or_else(|| SnapshotLayoutState::defaults_for(terminal.dimensions));
+        layout.validate(terminal.dimensions)?;
 
         Ok(Self {
             producer_version,
             protocol_version,
             terminal,
+            dynamic_colors: dynamic_colors.unwrap_or_default(),
+            metadata: metadata.unwrap_or_default(),
+            prompt_marks: prompt_marks.unwrap_or_default(),
+            layout,
         })
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SnapshotMetadata {
+    pub title: Option<String>,
+    pub working_directory: Option<String>,
+}
+
+impl SnapshotMetadata {
+    pub fn from_terminal(terminal: &Terminal) -> Self {
+        Self {
+            title: terminal.title().map(str::to_owned),
+            working_directory: terminal.current_working_directory().map(str::to_owned),
+        }
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        write_optional_string(&mut out, self.title.as_deref());
+        write_optional_string(&mut out, self.working_directory.as_deref());
+        out
+    }
+
+    fn decode(bytes: &[u8], caps: SnapshotEnvelopeCaps) -> Result<Self, SnapshotEnvelopeError> {
+        let mut reader = Reader::new(bytes);
+        let title = reader.read_optional_string(caps.max_string_bytes)?;
+        let working_directory = reader.read_optional_string(caps.max_string_bytes)?;
+        if reader.remaining() != 0 {
+            return Err(SnapshotEnvelopeError::TrailingBytes(reader.remaining()));
+        }
+        Ok(Self {
+            title,
+            working_directory,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotPromptMark {
+    pub row: usize,
+    pub kind: PromptKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotLayoutState {
+    pub scroll_region: Option<SnapshotScrollRegion>,
+    pub tab_stops: Vec<bool>,
+}
+
+impl SnapshotLayoutState {
+    pub fn defaults_for(dimensions: Dimensions) -> Self {
+        Self {
+            scroll_region: None,
+            tab_stops: default_tab_stops(dimensions.columns),
+        }
+    }
+
+    fn encode(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        match self.scroll_region {
+            Some(region) => {
+                write_u8(&mut out, 1);
+                write_u32(&mut out, region.top as u32);
+                write_u32(&mut out, region.bottom as u32);
+            }
+            None => write_u8(&mut out, 0),
+        }
+        write_u32(&mut out, self.tab_stops.len() as u32);
+        for &stop in &self.tab_stops {
+            write_u8(&mut out, u8::from(stop));
+        }
+        out
+    }
+
+    fn decode(bytes: &[u8], caps: SnapshotEnvelopeCaps) -> Result<Self, SnapshotEnvelopeError> {
+        let mut reader = Reader::new(bytes);
+        let scroll_region = match reader.read_u8()? {
+            0 => None,
+            1 => Some(SnapshotScrollRegion {
+                top: reader.read_u32()? as usize,
+                bottom: reader.read_u32()? as usize,
+            }),
+            value => return Err(SnapshotEnvelopeError::InvalidBool(value)),
+        };
+        let count = reader.read_u32()? as usize;
+        if count > caps.max_columns {
+            return Err(SnapshotEnvelopeError::InvalidTabStopCount {
+                count,
+                expected: caps.max_columns,
+            });
+        }
+        let mut tab_stops = Vec::with_capacity(count);
+        for _ in 0..count {
+            tab_stops.push(reader.read_bool()?);
+        }
+        if reader.remaining() != 0 {
+            return Err(SnapshotEnvelopeError::TrailingBytes(reader.remaining()));
+        }
+        Ok(Self {
+            scroll_region,
+            tab_stops,
+        })
+    }
+
+    fn validate(&self, dimensions: Dimensions) -> Result<(), SnapshotEnvelopeError> {
+        if self.tab_stops.len() != dimensions.columns {
+            return Err(SnapshotEnvelopeError::InvalidTabStopCount {
+                count: self.tab_stops.len(),
+                expected: dimensions.columns,
+            });
+        }
+        if let Some(region) = self.scroll_region
+            && !(region.top < region.bottom && region.bottom < dimensions.rows)
+        {
+            return Err(SnapshotEnvelopeError::InvalidScrollRegion {
+                top: region.top,
+                bottom: region.bottom,
+                rows: dimensions.rows,
+            });
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotScrollRegion {
+    pub top: usize,
+    pub bottom: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -519,6 +710,15 @@ pub enum SnapshotEnvelopeError {
         count: usize,
         expected: usize,
     },
+    InvalidTabStopCount {
+        count: usize,
+        expected: usize,
+    },
+    InvalidScrollRegion {
+        top: usize,
+        bottom: usize,
+        rows: usize,
+    },
     TooManyRows {
         count: usize,
         max: usize,
@@ -582,6 +782,13 @@ impl fmt::Display for SnapshotEnvelopeError {
             Self::InvalidVisibleRowCount { count, expected } => {
                 write!(f, "invalid visible row count {count}; expected {expected}")
             }
+            Self::InvalidTabStopCount { count, expected } => {
+                write!(f, "invalid tab-stop count {count}; expected {expected}")
+            }
+            Self::InvalidScrollRegion { top, bottom, rows } => write!(
+                f,
+                "invalid scroll region top={top} bottom={bottom} for {rows} rows"
+            ),
             Self::TooManyRows { count, max } => {
                 write!(f, "snapshot has too many rows: {count} exceeds cap {max}")
             }
@@ -614,9 +821,23 @@ fn encode_sections(
     protocol_version: u16,
     sections: &[SectionPayload],
 ) -> Vec<u8> {
+    encode_sections_for_version(
+        SNAPSHOT_FORMAT_VERSION,
+        producer_version,
+        protocol_version,
+        sections,
+    )
+}
+
+fn encode_sections_for_version(
+    format_version: u16,
+    producer_version: &str,
+    protocol_version: u16,
+    sections: &[SectionPayload],
+) -> Vec<u8> {
     let mut out = Vec::new();
     out.extend_from_slice(SNAPSHOT_MAGIC);
-    write_u16(&mut out, SNAPSHOT_FORMAT_VERSION);
+    write_u16(&mut out, format_version);
     write_u16(&mut out, protocol_version);
     write_string(&mut out, producer_version);
     write_u16(&mut out, sections.len() as u16);
@@ -672,6 +893,70 @@ fn read_rows(
         rows.push(SnapshotRow { wrapped, cells });
     }
     Ok(rows)
+}
+
+fn encode_dynamic_colors(colors: &DynamicColors) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_rgb(&mut out, colors.foreground);
+    write_rgb(&mut out, colors.background);
+    write_rgb(&mut out, colors.cursor);
+    for color in colors.palette {
+        write_optional_rgb(&mut out, color);
+    }
+    out
+}
+
+fn decode_dynamic_colors(bytes: &[u8]) -> Result<DynamicColors, SnapshotEnvelopeError> {
+    let mut reader = Reader::new(bytes);
+    let foreground = read_rgb(&mut reader)?;
+    let background = read_rgb(&mut reader)?;
+    let cursor = read_rgb(&mut reader)?;
+    let mut palette = [None; 256];
+    for color in &mut palette {
+        *color = read_optional_rgb(&mut reader)?;
+    }
+    if reader.remaining() != 0 {
+        return Err(SnapshotEnvelopeError::TrailingBytes(reader.remaining()));
+    }
+    Ok(DynamicColors {
+        foreground,
+        background,
+        cursor,
+        palette,
+    })
+}
+
+fn encode_prompt_marks(marks: &[SnapshotPromptMark]) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_u32(&mut out, marks.len() as u32);
+    for mark in marks {
+        write_u32(&mut out, mark.row as u32);
+        encode_prompt_kind(&mut out, mark.kind);
+    }
+    out
+}
+
+fn decode_prompt_marks(
+    bytes: &[u8],
+    caps: SnapshotEnvelopeCaps,
+) -> Result<Vec<SnapshotPromptMark>, SnapshotEnvelopeError> {
+    let mut reader = Reader::new(bytes);
+    let count = reader.read_u32()? as usize;
+    let max = caps.max_scrollback_rows.saturating_add(caps.max_rows);
+    if count > max {
+        return Err(SnapshotEnvelopeError::TooManyRows { count, max });
+    }
+    let mut marks = Vec::with_capacity(count);
+    for _ in 0..count {
+        marks.push(SnapshotPromptMark {
+            row: reader.read_u32()? as usize,
+            kind: decode_prompt_kind(&mut reader)?,
+        });
+    }
+    if reader.remaining() != 0 {
+        return Err(SnapshotEnvelopeError::TrailingBytes(reader.remaining()));
+    }
+    Ok(marks)
 }
 
 struct Reader<'a> {
@@ -749,6 +1034,17 @@ impl<'a> Reader<'a> {
             .map(str::to_owned)
             .map_err(|_| SnapshotEnvelopeError::InvalidUtf8)
     }
+
+    fn read_optional_string(
+        &mut self,
+        max: usize,
+    ) -> Result<Option<String>, SnapshotEnvelopeError> {
+        match self.read_u8()? {
+            0 => Ok(None),
+            1 => self.read_string(max).map(Some),
+            value => Err(SnapshotEnvelopeError::InvalidBool(value)),
+        }
+    }
 }
 
 fn write_u8(out: &mut Vec<u8>, value: u8) {
@@ -772,9 +1068,51 @@ fn write_string(out: &mut Vec<u8>, value: &str) {
     out.extend_from_slice(value.as_bytes());
 }
 
+fn write_optional_string(out: &mut Vec<u8>, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            write_u8(out, 1);
+            write_string(out, value);
+        }
+        None => write_u8(out, 0),
+    }
+}
+
 fn read_char(reader: &mut Reader<'_>) -> Result<char, SnapshotEnvelopeError> {
     let value = reader.read_u32()?;
     char::from_u32(value).ok_or(SnapshotEnvelopeError::InvalidChar(value))
+}
+
+fn write_rgb(out: &mut Vec<u8>, color: RgbColor) {
+    write_u8(out, color.red);
+    write_u8(out, color.green);
+    write_u8(out, color.blue);
+}
+
+fn read_rgb(reader: &mut Reader<'_>) -> Result<RgbColor, SnapshotEnvelopeError> {
+    Ok(RgbColor::new(
+        reader.read_u8()?,
+        reader.read_u8()?,
+        reader.read_u8()?,
+    ))
+}
+
+fn write_optional_rgb(out: &mut Vec<u8>, color: Option<RgbColor>) {
+    match color {
+        Some(color) => {
+            write_u8(out, 1);
+            write_rgb(out, color);
+        }
+        None => write_u8(out, 0),
+    }
+}
+
+fn read_optional_rgb(reader: &mut Reader<'_>) -> Result<Option<RgbColor>, SnapshotEnvelopeError> {
+    match reader.read_u8()? {
+        0 => Ok(None),
+        1 => read_rgb(reader).map(Some),
+        value => Err(SnapshotEnvelopeError::InvalidBool(value)),
+    }
 }
 
 fn write_color(out: &mut Vec<u8>, color: Color) {
@@ -906,16 +1244,69 @@ fn decode_mouse_encoding(value: u8) -> Result<MouseEncoding, SnapshotEnvelopeErr
     }
 }
 
+fn encode_prompt_kind(out: &mut Vec<u8>, kind: PromptKind) {
+    match kind {
+        PromptKind::PromptStart => write_u8(out, 0),
+        PromptKind::OutputStart => write_u8(out, 1),
+        PromptKind::CommandEnd { exit } => {
+            write_u8(out, 2);
+            match exit {
+                Some(exit) => {
+                    write_u8(out, 1);
+                    out.extend_from_slice(&exit.to_le_bytes());
+                }
+                None => write_u8(out, 0),
+            }
+        }
+    }
+}
+
+fn decode_prompt_kind(reader: &mut Reader<'_>) -> Result<PromptKind, SnapshotEnvelopeError> {
+    match reader.read_u8()? {
+        0 => Ok(PromptKind::PromptStart),
+        1 => Ok(PromptKind::OutputStart),
+        2 => {
+            let exit = match reader.read_u8()? {
+                0 => None,
+                1 => {
+                    let raw = reader.read_bytes(4)?;
+                    Some(i32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))
+                }
+                value => return Err(SnapshotEnvelopeError::InvalidBool(value)),
+            };
+            Ok(PromptKind::CommandEnd { exit })
+        }
+        value => Err(SnapshotEnvelopeError::InvalidEnum("PromptKind", value)),
+    }
+}
+
+fn default_tab_stops(columns: usize) -> Vec<bool> {
+    let mut stops = vec![false; columns];
+    for column in (8..columns).step_by(8) {
+        stops[column] = true;
+    }
+    stops
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn sample_terminal() -> Terminal {
-        let mut terminal = Terminal::new(8, 3);
+        let mut terminal = Terminal::new(16, 3);
         terminal.set_scrollback_limit(8);
+        terminal.set_base_colors(
+            RgbColor::new(0x11, 0x22, 0x33),
+            RgbColor::new(0x04, 0x05, 0x06),
+            RgbColor::new(0xAA, 0xBB, 0xCC),
+        );
+        terminal.advance(b"\x1b]2;Snapshot Test\x1b\\");
+        terminal.advance(b"\x1b]7;file://localhost/tmp/odytty-snapshot\x1b\\");
         terminal.advance(
             b"alpha\nbeta\n\x1b[31mgamma\x1b[0m\n\x1b[?2004h\x1b[?1004h\x1b[?1006h\x1b[?1003h",
         );
+        terminal.advance(b"\x1b]133;A\x07prompt\n\x1b]133;C\x07out\n\x1b]133;D;7\x07");
+        terminal.advance(b"\x1b[2;3r\x1b[9G\x1b[0g");
         terminal.advance("wide \u{1f680}\ncomb e\u{301}".as_bytes());
         terminal
     }
@@ -927,7 +1318,7 @@ mod tests {
         let bytes = envelope.encode();
         let decoded = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()).unwrap();
         assert_eq!(decoded.encode(), bytes);
-        assert_eq!(decoded.terminal.dimensions, Dimensions::new(8, 3));
+        assert_eq!(decoded.terminal.dimensions, Dimensions::new(16, 3));
         assert!(decoded.terminal.basic_modes.bracketed_paste);
         assert!(decoded.terminal.basic_modes.focus_reporting);
         assert_eq!(
@@ -938,6 +1329,21 @@ mod tests {
             decoded.terminal.basic_modes.mouse.encoding,
             MouseEncoding::Sgr
         );
+        assert_eq!(
+            decoded.dynamic_colors.foreground,
+            RgbColor::new(0x11, 0x22, 0x33)
+        );
+        assert_eq!(decoded.metadata.title.as_deref(), Some("Snapshot Test"));
+        assert_eq!(
+            decoded.metadata.working_directory.as_deref(),
+            Some("/tmp/odytty-snapshot")
+        );
+        assert!(!decoded.prompt_marks.is_empty());
+        assert_eq!(
+            decoded.layout.scroll_region,
+            Some(SnapshotScrollRegion { top: 1, bottom: 2 })
+        );
+        assert!(!decoded.layout.tab_stops[8]);
     }
 
     #[test]
@@ -989,11 +1395,11 @@ mod tests {
         let terminal = sample_terminal();
         let mut bytes =
             SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default()).encode();
-        bytes[SNAPSHOT_MAGIC.len()] = 2;
+        bytes[SNAPSHOT_MAGIC.len()] = 99;
         assert_eq!(
             SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()),
             Err(SnapshotEnvelopeError::UnsupportedVersion {
-                format_version: 2,
+                format_version: 99,
                 protocol_version: SNAPSHOT_PROTOCOL_VERSION,
             })
         );
@@ -1010,5 +1416,33 @@ mod tests {
         };
         let err = SnapshotEnvelope::decode(&bytes, caps).unwrap_err();
         assert!(matches!(err, SnapshotEnvelopeError::SectionTooLarge { .. }));
+    }
+
+    #[test]
+    fn v1_envelope_decodes_with_v2_defaults() {
+        let terminal = sample_terminal();
+        let terminal_payload =
+            SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default())
+                .terminal
+                .encode();
+        let bytes = encode_sections_for_version(
+            1,
+            "v1-test",
+            SNAPSHOT_PROTOCOL_VERSION,
+            &[SectionPayload {
+                id: SECTION_TERMINAL_STATE,
+                flags: SECTION_FLAG_REQUIRED,
+                payload: terminal_payload,
+            }],
+        );
+        let decoded = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()).unwrap();
+        assert_eq!(decoded.producer_version, "v1-test");
+        assert_eq!(decoded.dynamic_colors, DynamicColors::default());
+        assert_eq!(decoded.metadata, SnapshotMetadata::default());
+        assert!(decoded.prompt_marks.is_empty());
+        assert_eq!(
+            decoded.layout,
+            SnapshotLayoutState::defaults_for(decoded.terminal.dimensions)
+        );
     }
 }

@@ -68,7 +68,8 @@ pub use search::{
 pub use snapshot_envelope::{
     SNAPSHOT_FORMAT_VERSION, SNAPSHOT_MAGIC, SNAPSHOT_PROTOCOL_VERSION, SnapshotAttrs,
     SnapshotBasicModes, SnapshotCaptureLimits, SnapshotCell, SnapshotEnvelope,
-    SnapshotEnvelopeCaps, SnapshotEnvelopeError, SnapshotRow, SnapshotTerminalState,
+    SnapshotEnvelopeCaps, SnapshotEnvelopeError, SnapshotLayoutState, SnapshotMetadata,
+    SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion, SnapshotTerminalState,
 };
 pub use types::{
     Attrs, Cell, ClipboardRequest, ClipboardSelection, Color, CursorStyle, Dimensions, DirtyRegion,

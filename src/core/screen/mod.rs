@@ -18,7 +18,10 @@ use super::prompt_marks::{self, PromptKind};
 use super::reflow::resize_buffer_rows;
 use super::scrollback::{ResizeOptions, Scrollback, resize_lazy_with_options};
 use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
-use super::snapshot_envelope::{SnapshotBasicModes, SnapshotRow, SnapshotTerminalState};
+use super::snapshot_envelope::{
+    SnapshotBasicModes, SnapshotLayoutState, SnapshotRow, SnapshotScrollRegion,
+    SnapshotTerminalState,
+};
 use super::types::*;
 
 mod ops;
@@ -802,6 +805,18 @@ impl Screen {
             },
             scrollback_rows,
             visible_rows,
+        }
+    }
+
+    /// Copy layout-affecting terminal state that is not part of the render
+    /// [`Snapshot`] surface.
+    pub fn snapshot_layout_state(&self) -> SnapshotLayoutState {
+        SnapshotLayoutState {
+            scroll_region: self.scroll_region.map(|region| SnapshotScrollRegion {
+                top: region.top,
+                bottom: region.bottom,
+            }),
+            tab_stops: self.tab_stops.clone(),
         }
     }
 
@@ -1865,6 +1880,10 @@ impl Terminal {
         self.screen.render_revision()
     }
 
+    pub fn dynamic_colors(&self) -> &DynamicColors {
+        self.screen.dynamic_colors()
+    }
+
     /// Whether DECSET 2026 synchronized output is currently enabled.
     pub fn synchronized_output_enabled(&self) -> bool {
         self.screen.synchronized_output_enabled()
@@ -1914,6 +1933,12 @@ impl Terminal {
     /// [`Screen::snapshot_state`].
     pub fn snapshot_state(&self, max_scrollback_rows: usize) -> SnapshotTerminalState {
         self.screen.snapshot_state(max_scrollback_rows)
+    }
+
+    /// Copy layout-affecting terminal state that is not part of the render
+    /// [`Snapshot`] surface. See [`Screen::snapshot_layout_state`].
+    pub fn snapshot_layout_state(&self) -> SnapshotLayoutState {
+        self.screen.snapshot_layout_state()
     }
 
     pub fn visible_graphics(&self, offset_rows: usize) -> Vec<VisiblePlacement> {

@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- snapshot envelope v2 sections (Phase 2)
+
+Extended the pure core snapshot envelope toward faithful resumable-session
+capture without touching `src/native/`.
+
+- Bumped `SNAPSHOT_FORMAT_VERSION` to 2 while keeping decode support for v1
+  envelopes. v2 encoding emits optional sections after the required terminal
+  state section; v1 decode fills deterministic defaults for absent optional
+  state.
+- New optional sections: dynamic colors (OSC 10/11/12 + OSC 4 palette state),
+  terminal metadata (OSC title + OSC 7 cwd), prompt marks, and layout-affecting
+  state (scroll region + tab stops).
+- Added owned DTOs for `SnapshotMetadata`, `SnapshotPromptMark`,
+  `SnapshotLayoutState`, and `SnapshotScrollRegion`. `Screen` exposes only
+  copy-out methods; private `Screen` / `Scrollback` structs remain private and
+  the render `Snapshot` path stays unchanged.
+- Deferred sections: graphics / Kitty / Sixel payload state and full
+  dual-buffer alternate-screen restore. v2 records alternate-screen mode in the
+  existing mode set and captures the active grid, but does not yet serialize both
+  the active alternate buffer and stored primary buffer as separate restorable
+  buffers.
+- Tests extend deterministic snapshot round-trip coverage to the v2 sections and
+  add a v1 cross-version decode test that verifies defaults for absent optional
+  sections.
+
 ## 2026-06-21 -- snapshot envelope foundation (Phase 2)
 
 Folded the operator-ratified resumable-session decision into

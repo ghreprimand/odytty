@@ -900,6 +900,9 @@ feature validates against.
 - [x] Core snapshot-envelope foundation: `ODYTTY-SNAPSHOT` magic, versioned
       section table, required/optional section handling, and owned DTOs for
       dimensions, visible grid, bounded scrollback, cursor, and basic modes.
+- [x] Snapshot envelope v2 sections: dynamic colors, OSC title/cwd metadata,
+      prompt marks, scroll region, and tab stops, with v1 decode defaults and
+      deterministic round-trip tests.
 - [ ] Panes/splits, profiles, detachable sessions, and session persistence
       remain future work.
 
