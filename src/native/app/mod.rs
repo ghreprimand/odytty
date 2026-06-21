@@ -468,6 +468,7 @@ impl App {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn initialize_session_with(
         session: &mut Session,
         effective_theme: Theme,
@@ -476,6 +477,7 @@ impl App {
         cursor_style: crate::core::CursorStyle,
         cursor_blink: crate::settings::CursorBlink,
         cell: Option<CellSize>,
+        scrollback_limit: usize,
     ) {
         if let Ok(mut terminal) = session.terminal.lock() {
             let cursor_default = if themed_ui_roles {
@@ -489,6 +491,7 @@ impl App {
                 cursor_default,
             );
             terminal.set_osc52_read_enabled(osc52_read);
+            terminal.set_scrollback_limit(scrollback_limit);
             terminal.set_cursor_defaults(cursor_style, cursor_blink.enabled());
             if let Some(cell) = cell {
                 terminal.set_cell_metrics(cell.width, cell.height);
@@ -504,6 +507,7 @@ impl App {
             let cursor_style = self.settings.cursor_style;
             let cursor_blink = self.settings.cursor_blink;
             let cell = self.gpu.as_ref().map(GpuState::cell);
+            let scrollback_limit = self.settings.scrollback_limit();
             if let Some(session) = self.sessions.get_mut(session_id) {
                 Self::initialize_session_with(
                     session,
@@ -513,6 +517,7 @@ impl App {
                     cursor_style,
                     cursor_blink,
                     cell,
+                    scrollback_limit,
                 );
             }
             let _ = self.sessions.switch(session_id);
@@ -1442,6 +1447,15 @@ impl App {
                 self.settings.cursor_style,
                 self.settings.cursor_blink.enabled(),
             );
+        }
+        // Apply the scrollback cap to *every* session, not just the active one:
+        // a background tab streaming unbounded output must stay memory-bounded
+        // regardless of focus. Lowering the cap trims existing history at once.
+        let scrollback_limit = self.settings.scrollback_limit();
+        for session in self.sessions.iter() {
+            if let Ok(mut terminal) = session.terminal.lock() {
+                terminal.set_scrollback_limit(scrollback_limit);
+            }
         }
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_theme(self.effective_theme);

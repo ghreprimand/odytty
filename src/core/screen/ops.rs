@@ -496,6 +496,16 @@ impl Screen {
     }
 
     pub(super) fn set_cursor_mode(&mut self, params: &Params, intermediates: &[u8], action: char) {
+        if intermediates.is_empty() {
+            // ANSI modes (no `?` prefix): `CSI Pm h` / `CSI Pm l`.
+            for mode in private_mode_params(params) {
+                if mode == 4 {
+                    // IRM (insert/replace mode).
+                    self.insert_mode = action == 'h';
+                }
+            }
+            return;
+        }
         if intermediates != b"?" {
             return;
         }
@@ -631,9 +641,8 @@ impl Screen {
 
     fn ansi_mode_report(&self, mode: u16) -> u8 {
         match mode {
-            // IRM (insert/replace mode) is known but not implemented; OdyTTY
-            // permanently uses replace-mode editing semantics.
-            4 => 4,
+            // IRM (insert/replace mode): report the live set/reset state.
+            4 => mode_status(self.insert_mode),
             _ => 0,
         }
     }
@@ -852,15 +861,17 @@ impl Screen {
         // buffer, so visible marks vanish; flag the poll API if any existed.
         self.prompt_marks_changed |= self.has_any_prompt_mark();
 
-        let alt_rows = if clear_alt {
-            vec![blank_row(self.dimensions.columns); self.dimensions.rows]
-        } else {
-            vec![blank_row(self.dimensions.columns); self.dimensions.rows]
-        };
+        // The alt buffer always starts blank; `clear_alt` only governs whether
+        // the *old* alt content is wiped on a later re-entry, handled elsewhere.
+        let alt_rows = vec![blank_row(self.dimensions.columns); self.dimensions.rows];
 
+        // The alternate screen keeps no scrollback, but carry the configured
+        // retention limit onto its (empty) store so a config reload while a TUI
+        // runs still sees a consistent cap, and the restored primary keeps its.
+        let sb_limit = self.scrollback.limit();
         let primary_screen = StoredScreen {
             rows: std::mem::replace(&mut self.rows, alt_rows),
-            scrollback: std::mem::replace(&mut self.scrollback, Scrollback::new()),
+            scrollback: std::mem::replace(&mut self.scrollback, Scrollback::with_limit(sb_limit)),
             cursor: self.cursor,
             cursor_visible: self.cursor_visible,
             pending_wrap: self.pending_wrap,
@@ -995,6 +1006,7 @@ impl Screen {
         self.scroll_region = None;
         self.origin_mode = false;
         self.auto_wrap = true;
+        self.insert_mode = false;
         self.bracketed_paste = false;
         self.current_attrs = Attrs::default();
         self.current_protected = false;
@@ -1046,6 +1058,7 @@ impl Screen {
         self.scroll_region = None;
         self.origin_mode = false;
         self.auto_wrap = true;
+        self.insert_mode = false;
         self.bracketed_paste = false;
         self.keyboard = KeyboardModes::default();
         self.kitty_keyboard_stack.clear();

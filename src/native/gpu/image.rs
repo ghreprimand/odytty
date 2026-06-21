@@ -523,6 +523,8 @@ mod tests {
 
     #[test]
     fn floor_disabled_needs_no_scrim() {
+        // Serialize against every other floor-touching test (shared global).
+        let _guard = crate::test_lock::render_globals_lock();
         // min_contrast defaults to 1.0 (disabled) in tests ⇒ scrim passthrough.
         text::set_min_contrast(1.0);
         let (alpha, _) = compute_scrim(1.0, 0.0, &dark_theme(), 0.5, None);
@@ -531,6 +533,7 @@ mod tests {
 
     #[test]
     fn dark_theme_bright_image_gets_black_scrim() {
+        let _guard = crate::test_lock::render_globals_lock();
         text::set_min_contrast(4.5);
         // Bright image (l_treat_max = 1.0) on a black theme, translucent cells.
         let (alpha, is_white) = compute_scrim(1.0, 1.0, &dark_theme(), 0.5, None);
@@ -541,6 +544,7 @@ mod tests {
 
     #[test]
     fn light_theme_dark_image_gets_white_scrim() {
+        let _guard = crate::test_lock::render_globals_lock();
         text::set_min_contrast(4.5);
         // Dark image (l_treat_min = 0.0) on a white theme, translucent cells.
         let (alpha, is_white) = compute_scrim(0.0, 0.0, &light_theme(), 0.5, None);

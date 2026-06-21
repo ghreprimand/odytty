@@ -442,6 +442,34 @@ pub(super) fn parse_scroll_wheel_lines(raw: Option<&OsStr>, warn: &mut impl FnMu
     parsed.clamp(MIN_SCROLL_WHEEL_LINES, MAX_SCROLL_WHEEL_LINES)
 }
 
+/// Parse the scrollback retention cap (SCROLLBACK-CAP). Mirrors the other numeric
+/// parsers: absent/blank yields the default; a non-finite or unparseable value
+/// warns and falls back; otherwise it is clamped to
+/// `[MIN_SCROLLBACK_LINES, MAX_SCROLLBACK_LINES]`. `0` is a valid value meaning
+/// "unbounded" — the cap is then disabled.
+pub(super) fn parse_scrollback_lines(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_SCROLLBACK_LINES;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_SCROLLBACK_LINES;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{SCROLLBACK_LINES_ENV}={trimmed:?} is not a valid scrollback line count; using {DEFAULT_SCROLLBACK_LINES}"
+            ));
+            return DEFAULT_SCROLLBACK_LINES;
+        }
+    };
+
+    parsed.clamp(MIN_SCROLLBACK_LINES, MAX_SCROLLBACK_LINES)
+}
+
 pub(super) fn parse_scroll_drag_speed(
     raw: Option<&OsStr>,
     warn: &mut impl FnMut(&str),

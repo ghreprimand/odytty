@@ -109,10 +109,15 @@ fn synchronized_output_mode_resets_on_decrst_ris_and_decstr() {
 fn decrqm_reports_ansi_known_and_unknown_modes() {
     let mut terminal = Terminal::new(10, 4);
 
+    // IRM (mode 4) is implemented, so it reports its live reset state (2), not
+    // the "permanently reset" (4) it used to claim. Mode 99 is unknown (0).
     terminal.advance(b"\x1b[4$p");
     terminal.advance(b"\x1b[99$p");
+    assert_eq!(terminal.take_host_output(), b"\x1b[4;2$y\x1b[99;0$y");
 
-    assert_eq!(terminal.take_host_output(), b"\x1b[4;4$y\x1b[99;0$y");
+    // After CSI 4 h, IRM reports set (1).
+    terminal.advance(b"\x1b[4h\x1b[4$p");
+    assert_eq!(terminal.take_host_output(), b"\x1b[4;1$y");
 }
 
 #[test]

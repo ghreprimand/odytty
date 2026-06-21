@@ -44,7 +44,8 @@ notes below), while panes and profiles are not done.
   local keybindings, keyboard hints, keyboard copy mode, and OSC 8 hyperlink
   hover/open.
 - **Daily workflow:** search, refined selection, PRIMARY selection,
-  bracketed-paste hardening, chunked large paste, right-click context menu,
+  bracketed-paste hardening, chunked large paste, bounded scrollback history,
+  right-click context menu,
   command-aware prompt navigation from OSC 133, configurable bell (visual flash
   / window urgency), close confirmation, and tabs.
 - **Visual experience layer:** 100 built-in themes, user `.theme` files, live theme
@@ -230,8 +231,9 @@ symbol/Nerd-font fallback **chain**, joined with ` > ` — e.g.
 
 The owned parser and terminal core cover common shell and TUI behavior:
 printing, UTF-8 chunking, SGR attributes including 256-color and truecolor,
-cursor movement, erase, insert/delete character and line, repeat, reverse index,
-scroll regions, origin mode, tab stops, bracketed paste, focus reporting,
+cursor movement, erase, insert/delete character and line, insert/replace mode
+(IRM), repeat, reverse index, scroll regions, origin mode, tab stops, bracketed
+paste, focus reporting,
 alternate screen modes 47/1047/1048/1049, OSC 0/2 titles, OSC 7 working
 directory tracking, OSC 8 hyperlinks, OSC 52 clipboard write plus opt-in read,
 OSC 133 prompt marks, OSC 4/10/11/12 dynamic colors, DECRQM/DECRPM, XTWINOPS,
@@ -374,7 +376,7 @@ ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture
 cargo bench --bench perf
 ```
 
-Recent library-only checks in the devlog show `cargo test --lib` at 1778
+Recent library-only checks in the devlog show `cargo test --lib` at 1883
 passing tests, with the full tree carrying additional integration and smoke
 suites. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the commit gate.
 

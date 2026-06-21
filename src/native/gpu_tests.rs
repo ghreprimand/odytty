@@ -393,6 +393,8 @@ fn post_options_from_settings(settings: &Settings) -> post::PostProcessOptions {
 /// layout fails the suite rather than only at runtime.
 #[test]
 fn background_image_pipeline_builds_from_png() {
+    // Mutates the process-global floor; serialize against every other floor test.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some((device, queue)) = test_device_with_hdr() else {
         eprintln!("skipping: no GPU adapter available");
         return;

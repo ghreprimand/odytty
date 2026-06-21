@@ -174,16 +174,17 @@ fn looks_like_ipv4(line: &str) -> bool {
     let mut i = 0;
     while i < n {
         // A candidate octet start must not be preceded by a digit or dot.
-        if b[i].is_ascii_digit() && (i == 0 || (!b[i - 1].is_ascii_digit() && b[i - 1] != b'.')) {
-            if let Some(end) = match_ipv4(b, i) {
-                // The match must end at a boundary so it isn't the prefix of a
-                // longer run of digits/dots (e.g. a codepoint literal).
-                if end == n || (!b[end].is_ascii_digit() && b[end] != b'.') {
-                    return true;
-                }
-                i = end;
-                continue;
+        if b[i].is_ascii_digit()
+            && (i == 0 || (!b[i - 1].is_ascii_digit() && b[i - 1] != b'.'))
+            && let Some(end) = match_ipv4(b, i)
+        {
+            // The match must end at a boundary so it isn't the prefix of a
+            // longer run of digits/dots (e.g. a codepoint literal).
+            if end == n || (!b[end].is_ascii_digit() && b[end] != b'.') {
+                return true;
             }
+            i = end;
+            continue;
         }
         i += 1;
     }

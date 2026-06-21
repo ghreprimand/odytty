@@ -579,3 +579,91 @@ fn handles_cursor_movement_and_erase_line() {
     assert_eq!(terminal.screen().plain_text(), "abcZ\n");
     assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 4 });
 }
+
+#[test]
+fn irm_off_overwrites_in_place() {
+    // Replace mode (the default): printing over existing text overwrites it.
+    let mut terminal = Terminal::new(8, 1);
+    terminal.advance(b"abc\r"); // "abc", cursor back to column 0
+    terminal.advance(b"X");
+    assert_eq!(terminal.screen().plain_text(), "Xbc");
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 1 });
+}
+
+#[test]
+fn irm_on_shifts_existing_cells_right() {
+    // CSI 4 h enables insert mode: a printed glyph pushes the cells at and right
+    // of the cursor toward the right edge instead of overwriting them.
+    let mut terminal = Terminal::new(8, 1);
+    terminal.advance(b"abc\r");
+    terminal.advance(b"\x1b[4h"); // IRM on
+    terminal.advance(b"X");
+    assert_eq!(terminal.screen().plain_text(), "Xabc");
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 1 });
+    // Continuing to type keeps inserting at the cursor.
+    terminal.advance(b"Y");
+    assert_eq!(terminal.screen().plain_text(), "XYabc");
+}
+
+#[test]
+fn irm_drops_cells_past_the_right_edge() {
+    // Inserting near the right edge pushes content off the line; it is dropped,
+    // never wrapped, matching xterm IRM semantics.
+    let mut terminal = Terminal::new(4, 1);
+    terminal.advance(b"abcd\r"); // fills the row; cursor returns to column 0
+    terminal.advance(b"\x1b[4h");
+    terminal.advance(b"X");
+    // "abcd" shifts right, 'd' falls off the 4-wide row: "Xabc".
+    assert_eq!(terminal.screen().plain_text(), "Xabc");
+}
+
+#[test]
+fn irm_reset_restores_replace_mode() {
+    // CSI 4 l turns insert mode back off.
+    let mut terminal = Terminal::new(8, 1);
+    terminal.advance(b"abc\r\x1b[4h"); // IRM on
+    terminal.advance(b"\x1b[4l"); // IRM off
+    terminal.advance(b"X");
+    assert_eq!(terminal.screen().plain_text(), "Xbc");
+}
+
+#[test]
+fn irm_is_reset_by_ris_and_decstr() {
+    // RIS (ESC c) clears insert mode.
+    let mut terminal = Terminal::new(8, 1);
+    terminal.advance(b"\x1b[4h\x1bc");
+    terminal.advance(b"abc\r");
+    terminal.advance(b"X");
+    assert_eq!(terminal.screen().plain_text(), "Xbc", "RIS must clear IRM");
+
+    // DECSTR (CSI ! p) clears insert mode.
+    let mut terminal = Terminal::new(8, 1);
+    terminal.advance(b"\x1b[4h\x1b[!p");
+    terminal.advance(b"abc\r");
+    terminal.advance(b"X");
+    assert_eq!(
+        terminal.screen().plain_text(),
+        "Xbc",
+        "DECSTR must clear IRM"
+    );
+}
+
+#[test]
+fn irm_decrqm_reports_live_state() {
+    // DECRQM for an ANSI mode: CSI 4 $ p → CSI 4 ; <status> $ y, status 1=set,
+    // 2=reset.
+    let mut terminal = Terminal::new(8, 1);
+    terminal.advance(b"\x1b[4$p");
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1b[4;2$y",
+        "IRM reset by default"
+    );
+
+    terminal.advance(b"\x1b[4h\x1b[4$p");
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1b[4;1$y",
+        "IRM set after CSI 4 h"
+    );
+}

@@ -96,6 +96,11 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
       documented standards gaps.
   - [x] Core reporting probes: DECRQM/DECRPM, XTWINOPS size reports, Secondary
         DA, and XTVERSION.
+  - [x] IRM (insert/replace mode, ANSI mode 4 `CSI 4 h`/`CSI 4 l`): printing in
+        insert mode shifts cells at and right of the cursor toward the right edge
+        (dropping cells past the edge), reset by RIS/DECSTR, with DECRQM
+        reporting the live set/reset state. Closes the macOS `pico`/`nano`
+        incremental-redraw corruption gap.
 - [ ] Add deterministic fixtures for every reproducible terminal-core
       regression.
 - [ ] Improve OSC support, including title handling and common shell/editor
@@ -973,8 +978,13 @@ feature validates against.
 - [x] Add `odytty -e command args...` plus `--working-directory` and `--title`
       so OdyTTY can advertise `X-TerminalArgExec` and work with
       `xdg-terminal-exec`/default-terminal integrations.
-- [ ] Decide whether to keep `TERM=xterm-256color` for compatibility or ship an
-      OdyTTY-specific terminfo entry before changing `TERM`.
+- [x] Decided: keep `TERM=xterm-256color` (plus `COLORTERM=truecolor`). OdyTTY
+      implements the xterm sequence set and supersets it (Kitty keyboard/graphics,
+      etc.), and `xterm-256color` is installed on essentially every host, so it
+      works over SSH and in any terminfo database. A custom `TERM=odytty` entry
+      would break the moment OdyTTY talks to a machine that lacks it (the classic
+      "terminal type unknown" SSH papercut), for no compatibility gain. Not
+      shipping a custom terminfo entry.
 - [x] Document GitHub Release/tag/checksum expectations and Odyssey-Mon
       upstream tracking.
 - [x] Cut a `v0.1.4` source release with checksums and an Odyssey PKGBUILD.

@@ -130,6 +130,13 @@ pub struct Screen {
     /// DECAWM (private mode 7). When set, printing past the right edge wraps to
     /// the next row; when reset, the rightmost cell is overwritten in place.
     auto_wrap: bool,
+    /// IRM (ANSI mode 4, `CSI 4 h` / `CSI 4 l`). When set, a printed glyph
+    /// shifts the cells at and right of the cursor toward the right edge instead
+    /// of overwriting in place (insert mode); when reset (the default), printing
+    /// overwrites (replace mode). Reset by RIS and DECSTR. Some line editors
+    /// (notably Apple's `pico`/`nano` on macOS) rely on IRM for incremental line
+    /// redraw, so without it their on-screen text is corrupted.
+    insert_mode: bool,
     bracketed_paste: bool,
     /// DECSET 1007 (alternate scroll mode). When set and the alternate screen is
     /// active, the host layer translates wheel events into cursor-key presses so
@@ -296,6 +303,7 @@ impl Screen {
             scroll_region: None,
             origin_mode: false,
             auto_wrap: true,
+            insert_mode: false,
             bracketed_paste: false,
             alternate_scroll: true,
             current_attrs: Attrs::default(),
@@ -408,6 +416,17 @@ impl Screen {
 
     pub fn set_osc52_read_enabled(&mut self, enabled: bool) {
         self.osc52_read_enabled = enabled;
+    }
+
+    /// Set the scrollback retention cap in logical lines (`0` = unbounded),
+    /// trimming any excess immediately. Applies to the active buffer and, when a
+    /// TUI is on the alternate screen, the stored primary scrollback as well, so
+    /// a live config reload during a full-screen app takes effect on return.
+    pub fn set_scrollback_limit(&mut self, limit: usize) {
+        self.scrollback.set_limit(limit);
+        if let Some(stored) = self.primary_screen.as_mut() {
+            stored.scrollback.set_limit(limit);
+        }
     }
 
     pub fn take_clipboard_requests(&mut self) -> Vec<ClipboardRequest> {
@@ -1236,6 +1255,14 @@ impl Screen {
             self.line_feed();
         }
 
+        if self.insert_mode {
+            // IRM: open `width` blank cells at the cursor, shifting the rest of
+            // the line right (cells past the edge drop off), then write into the
+            // freshly cleared slot. `insert_chars` handles the right-edge
+            // truncation and wide-pair sanitization.
+            self.insert_chars(width);
+        }
+
         let row = self.cursor.row;
         let column = self.cursor.column;
         // Overwriting either half of an existing wide pair must clear its
@@ -1672,6 +1699,12 @@ impl Terminal {
 
     pub fn set_osc52_read_enabled(&mut self, enabled: bool) {
         self.screen.set_osc52_read_enabled(enabled);
+    }
+
+    /// Set the scrollback retention cap in logical lines (`0` = unbounded). See
+    /// [`Screen::set_scrollback_limit`].
+    pub fn set_scrollback_limit(&mut self, limit: usize) {
+        self.screen.set_scrollback_limit(limit);
     }
 
     pub fn answer_clipboard_read(&mut self, selection: ClipboardSelection, text: &str) {

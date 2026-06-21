@@ -64,6 +64,9 @@ fn boost_is_monotonic_in_strength() {
 
 #[test]
 fn set_stem_darken_round_trips_and_clamps() {
+    // Mutates the process-global stem-darken gain; serialize against any test
+    // that builds a real atlas (which reads the global) via the shared lock.
+    let _guard = crate::test_lock::render_globals_lock();
     // Minimal global-seam check: set, read back, restore — no atlas build
     // between set and restore, so the non-zero window cannot affect other
     // tests' presence/relative coverage assertions.

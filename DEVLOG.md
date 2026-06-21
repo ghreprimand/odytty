@@ -7,6 +7,75 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Pre-publicity hardening: bounded scrollback, deterministic tests, IRM, min_contrast 16
+
+A pre-publicity audit (artifact `pre-publicity-audit.md`) flagged two release
+blockers and a couple of smaller gaps; all are now closed.
+
+**1. Bounded scrollback (was unbounded — OOM risk).** `Scrollback` stored
+logical lines in an uncapped `Vec`, so any process streaming endless output
+(`yes`, `cat bigfile`, a runaway loop) grew memory until the OS OOM-killed
+OdyTTY. Added a `scrollback_lines` setting (`ODYTTY_SCROLLBACK_LINES`, default
+**10,000** logical lines; `0` = unbounded) that evicts oldest history in
+`push_row` past the cap, plus a defensive per-line cell ceiling (`1<<20` cells)
+that bounds the pathological no-terminator stream (`cat /dev/zero`, one
+ever-open logical line). The cap is wired through the core
+(`Terminal::set_scrollback_limit` → `Screen` → `Scrollback`), preserved across
+alternate-screen entry/exit, applied to **every** session (background tabs
+included, since a background `yes` must stay bounded too), and live-reloadable —
+lowering it trims existing history at once. The differential reflow-parity suite
+is unperturbed (the test-only `from_physical` builder stays unbounded). +6 core
+tests.
+
+**2. Non-deterministic test suite (flaked under parallel `cargo test`).** The
+minimum-contrast floor is a process-global atomic mutated by tests in six files
+with no serialization; on a clean tree `cargo test` failed ~1 run in 2
+(`grid::…underline_color_truecolor_passthrough_at_default_floor`, observed 7.0
+vs expected 1.0). The root villain set the global to `DEFAULT_MIN_CONTRAST` and
+**left it there**, contaminating every test that asserts the 1.0 passthrough
+baseline. Added a single shared `#[cfg(test)] test_lock::render_globals_lock()`
+in `lib.rs`; every test that sets or reads `MIN_CONTRAST`/`STEM_DARKEN` now holds
+it and restores the 1.0/baseline value before releasing. Stress-tested: 16
+consecutive full-suite runs, 0 failures (was failing intermittently before).
+
+**3. IRM (insert/replace mode, ANSI mode 4) — was stubbed.** `CSI 4 h`/`CSI 4 l`
+were parsed but never acted on; OdyTTY was permanently replace-mode, which
+corrupts the incremental line redraw of editors that lean on IRM (notably
+Apple's `pico`/`nano` on macOS — confirmed not an issue on Linux, where readline
+repaints whole lines). Now insert mode shifts the cells at and right of the
+cursor toward the right edge (reusing the ICH shift, dropping cells past the
+edge, never wrapping); reset by RIS/DECSTR; DECRQM reports the live set/reset
+state (2/1) instead of the old "permanently reset" (4). +7 core tests; updated
+the existing DECRQM reporting test.
+
+**4. Default `min_contrast` 13.0 → 16.0** per operator request (a stronger
+fresh-install readability floor). Updated `DEFAULT_MIN_CONTRAST`, docs
+(`runtime-knobs.md`, `odytty.conf.example`), and the default-assertion test.
+
+**5. `TERM` decision closed.** Keeping `TERM=xterm-256color` +
+`COLORTERM=truecolor` — OdyTTY implements the xterm set and supersets it, and a
+custom `TERM=odytty` would break over SSH to any host lacking the terminfo entry
+for no gain. TODO item resolved; no custom terminfo entry.
+
+**6. Polish.** Ran `cargo clippy --fix` across lib/tests/all-targets (autofixed
+`cli.rs`, `protocol_fuzz.rs`, `perf` bench, glyph/mouse tests); added the
+codebase-standard `#[allow(clippy::too_many_arguments)]` to the one helper my
+change pushed to 8 args; cleaned the two warnings adjacent to my edits
+(unused `with_limit`/`limit` now used in production via alt-screen limit
+preservation; a pre-existing identical-if-blocks in `enter_alternate`
+simplified). My touched files are clippy-clean. ~90 pre-existing
+manual-judgment lints elsewhere in the tree (large enum variants, collapsible
+ifs, derivable impls) are left for a dedicated cleanup packet rather than a
+large risky diff right before publicity. Rebuilt the release binary (now
+correctly reports `0.2.0`).
+
+Gates: `cargo fmt --check` clean; full `cargo test` green (1883 lib pass / 7
+ignored, +13 net new tests) across 16 consecutive runs; release build clean.
+Privacy sweep over the diff: no secrets, paths, or local-only data. Docs
+reconciled (`README.md`, `SPEC.md`, `TODO.md`, `docs/`). Landed on `master`.
+
+---
+
 ## 2026-06-20 -- Released v0.2.0 (source-only); GitHub releases pruned to v0.2.0 only
 
 Tagged and published **v0.2.0** — the first source-build-only release. The

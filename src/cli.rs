@@ -133,7 +133,7 @@ pub fn list_fonts_output_for_entries(entries: Vec<FontInventoryEntry>) -> String
 
 /// Machine-friendly built-in theme inventory.
 pub fn list_themes_output() -> String {
-    let mut themes = theme::all().iter().copied().collect::<Vec<_>>();
+    let mut themes = theme::all().to_vec();
     themes.sort_by_key(|theme| theme.name);
 
     let mut out = String::new();

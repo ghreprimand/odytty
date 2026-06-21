@@ -15,11 +15,11 @@ use super::{
     CVD_STRENGTH_ENV, FOCUS_DIM_ENV, FOLLOW_OS_THEME_ENV, FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV,
     FONT_WEIGHT_ENV, GEOMETRIC_BOXDRAW_ENV, KEYBINDS_ENV, MIN_CONTRAST_ENV, NATIVE_AUTOCLOSE_ENV,
     NEW_OUTPUT_FADE_ENV, OS_THEME_DARK_ENV, OS_THEME_LIGHT_ENV, OSC52_READ_ENV, RENDER_QUALITY_ENV,
-    RETRO_ENV, SCROLL_DRAG_SPEED_ENV, SCROLL_WHEEL_LINES_ENV, SCROLLBAR_DRAG_ENV,
-    SELECTION_DRAG_EXTEND_ENV, SH_CLICK_ENV, SMOOTH_SCROLL_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV,
-    SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV,
-    THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV,
-    WINDOW_DECORATIONS_ENV, WINDOW_PADDING_ENV, normalize_name,
+    RETRO_ENV, SCROLL_DRAG_SPEED_ENV, SCROLL_WHEEL_LINES_ENV, SCROLLBACK_LINES_ENV,
+    SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV, SH_CLICK_ENV, SMOOTH_SCROLL_ENV,
+    STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYMBOL_MAP_ENV,
+    SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV,
+    WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV, WINDOW_PADDING_ENV, normalize_name,
 };
 use super::{BOX_THICKNESS_ENV, LINE_HEIGHT_ENV};
 #[derive(Debug, Clone, Default)]
@@ -143,6 +143,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "scrollwheellines" | "wheellines" | "scrollspeed" | "scrollwheelspeed" => {
             Some(SCROLL_WHEEL_LINES_ENV)
         }
+        "scrollbacklines" | "scrollback" | "scrollbacklimit" | "historylines" => {
+            Some(SCROLLBACK_LINES_ENV)
+        }
         "scrolldragspeed" | "dragscrollspeed" | "autoscrollspeed" | "dragautoscroll" => {
             Some(SCROLL_DRAG_SPEED_ENV)
         }
@@ -216,6 +219,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         OSC52_READ_ENV => Some("osc52_read"),
         SYNTHETIC_STYLES_ENV => Some("synthetic_styles"),
         SCROLL_WHEEL_LINES_ENV => Some("scroll_wheel_lines"),
+        SCROLLBACK_LINES_ENV => Some("scrollback_lines"),
         SCROLL_DRAG_SPEED_ENV => Some("scroll_drag_speed"),
         COPY_ON_SELECT_ENV => Some("copy_on_select"),
         SELECTION_DRAG_EXTEND_ENV => Some("selection_drag_extend"),

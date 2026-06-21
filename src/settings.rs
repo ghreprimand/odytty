@@ -682,6 +682,12 @@ pub struct Settings {
     /// rounds it to a `usize >= 1` for the wheel path. Affects local viewport
     /// scroll only — never the TUI mouse-reporting path.
     pub scroll_wheel_lines: f32,
+    /// Scrollback retention cap in logical lines (SCROLLBACK-CAP). Default
+    /// `10000.0`. Bounds steady-state memory so unbounded output cannot OOM the
+    /// process. Stored as `f32` to ride the shared numeric-setting model;
+    /// [`Settings::scrollback_limit`] rounds it to a `usize` for the core. `0`
+    /// means unbounded. Live-reloadable; lowering it trims history immediately.
+    pub scrollback_lines: f32,
     /// Drag-edge autoscroll speed profile (MOUSE-AUTOSCROLL-VEL). `Ramp` (the
     /// default) accelerates the autoscroll step with overshoot past the edge
     /// band, capped at [`MAX_AUTOSCROLL_ROWS`]; `Legacy` pins it to a fixed one
@@ -844,6 +850,7 @@ impl Default for Settings {
             symbol_map: crate::text::SymbolMap::new(),
             themed_ui_roles: true,
             scroll_wheel_lines: DEFAULT_SCROLL_WHEEL_LINES,
+            scrollback_lines: DEFAULT_SCROLLBACK_LINES,
             scroll_drag_speed: ScrollDragSpeed::default(),
             copy_on_select: DEFAULT_COPY_ON_SELECT,
             selection_drag_extend: DEFAULT_SELECTION_DRAG_EXTEND,
@@ -971,6 +978,18 @@ impl Settings {
     /// `3.0` returns `3`, byte-identical to the historical fixed step.
     pub fn scroll_wheel_step(&self) -> usize {
         (self.scroll_wheel_lines.round() as i64).max(1) as usize
+    }
+
+    /// Scrollback retention cap in logical lines for the core (`0` = unbounded).
+    /// Rounds and floors the stored `f32`; a negative or non-finite value (which
+    /// the parser already rejects) collapses to `0`.
+    pub fn scrollback_limit(&self) -> usize {
+        let rounded = self.scrollback_lines.round();
+        if rounded.is_finite() && rounded > 0.0 {
+            rounded as usize
+        } else {
+            0
+        }
     }
 
     /// Upper bound on rows advanced per drag-edge autoscroll tick
@@ -1294,6 +1313,8 @@ impl Settings {
         );
         let scroll_wheel_lines =
             parse_scroll_wheel_lines(get(SCROLL_WHEEL_LINES_ENV).as_deref(), &mut warn);
+        let scrollback_lines =
+            parse_scrollback_lines(get(SCROLLBACK_LINES_ENV).as_deref(), &mut warn);
         let scroll_drag_speed =
             parse_scroll_drag_speed(get(SCROLL_DRAG_SPEED_ENV).as_deref(), &mut warn);
         let smooth_scroll = parse_bool_setting(
@@ -1435,6 +1456,7 @@ impl Settings {
             symbol_map,
             themed_ui_roles,
             scroll_wheel_lines,
+            scrollback_lines,
             scroll_drag_speed,
             copy_on_select,
             selection_drag_extend,
@@ -1571,6 +1593,7 @@ impl Settings {
             SCROLL_WHEEL_LINES_ENV,
             format_float(self.scroll_wheel_lines),
         );
+        values.insert(SCROLLBACK_LINES_ENV, format_float(self.scrollback_lines));
         values.insert(
             SCROLL_DRAG_SPEED_ENV,
             self.scroll_drag_speed.as_str().to_owned(),

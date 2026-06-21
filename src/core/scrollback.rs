@@ -89,11 +89,33 @@ impl Projection {
     }
 }
 
+/// Default maximum number of logical lines retained in scrollback. Each scrolled
+/// -off hard-terminated line is one logical line, so this is the user-facing
+/// "lines of history" cap. Chosen to match the common terminal default (xterm,
+/// kitty, alacritty all default near this) and bounds steady-state memory: at
+/// ~36 B/cell and 80 columns a logical line is ~2.9 KB, so 10k lines is ~28 MB
+/// of scrollback before projection. Without a cap, a process that streams
+/// unbounded output (`yes`, `cat bigfile`, a runaway loop) would grow OdyTTY's
+/// memory until the OS OOM-killed it. See [`Scrollback::push_row`].
+pub(in crate::core) const DEFAULT_SCROLLBACK_LIMIT: usize = 10_000;
+
+/// Defensive ceiling on the cell count of a *single* logical line. The line cap
+/// counts hard-terminated lines, so a stream with no line terminator at all
+/// (e.g. `cat /dev/zero`) would otherwise grow one ever-open logical line
+/// without bound. When an open line exceeds this many cells, the oldest cells
+/// are dropped from its front (equivalent to that history scrolling away). The
+/// bound is generous (1,048,576 cells ≈ 36 MB) so it never trims realistic
+/// content; it exists purely to keep the pathological no-newline case bounded.
+const MAX_LOGICAL_LINE_CELLS: usize = 1 << 20;
+
 /// Logical-line scrollback with a lazily-(re)built physical projection.
 #[derive(Debug, Clone)]
 pub(in crate::core) struct Scrollback {
     lines: Vec<LogicalLine>,
     cache: RefCell<Projection>,
+    /// Maximum retained logical lines; oldest are evicted past this in
+    /// [`Scrollback::push_row`]. `0` means unbounded (history is never trimmed).
+    limit: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -115,15 +137,42 @@ impl Scrollback {
         Self {
             lines: Vec::new(),
             cache: RefCell::new(Projection::empty()),
+            limit: DEFAULT_SCROLLBACK_LIMIT,
         }
     }
 
-    /// Build a store from physical rows (test oracle helper).
+    /// Build a store with an explicit logical-line limit (`0` = unbounded).
+    pub(in crate::core) fn with_limit(limit: usize) -> Self {
+        Self {
+            lines: Vec::new(),
+            cache: RefCell::new(Projection::empty()),
+            limit,
+        }
+    }
+
+    /// The active logical-line limit (`0` = unbounded).
+    pub(in crate::core) fn limit(&self) -> usize {
+        self.limit
+    }
+
+    /// Set the logical-line limit and immediately trim any excess history so a
+    /// lowered limit takes effect at once. `0` disables trimming (unbounded).
+    pub(in crate::core) fn set_limit(&mut self, limit: usize) {
+        self.limit = limit;
+        if self.enforce_limit() {
+            self.invalidate();
+        }
+    }
+
+    /// Build a store from physical rows (test oracle helper). Unbounded so the
+    /// differential reflow-parity suite compares pure re-wrap behavior without
+    /// the eviction cap perturbing large corpora.
     #[cfg(test)]
     pub(in crate::core) fn from_physical(rows: &[Line]) -> Self {
         Self {
             lines: logical_from_physical(rows),
             cache: RefCell::new(Projection::empty()),
+            limit: 0,
         }
     }
 
@@ -171,7 +220,34 @@ impl Scrollback {
                 prompt_mark: row.prompt_mark,
             });
         }
+        self.enforce_limit();
         self.invalidate();
+    }
+
+    /// Evict oldest history so the store stays within `limit` logical lines and
+    /// no single (open) logical line exceeds [`MAX_LOGICAL_LINE_CELLS`] cells.
+    /// Returns `true` if anything was trimmed. Called after every `push_row` and
+    /// on `set_limit`; a `0` limit only enforces the per-line cell ceiling.
+    fn enforce_limit(&mut self) -> bool {
+        let mut trimmed = false;
+
+        if self.limit != 0 && self.lines.len() > self.limit {
+            let excess = self.lines.len() - self.limit;
+            self.lines.drain(0..excess);
+            trimmed = true;
+        }
+
+        // Bound the pathological no-terminator case: a never-closed leading
+        // logical line accreting cells forever. Drop oldest cells from its front.
+        if let Some(first) = self.lines.first_mut()
+            && first.cells.len() > MAX_LOGICAL_LINE_CELLS
+        {
+            let drop = first.cells.len() - MAX_LOGICAL_LINE_CELLS;
+            first.cells.drain(0..drop);
+            trimmed = true;
+        }
+
+        trimmed
     }
 
     /// Clear all scrollback.

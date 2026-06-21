@@ -13,7 +13,9 @@
 
 use super::reflow::{reflow_lines, resize_keep_width};
 use super::screen::{Line, Terminal, blank_row};
-use super::scrollback::{Scrollback, logical_from_physical, project_logical, resize_lazy};
+use super::scrollback::{
+    DEFAULT_SCROLLBACK_LIMIT, Scrollback, logical_from_physical, project_logical, resize_lazy,
+};
 use super::search::SearchOptions;
 use super::types::{Attrs, Cell, Dimensions, Position};
 
@@ -467,4 +469,89 @@ fn resize_parity_repeated() {
     let oracle_cursor = resize_keep_width(&mut oracle_sb, &mut oracle_vis, dims, cur);
     assert_eq!(oracle_vis, vis, "stable visible under no-op eager reflow");
     assert_eq!(oracle_cursor, cur, "stable cursor under no-op eager reflow");
+}
+
+// --- Bounded-scrollback eviction (OOM guard) ---------------------------------
+
+#[test]
+fn push_row_evicts_oldest_past_the_limit() {
+    let mut sb = Scrollback::with_limit(3);
+    for i in 0..3 {
+        sb.push_row(content(&i.to_string()));
+    }
+    assert_eq!(sb.physical_len(W), 3);
+    // A fourth hard line drops the oldest; the window holds the newest three.
+    sb.push_row(content("3"));
+    let rows = sb.physical(W);
+    assert_eq!(rows.len(), 3);
+    assert_eq!(rows[0], content("1"));
+    assert_eq!(rows[2], content("3"));
+}
+
+#[test]
+fn unbounded_limit_never_trims() {
+    let mut sb = Scrollback::with_limit(0);
+    for i in 0..5000 {
+        sb.push_row(content_w(&(i % 10).to_string(), W));
+    }
+    assert_eq!(sb.physical_len(W), 5000);
+}
+
+#[test]
+fn lowering_the_limit_trims_existing_history_immediately() {
+    let mut sb = Scrollback::with_limit(0);
+    for i in 0..100 {
+        sb.push_row(content(&(i % 10).to_string()));
+    }
+    assert_eq!(sb.physical_len(W), 100);
+    sb.set_limit(10);
+    assert_eq!(sb.physical_len(W), 10);
+    // The retained window is the newest 10 lines.
+    let rows = sb.physical(W);
+    assert_eq!(rows[0], content("0")); // line 90 → '0'
+    assert_eq!(rows[9], content("9")); // line 99 → '9'
+}
+
+#[test]
+fn default_limit_is_the_documented_cap() {
+    let sb = Scrollback::new();
+    assert_eq!(sb.limit(), DEFAULT_SCROLLBACK_LIMIT);
+    let mut sb = Scrollback::new();
+    for _ in 0..(DEFAULT_SCROLLBACK_LIMIT + 250) {
+        sb.push_row(content("x"));
+    }
+    assert_eq!(sb.physical_len(W), DEFAULT_SCROLLBACK_LIMIT);
+}
+
+#[test]
+fn open_logical_line_is_bounded_without_a_terminator() {
+    // A never-terminated (always-wrapped) stream is one open logical line. The
+    // per-line cell ceiling keeps it bounded even though the line count is 1.
+    let mut sb = Scrollback::with_limit(10_000);
+    // 200k wrapped rows of width W → 1.6M cells in a single open line, above the
+    // 1<<20 (1.05M) cell ceiling, so the front is trimmed.
+    for _ in 0..200_000 {
+        sb.push_row(wrapped_full('z'));
+    }
+    let total_cells: usize = sb.physical(W).iter().map(|r| r.cells.len()).sum();
+    assert!(
+        total_cells <= (1 << 20) + W,
+        "open line must stay bounded, got {total_cells} cells"
+    );
+}
+
+#[test]
+fn terminal_set_scrollback_limit_caps_live_history() {
+    let mut term = Terminal::new(W, 3);
+    term.set_scrollback_limit(5);
+    // Emit 50 newline-terminated lines; only 3 fit on the grid, the rest scroll
+    // into the capped scrollback.
+    for i in 0..50 {
+        term.advance(format!("L{i}\r\n").as_bytes());
+    }
+    assert!(
+        term.screen().scrollback_len() <= 5,
+        "scrollback_len {} exceeded cap",
+        term.screen().scrollback_len()
+    );
 }

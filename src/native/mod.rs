@@ -146,6 +146,9 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         }),
     );
     model.set_osc52_read_enabled(settings.osc52_read);
+    // Bound scrollback memory from the start so the very first session is capped
+    // before any output streams in (`0` = unbounded). See SCROLLBACK-CAP.
+    model.set_scrollback_limit(settings.scrollback_limit());
     // Apply the host default cursor shape/blink policy from settings before any
     // output. An application's DECSCUSR can still override this at runtime; RIS/
     // DECSTR return to it. Presentation policy only — the grid contents are

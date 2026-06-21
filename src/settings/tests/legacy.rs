@@ -155,6 +155,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "cursor_motion",
             "keybinds",
             "scroll_wheel_lines",
+            "scrollback_lines",
             "selection_drag_extend",
             "scroll_drag_speed",
             "smooth_scroll",
@@ -870,7 +871,7 @@ fn stem_darken_clamps_to_unit_range() {
 fn min_contrast_defaults_to_strong_floor() {
     let (settings, warnings) = settings_from([]);
     assert_eq!(settings.min_contrast, DEFAULT_MIN_CONTRAST);
-    assert_eq!(settings.min_contrast, 13.0);
+    assert_eq!(settings.min_contrast, 16.0);
     assert!(warnings.is_empty());
 }
 

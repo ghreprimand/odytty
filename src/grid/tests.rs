@@ -402,6 +402,8 @@ fn underline_attribute_appends_thin_solid_quad() {
 
 #[test]
 fn underline_color_uses_sgr_58_when_set() {
+    // Asserts exact passthrough color; serialize against the floor mutators.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -427,6 +429,9 @@ fn underline_color_uses_sgr_58_when_set() {
 /// interleave with the single owned global-mutator test).
 #[test]
 fn underline_color_truecolor_passthrough_at_default_floor() {
+    // Reads the process-global floor at its 1.0 baseline; serialize against the
+    // floor mutators so a concurrent set cannot be observed mid-window.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -594,6 +599,8 @@ fn dim_attribute_scales_effective_foreground() {
 ///    still lifts it, confirming it runs last and wins by construction.
 #[test]
 fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
+    // Mutates the process-global floor; serialize against every other floor test.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;

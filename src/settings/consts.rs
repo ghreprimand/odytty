@@ -51,6 +51,7 @@ pub const SYMBOL_FONT_ENV: &str = "ODYTTY_SYMBOL_FONT";
 pub const SYMBOL_MAP_ENV: &str = "ODYTTY_SYMBOL_MAP";
 pub const THEMED_UI_ROLES_ENV: &str = "ODYTTY_THEMED_UI_ROLES";
 pub const SCROLL_WHEEL_LINES_ENV: &str = "ODYTTY_SCROLL_WHEEL_LINES";
+pub const SCROLLBACK_LINES_ENV: &str = "ODYTTY_SCROLLBACK_LINES";
 pub const SCROLL_DRAG_SPEED_ENV: &str = "ODYTTY_SCROLL_DRAG_SPEED";
 pub const SMOOTH_SCROLL_ENV: &str = "ODYTTY_SMOOTH_SCROLL";
 pub const COPY_ON_SELECT_ENV: &str = "ODYTTY_COPY_ON_SELECT";
@@ -122,6 +123,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SYMBOL_MAP_ENV,
     THEMED_UI_ROLES_ENV,
     SCROLL_WHEEL_LINES_ENV,
+    SCROLLBACK_LINES_ENV,
     SCROLL_DRAG_SPEED_ENV,
     SMOOTH_SCROLL_ENV,
     COPY_ON_SELECT_ENV,
@@ -166,7 +168,7 @@ pub const MAX_STEM_DARKEN: f32 = 1.0;
 /// render illegibly low-contrast text (RV1). The default is an assertive
 /// readability floor; `1.0` disables the floor and is pixel-identical to the
 /// pre-feature renderer. The lift moves only perceptual lightness, preserving hue.
-pub const DEFAULT_MIN_CONTRAST: f32 = 13.0;
+pub const DEFAULT_MIN_CONTRAST: f32 = 16.0;
 pub const MIN_MIN_CONTRAST: f32 = 1.0;
 pub const MAX_MIN_CONTRAST: f32 = 21.0;
 
@@ -243,6 +245,17 @@ pub const MAX_BOX_THICKNESS: f32 = 3.0;
 pub const DEFAULT_SCROLL_WHEEL_LINES: f32 = 3.0;
 pub const MIN_SCROLL_WHEEL_LINES: f32 = 1.0;
 pub const MAX_SCROLL_WHEEL_LINES: f32 = 10.0;
+
+/// Scrollback retention cap (`ODYTTY_SCROLLBACK_LINES`): the maximum number of
+/// logical (hard-terminated) lines kept in history before the oldest are
+/// evicted. Bounds steady-state memory so a process streaming unbounded output
+/// cannot grow OdyTTY until the OS OOM-kills it. The default matches the common
+/// terminal default; `0` means unbounded (no cap — use with care). Stored as
+/// `f32` to ride the shared numeric-setting model; the core rounds it to a
+/// `usize`. Live-reloadable: lowering it trims existing history immediately.
+pub const DEFAULT_SCROLLBACK_LINES: f32 = 10_000.0;
+pub const MIN_SCROLLBACK_LINES: f32 = 0.0;
+pub const MAX_SCROLLBACK_LINES: f32 = 1_000_000.0;
 
 /// Upper bound on the rows the drag-edge autoscroll advances per ~80 ms tick
 /// when the velocity ramp is active (`ODYTTY_SCROLL_DRAG_SPEED=ramp`,

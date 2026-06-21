@@ -24,7 +24,7 @@ theme = odyssey
 font_family = JetBrains Mono
 font_size = 22
 render_quality = balanced
-min_contrast = 13.0
+min_contrast = 16.0
 ```
 
 Blank lines are ignored. Duplicate keys are allowed; the last valid value wins.
@@ -52,7 +52,7 @@ environment variable was not set at startup.
 | `line_height` | `ODYTTY_LINE_HEIGHT` | Float, `1.0..=2.0` | `1.0` |
 | `text_gamma` | `ODYTTY_TEXT_GAMMA` | Float, `0.5..=3.0` | `1.5` |
 | `stem_darken` | `ODYTTY_STEM_DARKEN` | Float, `0.0..=1.0` | `0.5` |
-| `min_contrast` | `ODYTTY_MIN_CONTRAST` | WCAG contrast ratio, `1.0..=21.0` | `13.0` |
+| `min_contrast` | `ODYTTY_MIN_CONTRAST` | WCAG contrast ratio, `1.0..=21.0` | `16.0` |
 | `focus_dim` | `ODYTTY_FOCUS_DIM` | Float, `0.0..=1.0` | `0.0` |
 | `render_quality` | `ODYTTY_RENDER_QUALITY` | `plain`, `balanced`, `high` | `balanced` |
 | `window_padding` | `ODYTTY_WINDOW_PADDING` | Float, `0.0..=64.0` px | `4.0` |
@@ -90,6 +90,7 @@ environment variable was not set at startup.
 | `new_output_fade` | `ODYTTY_NEW_OUTPUT_FADE` | `on`, `off` | `off` |
 | `keybinds` | `ODYTTY_KEYBINDS` | `chord=action` list | empty |
 | `scroll_wheel_lines` | `ODYTTY_SCROLL_WHEEL_LINES` | Float, `1.0..=10.0` lines | `3.0` |
+| `scrollback_lines` | `ODYTTY_SCROLLBACK_LINES` | Integer lines, `0..=1000000` (`0` = unlimited) | `10000` |
 | `scroll_drag_speed` | `ODYTTY_SCROLL_DRAG_SPEED` | `ramp`, `legacy` | `ramp` |
 | `smooth_scroll` | `ODYTTY_SMOOTH_SCROLL` | `on`, `off` | `off` |
 | `selection_drag_extend` | `ODYTTY_SELECTION_DRAG_EXTEND` | `on`, `off` | `on` |

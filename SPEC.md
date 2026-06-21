@@ -530,6 +530,18 @@ its first stable layer.
   inverse; stream and exact extents via DECSACE); DECSCA character protection;
   DECSED/DECSEL selective erase; wide-pair edge sanitization
 - Lazy scrollback re-wrap and resize fast paths
+- Bounded scrollback (`scrollback_lines` / `ODYTTY_SCROLLBACK_LINES`, default
+  10,000 logical lines): oldest history is evicted past the cap so a process
+  streaming unbounded output cannot grow memory until the OS OOM-kills it. `0`
+  means unbounded. A defensive per-line cell ceiling bounds the pathological
+  no-terminator stream (`cat /dev/zero`). Live-reloadable; lowering the cap
+  trims existing history immediately, and the cap applies to every session
+  (including background tabs), not just the focused one.
+- IRM (insert/replace mode, ANSI mode 4): `CSI 4 h` makes a printed glyph shift
+  the cells at and right of the cursor toward the right edge instead of
+  overwriting in place; `CSI 4 l` (the default) overwrites. Reset by RIS and
+  DECSTR; DECRQM reports the live set/reset state. Required by line editors such
+  as Apple's `pico`/`nano` that lean on IRM for incremental line redraw.
 - Theme system: full 16-color ANSI palette + semantic roles (cursor, selection,
   search highlight, reserved border/inactive) per theme; a curated,
   contrast-validated built-in library plus user `.theme` files through one

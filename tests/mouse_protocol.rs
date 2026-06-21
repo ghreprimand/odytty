@@ -172,7 +172,7 @@ fn utf8_mouse_encoding_extends_legacy_coordinates_with_same_layout() {
         report(protocol, MouseButton::Left, MouseEventKind::Press, 224, 224),
         Some(vec![0x1b, b'[', b'M', b' ', 0xc4, 0x80, 0xc4, 0x80])
     );
-    assert_eq!(
+    assert!(
         report(
             protocol,
             MouseButton::Left,
@@ -181,8 +181,7 @@ fn utf8_mouse_encoding_extends_legacy_coordinates_with_same_layout() {
             2015
         )
         .expect("maximum 1005 coordinate should encode")
-        .ends_with(&[0xdf, 0xbf, 0xdf, 0xbf]),
-        true
+        .ends_with(&[0xdf, 0xbf, 0xdf, 0xbf])
     );
     assert_eq!(
         report(

@@ -30,7 +30,7 @@ symbol_fallback = off
 
 # Readability and rendering.
 render_quality = balanced
-min_contrast = 13.0
+min_contrast = 16.0
 focus_dim = 0.0
 geometric_boxdraw = off
 box_thickness = 1.0
@@ -74,6 +74,9 @@ new_output_fade = off
 
 # Input, selection, and tabs.
 scroll_wheel_lines = 3
+# Lines of scrollback history retained before the oldest are dropped (0 =
+# unlimited; bounds memory so endless output cannot exhaust RAM).
+scrollback_lines = 10000
 scroll_drag_speed = ramp
 smooth_scroll = off
 selection_drag_extend = on

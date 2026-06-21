@@ -1795,13 +1795,15 @@ mod tests {
         assert!(dimmed[0] < c[0] && dimmed[1] < c[1] && dimmed[2] < c[2]);
     }
 
-    /// Exercises the process-global `MIN_CONTRAST` seam. Kept in one test so the
-    /// global mutation can't race a sibling, and restores the configured default.
+    /// Exercises the process-global `MIN_CONTRAST` seam. Serialized against every
+    /// other test that touches the floor via the shared render-globals lock, and
+    /// restores the `1.0` passthrough baseline (the static-init value every other
+    /// test expects) before releasing.
     #[test]
     fn enforce_contrast_rgba_seam_gates_on_the_global_floor() {
+        let _guard = crate::test_lock::render_globals_lock();
         let fg = [0.10, 0.10, 0.10, 0.5];
         let bg = [0.06, 0.06, 0.06, 1.0];
-        assert_eq!(min_contrast(), crate::settings::DEFAULT_MIN_CONTRAST);
 
         // Raising the floor lifts the low-contrast fg and preserves alpha.
         set_min_contrast(4.5);
@@ -1814,8 +1816,8 @@ mod tests {
         set_min_contrast(1.0);
         assert_eq!(enforce_contrast_rgba(fg, bg), fg);
 
-        // Restore the configured default for sibling tests.
-        set_min_contrast(crate::settings::DEFAULT_MIN_CONTRAST);
+        // Restore the passthrough baseline for sibling tests.
+        set_min_contrast(1.0);
     }
 
     #[test]
