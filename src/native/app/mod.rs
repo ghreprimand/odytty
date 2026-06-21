@@ -103,8 +103,8 @@ mod window_border;
 
 pub(in crate::native) use self::hints_ui::HintsUi;
 pub(in crate::native) use self::scroll_anim::ScrollAnimState as SessionScrollAnimState;
-pub(in crate::native) use self::tab_bar::TabBarSource;
-use self::tab_bar::{TAB_BAR_ROWS, TabBar, TabHit};
+pub(in crate::native) use self::tab_bar::{TAB_BAR_ROWS, TabBarSource};
+use self::tab_bar::{TabBar, TabHit};
 pub(in crate::native) use overlay_registry::ActiveModal;
 
 pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(150);

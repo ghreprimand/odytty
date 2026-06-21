@@ -567,8 +567,8 @@ its first stable layer.
   once two or more sessions exist. `Ctrl+Shift+T` opens a tab,
   `Ctrl+Shift+W` closes one, and `Ctrl+PageDown` / `Ctrl+PageUp` switch. The
   single-session view stays visually identical to the original full-grid view.
-  Current limitation: in-band image placements can sit one row high while the
-  tab bar is visible.
+  Inline graphics use the same reserved top-row offset as cell geometry, so
+  Kitty/Sixel placements remain aligned with text while the tab bar is visible.
 - Readability pipeline: visual enhancements are explicit settings with
   individual opt-outs, and `render_quality=plain` preserves the pixel-identical
   plain/fast path that bypasses extras. Three delivered knobs:

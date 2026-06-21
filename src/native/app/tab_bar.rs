@@ -39,7 +39,7 @@ use crate::theme::Srgb;
 // ---------------------------------------------------------------------------
 
 /// Physical-pixel row count the tab bar occupies (one cell-height row).
-pub(super) const TAB_BAR_ROWS: u32 = 1;
+pub(in crate::native) const TAB_BAR_ROWS: u32 = 1;
 
 // ---------------------------------------------------------------------------
 // Private geometry constants

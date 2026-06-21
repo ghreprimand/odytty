@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Tab-bar image placement alignment
+
+Closed the Stage 8 image-placement gap for tabs. The native GPU image layer now
+uses the same reserved tab-bar row offset as cell geometry, so in-band
+Kitty/Sixel placements stay aligned with text when two or more sessions show
+the tab bar. The regression test compares image placement Y origin against the
+tab-bar row reservation rather than a hard-coded offset.
+
+Docs no longer list the stale tab-bar image-offset limitation, and the Stage 8
+TODO item is checked.
+
+---
+
 ## 2026-06-21 -- Released v0.2.1 (IRM insert-mode fix + hardening)
 
 Tagged **v0.2.1**, the first release since v0.2.0. The headline is a real

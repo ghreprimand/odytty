@@ -291,8 +291,9 @@ Animation and Kitty Unicode placeholders are not supported.
 The native app runs multiple sessions. `Ctrl+Shift+T` opens a new tab,
 `Ctrl+Shift+W` closes the active tab, and `Ctrl+PageDown` /
 `Ctrl+PageUp` switch tabs. The tab bar appears when two or more sessions exist;
-a single shell keeps the original full-grid view. Current limitation: in-band
-image placements can sit one row high while the tab bar is visible.
+a single shell keeps the original full-grid view. Inline graphics are offset by
+the same reserved tab-bar row as text, so Kitty/Sixel placements stay aligned
+with the visible grid while the bar is shown.
 
 Core local shortcuts:
 
@@ -397,8 +398,7 @@ in CI. Windows is not yet supported.
 
 **Known gaps:** Windows support, panes, profiles, session persistence, Kitty
 animation, Kitty Unicode placeholders, iTerm2 graphics, COLR/CPAL color fonts,
-broader ligature/stylistic-set shaping, custom tab-bar polish, and the current
-tab-bar image-placement offset issue.
+broader ligature/stylistic-set shaping, and custom tab-bar polish.
 
 The running history lives in [`DEVLOG.md`](DEVLOG.md). The current public
 roadmap lives in [`TODO.md`](TODO.md) and

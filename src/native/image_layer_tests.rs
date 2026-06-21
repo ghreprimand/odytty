@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use crate::atlas::CellSize;
 use crate::graphics::{GraphicsProtocol, PlacementId, SourceRect, StoredImageId, VisiblePlacement};
 
+use super::app::TAB_BAR_ROWS;
 use super::image_layer::{
     ImageUpload, cache_sync_plan, placement_quad, placement_quad_with_padding,
     placement_quad_with_padding_and_row_offset, visible_image_ids,
@@ -82,22 +83,26 @@ fn placement_geometry_is_offset_by_reserved_top_rows() {
     let mut placement = placement(2, 3, StoredImageId(7));
     placement.pixel_offset_x = 1;
     placement.pixel_offset_y = -2;
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let reserved_rows = TAB_BAR_ROWS as usize;
 
     let quad = placement_quad_with_padding_and_row_offset(
         &placement,
         20,
         12,
-        CellSize {
-            width: 8,
-            height: 16,
-            baseline: 12,
-        },
+        cell,
         WindowPadding::ZERO,
-        1,
+        reserved_rows,
     )
     .expect("quad");
 
-    assert_eq!(quad.rect, [25.0, 46.0, 45.0, 58.0]);
+    let cell_grid_y = (placement.row + reserved_rows) as f32 * cell.height as f32
+        + placement.pixel_offset_y as f32;
+    assert_eq!(quad.rect, [25.0, cell_grid_y, 45.0, cell_grid_y + 12.0]);
 }
 
 #[test]
