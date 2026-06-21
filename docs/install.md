@@ -2,7 +2,7 @@
 
 OdyTTY is pre-release. The current recommended release shape is:
 
-- `v0.2.0` git tag and source tarball;
+- `v0.2.1` git tag and source tarball;
 - GitHub Release entry with checksums for release artifacts;
 - source-build instructions for Odyssey/LFS and other developer systems;
 - a desktop entry, AppStream metadata, and icon installed into Freedesktop
@@ -94,7 +94,7 @@ installing each release under a versioned directory and pointing
 `~/.local/bin/odytty` at the selected version:
 
 ```sh
-version=0.2.0
+version=0.2.1
 cargo build --release --locked
 install -Dm755 target/release/odytty \
   "$HOME/.local/opt/odytty/$version/bin/odytty"
@@ -126,7 +126,7 @@ Example PKGBUILD:
 ```bash
 # Maintainer: Joel <joel@odyssey>
 pkgname=odytty
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc="GPU-rendered Rust terminal emulator with an Odyssey visual identity"
 arch=('x86_64')

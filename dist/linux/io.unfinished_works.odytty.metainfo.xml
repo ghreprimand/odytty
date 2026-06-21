@@ -32,6 +32,11 @@
   <url type="bugtracker">https://github.com/ghreprimand/odytty/issues</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.1" date="2026-06-21">
+      <description>
+        <p>Fixes insert/replace mode (IRM, ANSI mode 4): printing in insert mode now shifts existing cells to the right instead of overwriting them, so editors that rely on incremental line redraw — notably Apple's pico/nano on macOS — no longer corrupt the current line. Also bounds scrollback memory by default (a runaway program can no longer grow history until the system runs out of memory) and makes the test suite deterministic. No change to terminal behavior beyond the IRM fix.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-06-20">
       <description>
         <p>Adds a mouse-cursor shape (an I-beam over the text grid, a hand over hyperlinks, an arrow over chrome), fixes a stuck-underline bug from a misparsed private-mode escape sequence, and improves macOS symbol-glyph and color coverage. OdyTTY now ships as source only on both Linux and macOS: the prebuilt macOS disk image is retired in favor of a build-from-source flow, and both platforms are exercised in continuous integration.</p>

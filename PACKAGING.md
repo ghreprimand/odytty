@@ -1,7 +1,7 @@
 # Packaging OdyTTY
 
 OdyTTY is pre-release. The Linux release shape is a versioned source release
-(`v0.2.0`) plus desktop integration files that downstream packages can install
+(`v0.2.1`) plus desktop integration files that downstream packages can install
 in normal XDG locations.
 
 This file describes the packaging surface for the source tree it ships with.

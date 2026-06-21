@@ -2,10 +2,10 @@
 
 OdyTTY releases create both a source tag and a GitHub Release entry that package
 monitors can discover. The first public release was `v0.1.0`; the current
-release is `v0.2.0`, which adds a mouse-cursor shape, fixes a stuck-underline
-escape-sequence bug, improves macOS glyph coverage, and moves OdyTTY to a
-source-only distribution on both Linux and macOS. `Cargo.toml` must match the
-release version.
+release is `v0.2.1`, which fixes insert/replace mode (IRM) so editors like
+macOS pico/nano no longer overwrite text instead of inserting it, bounds
+scrollback memory by default, and makes the test suite deterministic.
+`Cargo.toml` must match the release version.
 
 OdyTTY ships as **source only**. A release publishes a source tarball plus
 `SHA256SUMS`; there is no prebuilt binary or disk image for any platform. The
@@ -19,8 +19,9 @@ for public repositories.
 
 - **`.github/workflows/ci.yml`** — on every push and pull request to `master`,
   builds and tests on `ubuntu-latest` and `macos-latest` (`cargo fmt --check`,
-  `cargo build --release --locked`, `cargo test --locked`). This is the
-  cross-platform correctness gate; it produces no artifacts.
+  `cargo build --release --locked`, `cargo clippy --all-targets --locked -- -D
+  warnings`, `cargo test --locked`). This is the cross-platform correctness
+  gate; it produces no artifacts.
 - **`.github/workflows/release.yml`** — on a `vX.Y.Z` tag push, creates the
   source tarball, computes `SHA256SUMS`, and publishes the GitHub Release
   automatically. Tag pushes are restricted to maintainers, so this never runs
@@ -34,7 +35,7 @@ run finishes).
 
 ## Current Release Readiness
 
-`v0.2.0` ships:
+`v0.2.1` ships:
 
 - plain `odytty` launches the native terminal;
 - `odytty -e command args...` executes a command directly in the initial PTY;

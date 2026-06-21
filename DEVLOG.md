@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Released v0.2.1 (IRM insert-mode fix + hardening)
+
+Tagged **v0.2.1**, the first release since v0.2.0. The headline is a real
+user-facing fix: insert/replace mode (IRM, ANSI mode 4) was stubbed, so on macOS
+`pico`/`nano` — which lean on IRM for incremental line redraw — typed text
+**overwrote** existing characters instead of **inserting** them. That landed in
+the pre-publicity hardening commit (`d477aa2`), which is an ancestor of `HEAD`
+but not of the `v0.2.0` tag, so it had never shipped in a tagged release.
+
+Bundled into the same release window since v0.2.0:
+
+- **IRM (insert/replace mode)** — `CSI 4 h` now shifts cells at and right of the
+  cursor toward the right edge instead of overwriting in place; `CSI 4 l`
+  restores overwrite. Fixes the macOS pico/nano corruption (Linux readline
+  repaints whole lines, so it was unaffected there).
+- **Bounded scrollback** — default 10,000-logical-line cap (`0` = unbounded)
+  closes an unbounded-memory/OOM risk for endless-output programs.
+- **Deterministic test suite** — a shared `test_lock` serializes the
+  process-global contrast/stem-darken floors that previously flaked under
+  parallel `cargo test`.
+- **min_contrast clamp at 16**, and a **warning-free `cargo clippy`** tree with a
+  new clippy CI gate (`-D warnings` on ubuntu + macOS).
+
+Version bumped to `0.2.1` in `Cargo.toml`/`Cargo.lock`; AppStream metainfo gains
+a `0.2.1` release entry; README/`docs/release.md`/`docs/install.md`/`PACKAGING.md`
+current-version references reconciled. Pushing the `v0.2.1` tag triggers
+`release.yml`, which publishes the source tarball + `SHA256SUMS`.
+
+**Verified before tag:** `cargo build --release --locked` clean,
+`cargo fmt --check` clean, `cargo clippy --all-targets --locked -- -D warnings`
+clean, full `cargo test` green (1883 passed, 7 ignored).
+
+---
+
 ## 2026-06-21 -- README hero image
 
 Added a sanitized showcase screenshot (`assets/demo.png`) and embedded it at the
