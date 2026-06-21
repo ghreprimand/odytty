@@ -1686,7 +1686,7 @@ fn symbol_map_round_trips_through_config_and_edit_values() {
 
     // An empty map is omitted from the edit values (nothing to persist).
     let empty = Settings::default();
-    assert!(empty.to_edit_values().get(SYMBOL_MAP_ENV).is_none());
+    assert!(!empty.to_edit_values().contains_key(SYMBOL_MAP_ENV));
 }
 
 #[test]
@@ -1742,8 +1742,8 @@ fn os_theme_round_trips_through_config_key_mapping() {
         default_values.get(FOLLOW_OS_THEME_ENV),
         Some(&"off".to_owned())
     );
-    assert!(default_values.get(OS_THEME_DARK_ENV).is_none());
-    assert!(default_values.get(OS_THEME_LIGHT_ENV).is_none());
+    assert!(!default_values.contains_key(OS_THEME_DARK_ENV));
+    assert!(!default_values.contains_key(OS_THEME_LIGHT_ENV));
 }
 
 #[test]

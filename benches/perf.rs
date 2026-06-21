@@ -366,7 +366,7 @@ fn gen_sgr_subparam(lines: usize) -> Vec<u8> {
             let b = ((row + col * 7) % 256) as u8;
             // 4:<style> extended underline, then 58:2:r:g:b colon underline color.
             s.push_str("\x1b[4:");
-            s.push_str(itoa({ (1 + (row + col) % 5) }).as_str());
+            s.push_str(itoa(1 + (row + col) % 5).as_str());
             s.push_str(";58:2:");
             s.push_str(itoa(r as usize).as_str());
             s.push(':');

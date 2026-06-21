@@ -666,6 +666,7 @@ fn create_bloom_source_bg(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_bloom_composite_bg(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,

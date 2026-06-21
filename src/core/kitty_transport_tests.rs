@@ -42,7 +42,7 @@ fn write_test_rgba_file(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir();
     let path = dir.join(name);
     let rgba = [0xFF_u8; 16]; // 2×2 white opaque
-    std::fs::write(&path, &rgba).unwrap();
+    std::fs::write(&path, rgba).unwrap();
     path
 }
 
@@ -170,7 +170,7 @@ fn file_transport_transmit_only() {
         0,
         "transmit-only: no placement"
     );
-    assert!(t.graphics().store().len() >= 1, "image stored");
+    assert!(!t.graphics().store().is_empty(), "image stored");
     std::fs::remove_file(&path).ok();
 }
 
@@ -211,7 +211,7 @@ fn file_transport_rejects_symlink() {
     let dir = std::env::temp_dir();
     let real = dir.join("odytty_g25_real_for_link.dat");
     let link = dir.join("odytty_g25_symlink.dat");
-    std::fs::write(&real, &[0xFF_u8; 16]).unwrap();
+    std::fs::write(&real, [0xFF_u8; 16]).unwrap();
     let _ = std::fs::remove_file(&link);
     #[cfg(unix)]
     std::os::unix::fs::symlink(&real, &link).unwrap();
@@ -271,7 +271,7 @@ fn temp_transport_rejects_symlink() {
     let dir = std::env::temp_dir();
     let real = dir.join("odytty_g25_temp_real.dat");
     let link = dir.join("odytty_g25_temp_link.dat");
-    std::fs::write(&real, &[0xFF_u8; 16]).unwrap();
+    std::fs::write(&real, [0xFF_u8; 16]).unwrap();
     let _ = std::fs::remove_file(&link);
     #[cfg(unix)]
     std::os::unix::fs::symlink(&real, &link).unwrap();
@@ -412,7 +412,7 @@ fn file_transport_rgb_format() {
     let dir = std::env::temp_dir();
     let path = dir.join("odytty_g25_rgb.dat");
     let rgb = [0xFF_u8; 12]; // 2×2 RGB (3 bytes per pixel)
-    std::fs::write(&path, &rgb).unwrap();
+    std::fs::write(&path, rgb).unwrap();
 
     let path_b64 = simple_base64(path.to_str().unwrap().as_bytes());
     let apc = format!("\x1b_Ga=T,t=f,f=24,s=2,v=2;{path_b64}\x1b\\").into_bytes();

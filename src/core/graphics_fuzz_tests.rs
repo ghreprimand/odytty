@@ -276,7 +276,7 @@ fn fuzz_chunked_stream(rng: &mut FuzzRng) -> Vec<u8> {
         out.extend_from_slice(b"\x1b\\");
         // Interleave unrelated sequences mid-transmission (the abuse case).
         if rng.below(3) == 0 {
-            let injected: &[u8] = *rng.pick(&[
+            let injected: &[u8] = rng.pick(&[
                 b"\x1b[31m".as_slice(),
                 b"hello".as_slice(),
                 b"\x1b[2J".as_slice(),
@@ -454,7 +454,7 @@ fn fuzz_sixel_body(rng: &mut FuzzRng) -> Vec<u8> {
     for _ in 0..ntokens {
         match rng.below(10) {
             // Data character (6-bit column), the common case.
-            0 | 1 | 2 | 3 => out.push(0x3F + (rng.byte() % 0x40)),
+            0..=3 => out.push(0x3F + (rng.byte() % 0x40)),
             // Bounded repeat: !<count<=64><data char>.
             4 => {
                 out.push(b'!');
@@ -524,7 +524,7 @@ fn fuzz_sixel_body_relaxed(rng: &mut FuzzRng) -> Vec<u8> {
     let mut out = Vec::with_capacity(ntokens * 4);
     for _ in 0..ntokens {
         match rng.below(8) {
-            0 | 1 | 2 => out.push(0x3F + (rng.byte() % 0x40)),
+            0..=2 => out.push(0x3F + (rng.byte() % 0x40)),
             // Large repeat: count up to ~12000 (clamped to MAX_WIDTH internally).
             // This is the Finding-2 incremental-width cliff — now amortized.
             3 | 4 => {

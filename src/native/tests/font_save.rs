@@ -45,8 +45,10 @@ fn saved_settings_apply_live_through_the_reload_seam() {
     );
 
     // The reloaded config (as Save re-reads from disk) carries a new font size.
-    let mut reloaded = Settings::default();
-    reloaded.font_size_px = target;
+    let reloaded = Settings {
+        font_size_px: target,
+        ..Default::default()
+    };
 
     // Drive the exact live-apply step Save performs after a successful write.
     app.apply_saved_settings_live_for_test(reloaded);

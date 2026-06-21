@@ -213,9 +213,8 @@ fn overlay_stepper_click_sets_once_and_cursor_move_is_inert() {
         !app.pending_overlay_settings_for_test(),
         "stepper click applies immediately instead of queuing drag updates"
     );
-    assert_eq!(
-        app.overlay_left_held_for_test(),
-        false,
+    assert!(
+        !app.overlay_left_held_for_test(),
         "left-held drag gate stays off for settings steppers"
     );
     let after_click = numeric_values(&app);

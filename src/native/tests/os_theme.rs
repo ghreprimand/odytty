@@ -21,8 +21,10 @@ fn build_app(theme: Theme) -> Option<App> {
     let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let pty = Arc::new(Mutex::new(session));
-    let mut settings = Settings::default();
-    settings.theme = theme;
+    let settings = Settings {
+        theme,
+        ..Default::default()
+    };
     let app = App::new(
         NativeOptions::default(),
         terminal,

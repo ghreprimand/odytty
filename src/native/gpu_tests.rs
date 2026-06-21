@@ -390,7 +390,7 @@ fn post_options_from_settings(settings: &Settings) -> post::PostProcessOptions {
 /// decoded PNG. Exercises `BgImageGpu::load` end-to-end — PNG decode + box blur
 /// + worst-case luminance scan + scrim uniform + WGSL shader compile + pipeline
 /// + bind group — against a live adapter, so a malformed shader or bind-group
-/// layout fails the suite rather than only at runtime.
+///   layout fails the suite rather than only at runtime.
 #[test]
 fn background_image_pipeline_builds_from_png() {
     // Mutates the process-global floor; serialize against every other floor test.
@@ -458,9 +458,7 @@ fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {
         compatible_surface: None,
     }))
     .ok()?;
-    if post::supported_format(&adapter).is_none() {
-        return None;
-    }
+    post::supported_format(&adapter)?;
     pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("odytty-test-device"),
         required_features: wgpu::Features::empty(),

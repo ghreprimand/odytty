@@ -58,7 +58,8 @@ fn directory_discovery_finds_noto_color_emoji_by_filename() {
     let font_path = nested.join("NotoColorEmoji.ttf");
     std::fs::write(&font_path, b"not a real font").expect("write marker");
 
-    let found = discover_noto_color_emoji_in(&[root.clone()]).expect("emoji path found");
+    let found =
+        discover_noto_color_emoji_in(std::slice::from_ref(&root)).expect("emoji path found");
     assert_eq!(found.path, font_path);
 
     let _ = std::fs::remove_dir_all(root);
@@ -75,7 +76,8 @@ fn directory_discovery_finds_apple_color_emoji_ttc() {
     let font_path = nested.join("Apple Color Emoji.ttc");
     std::fs::write(&font_path, b"not a real font").expect("write marker");
 
-    let found = discover_noto_color_emoji_in(&[root.clone()]).expect("apple emoji path found");
+    let found =
+        discover_noto_color_emoji_in(std::slice::from_ref(&root)).expect("apple emoji path found");
     assert_eq!(found.path, font_path);
 
     let _ = std::fs::remove_dir_all(root);

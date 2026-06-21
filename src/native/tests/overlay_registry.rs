@@ -386,10 +386,12 @@ fn cursor_anim_key_is_identity_when_both_features_off() {
 #[test]
 fn cursor_anim_key_quantization_polarity() {
     assert_eq!(CursorAnimKey::IDENTITY.offset_q, (0, 0));
-    assert!(
-        CursorAnimKey::IDENTITY.alpha_q > 0,
-        "full opacity quantizes to a non-zero bucket (1.0 is NOT inverted to invisible)"
-    );
+    const {
+        assert!(
+            CursorAnimKey::IDENTITY.alpha_q > 0,
+            "full opacity quantizes to a non-zero bucket (1.0 is NOT inverted to invisible)"
+        );
+    }
     let faded = CursorAnimKey::from_params(&CursorRenderParams {
         offset: [0.0, 0.0],
         alpha: 0.5,
@@ -420,8 +422,10 @@ fn cursor_anim_key_quantization_polarity() {
 /// scheduled separately, carries to the next edge).
 #[test]
 fn easing_fades_in_then_settles_to_opaque_and_stops_waking() {
-    let mut settings = Settings::default();
-    settings.cursor_easing = true;
+    let settings = Settings {
+        cursor_easing: true,
+        ..Default::default()
+    };
     let Some(mut app) = build_app(settings) else {
         return;
     };
@@ -454,8 +458,10 @@ fn easing_fades_in_then_settles_to_opaque_and_stops_waking() {
 /// waking once the glide completes (Trap #3 bounded wake after settle).
 #[test]
 fn motion_slides_between_adjacent_cells_then_settles() {
-    let mut settings = Settings::default();
-    settings.cursor_motion = true;
+    let settings = Settings {
+        cursor_motion: true,
+        ..Default::default()
+    };
     let Some(mut app) = build_app(settings) else {
         return;
     };
@@ -497,8 +503,10 @@ fn motion_slides_between_adjacent_cells_then_settles() {
 /// stale position.
 #[test]
 fn motion_snaps_on_first_frame() {
-    let mut settings = Settings::default();
-    settings.cursor_motion = true;
+    let settings = Settings {
+        cursor_motion: true,
+        ..Default::default()
+    };
     let Some(mut app) = build_app(settings) else {
         return;
     };
@@ -521,8 +529,10 @@ fn motion_snaps_on_first_frame() {
 /// than the slide cap teleports rather than gliding across the screen.
 #[test]
 fn motion_snaps_on_large_jump() {
-    let mut settings = Settings::default();
-    settings.cursor_motion = true;
+    let settings = Settings {
+        cursor_motion: true,
+        ..Default::default()
+    };
     let Some(mut app) = build_app(settings) else {
         return;
     };

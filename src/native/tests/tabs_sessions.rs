@@ -28,6 +28,7 @@ type SessionFixture = (
     Arc<Mutex<Vec<u8>>>,
 );
 
+#[allow(clippy::type_complexity)]
 fn recorded_session(
     dims: Dimensions,
 ) -> Option<(
@@ -67,9 +68,7 @@ fn app_with_two_sessions() -> Option<(App, [SessionFixture; 2])> {
 }
 
 fn tab_bar_app() -> Option<App> {
-    let Some((app, _fixtures)) = app_with_two_sessions() else {
-        return None;
-    };
+    let (app, _fixtures) = app_with_two_sessions()?;
     Some(app)
 }
 

@@ -49,8 +49,8 @@ pub(super) fn subpixel_cell_channels(atlas: &GlyphAtlas, uv: [f32; 4]) -> [u64; 
     for y in cy..cy + atlas.cell.height {
         for x in cx..cx + atlas.cell.width {
             let idx = ((y * atlas.width + x) * 4) as usize;
-            for c in 0..4 {
-                sum[c] += atlas.data[idx + c] as u64;
+            for (c, sum_c) in sum.iter_mut().enumerate() {
+                *sum_c += atlas.data[idx + c] as u64;
             }
         }
     }

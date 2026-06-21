@@ -283,7 +283,7 @@ fn apc_payload_is_surfaced() {
 #[test]
 fn apc_under_cap_is_surfaced_whole() {
     let mut input = b"\x1b_G".to_vec();
-    input.extend(std::iter::repeat(b'x').take(4096));
+    input.extend(std::iter::repeat_n(b'x', 4096));
     input.extend_from_slice(b"\x1b\\");
     let actions = drive(&input);
     match &actions[..] {
@@ -298,7 +298,7 @@ fn apc_under_cap_is_surfaced_whole() {
 #[test]
 fn apc_over_cap_is_dropped_not_truncated() {
     let mut input = b"\x1b_G".to_vec();
-    input.extend(std::iter::repeat(b'y').take((1 << 20) + 16));
+    input.extend(std::iter::repeat_n(b'y', (1 << 20) + 16));
     input.extend_from_slice(b"\x1b\\Z");
     let actions = drive(&input);
     assert!(

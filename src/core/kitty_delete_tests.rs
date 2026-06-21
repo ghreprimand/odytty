@@ -33,7 +33,9 @@ fn kitty_query_1x1() -> Vec<u8> {
 /// Build a Kitty APC query with bad payload (wrong size for 2×2).
 fn kitty_query_bad() -> Vec<u8> {
     // 2×2 RGBA needs 16 bytes, but we send only 3 decoded bytes (AAAA = 3 bytes)
-    format!("\x1b_Ga=q,f=32,s=2,v=2,i=99;AAAA\x1b\\").into_bytes()
+    "\x1b_Ga=q,f=32,s=2,v=2,i=99;AAAA\x1b\\"
+        .to_string()
+        .into_bytes()
 }
 
 /// Minimal base64 encoder for test payloads.
