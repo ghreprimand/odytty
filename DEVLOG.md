@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- SSH config parser substrate
+
+Added a pure, bounded OpenSSH config parser for the future SSH / connection
+manager. This packet does not wire runtime UI or settings.
+
+- `src/ssh_config.rs` reads only a caller-supplied path or caller-supplied
+  bytes. It never discovers `~/.ssh/config` itself and never follows `Include`.
+- Surfaced data is name-only for quick-connect display: concrete `Host` aliases
+  plus optional `HostName`, `User`, and `Port`. `IdentityFile`, certificate
+  paths, local commands, and all other directives are ignored and never exposed.
+- Bounds are explicit and documented in code: 256 KiB read cap, 1,024 returned
+  entries, and 512 characters per surfaced field by default. Oversized,
+  missing, non-file, malformed, and non-UTF-8 inputs degrade to an empty or
+  partial bounded list without panicking.
+- `Include` is skipped by design to avoid recursive or surprising filesystem
+  traversal. `Match` blocks are ignored until the next `Host` block because
+  their conditions are runtime-dependent. Wildcard and negated host patterns
+  are treated as defaults/patterns, not quick-connect entries.
+- Tests use synthetic fixtures only and include the privacy guard that key
+  directives such as `IdentityFile` are not surfaced.
+
 ## 2026-06-21 -- Native window-as-client live wiring (Phase 2)
 
 Made an attached session-host session a real live tab, completing the
