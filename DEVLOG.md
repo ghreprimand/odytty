@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Pane layout core (Phase 1a, pure/headless)
+
+Added `src/native/layout.rs`, the pure GPU-free geometry core for splits/panes
+per design doc §3.1/§4.3/§8. It owns the binary split-tree model
+(`PaneNode::{Leaf, Split{axis, ratio, first, second}}`, keyed by `SessionToken`)
+and the pure functions: `layout_rects` (tiles a content rect across leaves,
+flooring each `first` child to crisp integer-pixel boundaries with the `second`
+taking the exact remainder, so `first + divider + second` covers the parent with
+no gap/overlap), `divider_rects` (one themed-quad strip per split), `focus_move`
+(spatial-neighbor resolution over the rect list — nearest along the axis,
+tie-broken by perpendicular overlap), plus `grid_dims_for_rect` and the tree
+transforms `split_leaf`/`close_leaf` (collapses parent into sibling)/`equalized`/
+`next_leaf_after`. Ratios are clamped to `[0.05, 0.95]` so a pane can't collapse.
+
+24 headless unit tests cover ratio-tiling (columns/rows/nested), divider
+geometry/count, focus-neighbor directions + edges + single-pane, split/close
+collapse + no-op-on-absent-target, wrap-around next-pane, and equalize. The
+module has **zero call sites** (registered as `mod layout;`, gated with
+`#![allow(dead_code)]`) so the build and all existing behaviour are unchanged;
+Phase 1b builds `TabSet`/`Tab` around it.
+
+Verified: `cargo test --lib` 1927 passed / 0 failed (24 new + 1903 existing),
+`cargo fmt --check` clean, `cargo clippy --lib -- -D warnings` clean. Next: the
+1b arena/`TabSet` refactor (the §2.5 Deref audit list) + §9.5 `title_override`
+Session→Tab move.
+
+---
+
 ## 2026-06-21 -- Panes & sessions design doc (Phase 0)
 
 Added `docs/panes-and-sessions-design.md`, the Phase 0 decision record gating the

@@ -59,6 +59,7 @@ mod font_picker;
 mod gpu;
 mod image_layer;
 mod key_remap_ui;
+mod layout;
 mod onboarding;
 mod options;
 mod overlay;
