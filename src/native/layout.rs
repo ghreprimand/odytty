@@ -450,6 +450,97 @@ fn span_overlap(a0: f32, a1: f32, b0: f32, b1: f32) -> f32 {
     (a1.min(b1) - a0.max(b0)).max(0.0)
 }
 
+/// Hit-test a pixel point against the tree's pane dividers, returning the
+/// tree-order index (matching [`divider_rects`]) of the divider under the
+/// point, widened by `grab_px` on every side so a 1px hairline is actually
+/// grabbable. `None` when no divider is hit. Used to start a divider drag
+/// (design doc §4.2). Pure over the rect list so it is unit-testable headless.
+pub(super) fn divider_at_point(
+    tree: &PaneNode,
+    content: PaneRect,
+    divider_px: f32,
+    x: f32,
+    y: f32,
+    grab_px: f32,
+) -> Option<usize> {
+    divider_rects(tree, content, divider_px)
+        .into_iter()
+        .position(|d| {
+            x >= d.x - grab_px
+                && x <= d.x + d.w + grab_px
+                && y >= d.y - grab_px
+                && y <= d.y + d.h + grab_px
+        })
+}
+
+/// Drag the divider at tree-order `target` to the pixel point `(x, y)`,
+/// re-deriving that split's ratio from the point's position within the split's
+/// own rect and clamping it to `[MIN_RATIO, MAX_RATIO]`. Returns the new ratio
+/// when the target split exists, else `None` (and leaves the tree unchanged).
+/// The walk reproduces [`divider_rects`] pre-order numbering so the index a
+/// drag started from maps to the same split throughout the gesture.
+pub(super) fn drag_divider_to(
+    tree: &mut PaneNode,
+    content: PaneRect,
+    divider_px: f32,
+    target: usize,
+    x: f32,
+    y: f32,
+) -> Option<f32> {
+    let mut counter = 0usize;
+    drag_into(tree, content, divider_px, target, &mut counter, x, y)
+}
+
+fn drag_into(
+    node: &mut PaneNode,
+    rect: PaneRect,
+    divider_px: f32,
+    target: usize,
+    counter: &mut usize,
+    x: f32,
+    y: f32,
+) -> Option<f32> {
+    let PaneNode::Split {
+        axis,
+        ratio,
+        first,
+        second,
+    } = node
+    else {
+        return None;
+    };
+    let me = *counter;
+    *counter += 1;
+    if me == target {
+        let new_ratio = match axis {
+            SplitAxis::Columns => (x - rect.x) / (rect.w - divider_px).max(1.0),
+            SplitAxis::Rows => (y - rect.y) / (rect.h - divider_px).max(1.0),
+        };
+        let clamped = clamp_ratio(new_ratio);
+        *ratio = clamped;
+        return Some(clamped);
+    }
+    let (first_rect, second_rect) = split_rect(rect, *axis, *ratio, divider_px);
+    if let Some(found) = drag_into(first, first_rect, divider_px, target, counter, x, y) {
+        return Some(found);
+    }
+    drag_into(second, second_rect, divider_px, target, counter, x, y)
+}
+
+/// The pane token whose rect contains the pixel point, or `None` when the point
+/// falls in a divider gap or outside the content. Focus-follows-click resolves
+/// the clicked pane through this (design doc §4.3, audit row #6).
+pub(super) fn pane_at_point(
+    rects: &[(SessionToken, PaneRect)],
+    x: f32,
+    y: f32,
+) -> Option<SessionToken> {
+    rects
+        .iter()
+        .find(|(_, r)| x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
+        .map(|(token, _)| *token)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -870,5 +961,79 @@ mod tests {
             }
         }
         assert!(all_even(&eq));
+    }
+
+    // ----- divider drag / pane hit-test (1c-3b) -----
+
+    #[test]
+    fn divider_at_point_hits_the_grab_band_only() {
+        // Columns split at 0.5 → divider strip at x=399, width 1px.
+        let tree = PaneNode::leaf(tok(0)).split_leaf(tok(0), SplitAxis::Columns, 0.5, tok(1));
+        let c = content();
+        // Dead center of the strip hits.
+        assert_eq!(divider_at_point(&tree, c, 1.0, 399.5, 300.0, 4.0), Some(0));
+        // Within the grab band (4px) hits.
+        assert_eq!(divider_at_point(&tree, c, 1.0, 396.0, 10.0, 4.0), Some(0));
+        // Far from the divider misses.
+        assert_eq!(divider_at_point(&tree, c, 1.0, 100.0, 300.0, 4.0), None);
+        // A single pane has no dividers to hit.
+        let single = PaneNode::leaf(tok(0));
+        assert_eq!(divider_at_point(&single, c, 1.0, 399.5, 300.0, 4.0), None);
+    }
+
+    #[test]
+    fn drag_divider_to_sets_the_clamped_ratio() {
+        let mut tree = PaneNode::leaf(tok(0)).split_leaf(tok(0), SplitAxis::Columns, 0.5, tok(1));
+        let c = content(); // 800 wide
+        // Drag the column divider to x=200 → ratio ≈ 200/799.
+        let new = drag_divider_to(&mut tree, c, 1.0, 0, 200.0, 300.0).expect("split exists");
+        assert!((new - 200.0 / 799.0).abs() < 1e-4);
+        if let PaneNode::Split { ratio, .. } = &tree {
+            assert!((ratio - new).abs() < f32::EPSILON);
+        } else {
+            panic!("still a split");
+        }
+        // Dragging beyond the legal band clamps (x near 0 → MIN_RATIO).
+        let clamped = drag_divider_to(&mut tree, c, 1.0, 0, 1.0, 300.0).expect("split exists");
+        assert_eq!(clamped, MIN_RATIO);
+        // Unknown target index leaves the tree unchanged and returns None.
+        assert_eq!(drag_divider_to(&mut tree, c, 1.0, 9, 400.0, 300.0), None);
+    }
+
+    #[test]
+    fn drag_divider_targets_the_right_nested_split() {
+        // Columns(0) over Rows(1,2): divider 0 = column, divider 1 = inner row.
+        let mut tree = PaneNode::Split {
+            axis: SplitAxis::Columns,
+            ratio: 0.5,
+            first: Box::new(PaneNode::Leaf(tok(0))),
+            second: Box::new(PaneNode::Split {
+                axis: SplitAxis::Rows,
+                ratio: 0.5,
+                first: Box::new(PaneNode::Leaf(tok(1))),
+                second: Box::new(PaneNode::Leaf(tok(2))),
+            }),
+        };
+        let c = content(); // 800x600
+        // Drag the inner row divider (index 1) up to y=150 → ratio ≈ 150/599.
+        let new = drag_divider_to(&mut tree, c, 1.0, 1, 600.0, 150.0).expect("inner split");
+        assert!((new - 150.0 / 599.0).abs() < 1e-4);
+        // The outer column ratio is untouched.
+        if let PaneNode::Split { ratio, .. } = &tree {
+            assert!((ratio - 0.5).abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn pane_at_point_resolves_the_containing_pane() {
+        let tree = PaneNode::leaf(tok(0)).split_leaf(tok(0), SplitAxis::Columns, 0.5, tok(1));
+        let rects = layout_rects(&tree, content(), 1.0);
+        // Left half → pane 0; right half → pane 1.
+        assert_eq!(pane_at_point(&rects, 100.0, 300.0), Some(tok(0)));
+        assert_eq!(pane_at_point(&rects, 600.0, 300.0), Some(tok(1)));
+        // A point in the 1px divider gap (x=399) belongs to no pane.
+        assert_eq!(pane_at_point(&rects, 399.0, 300.0), None);
+        // Outside the content entirely.
+        assert_eq!(pane_at_point(&rects, 5000.0, 300.0), None);
     }
 }

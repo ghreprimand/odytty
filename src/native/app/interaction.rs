@@ -486,6 +486,15 @@ impl App {
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
         self.pointer_px = Some((x_px, y_px));
+        // While a divider is grabbed, pointer motion reflows the split and
+        // nothing else — no selection, hover, or cursor-icon work. `divider_drag`
+        // is only ever `Some` in a multi-pane tab, so the single-pane motion
+        // path below is byte-identical.
+        if self.divider_drag.is_some() {
+            self.drag_divider_to_pointer();
+            self.apply_cursor_icon(CursorIcon::Default);
+            return;
+        }
         let tab_bar_hit = if self.should_show_tab_bar() {
             let hit = self.tab_bar.hit_test(
                 x_px,

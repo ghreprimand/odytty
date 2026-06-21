@@ -65,7 +65,7 @@ use super::render_helpers::{
 };
 use super::theme_builder::{save_theme_to_dir, user_theme_dir_for_config};
 
-use self::panes::{PANE_DIVIDER_PX, pane_content_rect};
+use self::panes::{DIVIDER_GRAB_PX, PANE_DIVIDER_PX, pane_content_rect};
 pub(super) use super::cursor::{CURSOR_BLINK_INTERVAL, CursorBlinkState};
 pub(super) use super::resize::{
     PendingResize, RESIZE_DEBOUNCE_INTERVAL, ResizeDebouncer, pending_resize_for_surface,
@@ -242,6 +242,11 @@ pub(super) struct App {
     /// Linux clipboard contents remain served after Ctrl+Shift+C.
     clipboard: NativeClipboard,
     resize_debounce: ResizeDebouncer,
+    /// Active divider drag: the tree-order index of the active tab's divider the
+    /// pointer grabbed, while a left-drag is in progress (design doc §4.2). Only
+    /// ever `Some` inside a multi-pane tab; `None` otherwise, so the single-pane
+    /// pointer path is unaffected.
+    divider_drag: Option<usize>,
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
@@ -371,6 +376,7 @@ impl App {
             overlay,
             clipboard: NativeClipboard::default(),
             resize_debounce: ResizeDebouncer::new(RESIZE_DEBOUNCE_INTERVAL),
+            divider_drag: None,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
             bell_flash_start: None,

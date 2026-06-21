@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- divider drag + pointer hit-test (Phase 1c-3b)
+
+Wired the multi-pane pointer gestures (design doc §4.2/§4.3, §2.5 audit row #6).
+The single-pane pointer path stays byte-identical: every new branch is gated on
+`divider_drag.is_some()` or `multipane_geometry()` returning `Some`, both of
+which are only ever live inside a multi-pane tab.
+
+- Pure layout fns (`src/native/layout.rs`): `divider_at_point` (grab-band
+  hit-test returning a divider's tree-order index), `drag_divider_to`
+  (re-derives + clamps a target split's ratio from a pixel point, pre-order walk
+  matching `divider_rects` numbering), and `pane_at_point` (the pane rect
+  containing a point, `None` in a divider gap). Unit-tested headless.
+- TabSet bridges (`src/native/session.rs`): `active_divider_at_point`,
+  `drag_active_divider`, `active_pane_at_point` wrap the pure fns against the
+  active tab's layout tree. Three new unit tests cover focus-follows-click
+  resolution, the 6px grab band, and ratio reflow + out-of-range no-op.
+- App wiring: a left press in a multi-pane tab grabs a divider (→ `divider_drag`)
+  or focuses the clicked pane via `set_active_focus` (focus-follows-click, #6);
+  pointer motion while a divider is grabbed reflows the split directly
+  (`drag_divider_to_pointer` → per-pane `resize_all_panes`, not the window-resize
+  debouncer, since the whole-window grid is unchanged) and repaints; a left
+  release clears the drag. New App field `divider_drag: Option<usize>`.
+- Divider grab band: `DIVIDER_GRAB_PX = 6.0` widens the 1px hairline so it is
+  actually grabbable.
+
+Verified: `cargo test --lib` 1965 passed / 0 failed (+7 over 1c-3a), `cargo
+clippy --lib -- -D warnings` clean, `cargo fmt --check` clean.
+
+Known gap (render-box criterion, scoped to a follow-up): the **focused** pane in
+a multi-pane tab does not yet paint its own selection / search highlights.
+`rebuild_multipane` builds every `PaneRender` with `overlays: &[]`, and the
+cell-paints (`paint_selection_cells` / `paint_search_cells`) run off the
+App-level `overlay_ctx` (whole-window `self.grid`), which does not match a
+pane's smaller grid. Wiring a focused-pane-specific `OverlayCtx` (pane grid +
+scrollback) is its own packet. Per-pane Kitty/Sixel images remain a deferred
+fast-follow (unsplit tabs only for now), per the operator decision.
+
 ## 2026-06-21 -- multi-pane render dispatch + per-leaf resize (Phase 1c-3a)
 
 Wired the multi-pane render path: when the active tab holds more than one pane,

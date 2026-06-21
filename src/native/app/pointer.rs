@@ -40,6 +40,47 @@ impl App {
         if self.modal_captures_pointer() {
             return;
         }
+        // A left-release always ends an in-progress divider drag (design doc
+        // §4.2), before any other press routing. `divider_drag` is only ever
+        // `Some` inside a multi-pane tab, so the single-pane path is unaffected.
+        if self.divider_drag.is_some()
+            && button == WinitMouseButton::Left
+            && state == ElementState::Released
+        {
+            self.divider_drag = None;
+            return;
+        }
+        // Multi-pane left press: grab a divider to drag, else focus the clicked
+        // pane (focus-follows-click, audit row #6). Returns before the
+        // single-pane selection path; per-pane selection geometry is a later
+        // Phase-1 checkbox. `multipane_geometry()` is `None` for a single-pane
+        // tab, so this whole branch is skipped there and the press path stays
+        // byte-identical.
+        if button == WinitMouseButton::Left
+            && state == ElementState::Pressed
+            && let Some((content, _cell)) = self.multipane_geometry()
+            && let Some((x_px, y_px)) = self.pointer_px
+        {
+            let (x, y) = (x_px as f32, y_px as f32);
+            if let Some(idx) = self.sessions.active_divider_at_point(
+                content,
+                PANE_DIVIDER_PX,
+                x,
+                y,
+                DIVIDER_GRAB_PX,
+            ) {
+                self.divider_drag = Some(idx);
+                return;
+            }
+            if let Some(token) = self
+                .sessions
+                .active_pane_at_point(content, PANE_DIVIDER_PX, x, y)
+                && self.sessions.set_active_focus(token)
+            {
+                self.on_active_session_changed();
+            }
+            return;
+        }
         if self.should_show_tab_bar() {
             match (button, state, self.current_tab_bar_hit()) {
                 (WinitMouseButton::Left, ElementState::Pressed, Some(TabHit::Switch(idx))) => {

@@ -19,7 +19,10 @@ use super::app::{
     CursorBlinkState, HintsUi, SessionScrollAnimState, SynchronizedOutputHold, TabBarSource,
 };
 use super::copy_mode::CopyModeState;
-use super::layout::{EVEN_RATIO, PaneNode, PaneRect, SplitAxis, grid_dims_for_rect, layout_rects};
+use super::layout::{
+    EVEN_RATIO, PaneNode, PaneRect, SplitAxis, divider_at_point, drag_divider_to,
+    grid_dims_for_rect, layout_rects, pane_at_point,
+};
 use super::pty::{PtyWriter, UserEvent, spawn_pty_pump};
 use super::render_helpers::RenderSignature;
 use super::search_ui::SearchUi;
@@ -310,6 +313,52 @@ impl TabSet {
             Some(tab) => layout_rects(&tab.layout, content, divider_px),
             None => Vec::new(),
         }
+    }
+
+    /// The pane of the active tab under a pixel point, or `None` in a divider
+    /// gap / outside content. Focus-follows-click resolves the clicked pane
+    /// through this (design doc §4.3 / audit row #6).
+    pub(super) fn active_pane_at_point(
+        &self,
+        content: PaneRect,
+        divider_px: f32,
+        x: f32,
+        y: f32,
+    ) -> Option<SessionToken> {
+        let rects = self.active_pane_rects(content, divider_px);
+        pane_at_point(&rects, x, y)
+    }
+
+    /// The tree-order index of the active tab's divider under a pixel point
+    /// (widened by `grab_px`), to start a divider drag. `None` when no divider
+    /// is grabbed.
+    pub(super) fn active_divider_at_point(
+        &self,
+        content: PaneRect,
+        divider_px: f32,
+        x: f32,
+        y: f32,
+        grab_px: f32,
+    ) -> Option<usize> {
+        self.tabs
+            .get(self.active_tab)
+            .and_then(|tab| divider_at_point(&tab.layout, content, divider_px, x, y, grab_px))
+    }
+
+    /// Drag the active tab's divider at tree-order `target` to a pixel point,
+    /// re-deriving and clamping that split's ratio. Returns the new ratio when
+    /// the split exists. Caller reflows the affected panes afterward.
+    pub(super) fn drag_active_divider(
+        &mut self,
+        content: PaneRect,
+        divider_px: f32,
+        target: usize,
+        x: f32,
+        y: f32,
+    ) -> Option<f32> {
+        self.tabs
+            .get_mut(self.active_tab)
+            .and_then(|tab| drag_divider_to(&mut tab.layout, content, divider_px, target, x, y))
     }
 
     /// Resize **every pane of every tab** to its laid-out cell dimensions within
@@ -904,5 +953,65 @@ mod tests {
         assert!((left.x - content.x).abs() < f32::EPSILON);
         assert!((right.x - (left.x + left.w + 1.0)).abs() < f32::EPSILON);
         assert!(((right.x + right.w) - (content.x + content.w)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn active_pane_at_point_resolves_focus_follows_click() {
+        let mut set = TabSet::new(build_session(), None);
+        let right =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        // 801px wide, 1px divider at x=400 → left pane [0,400), right [401,801).
+        let content = PaneRect::new(0.0, 0.0, 801.0, 200.0);
+        assert_eq!(
+            set.active_pane_at_point(content, 1.0, 100.0, 50.0),
+            Some(SessionToken(0))
+        );
+        assert_eq!(
+            set.active_pane_at_point(content, 1.0, 600.0, 50.0),
+            Some(right)
+        );
+        // The 1px divider gap (x=400) belongs to no pane.
+        assert_eq!(set.active_pane_at_point(content, 1.0, 400.0, 50.0), None);
+    }
+
+    #[test]
+    fn active_divider_at_point_grabs_only_near_the_divider() {
+        let mut set = TabSet::new(build_session(), None);
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        let content = PaneRect::new(0.0, 0.0, 801.0, 200.0);
+        // Within the 6px grab band of the x=400 divider → index 0.
+        assert_eq!(
+            set.active_divider_at_point(content, 1.0, 402.0, 50.0, 6.0),
+            Some(0)
+        );
+        // Far from the divider → no grab.
+        assert_eq!(
+            set.active_divider_at_point(content, 1.0, 100.0, 50.0, 6.0),
+            None
+        );
+        // A single-pane active tab has no dividers to grab.
+        let single = TabSet::new(build_session(), None);
+        assert_eq!(
+            single.active_divider_at_point(content, 1.0, 402.0, 50.0, 6.0),
+            None
+        );
+    }
+
+    #[test]
+    fn drag_active_divider_reflows_the_active_split_ratio() {
+        let mut set = TabSet::new(build_session(), None);
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        let content = PaneRect::new(0.0, 0.0, 801.0, 200.0);
+        // Drag the column divider to x=200 → ratio ≈ 200/800.
+        let new = set
+            .drag_active_divider(content, 1.0, 0, 200.0, 50.0)
+            .expect("active split exists");
+        assert!((new - 200.0 / 800.0).abs() < 1e-3);
+        // The new ratio re-tiles the panes: left pane now ~200px wide.
+        let rects = set.active_pane_rects(content, 1.0);
+        let (_, left) = rects[0];
+        assert!((left.w - 200.0).abs() < 1.0);
+        // An out-of-range divider index leaves the tree unchanged.
+        assert_eq!(set.drag_active_divider(content, 1.0, 9, 50.0, 50.0), None);
     }
 }

@@ -28,6 +28,10 @@ use crate::native::layout::{PaneRect, divider_rects};
 /// matching the §8 pixel-smoke invariants.
 pub(super) const PANE_DIVIDER_PX: f32 = 1.0;
 
+/// How far on each side of a 1px divider a press still grabs it, in physical
+/// pixels — the hairline divider would be near-impossible to hit otherwise.
+pub(super) const DIVIDER_GRAB_PX: f32 = 6.0;
+
 /// The pixel rectangle available to panes: the surface minus window padding on
 /// all sides, and minus the tab-bar strip along the top when it is shown. For a
 /// single-pane tab this rect's cell dimensions equal `self.grid`, so the
@@ -51,6 +55,54 @@ pub(super) fn pane_content_rect(
 }
 
 impl App {
+    /// The pane content rect + cell metrics for the active **multi-pane** tab's
+    /// pointer math, or `None` when the active tab is single-pane (the
+    /// byte-identical path) or there is no GPU yet. Pointer coordinates
+    /// (`pointer_px`) share this absolute physical-pixel basis.
+    pub(super) fn multipane_geometry(&self) -> Option<(PaneRect, CellSize)> {
+        if self.sessions.active_is_single_pane() {
+            return None;
+        }
+        let gpu = self.gpu.as_ref()?;
+        let cell = gpu.cell();
+        let (w, h) = gpu.surface_size();
+        let content =
+            pane_content_rect(w, h, cell, gpu.window_padding(), self.should_show_tab_bar());
+        Some((content, cell))
+    }
+
+    /// Apply an in-progress divider drag to the current pointer position,
+    /// re-deriving the grabbed split's ratio and reflowing the affected panes
+    /// (per-pane terminal `resize` + PTY `TIOCSWINSZ` via
+    /// [`TabSet::resize_all_panes`]) before requesting a repaint. No-op unless a
+    /// divider is grabbed and the active tab is multi-pane. The full-window grid
+    /// is unchanged by a divider drag, so this reflows pane sub-rects directly
+    /// rather than through the window-resize debouncer (which keys on the
+    /// whole-window grid and would early-return).
+    pub(super) fn drag_divider_to_pointer(&mut self) {
+        let Some(target) = self.divider_drag else {
+            return;
+        };
+        let Some((content, cell)) = self.multipane_geometry() else {
+            return;
+        };
+        let Some((x, y)) = self.pointer_px else {
+            return;
+        };
+        if self
+            .sessions
+            .drag_active_divider(content, PANE_DIVIDER_PX, target, x as f32, y as f32)
+            .is_some()
+        {
+            self.sessions
+                .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
+            self.sessions.active_mut().needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+    }
+
     /// Rebuild the GPU geometry for a **multi-pane** active tab. Mirrors the
     /// single-pane rebuild's GPU hand-off but assembles one [`PaneRender`] per
     /// visible pane and calls [`GpuState::update_from_panes`].
