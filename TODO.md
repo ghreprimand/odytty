@@ -907,7 +907,28 @@ feature validates against.
       `Terminal`/`Screen` model with active grid, bounded scrollback, captured
       modes, cursor state, dynamic colors, metadata, prompt marks, scroll
       region, and tab stops.
-- [ ] Panes/splits, profiles, detachable sessions, and session persistence
+- [x] Native splits / panes: a tab owns a binary pane layout tree (leaf =
+      session, node = H/V split + ratio) backing a two-level `TabSet` model;
+      single-pane tabs stay byte-identical. Per-pane render dispatch lays out
+      multiple grids in one window with a themed 1px divider, routes PTY output
+      per-pane, and gives only the focused pane keyboard/pointer input. Each pane
+      keeps its own scrollback, viewport, selection, search, and cursor.
+- [x] Pane resize: dragging a divider reflows both panes (PTY `TIOCSWINSZ` +
+      core reflow through the debounced resize path).
+- [x] Per-pane focused selection + search overlays via a pane-scoped overlay
+      context.
+- [x] tmux-style pane keybindings via a configurable prefix (`pane_prefix`,
+      default `Ctrl+b`; doubled prefix sends a literal prefix to a nested
+      multiplexer): split columns/rows (`%`/`"`), directional + next focus
+      (arrows/`o`), close (`x`), zoom/toggle-fullscreen-pane (`z`), and equalize
+      (`Space`/`=`). The prefix is the only new globally captured key; the
+      no-prefix path is byte-identical and `pane_prefix=off` restores literal
+      `Ctrl+b`. Pane actions are rebindable via `keybinds`.
+- [ ] Pane fast-follows: per-pane inline graphics (images render in single-pane
+      tabs only today), non-focused-pane interactive overlays, and an optional
+      inactive-pane focus dim.
+- [ ] Profiles, detachable sessions, and session persistence (the
+      session-host / detach-attach surface on top of the snapshot foundation)
       remain future work.
 
 ## Archived First Prototype Checklist
@@ -1011,7 +1032,8 @@ feature validates against.
 ## Deferred Until After the First Prototype
 
 - [x] Tabs and multiple local shell sessions: landed as the first multi-context
-      slice. Panes, detachable sessions, profiles, and multiplexing remain
+      slice. Splits/panes within a window have since landed too (see Stage 8);
+      detachable sessions, profiles, and cross-session multiplexing remain
       deferred.
 - [x] Shell integration beyond basic PTY behavior — landed: OSC 133 semantic
       prompt marks and command-aware UX (see Stage 7). Further shell-integration

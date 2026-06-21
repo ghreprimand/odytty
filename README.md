@@ -24,10 +24,11 @@ floor.
 
 OdyTTY is in active development. It is already a broad prototype: a native
 window opens real local shells, supports multiple sessions with a tab bar,
-renders text and inline graphics on the GPU, and has a substantial compatibility
-and smoke-test suite. It is still Linux-first and pre-release; macOS is
-supported as an experimental build-from-source target (see the macOS install
-notes below), while panes and profiles are not done.
+splits each tab into panes, renders text and inline graphics on the GPU, and has
+a substantial compatibility and smoke-test suite. It is still Linux-first and
+pre-release; macOS is supported as an experimental build-from-source target (see
+the macOS install notes below), while profiles and session persistence are not
+done.
 
 ## Highlights
 
@@ -50,6 +51,12 @@ notes below), while panes and profiles are not done.
   right-click context menu,
   command-aware prompt navigation from OSC 133, configurable bell (visual flash
   / window urgency), close confirmation, and tabs.
+- **Splits / panes:** split any tab into side-by-side or stacked panes, each
+  with its own shell, scrollback, selection, search, and cursor. A configurable
+  tmux-style prefix (default `Ctrl+b`) drives split, focus-move, close, zoom
+  (full-bleed the focused pane), and equalize; dividers are drag-resizable. The
+  prefix is the only new captured key, so existing bindings and ordinary input
+  are unchanged, and a single-pane tab renders exactly as before.
 - **Visual experience layer:** 100 built-in themes, user `.theme` files, live theme
   picker, theme builder, semantic cursor/selection/search roles, optional
   bloom/CRT/retro effects, background treatments, cursor motion, focus dimming,
@@ -296,6 +303,31 @@ the same reserved tab-bar row as text, so Kitty/Sixel placements stay aligned
 with the visible grid while the bar is shown. Right-click a tab to rename it for
 the session; the custom name overrides shell title updates until cleared.
 
+Any tab can be split into panes. A tmux-style prefix (default `Ctrl+b`,
+configurable via `pane_prefix`) opens a transient pane-command mode; press the
+prefix then a pane key:
+
+| After the prefix | Action |
+| --- | --- |
+| `%` | Split the focused pane into columns (side-by-side) |
+| `"` | Split the focused pane into rows (stacked) |
+| `←` / `→` / `↑` / `↓` | Move focus to the neighbor pane |
+| `o` | Cycle focus to the next pane |
+| `x` | Close the focused pane |
+| `z` | Zoom / un-zoom the focused pane (full-bleed; layout is preserved) |
+| `Space` / `=` | Equalize split sizes |
+| `Ctrl+b` (prefix again) | Send a literal prefix to the focused pane (nested multiplexer) |
+
+Each pane owns an independent PTY, terminal model, scrollback, viewport,
+selection, search, and cursor. Drag a divider to resize the panes on either
+side. The prefix is the single new globally captured key — with no prefix
+pending, every existing binding and all ordinary input is byte-identical to a
+single-pane window, and a tab with one pane renders exactly as before. Set
+`pane_prefix=off` to disable splits entirely and free `Ctrl+b`. v1 cuts: inline
+graphics render in single-pane tabs only, interactive overlays (selection /
+search) are painted for the focused pane only, and an inactive-pane dim is a
+planned fast-follow.
+
 Core local shortcuts:
 
 | Shortcut | Action |
@@ -313,7 +345,11 @@ Core local shortcuts:
 `ODYTTY_KEYBINDS` can rebind local actions: `search`, `settings`,
 `theme-picker`, `copy`, `paste`, `scroll-up`, `scroll-down`,
 `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`, `clear-input`,
-`new-tab`, `next-tab`, `prev-tab`, and `close-tab`.
+`new-tab`, `next-tab`, `prev-tab`, and `close-tab`. The pane actions
+(`split-columns`, `split-rows`, `focus-pane-left` / `-right` / `-up` / `-down`,
+`focus-pane-next`, `close-pane`, `zoom-pane`, `equalize-panes`) are rebindable
+too — the chord is the key pressed *after* the prefix, e.g.
+`ODYTTY_KEYBINDS="ctrl+f=zoom-pane"`.
 
 ### Settings And Themes
 
@@ -380,13 +416,14 @@ ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture
 cargo bench --bench perf
 ```
 
-Recent library-only checks in the devlog show `cargo test --lib` at 1883
+Recent library-only checks in the devlog show `cargo test --lib` at 2009
 passing tests, with the full tree carrying additional integration and smoke
 suites. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the commit gate.
 
 ## Status
 
-**Works today:** real shells, multi-session tabs, scrollback, search, selection,
+**Works today:** real shells, multi-session tabs, splits/panes with a
+configurable tmux-style prefix, scrollback, search, selection,
 copy/paste, font/theme/settings overlays, theme builder, 100 themes, color
 emoji, Kitty graphics, Sixel, Kitty keyboard protocol, SGR-pixel mouse,
 OSC 8/52/133, dynamic colors, prompt navigation, command status gutter,
@@ -397,9 +434,10 @@ treatments, and a large compatibility test surface.
 experimental build-from-source target (see Install And Run). Both are exercised
 in CI. Windows is not yet supported.
 
-**Known gaps:** Windows support, panes, profiles, session persistence, Kitty
-animation, Kitty Unicode placeholders, iTerm2 graphics, COLR/CPAL color fonts,
-and broader ligature/stylistic-set shaping.
+**Known gaps:** Windows support, profiles, session persistence, per-pane inline
+graphics, the inactive-pane focus dim, Kitty animation, Kitty Unicode
+placeholders, iTerm2 graphics, COLR/CPAL color fonts, and broader
+ligature/stylistic-set shaping.
 
 The running history lives in [`DEVLOG.md`](DEVLOG.md). The current public
 roadmap lives in [`TODO.md`](TODO.md) and

@@ -668,13 +668,28 @@ its first stable layer.
   model, scrollback, and title. The default bindings are `Ctrl+Shift+T` for a
   new tab, `Ctrl+Shift+W` to close, and `Ctrl+PageUp` / `Ctrl+PageDown` to
   switch.
+- Native splits / panes: a tab owns a binary layout tree whose leaves are
+  independent local PTY sessions, so one tab can hold several panes side-by-side
+  or stacked, each with its own PTY, terminal model, scrollback, viewport,
+  selection, search, and cursor. Panes are driven by a tmux-style prefix
+  (default `Ctrl+b`, configurable via `pane_prefix`; press it twice to send a
+  literal prefix to a nested multiplexer): `%`/`"` split columns/rows, arrows or
+  `o` move focus, `x` close, `z` zoom (toggle the focused pane full-bleed while
+  preserving the layout underneath), `Space`/`=` equalize. Dividers are
+  drag-resizable. The prefix is the only new globally captured key; with no
+  prefix pending, all existing bindings and ordinary input are byte-identical,
+  and a single-pane tab is byte-identical to the pre-panes render path.
+  Per-pane inline graphics, non-focused-pane interactive overlays, and the
+  inactive-pane focus dim are planned fast-follows (see the v1 limitation note
+  under Inline Graphics).
 
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering
 - iTerm2 graphics protocol
 - Ligature/stylistic-set shaping (strategy decided; implementation deferred
   until a specific trigger condition is met)
-- Panes, profiles, detachable/persistent sessions, and multiplexing
+- Profiles, detachable/persistent sessions, and cross-session multiplexing
+  (panes/splits within a window are now supported — see above)
 - Shell integration beyond OSC 7 cwd tracking and OSC 133 prompt/command marks
   plus the current command-aware native actions
 - Plugin systems, AI features, command palettes, rich dashboards, or nonstandard

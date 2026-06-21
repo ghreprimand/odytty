@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- panes/keybindings docs lockstep (Phase 1, Stage 8)
+
+Public-facing record of everything panes/keybindings that landed (1a→1c-3c +
+§7 K1/K2/K3 + zoom). Docs-only packet; no code change.
+
+- `README.md`: intro line now says the app splits each tab into panes (and that
+  profiles + session persistence are the remaining gaps, not panes); a new
+  **Splits / panes** highlight bullet; a pane-keybinding table + prefix prose in
+  the Native App Workflow section (independent per-pane state, divider drag,
+  byte-identical no-prefix path, `pane_prefix=off`, honest v1 cuts); pane actions
+  added to the rebindable-action list; Status moves splits/panes into "Works
+  today" and out of "Known gaps"; drifted `cargo test --lib` count 1883 → 2009.
+- `SPEC.md`: a **Native splits / panes** bullet added to supported scope
+  (layout tree, tmux prefix, per-pane state, byte-identical single-pane path,
+  v1 cuts), and panes/splits removed from "Out of scope" (profiles, detachable/
+  persistent sessions, and cross-session multiplexing stay out of scope). The
+  privacy/correctness charter is untouched.
+- `TODO.md`: Stage 8 now lists the landed pane work (layout tree + per-pane
+  render dispatch, divider resize, per-pane focused overlays, tmux-style
+  configurable-prefix keybindings) as done, with the remaining fast-follows
+  (per-pane inline graphics, non-focused-pane overlays, inactive-pane dim) and
+  the deferred profiles/detachable-sessions/persistence work called out
+  separately. The "Deferred Until After the First Prototype" summary updated to
+  reflect splits/panes landing.
+- Confirmed `docs/runtime-knobs.md` and `docs/odytty.conf.example` already carry
+  the complete `pane_prefix` row + pane-action table (landed in K2/K3; the
+  zoom-reserved caveat was dropped in K2-zoom) — no change needed.
+
+§7 / Phase-1 panes are now fully reflected in the public docs. Remaining Phase-1
+item: the optional inactive-pane focus dim.
+
 ## 2026-06-21 -- pane zoom / toggle-fullscreen (Phase 1, §7 K2-zoom)
 
 Made `Ctrl-b z` real: the focused pane can now fill the whole content area while
