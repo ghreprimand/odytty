@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- title_override Session→Tab (Phase 1b-2, §9.5)
+
+Moved the custom-tab-name override from `Session` to `Tab`, completing design
+doc §9.5. A tab's name is no longer 1:1 with a session once a tab can hold
+several panes, so the override belongs on the tab; the displayed title defaults
+to the focused pane's shell-derived title when unset.
+
+- Removed `Session::{title_override, effective_tab_title, set_title_override}`;
+  added `Tab::title_override` plus token-keyed `TabSet::effective_tab_title(token)`
+  / `TabSet::set_title_override(token, name)` that resolve the tab containing the
+  token. `Session::tab_title` (the OSC/shell title) and `refresh_tab_title` stay
+  on `Session`.
+- `TabBarSource::tab_title` now returns the tab override if set, else the focused
+  pane's title. The rename UI (`enter_rename_tab`/`rename_key`) and the test
+  seams were rewired to the tab-level API; behaviour for single-pane tabs is
+  unchanged.
+
+Verified: `cargo test --lib` 1937 passed / 0 failed / 7 ignored (including
+`title_override_controls_effective_tab_label_and_clear_restores_osc_title` and
+`rename_modal_commits_edits_cancels_and_empty_commit_clears_override`);
+`cargo fmt --check` clean; `cargo clippy --lib -- -D warnings` clean.
+
+---
+
 ## 2026-06-21 -- Arena/TabSet refactor (Phase 1b-1, behavior-preserving)
 
 Evolved the flat session model into the two-level tab/arena structure the

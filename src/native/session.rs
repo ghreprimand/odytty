@@ -35,7 +35,6 @@ pub(super) struct Session {
     pub(super) pty: Arc<Mutex<PtySession>>,
     pub(super) pump_thread: Option<JoinHandle<()>>,
     pub(super) tab_title: String,
-    pub(super) title_override: Option<String>,
     pub(super) needs_rebuild: bool,
     pub(super) last_render_signature: Option<RenderSignature>,
     pub(super) synchronized_output_hold: SynchronizedOutputHold,
@@ -97,7 +96,6 @@ impl Session {
             pty,
             pump_thread,
             tab_title,
-            title_override: None,
             needs_rebuild: true,
             last_render_signature: None,
             synchronized_output_hold: SynchronizedOutputHold::default(),
@@ -149,17 +147,6 @@ impl Session {
             .unwrap_or_else(|| "odytty".to_owned());
     }
 
-    pub(super) fn effective_tab_title(&self) -> &str {
-        self.title_override
-            .as_deref()
-            .unwrap_or(self.tab_title.as_str())
-    }
-
-    pub(super) fn set_title_override(&mut self, name: Option<String>) {
-        self.title_override = name;
-        self.needs_rebuild = true;
-    }
-
     fn close(mut self) -> bool {
         if let Ok(mut pty) = self.pty.lock() {
             let _ = pty.kill();
@@ -197,6 +184,11 @@ impl Session {
 pub(super) struct Tab {
     pub(super) layout: PaneNode,
     pub(super) focused: SessionToken,
+    /// Optional user-assigned tab name (the Phase-0 rename feature). When set it
+    /// overrides the focused pane's shell-derived title in the tab strip. Once a
+    /// tab can hold several panes the name is no longer 1:1 with a session, so
+    /// the override lives on the tab, not the session (design doc §2.4/§9.5).
+    pub(super) title_override: Option<String>,
 }
 
 impl Tab {
@@ -205,6 +197,7 @@ impl Tab {
         Self {
             layout: PaneNode::leaf(token),
             focused: token,
+            title_override: None,
         }
     }
 }
@@ -283,6 +276,36 @@ impl TabSet {
 
     pub(super) fn get_mut(&mut self, token: SessionToken) -> Option<&mut Session> {
         self.sessions.get_mut(&token)
+    }
+
+    /// The effective display title of the tab that contains `token`: the tab's
+    /// user override if set, otherwise the focused pane's shell-derived title
+    /// (design doc §2.4). Returns an owned string for the rename UI / test
+    /// seams; the tab bar reads the borrowed form via `TabBarSource`.
+    pub(super) fn effective_tab_title(&self, token: SessionToken) -> String {
+        let Some(tab) = self.tabs.iter().find(|tab| tab.layout.contains(token)) else {
+            return "odytty".to_owned();
+        };
+        if let Some(name) = &tab.title_override {
+            return name.clone();
+        }
+        self.sessions
+            .get(&tab.focused)
+            .map(|session| session.tab_title.clone())
+            .unwrap_or_else(|| "odytty".to_owned())
+    }
+
+    /// Set or clear the user title override for the tab that contains `token`,
+    /// marking the focused pane for rebuild so the tab strip repaints.
+    pub(super) fn set_title_override(&mut self, token: SessionToken, name: Option<String>) {
+        let Some(tab) = self.tabs.iter_mut().find(|tab| tab.layout.contains(token)) else {
+            return;
+        };
+        tab.title_override = name;
+        let focused = tab.focused;
+        if let Some(session) = self.sessions.get_mut(&focused) {
+            session.needs_rebuild = true;
+        }
     }
 
     /// Every session, in tab order (and, within a tab, tree order). For
@@ -445,10 +468,15 @@ impl TabBarSource for TabSet {
     }
 
     fn tab_title(&self, idx: usize) -> &str {
-        self.tabs
-            .get(idx)
-            .and_then(|tab| self.sessions.get(&tab.focused))
-            .map(Session::effective_tab_title)
+        let Some(tab) = self.tabs.get(idx) else {
+            return "odytty";
+        };
+        if let Some(name) = &tab.title_override {
+            return name.as_str();
+        }
+        self.sessions
+            .get(&tab.focused)
+            .map(|session| session.tab_title.as_str())
             .unwrap_or("odytty")
     }
 

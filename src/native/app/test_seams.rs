@@ -736,17 +736,15 @@ impl App {
         let Some(token) = self.sessions.token_at_position(session) else {
             return;
         };
-        if let Some(session) = self.sessions.get_mut(token) {
-            session.set_title_override(title.map(ToOwned::to_owned));
-        }
+        self.sessions
+            .set_title_override(token, title.map(ToOwned::to_owned));
     }
 
     #[cfg(test)]
     pub(in crate::native) fn session_tab_title_for_test(&self, session: usize) -> Option<String> {
         self.sessions
-            .iter()
-            .nth(session)
-            .map(|session| session.effective_tab_title().to_owned())
+            .token_at_position(session)
+            .map(|token| self.sessions.effective_tab_title(token))
     }
 
     #[cfg(test)]

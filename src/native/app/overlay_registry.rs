@@ -342,14 +342,10 @@ impl App {
     }
 
     pub(super) fn enter_rename_tab(&mut self, target: SessionToken) {
-        let Some(title) = self
-            .sessions
-            .iter()
-            .find(|session| session.id == target)
-            .map(|session| session.effective_tab_title().to_owned())
-        else {
+        if self.sessions.position_of_token(target).is_none() {
             return;
-        };
+        }
+        let title = self.sessions.effective_tab_title(target);
         let cursor = title.chars().count();
         self.rename_state = Some(RenameState {
             target,
@@ -371,9 +367,7 @@ impl App {
                 let target = state.target;
                 let text = state.text.trim().to_owned();
                 let override_name = (!text.is_empty()).then_some(text);
-                if let Some(session) = self.sessions.get_mut(target) {
-                    session.set_title_override(override_name);
-                }
+                self.sessions.set_title_override(target, override_name);
                 self.rename_state = None;
             }
             WinitKey::Named(NamedKey::Backspace) => {
