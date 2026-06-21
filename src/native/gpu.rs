@@ -40,11 +40,8 @@ use post::{PostProcessOptions, PostProcessResources};
 /// own `scroll_frac_offset` on the y axis, and `overlays` are already shifted
 /// into the pane's coordinate space.
 ///
-/// Scaffold note: `allow(dead_code)` until the App multi-pane render dispatch
-/// (Phase 1c-3) constructs these and calls `update_from_panes` — parity with
-/// the `layout.rs` / `TabSet` pane-ops scaffolding. The single-pane path never
-/// touches this type.
-#[allow(dead_code)]
+/// Constructed by the App multi-pane render dispatch (`app::panes`); the
+/// single-pane path never touches this type.
 pub(super) struct PaneRender<'a> {
     /// This pane's terminal snapshot (its own grid, scrollback viewport, cursor).
     pub(super) snapshot: &'a Snapshot,
@@ -1149,6 +1146,12 @@ impl GpuState {
         self.window_padding
     }
 
+    /// Physical surface size in pixels `(width, height)` — the basis the
+    /// multi-pane render dispatch lays pane rects out within.
+    pub(super) fn surface_size(&self) -> (u32, u32) {
+        (self.config.width, self.config.height)
+    }
+
     /// The active theme background clear color in linear RGB with alpha `1.0`,
     /// matching the [`SolidQuad`] color basis (VE4 new-output fade paints a
     /// quad of this color over each fading row). Sourced from the same
@@ -1512,10 +1515,8 @@ impl GpuState {
     /// gets this for free with one snapshot; multi-pane must order it
     /// explicitly).
     ///
-    /// Scaffold note: `allow(dead_code)` until the Phase 1c-3 App render
-    /// dispatch calls it; the single-pane path keeps using
-    /// `update_from_snapshot*`.
-    #[allow(dead_code)]
+    /// Called by the Phase 1c-3 App render dispatch (`app::panes`); the
+    /// single-pane path keeps using `update_from_snapshot*`.
     pub(super) fn update_from_panes(&mut self, panes: &[PaneRender], dividers: &[SolidQuad]) {
         // Pass A: ensure all panes' glyphs in both atlases, capturing each
         // pane's color-glyph runs for the build pass.

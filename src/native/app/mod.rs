@@ -65,6 +65,7 @@ use super::render_helpers::{
 };
 use super::theme_builder::{save_theme_to_dir, user_theme_dir_for_config};
 
+use self::panes::{PANE_DIVIDER_PX, pane_content_rect};
 pub(super) use super::cursor::{CURSOR_BLINK_INTERVAL, CursorBlinkState};
 pub(super) use super::resize::{
     PendingResize, RESIZE_DEBOUNCE_INTERVAL, ResizeDebouncer, pending_resize_for_surface,
@@ -92,6 +93,7 @@ mod interaction;
 mod new_row_fade;
 mod os_theme;
 mod overlay_registry;
+mod panes;
 mod pointer;
 mod prompt_jump;
 mod scroll_anim;
@@ -422,15 +424,19 @@ impl App {
         }
         self.grid = new_grid;
 
-        for session in self.sessions.iter() {
-            if let Ok(mut terminal) = session.terminal.lock() {
-                terminal.resize(new_grid.columns, new_grid.rows);
-                terminal.set_cell_metrics(cell.width, cell.height);
-            }
-            if let Ok(pty) = session.pty.lock() {
-                let _ = pty.resize(new_grid);
-            }
-        }
+        // Size every pane of every tab to its laid-out sub-rect. For an all-
+        // single-pane world each tab's lone leaf spans the whole content rect,
+        // so this resizes each session to exactly `new_grid` — byte-identical to
+        // the old per-session loop. Multi-pane tabs get per-pane sizing (#1).
+        let content = pane_content_rect(
+            width_px,
+            height_px,
+            cell,
+            padding,
+            self.should_show_tab_bar(),
+        );
+        self.sessions
+            .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
         true
     }
 
@@ -1197,7 +1203,13 @@ impl App {
                     target.needs_rebuild = true;
                     target.refresh_tab_title();
                 }
-                if self.sessions.active_id() == session
+                // Redraw suppression (design doc §2.5 audit row #4): wake the
+                // window when the session is *any visible pane of the active
+                // tab*, not only the focused one — a background pane producing
+                // output must repaint in a split. For a single-pane tab
+                // `is_visible_pane` is exactly `active_id() == session`, so the
+                // single-pane wake decision is unchanged.
+                if self.sessions.is_visible_pane(session)
                     && let Some(window) = self.window.as_ref()
                 {
                     window.request_redraw();
@@ -1753,6 +1765,13 @@ impl ApplicationHandler<UserEvent> for App {
                         .should_hold(synchronized_output, now)
                     {
                         let _ = self.update_held_cursor_frame(now);
+                    } else if !self.sessions.active_is_single_pane() {
+                        // Multi-pane active tab: branch to the per-pane render
+                        // dispatch (design doc §3.2, audit rows #2/#3/#10/#11).
+                        // The single-pane fast path below is never reached here,
+                        // so it stays byte-identical.
+                        self.rebuild_multipane();
+                        self.needs_rebuild = false;
                     } else {
                         let Some(cell) = self.gpu.as_ref().map(GpuState::cell) else {
                             return;

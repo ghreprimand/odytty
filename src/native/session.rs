@@ -19,7 +19,7 @@ use super::app::{
     CursorBlinkState, HintsUi, SessionScrollAnimState, SynchronizedOutputHold, TabBarSource,
 };
 use super::copy_mode::CopyModeState;
-use super::layout::{EVEN_RATIO, PaneNode, SplitAxis};
+use super::layout::{EVEN_RATIO, PaneNode, PaneRect, SplitAxis, grid_dims_for_rect, layout_rects};
 use super::pty::{PtyWriter, UserEvent, spawn_pty_pump};
 use super::render_helpers::RenderSignature;
 use super::search_ui::SearchUi;
@@ -276,6 +276,70 @@ impl TabSet {
 
     pub(super) fn get_mut(&mut self, token: SessionToken) -> Option<&mut Session> {
         self.sessions.get_mut(&token)
+    }
+
+    /// Read access to a session by token (multi-pane render dispatch snapshots
+    /// each visible pane's terminal through this).
+    pub(super) fn get(&self, token: SessionToken) -> Option<&Session> {
+        self.sessions.get(&token)
+    }
+
+    /// True when `token` is a currently visible pane of the **active** tab —
+    /// i.e. its output should drive a redraw even when it is not the focused
+    /// pane (design doc §2.5 audit row #4: redraw suppression must key on "any
+    /// visible pane of the active tab", not just the focused one). For a
+    /// single-pane tab this is exactly `active_id() == token`, so the
+    /// single-pane redraw decision is unchanged.
+    pub(super) fn is_visible_pane(&self, token: SessionToken) -> bool {
+        self.tabs
+            .get(self.active_tab)
+            .map(|tab| tab.layout.contains(token))
+            .unwrap_or(false)
+    }
+
+    /// The (token, pixel-rect) layout of the **active** tab's panes within
+    /// `content`, for the multi-pane render dispatch. Single-pane tabs yield one
+    /// entry spanning the whole content rect — identical geometry to the
+    /// single-pane path, which never calls this.
+    pub(super) fn active_pane_rects(
+        &self,
+        content: PaneRect,
+        divider_px: f32,
+    ) -> Vec<(SessionToken, PaneRect)> {
+        match self.tabs.get(self.active_tab) {
+            Some(tab) => layout_rects(&tab.layout, content, divider_px),
+            None => Vec::new(),
+        }
+    }
+
+    /// Resize **every pane of every tab** to its laid-out cell dimensions within
+    /// `content`, reflowing each pane's terminal model and PTY. For an all-
+    /// single-pane world every tab's lone leaf spans `content`, so each session
+    /// is sized to exactly the dimensions the old per-session resize loop
+    /// produced — the single-pane path stays byte-identical. Multi-pane tabs get
+    /// each pane sized to its own sub-rect (design doc §2.5 audit row #1).
+    pub(super) fn resize_all_panes(
+        &mut self,
+        content: PaneRect,
+        cell_w: u32,
+        cell_h: u32,
+        divider_px: f32,
+    ) {
+        for tab in &self.tabs {
+            for (token, rect) in layout_rects(&tab.layout, content, divider_px) {
+                let (cols, rows) = grid_dims_for_rect(rect, cell_w, cell_h);
+                let Some(session) = self.sessions.get(&token) else {
+                    continue;
+                };
+                if let Ok(mut terminal) = session.terminal.lock() {
+                    terminal.resize(cols, rows);
+                    terminal.set_cell_metrics(cell_w, cell_h);
+                }
+                if let Ok(pty) = session.pty.lock() {
+                    let _ = pty.resize(crate::core::Dimensions::new(cols, rows));
+                }
+            }
+        }
     }
 
     /// The effective display title of the tab that contains `token`: the tab's
@@ -773,5 +837,72 @@ mod tests {
         assert!(set.active_layout().is_some_and(PaneNode::is_single_pane));
         set.split_active_for_test(SplitAxis::Rows, build_session_with_id(SessionToken(1)));
         assert_eq!(set.active_layout().map(PaneNode::pane_count), Some(2));
+    }
+
+    fn pane_dims(set: &TabSet, token: SessionToken) -> (usize, usize) {
+        let dims = set
+            .get(token)
+            .expect("pane present")
+            .terminal
+            .lock()
+            .expect("terminal lock")
+            .screen()
+            .dimensions();
+        (dims.columns, dims.rows)
+    }
+
+    #[test]
+    fn resize_all_panes_sizes_a_single_pane_to_the_full_content() {
+        let mut set = TabSet::new(build_session(), None);
+        // 800x400 content, 10x20 cell → 80 cols, 20 rows; one pane fills it.
+        let content = PaneRect::new(0.0, 0.0, 800.0, 400.0);
+        set.resize_all_panes(content, 10, 20, 1.0);
+        assert_eq!(pane_dims(&set, SessionToken(0)), (80, 20));
+    }
+
+    #[test]
+    fn resize_all_panes_gives_each_split_pane_its_sub_rect() {
+        let mut set = TabSet::new(build_session(), None);
+        let right =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        // 801px wide, 1px divider → 800 usable, even split → 400/400 → 40 cols
+        // each at a 10px cell. Heights are the full 400px → 20 rows.
+        let content = PaneRect::new(0.0, 0.0, 801.0, 400.0);
+        set.resize_all_panes(content, 10, 20, 1.0);
+        assert_eq!(pane_dims(&set, SessionToken(0)), (40, 20));
+        assert_eq!(pane_dims(&set, right), (40, 20));
+    }
+
+    #[test]
+    fn is_visible_pane_covers_every_pane_of_the_active_tab_only() {
+        let mut set = TabSet::new(build_session(), None);
+        let sibling =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        // Both panes of the active tab are visible (focused + background).
+        assert!(set.is_visible_pane(SessionToken(0)));
+        assert!(set.is_visible_pane(sibling));
+        // A pane that does not exist is never visible.
+        assert!(!set.is_visible_pane(SessionToken(99)));
+
+        // Open a second tab; its pane is not visible while tab 0 is active.
+        let other_tab = SessionToken(2);
+        set.push(build_session_with_id(other_tab));
+        assert!(!set.is_visible_pane(other_tab));
+        assert!(set.is_visible_pane(SessionToken(0)));
+    }
+
+    #[test]
+    fn active_pane_rects_tiles_the_content_without_overlap() {
+        let mut set = TabSet::new(build_session(), None);
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        let content = PaneRect::new(5.0, 7.0, 401.0, 200.0);
+        let rects = set.active_pane_rects(content, 1.0);
+        assert_eq!(rects.len(), 2);
+        let (_, left) = rects[0];
+        let (_, right) = rects[1];
+        // Left + divider + right spans exactly the content width; no overlap.
+        assert!((left.x - content.x).abs() < f32::EPSILON);
+        assert!((right.x - (left.x + left.w + 1.0)).abs() < f32::EPSILON);
+        assert!(((right.x + right.w) - (content.x + content.w)).abs() < f32::EPSILON);
     }
 }

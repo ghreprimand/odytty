@@ -7,6 +7,55 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- multi-pane render dispatch + per-leaf resize (Phase 1c-3a)
+
+Wired the multi-pane render path: when the active tab holds more than one pane,
+the redraw loop now branches to a new per-pane dispatch instead of the
+single-pane `update_from_snapshot*` machinery (design doc §3.2, §2.5 audit rows
+#1/#2/#3/#4/#10/#11). The single-pane fast path is untouched and stays
+byte-identical — the branch is gated on `active_is_single_pane()` and the new
+code is the only path multi-pane tabs reach.
+
+- New `src/native/app/panes.rs`: `App::rebuild_multipane` snapshots each visible
+  pane of the active tab from its own terminal at its own scrollback viewport,
+  lays them out within the content rect via `layout_rects`, and hands one
+  `PaneRender` per pane to `GpuState::update_from_panes`. The focused pane draws
+  a live cursor; the others none. Themed 1px dividers (theme `border` role) fill
+  the gaps. When ≥2 tabs exist the tab strip is drawn as a one-row pane along the
+  top (built from a synthetic 1-row snapshot + `tab_bar.render` glyphs).
+- `pane_content_rect` computes the pane region (surface − padding − tab strip).
+  For a lone-leaf tab its cell dimensions equal the legacy
+  `grid_dimensions_for_with_padding` result, so single-pane geometry is
+  byte-identical (unit-tested).
+- Per-leaf resize (#1): `TabSet::resize_all_panes` sizes every pane of every tab
+  to its laid-out sub-rect (terminal reflow + PTY `resize`). `resize_grid_with_padding`
+  now calls it instead of the flat per-session loop; a single-pane world resizes
+  each session to exactly `new_grid` as before.
+- Redraw suppression (#4): `UserEvent::Redraw` now wakes the window when the
+  session is *any visible pane of the active tab* (`TabSet::is_visible_pane`),
+  not only the focused one — a background pane producing output repaints in a
+  split. For a single-pane tab this is exactly `active_id() == session`, so the
+  wake decision is unchanged.
+- Un-gated the 1c-2 scaffold: removed `#[allow(dead_code)]` from `PaneRender` /
+  `update_from_panes` now that the dispatch calls them. Added `GpuState::surface_size`
+  and `TabSet::{get, is_visible_pane, active_pane_rects, resize_all_panes}`.
+- Scope (v1): per-pane interactive overlays (selection/search/hints) for
+  non-focused panes and the inactive-pane dim are deferred to later Phase 1
+  checkboxes; multi-pane v1 also opts out of the single-pane render-signature
+  cache (always rebuilds on a visible-pane redraw). Divider drag + pointer
+  pane hit-test are the next sub-commit (1c-3b).
+- Tests: +6 headless units — `resize_all_panes` single + column-split sizing,
+  `is_visible_pane` active-tab-only scope, `active_pane_rects` tiling, and two
+  `pane_content_rect` byte-identity / tab-strip-offset checks. A direct
+  GPU-level `update_from_panes` test needs a surface-bound `GpuState` (the
+  offscreen harness builds raw pipelines only), so the GPU path is covered by
+  the §8 layout pixel-smoke (1c-2) it consumes plus these units.
+- Verified: `cargo test --lib` 1958 / 0; `cargo clippy --lib -- -D warnings`
+  clean; `cargo fmt --check` clean. Rebased onto origin `de2b2d9` (palette
+  catalog); changes are disjoint (`src/native/` only).
+
+---
+
 ## 2026-06-21 -- update_from_panes GPU integration (Phase 1c-2)
 
 Added the multi-pane GPU render seam (design doc §3.2): `GpuState::update_from_panes(&[PaneRender], &[SolidQuad])`
