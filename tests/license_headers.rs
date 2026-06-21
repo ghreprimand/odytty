@@ -11,6 +11,7 @@ fn source_files_carry_gpl_spdx_header() {
     let mut files = Vec::new();
     collect_source_files(&root.join("src"), &mut files);
     collect_rust_files(&root.join("tests"), &mut files);
+    collect_rust_files(&root.join("benches"), &mut files);
     files.sort();
 
     let missing = files

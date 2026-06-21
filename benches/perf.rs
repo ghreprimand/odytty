@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-only
+
 //! Headless performance benchmarks for the owned terminal model.
 //!
 //! Dependency-free (`harness = false`): this is a plain `main()` that drives the
