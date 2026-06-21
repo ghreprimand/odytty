@@ -12,6 +12,7 @@ pub mod grid;
 pub mod hints;
 pub mod input;
 pub mod native;
+pub mod palette;
 pub mod palette_gen;
 pub mod palette_sources;
 pub mod parser;

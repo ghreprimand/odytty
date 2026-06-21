@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Palette model/controller foundation
+
+Added `src/palette.rs`, a pure command-palette model that composes the fuzzy
+scorer with bounded action/history/directory candidates. It owns query editing,
+ranked filtering, source-aware weighting, bounded results, cursor movement, and
+selection decisions without any overlay, native window, GPU, PTY, or filesystem
+wiring.
+
+Ranking is deterministic: empty queries group actions first, then directories,
+then history while preserving input order; non-empty queries use the fuzzy score
+plus documented action/directory/source, exact-match, and prefix bonuses, with
+input order as the final tie-break so most-recent-first sources stay stable.
+Selection returns either an action id or literal text to type later; the model
+never executes history rows.
+
+---
+
 ## 2026-06-21 -- §7 keybinding framing: "two standards, by domain"
 
 Refined the design doc's §7 (and §10 summary) to the operator-ratified framing:
