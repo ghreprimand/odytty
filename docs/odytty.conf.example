@@ -90,6 +90,17 @@ keybinds =
 # Example:
 # keybinds = ctrl+shift+y=copy;ctrl+shift+p=paste
 
+# Multiplexer prefix for pane/split management (tmux-style). Press the prefix,
+# then a pane key: % / " split, arrows / o focus, x close, z zoom, space / =
+# equalize. Press the prefix twice to send a literal prefix to the focused pane
+# (so a tmux running inside OdyTTY still works). Set to off to disable and free
+# the chord. Individual pane actions are rebindable via keybinds (the chord is
+# the second key, after the prefix), e.g. keybinds = ctrl+f=zoom-pane.
+pane_prefix = ctrl+b
+# Example:
+# pane_prefix = ctrl+a
+# pane_prefix = off
+
 # Clipboard and accessibility.
 osc52_read = off
 cvd_mode = off

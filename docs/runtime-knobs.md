@@ -89,6 +89,7 @@ environment variable was not set at startup.
 | `cursor_trail` | `ODYTTY_CURSOR_TRAIL` | `on`, `off` | `off` |
 | `new_output_fade` | `ODYTTY_NEW_OUTPUT_FADE` | `on`, `off` | `off` |
 | `keybinds` | `ODYTTY_KEYBINDS` | `chord=action` list | empty |
+| `pane_prefix` | `ODYTTY_PANE_PREFIX` | Key chord, or `off` to disable | `ctrl+b` |
 | `scroll_wheel_lines` | `ODYTTY_SCROLL_WHEEL_LINES` | Float, `1.0..=10.0` lines | `3.0` |
 | `scrollback_lines` | `ODYTTY_SCROLLBACK_LINES` | Integer lines, `0..=1000000` (`0` = unlimited) | `10000` |
 | `scroll_drag_speed` | `ODYTTY_SCROLL_DRAG_SPEED` | `ramp`, `legacy` | `ramp` |
@@ -177,11 +178,47 @@ digits, `f1`-`f24`, `pageup`, `pagedown`, `home`, `end`, `enter`, `esc`,
 Valid actions are `search`, `settings`, `theme-picker`, `copy`, `paste`,
 `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`,
 `copy-mode`, `hints`, `clear-input`, `new-tab`, `next-tab`, `prev-tab`, and
-`close-tab`.
+`close-tab`, plus the pane-management actions below.
 
 The in-app keybinding editor is opened from the Settings panel's Keybindings
-row. It covers the 12 core non-tab actions. Tab actions are configurable through
-`keybinds` / `ODYTTY_KEYBINDS`.
+row. It covers the 12 core non-tab actions. Tab and pane actions are
+configurable through `keybinds` / `ODYTTY_KEYBINDS`.
+
+### Panes — multiplexer prefix (`pane_prefix`)
+
+Pane / split management uses a tmux-style **prefix** model: press the prefix
+chord (default `Ctrl+b`), then a pane key. The prefix is the single new globally
+captured key — when no prefix is pending, every existing binding and all
+ordinary input is byte-identical to before. Set `pane_prefix=off` (or `none`) to
+disable the feature entirely and free `Ctrl+b`.
+
+| After the prefix | Action | Config name |
+|---|---|---|
+| `%` | Split side-by-side (columns) | `split-columns` |
+| `"` | Split stacked (rows) | `split-rows` |
+| `←` / `→` / `↑` / `↓` | Move focus to the neighbor pane | `focus-pane-left` / `-right` / `-up` / `-down` |
+| `o` | Cycle focus to the next pane | `focus-pane-next` |
+| `x` | Close the focused pane | `close-pane` |
+| `z` | Zoom / toggle-fullscreen the pane | `zoom-pane` |
+| `Space` / `=` | Equalize split sizes | `equalize-panes` |
+
+The prefix itself is reconfigurable:
+
+```sh
+ODYTTY_PANE_PREFIX="ctrl+a" cargo run --release   # use Ctrl+a instead
+ODYTTY_PANE_PREFIX=off cargo run --release        # disable; Ctrl+b is literal again
+```
+
+**Nested multiplexers.** Pressing the prefix twice (`Ctrl+b Ctrl+b`) sends a
+single literal prefix byte (e.g. `0x02`) to the focused pane, so a `tmux` or
+`screen` running *inside* OdyTTY still receives its own prefix and works
+normally. Alternatively, change `pane_prefix` so the outer and inner prefixes
+differ. Individual pane actions are rebindable via `keybinds` (the chord is the
+*second* key, after the prefix), e.g. `ODYTTY_KEYBINDS="ctrl+f=zoom-pane"`
+rebinds zoom to `<prefix> Ctrl+f`.
+
+> Note: `zoom-pane` is reserved — the binding and config name exist, but the
+> zoom render path is a planned follow-up; the key is currently a no-op.
 
 ## Native UI
 

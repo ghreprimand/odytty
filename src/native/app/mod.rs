@@ -781,9 +781,16 @@ impl App {
                         return;
                     }
                     PrefixOutcome::Passthrough => {
-                        // Doubled prefix → send the literal prefix byte to the
-                        // focused pane's PTY (nested multiplexer). Wired in K3;
-                        // for now the chord is swallowed.
+                        // Doubled prefix (`Ctrl-b Ctrl-b`) → send the literal
+                        // prefix byte (e.g. `0x02`) to the focused pane's PTY so
+                        // a multiplexer running *inside* OdyTTY still receives
+                        // its own prefix (K3 nested-multiplexer story). Return to
+                        // live first, like any keystroke that reaches the shell.
+                        let bytes = self.prefix_engine.passthrough_bytes();
+                        if !bytes.is_empty() {
+                            self.return_to_live();
+                            self.write_pty_bytes(&bytes);
+                        }
                         return;
                     }
                     PrefixOutcome::Action(action) => {

@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- doubled-prefix passthrough + docs (Phase 1, §7 K3)
+
+Completed the nested-multiplexer story and the config/docs lockstep for the
+prefix model.
+
+- Passthrough wired: the `Passthrough` outcome now returns to live and writes
+  `PrefixEngine::passthrough_bytes()` (the literal C0 byte, `0x02` for the
+  default `Ctrl-b`) to the focused pane's PTY, so a `tmux`/`screen` running
+  inside OdyTTY still receives its own prefix on `Ctrl-b Ctrl-b`. The
+  `passthrough_bytes` `allow(dead_code)` came off.
+- Config key mapping: `pane_prefix` (aliases `prefix`, `multiplexer-prefix`) is
+  wired both ways in `settings/config.rs`, so the `odytty.conf` file form parses
+  and round-trips alongside `ODYTTY_PANE_PREFIX`.
+- Docs in lockstep: `docs/runtime-knobs.md` gains the `pane_prefix` table row,
+  the full pane-action table (chord → action → config name), the reconfigure /
+  disable / nested-multiplexer notes, and the `zoom-pane`-is-reserved caveat;
+  `docs/odytty.conf.example` gains the documented `pane_prefix` block.
+- Test: an App-level integration test proves `Ctrl-b Ctrl-b` sends a single
+  literal `0x02` to the PTY (the first prefix sends nothing), complementing the
+  K1 engine-level passthrough unit.
+
+Verified: `cargo test --lib` 1993 passed / 0 failed; all integration test
+binaries green (incl. `license_headers` SPDX + `cli`); `cargo clippy
+--all-targets -- -D warnings` clean; `cargo fmt --check` clean.
+
+§7 K1+K2+K3 complete: the tmux prefix model is fully live, configurable, and
+documented. Remaining Phase-1 pane items: the K2-zoom sub-packet (per-tab zoom
+state + render branch) and the optional inactive-pane focus dim.
+
 ## 2026-06-21 -- prefix engine wired + pane-op dispatch (Phase 1, §7 K2)
 
 Wired the K1 prefix engine into the live App key path and dispatched the tmux

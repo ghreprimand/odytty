@@ -121,8 +121,6 @@ impl PrefixEngine {
     /// The literal bytes to forward to the PTY for the doubled-prefix passthrough
     /// (K3). For a `Ctrl+<letter>` prefix this is the corresponding C0 control
     /// byte (`Ctrl-b` → `0x02`); empty for prefixes with no single-byte literal.
-    /// Wired into the `Passthrough` arm in K3; the `allow` comes off then.
-    #[allow(dead_code)]
     pub(super) fn passthrough_bytes(&self) -> Vec<u8> {
         let Some(chord) = self.prefix else {
             return Vec::new();

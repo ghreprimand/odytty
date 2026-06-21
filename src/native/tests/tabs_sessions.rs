@@ -761,3 +761,21 @@ fn prefix_is_disabled_when_set_off() {
     app.drive_char_with_mods_for_test('b', true, false);
     assert_eq!(&*bytes.lock().expect("bytes"), &[0x02]);
 }
+
+#[test]
+fn doubled_prefix_passes_the_literal_byte_to_the_pty() {
+    let Some((mut app, bytes)) = single_session_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Ctrl-b Ctrl-b → the focused pane's PTY receives a literal 0x02 (K3), so a
+    // tmux running inside OdyTTY still gets its own prefix. The first Ctrl-b
+    // enters pending and sends nothing; the second triggers the passthrough.
+    app.drive_char_with_mods_for_test('b', true, false);
+    assert!(
+        bytes.lock().expect("bytes").is_empty(),
+        "first prefix sends nothing"
+    );
+    app.drive_char_with_mods_for_test('b', true, false);
+    assert_eq!(&*bytes.lock().expect("bytes"), &[0x02]);
+}
