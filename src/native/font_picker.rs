@@ -574,8 +574,10 @@ mod tests {
     // T-cancel-identity: Esc emits the original font_family unchanged.
     #[test]
     fn t_cancel_identity() {
-        let mut settings = Settings::default();
-        settings.font_family = Some("Cascadia Code".to_owned());
+        let settings = Settings {
+            font_family: Some("Cascadia Code".to_owned()),
+            ..Default::default()
+        };
         let families = make_families(&["Cascadia Code", "Hack"]);
         let mut picker = FontPicker::new(&settings);
         picker.open(&settings, families);
@@ -597,8 +599,10 @@ mod tests {
     // original snapshot).
     #[test]
     fn t_cancel_does_not_mutate_original() {
-        let mut settings = Settings::default();
-        settings.font_family = Some("Hack".to_owned());
+        let settings = Settings {
+            font_family: Some("Hack".to_owned()),
+            ..Default::default()
+        };
         let families = make_families(&["Fira Code", "Hack"]);
         let mut picker = FontPicker::new(&settings);
         picker.open(&settings, families);

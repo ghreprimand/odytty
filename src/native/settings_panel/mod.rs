@@ -91,6 +91,9 @@ pub(super) struct SettingsPanelLine {
     pub(super) bold: bool,
 }
 
+// `Apply` carries a full `Settings` by value; boxing it would ripple through
+// every construction and match site for no runtime gain on this cold path.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum SettingsPanelOutcome {
     Consumed,
@@ -821,10 +824,11 @@ impl SettingsPanel {
             return SettingsPanelOutcome::Consumed;
         };
         if entry.key == "background_image_scrim" {
-            let parsed = entry
-                .value
-                .parse::<f32>()
-                .unwrap_or_else(|_| if direction < 0 { 1.0 } else { 0.0 });
+            let parsed =
+                entry
+                    .value
+                    .parse::<f32>()
+                    .unwrap_or(if direction < 0 { 1.0 } else { 0.0 });
             let next = if let Some(spec) = entry.numeric {
                 let step = spec.step * direction as f32;
                 (parsed + step).clamp(spec.min, spec.max)
@@ -1067,9 +1071,7 @@ fn setting_detail(entry: &SettingInfo) -> String {
     }
     if !entry.reloadable {
         detail.push_str(" Startup-only.");
-    } else if entry.key == "theme" {
-        detail.push_str(" Enter opens the picker; Ctrl+S saves.");
-    } else if entry.key == "font_family" {
+    } else if entry.key == "theme" || entry.key == "font_family" {
         detail.push_str(" Enter opens the picker; Ctrl+S saves.");
     } else {
         detail.push_str(" Enter edits/applies; Ctrl+S saves; Esc cancels an edit.");

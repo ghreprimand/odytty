@@ -686,6 +686,7 @@ impl GpuState {
     /// Synchronous from the caller's perspective: the async adapter/device
     /// requests are driven to completion with `pollster`, since `winit`'s
     /// handler callbacks are synchronous.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         window: Arc<Window>,
         options: &NativeOptions,
@@ -1685,10 +1686,10 @@ impl GpuState {
         // Geometry is pixel-space and stable across resize; only the viewport
         // uniform needs the new physical size.
         self.update_viewport();
-        if let Some(post_process) = &mut self.post_process {
-            if let Some(format) = self.post_process_format {
-                post_process.resize(&self.device, &self.config, format);
-            }
+        if let Some(post_process) = &mut self.post_process
+            && let Some(format) = self.post_process_format
+        {
+            post_process.resize(&self.device, &self.config, format);
         }
     }
 

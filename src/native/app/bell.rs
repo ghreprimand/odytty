@@ -42,10 +42,11 @@ impl App {
     /// per the active [`BellMode`]. No-op on the off path.
     pub(in crate::native) fn note_bell(&mut self, now: Instant, window: Option<&Window>) {
         let mode = self.settings.bell;
-        if mode.wants_urgent() && !self.focused {
-            if let Some(window) = window {
-                window.request_user_attention(Some(UserAttentionType::Informational));
-            }
+        if mode.wants_urgent()
+            && !self.focused
+            && let Some(window) = window
+        {
+            window.request_user_attention(Some(UserAttentionType::Informational));
         }
         if mode.wants_visual() {
             self.bell_flash_start = Some(now);

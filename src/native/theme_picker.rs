@@ -437,8 +437,10 @@ mod tests {
 
     #[test]
     fn cancel_restores_the_original_theme() {
-        let mut settings = Settings::default();
-        settings.theme = Theme::ODYSSEY;
+        let settings = Settings {
+            theme: Theme::ODYSSEY,
+            ..Default::default()
+        };
         let mut picker = ThemePicker::new(&settings);
         select_theme(&mut picker, "monokai");
 
@@ -511,8 +513,10 @@ mod tests {
 
     #[test]
     fn system_alias_row_is_selected_when_settings_use_system() {
-        let mut settings = Settings::default();
-        settings.theme_is_system = true;
+        let settings = Settings {
+            theme_is_system: true,
+            ..Default::default()
+        };
         let picker = ThemePicker::new(&settings);
         let entry = picker.selected_entry().expect("an entry must be selected");
         assert!(entry.is_system, "system alias must be selected");

@@ -504,6 +504,7 @@ fn create_blur_bind_group(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn create_bloom_composite_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,

@@ -133,9 +133,10 @@ mod tests {
     use super::*;
 
     fn settings_with(t: SettingTreatment) -> Settings {
-        let mut s = Settings::default();
-        s.background_treatment = t;
-        s
+        Settings {
+            background_treatment: t,
+            ..Default::default()
+        }
     }
 
     /// KILL-SHOT (trap 1): the default (knob off) produces the identity params,

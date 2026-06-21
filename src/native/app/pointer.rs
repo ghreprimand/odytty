@@ -144,10 +144,8 @@ impl App {
                 }
                 ElementState::Released => self.finish_selection(),
             }
-        } else if button == WinitMouseButton::Middle {
-            if state == ElementState::Pressed {
-                self.handle_primary_paste();
-            }
+        } else if button == WinitMouseButton::Middle && state == ElementState::Pressed {
+            self.handle_primary_paste();
         }
     }
 
@@ -321,9 +319,7 @@ impl App {
     }
 
     pub(super) fn current_selection_text(&self) -> Option<String> {
-        let Some(range) = self.selection.range() else {
-            return None;
-        };
+        let range = self.selection.range()?;
         let terminal = self.terminal.lock().expect("terminal mutex");
         let scrollback_len = terminal.screen().scrollback_len();
         let offset = self.viewport.offset();

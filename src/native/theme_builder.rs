@@ -595,6 +595,10 @@ impl ThemeBuilder {
                             buffer.push(ch.to_ascii_lowercase());
                         }
                     }
+                    // A match guard here would make the arm non-exhaustive
+                    // (a `Name` with a rejected char would fall through), so
+                    // keep the inner filter as an `if`.
+                    #[allow(clippy::collapsible_match)]
                     Some(EditMode::Name { buffer }) => {
                         if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
                             buffer.push(ch.to_ascii_lowercase());

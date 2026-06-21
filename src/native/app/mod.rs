@@ -343,6 +343,9 @@ impl App {
         let autoclose = settings.native_autoclose;
         let themed_ui_roles = settings.themed_ui_roles;
         let overlay = OverlayUi::new(&settings);
+        // `mut` is consumed only by the `cfg(not(test))` onboarding block below;
+        // test builds compile that out, so silence the unused_mut there.
+        #[cfg_attr(test, allow(unused_mut))]
         let mut app = Self {
             options,
             theme,
