@@ -488,11 +488,21 @@ Snapshot envelope status:
   (title + OSC 7 cwd), prompt marks, and layout-affecting state (scroll region +
   tab stops). Decoding accepts v1 and fills these sections from deterministic
   defaults.
+- **Restore path** applies a decoded envelope into a live core model through
+  `Screen::restore_from_envelope`, `Terminal::restore_from_envelope`, or
+  `Terminal::from_snapshot_envelope`. Restored state covers the active visible
+  grid, bounded physical scrollback, cell attributes/protection/wide/combining
+  data, cursor position/visibility/style/blink, `SnapshotBasicModes`, dynamic
+  colors, OSC title/cwd metadata, prompt marks, scroll region, and tab stops.
+  Applying a snapshot resets the parser because in-flight escape/DCS parser
+  state is not serialized.
 - Deferred sections: graphics / Kitty / Sixel payload state and complete
   dual-buffer alternate-screen restore. v2 records whether the alternate screen
   is active and captures the active grid, but it does not yet serialize both the
   active alternate buffer and the stored primary buffer as separately restorable
-  buffers.
+  buffers. Other intentionally lossy edges are current print attributes/protect
+  mode, saved cursor, origin/insert/autowrap flags beyond `SnapshotBasicModes`,
+  active hyperlink targets, and active graphics protocol captures.
 
 Long form: see `phase2-resumable-sessions-decision.md` in the Archon workflow
 artifacts.

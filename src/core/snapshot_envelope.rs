@@ -338,7 +338,10 @@ impl SnapshotLayoutState {
         })
     }
 
-    fn validate(&self, dimensions: Dimensions) -> Result<(), SnapshotEnvelopeError> {
+    pub(in crate::core) fn validate(
+        &self,
+        dimensions: Dimensions,
+    ) -> Result<(), SnapshotEnvelopeError> {
         if self.tab_stops.len() != dimensions.columns {
             return Err(SnapshotEnvelopeError::InvalidTabStopCount {
                 count: self.tab_stops.len(),
@@ -719,6 +722,10 @@ pub enum SnapshotEnvelopeError {
         bottom: usize,
         rows: usize,
     },
+    InvalidPromptMark {
+        row: usize,
+        rows: usize,
+    },
     TooManyRows {
         count: usize,
         max: usize,
@@ -789,6 +796,9 @@ impl fmt::Display for SnapshotEnvelopeError {
                 f,
                 "invalid scroll region top={top} bottom={bottom} for {rows} rows"
             ),
+            Self::InvalidPromptMark { row, rows } => {
+                write!(f, "invalid prompt mark row={row} for {rows} rows")
+            }
             Self::TooManyRows { count, max } => {
                 write!(f, "snapshot has too many rows: {count} exceeds cap {max}")
             }
@@ -1303,7 +1313,7 @@ mod tests {
         terminal.advance(b"\x1b]2;Snapshot Test\x1b\\");
         terminal.advance(b"\x1b]7;file://localhost/tmp/odytty-snapshot\x1b\\");
         terminal.advance(
-            b"alpha\nbeta\n\x1b[31mgamma\x1b[0m\n\x1b[?2004h\x1b[?1004h\x1b[?1006h\x1b[?1003h",
+            b"alpha\nbeta\n\x1b[31mgamma\x1b[0m\n\x1b[?2004h\x1b[?1004h\x1b[?1006h\x1b[?1003h\x1b[?2026h\x1b[?1h\x1b=\x1b[6 q",
         );
         terminal.advance(b"\x1b]133;A\x07prompt\n\x1b]133;C\x07out\n\x1b]133;D;7\x07");
         terminal.advance(b"\x1b[2;3r\x1b[9G\x1b[0g");
@@ -1329,6 +1339,11 @@ mod tests {
             decoded.terminal.basic_modes.mouse.encoding,
             MouseEncoding::Sgr
         );
+        assert!(decoded.terminal.basic_modes.synchronized_output);
+        assert!(decoded.terminal.basic_modes.keyboard.application_cursor);
+        assert!(decoded.terminal.basic_modes.keyboard.application_keypad);
+        assert_eq!(decoded.terminal.cursor_style, CursorStyle::Bar);
+        assert!(!decoded.terminal.cursor_blink);
         assert_eq!(
             decoded.dynamic_colors.foreground,
             RgbColor::new(0x11, 0x22, 0x33)
@@ -1344,6 +1359,173 @@ mod tests {
             Some(SnapshotScrollRegion { top: 1, bottom: 2 })
         );
         assert!(!decoded.layout.tab_stops[8]);
+    }
+
+    #[test]
+    fn decoded_envelope_restores_fresh_terminal_state() {
+        let original = sample_terminal();
+        let limits = SnapshotCaptureLimits::default();
+        let envelope = SnapshotEnvelope::from_terminal(&original, limits);
+        let bytes = envelope.encode();
+        let decoded = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()).unwrap();
+
+        let restored = Terminal::from_snapshot_envelope(&decoded).unwrap();
+
+        assert_eq!(
+            restored.snapshot_state(limits.max_scrollback_rows),
+            decoded.terminal
+        );
+        assert_eq!(restored.dynamic_colors(), &decoded.dynamic_colors);
+        assert_eq!(SnapshotMetadata::from_terminal(&restored), decoded.metadata);
+        assert_eq!(
+            restored
+                .prompt_marks()
+                .into_iter()
+                .map(|(row, kind)| SnapshotPromptMark { row, kind })
+                .collect::<Vec<_>>(),
+            decoded.prompt_marks
+        );
+        assert_eq!(restored.snapshot_layout_state(), decoded.layout);
+        assert_eq!(restored.snapshot(), original.snapshot());
+        assert_eq!(restored.cursor_style(), CursorStyle::Bar);
+        assert!(!restored.cursor_blinking());
+        assert!(restored.synchronized_output_enabled());
+        assert!(restored.bracketed_paste_enabled());
+        assert!(restored.focus_reporting());
+    }
+
+    #[test]
+    fn restore_into_existing_terminal_replaces_state_and_resets_parser() {
+        let original = sample_terminal();
+        let decoded = SnapshotEnvelope::decode(
+            &SnapshotEnvelope::from_terminal(&original, SnapshotCaptureLimits::default()).encode(),
+            SnapshotEnvelopeCaps::default(),
+        )
+        .unwrap();
+        let mut restored = Terminal::new(4, 1);
+        restored.advance(b"stale\x1b[31");
+
+        restored.restore_from_envelope(&decoded).unwrap();
+        restored.advance(b"Z");
+
+        let mut expected = Terminal::from_snapshot_envelope(&decoded).unwrap();
+        expected.advance(b"Z");
+        assert_eq!(restored.snapshot(), expected.snapshot());
+    }
+
+    #[test]
+    fn v1_envelope_restores_with_current_defaults() {
+        let terminal = sample_terminal();
+        let terminal_payload =
+            SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default())
+                .terminal
+                .encode();
+        let bytes = encode_sections_for_version(
+            1,
+            "v1-test",
+            SNAPSHOT_PROTOCOL_VERSION,
+            &[SectionPayload {
+                id: SECTION_TERMINAL_STATE,
+                flags: SECTION_FLAG_REQUIRED,
+                payload: terminal_payload,
+            }],
+        );
+        let decoded = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()).unwrap();
+        let restored = Terminal::from_snapshot_envelope(&decoded).unwrap();
+
+        assert_eq!(restored.dynamic_colors(), &DynamicColors::default());
+        assert_eq!(
+            SnapshotMetadata::from_terminal(&restored),
+            SnapshotMetadata::default()
+        );
+        assert!(restored.prompt_marks().is_empty());
+        assert_eq!(
+            restored.snapshot_layout_state(),
+            SnapshotLayoutState::defaults_for(decoded.terminal.dimensions)
+        );
+        assert_eq!(
+            restored.snapshot_state(SnapshotCaptureLimits::default().max_scrollback_rows),
+            decoded.terminal
+        );
+    }
+
+    #[test]
+    fn minimal_terminal_restores() {
+        let terminal = Terminal::new(1, 1);
+        let decoded = SnapshotEnvelope::decode(
+            &SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default()).encode(),
+            SnapshotEnvelopeCaps::default(),
+        )
+        .unwrap();
+        let restored = Terminal::from_snapshot_envelope(&decoded).unwrap();
+
+        assert_eq!(restored.snapshot_state(0), decoded.terminal);
+        assert_eq!(restored.snapshot(), terminal.snapshot());
+    }
+
+    #[test]
+    fn capped_scrollback_restores_only_captured_tail() {
+        let mut terminal = Terminal::new(8, 2);
+        terminal.set_scrollback_limit(0);
+        for index in 0..12 {
+            terminal.advance(format!("line{index:02}\n").as_bytes());
+        }
+        let limits = SnapshotCaptureLimits {
+            max_scrollback_rows: 4,
+        };
+        let decoded = SnapshotEnvelope::decode(
+            &SnapshotEnvelope::from_terminal(&terminal, limits).encode(),
+            SnapshotEnvelopeCaps::default(),
+        )
+        .unwrap();
+        assert_eq!(decoded.terminal.scrollback_rows.len(), 4);
+
+        let restored = Terminal::from_snapshot_envelope(&decoded).unwrap();
+
+        assert_eq!(restored.screen().scrollback_len(), 4);
+        assert_eq!(
+            restored.snapshot_state(usize::MAX).scrollback_rows,
+            decoded.terminal.scrollback_rows
+        );
+    }
+
+    #[test]
+    fn active_alternate_screen_restores_active_grid_and_mode_flag() {
+        let mut terminal = Terminal::new(10, 3);
+        terminal.advance(b"primary\nhistory\n");
+        terminal.advance(b"\x1b[?1049h\x1b[2J\x1b[Halt-one\nalt-two\x1b[4 q");
+        let decoded = SnapshotEnvelope::decode(
+            &SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default()).encode(),
+            SnapshotEnvelopeCaps::default(),
+        )
+        .unwrap();
+        assert!(decoded.terminal.basic_modes.alternate_screen);
+
+        let restored = Terminal::from_snapshot_envelope(&decoded).unwrap();
+
+        assert!(restored.on_alternate_screen());
+        assert_eq!(
+            restored.snapshot_state(SnapshotCaptureLimits::default().max_scrollback_rows),
+            decoded.terminal
+        );
+        assert_eq!(restored.snapshot(), terminal.snapshot());
+        assert_eq!(restored.cursor_style(), CursorStyle::Underline);
+    }
+
+    #[test]
+    fn invalid_prompt_mark_is_rejected_on_restore() {
+        let terminal = Terminal::new(2, 1);
+        let mut envelope =
+            SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default());
+        envelope.prompt_marks.push(SnapshotPromptMark {
+            row: 99,
+            kind: PromptKind::PromptStart,
+        });
+
+        assert!(matches!(
+            Terminal::from_snapshot_envelope(&envelope),
+            Err(SnapshotEnvelopeError::InvalidPromptMark { row: 99, rows: 1 })
+        ));
     }
 
     #[test]

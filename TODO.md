@@ -903,6 +903,10 @@ feature validates against.
 - [x] Snapshot envelope v2 sections: dynamic colors, OSC title/cwd metadata,
       prompt marks, scroll region, and tab stops, with v1 decode defaults and
       deterministic round-trip tests.
+- [x] Core snapshot restore path: decoded envelopes can rebuild a live
+      `Terminal`/`Screen` model with active grid, bounded scrollback, captured
+      modes, cursor state, dynamic colors, metadata, prompt marks, scroll
+      region, and tab stops.
 - [ ] Panes/splits, profiles, detachable sessions, and session persistence
       remain future work.
 

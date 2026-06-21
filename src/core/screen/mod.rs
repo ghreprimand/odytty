@@ -19,8 +19,8 @@ use super::reflow::resize_buffer_rows;
 use super::scrollback::{ResizeOptions, Scrollback, resize_lazy_with_options};
 use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
 use super::snapshot_envelope::{
-    SnapshotBasicModes, SnapshotLayoutState, SnapshotRow, SnapshotScrollRegion,
-    SnapshotTerminalState,
+    SnapshotBasicModes, SnapshotEnvelope, SnapshotEnvelopeError, SnapshotLayoutState,
+    SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion, SnapshotTerminalState,
 };
 use super::types::*;
 
@@ -818,6 +818,66 @@ impl Screen {
             }),
             tab_stops: self.tab_stops.clone(),
         }
+    }
+
+    /// Restore this screen from an owned Phase 2 snapshot envelope.
+    ///
+    /// The envelope carries active-buffer terminal state only. When it records
+    /// `alternate_screen = true`, the active alternate grid is restored and a
+    /// blank primary placeholder is installed so the mode bit remains true; the
+    /// stored primary buffer is not present in v2 snapshots.
+    pub fn restore_from_envelope(
+        &mut self,
+        envelope: &SnapshotEnvelope,
+    ) -> Result<(), SnapshotEnvelopeError> {
+        restore_validate_terminal_state(&envelope.terminal)?;
+        envelope.layout.validate(envelope.terminal.dimensions)?;
+
+        let columns = envelope.terminal.dimensions.columns;
+        let mut scrollback_rows =
+            restore_lines_from_snapshot_rows(&envelope.terminal.scrollback_rows, columns)?;
+        let mut visible_rows =
+            restore_lines_from_snapshot_rows(&envelope.terminal.visible_rows, columns)?;
+        restore_apply_prompt_marks(
+            &mut scrollback_rows,
+            &mut visible_rows,
+            &envelope.prompt_marks,
+        )?;
+
+        let mut restored = Screen::new(
+            envelope.terminal.dimensions.columns,
+            envelope.terminal.dimensions.rows,
+        );
+        restored.rows = visible_rows;
+        restored.scrollback = Scrollback::from_physical_rows(&scrollback_rows);
+        restored.cursor = envelope.terminal.cursor;
+        restored.cursor_visible = envelope.terminal.cursor_visible;
+        restored.cursor_style = envelope.terminal.cursor_style;
+        restored.cursor_blink = envelope.terminal.cursor_blink;
+        restored.bracketed_paste = envelope.terminal.basic_modes.bracketed_paste;
+        restored.alternate_scroll = envelope.terminal.basic_modes.alternate_scroll;
+        restored.synchronized_output = envelope.terminal.basic_modes.synchronized_output;
+        restored.focus_reporting = envelope.terminal.basic_modes.focus_reporting;
+        restored.mouse = envelope.terminal.basic_modes.mouse;
+        restored.keyboard = envelope.terminal.basic_modes.keyboard;
+        restored.dynamic_colors = envelope.dynamic_colors.clone();
+        restored.title = envelope.metadata.title.clone();
+        restored.title_changed = envelope.metadata.title.is_some();
+        restored.working_directory = envelope.metadata.working_directory.clone();
+        restored.working_directory_changed = envelope.metadata.working_directory.is_some();
+        restored.prompt_marks_changed = !envelope.prompt_marks.is_empty();
+        restored.scroll_region = envelope.layout.scroll_region.map(|region| ScrollRegion {
+            top: region.top,
+            bottom: region.bottom,
+        });
+        restored.tab_stops = envelope.layout.tab_stops.clone();
+        if envelope.terminal.basic_modes.alternate_screen {
+            restored.primary_screen = Some(blank_stored_primary(restored.dimensions));
+        }
+        restored.mark_dirty();
+
+        *self = restored;
+        Ok(())
     }
 
     /// Produce a visible-grid snapshot at a scrollback viewport offset.
@@ -1957,6 +2017,134 @@ impl Terminal {
     pub fn visible_search_rows(&self, offset_rows: usize) -> Vec<VisibleRow> {
         self.screen.visible_search_rows(offset_rows)
     }
+
+    /// Apply a decoded Phase 2 snapshot envelope into this terminal model.
+    ///
+    /// The parser is reset because the snapshot format stores terminal state,
+    /// not an in-flight escape/DCS parser state.
+    pub fn restore_from_envelope(
+        &mut self,
+        envelope: &SnapshotEnvelope,
+    ) -> Result<(), SnapshotEnvelopeError> {
+        self.screen.restore_from_envelope(envelope)?;
+        self.parser = OdyParser::new();
+        Ok(())
+    }
+
+    /// Construct a fresh terminal from a decoded Phase 2 snapshot envelope.
+    pub fn from_snapshot_envelope(
+        envelope: &SnapshotEnvelope,
+    ) -> Result<Self, SnapshotEnvelopeError> {
+        let mut terminal = Self::new(
+            envelope.terminal.dimensions.columns,
+            envelope.terminal.dimensions.rows,
+        );
+        terminal.restore_from_envelope(envelope)?;
+        Ok(terminal)
+    }
+}
+fn blank_stored_primary(dimensions: Dimensions) -> StoredScreen {
+    StoredScreen {
+        rows: vec![blank_row(dimensions.columns); dimensions.rows],
+        scrollback: Scrollback::new(),
+        cursor: Position::default(),
+        cursor_visible: true,
+        pending_wrap: false,
+        saved_cursor: None,
+        scroll_region: None,
+        origin_mode: false,
+        auto_wrap: true,
+        current_attrs: Attrs::default(),
+        current_protected: false,
+        rect_attr_extent: RectAttributeExtent::default(),
+        active_hyperlink: None,
+        kitty_keyboard_flags: 0,
+        kitty_keyboard_stack: Vec::new(),
+        active_prompt_input_start: None,
+        active_prompt_start: None,
+    }
+}
+fn restore_validate_terminal_state(
+    state: &SnapshotTerminalState,
+) -> Result<(), SnapshotEnvelopeError> {
+    let columns = state.dimensions.columns;
+    let rows = state.dimensions.rows;
+    if columns == 0 || rows == 0 {
+        return Err(SnapshotEnvelopeError::InvalidDimensions { columns, rows });
+    }
+    if state.cursor.row >= rows || state.cursor.column >= columns {
+        return Err(SnapshotEnvelopeError::InvalidCursor {
+            cursor: state.cursor,
+        });
+    }
+    if state.visible_rows.len() != rows {
+        return Err(SnapshotEnvelopeError::InvalidVisibleRowCount {
+            count: state.visible_rows.len(),
+            expected: rows,
+        });
+    }
+    for row in state
+        .scrollback_rows
+        .iter()
+        .chain(state.visible_rows.iter())
+    {
+        if row.cells.len() != columns {
+            return Err(SnapshotEnvelopeError::InvalidRowWidth {
+                width: row.cells.len(),
+                columns,
+            });
+        }
+    }
+    let total_rows = state
+        .scrollback_rows
+        .len()
+        .checked_add(state.visible_rows.len())
+        .ok_or(SnapshotEnvelopeError::CellCapExceeded)?;
+    total_rows
+        .checked_mul(columns)
+        .ok_or(SnapshotEnvelopeError::CellCapExceeded)?;
+    Ok(())
+}
+fn restore_lines_from_snapshot_rows(
+    rows: &[SnapshotRow],
+    columns: usize,
+) -> Result<Vec<Line>, SnapshotEnvelopeError> {
+    let mut restored = Vec::with_capacity(rows.len());
+    for row in rows {
+        if row.cells.len() != columns {
+            return Err(SnapshotEnvelopeError::InvalidRowWidth {
+                width: row.cells.len(),
+                columns,
+            });
+        }
+        restored.push(Line {
+            cells: row.cells.iter().map(|cell| cell.to_cell()).collect(),
+            wrapped: row.wrapped,
+            prompt_mark: None,
+        });
+    }
+    Ok(restored)
+}
+fn restore_apply_prompt_marks(
+    scrollback_rows: &mut [Line],
+    visible_rows: &mut [Line],
+    marks: &[SnapshotPromptMark],
+) -> Result<(), SnapshotEnvelopeError> {
+    let total_rows = scrollback_rows.len() + visible_rows.len();
+    for mark in marks {
+        if mark.row >= total_rows {
+            return Err(SnapshotEnvelopeError::InvalidPromptMark {
+                row: mark.row,
+                rows: total_rows,
+            });
+        }
+        if mark.row < scrollback_rows.len() {
+            scrollback_rows[mark.row].prompt_mark = Some(mark.kind);
+        } else {
+            visible_rows[mark.row - scrollback_rows.len()].prompt_mark = Some(mark.kind);
+        }
+    }
+    Ok(())
 }
 pub(in crate::core) fn blank_row(columns: usize) -> Line {
     Line::unwrapped(vec![Cell::blank(); columns])

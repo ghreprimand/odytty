@@ -150,6 +150,21 @@ impl Scrollback {
         }
     }
 
+    /// Rebuild scrollback from owned physical rows copied out of a snapshot.
+    ///
+    /// The restored limit is large enough to retain every captured logical line
+    /// while keeping the normal default cap for future output when the snapshot
+    /// contains less history than the default.
+    pub(in crate::core) fn from_physical_rows(rows: &[Line]) -> Self {
+        let lines = logical_from_physical(rows);
+        let limit = DEFAULT_SCROLLBACK_LIMIT.max(lines.len());
+        Self {
+            lines,
+            cache: RefCell::new(Projection::empty()),
+            limit,
+        }
+    }
+
     /// The active logical-line limit (`0` = unbounded).
     pub(in crate::core) fn limit(&self) -> usize {
         self.limit
@@ -423,7 +438,6 @@ pub(in crate::core) fn resize_lazy_with_options(
 /// Consecutive rows are joined into one logical line until a non-`wrapped`
 /// (hard-terminated) row ends it; a trailing run that ends on a `wrapped` row
 /// becomes an `open` logical line.
-#[cfg(test)]
 pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> {
     let mut lines = Vec::new();
     let mut current: Vec<Cell> = Vec::new();

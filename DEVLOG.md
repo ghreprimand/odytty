@@ -121,6 +121,25 @@ backing op yet — zoom/toggle-fullscreen-pane needs per-tab zoom state + a rend
 branch, flagged to the director as its own sub-packet (K2-zoom). K2 wires the
 other five ops (split/focus/close/equalize) onto the existing `TabSet` methods.
 
+## 2026-06-21 -- snapshot restore path (Phase 2)
+
+Completed the pure-core restore half of the snapshot envelope work without
+touching `src/native/`.
+
+- Added `Screen::restore_from_envelope`, `Terminal::restore_from_envelope`, and
+  `Terminal::from_snapshot_envelope` so a decoded `SnapshotEnvelope` can rebuild
+  a live terminal model. Restore rebuilds owned rows, `Scrollback`, cursor
+  state, `SnapshotBasicModes`, dynamic colors, OSC title/cwd metadata, prompt
+  marks, scroll region, and tab stops.
+- Added `Scrollback::from_physical_rows` as the owned constructor for snapshot
+  physical history; restore does not reach into scrollback internals.
+- Applying a snapshot resets the parser because in-flight escape/DCS parser
+  state is not serialized. Active alternate-screen restore preserves the active
+  grid and mode flag, with the v2-stated loss of the stored primary buffer.
+- Added restore fidelity tests for decoded round-trip state, parser reset,
+  v1-default restore, minimal terminals, capped scrollback tail restore,
+  active alternate-screen active-grid restore, and invalid prompt mark rejection.
+
 ## 2026-06-21 -- snapshot envelope v2 sections (Phase 2)
 
 Extended the pure core snapshot envelope toward faithful resumable-session
