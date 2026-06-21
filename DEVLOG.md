@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Real-process daemon-survival e2e (Phase 2 integration gate)
+
+Added the missing integration seam: a single end-to-end test gluing the **real**
+detached session-host *process* to the **real** native `AttachClient` across a
+true client disconnect. The prior tests covered each side against a stand-in
+(client vs. an in-process fake host; host vs. a synthetic client), so a wire /
+socket-path / daemon-survival mismatch could hide between them.
+
+- New `src/native/tests/attach_e2e.rs`
+  (`real_host_survives_detach_and_reattach_restores_scrollback`): spawns a real
+  `odytty session-host` subprocess (located next to the test exe) owning a real
+  `/bin/sh` PTY child under a synthetic runtime base, then drives the real
+  `AttachClient`.
+- Proves, across real processes and the real wire: (1) attach restores the
+  pre-attach scrollback (`scrollback_len > 0`, latest line on screen);
+  (2) mid-attach input folds into the **host's own** terminal model;
+  (3) a clean detach (drop the client = window close) leaves the host process
+  **alive** with its socket intact; (4) reattach by id restores the scrollback
+  produced before + during the first attach plus the mid-attach output;
+  (5) when the child exits, the host process reaps cleanly — no orphaned daemon
+  and no stale socket.
+- Hermetic and bounded: synthetic `0700` runtime dir (host-created), a trivial
+  controlled child, per-step timeouts so a stuck host fails rather than hangs,
+  and a `HostGuard` that kills the subprocess + removes the temp dir on any
+  failure. No real user data. Stable across repeated runs.
+
+This closes the real-process gap for Phase 2 detach/reattach and satisfies the
+"detach/reattach integration" test line. Verification: `cargo test --lib` → 2076
+passed / 7 ignored; clippy `--lib --tests` clean; `rustfmt --check` clean;
+`gpu_composite_smoke` + `license_headers` green. Requires the `odytty` bin built
+(automatic under `cargo test`). Phase 2 remainder: output replay/scrubbing.
+
 ## 2026-06-21 -- SSH config parser substrate
 
 Added a pure, bounded OpenSSH config parser for the future SSH / connection

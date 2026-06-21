@@ -952,6 +952,15 @@ feature validates against.
       + the `gpu_composite_smoke` pixel guard; headlessly tested via a fake host.
       (Phase 2 remainder: output replay/scrubbing + daemon survival across full
       window close.)
+- [x] Real-process daemon-survival e2e (`src/native/tests/attach_e2e.rs`):
+      glues a real `odytty session-host` subprocess to the real native
+      `AttachClient` across a true client disconnect. Proves attach restores the
+      pre-attach scrollback, mid-attach input folds into the host's own terminal
+      model, a clean detach leaves the host process alive with its socket intact,
+      reattach by id restores the scrollback produced before + during the first
+      attach, and the host reaps cleanly (no orphaned daemon, no stale socket)
+      when its child exits. Hermetic synthetic runtime dir, controlled child,
+      bounded timeouts. Closes the real-process detach/reattach integration gap.
 - [x] Native splits / panes: a tab owns a binary pane layout tree (leaf =
       session, node = H/V split + ratio) backing a two-level `TabSet` model;
       single-pane tabs stay byte-identical. Per-pane render dispatch lays out
