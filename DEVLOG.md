@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- §7 keybinding framing: "two standards, by domain"
+
+Refined the design doc's §7 (and §10 summary) to the operator-ratified framing:
+**there is no single keybinding standard — there are two worlds, by domain.**
+Existing OdyTTY GUI direct-chords (`Ctrl+Shift+T`, search, copy/paste, …) stay
+**exactly as today — not one changes**; the tmux **prefix standard** applies to
+the **new multiplexer actions only** (panes/splits, later resumable sessions):
+configurable prefix (default `Ctrl-b`), tmux-matching defaults `%`/`"`/arrows/
+`o`/`x`/`z`/`Space`/`=`. Added the explicit scope statement: OdyTTY is **not**
+adopting a universally-global scheme — the single configurable prefix is the only
+new globally-captured key, and it is additive (no prefix pending ⇒ input is
+byte-identical to today; timeout/unknown-key cancels cleanly). K3 nested-multiplexer
+story unchanged (configurable prefix + `Ctrl-b Ctrl-b` literal passthrough). The
+K1/K2/K3 engine work is unchanged; this nails the committed framing. Docs-only.
+
+---
+
 ## 2026-06-21 -- Pane layout core (Phase 1a, pure/headless)
 
 Added `src/native/layout.rs`, the pure GPU-free geometry core for splits/panes

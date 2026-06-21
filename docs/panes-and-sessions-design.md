@@ -484,18 +484,41 @@ doubled-prefix passthrough** (K3) — rather than by avoiding the prefix model.
 
 ### 7.3 Decision
 
-**Build a true tmux-style prefix-key input mode.** A configurable prefix chord
-(default `Ctrl-b`) puts the input layer into a transient *prefix-pending* state;
-the next keychord resolves against a dedicated prefix-bindings table; a timeout or
-an unrecognized key cancels cleanly back to normal input. Pane-management defaults
-match tmux so muscle memory transfers. The whole mechanism is **additive**: with no
-prefix pending (and the engine in its default state) every existing single-chord
-binding and all PTY input is **byte-identical to today**.
+**Governing principle — "two standards, by domain."** There is no single industry
+standard for terminal keybindings; there are **two distinct worlds**, and OdyTTY
+uses each world's standard for the actions that belong to it:
+
+1. **GUI-terminal actions → GUI direct-chord standard (UNCHANGED).** Every existing
+   OdyTTY chord stays **exactly as today** — `Ctrl+Shift+T` new tab,
+   `Ctrl+Shift+W` close tab, search, copy/paste, etc. These already match GNOME
+   Terminal / Tilix / kitty conventions and are correct. **No existing binding
+   changes. Not one.** Typing and PTY passthrough are byte-identical to today.
+2. **Multiplexer actions → tmux prefix standard (NEW, scoped).** The new pane/split
+   (and later resumable-session) controls follow the tmux standard, because the
+   users who want these features are overwhelmingly tmux users and that is the
+   muscle memory they already have: a configurable prefix (default `Ctrl-b`) then
+   the tmux key — `%`/`"` split, arrows/`o` focus, `x` close, `z` zoom,
+   `=`/`Space` equalize.
+
+**Scope statement (must remain unambiguous in the committed record).** OdyTTY is
+**NOT** moving to a universally-global keybinding scheme. The **only** new
+globally-captured key is the single configurable prefix chord. It is **additive**:
+when no prefix is pending, every existing binding and all ordinary input is
+byte-identical to today. The prefix is a transient one-keystroke mode — the next
+key resolves against the prefix table, then input returns to normal; a timeout or
+an unrecognized key cancels cleanly back to normal typing.
+
+**Mechanism.** A configurable prefix chord (default `Ctrl-b`) puts the input layer
+into a transient *prefix-pending* state; the next keychord resolves against a
+dedicated prefix-bindings table; a timeout or an unrecognized key cancels cleanly
+back to normal input. Pane-management defaults match tmux so muscle memory
+transfers.
 
 Rationale:
 
-1. **Operator directive** — explicit ratification to maximize tmux muscle-memory
-   transfer (the #1 adoption gate the demand scan surfaced).
+1. **Operator directive** — explicit ratification of the "two standards by domain"
+   framing to maximize tmux muscle-memory transfer (the #1 adoption gate the demand
+   scan surfaced) **without** disturbing the existing GUI-chord world.
 2. The prefix model is what tmux/screen users already have in their fingers; a
    direct-chord scheme would force relearning for exactly the audience most likely
    to want panes.
@@ -634,10 +657,13 @@ prefix, rebinding individual pane actions) are documented as opt-in in
   themed `SolidQuad`; single pane never touches it.
 - **Input** routes to `focused`; focus-follows-click; pure `focus_move`; divider
   drag through the existing debounced resize → `TIOCSWINSZ` → core reflow.
-- **Keybindings (operator-ratified):** build a true tmux **prefix-key mode**
-  (default prefix `Ctrl-b`, configurable; doubled-prefix `Ctrl-b Ctrl-b`
-  passthrough for nested multiplexers; tmux-matching pane defaults `%`/`"`/arrows/
-  `o`/`x`/`z`/`Space`). Additive — when no prefix is pending/configured, input is
+- **Keybindings (operator-ratified) — "two standards, by domain":** existing
+  GUI direct-chords stay **exactly as today** (not one changes); the tmux **prefix
+  standard** applies to the **new multiplexer actions only** (default prefix
+  `Ctrl-b`, configurable; doubled-prefix `Ctrl-b Ctrl-b` passthrough for nested
+  multiplexers; tmux-matching pane defaults `%`/`"`/arrows/`o`/`x`/`z`/`Space`).
+  **Not** a universal scheme — the single configurable prefix is the only new
+  globally-captured key, and it is additive: when no prefix is pending, input is
   **byte-identical to today**. Lands as K1 (engine) + K2 (defaults) + K3 (nesting)
   after the layout core + arena refactor.
 - **Phase 2 seam preserved:** `Session` stays window/GPU-free; arena + plain-data
