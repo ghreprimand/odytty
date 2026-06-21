@@ -688,16 +688,19 @@ its first stable layer.
   per-user Unix-domain socket under `$XDG_RUNTIME_DIR/odytty/`, requires a
   `0700` current-user runtime directory, rejects incompatible protocol/snapshot
   versions, sends an initial `SnapshotEnvelope`, streams output/invalidation
-  frames, and reaps the child process. Public detachable-session commands and
-  native reattach UX are not supported yet.
+  frames, and reaps the child process. Public CLI commands now cover
+  `odytty new --detached`, `odytty list`, and diagnostic `odytty attach <id>`.
+  `list` prints metadata-only rows and never scrollback/command output; the
+  diagnostic attach validates the session and decodes the initial snapshot but
+  does not render a native window yet.
 
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering
 - iTerm2 graphics protocol
 - Ligature/stylistic-set shaping (strategy decided; implementation deferred
   until a specific trigger condition is met)
-- Profiles, detachable/persistent sessions, and cross-session multiplexing
-  (panes/splits within a window are now supported — see above)
+- Profiles, native window reattach for persistent sessions, and cross-session
+  multiplexing (panes/splits within a window are now supported — see above)
 - Shell integration beyond OSC 7 cwd tracking and OSC 133 prompt/command marks
   plus the current command-aware native actions
 - Plugin systems, AI features, command palettes, rich dashboards, or nonstandard

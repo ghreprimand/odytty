@@ -915,6 +915,12 @@ feature validates against.
       protocol/snapshot version mismatches, sends an initial snapshot followed
       by output/invalidation frames, keeps detached sessions alive until the
       bounded idle timeout, and reaps child processes cleanly.
+- [x] Detached-session CLI surface: `odytty new --detached` starts a local
+      session host and prints `id=...`; `odytty list` reports live sessions in
+      metadata-only script rows (`id`, `name`, `state`, `age_ms`, `panes`);
+      `odytty attach <id>` performs a diagnostic attach that validates the id,
+      receives/decodes the initial snapshot, prints dimensions, and exits.
+      Native window reattach remains a follow-up.
 - [x] Native splits / panes: a tab owns a binary pane layout tree (leaf =
       session, node = H/V split + ratio) backing a two-level `TabSet` model;
       single-pane tabs stay byte-identical. Per-pane render dispatch lays out
@@ -935,9 +941,8 @@ feature validates against.
 - [ ] Pane fast-follows: per-pane inline graphics (images render in single-pane
       tabs only today), non-focused-pane interactive overlays, and an optional
       inactive-pane focus dim.
-- [ ] Profiles, detachable sessions, and session persistence user flows
-      (`odytty attach/list/new --detached` plus native-window reattach wiring)
-      remain future work.
+- [ ] Profiles and native-window reattach for persistent sessions remain future
+      work.
 
 ## Archived First Prototype Checklist
 

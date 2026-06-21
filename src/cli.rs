@@ -8,9 +8,16 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use anyhow::{Context, Result as AnyResult, bail};
 use odytty::atlas::SubpixelMode;
-use odytty::core::CursorStyle;
+use odytty::core::{CursorStyle, SnapshotEnvelope, SnapshotEnvelopeCaps};
 use odytty::native::{NativeCommand, NativeOptions};
+use odytty::session_host::protocol::HostFrame;
+use odytty::session_host::{
+    HostCommand, HostConfig, ListedSession, SessionHostClient, SessionMetadata,
+    existing_runtime_dir, list_live_sessions, now_unix_ms, session_socket_path,
+    spawn_host_on_demand, write_session_metadata,
+};
 use odytty::settings::{
     BindableAction, KeyBindingKey, KeyBindingNamedKey, KeyBindingOverride, KeyChord, Settings,
 };
@@ -25,6 +32,232 @@ pub fn output_for_args(args: &[String]) -> Option<String> {
         Some("--show-config") => Some(show_config_output(&Settings::from_env())),
         _ => None,
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionCliCommand {
+    NewDetached(DetachedSessionOptions),
+    List(SessionListOptions),
+    Attach(SessionAttachOptions),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DetachedSessionOptions {
+    pub id: Option<String>,
+    pub title: Option<String>,
+    pub working_directory: Option<PathBuf>,
+    pub command: DetachedSessionCommand,
+    pub runtime_base: Option<PathBuf>,
+}
+
+impl Default for DetachedSessionOptions {
+    fn default() -> Self {
+        Self {
+            id: None,
+            title: None,
+            working_directory: None,
+            command: DetachedSessionCommand::DefaultShell,
+            runtime_base: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DetachedSessionCommand {
+    DefaultShell,
+    Exec(NativeCommand),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SessionListOptions {
+    pub runtime_base: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionAttachOptions {
+    pub id: String,
+    pub runtime_base: Option<PathBuf>,
+}
+
+/// Parse public resumable-session subcommands.
+pub fn session_command_for_args(args: &[String]) -> Result<Option<SessionCliCommand>, String> {
+    match args.first().map(String::as_str) {
+        Some("new") => parse_session_new(&args[1..])
+            .map(|options| Some(SessionCliCommand::NewDetached(options))),
+        Some("list") => {
+            if args.len() != 1 {
+                return Err("odytty list takes no arguments".to_owned());
+            }
+            Ok(Some(SessionCliCommand::List(SessionListOptions::default())))
+        }
+        Some("attach") => {
+            let id = args
+                .get(1)
+                .ok_or_else(|| "odytty attach requires a session id".to_owned())?;
+            if args.len() != 2 {
+                return Err("odytty attach takes exactly one session id".to_owned());
+            }
+            Ok(Some(SessionCliCommand::Attach(SessionAttachOptions {
+                id: id.clone(),
+                runtime_base: None,
+            })))
+        }
+        _ => Ok(None),
+    }
+}
+
+pub fn run_session_command(command: SessionCliCommand) -> AnyResult<String> {
+    match command {
+        SessionCliCommand::NewDetached(options) => run_new_detached(options),
+        SessionCliCommand::List(options) => list_live_sessions(options.runtime_base.as_deref())
+            .map(|sessions| list_sessions_output(&sessions)),
+        SessionCliCommand::Attach(options) => run_attach_diagnostic(options),
+    }
+}
+
+pub fn list_sessions_output(sessions: &[ListedSession]) -> String {
+    let mut out = String::new();
+    for session in sessions {
+        out.push_str(&format!(
+            "id={}\tname={}\tstate={}\tage_ms={}\tpanes={}\n",
+            cli_field_value(&session.id),
+            cli_field_value(&session.name),
+            session.state,
+            session.age_ms,
+            session.pane_count
+        ));
+    }
+    out
+}
+
+fn parse_session_new(args: &[String]) -> Result<DetachedSessionOptions, String> {
+    let mut options = DetachedSessionOptions::default();
+    let mut detached = false;
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        match arg.as_str() {
+            "--detached" => {
+                detached = true;
+                index += 1;
+            }
+            "--title" => {
+                index += 1;
+                options.title = Some(
+                    args.get(index)
+                        .ok_or_else(|| "--title requires a value".to_owned())?
+                        .clone(),
+                );
+                index += 1;
+            }
+            "--working-directory" | "--working-dir" => {
+                index += 1;
+                options.working_directory = Some(PathBuf::from(
+                    args.get(index)
+                        .ok_or_else(|| format!("{arg} requires a value"))?,
+                ));
+                index += 1;
+            }
+            "-e" | "--execute" => {
+                options.command =
+                    DetachedSessionCommand::Exec(command_from_rest(&args[index + 1..])?);
+                index = args.len();
+            }
+            _ => {
+                if let Some(title) = arg.strip_prefix("--title=") {
+                    options.title = Some(title.to_owned());
+                    index += 1;
+                } else if let Some(path) = arg.strip_prefix("--working-directory=") {
+                    options.working_directory = Some(PathBuf::from(path));
+                    index += 1;
+                } else if let Some(path) = arg.strip_prefix("--working-dir=") {
+                    options.working_directory = Some(PathBuf::from(path));
+                    index += 1;
+                } else {
+                    return Err(format!("unknown odytty new argument: {arg}"));
+                }
+            }
+        }
+    }
+
+    if !detached {
+        return Err("odytty new requires --detached".to_owned());
+    }
+
+    Ok(options)
+}
+
+fn run_new_detached(options: DetachedSessionOptions) -> AnyResult<String> {
+    run_new_detached_with_spawner(options, |config| spawn_host_on_demand(config).map(|_| ()))
+}
+
+pub fn run_new_detached_with_spawner(
+    options: DetachedSessionOptions,
+    spawner: impl FnOnce(&HostConfig) -> AnyResult<()>,
+) -> AnyResult<String> {
+    let session_id = options.id.unwrap_or_else(generate_session_id);
+    let mut config = HostConfig::new(session_id.clone());
+    config.runtime_base = options.runtime_base;
+    config.command = match options.command {
+        DetachedSessionCommand::DefaultShell => HostCommand::DefaultShell {
+            working_directory: options.working_directory,
+        },
+        DetachedSessionCommand::Exec(command) => HostCommand::Exec {
+            program: command.program,
+            args: command.args,
+            working_directory: options.working_directory,
+        },
+    };
+    let paths = config.runtime_paths()?;
+    let metadata = SessionMetadata {
+        id: session_id.clone(),
+        name: options.title.unwrap_or_else(|| session_id.clone()),
+        created_unix_ms: now_unix_ms(),
+        pane_count: 1,
+    };
+    write_session_metadata(&paths.dir, &metadata)?;
+    spawner(&config)?;
+    Ok(format!("id={session_id}\n"))
+}
+
+fn run_attach_diagnostic(options: SessionAttachOptions) -> AnyResult<String> {
+    let Some(runtime_dir) = existing_runtime_dir(options.runtime_base.as_deref())? else {
+        bail!("session not found: {}", options.id);
+    };
+    let socket_path = session_socket_path(&runtime_dir, &options.id)?;
+    if !socket_path.exists() {
+        bail!("session not found: {}", options.id);
+    }
+    let mut client = SessionHostClient::connect(&socket_path, &options.id)
+        .with_context(|| format!("attach session {}", options.id))?;
+    let snapshot = read_attach_snapshot(&mut client)?;
+    let envelope = SnapshotEnvelope::decode(&snapshot, SnapshotEnvelopeCaps::default())
+        .context("decode session snapshot")?;
+    let _ = client.detach();
+    Ok(format!(
+        "id={}\tstate=attached\tmode=diagnostic\tcolumns={}\trows={}\tpanes=1\n",
+        cli_field_value(&options.id),
+        envelope.terminal.dimensions.columns,
+        envelope.terminal.dimensions.rows
+    ))
+}
+
+fn read_attach_snapshot(client: &mut SessionHostClient) -> AnyResult<Vec<u8>> {
+    for _ in 0..40 {
+        if let Some(frame) = client.read_frame(Duration::from_millis(50))? {
+            match frame {
+                HostFrame::Snapshot(bytes) => return Ok(bytes),
+                HostFrame::SessionExit { .. } => bail!("session exited before snapshot"),
+                HostFrame::Error(message) => bail!("session-host error before snapshot: {message}"),
+                HostFrame::Output(_) | HostFrame::Invalidate { .. } => {}
+            }
+        }
+    }
+    bail!("session attach timed out before snapshot")
+}
+
+fn generate_session_id() -> String {
+    format!("s-{}-{}", std::process::id(), now_unix_ms())
 }
 
 /// Parse arguments that launch the native terminal.
@@ -285,6 +518,21 @@ fn float_value(value: f32) -> String {
 
 fn bool_value(value: bool) -> &'static str {
     if value { "on" } else { "off" }
+}
+
+fn cli_field_value(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '\t' => out.push_str("\\t"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            ch if ch.is_control() => out.push(' '),
+            ch => out.push(ch),
+        }
+    }
+    out
 }
 
 fn path_value(path: &Path) -> String {

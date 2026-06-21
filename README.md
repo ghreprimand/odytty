@@ -218,6 +218,15 @@ odytty --list-fonts
 odytty --show-config
 ```
 
+Detached-session CLI commands are additive and local-only:
+
+```sh
+odytty new --detached
+odytty new --detached --title work -e bash
+odytty list
+odytty attach <id>
+```
+
 From the source tree without installing:
 
 ```sh
@@ -233,6 +242,13 @@ font files. `--show-config` prints the current stable config-dump subset (includ
 symbol/Nerd-font fallback **chain**, joined with ` > ` — e.g.
 `bundled > bundled > host:<path>`, or `disabled`); the full settings authority is
 [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
+
+`odytty new --detached` starts a local session-host process and prints a stable
+`id=...` row. `odytty list` prints live detached sessions as metadata-only rows
+(`id`, `name`, `state`, `age_ms`, `panes`) and never dumps scrollback or command
+output. `odytty attach <id>` is a diagnostic attach in this slice: it validates
+the session, receives the initial snapshot, prints dimensions, and exits. Native
+window reattach is a follow-up.
 
 ## Current Feature Surface
 
@@ -434,9 +450,8 @@ treatments, and a large compatibility test surface.
 experimental build-from-source target (see Install And Run). Both are exercised
 in CI. Windows is not yet supported.
 
-**Known gaps:** Windows support, profiles, session persistence user flows
-(the hidden session-host substrate exists, but attach/list/native reattach
-wiring is pending), per-pane inline graphics, the inactive-pane focus dim,
+**Known gaps:** Windows support, profiles, native window reattach for
+persistent sessions, per-pane inline graphics, the inactive-pane focus dim,
 Kitty animation, Kitty Unicode placeholders, iTerm2 graphics, COLR/CPAL color
 fonts, and broader ligature/stylistic-set shaping.
 

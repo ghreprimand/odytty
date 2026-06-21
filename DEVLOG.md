@@ -7,6 +7,64 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- inactive-pane focus dimming (Phase 1, final item)
+
+Completed the last Phase 1 item: an optional subtle dim on the non-focused
+panes of a multi-pane tab so the focused pane stands out. Default off and
+plain-path-safe.
+
+- New `inactive_pane_dim` setting (`ODYTTY_INACTIVE_PANE_DIM`, config aliases
+  `inactive_pane_dim` / `panedim` / `inactivedim`), float `0.0..=1.0`, default
+  `0.0`. Parser, env round-trip, settings-panel row + description, and
+  config-key mapping all mirror the existing `focus_dim` knob.
+- `Settings::effective_inactive_pane_dim()` forces the value to `0.0` on the
+  plain renderer profile, matching `effective_focus_dim`.
+- `rebuild_multipane` now assigns a per-pane `focus_dim` via the new pure
+  `pane_focus_dim(is_focused, inactive_dim)` helper: the focused pane is always
+  `0.0`; inactive panes recede by the configured amount. Reuses the existing
+  per-`PaneRender` `focus_dim` GPU path — no shader or grid changes.
+- Byte-identity: with `inactive_pane_dim == 0.0` every pane gets `0.0`, exactly
+  the previous hardcoded value, so the multi-pane frame is unchanged. Single-
+  pane tabs never call this path. The grid layer already proves `focus_dim == 0.0`
+  is an exact no-op.
+- Tests: setting default/parse/empty/garbage/clamp/config-round-trip and the
+  plain-profile force-off, the `pane_focus_dim` helper (focused identity,
+  inactive configured, off byte-identical), numeric step coverage, and the
+  every-field setting-info coverage list updated.
+- Verified: `cargo test --lib` 2025 passed; `cargo clippy --lib --tests
+  -D warnings` clean; `cargo fmt --check` clean (own files); pixel/composite
+  smoke green incl. the focus-dim pixel tests.
+
+This closes Phase 1 (native splits/panes). Docs updated in lockstep
+(`runtime-knobs.md`, `odytty.conf.example`).
+
+## 2026-06-21 -- detached-session CLI surface (Phase 2)
+
+Added the public CLI surface for the session-host substrate without touching
+`src/native/`.
+
+- `odytty new --detached [-e CMD...] [--working-directory DIR] [--title TITLE]`
+  starts a local session-host process, writes a local metadata file under the
+  per-user runtime dir, and prints `id=...`.
+- `odytty list` scans live per-session sockets under `$XDG_RUNTIME_DIR/odytty/`,
+  completes a clean attach/detach handshake, and prints metadata-only rows:
+  `id`, `name`, `state`, `age_ms`, `panes`. It never prints scrollback or
+  command output.
+- `odytty attach <id>` is deliberately diagnostic in this packet: it validates
+  the id, connects to the host, receives and decodes the initial
+  `SnapshotEnvelope`, prints dimensions, and exits. Native window-as-client
+  rendering remains the next native-side packet.
+- Added `src/session_host/registry.rs` for local metadata and live-session
+  enumeration; existing introspection flags and native launch flags remain
+  additive/unchanged.
+- Tests cover CLI parsing, script-friendly list formatting, `new --detached`
+  id output through an injected non-daemon spawner, unknown attach errors, and a
+  bounded thread-host list+diagnostic-attach path that asserts scrollback is not
+  dumped.
+
+Verified: `cargo test`, `cargo fmt --check`, and `cargo clippy -- -D warnings`
+green.
+
 ## 2026-06-21 -- session-host foundation (Phase 2)
 
 Landed the hidden, root-level `src/session_host/` foundation for resumable

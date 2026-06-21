@@ -30,6 +30,25 @@ pub fn runtime_base_from_env() -> Result<PathBuf> {
         .ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is required for session-host sockets"))
 }
 
+pub fn runtime_dir_path(runtime_base: &Path) -> PathBuf {
+    runtime_base.join(SOCKET_DIR_NAME)
+}
+
+pub fn existing_runtime_dir(runtime_base: Option<&Path>) -> Result<Option<PathBuf>> {
+    let Some(base) = runtime_base
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from))
+    else {
+        return Ok(None);
+    };
+    let dir = runtime_dir_path(&base);
+    if !dir.exists() {
+        return Ok(None);
+    }
+    validate_runtime_dir(&dir)?;
+    Ok(Some(dir))
+}
+
 pub fn runtime_paths(runtime_base: Option<&Path>, session_id: &str) -> Result<RuntimePaths> {
     let base = match runtime_base {
         Some(path) => path.to_owned(),
@@ -42,7 +61,7 @@ pub fn runtime_paths(runtime_base: Option<&Path>, session_id: &str) -> Result<Ru
 }
 
 pub fn prepare_runtime_dir(runtime_base: &Path) -> Result<PathBuf> {
-    let dir = runtime_base.join(SOCKET_DIR_NAME);
+    let dir = runtime_dir_path(runtime_base);
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     fs::set_permissions(&dir, fs::Permissions::from_mode(RUNTIME_DIR_MODE))
         .with_context(|| format!("chmod 0700 {}", dir.display()))?;
@@ -90,6 +109,17 @@ pub fn session_socket_path(runtime_dir: &Path, session_id: &str) -> Result<PathB
     validate_runtime_dir(runtime_dir)?;
     let safe = safe_session_id(session_id)?;
     Ok(runtime_dir.join(format!("{SOCKET_PREFIX}{safe}{SOCKET_SUFFIX}")))
+}
+
+pub fn session_metadata_path(runtime_dir: &Path, session_id: &str) -> Result<PathBuf> {
+    validate_runtime_dir(runtime_dir)?;
+    let safe = safe_session_id(session_id)?;
+    Ok(runtime_dir.join(format!("{SOCKET_PREFIX}{safe}.meta")))
+}
+
+pub fn session_id_from_socket_name(name: &str) -> Option<&str> {
+    name.strip_prefix(SOCKET_PREFIX)?
+        .strip_suffix(SOCKET_SUFFIX)
 }
 
 pub fn bind_listener(socket_path: &Path, lock_path: &Path) -> Result<(UnixListener, StartupLock)> {

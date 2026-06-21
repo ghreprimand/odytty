@@ -32,6 +32,8 @@ symbol_fallback = off
 render_quality = balanced
 min_contrast = 16.0
 focus_dim = 0.0
+# Dim the non-focused panes of a multi-pane tab (0.0 = off, byte-identical).
+inactive_pane_dim = 0.0
 geometric_boxdraw = off
 box_thickness = 1.0
 window_padding = 4
@@ -100,6 +102,10 @@ pane_prefix = ctrl+b
 # Example:
 # pane_prefix = ctrl+a
 # pane_prefix = off
+
+# Detached-session CLI commands (`odytty new --detached`, `odytty list`,
+# `odytty attach <id>`) do not have config-file keys yet. `attach` is diagnostic
+# in this slice; native window reattach is pending.
 
 # Clipboard and accessibility.
 osc52_read = off

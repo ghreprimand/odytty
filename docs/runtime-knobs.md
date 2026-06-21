@@ -33,6 +33,23 @@ writeback: comments, blank lines, ordering, and unknown/future keys stay in
 place, changed keys are rewritten, missing changed keys are appended, and saves
 use a same-directory temporary file plus rename.
 
+## Detached-Session CLI
+
+Detached sessions have no `odytty.conf` keys in this slice. The public commands
+are:
+
+```sh
+odytty new --detached [-e COMMAND...] [--working-directory DIR] [--title TITLE]
+odytty list
+odytty attach <id>
+```
+
+`new --detached` starts a local session-host process and prints `id=...`.
+`list` reports live local sessions as metadata-only rows (`id`, `name`, `state`,
+`age_ms`, `panes`) and never prints scrollback or command output. `attach <id>`
+is diagnostic-only until native window reattach lands: it connects, receives the
+initial snapshot, prints dimensions, and exits.
+
 ## Settings Reference
 
 All settings except `native_autoclose_ms` are live-reloadable when their
@@ -54,6 +71,7 @@ environment variable was not set at startup.
 | `stem_darken` | `ODYTTY_STEM_DARKEN` | Float, `0.0..=1.0` | `0.5` |
 | `min_contrast` | `ODYTTY_MIN_CONTRAST` | WCAG contrast ratio, `1.0..=21.0` | `16.0` |
 | `focus_dim` | `ODYTTY_FOCUS_DIM` | Float, `0.0..=1.0` | `0.0` |
+| `inactive_pane_dim` | `ODYTTY_INACTIVE_PANE_DIM` | Float, `0.0..=1.0` | `0.0` |
 | `render_quality` | `ODYTTY_RENDER_QUALITY` | `plain`, `balanced`, `high` | `balanced` |
 | `window_padding` | `ODYTTY_WINDOW_PADDING` | Float, `0.0..=64.0` px | `4.0` |
 | `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` |
@@ -221,6 +239,16 @@ rebinds zoom to `<prefix> Ctrl+f`.
 > the split layout underneath is preserved; press it again to restore the exact
 > prior geometry. Splitting, closing a pane, or equalizing also clears zoom.
 > Zoom is a no-op in a single-pane tab.
+
+### Inactive-pane dimming (`inactive_pane_dim`)
+
+When a tab is split into multiple panes, `inactive_pane_dim` applies a subtle
+dim (in OKLab, so hue is preserved) to the non-focused panes so the focused one
+stands out. It accepts `0.0..=1.0`; `0.0` (the default) is off — every pane
+renders undimmed and the multi-pane frame is byte-identical to before this knob
+existed. `0.15`–`0.30` is a subtle recede. The focused pane is never dimmed,
+single-pane tabs are never affected, and the minimum-contrast floor still
+applies so text stays legible. The plain renderer profile forces it off.
 
 ## Native UI
 

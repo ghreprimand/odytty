@@ -1,9 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use std::fs;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use odytty::core::Dimensions;
+use odytty::native::NativeCommand;
+use odytty::session_host::{
+    HostCommand, HostConfig, HostExitReason, ListedSession, SessionMetadata, now_unix_ms, run_host,
+    write_session_metadata,
+};
 use odytty::text::FontInventoryEntry;
 
 #[path = "../src/cli.rs"]
@@ -64,6 +72,174 @@ fn list_fonts_output_formats_inventory_rows() {
 #[test]
 fn output_for_args_supports_list_fonts() {
     assert!(cli::output_for_args(&["--list-fonts".to_owned()]).is_some());
+}
+
+#[test]
+fn session_command_parser_accepts_new_detached_with_exec_options() {
+    let command = cli::session_command_for_args(&[
+        "new".to_owned(),
+        "--detached".to_owned(),
+        "--title".to_owned(),
+        "Demo".to_owned(),
+        "--working-directory=/tmp".to_owned(),
+        "-e".to_owned(),
+        "bash".to_owned(),
+        "-lc".to_owned(),
+        "printf ok".to_owned(),
+    ])
+    .expect("parse")
+    .expect("session command");
+
+    let cli::SessionCliCommand::NewDetached(options) = command else {
+        panic!("expected new detached command");
+    };
+    assert_eq!(options.title.as_deref(), Some("Demo"));
+    assert_eq!(
+        options.working_directory.as_deref(),
+        Some(Path::new("/tmp"))
+    );
+    assert_eq!(
+        options.command,
+        cli::DetachedSessionCommand::Exec(NativeCommand {
+            program: "bash".into(),
+            args: vec!["-lc".into(), "printf ok".into()],
+        })
+    );
+}
+
+#[test]
+fn session_command_parser_accepts_list_and_attach() {
+    assert!(matches!(
+        cli::session_command_for_args(&["list".to_owned()]).expect("parse"),
+        Some(cli::SessionCliCommand::List(_))
+    ));
+    assert!(matches!(
+        cli::session_command_for_args(&["attach".to_owned(), "s-1".to_owned()]).expect("parse"),
+        Some(cli::SessionCliCommand::Attach(cli::SessionAttachOptions { id, .. })) if id == "s-1"
+    ));
+}
+
+#[test]
+fn session_command_parser_rejects_incomplete_session_commands() {
+    assert_eq!(
+        cli::session_command_for_args(&["new".to_owned()]).unwrap_err(),
+        "odytty new requires --detached"
+    );
+    assert_eq!(
+        cli::session_command_for_args(&["attach".to_owned()]).unwrap_err(),
+        "odytty attach requires a session id"
+    );
+}
+
+#[test]
+fn list_sessions_output_is_script_friendly_and_escaped() {
+    let output = cli::list_sessions_output(&[ListedSession {
+        id: "s-1".to_owned(),
+        name: "Demo\tName".to_owned(),
+        state: "running",
+        age_ms: 42,
+        pane_count: 1,
+    }]);
+
+    assert_eq!(
+        output,
+        "id=s-1\tname=Demo\\tName\tstate=running\tage_ms=42\tpanes=1\n"
+    );
+}
+
+#[test]
+fn new_detached_prints_session_id_without_spawning_in_tests() {
+    let temp = TempDir::new("odytty-cli-new-detached");
+    let options = cli::DetachedSessionOptions {
+        id: Some("s-test".to_owned()),
+        title: Some("Test Session".to_owned()),
+        runtime_base: Some(temp.path().to_owned()),
+        ..cli::DetachedSessionOptions::default()
+    };
+    let output = cli::run_new_detached_with_spawner(options.clone(), |config| {
+        assert_eq!(config.session_id, "s-test");
+        Ok(())
+    })
+    .expect("new detached output");
+
+    assert_eq!(output, "id=s-test\n");
+}
+
+#[test]
+fn attach_reports_unknown_session_without_creating_daemons() {
+    let temp = TempDir::new("odytty-cli-attach-missing");
+    let error =
+        cli::run_session_command(cli::SessionCliCommand::Attach(cli::SessionAttachOptions {
+            id: "missing".to_owned(),
+            runtime_base: Some(temp.path().to_owned()),
+        }))
+        .unwrap_err();
+
+    assert!(
+        error.to_string().contains("session not found: missing"),
+        "unexpected error: {error}"
+    );
+}
+
+#[test]
+fn list_and_attach_use_live_session_host_without_scrollback_dump() {
+    let temp = TempDir::new("odytty-cli-live-session");
+    let mut config = HostConfig::new("s-live");
+    config.runtime_base = Some(temp.path().to_owned());
+    config.command = HostCommand::ShellCommand("printf private-output; sleep 5".to_owned());
+    config.dimensions = Dimensions::new(80, 24);
+    config.detached_idle_timeout = Duration::from_millis(1500);
+    let paths = config.runtime_paths().expect("runtime paths");
+    write_session_metadata(
+        &paths.dir,
+        &SessionMetadata {
+            id: "s-live".to_owned(),
+            name: "Demo".to_owned(),
+            created_unix_ms: now_unix_ms(),
+            pane_count: 1,
+        },
+    )
+    .expect("write metadata");
+
+    let socket = paths.socket.clone();
+    let host = thread::spawn(move || run_host(config));
+    wait_for_socket(&socket);
+
+    let list_output =
+        cli::run_session_command(cli::SessionCliCommand::List(cli::SessionListOptions {
+            runtime_base: Some(temp.path().to_owned()),
+        }))
+        .expect("list sessions");
+    assert!(
+        list_output
+            .lines()
+            .any(|line| line.starts_with("id=s-live\t")),
+        "s-live not listed: {list_output}"
+    );
+    assert!(list_output.contains("name=Demo"));
+    assert!(list_output.contains("state=running"));
+    assert!(list_output.contains("panes=1"));
+    assert!(
+        !list_output.contains("private-output"),
+        "list output must not include scrollback"
+    );
+
+    let attach_output =
+        cli::run_session_command(cli::SessionCliCommand::Attach(cli::SessionAttachOptions {
+            id: "s-live".to_owned(),
+            runtime_base: Some(temp.path().to_owned()),
+        }))
+        .expect("diagnostic attach");
+    assert_eq!(
+        attach_output,
+        "id=s-live\tstate=attached\tmode=diagnostic\tcolumns=80\trows=24\tpanes=1\n"
+    );
+
+    let exit = host
+        .join()
+        .expect("host thread")
+        .expect("host exits cleanly");
+    assert_eq!(exit.reason, HostExitReason::DetachedIdleTimeout);
 }
 
 #[test]
@@ -187,5 +363,27 @@ impl TempDir {
 impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+fn wait_for_socket(socket_path: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        match UnixStream::connect(socket_path) {
+            Ok(_) => return,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) && Instant::now() < deadline =>
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) if Instant::now() < deadline => {
+                let _ = error;
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) => panic!("socket did not become ready: {error}"),
+        }
     }
 }

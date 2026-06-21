@@ -39,6 +39,13 @@ fn main() -> Result<()> {
         return odytty::session_host::run_internal_host_from_args(&args[1..]);
     }
 
+    if let Some(command) =
+        cli::session_command_for_args(&args).map_err(|err| anyhow::anyhow!(err))?
+    {
+        print!("{}", cli::run_session_command(command)?);
+        return Ok(());
+    }
+
     if args.first().map(String::as_str) == Some("--interactive") {
         return run_interactive();
     }
@@ -82,6 +89,12 @@ fn print_usage() {
     println!("  --show-config   print the effective configuration and exit");
     println!("  --core-smoke    print a parser/core smoke transcript and exit");
     println!("  -h, --help      print this help");
+    println!();
+    println!("Session commands:");
+    println!("  new --detached [-e COMMAND...]");
+    println!("                  start a detached resumable session and print its id");
+    println!("  list            list live detached sessions");
+    println!("  attach ID       diagnostic attach; native window reattach is pending");
 }
 
 fn core_smoke() -> Result<()> {

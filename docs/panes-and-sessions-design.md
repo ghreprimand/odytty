@@ -472,6 +472,20 @@ CLI surface for the first resumable slice:
 - `odytty list`
 - `odytty attach <id>`
 
+CLI surface status:
+
+- `odytty new --detached [-e CMD...] [--working-directory DIR] [--title TITLE]`
+  is live. It starts one local session-host process, writes local metadata, and
+  prints a stable `id=...` row.
+- `odytty list` is live. It scans live per-session Unix sockets under
+  `$XDG_RUNTIME_DIR/odytty/`, completes a clean attach/detach handshake for each
+  live host, and prints metadata-only rows (`id`, `name`, `state`, `age_ms`,
+  `panes`). It never prints scrollback or command output.
+- `odytty attach <id>` is diagnostic-only in this slice. It validates the id,
+  connects to the host, receives and decodes the initial `SnapshotEnvelope`,
+  prints `id`, `state=attached`, `mode=diagnostic`, `columns`, `rows`, and
+  `panes`, then detaches. Native window-as-client rendering is a later packet.
+
 Smallest viable ordering:
 
 1. Owned versioned snapshot envelope and constrained terminal-state DTOs.
@@ -504,8 +518,9 @@ Session-host foundation status:
 - Resource bounds are explicit: one hosted session, bounded attach clients,
   snapshot decode caps inherited from the envelope layer, and a detached idle
   timeout so a host cannot run forever without an attached window.
-- Public CLI/native attach wiring remains a later packet. The hidden
-  `odytty session-host ...` process mode exists only as internal substrate.
+- Public CLI wiring exists for detached create/list/diagnostic attach. Native
+  window-as-client attach wiring remains a later packet. The hidden
+  `odytty session-host ...` process mode remains internal substrate.
 - **Restore path** applies a decoded envelope into a live core model through
   `Screen::restore_from_envelope`, `Terminal::restore_from_envelope`, or
   `Terminal::from_snapshot_envelope`. Restored state covers the active visible
