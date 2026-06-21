@@ -219,6 +219,13 @@ equal z-index keep transmission order within each draw segment. The text
 pipeline is re-bound between the two image segments so the render pass is
 always in a defined state when switching between image and cell geometry.
 
+**Multi-pane limitation (v1).** Inline graphics currently render only in
+unsplit tabs. When a tab is split into multiple panes, image placements are not
+yet composited into the per-pane render path — text, cursor, selection focus,
+dividers, and resize all work in splits, but Kitty/Sixel images draw in
+single-pane tabs only. A dedicated per-pane image layer is a planned
+fast-follow; until it lands, use an unsplit tab for image-heavy work.
+
 **Kitty graphics protocol.** Actions `a=t` (transmit), `a=T` (transmit and
 display), `a=p` (display existing by id), `a=d` (delete), and `a=q` (query)
 are supported. Formats `f=24` (raw RGB), `f=32` (raw RGBA), and `f=100` (PNG
