@@ -534,3 +534,82 @@ fn close_all_sessions_empties_and_terminates() {
 
     assert_eq!(app.session_count_for_test(), 0);
 }
+
+// ----- focused-pane overlays in the multi-pane render path (1c-3c) -----
+
+/// Count the cells that differ between two equal-shaped snapshots (the cells a
+/// paint mutated). Theme-agnostic: selection/search change cell attrs whether
+/// the style is themed (background) or unthemed (inverse).
+fn changed_cells(before: &Snapshot, after: &Snapshot) -> usize {
+    before
+        .cells
+        .iter()
+        .zip(after.cells.iter())
+        .filter(|(a, b)| a != b)
+        .count()
+}
+
+#[test]
+fn focused_pane_overlay_maps_selection_with_the_pane_grid() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Wrapped selection on the focused session: absolute row 0, columns 0..=70.
+    app.set_selection_range_for_test(0, 0, 0, 70);
+    let metrics = cell(10, 20);
+
+    // Paint onto a 40-column pane snapshot: the far selection column (70) clamps
+    // to the pane width, highlighting all 40 cells of row 0.
+    let pane_grid = Dimensions::new(40, 4);
+    let mut pane_snap = snapshot(&["", "", "", ""], 40);
+    let pane_before = pane_snap.clone();
+    app.paint_focused_pane_overlays(&mut pane_snap, pane_grid, 0, 0, metrics);
+    let changed_pane = changed_cells(&pane_before, &pane_snap);
+
+    // Paint the SAME selection onto an 80-column snapshot: row 0 columns 0..=70
+    // highlight (71 cells). The difference proves the paint keys to the PANE
+    // grid argument, not the whole-window `self.grid`.
+    let wide_grid = Dimensions::new(80, 4);
+    let mut wide_snap = snapshot(&["", "", "", ""], 80);
+    let wide_before = wide_snap.clone();
+    app.paint_focused_pane_overlays(&mut wide_snap, wide_grid, 0, 0, metrics);
+    let changed_wide = changed_cells(&wide_before, &wide_snap);
+
+    assert_eq!(changed_pane, 40, "row 0 clamps to the 40-col pane width");
+    assert_eq!(changed_wide, 71, "row 0 columns 0..=70 in the 80-col grid");
+    assert_ne!(
+        changed_pane, changed_wide,
+        "the pane grid, not the window grid, drives the highlight mapping"
+    );
+}
+
+#[test]
+fn focused_pane_overlay_paints_focused_pane_search_matches() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Searchable content in the focused session, then a query that matches it.
+    app.advance_session_bytes_for_test(0, b"needle\r\n");
+    app.drive_search_for_test("needle");
+    // Require a real match so the assertion is meaningful (skip if the PTY-backed
+    // terminal did not register the write in this environment).
+    if app.search_match_count_for_test() == 0 {
+        eprintln!("skipping: no search match registered");
+        return;
+    }
+
+    let metrics = cell(10, 20);
+    let grid = Dimensions::new(40, 4);
+    let scrollback_len = app.scrollback_len_for_test();
+    let mut snap = snapshot(&["needle", "", "", ""], 40);
+    let before = snap.clone();
+    app.paint_focused_pane_overlays(&mut snap, grid, 0, scrollback_len, metrics);
+
+    // The "needle" match (row 0, 6 columns) highlights the focused pane snapshot.
+    assert!(
+        changed_cells(&before, &snap) > 0,
+        "the focused pane's search match must highlight its own snapshot"
+    );
+}

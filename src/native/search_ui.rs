@@ -52,6 +52,13 @@ impl SearchUi {
         self.open
     }
 
+    /// Number of current matches (test-facing count for 1c-3c focused-pane
+    /// search assertions).
+    #[cfg(test)]
+    pub(super) fn match_count(&self) -> usize {
+        self.matches.len()
+    }
+
     pub(super) fn open(&mut self) {
         self.open = true;
     }

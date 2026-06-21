@@ -345,6 +345,31 @@ impl App {
         self.scrollback_len()
     }
 
+    /// Test seam (1c-3c): set a wrapped (non-block) absolute selection range on
+    /// the focused session, so the multi-pane focused-pane overlay paint has a
+    /// real selection to map. Coordinates are absolute cell points.
+    #[cfg(test)]
+    pub(in crate::native) fn set_selection_range_for_test(
+        &mut self,
+        start_row: usize,
+        start_column: usize,
+        end_row: usize,
+        end_column: usize,
+    ) {
+        use crate::selection::{AbsoluteCellPoint, AbsoluteSelectionRange};
+        self.selection_block = false;
+        self.selection.set_range(AbsoluteSelectionRange {
+            start: AbsoluteCellPoint {
+                row: start_row,
+                column: start_column,
+            },
+            end: AbsoluteCellPoint {
+                row: end_row,
+                column: end_column,
+            },
+        });
+    }
+
     /// Test seam (MOUSE-SCROLLBAR): the live viewport offset.
     #[cfg(test)]
     pub(in crate::native) fn viewport_offset_for_test(&self) -> usize {
@@ -834,6 +859,25 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn search_open_for_test(&self) -> bool {
         self.search.is_open()
+    }
+
+    /// Test seam (1c-3c): open search on the focused session, type `query`, and
+    /// refresh matches against the focused terminal (the production
+    /// `refresh_search_matches` path). Lets a test exercise focused-pane search
+    /// highlighting in the multi-pane render path.
+    #[cfg(test)]
+    pub(in crate::native) fn drive_search_for_test(&mut self, query: &str) {
+        self.search.open();
+        for ch in query.chars() {
+            self.search.push_char(ch);
+        }
+        self.refresh_search_matches();
+    }
+
+    /// Test seam (1c-3c): the focused session's current search-match count.
+    #[cfg(test)]
+    pub(in crate::native) fn search_match_count_for_test(&self) -> usize {
+        self.search.match_count()
     }
 
     /// Test seam (FONT-SAVE-CORRECTNESS BUG 2): drive the post-write live-apply

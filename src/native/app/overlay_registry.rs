@@ -150,6 +150,50 @@ impl App {
         );
     }
 
+    /// Paint the **focused pane's** selection + search highlights onto its own
+    /// snapshot, in the multi-pane render path (1c-3c). Unlike [`overlay_ctx`],
+    /// which keys to the whole-window `self.grid`, this builds a pane-scoped
+    /// [`OverlayCtx`] from the focused pane's own `grid` dimensions, scrollback
+    /// length, and viewport offset — so `apply_selection_highlight` /
+    /// `apply_search_ui` map highlights onto the correct cells inside the
+    /// smaller pane grid. `self.selection` / `self.search` already `Deref` to
+    /// the focused pane, so only these geometry inputs differ.
+    ///
+    /// Multi-pane v1 cut: only selection + search are painted here (the two
+    /// per-pane overlays the render-box requires); the cursor-layer overlays
+    /// (glow/trail), hints, copy-mode, and non-focused-pane overlays are not.
+    /// The fields those paints would read (`cursor`, `now`, `clear_color`) are
+    /// set to inert defaults because selection/search never read them.
+    ///
+    /// [`overlay_ctx`]: Self::overlay_ctx
+    pub(in crate::native) fn paint_focused_pane_overlays(
+        &self,
+        snapshot: &mut Snapshot,
+        pane_grid: Dimensions,
+        viewport_offset: usize,
+        scrollback_len: usize,
+        cell: CellSize,
+    ) {
+        let ctx = OverlayCtx {
+            viewport_offset,
+            scrollback_len,
+            grid: pane_grid,
+            cell,
+            window_padding: self
+                .gpu
+                .as_ref()
+                .map(GpuState::window_padding)
+                .unwrap_or_default(),
+            cursor: Position { row: 0, column: 0 },
+            cursor_visible: false,
+            now: Instant::now(),
+            clear_color: [0.0; 4],
+            scale: self.gpu.as_ref().map(GpuState::scale).unwrap_or(1.0),
+        };
+        self.paint_selection_cells(snapshot, &ctx);
+        self.paint_search_cells(snapshot, &ctx);
+    }
+
     /// Settings/theme overlay paint (relocated `apply_overlay`).
     pub(in crate::native) fn paint_overlay_cells(
         &mut self,

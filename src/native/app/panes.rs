@@ -126,6 +126,11 @@ impl App {
         let rects = self.sessions.active_pane_rects(content, PANE_DIVIDER_PX);
         let mut panes_owned: Vec<(Snapshot, [f32; 2], bool, crate::core::CursorStyle)> =
             Vec::with_capacity(rects.len());
+        // The focused pane's overlay inputs, captured while its terminal is
+        // locked: (index into `panes_owned`, viewport offset, scrollback len).
+        // Used after the loop to paint that pane's own selection + search
+        // highlights with a pane-scoped ctx (1c-3c).
+        let mut focused_overlay: Option<(usize, usize, usize)> = None;
         for (token, rect) in &rects {
             let Some(session) = self.sessions.get(*token) else {
                 continue;
@@ -136,8 +141,33 @@ impl App {
             };
             let snapshot = terminal.snapshot_with_scrollback(offset);
             let cursor_style = terminal.cursor_style();
+            let is_focused = *token == focused;
+            if is_focused {
+                focused_overlay = Some((
+                    panes_owned.len(),
+                    offset,
+                    terminal.screen().scrollback_len(),
+                ));
+            }
             drop(terminal);
-            panes_owned.push((snapshot, [rect.x, rect.y], *token == focused, cursor_style));
+            panes_owned.push((snapshot, [rect.x, rect.y], is_focused, cursor_style));
+        }
+
+        // Paint the focused pane's selection + search highlights onto its own
+        // snapshot, keyed to that pane's grid / scrollback / viewport (not the
+        // whole-window overlay_ctx). `self.selection` / `self.search` Deref to
+        // the focused pane, so only the geometry inputs are pane-specific.
+        if let Some((idx, viewport_offset, scrollback_len)) = focused_overlay
+            && let Some((snapshot, _, _, _)) = panes_owned.get_mut(idx)
+        {
+            let pane_grid = snapshot.dimensions;
+            self.paint_focused_pane_overlays(
+                snapshot,
+                pane_grid,
+                viewport_offset,
+                scrollback_len,
+                cell,
+            );
         }
 
         // The tab strip (only when ≥2 tabs) is drawn as a one-row pane along the

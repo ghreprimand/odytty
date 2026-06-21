@@ -33,6 +33,41 @@ foundation for detached session reattach. This packet deliberately avoids
   unknown-optional-section tolerance, unknown-required-section rejection,
   version-mismatch rejection, and oversized-section cap rejection.
 
+## 2026-06-21 -- focused-pane selection + search overlays (Phase 1c-3c)
+
+Closed the multi-pane render-box gap from 1c-3b: the **focused** pane in a split
+now paints its own selection + search highlights, mapped to that pane's grid.
+
+- `App::paint_focused_pane_overlays` (overlay_registry.rs): builds a pane-scoped
+  `OverlayCtx` from the focused pane's own grid dimensions, scrollback length,
+  and viewport offset (not the whole-window `self.grid`-keyed `overlay_ctx`), and
+  runs `paint_selection_cells` + `paint_search_cells` against it. `self.selection`
+  / `self.search` already `Deref` to the focused pane, so only the geometry
+  inputs are pane-specific. Inert defaults for the cursor/now/clear_color fields
+  selection/search never read.
+- `rebuild_multipane` (panes.rs): captures the focused pane's
+  `(index, viewport_offset, scrollback_len)` while its terminal is locked, then
+  after building the per-pane snapshots paints the focused pane's overlays onto
+  its snapshot before the `PaneRender` borrows form. The pane grid is read from
+  the snapshot's own `dimensions`.
+- Tests (tabs_sessions.rs): `focused_pane_overlay_maps_selection_with_the_pane_grid`
+  proves the paint keys to the pane grid argument — the same absolute selection
+  highlights 40 cells in a 40-col pane vs 71 in an 80-col grid;
+  `focused_pane_overlay_paints_focused_pane_search_matches` confirms a focused
+  pane search match highlights its own snapshot. New seams:
+  `set_selection_range_for_test`, `drive_search_for_test`,
+  `search_match_count_for_test` (+ `SearchUi::match_count`, test-gated).
+
+Verified: `cargo test --lib` 1972 passed / 0 failed (+2 focused-pane overlay
+tests over the 1970 baseline that includes the peer's snapshot-envelope work),
+`cargo clippy --lib --tests -- -D warnings` clean, `cargo fmt --check` clean.
+
+Multi-pane v1 cut (documented): only the focused pane's selection + search are
+painted; non-focused panes show no selection/search overlay (you interact with
+the focused pane only), and the cursor-layer overlays (glow/trail), hints, and
+copy-mode are not painted per-pane. Per-pane Kitty/Sixel images remain a
+deferred fast-follow.
+
 ## 2026-06-21 -- divider drag + pointer hit-test (Phase 1c-3b)
 
 Wired the multi-pane pointer gestures (design doc §4.2/§4.3, §2.5 audit row #6).
