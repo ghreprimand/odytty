@@ -17,6 +17,9 @@ use super::onboarding::{OnboardingLine, OnboardingPanel, OnboardingSignature};
 use super::palette_overlay::{
     PaletteOverlay, PaletteOverlayLine, PaletteOverlayOutcome, PaletteOverlaySignature,
 };
+use super::replay_overlay::{
+    ReplayOverlay, ReplayOverlayLine, ReplayOverlayOutcome, ReplayOverlaySignature,
+};
 use super::session::SessionToken;
 use super::settings_panel::{
     SettingsLevel, SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature,
@@ -40,6 +43,7 @@ pub(super) struct OverlayUi {
     onboarding: OnboardingPanel,
     context_menu: ContextMenuUi,
     command_palette: PaletteOverlay,
+    replay: ReplayOverlay,
     /// Set when a `SaveAndClose` outcome arrives from the settings panel (dirty
     /// close prompt). On the next `save_succeeded` call for Settings mode, the
     /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
@@ -72,6 +76,7 @@ impl OverlayUi {
             onboarding: OnboardingPanel::new(settings),
             context_menu: ContextMenuUi::new(),
             command_palette: PaletteOverlay::new(),
+            replay: ReplayOverlay::new(),
             close_after_save: false,
             picker_return: None,
             builder_from_picker: false,
@@ -171,6 +176,19 @@ impl OverlayUi {
         self.theme_builder.end_channel_drag();
         self.command_palette.open_from_process_env(cwd);
         self.mode = OverlayMode::CommandPalette;
+        self.open = true;
+    }
+
+    /// Open the output-replay overlay over a frozen clone of the focused
+    /// session's recorded frames (Phase 2). Presentation-only: the overlay owns
+    /// the clone and never touches live core state. `frames` is empty when
+    /// recording is off or nothing has been recorded yet, in which case the
+    /// overlay shows a hint rather than failing to open.
+    pub(super) fn open_replay(&mut self, frames: Vec<Snapshot>) {
+        self.panel.end_slider_drag();
+        self.theme_builder.end_channel_drag();
+        self.replay.open(frames);
+        self.mode = OverlayMode::Replay;
         self.open = true;
     }
 
@@ -329,6 +347,7 @@ impl OverlayUi {
             OverlayMode::ContextMenu => return self.handle_context_menu_input(input),
             OverlayMode::ConfirmClose => return self.handle_confirm_close_input(input),
             OverlayMode::CommandPalette => return self.handle_command_palette_input(input),
+            OverlayMode::Replay => return self.handle_replay_input(input),
             OverlayMode::Settings => {}
         }
 
@@ -406,6 +425,7 @@ impl OverlayUi {
                     | OverlayMode::KeyBindings
                     | OverlayMode::Onboarding
                     | OverlayMode::CommandPalette
+                    | OverlayMode::Replay
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
@@ -441,6 +461,7 @@ impl OverlayUi {
                     | OverlayMode::KeyBindings
                     | OverlayMode::Onboarding
                     | OverlayMode::CommandPalette
+                    | OverlayMode::Replay
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
@@ -454,6 +475,7 @@ impl OverlayUi {
                     | OverlayMode::Onboarding
                     | OverlayMode::ContextMenu
                     | OverlayMode::CommandPalette
+                    | OverlayMode::Replay
                     | OverlayMode::ConfirmClose => {}
                 }
                 OverlayOutcome::Consumed
@@ -484,6 +506,7 @@ impl OverlayUi {
                             OverlayInput::Down
                         });
                     }
+                    OverlayMode::Replay => self.replay.scroll_lines(lines),
                     OverlayMode::Onboarding
                     | OverlayMode::ContextMenu
                     | OverlayMode::ConfirmClose => {}
@@ -506,6 +529,7 @@ impl OverlayUi {
             | OverlayMode::Onboarding
             | OverlayMode::ContextMenu
             | OverlayMode::CommandPalette
+            | OverlayMode::Replay
             | OverlayMode::ConfirmClose => false,
         }
     }
@@ -523,6 +547,7 @@ impl OverlayUi {
             | OverlayMode::Onboarding
             | OverlayMode::ContextMenu
             | OverlayMode::CommandPalette
+            | OverlayMode::Replay
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -623,6 +648,7 @@ impl OverlayUi {
             OverlayMode::Onboarding
             | OverlayMode::ContextMenu
             | OverlayMode::CommandPalette
+            | OverlayMode::Replay
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -637,6 +663,7 @@ impl OverlayUi {
             OverlayMode::Onboarding
             | OverlayMode::ContextMenu
             | OverlayMode::CommandPalette
+            | OverlayMode::Replay
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -663,6 +690,7 @@ impl OverlayUi {
             onboarding: self.onboarding.render_signature(),
             context_menu: self.context_menu.render_signature(),
             command_palette: self.command_palette.render_signature(),
+            replay: self.replay.render_signature(),
         }
     }
 
@@ -807,6 +835,16 @@ impl OverlayUi {
         }
     }
 
+    /// Route a key to the replay overlay (Phase 2). Replay is presentation-only,
+    /// so it can only scrub (Consumed) or request Close — it never emits an
+    /// App-side action.
+    fn handle_replay_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match self.replay.handle_input(input) {
+            ReplayOverlayOutcome::Consumed => OverlayOutcome::Consumed,
+            ReplayOverlayOutcome::Close => OverlayOutcome::Close,
+        }
+    }
+
     fn settings_with_theme(&self, theme: Theme) -> Settings {
         let mut settings = self.settings.clone();
         settings.theme = theme;
@@ -925,6 +963,10 @@ pub(super) enum OverlayMode {
     /// Command palette over local actions, shell-history rows, and recent OSC 7
     /// directories. Presentation-only while open.
     CommandPalette,
+    /// Output-replay overlay (Phase 2): scrub a frozen clone of the focused
+    /// session's recorded screen frames. Presentation-only; never mutates live
+    /// core state.
+    Replay,
     /// Close-confirmation dialog (CLOSE-CONFIRM). A centered, static two-line
     /// modal shown when a close is requested while a foreground job is running;
     /// Enter/Y confirms (emits [`OverlayOutcome::ForceClose`]), Esc/N cancels.
@@ -1010,6 +1052,7 @@ pub(super) struct OverlayRenderSignature {
     pub(super) onboarding: OnboardingSignature,
     pub(super) context_menu: ContextMenuSignature,
     pub(super) command_palette: PaletteOverlaySignature,
+    pub(super) replay: ReplayOverlaySignature,
 }
 
 pub(super) fn overlay_input_from_winit(
@@ -1102,6 +1145,7 @@ pub(super) fn overlay_rect(
         OverlayMode::KeyBindings => overlay.key_remap.desired_width(columns),
         OverlayMode::Onboarding => overlay.onboarding.desired_width(columns),
         OverlayMode::CommandPalette => overlay.command_palette.desired_width(columns),
+        OverlayMode::Replay => overlay.replay.desired_width(columns),
         // Unreachable: handled by the early return above.
         OverlayMode::ContextMenu => overlay.context_menu.menu_width(),
         // Static two-line dialog; the `.max(36)` floor below gives it room and
@@ -1153,6 +1197,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         OverlayMode::KeyBindings => "\u{2190} OdyTTY Key Bindings  (Esc = back)".to_owned(),
         OverlayMode::Onboarding => "Welcome to OdyTTY".to_owned(),
         OverlayMode::CommandPalette => "Command Palette".to_owned(),
+        OverlayMode::Replay => "\u{2190} Session Replay  (Esc = back)".to_owned(),
         // Unreachable: handled by the early dispatch above.
         OverlayMode::ContextMenu => String::new(),
         OverlayMode::ConfirmClose => "Close?".to_owned(),
@@ -1320,6 +1365,12 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
+            OverlayMode::Replay => self
+                .replay
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
             // The context menu renders via `apply_context_menu`, not this shared
             // body walker (IN2).
             OverlayMode::ContextMenu => Vec::new(),
@@ -1427,6 +1478,17 @@ impl From<OnboardingLine> for OverlayLine {
 
 impl From<PaletteOverlayLine> for OverlayLine {
     fn from(line: PaletteOverlayLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: None,
+            bold: line.bold,
+        }
+    }
+}
+
+impl From<ReplayOverlayLine> for OverlayLine {
+    fn from(line: ReplayOverlayLine) -> Self {
         Self {
             text: line.text,
             focused: line.focused,
@@ -1650,6 +1712,79 @@ mod tests {
         apply_overlay(&mut rendered, &mut overlay);
 
         assert_eq!(rendered, original);
+    }
+
+    /// A recorded frame whose first row spells `label`, for the replay tests.
+    fn replay_frame(columns: usize, rows: usize, label: &str) -> Snapshot {
+        let mut frame = Snapshot {
+            dimensions: crate::core::Dimensions::new(columns, rows),
+            cursor: Position::default(),
+            cursor_visible: false,
+            colors: crate::core::DynamicColors::default(),
+            cells: vec![Cell::new(' ', Attrs::default()); columns * rows],
+        };
+        for (col, ch) in label.chars().take(columns).enumerate() {
+            frame.cells[col] = Cell::new(ch, Attrs::default());
+        }
+        frame
+    }
+
+    #[test]
+    fn replay_overlay_draws_into_snapshot_copy_only() {
+        // REPLAY-OVERLAY-ISOLATION (render side): apply_overlay only mutates the
+        // snapshot copy it is handed; the source frame is untouched, and the
+        // recorded screen content is shown.
+        let mut overlay = OverlayUi::default();
+        overlay.open_replay(vec![
+            replay_frame(40, 6, "alpha"),
+            replay_frame(40, 6, "bravo"),
+        ]);
+        let original = snapshot(80, 20);
+        let mut rendered = original.clone();
+
+        apply_overlay(&mut rendered, &mut overlay);
+
+        // The input snapshot is never mutated in place.
+        assert_eq!(
+            original.cells,
+            vec![Cell::new('.', Attrs::default()); 80 * 20]
+        );
+        // The panel border and the recorded content (live tail = "bravo") show.
+        assert!(rendered.cells.iter().any(|cell| cell.ch == '+'));
+        assert!(rendered.cells.iter().any(|cell| cell.ch == 'b'));
+    }
+
+    #[test]
+    fn closed_replay_overlay_is_pixel_inert() {
+        // OVERLAY-CLOSED-BYTE-IDENTICAL: once closed, the replay overlay paints
+        // nothing — the frame is byte-identical to the input.
+        let mut overlay = OverlayUi::default();
+        overlay.open_replay(vec![replay_frame(40, 6, "alpha")]);
+        overlay.close();
+        let original = snapshot(80, 20);
+        let mut rendered = original.clone();
+
+        apply_overlay(&mut rendered, &mut overlay);
+
+        assert_eq!(rendered, original);
+    }
+
+    #[test]
+    fn empty_replay_overlay_opens_with_hint() {
+        // Opening replay with no recorded frames still opens (showing a hint)
+        // rather than failing; it draws a panel into the copy only.
+        let mut overlay = OverlayUi::default();
+        overlay.open_replay(Vec::new());
+        let original = snapshot(80, 20);
+        let mut rendered = original.clone();
+
+        apply_overlay(&mut rendered, &mut overlay);
+
+        assert_eq!(
+            original.cells,
+            vec![Cell::new('.', Attrs::default()); 80 * 20]
+        );
+        assert!(rendered.cells.iter().any(|cell| cell.ch == '+'));
     }
 
     #[test]

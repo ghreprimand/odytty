@@ -98,6 +98,7 @@ mod palette_ui;
 mod panes;
 mod pointer;
 mod prompt_jump;
+mod replay_ui;
 mod scroll_anim;
 mod tab_bar;
 #[cfg(test)]
@@ -420,6 +421,12 @@ impl App {
                 app.overlay.open_onboarding();
             }
         }
+        // Phase 2 output recording: seed the initial session's recorder with the
+        // configured `session_replay` state at startup, so a window launched
+        // with recording already enabled records from the first output. Off (the
+        // default) is a no-op.
+        app.sessions
+            .set_recording_enabled(app.settings.session_replay);
         app
     }
 
@@ -862,6 +869,10 @@ impl App {
                 self.open_command_palette_overlay();
                 return;
             }
+            if action == Some(BindableAction::SessionReplay) {
+                self.open_replay_overlay();
+                return;
+            }
             if action == Some(BindableAction::Search) {
                 self.toggle_search();
                 return;
@@ -953,6 +964,7 @@ impl App {
                 }
                 Some(BindableAction::Search)
                 | Some(BindableAction::CommandPalette)
+                | Some(BindableAction::SessionReplay)
                 | Some(BindableAction::SettingsPanel)
                 | Some(BindableAction::ThemePicker)
                 | None => {}
@@ -1630,6 +1642,12 @@ impl App {
 
         self.settings = next_settings;
         self.options = next_options;
+        // Phase 2 output recording: fan the live `session_replay` state out to
+        // every session's recorder so a config-reload / settings-panel toggle
+        // takes effect immediately. Off (the default) is a cheap no-op that
+        // also frees any buffered frames, so the plain path is unaffected.
+        self.sessions
+            .set_recording_enabled(self.settings.session_replay);
         // WIN-DECOR: apply a live decorations change immediately so the panel
         // toggle takes effect without a restart. `set_decorations` is
         // idempotent (calling it with the current value is a no-op), so this is

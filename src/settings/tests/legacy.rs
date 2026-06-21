@@ -168,6 +168,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "confirm_close",
             "bell",
             "ssh_config_hosts",
+            "session_replay",
             "osc52_read",
             "copy_on_select",
             "cvd_mode",

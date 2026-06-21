@@ -183,6 +183,7 @@ environment variable was not set at startup.
 | `sh_click` | `ODYTTY_SH_CLICK` | `on`, `off` | `off` |
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
+| `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |
 | `copy_on_select` | `ODYTTY_COPY_ON_SELECT` | `on`, `off` | `off` |
 | `cvd_mode` | `ODYTTY_CVD_MODE` | `off`, `protan`, `deutan`, `tritan` | `off` |
@@ -276,8 +277,9 @@ digits, `f1`-`f24`, `pageup`, `pagedown`, `home`, `end`, `enter`, `esc`,
 
 Valid actions are `search`, `settings`, `theme-picker`, `copy`, `paste`,
 `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`,
-`copy-mode`, `hints`, `clear-input`, `command-palette`, `new-tab`, `next-tab`,
-`prev-tab`, and `close-tab`, plus the pane-management actions below.
+`copy-mode`, `hints`, `clear-input`, `command-palette`, `session-replay`,
+`new-tab`, `next-tab`, `prev-tab`, and `close-tab`, plus the pane-management
+actions below.
 
 The in-app keybinding editor is opened from the Settings panel's Keybindings
 row. It covers the 12 core non-tab actions. Palette, tab, and pane actions are
@@ -330,6 +332,32 @@ renders undimmed and the multi-pane frame is byte-identical to before this knob
 existed. `0.15`–`0.30` is a subtle recede. The focused pane is never dimmed,
 single-pane tabs are never affected, and the minimum-contrast floor still
 applies so text stays legible. The plain renderer profile forces it off.
+
+### Session output replay (`session_replay`)
+
+`session_replay = on` (or `ODYTTY_SESSION_REPLAY=on`) turns on opt-in per-session
+output recording for the scrubbable replay overlay. It is **off by default**:
+while off, the PTY pump records nothing and the render/output path is
+byte-identical to before the feature existed.
+
+When on, each session keeps a **bounded, in-memory ring** of recent screen
+frames. The cap is fixed and bounded by both a frame count (600 frames) and a
+total byte budget (24 MiB); whichever binds first evicts the oldest frames, so
+memory never grows without bound. Turning the setting back off clears the ring
+immediately.
+
+Recording is **local-only**: frames live only in process memory — they are never
+written to disk, logged, or sent anywhere, and they are dropped when the session
+closes or recording is turned off.
+
+To scrub, bind a chord to the `session-replay` action via `keybinds` /
+`ODYTTY_KEYBINDS` (no default chord is installed, so the unset input path stays
+byte-identical) and press it to open the replay overlay. `←`/`→` step one frame,
+`PgUp`/`PgDn` jump ten, `Home`/`End` go to the oldest/newest frame, and `Esc`
+closes it. Replay is **presentation-only**: the overlay scrubs a frozen, fully
+decoupled clone of the ring and never mutates the live terminal — the session
+keeps running underneath while you scrub. The scrub view is a monochrome text
+preview of the recorded screen at each point.
 
 ## Native UI
 

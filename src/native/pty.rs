@@ -7,6 +7,7 @@ use crate::core::Terminal;
 
 use winit::event_loop::EventLoopProxy;
 
+use super::output_recorder::RecorderHandle;
 use super::session::SessionToken;
 
 /// Events the PTY pump thread sends to wake the `winit` event loop.
@@ -64,6 +65,7 @@ pub(super) fn spawn_pty_pump(
     terminal: Arc<Mutex<Terminal>>,
     proxy: EventLoopProxy<UserEvent>,
     session: SessionToken,
+    recorder: RecorderHandle,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
         let mut buffer = [0u8; 8192];
@@ -77,6 +79,16 @@ pub(super) fn spawn_pty_pump(
                     let host_output = {
                         let mut term = terminal.lock().expect("terminal mutex");
                         term.advance(&buffer[..len]);
+                        // Opt-in output recording (session_replay). The atomic
+                        // gate makes the default-off path a single relaxed load
+                        // with no snapshot work, so it is byte-identical and
+                        // zero-overhead. When on, the live screen snapshot is
+                        // captured here under the lock we already hold and pushed
+                        // into the session's bounded ring (presentation-only;
+                        // the live terminal is untouched).
+                        if recorder.is_enabled() {
+                            recorder.record(term.snapshot());
+                        }
                         term.take_host_output()
                     };
                     if !host_output.is_empty()

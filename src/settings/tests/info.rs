@@ -27,6 +27,7 @@ fn setting_info_groups_are_contiguous_and_ordered_for_the_panel() {
             "Cursor",
             "Input",
             "Connections",
+            "Sessions",
             "Clipboard",
             "Accessibility",
             "Development",
@@ -152,6 +153,7 @@ fn keybinds_info_options_lists_all_actions() {
         BindableAction::Hints,
         BindableAction::ClearInput,
         BindableAction::CommandPalette,
+        BindableAction::SessionReplay,
         BindableAction::NewTab,
         BindableAction::NextTab,
         BindableAction::PrevTab,
@@ -172,7 +174,7 @@ fn keybinds_info_options_lists_all_actions() {
         .map(|action| bindable_action_display_name(*action))
         .collect();
     assert_eq!(keybinds.options, expected_names.as_slice());
-    assert_eq!(keybinds.options.len(), 27, "all 27 actions selectable");
+    assert_eq!(keybinds.options.len(), 28, "all 28 actions selectable");
 }
 
 #[test]

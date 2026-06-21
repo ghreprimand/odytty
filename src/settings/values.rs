@@ -1036,6 +1036,7 @@ pub(super) fn bindable_action_name(action: BindableAction) -> &'static str {
         BindableAction::Hints => "hints",
         BindableAction::ClearInput => "clear-input",
         BindableAction::CommandPalette => "command-palette",
+        BindableAction::SessionReplay => "session-replay",
         BindableAction::NewTab => "new-tab",
         BindableAction::NextTab => "next-tab",
         BindableAction::PrevTab => "prev-tab",

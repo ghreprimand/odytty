@@ -63,10 +63,12 @@ mod key_remap_ui;
 mod layout;
 mod onboarding;
 mod options;
+mod output_recorder;
 mod overlay;
 mod palette_overlay;
 mod pty;
 mod render_helpers;
+mod replay_overlay;
 mod resize;
 mod search_ui;
 mod session;
@@ -183,24 +185,30 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     ));
 
     let proxy = event_loop.create_proxy();
+    // One recorder handle shared between the initial session's pump thread and
+    // the session itself, so recorded frames (when `session_replay` is on) land
+    // in the ring the App later scrubs. Disabled by default ⇒ no overhead.
+    let recorder = output_recorder::RecorderHandle::new();
     let pump_thread = spawn_pty_pump(
         reader,
         writer.clone(),
         terminal.clone(),
         proxy.clone(),
         SessionToken(0),
+        recorder.clone(),
     );
 
     // Share the session: the App pushes window-size changes to it on resize,
     // and this function reaps the child on the way out.
     let session = Arc::new(Mutex::new(session));
     let session_set = TabSet::new(
-        Session::new(
+        Session::new_local_with_recorder(
             SessionToken(0),
             terminal,
             writer,
             session.clone(),
             Some(pump_thread),
+            recorder,
         ),
         Some(proxy),
     );

@@ -71,6 +71,7 @@ pub const OS_THEME_DARK_ENV: &str = "ODYTTY_OS_THEME_DARK";
 pub const OS_THEME_LIGHT_ENV: &str = "ODYTTY_OS_THEME_LIGHT";
 pub const CONFIRM_CLOSE_ENV: &str = "ODYTTY_CONFIRM_CLOSE";
 pub const SSH_CONFIG_HOSTS_ENV: &str = "ODYTTY_SSH_CONFIG_HOSTS";
+pub const SESSION_REPLAY_ENV: &str = "ODYTTY_SESSION_REPLAY";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
 /// Subdirectory of the config dir where user theme files (`*.theme`) live.
@@ -144,6 +145,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     OS_THEME_LIGHT_ENV,
     CONFIRM_CLOSE_ENV,
     SSH_CONFIG_HOSTS_ENV,
+    SESSION_REPLAY_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 
@@ -204,6 +206,13 @@ pub const MAX_INACTIVE_PANE_DIM: f32 = 1.0;
 /// When on, only host names/display fields are read through the bounded
 /// name-only parser; key material and credentials are never surfaced.
 pub const DEFAULT_SSH_CONFIG_HOSTS: bool = false;
+
+/// Opt-in per-session output recording for the replay overlay
+/// (`ODYTTY_SESSION_REPLAY`). Off by default, so the PTY pump records nothing
+/// and the plain path is byte-identical. When on, each session keeps a bounded
+/// in-memory ring of recent screen frames; recording is local-only (never
+/// written to disk or sent anywhere).
+pub const DEFAULT_SESSION_REPLAY: bool = false;
 
 /// Window padding (`ODYTTY_WINDOW_PADDING`): logical pixels of inset on every
 /// window edge before the terminal grid begins. `0.0` restores the historical

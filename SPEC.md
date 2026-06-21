@@ -719,6 +719,17 @@ its first stable layer.
   recent OSC 7 directories. Accepting a history or directory row types that
   text into the active pane without appending a newline; accepting an action
   dispatches the local action after the overlay closes.
+- Output replay overlay: opt-in per-session output recording (`session_replay`,
+  off by default) keeps a bounded in-memory ring of recent screen frames —
+  capped by both 600 frames and 24 MiB, whichever binds first, with the oldest
+  evicted — recorded by the PTY pump off the render path. The `session-replay`
+  bindable action (unbound by default to preserve existing input) opens a
+  keyboard-scrubbable overlay over a frozen, fully decoupled clone of the ring:
+  `←`/`→` step, `PgUp`/`PgDn` jump ten, `Home`/`End` go to the ring ends. Replay
+  is presentation-only — it never mutates live core terminal state, so the live
+  frame is byte-identical whether or not the overlay is active. Recording is
+  local-only: frames live only in memory, never written to disk or sent over the
+  network, and are dropped when the session closes or recording is turned off.
 
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering

@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Output replay / scrubbing overlay (Phase 2 differentiator)
+
+Added opt-in per-session output recording plus a keyboard-scrubbable replay
+overlay — the Phase 2 differentiator over plain detach/attach. Off by default
+and presentation-only; the plain path is byte-identical.
+
+- Added `src/native/output_recorder.rs`: a bounded in-memory ring of recorded
+  screen `Snapshot`s behind a cheap clonable `RecorderHandle`. The ring is
+  capped by **both** a frame count (600) and a byte budget (24 MiB); whichever
+  binds first evicts the oldest, and at least one frame is always retained.
+  Recording is gated by an `AtomicBool`, so the default-off path is a single
+  relaxed load with no snapshot work.
+- Wired recording into the PTY pump (`spawn_pty_pump`): when enabled, the pump
+  records the live screen snapshot under the terminal lock it already holds —
+  entirely off the render path, so the live frame is byte-identical whether or
+  not recording is on. Each `Session` owns a `RecorderHandle` shared with its
+  pump; `TabSet::set_recording_enabled` fans the live `session_replay` state out
+  to every session and is synced at startup and on settings apply.
+- Added `src/native/replay_overlay.rs` + `OverlayMode::Replay`: a self-contained
+  overlay (mirroring `palette_overlay.rs`) that scrubs a **frozen, fully
+  decoupled clone** of the ring. `←`/`→` step, `PgUp`/`PgDn` jump ten,
+  `Home`/`End` go to the ends, `Esc` closes. The body is a monochrome text
+  preview of the recorded screen at the scrub position. Opened via the new
+  `session-replay` bindable action (unbound by default, like `command-palette`,
+  so the input path stays byte-identical).
+- Added `session_replay` / `ODYTTY_SESSION_REPLAY` (default off) threaded through
+  the settings surface (new "Sessions" group).
+- Privacy: recording is local-only — frames live only in process memory, never
+  written to disk, logged, or sent anywhere, and are dropped when the session
+  closes or recording is turned off.
+- Tests: ring-bound eviction (frame + byte caps), recording-off-records-nothing,
+  scrub navigation + clamping, overlay-closed-pixel-inert, draws-into-copy-only,
+  and a `replay_isolation` suite proving the live terminal frame is byte-
+  identical whether or not replay is active (the Phase 2 tests-box third part).
+- Verified: `cargo test --lib` green (2103 pass / 7 ignored), `cargo clippy
+  --lib --tests -- -D warnings` clean, `cargo fmt --check` clean, and the
+  `license_headers` + `gpu_composite_smoke` byte-identity smokes pass.
+
+---
+
 ## 2026-06-21 -- Connection hosts data layer
 
 Added the pure data layer behind the future SSH / connection manager. This does

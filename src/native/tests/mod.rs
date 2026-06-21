@@ -34,6 +34,7 @@ use super::render_helpers::{
     OverlayFragment, RenderContentSignature, RenderSignature, SelectionSignature,
     VisibleGraphicSignature, hyperlink_action_allowed, key_modes_from_core, openable_hyperlink_uri,
 };
+use super::replay_overlay::ReplayOverlaySignature;
 use super::search_ui::SearchRenderSignature;
 use super::settings_panel::SettingsPanelSignature;
 use super::theme_builder::ThemeBuilderSignature;
@@ -81,6 +82,7 @@ mod mouse_rect;
 mod os_theme;
 mod overlay_pointer;
 mod overlay_registry;
+mod replay_isolation;
 mod scrollbar;
 mod selection_extend;
 mod sh2_native;

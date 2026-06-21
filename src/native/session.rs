@@ -25,6 +25,7 @@ use super::layout::{
     EVEN_RATIO, FocusDir, PaneNode, PaneRect, SplitAxis, divider_at_point, drag_divider_to,
     focus_move, grid_dims_for_rect, layout_rects, pane_at_point,
 };
+use super::output_recorder::RecorderHandle;
 use super::pty::{PtyWriter, UserEvent, spawn_pty_pump};
 use super::render_helpers::RenderSignature;
 use super::search_ui::SearchUi;
@@ -57,6 +58,14 @@ pub(super) struct Session {
     pub(super) writer: PtyWriter,
     pub(super) source: SessionSource,
     pub(super) pump_thread: Option<JoinHandle<()>>,
+    /// Bounded ring of recorded screen frames for the replay overlay (Phase 2).
+    /// A clonable handle shared with this session's pump thread, which writes
+    /// frames into it while recording is enabled (`session_replay`, default
+    /// off). Empty and disabled by default, so it costs nothing on the plain
+    /// path. For an attached session this handle exists but is not yet wired to
+    /// the attach pump (recording an attached session is a documented
+    /// follow-up), so it stays empty.
+    pub(super) recorder: RecorderHandle,
     pub(super) tab_title: String,
     pub(super) needs_rebuild: bool,
     pub(super) last_render_signature: Option<RenderSignature>,
@@ -100,9 +109,12 @@ pub(super) struct Session {
 
 impl Session {
     /// Construct a locally-spawned (PTY-backed) session — the byte-identical
-    /// path. The signature is unchanged from before Phase 2, so every existing
-    /// local construction site is untouched; the `pty` is wrapped into a
-    /// [`SessionSource::Local`].
+    /// path. The signature is unchanged from before Phase 2; the `pty` is
+    /// wrapped into a [`SessionSource::Local`]. Test-only: the production local
+    /// construction sites use [`Self::new_local_with_recorder`] so the pump and
+    /// the session share one recorder handle. Tests that do not record use this
+    /// shorter form (it mints its own empty, disabled handle).
+    #[cfg(test)]
     pub(super) fn new(
         id: SessionToken,
         terminal: Arc<Mutex<Terminal>>,
@@ -116,6 +128,29 @@ impl Session {
             writer,
             SessionSource::Local { pty },
             pump_thread,
+        )
+    }
+
+    /// Construct a locally-spawned session that shares a pre-built recorder
+    /// handle with its pump thread (so the pump's frames land in the same ring
+    /// the App later scrubs). Used by the startup path and `insert_spawned_
+    /// session`; the plain `Session::new` (which mints its own empty handle)
+    /// stays for call sites that do not record.
+    pub(super) fn new_local_with_recorder(
+        id: SessionToken,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        pty: Arc<Mutex<PtySession>>,
+        pump_thread: Option<JoinHandle<()>>,
+        recorder: RecorderHandle,
+    ) -> Self {
+        Self::from_parts_with_recorder(
+            id,
+            terminal,
+            writer,
+            SessionSource::Local { pty },
+            pump_thread,
+            recorder,
         )
     }
 
@@ -145,6 +180,24 @@ impl Session {
         source: SessionSource,
         pump_thread: Option<JoinHandle<()>>,
     ) -> Self {
+        Self::from_parts_with_recorder(
+            id,
+            terminal,
+            writer,
+            source,
+            pump_thread,
+            RecorderHandle::new(),
+        )
+    }
+
+    fn from_parts_with_recorder(
+        id: SessionToken,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        source: SessionSource,
+        pump_thread: Option<JoinHandle<()>>,
+        recorder: RecorderHandle,
+    ) -> Self {
         let tab_title = terminal
             .lock()
             .ok()
@@ -157,6 +210,7 @@ impl Session {
             writer,
             source,
             pump_thread,
+            recorder,
             tab_title,
             needs_rebuild: true,
             last_render_signature: None,
@@ -348,6 +402,11 @@ pub(super) struct TabSet {
     active_tab: usize,
     next_token: u64,
     proxy: Option<EventLoopProxy<UserEvent>>,
+    /// Whether output recording is currently enabled (`session_replay`). Newly
+    /// spawned sessions inherit this so recording follows the live setting;
+    /// [`Self::set_recording_enabled`] fans a toggle out to every session's
+    /// recorder handle. Default off ⇒ the plain path is untouched.
+    recording_enabled: bool,
 }
 
 impl TabSet {
@@ -362,7 +421,26 @@ impl TabSet {
             active_tab: 0,
             next_token,
             proxy,
+            recording_enabled: false,
         }
+    }
+
+    /// Enable or disable output recording across every session, and remember the
+    /// state so later-spawned sessions inherit it. Off by default; toggling off
+    /// clears each session's ring (freeing memory). Cheap and idempotent — the
+    /// plain path never calls this with `true`.
+    pub(super) fn set_recording_enabled(&mut self, on: bool) {
+        self.recording_enabled = on;
+        for session in self.sessions.values() {
+            session.recorder.set_enabled(on);
+        }
+    }
+
+    /// A decoupled clone of the **focused** session's recorded frames, oldest
+    /// first, for the replay overlay to scrub. Empty when recording is off or
+    /// nothing has been recorded yet.
+    pub(super) fn active_recorder_frames(&self) -> Vec<Snapshot> {
+        self.active().recorder.frames_clone()
     }
 
     /// The token of the focused pane of the active tab — the `Deref` target.
@@ -641,12 +719,31 @@ impl TabSet {
             session.take_writer().map_err(std::io::Error::other)?,
         ));
         let terminal = Arc::new(Mutex::new(Terminal::new(grid.columns, grid.rows)));
-        let pump_thread =
-            spawn_pty_pump(reader, writer.clone(), terminal.clone(), proxy, session_id);
+        // One recorder handle shared between the pump (writer) and the session
+        // (reader). Inherits the current recording-enabled state so a session
+        // spawned while replay is on starts recording immediately; otherwise it
+        // is a no-op handle. The pump only records while enabled.
+        let recorder = RecorderHandle::new();
+        recorder.set_enabled(self.recording_enabled);
+        let pump_thread = spawn_pty_pump(
+            reader,
+            writer.clone(),
+            terminal.clone(),
+            proxy,
+            session_id,
+            recorder.clone(),
+        );
         let pty = Arc::new(Mutex::new(session));
         self.sessions.insert(
             session_id,
-            Session::new(session_id, terminal, writer, pty, Some(pump_thread)),
+            Session::from_parts_with_recorder(
+                session_id,
+                terminal,
+                writer,
+                SessionSource::Local { pty },
+                Some(pump_thread),
+                recorder,
+            ),
         );
         Ok(session_id)
     }

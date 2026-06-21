@@ -111,6 +111,15 @@ keybinds =
 # surfaces key directives or credentials; auth remains with the system ssh.
 ssh_config_hosts = off
 
+# Per-session output recording for the scrubbable replay overlay. Default off:
+# while off the PTY pump records nothing and the path is byte-identical. When on,
+# each session keeps a bounded in-memory ring of recent screen frames (capped by
+# 600 frames AND 24 MiB, whichever binds first). Recording is local-only — frames
+# never touch disk or the network and are dropped when the session closes. Bind a
+# chord to the session-replay action to open the scrubbable overlay, e.g.
+# keybinds = ctrl+alt+r=session-replay.
+session_replay = off
+
 # Multiplexer prefix for pane/split management (tmux-style). Press the prefix,
 # then a pane key: % / " split, arrows / o focus, x close, z zoom, space / =
 # equalize. Press the prefix twice to send a literal prefix to the focused pane

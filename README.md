@@ -376,10 +376,26 @@ recent OSC 7 directories. Selecting a history or directory row types that text
 into the active pane without pressing Enter; selecting an action runs the local
 action after the overlay closes.
 
+Output replay is available as the `session-replay` action (also unbound by
+default). Turn on recording with `session_replay = on` (or
+`ODYTTY_SESSION_REPLAY=on`) — off by default, so the plain path is unchanged —
+then bind a chord to scrub a bounded in-memory ring of recent screen frames:
+
+```sh
+ODYTTY_SESSION_REPLAY=on ODYTTY_KEYBINDS="ctrl+alt+r=session-replay" odytty
+```
+
+The ring is capped (600 frames and 24 MiB, whichever binds first) and
+local-only — frames never touch disk or the network. The overlay is
+presentation-only: `←`/`→` step, `PgUp`/`PgDn` jump ten, `Home`/`End` jump to
+the ends, and the live session keeps running underneath untouched while you
+scrub.
+
 `ODYTTY_KEYBINDS` can rebind local actions: `search`, `settings`,
 `theme-picker`, `copy`, `paste`, `scroll-up`, `scroll-down`,
 `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`, `clear-input`,
-`command-palette`, `new-tab`, `next-tab`, `prev-tab`, and `close-tab`. The pane actions
+`command-palette`, `session-replay`, `new-tab`, `next-tab`, `prev-tab`, and
+`close-tab`. The pane actions
 (`split-columns`, `split-rows`, `focus-pane-left` / `-right` / `-up` / `-down`,
 `focus-pane-next`, `close-pane`, `zoom-pane`, `equalize-panes`) are rebindable
 too — the chord is the key pressed *after* the prefix, e.g.

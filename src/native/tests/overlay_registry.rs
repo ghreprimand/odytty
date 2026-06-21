@@ -124,6 +124,11 @@ fn closed_overlay_sig() -> OverlayRenderSignature {
             results_len: 0,
             results_fingerprint: 0,
         },
+        replay: ReplayOverlaySignature {
+            cursor: 0,
+            frames_len: 0,
+            frame_fingerprint: 0,
+        },
     }
 }
 

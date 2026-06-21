@@ -215,6 +215,10 @@ pub enum BindableAction {
     /// opt in with `keybinds` / `ODYTTY_KEYBINDS` so the unset input path stays
     /// byte-identical.
     CommandPalette,
+    /// Open the output-replay overlay (Phase 2). No default chord is installed;
+    /// users opt in with `keybinds` / `ODYTTY_KEYBINDS`, so the unset input path
+    /// stays byte-identical. Replay is presentation-only.
+    SessionReplay,
     NewTab,
     NextTab,
     PrevTab,
@@ -271,6 +275,9 @@ impl BindableAction {
             "clearinput" | "clearline" | "killline" | "clear" => Some(Self::ClearInput),
             "commandpalette" | "palette" | "cmdpalette" | "fuzzypalette" => {
                 Some(Self::CommandPalette)
+            }
+            "sessionreplay" | "replay" | "outputreplay" | "replayoverlay" => {
+                Some(Self::SessionReplay)
             }
             "newtab" | "tabnew" => Some(Self::NewTab),
             "nexttab" | "tabnext" => Some(Self::NextTab),
@@ -869,6 +876,12 @@ pub struct Settings {
     /// `~/.ssh/config`. When on, the data layer reads a caller-supplied
     /// OpenSSH config path read-only and name-only through bounded parsing.
     pub ssh_config_hosts: bool,
+    /// Opt-in per-session output recording for the scrubbable replay overlay
+    /// (Phase 2). Off by default; while off the PTY pump records nothing and the
+    /// plain path is byte-identical. When on, each session keeps a bounded
+    /// in-memory ring of recent screen frames the replay overlay can scrub.
+    /// Recording is local-only: frames never leave memory (no disk, no network).
+    pub session_replay: bool,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -944,6 +957,7 @@ impl Default for Settings {
             os_theme_light: None,
             confirm_close: DEFAULT_CONFIRM_CLOSE,
             ssh_config_hosts: DEFAULT_SSH_CONFIG_HOSTS,
+            session_replay: DEFAULT_SESSION_REPLAY,
             native_autoclose: None,
         }
     }
@@ -1500,6 +1514,12 @@ impl Settings {
             DEFAULT_SSH_CONFIG_HOSTS,
             &mut warn,
         );
+        let session_replay = parse_bool_setting(
+            get(SESSION_REPLAY_ENV).as_deref(),
+            SESSION_REPLAY_ENV,
+            DEFAULT_SESSION_REPLAY,
+            &mut warn,
+        );
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -1572,6 +1592,7 @@ impl Settings {
             os_theme_light,
             confirm_close,
             ssh_config_hosts,
+            session_replay,
             native_autoclose,
         }
     }
@@ -1750,6 +1771,10 @@ impl Settings {
         values.insert(
             SSH_CONFIG_HOSTS_ENV,
             bool_display(self.ssh_config_hosts).to_owned(),
+        );
+        values.insert(
+            SESSION_REPLAY_ENV,
+            bool_display(self.session_replay).to_owned(),
         );
         if let Some(duration) = self.native_autoclose {
             values.insert(NATIVE_AUTOCLOSE_ENV, duration.as_millis().to_string());

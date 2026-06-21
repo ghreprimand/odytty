@@ -961,6 +961,22 @@ feature validates against.
       attach, and the host reaps cleanly (no orphaned daemon, no stale socket)
       when its child exits. Hermetic synthetic runtime dir, controlled child,
       bounded timeouts. Closes the real-process detach/reattach integration gap.
+- [x] Output replay / scrubbing overlay (Phase 2 differentiator): opt-in
+      per-session output recording (`session_replay`, off by default) into a
+      bounded in-memory ring (`src/native/output_recorder.rs`) capped by both
+      600 frames and 24 MiB (oldest evicted; never unbounded). The PTY pump
+      records the live screen snapshot off the render path behind an atomic gate,
+      so the default-off path is byte-identical and zero-overhead. A keyboard-
+      scrubbable replay overlay (`src/native/replay_overlay.rs`, an
+      `OverlayMode::Replay` reusing the overlay framework) scrubs a frozen, fully
+      decoupled clone of the ring (←/→ step, PgUp/PgDn ten, Home/End ends, Esc
+      close). Presentation-only — proven by `replay_isolation` tests that the
+      live terminal frame is byte-identical whether or not replay is active, plus
+      ring-bound eviction, recording-off, scrub-navigation, and overlay-closed-
+      inert tests. Opened via the unbound `session-replay` action. Recording is
+      local-only: frames live only in memory (no disk, no network) and are
+      dropped on close / disable. Closes the Phase 2 tests-box replay-overlay-
+      isolation part.
 - [x] Native splits / panes: a tab owns a binary pane layout tree (leaf =
       session, node = H/V split + ratio) backing a two-level `TabSet` model;
       single-pane tabs stay byte-identical. Per-pane render dispatch lays out
