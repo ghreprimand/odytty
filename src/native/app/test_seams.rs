@@ -928,9 +928,8 @@ impl App {
     ) -> Option<Dimensions> {
         self.sessions.iter().nth(session).and_then(|session| {
             session
-                .pty
-                .lock()
-                .ok()
+                .local_pty()
+                .and_then(|pty| pty.lock().ok())
                 .and_then(|pty| pty.dimensions_for_test().ok())
         })
     }

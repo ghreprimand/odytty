@@ -597,13 +597,38 @@ Byte-identity: a normal locally-spawned session is untouched -- attach is an
 alternate session **source**, additive to the local-PTY path; single-session /
 single-pane rendering is unchanged.
 
-Remaining for full live-window wiring (follow-up packet): generalizing `Session`
-so a tab can hold an *attached* source as cleanly as a local PTY. Today `Session`
-hardcodes a concrete local `PtySession` for the resize path
-(`pty.lock().resize(...)`); routing resize to either a local PTY or an attach
-socket is the one structural change needed to make an attached session a live tab
-without disturbing the default path. The attach module lands first so that
-refactor builds on a tested client.
+Live-window wiring (landed). `Session` no longer hardcodes a local PTY: a
+`SessionSource` enum backs each session as either `Local { pty }` (the
+byte-identical default) or `Attached { client }`. The two operations that differ
+by backing are routed through it -- **resize** (`TIOCSWINSZ` vs. a `Resize` frame)
+and **close** (kill+reap vs. a clean `Detach` that keeps the host session alive).
+**Input is *not* routed through the enum:** an attached session's `writer` is an
+`AttachInputWriter` boxed into the same `PtyWriter` type, so every app-side input
+site (keys, IME, paste) writes through the identical `self.writer` path -- the
+input code and the local path are untouched.
+
+- **Present as a live tab.** `TabSet::attach_in_new_tab(runtime_base, id)` resolves
+  the id to its per-user socket (CLI parity), connects + restores the mirror, spawns
+  the read pump (sink = winit proxy), and grafts an attached `Session` in as a new
+  single-pane tab. `App::attach_session_in_new_tab` applies the window's
+  presentation policy to the mirror and focuses it.
+- **Startup entry.** `NativeOptions.attach_session: Option<String>` is the opt-in
+  startup seam (default `None` => launch byte-identical). When set, `run_native`
+  opens its normal initial local session, then attaches the requested id as a live
+  tab and focuses it -- the seam `odytty attach <id>` sets via the CLI.
+- **SessionExit / link-drop UX.** When the host child exits, the host sends
+  `SessionExit`; the pump maps it (and a dropped link / clean detach) to
+  `UserEvent::ShellExited`, so an attached tab closes exactly like a local shell
+  tab closing (or exits the window when it is the last). No new tab UI state -- the
+  attached tab is indistinguishable from a local tab in lifecycle.
+- **Byte-identity guard.** A normally-spawned session is `SessionSource::Local`
+  (`default_session_source_is_local`), and a local resize pushes the identical
+  `TIOCSWINSZ` to the concrete PTY (`local_session_resize_routes_to_pty_unchanged`),
+  alongside the `gpu_composite_smoke` pixel guard.
+
+Still out of this packet (Phase 2 remainder): output replay/scrubbing and the
+detach/reattach *daemon* survival across a full window close (the session-host
+peer's surface). The in-window attach client is complete and tested.
 
 ---
 

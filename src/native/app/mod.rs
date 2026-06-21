@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use std::io::Write;
 use std::ops::{Deref, DerefMut};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 #[cfg(test)]
@@ -16,7 +17,6 @@ use crate::core::{
 };
 use crate::grid::{CursorRenderParams, SolidQuad};
 use crate::input::{self, Key, KeyEventType, KeyModes, Modifiers};
-use crate::pty::ForegroundJob;
 #[cfg(test)]
 use crate::pty::PtySession;
 use crate::selection::{
@@ -547,6 +547,45 @@ impl App {
             let _ = self.sessions.switch(session_id);
             self.on_active_session_changed();
         }
+    }
+
+    /// Attach to a detached, session-host-backed session by id and present it as
+    /// a new live tab in this window — the production "reopen by id, full
+    /// scrollback intact" path. The mirror terminal is restored from the host
+    /// snapshot inside [`TabSet::attach_in_new_tab`]; here we apply the window's
+    /// presentation policy (theme/cursor/scrollback cap) so the attached tab
+    /// renders consistently, then switch focus to it. The grid content from the
+    /// host snapshot is untouched. The next resize reconciles the mirror to this
+    /// window's dimensions (a `Resize` frame to the host). `runtime_base` is
+    /// `None` in production (derived from `XDG_RUNTIME_DIR`); tests pass a base.
+    pub(in crate::native) fn attach_session_in_new_tab(
+        &mut self,
+        runtime_base: Option<&Path>,
+        session_id: &str,
+    ) -> std::io::Result<()> {
+        let token = self.sessions.attach_in_new_tab(runtime_base, session_id)?;
+        let effective_theme = self.effective_theme;
+        let themed_ui_roles = self.themed_ui_roles;
+        let osc52_read = self.settings.osc52_read;
+        let cursor_style = self.settings.cursor_style;
+        let cursor_blink = self.settings.cursor_blink;
+        let cell = self.gpu.as_ref().map(GpuState::cell);
+        let scrollback_limit = self.settings.scrollback_limit();
+        if let Some(session) = self.sessions.get_mut(token) {
+            Self::initialize_session_with(
+                session,
+                effective_theme,
+                themed_ui_roles,
+                osc52_read,
+                cursor_style,
+                cursor_blink,
+                cell,
+                scrollback_limit,
+            );
+        }
+        let _ = self.sessions.switch(token);
+        self.on_active_session_changed();
+        Ok(())
     }
 
     fn switch_to_next_tab(&mut self) {
@@ -1447,6 +1486,7 @@ impl App {
             window_padding_px: parsed.window_padding_px,
             line_height: parsed.line_height,
             box_thickness: parsed.box_thickness,
+            attach_session: self.options.attach_session.clone(),
         }
     }
 
@@ -1865,13 +1905,10 @@ impl ApplicationHandler<UserEvent> for App {
                 // `None` (idle shell) and `Unknown` (query error / dead PTY) and
                 // a poisoned lock all fall through to the immediate exit, so the
                 // off path and the common idle-close path are unchanged (TRAP-1,
-                // TRAP-5).
-                if self.settings.confirm_close
-                    && self
-                        .pty
-                        .lock()
-                        .is_ok_and(|pty| pty.foreground_job() == ForegroundJob::Running)
-                {
+                // TRAP-5). An attached session reports not-running (the job lives
+                // in the remote host), so closing an attached window detaches
+                // immediately without prompting.
+                if self.settings.confirm_close && self.foreground_job_running() {
                     self.overlay.open_confirm_close();
                     if let Some(window) = self.window.as_ref() {
                         window.request_redraw();

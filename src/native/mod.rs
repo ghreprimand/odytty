@@ -205,12 +205,22 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         Some(proxy),
     );
 
+    // Phase 2 startup attach (opt-in; `None` leaves the launch byte-identical):
+    // the window opened its normal initial local session above, and now also
+    // attaches the requested detached session as a live tab and focuses it. The
+    // initial local session is untouched, so the default path is unchanged.
+    let attach_session = options.attach_session.clone();
     let mut app = App::new_with_sessions(
         options,
         session_set,
         settings.clone(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
+    if let Some(session_id) = attach_session
+        && let Err(err) = app.attach_session_in_new_tab(None, &session_id)
+    {
+        eprintln!("odytty: attach session {session_id} failed: {err}");
+    }
     let run_result = event_loop
         .run_app(&mut app)
         .map_err(|err| NativeError::EventLoop(err.to_string()));

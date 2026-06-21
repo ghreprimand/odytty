@@ -15,11 +15,15 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use super::*;
-use crate::core::{SnapshotCaptureLimits, Terminal};
+use crate::core::{Dimensions, SnapshotCaptureLimits, Terminal};
+use crate::native::layout::PaneRect;
+use crate::native::session::{Session, TabSet};
+use crate::pty::PtySession;
 use crate::session_host::protocol::{
     ClientFrame, HostFrame, HostHello, read_client_frame, read_client_hello, write_host_frame,
     write_host_hello,
 };
+use crate::session_host::{runtime_dir_path, session_socket_path};
 
 static UNIQUE: AtomicU64 = AtomicU64::new(0);
 
@@ -306,5 +310,161 @@ fn resize_rejects_zero_dimensions() {
             .expect("attach connects");
     assert!(client.resize(0, 24).is_err());
     assert!(client.resize(80, 0).is_err());
+    handle.join().expect("host thread");
+}
+
+// ---------------------------------------------------------------------------
+// Live-wiring tests: an attached session is a real `Session`/`TabSet` source.
+// These prove the source generalization routes resize/input/close to the
+// socket while the local-PTY path stays byte-identical (the latter is guarded
+// by `local_session_resize_routes_to_pty_unchanged` in `session.rs`).
+// ---------------------------------------------------------------------------
+
+/// Build an attached [`Session`] (no pump) connected to a fake host at `socket`,
+/// for tests that drive resize/input/close directly and read the single frame
+/// the host receives.
+fn attached_session_over(socket: &std::path::Path, id: &str) -> Session {
+    let (client, _reader, terminal) =
+        AttachClient::connect_with(socket, id, test_caps(), test_deadline())
+            .expect("attach connects");
+    let terminal = Arc::new(Mutex::new(terminal));
+    let client = Arc::new(Mutex::new(client));
+    let writer = attach_input_writer(client.clone());
+    Session::new_attached(SessionToken(0), terminal, writer, client, None)
+}
+
+/// A real local-PTY [`Session`] to seed a [`TabSet`] for the present-live-tab
+/// test (the attached tab is grafted on top of it). Mirrors the session-arena
+/// test builder.
+fn build_local_session() -> Session {
+    let dims = Dimensions::new(20, 8);
+    let pty = PtySession::spawn_shell_command(dims, "sleep 1").expect("spawn test shell");
+    let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().expect("writer")));
+    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let pty = Arc::new(Mutex::new(pty));
+    Session::new(SessionToken(0), terminal, writer, pty, None)
+}
+
+#[test]
+fn attached_tab_resize_forwards_to_socket() {
+    let (socket_path, handle) =
+        spawn_fake_host(snapshot_bytes(&sample_host_terminal()), |mut stream| {
+            read_client_frame(&mut stream).expect("read client frame")
+        });
+    let session = attached_session_over(&socket_path, "resize-tab");
+    let mut set = TabSet::new(session, None);
+    // 800x400 content, 10x20 cell → 80 cols, 20 rows: routed to a `Resize` frame.
+    set.resize_all_panes(PaneRect::new(0.0, 0.0, 800.0, 400.0), 10, 20, 1.0);
+    let frame = handle.join().expect("host thread");
+    assert_eq!(
+        frame,
+        ClientFrame::Resize {
+            columns: 80,
+            rows: 20
+        }
+    );
+}
+
+#[test]
+fn attached_input_writer_forwards_to_socket() {
+    let (socket_path, handle) =
+        spawn_fake_host(snapshot_bytes(&sample_host_terminal()), |mut stream| {
+            read_client_frame(&mut stream).expect("read client frame")
+        });
+    let session = attached_session_over(&socket_path, "input-tab");
+    // The app-side input path writes to `session.writer`; for an attached session
+    // that is the `AttachInputWriter`, so bytes arrive as an `Input` frame — the
+    // proof the input path is byte-identical (same `writer`, different sink).
+    {
+        let mut writer = session.writer.lock().expect("writer lock");
+        writer.write_all(b"ls\n").expect("write input");
+        writer.flush().expect("flush input");
+    }
+    let frame = handle.join().expect("host thread");
+    assert_eq!(frame, ClientFrame::Input(b"ls\n".to_vec()));
+}
+
+#[test]
+fn window_close_detaches_attached_tab_host_survives() {
+    let (socket_path, handle) =
+        spawn_fake_host(snapshot_bytes(&sample_host_terminal()), |mut stream| {
+            read_client_frame(&mut stream).expect("read client frame")
+        });
+    let session = attached_session_over(&socket_path, "close-tab");
+    let mut set = TabSet::new(session, None);
+    // Closing the (only) attached session sends a clean Detach, not a kill — the
+    // host keeps the session alive for later reattach.
+    let was_last = set.close(SessionToken(0));
+    assert!(was_last, "closing the only session reports last");
+    let frame = handle.join().expect("host thread");
+    assert_eq!(frame, ClientFrame::Detach);
+}
+
+#[test]
+fn attach_by_id_presents_live_tab_and_repaints() {
+    // Lay out the runtime tree the id resolver expects:
+    // <base>/<runtime-dir>/<id>.sock, all 0700-owned by this uid.
+    let base = unique_runtime_dir();
+    let runtime_dir = runtime_dir_path(&base);
+    std::fs::create_dir_all(&runtime_dir).expect("create runtime dir");
+    std::fs::set_permissions(&runtime_dir, std::fs::Permissions::from_mode(0o700))
+        .expect("chmod 0700 runtime dir");
+    let id = "live-tab";
+    let socket_path = session_socket_path(&runtime_dir, id).expect("socket path");
+    let listener = UnixListener::bind(&socket_path).expect("bind fake host");
+
+    let snapshot = snapshot_bytes(&sample_host_terminal());
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        let _hello = read_client_hello(&mut stream).expect("read client hello");
+        write_host_hello(&mut stream, &HostHello::accepted()).expect("write host hello");
+        write_host_frame(&mut stream, &HostFrame::Snapshot(snapshot)).expect("write snapshot");
+        // Live output after the snapshot, then hold the link open briefly.
+        write_host_frame(&mut stream, &HostFrame::Output(b"XYZ".to_vec())).expect("write output");
+        std::thread::sleep(Duration::from_millis(150));
+        drop(stream);
+    });
+
+    let mut set = TabSet::new(build_local_session(), None);
+    let (tx, rx) = mpsc::channel();
+    let token = set
+        .attach_in_new_tab_for_test(Some(&base), id, ChannelSink(tx))
+        .expect("attach-by-id presents a tab");
+
+    // A second (attached) session/tab now exists.
+    assert_eq!(set.len(), 2, "attach grafts a new tab");
+    // Full scrollback restored from the host snapshot at connect time.
+    {
+        let term = set
+            .get(token)
+            .expect("attached session")
+            .terminal
+            .lock()
+            .unwrap();
+        assert_eq!(row_text(&term, 0), "line-one");
+        assert_eq!(row_text(&term, 2), "PROMPT$");
+    }
+
+    // Live output repaints the mirror (wait for the pump's redraw).
+    let mut saw_redraw = false;
+    while let Ok(ev) = rx.recv_timeout(Duration::from_secs(2)) {
+        if ev == Ev::Redraw(token) {
+            saw_redraw = true;
+            break;
+        }
+    }
+    assert!(saw_redraw, "live output must repaint the attached tab");
+    {
+        let term = set
+            .get(token)
+            .expect("attached session")
+            .terminal
+            .lock()
+            .unwrap();
+        assert_eq!(row_text(&term, 2), "PROMPT$ XYZ");
+    }
+
+    // Closing the attached tab cleanly detaches and reaps its pump.
+    assert!(!set.close(token), "two tabs: closing one is not last");
     handle.join().expect("host thread");
 }

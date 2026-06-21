@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Native window-as-client live wiring (Phase 2)
+
+Made an attached session-host session a real live tab, completing the
+window-as-client path on top of the previously-landed attach core.
+
+- `Session` no longer hardcodes a local PTY. A `SessionSource` enum backs each
+  session as `Local { pty }` (the byte-identical default) or
+  `Attached { client }`. Only the two operations that genuinely differ by
+  backing are routed through it: **resize** (`TIOCSWINSZ` vs. a `Resize` frame)
+  and **close** (kill+reap vs. a clean `Detach` that keeps the host session
+  alive for later reattach).
+- **Input stays byte-identical.** An attached session's `writer` is an
+  `AttachInputWriter` boxed into the same `PtyWriter` type, so every app-side
+  input site (keys, IME, paste, bracketed paste) writes through the identical
+  `self.writer` path — the input code and the local path are untouched.
+- `TabSet::attach_in_new_tab(runtime_base, id)` resolves the id to its per-user
+  socket (CLI parity), connects + restores the mirror terminal from the host
+  snapshot, spawns the read pump, and grafts an attached `Session` in as a new
+  single-pane tab. `App::attach_session_in_new_tab` applies the window's
+  presentation policy to the mirror and focuses it.
+- `NativeOptions.attach_session: Option<String>` is the opt-in startup seam
+  (default `None` ⇒ launch byte-identical); `run_native` opens its normal initial
+  local session, then attaches the requested id as a live tab — the seam
+  `odytty attach <id>` will set via the CLI.
+- SessionExit / link-drop UX: the host child exiting (or a dropped link / clean
+  detach) maps to `UserEvent::ShellExited`, so an attached tab closes exactly
+  like a local shell tab — no new tab UI state.
+- Byte-identity guards: `default_session_source_is_local`,
+  `local_session_resize_routes_to_pty_unchanged` (asserts the concrete PTY gets
+  the identical `TIOCSWINSZ`), plus the existing `gpu_composite_smoke` pixel
+  guard. Four new fake-host integration tests cover attached resize/input/close
+  forwarding and attach-by-id presenting + repainting a live tab.
+
+Verification: `cargo test --lib` → 2065 passed; `cargo clippy --lib --tests`
+clean; `rustfmt --check` clean on all touched files; `gpu_composite_smoke` +
+`license_headers` green. Phase 2 remainder (output replay/scrubbing, daemon
+survival across a full window close) is unchanged and still pending.
+
 ## 2026-06-21 -- Native command-palette overlay
 
 Built the in-window fuzzy command palette on top of the existing scorer,

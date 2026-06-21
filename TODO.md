@@ -938,10 +938,20 @@ feature validates against.
       Render mirror discards device-query replies (host is authoritative).
       Additive alternate session source; the local-PTY path stays
       byte-identical. Headlessly tested via an in-process fake host.
-- [ ] Native window-as-client live wiring: generalize `Session` so a tab can
-      hold an attached source (route resize to either a local PTY or the attach
-      socket) and surface a SessionExit UX, making `odytty attach <id>` open a
-      real rendering window. Builds on the tested attach core above.
+- [x] Native window-as-client live wiring: a `SessionSource` enum backs each
+      session as `Local { pty }` (byte-identical default) or `Attached { client }`,
+      routing resize (`TIOCSWINSZ` vs. a `Resize` frame) and close (kill+reap vs.
+      a clean `Detach` that keeps the host alive). Input is unchanged — an attached
+      session's `writer` is an `AttachInputWriter` boxed into the same `PtyWriter`,
+      so the app-side input path is identical. `TabSet::attach_in_new_tab` /
+      `App::attach_session_in_new_tab` present a hosted session as a live tab
+      (restored mirror + live repaint); `NativeOptions.attach_session` (default
+      `None`) is the opt-in startup seam `odytty attach <id>` sets. SessionExit /
+      link-drop closes the attached tab exactly like a local shell exit. Guarded by
+      `default_session_source_is_local` + `local_session_resize_routes_to_pty_unchanged`
+      + the `gpu_composite_smoke` pixel guard; headlessly tested via a fake host.
+      (Phase 2 remainder: output replay/scrubbing + daemon survival across full
+      window close.)
 - [x] Native splits / panes: a tab owns a binary pane layout tree (leaf =
       session, node = H/V split + ratio) backing a two-level `TabSet` model;
       single-pane tabs stay byte-identical. Per-pane render dispatch lays out

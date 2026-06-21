@@ -87,6 +87,12 @@ pub struct NativeOptions {
     /// historical geometric box-drawing weights byte-identically; other values
     /// scale the rule thickness. Inert unless geometric box-drawing is on.
     pub box_thickness: f32,
+    /// Optional detached session id to attach to at startup (Phase 2). `None`
+    /// (the default) is the normal local-shell launch and leaves the startup path
+    /// byte-identical. When `Some(id)`, the window still opens its normal initial
+    /// local session, then attaches the hosted session as a live tab and focuses
+    /// it — the `odytty attach <id>` entry the CLI sets.
+    pub attach_session: Option<String>,
 }
 
 impl Default for NativeOptions {
@@ -105,6 +111,7 @@ impl Default for NativeOptions {
             window_padding_px: DEFAULT_WINDOW_PADDING_PX,
             line_height: DEFAULT_LINE_HEIGHT,
             box_thickness: DEFAULT_BOX_THICKNESS,
+            attach_session: None,
         }
     }
 }

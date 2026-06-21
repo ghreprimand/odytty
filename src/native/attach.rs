@@ -27,16 +27,14 @@
 //! session is untouched, so the single-session / single-pane render path stays
 //! byte-identical.
 //!
-//! Dead-code-until-wired: every item below is exercised by the module's tests
-//! and is the contract-facing half of window-as-client reattach. The live App
-//! consumption (making an attached source a tab) lands in the follow-up
-//! `Session` source-generalization packet (see design doc §6.2); the
-//! module-level `#![allow(dead_code)]` is removed when that wiring lands.
-#![allow(dead_code)]
+//! Wiring: the live App consumption (making an attached source a tab) lands in
+//! [`super::session::TabSet::attach_in_new_tab`], which builds the input
+//! [`PtyWriter`] from [`attach_input_writer`] so an attached session reuses the
+//! exact same app-side input path as a local PTY (see design doc §6.2).
 
-use std::io;
+use std::io::{self, Write};
 use std::os::unix::net::UnixStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -49,9 +47,9 @@ use crate::session_host::protocol::{
     ClientFrame, ClientHello, HostFrame, ProtocolError, read_host_frame, read_host_hello,
     write_client_frame, write_client_hello,
 };
-use crate::session_host::validate_socket_parent;
+use crate::session_host::{existing_runtime_dir, session_socket_path, validate_socket_parent};
 
-use super::pty::UserEvent;
+use super::pty::{PtyWriter, UserEvent};
 use super::session::SessionToken;
 
 /// How long [`AttachClient::connect`] waits for the host's initial snapshot
@@ -195,6 +193,60 @@ impl Drop for AttachClient {
         // Window close without an explicit detach still leaves the host alive.
         let _ = self.detach();
     }
+}
+
+/// A [`Write`] sink that forwards bytes to a hosted session as `Input` frames.
+///
+/// This is the key to byte-identity: an attached session is given a [`PtyWriter`]
+/// (`Arc<Mutex<Box<dyn Write + Send>>>`) wrapping this writer, so **every**
+/// app-side input site (`handle_key_event`, IME, paste, bracketed-paste) writes
+/// through the exact same `self.writer` path as a local PTY — the input routing
+/// code is unchanged and the local path is untouched. Only the boxed sink
+/// differs: a local session boxes the PTY master, an attached session boxes this.
+pub(super) struct AttachInputWriter {
+    client: Arc<Mutex<AttachClient>>,
+}
+
+impl Write for AttachInputWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if let Ok(mut client) = self.client.lock() {
+            client.send_input(buf).map_err(io::Error::other)?;
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        // `send_input` already framed-and-flushed each write to the socket.
+        Ok(())
+    }
+}
+
+/// Build the input [`PtyWriter`] for an attached session: a boxed
+/// [`AttachInputWriter`] sharing the same [`AttachClient`] the resize/detach path
+/// uses, so input/resize/detach all serialize through one socket lock.
+pub(super) fn attach_input_writer(client: Arc<Mutex<AttachClient>>) -> PtyWriter {
+    Arc::new(Mutex::new(
+        Box::new(AttachInputWriter { client }) as Box<dyn Write + Send>
+    ))
+}
+
+/// Resolve a hosted session id to its per-user socket path, mirroring the CLI's
+/// `attach` id resolution (existing runtime dir → per-id socket → existence
+/// check). `runtime_base` is `None` in production (derived from
+/// `XDG_RUNTIME_DIR`) and set explicitly only by tests. Errors when the session
+/// is not found so the caller can surface a clean "session not found" message.
+pub(super) fn resolve_session_socket(
+    runtime_base: Option<&Path>,
+    session_id: &str,
+) -> Result<PathBuf> {
+    let Some(runtime_dir) = existing_runtime_dir(runtime_base)? else {
+        bail!("session not found: {session_id}");
+    };
+    let socket = session_socket_path(&runtime_dir, session_id)?;
+    if !socket.exists() {
+        bail!("session not found: {session_id}");
+    }
+    Ok(socket)
 }
 
 /// The read half of an attach connection: a clone of the connected socket, owned

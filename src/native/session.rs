@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use std::collections::HashMap;
 use std::ops::{Deref, DerefMut};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
 use crate::core::{LinkId, Snapshot, Terminal};
-use crate::pty::PtySession;
+use crate::pty::{ForegroundJob, PtySession};
 use crate::selection::{
     AbsoluteSelectionRange, AbsoluteSelectionState, CellPoint, ClickTracker, PointerDrag,
 };
@@ -18,6 +19,7 @@ use winit::event_loop::EventLoopProxy;
 use super::app::{
     CursorBlinkState, HintsUi, SessionScrollAnimState, SynchronizedOutputHold, TabBarSource,
 };
+use super::attach::{AttachClient, attach_input_writer, resolve_session_socket, spawn_attach_pump};
 use super::copy_mode::CopyModeState;
 use super::layout::{
     EVEN_RATIO, FocusDir, PaneNode, PaneRect, SplitAxis, divider_at_point, drag_divider_to,
@@ -31,11 +33,29 @@ use super::viewport::Viewport;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct SessionToken(pub(super) u64);
 
+/// What backs a session's I/O. The default is a locally-spawned PTY (the
+/// byte-identical path that everything used before Phase 2); an attached session
+/// is instead backed by a socket to a detached session-host. Input is *not*
+/// routed here — it flows through `Session::writer`, which for an attached
+/// session is an [`AttachInputWriter`](super::attach::AttachInputWriter) boxed
+/// into the same [`PtyWriter`] type, so the app-side input path is identical.
+/// This enum routes the two operations that genuinely differ by backing:
+/// **resize** (TIOCSWINSZ vs. a `Resize` frame) and **close** (kill+reap vs. a
+/// clean `Detach` that keeps the host session alive for later reattach).
+pub(super) enum SessionSource {
+    /// Locally-spawned PTY — the default, byte-identical path.
+    Local { pty: Arc<Mutex<PtySession>> },
+    /// Attached to a detached session-host over a per-user unix socket. The
+    /// client is shared with the input writer so input/resize/detach serialize
+    /// through one socket lock.
+    Attached { client: Arc<Mutex<AttachClient>> },
+}
+
 pub(super) struct Session {
     pub(super) id: SessionToken,
     pub(super) terminal: Arc<Mutex<Terminal>>,
     pub(super) writer: PtyWriter,
-    pub(super) pty: Arc<Mutex<PtySession>>,
+    pub(super) source: SessionSource,
     pub(super) pump_thread: Option<JoinHandle<()>>,
     pub(super) tab_title: String,
     pub(super) needs_rebuild: bool,
@@ -79,11 +99,50 @@ pub(super) struct Session {
 }
 
 impl Session {
+    /// Construct a locally-spawned (PTY-backed) session — the byte-identical
+    /// path. The signature is unchanged from before Phase 2, so every existing
+    /// local construction site is untouched; the `pty` is wrapped into a
+    /// [`SessionSource::Local`].
     pub(super) fn new(
         id: SessionToken,
         terminal: Arc<Mutex<Terminal>>,
         writer: PtyWriter,
         pty: Arc<Mutex<PtySession>>,
+        pump_thread: Option<JoinHandle<()>>,
+    ) -> Self {
+        Self::from_parts(
+            id,
+            terminal,
+            writer,
+            SessionSource::Local { pty },
+            pump_thread,
+        )
+    }
+
+    /// Construct an attached (session-host-backed) session. Input flows through
+    /// `writer` (an [`AttachInputWriter`](super::attach::AttachInputWriter)); the
+    /// `client` backs resize/detach.
+    pub(super) fn new_attached(
+        id: SessionToken,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        client: Arc<Mutex<AttachClient>>,
+        pump_thread: Option<JoinHandle<()>>,
+    ) -> Self {
+        Self::from_parts(
+            id,
+            terminal,
+            writer,
+            SessionSource::Attached { client },
+            pump_thread,
+        )
+    }
+
+    fn from_parts(
+        id: SessionToken,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        source: SessionSource,
         pump_thread: Option<JoinHandle<()>>,
     ) -> Self {
         let tab_title = terminal
@@ -96,7 +155,7 @@ impl Session {
             id,
             terminal,
             writer,
-            pty,
+            source,
             pump_thread,
             tab_title,
             needs_rebuild: true,
@@ -150,10 +209,47 @@ impl Session {
             .unwrap_or_else(|| "odytty".to_owned());
     }
 
+    /// The local PTY backing this session, or `None` for an attached session.
+    /// Test-only seam (the production foreground-job query uses
+    /// [`Self::foreground_job_running`]); the dimension test reads the concrete
+    /// PTY through this, and an attached session has no local PTY.
+    #[cfg(test)]
+    pub(super) fn local_pty(&self) -> Option<&Arc<Mutex<PtySession>>> {
+        match &self.source {
+            SessionSource::Local { pty } => Some(pty),
+            SessionSource::Attached { .. } => None,
+        }
+    }
+
+    /// True only when this is a local session whose foreground job is running.
+    /// An attached session reports `false` (the foreground job lives in the
+    /// remote host and cannot be queried locally), so confirm-close never blocks
+    /// closing an attached window — closing it cleanly detaches anyway.
+    pub(super) fn foreground_job_running(&self) -> bool {
+        match &self.source {
+            SessionSource::Local { pty } => pty
+                .lock()
+                .is_ok_and(|pty| pty.foreground_job() == ForegroundJob::Running),
+            SessionSource::Attached { .. } => false,
+        }
+    }
+
     fn close(mut self) -> bool {
-        if let Ok(mut pty) = self.pty.lock() {
-            let _ = pty.kill();
-            let _ = pty.wait();
+        match &self.source {
+            SessionSource::Local { pty } => {
+                if let Ok(mut pty) = pty.lock() {
+                    let _ = pty.kill();
+                    let _ = pty.wait();
+                }
+            }
+            // Closing an attached tab is a clean detach: the host keeps the PTY
+            // + terminal model alive for later reattach by id. (`Drop` on the
+            // client is the backstop; this makes the intent explicit.)
+            SessionSource::Attached { client } => {
+                if let Ok(mut client) = client.lock() {
+                    let _ = client.detach();
+                }
+            }
         }
         if let Some(thread) = self.pump_thread.take() {
             let _ = thread.join();
@@ -162,18 +258,32 @@ impl Session {
     }
 
     fn close_after_shell_exit(mut self) -> bool {
-        let pty = self.pty.clone();
         let pump_thread = self.pump_thread.take();
-        let _ = std::thread::Builder::new()
-            .name("odytty-session-close".to_owned())
-            .spawn(move || {
-                if let Ok(mut pty) = pty.lock() {
-                    let _ = pty.try_wait();
+        match &self.source {
+            SessionSource::Local { pty } => {
+                let pty = pty.clone();
+                let _ = std::thread::Builder::new()
+                    .name("odytty-session-close".to_owned())
+                    .spawn(move || {
+                        if let Ok(mut pty) = pty.lock() {
+                            let _ = pty.try_wait();
+                        }
+                        if let Some(thread) = pump_thread {
+                            let _ = thread.join();
+                        }
+                    });
+            }
+            // The host child already exited (or the link dropped). Detach is
+            // best-effort and the pump thread is ending on its own; reap it.
+            SessionSource::Attached { client } => {
+                if let Ok(mut client) = client.lock() {
+                    let _ = client.detach();
                 }
                 if let Some(thread) = pump_thread {
                     let _ = thread.join();
                 }
-            });
+            }
+        }
         true
     }
 }
@@ -438,8 +548,21 @@ impl TabSet {
                     terminal.resize(cols, rows);
                     terminal.set_cell_metrics(cell_w, cell_h);
                 }
-                if let Ok(pty) = session.pty.lock() {
-                    let _ = pty.resize(crate::core::Dimensions::new(cols, rows));
+                // Route the kernel-side resize to whichever source backs the
+                // session: a local PTY gets TIOCSWINSZ (byte-identical to before
+                // Phase 2); an attached session forwards a `Resize` frame so the
+                // host applies TIOCSWINSZ + reflow on its side.
+                match &session.source {
+                    SessionSource::Local { pty } => {
+                        if let Ok(pty) = pty.lock() {
+                            let _ = pty.resize(crate::core::Dimensions::new(cols, rows));
+                        }
+                    }
+                    SessionSource::Attached { client } => {
+                        if let Ok(mut client) = client.lock() {
+                            let _ = client.resize(cols as u32, rows as u32);
+                        }
+                    }
                 }
             }
         }
@@ -537,6 +660,74 @@ impl TabSet {
         let session_id = self.insert_spawned_session(grid)?;
         self.tabs.push(Tab::single(session_id));
         Ok(session_id)
+    }
+
+    /// Attach to a detached, session-host-backed session by id and present it as
+    /// a new single-pane tab — the live "close window, reopen by id, full
+    /// scrollback intact" path. Resolves the id to its per-user socket (CLI
+    /// parity), connects + restores the mirror terminal from the host snapshot,
+    /// spawns the read pump, and inserts an attached [`Session`] whose input
+    /// writer forwards to the same socket. `runtime_base` is `None` in
+    /// production; tests pass an explicit base. The new tab is appended and not
+    /// focused here (the caller switches to it), matching `spawn`.
+    pub(super) fn attach_in_new_tab(
+        &mut self,
+        runtime_base: Option<&Path>,
+        session_id: &str,
+    ) -> Result<SessionToken, std::io::Error> {
+        let Some(proxy) = self.proxy.clone() else {
+            return Err(std::io::Error::other(
+                "session attach unavailable without event loop proxy",
+            ));
+        };
+        let socket =
+            resolve_session_socket(runtime_base, session_id).map_err(std::io::Error::other)?;
+        self.insert_attached_session(&socket, session_id, proxy)
+    }
+
+    /// Connect to a hosted session over `socket`, restore the mirror terminal,
+    /// spawn the read pump driven by `sink`, and graft it in as a new single-pane
+    /// tab. Shared by production [`Self::attach_in_new_tab`] (sink = winit proxy)
+    /// and the headless test seam (sink = channel), so the present/repaint path is
+    /// exercisable without an event loop.
+    fn insert_attached_session(
+        &mut self,
+        socket: &Path,
+        session_id: &str,
+        sink: impl super::attach::AttachEventSink,
+    ) -> Result<SessionToken, std::io::Error> {
+        let (client, reader, terminal) =
+            AttachClient::connect(socket, session_id).map_err(std::io::Error::other)?;
+
+        let token = SessionToken(self.next_token);
+        self.next_token = self.next_token.saturating_add(1);
+
+        let terminal = Arc::new(Mutex::new(terminal));
+        let client = Arc::new(Mutex::new(client));
+        let writer = attach_input_writer(client.clone());
+        let pump_thread = spawn_attach_pump(reader, terminal.clone(), sink, token);
+        self.sessions.insert(
+            token,
+            Session::new_attached(token, terminal, writer, client, Some(pump_thread)),
+        );
+        self.tabs.push(Tab::single(token));
+        Ok(token)
+    }
+
+    /// Headless test driver for the live attach-by-id path: resolves the id to a
+    /// socket (CLI parity) and presents an attached tab driven by a caller-
+    /// provided sink, so the full resolve → connect → restore → present flow is
+    /// testable without a winit event loop.
+    #[cfg(test)]
+    pub(in crate::native) fn attach_in_new_tab_for_test(
+        &mut self,
+        runtime_base: Option<&Path>,
+        session_id: &str,
+        sink: impl super::attach::AttachEventSink,
+    ) -> Result<SessionToken, std::io::Error> {
+        let socket =
+            resolve_session_socket(runtime_base, session_id).map_err(std::io::Error::other)?;
+        self.insert_attached_session(&socket, session_id, sink)
     }
 
     /// The focused-pane token of the tab at `position` in the strip.
@@ -1114,6 +1305,33 @@ mod tests {
         let content = PaneRect::new(0.0, 0.0, 800.0, 400.0);
         set.resize_all_panes(content, 10, 20, 1.0);
         assert_eq!(pane_dims(&set, SessionToken(0)), (80, 20));
+    }
+
+    #[test]
+    fn default_session_source_is_local() {
+        // BYTE-IDENTITY GUARD: a normally-spawned session is `Local`, so the
+        // source generalization is a no-op for the default path.
+        let set = TabSet::new(build_session(), None);
+        assert!(matches!(set.active().source, SessionSource::Local { .. }));
+    }
+
+    #[test]
+    fn local_session_resize_routes_to_pty_unchanged() {
+        // BYTE-IDENTITY GUARD: resizing a local session must push the exact same
+        // TIOCSWINSZ to the concrete PTY as before Phase 2 — the `Local` match
+        // arm is the identical `pty.lock().resize(...)` call.
+        let mut set = TabSet::new(build_session(), None);
+        let content = PaneRect::new(0.0, 0.0, 800.0, 400.0);
+        set.resize_all_panes(content, 10, 20, 1.0);
+        let pty_dims = set
+            .active()
+            .local_pty()
+            .expect("local session has a PTY")
+            .lock()
+            .expect("pty lock")
+            .dimensions_for_test()
+            .expect("pty dimensions");
+        assert_eq!((pty_dims.columns, pty_dims.rows), (80, 20));
     }
 
     #[test]
