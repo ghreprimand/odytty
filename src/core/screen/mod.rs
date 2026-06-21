@@ -18,6 +18,7 @@ use super::prompt_marks::{self, PromptKind};
 use super::reflow::resize_buffer_rows;
 use super::scrollback::{ResizeOptions, Scrollback, resize_lazy_with_options};
 use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
+use super::snapshot_envelope::{SnapshotBasicModes, SnapshotRow, SnapshotTerminalState};
 use super::types::*;
 
 mod ops;
@@ -762,6 +763,45 @@ impl Screen {
                 .flat_map(|line| line.iter())
                 .copied()
                 .collect(),
+        }
+    }
+
+    /// Copy the constrained Phase 2 persistence subset into owned DTOs.
+    ///
+    /// This is intentionally separate from the render [`Snapshot`] surface:
+    /// scrollback rows and mode state are needed for resumable sessions, but
+    /// private `Screen` / `Scrollback` storage remains behind this owned copy.
+    pub fn snapshot_state(&self, max_scrollback_rows: usize) -> SnapshotTerminalState {
+        let columns = self.dimensions.columns;
+        let scrollback = self.scrollback.physical(columns);
+        let start = scrollback.len().saturating_sub(max_scrollback_rows);
+        let scrollback_rows = scrollback[start..]
+            .iter()
+            .map(|row| snapshot_row_from_line(row, columns))
+            .collect();
+        let visible_rows = self
+            .rows
+            .iter()
+            .map(|row| snapshot_row_from_line(row, columns))
+            .collect();
+
+        SnapshotTerminalState {
+            dimensions: self.dimensions,
+            cursor: self.cursor,
+            cursor_visible: self.cursor_visible,
+            cursor_style: self.cursor_style,
+            cursor_blink: self.cursor_blink,
+            basic_modes: SnapshotBasicModes {
+                bracketed_paste: self.bracketed_paste,
+                alternate_scroll: self.alternate_scroll,
+                alternate_screen: self.primary_screen.is_some(),
+                synchronized_output: self.synchronized_output,
+                focus_reporting: self.focus_reporting,
+                mouse: self.mouse,
+                keyboard: self.keyboard,
+            },
+            scrollback_rows,
+            visible_rows,
         }
     }
 
@@ -1870,6 +1910,12 @@ impl Terminal {
         self.screen.snapshot_with_scrollback(offset_rows)
     }
 
+    /// Copy the constrained Phase 2 persistence subset into owned DTOs. See
+    /// [`Screen::snapshot_state`].
+    pub fn snapshot_state(&self, max_scrollback_rows: usize) -> SnapshotTerminalState {
+        self.screen.snapshot_state(max_scrollback_rows)
+    }
+
     pub fn visible_graphics(&self, offset_rows: usize) -> Vec<VisiblePlacement> {
         self.screen.visible_graphics(offset_rows)
     }
@@ -1889,6 +1935,14 @@ impl Terminal {
 }
 pub(in crate::core) fn blank_row(columns: usize) -> Line {
     Line::unwrapped(vec![Cell::blank(); columns])
+}
+fn snapshot_row_from_line(line: &Line, columns: usize) -> SnapshotRow {
+    let mut cells: Vec<_> = line.iter().take(columns).copied().map(Into::into).collect();
+    cells.resize_with(columns, || Cell::blank().into());
+    SnapshotRow {
+        wrapped: line.wrapped,
+        cells,
+    }
 }
 fn blank_row_with_bg(columns: usize, background: Color) -> Line {
     Line::unwrapped(vec![Cell::blank_with_bg(background); columns])

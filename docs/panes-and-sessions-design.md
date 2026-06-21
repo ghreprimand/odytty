@@ -445,6 +445,44 @@ Guarantees Phase 1 will uphold:
 Phase 1 will **not** design the daemon, socket, or snapshot format — only keep the
 above invariants so Phase 2 has a clean seam.
 
+### 6.1 Phase 2 — Resumable Sessions (ratified)
+
+**Decision status: OPERATOR-RATIFIED (2026-06-21).** Phase 2 uses an
+OdyTTY-owned detached session-host process. The session-host owns live PTYs and
+terminal models while no window is attached; a later GUI process reconnects by
+session id and repaints from a versioned OdyTTY snapshot.
+
+The rejected alternative is in-process persistence: once the window process exits,
+its child PTYs and shell processes die with it, so the best it can offer is a
+transcript clone rather than a live reattach. That does not satisfy the
+"resumable terminal" requirement.
+
+Privacy and security posture:
+
+- The control socket is per-user, local-only, Unix-domain, and created under a
+  `0700` runtime directory.
+- No network service is opened.
+- `odytty list` never dumps scrollback; it reports metadata only.
+- SSH credentials stay with the system `ssh` binary and agent. OdyTTY never
+  reads private keys or handles SSH passwords.
+
+CLI surface for the first resumable slice:
+
+- `odytty new --detached`
+- `odytty list`
+- `odytty attach <id>`
+
+Smallest viable ordering:
+
+1. Owned versioned snapshot envelope and constrained terminal-state DTOs.
+2. Per-user session-host lifecycle, local socket, bounded resources, and child
+   reaping.
+3. Detach/attach using the snapshot envelope, then expand the state sections as
+   needed.
+
+Long form: see `phase2-resumable-sessions-decision.md` in the Archon workflow
+artifacts.
+
 ---
 
 ## 7. Phase 0 decision record — tmux-compatibility keybinding stance

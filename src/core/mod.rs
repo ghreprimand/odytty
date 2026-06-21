@@ -24,6 +24,7 @@ mod reflow;
 mod screen;
 mod scrollback;
 mod search;
+mod snapshot_envelope;
 mod types;
 
 #[cfg(test)]
@@ -63,6 +64,11 @@ pub use prompt_marks::{
 pub use screen::{Screen, Terminal, VisibleRow};
 pub use search::{
     AbsolutePoint, SearchMatch, SearchOptions, SearchRow, find_next, find_prev, search_rows,
+};
+pub use snapshot_envelope::{
+    SNAPSHOT_FORMAT_VERSION, SNAPSHOT_MAGIC, SNAPSHOT_PROTOCOL_VERSION, SnapshotAttrs,
+    SnapshotBasicModes, SnapshotCaptureLimits, SnapshotCell, SnapshotEnvelope,
+    SnapshotEnvelopeCaps, SnapshotEnvelopeError, SnapshotRow, SnapshotTerminalState,
 };
 pub use types::{
     Attrs, Cell, ClipboardRequest, ClipboardSelection, Color, CursorStyle, Dimensions, DirtyRegion,

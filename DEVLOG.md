@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- snapshot envelope foundation (Phase 2)
+
+Folded the operator-ratified resumable-session decision into
+`docs/panes-and-sessions-design.md` and added the pure core snapshot-envelope
+foundation for detached session reattach. This packet deliberately avoids
+`src/native/`: no daemon, socket, process lifecycle, or CLI code yet.
+
+- Decision summary: Phase 2 uses an OdyTTY-owned detached session-host process,
+  not in-process persistence. The design doc now records why in-process
+  persistence can only recover a transcript after window exit, plus the privacy
+  posture (per-user local-only Unix socket, `0700` runtime dir, no network, no
+  scrollback in `list`, SSH credentials stay with system `ssh`) and first CLI
+  surface (`new --detached`, `list`, `attach <id>`).
+- New `src/core/snapshot_envelope.rs`: `ODYTTY-SNAPSHOT` magic, format/protocol
+  version checks, producer version, required/optional section table, explicit
+  per-section length caps, reject-unknown-required / ignore-unknown-optional
+  semantics, and decode-side resource caps.
+- Owned DTO subset: dimensions, visible grid, bounded physical scrollback,
+  cursor visibility/style/blink, bracketed paste, alternate-scroll/screen,
+  synchronized output, focus reporting, mouse protocol, and keyboard modes.
+  `Screen::snapshot_state` copies private rows/scrollback into these DTOs without
+  exposing the storage structs or changing the render `Snapshot`.
+- Tests cover serialize->deserialize->serialize byte stability,
+  unknown-optional-section tolerance, unknown-required-section rejection,
+  version-mismatch rejection, and oversized-section cap rejection.
+
 ## 2026-06-21 -- divider drag + pointer hit-test (Phase 1c-3b)
 
 Wired the multi-pane pointer gestures (design doc §4.2/§4.3, §2.5 audit row #6).

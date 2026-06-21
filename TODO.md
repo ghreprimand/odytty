@@ -894,6 +894,12 @@ feature validates against.
       context-menu entries.
 - [x] Offset in-band image placements correctly while the tab bar is visible.
 - [x] Custom tab renaming if shell titles prove insufficient.
+- [x] Resumable-session architecture decision: use an OdyTTY-owned detached
+      session-host process, with live PTYs owned outside the window process and
+      reattach over a per-user local-only socket.
+- [x] Core snapshot-envelope foundation: `ODYTTY-SNAPSHOT` magic, versioned
+      section table, required/optional section handling, and owned DTOs for
+      dimensions, visible grid, bounded scrollback, cursor, and basic modes.
 - [ ] Panes/splits, profiles, detachable sessions, and session persistence
       remain future work.
 
