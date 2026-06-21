@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Panes & sessions design doc (Phase 0)
+
+Added `docs/panes-and-sessions-design.md`, the Phase 0 decision record gating the
+splits/panes work. It specifies, against the actual v0.2.0 code: a two-level
+layout model (`TabSet` owning a session arena + `Vec<Tab>`; each `Tab` owns a
+binary `PaneNode` split tree keyed by `SessionToken`), the byte-identical
+single-pane invariant (`is_single_pane()` branch reusing today's render/resize
+path verbatim), per-pane render via a confirmed `update_from_panes` GPU seam with
+zero `grid.rs` changes (the renderer is already origin-parameterized), input
+routing/focus model, divider-drag resize through the existing debounced
+`TIOCSWINSZ` path, an explicit 11-site tab-level `Deref` audit list, and a Phase 2
+detach/reattach forward-note. Reconciled against the Research peer's
+`panes-sessions-architecture-map.md`.
+
+The §7 keybinding decision record is **operator-ratified**: build a true tmux
+prefix-key input mode (default prefix `Ctrl-b`, configurable; doubled-prefix
+`Ctrl-b Ctrl-b` literal passthrough for nested multiplexers; tmux-matching pane
+defaults), broken into K1 (additive prefix-sequence engine), K2 (tmux pane
+defaults), K3 (nested-multiplexer story, a hard requirement). The mechanism is
+additive — no prefix pending/configured means input is byte-identical to today.
+
+Docs-only change; no code touched, no behavior change. `cargo test` / `fmt` /
+`clippy` status unchanged from the prior entry. Next: pure `src/native/layout.rs`
+(layout/focus math, fully headless-tested), then the arena/`TabSet` refactor.
+
+---
+
+## 2026-06-21 -- Palette history and directory sources
+
+Added `src/palette_sources.rs`, a presentation-agnostic data layer for the
+future fuzzy command palette. It reads shell history files read-only from a
+bounded tail window (default 1 MiB), returns at most 5000 most-recent-first
+entries, caps each entry at 4096 characters, and collapses consecutive
+duplicates. Supported formats are plain/bash, zsh extended history, and the
+common Fish `- cmd:` rows; malformed, missing, oversized, and non-UTF-8 files
+return empty or partial in-memory candidates without panicking.
+
+The same module adds a bounded recent-directory source that can later be fed
+from OSC 7 cwd updates. Tests use synthetic temp files only; no real shell
+history or local directory data is committed or logged.
+
+---
+
 ## 2026-06-21 -- Fuzzy scorer foundation
 
 Added `src/fuzzy.rs`, a pure dependency-free subsequence scorer for the future
