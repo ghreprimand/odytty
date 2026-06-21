@@ -896,6 +896,60 @@ pub(super) fn parse_key_bindings(
         .collect()
 }
 
+/// The default multiplexer prefix chord, `Ctrl-b` (§7), matching tmux.
+pub(super) fn default_pane_prefix() -> Option<KeyChord> {
+    Some(KeyChord {
+        modifiers: KeyBindingModifiers {
+            ctrl: true,
+            shift: false,
+            alt: false,
+            super_key: false,
+        },
+        key: KeyBindingKey::Character('b'),
+    })
+}
+
+/// Parse `ODYTTY_PANE_PREFIX` into the multiplexer prefix chord (§7). Unset is
+/// the `Ctrl-b` default; `off`/`none`/`disabled` turns the prefix model off
+/// entirely (`None`), restoring the pre-§7 byte-identical input path; any other
+/// value parses as a chord (e.g. `ctrl+a`), warning + falling back to the
+/// default on an invalid chord.
+pub(super) fn parse_pane_prefix(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> Option<KeyChord> {
+    let Some(raw) = raw else {
+        return default_pane_prefix();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return default_pane_prefix();
+    }
+    match normalize_name(trimmed).as_str() {
+        "off" | "none" | "disabled" | "disable" => return None,
+        _ => {}
+    }
+    match parse_key_chord(trimmed) {
+        Some(chord) => Some(chord),
+        None => {
+            warn(&format!(
+                "{PANE_PREFIX_ENV}={trimmed:?} is not a valid key chord; using the Ctrl-b default"
+            ));
+            default_pane_prefix()
+        }
+    }
+}
+
+/// Format the multiplexer prefix chord back to its config value (§7): `off`
+/// when disabled, else the chord string (e.g. `ctrl+b`).
+pub(super) fn pane_prefix_display(prefix: Option<KeyChord>) -> String {
+    match prefix {
+        Some(chord) => format_chord(chord),
+        None => "off".to_owned(),
+    }
+}
+
 pub(super) fn format_float(value: f32) -> String {
     let formatted = format!("{value:.2}");
     formatted
@@ -962,5 +1016,15 @@ pub(super) fn bindable_action_name(action: BindableAction) -> &'static str {
         BindableAction::NextTab => "next-tab",
         BindableAction::PrevTab => "prev-tab",
         BindableAction::CloseTab => "close-tab",
+        BindableAction::SplitColumns => "split-columns",
+        BindableAction::SplitRows => "split-rows",
+        BindableAction::FocusPaneLeft => "focus-pane-left",
+        BindableAction::FocusPaneRight => "focus-pane-right",
+        BindableAction::FocusPaneUp => "focus-pane-up",
+        BindableAction::FocusPaneDown => "focus-pane-down",
+        BindableAction::FocusPaneNext => "focus-pane-next",
+        BindableAction::ClosePane => "close-pane",
+        BindableAction::ZoomPane => "zoom-pane",
+        BindableAction::EqualizePanes => "equalize-panes",
     }
 }

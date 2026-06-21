@@ -742,6 +742,21 @@ impl App {
                 | Some(BindableAction::SettingsPanel)
                 | Some(BindableAction::ThemePicker)
                 | None => {}
+                // Pane-management actions (§7) resolve only on the multiplexer
+                // prefix and are excluded from the flat global binding table
+                // (`is_pane_action`), so `action_for` never returns one here.
+                // These arms exist for match exhaustiveness; the prefix engine
+                // (K2) dispatches these before this flat match runs.
+                Some(BindableAction::SplitColumns)
+                | Some(BindableAction::SplitRows)
+                | Some(BindableAction::FocusPaneLeft)
+                | Some(BindableAction::FocusPaneRight)
+                | Some(BindableAction::FocusPaneUp)
+                | Some(BindableAction::FocusPaneDown)
+                | Some(BindableAction::FocusPaneNext)
+                | Some(BindableAction::ClosePane)
+                | Some(BindableAction::ZoomPane)
+                | Some(BindableAction::EqualizePanes) => {}
             }
         }
         if self.overlay.is_open() {

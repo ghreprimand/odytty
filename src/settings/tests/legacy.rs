@@ -154,6 +154,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "cursor_trail",
             "cursor_motion",
             "keybinds",
+            "pane_prefix",
             "scroll_wheel_lines",
             "scrollback_lines",
             "selection_drag_extend",

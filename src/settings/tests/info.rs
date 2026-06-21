@@ -154,13 +154,23 @@ fn keybinds_info_options_lists_all_actions() {
         BindableAction::NextTab,
         BindableAction::PrevTab,
         BindableAction::CloseTab,
+        BindableAction::SplitColumns,
+        BindableAction::SplitRows,
+        BindableAction::FocusPaneLeft,
+        BindableAction::FocusPaneRight,
+        BindableAction::FocusPaneUp,
+        BindableAction::FocusPaneDown,
+        BindableAction::FocusPaneNext,
+        BindableAction::ClosePane,
+        BindableAction::ZoomPane,
+        BindableAction::EqualizePanes,
     ];
     let expected_names: Vec<&'static str> = expected
         .iter()
         .map(|action| bindable_action_display_name(*action))
         .collect();
     assert_eq!(keybinds.options, expected_names.as_slice());
-    assert_eq!(keybinds.options.len(), 16, "all 16 actions selectable");
+    assert_eq!(keybinds.options.len(), 26, "all 26 actions selectable");
 }
 
 #[test]

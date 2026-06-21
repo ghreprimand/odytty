@@ -215,6 +215,29 @@ pub enum BindableAction {
     NextTab,
     PrevTab,
     CloseTab,
+    // --- Pane-management actions (§7). These resolve only on the multiplexer
+    //     prefix (default `Ctrl-b`), never as bare global chords, so they never
+    //     perturb the no-prefix input path. See `BindableAction::is_pane_action`.
+    /// Split the focused pane side-by-side (tmux `Ctrl-b %`).
+    SplitColumns,
+    /// Split the focused pane stacked (tmux `Ctrl-b "`).
+    SplitRows,
+    /// Move focus to the pane left of the focused one (tmux `Ctrl-b ←`).
+    FocusPaneLeft,
+    /// Move focus to the pane right of the focused one (tmux `Ctrl-b →`).
+    FocusPaneRight,
+    /// Move focus to the pane above the focused one (tmux `Ctrl-b ↑`).
+    FocusPaneUp,
+    /// Move focus to the pane below the focused one (tmux `Ctrl-b ↓`).
+    FocusPaneDown,
+    /// Cycle focus to the next pane in tree order (tmux `Ctrl-b o`).
+    FocusPaneNext,
+    /// Close the focused pane (tmux `Ctrl-b x`).
+    ClosePane,
+    /// Zoom / toggle-fullscreen the focused pane (tmux `Ctrl-b z`).
+    ZoomPane,
+    /// Reset all split ratios in the active tab to even (tmux `Ctrl-b =`).
+    EqualizePanes,
 }
 
 impl BindableAction {
@@ -246,8 +269,38 @@ impl BindableAction {
             "nexttab" | "tabnext" => Some(Self::NextTab),
             "prevtab" | "previoustab" | "tabprev" => Some(Self::PrevTab),
             "closetab" | "tabclose" => Some(Self::CloseTab),
+            "splitcolumns" | "splitsidebyside" | "splitright" => Some(Self::SplitColumns),
+            "splitrows" | "splitstacked" | "splitdown" => Some(Self::SplitRows),
+            "focuspaneleft" | "paneleft" => Some(Self::FocusPaneLeft),
+            "focuspaneright" | "paneright" => Some(Self::FocusPaneRight),
+            "focuspaneup" | "paneup" => Some(Self::FocusPaneUp),
+            "focuspanedown" | "panedown" => Some(Self::FocusPaneDown),
+            "focuspanenext" | "panenext" | "nextpane" => Some(Self::FocusPaneNext),
+            "closepane" | "paneclose" => Some(Self::ClosePane),
+            "zoompane" | "panezoom" | "togglezoom" => Some(Self::ZoomPane),
+            "equalizepanes" | "equalize" | "panesequalize" => Some(Self::EqualizePanes),
             _ => None,
         }
+    }
+
+    /// Whether this action is a pane-management action that resolves only on the
+    /// multiplexer prefix (§7), never as a bare global chord. The prefix engine
+    /// owns these; the flat global binding table excludes them, so they cannot
+    /// perturb the no-prefix input path.
+    pub fn is_pane_action(self) -> bool {
+        matches!(
+            self,
+            Self::SplitColumns
+                | Self::SplitRows
+                | Self::FocusPaneLeft
+                | Self::FocusPaneRight
+                | Self::FocusPaneUp
+                | Self::FocusPaneDown
+                | Self::FocusPaneNext
+                | Self::ClosePane
+                | Self::ZoomPane
+                | Self::EqualizePanes
+        )
     }
 }
 
@@ -617,6 +670,11 @@ pub struct Settings {
     /// other values scale the rule thickness.
     pub box_thickness: f32,
     pub key_bindings: Vec<KeyBindingOverride>,
+    /// Multiplexer prefix chord (§7). `Some(Ctrl-b)` by default — the single
+    /// new globally-captured key that opens the transient pane-command mode.
+    /// `None` (config value `off`/`none`/`disabled`) disables the prefix model
+    /// entirely, making the input path byte-identical to the pre-§7 build.
+    pub pane_prefix: Option<KeyChord>,
     /// Default cursor shape applied at power-on (DECSCUSR can override).
     pub cursor_style: CursorStyle,
     /// Default cursor blink policy applied at power-on (DECSCUSR can override).
@@ -831,6 +889,7 @@ impl Default for Settings {
             line_height: DEFAULT_LINE_HEIGHT,
             box_thickness: DEFAULT_BOX_THICKNESS,
             key_bindings: Vec::new(),
+            pane_prefix: default_pane_prefix(),
             cursor_style: CursorStyle::Block,
             cursor_blink: CursorBlink::Auto,
             cursor_easing: DEFAULT_CURSOR_EASING,
@@ -1245,6 +1304,7 @@ impl Settings {
         let line_height = parse_line_height(get(LINE_HEIGHT_ENV).as_deref(), &mut warn);
         let box_thickness = parse_box_thickness(get(BOX_THICKNESS_ENV).as_deref(), &mut warn);
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
+        let pane_prefix = parse_pane_prefix(get(PANE_PREFIX_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
         let cursor_blink = parse_cursor_blink_setting(get(CURSOR_BLINK_ENV).as_deref(), &mut warn);
         let cursor_easing = parse_bool_setting(
@@ -1437,6 +1497,7 @@ impl Settings {
             line_height,
             box_thickness,
             key_bindings,
+            pane_prefix,
             cursor_style,
             cursor_blink,
             cursor_easing,
@@ -1546,6 +1607,7 @@ impl Settings {
         values.insert(LINE_HEIGHT_ENV, format_float(self.line_height));
         values.insert(BOX_THICKNESS_ENV, format_float(self.box_thickness));
         values.insert(KEYBINDS_ENV, key_bindings_edit_value(&self.key_bindings));
+        values.insert(PANE_PREFIX_ENV, pane_prefix_display(self.pane_prefix));
         values.insert(
             CURSOR_STYLE_ENV,
             cursor_style_display(self.cursor_style).to_owned(),

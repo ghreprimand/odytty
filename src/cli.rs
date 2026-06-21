@@ -392,6 +392,16 @@ fn action_value(action: BindableAction) -> &'static str {
         BindableAction::NextTab => "next-tab",
         BindableAction::PrevTab => "prev-tab",
         BindableAction::CloseTab => "close-tab",
+        BindableAction::SplitColumns => "split-columns",
+        BindableAction::SplitRows => "split-rows",
+        BindableAction::FocusPaneLeft => "focus-pane-left",
+        BindableAction::FocusPaneRight => "focus-pane-right",
+        BindableAction::FocusPaneUp => "focus-pane-up",
+        BindableAction::FocusPaneDown => "focus-pane-down",
+        BindableAction::FocusPaneNext => "focus-pane-next",
+        BindableAction::ClosePane => "close-pane",
+        BindableAction::ZoomPane => "zoom-pane",
+        BindableAction::EqualizePanes => "equalize-panes",
     }
 }
 

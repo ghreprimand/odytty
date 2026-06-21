@@ -7,6 +7,51 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- multiplexer prefix engine (Phase 1, §7 K1)
+
+Built the additive tmux-style prefix-sequence engine — the multiplexer trigger
+layer (§7, operator-chosen true-prefix mode). Engine + state machine land here;
+App wiring (K2) and PTY passthrough (K3) follow as separate sub-commits.
+
+- `PrefixEngine` (`src/native/bindings.rs`): a configurable prefix chord (default
+  `Ctrl-b`) drives a transient pending state; the next chord resolves against a
+  tmux-matching prefix-bindings table. `on_chord(chord, now) -> PrefixOutcome`
+  returns one of `Inactive` / `Entered` / `Passthrough` / `Action(..)` /
+  `Cancelled`. **Byte-identical guarantee:** when not pending (or the prefix is
+  `off`), every non-prefix chord is `Inactive`, so the existing input path is
+  untouched. Cancels cleanly on timeout (2 s default) and on unknown keys; an
+  expired prefix is forgotten and the key reprocessed fresh. The doubled prefix
+  (`Ctrl-b Ctrl-b`) yields `Passthrough` + `passthrough_bytes()` (the literal C0
+  byte, e.g. `0x02` for `Ctrl-b`, `0x01` for a reconfigured `Ctrl-a`) for the K3
+  nested-multiplexer story. Lookup normalizes shift away for character keys so
+  `%` (Shift+`%`) matches a stored `%`.
+- New `BindableAction` pane variants (`src/settings.rs`): `SplitColumns`,
+  `SplitRows`, `FocusPaneLeft/Right/Up/Down`, `FocusPaneNext`, `ClosePane`,
+  `ZoomPane`, `EqualizePanes`, with kebab-case config names + parse aliases and
+  an `is_pane_action()` predicate. Pane actions resolve **only** on the prefix:
+  `KeyBindings::from_overrides` excludes them from the flat global table, so they
+  can never bind a bare global chord and perturb the no-prefix path.
+- `pane_prefix` setting (`ODYTTY_PANE_PREFIX`): default `ctrl+b`; `off`/`none`
+  disables the prefix model entirely (restoring the pre-§7 byte-identical input
+  path); any other value parses as a chord (e.g. `ctrl+a`). Wired through the
+  Settings struct, parse, serialize, the in-app settings catalog (`info.rs`
+  row + options), and `display_value_for_key`.
+- Tests: 12 state-machine units (enter, action-resolve, named-action match,
+  cancel-on-unknown, cancel-on-timeout, timeout-then-prefix-reenter, doubled-
+  prefix passthrough + literal byte, reconfigured-prefix byte, disabled-prefix
+  always-inactive, override-rebinds-table, two equalize chords) plus the updated
+  keybinds/field coverage guards.
+
+Verified: `cargo test` 1984 lib + all integration green / 0 failed, `cargo
+clippy --all-targets -- -D warnings` clean, `cargo fmt --check` clean. The engine
+is `#[allow(dead_code)]` until K2 wires `on_chord` into `handle_key_event`; the
+allow comes off then.
+
+Note: `ZoomPane` is defined (binding + config name + docs slot) but has no
+backing op yet — zoom/toggle-fullscreen-pane needs per-tab zoom state + a render
+branch, flagged to the director as its own sub-packet (K2-zoom). K2 wires the
+other five ops (split/focus/close/equalize) onto the existing `TabSet` methods.
+
 ## 2026-06-21 -- snapshot envelope v2 sections (Phase 2)
 
 Extended the pure core snapshot envelope toward faithful resumable-session
