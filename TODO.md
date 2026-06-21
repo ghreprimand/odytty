@@ -907,6 +907,14 @@ feature validates against.
       `Terminal`/`Screen` model with active grid, bounded scrollback, captured
       modes, cursor state, dynamic colors, metadata, prompt marks, scroll
       region, and tab stops.
+- [x] Session-host foundation: hidden root-level `src/session_host/` process,
+      protocol, socket, and lifecycle substrate for the first detach/attach
+      slice. It owns one PTY + terminal model outside the window process,
+      accepts local Unix-domain attach clients under `$XDG_RUNTIME_DIR/odytty/`,
+      enforces `0700` runtime-directory permissions + owner checks, rejects
+      protocol/snapshot version mismatches, sends an initial snapshot followed
+      by output/invalidation frames, keeps detached sessions alive until the
+      bounded idle timeout, and reaps child processes cleanly.
 - [x] Native splits / panes: a tab owns a binary pane layout tree (leaf =
       session, node = H/V split + ratio) backing a two-level `TabSet` model;
       single-pane tabs stay byte-identical. Per-pane render dispatch lays out
@@ -927,8 +935,8 @@ feature validates against.
 - [ ] Pane fast-follows: per-pane inline graphics (images render in single-pane
       tabs only today), non-focused-pane interactive overlays, and an optional
       inactive-pane focus dim.
-- [ ] Profiles, detachable sessions, and session persistence (the
-      session-host / detach-attach surface on top of the snapshot foundation)
+- [ ] Profiles, detachable sessions, and session persistence user flows
+      (`odytty attach/list/new --detached` plus native-window reattach wiring)
       remain future work.
 
 ## Archived First Prototype Checklist

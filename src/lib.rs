@@ -20,6 +20,7 @@ pub mod parser;
 pub mod pty;
 pub mod render;
 pub mod selection;
+pub mod session_host;
 pub mod settings;
 pub mod text;
 pub mod theme;

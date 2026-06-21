@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- session-host foundation (Phase 2)
+
+Landed the hidden, root-level `src/session_host/` foundation for resumable
+sessions without touching `src/native/`.
+
+- Added a versioned local attach protocol (`ODYTTY-HOST`, protocol v1) with a
+  strict snapshot-version handshake. Incompatible clients are rejected before any
+  snapshot is accepted. Accepted clients receive an initial `SnapshotEnvelope`,
+  then raw PTY output frames plus render-invalidation frames.
+- Added per-user Unix-domain socket placement under `$XDG_RUNTIME_DIR/odytty/`
+  with `0700` runtime-directory enforcement, owner-uid checks, a startup lock,
+  and stale-socket cleanup that removes a socket only after a live-peer probe
+  fails.
+- Added the first PTY-owning host loop: one session per host process, bounded
+  attach clients, detached idle timeout, clean PTY child reaping, client input
+  and resize frames, and detach semantics that keep the session alive until the
+  timeout or child exit.
+- Added a minimal attach client stub and hidden internal process mode
+  (`odytty session-host ...`) for later CLI/native wiring. Public
+  `odytty attach/list/new --detached` commands remain a follow-up packet.
+- Tests cover handshake accept/reject, runtime-dir permissions, stale-socket
+  handling, detach-and-reattach snapshot restore, and exit-after-child-finish.
+
+Verified so far: `cargo test session_host --lib` green. Full tree checks follow
+before the packet is committed.
+
 ## 2026-06-21 -- panes/keybindings docs lockstep (Phase 1, Stage 8)
 
 Public-facing record of everything panes/keybindings that landed (1a→1c-3c +

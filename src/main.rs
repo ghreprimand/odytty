@@ -35,6 +35,10 @@ fn main() -> Result<()> {
         return dump_command(command);
     }
 
+    if args.first().map(String::as_str) == Some("session-host") {
+        return odytty::session_host::run_internal_host_from_args(&args[1..]);
+    }
+
     if args.first().map(String::as_str) == Some("--interactive") {
         return run_interactive();
     }

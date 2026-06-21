@@ -488,6 +488,24 @@ Snapshot envelope status:
   (title + OSC 7 cwd), prompt marks, and layout-affecting state (scroll region +
   tab stops). Decoding accepts v1 and fills these sections from deterministic
   defaults.
+
+Session-host foundation status:
+
+- `src/session_host/` is the root-level, non-native module for Phase 2 process,
+  socket, protocol, and PTY lifecycle code. It imports `src/core/` and
+  `src/pty.rs`, not `src/native/`.
+- The first slice is one session per host process. The host owns the PTY and
+  `Terminal`, accepts local Unix-domain attach clients, sends an initial
+  `SnapshotEnvelope`, then streams raw output and render-invalidation frames.
+- The control socket lives under `$XDG_RUNTIME_DIR/odytty/`; the runtime
+  directory must be owned by the current uid and mode `0700`. A startup lock
+  serializes bind attempts, and stale sockets are removed only after a live-peer
+  connection probe fails.
+- Resource bounds are explicit: one hosted session, bounded attach clients,
+  snapshot decode caps inherited from the envelope layer, and a detached idle
+  timeout so a host cannot run forever without an attached window.
+- Public CLI/native attach wiring remains a later packet. The hidden
+  `odytty session-host ...` process mode exists only as internal substrate.
 - **Restore path** applies a decoded envelope into a live core model through
   `Screen::restore_from_envelope`, `Terminal::restore_from_envelope`, or
   `Terminal::from_snapshot_envelope`. Restored state covers the active visible

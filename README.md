@@ -434,10 +434,11 @@ treatments, and a large compatibility test surface.
 experimental build-from-source target (see Install And Run). Both are exercised
 in CI. Windows is not yet supported.
 
-**Known gaps:** Windows support, profiles, session persistence, per-pane inline
-graphics, the inactive-pane focus dim, Kitty animation, Kitty Unicode
-placeholders, iTerm2 graphics, COLR/CPAL color fonts, and broader
-ligature/stylistic-set shaping.
+**Known gaps:** Windows support, profiles, session persistence user flows
+(the hidden session-host substrate exists, but attach/list/native reattach
+wiring is pending), per-pane inline graphics, the inactive-pane focus dim,
+Kitty animation, Kitty Unicode placeholders, iTerm2 graphics, COLR/CPAL color
+fonts, and broader ligature/stylistic-set shaping.
 
 The running history lives in [`DEVLOG.md`](DEVLOG.md). The current public
 roadmap lives in [`TODO.md`](TODO.md) and

@@ -682,6 +682,14 @@ its first stable layer.
   Per-pane inline graphics, non-focused-pane interactive overlays, and the
   inactive-pane focus dim are planned fast-follows (see the v1 limitation note
   under Inline Graphics).
+- Resumable-session substrate: a hidden root-level `session_host` module owns
+  the first detached-host foundation outside `src/native/`. The internal
+  `odytty session-host` mode hosts one PTY + terminal model, exposes only a
+  per-user Unix-domain socket under `$XDG_RUNTIME_DIR/odytty/`, requires a
+  `0700` current-user runtime directory, rejects incompatible protocol/snapshot
+  versions, sends an initial `SnapshotEnvelope`, streams output/invalidation
+  frames, and reaps the child process. Public detachable-session commands and
+  native reattach UX are not supported yet.
 
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering
