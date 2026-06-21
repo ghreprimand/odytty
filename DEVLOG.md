@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- README hero image
+
+Added a sanitized showcase screenshot (`assets/demo.png`) and embedded it at the
+top of `README.md` with descriptive alt text. The shot was captured from a real
+OdyTTY window under the default `odyssey` theme (bloom + CRT on) running a
+scrubbed `env -i` shell in a throwaway demo repo — no real username, host, paths,
+shell history, or environment leak in. The frame shows a colorized `git log`
+graph, a project tree, truecolor gradients, and a style/ligature sampler.
+
+The PNG is kept full-resolution and lossless-optimized (~1.9 MB) rather than
+palette-quantized, to preserve the smooth bloom gradients that are the point of
+the shot. Doc/asset-only change: no Rust touched, so the compile/test gates are
+not engaged; verified `cargo fmt --check` clean and secret-scanned the diff.
+
+---
+
 ## 2026-06-21 -- Clippy cleanup: warning-free tree + CI gate
 
 Swept the **87 pre-existing `cargo clippy --all-targets` warnings** (manual-judgment

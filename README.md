@@ -2,6 +2,8 @@
 
 **Website:** [odytty.unfinished-works.com](https://odytty.unfinished-works.com)
 
+![OdyTTY rendering a colorized git graph, project tree, and truecolor gradients under the default Odyssey theme with bloom](assets/demo.png)
+
 OdyTTY is a standalone, from-scratch, GPU-rendered Rust terminal emulator for
 Linux. It owns the terminal byte path from PTY allocation through escape
 parsing, terminal state, render geometry, and shaders, while relying on focused
