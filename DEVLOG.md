@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Pane ops on TabSet (Phase 1c-1, geometry-free)
+
+Added the geometry-free half of splits/panes: the pane-management operations on
+the active tab (design doc §4–§5), as the first Phase-1c sub-commit. These are
+callable independent of any input binding (the keybinding engine is a later
+packet) — driven here by headless tests and, in the next sub-commit, by the
+multi-pane render dispatch.
+
+- New `TabSet` ops (in a dedicated `#[allow(dead_code)]` impl block, scaffold
+  parity with `layout.rs` until render + keybindings wire them): `split_active`
+  (spawn a session and graft it into the active tab as a new pane along an axis,
+  tmux semantics — new pane is `second` and focused), `equalize_active`,
+  `focus_next_pane` (tree-order cycle, `Ctrl-b o`), `set_active_focus`
+  (directional / focus-follows-click target), and the render-layer accessors
+  `active_layout` / `active_pane_count` / `active_is_single_pane`.
+- Refactored `spawn` to share a private `insert_spawned_session(grid)` arena
+  helper with `split_active`; `spawn` still appends a new single-pane tab
+  (unchanged), `split_active` adds a pane to the current tab (no new tab-strip
+  entry).
+- 6 headless tests: split grows a pane within the same tab (focus moves to the
+  new pane, `tab_count` stays 1, `iter()` visits both), tree-order focus cycle
+  with wrap, `set_active_focus` accepts panes / rejects strangers, closing a
+  pane keeps the multi-pane tab and collapses the split, equalize no-op on a
+  single pane, and `active_layout` exposes the tree.
+
+Single-pane tabs never reach the mutating ops, so the byte-identical path is
+untouched. Verified: `cargo test --lib` all green / 0 failed (6 new ops tests);
+`cargo fmt --check` clean; `cargo clippy --lib -- -D warnings` clean. Next
+sub-commit (1c-2): `update_from_panes` GPU integration + multi-pane render
+dispatch + the §8 divider/multi-grid pixel-smoke.
+
+---
+
 ## 2026-06-21 -- title_override Session→Tab (Phase 1b-2, §9.5)
 
 Moved the custom-tab-name override from `Session` to `Tab`, completing design

@@ -19,7 +19,7 @@ use super::app::{
     CursorBlinkState, HintsUi, SessionScrollAnimState, SynchronizedOutputHold, TabBarSource,
 };
 use super::copy_mode::CopyModeState;
-use super::layout::PaneNode;
+use super::layout::{EVEN_RATIO, PaneNode, SplitAxis};
 use super::pty::{PtyWriter, UserEvent, spawn_pty_pump};
 use super::render_helpers::RenderSignature;
 use super::search_ui::SearchUi;
@@ -330,7 +330,11 @@ impl TabSet {
         self.sessions.is_empty()
     }
 
-    pub(super) fn spawn(
+    /// Spawn a shell + terminal at `grid` and insert it into the arena, **without**
+    /// attaching it to any tab. Shared by [`Self::spawn`] (which then opens a new
+    /// tab) and [`Self::split_active`] (which then grafts the session into the
+    /// active tab's layout tree as a new pane). The caller owns tab/pane wiring.
+    fn insert_spawned_session(
         &mut self,
         grid: crate::core::Dimensions,
     ) -> Result<SessionToken, std::io::Error> {
@@ -354,6 +358,16 @@ impl TabSet {
             session_id,
             Session::new(session_id, terminal, writer, pty, Some(pump_thread)),
         );
+        Ok(session_id)
+    }
+
+    /// Spawn a new session in a brand-new single-pane tab (the existing
+    /// new-tab behaviour). Tab order is append-to-end, unchanged.
+    pub(super) fn spawn(
+        &mut self,
+        grid: crate::core::Dimensions,
+    ) -> Result<SessionToken, std::io::Error> {
+        let session_id = self.insert_spawned_session(grid)?;
         self.tabs.push(Tab::single(session_id));
         Ok(session_id)
     }
@@ -460,6 +474,130 @@ impl TabSet {
         self.tabs.push(Tab::single(id));
         id
     }
+
+    /// Insert a session into the arena **without** a tab (test-only), so headless
+    /// tests can drive [`Self::split_active_with`] — the pure tree-mutation half
+    /// of a split — without spawning a real PTY for the new pane.
+    #[cfg(test)]
+    fn push_arena_only(&mut self, session: Session) -> SessionToken {
+        let id = session.id;
+        self.next_token = self.next_token.max(id.0.saturating_add(1));
+        self.sessions.insert(id, session);
+        id
+    }
+
+    /// Test-only driver for a split: arena-insert `session` then graft it into
+    /// the active tab by splitting the focused leaf along `axis`. Mirrors the
+    /// production [`Self::split_active`] minus the PTY spawn.
+    #[cfg(test)]
+    fn split_active_for_test(&mut self, axis: SplitAxis, session: Session) -> SessionToken {
+        let token = self.push_arena_only(session);
+        self.split_active_with(axis, token);
+        token
+    }
+}
+
+/// Pane-management operations for the active tab (design doc §4–§5). These are
+/// the geometry-free half of splits/panes: tree mutation and tree-order focus.
+/// They are driven by the keybinding layer (a later packet) and, in this
+/// packet, by `#[cfg(test)]` seams + the multi-pane render dispatch (1c). The
+/// `allow(dead_code)` is scaffolding parity with `layout.rs`: it comes off as
+/// the render path (`active_layout`/`active_pane_count`/`active_is_single_pane`)
+/// and the keybinding ops wire these in. Single-pane tabs never reach the
+/// mutating ops, so the byte-identical path is untouched.
+#[allow(dead_code)]
+impl TabSet {
+    /// Split the **focused pane of the active tab** along `axis`, spawning a new
+    /// session at `grid` for the new pane and giving it focus (tmux semantics:
+    /// the new pane becomes `second` and is focused). Returns the new session's
+    /// token. A no-op-and-error if there is no active tab or spawn fails. The
+    /// new pane shares the tab — no new tab-strip entry is added.
+    pub(super) fn split_active(
+        &mut self,
+        axis: SplitAxis,
+        grid: crate::core::Dimensions,
+    ) -> Result<SessionToken, std::io::Error> {
+        if self.tabs.get(self.active_tab).is_none() {
+            return Err(std::io::Error::other("no active tab to split"));
+        }
+        let new_token = self.insert_spawned_session(grid)?;
+        self.split_active_with(axis, new_token);
+        Ok(new_token)
+    }
+
+    /// Pure tree-mutation half of [`Self::split_active`]: graft `new_token` into
+    /// the active tab by splitting its currently focused leaf along `axis` at the
+    /// even ratio, then focus the new pane. Assumes `new_token` already exists in
+    /// the arena. Factored out so headless tests can exercise the layout-tree
+    /// behaviour without spawning a real PTY.
+    fn split_active_with(&mut self, axis: SplitAxis, new_token: SessionToken) {
+        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+            return;
+        };
+        let focused = tab.focused;
+        let layout = std::mem::replace(&mut tab.layout, PaneNode::leaf(new_token));
+        tab.layout = layout.split_leaf(focused, axis, EVEN_RATIO, new_token);
+        tab.focused = new_token;
+    }
+
+    /// Reset every split ratio in the active tab to even (tmux `Ctrl-b =`).
+    pub(super) fn equalize_active(&mut self) {
+        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+            let layout = std::mem::replace(&mut tab.layout, PaneNode::leaf(tab.focused));
+            tab.layout = layout.equalized();
+        }
+    }
+
+    /// Cycle focus to the next pane of the active tab in tree order (tmux
+    /// `Ctrl-b o`). No geometry needed. Returns true if focus moved.
+    pub(super) fn focus_next_pane(&mut self) -> bool {
+        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+            return false;
+        };
+        match tab.layout.next_leaf_after(tab.focused) {
+            Some(next) if next != tab.focused => {
+                tab.focused = next;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Set the focused pane of the active tab to `token` when it is a pane of
+    /// that tab (directional focus / focus-follows-click land the resolved
+    /// token here). Returns true if focus changed.
+    pub(super) fn set_active_focus(&mut self, token: SessionToken) -> bool {
+        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+            return false;
+        };
+        if tab.focused == token || !tab.layout.contains(token) {
+            return false;
+        }
+        tab.focused = token;
+        true
+    }
+
+    /// The active tab's pane layout tree (for the render/geometry layer).
+    pub(super) fn active_layout(&self) -> Option<&PaneNode> {
+        self.tabs.get(self.active_tab).map(|tab| &tab.layout)
+    }
+
+    /// Number of panes in the active tab (1 ⇒ the byte-identical single path).
+    pub(super) fn active_pane_count(&self) -> usize {
+        self.tabs
+            .get(self.active_tab)
+            .map(|tab| tab.layout.pane_count())
+            .unwrap_or(1)
+    }
+
+    /// True when the active tab holds exactly one pane — the byte-identical
+    /// render/resize fast path (design doc §2.3).
+    pub(super) fn active_is_single_pane(&self) -> bool {
+        self.tabs
+            .get(self.active_tab)
+            .map(|tab| tab.layout.is_single_pane())
+            .unwrap_or(true)
+    }
 }
 
 impl TabBarSource for TabSet {
@@ -550,5 +688,90 @@ mod tests {
 
         assert!(sessions.close(SessionToken(0)));
         assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn split_active_grows_a_pane_within_the_same_tab() {
+        let mut set = TabSet::new(build_session(), None);
+        // Single pane → byte-identical fast path.
+        assert!(set.active_is_single_pane());
+        assert_eq!(set.active_pane_count(), 1);
+        assert_eq!(set.tab_count(), 1);
+
+        let pane =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+
+        // Same tab, now two panes; the new pane is focused (tmux semantics).
+        assert_eq!(set.tab_count(), 1, "split adds a pane, not a tab");
+        assert_eq!(set.active_pane_count(), 2);
+        assert!(!set.active_is_single_pane());
+        assert_eq!(set.active_id(), pane);
+        // Both panes are visited by iter() (resize/scrollback-cap reach them).
+        assert_eq!(set.iter().count(), 2);
+    }
+
+    #[test]
+    fn focus_next_pane_cycles_in_tree_order() {
+        let mut set = TabSet::new(build_session(), None);
+        let p1 =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        let p2 = set.split_active_for_test(SplitAxis::Rows, build_session_with_id(SessionToken(2)));
+        // Tree leaves in order: 0, 1, 2 (focus currently p2).
+        assert_eq!(set.active_id(), p2);
+        assert!(set.focus_next_pane());
+        assert_eq!(set.active_id(), SessionToken(0)); // wraps to first
+        assert!(set.focus_next_pane());
+        assert_eq!(set.active_id(), p1);
+        // Single-pane tab: no-op.
+        let mut single = TabSet::new(build_session(), None);
+        assert!(!single.focus_next_pane());
+    }
+
+    #[test]
+    fn set_active_focus_accepts_panes_and_rejects_strangers() {
+        let mut set = TabSet::new(build_session(), None);
+        let p1 =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        assert_eq!(set.active_id(), p1);
+        assert!(set.set_active_focus(SessionToken(0)));
+        assert_eq!(set.active_id(), SessionToken(0));
+        // Same focus → no change.
+        assert!(!set.set_active_focus(SessionToken(0)));
+        // Unknown token → rejected.
+        assert!(!set.set_active_focus(SessionToken(99)));
+        assert_eq!(set.active_id(), SessionToken(0));
+    }
+
+    #[test]
+    fn closing_a_pane_keeps_the_multi_pane_tab() {
+        let mut set = TabSet::new(build_session(), None);
+        let p1 =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        assert_eq!(set.active_pane_count(), 2);
+        // Closing one pane collapses the split; the tab survives (not last).
+        assert!(!set.close(p1));
+        assert_eq!(set.tab_count(), 1);
+        assert_eq!(set.active_pane_count(), 1);
+        assert!(set.active_is_single_pane());
+        assert_eq!(set.active_id(), SessionToken(0));
+    }
+
+    #[test]
+    fn equalize_active_is_a_noop_on_single_pane() {
+        let mut set = TabSet::new(build_session(), None);
+        set.equalize_active();
+        assert!(set.active_is_single_pane());
+        // With a split present, layout tree stays valid (ratios reset).
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        set.equalize_active();
+        assert_eq!(set.active_pane_count(), 2);
+    }
+
+    #[test]
+    fn active_layout_exposes_the_tree() {
+        let mut set = TabSet::new(build_session(), None);
+        assert!(set.active_layout().is_some_and(PaneNode::is_single_pane));
+        set.split_active_for_test(SplitAxis::Rows, build_session_with_id(SessionToken(1)));
+        assert_eq!(set.active_layout().map(PaneNode::pane_count), Some(2));
     }
 }
