@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Connection hosts data layer
+
+Added the pure data layer behind the future SSH / connection manager. This does
+not add native overlay UI or spawn `ssh` yet.
+
+- Added `src/connection_hosts.rs`, an OdyTTY-owned hosts-list reader/writer and
+  merge layer. The default source is `$XDG_CONFIG_HOME/odytty/hosts.conf` (or
+  `~/.config/odytty/hosts.conf`), using an OpenSSH-like `Host <alias>` block
+  format with `HostName`, `User`, `Port`, and optional future profile fields
+  `Theme`, `Font`, and `Title`.
+- Added `ssh_config_hosts` / `ODYTTY_SSH_CONFIG_HOSTS`, default `off`. While
+  off, the connection data layer never invokes the OpenSSH config loader. When
+  on, callers can merge a supplied OpenSSH config path through the bounded,
+  name-only parser from the prior packet.
+- Merge order is deterministic: OdyTTY-owned hosts first, then opt-in OpenSSH
+  config names. Duplicate aliases keep the OdyTTY-owned row so per-host profile
+  fields win over imported names.
+- Privacy guard: the disabled-path test injects an SSH loader that panics if
+  called, proving the default-off path does not read the SSH config source.
+  Tests use synthetic temp fixtures only.
+
 ## 2026-06-21 -- Real-process daemon-survival e2e (Phase 2 integration gate)
 
 Added the missing integration seam: a single end-to-end test gluing the **real**

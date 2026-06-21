@@ -82,6 +82,38 @@ Selecting a history or directory row types that text into the active pane's PTY
 without appending a newline. Selecting an action closes the overlay and runs the
 local action.
 
+## Connection Hosts
+
+The future SSH / connection manager reads its default saved hosts from an
+OdyTTY-owned local file:
+
+- `$XDG_CONFIG_HOME/odytty/hosts.conf`
+- `~/.config/odytty/hosts.conf` when `XDG_CONFIG_HOME` is unset
+
+The file uses an OpenSSH-like block format:
+
+```conf
+Host web1
+    HostName web1.example.invalid
+    User deploy
+    Port 2222
+    Theme odyssey
+    Font "Victor Mono"
+    Title "Synthetic Web"
+```
+
+`Host` aliases are the quick-connect names. `HostName`, `User`, and `Port` are
+connection display/spawn fields for the later UI. `Theme`, `Font`, and `Title`
+are optional per-host profile fields reserved for that UI.
+
+OpenSSH config import is separate and default-off. `ssh_config_hosts = on` (or
+`ODYTTY_SSH_CONFIG_HOSTS=on`) lets the future connection manager merge host
+names from a caller-resolved OpenSSH config path. While it is off, OdyTTY does
+not read OpenSSH config. When enabled, the read is local, read-only, name-only,
+bounded, and ignores key material such as identity files. OdyTTY never handles
+SSH credentials or private keys; authentication remains with the system `ssh`
+binary and agent.
+
 ## Settings Reference
 
 All settings except `native_autoclose_ms` are live-reloadable when their
@@ -150,6 +182,7 @@ environment variable was not set at startup.
 | `command_status_gutter` | `ODYTTY_COMMAND_STATUS_GUTTER` | `on`, `off` | `off` |
 | `sh_click` | `ODYTTY_SH_CLICK` | `on`, `off` | `off` |
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
+| `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |
 | `copy_on_select` | `ODYTTY_COPY_ON_SELECT` | `on`, `off` | `off` |
 | `cvd_mode` | `ODYTTY_CVD_MODE` | `off`, `protan`, `deutan`, `tritan` | `off` |

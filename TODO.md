@@ -1115,6 +1115,13 @@ feature validates against.
       treats wildcard/negated patterns as non-quick-connect entries, and never
       exposes key directives such as `IdentityFile`. Tests use synthetic
       fixtures only.
+- [x] Connection hosts data layer: OdyTTY-owned `$XDG_CONFIG_HOME/odytty/hosts.conf`
+      / `~/.config/odytty/hosts.conf` source with `Host <alias>` blocks and
+      optional per-host profile fields (`Theme`, `Font`, `Title`) for the future
+      overlay. `ssh_config_hosts` / `ODYTTY_SSH_CONFIG_HOSTS` is default-off;
+      while off, the SSH config loader is never invoked. When explicitly on,
+      caller-supplied OpenSSH config entries merge name-only after OdyTTY-owned
+      hosts, with owned duplicates winning. Tests use synthetic fixtures only.
 - [ ] Plugin systems, AI features, dashboards, or rich nonstandard workflows.
 - [ ] Heavy animation or effects that can compromise readability or latency.
 - [ ] Broad cross-platform support beyond Linux-first validation.

@@ -94,6 +94,23 @@ keybinds =
 # Command palette opt-in example (unbound by default):
 # keybinds = ctrl+alt+p=command-palette
 
+# Connection hosts for the future SSH manager live in:
+#   $XDG_CONFIG_HOME/odytty/hosts.conf
+#   ~/.config/odytty/hosts.conf when XDG_CONFIG_HOME is unset
+# Format:
+#   Host web1
+#       HostName web1.example.invalid
+#       User deploy
+#       Port 2222
+#       Theme odyssey
+#       Font "Victor Mono"
+#       Title "Synthetic Web"
+#
+# OpenSSH config import is default-off. While off, OdyTTY does not read
+# ~/.ssh/config. When on, the import is read-only, name-only, bounded, and never
+# surfaces key directives or credentials; auth remains with the system ssh.
+ssh_config_hosts = off
+
 # Multiplexer prefix for pane/split management (tmux-style). Press the prefix,
 # then a pane key: % / " split, arrows / o focus, x close, z zoom, space / =
 # equalize. Press the prefix twice to send a literal prefix to the focused pane

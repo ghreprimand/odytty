@@ -864,6 +864,11 @@ pub struct Settings {
     /// On by default; the dialog only appears when a program is actively running
     /// in the terminal, so the common idle-shell close path is unaffected.
     pub confirm_close: bool,
+    /// Opt-in OpenSSH config host import for the future connection manager.
+    /// Off by default: OdyTTY's owned hosts list works without touching
+    /// `~/.ssh/config`. When on, the data layer reads a caller-supplied
+    /// OpenSSH config path read-only and name-only through bounded parsing.
+    pub ssh_config_hosts: bool,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -938,6 +943,7 @@ impl Default for Settings {
             os_theme_dark: None,
             os_theme_light: None,
             confirm_close: DEFAULT_CONFIRM_CLOSE,
+            ssh_config_hosts: DEFAULT_SSH_CONFIG_HOSTS,
             native_autoclose: None,
         }
     }
@@ -1488,6 +1494,12 @@ impl Settings {
             DEFAULT_CONFIRM_CLOSE,
             &mut warn,
         );
+        let ssh_config_hosts = parse_bool_setting(
+            get(SSH_CONFIG_HOSTS_ENV).as_deref(),
+            SSH_CONFIG_HOSTS_ENV,
+            DEFAULT_SSH_CONFIG_HOSTS,
+            &mut warn,
+        );
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -1559,6 +1571,7 @@ impl Settings {
             os_theme_dark,
             os_theme_light,
             confirm_close,
+            ssh_config_hosts,
             native_autoclose,
         }
     }
@@ -1733,6 +1746,10 @@ impl Settings {
         values.insert(
             CONFIRM_CLOSE_ENV,
             bool_display(self.confirm_close).to_owned(),
+        );
+        values.insert(
+            SSH_CONFIG_HOSTS_ENV,
+            bool_display(self.ssh_config_hosts).to_owned(),
         );
         if let Some(duration) = self.native_autoclose {
             values.insert(NATIVE_AUTOCLOSE_ENV, duration.as_millis().to_string());

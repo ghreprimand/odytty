@@ -22,7 +22,7 @@ use super::{
     THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV,
     WINDOW_PADDING_ENV, normalize_name,
 };
-use super::{BOX_THICKNESS_ENV, LINE_HEIGHT_ENV};
+use super::{BOX_THICKNESS_ENV, LINE_HEIGHT_ENV, SSH_CONFIG_HOSTS_ENV};
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
     values: HashMap<&'static str, OsString>,
@@ -167,6 +167,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "confirmclose" | "closeconfirm" | "closeconfirmation" | "confirmonclose" => {
             Some(CONFIRM_CLOSE_ENV)
         }
+        "sshconfighosts" | "sshconfig" | "opensshhosts" | "sshhosts" => Some(SSH_CONFIG_HOSTS_ENV),
         "nativeautoclosems" => Some(NATIVE_AUTOCLOSE_ENV),
         _ => None,
     }
@@ -240,6 +241,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         CVD_STRENGTH_ENV => Some("cvd_strength"),
         BELL_ENV => Some("bell"),
         CONFIRM_CLOSE_ENV => Some("confirm_close"),
+        SSH_CONFIG_HOSTS_ENV => Some("ssh_config_hosts"),
         NATIVE_AUTOCLOSE_ENV => Some("native_autoclose_ms"),
         _ => None,
     }

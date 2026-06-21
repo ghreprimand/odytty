@@ -51,6 +51,13 @@ Configuration is a plain local `odytty.conf` the user owns and can read in full.
 The source is open under the GPL-3.0, so the absence of any data collection is
 verifiable rather than merely promised.
 
+Connection-manager data follows the same local boundary. OdyTTY-owned saved
+hosts live in the user's OdyTTY config directory, and OpenSSH config host-name
+import is an explicit opt-in. When enabled, that import is read-only,
+name-only, bounded, and never surfaces identity files, key material, or
+credentials. SSH authentication remains delegated to the system `ssh` binary
+and agent.
+
 This is a durable product stance, not a default to be flipped: any future
 feature that would transmit data off the machine is out of scope by charter.
 The one network-capable action — Ctrl+click to open a hyperlink — is explicit,

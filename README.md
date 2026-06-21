@@ -64,6 +64,9 @@ done.
 - **Local configuration UX:** `odytty.conf`, live reload, in-app settings panel,
   atomic preservation-first writeback, mouse-friendly controls, font picker,
   keybinding editor, and first-run onboarding. Environment variables always win.
+- **Connection data substrate:** an OdyTTY-owned local hosts list for the future
+  SSH manager, plus default-off, opt-in OpenSSH config host-name import. Imports
+  are read-only, name-only, bounded, and never surface key material.
 - **Privacy posture:** no telemetry, analytics, crash reporting, account,
   cloud sync, or update ping. The only network-capable action is explicit
   Ctrl-click link opening through `xdg-open` with a scheme allowlist.

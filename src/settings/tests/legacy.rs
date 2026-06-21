@@ -167,6 +167,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "sh_click",
             "confirm_close",
             "bell",
+            "ssh_config_hosts",
             "osc52_read",
             "copy_on_select",
             "cvd_mode",
@@ -1833,6 +1834,28 @@ fn confirm_close_round_trips_through_config_key_mapping() {
     assert_eq!(
         settings.to_edit_values().get(CONFIRM_CLOSE_ENV),
         Some(&"off".to_owned())
+    );
+}
+
+#[test]
+fn ssh_config_hosts_round_trips_through_config_key_mapping() {
+    assert_eq!(
+        config_key_to_env("ssh_config_hosts"),
+        Some(SSH_CONFIG_HOSTS_ENV)
+    );
+    assert_eq!(config_key_to_env("sshhosts"), Some(SSH_CONFIG_HOSTS_ENV));
+    assert_eq!(
+        env_to_config_key(SSH_CONFIG_HOSTS_ENV),
+        Some("ssh_config_hosts")
+    );
+    assert!(!Settings::default().ssh_config_hosts);
+
+    let (settings, warnings) = settings_from([(SSH_CONFIG_HOSTS_ENV, "on")]);
+    assert!(settings.ssh_config_hosts);
+    assert!(warnings.is_empty());
+    assert_eq!(
+        settings.to_edit_values().get(SSH_CONFIG_HOSTS_ENV),
+        Some(&"on".to_owned())
     );
 }
 

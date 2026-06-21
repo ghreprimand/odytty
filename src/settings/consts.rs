@@ -70,6 +70,7 @@ pub const FOLLOW_OS_THEME_ENV: &str = "ODYTTY_FOLLOW_OS_THEME";
 pub const OS_THEME_DARK_ENV: &str = "ODYTTY_OS_THEME_DARK";
 pub const OS_THEME_LIGHT_ENV: &str = "ODYTTY_OS_THEME_LIGHT";
 pub const CONFIRM_CLOSE_ENV: &str = "ODYTTY_CONFIRM_CLOSE";
+pub const SSH_CONFIG_HOSTS_ENV: &str = "ODYTTY_SSH_CONFIG_HOSTS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
 /// Subdirectory of the config dir where user theme files (`*.theme`) live.
@@ -142,6 +143,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     OS_THEME_DARK_ENV,
     OS_THEME_LIGHT_ENV,
     CONFIRM_CLOSE_ENV,
+    SSH_CONFIG_HOSTS_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 
@@ -196,6 +198,12 @@ pub const MAX_FOCUS_DIM: f32 = 1.0;
 pub const DEFAULT_INACTIVE_PANE_DIM: f32 = 0.0;
 pub const MIN_INACTIVE_PANE_DIM: f32 = 0.0;
 pub const MAX_INACTIVE_PANE_DIM: f32 = 1.0;
+
+/// Opt-in OpenSSH config host-name import (`ODYTTY_SSH_CONFIG_HOSTS`). Off by
+/// default, so OdyTTY never touches `~/.ssh/config` unless explicitly enabled.
+/// When on, only host names/display fields are read through the bounded
+/// name-only parser; key material and credentials are never surfaced.
+pub const DEFAULT_SSH_CONFIG_HOSTS: bool = false;
 
 /// Window padding (`ODYTTY_WINDOW_PADDING`): logical pixels of inset on every
 /// window edge before the terminal grid begins. `0.0` restores the historical

@@ -3,6 +3,7 @@ pub mod app;
 pub mod atlas;
 pub mod boxdraw;
 pub mod color;
+pub mod connection_hosts;
 pub mod core;
 pub mod cvd;
 pub mod emoji;
