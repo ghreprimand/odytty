@@ -215,7 +215,7 @@ fn cursor_style_code(style: CursorStyle, blink: bool) -> u8 {
 }
 
 fn decode_ascii_hex(hex: &[u8]) -> Option<Vec<u8>> {
-    if hex.is_empty() || hex.len() % 2 != 0 {
+    if hex.is_empty() || !hex.len().is_multiple_of(2) {
         return None;
     }
 

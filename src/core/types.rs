@@ -168,16 +168,12 @@ pub struct MouseModifiers {
     pub alt: bool,
     pub ctrl: bool,
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Color {
+    #[default]
     Default,
     Indexed(u8),
     Rgb(u8, u8, u8),
-}
-impl Default for Color {
-    fn default() -> Self {
-        Self::Default
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

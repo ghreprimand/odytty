@@ -382,24 +382,19 @@ fn encode_kitty_final_key(
     event_type: KeyEventType,
 ) -> Vec<u8> {
     let modifier_field = kitty_modifier_field(modifier, flags, event_type);
-    if modifier_field.is_none() {
-        vec![b'\x1b', b'[', final_byte]
+    if let Some(field) = modifier_field {
+        format!("\x1b[1;{}{}", field, final_byte as char).into_bytes()
     } else {
-        format!(
-            "\x1b[1;{}{}",
-            modifier_field.expect("modifier field"),
-            final_byte as char
-        )
-        .into_bytes()
+        vec![b'\x1b', b'[', final_byte]
     }
 }
 
 fn encode_kitty_tilde_key(code: u8, modifier: u8, flags: u16, event_type: KeyEventType) -> Vec<u8> {
     let modifier_field = kitty_modifier_field(modifier, flags, event_type);
-    if modifier_field.is_none() {
-        format!("\x1b[{code}~").into_bytes()
+    if let Some(field) = modifier_field {
+        format!("\x1b[{code};{field}~").into_bytes()
     } else {
-        format!("\x1b[{code};{}~", modifier_field.expect("modifier field")).into_bytes()
+        format!("\x1b[{code}~").into_bytes()
     }
 }
 

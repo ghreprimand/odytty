@@ -251,7 +251,7 @@ impl Machine {
     /// observable side effect, if any.
     ///
     /// The compiler will not inline the full `(state, class)` match (it has
-    /// >100 arms), but heavy CSI workloads spend most of their byte budget in
+    /// \>100 arms), but heavy CSI workloads spend most of their byte budget in
     /// the `CsiParam` state running digits/separators with a `None` outcome —
     /// so this wrapper peels that path off into a tight inlineable shape and
     /// falls through to [`Self::step_cold`] for everything else.

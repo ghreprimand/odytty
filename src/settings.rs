@@ -319,17 +319,12 @@ pub struct SettingsEditOverlay {
 
 /// Master render-quality profile. `Balanced` is the current renderer behavior;
 /// `Plain` derives a hard fast path by neutralizing optional visual work.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RenderQuality {
     Plain,
+    #[default]
     Balanced,
     High,
-}
-
-impl Default for RenderQuality {
-    fn default() -> Self {
-        Self::Balanced
-    }
 }
 
 impl RenderQuality {
@@ -2003,10 +1998,8 @@ pub fn theme_dir_path() -> Option<PathBuf> {
 /// must never abort startup.
 fn resolve_theme_file(value: &str, theme_dir: Option<&Path>) -> Option<String> {
     let looks_like_path = value.contains('/') || value.ends_with(".theme");
-    if looks_like_path {
-        if let Ok(contents) = std::fs::read_to_string(Path::new(value)) {
-            return Some(contents);
-        }
+    if looks_like_path && let Ok(contents) = std::fs::read_to_string(Path::new(value)) {
+        return Some(contents);
     }
     let dir = theme_dir?;
     let named = dir.join(format!("{value}.theme"));

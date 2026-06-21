@@ -181,7 +181,7 @@ impl ColorGlyphAtlas {
         let (x0, y0) = self.slot_origin(slot.slot);
         let row_bytes = slot.width_cells as usize * self.cell.width as usize * 4;
         for row in 0..self.cell.height as usize {
-            let dst = (((y0 as usize + row) * self.width as usize + x0 as usize) * 4) as usize;
+            let dst = ((y0 as usize + row) * self.width as usize + x0 as usize) * 4;
             let src = row * row_bytes;
             self.data[dst..dst + row_bytes].copy_from_slice(&rgba[src..src + row_bytes]);
         }

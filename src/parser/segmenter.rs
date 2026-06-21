@@ -187,9 +187,7 @@ impl Segmenter {
         let old_len = self.partial_len as usize;
         let need = 4 - old_len;
         let copy = bytes.len().min(need);
-        for k in 0..copy {
-            self.partial_buf[old_len + k] = bytes[k];
-        }
+        self.partial_buf[old_len..old_len + copy].copy_from_slice(&bytes[..copy]);
         let total = old_len + copy;
 
         match std::str::from_utf8(&self.partial_buf[..total]) {

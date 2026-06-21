@@ -555,10 +555,10 @@ impl ImageScene {
             if placement.anchor.row < top {
                 continue;
             }
-            if let Some(bottom) = bottom {
-                if placement.anchor.row > bottom {
-                    continue;
-                }
+            if let Some(bottom) = bottom
+                && placement.anchor.row > bottom
+            {
+                continue;
             }
             placement.anchor.row += delta;
             if !allow_negative && placement.anchor.row < top {

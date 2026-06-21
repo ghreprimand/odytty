@@ -489,12 +489,12 @@ fn bundled_face_bytes(family: &str, weight: &str, italic: bool) -> Option<&'stat
 pub fn resolve_bundled_symbol_font() -> Option<FontVec> {
     #[cfg(feature = "bundled-symbols-font")]
     {
-        return FontVec::try_from_vec(BUNDLED_SYMBOL_FONT_BYTES.to_vec())
+        FontVec::try_from_vec(BUNDLED_SYMBOL_FONT_BYTES.to_vec())
             .map_err(|source| TextError::Parse {
                 path: format!("bundled {}", BUNDLED_SYMBOL_FONT_FILENAME),
                 source,
             })
-            .ok();
+            .ok()
     }
 
     #[cfg(not(feature = "bundled-symbols-font"))]
@@ -509,12 +509,12 @@ pub fn resolve_bundled_symbol_font() -> Option<FontVec> {
 pub fn resolve_bundled_symbol_font_v2() -> Option<FontVec> {
     #[cfg(feature = "bundled-symbols-font")]
     {
-        return FontVec::try_from_vec(BUNDLED_SYMBOL_FONT_V2_BYTES.to_vec())
+        FontVec::try_from_vec(BUNDLED_SYMBOL_FONT_V2_BYTES.to_vec())
             .map_err(|source| TextError::Parse {
                 path: format!("bundled {}", BUNDLED_SYMBOL_FONT_V2_FILENAME),
                 source,
             })
-            .ok();
+            .ok()
     }
 
     #[cfg(not(feature = "bundled-symbols-font"))]
@@ -1179,10 +1179,10 @@ pub fn resolve_symbol_font_with_source(
     }
     // Last resort (bundled asset absent, e.g. `--no-default-features`): a
     // host-discovered symbol/Nerd face.
-    if let Some(path) = resolve_symbol_font_path_in(dirs) {
-        if let Ok(font) = load_font_at(&path) {
-            return (SymbolFontSource::Host(path), Some(font));
-        }
+    if let Some(path) = resolve_symbol_font_path_in(dirs)
+        && let Ok(font) = load_font_at(&path)
+    {
+        return (SymbolFontSource::Host(path), Some(font));
     }
     (SymbolFontSource::None, None)
 }
@@ -1233,11 +1233,11 @@ pub fn resolve_symbol_fonts_with_source(
 
     // Host-discovered symbol/Nerd face: extends coverage for any glyph the
     // bundled faces lack, and is the sole source under `--no-default-features`.
-    if let Some(path) = resolve_symbol_font_path_in(dirs) {
-        if let Ok(font) = load_font_at(&path) {
-            sources.push(SymbolFontSource::Host(path));
-            fonts.push(font);
-        }
+    if let Some(path) = resolve_symbol_font_path_in(dirs)
+        && let Ok(font) = load_font_at(&path)
+    {
+        sources.push(SymbolFontSource::Host(path));
+        fonts.push(font);
     }
 
     // macOS: the Nerd faces above cover the PUA icon ranges but lack most
@@ -2044,11 +2044,10 @@ mod tests {
             Some("JetBrainsMono-ExtraBold.ttf")
         );
         // No cursive Italic face is bundled for the default family.
-        assert_eq!(
-            bundled_face_filename(BUNDLED_FONT_FAMILY, "Regular", false)
+        assert!(
+            !bundled_face_filename(BUNDLED_FONT_FAMILY, "Regular", false)
                 .unwrap()
-                .contains("Italic"),
-            false
+                .contains("Italic")
         );
 
         // Default family (Victor Mono): regular, a non-default weight, and the
@@ -2199,7 +2198,7 @@ mod tests {
             for (kind, italic) in [("roman", false), ("oblique", true)] {
                 let bytes = bundled_face_bytes(BUNDLED_FONT_FAMILY, weight, italic).unwrap();
                 assert!(
-                    !seen.iter().any(|s| *s == bytes),
+                    !seen.contains(&bytes),
                     "{weight} {kind} face duplicates another weight's embedded bytes"
                 );
                 seen.push(bytes);
@@ -2800,7 +2799,7 @@ mod tests {
         let plain = unique_tmp_dir("symbolfont-plain");
         std::fs::write(plain.join("DejaVuSansMono.ttf"), &bytes).expect("write body font");
         assert!(
-            resolve_symbol_font_in(&[plain.clone()]).is_none(),
+            resolve_symbol_font_in(std::slice::from_ref(&plain)).is_none(),
             "a non-Nerd font dir must not resolve a symbol font"
         );
 
@@ -2823,7 +2822,7 @@ mod tests {
         let dir = unique_tmp_dir("symbol-source-bundled");
         std::fs::write(dir.join("SymbolsNerdFont-Regular.ttf"), &bytes).expect("write host symbol");
 
-        let (source, font) = resolve_symbol_font_with_source(None, &[dir.clone()]);
+        let (source, font) = resolve_symbol_font_with_source(None, std::slice::from_ref(&dir));
         assert_eq!(
             source,
             SymbolFontSource::Bundled,

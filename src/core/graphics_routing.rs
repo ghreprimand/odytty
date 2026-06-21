@@ -100,6 +100,7 @@ pub(super) fn dcs_put(capture: &mut DcsCapture, byte: u8) {
 ///
 /// Decode errors never disturb terminal state — the payload is dropped and
 /// the error is counted in `stats`.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn dcs_unhook(
     capture: DcsCapture,
     graphics: &mut ImageScene,
@@ -144,10 +145,8 @@ pub(super) fn dcs_unhook(
     };
 
     // Compute cell extent from pixel dimensions using live cell metrics.
-    let display_columns =
-        ((image.width + cell_metrics.width_px - 1) / cell_metrics.width_px) as usize;
-    let display_rows =
-        ((image.height + cell_metrics.height_px - 1) / cell_metrics.height_px) as usize;
+    let display_columns = image.width.div_ceil(cell_metrics.width_px) as usize;
+    let display_rows = image.height.div_ceil(cell_metrics.height_px) as usize;
 
     // Clamp extent to screen bounds from anchor.
     let display_columns = display_columns
@@ -178,6 +177,7 @@ pub(super) fn dcs_unhook(
 
 /// Handle an APC payload. Kitty graphics commands are decoded into the image
 /// scene; unknown APC payloads retain the historical raw-recording behavior.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn apc_dispatch(
     graphics: &mut ImageScene,
     stats: &mut GraphicsStats,

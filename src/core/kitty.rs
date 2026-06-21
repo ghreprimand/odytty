@@ -126,6 +126,7 @@ impl KittyError {
 /// Handle one APC payload as delivered by OdyParser. Returns [`KittyError::NotKitty`]
 /// when the APC is not a Kitty graphics command, so callers can preserve other
 /// APC behavior.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn handle_apc(
     state: &mut KittyState,
     graphics: &mut ImageScene,
@@ -165,6 +166,7 @@ pub(super) fn handle_apc(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_command(
     state: &mut KittyState,
     graphics: &mut ImageScene,
@@ -558,16 +560,14 @@ fn display_columns(
 ) -> usize {
     let requested = control
         .display_columns
-        .unwrap_or_else(|| ((width + cell_metrics.width_px - 1) / cell_metrics.width_px) as usize);
+        .unwrap_or_else(|| width.div_ceil(cell_metrics.width_px) as usize);
     requested.min(screen_cols.saturating_sub(cursor_col)).max(1)
 }
 
 fn display_rows(control: &ControlData, height: u32, cell_metrics: CellMetrics) -> usize {
     control
         .display_rows
-        .unwrap_or_else(|| {
-            ((height + cell_metrics.height_px - 1) / cell_metrics.height_px) as usize
-        })
+        .unwrap_or_else(|| height.div_ceil(cell_metrics.height_px) as usize)
         .max(1)
 }
 
@@ -716,7 +716,7 @@ fn png_frame_to_rgba(color_type: png::ColorType, bytes: &[u8]) -> Result<Vec<u8>
                 rgba.extend_from_slice(rgb);
                 rgba.push(255);
             }
-            if bytes.len() % 3 == 0 {
+            if bytes.len().is_multiple_of(3) {
                 Ok(rgba)
             } else {
                 Err(KittyError::InvalidPayload)
@@ -732,7 +732,7 @@ fn png_frame_to_rgba(color_type: png::ColorType, bytes: &[u8]) -> Result<Vec<u8>
                 let gray = gray_alpha[0];
                 rgba.extend_from_slice(&[gray, gray, gray, gray_alpha[1]]);
             }
-            if bytes.len() % 2 == 0 {
+            if bytes.len().is_multiple_of(2) {
                 Ok(rgba)
             } else {
                 Err(KittyError::InvalidPayload)

@@ -100,6 +100,9 @@ impl ConfigReloadPoller {
     }
 }
 
+// `Reloaded` carries a full `Settings` by value; boxing it would ripple through
+// every construction and match site for no runtime gain on this cold path.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum SettingsReloadOutcome {
     Unchanged,

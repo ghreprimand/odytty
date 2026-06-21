@@ -369,6 +369,7 @@ fn push_curly_underline(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_underline_decoration(
     out: &mut Vec<Vertex>,
     style: UnderlineStyle,

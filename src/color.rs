@@ -918,9 +918,9 @@ mod tests {
             for b in corners {
                 for step in 0..=20 {
                     let m = mix_oklab(a, b, step as f32 / 20.0);
-                    for c in 0..3 {
-                        lo = lo.min(m[c]);
-                        hi = hi.max(m[c]);
+                    for value in m {
+                        lo = lo.min(value);
+                        hi = hi.max(value);
                     }
                 }
             }

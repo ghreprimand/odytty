@@ -1083,6 +1083,7 @@ struct SlotRegion {
     outer_w: u32,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn rasterize_glyph(
     font: &FontVec,
     pen: Pen,
@@ -1282,7 +1283,7 @@ fn lcd_filter_subpixel_region(
             }
         }
 
-        for i in 0..samples_per_row {
+        for (i, dst_sample) in dst.iter_mut().enumerate().take(samples_per_row) {
             let mut weighted = 0u16;
             for (tap, weight) in LCD_FILTER_TAPS.iter().enumerate() {
                 let source_i = i as isize + tap as isize - 2;
@@ -1290,7 +1291,7 @@ fn lcd_filter_subpixel_region(
                     weighted += src[source_i as usize] as u16 * weight;
                 }
             }
-            dst[i] = ((weighted + LCD_FILTER_SUM / 2) / LCD_FILTER_SUM) as u8;
+            *dst_sample = ((weighted + LCD_FILTER_SUM / 2) / LCD_FILTER_SUM) as u8;
         }
 
         for dx in 0..region_w {

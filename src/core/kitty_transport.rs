@@ -103,12 +103,12 @@ fn allowed_temp_dirs() -> Vec<PathBuf> {
     }
 
     // Include $TMPDIR if set and canonicalizable.
-    if let Ok(tmpdir) = std::env::var("TMPDIR") {
-        if let Ok(canonical) = std::fs::canonicalize(&tmpdir) {
-            // Avoid duplicates.
-            if !dirs.contains(&canonical) {
-                dirs.push(canonical);
-            }
+    if let Ok(tmpdir) = std::env::var("TMPDIR")
+        && let Ok(canonical) = std::fs::canonicalize(&tmpdir)
+    {
+        // Avoid duplicates.
+        if !dirs.contains(&canonical) {
+            dirs.push(canonical);
         }
     }
 
@@ -198,8 +198,8 @@ pub(super) fn read_shm_transport(
     }
 
     // Build the canonical shm name with leading /.
-    let canonical_name = if name_str.starts_with('/') {
-        if name_str.len() < 2 || name_str[1..].contains('/') {
+    let canonical_name = if let Some(stripped) = name_str.strip_prefix('/') {
+        if name_str.len() < 2 || stripped.contains('/') {
             return Err(TransportError::InvalidPath);
         }
         name_str.to_string()
