@@ -81,6 +81,28 @@ dispatch + the §8 divider/multi-grid pixel-smoke.
 
 ---
 
+## 2026-06-21 -- Palette action catalog and source composer
+
+Added `src/palette_catalog.rs`, a pure action catalog and source-composition
+layer for the future command palette. It stays out of `src/native/`: actions are
+named but never executed, and the composer only turns already-bounded action,
+history, and directory sources into `PaletteEntry` rows for `PaletteModel`.
+
+Stable action ids now documented in code are: `search`, `settings`,
+`theme-picker`, `copy`, `paste`, `scroll-up`, `scroll-down`,
+`jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`, `clear-input`,
+`new-tab`, `close-tab`, `next-tab`, `prev-tab`, `rename-tab`,
+`split-pane-columns`, `split-pane-rows`, `focus-pane-left`,
+`focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`,
+`close-pane`, `zoom-pane`, and `equalize-panes`. The pane ids mirror the tmux-
+semantic operations planned for native pane wiring.
+
+The composer preserves action catalog order, keeps history and directories
+bounded and source-local deduplicated, and leaves selection as the existing
+`PaletteSelection` contract: action id vs. literal text to type later.
+
+---
+
 ## 2026-06-21 -- title_override Session→Tab (Phase 1b-2, §9.5)
 
 Moved the custom-tab-name override from `Session` to `Tab`, completing design
