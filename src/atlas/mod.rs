@@ -268,6 +268,13 @@ impl GlyphInk {
 
 /// A monospace glyph atlas: an 8-bit coverage bitmap with a fallback box, the
 /// printable-ASCII block, and a growable dynamic region for other codepoints.
+/// Runtime per-codepoint symbol fallback resolver hook (RV6 Linux backfill): a
+/// bare `fn` (not a closure) so [`GlyphAtlas`] stays `Clone`/`Debug`. Given a
+/// codepoint the static fallback chain missed, it returns a loaded face that
+/// covers it (or `None`). The native layer wires this to a cached `fc-match`
+/// query; see [`crate::text::runtime_resolve_symbol_font`].
+type RuntimeSymbolResolver = fn(char) -> Option<Arc<FontVec>>;
+
 #[derive(Debug, Clone)]
 pub struct GlyphAtlas {
     /// Atlas bitmap width in pixels.
@@ -356,6 +363,28 @@ pub struct GlyphAtlas {
     /// borrow, exactly like `fallback`. The native layer resolves family names
     /// to faces and installs them after build, rebuilding when the map changes.
     symbol_map_fonts: Vec<(u32, u32, Arc<FontVec>)>,
+    /// Runtime per-codepoint symbol fallback resolver (RV6 Linux backfill).
+    /// Consulted only when a symbol codepoint misses the static
+    /// [`Self::fallback_chain`] above -- the static chain (bundled Nerd faces,
+    /// host face, macOS system tail) is always tried first and takes the exact
+    /// same path as before, so codepoints that already resolve are unaffected.
+    /// On Linux the static list cannot promise coverage of arbitrary symbols
+    /// across heterogeneous hosts, so the native layer installs a resolver that
+    /// queries `fc-match :charset=<cp>` for a host face that has the glyph (see
+    /// [`crate::text::runtime_resolve_symbol_font`]). `None` (the default, and
+    /// the state on every freshly built atlas) disables the runtime query
+    /// entirely, keeping the path byte-identical to the pre-feature renderer.
+    /// The resolver is a bare `fn` pointer (not a closure) so the atlas stays
+    /// `Clone`/`Debug`; the subprocess cost is bounded by
+    /// [`Self::runtime_symbol_cache`].
+    runtime_symbol_resolver: Option<RuntimeSymbolResolver>,
+    /// Per-codepoint cache of [`Self::runtime_symbol_resolver`] results,
+    /// including negative results (`None`), so a given codepoint shells out to
+    /// `fc-match` at most once -- the runtime query never runs on the hot
+    /// per-glyph render path more than once per distinct missing symbol. Empty
+    /// by default and untouched unless a resolver is installed and the static
+    /// chain misses, so the default path costs nothing.
+    runtime_symbol_cache: HashMap<char, Option<Arc<FontVec>>>,
 }
 
 impl GlyphAtlas {
@@ -488,6 +517,8 @@ impl GlyphAtlas {
             geometric: false,
             fallback_chain: Vec::new(),
             symbol_map_fonts: Vec::new(),
+            runtime_symbol_resolver: None,
+            runtime_symbol_cache: HashMap::new(),
         }
     }
 
@@ -886,6 +917,23 @@ impl GlyphAtlas {
         self.symbol_map_fonts = fonts;
     }
 
+    /// Install (or clear) the runtime per-codepoint symbol fallback resolver
+    /// (RV6 Linux backfill). When `Some`, a symbol codepoint that misses the
+    /// static [`Self::fallback_chain`] triggers a single, cached call to the
+    /// resolver (the native layer wires this to a `fc-match :charset` query —
+    /// see [`crate::text::runtime_resolve_symbol_font`]). `None` (the default,
+    /// and the only state on macOS/non-Unix) disables the runtime query, so the
+    /// glyph path stays byte-identical to the pre-feature renderer; the static
+    /// chain still resolves exactly as before either way. Switching the resolver
+    /// clears the per-codepoint cache so a stale negative result never pins a
+    /// codepoint to tofu after the host font set changes. Like the
+    /// fallback/geometric switches, the native layer reinstalls it after every
+    /// atlas rebuild.
+    pub fn set_runtime_symbol_resolver(&mut self, resolver: Option<RuntimeSymbolResolver>) {
+        self.runtime_symbol_resolver = resolver;
+        self.runtime_symbol_cache.clear();
+    }
+
     /// The SYMMAP override face for `ch`, or `None` when no rule matches (the
     /// identity / off path). With no rules the `Vec` is empty and the scan is
     /// skipped entirely, so the default costs nothing. First-match-wins matches
@@ -906,14 +954,30 @@ impl GlyphAtlas {
     /// returns the **first** face that has a glyph for `ch` — but only when `ch`
     /// is a symbol/icon codepoint. A codepoint no chain face provides (or an
     /// empty chain) yields `None`, preserving the hollow-box path.
-    fn symbol_fallback(&self, ch: char) -> Option<Arc<FontVec>> {
-        if self.fallback_chain.is_empty() || !fallback::is_symbol_codepoint(ch) {
+    fn symbol_fallback(&mut self, ch: char) -> Option<Arc<FontVec>> {
+        if !fallback::is_symbol_codepoint(ch) {
             return None;
         }
-        self.fallback_chain
-            .iter()
-            .find(|fb| font_has_glyph(fb, ch))
-            .map(Arc::clone)
+        // Static chain first: bundled Nerd faces, host face, and (macOS) the
+        // system tail. A codepoint covered here takes the exact same path as
+        // before the runtime resolver existed, so already-resolving glyphs are
+        // byte-identical. When the resolver is `None` (the default and the only
+        // state off-Linux) this is the whole function, identical to the
+        // pre-feature behavior including the empty-chain case.
+        if let Some(fb) = self.fallback_chain.iter().find(|fb| font_has_glyph(fb, ch)) {
+            return Some(Arc::clone(fb));
+        }
+        // Static chain missed. Consult the runtime resolver (Linux fc-match)
+        // exactly once per codepoint, caching the result -- including a negative
+        // result -- so the subprocess never runs on the hot path more than once
+        // per distinct missing symbol.
+        let resolver = self.runtime_symbol_resolver?;
+        if let Some(cached) = self.runtime_symbol_cache.get(&ch) {
+            return cached.clone();
+        }
+        let resolved = resolver(ch);
+        self.runtime_symbol_cache.insert(ch, resolved.clone());
+        resolved
     }
 
     /// The [`SynthTransform`] to apply when rasterizing `style`. Returns the

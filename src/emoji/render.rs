@@ -440,5 +440,22 @@ fn is_default_emoji_presentation(ch: char) -> bool {
             | 0x1FC00..=0x1FFFD
             | 0x2600..=0x26FF
             | 0x2700..=0x27BF
+            // Emoji-presentation-default media controls in Miscellaneous
+            // Technical that NotoColorEmoji covers but the bundled mono symbol
+            // chain does not, so routing them to the color path color-renders
+            // them instead of mis-routing to the mono symbol fallback -> tofu.
+            // Only the codepoints Unicode emoji-data assigns *default emoji*
+            // presentation are included; in particular the playback triangles
+            // U+23F4..U+23F7 (e.g. U+23F5 PLAY, the "bypass permissions" glyph)
+            // are TEXT-default and deliberately excluded so they keep using the
+            // mono symbol fallback (no color face covers them) -- color-routing
+            // them would tofu.
+            | 0x23E9..=0x23EC // skip back/fwd, fast up/down
+            | 0x23F0          // alarm clock
+            | 0x23F3          // hourglass with flowing sand
+            | 0x23F8..=0x23FA // pause, stop, record
+            // Large squares with default emoji presentation (U+2B1B BLACK LARGE
+            // SQUARE, U+2B1C WHITE LARGE SQUARE) that NotoColorEmoji covers.
+            | 0x2B1B..=0x2B1C
     )
 }

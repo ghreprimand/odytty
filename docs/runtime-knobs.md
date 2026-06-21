@@ -150,6 +150,22 @@ environment variable was not set at startup.
 - `geometric_boxdraw = on` renders supported box-drawing, block-element,
   Braille (`U+2800..=U+28FF`), and Powerline glyphs from cell geometry instead
   of relying on the active font.
+- `symbol_fallback = on` backfills symbol/icon codepoints the body font lacks
+  from a fallback chain (bundled Symbols Nerd Font v3+v2, an optional host
+  `* Nerd Font`, plus a system tail). On macOS the tail is fixed system faces;
+  on Linux it is the installed broad-coverage symbol faces (Noto Sans Symbols /
+  Symbols2, Symbola, DejaVu, Unifont) when present. When a symbol codepoint
+  still misses the static chain on Linux, OdyTTY runs a per-codepoint,
+  result-cached `fc-match :charset=<cp>` query to find a monochrome host face
+  that covers it (color/bitmap-only faces are rejected), which resolves
+  standard symbols such as the playback triangle `U+23F5 ⏵`, the record bullet,
+  and check/ballot marks that no bundled face carries. The query is local-only
+  and read-only, runs at most once per distinct missing codepoint, and is never
+  on the per-frame path; if `fc-match` is absent (e.g. headless CI) the
+  codepoint keeps the historical hollow-box glyph. Setting `symbol_fallback =
+  off` disables the whole chain and the runtime query. Some emoji-presentation
+  media controls and large squares (`U+23F8..U+23FA`, `U+2B1B`/`U+2B1C`) route
+  to the color-emoji path instead, when a color emoji font is available.
 - `smooth_scroll` uses a fixed bounded ease of 80 ms. There is no current
   `smooth_scroll_duration` config key.
 - `cursor_blink = auto` currently resolves to the conventional blinking

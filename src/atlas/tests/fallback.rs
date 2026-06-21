@@ -200,3 +200,151 @@ fn empty_chain_keeps_the_hollow_box() {
     let uv = atlas.ensure(&font, absent).expect("fallback uv");
     assert_eq!(uv, box_uv, "empty chain must keep the hollow-box path");
 }
+
+/// Runtime per-codepoint symbol fallback (RV6 Linux backfill): the resolver is
+/// consulted only on a static-chain miss, cached per-codepoint (so the
+/// subprocess never runs more than once per distinct missing symbol), and never
+/// consulted when the static chain already covers the glyph (the byte-identity
+/// guarantee). Each test owns distinct statics so the bare-`fn` resolvers stay
+/// parallel-safe.
+mod runtime_resolver {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static POS_CALLS: AtomicUsize = AtomicUsize::new(0);
+    fn pos_resolver(_ch: char) -> Option<Arc<FontVec>> {
+        POS_CALLS.fetch_add(1, Ordering::SeqCst);
+        crate::text::resolve_symbol_font().map(Arc::new)
+    }
+
+    static NEG_CALLS: AtomicUsize = AtomicUsize::new(0);
+    fn neg_resolver(_ch: char) -> Option<Arc<FontVec>> {
+        NEG_CALLS.fetch_add(1, Ordering::SeqCst);
+        None
+    }
+
+    static HIT_CALLS: AtomicUsize = AtomicUsize::new(0);
+    fn hit_resolver(_ch: char) -> Option<Arc<FontVec>> {
+        HIT_CALLS.fetch_add(1, Ordering::SeqCst);
+        None
+    }
+
+    /// Static chain misses -> resolver resolves the glyph; a second lookup of the
+    /// same codepoint is served from the cache (resolver called exactly once).
+    #[test]
+    fn static_miss_resolves_at_runtime_and_caches() {
+        let Some(primary) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let Some(symbol) = crate::text::resolve_symbol_font() else {
+            eprintln!("skipping: no symbol / Nerd font on this host");
+            return;
+        };
+        let Some(icon) = (0xE000u32..=0xF8FF).filter_map(char::from_u32).find(|&ch| {
+            is_symbol_codepoint(ch) && font_has_glyph(&symbol, ch) && !font_has_glyph(&primary, ch)
+        }) else {
+            eprintln!("skipping: no PUA codepoint unique to the symbol font");
+            return;
+        };
+        let mut atlas = GlyphAtlas::build(&primary, 24.0);
+        let box_uv = atlas.slot_uv(FALLBACK_SLOT);
+        // Empty static chain forces the runtime resolver to be consulted.
+        atlas.set_fallback_fonts(Vec::new());
+        POS_CALLS.store(0, Ordering::SeqCst);
+        atlas.set_runtime_symbol_resolver(Some(pos_resolver));
+        let uv1 = atlas.ensure(&primary, icon).expect("runtime fallback uv");
+        assert_ne!(uv1, box_uv, "runtime resolver must back the missing glyph");
+        let uv2 = atlas.ensure(&primary, icon).expect("cached fallback uv");
+        assert_eq!(uv1, uv2, "second lookup must reuse the resolved slot");
+        assert_eq!(
+            POS_CALLS.load(Ordering::SeqCst),
+            1,
+            "resolver must be consulted at most once per codepoint (cached)"
+        );
+    }
+
+    /// A negative resolver result is cached too: the codepoint keeps the hollow
+    /// box and the resolver is not re-invoked on a repeat lookup.
+    #[test]
+    fn negative_runtime_result_is_cached() {
+        let Some(primary) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let Some(absent) = pua_absent(&primary) else {
+            eprintln!("skipping: font covers all of the BMP PUA");
+            return;
+        };
+        let mut atlas = GlyphAtlas::build(&primary, 24.0);
+        let box_uv = atlas.slot_uv(FALLBACK_SLOT);
+        atlas.set_fallback_fonts(Vec::new());
+        NEG_CALLS.store(0, Ordering::SeqCst);
+        atlas.set_runtime_symbol_resolver(Some(neg_resolver));
+        let uv1 = atlas.ensure(&primary, absent).expect("box uv");
+        assert_eq!(uv1, box_uv, "unresolved codepoint keeps the hollow box");
+        let _ = atlas.ensure(&primary, absent);
+        assert_eq!(
+            NEG_CALLS.load(Ordering::SeqCst),
+            1,
+            "a negative result must be cached, not re-queried"
+        );
+    }
+
+    /// When the static chain already covers the glyph the runtime resolver is
+    /// never consulted -- already-resolving codepoints take the exact same path
+    /// as before the runtime query existed.
+    #[test]
+    fn static_hit_never_consults_runtime_resolver() {
+        let Some(primary) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let Some(symbol) = crate::text::resolve_symbol_font() else {
+            eprintln!("skipping: no symbol / Nerd font on this host");
+            return;
+        };
+        let Some(icon) = (0xE000u32..=0xF8FF).filter_map(char::from_u32).find(|&ch| {
+            is_symbol_codepoint(ch) && font_has_glyph(&symbol, ch) && !font_has_glyph(&primary, ch)
+        }) else {
+            eprintln!("skipping: no PUA codepoint unique to the symbol font");
+            return;
+        };
+        let mut atlas = GlyphAtlas::build(&primary, 24.0);
+        let box_uv = atlas.slot_uv(FALLBACK_SLOT);
+        // Static chain covers `icon`; resolver installed but must stay unused.
+        atlas.set_fallback_fonts(vec![Arc::new(symbol)]);
+        HIT_CALLS.store(0, Ordering::SeqCst);
+        atlas.set_runtime_symbol_resolver(Some(hit_resolver));
+        let uv = atlas.ensure(&primary, icon).expect("static fallback uv");
+        assert_ne!(uv, box_uv, "static chain must resolve the glyph");
+        assert_eq!(
+            HIT_CALLS.load(Ordering::SeqCst),
+            0,
+            "static-covered glyph must not consult the runtime resolver"
+        );
+    }
+
+    /// Switching the resolver clears the per-codepoint cache so a stale negative
+    /// result cannot pin a codepoint to tofu after the host font set changes.
+    #[test]
+    fn reinstalling_resolver_clears_the_cache() {
+        let Some(primary) = test_font() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let Some(absent) = pua_absent(&primary) else {
+            eprintln!("skipping: font covers all of the BMP PUA");
+            return;
+        };
+        let mut atlas = GlyphAtlas::build(&primary, 24.0);
+        atlas.set_fallback_fonts(Vec::new());
+        atlas.set_runtime_symbol_resolver(Some(neg_resolver));
+        let _ = atlas.ensure(&primary, absent);
+        // Reinstalling clears the cache; clearing to None disables the query.
+        atlas.set_runtime_symbol_resolver(None);
+        let box_uv = atlas.slot_uv(FALLBACK_SLOT);
+        let uv = atlas.ensure(&primary, absent).expect("box uv");
+        assert_eq!(uv, box_uv, "no resolver keeps the hollow box");
+    }
+}

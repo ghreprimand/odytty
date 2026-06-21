@@ -232,6 +232,31 @@ pub(super) fn resolve_symbol_fallback(
         .collect()
 }
 
+/// Install the runtime per-codepoint symbol fallback resolver on `atlas` (RV6
+/// Linux backfill), or clear it. On Linux/Unix (non-macOS) the resolver is a
+/// `fc-match :charset` query ([`text::runtime_resolve_symbol_font`]) consulted
+/// only when the static chain misses a symbol codepoint; the atlas caches each
+/// codepoint, so the subprocess runs at most once per distinct missing symbol.
+/// It is installed only when symbol fallback is `enabled`, so disabling the
+/// feature leaves both the static chain and the runtime query off. On macOS and
+/// non-Unix targets there is no runtime query (the static system tail covers the
+/// platform), so the resolver is always cleared and the path stays byte-identical
+/// to the pre-feature renderer.
+pub(super) fn install_runtime_symbol_resolver(atlas: &mut text::GlyphAtlas, enabled: bool) {
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let resolver = if enabled {
+        Some(text::runtime_resolve_symbol_font as fn(char) -> Option<Arc<FontVec>>)
+    } else {
+        None
+    };
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    let resolver = {
+        let _ = enabled;
+        None
+    };
+    atlas.set_runtime_symbol_resolver(resolver);
+}
+
 /// Resolve a SYMMAP override map's font-family names to loaded faces (SYMMAP).
 ///
 /// Each rule's family name is resolved against the host font search dirs; on

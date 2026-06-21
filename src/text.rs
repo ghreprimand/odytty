@@ -1095,6 +1095,51 @@ const SYSTEM_SYMBOL_FALLBACK_FONTS: &[&str] = &[
     "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
 ];
 
+/// Linux/Unix (non-macOS) symbol-fallback tail: normalized filename-stem hints
+/// for the broad-coverage system symbol faces that commonly backfill standard
+/// Unicode dingbats/symbols/pictographs the bundled Nerd faces lack. Unlike the
+/// macOS arm (fixed absolute paths) Linux font locations vary by distro, so
+/// these are matched against [`normalize_family`]-style stems of files under
+/// [`font_search_dirs`] and appended to the chain when present (skipped silently
+/// if absent, same effect as the macOS list). This is the deterministic *floor*:
+/// it covers hosts that ship Noto Symbols / Symbola / DejaVu, but cannot promise
+/// coverage of arbitrary symbols on hosts that ship none of them -- the runtime
+/// [`runtime_resolve_symbol_font`] query is the actual backfill there. Broadest
+/// coverage first; the appended faces never shadow the body font because the
+/// symbol fallback is only consulted for
+/// [`crate::atlas::fallback::is_symbol_codepoint`] codepoints.
+#[cfg(all(unix, not(target_os = "macos")))]
+const LINUX_SYMBOL_FALLBACK_HINTS: &[&str] = &[
+    "notosanssymbols2",
+    "notosanssymbols",
+    "symbola",
+    "dejavusans",
+    "unifont",
+];
+
+/// Resolve the Linux/Unix system symbol-fallback tail (see
+/// [`LINUX_SYMBOL_FALLBACK_HINTS`]): for each hint, in priority order, the first
+/// file under `dirs` whose normalized stem contains it, loaded and de-duplicated
+/// by path. Returns `(source, font)` pairs index-aligned with how the chain is
+/// built. Absent faces are skipped silently.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn linux_symbol_fallback_faces(dirs: &[PathBuf]) -> Vec<(SymbolFontSource, FontVec)> {
+    let files = collect_font_files(dirs);
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for hint in LINUX_SYMBOL_FALLBACK_HINTS {
+        if let Some(path) = files
+            .iter()
+            .find(|f| normalize_family(&file_stem(f)).contains(hint))
+            && seen.insert(path.clone())
+            && let Ok(font) = load_font_at(path)
+        {
+            out.push((SymbolFontSource::Host(path.clone()), font));
+        }
+    }
+    out
+}
+
 /// Resolve a symbol / Nerd-font face for the RV6 PUA-icon fallback, or `None`
 /// when neither the bundled asset nor the host can provide one.
 ///
@@ -1253,7 +1298,65 @@ pub fn resolve_symbol_fonts_with_source(
         }
     }
 
+    // Linux/Unix: the static system symbol tail (Noto Symbols / Symbola / DejaVu
+    // / Unifont, when installed). This is the deterministic floor; codepoints no
+    // installed face covers are backfilled at render time by the cached
+    // [`runtime_resolve_symbol_font`] query the atlas calls on a static miss.
+    #[cfg(all(unix, not(target_os = "macos")))]
+    for (source, font) in linux_symbol_fallback_faces(dirs) {
+        sources.push(source);
+        fonts.push(font);
+    }
+
     (sources, fonts)
+}
+
+/// Whether `font` provides a usable **monochrome outline** for `ch`: it has the
+/// codepoint in its cmap (`glyph_id != 0`) *and* an actual vector outline. This
+/// is the symbol-fallback face filter: a color/bitmap-only face (CBDT/CBLC or
+/// sbix, e.g. a color-emoji font) returns `None` from `ab_glyph`'s `outline`
+/// even when its cmap covers the codepoint, so this one check rejects loading
+/// such a face as a mono fallback (it would render nothing useful in the
+/// coverage atlas) while accepting any normal glyf/CFF outline face. Pure and
+/// host-font-independent, so it is unit-testable against the bundled fixtures.
+pub fn font_provides_outline_glyph(font: &FontVec, ch: char) -> bool {
+    let id = font.glyph_id(ch);
+    id.0 != 0 && font.outline(id).is_some()
+}
+
+/// Runtime per-codepoint symbol fallback via fontconfig (RV6 Linux backfill).
+///
+/// Invoked by the glyph atlas **only** when a symbol codepoint misses the static
+/// fallback chain (and the result is cached per-codepoint by the atlas, so this
+/// shells out at most once per distinct missing symbol -- never on the hot path
+/// repeatedly). It runs `fc-match -f %{file} :charset=<hex>` to ask fontconfig
+/// for a host face that covers the codepoint, then loads it and rejects
+/// color/bitmap-only faces via [`font_provides_outline_glyph`] so only a
+/// monochrome outline face is installed. Read-only, local-only subprocess (no
+/// network, no user data), mirroring the emoji discovery path's `fc-match` use.
+/// Returns `None` when fontconfig is absent (e.g. headless CI), when no face
+/// covers the codepoint, or when the only match is color/bitmap-only -- all of
+/// which preserve the historical hollow-box behavior.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn runtime_resolve_symbol_font(ch: char) -> Option<std::sync::Arc<FontVec>> {
+    let charset = format!(":charset={:x}", ch as u32);
+    let output = std::process::Command::new("fc-match")
+        .args(["-f", "%{file}", &charset])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let path = String::from_utf8(output.stdout).ok()?;
+    let path = PathBuf::from(path.trim());
+    if path.as_os_str().is_empty() || !path.is_file() {
+        return None;
+    }
+    let font = load_font_at(&path).ok()?;
+    if !font_provides_outline_glyph(&font, ch) {
+        return None;
+    }
+    Some(std::sync::Arc::new(font))
 }
 
 /// Resolve only the **source** of the symbol-fallback face. Convenience wrapper
@@ -2974,5 +3077,67 @@ mod tests {
         assert!(map.push('☀' as u32, '⛿' as u32, "Weather"));
         assert_eq!(map.lookup_char('☀'), map.lookup('☀' as u32));
         assert_eq!(map.lookup_char('☀'), Some("Weather"));
+    }
+
+    #[test]
+    fn font_provides_outline_glyph_accepts_outline_face_and_rejects_absent() {
+        // The bundled Symbols Nerd face is a normal glyf/CFF outline face, so a
+        // PUA icon it covers must pass the mono-outline filter (outline present),
+        // and a codepoint it does not map must be rejected (glyph_id == 0). The
+        // same `outline().is_none()` mechanism rejects a color/bitmap-only face
+        // (CBDT/CBLC or sbix) even when its cmap covers the codepoint -- that is
+        // how a color-emoji face is kept out of the mono symbol fallback; we
+        // can't bundle such a face, so the rejection arm is exercised here via
+        // the absent-codepoint case (also `outline() == None`).
+        let Some(symbol) = resolve_bundled_symbol_font() else {
+            eprintln!("skipping: bundled symbol font feature off");
+            return;
+        };
+        let present = (0xE000u32..=0xF8FF)
+            .filter_map(char::from_u32)
+            .find(|&ch| symbol.glyph_id(ch).0 != 0)
+            .expect("bundled symbol font has at least one PUA glyph");
+        assert!(
+            font_provides_outline_glyph(&symbol, present),
+            "an outline face must pass the filter for a covered codepoint"
+        );
+        // A codepoint with no cmap entry (glyph_id 0) is rejected.
+        let absent = (0xE000u32..=0xF8FF)
+            .filter_map(char::from_u32)
+            .find(|&ch| symbol.glyph_id(ch).0 == 0)
+            .expect("bundled symbol font lacks at least one PUA codepoint");
+        assert!(
+            !font_provides_outline_glyph(&symbol, absent),
+            "a codepoint the face lacks must be rejected"
+        );
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn linux_symbol_fallback_faces_picks_up_a_hint_named_file() {
+        // The Linux static tail is a deterministic floor: a file under the search
+        // dirs whose normalized stem matches a hint (e.g. "notosanssymbols2") is
+        // loaded into the chain. Synthesize one by copying the bundled symbol
+        // font bytes under a hint-matching name -- no host font is asserted.
+        let dir = unique_tmp_dir("linuxsymtail");
+        let fixture = dir.join("NotoSansSymbols2-Regular.ttf");
+        std::fs::write(&fixture, BUNDLED_SYMBOL_FONT_BYTES).expect("write fixture");
+        let faces = linux_symbol_fallback_faces(std::slice::from_ref(&dir));
+        assert!(
+            faces
+                .iter()
+                .any(|(src, _)| matches!(src, SymbolFontSource::Host(p) if p == &fixture)),
+            "a hint-named file must be resolved into the Linux symbol tail"
+        );
+        // A dir with no hint-matching file resolves to nothing.
+        let empty = unique_tmp_dir("linuxsymtail_empty");
+        std::fs::write(empty.join("Random-Regular.ttf"), BUNDLED_SYMBOL_FONT_BYTES)
+            .expect("write non-matching fixture");
+        assert!(
+            linux_symbol_fallback_faces(std::slice::from_ref(&empty)).is_empty(),
+            "a dir with no hint-named file resolves to an empty tail"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&empty);
     }
 }

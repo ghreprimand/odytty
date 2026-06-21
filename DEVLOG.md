@@ -7,6 +7,60 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Linux symbol-glyph fallback backfill (pre-existing bug fix)
+
+Fixed tofu (missing-glyph boxes) on Linux for standard symbol codepoints the
+bundled Nerd faces do not cover -- the operator was hitting it for Claude
+Code's own UI glyphs (`U+23F5 ⏵` "bypass permissions", record bullet, check/
+ballot marks). Root cause: the non-PUA symbol fallback chain had a macOS-only
+system tail and **no Linux branch and no runtime fontconfig query**, so symbols
+absent from the bundled chain fell straight through to the hollow box. This is
+off the r/commandline plan (pre-existing bug), so no plan checkbox.
+
+Layered fix (coverage-only correctness, not behind a new opt-in setting -- it
+lives under the existing `symbol_fallback` switch):
+
+- **Linux static tail** (`src/text.rs`): a `#[cfg(all(unix, not(target_os =
+  "macos")))]` floor that appends installed broad-coverage symbol faces (Noto
+  Sans Symbols/Symbols2, Symbola, DejaVu, Unifont) found by normalized
+  filename-stem hint under the font search dirs; skipped silently if absent,
+  mirroring the macOS arm.
+- **Runtime per-codepoint backfill** (the actual fix): `symbol_fallback()` in
+  `src/atlas/mod.rs` now consults a resolver **only when the static chain
+  misses** a symbol codepoint, caching the result per-codepoint (including
+  negatives) so `fc-match` shells out at most once per distinct missing symbol
+  and never on the hot per-frame path. The resolver
+  (`text::runtime_resolve_symbol_font`, Linux-only) runs `fc-match
+  :charset=<hex>`, loads the match, and rejects color/bitmap-only faces via
+  `font_provides_outline_glyph` (ab_glyph `outline().is_none()` rejects
+  CBDT/CBLC/sbix) so only a monochrome outline face is installed. On this host
+  `U+23F5`/`U+23FA` resolve to Iosevka, `U+2B1B` to Cascadia, `U+2713` to
+  DejaVu. Wired via `install_runtime_symbol_resolver` in `src/native/gpu/
+  fonts.rs`, installed at atlas build + rebuild only when `symbol_fallback` is
+  enabled; `None` (macOS/non-Unix, or feature off) keeps the path byte-identical.
+- **Emoji gate widening** (`src/emoji/render.rs`): emoji-presentation-default
+  media controls `U+23E9..U+23EC`, `U+23F0`, `U+23F3`, `U+23F8..U+23FA` and the
+  large squares `U+2B1B`/`U+2B1C` now route to the color-emoji path
+  (NotoColorEmoji covers them). The text-default playback triangles
+  `U+23F4..U+23F7` (incl. `U+23F5 ⏵`) are **deliberately excluded** so they stay
+  on the mono symbol fallback -- color-routing them would tofu (no color face
+  covers them). A test guards this exclusion.
+
+- Byte-identity: when the resolver is `None` (the default off-Linux and when
+  `symbol_fallback = off`) `symbol_fallback()` is identical to the pre-feature
+  behavior, including the empty-chain case; static-covered codepoints take the
+  exact same path as before. `fc-match`-absent (headless CI) -> the codepoint
+  keeps the historical hollow box.
+- Tests (9 new, all hermetic -- no host-font assertions, synthetic codepoints):
+  atlas runtime-resolver cache-hit / static-miss-then-resolve / static-hit-never-
+  queries / negative-result-cached / reinstall-clears-cache; `text`
+  `font_provides_outline_glyph` accept+reject and the Linux static-tail hint
+  pickup; the emoji-gate widening + playback-triangle exclusion.
+- Verified: `cargo test --lib` 2034 passed / 0 failed; `cargo fmt --check` clean
+  on touched files; `cargo clippy --lib --tests -- -D warnings` clean;
+  `gpu_composite_smoke` (byte-identity), `emoji_pixel_smoke`, and
+  `license_headers` green.
+
 ## 2026-06-21 -- inactive-pane focus dimming (Phase 1, final item)
 
 Completed the last Phase 1 item: an optional subtle dim on the non-focused

@@ -26,8 +26,8 @@ pub(super) mod post;
 
 pub(super) use fonts::StyleFonts;
 use fonts::{
-    effective_symbol_fallback_enabled, effective_symbol_font_path, resolve_symbol_fallback,
-    resolve_symbol_map_fonts,
+    effective_symbol_fallback_enabled, effective_symbol_font_path, install_runtime_symbol_resolver,
+    resolve_symbol_fallback, resolve_symbol_map_fonts,
 };
 use image::BgImageGpu;
 pub(super) use post::{BloomOptions, CrtOptions};
@@ -819,6 +819,7 @@ impl GpuState {
         let symbol_fallback =
             resolve_symbol_fallback(symbol_fallback_enabled, symbol_font_path.as_deref());
         atlas.set_fallback_fonts(symbol_fallback.clone());
+        install_runtime_symbol_resolver(&mut atlas, symbol_fallback_enabled);
         let symbol_map = crate::settings::symbol_map();
         let symbol_map_fonts = resolve_symbol_map_fonts(&symbol_map);
         atlas.set_symbol_map_fonts(symbol_map_fonts.clone());
@@ -1122,6 +1123,7 @@ impl GpuState {
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
         atlas.set_geometric_boxdraw(self.geometric_enabled);
         atlas.set_fallback_fonts(self.symbol_fallback.clone());
+        install_runtime_symbol_resolver(&mut atlas, self.symbol_fallback_enabled);
         atlas.set_symbol_map_fonts(self.symbol_map_fonts.clone());
         let _ = atlas.take_dirty();
         self.atlas = atlas;

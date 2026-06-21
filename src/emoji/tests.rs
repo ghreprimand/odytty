@@ -119,6 +119,26 @@ fn presentation_policy_respects_variation_selectors() {
 }
 
 #[test]
+fn emoji_presentation_gate_covers_misctech_and_squares_but_not_playback_triangles() {
+    // RV6 widening: emoji-presentation-default media controls and large squares
+    // that NotoColorEmoji covers now route to the color path instead of the mono
+    // symbol fallback (which had no face for them -> tofu).
+    assert_eq!(emoji_presentation("\u{23FA}"), EmojiPresentation::Color); // record
+    assert_eq!(emoji_presentation("\u{23F9}"), EmojiPresentation::Color); // stop
+    assert_eq!(emoji_presentation("\u{23F8}"), EmojiPresentation::Color); // pause
+    assert_eq!(emoji_presentation("\u{2B1B}"), EmojiPresentation::Color); // black square
+    assert_eq!(emoji_presentation("\u{2B1C}"), EmojiPresentation::Color); // white square
+    // Critical exclusion: the text-default playback triangles U+23F4..U+23F7
+    // (U+23F5 PLAY is Claude Code's "bypass permissions" glyph) must stay TEXT
+    // so they use the mono symbol fallback -- no color face covers them, so
+    // color-routing would tofu. This guards the headline RV6 fix.
+    assert_eq!(emoji_presentation("\u{23F5}"), EmojiPresentation::Text);
+    assert_eq!(emoji_presentation("\u{23F4}"), EmojiPresentation::Text);
+    assert_eq!(emoji_presentation("\u{23F6}"), EmojiPresentation::Text);
+    assert_eq!(emoji_presentation("\u{23F7}"), EmojiPresentation::Text);
+}
+
+#[test]
 fn missing_emoji_font_degrades_to_coverage_path() {
     let mut terminal = Terminal::new(2, 1);
     terminal.advance("\u{1F525}".as_bytes());
