@@ -109,6 +109,10 @@ pane_prefix = ctrl+b
 # The host keeps the PTY and bounded terminal model alive until the child exits
 # or the detached idle timeout reaps it. Native window reattach is pending.
 
+# Command-palette history/directory sources have no config-file keys yet. The
+# source layer reads conventional shell history files read-only with fixed caps:
+# 1 MiB tail, 20,000 physical lines, 5,000 entries, 4,096 chars per entry.
+
 # Clipboard and accessibility.
 osc52_read = off
 cvd_mode = off

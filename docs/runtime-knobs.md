@@ -58,6 +58,19 @@ the detached idle timeout kills and reaps it. Scrollback is not printed by
 `list` and is not sent anywhere except over the per-user Unix-domain socket to an
 attaching local client.
 
+## Command-Palette Sources
+
+The command-palette overlay is pending, but the headless source provider is in
+place. It has no `odytty.conf` keys in this slice. It resolves conventional
+history files from a supplied shell/home pair (`.bash_history`, `.zsh_history`,
+and Fish `fish/fish_history`) and reads them read-only with hard default caps:
+1 MiB from the file tail, 20,000 physical lines scanned, 5,000 returned entries,
+and 4,096 characters per entry. Missing, unreadable, malformed, oversized, or
+non-UTF-8 files return empty or partial in-memory candidates without panicking.
+Recent directories are fed from already-parsed OSC 7 cwd values; the source
+layer does not query the filesystem for directories and never logs, writes, or
+transmits history contents.
+
 ## Settings Reference
 
 All settings except `native_autoclose_ms` are live-reloadable when their

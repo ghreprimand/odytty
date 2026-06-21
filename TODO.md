@@ -1062,8 +1062,14 @@ feature validates against.
 - [x] Shell integration beyond basic PTY behavior — landed: OSC 133 semantic
       prompt marks and command-aware UX (see Stage 7). Further shell-integration
       surface (click-to-position) is tracked there.
-- [ ] Plugins, AI features, command palettes, dashboards, or rich nonstandard
-      workflows.
+- [x] Command-palette headless substrate: dependency-free fuzzy scorer, stable
+      action catalog, bounded source composer, and read-only bounded
+      shell-history / recent-directory data provider. History detection covers
+      bash `.bash_history`, zsh `.zsh_history` extended history, and Fish
+      `fish_history`; tests use synthetic fixtures only and never read real
+      user history.
+- [ ] In-window command-palette overlay, plugin systems, AI features, dashboards,
+      or rich nonstandard workflows.
 - [ ] Heavy animation or effects that can compromise readability or latency.
 - [ ] Broad cross-platform support beyond Linux-first validation.
 - [ ] Daily-driver claims against Ghostty/Konsole before compatibility and

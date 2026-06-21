@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- Palette history source provider
+
+Completed the headless history/directory source layer for the future fuzzy
+command palette. This is a pure data-source packet; it does not add a native
+overlay and does not touch `src/native/`.
+
+- `src/palette_sources.rs` now resolves conventional shell history files from a
+  supplied shell executable and synthetic/home path: bash `.bash_history`, zsh
+  `.zsh_history` with extended-history parsing, and Fish
+  `fish/fish_history` under an XDG config dir or `~/.config`.
+- Reads are read-only and bounded: default tail window 1 MiB, default physical
+  line scan cap 20,000, default returned entry cap 5,000, and default per-entry
+  cap 4,096 characters. Zero limits return no entries without reading.
+- Source rows are most-recent-first and deduplicated with the newest occurrence
+  retained. Malformed rows, missing files, non-file paths, non-UTF-8 bytes,
+  huge entries, and truncated Fish block commands return empty or partial
+  candidates without panicking.
+- Recent directories can be fed from the focused terminal's already-parsed OSC
+  7 cwd value via `RecentDirs::observe_osc7_cwd`; it never queries the
+  filesystem.
+- Tests use synthetic temp fixtures only. No real shell history, local
+  directories, or host data are read, logged, committed, or transmitted.
+
 ## 2026-06-21 -- Linux symbol-glyph fallback backfill (pre-existing bug fix)
 
 Fixed tofu (missing-glyph boxes) on Linux for standard symbol codepoints the

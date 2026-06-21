@@ -696,6 +696,15 @@ its first stable layer.
   `list` prints metadata-only rows and never scrollback/command output; the
   diagnostic attach validates the session and decodes the initial snapshot but
   does not render a native window yet.
+- Command-palette substrate: pure modules outside `src/native/` provide a
+  dependency-free fuzzy scorer, stable action catalog, source composer, and
+  read-only candidate sources. Shell history reads are bounded to a 1 MiB tail
+  window, 20,000 physical lines scanned, 5,000 returned entries, and 4,096
+  characters per entry by default. Supported history formats are bash/plain
+  line history, zsh extended history, and Fish `- cmd:` rows including simple
+  block commands. Recent directories are fed from already-parsed OSC 7 cwd
+  values; the source layer never writes history files, never logs history
+  contents, and never sends candidates over the network.
 
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering
@@ -706,8 +715,8 @@ its first stable layer.
   multiplexing (panes/splits within a window are now supported — see above)
 - Shell integration beyond OSC 7 cwd tracking and OSC 133 prompt/command marks
   plus the current command-aware native actions
-- Plugin systems, AI features, command palettes, rich dashboards, or nonstandard
-  terminal semantics
+- Plugin systems, AI features, the in-window command-palette overlay, rich
+  dashboards, or nonstandard terminal semantics
 - Heavy animation or effects that compromise readability or latency
 - Windows support (Linux is the primary target; macOS is an experimental
   build-from-source target, exercised in CI, with no prebuilt artifact)

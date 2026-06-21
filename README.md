@@ -412,6 +412,7 @@ The terminal core and visual layer are deliberately separate:
 | Graphics protocols | `src/graphics/`, `src/core/graphics_routing.rs` |
 | Settings | `src/settings.rs`, `src/settings/` |
 | Theme system | `src/theme/`, `src/theme_author.rs`, `src/palette_gen.rs` |
+| Command palette substrate | `src/fuzzy.rs`, `src/palette.rs`, `src/palette_catalog.rs`, `src/palette_sources.rs` |
 | Native app and GPU | `src/native/` |
 
 External crates do not own terminal semantics. `vte`, `portable-pty`, and
