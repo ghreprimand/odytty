@@ -616,6 +616,12 @@ pub struct Settings {
     /// disables enforcement and is pixel-identical to before.
     pub min_contrast: f32,
     pub focus_dim: f32,
+    /// Inactive-pane dimming amount in `0.0..=1.0`. `0.0` (the default) disables
+    /// it and is byte-identical to the pre-feature multi-pane renderer; higher
+    /// values dim the non-focused panes of a multi-pane tab so the focused pane
+    /// stands out. The focused pane is never dimmed and single-pane tabs are
+    /// never affected.
+    pub inactive_pane_dim: f32,
     pub render_quality: RenderQuality,
     /// ID3/U5 background treatment (`off` default ⇒ pixel-identical plain path).
     pub background_treatment: BackgroundTreatment,
@@ -868,6 +874,7 @@ impl Default for Settings {
             stem_darken: DEFAULT_STEM_DARKEN,
             min_contrast: DEFAULT_MIN_CONTRAST,
             focus_dim: DEFAULT_FOCUS_DIM,
+            inactive_pane_dim: DEFAULT_INACTIVE_PANE_DIM,
             render_quality: RenderQuality::default(),
             background_treatment: BackgroundTreatment::default(),
             background_image: None,
@@ -955,6 +962,16 @@ impl Settings {
             0.0
         } else {
             self.focus_dim
+        }
+    }
+
+    /// Inactive-pane dimming amount, forced to `0.0` on the plain renderer
+    /// profile so the fast path stays byte-identical even when the knob is set.
+    pub fn effective_inactive_pane_dim(&self) -> f32 {
+        if self.plain_render_quality() {
+            0.0
+        } else {
+            self.inactive_pane_dim
         }
     }
 
@@ -1250,6 +1267,8 @@ impl Settings {
         let stem_darken = parse_stem_darken(get(STEM_DARKEN_ENV).as_deref(), &mut warn);
         let min_contrast = parse_min_contrast(get(MIN_CONTRAST_ENV).as_deref(), &mut warn);
         let focus_dim = parse_focus_dim(get(FOCUS_DIM_ENV).as_deref(), &mut warn);
+        let inactive_pane_dim =
+            parse_inactive_pane_dim(get(INACTIVE_PANE_DIM_ENV).as_deref(), &mut warn);
         let render_quality = parse_render_quality(get(RENDER_QUALITY_ENV).as_deref(), &mut warn);
         let background_treatment =
             parse_background_treatment(get(BACKGROUND_TREATMENT_ENV).as_deref(), &mut warn);
@@ -1476,6 +1495,7 @@ impl Settings {
             stem_darken,
             min_contrast,
             focus_dim,
+            inactive_pane_dim,
             render_quality,
             background_treatment,
             background_image,
@@ -1567,6 +1587,7 @@ impl Settings {
         values.insert(STEM_DARKEN_ENV, format_float(self.stem_darken));
         values.insert(MIN_CONTRAST_ENV, format_float(self.min_contrast));
         values.insert(FOCUS_DIM_ENV, format_float(self.focus_dim));
+        values.insert(INACTIVE_PANE_DIM_ENV, format_float(self.inactive_pane_dim));
         values.insert(RENDER_QUALITY_ENV, self.render_quality.as_str().to_owned());
         values.insert(
             BACKGROUND_TREATMENT_ENV,

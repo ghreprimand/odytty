@@ -122,6 +122,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "stem_darken",
             "min_contrast",
             "focus_dim",
+            "inactive_pane_dim",
             "render_quality",
             "window_padding",
             "window_border",
@@ -953,6 +954,76 @@ fn focus_dim_round_trips_through_config_key_mapping() {
     assert_eq!(config_key_to_env("focus_dim"), Some(FOCUS_DIM_ENV));
     assert_eq!(config_key_to_env("unfocuseddim"), Some(FOCUS_DIM_ENV));
     assert_eq!(env_to_config_key(FOCUS_DIM_ENV), Some("focus_dim"));
+}
+
+#[test]
+fn inactive_pane_dim_defaults_to_off() {
+    let (settings, warnings) = settings_from([]);
+    assert_eq!(settings.inactive_pane_dim, DEFAULT_INACTIVE_PANE_DIM);
+    assert_eq!(settings.inactive_pane_dim, 0.0);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn inactive_pane_dim_parses_a_valid_value() {
+    let (settings, warnings) = settings_from([(INACTIVE_PANE_DIM_ENV, "0.2")]);
+    assert_eq!(settings.inactive_pane_dim, 0.2);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn empty_inactive_pane_dim_falls_back_without_warning() {
+    let (settings, warnings) = settings_from([(INACTIVE_PANE_DIM_ENV, "  ")]);
+    assert_eq!(settings.inactive_pane_dim, DEFAULT_INACTIVE_PANE_DIM);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_inactive_pane_dim_falls_back_with_one_warning() {
+    let (settings, warnings) = settings_from([(INACTIVE_PANE_DIM_ENV, "lots")]);
+    assert_eq!(settings.inactive_pane_dim, DEFAULT_INACTIVE_PANE_DIM);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(INACTIVE_PANE_DIM_ENV));
+}
+
+#[test]
+fn inactive_pane_dim_clamps_to_unit_range() {
+    let (small, small_warnings) = settings_from([(INACTIVE_PANE_DIM_ENV, "-0.5")]);
+    let (large, large_warnings) = settings_from([(INACTIVE_PANE_DIM_ENV, "4")]);
+    assert_eq!(small.inactive_pane_dim, MIN_INACTIVE_PANE_DIM);
+    assert_eq!(large.inactive_pane_dim, MAX_INACTIVE_PANE_DIM);
+    assert!(small_warnings.is_empty());
+    assert!(large_warnings.is_empty());
+}
+
+#[test]
+fn inactive_pane_dim_round_trips_through_config_key_mapping() {
+    assert_eq!(
+        config_key_to_env("inactive_pane_dim"),
+        Some(INACTIVE_PANE_DIM_ENV)
+    );
+    assert_eq!(config_key_to_env("panedim"), Some(INACTIVE_PANE_DIM_ENV));
+    assert_eq!(
+        env_to_config_key(INACTIVE_PANE_DIM_ENV),
+        Some("inactive_pane_dim")
+    );
+}
+
+#[test]
+fn inactive_pane_dim_forced_off_on_plain_profile() {
+    let settings = Settings {
+        render_quality: RenderQuality::Plain,
+        inactive_pane_dim: 0.3,
+        ..Settings::default()
+    };
+    assert_eq!(settings.effective_inactive_pane_dim(), 0.0);
+
+    let balanced = Settings {
+        render_quality: RenderQuality::Balanced,
+        inactive_pane_dim: 0.3,
+        ..Settings::default()
+    };
+    assert_eq!(balanced.effective_inactive_pane_dim(), 0.3);
 }
 
 #[test]

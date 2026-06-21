@@ -415,6 +415,29 @@ pub(super) fn parse_focus_dim(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) 
     parsed.clamp(MIN_FOCUS_DIM, MAX_FOCUS_DIM)
 }
 
+pub(super) fn parse_inactive_pane_dim(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_INACTIVE_PANE_DIM;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_INACTIVE_PANE_DIM;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{INACTIVE_PANE_DIM_ENV}={trimmed:?} is not a valid inactive-pane-dim amount; using {DEFAULT_INACTIVE_PANE_DIM}"
+            ));
+            return DEFAULT_INACTIVE_PANE_DIM;
+        }
+    };
+
+    parsed.clamp(MIN_INACTIVE_PANE_DIM, MAX_INACTIVE_PANE_DIM)
+}
+
 /// Parse the mouse-wheel scroll multiplier (MOUSE-WHEEL-SPEED). Mirrors the other
 /// numeric parsers: an absent/blank value yields the default; a non-finite or
 /// unparseable value warns and falls back; otherwise it is clamped to

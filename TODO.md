@@ -938,9 +938,14 @@ feature validates against.
       (`Space`/`=`). The prefix is the only new globally captured key; the
       no-prefix path is byte-identical and `pane_prefix=off` restores literal
       `Ctrl+b`. Pane actions are rebindable via `keybinds`.
+- [x] Optional inactive-pane focus dim (`inactive_pane_dim`,
+      `ODYTTY_INACTIVE_PANE_DIM`, float `0.0..=1.0`, default `0.0`): a subtle
+      OKLab dim on the non-focused panes of a multi-pane tab via the existing
+      per-`PaneRender` `focus_dim` path. Default off and byte-identical; the
+      focused pane is never dimmed, single-pane tabs are unaffected, and the
+      plain renderer profile forces it off.
 - [ ] Pane fast-follows: per-pane inline graphics (images render in single-pane
-      tabs only today), non-focused-pane interactive overlays, and an optional
-      inactive-pane focus dim.
+      tabs only today) and non-focused-pane interactive overlays.
 - [ ] Profiles and native-window reattach for persistent sessions remain future
       work.
 

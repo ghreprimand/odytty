@@ -21,6 +21,15 @@ pub const FOCUS_DIM_DESC: &str = "Focus dimming: dims the whole window (text and
      0.15–0.30 is a subtle recede. The focused window is never dimmed. The \
      minimum-contrast floor still applies, so text stays legible. Default 0.0.";
 
+/// Human-readable help for the inactive-pane dimming knob, shown in the in-app
+/// settings panel. Follows the every-knob-carries-a-description convention.
+pub const INACTIVE_PANE_DIM_DESC: &str = "Inactive-pane dimming: dims the non-focused panes of a multi-pane tab \
+     (text and background) so the focused pane stands out, in OKLab so hue is \
+     preserved. Accepts 0.0–1.0; 0.0 is off (no change — every pane renders \
+     undimmed, byte-identical to today), 0.15–0.30 is a subtle recede. The \
+     focused pane is never dimmed and single-pane tabs are never affected. The \
+     minimum-contrast floor still applies, so text stays legible. Default 0.0.";
+
 pub const RENDER_QUALITY_DESC: &str = "Renderer profile: balanced is the default quality path — all enabled effects \
      (bloom, CRT scanlines, background treatment, focus dimming, stem darkening, \
      and the minimum-contrast floor) are honored. plain is the hard fast path: \

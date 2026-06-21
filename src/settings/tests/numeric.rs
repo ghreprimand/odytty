@@ -109,6 +109,7 @@ fn numeric_spec_steps_preserve_the_folded_keyboard_steps() {
         ("stem_darken", 0.05),
         ("min_contrast", 1.0),
         ("focus_dim", 0.05),
+        ("inactive_pane_dim", 0.05),
         ("window_padding", 1.0),
         ("bloom_threshold", 0.05),
         ("bloom_intensity", 0.05),

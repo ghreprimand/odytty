@@ -13,6 +13,7 @@ pub const TEXT_GAMMA_ENV: &str = "ODYTTY_TEXT_GAMMA";
 pub const STEM_DARKEN_ENV: &str = "ODYTTY_STEM_DARKEN";
 pub const MIN_CONTRAST_ENV: &str = "ODYTTY_MIN_CONTRAST";
 pub const FOCUS_DIM_ENV: &str = "ODYTTY_FOCUS_DIM";
+pub const INACTIVE_PANE_DIM_ENV: &str = "ODYTTY_INACTIVE_PANE_DIM";
 pub const RENDER_QUALITY_ENV: &str = "ODYTTY_RENDER_QUALITY";
 pub const BACKGROUND_TREATMENT_ENV: &str = "ODYTTY_BACKGROUND_TREATMENT";
 pub const BACKGROUND_IMAGE_ENV: &str = "ODYTTY_BACKGROUND_IMAGE";
@@ -86,6 +87,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     STEM_DARKEN_ENV,
     MIN_CONTRAST_ENV,
     FOCUS_DIM_ENV,
+    INACTIVE_PANE_DIM_ENV,
     RENDER_QUALITY_ENV,
     BACKGROUND_TREATMENT_ENV,
     BACKGROUND_IMAGE_ENV,
@@ -184,6 +186,16 @@ pub const MAX_MIN_CONTRAST: f32 = 21.0;
 pub const DEFAULT_FOCUS_DIM: f32 = 0.0;
 pub const MIN_FOCUS_DIM: f32 = 0.0;
 pub const MAX_FOCUS_DIM: f32 = 1.0;
+
+/// Inactive-pane dimming (`ODYTTY_INACTIVE_PANE_DIM`): a subtle dim applied to
+/// the non-focused panes of a multi-pane tab so the focused pane stands out, in
+/// OKLab so hue is preserved. `0.0` (the default) disables it and is
+/// byte-identical to the pre-feature multi-pane renderer — every pane renders
+/// undimmed exactly as today. Higher values dim the inactive panes further. The
+/// focused pane is never dimmed, and single-pane tabs are never affected.
+pub const DEFAULT_INACTIVE_PANE_DIM: f32 = 0.0;
+pub const MIN_INACTIVE_PANE_DIM: f32 = 0.0;
+pub const MAX_INACTIVE_PANE_DIM: f32 = 1.0;
 
 /// Window padding (`ODYTTY_WINDOW_PADDING`): logical pixels of inset on every
 /// window edge before the terminal grid begins. `0.0` restores the historical

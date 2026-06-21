@@ -32,6 +32,16 @@ pub(super) const PANE_DIVIDER_PX: f32 = 1.0;
 /// pixels — the hairline divider would be near-impossible to hit otherwise.
 pub(super) const DIVIDER_GRAB_PX: f32 = 6.0;
 
+/// The per-pane focus-dim value for the multi-pane render path: the focused
+/// pane is never dimmed (`0.0`), the inactive panes recede by `inactive_dim`.
+/// When `inactive_dim` is `0.0` (the default, and the value the plain renderer
+/// profile forces) this returns `0.0` for every pane, so the assignment is an
+/// exact identity and the multi-pane frame is byte-identical to before the knob
+/// existed.
+pub(super) fn pane_focus_dim(is_focused: bool, inactive_dim: f32) -> f32 {
+    if is_focused { 0.0 } else { inactive_dim }
+}
+
 /// The pixel rectangle available to panes: the surface minus window padding on
 /// all sides, and minus the tab-bar strip along the top when it is shown. For a
 /// single-pane tab this rect's cell dimensions equal `self.grid`, so the
@@ -215,13 +225,19 @@ impl App {
                 treatment,
             });
         }
+        // Inactive-pane dimming: the focused pane is never dimmed (`0.0`), the
+        // others recede by the configured amount. `0.0` (the default, and the
+        // forced value on the plain renderer profile) is an exact identity, so
+        // every pane renders undimmed and the multi-pane frame stays
+        // byte-identical to before this knob existed.
+        let inactive_dim = self.settings.effective_inactive_pane_dim();
         for (snapshot, origin, is_focused, cursor_style) in &panes_owned {
             panes.push(PaneRender {
                 snapshot,
                 origin: *origin,
                 focused: *is_focused,
                 cursor_style: *cursor_style,
-                focus_dim: 0.0,
+                focus_dim: pane_focus_dim(*is_focused, inactive_dim),
                 overlays: &[],
                 treatment,
             });
@@ -323,5 +339,30 @@ mod tests {
         let strip = cell.height as f32 * TAB_BAR_ROWS as f32;
         assert!((with.y - (without.y + strip)).abs() < f32::EPSILON);
         assert!((with.h - (without.h - strip)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn pane_focus_dim_focused_is_always_identity() {
+        // The focused pane is never dimmed regardless of the configured amount.
+        assert_eq!(pane_focus_dim(true, 0.0), 0.0);
+        assert_eq!(pane_focus_dim(true, 0.3), 0.0);
+        assert_eq!(pane_focus_dim(true, 1.0), 0.0);
+    }
+
+    #[test]
+    fn pane_focus_dim_inactive_uses_configured_amount() {
+        // Non-focused panes recede by exactly the configured value.
+        assert_eq!(pane_focus_dim(false, 0.25), 0.25);
+        assert_eq!(pane_focus_dim(false, 1.0), 1.0);
+    }
+
+    #[test]
+    fn pane_focus_dim_off_is_byte_identical_for_every_pane() {
+        // The default-off path: with `inactive_dim == 0.0` both the focused and
+        // inactive panes get `0.0`, identical to the pre-feature hardcoded
+        // value, so the multi-pane frame is byte-identical. The grid layer
+        // already proves `focus_dim == 0.0` is an exact no-op.
+        assert_eq!(pane_focus_dim(true, 0.0), 0.0);
+        assert_eq!(pane_focus_dim(false, 0.0), 0.0);
     }
 }
