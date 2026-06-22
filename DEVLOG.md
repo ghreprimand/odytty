@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- CI hardening follow-up: attach-by-id snapshot-restore race
+
+After the previous CI-hardening pass, GitHub CI was green on 8 of 9 targeted
+tests but `native::attach::tests::attach_by_id_presents_live_tab_and_repaints`
+still failed intermittently on `ubuntu-latest` — `left: "PROMPT$ XYZ"`,
+`right: "PROMPT$"`. The failing assertion was the **snapshot-restore** check, not
+the live-append poll. Root cause: `AttachClient::connect` restores the host
+snapshot *synchronously* (the prompt line `PROMPT$` is present on return), but the
+subsequent live `Output("XYZ")` frame is applied by the **async pump thread**. On
+a fast/loaded runner the pump appends `XYZ` (→ `"PROMPT$ XYZ"`) *before* the test's
+restore-assert block reads row 2, so the exact-equality `row_text(row 2) ==
+"PROMPT$"` raced and lost. The race ran the opposite direction from a first read:
+the live output arrives too *early* relative to the restore assert, not too late.
+
+- **Race-immune restore proof.** Row 0 (`"line-one"`) is never touched by the
+  append, so it stays an exact-equality proof of snapshot restore. Row 2 — the
+  prompt line the live output appends to — now asserts the restored *prefix*
+  (`starts_with("PROMPT$")`), which holds both before and after the append, so it
+  proves the prompt line was restored without racing the pump. The exact appended
+  form (`"PROMPT$ XYZ"`) is still asserted by the existing `wait_until` content
+  poll below, so live-append verification is unchanged. Both properties — snapshot
+  restore and live append — remain asserted.
+
+Verified like CI: `cargo build --tests --locked` clean, `cargo clippy
+--all-targets --locked -- -D warnings` clean, and the specific test looped 10×
+(`cargo test --locked ...attach_by_id_presents_live_tab_and_repaints`) — 10/10
+deterministic. Test-only change; no product code touched (`src/native/attach.rs`
+and `session.rs` unmodified). Single file: `src/native/attach/tests.rs`.
+
+(Local note, not a CI concern: this loaded multi-agent box also shows
+`atlas::tests::fallback::*` and `text::tests::font_provides_outline_glyph_*`
+failing due to local fontconfig/bundled-face availability; they fail identically
+on the unmodified tree and pass on CI's font environment — out of this packet's
+scope.)
+
+---
+
 ## 2026-06-22 -- CI hardening: deterministic attach / session-host tests
 
 GitHub CI was red on both `ubuntu-latest` and `macos-latest` at the Test step.

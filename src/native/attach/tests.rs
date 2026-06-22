@@ -482,8 +482,20 @@ fn attach_by_id_presents_live_tab_and_repaints() {
             .terminal
             .lock()
             .unwrap();
+        // The snapshot is restored synchronously at `connect` time, but the live
+        // `Output("XYZ")` frame is applied by the async pump thread — so by the
+        // time we read here the pump may already have appended it. Row 0 is never
+        // touched by the append, so it stays an exact-equality proof of snapshot
+        // restore. Row 2 is the prompt line the live output appends to: assert
+        // the restored PREFIX ("PROMPT$"), which holds both before and after the
+        // append, to prove the prompt line was restored without racing the pump.
+        // The exact appended form ("PROMPT$ XYZ") is asserted by the poll below.
         assert_eq!(row_text(&term, 0), "line-one");
-        assert_eq!(row_text(&term, 2), "PROMPT$");
+        assert!(
+            row_text(&term, 2).starts_with("PROMPT$"),
+            "snapshot must restore the prompt line (row 2 = {:?})",
+            row_text(&term, 2)
+        );
     }
 
     // Live output repaints the mirror. Wait for the pump's redraw event AND
