@@ -307,10 +307,11 @@ configurable through `keybinds` / `ODYTTY_KEYBINDS`.
 ### Panes — multiplexer prefix (`pane_prefix`)
 
 Pane / split management uses a tmux-style **prefix** model: press the prefix
-chord (default `Ctrl+b`), then a pane key. The prefix is the single new globally
-captured key — when no prefix is pending, every existing binding and all
-ordinary input is byte-identical to before. Set `pane_prefix=off` (or `none`) to
-disable the feature entirely and free `Ctrl+b`.
+chord (default `Ctrl+b`), then a pane key. The prefix is captured only when the
+active tab has more than one pane; on a single-pane tab, `Ctrl+b` passes through
+to the shell unchanged, preserving the byte-identical default input path. Set
+`pane_prefix=off` (or `none`) to disable the pane prefix entirely and free
+`Ctrl+b` in multi-pane tabs too.
 
 | After the prefix | Action | Config name |
 |---|---|---|
@@ -326,16 +327,17 @@ The prefix itself is reconfigurable:
 
 ```sh
 ODYTTY_PANE_PREFIX="ctrl+a" cargo run --release   # use Ctrl+a instead
-ODYTTY_PANE_PREFIX=off cargo run --release        # disable; Ctrl+b is literal again
+ODYTTY_PANE_PREFIX=off cargo run --release        # disable; Ctrl+b is literal in multi-pane tabs too
 ```
 
-**Nested multiplexers.** Pressing the prefix twice (`Ctrl+b Ctrl+b`) sends a
-single literal prefix byte (e.g. `0x02`) to the focused pane, so a `tmux` or
-`screen` running *inside* OdyTTY still receives its own prefix and works
-normally. Alternatively, change `pane_prefix` so the outer and inner prefixes
-differ. Individual pane actions are rebindable via `keybinds` (the chord is the
-*second* key, after the prefix), e.g. `ODYTTY_KEYBINDS="ctrl+f=zoom-pane"`
-rebinds zoom to `<prefix> Ctrl+f`.
+**Nested multiplexers.** In a multi-pane tab, pressing the prefix twice
+(`Ctrl+b Ctrl+b`) sends a single literal prefix byte (e.g. `0x02`) to the
+focused pane, so a `tmux` or `screen` running *inside* OdyTTY still receives its
+own prefix and works normally. In a single-pane tab, the first `Ctrl+b` already
+passes through literally. Alternatively, change `pane_prefix` so the outer and
+inner prefixes differ. Individual pane actions are rebindable via `keybinds`
+(the chord is the *second* key, after the prefix), e.g.
+`ODYTTY_KEYBINDS="ctrl+f=zoom-pane"` rebinds zoom to `<prefix> Ctrl+f`.
 
 > Zoom (`<prefix> z`) makes the focused pane fill the whole content area while
 > the split layout underneath is preserved; press it again to restore the exact

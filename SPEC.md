@@ -684,12 +684,13 @@ its first stable layer.
   or stacked, each with its own PTY, terminal model, scrollback, viewport,
   selection, search, and cursor. Panes are driven by a tmux-style prefix
   (default `Ctrl+b`, configurable via `pane_prefix`; press it twice to send a
-  literal prefix to a nested multiplexer): `%`/`"` split columns/rows, arrows or
-  `o` move focus, `x` close, `z` zoom (toggle the focused pane full-bleed while
-  preserving the layout underneath), `Space`/`=` equalize. Dividers are
-  drag-resizable. The prefix is the only new globally captured key; with no
-  prefix pending, all existing bindings and ordinary input are byte-identical,
-  and a single-pane tab is byte-identical to the pre-panes render path.
+  literal prefix to a nested multiplexer once a tab is split): `%`/`"` split
+  columns/rows, arrows or `o` move focus, `x` close, `z` zoom (toggle the
+  focused pane full-bleed while preserving the layout underneath),
+  `Space`/`=` equalize. Dividers are drag-resizable. The prefix is captured only
+  when the active tab has more than one pane; on a single-pane tab, `Ctrl+b` and
+  ordinary input pass through byte-identically, and a single-pane tab is
+  byte-identical to the pre-panes render path.
   Optional inactive-pane dimming is implemented by `inactive_pane_dim`, defaults
   off, is forced off in plain render quality, and leaves the no-dim path
   byte-identical. Per-pane inline graphics and non-focused-pane interactive

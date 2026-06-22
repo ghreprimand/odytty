@@ -132,12 +132,15 @@ ssh_config_hosts = off
 # keybinds = ctrl+alt+r=session-replay.
 session_replay = off
 
-# Multiplexer prefix for pane/split management (tmux-style). Press the prefix,
+# Multiplexer prefix for pane/split management (tmux-style). The prefix is
+# captured only when the active tab has more than one pane; single-pane tabs pass
+# Ctrl+b through to the shell unchanged. In a multi-pane tab, press the prefix,
 # then a pane key: % / " split, arrows / o focus, x close, z zoom, space / =
 # equalize. Press the prefix twice to send a literal prefix to the focused pane
 # (so a tmux running inside OdyTTY still works). Set to off to disable and free
-# the chord. Individual pane actions are rebindable via keybinds (the chord is
-# the second key, after the prefix), e.g. keybinds = ctrl+f=zoom-pane.
+# the chord in multi-pane tabs too. Individual pane actions are rebindable via
+# keybinds (the chord is the second key, after the prefix), e.g.
+# keybinds = ctrl+f=zoom-pane.
 pane_prefix = ctrl+b
 # Example:
 # pane_prefix = ctrl+a

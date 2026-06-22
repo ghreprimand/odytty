@@ -53,9 +53,9 @@ the macOS install notes below), while profiles remain a follow-up.
 - **Splits / panes:** split any tab into side-by-side or stacked panes, each
   with its own shell, scrollback, selection, search, and cursor. A configurable
   tmux-style prefix (default `Ctrl+b`) drives split, focus-move, close, zoom
-  (full-bleed the focused pane), and equalize; dividers are drag-resizable. The
-  prefix is the only new captured key, so existing bindings and ordinary input
-  are unchanged, and a single-pane tab renders exactly as before.
+  (full-bleed the focused pane), and equalize once a tab has multiple panes;
+  dividers are drag-resizable. On a single-pane tab, `Ctrl+b` passes through to
+  the shell unchanged, and a single-pane tab renders exactly as before.
 - **Visual experience layer:** 100 built-in themes, user `.theme` files, live theme
   picker, theme builder, semantic cursor/selection/search roles, optional
   bloom/CRT/retro effects, background treatments, cursor motion, focus dimming,
@@ -331,9 +331,9 @@ the same reserved tab-bar row as text, so Kitty/Sixel placements stay aligned
 with the visible grid while the bar is shown. Right-click a tab to rename it for
 the session; the custom name overrides shell title updates until cleared.
 
-Any tab can be split into panes. A tmux-style prefix (default `Ctrl+b`,
-configurable via `pane_prefix`) opens a transient pane-command mode; press the
-prefix then a pane key:
+Any tab can be split into panes. Once the active tab has multiple panes, a
+tmux-style prefix (default `Ctrl+b`, configurable via `pane_prefix`) opens a
+transient pane-command mode; press the prefix then a pane key:
 
 | After the prefix | Action |
 | --- | --- |
@@ -348,10 +348,10 @@ prefix then a pane key:
 
 Each pane owns an independent PTY, terminal model, scrollback, viewport,
 selection, search, and cursor. Drag a divider to resize the panes on either
-side. The prefix is the single new globally captured key — with no prefix
-pending, every existing binding and all ordinary input is byte-identical to a
-single-pane window, and a tab with one pane renders exactly as before. Set
-`pane_prefix=off` to disable splits entirely and free `Ctrl+b`. v1 cuts: inline
+side. The prefix is captured only when the active tab has more than one pane; a
+single-pane shell receives `Ctrl+b` unchanged, preserving the byte-identical
+default input path. Set `pane_prefix=off` to disable the pane prefix entirely
+and free the chord in multi-pane tabs too. v1 cuts: inline
 graphics render in single-pane tabs only, interactive overlays (selection /
 search) are painted for the focused pane only. Optional inactive-pane dimming is
 implemented via `inactive_pane_dim`; it defaults to `0.0`, is disabled on

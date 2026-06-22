@@ -991,9 +991,10 @@ feature validates against.
       default `Ctrl+b`; doubled prefix sends a literal prefix to a nested
       multiplexer): split columns/rows (`%`/`"`), directional + next focus
       (arrows/`o`), close (`x`), zoom/toggle-fullscreen-pane (`z`), and equalize
-      (`Space`/`=`). The prefix is the only new globally captured key; the
-      no-prefix path is byte-identical and `pane_prefix=off` restores literal
-      `Ctrl+b`. Pane actions are rebindable via `keybinds`.
+      (`Space`/`=`). The prefix is captured only when the active tab has more
+      than one pane; single-pane tabs pass `Ctrl+b` through byte-identically,
+      and `pane_prefix=off` frees the chord in multi-pane tabs too. Pane actions
+      are rebindable via `keybinds`.
 - [x] Optional inactive-pane focus dim (`inactive_pane_dim`,
       `ODYTTY_INACTIVE_PANE_DIM`, float `0.0..=1.0`, default `0.0`): a subtle
       OKLab dim on the non-focused panes of a multi-pane tab via the existing

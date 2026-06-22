@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Phase 5: public docs pane-prefix gate reconciliation
+
+Reconciled public markdown with the shipped panes>1 multiplexer-prefix gate.
+
+- `README.md`, `SPEC.md`, `docs/runtime-knobs.md`, and
+  `docs/odytty.conf.example` now state that the default pane prefix
+  (`Ctrl+b`) is captured only when the active tab has multiple panes. A
+  single-pane shell receives `Ctrl+b` unchanged.
+- `TODO.md` now records the same byte-identity boundary: `pane_prefix=off`
+  remains the full multi-pane escape hatch, and doubled-prefix passthrough still
+  applies in multi-pane tabs.
+
+---
+
 ## 2026-06-22 -- Single-pane prefix passthrough (panes>1 gate) — closes the byte-identity finding
 
 The Phase 5 byte-identity sweep flagged the one default-path deviation: the
