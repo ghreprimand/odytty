@@ -941,9 +941,11 @@ never tinted by SGR foreground color. Font discovery probes fontconfig for
 Noto Color Emoji, Noto Emoji, or the `emoji` generic family; an explicit
 per-session setting is planned as a follow-up. VS15 (`U+FE0E`) forces the text
 path; VS16 (`U+FE0F`) forces the emoji path; characters with
-`Emoji_Presentation` default to emoji; others default to text. RGI clusters
-are treated as atomic if `swash` shapes them to a single color glyph;
-unsupported clusters degrade per-codepoint to the existing fallback path.
+Unicode `Emoji_Presentation=Yes` default to emoji; others default to text. The
+predicate must not claim whole symbol blocks: text-default Dingbats/geometric
+markers stay on the monochrome coverage/symbol fallback path. RGI clusters are
+treated as atomic if `swash` shapes them to a single color glyph; unsupported
+clusters degrade per-codepoint to the existing fallback path.
 Draw order: cell backgrounds → below-text images → coverage glyphs and line
 decorations → color emoji glyphs → cursor and overlays. COLR v1 and SVG-in-OT
 are deferred but architecturally permitted; the boundary rule (rasterization
@@ -989,12 +991,16 @@ the Noto face, shapes each eligible terminal-cell grapheme with `swash`, renders
 single-glyph color bitmaps with best-fit strike selection, scales/centers them
 into the one- or two-cell atlas slot, and premultiplies RGBA before insertion.
 VS15 (`U+FE0E`) forces the text/coverage path; VS16 (`U+FE0F`) and default
-emoji-presentation codepoints request color. The native renderer computes runs
+emoji-presentation codepoints request color. The default presentation gate uses
+the Unicode property ranges rather than whole Dingbats/Misc Symbols blocks, so
+text-default markers such as `U+2731` and `U+25CF` remain eligible for normal
+monochrome font fallback. The native renderer computes runs
 from the snapshot before coverage-atlas insertion, skips normal monochrome
 foreground quads only for resident color runs, uploads dirty color-atlas pixels,
 and draws the dedicated color segment in the established draw order. If
-discovery, shaping, bitmap rendering, or atlas insertion fails, no color run is
-emitted and the existing coverage/fallback path remains visible.
+discovery, shaping, bitmap rendering, color-face coverage, or atlas insertion
+fails, no color run is emitted and the existing coverage/fallback path remains
+visible.
 
 **Fourth increment (delivered).** The live color path reconstructs bounded multi-codepoint
 emoji clusters from the snapshot before shaping. Flags are assembled from

@@ -72,7 +72,7 @@ impl EmojiRasterizer {
         let [glyph_id] = glyph_ids.as_slice() else {
             return None;
         };
-        if *glyph_id == 0 {
+        if color_route_needs_mono_fallback(text, *glyph_id != 0) {
             return None;
         }
 
@@ -195,6 +195,10 @@ pub fn emoji_presentation(text: &str) -> EmojiPresentation {
     } else {
         EmojiPresentation::Text
     }
+}
+
+pub(crate) fn color_route_needs_mono_fallback(text: &str, has_color_glyph: bool) -> bool {
+    emoji_presentation(text) == EmojiPresentation::Color && !has_color_glyph
 }
 
 fn shape_glyphs(
@@ -438,8 +442,35 @@ fn is_default_emoji_presentation(ch: char) -> bool {
         ch as u32,
         0x1F000..=0x1FAFF
             | 0x1FC00..=0x1FFFD
-            | 0x2600..=0x26FF
-            | 0x2700..=0x27BF
+            // Unicode 17.0 Emoji_Presentation=Yes codepoints below the
+            // pictographic planes. Keep these explicit: text-default symbols in
+            // the same blocks must fall through to the mono fallback path.
+            | 0x25FD..=0x25FE
+            | 0x2614..=0x2615
+            | 0x2648..=0x2653
+            | 0x267F
+            | 0x2693
+            | 0x26A1
+            | 0x26AA..=0x26AB
+            | 0x26BD..=0x26BE
+            | 0x26C4..=0x26C5
+            | 0x26CE
+            | 0x26D4
+            | 0x26EA
+            | 0x26F2..=0x26F3
+            | 0x26F5
+            | 0x26FA
+            | 0x26FD
+            | 0x2705
+            | 0x270A..=0x270B
+            | 0x2728
+            | 0x274C
+            | 0x274E
+            | 0x2753..=0x2755
+            | 0x2757
+            | 0x2795..=0x2797
+            | 0x27B0
+            | 0x27BF
             // Emoji-presentation-default media controls in Miscellaneous
             // Technical that NotoColorEmoji covers but the bundled mono symbol
             // chain does not, so routing them to the color path color-renders

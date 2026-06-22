@@ -20,6 +20,8 @@ use swash::{CacheKey, FontRef, GlyphId, StringId, tag_from_bytes};
 pub use color_atlas::{
     ColorGlyphAtlas, ColorGlyphAtlasError, ColorGlyphBounds, ColorGlyphId, ColorGlyphKey,
 };
+#[cfg(test)]
+pub(crate) use render::color_route_needs_mono_fallback;
 pub use render::{EmojiPresentation, EmojiRasterizer, build_color_glyph_runs, emoji_presentation};
 
 const NOTO_COLOR_EMOJI: &str = "Noto Color Emoji";

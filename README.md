@@ -311,8 +311,10 @@ configurable.
 Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. Bitmap-strike
 color fonts are supported — Noto Color Emoji (CBDT/CBLC) on Linux and Apple Color
 Emoji (sbix) on macOS — including variation selectors, flags, keycaps, skin
-tones, and common ZWJ clusters. Emoji pixels are not SGR-tinted. COLR/CPAL and
-SVG-in-OpenType expansion remain future work.
+tones, and common ZWJ clusters. Text-default symbols stay on the monochrome
+fallback path, and missing color glyph coverage falls back there instead of
+tofu. Emoji pixels are not SGR-tinted. COLR/CPAL and SVG-in-OpenType expansion
+remain future work.
 
 Kitty graphics support includes actions `t`, `T`, `p`, `d`, and `q`; raw RGB,
 raw RGBA, and PNG still images; direct, file, temp-file, and POSIX shared-memory

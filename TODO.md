@@ -583,6 +583,11 @@ a floor; surpassing it is the standing ambition.
         runs, keeps VS15 on coverage, sends VS16/default emoji to color when
         resident, and degrades to coverage/fallback when the color path cannot
         resolve a bitmap.
+  - [x] Emoji presentation gate narrowed to Unicode `Emoji_Presentation`
+        property ranges for the non-pictographic symbol blocks, so text-default
+        Dingbats/markers such as `U+2731`, `U+25CF`, and `U+25CB` use the
+        monochrome coverage/symbol fallback path; missing color-face coverage
+        also emits no color run and falls through to the same mono path.
   - [x] Emoji cluster coverage for flags, keycaps, skin tones, and common
         ZWJ sequences. The renderer reconstructs bounded clusters from the
         snapshot, keys atlas entries by full cluster, emits one color glyph when

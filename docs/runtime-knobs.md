@@ -240,9 +240,12 @@ environment variable was not set at startup.
   and read-only, runs at most once per distinct missing codepoint, and is never
   on the per-frame path; if `fc-match` is absent (e.g. headless CI) the
   codepoint keeps the historical hollow-box glyph. Setting `symbol_fallback =
-  off` disables the whole chain and the runtime query. Some emoji-presentation
-  media controls and large squares (`U+23F8..U+23FA`, `U+2B1B`/`U+2B1C`) route
-  to the color-emoji path instead, when a color emoji font is available.
+  off` disables the whole chain and the runtime query. Codepoints with Unicode
+  `Emoji_Presentation=Yes` route to the color-emoji path when a color emoji font
+  is available; text-default symbols in the same blocks, such as `U+2731` and
+  `U+25CF`, stay on the monochrome fallback path. If the color face does not
+  cover a color-routed codepoint, OdyTTY emits no color run and falls through to
+  the same monochrome coverage/symbol fallback renderer.
 - `smooth_scroll` uses a fixed bounded ease of 80 ms. There is no current
   `smooth_scroll_duration` config key.
 - `cursor_blink = auto` currently resolves to the conventional blinking

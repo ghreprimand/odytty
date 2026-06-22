@@ -8,9 +8,9 @@ use crate::core::Terminal;
 
 use super::{
     ColorGlyphAtlas, ColorGlyphFormat, EmojiFont, EmojiPresentation, EmojiRasterizer,
-    EmojiSequenceKind, color_formats, discover_noto_color_emoji, discover_noto_color_emoji_in,
-    emoji_presentation, is_color_emoji_name, probe_font, representative_sequences,
-    summarize_report,
+    EmojiSequenceKind, color_formats, color_route_needs_mono_fallback, discover_noto_color_emoji,
+    discover_noto_color_emoji_in, emoji_presentation, is_color_emoji_name, probe_font,
+    representative_sequences, summarize_report,
 };
 
 #[test]
@@ -136,6 +136,47 @@ fn emoji_presentation_gate_covers_misctech_and_squares_but_not_playback_triangle
     assert_eq!(emoji_presentation("\u{23F4}"), EmojiPresentation::Text);
     assert_eq!(emoji_presentation("\u{23F6}"), EmojiPresentation::Text);
     assert_eq!(emoji_presentation("\u{23F7}"), EmojiPresentation::Text);
+}
+
+#[test]
+fn emoji_presentation_gate_does_not_claim_text_default_dingbats() {
+    for ch in [
+        '\u{2731}', // heavy asterisk
+        '\u{2733}', // eight-spoked asterisk
+        '\u{2734}', // eight-pointed black star
+        '\u{2739}', // twelve-pointed black star
+        '\u{276F}', // heavy right-pointing angle quotation mark ornament
+    ] {
+        assert_eq!(emoji_presentation(&ch.to_string()), EmojiPresentation::Text);
+    }
+
+    assert_eq!(emoji_presentation("\u{2705}"), EmojiPresentation::Color);
+    assert_eq!(emoji_presentation("\u{2728}"), EmojiPresentation::Color);
+}
+
+#[test]
+fn emoji_presentation_gate_does_not_claim_text_default_misc_symbols() {
+    for ch in [
+        '\u{2605}', // black star
+        '\u{25CF}', // black circle
+        '\u{25CB}', // white circle
+        '\u{25A0}', // black square
+        '\u{2630}', // trigram for heaven
+    ] {
+        assert_eq!(emoji_presentation(&ch.to_string()), EmojiPresentation::Text);
+    }
+
+    assert_eq!(emoji_presentation("\u{26AA}"), EmojiPresentation::Color);
+    assert_eq!(emoji_presentation("\u{26AB}"), EmojiPresentation::Color);
+    assert_eq!(emoji_presentation("\u{25FD}"), EmojiPresentation::Color);
+    assert_eq!(emoji_presentation("\u{25FE}"), EmojiPresentation::Color);
+}
+
+#[test]
+fn color_route_without_color_face_coverage_uses_mono_fallback() {
+    assert!(color_route_needs_mono_fallback("\u{2705}", false));
+    assert!(!color_route_needs_mono_fallback("\u{2705}", true));
+    assert!(!color_route_needs_mono_fallback("\u{2731}", false));
 }
 
 #[test]

@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Emoji presentation narrowing + mono fallback guard
+
+Fixed a glyph-routing overclaim that sent whole Unicode symbol blocks through
+the color-emoji path. `src/emoji/render.rs` now follows the Unicode 17.0
+`Emoji_Presentation` property for the non-pictographic ranges it claims:
+text-default Dingbats such as `U+2731` and ordinary circle/square markers such
+as `U+25CF` stay on the monochrome coverage/symbol fallback path, while known
+emoji-default controls and squares (`U+23F8..U+23FA`, `U+25FD..U+25FE`,
+`U+26AA..U+26AB`, `U+2705`, `U+2728`, `U+2B1B..U+2B1C`) still request color.
+
+The color route also has an explicit guard for missing color-face coverage:
+when shaping a color-routed grapheme yields no color glyph, OdyTTY emits no
+color run and lets the normal coverage/symbol fallback renderer draw the cell
+instead of producing tofu. New emoji unit tests pin the `U+2731` asterisk
+family, `U+25CF`/`U+25CB` circle markers, the `U+23F5` vs.
+`U+23F8..U+23FA` boundary, and the missing-color-glyph fallback predicate.
+
+Verified targeted: `cargo test emoji --lib` green (18 passed, 1 ignored).
+Full packet verification is tracked with the commit.
+
+---
+
 ## 2026-06-22 -- Multi-pane × tab-bar pointer fixes + Close Pane menu item (release unblock)
 
 Operator validation on the previous binary surfaced three multi-pane × tab-bar
