@@ -144,10 +144,17 @@ fn wait_until_socket_refuses(socket_path: &Path) {
 #[test]
 fn host_detach_keeps_session_alive_then_idle_timeout_exits() {
     let temp = TempDir::new("sh-life");
+    // The child blocks on `read` until this client (once attached) sends a byte,
+    // then prints its marker. This makes the ordering attach-THEN-output
+    // deterministic on every platform: without it, a fast scheduler (notably
+    // macOS) can run `printf ready` before the attach completes, so "ready" lands
+    // in the attach SNAPSHOT and never arrives as a live Output frame, and
+    // `wait_for_output` waits forever. Mirrors the input-driven child the
+    // real-process e2e test already relies on.
     let config = host_config(
         temp.path(),
         "keepalive",
-        "printf ready; sleep 2",
+        "read x; printf ready; sleep 2",
         Duration::from_millis(500),
     );
     let socket_path = config.runtime_paths().expect("runtime paths").socket;
@@ -159,6 +166,9 @@ fn host_detach_keeps_session_alive_then_idle_timeout_exits() {
     let decoded =
         SnapshotEnvelope::decode(&snapshot, SnapshotEnvelopeCaps::default()).expect("snapshot");
     assert_eq!(decoded.terminal.dimensions, Dimensions::new(80, 24));
+    client
+        .send_input(b"\n")
+        .expect("trigger child output after attach");
     wait_for_output(&mut client, "ready");
     client.detach().expect("detach");
     drop(client);
@@ -183,10 +193,14 @@ fn host_detach_keeps_session_alive_then_idle_timeout_exits() {
 #[test]
 fn host_reattach_replays_output_produced_while_detached() {
     let temp = TempDir::new("sh-reat");
+    // `read x` gates the first marker on this client's post-attach input so
+    // "before" deterministically arrives as a live Output frame (not folded into
+    // the attach snapshot by a fast macOS scheduler). "after" is still produced
+    // while detached and is asserted via the reattach snapshot below.
     let config = host_config(
         temp.path(),
         "reattach",
-        "printf before; sleep 0.2; printf after; sleep 2",
+        "read x; printf before; sleep 0.2; printf after; sleep 2",
         Duration::from_millis(800),
     );
     let socket_path = config.runtime_paths().expect("runtime paths").socket;
@@ -195,6 +209,9 @@ fn host_reattach_replays_output_produced_while_detached() {
     wait_for_socket(&socket_path);
     let mut client = SessionHostClient::connect(&socket_path, "reattach").expect("attach");
     expect_snapshot(&mut client);
+    client
+        .send_input(b"\n")
+        .expect("trigger child output after attach");
     wait_for_output(&mut client, "before");
     client.detach().expect("detach");
     drop(client);
@@ -220,10 +237,18 @@ fn host_reattach_replays_output_produced_while_detached() {
 #[test]
 fn host_exits_when_child_exits_even_with_client_attached() {
     let temp = TempDir::new("sh-exit");
+    // `read x` keeps the child alive until this client is attached and sends a
+    // byte; only then does it print "done" and exit 7. Without this gate the
+    // child can `printf done; exit 7` and the host can reap it + tear down BEFORE
+    // the attach completes (observed deterministically on macOS: the connect then
+    // reads EOF mid-handshake), and even when the connect wins the race "done"
+    // may already be in the snapshot rather than a live Output frame. Gating on
+    // input makes "attach, observe live output, observe SessionExit" reliable on
+    // every platform while testing exactly the same propagation path.
     let config = host_config(
         temp.path(),
         "exits",
-        "printf done; exit 7",
+        "read x; printf done; exit 7",
         Duration::from_secs(10),
     );
     let socket_path = config.runtime_paths().expect("runtime paths").socket;
@@ -232,6 +257,9 @@ fn host_exits_when_child_exits_even_with_client_attached() {
     wait_for_socket(&socket_path);
     let mut client = SessionHostClient::connect(&socket_path, "exits").expect("attach");
     expect_snapshot(&mut client);
+    client
+        .send_input(b"\n")
+        .expect("trigger child output after attach");
     wait_for_output(&mut client, "done");
     expect_session_exit(&mut client, Some(7));
 

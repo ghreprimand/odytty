@@ -265,9 +265,18 @@ pub(super) struct AttachReader {
 /// `Output`/`Invalidate` seen first is tolerated and ignored; `SessionExit` or
 /// `Error` before the snapshot is a hard failure.
 fn read_initial_snapshot(stream: &mut UnixStream, deadline: Duration) -> Result<Vec<u8>> {
-    stream
-        .set_read_timeout(Some(SNAPSHOT_POLL))
-        .context("set session-host snapshot read timeout")?;
+    // Best-effort poll timeout. On macOS, if the host has ALREADY closed its end
+    // by the time we get here — a session that exits right after sending the
+    // snapshot, or (in tests) a fast fake host that writes the snapshot and drops
+    // — `set_read_timeout` on the now peer-closed socket returns EINVAL, whereas
+    // on Linux the same call succeeds. Propagating it (the previous `?`) would
+    // discard a snapshot that is still sitting readable in the socket buffer.
+    // Tolerate the failure: a closed peer makes reads return promptly (the
+    // buffered frames, then EOF) rather than blocking, so the deadline loop below
+    // stays bounded even without the poll timeout. When the peer is alive (the
+    // normal case) this succeeds on both platforms and the poll timeout drives the
+    // deadline exactly as before → byte-identical on Linux.
+    let _ = stream.set_read_timeout(Some(SNAPSHOT_POLL));
     let start = Instant::now();
     while start.elapsed() < deadline {
         match read_host_frame(stream) {

@@ -321,23 +321,37 @@ fn handle_attach(
     terminal: &Terminal,
     config: &HostConfig,
 ) -> Result<()> {
-    // The listener is nonblocking (set in `bind_listener`). On macOS/BSD an
-    // accept()ed connection INHERITS the listener's `O_NONBLOCK`; on Linux it does
-    // not. Clear it explicitly so the bounded read/write timeouts below give the
-    // intended blocking-with-deadline handshake semantics on both platforms —
-    // otherwise the macOS handshake read hits `WouldBlock` immediately, the host
-    // drops the connection, and the client reads EOF mid-hello ("failed to fill
-    // whole buffer"). On Linux the accepted socket is already blocking, so this is
-    // a harmless no-op → byte-identical.
-    stream
-        .set_nonblocking(false)
-        .context("clear nonblocking on accepted session-host stream")?;
-    stream
-        .set_read_timeout(Some(ATTACH_HANDSHAKE_TIMEOUT))
-        .context("set attach read timeout")?;
-    stream
-        .set_write_timeout(Some(ATTACH_WRITE_TIMEOUT))
-        .context("set attach write timeout")?;
+    // Configure the just-accepted connection for a bounded-blocking handshake.
+    //
+    // The listener is nonblocking (set in `bind_listener` so the run loop can poll
+    // `accept()`). On macOS/BSD an accept()ed connection INHERITS the listener's
+    // `O_NONBLOCK`; on Linux it does not. We clear it and apply bounded
+    // read/write deadlines so the handshake has the same blocking-with-deadline
+    // semantics on both platforms.
+    //
+    // CRUCIAL macOS/BSD divergence (the bug this guards): a connection whose peer
+    // has ALREADY closed by the time we accept it rejects `SO_RCVTIMEO` /
+    // `SO_SNDTIMEO` (i.e. `set_read_timeout` / `set_write_timeout`) with `EINVAL`
+    // on macOS, whereas the identical setsockopt SUCCEEDS on Linux. Such dead-peer
+    // connections are routine here: `wait_for_socket`, `spawn_host_on_demand`, and
+    // `cleanup_stale_socket` all `connect()` a liveness probe and drop it
+    // immediately, and that probe is frequently first in the accept backlog ahead
+    // of the real client. A probe carries no hello and is useless, so a setup
+    // failure must drop ONLY this one connection and let the accept loop keep
+    // serving. Propagating it (the previous `?`) tore down the entire host thread,
+    // so the next — real — client read EOF mid-hello ("failed to fill whole
+    // buffer"). On Linux these calls never fail, so this guard is unreachable
+    // there → byte-identical.
+    if stream.set_nonblocking(false).is_err()
+        || stream
+            .set_read_timeout(Some(ATTACH_HANDSHAKE_TIMEOUT))
+            .is_err()
+        || stream
+            .set_write_timeout(Some(ATTACH_WRITE_TIMEOUT))
+            .is_err()
+    {
+        return Ok(());
+    }
 
     let hello = match super::protocol::read_client_hello(stream) {
         Ok(hello) => hello,
@@ -383,6 +397,18 @@ fn handle_attach(
     write_host_hello(stream, &super::protocol::HostHello::accepted())?;
     let envelope = SnapshotEnvelope::from_terminal(terminal, config.snapshot_limits).encode();
     write_host_frame(stream, &HostFrame::Snapshot(envelope))?;
+
+    // Handshake done. Drop the read deadline now: the per-client reader thread
+    // below reads through a `try_clone`d fd that SHARES this socket's
+    // `SO_RCVTIMEO`, so if we left the 2s handshake read-timeout in place the
+    // reader would surface a spurious timeout error every 2s and the host would
+    // detach an attached-but-quiet client (a user who simply is not typing). With
+    // it cleared the reader blocks cleanly until the next frame or a clean EOF.
+    // The bounded WRITE timeout is deliberately retained so a wedged client can
+    // never stall the host's broadcast loop. On a live socket this clear succeeds
+    // on macOS and Linux alike; if it ever did not, the reader simply keeps the
+    // old bounded behavior, so it is best-effort.
+    let _ = stream.set_read_timeout(None);
 
     let id = *next_client_id;
     *next_client_id += 1;

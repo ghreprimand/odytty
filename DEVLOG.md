@@ -7,6 +7,89 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- macOS session-host: the REAL root cause, fixed on hardware (dead-peer SO_RCVTIMEO EINVAL)
+
+First session-host work done on **real macOS hardware** (Apple Silicon, macOS 26).
+The previous three entries were blind-from-Linux attempts; this one corrects them
+with measured evidence and makes `cargo test --locked` fully green and *exiting*
+on macOS for the first time.
+
+**Toolchain note (why the tree wouldn't even build here at first).** The box ships
+Homebrew rustc 1.94.0, but commit `dcc0039` ("Fix clippy warnings in tests and
+benches") had reverted the `*rng.pick(...)` deref that `73bd655` added, so the
+fuzz suites only compile under the inference behaviour of **rustc 1.96** — the
+green-Linux reference toolchain (GitHub's `macos-26` image is on 1.95.0, where the
+tree also fails to compile its tests). Installed 1.96.0 via rustup to match the
+authoritative green toolchain before touching anything; `cargo fmt --check`,
+`clippy --all-targets -D warnings`, and the full suite are all clean under it.
+
+**The "hang" was never a hang.** Under a per-test `perl alarm` watchdog, four
+`session_host` tests *failed fast* with `read session-host hello: failed to fill
+whole buffer`; the apparent 30s "hang" was `cargo test` not reaping a leaked PTY
+child after the fast panic, not a stuck syscall. The three `native::attach` /
+e2e tests already passed (the e2e one only because it **retries** attaches).
+
+**Root cause (one real BSD/Linux divergence, reproduced in a 30-line repro).** On
+macOS, calling `set_read_timeout` / `set_write_timeout` (i.e. `setsockopt`
+`SO_RCVTIMEO` / `SO_SNDTIMEO`) on an `accept()`ed `AF_UNIX` socket **whose peer
+has already closed** returns `EINVAL`; on Linux the identical call *succeeds*.
+Dead-peer connections are routine here: `wait_for_socket`, `spawn_host_on_demand`,
+and `cleanup_stale_socket` each `connect()` a liveness probe and drop it
+immediately, and that probe is frequently first in the accept backlog. The host's
+`handle_attach` did `set_read_timeout(...)?` — so the `?` propagated the EINVAL up
+through `accept_pending_clients` → `run_host` and **tore down the entire host
+thread**, and the next (real) client read EOF mid-handshake. The accepted socket
+was otherwise perfectly healthy (`SO_TYPE=SOCK_STREAM`, `SO_ERROR=0`, blocking);
+only the timeout setsockopt rejected it. The earlier "accepted sockets inherit
+`O_NONBLOCK`" theory was a red herring — `set_nonblocking(false)` always succeeded;
+it was always the timeout call.
+
+**Fixes (product code; all inherently no-ops on Linux, where the EINVAL never
+occurs).**
+
+- `session_host::host::handle_attach` — a per-connection socket-setup failure now
+  drops *only that connection* and lets the accept loop keep serving, instead of
+  propagating and killing the host. This is the headline fix (4 of the 7 tests).
+- `session_host::host::handle_attach` — after the handshake, clear the read
+  deadline so the per-client reader thread (which shares `SO_RCVTIMEO` through its
+  `try_clone`d fd) blocks cleanly until a frame or EOF, rather than inheriting the
+  2s handshake timeout and spuriously detaching an attached-but-quiet client every
+  2s. The bounded *write* timeout is kept so a wedged client can't stall the
+  broadcast loop.
+- `native::attach::read_initial_snapshot` and `session_host::client::read_frame`
+  — the poll-timeout setsockopt is now best-effort for the same reason on the
+  *client* side: a session that exits right after sending its snapshot (or a fast
+  fake host in tests) closes the peer, and the buffered snapshot / final
+  `SessionExit` are still readable. A closed peer makes reads return promptly, so
+  dropping the poll timeout cannot hang. (The stale "EINVAL on a cloned stream"
+  comment in `connect_with` was a misdiagnosis — verified on hardware that
+  clearing the timeout on a *live* clone succeeds; EINVAL is purely a dead-peer
+  effect.)
+
+**Test-harness determinism (not skips — the feature is fixed in product).** Three
+`session_host` tests assumed attach-happens-before-the-child-produces-output;
+macOS's faster process scheduling violates that, folding the marker into the
+attach *snapshot* (so `wait_for_output` waits forever) or letting a `printf;exit`
+child reap the host before the client attaches. They now gate the child's marker
+on a post-attach input byte (`read x; printf …`), exactly the input-driven-child
+pattern the real-process e2e test already relies on — testing the same paths,
+deterministically, on every platform. Separately, the two socket-binding
+`tests/cli.rs` cases overflowed the macOS 104-byte `AF_UNIX` `sun_path` limit via
+verbose nanos-timestamped temp dirs (a pre-existing failure, the same class the
+lib `TempDir`/e2e `unique_base` helpers already avoid); their `TempDir` now uses a
+short pid+counter name.
+
+Verified on macOS 26 / rustc 1.96.0: `cargo fmt --check` clean; `cargo clippy
+--all-targets --locked -D warnings` clean; full `cargo test --locked` green and
+*exiting* — lib 2163 pass / 9 ignored, `cli` 21/21, e2e 1/1, `gpu_composite_smoke`
+3/3 byte-identity, `license_headers` 1/1. Each of the 7 formerly-failing tests
+looped 10× with zero flakes; the full suite run three times back-to-back with no
+residual hang. Linux is untouched (every changed setsockopt path is a no-op there).
+The macOS-`#[ignore]`d off-main-thread `EventLoop` test is left as the one accepted
+exception, per standing decision.
+
+---
+
 ## 2026-06-22 -- macOS session-host: BSD socket semantics (nonblocking inherit + EINVAL)
 
 With the macOS host now compiling and *binding* (sun_path fix landed), CI surfaced

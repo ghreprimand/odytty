@@ -4,7 +4,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use odytty::core::Dimensions;
 use odytty::native::NativeCommand;
@@ -267,7 +267,9 @@ fn list_sessions_output_is_script_friendly_and_escaped() {
 
 #[test]
 fn new_detached_prints_session_id_without_spawning_in_tests() {
-    let temp = TempDir::new("odytty-cli-new-detached");
+    // Short prefix: this test binds a real session-host socket, so the runtime
+    // base must stay well under the macOS 104-byte AF_UNIX `sun_path` limit.
+    let temp = TempDir::new("cli-nd");
     let options = cli::DetachedSessionOptions {
         id: Some("s-test".to_owned()),
         title: Some("Test Session".to_owned()),
@@ -302,7 +304,9 @@ fn attach_reports_unknown_session_without_creating_daemons() {
 
 #[test]
 fn list_and_attach_use_live_session_host_without_scrollback_dump() {
-    let temp = TempDir::new("odytty-cli-live-session");
+    // Short prefix: this test binds a real session-host socket, so the runtime
+    // base must stay well under the macOS 104-byte AF_UNIX `sun_path` limit.
+    let temp = TempDir::new("cli-ls");
     let mut config = HostConfig::new("s-live");
     config.runtime_base = Some(temp.path().to_owned());
     config.command = HostCommand::ShellCommand("printf private-output; sleep 5".to_owned());
@@ -466,11 +470,17 @@ struct TempDir {
 
 impl TempDir {
     fn new(prefix: &str) -> Self {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock before unix epoch")
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!("{prefix}-{}-{nanos}", std::process::id()));
+        // Keep this directory name SHORT (pid + a process-global counter, no nanos
+        // timestamp). The CLI session-host binds `<base>/odytty/session-<id>.sock`
+        // and, on macOS, `std::env::temp_dir()` is a long `/var/folders/.../T/`
+        // path; a verbose, nanos-timestamped base overflows the 104-byte AF_UNIX
+        // `sun_path` limit and the host refuses to bind. pid disambiguates across
+        // processes and the counter within one, matching the lib-test and e2e
+        // helpers. Pass a short `prefix`.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("{prefix}-{}-{seq}", std::process::id()));
         fs::create_dir(&path).expect("create temp dir");
         Self { path }
     }

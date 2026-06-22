@@ -34,9 +34,16 @@ impl SessionHostClient {
     }
 
     pub fn read_frame(&mut self, timeout: Duration) -> Result<Option<HostFrame>> {
-        self.stream
-            .set_read_timeout(Some(timeout))
-            .context("set session-host read timeout")?;
+        // Best-effort poll timeout. On macOS, once the host has closed its end
+        // (the session exited), `set_read_timeout` on the now peer-closed socket
+        // returns EINVAL, whereas on Linux it succeeds. The host's final buffered
+        // frames (e.g. `SessionExit`) are still readable, so failing here would
+        // drop them and surface a confusing "Invalid argument" instead. A closed
+        // peer makes the read below return promptly (buffered frame, then EOF)
+        // rather than blocking, so dropping the poll timeout cannot hang; a live
+        // peer never trips the EINVAL and the timeout still bounds the poll exactly
+        // as before → byte-identical on Linux.
+        let _ = self.stream.set_read_timeout(Some(timeout));
         match read_host_frame(&mut self.stream) {
             Ok(frame) => Ok(Some(frame)),
             Err(ProtocolError::Io(error))
