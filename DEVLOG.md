@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- macOS session-host: BSD socket semantics (nonblocking inherit + EINVAL)
+
+With the macOS host now compiling and *binding* (sun_path fix landed), CI surfaced
+7 remaining macOS test failures — both textbook BSD-vs-Linux socket differences,
+neither a test artifact. Both fixes are product code and no-ops on Linux.
+
+- **Host side — accepted sockets inherit `O_NONBLOCK` on BSD (5 failures:
+  4 session_host + 1 e2e, "failed to fill whole buffer").** The session-host
+  listener is nonblocking (`bind_listener` sets `set_nonblocking(true)` so the run
+  loop can poll `accept()`). On macOS/BSD an `accept()`ed connection **inherits**
+  the listener's `O_NONBLOCK`; on Linux it does not. So on macOS the accepted
+  stream was nonblocking, and setting read/write *timeouts* on it does not restore
+  blocking — `read_client_hello` hit `WouldBlock` immediately, the host dropped the
+  connection, and the client read EOF mid-handshake ("failed to fill whole
+  buffer"). Fix: `handle_attach` now calls `stream.set_nonblocking(false)`
+  immediately on the accepted stream, before the handshake timeouts, giving
+  bounded-blocking semantics on both platforms. On Linux the accepted socket is
+  already blocking → harmless no-op, byte-identical.
+
+- **Client side — `set_read_timeout(None)` returns EINVAL on a cloned macOS socket
+  (2 native attach failures, "Invalid argument (os error 22)").** In
+  `AttachClient::connect_with`, after `try_clone`ing the stream for the read pump,
+  the timeout reset propagated its error with `?`. On macOS that call returns
+  EINVAL on the cloned fd, failing the whole attach. The pump thread
+  (`run_attach_pump`) already re-clears the timeout best-effort with `let _ = ...`
+  before its first read and governs the actual read semantics, so the `?` at
+  connect time was both redundant and the bug. Fix: make it best-effort
+  (`let _ = read_stream.set_read_timeout(None);`) to match the pump. On Linux the
+  call succeeds and ignoring success is a no-op → byte-identical.
+
+Verified on Linux (cannot run macOS; no rustup/Darwin target on this box):
+`cargo clippy --all-targets --locked -- -D warnings` clean; full
+`cargo test --locked --lib` 2166 passed / 0 failed; session_host 8/0, attach 13/0,
+e2e 1/0; integration bins `gpu_composite_smoke` 3/3 byte-identity, `license_headers`
+1/1, `cli` 21/21. macOS effect confirmed on the GitHub runner.
+
+---
+
 ## 2026-06-22 -- macOS clippy: needless_return in the cfg(macos) runtime-dir arm
 
 The macOS session-host packet (`b83b08c`) turned Ubuntu CI fully green but failed

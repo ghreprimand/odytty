@@ -139,10 +139,14 @@ impl AttachClient {
             .try_clone()
             .context("clone session-host attach stream")?;
         // The pump reads with blocking semantics; clear any poll timeout left on
-        // the shared fd from the snapshot wait.
-        read_stream
-            .set_read_timeout(None)
-            .context("reset attach read timeout")?;
+        // the shared fd from the snapshot wait. Best-effort, matching the pump
+        // thread's own clear in `run_attach_pump` (which governs the actual read
+        // semantics): on macOS `set_read_timeout(None)` on a `try_clone`d stream
+        // returns EINVAL, so propagating it with `?` would fail the whole attach
+        // for no reason — the pump re-clears the timeout before its first read, so
+        // nothing is lost. On Linux the call succeeds and ignoring success is a
+        // no-op → byte-identical.
+        let _ = read_stream.set_read_timeout(None);
         Ok((
             Self {
                 stream,

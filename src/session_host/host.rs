@@ -321,6 +321,17 @@ fn handle_attach(
     terminal: &Terminal,
     config: &HostConfig,
 ) -> Result<()> {
+    // The listener is nonblocking (set in `bind_listener`). On macOS/BSD an
+    // accept()ed connection INHERITS the listener's `O_NONBLOCK`; on Linux it does
+    // not. Clear it explicitly so the bounded read/write timeouts below give the
+    // intended blocking-with-deadline handshake semantics on both platforms —
+    // otherwise the macOS handshake read hits `WouldBlock` immediately, the host
+    // drops the connection, and the client reads EOF mid-hello ("failed to fill
+    // whole buffer"). On Linux the accepted socket is already blocking, so this is
+    // a harmless no-op → byte-identical.
+    stream
+        .set_nonblocking(false)
+        .context("clear nonblocking on accepted session-host stream")?;
     stream
         .set_read_timeout(Some(ATTACH_HANDSHAKE_TIMEOUT))
         .context("set attach read timeout")?;
