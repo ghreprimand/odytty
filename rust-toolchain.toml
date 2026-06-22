@@ -1,0 +1,15 @@
+# Pin the toolchain so CI is reproducible across GitHub runner image updates.
+#
+# The test and fuzz suites rely on a method-resolution/deref-coercion behavior
+# that compiles on Rust 1.96 but not on 1.95 (see `rng.pick(...)` sites in
+# src/core/graphics_fuzz_tests.rs and tests/protocol_fuzz.rs). Without a pin,
+# CI passing depends on whichever rustc the runner happens to ship — a 1.95
+# macOS image would fail to compile the tests. Pinning makes the build
+# deterministic on every platform and for contributors.
+#
+# rustup auto-installs this toolchain on first cargo invocation (CI runners have
+# rustup), including the listed components used by the CI gate (cargo fmt /
+# cargo clippy).
+[toolchain]
+channel = "1.96.0"
+components = ["clippy", "rustfmt"]

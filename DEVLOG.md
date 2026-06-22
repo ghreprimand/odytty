@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Pin the toolchain (rust-toolchain.toml) so CI is reproducible
+
+CI green-ness was depending on whichever rustc the GitHub runner image happened
+to ship. The test/fuzz suites compile under rustc **1.96** but not **1.95**
+(commit `dcc0039` removed a `*rng.pick(...)` deref whose validity hinges on
+1.96's deref-coercion in method resolution; see the `rng.pick(...)` sites in
+`src/core/graphics_fuzz_tests.rs` and `tests/protocol_fuzz.rs`). A runner that
+defaulted to 1.95 would fail to compile the tests even though nothing in the
+tree changed.
+
+Added `rust-toolchain.toml` pinning `channel = "1.96.0"` with the `clippy` +
+`rustfmt` components the CI gate uses. rustup honors this on first cargo
+invocation (GitHub runners have rustup), so every platform builds with the exact
+toolchain we validate against — deterministic regardless of image drift, and the
+same toolchain contributors get automatically.
+
+Chose pinning over re-adding the portable `*` derefs: the deref approach can only
+be exhaustively verified with a 1.95 toolchain on hand (a missed coercion site
+would fail undetectably from a 1.96-only box), whereas the pin is verifiable —
+it freezes the version already proven green on both platforms. No source change,
+no behavior change; Linux gate re-run clean (lib 2166/0, cli 21/21,
+gpu_composite_smoke 3/3 byte-identity, fmt/clippy clean) with the file present.
+
+---
+
 ## 2026-06-22 -- macOS session-host: the REAL root cause, fixed on hardware (dead-peer SO_RCVTIMEO EINVAL)
 
 First session-host work done on **real macOS hardware** (Apple Silicon, macOS 26).
