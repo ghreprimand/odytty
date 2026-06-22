@@ -385,6 +385,16 @@ impl App {
         // `OverlayTop` borrow outlives the GPU call.
         let overlay_top = self.build_overlay_top(content, cell);
         let treatment_for_overlay = treatment;
+        // Solid quads composited over the pane snapshots: the inter-pane
+        // dividers plus the tab strip's own quads (the active-tab outline). Both
+        // draw above the pane content; the active-tab outline lands on the
+        // top-row strip and the dividers in the content gaps, so they never
+        // overlap. Empty when the strip is hidden / no outline is emitted, so
+        // the zoomed and single-tab multi-pane frames are unchanged.
+        let mut frame_quads = divider_quads;
+        if let Some((_, strip_quads)) = tab_strip.as_ref() {
+            frame_quads.extend_from_slice(strip_quads);
+        }
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_scroll_frac_offset(0.0);
             let overlay = overlay_top.as_ref().map(|(snapshot, origin)| OverlayTop {
@@ -392,7 +402,7 @@ impl App {
                 origin: *origin,
                 treatment: treatment_for_overlay,
             });
-            gpu.update_from_panes(&panes, &divider_quads, overlay);
+            gpu.update_from_panes(&panes, &frame_quads, overlay);
         }
         // Multi-pane v1 does not participate in the single-pane render-signature
         // cache; it rebuilds whenever a visible pane requests a redraw. Reset
@@ -433,6 +443,7 @@ impl App {
             self.effective_theme.foreground,
             self.effective_theme.background,
             self.effective_theme.selection,
+            self.effective_theme.border,
         );
         for glyph in output.glyphs {
             if glyph.col < columns {

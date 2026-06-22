@@ -610,17 +610,31 @@ impl App {
     }
 
     fn close_active_tab(&mut self) -> bool {
-        if self.sessions.iter().count() <= 1 {
+        // "Close Tab" reaps the ENTIRE active tab — every leaf session in its
+        // layout tree — and removes the tab, regardless of pane count. This is
+        // distinct from "Close Pane" (`close_focused_pane`), which collapses a
+        // single leaf and keeps a multi-pane tab alive (Director, explicit).
+        //
+        // Exit keys on the last *tab*, never on the last *pane*: closing the
+        // sole tab — even a multi-pane one — signals app exit. We guard on
+        // `tab_count() <= 1` first and return without reaping, preserving the
+        // existing shutdown path exactly (the app tears down sessions on exit;
+        // reaping here would empty the `TabSet` and make any `active()` Deref
+        // before exit panic). Byte-identical to the old last-close path.
+        if self.sessions.tab_count() <= 1 {
             self.pending_exit = true;
             return true;
         }
-        let is_last = self.sessions.close(self.sessions.active_id());
-        if !is_last {
-            self.on_active_session_changed();
-        } else {
-            self.pending_exit = true;
+        // 2+ tabs: reap the whole active tab (every pane) and remove it.
+        let _ = self.sessions.close_active_tab();
+        // Switching to a surviving tab may return the input path to the plain
+        // single-pane fast path; clear any pending multiplexer prefix so a
+        // stale state can't swallow the next key.
+        if self.sessions.active_is_single_pane() {
+            self.prefix_engine.cancel();
         }
-        is_last
+        self.on_active_session_changed();
+        false
     }
 
     /// Dispatch a multiplexer pane action resolved on the prefix (§7, K2). The
@@ -1514,6 +1528,7 @@ impl App {
             self.effective_theme.foreground,
             self.effective_theme.background,
             self.effective_theme.selection,
+            self.effective_theme.border,
         );
         for glyph in output.glyphs {
             if glyph.col < columns {

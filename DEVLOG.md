@@ -7,6 +7,56 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Close Tab vs Close Pane semantics + active-tab outline
+
+Operator validation surfaced a definitive close-semantics defect (root-caused by
+the Director): in a multi-pane tab, **"Close Tab" only closed a pane**, behaving
+identically to "Close Pane". Both `App::close_active_tab`'s exit guard
+(`iter().count()`, which counts total *panes*) and its body
+(`sessions.close(active_id())`, which collapses one *leaf*) were pane-level, not
+tab-level.
+
+- **Bug 1 — Close Tab now reaps the whole active tab.** New core method
+  `TabSet::close_active_tab` reaps every leaf session in the active tab's layout
+  tree via `Session::close`, removes the tab, and fixes `active_tab` exactly like
+  the `None` branch of `close_with`. It returns `true` iff no tabs remain.
+  `App::close_active_tab` now guards exit on `tab_count() <= 1` (the last *tab*,
+  never the last *pane*) and otherwise reaps the whole active tab. A single-pane
+  tab closes byte-identically to the old `close(active_id())` path; the last-tab
+  exit path is unchanged (no reap, just `pending_exit`). "Close Pane"
+  (`close_focused_pane`) is untouched — it still collapses one leaf and keeps a
+  multi-pane tab alive.
+
+- **Bug 2 / Bug 3 (mouse new-tab dies after a mislabeled close; intermittent
+  right-click New Tab) — resolved as a downstream of Bug 1.** The broken Close
+  Tab left a multi-pane tab collapsed to a single *stale* survivor: it routed
+  through `on_active_session_changed → resize_grid_with_padding`, whose
+  `new_grid == self.grid` short-circuit skipped the survivor reflow whenever the
+  tab bar stayed visible (2+ tabs). The survivor kept its half-width split grid
+  while `active_is_single_pane()` reported single-pane, so the tab-bar/`+`
+  hit-tests mis-routed. With Close Tab now removing the whole tab, that stale
+  state can no longer arise; Close Pane already reflows unconditionally via
+  `reflow_active_panes_and_redraw`. Flagged for operator hardware re-test.
+
+- **UX — active-tab outline.** The active tab's cell-background highlight read as
+  "too transparent" over background images. `TabBar::render` now emits a thin,
+  fully-opaque themed ring (four `SolidQuad` edges, `border` role) framing the
+  active slot, routed through the existing tab-bar quad path (single-pane path
+  appends to `overlays`; multi-pane path merges into `frame_quads` alongside the
+  dividers). Single-pane windows never show the tab bar, so the plain/fast path
+  is inert.
+
+Tests: four core units proving Close Tab reaps the whole multi-pane tab, differs
+from Close Pane, exits only on the last tab (even multi-pane), and is
+byte-identical to `close(active_id())` on a single-pane tab; two tab-bar render
+units pinning the active outline ring geometry + opacity.
+
+Verified: `cargo test --lib` 2159 passed; `gpu_composite_smoke` 3/3
+byte-identity; `license_headers` green; `cargo fmt --check` clean; `cargo clippy
+--lib --tests -D warnings` clean.
+
+---
+
 ## 2026-06-22 -- Emoji presentation narrowing + mono fallback guard
 
 Fixed a glyph-routing overclaim that sent whole Unicode symbol blocks through

@@ -182,6 +182,7 @@ impl TabBar {
         foreground: Srgb,
         background: Srgb,
         active_bg: Srgb,
+        active_border: Srgb,
     ) -> TabBarOutput {
         if grid_cols == 0 || cell.height == 0 || cell.width == 0 {
             return TabBarOutput::default();
@@ -196,9 +197,15 @@ impl TabBar {
             glyph.col = col;
         }
 
+        // Column span of the active slot, captured during the loop so the
+        // active-tab outline can be drawn in pixel space afterward.
+        let mut active_span: Option<(usize, usize)> = None;
         for slot in &layout.slots {
             let is_active = slot.idx == source.active_tab();
             let is_hovered = is_slot_hovered(self.hover, slot.idx);
+            if is_active {
+                active_span = Some((slot.start_col, slot.end_col));
+            }
             let slot_bg = if is_active || is_hovered {
                 active_bg_color
             } else {
@@ -249,7 +256,22 @@ impl TabBar {
             }
         }
 
-        let _ = (padding, y_offset_px, cell);
+        // Active-tab outline: a thin themed ring around the active slot, drawn
+        // in pixel space over the cell backgrounds. Cell backgrounds alone read
+        // as "too transparent" over background images/treatments (operator), so
+        // the opaque outline gives the active tab a clear, image-proof edge.
+        // Single-pane windows never render the tab bar, so this is inert on the
+        // plain/fast path (no slots ⇒ no quads).
+        if let Some((start_col, end_col)) = active_span {
+            out.quads.extend(active_tab_outline(
+                start_col,
+                end_col,
+                y_offset_px,
+                cell,
+                padding,
+                active_border,
+            ));
+        }
         out.glyphs = row;
         out
     }
@@ -431,6 +453,57 @@ fn truncate_label(s: &str, max_cols: usize) -> String {
     out
 }
 
+/// Pixel-space outline (a hollow ring of four [`SolidQuad`]s) framing the active
+/// tab slot over the single tab-bar row. `start_col..end_col` are the active
+/// slot's columns; `y_offset_px` is the top of the bar row; `cell`/`padding` map
+/// columns to physical pixels. The ring uses the themed `border` role and is
+/// fully opaque so it reads clearly over background images/treatments — the
+/// cell-background highlight alone looked "too transparent" (operator). Returns
+/// an empty vec for a degenerate (zero-width / zero-height) slot. The four edges
+/// tile the ring without overlapping at the corners: top and bottom span the
+/// full width; left and right fill the vertical gap between them.
+fn active_tab_outline(
+    start_col: usize,
+    end_col: usize,
+    y_offset_px: f32,
+    cell: CellSize,
+    padding: WindowPadding,
+    border: Srgb,
+) -> Vec<SolidQuad> {
+    if end_col <= start_col || cell.width == 0 || cell.height == 0 {
+        return Vec::new();
+    }
+    let pad = padding.as_f32();
+    let cw = cell.width as f32;
+    let ch = cell.height as f32;
+    // Outline thickness ~1–2px, scaled gently with cell height, clamped so it
+    // never swallows a short row.
+    let thickness = (ch / 10.0).clamp(1.0, 2.0);
+    let x0 = pad + start_col as f32 * cw;
+    let x1 = pad + end_col as f32 * cw;
+    let y0 = y_offset_px;
+    let y1 = y_offset_px + ch;
+    let color = srgb_alpha(border, 1.0);
+    vec![
+        SolidQuad {
+            rect: [x0, y0, x1, y0 + thickness],
+            color,
+        }, // top
+        SolidQuad {
+            rect: [x0, y1 - thickness, x1, y1],
+            color,
+        }, // bottom
+        SolidQuad {
+            rect: [x0, y0 + thickness, x0 + thickness, y1 - thickness],
+            color,
+        }, // left
+        SolidQuad {
+            rect: [x1 - thickness, y0 + thickness, x1, y1 - thickness],
+            color,
+        }, // right
+    ]
+}
+
 /// Convert an sRGB colour tuple + alpha to a linear-RGBA `[f32; 4]` array
 /// suitable for [`SolidQuad::color`].
 fn srgb_alpha(color: Srgb, alpha: f32) -> [f32; 4] {
@@ -505,6 +578,7 @@ mod tests {
             (0xCC, 0xCC, 0xCC),
             (0x10, 0x10, 0x10),
             (0x40, 0x60, 0x90),
+            (0xE0, 0xE0, 0xE0),
         )
     }
 
@@ -838,6 +912,7 @@ mod tests {
             (0xCC, 0xCC, 0xCC),
             (0x10, 0x10, 0x10),
             (0x40, 0x60, 0x90),
+            (0xE0, 0xE0, 0xE0),
         );
         assert_eq!(out.glyphs.len(), 20, "one glyph per column");
     }
@@ -864,6 +939,49 @@ mod tests {
             out.glyphs[gap_col].attrs.background,
             out.glyphs[slot.label_col].attrs.background
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Active-tab outline (the operator's "thin line surrounding a tab")
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn active_tab_emits_a_themed_outline_ring() {
+        // Two tabs, second active: the active slot must carry a four-quad ring
+        // (top/bottom/left/right) that frames exactly its column span.
+        let src = MockSource::new(&["a", "b"], 1);
+        let out = render_default(&src);
+        assert_eq!(
+            out.quads.len(),
+            4,
+            "active slot frames a hollow ring of four edges"
+        );
+        let layout = compute_layout(&src, GRID_COLS);
+        let active = &layout.slots[1];
+        let x0 = active.start_col as f32 * CELL.width as f32;
+        let x1 = active.end_col as f32 * CELL.width as f32;
+        // Every quad lies within the active slot's pixel span and the single
+        // tab-bar row, i.e. it frames the active tab and nothing else.
+        for q in &out.quads {
+            assert!(
+                q.rect[0] >= x0 - 0.01 && q.rect[2] <= x1 + 0.01,
+                "x in slot"
+            );
+            assert!(
+                q.rect[1] >= 0.0 && q.rect[3] <= CELL.height as f32 + 0.01,
+                "y in row"
+            );
+            assert!((q.color[3] - 1.0).abs() < f32::EPSILON, "opaque outline");
+        }
+    }
+
+    #[test]
+    fn single_tab_outline_frames_the_sole_active_tab() {
+        // Even one tab is "active" — the outline still renders, but the plain
+        // single-pane window never shows the tab bar, so this is inert there.
+        let src = MockSource::new(&["only"], 0);
+        let out = render_default(&src);
+        assert_eq!(out.quads.len(), 4, "the sole tab is active and outlined");
     }
 
     // -----------------------------------------------------------------------

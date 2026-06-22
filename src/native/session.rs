@@ -932,6 +932,45 @@ impl TabSet {
         self.close_with(token, Session::close_after_shell_exit)
     }
 
+    /// Close the **entire active tab** — reap every leaf session in its layout
+    /// tree and remove the tab from the strip — regardless of how many panes it
+    /// holds. This is the "Close Tab" semantics (Director, explicit): closing a
+    /// tab closes the tab you are in even when it holds multiple panes, and it
+    /// must not behave like "Close Pane".
+    ///
+    /// Distinct from [`Self::close`] / `close_focused_pane`, which collapse a
+    /// single leaf into its sibling and keep a multi-pane tab alive. For a
+    /// single-pane tab this reaps the one session and removes the tab —
+    /// byte-identical to the old `close(active_id())` path (the `None` branch of
+    /// [`Self::close_with`]).
+    ///
+    /// Returns `true` iff no tabs remain afterward, i.e. the last tab was
+    /// closed and the caller should signal app exit. Exit keys on the **last
+    /// tab**, never on the last pane.
+    pub(super) fn close_active_tab(&mut self) -> bool {
+        let tab_idx = self.active_tab;
+        // Collect every owned leaf token first (owned `Vec`, so the immutable
+        // borrow of `self.tabs` ends before the reap loop mutates `self`).
+        let tokens = match self.tabs.get(tab_idx) {
+            Some(tab) => tab.layout.leaves(),
+            None => return self.tabs.is_empty(),
+        };
+        for token in tokens {
+            if let Some(session) = self.sessions.remove(&token) {
+                let _ = session.close();
+            }
+        }
+        // Remove the tab and fix `active_tab` exactly like `close_with`'s `None`
+        // branch for the closed tab being the active one (it always is here).
+        self.tabs.remove(tab_idx);
+        if self.tabs.is_empty() {
+            self.active_tab = 0;
+            return true;
+        }
+        self.active_tab = tab_idx.min(self.tabs.len() - 1);
+        false
+    }
+
     fn close_with(
         &mut self,
         token: SessionToken,
@@ -1359,6 +1398,90 @@ mod tests {
         assert_eq!(set.active_pane_count(), 1);
         assert!(set.active_is_single_pane());
         assert_eq!(set.active_id(), SessionToken(0));
+    }
+
+    #[test]
+    fn close_active_tab_reaps_the_whole_multi_pane_tab() {
+        // tab0 = two panes (sessions 0 + 1); tab1 = single pane (session 2).
+        let mut set = TabSet::new(build_session(), None);
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        set.push(build_session_with_id(SessionToken(2)));
+        assert_eq!(set.tab_count(), 2);
+        assert_eq!(set.len(), 3, "three sessions across two tabs");
+        // The active tab (tab0) is multi-pane.
+        assert!(!set.active_is_single_pane());
+
+        // "Close Tab" removes the ENTIRE active tab — both leaf sessions reaped,
+        // the tab gone — not just the focused pane.
+        let last = set.close_active_tab();
+        assert!(!last, "another tab remains, so not the last tab");
+        assert_eq!(set.tab_count(), 1, "the whole multi-pane tab was removed");
+        assert_eq!(set.len(), 1, "both panes of the closed tab were reaped");
+        // The survivor is tab1's session, now the active single-pane tab.
+        assert_eq!(set.active_id(), SessionToken(2));
+        assert!(set.active_is_single_pane());
+    }
+
+    #[test]
+    fn close_active_tab_differs_from_close_pane_on_a_multi_pane_tab() {
+        // Two structurally identical multi-pane sets; one gets Close Tab, the
+        // other Close Pane. Prove the outcomes differ (the operator's core bug:
+        // Close Tab must not behave like Close Pane).
+        let build = || {
+            let mut set = TabSet::new(build_session(), None);
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+            set.push(build_session_with_id(SessionToken(2)));
+            set
+        };
+
+        // Close Tab: the multi-pane tab is gone entirely.
+        let mut close_tab = build();
+        close_tab.close_active_tab();
+        assert_eq!(close_tab.tab_count(), 1);
+        assert_eq!(close_tab.active_pane_count(), 1);
+
+        // Close Pane: collapses one leaf, the multi-pane tab SURVIVES as single.
+        let mut close_pane = build();
+        close_pane.close(close_pane.active_id());
+        assert_eq!(close_pane.tab_count(), 2, "Close Pane keeps the tab");
+        // The formerly multi-pane tab is now single-pane but still present.
+        assert!(close_pane.active_is_single_pane());
+
+        // The defining contrast: same starting state, different tab counts.
+        assert_ne!(close_tab.tab_count(), close_pane.tab_count());
+    }
+
+    #[test]
+    fn close_active_tab_on_the_last_tab_signals_exit_even_when_multi_pane() {
+        // A single tab holding multiple panes: Close Tab on it is the last tab,
+        // so it empties the set (the App maps this to app exit). Exit keys on
+        // the last TAB, never on the last pane.
+        let mut set = TabSet::new(build_session(), None);
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        assert_eq!(set.tab_count(), 1);
+        assert!(!set.active_is_single_pane());
+
+        let last = set.close_active_tab();
+        assert!(last, "closing the sole tab empties the set");
+        assert!(set.is_empty());
+    }
+
+    #[test]
+    fn close_active_tab_on_a_single_pane_tab_matches_close_active_id() {
+        // Single-pane byte-identical proof: Close Tab on a single-pane tab does
+        // exactly what the old `close(active_id())` path did — same surviving
+        // session, same active token, same tab count.
+        let mut via_close_tab = TabSet::new(build_session(), None);
+        via_close_tab.push(build_session_with_id(SessionToken(1)));
+        let mut via_close_id = TabSet::new(build_session(), None);
+        via_close_id.push(build_session_with_id(SessionToken(1)));
+
+        let last_a = via_close_tab.close_active_tab();
+        let last_b = via_close_id.close(via_close_id.active_id());
+        assert_eq!(last_a, last_b);
+        assert_eq!(via_close_tab.tab_count(), via_close_id.tab_count());
+        assert_eq!(via_close_tab.active_id(), via_close_id.active_id());
+        assert_eq!(via_close_tab.len(), via_close_id.len());
     }
 
     #[test]

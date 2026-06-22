@@ -899,6 +899,17 @@ feature validates against.
       context-menu entries.
 - [x] Offset in-band image placements correctly while the tab bar is visible.
 - [x] Custom tab renaming if shell titles prove insufficient.
+- [x] Close Tab vs Close Pane semantics: closing a tab reaps the **whole** active
+      tab (every leaf session in its layout tree) via `TabSet::close_active_tab`,
+      distinct from Close Pane which collapses a single leaf and keeps a
+      multi-pane tab alive. App exit keys on the last *tab* (`tab_count() <= 1`),
+      never the last *pane*; single-pane close stays byte-identical. Fixing this
+      also cleared the downstream stale-survivor geometry that broke mouse
+      new-tab routing after a mislabeled close.
+- [x] Active-tab outline: a thin, fully-opaque themed ring (four `SolidQuad`
+      edges, `border` role) frames the active tab so it reads clearly over
+      background images/treatments. Single-pane windows show no tab bar, so the
+      plain/fast path is inert.
 - [x] Resumable-session architecture decision: use an OdyTTY-owned detached
       session-host process, with live PTYs owned outside the window process and
       reattach over a per-user local-only socket.

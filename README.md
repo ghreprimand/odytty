@@ -327,11 +327,15 @@ Animation and Kitty Unicode placeholders are not supported.
 
 The native app runs multiple sessions. `Ctrl+Shift+T` opens a new tab,
 `Ctrl+Shift+W` closes the active tab, and `Ctrl+PageDown` /
-`Ctrl+PageUp` switch tabs. The tab bar appears when two or more sessions exist;
-a single shell keeps the original full-grid view. Inline graphics are offset by
-the same reserved tab-bar row as text, so Kitty/Sixel placements stay aligned
-with the visible grid while the bar is shown. Right-click a tab to rename it for
-the session; the custom name overrides shell title updates until cleared.
+`Ctrl+PageUp` switch tabs. Closing a tab closes the **whole** tab — every pane
+it holds — which is distinct from closing a single pane (see "Close Pane"
+below); closing the last remaining tab quits the app. The tab bar appears when
+two or more sessions exist; a single shell keeps the original full-grid view.
+The active tab is framed with a thin themed outline so it stays legible over
+background images and treatments. Inline graphics are offset by the same
+reserved tab-bar row as text, so Kitty/Sixel placements stay aligned with the
+visible grid while the bar is shown. Right-click a tab to rename it for the
+session; the custom name overrides shell title updates until cleared.
 
 Any tab can be split into panes. The direct chords `Ctrl+Shift+E` (split into
 columns, new pane on the right) and `Ctrl+Shift+O` (split into rows, new pane
