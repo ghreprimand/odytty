@@ -704,11 +704,15 @@ its first stable layer.
   output/invalidation frames, and reaps the child process. Client detach or
   socket close removes only that client; the hosted PTY and bounded terminal
   model continue until the child exits or the detached idle timeout kills and
-  reaps it. Public CLI commands now cover
-  `odytty new --detached`, `odytty list`, and diagnostic `odytty attach <id>`.
-  `list` prints metadata-only rows and never scrollback/command output; the
-  diagnostic attach validates the session and decodes the initial snapshot but
-  does not render a native window yet.
+  reaps it. Public CLI commands now cover `odytty new --detached`,
+  `odytty list`, and `odytty attach [--diagnostic] ID`. `list` prints
+  metadata-only rows and never scrollback/command output. `odytty attach <id>`
+  opens a live native window, boots the normal initial local session, then
+  reattaches the hosted session as a focused tab repainted from the host
+  snapshot. On a missing or dead id, the window still opens and stderr reports
+  `odytty: attach session <id> failed: <err>`. `odytty attach --diagnostic <id>`
+  is the headless script/CI variant: it prints the one-line status dump and
+  exits without opening a window.
 - Command-palette substrate: pure modules outside `src/native/` provide a
   dependency-free fuzzy scorer, stable action catalog, source composer, and
   read-only candidate sources. Shell history reads are bounded to a 1 MiB tail
@@ -752,8 +756,8 @@ its first stable layer.
 - iTerm2 graphics protocol
 - Ligature/stylistic-set shaping (strategy decided; implementation deferred
   until a specific trigger condition is met)
-- Profiles, native window reattach for persistent sessions, and cross-session
-  multiplexing (panes/splits within a window are now supported — see above)
+- Profiles and cross-session multiplexing (panes/splits within a window are now
+  supported — see above)
 - Shell integration beyond OSC 7 cwd tracking and OSC 133 prompt/command marks
   plus the current command-aware native actions
 - Plugin systems, AI features, rich dashboards, or nonstandard terminal

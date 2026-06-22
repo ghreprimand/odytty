@@ -924,9 +924,9 @@ feature validates against.
 - [x] Detached-session CLI surface: `odytty new --detached` starts a local
       session host and prints `id=...`; `odytty list` reports live sessions in
       metadata-only script rows (`id`, `name`, `state`, `age_ms`, `panes`);
-      `odytty attach <id>` performs a diagnostic attach that validates the id,
-      receives/decodes the initial snapshot, prints dimensions, and exits.
-      Native window reattach remains a follow-up.
+      `odytty attach <id>` opens a live native window and reattaches the hosted
+      session as a focused tab repainted from the host snapshot; `odytty attach
+      --diagnostic <id>` preserves the headless script/CI status dump.
 - [x] Native window-as-client attach core (`src/native/attach.rs`): builds the
       GUI client against the public session-host wire contract. `AttachClient`
       does the handshake, decodes the initial `SnapshotEnvelope` v2 under bounded
@@ -1002,8 +1002,10 @@ feature validates against.
       plain renderer profile forces it off.
 - [ ] Pane fast-follows: per-pane inline graphics (images render in single-pane
       tabs only today) and non-focused-pane interactive overlays.
-- [ ] Profiles and native-window reattach for persistent sessions remain future
-      work.
+- [x] Public live reattach: `odytty attach <id>` routes through the native
+      window attach seam, while `odytty attach --diagnostic <id>` remains the
+      no-window script/CI form.
+- [ ] Profiles remain future work.
 
 ## Archived First Prototype Checklist
 

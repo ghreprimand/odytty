@@ -144,10 +144,12 @@ pane_prefix = ctrl+b
 # pane_prefix = off
 
 # Detached-session CLI commands (`odytty new --detached`, `odytty list`,
-# `odytty attach <id>`) do not have config-file keys yet. `attach` is diagnostic
-# in this slice: it receives the current host snapshot, sends Detach, and exits.
-# The host keeps the PTY and bounded terminal model alive until the child exits
-# or the detached idle timeout reaps it. Native window reattach is pending.
+# `odytty attach [--diagnostic] ID`) do not have config-file keys yet. By
+# default, `attach <id>` reattaches a detached session in a live native window.
+# `attach --diagnostic <id>` is the headless script/CI variant: it prints a
+# one-line status dump and exits without opening a window. The host keeps the PTY
+# and bounded terminal model alive until the child exits or the detached idle
+# timeout reaps it.
 
 # The command palette is configured through keybinds above. When opened it reads
 # conventional shell history files read-only with fixed caps: 1 MiB tail,

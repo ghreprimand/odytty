@@ -27,8 +27,7 @@ window opens real local shells, supports multiple sessions with a tab bar,
 splits each tab into panes, renders text and inline graphics on the GPU, and has
 a substantial compatibility and smoke-test suite. It is still Linux-first and
 pre-release; macOS is supported as an experimental build-from-source target (see
-the macOS install notes below), while profiles and session persistence are not
-done.
+the macOS install notes below), while profiles remain a follow-up.
 
 ## Highlights
 
@@ -231,6 +230,7 @@ odytty new --detached
 odytty new --detached --title work -e bash
 odytty list
 odytty attach <id>
+odytty attach --diagnostic <id>
 ```
 
 From the source tree without installing:
@@ -252,11 +252,15 @@ symbol/Nerd-font fallback **chain**, joined with ` > ` — e.g.
 `odytty new --detached` starts a local session-host process and prints a stable
 `id=...` row. `odytty list` prints live detached sessions as metadata-only rows
 (`id`, `name`, `state`, `age_ms`, `panes`) and never dumps scrollback or command
-output. `odytty attach <id>` is a diagnostic attach in this slice: it validates
-the session, receives the current snapshot, prints dimensions, detaches, and
-exits. The host keeps the PTY and bounded terminal model alive across
+output. `odytty attach <id>` reattaches a detached session in a live native
+window: the window opens its normal local shell, adds the hosted session as a
+focused tab, repaints from the host snapshot, then streams live output. If the
+id is missing or dead, the local shell still opens and stderr reports
+`odytty: attach session <id> failed: <err>`. `odytty attach --diagnostic <id>`
+is the script/CI form: it prints a one-line status dump and exits without
+opening a window. The host keeps the PTY and bounded terminal model alive across
 attach/detach cycles until the child exits or the detached idle timeout reaps
-it. Native window reattach is a follow-up.
+it.
 
 ## Current Feature Surface
 
@@ -503,10 +507,9 @@ treatments, and a large compatibility test surface.
 experimental build-from-source target (see Install And Run). Both are exercised
 in CI. Windows is not yet supported.
 
-**Known gaps:** Windows support, profiles, native window reattach for
-persistent sessions, per-pane inline graphics, Kitty animation, Kitty Unicode
-placeholders, iTerm2 graphics, COLR/CPAL color fonts, and broader
-ligature/stylistic-set shaping.
+**Known gaps:** Windows support, profiles, per-pane inline graphics, Kitty
+animation, Kitty Unicode placeholders, iTerm2 graphics, COLR/CPAL color fonts,
+and broader ligature/stylistic-set shaping.
 
 The running history lives in [`DEVLOG.md`](DEVLOG.md). The current public
 roadmap lives in [`TODO.md`](TODO.md) and

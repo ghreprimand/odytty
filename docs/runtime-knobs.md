@@ -41,14 +41,19 @@ are:
 ```sh
 odytty new --detached [-e COMMAND...] [--working-directory DIR] [--title TITLE]
 odytty list
-odytty attach <id>
+odytty attach [--diagnostic] ID
 ```
 
 `new --detached` starts a local session-host process and prints `id=...`.
 `list` reports live local sessions as metadata-only rows (`id`, `name`, `state`,
 `age_ms`, `panes`) and never prints scrollback or command output. `attach <id>`
-is diagnostic-only until native window reattach lands: it connects, receives the
-current snapshot, prints dimensions, sends `Detach`, and exits.
+reattaches a detached session in a live native window. The window opens its
+normal initial local session, adds the hosted session as a focused tab repainted
+from the host snapshot, and streams live output. If the id is missing or dead,
+the window still opens and stderr reports `odytty: attach session <id> failed: <err>`.
+The headless script/CI form, `attach --diagnostic <id>`, prints a one-line
+status dump (`id=... state=attached mode=diagnostic columns=... rows=...
+panes=1`) and exits without opening a window.
 
 Host lifecycle is local-only and bounded. Each attach receives a current
 `SnapshotEnvelope` first, then future `Output` and `Invalidate` frames while it

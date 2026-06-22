@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Phase 5: public docs live attach reconciliation
+
+Reconciled public markdown with the shipped `odytty attach [--diagnostic] ID`
+behavior.
+
+- `README.md`, `SPEC.md`, `docs/runtime-knobs.md`, and
+  `docs/odytty.conf.example` now describe `odytty attach <id>` as the default
+  live native-window reattach path, with `--diagnostic` as the headless
+  script/CI one-line status form.
+- `README.md` no longer describes session persistence as unfinished; detached
+  resumable sessions and live reattach are documented as shipped, while profiles
+  remain a follow-up.
+- `SPEC.md` and `TODO.md` no longer list native-window reattach for persistent
+  sessions as out of scope or future work.
+
+---
+
 ## 2026-06-22 -- `odytty attach <id>` opens a live attached window (v0.3.0)
 
 Wired the public `odytty attach <id>` CLI verb to the live native attach path.
