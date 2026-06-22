@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- macOS clippy: needless_return in the cfg(macos) runtime-dir arm
+
+The macOS session-host packet (`b83b08c`) turned Ubuntu CI fully green but failed
+to *compile* on `macos-latest` at the clippy `-D warnings` step: a
+`clippy::needless_return` in the `cfg(target_os = "macos")` branch of
+`runtime_base_from_env`. With the `not(macos)` arm cfg'd out, the macOS block
+became the function's tail expression, so its `return Ok(env::temp_dir())` tripped
+the lint. It was invisible to local (Linux) clippy because that arm is only
+compiled — and only linted — on macOS, and this box has no rustup/Darwin target to
+cross-check. Fix: both cfg arms are now block tail-expressions (no `return`; the
+`bail!` arm wrapped in a block for symmetry, fine since it diverges). A full diff
+scan (Director-confirmed) found this is the only macOS-cfg lint — the
+`MAX_SOCKET_PATH_LEN` const pair is lint-safe and the test-file changes carried no
+cfg. Linux: `cargo clippy --all-targets --locked -- -D warnings` clean, session-host
+lib tests 8/0. macOS effect confirmed on the runner.
+
+---
+
 ## 2026-06-22 -- macOS session-host support: runtime-dir fallback + sun_path guard
 
 GitHub CI had **never** been green on `macos-latest` in this repo's history: the

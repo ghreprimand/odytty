@@ -67,13 +67,17 @@ pub fn runtime_base_from_env() -> Result<PathBuf> {
     // subdir 0700 and `validate_runtime_dir` enforces it is owner-private, so the
     // socket directory upholds the same local-only, owner-private charter as
     // Linux -- no network, nothing leaves the machine.
+    // Each cfg arm is the function's tail expression on its platform, so neither
+    // uses `return` (clippy::needless_return fires on the tail position, and it
+    // is only lint-checked on the platform whose arm is compiled in).
     #[cfg(target_os = "macos")]
     {
-        return Ok(env::temp_dir());
+        Ok(env::temp_dir())
     }
-
     #[cfg(not(target_os = "macos"))]
-    bail!("XDG_RUNTIME_DIR is required for session-host sockets")
+    {
+        bail!("XDG_RUNTIME_DIR is required for session-host sockets")
+    }
 }
 
 pub fn runtime_dir_path(runtime_base: &Path) -> PathBuf {
