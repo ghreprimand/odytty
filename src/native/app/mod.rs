@@ -715,6 +715,15 @@ impl App {
         if self.sessions.close(focused) {
             self.pending_exit = true;
         } else {
+            // If closing collapsed the active tab back to a single pane, cancel
+            // any pending multiplexer prefix. Once single-pane, the prefix
+            // engine is gated out of the input path (byte-identical), so a
+            // stale pending state must not linger to swallow the next key. The
+            // safe, least-surprising boundary: dropping to one pane returns the
+            // tab to the plain single-pane input path immediately.
+            if self.sessions.active_is_single_pane() {
+                self.prefix_engine.cancel();
+            }
             self.reflow_active_panes_and_redraw();
         }
     }
@@ -813,7 +822,21 @@ impl App {
             // chord, leaving the entire path below unchanged. Pane-management
             // chords (`%`, arrows, `x`, …) are excluded from the global table,
             // so they never reach the normal dispatch as bare keys.
-            if !self.overlay.is_open()
+            //
+            // Single-pane gate (byte-identity): the prefix only intercepts once
+            // the active tab is actually split (`panes > 1`). On a single-pane
+            // tab — the default and overwhelmingly common case — the prefix key
+            // (default `Ctrl-b` / `0x02`) and every other key flow straight
+            // through to the focused pane's PTY, byte-identical to the pre-§7
+            // path: readline `backward-char` still works in a lone shell. The
+            // tmux prefix engages the moment the user splits. The disable knob
+            // (`ODYTTY_PANE_PREFIX=off`) and the nested-multiplexer
+            // `Ctrl-b Ctrl-b` passthrough are unchanged for multi-pane tabs.
+            // `active_is_single_pane()` is a cheap read on the active tab and is
+            // checked first so non-prefix keys on a single pane never touch the
+            // engine.
+            if !self.sessions.active_is_single_pane()
+                && !self.overlay.is_open()
                 && !self.search.is_open()
                 && self.active_modal() == ActiveModal::None
                 && let Some(chord) = chord_from_winit(&binding_key, mods, self.super_key)

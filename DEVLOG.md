@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Single-pane prefix passthrough (panes>1 gate) — closes the byte-identity finding
+
+The Phase 5 byte-identity sweep flagged the one default-path deviation: the
+multiplexer prefix defaulted to `Ctrl-b` and was captured even on a single-pane
+tab, swallowing readline `backward-char` (`0x02`). Operator adjudication:
+**option (c)** — gate prefix capture on the active tab having more than one pane.
+
+- `app/mod.rs`: the prefix-engine block in the key path now leads with
+  `!self.sessions.active_is_single_pane()`. On a single-pane tab (the default
+  and common case) the engine is gated out entirely, so `Ctrl-b` — and every
+  other key — flows straight through to the focused pane's PTY, byte-identical
+  to the pre-§7 path. The tmux prefix engages the moment the tab is split
+  (`panes > 1`). `active_is_single_pane()` is a cheap active-tab read, checked
+  first so non-prefix keys on a single pane never touch the engine.
+- Boundary: `close_focused_pane` cancels any pending prefix when a close
+  collapses the active tab back to one pane, so a stale pending state can't
+  linger into the now byte-identical single-pane input path. Least-surprising
+  choice — dropping to one pane returns the tab to plain input immediately.
+- Escape hatches unchanged for multi-pane tabs: `ODYTTY_PANE_PREFIX=off` fully
+  disables; `Ctrl-b Ctrl-b` still passes the literal `0x02` to the focused PTY
+  (nested-multiplexer story).
+- Tests (`tabs_sessions.rs`): NEW `single_pane_passes_ctrl_b_through_to_pty`
+  (panes==1 → PTY receives literal `0x02`, no pending, no split),
+  `split_tab_engages_prefix_capture` (panes>1 → Ctrl-b captured, forwards
+  nothing, resolves a pane action), and
+  `closing_a_split_back_to_single_pane_restores_ctrl_b_passthrough` (after a
+  close-collapse, the next Ctrl-b passes through to the surviving pane's PTY —
+  proves the pending-cancel boundary). Updated the three pre-existing prefix
+  tests that assumed single-pane capture (`prefix_then_unknown_key_fires_nothing`,
+  `doubled_prefix_passes_the_literal_byte_to_the_pty`,
+  `prefix_zoom_is_a_noop_on_a_single_pane`) to seed a split first / reflect the
+  new passthrough — the multi-pane tmux behavior itself is unchanged.
+- Verification: targeted prefix suite 11/11; full `cargo test --lib` 2130/0/7
+  (13 consecutive parallel runs green after the change; one earlier single
+  one-off in an unrelated test did not reproduce in 13 runs — flagged as a
+  possible residual parallel flake, not this change); `gpu_composite_smoke`
+  3/3 byte-identity; `license_headers` green; `cargo fmt --check` clean;
+  `cargo clippy --lib --tests -D warnings` clean.
+
+---
+
 ## 2026-06-22 -- Phase 5: public docs live attach reconciliation
 
 Reconciled public markdown with the shipped `odytty attach [--diagnostic] ID`

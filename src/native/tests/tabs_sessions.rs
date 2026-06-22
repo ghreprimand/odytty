@@ -646,30 +646,111 @@ fn bare_pane_chord_without_prefix_is_plain_input() {
 }
 
 #[test]
-fn lone_prefix_is_swallowed_and_sends_nothing() {
+fn single_pane_passes_ctrl_b_through_to_pty() {
     let Some((mut app, bytes)) = single_session_app() else {
         eprintln!("skipping: no PTY available");
         return;
     };
-    // Pressing the prefix (Ctrl-b) enters pending and forwards nothing — unlike
-    // pre-§7 where Ctrl-b sent the literal 0x02. This is the one accepted new
-    // capture.
+    assert_eq!(app.active_pane_count_for_test(), 1);
+    // Byte-identity guarantee: on a single-pane tab the prefix engine is gated
+    // out, so Ctrl-b reaches the PTY as the literal 0x02 (readline
+    // backward-char) exactly like the pre-§7 path. The prefix only engages once
+    // the tab is split — see `split_tab_engages_prefix_capture`.
     app.drive_char_with_mods_for_test('b', true, false);
-    assert!(bytes.lock().expect("bytes").is_empty());
+    assert_eq!(&*bytes.lock().expect("bytes"), &[0x02]);
+    // It did not enter prefix-pending and did not split.
+    assert_eq!(app.active_pane_count_for_test(), 1);
+}
+
+#[test]
+fn split_tab_engages_prefix_capture() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal, writer, pty, bytes)) =
+        recorded_session(NativeOptions::default().initial_grid)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Split so the active tab now holds two panes; focus lands on the new pane.
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+    // Now Ctrl-b IS the multiplexer prefix: it enters pending and forwards
+    // nothing to the focused pane's PTY (tmux semantics, unchanged from before
+    // the single-pane gate).
+    app.drive_char_with_mods_for_test('b', true, false);
+    assert!(
+        bytes.lock().expect("bytes").is_empty(),
+        "multi-pane Ctrl-b is captured by the prefix engine, not sent to the PTY"
+    );
+    // The pending prefix resolves a pane action (Ctrl-b o cycles focus),
+    // proving capture is live on the split tab and still forwards nothing.
+    app.drive_char_with_mods_for_test('o', false, false);
+    assert!(
+        bytes.lock().expect("bytes").is_empty(),
+        "the resolved pane chord is not forwarded to the PTY either"
+    );
+}
+
+#[test]
+fn closing_a_split_back_to_single_pane_restores_ctrl_b_passthrough() {
+    let Some((mut app, fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // bytes_a is the original (pane A) PTY; focus returns to it after the new
+    // pane is closed.
+    let [(_, _, bytes_a), _] = fixtures;
+    let Some((terminal, writer, pty, _new_bytes)) =
+        recorded_session(NativeOptions::default().initial_grid)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+    // Ctrl-b x closes the focused (new) pane, collapsing back to a single pane;
+    // focus returns to pane A. The close handler cancels any pending prefix as
+    // the tab returns to the plain single-pane input path.
+    app.drive_char_with_mods_for_test('b', true, false);
+    app.drive_char_with_mods_for_test('x', false, false);
+    assert_eq!(app.active_pane_count_for_test(), 1);
+    bytes_a.lock().expect("bytes a").clear();
+    // The very next Ctrl-b is plain input again: with one pane the engine is
+    // gated out, so it passes through to pane A's PTY as the literal 0x02. This
+    // proves no stale pending prefix survived the drop to single-pane.
+    app.drive_char_with_mods_for_test('b', true, false);
+    assert_eq!(
+        &*bytes_a.lock().expect("bytes a"),
+        &[0x02],
+        "after collapsing to one pane, Ctrl-b passes through byte-identically"
+    );
+    assert_eq!(app.active_pane_count_for_test(), 1);
 }
 
 #[test]
 fn prefix_then_unknown_key_fires_nothing() {
-    let Some((mut app, bytes)) = single_session_app() else {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
         eprintln!("skipping: no PTY available");
         return;
     };
+    // The prefix engine only engages on a split tab, so seed two panes first.
+    let Some((terminal, writer, pty, bytes)) =
+        recorded_session(NativeOptions::default().initial_grid)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    assert_eq!(app.active_pane_count_for_test(), 2);
     app.drive_char_with_mods_for_test('b', true, false); // prefix
     app.drive_char_with_mods_for_test('q', false, false); // not in the table
     // The unknown second key is swallowed (cancel), so nothing reaches the PTY
-    // and no pane op ran.
+    // and no pane op ran (still two panes).
     assert!(bytes.lock().expect("bytes").is_empty());
-    assert_eq!(app.active_pane_count_for_test(), 1);
+    assert_eq!(app.active_pane_count_for_test(), 2);
 }
 
 #[test]
@@ -773,8 +854,9 @@ fn prefix_zoom_is_a_noop_on_a_single_pane() {
         return;
     };
     assert_eq!(app.active_pane_count_for_test(), 1);
-    // Ctrl-b z on a lone pane is a no-op: zoom is meaningless, the single-pane
-    // render path is untouched.
+    // Ctrl-b z on a lone pane never zooms: the prefix engine is gated out on a
+    // single pane, so both keys are plain input (Ctrl-b → 0x02, z → 'z') and the
+    // single-pane render path is untouched. Zoom stays off.
     app.drive_char_with_mods_for_test('b', true, false);
     app.drive_char_with_mods_for_test('z', false, false);
     assert!(!app.active_is_zoomed_for_test());
@@ -809,10 +891,20 @@ fn prefix_is_disabled_when_set_off() {
 
 #[test]
 fn doubled_prefix_passes_the_literal_byte_to_the_pty() {
-    let Some((mut app, bytes)) = single_session_app() else {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
         eprintln!("skipping: no PTY available");
         return;
     };
+    // The nested-multiplexer passthrough only applies once the prefix engine is
+    // engaged, i.e. on a split tab. Seed two panes first.
+    let Some((terminal, writer, pty, bytes)) =
+        recorded_session(NativeOptions::default().initial_grid)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    assert_eq!(app.active_pane_count_for_test(), 2);
     // Ctrl-b Ctrl-b → the focused pane's PTY receives a literal 0x02 (K3), so a
     // tmux running inside OdyTTY still gets its own prefix. The first Ctrl-b
     // enters pending and sends nothing; the second triggers the passthrough.
