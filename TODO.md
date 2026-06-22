@@ -1144,6 +1144,17 @@ feature validates against.
       or passes credentials, private keys, or passphrases; authentication stays
       with system `ssh` and its agent. The same argv can back a detached
       session-host command, so SSH sessions can use the resumable attach path.
+- [x] Connection-manager overlay UI: keyboard-driven, type-to-filter list of the
+      merged saved hosts (OdyTTY-owned first, opt-in OpenSSH-config names only
+      when `ssh_config_hosts` is on), fuzzy-ranked over alias/host/user via the
+      shared scorer. Exposed as the opt-in `connection-manager` keybind action
+      (unbound by default; suggested `ctrl+alt+h=connection-manager`), so the
+      unset input path stays byte-identical. `↑`/`↓` select, Enter quick-connects
+      via the SSH connect action, Esc dismisses; per-host profile fields show in
+      the row. Presentation-only — the overlay never mutates live terminal state
+      (isolation test proves the live frame is byte-identical when active). With
+      the opt-in off it shows OdyTTY-owned hosts only and never references
+      `~/.ssh` (proven by test). Tests use synthetic fixtures only.
 - [ ] Plugin systems, AI features, dashboards, or rich nonstandard workflows.
 - [ ] Heavy animation or effects that can compromise readability or latency.
 - [ ] Broad cross-platform support beyond Linux-first validation.

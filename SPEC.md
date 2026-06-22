@@ -734,6 +734,16 @@ its first stable layer.
   frame is byte-identical whether or not the overlay is active. Recording is
   local-only: frames live only in memory, never written to disk or sent over the
   network, and are dropped when the session closes or recording is turned off.
+- Connection-manager overlay: exposed as the `connection-manager` bindable
+  action, unbound by default to preserve existing input. When bound, it presents
+  a keyboard-driven, type-to-filter list of saved hosts merged from the
+  OdyTTY-owned `hosts.conf` and, only when `ssh_config_hosts` is enabled, the
+  name-only OpenSSH-config import; fuzzy matching ranks over alias, host name,
+  and user. Selecting a host hands the connect action a name-only target to
+  spawn (system `ssh`); the overlay itself is presentation-only and never
+  mutates live core terminal state, so the live frame is byte-identical whether
+  or not it is active. With the opt-in off, the overlay shows OdyTTY-owned hosts
+  only and OdyTTY never reads or references `~/.ssh`.
 
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering

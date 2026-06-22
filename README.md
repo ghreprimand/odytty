@@ -394,11 +394,25 @@ presentation-only: `←`/`→` step, `PgUp`/`PgDn` jump ten, `Home`/`End` jump t
 the ends, and the live session keeps running underneath untouched while you
 scrub.
 
+The connection manager is available as the `connection-manager` action (also
+unbound by default). Bind a chord to open a type-to-filter list of saved hosts
+and quick-connect with Enter:
+
+```sh
+ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager" odytty
+```
+
+Hosts come from the OdyTTY-owned `hosts.conf` and, only when
+`ssh_config_hosts = on`, name-only entries from your OpenSSH config. With the
+opt-in off, the overlay lists OdyTTY-owned hosts only and never references
+`~/.ssh`. The overlay is presentation-only; selecting a host spawns the system
+`ssh` in a new session.
+
 `ODYTTY_KEYBINDS` can rebind local actions: `search`, `settings`,
 `theme-picker`, `copy`, `paste`, `scroll-up`, `scroll-down`,
 `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`, `clear-input`,
-`command-palette`, `session-replay`, `new-tab`, `next-tab`, `prev-tab`, and
-`close-tab`. The pane actions
+`command-palette`, `session-replay`, `connection-manager`, `new-tab`,
+`next-tab`, `prev-tab`, and `close-tab`. The pane actions
 (`split-columns`, `split-rows`, `focus-pane-left` / `-right` / `-up` / `-down`,
 `focus-pane-next`, `close-pane`, `zoom-pane`, `equalize-panes`) are rebindable
 too — the chord is the key pressed *after* the prefix, e.g.

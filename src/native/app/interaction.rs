@@ -130,6 +130,15 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.handle_palette_action(id);
             }
+            // Phase 4: the connection-manager overlay closed itself before
+            // emitting this; spawn the chosen host through the connect action
+            // (system `ssh`, name-only argv). A spawn failure must never panic
+            // the UI — surface nothing for now beyond the dropped result; the
+            // overlay is already closed and the user can retry.
+            OverlayOutcome::Connect(host) => {
+                self.flush_pending_overlay_settings();
+                let _ = self.connect_ssh_host_in_new_tab(&host);
+            }
             // CLOSE-CONFIRM: the dialog closed itself before emitting this; flag
             // the exit so `window_event` exits the loop on this same turn (the
             // outcome cannot reach `ActiveEventLoop` from here — `&mut self`).

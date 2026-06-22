@@ -292,6 +292,12 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
             frames_len: 0,
             frame_fingerprint: 0,
         },
+        connections: ConnectionOverlaySignature {
+            query: String::new(),
+            selected: None,
+            results_len: 0,
+            results_fingerprint: 0,
+        },
     }
 }
 

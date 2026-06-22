@@ -116,6 +116,18 @@ and ignores key material such as identity files. OdyTTY never handles SSH
 credentials, private keys, or passphrases; authentication remains with the
 system `ssh` binary and agent.
 
+The saved hosts are browsed through the **connection-manager overlay**. Bind a
+chord to the `connection-manager` action via `keybinds` / `ODYTTY_KEYBINDS` (no
+default chord is installed, so the unset input path stays byte-identical), for
+example `ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager"`. The overlay lists the
+merged hosts (OdyTTY-owned first, then any opt-in OpenSSH-config names), with
+type-to-filter fuzzy matching over alias, host name, and user; `↑`/`↓` select,
+`Enter` quick-connects the highlighted host, and `Esc` dismisses. With
+`ssh_config_hosts` off, the overlay shows OdyTTY-owned hosts only and OdyTTY
+never references `~/.ssh` at all. The overlay is **presentation-only**: it reads
+a frozen snapshot of the hosts list and never mutates live terminal state;
+accepting a host hands the connect action a name-only target to spawn.
+
 ## Settings Reference
 
 All settings except `native_autoclose_ms` are live-reloadable when their
@@ -280,8 +292,8 @@ digits, `f1`-`f24`, `pageup`, `pagedown`, `home`, `end`, `enter`, `esc`,
 Valid actions are `search`, `settings`, `theme-picker`, `copy`, `paste`,
 `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`,
 `copy-mode`, `hints`, `clear-input`, `command-palette`, `session-replay`,
-`new-tab`, `next-tab`, `prev-tab`, and `close-tab`, plus the pane-management
-actions below.
+`connection-manager`, `new-tab`, `next-tab`, `prev-tab`, and `close-tab`, plus
+the pane-management actions below.
 
 The in-app keybinding editor is opened from the Settings panel's Keybindings
 row. It covers the 12 core non-tab actions. Palette, tab, and pane actions are

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use crate::connection_hosts::ConnectionHost;
 use crate::core::{Attrs, Cell, Color, Snapshot};
 use crate::input::Modifiers;
 use crate::selection::CellPoint;
@@ -8,6 +9,9 @@ use crate::theme::{Srgb, Theme};
 use unicode_width::UnicodeWidthChar;
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
+use super::connection_overlay::{
+    ConnectionOverlay, ConnectionOverlayLine, ConnectionOverlayOutcome, ConnectionOverlaySignature,
+};
 use super::context_menu_ui::{
     ContextMenuItem, ContextMenuOutcome, ContextMenuSignature, ContextMenuUi,
 };
@@ -44,6 +48,7 @@ pub(super) struct OverlayUi {
     context_menu: ContextMenuUi,
     command_palette: PaletteOverlay,
     replay: ReplayOverlay,
+    connections: ConnectionOverlay,
     /// Set when a `SaveAndClose` outcome arrives from the settings panel (dirty
     /// close prompt). On the next `save_succeeded` call for Settings mode, the
     /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
@@ -77,6 +82,7 @@ impl OverlayUi {
             context_menu: ContextMenuUi::new(),
             command_palette: PaletteOverlay::new(),
             replay: ReplayOverlay::new(),
+            connections: ConnectionOverlay::new(),
             close_after_save: false,
             picker_return: None,
             builder_from_picker: false,
@@ -189,6 +195,20 @@ impl OverlayUi {
         self.theme_builder.end_channel_drag();
         self.replay.open(frames);
         self.mode = OverlayMode::Replay;
+        self.open = true;
+    }
+
+    /// Open the connection-manager overlay over a frozen list of local
+    /// connection candidates (Phase 4). Presentation-only: the overlay owns the
+    /// list and never spawns anything itself. Accepting a row emits a
+    /// [`OverlayOutcome::Connect`] for the App's connect action. `entries` is
+    /// empty when no hosts are configured, in which case the overlay shows a
+    /// hint rather than failing to open.
+    pub(super) fn open_connections(&mut self, entries: Vec<ConnectionHost>) {
+        self.panel.end_slider_drag();
+        self.theme_builder.end_channel_drag();
+        self.connections.open(entries);
+        self.mode = OverlayMode::Connections;
         self.open = true;
     }
 
@@ -348,6 +368,7 @@ impl OverlayUi {
             OverlayMode::ConfirmClose => return self.handle_confirm_close_input(input),
             OverlayMode::CommandPalette => return self.handle_command_palette_input(input),
             OverlayMode::Replay => return self.handle_replay_input(input),
+            OverlayMode::Connections => return self.handle_connections_input(input),
             OverlayMode::Settings => {}
         }
 
@@ -426,6 +447,7 @@ impl OverlayUi {
                     | OverlayMode::Onboarding
                     | OverlayMode::CommandPalette
                     | OverlayMode::Replay
+                    | OverlayMode::Connections
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
@@ -462,6 +484,7 @@ impl OverlayUi {
                     | OverlayMode::Onboarding
                     | OverlayMode::CommandPalette
                     | OverlayMode::Replay
+                    | OverlayMode::Connections
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
@@ -476,6 +499,7 @@ impl OverlayUi {
                     | OverlayMode::ContextMenu
                     | OverlayMode::CommandPalette
                     | OverlayMode::Replay
+                    | OverlayMode::Connections
                     | OverlayMode::ConfirmClose => {}
                 }
                 OverlayOutcome::Consumed
@@ -507,6 +531,7 @@ impl OverlayUi {
                         });
                     }
                     OverlayMode::Replay => self.replay.scroll_lines(lines),
+                    OverlayMode::Connections => self.connections.scroll_lines(lines),
                     OverlayMode::Onboarding
                     | OverlayMode::ContextMenu
                     | OverlayMode::ConfirmClose => {}
@@ -530,6 +555,7 @@ impl OverlayUi {
             | OverlayMode::ContextMenu
             | OverlayMode::CommandPalette
             | OverlayMode::Replay
+            | OverlayMode::Connections
             | OverlayMode::ConfirmClose => false,
         }
     }
@@ -548,6 +574,7 @@ impl OverlayUi {
             | OverlayMode::ContextMenu
             | OverlayMode::CommandPalette
             | OverlayMode::Replay
+            | OverlayMode::Connections
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -649,6 +676,7 @@ impl OverlayUi {
             | OverlayMode::ContextMenu
             | OverlayMode::CommandPalette
             | OverlayMode::Replay
+            | OverlayMode::Connections
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -664,6 +692,7 @@ impl OverlayUi {
             | OverlayMode::ContextMenu
             | OverlayMode::CommandPalette
             | OverlayMode::Replay
+            | OverlayMode::Connections
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -691,6 +720,7 @@ impl OverlayUi {
             context_menu: self.context_menu.render_signature(),
             command_palette: self.command_palette.render_signature(),
             replay: self.replay.render_signature(),
+            connections: self.connections.render_signature(),
         }
     }
 
@@ -845,6 +875,18 @@ impl OverlayUi {
         }
     }
 
+    /// Route a key to the connection-manager overlay (Phase 4). The overlay
+    /// type-filters and selects (Consumed), requests Close, or accepts a host
+    /// (Connect) which the App turns into a new connection — the overlay never
+    /// spawns anything itself.
+    fn handle_connections_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match self.connections.handle_input(input) {
+            ConnectionOverlayOutcome::Consumed => OverlayOutcome::Consumed,
+            ConnectionOverlayOutcome::Close => OverlayOutcome::Close,
+            ConnectionOverlayOutcome::Connect(host) => OverlayOutcome::Connect(host),
+        }
+    }
+
     fn settings_with_theme(&self, theme: Theme) -> Settings {
         let mut settings = self.settings.clone();
         settings.theme = theme;
@@ -894,6 +936,13 @@ pub(super) enum OverlayOutcome {
     PaletteTypeText(String),
     /// Run a local terminal action accepted from the command palette.
     PaletteAction(String),
+    /// Connect to a host accepted from the connection-manager overlay (Phase 4).
+    /// The overlay has already closed itself by the time this is emitted; the
+    /// App's connect action spawns the connection (e.g. `ssh <host>`) in a new
+    /// session. Boxed to keep this short-lived enum small. Carries the full
+    /// [`ConnectionHost`] so the connect action has alias, host name, user, and
+    /// port without re-reading any file.
+    Connect(Box<ConnectionHost>),
     /// The user confirmed the close-confirmation dialog (CLOSE-CONFIRM): close
     /// the window. The overlay has already closed itself by the time this is
     /// emitted; the App sets its `pending_exit` flag and exits the event loop on
@@ -967,6 +1016,10 @@ pub(super) enum OverlayMode {
     /// session's recorded screen frames. Presentation-only; never mutates live
     /// core state.
     Replay,
+    /// Connection-manager overlay (Phase 4): list saved hosts, type-to-filter,
+    /// and quick-connect. Presentation-only; accepting a row emits a connect
+    /// request for the App to spawn. Never mutates live core state.
+    Connections,
     /// Close-confirmation dialog (CLOSE-CONFIRM). A centered, static two-line
     /// modal shown when a close is requested while a foreground job is running;
     /// Enter/Y confirms (emits [`OverlayOutcome::ForceClose`]), Esc/N cancels.
@@ -1053,6 +1106,7 @@ pub(super) struct OverlayRenderSignature {
     pub(super) context_menu: ContextMenuSignature,
     pub(super) command_palette: PaletteOverlaySignature,
     pub(super) replay: ReplayOverlaySignature,
+    pub(super) connections: ConnectionOverlaySignature,
 }
 
 pub(super) fn overlay_input_from_winit(
@@ -1146,6 +1200,7 @@ pub(super) fn overlay_rect(
         OverlayMode::Onboarding => overlay.onboarding.desired_width(columns),
         OverlayMode::CommandPalette => overlay.command_palette.desired_width(columns),
         OverlayMode::Replay => overlay.replay.desired_width(columns),
+        OverlayMode::Connections => overlay.connections.desired_width(columns),
         // Unreachable: handled by the early return above.
         OverlayMode::ContextMenu => overlay.context_menu.menu_width(),
         // Static two-line dialog; the `.max(36)` floor below gives it room and
@@ -1198,6 +1253,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         OverlayMode::Onboarding => "Welcome to OdyTTY".to_owned(),
         OverlayMode::CommandPalette => "Command Palette".to_owned(),
         OverlayMode::Replay => "\u{2190} Session Replay  (Esc = back)".to_owned(),
+        OverlayMode::Connections => "\u{2190} Connections  (Esc = back)".to_owned(),
         // Unreachable: handled by the early dispatch above.
         OverlayMode::ContextMenu => String::new(),
         OverlayMode::ConfirmClose => "Close?".to_owned(),
@@ -1371,6 +1427,12 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
+            OverlayMode::Connections => self
+                .connections
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
             // The context menu renders via `apply_context_menu`, not this shared
             // body walker (IN2).
             OverlayMode::ContextMenu => Vec::new(),
@@ -1489,6 +1551,17 @@ impl From<PaletteOverlayLine> for OverlayLine {
 
 impl From<ReplayOverlayLine> for OverlayLine {
     fn from(line: ReplayOverlayLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: None,
+            bold: line.bold,
+        }
+    }
+}
+
+impl From<ConnectionOverlayLine> for OverlayLine {
+    fn from(line: ConnectionOverlayLine) -> Self {
         Self {
             text: line.text,
             focused: line.focused,
@@ -1785,6 +1858,87 @@ mod tests {
             vec![Cell::new('.', Attrs::default()); 80 * 20]
         );
         assert!(rendered.cells.iter().any(|cell| cell.ch == '+'));
+    }
+
+    /// A synthetic connection host for the connection-overlay tests.
+    fn connection_host(alias: &str) -> ConnectionHost {
+        ConnectionHost {
+            alias: alias.to_owned(),
+            host_name: Some(format!("{alias}.example.invalid")),
+            user: None,
+            port: None,
+            theme: None,
+            font: None,
+            title: None,
+            source: crate::connection_hosts::ConnectionHostSource::Odytty,
+        }
+    }
+
+    #[test]
+    fn connection_overlay_draws_into_snapshot_copy_only() {
+        // CONNECTION-OVERLAY-ISOLATION (render side): apply_overlay only mutates
+        // the snapshot copy it is handed; the source frame is untouched, and the
+        // host list shows.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1"), connection_host("db1")]);
+        let original = snapshot(80, 20);
+        let mut rendered = original.clone();
+
+        apply_overlay(&mut rendered, &mut overlay);
+
+        // The input snapshot is never mutated in place.
+        assert_eq!(
+            original.cells,
+            vec![Cell::new('.', Attrs::default()); 80 * 20]
+        );
+        // The panel border and a host alias show.
+        assert!(rendered.cells.iter().any(|cell| cell.ch == '+'));
+        assert!(rendered.cells.iter().any(|cell| cell.ch == 'w'));
+    }
+
+    #[test]
+    fn closed_connection_overlay_is_pixel_inert() {
+        // OVERLAY-CLOSED-BYTE-IDENTICAL: once closed, the connection overlay
+        // paints nothing — the frame is byte-identical to the input.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        overlay.close();
+        let original = snapshot(80, 20);
+        let mut rendered = original.clone();
+
+        apply_overlay(&mut rendered, &mut overlay);
+
+        assert_eq!(rendered, original);
+    }
+
+    #[test]
+    fn empty_connection_overlay_opens_with_hint() {
+        // Opening the connection manager with no hosts still opens (showing a
+        // hint) rather than failing; it draws a panel into the copy only.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(Vec::new());
+        let original = snapshot(80, 20);
+        let mut rendered = original.clone();
+
+        apply_overlay(&mut rendered, &mut overlay);
+
+        assert_eq!(
+            original.cells,
+            vec![Cell::new('.', Attrs::default()); 80 * 20]
+        );
+        assert!(rendered.cells.iter().any(|cell| cell.ch == '+'));
+    }
+
+    #[test]
+    fn connection_overlay_accept_emits_connect_outcome() {
+        // The overlay routes an accepted host up as OverlayOutcome::Connect for
+        // the App's connect action; presentation stays in the overlay.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        match overlay.handle_input(OverlayInput::Activate) {
+            OverlayOutcome::Connect(host) => assert_eq!(host.alias, "web1"),
+            other => panic!("expected Connect, got {other:?}"),
+        }
     }
 
     #[test]

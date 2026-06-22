@@ -1,0 +1,520 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//! Native connection-manager overlay state (Phase 4).
+//!
+//! The overlay is presentation state only: it owns a frozen, decoupled list of
+//! local connection candidates (from [`crate::connection_hosts`]), a type-to-
+//! filter query, and a selection cursor. It never writes to the PTY and never
+//! mutates the live terminal model. Accepting a row returns a
+//! [`ConnectionOverlayOutcome::Connect`] carrying the chosen host for the App to
+//! act on after the overlay closes — the actual `ssh <host>` spawn lives in the
+//! App's connect action, not here.
+//!
+//! Privacy: this module never reads `~/.ssh` itself. It only displays whatever
+//! the App loaded through the data layer, which gates OpenSSH-config import
+//! behind the `ssh_config_hosts` opt-in. When the opt-in is off the App hands
+//! this overlay only OdyTTY-owned hosts.
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+use crate::connection_hosts::{ConnectionHost, ConnectionHostSource};
+use crate::fuzzy;
+
+use super::overlay::OverlayInput;
+
+/// Maximum rows rendered in the result list (keeps the overlay compact and the
+/// fuzzy ranking bounded regardless of how large the hosts list is).
+const MAX_RESULTS: usize = 40;
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct ConnectionOverlay {
+    /// The frozen connection list captured at open time, in load order
+    /// (OdyTTY-owned hosts first, then any opt-in OpenSSH-config names).
+    entries: Vec<ConnectionHost>,
+    /// Current type-to-filter query.
+    query: String,
+    /// Indexes into `entries` for the rows that match `query`, best-first.
+    /// Recomputed whenever the query changes.
+    filtered: Vec<usize>,
+    /// Selection cursor into `filtered`. Clamped whenever `filtered` changes.
+    selected: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum ConnectionOverlayOutcome {
+    Consumed,
+    Close,
+    /// The user accepted a host. The App spawns the connection (presentation is
+    /// done; this overlay never spawns anything itself).
+    Connect(Box<ConnectionHost>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ConnectionOverlayLine {
+    pub(super) text: String,
+    pub(super) focused: bool,
+    pub(super) bold: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ConnectionOverlaySignature {
+    pub(super) query: String,
+    pub(super) selected: Option<usize>,
+    pub(super) results_len: usize,
+    pub(super) results_fingerprint: u64,
+}
+
+impl ConnectionOverlay {
+    pub(super) fn new() -> Self {
+        Self::default()
+    }
+
+    /// Load a frozen set of connection candidates and reset the query/cursor.
+    /// The list is owned by the overlay, so it stays stable while open even if
+    /// the underlying files change.
+    pub(super) fn open(&mut self, entries: Vec<ConnectionHost>) {
+        self.entries = entries;
+        self.query.clear();
+        self.selected = 0;
+        self.recompute();
+    }
+
+    #[cfg(test)]
+    pub(super) fn entry_count(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Recompute the filtered/ranked view from the current query.
+    ///
+    /// Empty query preserves load order (OdyTTY hosts first); a non-empty query
+    /// uses the shared fuzzy scorer over each row's searchable text.
+    fn recompute(&mut self) {
+        if self.query.is_empty() {
+            self.filtered = (0..self.entries.len()).take(MAX_RESULTS).collect();
+        } else {
+            let haystacks: Vec<String> = self.entries.iter().map(match_text).collect();
+            self.filtered = fuzzy::rank(&self.query, &haystacks)
+                .into_iter()
+                .take(MAX_RESULTS)
+                .map(|(index, _)| index)
+                .collect();
+        }
+        self.clamp_selection();
+    }
+
+    fn clamp_selection(&mut self) {
+        if self.filtered.is_empty() {
+            self.selected = 0;
+        } else if self.selected >= self.filtered.len() {
+            self.selected = self.filtered.len() - 1;
+        }
+    }
+
+    fn move_selection(&mut self, delta: isize) {
+        if self.filtered.is_empty() {
+            return;
+        }
+        let max = self.filtered.len() - 1;
+        let next = (self.selected as isize + delta).clamp(0, max as isize);
+        self.selected = next as usize;
+    }
+
+    fn selected_entry(&self) -> Option<&ConnectionHost> {
+        let entry_index = *self.filtered.get(self.selected)?;
+        self.entries.get(entry_index)
+    }
+
+    pub(super) fn handle_input(&mut self, input: OverlayInput) -> ConnectionOverlayOutcome {
+        match input {
+            OverlayInput::Close => ConnectionOverlayOutcome::Close,
+            OverlayInput::Up => {
+                self.move_selection(-1);
+                ConnectionOverlayOutcome::Consumed
+            }
+            OverlayInput::Down => {
+                self.move_selection(1);
+                ConnectionOverlayOutcome::Consumed
+            }
+            OverlayInput::PageUp | OverlayInput::Home => {
+                self.move_selection(-(MAX_RESULTS as isize));
+                ConnectionOverlayOutcome::Consumed
+            }
+            OverlayInput::PageDown | OverlayInput::End => {
+                self.move_selection(MAX_RESULTS as isize);
+                ConnectionOverlayOutcome::Consumed
+            }
+            OverlayInput::Backspace => {
+                self.query.pop();
+                self.recompute();
+                ConnectionOverlayOutcome::Consumed
+            }
+            OverlayInput::Char(ch) if !ch.is_control() => {
+                self.query.push(ch);
+                self.recompute();
+                ConnectionOverlayOutcome::Consumed
+            }
+            OverlayInput::Activate => match self.selected_entry() {
+                Some(entry) => ConnectionOverlayOutcome::Connect(Box::new(entry.clone())),
+                None => ConnectionOverlayOutcome::Consumed,
+            },
+            OverlayInput::Char(_)
+            | OverlayInput::Left
+            | OverlayInput::Right
+            | OverlayInput::Save
+            | OverlayInput::Tab => ConnectionOverlayOutcome::Consumed,
+        }
+    }
+
+    /// Scroll one row in response to a wheel notch (negative = toward the top).
+    pub(super) fn scroll_lines(&mut self, lines: isize) {
+        self.move_selection(lines.signum());
+    }
+
+    pub(super) fn visible_lines(
+        &self,
+        body_width: usize,
+        body_height: usize,
+    ) -> Vec<ConnectionOverlayLine> {
+        if body_height == 0 {
+            return Vec::new();
+        }
+        let mut lines = Vec::with_capacity(body_height.min(MAX_RESULTS + 2));
+        lines.push(ConnectionOverlayLine {
+            text: truncate_for_width(&format!("> {}", self.query), body_width),
+            focused: false,
+            bold: true,
+        });
+        if lines.len() >= body_height {
+            return lines;
+        }
+        if self.entries.is_empty() {
+            lines.push(ConnectionOverlayLine {
+                text: truncate_for_width(
+                    "No saved connections — add hosts to hosts.conf or enable ssh_config_hosts.",
+                    body_width,
+                ),
+                focused: false,
+                bold: false,
+            });
+            return lines;
+        }
+        if self.filtered.is_empty() {
+            lines.push(ConnectionOverlayLine {
+                text: "No matches".to_owned(),
+                focused: false,
+                bold: false,
+            });
+            return lines;
+        }
+        let remaining = body_height - lines.len();
+        for (row, &entry_index) in self.filtered.iter().take(remaining).enumerate() {
+            let Some(entry) = self.entries.get(entry_index) else {
+                continue;
+            };
+            lines.push(ConnectionOverlayLine {
+                text: truncate_for_width(&row_label(entry), body_width),
+                focused: row == self.selected,
+                bold: false,
+            });
+        }
+        lines
+    }
+
+    pub(super) fn desired_width(&self, columns: usize) -> usize {
+        columns.min(84)
+    }
+
+    pub(super) fn render_signature(&self) -> ConnectionOverlaySignature {
+        ConnectionOverlaySignature {
+            query: self.query.clone(),
+            selected: if self.filtered.is_empty() {
+                None
+            } else {
+                Some(self.selected)
+            },
+            results_len: self.filtered.len(),
+            results_fingerprint: self.results_fingerprint(),
+        }
+    }
+
+    fn results_fingerprint(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        for &entry_index in self.filtered.iter().take(MAX_RESULTS) {
+            if let Some(entry) = self.entries.get(entry_index) {
+                entry.alias.hash(&mut hasher);
+                entry.host_name.hash(&mut hasher);
+                entry.user.hash(&mut hasher);
+                entry.port.hash(&mut hasher);
+            }
+        }
+        hasher.finish()
+    }
+}
+
+/// Build the searchable text for one host: alias plus host name and user so a
+/// user can fuzzy-match on any of them. Profile fields (theme/font/title) are
+/// not searched — they are display metadata, not connection identity.
+fn match_text(entry: &ConnectionHost) -> String {
+    let mut text = entry.alias.clone();
+    if let Some(host_name) = entry.host_name.as_deref() {
+        text.push(' ');
+        text.push_str(host_name);
+    }
+    if let Some(user) = entry.user.as_deref() {
+        text.push(' ');
+        text.push_str(user);
+    }
+    sanitize(&text)
+}
+
+/// Render one host row: `alias   user@host:port   [theme]   (source)`.
+fn row_label(entry: &ConnectionHost) -> String {
+    let mut label = sanitize(&entry.alias);
+    let target = connection_target(entry);
+    if !target.is_empty() {
+        label.push_str("   ");
+        label.push_str(&target);
+    }
+    if let Some(theme) = entry.theme.as_deref() {
+        label.push_str("   [");
+        label.push_str(&sanitize(theme));
+        label.push(']');
+    }
+    label.push_str("   (");
+    label.push_str(source_tag(entry.source));
+    label.push(')');
+    label
+}
+
+/// `user@host:port`, omitting any absent part. Falls back to the alias-only
+/// case by returning an empty string (the alias already leads the row).
+fn connection_target(entry: &ConnectionHost) -> String {
+    let host = entry.host_name.as_deref().unwrap_or("");
+    let mut target = String::new();
+    if let Some(user) = entry.user.as_deref() {
+        target.push_str(&sanitize(user));
+        if !host.is_empty() {
+            target.push('@');
+        }
+    }
+    target.push_str(&sanitize(host));
+    if let Some(port) = entry.port {
+        target.push(':');
+        target.push_str(&port.to_string());
+    }
+    target
+}
+
+fn source_tag(source: ConnectionHostSource) -> &'static str {
+    match source {
+        ConnectionHostSource::Odytty => "OdyTTY",
+        ConnectionHostSource::SshConfig => "ssh-config",
+    }
+}
+
+/// Strip control characters so a malformed host name can never inject escape
+/// sequences into the overlay's plain-text rows.
+fn sanitize(text: &str) -> String {
+    text.chars().filter(|ch| !ch.is_control()).collect()
+}
+
+fn truncate_for_width(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    text.chars().take(max_chars).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn host(
+        alias: &str,
+        host_name: Option<&str>,
+        user: Option<&str>,
+        port: Option<u16>,
+        source: ConnectionHostSource,
+    ) -> ConnectionHost {
+        ConnectionHost {
+            alias: alias.to_owned(),
+            host_name: host_name.map(str::to_owned),
+            user: user.map(str::to_owned),
+            port,
+            theme: None,
+            font: None,
+            title: None,
+            source,
+        }
+    }
+
+    fn entries() -> Vec<ConnectionHost> {
+        vec![
+            host(
+                "web1",
+                Some("gateway.example.invalid"),
+                Some("deploy"),
+                Some(2222),
+                ConnectionHostSource::Odytty,
+            ),
+            host(
+                "db-primary",
+                Some("db.example.invalid"),
+                None,
+                None,
+                ConnectionHostSource::Odytty,
+            ),
+            host(
+                "remote",
+                Some("remote.example.invalid"),
+                None,
+                None,
+                ConnectionHostSource::SshConfig,
+            ),
+        ]
+    }
+
+    fn open(entries: Vec<ConnectionHost>) -> ConnectionOverlay {
+        let mut overlay = ConnectionOverlay::new();
+        overlay.open(entries);
+        overlay
+    }
+
+    fn type_query(overlay: &mut ConnectionOverlay, query: &str) {
+        for ch in query.chars() {
+            assert_eq!(
+                overlay.handle_input(OverlayInput::Char(ch)),
+                ConnectionOverlayOutcome::Consumed
+            );
+        }
+    }
+
+    #[test]
+    fn empty_query_lists_all_in_load_order() {
+        let overlay = open(entries());
+        assert_eq!(overlay.render_signature().results_len, 3);
+        // Load order is preserved: OdyTTY hosts first, ssh-config last.
+        let lines = overlay.visible_lines(80, 10);
+        // Line 0 is the query prompt; rows follow.
+        assert!(lines[1].text.starts_with("web1"));
+        assert!(lines[2].text.starts_with("db-primary"));
+        assert!(lines[3].text.starts_with("remote"));
+    }
+
+    #[test]
+    fn fuzzy_filter_ranks_matching_host_first() {
+        // FUZZY-FILTER-RANKS-ENTRIES: typing narrows and ranks by match quality.
+        let mut overlay = open(entries());
+        type_query(&mut overlay, "web");
+        let signature = overlay.render_signature();
+        assert_eq!(signature.results_len, 1);
+        // The single match is the selected row.
+        assert_eq!(signature.selected, Some(0));
+        let lines = overlay.visible_lines(80, 10);
+        assert!(lines[1].text.starts_with("web1"));
+    }
+
+    #[test]
+    fn fuzzy_matches_host_name_and_user_not_only_alias() {
+        let mut overlay = open(entries());
+        // "deploy" only appears in the User field of web1.
+        type_query(&mut overlay, "deploy");
+        assert_eq!(overlay.render_signature().results_len, 1);
+        assert!(matches!(
+            overlay.handle_input(OverlayInput::Activate),
+            ConnectionOverlayOutcome::Connect(host) if host.alias == "web1"
+        ));
+    }
+
+    #[test]
+    fn accept_emits_connect_for_selected_host() {
+        let mut overlay = open(entries());
+        overlay.handle_input(OverlayInput::Down); // select db-primary
+        assert!(matches!(
+            overlay.handle_input(OverlayInput::Activate),
+            ConnectionOverlayOutcome::Connect(host) if host.alias == "db-primary"
+        ));
+    }
+
+    #[test]
+    fn no_match_query_emits_consumed_on_activate() {
+        let mut overlay = open(entries());
+        type_query(&mut overlay, "zzzznomatch");
+        assert_eq!(overlay.render_signature().results_len, 0);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            ConnectionOverlayOutcome::Consumed
+        );
+    }
+
+    #[test]
+    fn empty_overlay_shows_hint_and_activate_is_inert() {
+        let mut overlay = open(Vec::new());
+        assert_eq!(overlay.entry_count(), 0);
+        let lines = overlay.visible_lines(80, 10);
+        assert_eq!(lines.len(), 2);
+        assert!(lines[1].text.contains("No saved connections"));
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            ConnectionOverlayOutcome::Consumed
+        );
+    }
+
+    #[test]
+    fn close_input_requests_close() {
+        let mut overlay = open(entries());
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Close),
+            ConnectionOverlayOutcome::Close
+        );
+    }
+
+    #[test]
+    fn selection_clamps_within_filtered_rows() {
+        let mut overlay = open(entries());
+        for _ in 0..10 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(overlay.render_signature().selected, Some(2));
+        for _ in 0..10 {
+            overlay.handle_input(OverlayInput::Up);
+        }
+        assert_eq!(overlay.render_signature().selected, Some(0));
+    }
+
+    #[test]
+    fn visible_lines_are_bounded_by_body_height() {
+        let overlay = open(entries());
+        assert_eq!(overlay.visible_lines(80, 2).len(), 2);
+        assert!(overlay.visible_lines(80, 10).len() <= 10);
+    }
+
+    #[test]
+    fn row_label_includes_target_and_source() {
+        let overlay = open(entries());
+        let lines = overlay.visible_lines(120, 10);
+        // web1 shows user@host:port and the OdyTTY source tag.
+        assert!(
+            lines[1]
+                .text
+                .contains("deploy@gateway.example.invalid:2222")
+        );
+        assert!(lines[1].text.contains("(OdyTTY)"));
+        // remote shows the ssh-config source tag.
+        assert!(lines[3].text.contains("(ssh-config)"));
+    }
+
+    #[test]
+    fn control_chars_in_host_fields_are_sanitized() {
+        let overlay = open(vec![host(
+            "evil\u{1b}[31m",
+            Some("h\u{7}ost"),
+            None,
+            None,
+            ConnectionHostSource::Odytty,
+        )]);
+        let lines = overlay.visible_lines(120, 10);
+        assert!(!lines[1].text.contains('\u{1b}'));
+        assert!(!lines[1].text.contains('\u{7}'));
+    }
+}

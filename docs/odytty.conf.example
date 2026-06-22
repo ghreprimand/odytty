@@ -114,6 +114,13 @@ keybinds =
 # OpenSSH config import is default-off. While off, OdyTTY does not read
 # ~/.ssh/config. When on, the import is read-only, name-only, bounded, and never
 # surfaces key directives or credentials.
+#
+# Browse and quick-connect to saved hosts through the connection-manager overlay.
+# Bind a chord to the connection-manager action to open it (no default chord, so
+# the unset input path stays byte-identical), e.g.
+# keybinds = ctrl+alt+h=connection-manager. The overlay is type-to-filter; Enter
+# quick-connects, Esc dismisses. With ssh_config_hosts off it lists OdyTTY-owned
+# hosts only and never references ~/.ssh.
 ssh_config_hosts = off
 
 # Per-session output recording for the scrubbable replay overlay. Default off:

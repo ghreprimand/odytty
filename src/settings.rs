@@ -219,6 +219,11 @@ pub enum BindableAction {
     /// users opt in with `keybinds` / `ODYTTY_KEYBINDS`, so the unset input path
     /// stays byte-identical. Replay is presentation-only.
     SessionReplay,
+    /// Open the connection-manager overlay (Phase 4). No default chord is
+    /// installed; users opt in with `keybinds` / `ODYTTY_KEYBINDS`, so the unset
+    /// input path stays byte-identical. The overlay is presentation-only; it
+    /// lists saved hosts and emits a connect request on accept.
+    ConnectionManager,
     NewTab,
     NextTab,
     PrevTab,
@@ -278,6 +283,9 @@ impl BindableAction {
             }
             "sessionreplay" | "replay" | "outputreplay" | "replayoverlay" => {
                 Some(Self::SessionReplay)
+            }
+            "connectionmanager" | "connections" | "connect" | "sshmanager" | "hosts" => {
+                Some(Self::ConnectionManager)
             }
             "newtab" | "tabnew" => Some(Self::NewTab),
             "nexttab" | "tabnext" => Some(Self::NextTab),

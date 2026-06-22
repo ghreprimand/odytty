@@ -83,6 +83,7 @@ use super::viewport::{
 
 mod background_ui;
 mod bell;
+mod connections_ui;
 mod copy_mode_ui;
 mod cursor;
 mod cursor_frame;
@@ -874,6 +875,10 @@ impl App {
                 self.open_replay_overlay();
                 return;
             }
+            if action == Some(BindableAction::ConnectionManager) {
+                self.open_connection_overlay();
+                return;
+            }
             if action == Some(BindableAction::Search) {
                 self.toggle_search();
                 return;
@@ -966,6 +971,7 @@ impl App {
                 Some(BindableAction::Search)
                 | Some(BindableAction::CommandPalette)
                 | Some(BindableAction::SessionReplay)
+                | Some(BindableAction::ConnectionManager)
                 | Some(BindableAction::SettingsPanel)
                 | Some(BindableAction::ThemePicker)
                 | None => {}

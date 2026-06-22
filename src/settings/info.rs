@@ -913,6 +913,7 @@ impl Settings {
                     "clear-input",
                     "command-palette",
                     "session-replay",
+                    "connection-manager",
                     "new-tab",
                     "next-tab",
                     "prev-tab",

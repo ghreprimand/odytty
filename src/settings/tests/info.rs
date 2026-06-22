@@ -154,6 +154,7 @@ fn keybinds_info_options_lists_all_actions() {
         BindableAction::ClearInput,
         BindableAction::CommandPalette,
         BindableAction::SessionReplay,
+        BindableAction::ConnectionManager,
         BindableAction::NewTab,
         BindableAction::NextTab,
         BindableAction::PrevTab,
@@ -174,7 +175,7 @@ fn keybinds_info_options_lists_all_actions() {
         .map(|action| bindable_action_display_name(*action))
         .collect();
     assert_eq!(keybinds.options, expected_names.as_slice());
-    assert_eq!(keybinds.options.len(), 28, "all 28 actions selectable");
+    assert_eq!(keybinds.options.len(), 29, "all 29 actions selectable");
 }
 
 #[test]

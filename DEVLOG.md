@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Connection-manager overlay (Phase 4 list/select UI)
+
+Added the keyboard-driven connection-manager overlay that consumes the
+connection-hosts data layer and the SSH connect action. The overlay owns
+list/filter/select presentation only; accepting a host hands the connect action
+a name-only target to spawn.
+
+- New `src/native/connection_overlay.rs`: a self-contained overlay (mirroring
+  `replay_overlay.rs` / `palette_overlay.rs`) that owns a frozen clone of the
+  merged host list, a type-to-filter query, and a selection cursor. Empty query
+  preserves load order (OdyTTY-owned first); a non-empty query ranks via the
+  shared `crate::fuzzy` scorer over alias + host name + user. Rows render
+  `alias  user@host:port  [theme]  (source)` with all fields control-char
+  sanitized. Accepting a row emits `Connect(Box<ConnectionHost>)`.
+- New `src/native/app/connections_ui.rs`: `App::open_connection_overlay` loads
+  the merged list through `connection_hosts::load_connection_hosts`. The
+  `~/.ssh/config` path is resolved **only** when `ssh_config_hosts` is on — with
+  the opt-in off the resolver returns `ssh_config: None`, so OdyTTY never even
+  forms a path under `~/.ssh`. Proven by unit tests.
+- Wired into `overlay.rs` as `OverlayMode::Connections` with a new
+  `OverlayOutcome::Connect`, routed in `interaction.rs` to GPT's committed
+  `App::connect_ssh_host_in_new_tab`.
+- New `BindableAction::ConnectionManager` (`connection-manager`), unbound by
+  default so the input path stays byte-identical. Suggested
+  `ctrl+alt+h=connection-manager`.
+- Tests: overlay isolation (live frame byte-identical when the overlay is open /
+  closed), fuzzy-filter ranking, opt-in-off-shows-only-OdyTTY-hosts +
+  never-forms-ssh-path, control-char sanitization, selection clamping, empty/no-
+  match handling. Full lib suite green (connection tests 25/25); clippy
+  `--lib --tests` clean; fmt clean; `gpu_composite_smoke` byte-identity +
+  `license_headers` green. Synthetic fixtures only; no real `~/.ssh` data.
+
+---
+
 ## 2026-06-21 -- SSH connect action
 
 Added the Phase 4 connect action on top of the connection-hosts data layer.

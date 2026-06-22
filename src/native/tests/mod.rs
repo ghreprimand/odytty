@@ -16,6 +16,7 @@ use super::bindings::{
 use super::clipboard::{
     ClipboardSlot, encode_paste_chunks, flatten_chunks, selected_clipboard_text,
 };
+use super::connection_overlay::ConnectionOverlaySignature;
 use super::context_menu_ui::ContextMenuSignature;
 use super::font_picker::FontPickerSignature;
 use super::gpu::{
