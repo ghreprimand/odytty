@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Phase 5: public docs inactive-pane dim reconciliation
+
+Cleaned up public documentation drift after the inactive-pane dimming feature
+landed.
+
+- `README.md` no longer lists inactive-pane focus dimming as a known gap. The
+  panes workflow now describes `inactive_pane_dim` as implemented, default-off,
+  plain-path-safe, and byte-identical when disabled.
+- `SPEC.md` now treats inactive-pane dimming as supported scope and leaves only
+  per-pane inline graphics plus non-focused-pane interactive overlays as pane
+  fast-follows. Panes/splits remain in supported scope; cross-session
+  multiplexing stays out of scope.
+
+---
+
 ## 2026-06-22 -- Phase 5: fix two parallel-run test flakes (test isolation only)
 
 Made the default parallel `cargo test` deterministic by isolating shared

@@ -690,9 +690,11 @@ its first stable layer.
   drag-resizable. The prefix is the only new globally captured key; with no
   prefix pending, all existing bindings and ordinary input are byte-identical,
   and a single-pane tab is byte-identical to the pre-panes render path.
-  Per-pane inline graphics, non-focused-pane interactive overlays, and the
-  inactive-pane focus dim are planned fast-follows (see the v1 limitation note
-  under Inline Graphics).
+  Optional inactive-pane dimming is implemented by `inactive_pane_dim`, defaults
+  off, is forced off in plain render quality, and leaves the no-dim path
+  byte-identical. Per-pane inline graphics and non-focused-pane interactive
+  overlays remain planned fast-follows (see the v1 limitation note under Inline
+  Graphics).
 - Resumable-session substrate: a hidden root-level `session_host` module owns
   the first detached-host foundation outside `src/native/`. The internal
   `odytty session-host` mode hosts one PTY + terminal model, exposes only a

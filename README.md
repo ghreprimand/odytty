@@ -349,8 +349,9 @@ pending, every existing binding and all ordinary input is byte-identical to a
 single-pane window, and a tab with one pane renders exactly as before. Set
 `pane_prefix=off` to disable splits entirely and free `Ctrl+b`. v1 cuts: inline
 graphics render in single-pane tabs only, interactive overlays (selection /
-search) are painted for the focused pane only, and an inactive-pane dim is a
-planned fast-follow.
+search) are painted for the focused pane only. Optional inactive-pane dimming is
+implemented via `inactive_pane_dim`; it defaults to `0.0`, is disabled on
+`render_quality=plain`, and leaves the no-dim pane frame byte-identical.
 
 Core local shortcuts:
 
@@ -503,9 +504,9 @@ experimental build-from-source target (see Install And Run). Both are exercised
 in CI. Windows is not yet supported.
 
 **Known gaps:** Windows support, profiles, native window reattach for
-persistent sessions, per-pane inline graphics, the inactive-pane focus dim,
-Kitty animation, Kitty Unicode placeholders, iTerm2 graphics, COLR/CPAL color
-fonts, and broader ligature/stylistic-set shaping.
+persistent sessions, per-pane inline graphics, Kitty animation, Kitty Unicode
+placeholders, iTerm2 graphics, COLR/CPAL color fonts, and broader
+ligature/stylistic-set shaping.
 
 The running history lives in [`DEVLOG.md`](DEVLOG.md). The current public
 roadmap lives in [`TODO.md`](TODO.md) and
