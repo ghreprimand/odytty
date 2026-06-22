@@ -335,8 +335,12 @@ Any tab can be split into panes. The direct chords `Ctrl+Shift+E` (split into
 columns, new pane on the right) and `Ctrl+Shift+O` (split into rows, new pane
 below) create a split on a single-pane tab — they match Ghostty's Linux
 defaults and work at both single-pane and multi-pane. You can also split from
-the right-click menu's "Split Right" / "Split Down" items. Once the active tab
-has multiple panes, a tmux-style prefix (default `Ctrl+b`, configurable via
+the right-click menu's "Split Right" / "Split Down" items. When the active tab
+is already multi-pane, the right-click menu also offers a "Close Pane" item
+(labelled with the effective `Ctrl+b x` prefix chord) to close just the focused
+pane; it is hidden in a single-pane tab, where closing the tab is the only
+close. Once the active tab has multiple panes, a tmux-style prefix (default
+`Ctrl+b`, configurable via
 `pane_prefix`) opens a transient pane-command mode; press the prefix then a pane
 key:
 

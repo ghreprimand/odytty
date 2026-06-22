@@ -1287,13 +1287,26 @@ impl App {
         // rebinds. Items with no bound chord get `None` (rendered blank). Reuses
         // `format_key_chord` for the chord decomposition; `humanize_chord` only
         // title-cases the tokens for display.
-        let accelerators = super::context_menu_ui::ContextMenuItem::ALL.map(|item| {
+        let mut accelerators = super::context_menu_ui::ContextMenuItem::ALL.map(|item| {
             item.bindable_action()
                 .and_then(|action| self.key_bindings.chord_for_action(action))
                 .map(|chord| {
                     super::context_menu_ui::humanize_chord(crate::settings::format_key_chord(chord))
                 })
         });
+        // Close Pane is shown only in a multi-pane tab, and its chord lives in
+        // the multiplexer prefix table (`Ctrl-b x`), not the flat global table —
+        // so its accelerator is composed here from the prefix engine rather than
+        // the generic `bindable_action` → `chord_for_action` path above.
+        let multi_pane = !self.sessions.active_is_single_pane();
+        if multi_pane
+            && let Some(label) = self.close_pane_accelerator()
+            && let Some(slot) = super::context_menu_ui::ContextMenuItem::ALL
+                .iter()
+                .position(|item| *item == super::context_menu_ui::ContextMenuItem::ClosePane)
+        {
+            accelerators[slot] = Some(label);
+        }
         self.overlay.open_context_menu(
             spawn,
             copy_enabled,
@@ -1301,9 +1314,29 @@ impl App {
             paste_enabled,
             editable_selection.is_some(),
             rename_target,
+            multi_pane,
             accelerators,
         );
         self.request_selection_redraw();
+    }
+
+    /// The human-readable accelerator label for the context menu's Close Pane
+    /// item: the multiplexer prefix chord followed by the prefix-table key bound
+    /// to `ClosePane` (e.g. `Ctrl+B X` for the tmux `Ctrl-b x` default). `None`
+    /// when the prefix is disabled (`ODYTTY_PANE_PREFIX=off`) or `ClosePane` has
+    /// no prefix binding — the menu then renders the item with a blank
+    /// accelerator. Reuses the same `format_key_chord` + `humanize_chord` pair
+    /// the flat-table accelerators use, so the styling matches.
+    fn close_pane_accelerator(&self) -> Option<String> {
+        let prefix = self.prefix_engine.prefix()?;
+        let second = self
+            .prefix_engine
+            .chord_for_action(crate::settings::BindableAction::ClosePane)?;
+        let prefix_label =
+            super::context_menu_ui::humanize_chord(crate::settings::format_key_chord(prefix));
+        let second_label =
+            super::context_menu_ui::humanize_chord(crate::settings::format_key_chord(second));
+        Some(format!("{prefix_label} {second_label}"))
     }
 
     /// Select the entire buffer — the full scrollback plus the visible grid

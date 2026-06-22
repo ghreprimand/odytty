@@ -180,6 +180,25 @@ impl PrefixEngine {
         PrefixOutcome::Inactive
     }
 
+    /// The configured prefix chord (`None` when the multiplexer prefix is
+    /// disabled, e.g. `ODYTTY_PANE_PREFIX=off`). Used to label the prefix-only
+    /// pane actions (e.g. Close Pane) in the context menu.
+    pub(super) fn prefix(&self) -> Option<KeyChord> {
+        self.prefix
+    }
+
+    /// The *second* chord bound to `action` in the prefix table (the key pressed
+    /// after the prefix), or `None` when the action has no prefix binding. Scans
+    /// newest-first so an override wins over the default, mirroring
+    /// [`KeyBindings::chord_for_action`]. Returns the lookup-normalized chord
+    /// (shift folded for character keys), which is what gets displayed.
+    pub(super) fn chord_for_action(&self, action: BindableAction) -> Option<KeyChord> {
+        self.table
+            .iter()
+            .rev()
+            .find_map(|(chord, candidate)| (*candidate == action).then_some(*chord))
+    }
+
     fn is_prefix(&self, chord: KeyChord) -> bool {
         self.prefix == Some(chord)
     }

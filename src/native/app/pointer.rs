@@ -56,10 +56,18 @@ impl App {
         // Phase-1 checkbox. `multipane_geometry()` is `None` for a single-pane
         // tab, so this whole branch is skipped there and the press path stays
         // byte-identical.
+        //
+        // Gated on the press landing *inside* the content rect (`y >= content.y`):
+        // the tab strip sits above the content rect (`content.y == pad + tab_h`),
+        // so a click on the tab bar fails this guard and falls through to the
+        // tab-bar handling below instead of being swallowed by an unconditional
+        // `return` here — otherwise tabs can't be switched/closed once a tab is
+        // split (the press matches neither a divider nor a pane and returns).
         if button == WinitMouseButton::Left
             && state == ElementState::Pressed
             && let Some((content, _cell)) = self.multipane_geometry()
             && let Some((x_px, y_px)) = self.pointer_px
+            && y_px as f32 >= content.y
         {
             let (x, y) = (x_px as f32, y_px as f32);
             if let Some(idx) = self.sessions.active_divider_at_point(
@@ -237,7 +245,7 @@ impl App {
             x_px,
             y_px,
             &self.sessions,
-            self.grid.columns,
+            self.tab_bar_grid_cols(),
             padding.as_f32(),
             cell,
             padding,

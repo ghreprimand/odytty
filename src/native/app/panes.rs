@@ -148,6 +148,19 @@ impl App {
         }
     }
 
+    /// The column count the tab-bar strip is laid out across: the **window**
+    /// content columns, not the focused pane's sub-grid. The strip renders edge
+    /// to edge across the whole window ([`Self::tab_bar_strip`] uses
+    /// `(surface_w - 2·pad)/cell.width`), so its hit-test must use the same
+    /// window columns — otherwise, in a multi-pane tab where `self.grid` Derefs
+    /// to the narrower focused-pane sub-grid, tabs render at window-width
+    /// positions but hit-test across the sub-grid and clicks/hover miss. In a
+    /// single-pane tab [`Self::overlay_grid_dims`] returns `self.grid`, so this
+    /// is exactly `self.grid.columns` and the tab-bar hit-test is byte-identical.
+    pub(super) fn tab_bar_grid_cols(&self) -> usize {
+        self.overlay_grid_dims().0
+    }
+
     /// The pointer position in **window-overlay cell space** (the content grid),
     /// for overlay hit-testing and context-menu spawn. In a single-pane tab this
     /// is exactly `self.pointer_cell` (already window-space), so the single-pane
@@ -572,6 +585,41 @@ mod tests {
         // Above/left of the content origin clamps to (0,0).
         let mapped = window_overlay_cell(content, cell, 0.0, 0.0).expect("cell");
         assert_eq!(mapped, CellPoint { row: 0, column: 0 });
+    }
+
+    #[test]
+    fn tab_bar_hit_test_columns_match_the_rendered_strip_width() {
+        // Bug A guard: the tab strip renders across the window content columns
+        // (`tab_bar_strip`: (surface_w - 2·pad)/cell.width), and the hit-test
+        // must use the *same* column count (`tab_bar_grid_cols` ==
+        // `overlay_grid_dims().0` == grid_dims_for_rect over the content rect).
+        // If these diverged, multi-pane tabs would render at one set of columns
+        // and hit-test at another (the focused pane's narrower sub-grid),
+        // misaligning hover and dropping clicks. This proves the two formulas
+        // agree across a matrix of widths and paddings.
+        let cell = cell(); // 10x20
+        for surface_w in [320u32, 800, 1280, 1366, 1920, 37] {
+            for pad_logical in [0.0f32, 1.0, 8.0, 12.0] {
+                let padding = WindowPadding::from_logical(pad_logical, 1.0);
+                let pad = padding.physical_px();
+                // The render-side strip column formula.
+                let strip_cols =
+                    (surface_w.saturating_sub(pad.saturating_mul(2)) / cell.width.max(1)) as usize;
+                // The hit-test-side content column count (what tab_bar_grid_cols
+                // returns in multi-pane: grid_dims_for_rect over the content
+                // rect). Tab bar shown, so the height arg is irrelevant to cols.
+                let content = pane_content_rect(surface_w, 800, cell, padding, true);
+                let (content_cols, _) =
+                    crate::native::layout::grid_dims_for_rect(content, cell.width, cell.height);
+                // `grid_dims_for_rect` floors at 1, so compare against the strip
+                // formula clamped the same way (the strip bails when cols == 0).
+                assert_eq!(
+                    content_cols,
+                    strip_cols.max(1),
+                    "surface_w={surface_w} pad={pad}: render/hit-test column mismatch"
+                );
+            }
+        }
     }
 
     #[test]

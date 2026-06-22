@@ -25,9 +25,17 @@
 //!
 //! Three visual separator lines partition the menu into editing/selection
 //! commands (Copy…Select All), tab actions (New Tab / Rename Tab / Close Tab),
-//! split actions (Split Right / Split Down), and the Settings launcher.
-//! Separators occupy body rows but are neither selectable nor focusable
-//! (D-IN2-SETTINGS).
+//! split/pane actions (Split Right / Split Down / Close Pane), and the Settings
+//! launcher. Separators occupy body rows but are neither selectable nor
+//! focusable (D-IN2-SETTINGS).
+//!
+//! Pane-count gating: the **Close Pane** item is shown only when the active tab
+//! is multi-pane (the App passes `multi_pane` at open time). In a single-pane
+//! tab it is hidden entirely — not rendered, not navigable — so the single-pane
+//! menu layout (and its render cache signature) is byte-identical to before the
+//! item existed. The item set, separator placement, focus cycling, and body-row
+//! mapping are all derived from the visible item list, so the layout reflows
+//! cleanly when the item appears or disappears.
 //!
 //! Each selectable item renders its *effective* keybind (reverse action→chord
 //! lookup against the live `KeyBindings`, so it tracks user rebinds) right-
@@ -40,23 +48,37 @@ use super::session::SessionToken;
 use crate::selection::CellPoint;
 use crate::settings::BindableAction;
 
-/// Number of selectable items (Copy / Cut / Paste / Delete / Select All / New
-/// Tab / Rename Tab / Close Tab / Split Right / Split Down / Settings).
-pub(super) const CONTEXT_MENU_ITEMS: usize = 11;
+/// Number of entries in [`ContextMenuItem::ALL`] (Copy / Cut / Paste / Delete /
+/// Select All / New Tab / Rename Tab / Close Tab / Split Right / Split Down /
+/// Close Pane / Settings) — the size of the accelerator array the App fills in
+/// `ALL` order. NOT the number of *visible* items: Close Pane is hidden in a
+/// single-pane tab, so the visible count is 11 there and 12 in a multi-pane tab.
+pub(super) const CONTEXT_MENU_ITEMS: usize = 12;
 
-/// Body row index of the first visual separator, between Select All and New Tab.
+/// Body row index of the first visual separator (single-pane layout), between
+/// Select All and New Tab. The separators move when Close Pane appears in a
+/// multi-pane tab; production code derives them dynamically from the visible
+/// item list. These consts describe the **single-pane** layout the unit/
+/// integration tests assert against, so they are test-only.
+#[cfg(test)]
 pub(super) const CONTEXT_MENU_SEPARATOR_ROW: usize = 5;
 
-/// Body row index of the second visual separator, between Close Tab and the
-/// split actions.
+/// Body row index of the second visual separator (single-pane layout), between
+/// Close Tab and the split actions.
+#[cfg(test)]
 pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 9;
 
-/// Body row index of the third visual separator, between the split actions and
-/// Settings.
+/// Body row index of the third visual separator (single-pane layout), between
+/// the split actions and Settings.
+#[cfg(test)]
 pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 12;
 
-/// Total body rows: eleven selectable items plus three separator lines.
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = CONTEXT_MENU_ITEMS + 3;
+/// Total body rows in the **single-pane** layout: eleven visible items plus
+/// three separator lines (Close Pane hidden). The multi-pane layout has one
+/// more row; production uses [`ContextMenuUi::body_row_count`] for the live
+/// count.
+#[cfg(test)]
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 14;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -79,12 +101,18 @@ pub(super) enum ContextMenuItem {
     /// Split the focused pane into stacked rows (new pane below). Same action as
     /// the keyboard `Ctrl+Shift+O` / tmux `Ctrl-b "` path.
     SplitRows,
+    /// Close the focused pane within a multi-pane tab. Same action as the tmux
+    /// `Ctrl-b x` prefix / palette `close-pane`. Hidden in a single-pane tab
+    /// (there is no pane to close short of closing the whole tab).
+    ClosePane,
     /// Open the settings panel (always enabled, D-IN2-SETTINGS).
     Settings,
 }
 
 impl ContextMenuItem {
-    /// Selectable items in display order; index maps to `focused` state.
+    /// The full item set in display order — the accelerator-array order the App
+    /// fills. `ClosePane` is included here but filtered out of the *visible*
+    /// list in a single-pane tab (see [`ContextMenuUi::visible_items`]).
     pub(super) const ALL: [ContextMenuItem; CONTEXT_MENU_ITEMS] = [
         Self::Copy,
         Self::Cut,
@@ -96,8 +124,23 @@ impl ContextMenuItem {
         Self::CloseTab,
         Self::SplitColumns,
         Self::SplitRows,
+        Self::ClosePane,
         Self::Settings,
     ];
+
+    /// The visual section this item belongs to (0-based). A separator is drawn
+    /// wherever consecutive *visible* items cross a section boundary, so the
+    /// separator placement reflows automatically when Close Pane appears or
+    /// disappears: editing (0), tab actions (1), split/pane actions (2),
+    /// Settings (3).
+    fn section(self) -> u8 {
+        match self {
+            Self::Copy | Self::Cut | Self::Paste | Self::Delete | Self::SelectAll => 0,
+            Self::NewTab | Self::RenameTab | Self::CloseTab => 1,
+            Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
+            Self::Settings => 3,
+        }
+    }
 
     /// The label painted for this item.
     pub(super) fn label(self) -> &'static str {
@@ -112,6 +155,7 @@ impl ContextMenuItem {
             Self::CloseTab => "Close Tab",
             Self::SplitColumns => "Split Right",
             Self::SplitRows => "Split Down",
+            Self::ClosePane => "Close Pane",
             Self::Settings => "Settings",
         }
     }
@@ -130,7 +174,12 @@ impl ContextMenuItem {
             Self::SplitColumns => Some(BindableAction::SplitColumns),
             Self::SplitRows => Some(BindableAction::SplitRows),
             Self::Settings => Some(BindableAction::SettingsPanel),
-            Self::Cut | Self::Delete | Self::SelectAll | Self::RenameTab => None,
+            // Close Pane has no chord in the flat global table — it resolves only
+            // on the multiplexer prefix (`Ctrl-b x`), which the flat
+            // `chord_for_action` lookup cannot represent. The App fills its
+            // accelerator slot specially from the prefix table, so this returns
+            // `None` to skip the generic flat-table lookup.
+            Self::Cut | Self::Delete | Self::SelectAll | Self::RenameTab | Self::ClosePane => None,
         }
     }
 }
@@ -152,7 +201,11 @@ fn item_to_body_row(item_index: usize) -> usize {
     }
 }
 
-/// Map a body row to a selectable item index, or `None` for a separator row.
+/// Map a body row to a selectable item index, or `None` for a separator row
+/// (single-pane layout reference; production uses
+/// [`ContextMenuUi::body_row_to_item_index`] for the live multi-pane-aware
+/// mapping).
+#[cfg(test)]
 fn body_row_to_item(body_row: usize) -> Option<usize> {
     if body_row == CONTEXT_MENU_SEPARATOR_ROW
         || body_row == CONTEXT_MENU_SECOND_SEPARATOR_ROW
@@ -214,6 +267,9 @@ pub(super) struct ContextMenuSignature {
     pub(super) paste_enabled: bool,
     pub(super) delete_enabled: bool,
     pub(super) rename_enabled: bool,
+    /// Whether the active tab is multi-pane (drives the Close Pane item's
+    /// visibility, so a pane-count change must repaint the menu).
+    pub(super) multi_pane: bool,
 }
 
 /// The right-click context menu state. Holds the spawn cell, the focused item,
@@ -228,6 +284,10 @@ pub(super) struct ContextMenuUi {
     paste_enabled: bool,
     delete_enabled: bool,
     rename_target: Option<SessionToken>,
+    /// Whether the active tab is multi-pane, snapshotted at open time. Gates the
+    /// visibility of the Close Pane item: `false` hides it entirely (single-pane
+    /// layout is byte-identical to before the item existed).
+    multi_pane: bool,
     /// Per-item effective-keybind labels (Part C), indexed by
     /// [`ContextMenuItem::ALL`] order. `None` means the item shows no
     /// accelerator. Reset to all-`None` on `open`; the App overwrites via
@@ -245,6 +305,7 @@ impl Default for ContextMenuUi {
             paste_enabled: false,
             delete_enabled: false,
             rename_target: None,
+            multi_pane: false,
             accelerators: Default::default(),
         }
     }
@@ -257,7 +318,9 @@ impl ContextMenuUi {
 
     /// Arm the menu at `spawn` with the given item-enabled snapshot, resetting
     /// the focus to the first item. The caller (the App) computes the enabled
-    /// flags from the live selection / clipboard before opening.
+    /// flags from the live selection / clipboard before opening. The arg list
+    /// mirrors that snapshot rather than wrapping it in a one-use struct.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn open(
         &mut self,
         spawn: CellPoint,
@@ -266,6 +329,7 @@ impl ContextMenuUi {
         paste_enabled: bool,
         delete_enabled: bool,
         rename_target: Option<SessionToken>,
+        multi_pane: bool,
     ) {
         self.spawn = spawn;
         self.copy_enabled = copy_enabled;
@@ -273,6 +337,7 @@ impl ContextMenuUi {
         self.paste_enabled = paste_enabled;
         self.delete_enabled = delete_enabled;
         self.rename_target = rename_target;
+        self.multi_pane = multi_pane;
         self.focused = 0;
         // Clear any stale accelerators; the App repopulates immediately via
         // `set_accelerators`. A bare `open` (the unit-test path) shows no
@@ -304,15 +369,68 @@ impl ContextMenuUi {
             ContextMenuItem::CloseTab => true,
             ContextMenuItem::SplitColumns => true,
             ContextMenuItem::SplitRows => true,
+            ContextMenuItem::ClosePane => true,
             ContextMenuItem::Settings => true,
         }
     }
 
-    /// The accelerator label for a selectable item index, or `None` when the
-    /// item has no bound chord.
-    fn accelerator_for(&self, item_index: usize) -> Option<&str> {
+    /// The items currently visible, in display order. Close Pane is included
+    /// only in a multi-pane tab; everything else is always present. The visible
+    /// list is the single source of truth for focus indices, separator
+    /// placement, body-row mapping, and rendering, so the menu reflows cleanly
+    /// when the pane count changes.
+    fn visible_items(&self) -> Vec<ContextMenuItem> {
+        ContextMenuItem::ALL
+            .into_iter()
+            .filter(|item| !matches!(item, ContextMenuItem::ClosePane) || self.multi_pane)
+            .collect()
+    }
+
+    /// The number of selectable (focusable) items currently visible.
+    fn item_count(&self) -> usize {
+        self.visible_items().len()
+    }
+
+    /// The body rows in display order: `Some(item)` for a selectable row,
+    /// `None` for a separator. A separator is inserted wherever consecutive
+    /// visible items cross a section boundary ([`ContextMenuItem::section`]).
+    fn body_layout(&self) -> Vec<Option<ContextMenuItem>> {
+        let mut out = Vec::new();
+        let mut prev_section: Option<u8> = None;
+        for item in self.visible_items() {
+            let section = item.section();
+            if prev_section.is_some_and(|p| p != section) {
+                out.push(None);
+            }
+            prev_section = Some(section);
+            out.push(Some(item));
+        }
+        out
+    }
+
+    /// The live body-row count (selectable items plus separators), accounting
+    /// for the multi-pane Close Pane item.
+    fn body_row_count(&self) -> usize {
+        self.body_layout().len()
+    }
+
+    /// Map a body row to its index in the visible item list, or `None` for a
+    /// separator / out-of-range row. The multi-pane-aware production analogue of
+    /// the single-pane `body_row_to_item` test reference.
+    fn body_row_to_item_index(&self, body_row: usize) -> Option<usize> {
+        let layout = self.body_layout();
+        let item = (*layout.get(body_row)?)?;
+        self.visible_items().iter().position(|it| *it == item)
+    }
+
+    /// The accelerator label for an item, or `None` when the item has no bound
+    /// chord. Looked up by the item's position in [`ContextMenuItem::ALL`] (the
+    /// order the App fills the accelerator array), so it is stable regardless of
+    /// which items are currently visible.
+    fn accelerator_for_item(&self, item: ContextMenuItem) -> Option<&str> {
+        let all_index = ContextMenuItem::ALL.iter().position(|it| *it == item)?;
         self.accelerators
-            .get(item_index)
+            .get(all_index)
             .and_then(|slot| slot.as_deref())
     }
 
@@ -349,8 +467,9 @@ impl ContextMenuUi {
     /// border. Shares [`OverlayRect`] with the centered overlays so the App's
     /// pointer routing and click-outside dismissal work unchanged.
     pub(super) fn rect(&self, columns: usize, rows: usize) -> OverlayRect {
+        let body_rows = self.body_row_count();
         let width = self.menu_width().min(columns.max(1));
-        let height = (CONTEXT_MENU_BODY_ROWS + 2).min(rows.max(1));
+        let height = (body_rows + 2).min(rows.max(1));
         let left = self.spawn.column.min(columns.saturating_sub(width));
         let top = self.spawn.row.min(rows.saturating_sub(height));
         OverlayRect {
@@ -361,20 +480,22 @@ impl ContextMenuUi {
             body_left: left + 2,
             body_top: top + 1,
             body_width: width.saturating_sub(4),
-            body_height: CONTEXT_MENU_BODY_ROWS,
+            body_height: body_rows,
         }
     }
 
     fn focus_prev(&mut self) {
-        self.focused = (self.focused + CONTEXT_MENU_ITEMS - 1) % CONTEXT_MENU_ITEMS;
+        let n = self.item_count();
+        self.focused = (self.focused + n - 1) % n;
     }
 
     fn focus_next(&mut self) {
-        self.focused = (self.focused + 1) % CONTEXT_MENU_ITEMS;
+        let n = self.item_count();
+        self.focused = (self.focused + 1) % n;
     }
 
     fn activate_focused(&self) -> ContextMenuOutcome {
-        let item = ContextMenuItem::ALL[self.focused];
+        let item = self.visible_items()[self.focused];
         if self.item_enabled(item) {
             ContextMenuOutcome::Activate(item)
         } else {
@@ -412,18 +533,15 @@ impl ContextMenuUi {
         row_in_body: usize,
         _button: PointerButton,
     ) -> ContextMenuOutcome {
-        if row_in_body >= CONTEXT_MENU_BODY_ROWS {
+        if row_in_body >= self.body_row_count() {
             return ContextMenuOutcome::Consumed;
         }
-        let Some(item_index) = body_row_to_item(row_in_body) else {
+        let Some(item_index) = self.body_row_to_item_index(row_in_body) else {
             // Separator row: inert.
             return ContextMenuOutcome::Consumed;
         };
-        if item_index >= CONTEXT_MENU_ITEMS {
-            return ContextMenuOutcome::Consumed;
-        }
         self.focused = item_index;
-        let item = ContextMenuItem::ALL[item_index];
+        let item = self.visible_items()[item_index];
         if self.item_enabled(item) {
             ContextMenuOutcome::Activate(item)
         } else {
@@ -437,8 +555,7 @@ impl ContextMenuUi {
     /// on its last position).
     pub(super) fn handle_hover(&mut self, row_in_body: Option<usize>) {
         if let Some(row) = row_in_body
-            && let Some(item_index) = body_row_to_item(row)
-            && item_index < CONTEXT_MENU_ITEMS
+            && let Some(item_index) = self.body_row_to_item_index(row)
         {
             self.focused = item_index;
         }
@@ -449,16 +566,20 @@ impl ContextMenuUi {
     /// [`ContextMenuRow::Separator`] (the visual divider). The renderer decides
     /// how to paint each row type.
     pub(super) fn rows(&self) -> Vec<ContextMenuRow> {
-        let mut out = Vec::with_capacity(CONTEXT_MENU_BODY_ROWS);
-        for (item_index, item) in ContextMenuItem::ALL.iter().enumerate() {
-            // Insert a separator before each new section: the tab actions
-            // (index 5), the split actions (index 8), and Settings (index 10).
-            if item_index == 5 || item_index == 8 || item_index == 10 {
+        let items = self.visible_items();
+        let mut out = Vec::with_capacity(self.body_row_count());
+        let mut prev_section: Option<u8> = None;
+        for (item_index, item) in items.iter().enumerate() {
+            // Insert a separator wherever consecutive visible items cross a
+            // section boundary, so the layout reflows when Close Pane appears.
+            let section = item.section();
+            if prev_section.is_some_and(|p| p != section) {
                 out.push(ContextMenuRow::Separator);
             }
+            prev_section = Some(section);
             out.push(ContextMenuRow::Item {
                 label: item.label(),
-                accelerator: self.accelerator_for(item_index).map(str::to_owned),
+                accelerator: self.accelerator_for_item(*item).map(str::to_owned),
                 focused: item_index == self.focused,
                 enabled: self.item_enabled(*item),
             });
@@ -475,6 +596,7 @@ impl ContextMenuUi {
             paste_enabled: self.paste_enabled,
             delete_enabled: self.delete_enabled,
             rename_enabled: self.rename_target.is_some(),
+            multi_pane: self.multi_pane,
         }
     }
 }
@@ -510,6 +632,22 @@ mod tests {
             paste,
             copy,
             None,
+            false,
+        );
+        m
+    }
+
+    /// A multi-pane menu (Close Pane visible), no selection / clipboard.
+    fn multipane_menu() -> ContextMenuUi {
+        let mut m = ContextMenuUi::new();
+        m.open(
+            CellPoint { row: 4, column: 7 },
+            false,
+            false,
+            false,
+            false,
+            None,
+            true,
         );
         m
     }
@@ -528,6 +666,7 @@ mod tests {
             true,
             true,
             None,
+            false,
         );
         let rect = m.rect(40, 20);
         assert!(rect.left + rect.width <= 40);
@@ -549,8 +688,10 @@ mod tests {
         let mut m = menu(true, true);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        // Wraps from 0 to the last item (Settings, the last index).
-        assert_eq!(m.focused, CONTEXT_MENU_ITEMS - 1);
+        // Wraps from 0 to the last *visible* item (Settings). Single-pane hides
+        // Close Pane, so the visible count is 11 and the last index is 10.
+        assert_eq!(m.focused, m.item_count() - 1);
+        assert_eq!(m.item_count(), 11);
         m.handle_input(OverlayInput::Down);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Down);
@@ -612,6 +753,7 @@ mod tests {
             false,
             false,
             Some(SessionToken(9)),
+            false,
         );
         assert_eq!(
             m.handle_press(7, PointerButton::Left),
@@ -654,6 +796,75 @@ mod tests {
             m.handle_press(13, PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::Settings)
         );
+    }
+
+    #[test]
+    fn single_pane_menu_hides_close_pane() {
+        // Single-pane: Close Pane is absent, layout is the legacy 14-row menu
+        // (byte-identical to before the item existed), Settings is the last row.
+        let m = menu(false, false);
+        assert_eq!(m.item_count(), 11);
+        let rows = m.rows();
+        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 14
+        assert!(
+            !rows.iter().any(|r| matches!(
+                r,
+                ContextMenuRow::Item {
+                    label: "Close Pane",
+                    ..
+                }
+            )),
+            "Close Pane must not appear in a single-pane menu"
+        );
+        assert_eq!(
+            rows[13],
+            item("Settings", false, true),
+            "Settings stays at body row 13 single-pane"
+        );
+    }
+
+    #[test]
+    fn multi_pane_menu_shows_close_pane_in_the_split_section() {
+        // Multi-pane: Close Pane appears after Split Down in the split/pane
+        // section; the third separator and Settings shift down one row.
+        let m = multipane_menu();
+        assert_eq!(m.item_count(), 12);
+        let rows = m.rows();
+        assert_eq!(rows.len(), 15, "one more row than single-pane");
+        assert_eq!(rows[10], item("Split Right", false, true));
+        assert_eq!(rows[11], item("Split Down", false, true));
+        assert_eq!(
+            rows[12],
+            item("Close Pane", false, true),
+            "Close Pane sits at body row 12, alongside the splits"
+        );
+        assert_eq!(rows[13], ContextMenuRow::Separator);
+        assert_eq!(
+            rows[14],
+            item("Settings", false, true),
+            "Settings shifts to body row 14 in the multi-pane layout"
+        );
+    }
+
+    #[test]
+    fn multi_pane_close_pane_activates_on_press() {
+        // Pressing the Close Pane body row (12) activates the item.
+        let mut m = multipane_menu();
+        assert_eq!(
+            m.handle_press(12, PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::ClosePane)
+        );
+    }
+
+    #[test]
+    fn multi_pane_focus_wraps_through_twelve_items() {
+        // Up from item 0 wraps to the last visible item (Settings, index 11),
+        // proving Close Pane is in the focus cycle only when multi-pane.
+        let mut m = multipane_menu();
+        assert_eq!(m.focused, 0);
+        m.handle_input(OverlayInput::Up);
+        assert_eq!(m.focused, 11);
+        assert_eq!(m.item_count(), 12);
     }
 
     #[test]
@@ -715,6 +926,7 @@ mod tests {
             true,
             false,
             None,
+            false,
         );
         assert_eq!(
             m.handle_press(1, PointerButton::Left),

@@ -7,6 +7,64 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Multi-pane × tab-bar pointer fixes + Close Pane menu item (release unblock)
+
+Operator validation on the previous binary surfaced three multi-pane × tab-bar
+regressions/gaps, all in the pointer + context-menu layer. Two were structural
+pointer bugs that traced to `self.grid` Dereffing to the *focused pane's*
+sub-grid in a multi-pane tab; the third was a missing affordance.
+
+- **Bug A — tab-bar hit-test used the focused-pane columns, not window columns.**
+  The tab strip renders edge-to-edge across the window content columns
+  (`tab_bar_strip`: `(surface_w - 2·pad)/cell.width`), but both hit-test sites
+  (`current_tab_bar_hit` in `pointer.rs`, the hover hit-test in
+  `interaction.rs::update_pointer_cell`) passed `self.grid.columns`, which in a
+  multi-pane tab is the narrower focused-pane sub-grid. Tabs therefore rendered
+  at window-width positions but hit-tested across the sub-grid: hover highlight
+  drifted, clicks missed, and right-click-rename resolved the wrong/None target.
+  Fix: a new `App::tab_bar_grid_cols()` returns `overlay_grid_dims().0` — the
+  window content columns in multi-pane, exactly `self.grid.columns` single-pane
+  (byte-identical) — threaded into both hit-test sites and the post-hover
+  `pointer_cell` column clamp. A pure unit (`panes.rs`) proves the render-side
+  strip column formula and the hit-test-side content column count agree across a
+  width/padding matrix.
+- **Bug B — the multi-pane left-press branch swallowed tab-bar clicks.** The
+  `Left+Pressed && multipane_geometry()` branch in `handle_mouse_input` ran
+  before the tab-bar handling and ended in an unconditional `return`. A click on
+  the tab strip (above the content rect) matched neither a divider nor a pane but
+  returned anyway, eating the click — so after a split you couldn't switch tabs
+  by clicking. Fix: gate the branch on `y_px >= content.y` (the content rect
+  starts below the tab strip), so a tab-bar press falls through to the existing
+  tab-switch / close / new-tab handling. Single-pane never enters this branch, so
+  it is unchanged.
+- **Missing affordance — no explicit "Close Pane" in the context menu.** Added a
+  `ContextMenuItem::ClosePane`, shown **only** when the active tab is multi-pane
+  (the App passes `multi_pane` at open time). It sits in the split/pane section
+  next to Split Right / Split Down and is wired through a new
+  `OverlayOutcome::ContextMenuClosePane` to `apply_pane_action(ClosePane)` — the
+  same op as the tmux `Ctrl+b x` prefix and the palette `close-pane`. Its
+  accelerator shows the composed prefix chord (`Ctrl+B X`), built from the
+  `PrefixEngine` (new `prefix()` / `chord_for_action()` accessors) since the
+  chord lives in the prefix table, not the flat global table. In a single-pane
+  tab the item is hidden entirely — the menu's item set, separator placement,
+  focus cycling, body-row mapping, and render-cache signature are all derived
+  from a dynamic visible-item list, so the single-pane layout is byte-identical
+  to before the item existed (14 body rows, Settings at row 13).
+
+Tests: `cargo test --lib` green (2150 passed) — new units cover the tab-bar
+column agreement (Bug A), Close Pane visibility (single-pane hides it / multi-
+pane shows it in the split section at body row 12), Close Pane activation +
+outcome routing, multi-pane focus wrap through 12 items, and the single-pane
+14-row identity. `gpu_composite_smoke` 3/3 byte-identity, `license_headers`
+green, `cargo fmt --check` clean, `cargo clippy --lib --tests` clean.
+
+Known gap (unchanged stance): the full multi-pane GPU composite + live click-
+through remains GPU/event-loop-coupled and can't be exercised headlessly; the
+broken *geometry* is unit-covered and single-pane byte-identity is smoke-proven.
+Bug B's press-routing gate is pure (`y >= content.y`) but its dispatch path runs
+through `handle_mouse_input`, which needs the event loop — manual hardware
+validation still confirms the click-through.
+
 ## 2026-06-22 -- Multi-pane window-level overlays render + hit-test (release unblock)
 
 Operator validation found that after a split the right-click menu "doesn't work

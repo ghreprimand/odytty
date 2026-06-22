@@ -127,6 +127,13 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.apply_pane_action(crate::settings::BindableAction::SplitRows);
             }
+            // The context menu closed itself; close the focused pane through the
+            // same action the tmux `Ctrl-b x` prefix / palette `close-pane` fire.
+            // Only emitted in a multi-pane tab (the item is hidden single-pane).
+            OverlayOutcome::ContextMenuClosePane => {
+                self.flush_pending_overlay_settings();
+                self.apply_pane_action(crate::settings::BindableAction::ClosePane);
+            }
             // D-IN2-SETTINGS: the context menu closed itself; open the settings
             // panel through the existing toggle path (same destination as
             // Ctrl+Shift+,). No extra state: the toggle path handles open/close.
@@ -540,7 +547,7 @@ impl App {
                 x_px,
                 y_px,
                 &self.sessions,
-                self.grid.columns,
+                self.tab_bar_grid_cols(),
                 padding.as_f32(),
                 cell,
                 padding,
@@ -560,9 +567,12 @@ impl App {
         if tab_bar_hit.is_some() {
             let x = (x_px as f32 - padding.as_f32()).max(0.0);
             let col = (x / cell.width as f32) as usize;
+            // Clamp to the *window* content columns the strip is laid out across
+            // (byte-identical to `self.grid.columns` single-pane), not the
+            // focused pane's narrower sub-grid in a multi-pane tab.
             self.pointer_cell = Some(CellPoint {
                 row: 0,
-                column: col.min(self.grid.columns.saturating_sub(1)),
+                column: col.min(self.tab_bar_grid_cols().saturating_sub(1)),
             });
             self.apply_cursor_icon(CursorIcon::Default);
             return;

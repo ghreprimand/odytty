@@ -253,11 +253,12 @@ impl OverlayUi {
         paste: bool,
         delete: bool,
         rename_target: Option<SessionToken>,
+        multi_pane: bool,
         accelerators: [Option<String>; CONTEXT_MENU_ITEMS],
     ) {
         self.panel.end_slider_drag();
         self.context_menu
-            .open(spawn, copy, cut, paste, delete, rename_target);
+            .open(spawn, copy, cut, paste, delete, rename_target, multi_pane);
         self.context_menu.set_accelerators(accelerators);
         self.mode = OverlayMode::ContextMenu;
         self.open = true;
@@ -331,6 +332,7 @@ impl OverlayUi {
                     ContextMenuItem::CloseTab => OverlayOutcome::ContextMenuCloseTab,
                     ContextMenuItem::SplitColumns => OverlayOutcome::ContextMenuSplitColumns,
                     ContextMenuItem::SplitRows => OverlayOutcome::ContextMenuSplitRows,
+                    ContextMenuItem::ClosePane => OverlayOutcome::ContextMenuClosePane,
                     ContextMenuItem::Settings => OverlayOutcome::ContextMenuSettings,
                 }
             }
@@ -940,6 +942,10 @@ pub(super) enum OverlayOutcome {
     /// `split_active_pane` the keyboard split chords fire.
     ContextMenuSplitColumns,
     ContextMenuSplitRows,
+    /// Close the focused pane from the context menu (multi-pane only). The
+    /// overlay has already closed itself; the App dispatches this to the same
+    /// `apply_pane_action(ClosePane)` the tmux `Ctrl-b x` prefix / palette fire.
+    ContextMenuClosePane,
     /// Open the settings panel from the context menu (D-IN2-SETTINGS). The
     /// overlay has already closed itself; the App opens the settings panel
     /// through the existing toggle path.
@@ -1979,6 +1985,7 @@ mod tests {
             true,
             true,
             None,
+            false,
             Default::default(),
         );
         // Focus starts at item 0 (Copy); Split Right is item index 8.
@@ -1998,6 +2005,7 @@ mod tests {
             true,
             true,
             None,
+            false,
             Default::default(),
         );
         for _ in 0..9 {
@@ -2006,6 +2014,51 @@ mod tests {
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
             OverlayOutcome::ContextMenuSplitRows
+        );
+    }
+
+    #[test]
+    fn context_menu_close_pane_emits_close_pane_outcome_only_multi_pane() {
+        // Multi-pane: Close Pane is visible item index 10 (right after Split
+        // Down at 9; Settings is 11); activating it routes up as the Close Pane
+        // outcome the App dispatches to `apply_pane_action(ClosePane)`.
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            None,
+            true,
+            Default::default(),
+        );
+        for _ in 0..10 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuClosePane
+        );
+
+        // Single-pane: Close Pane is hidden, so the 11th item is Settings — the
+        // Close Pane outcome is unreachable.
+        overlay.open_context_menu(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            None,
+            false,
+            Default::default(),
+        );
+        for _ in 0..10 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuSettings
         );
     }
 

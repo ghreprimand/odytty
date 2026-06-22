@@ -118,6 +118,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         false,
         false,
         None,
+        false,
     );
 
     let rows = menu.rows();
