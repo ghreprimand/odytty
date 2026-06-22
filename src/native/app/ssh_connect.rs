@@ -12,7 +12,6 @@ use crate::connection_hosts::ConnectionHost;
 impl App {
     /// Hand-off seam for the connection-manager overlay: consume a resolved
     /// connection entry and present it as a focused new tab.
-    #[allow(dead_code)]
     pub(in crate::native) fn connect_ssh_host_in_new_tab(
         &mut self,
         host: &ConnectionHost,
