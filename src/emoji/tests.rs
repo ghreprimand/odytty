@@ -173,6 +173,14 @@ fn emoji_presentation_gate_does_not_claim_text_default_misc_symbols() {
 }
 
 #[test]
+fn emoji_presentation_gate_covers_default_emoji_symbols_outside_2600_2700() {
+    assert_eq!(emoji_presentation("\u{231A}"), EmojiPresentation::Color); // watch
+    assert_eq!(emoji_presentation("\u{231B}"), EmojiPresentation::Color); // hourglass
+    assert_eq!(emoji_presentation("\u{2B50}"), EmojiPresentation::Color); // star
+    assert_eq!(emoji_presentation("\u{2B55}"), EmojiPresentation::Color); // heavy large circle
+}
+
+#[test]
 fn color_route_without_color_face_coverage_uses_mono_fallback() {
     assert!(color_route_needs_mono_fallback("\u{2705}", false));
     assert!(!color_route_needs_mono_fallback("\u{2705}", true));

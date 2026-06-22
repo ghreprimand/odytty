@@ -445,6 +445,7 @@ fn is_default_emoji_presentation(ch: char) -> bool {
             // Unicode 17.0 Emoji_Presentation=Yes codepoints below the
             // pictographic planes. Keep these explicit: text-default symbols in
             // the same blocks must fall through to the mono fallback path.
+            | 0x231A..=0x231B
             | 0x25FD..=0x25FE
             | 0x2614..=0x2615
             | 0x2648..=0x2653
@@ -488,5 +489,7 @@ fn is_default_emoji_presentation(ch: char) -> bool {
             // Large squares with default emoji presentation (U+2B1B BLACK LARGE
             // SQUARE, U+2B1C WHITE LARGE SQUARE) that NotoColorEmoji covers.
             | 0x2B1B..=0x2B1C
+            | 0x2B50
+            | 0x2B55
     )
 }

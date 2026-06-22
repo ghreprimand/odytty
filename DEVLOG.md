@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Emoji presentation audit follow-up
+
+Follow-up to the emoji presentation narrowing: restored three
+`Emoji_Presentation=Yes` ranges from Unicode 17.0 that must still use the color
+path when a color face is available: `U+231A..U+231B`, `U+2B50`, and `U+2B55`.
+The new unit test pins those alongside the existing text-default Dingbat and
+circle-marker guards.
+
+---
+
 ## 2026-06-22 -- Close Tab vs Close Pane semantics + active-tab outline
 
 Operator validation surfaced a definitive close-semantics defect (root-caused by
