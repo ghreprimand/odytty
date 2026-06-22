@@ -298,6 +298,24 @@ impl App {
         self.pointer_px = Some((x, y));
     }
 
+    /// Test seam (multi-pane overlay geometry): the window-overlay grid dims and
+    /// window-space pointer cell the overlay handlers use. In a single-pane tab
+    /// these MUST equal `(grid dims, pointer_cell)` so the single-pane overlay
+    /// path is byte-identical; the multi-pane mapping math is unit-tested in
+    /// `panes::tests`.
+    #[cfg(test)]
+    pub(in crate::native) fn overlay_geometry_for_test(
+        &self,
+    ) -> ((usize, usize), Option<CellPoint>) {
+        (self.overlay_grid_dims(), self.overlay_pointer_cell())
+    }
+
+    /// Test seam: the active window grid dimensions (`columns`, `rows`).
+    #[cfg(test)]
+    pub(in crate::native) fn grid_dims_for_test(&self) -> (usize, usize) {
+        (self.grid.columns, self.grid.rows)
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn tab_bar_visible_for_test(&self) -> bool {
         self.should_show_tab_bar()

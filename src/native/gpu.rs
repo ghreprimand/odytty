@@ -63,6 +63,25 @@ pub(super) struct PaneRender<'a> {
     pub(super) treatment: grid::BackgroundTreatmentParams,
 }
 
+/// A window-level overlay drawn **topmost** over a multi-pane composite
+/// (context menu / settings / palette / connections / replay). Unlike a
+/// [`PaneRender`] — whose background quads land in the shared background segment
+/// and so would be overdrawn by other panes' glyphs — an `OverlayTop`'s full
+/// cell vertices (background **and** glyphs) are appended after the dividers and
+/// per-pane overlays, so the panel composites opaquely on top of everything.
+/// The snapshot is sized and positioned in window space by the caller; in the
+/// single-pane path the overlay is painted into the terminal snapshot instead,
+/// so this type is never used there.
+pub(super) struct OverlayTop<'a> {
+    /// The overlay panel snapshot (its own grid, fully opaque within its rect).
+    pub(super) snapshot: &'a Snapshot,
+    /// Panel top-left in physical px (window space).
+    pub(super) origin: [f32; 2],
+    /// Background treatment params (matches the panes so any global treatment
+    /// is consistent across the frame).
+    pub(super) treatment: grid::BackgroundTreatmentParams,
+}
+
 pub(super) fn theme_clear_color(theme: &Theme) -> wgpu::Color {
     let (r, g, b) = theme.clear;
     wgpu::Color {
@@ -1508,8 +1527,16 @@ impl GpuState {
     /// Buffer layout matches the single path so `draw_scene` is unchanged: all
     /// panes' background quads accumulate first (`[0..background_vertex_count]`),
     /// then all panes' coverage glyphs (`..cell_vertex_count`), then the
-    /// dividers + per-pane overlays + the focused pane's cursor
-    /// (`..vertex_count`). Color glyphs accumulate into the dedicated buffer.
+    /// dividers + per-pane overlays + the focused pane's cursor + the optional
+    /// topmost window overlay (`..vertex_count`). Color glyphs accumulate into
+    /// the dedicated buffer.
+    ///
+    /// `overlay_top` is an open window-level overlay (context menu / settings /
+    /// palette / connections / replay) painted in window space. Its full cell
+    /// vertices (background **and** glyphs) are appended last so the panel draws
+    /// opaquely over every pane — a `PaneRender` could not, since its background
+    /// quads would land in the shared background segment behind other panes'
+    /// glyphs. `None` leaves the multi-pane frame unchanged.
     ///
     /// Glyph caching is done in two passes: every pane's glyphs are ensured in
     /// the atlas *before* any pane's vertices are built, so a later pane growing
@@ -1519,7 +1546,12 @@ impl GpuState {
     ///
     /// Called by the Phase 1c-3 App render dispatch (`app::panes`); the
     /// single-pane path keeps using `update_from_snapshot*`.
-    pub(super) fn update_from_panes(&mut self, panes: &[PaneRender], dividers: &[SolidQuad]) {
+    pub(super) fn update_from_panes(
+        &mut self,
+        panes: &[PaneRender],
+        dividers: &[SolidQuad],
+        overlay_top: Option<OverlayTop>,
+    ) {
         // Pass A: ensure all panes' glyphs in both atlases, capturing each
         // pane's color-glyph runs for the build pass.
         let mut pane_runs: Vec<Vec<ColorGlyphRun>> = Vec::with_capacity(panes.len());
@@ -1534,6 +1566,18 @@ impl GpuState {
                 &runs,
             );
             pane_runs.push(runs);
+        }
+        // The topmost overlay panel is text-only (borders, labels, values); its
+        // mono glyphs must be in the atlas before any vertices are built. It
+        // carries no color glyphs (overlays never render emoji), so it is
+        // excluded with an empty run list.
+        if let Some(overlay) = overlay_top.as_ref() {
+            ensure_snapshot_glyphs_excluding_color_runs(
+                &mut self.atlas,
+                &self.fonts,
+                overlay.snapshot,
+                &[],
+            );
         }
         if self.atlas.take_dirty() {
             self.refresh_atlas_texture();
@@ -1602,6 +1646,25 @@ impl GpuState {
             grid::push_solid_quad(&mut self.vertices, divider);
         }
         self.vertices.extend_from_slice(&tail);
+        // Topmost window-level overlay: its full cell vertices (background +
+        // glyphs) are appended LAST, after dividers and per-pane overlays, so
+        // the panel draws opaquely over every pane in the final
+        // `[cell_vertex_count..vertex_count]` segment. The panel snapshot fills
+        // its whole rect (no transparent cells), so this is a clean opaque box.
+        if let Some(overlay) = overlay_top.as_ref() {
+            let mut overlay_buf: Vec<Vertex> = Vec::new();
+            grid::build_cell_vertices_with_focus_dim_and_origin_into(
+                &mut overlay_buf,
+                overlay.snapshot,
+                &self.atlas,
+                &[],
+                0.0,
+                overlay.origin,
+                overlay.treatment,
+                self.cell_bg_opacity,
+            );
+            self.vertices.extend_from_slice(&overlay_buf);
+        }
         self.vertex_count = self.vertices.len() as u32;
         self.background_vertex_count = self.background_vertex_count.min(self.vertex_count);
         self.color_glyph_vertex_count = self.color_glyph_vertices.len() as u32;

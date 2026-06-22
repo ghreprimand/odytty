@@ -21,8 +21,9 @@
 //! plan.
 
 use super::*;
-use crate::native::gpu::PaneRender;
-use crate::native::layout::{PaneRect, divider_rects};
+use crate::native::gpu::{OverlayTop, PaneRender};
+use crate::native::layout::{PaneRect, divider_rects, grid_dims_for_rect};
+use crate::native::overlay::{apply_overlay, overlay_rect};
 
 /// Width of the divider gap between panes, in physical pixels. A crisp hairline
 /// matching the §8 pixel-smoke invariants.
@@ -64,6 +65,59 @@ pub(super) fn pane_content_rect(
     PaneRect::new(pad, pad + tab_h, w, h)
 }
 
+/// Map a physical pointer position to a cell in **window-overlay space** — the
+/// content grid an open window-level overlay centers within (multi-pane). Pure
+/// so the multi-pane hit-test geometry is unit-testable without a GPU. Returns
+/// `None` when the content rect spans no cells. The pointer is clamped into the
+/// grid so a press just outside the content area still resolves to the nearest
+/// edge cell (matching the single-pane clamp behaviour).
+fn window_overlay_cell(
+    content: PaneRect,
+    cell: CellSize,
+    x_px: f64,
+    y_px: f64,
+) -> Option<CellPoint> {
+    let (cols, rows) = grid_dims_for_rect(content, cell.width, cell.height);
+    if cols == 0 || rows == 0 {
+        return None;
+    }
+    let col = ((x_px as f32 - content.x).max(0.0) / cell.width.max(1) as f32) as usize;
+    let row = ((y_px as f32 - content.y).max(0.0) / cell.height.max(1) as f32) as usize;
+    Some(CellPoint {
+        row: row.min(rows - 1),
+        column: col.min(cols - 1),
+    })
+}
+
+/// Copy a rectangular sub-region of `src` into a new snapshot of size
+/// `width`×`height`, starting at cell `(top, left)`. Used to crop a painted
+/// window-overlay snapshot down to the panel's opaque rect so it composites as
+/// a clean box over the multi-pane content. Out-of-bounds source cells fall back
+/// to the default cell (defensive; the caller always passes an in-bounds rect).
+fn crop_snapshot(src: &Snapshot, left: usize, top: usize, width: usize, height: usize) -> Snapshot {
+    let src_cols = src.dimensions.columns;
+    let mut cells = Vec::with_capacity(width * height);
+    for r in 0..height {
+        for c in 0..width {
+            let sr = top + r;
+            let sc = left + c;
+            let cell = src
+                .cells
+                .get(sr * src_cols + sc)
+                .copied()
+                .unwrap_or_default();
+            cells.push(cell);
+        }
+    }
+    Snapshot {
+        dimensions: Dimensions::new(width, height),
+        cursor: Position { row: 0, column: 0 },
+        cursor_visible: false,
+        colors: src.colors.clone(),
+        cells,
+    }
+}
+
 impl App {
     /// The pane content rect + cell metrics for the active **multi-pane** tab's
     /// pointer math, or `None` when the active tab is single-pane (the
@@ -79,6 +133,73 @@ impl App {
         let content =
             pane_content_rect(w, h, cell, gpu.window_padding(), self.should_show_tab_bar());
         Some((content, cell))
+    }
+
+    /// The cell dimensions a **window-level overlay** (context menu / settings /
+    /// palette / connections / replay) centers within. Overlays are window-level,
+    /// so in a multi-pane tab they use the whole content grid, NOT the focused
+    /// pane's smaller sub-grid (`self.grid`). In a single-pane tab this returns
+    /// `self.grid` exactly, so the single-pane overlay geometry is unchanged.
+    pub(super) fn overlay_grid_dims(&self) -> (usize, usize) {
+        if let Some((content, cell)) = self.multipane_geometry() {
+            grid_dims_for_rect(content, cell.width, cell.height)
+        } else {
+            (self.grid.columns, self.grid.rows)
+        }
+    }
+
+    /// The pointer position in **window-overlay cell space** (the content grid),
+    /// for overlay hit-testing and context-menu spawn. In a single-pane tab this
+    /// is exactly `self.pointer_cell` (already window-space), so the single-pane
+    /// path is unchanged. In a multi-pane tab `self.pointer_cell` is relative to
+    /// the focused pane's sub-grid — wrong for a window-level overlay — so this
+    /// recomputes it against the content rect from the cached physical pointer.
+    pub(super) fn overlay_pointer_cell(&self) -> Option<CellPoint> {
+        let Some((content, cell)) = self.multipane_geometry() else {
+            return self.pointer_cell;
+        };
+        let (x_px, y_px) = self.pointer_px?;
+        window_overlay_cell(content, cell, x_px, y_px)
+    }
+
+    /// Build the topmost window-level overlay panel for the multi-pane render
+    /// path: a window-content-grid snapshot with the open overlay painted into
+    /// it (via the same [`apply_overlay`] the single-pane path uses), cropped to
+    /// the panel's rect so it composites as an opaque box. Returns the cropped
+    /// snapshot plus its physical-pixel window-space origin, or `None` when no
+    /// overlay is open. The cell math matches [`Self::overlay_grid_dims`] /
+    /// [`Self::overlay_pointer_cell`] so render and hit-test agree exactly.
+    fn build_overlay_top(
+        &mut self,
+        content: PaneRect,
+        cell: CellSize,
+    ) -> Option<(Snapshot, [f32; 2])> {
+        if !self.overlay.is_open() {
+            return None;
+        }
+        let (cols, rows) = grid_dims_for_rect(content, cell.width, cell.height);
+        if cols == 0 || rows == 0 {
+            return None;
+        }
+        // A blank window-content-grid snapshot; `apply_overlay` paints the panel
+        // box into it at the rect it computes from these same dims.
+        let mut overlay_snap = Snapshot {
+            dimensions: Dimensions::new(cols, rows),
+            cursor: Position { row: 0, column: 0 },
+            cursor_visible: false,
+            colors: crate::core::DynamicColors::default(),
+            cells: vec![crate::core::Cell::default(); cols * rows],
+        };
+        apply_overlay(&mut overlay_snap, &mut self.overlay);
+        // Crop to the panel rect so only opaque panel cells are composited
+        // (blank cells outside the box would otherwise overdraw the panes).
+        let rect = overlay_rect(&self.overlay, cols, rows)?;
+        let cropped = crop_snapshot(&overlay_snap, rect.left, rect.top, rect.width, rect.height);
+        let origin = [
+            content.x + rect.left as f32 * cell.width as f32,
+            content.y + rect.top as f32 * cell.height as f32,
+        ];
+        Some((cropped, origin))
     }
 
     /// Apply an in-progress divider drag to the current pointer position,
@@ -243,9 +364,22 @@ impl App {
             });
         }
 
+        // Topmost window-level overlay (context menu / settings / palette /
+        // connections / replay). Built against the window content grid so it
+        // centers over the whole window, not the focused pane, and composited
+        // last so it draws over every pane + divider. `None` when no overlay is
+        // open, leaving the multi-pane frame unchanged. Owned here so the
+        // `OverlayTop` borrow outlives the GPU call.
+        let overlay_top = self.build_overlay_top(content, cell);
+        let treatment_for_overlay = treatment;
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_scroll_frac_offset(0.0);
-            gpu.update_from_panes(&panes, &divider_quads);
+            let overlay = overlay_top.as_ref().map(|(snapshot, origin)| OverlayTop {
+                snapshot,
+                origin: *origin,
+                treatment: treatment_for_overlay,
+            });
+            gpu.update_from_panes(&panes, &divider_quads, overlay);
         }
         // Multi-pane v1 does not participate in the single-pane render-signature
         // cache; it rebuilds whenever a visible pane requests a redraw. Reset
@@ -364,5 +498,92 @@ mod tests {
         // already proves `focus_dim == 0.0` is an exact no-op.
         assert_eq!(pane_focus_dim(true, 0.0), 0.0);
         assert_eq!(pane_focus_dim(false, 0.0), 0.0);
+    }
+
+    // --- Window-level overlay geometry (multi-pane) ---
+
+    fn filled_snapshot(cols: usize, rows: usize, ch: char) -> Snapshot {
+        Snapshot {
+            dimensions: Dimensions::new(cols, rows),
+            cursor: Position { row: 0, column: 0 },
+            cursor_visible: false,
+            colors: crate::core::DynamicColors::default(),
+            cells: (0..cols * rows)
+                .map(|i| {
+                    // Encode the linear index so the crop can be checked cell-wise.
+                    let c = char::from_u32('a' as u32 + (i as u32 % 26)).unwrap_or(ch);
+                    crate::core::Cell::new(c, crate::core::Attrs::default())
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn crop_snapshot_copies_the_requested_subrect() {
+        // A 6x4 source cropped to a 3x2 box at (left=2, top=1) yields exactly
+        // those cells, in order, with the cropped dimensions.
+        let src = filled_snapshot(6, 4, 'x');
+        let cropped = crop_snapshot(&src, 2, 1, 3, 2);
+        assert_eq!(cropped.dimensions, Dimensions::new(3, 2));
+        for r in 0..2 {
+            for c in 0..3 {
+                let src_idx = (1 + r) * 6 + (2 + c);
+                let dst_idx = r * 3 + c;
+                assert_eq!(
+                    cropped.cells[dst_idx].ch, src.cells[src_idx].ch,
+                    "cell ({r},{c}) mismatch"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn crop_snapshot_out_of_bounds_falls_back_to_default() {
+        // A crop that runs past the source edge fills the overflow with default
+        // cells rather than panicking (defensive path).
+        let src = filled_snapshot(3, 3, 'x');
+        let cropped = crop_snapshot(&src, 2, 2, 3, 3);
+        assert_eq!(cropped.dimensions, Dimensions::new(3, 3));
+        // Top-left came from src (2,2); the rest overflow to default (space).
+        assert_eq!(cropped.cells[0].ch, src.cells[2 * 3 + 2].ch);
+        let default_ch = crate::core::Cell::default().ch;
+        assert_eq!(cropped.cells[8].ch, default_ch);
+    }
+
+    #[test]
+    fn window_overlay_cell_maps_into_the_content_grid() {
+        // Content rect offset from the window origin by (x=10, y=40) — e.g. a
+        // tab bar pushes y down. A pointer inside maps to the content-grid cell
+        // relative to that origin, NOT the raw window origin.
+        let cell = cell(); // 10x20
+        let content = PaneRect::new(10.0, 40.0, 200.0, 200.0); // 20x10 cells
+        // Pointer at window px (35, 75): col = (35-10)/10 = 2, row = (75-40)/20 = 1.
+        let mapped = window_overlay_cell(content, cell, 35.0, 75.0).expect("cell");
+        assert_eq!(mapped, CellPoint { row: 1, column: 2 });
+    }
+
+    #[test]
+    fn window_overlay_cell_clamps_to_grid_bounds() {
+        let cell = cell();
+        let content = PaneRect::new(10.0, 40.0, 200.0, 200.0); // 20x10 cells
+        // Far past the bottom-right: clamps to the last cell.
+        let mapped = window_overlay_cell(content, cell, 9000.0, 9000.0).expect("cell");
+        assert_eq!(mapped, CellPoint { row: 9, column: 19 });
+        // Above/left of the content origin clamps to (0,0).
+        let mapped = window_overlay_cell(content, cell, 0.0, 0.0).expect("cell");
+        assert_eq!(mapped, CellPoint { row: 0, column: 0 });
+    }
+
+    #[test]
+    fn window_overlay_cell_degenerate_content_clamps_to_origin() {
+        // `grid_dims_for_rect` floors a degenerate rect at a 1x1 grid, so the
+        // mapping clamps any pointer to the single (0,0) cell rather than
+        // returning `None` — defensive against a zero-size content rect.
+        let cell = cell();
+        let content = PaneRect::new(0.0, 0.0, 0.0, 0.0);
+        assert_eq!(
+            window_overlay_cell(content, cell, 5.0, 5.0),
+            Some(CellPoint { row: 0, column: 0 })
+        );
     }
 }

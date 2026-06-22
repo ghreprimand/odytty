@@ -190,14 +190,20 @@ impl App {
                 ElementState::Pressed => {} // set below, after overlay confirms a drag
             }
         }
-        let Some(cell) = self.pointer_cell else {
+        // Window-level overlays use window-overlay cell space, not the focused
+        // pane's sub-grid. In a single-pane tab these are exactly
+        // `self.pointer_cell` / `self.grid`, so the single-pane path is
+        // unchanged; in a multi-pane tab they map to the whole content grid so
+        // clicks land on the panel that renders there.
+        let Some(cell) = self.overlay_pointer_cell() else {
             if state == ElementState::Released {
                 self.flush_pending_overlay_settings();
                 self.request_selection_redraw();
             }
             return;
         };
-        let Some(rect) = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows) else {
+        let (win_cols, win_rows) = self.overlay_grid_dims();
+        let Some(rect) = overlay_rect(&self.overlay, win_cols, win_rows) else {
             if state == ElementState::Released {
                 self.flush_pending_overlay_settings();
                 self.request_selection_redraw();
@@ -253,10 +259,14 @@ impl App {
         if !should_route {
             return;
         }
-        let Some(cell) = self.pointer_cell else {
+        // Window-space overlay geometry (see `handle_overlay_pointer_button`):
+        // identical to `self.pointer_cell` / `self.grid` in a single-pane tab,
+        // mapped to the content grid in a multi-pane tab.
+        let Some(cell) = self.overlay_pointer_cell() else {
             return;
         };
-        let Some(rect) = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows) else {
+        let (win_cols, win_rows) = self.overlay_grid_dims();
+        let Some(rect) = overlay_rect(&self.overlay, win_cols, win_rows) else {
             return;
         };
         let x_in_body = self.pointer_x_in_body(&rect);
@@ -284,7 +294,9 @@ impl App {
         if lines == 0 {
             return;
         }
-        let Some(rect) = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows) else {
+        // Window-space overlay dims (identical to `self.grid` single-pane).
+        let (win_cols, win_rows) = self.overlay_grid_dims();
+        let Some(rect) = overlay_rect(&self.overlay, win_cols, win_rows) else {
             return;
         };
         // `wheel_lines` is positive for wheel-up (toward earlier content); the

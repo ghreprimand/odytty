@@ -96,6 +96,23 @@ fn scrollback_bytes(lines: usize) -> Vec<u8> {
 }
 
 #[test]
+fn single_pane_overlay_geometry_equals_the_window_grid_and_pointer_cell() {
+    // Byte-identity guard for the multi-pane overlay fix: on a single-pane tab
+    // (no GPU geometry) the window-overlay grid dims and window-space pointer
+    // cell fall back to exactly `self.grid` / `self.pointer_cell`, so the
+    // single-pane overlay hit-test path is unchanged. The multi-pane mapping is
+    // unit-tested separately in `panes::tests`.
+    let Some((mut app, _bytes)) = single_session_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_cell_for_test(7, 13);
+    let ((cols, rows), pointer) = app.overlay_geometry_for_test();
+    assert_eq!((cols, rows), app.grid_dims_for_test());
+    assert_eq!(pointer, Some(CellPoint { row: 7, column: 13 }));
+}
+
+#[test]
 fn input_routes_to_the_active_session_writer_after_switch() {
     let Some((mut app, fixtures)) = app_with_two_sessions() else {
         eprintln!("skipping: no PTY available");

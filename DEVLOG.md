@@ -7,6 +7,51 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Multi-pane window-level overlays render + hit-test (release unblock)
+
+Operator validation found that after a split the right-click menu "doesn't work
+anymore." Root cause was architectural and broader than the context menu: the
+multi-pane render path (`rebuild_multipane`) composited only the panes,
+dividers, tab strip, and the focused pane's selection/search — it never
+composited any **window-level overlay**. So the moment a tab was split, every
+overlay (context menu, command palette, settings, connections, replay, key
+bindings, theme picker) became invisible, and the overlay hit-test used the
+focused pane's sub-grid coordinates instead of window space, so even a painted
+panel's clicks would miss.
+
+Fix (localized to the multi-pane branch; single-pane path untouched):
+
+- **Render (panes.rs / gpu.rs):** `rebuild_multipane` now builds the open
+  overlay into a window-content-grid snapshot via the same `apply_overlay` the
+  single-pane path uses, crops it to the panel rect (an opaque box), and passes
+  it to `update_from_panes` as a new `OverlayTop`. The overlay's full cell
+  vertices (background **and** glyphs) are appended **last** in the vertex
+  buffer — after all panes and dividers — so it composites opaquely on top. A
+  `PaneRender` could not do this: its background quads would land in the shared
+  background segment behind other panes' glyphs.
+- **Hit-test (interaction.rs / mod.rs / panes.rs):** overlay pointer geometry is
+  now window-space in multi-pane. New `overlay_grid_dims()` and
+  `overlay_pointer_cell()` return the content grid + a window-space pointer cell
+  when multi-pane, and fall back to exactly `self.grid` / `self.pointer_cell`
+  when single-pane (byte-identical). `handle_overlay_pointer_button` /
+  `_move` / `_wheel` and `open_context_menu`'s spawn cell all use them. The
+  x-origin is unaffected by the tab bar, so `pointer_x_in_body` was already
+  correct.
+
+Pure geometry extracted for deterministic unit tests (no GPU needed):
+`window_overlay_cell` (pointer→content-grid cell, clamped) and `crop_snapshot`
+(opaque-box crop), plus a single-pane identity guard
+(`single_pane_overlay_geometry_equals_the_window_grid_and_pointer_cell`). The
+full multi-pane GPU composite/hit-test is GPU-coupled (no headless `GpuState`
+path exists), so it relies on the operator's manual rebuild for the visual
+pass; the byte-identity smokes prove the single-pane path is unchanged.
+
+Verified: full `cargo test --lib` 2144/0; `gpu_composite_smoke` 3/3
+(byte-identity preserved); `license_headers` green; `cargo clippy --lib --tests
+-- -D warnings` clean; fmt clean.
+
+---
+
 ## 2026-06-22 -- Direct split chords + context-menu split section + accelerators (release unblock)
 
 Operator validation surfaced a release-blocker: the panes>1 prefix gate made the

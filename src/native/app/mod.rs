@@ -1272,7 +1272,11 @@ impl App {
     /// selection the Copy item needs. No pointer cell (e.g. before the first
     /// move) means no menu.
     pub(super) fn open_context_menu(&mut self, rename_target: Option<SessionToken>) {
-        let Some(spawn) = self.pointer_cell else {
+        // Window-overlay cell space: in a single-pane tab this is exactly
+        // `self.pointer_cell`; in a multi-pane tab it maps the pointer into the
+        // whole content grid so the menu spawns where it renders (and clicks
+        // land), not in the focused pane's sub-grid.
+        let Some(spawn) = self.overlay_pointer_cell() else {
             return;
         };
         let copy_enabled = self.selection.range().is_some();
