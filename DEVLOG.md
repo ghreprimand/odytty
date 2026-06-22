@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-21 -- SSH connect action
+
+Added the Phase 4 connect action on top of the connection-hosts data layer.
+The overlay UI is still owned by the parallel connection-manager packet; this
+packet supplies the side effect it will call.
+
+- Added `src/ssh_connect.rs`, a pure argv builder for the system `ssh` binary.
+  It builds `ssh [-p PORT] -- [USER@]HOST` from the resolved entry's alias /
+  `HostName`, `User`, and `Port` fields. The `--` end-of-options marker keeps a
+  saved host name from being interpreted as another ssh option.
+- Wired `TabSet::connect_ssh_in_new_tab` and
+  `App::connect_ssh_host_in_new_tab` as the native hand-off seam. A selected
+  connection entry now spawns `ssh` as the child of a new local PTY session and
+  focuses the new tab; the normal shell/new-tab path is unchanged.
+- Added the Phase-2 pairing seam:
+  `detached_ssh_host_config` builds a session-host `HostCommand::Exec` for the
+  same system-ssh argv, so an SSH session can use the existing resumable attach
+  path instead of a special credential-aware path.
+- Security boundary: OdyTTY never reads, stores, prompts for, logs, or passes
+  credentials, private keys, or passphrases. Authentication remains entirely
+  with the system `ssh` binary and agent. Tests use synthetic host data and a
+  stub child command; no real SSH host is contacted.
+
+---
+
 ## 2026-06-21 -- Output replay / scrubbing overlay (Phase 2 differentiator)
 
 Added opt-in per-session output recording plus a keyboard-scrubbable replay

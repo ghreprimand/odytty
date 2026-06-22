@@ -64,12 +64,15 @@ done.
 - **Local configuration UX:** `odytty.conf`, live reload, in-app settings panel,
   atomic preservation-first writeback, mouse-friendly controls, font picker,
   keybinding editor, and first-run onboarding. Environment variables always win.
-- **Connection data substrate:** an OdyTTY-owned local hosts list for the future
-  SSH manager, plus default-off, opt-in OpenSSH config host-name import. Imports
-  are read-only, name-only, bounded, and never surface key material.
+- **SSH connection substrate:** an OdyTTY-owned local hosts list for the SSH
+  manager, default-off opt-in OpenSSH config host-name import, and a connect
+  action that opens `ssh` in a new tab/session. Imports are read-only,
+  name-only, bounded, and never surface key material; authentication remains
+  with the system `ssh` binary and agent.
 - **Privacy posture:** no telemetry, analytics, crash reporting, account,
-  cloud sync, or update ping. The only network-capable action is explicit
-  Ctrl-click link opening through `xdg-open` with a scheme allowlist.
+  cloud sync, or update ping. Network-capable actions are explicit and
+  user-initiated: Ctrl-click link opening through `xdg-open` with a scheme
+  allowlist, and SSH connect entries that exec the system `ssh` binary.
 
 ## Install And Run
 

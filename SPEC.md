@@ -56,13 +56,17 @@ hosts live in the user's OdyTTY config directory, and OpenSSH config host-name
 import is an explicit opt-in. When enabled, that import is read-only,
 name-only, bounded, and never surfaces identity files, key material, or
 credentials. SSH authentication remains delegated to the system `ssh` binary
-and agent.
+and agent. The connect action builds argv from name-only fields and execs
+system `ssh` in a new tab/session; OdyTTY never reads, stores, prompts for, or
+passes passwords, private keys, or passphrases.
 
 This is a durable product stance, not a default to be flipped: any future
-feature that would transmit data off the machine is out of scope by charter.
-The one network-capable action — Ctrl+click to open a hyperlink — is explicit,
-user-initiated, routed through `xdg-open`, and gated by a scheme allowlist;
-links are never opened from terminal output automatically.
+feature that would transmit data off the machine without explicit user action
+is out of scope by charter. Network-capable actions are explicit and
+user-initiated: Ctrl+click to open a hyperlink is routed through `xdg-open` and
+gated by a scheme allowlist, and SSH connect entries delegate the network
+connection to system `ssh`. Links are never opened from terminal output
+automatically.
 
 ## Build Direction
 

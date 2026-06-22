@@ -1138,6 +1138,12 @@ feature validates against.
       while off, the SSH config loader is never invoked. When explicitly on,
       caller-supplied OpenSSH config entries merge name-only after OdyTTY-owned
       hosts, with owned duplicates winning. Tests use synthetic fixtures only.
+- [x] SSH connect action: resolved connection entries spawn the system `ssh`
+      binary in a new tab/session using argv built only from name fields
+      (`ssh [-p PORT] -- [USER@]HOST`). OdyTTY never reads, stores, prompts for,
+      or passes credentials, private keys, or passphrases; authentication stays
+      with system `ssh` and its agent. The same argv can back a detached
+      session-host command, so SSH sessions can use the resumable attach path.
 - [ ] Plugin systems, AI features, dashboards, or rich nonstandard workflows.
 - [ ] Heavy animation or effects that can compromise readability or latency.
 - [ ] Broad cross-platform support beyond Linux-first validation.

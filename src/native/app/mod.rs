@@ -100,6 +100,7 @@ mod pointer;
 mod prompt_jump;
 mod replay_ui;
 mod scroll_anim;
+mod ssh_connect;
 mod tab_bar;
 #[cfg(test)]
 mod test_seams;

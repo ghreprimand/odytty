@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
+use crate::connection_hosts::ConnectionHost;
 use crate::core::{LinkId, Snapshot, Terminal};
 use crate::pty::{ForegroundJob, PtySession};
 use crate::selection::{
     AbsoluteSelectionRange, AbsoluteSelectionState, CellPoint, ClickTracker, PointerDrag,
 };
+use crate::ssh_connect::{SshCommand, ssh_command_for_host};
 #[cfg(test)]
 use crate::text::CellSize;
 
@@ -698,13 +701,36 @@ impl TabSet {
         self.sessions.is_empty()
     }
 
-    /// Spawn a shell + terminal at `grid` and insert it into the arena, **without**
-    /// attaching it to any tab. Shared by [`Self::spawn`] (which then opens a new
-    /// tab) and [`Self::split_active`] (which then grafts the session into the
-    /// active tab's layout tree as a new pane). The caller owns tab/pane wiring.
+    /// Spawn a shell + terminal at `grid` and insert it into the arena,
+    /// **without** attaching it to any tab. Shared by [`Self::spawn`] (which
+    /// then opens a new tab) and [`Self::split_active`] (which then grafts the
+    /// session into the active tab's layout tree as a new pane). The caller owns
+    /// tab/pane wiring.
     fn insert_spawned_session(
         &mut self,
         grid: crate::core::Dimensions,
+    ) -> Result<SessionToken, std::io::Error> {
+        self.insert_local_session_with(grid, PtySession::spawn_default_shell)
+    }
+
+    /// Spawn an explicit child command in a local PTY and insert it into the
+    /// arena without attaching it to a tab. Used by the SSH connect action; the
+    /// shell/new-pane path above remains unchanged.
+    fn insert_exec_session(
+        &mut self,
+        grid: crate::core::Dimensions,
+        program: OsString,
+        args: Vec<OsString>,
+    ) -> Result<SessionToken, std::io::Error> {
+        self.insert_local_session_with(grid, |grid| {
+            PtySession::spawn_exec(grid, program, args, None)
+        })
+    }
+
+    fn insert_local_session_with(
+        &mut self,
+        grid: crate::core::Dimensions,
+        spawn: impl FnOnce(crate::core::Dimensions) -> anyhow::Result<PtySession>,
     ) -> Result<SessionToken, std::io::Error> {
         let Some(proxy) = self.proxy.clone() else {
             return Err(std::io::Error::other(
@@ -713,7 +739,7 @@ impl TabSet {
         };
         let session_id = SessionToken(self.next_token);
         self.next_token = self.next_token.saturating_add(1);
-        let session = PtySession::spawn_default_shell(grid).map_err(std::io::Error::other)?;
+        let session = spawn(grid).map_err(std::io::Error::other)?;
         let reader = session.try_clone_reader().map_err(std::io::Error::other)?;
         let writer: PtyWriter = Arc::new(Mutex::new(
             session.take_writer().map_err(std::io::Error::other)?,
@@ -756,6 +782,35 @@ impl TabSet {
     ) -> Result<SessionToken, std::io::Error> {
         let session_id = self.insert_spawned_session(grid)?;
         self.tabs.push(Tab::single(session_id));
+        Ok(session_id)
+    }
+
+    /// Spawn `ssh` for a resolved connection entry in a brand-new single-pane
+    /// tab. The argv is built by `crate::ssh_connect` from name-only fields and
+    /// execs the system `ssh` binary directly: OdyTTY never reads, stores,
+    /// prompts for, or forwards credentials/key material.
+    pub(super) fn connect_ssh_in_new_tab(
+        &mut self,
+        host: &ConnectionHost,
+        grid: crate::core::Dimensions,
+    ) -> Result<SessionToken, std::io::Error> {
+        let command = ssh_command_for_host(host).map_err(std::io::Error::other)?;
+        let title = host.title.clone().unwrap_or_else(|| host.alias.clone());
+        self.spawn_ssh_command_in_new_tab(grid, command, Some(title))
+    }
+
+    fn spawn_ssh_command_in_new_tab(
+        &mut self,
+        grid: crate::core::Dimensions,
+        command: SshCommand,
+        title_override: Option<String>,
+    ) -> Result<SessionToken, std::io::Error> {
+        let (program, args) = command.into_program_args();
+        let session_id = self.insert_exec_session(grid, program, args)?;
+        self.tabs.push(Tab::single(session_id));
+        if let Some(title) = title_override {
+            self.set_title_override(session_id, Some(title));
+        }
         Ok(session_id)
     }
 
@@ -961,6 +1016,15 @@ impl TabSet {
         self.split_active_with(axis, token);
         token
     }
+
+    #[cfg(test)]
+    pub(in crate::native) fn spawn_ssh_command_in_new_tab_for_test(
+        &mut self,
+        grid: crate::core::Dimensions,
+        command: SshCommand,
+    ) -> Result<SessionToken, std::io::Error> {
+        self.spawn_ssh_command_in_new_tab(grid, command, Some("synthetic ssh".to_owned()))
+    }
 }
 
 /// Pane-management operations for the active tab (design doc §4–§5). These are
@@ -1138,6 +1202,11 @@ impl DerefMut for TabSet {
 mod tests {
     use super::*;
     use crate::core::Dimensions;
+    use winit::event_loop::EventLoop;
+    #[cfg(target_os = "linux")]
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    #[cfg(target_os = "linux")]
+    use winit::platform::x11::EventLoopBuilderExtX11;
 
     fn build_session_with_id(id: SessionToken) -> Session {
         let dims = Dimensions::new(20, 8);
@@ -1150,6 +1219,18 @@ mod tests {
 
     fn build_session() -> Session {
         build_session_with_id(SessionToken(0))
+    }
+
+    fn tabset_with_proxy_for_test() -> Option<(TabSet, EventLoop<UserEvent>)> {
+        let mut builder = EventLoop::<UserEvent>::with_user_event();
+        #[cfg(target_os = "linux")]
+        {
+            EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
+            EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
+        }
+        let event_loop = builder.build().ok()?;
+        let proxy = event_loop.create_proxy();
+        Some((TabSet::new(build_session(), Some(proxy)), event_loop))
     }
 
     #[test]
@@ -1185,6 +1266,33 @@ mod tests {
 
         assert!(sessions.close(SessionToken(0)));
         assert!(sessions.is_empty());
+    }
+
+    #[test]
+    fn connect_action_spawns_new_session_with_stub_command() {
+        let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        let command = SshCommand::new(
+            "/bin/sh",
+            vec![
+                OsString::from("-lc"),
+                OsString::from("printf 'synthetic ssh child\\n'; sleep 1"),
+            ],
+        );
+
+        let token = sessions
+            .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(20, 8), command)
+            .expect("stub command session");
+
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions.tab_count(), 2);
+        assert_eq!(sessions.effective_tab_title(token), "synthetic ssh");
+        assert!(sessions.switch(token));
+        assert_eq!(sessions.active_id(), token);
+
+        assert!(!sessions.close(token));
+        assert!(sessions.close(SessionToken(0)));
     }
 
     #[test]

@@ -84,8 +84,8 @@ local action.
 
 ## Connection Hosts
 
-The future SSH / connection manager reads its default saved hosts from an
-OdyTTY-owned local file:
+The SSH / connection manager reads its default saved hosts from an OdyTTY-owned
+local file:
 
 - `$XDG_CONFIG_HOME/odytty/hosts.conf`
 - `~/.config/odytty/hosts.conf` when `XDG_CONFIG_HOME` is unset
@@ -102,17 +102,19 @@ Host web1
     Title "Synthetic Web"
 ```
 
-`Host` aliases are the quick-connect names. `HostName`, `User`, and `Port` are
-connection display/spawn fields for the later UI. `Theme`, `Font`, and `Title`
-are optional per-host profile fields reserved for that UI.
+`Host` aliases are the quick-connect names. `HostName`, `User`, and `Port`
+drive the connect action. OdyTTY builds argv as `ssh [-p PORT] -- [USER@]HOST`
+and opens it in a new tab/session; `--` keeps a saved host name from being
+interpreted as another ssh option. `Theme`, `Font`, and `Title` are optional
+per-host profile fields reserved for the overlay UI.
 
 OpenSSH config import is separate and default-off. `ssh_config_hosts = on` (or
-`ODYTTY_SSH_CONFIG_HOSTS=on`) lets the future connection manager merge host
-names from a caller-resolved OpenSSH config path. While it is off, OdyTTY does
-not read OpenSSH config. When enabled, the read is local, read-only, name-only,
-bounded, and ignores key material such as identity files. OdyTTY never handles
-SSH credentials or private keys; authentication remains with the system `ssh`
-binary and agent.
+`ODYTTY_SSH_CONFIG_HOSTS=on`) lets the connection manager merge host names from
+a caller-resolved OpenSSH config path. While it is off, OdyTTY does not read
+OpenSSH config. When enabled, the read is local, read-only, name-only, bounded,
+and ignores key material such as identity files. OdyTTY never handles SSH
+credentials, private keys, or passphrases; authentication remains with the
+system `ssh` binary and agent.
 
 ## Settings Reference
 

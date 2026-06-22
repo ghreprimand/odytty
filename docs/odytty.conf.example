@@ -94,7 +94,7 @@ keybinds =
 # Command palette opt-in example (unbound by default):
 # keybinds = ctrl+alt+p=command-palette
 
-# Connection hosts for the future SSH manager live in:
+# Connection hosts for the SSH manager live in:
 #   $XDG_CONFIG_HOME/odytty/hosts.conf
 #   ~/.config/odytty/hosts.conf when XDG_CONFIG_HOME is unset
 # Format:
@@ -106,9 +106,14 @@ keybinds =
 #       Font "Victor Mono"
 #       Title "Synthetic Web"
 #
+# The connect action opens system ssh in a new tab/session as:
+#   ssh [-p PORT] -- [USER@]HOST
+# OdyTTY never reads, stores, prompts for, or passes credentials, private keys,
+# or passphrases; authentication remains with the system ssh binary and agent.
+#
 # OpenSSH config import is default-off. While off, OdyTTY does not read
 # ~/.ssh/config. When on, the import is read-only, name-only, bounded, and never
-# surfaces key directives or credentials; auth remains with the system ssh.
+# surfaces key directives or credentials.
 ssh_config_hosts = off
 
 # Per-session output recording for the scrubbable replay overlay. Default off:
