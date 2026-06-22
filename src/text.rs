@@ -1312,16 +1312,18 @@ pub fn resolve_symbol_fonts_with_source(
 }
 
 /// Whether `font` provides a usable **monochrome outline** for `ch`: it has the
-/// codepoint in its cmap (`glyph_id != 0`) *and* an actual vector outline. This
-/// is the symbol-fallback face filter: a color/bitmap-only face (CBDT/CBLC or
-/// sbix, e.g. a color-emoji font) returns `None` from `ab_glyph`'s `outline`
-/// even when its cmap covers the codepoint, so this one check rejects loading
-/// such a face as a mono fallback (it would render nothing useful in the
-/// coverage atlas) while accepting any normal glyf/CFF outline face. Pure and
-/// host-font-independent, so it is unit-testable against the bundled fixtures.
+/// codepoint in its cmap (`glyph_id != 0`) and an inked vector outline. This is
+/// the symbol-fallback face filter: color/bitmap-only faces and blank
+/// placeholder outlines both render nothing useful in the coverage atlas, so
+/// they must not block a later fallback face.
 pub fn font_provides_outline_glyph(font: &FontVec, ch: char) -> bool {
     let id = font.glyph_id(ch);
-    id.0 != 0 && font.outline(id).is_some()
+    id.0 != 0
+        && font.outline(id).is_some_and(|outline| {
+            !outline.curves.is_empty()
+                && outline.bounds.min.x != outline.bounds.max.x
+                && outline.bounds.min.y != outline.bounds.max.y
+        })
 }
 
 /// Runtime per-codepoint symbol fallback via fontconfig (RV6 Linux backfill).
@@ -3110,6 +3112,34 @@ mod tests {
             !font_provides_outline_glyph(&symbol, absent),
             "a codepoint the face lacks must be rejected"
         );
+    }
+
+    #[test]
+    fn font_provides_outline_glyph_rejects_blank_symbol_markers() {
+        let blank = FontVec::try_from_vec(
+            include_bytes!("../tests/fixtures/fonts/symbol-markers-blank.ttf").to_vec(),
+        )
+        .expect("parse blank marker fixture");
+        let inked = FontVec::try_from_vec(
+            include_bytes!("../tests/fixtures/fonts/symbol-markers-inked.ttf").to_vec(),
+        )
+        .expect("parse inked marker fixture");
+
+        for ch in ['\u{2731}', '\u{25CF}'] {
+            assert_ne!(
+                blank.glyph_id(ch).0,
+                0,
+                "blank fixture must map {ch:?} in its cmap"
+            );
+            assert!(
+                !font_provides_outline_glyph(&blank, ch),
+                "blank fixture must not be installed as a mono fallback for {ch:?}"
+            );
+            assert!(
+                font_provides_outline_glyph(&inked, ch),
+                "inked fixture must be installable as a mono fallback for {ch:?}"
+            );
+        }
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]

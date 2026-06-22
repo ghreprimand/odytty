@@ -127,6 +127,25 @@ byte-identity; `license_headers` green; `cargo fmt --check` clean; `cargo clippy
 
 ---
 
+## 2026-06-22 -- Mono symbol fallback rejects blank glyphs
+
+Root cause for the remaining Claude CLI tofu markers was the mono atlas path,
+not emoji routing. `U+2731` (HEAVY ASTERISK) and `U+25CF` (BLACK CIRCLE) now
+correctly stay on the text path, but `src/atlas` treated `glyph_id != 0` as
+coverage for primary and static fallback faces. A font could map the codepoint
+to a blank placeholder glyph, which blocked the runtime `fc-match` resolver and
+left a resident blank/tofu slot.
+
+Fix: symbol fallback candidates now require an inked outline, not just a cmap
+hit. Ordinary text keeps the historic cmap-only coverage check; the stricter
+outline/ink check is scoped to symbol codepoints. The same inked-outline filter
+is used by `src/text.rs` before a runtime-resolved mono fallback face is
+installed. Synthetic marker fixtures pin both confirmed regressions:
+`U+2731` and `U+25CF` reject blank mapped glyphs, accept inked outlines, and
+fall through from blank primary/static faces to an inked fallback.
+
+---
+
 ## 2026-06-22 -- Emoji presentation audit follow-up
 
 Follow-up to the emoji presentation narrowing: restored three

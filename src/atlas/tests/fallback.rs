@@ -26,6 +26,93 @@ fn pua_present(font: &FontVec) -> Option<char> {
         .find(|&ch| font_has_glyph(font, ch))
 }
 
+fn marker_blank_font() -> FontVec {
+    FontVec::try_from_vec(
+        include_bytes!("../../../tests/fixtures/fonts/symbol-markers-blank.ttf").to_vec(),
+    )
+    .expect("parse blank marker fixture")
+}
+
+fn marker_inked_font() -> FontVec {
+    FontVec::try_from_vec(
+        include_bytes!("../../../tests/fixtures/fonts/symbol-markers-inked.ttf").to_vec(),
+    )
+    .expect("parse inked marker fixture")
+}
+
+#[test]
+fn confirmed_symbol_markers_reject_blank_glyph_coverage() {
+    for ch in ['\u{2731}', '\u{25CF}'] {
+        assert!(is_symbol_codepoint(ch));
+        assert!(
+            !glyph_coverage_decision(ch, true, false),
+            "{ch:?} must not count a cmap hit with no ink as coverage"
+        );
+        assert!(
+            glyph_coverage_decision(ch, true, true),
+            "{ch:?} must count a cmap hit with ink as coverage"
+        );
+        assert!(
+            !glyph_coverage_decision(ch, false, true),
+            "{ch:?} must not count ink without a cmap hit as coverage"
+        );
+    }
+
+    assert!(
+        glyph_coverage_decision('A', true, false),
+        "ordinary text keeps the historic cmap-only coverage decision"
+    );
+}
+
+#[test]
+fn confirmed_symbol_markers_reject_blank_font_and_accept_inked_font() {
+    let blank = marker_blank_font();
+    let inked = marker_inked_font();
+
+    for ch in ['\u{2731}', '\u{25CF}'] {
+        assert!(
+            blank.glyph_id(ch).0 != 0,
+            "blank fixture must map {ch:?} in its cmap"
+        );
+        assert!(
+            !font_has_glyph(&blank, ch),
+            "blank fixture must not count as covering {ch:?}"
+        );
+        assert!(
+            font_has_glyph(&inked, ch),
+            "inked fixture must count as covering {ch:?}"
+        );
+    }
+}
+
+#[test]
+fn confirmed_symbol_markers_fall_through_blank_faces_to_inked_fallback() {
+    for ch in ['\u{2731}', '\u{25CF}'] {
+        let primary = marker_blank_font();
+        let blank_static = Arc::new(marker_blank_font());
+        let inked_static = Arc::new(marker_inked_font());
+        let mut atlas = GlyphAtlas::build(&primary, 24.0);
+        let box_uv = atlas.slot_uv(FALLBACK_SLOT);
+        let count = atlas.slot_count();
+
+        atlas.set_fallback_fonts(vec![blank_static, inked_static]);
+
+        let uv = atlas.ensure(&primary, ch).expect("marker fallback uv");
+        assert_ne!(
+            uv, box_uv,
+            "{ch:?} must resolve from the inked fallback, not tofu"
+        );
+        assert!(
+            atlas.slot_count() > count,
+            "{ch:?} must allocate a real fallback slot"
+        );
+        assert!(
+            cell_ink(&atlas, uv) > 0,
+            "{ch:?} fallback slot must contain visible ink"
+        );
+    }
+}
+
 #[test]
 fn pua_missing_glyph_without_fallback_uses_box() {
     let Some(font) = test_font() else {

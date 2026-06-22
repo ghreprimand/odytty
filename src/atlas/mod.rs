@@ -63,7 +63,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use ab_glyph::{Font, FontVec, PxScale, ScaleFont, point};
+use ab_glyph::{Font, FontVec, GlyphId, PxScale, ScaleFont, point};
 use unicode_width::UnicodeWidthChar;
 
 pub mod fallback;
@@ -154,11 +154,30 @@ fn glyph_cells(ch: char) -> u32 {
     }
 }
 
-/// Whether the font maps `ch` to a real (non-`.notdef`) glyph. `ab_glyph`
-/// returns glyph id 0 for codepoints the font lacks, so a missing glyph is
-/// detected here rather than relying on the font's own `.notdef` outline.
+/// Whether the font maps `ch` to a usable glyph. For ordinary text this keeps
+/// the historic cmap check; for symbol fallback candidates it also requires an
+/// inked outline so blank placeholder glyphs cannot block the fallback chain.
 fn font_has_glyph(font: &FontVec, ch: char) -> bool {
-    font.glyph_id(ch).0 != 0
+    let id = font.glyph_id(ch);
+    if id.0 == 0 {
+        return false;
+    }
+    if fallback::is_symbol_codepoint(ch) && !ch.is_whitespace() {
+        return glyph_coverage_decision(ch, true, font_has_inked_outline(font, id));
+    }
+    true
+}
+
+fn font_has_inked_outline(font: &FontVec, id: GlyphId) -> bool {
+    font.outline(id).is_some_and(|outline| {
+        !outline.curves.is_empty()
+            && outline.bounds.min.x != outline.bounds.max.x
+            && outline.bounds.min.y != outline.bounds.max.y
+    })
+}
+
+fn glyph_coverage_decision(ch: char, has_cmap: bool, has_inked_outline: bool) -> bool {
+    has_cmap && (!fallback::is_symbol_codepoint(ch) || ch.is_whitespace() || has_inked_outline)
 }
 
 /// Font style variant for a glyph slot. Groundwork: keys the dynamic region by
