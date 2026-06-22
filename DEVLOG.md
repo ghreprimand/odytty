@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Tab-strip × button closes the whole tab (third close path)
+
+Operator hardware validation found a third "Close Tab" entry point the previous
+fix (`8d5a967`) missed: the tab-strip `×` button still did a **pane-level
+collapse**. Clicking `×` on a multi-pane tab closed one pane and left the tab
+active, same class of bug as the menu "Close Tab", different handler
+(`pointer.rs`'s `(Left, Pressed, TabHit::Close(idx))` arm called
+`sessions.close(token_at_position(idx))`).
+
+The `×` can target a **non-active** tab (any `idx`), so the existing
+`close_active_tab()` (active-tab-only) was insufficient. Added an index-aware
+`TabSet::close_tab_at(tab_idx)` that reaps every leaf session of tab `tab_idx`,
+removes the tab, and fixes `active_tab` exactly like `close_with`'s `None` branch
+(clamp when the active/earlier tab was removed; decrement when a later tab was
+removed; leave it stable when a tab to the right of the active one closes).
+`close_active_tab()` now delegates to `close_tab_at(self.active_tab)` so both
+paths share one reap impl. The `×` arm calls `close_tab_at(idx)`, guards exit on
+`tab_count() <= 1` (last *tab*, never last *pane*), and clears a pending prefix
+when the active tab drops to single-pane — matching the menu/keyboard path.
+Single-pane `×` close stays byte-identical to the old `close(token)` outcome.
+
+Tests: `close_tab_at` reaps a non-active multi-pane tab and leaves the active tab
++ active index untouched; `close_tab_at` at a later index keeps the active index
+stable and clamps when the active tab itself closes. The existing
+`close_active_tab` units still pass through the delegation.
+
+Verified: `cargo test --lib` 2162 passed; `gpu_composite_smoke` 3/3
+byte-identity; `license_headers` green; `cargo fmt --check` clean; `cargo clippy
+--lib --tests -D warnings` clean.
+
+---
+
 ## 2026-06-22 -- Emoji presentation audit follow-up
 
 Follow-up to the emoji presentation narrowing: restored three

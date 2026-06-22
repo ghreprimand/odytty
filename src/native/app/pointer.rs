@@ -101,15 +101,26 @@ impl App {
                     return;
                 }
                 (WinitMouseButton::Left, ElementState::Pressed, Some(TabHit::Close(idx))) => {
-                    let Some(token) = self.sessions.token_at_position(idx) else {
-                        return;
-                    };
-                    let is_last = self.sessions.close(token);
-                    if is_last {
+                    // The tab-strip `×` closes the WHOLE tab at `idx` — every
+                    // pane it holds — mirroring the menu/keyboard "Close Tab".
+                    // It is NOT "Close Pane": `close_tab_at` reaps every leaf of
+                    // tab `idx` (which may be a non-active tab) rather than
+                    // collapsing one leaf. Exit keys on the last *tab*, never the
+                    // last *pane*. A single-pane tab closes byte-identically to
+                    // the old `close(token)` path.
+                    if self.sessions.tab_count() <= 1 {
                         self.pending_exit = true;
-                    } else {
-                        self.on_active_session_changed();
+                        return;
                     }
+                    let _ = self.sessions.close_tab_at(idx);
+                    // Closing a tab may drop the active tab back to single-pane
+                    // (or shift it); clear a pending multiplexer prefix so a
+                    // stale state can't swallow the next key, matching
+                    // `App::close_active_tab`.
+                    if self.sessions.active_is_single_pane() {
+                        self.prefix_engine.cancel();
+                    }
+                    self.on_active_session_changed();
                     return;
                 }
                 (WinitMouseButton::Left, ElementState::Pressed, Some(TabHit::NewTab)) => {

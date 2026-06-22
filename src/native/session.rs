@@ -948,7 +948,24 @@ impl TabSet {
     /// closed and the caller should signal app exit. Exit keys on the **last
     /// tab**, never on the last pane.
     pub(super) fn close_active_tab(&mut self) -> bool {
-        let tab_idx = self.active_tab;
+        self.close_tab_at(self.active_tab)
+    }
+
+    /// Close the tab at strip index `tab_idx` — reap every leaf session in its
+    /// layout tree and remove the tab — regardless of pane count. This is the
+    /// index-aware reap shared by every "Close Tab" entry point: the menu /
+    /// keyboard ([`Self::close_active_tab`], which delegates here with the
+    /// active index) and the tab-strip `×` button, which can target a
+    /// **non-active** tab.
+    ///
+    /// Fixes `active_tab` exactly like `close_with`'s `None` branch: when the
+    /// closed tab was the active one (or to its left) the active index shifts so
+    /// it still points at a live tab; closing a tab to the right of the active
+    /// one leaves the active index unchanged. Returns `true` iff no tabs remain.
+    ///
+    /// For a single-pane tab this reaps the one session and removes the tab —
+    /// byte-identical to the old `close(token)` path the `×` button used.
+    pub(super) fn close_tab_at(&mut self, tab_idx: usize) -> bool {
         // Collect every owned leaf token first (owned `Vec`, so the immutable
         // borrow of `self.tabs` ends before the reap loop mutates `self`).
         let tokens = match self.tabs.get(tab_idx) {
@@ -960,14 +977,20 @@ impl TabSet {
                 let _ = session.close();
             }
         }
-        // Remove the tab and fix `active_tab` exactly like `close_with`'s `None`
-        // branch for the closed tab being the active one (it always is here).
+        let was_active = self.active_tab == tab_idx;
         self.tabs.remove(tab_idx);
         if self.tabs.is_empty() {
             self.active_tab = 0;
             return true;
         }
-        self.active_tab = tab_idx.min(self.tabs.len() - 1);
+        // Mirror `close_with`'s `None` branch: clamp the active index when the
+        // active (or an earlier) tab was removed, leave it untouched when a
+        // later tab was closed.
+        if was_active {
+            self.active_tab = tab_idx.min(self.tabs.len() - 1);
+        } else if self.active_tab > tab_idx {
+            self.active_tab -= 1;
+        }
         false
     }
 
@@ -1482,6 +1505,50 @@ mod tests {
         assert_eq!(via_close_tab.tab_count(), via_close_id.tab_count());
         assert_eq!(via_close_tab.active_id(), via_close_id.active_id());
         assert_eq!(via_close_tab.len(), via_close_id.len());
+    }
+
+    #[test]
+    fn close_tab_at_reaps_a_non_active_multi_pane_tab_and_leaves_active_untouched() {
+        // tab0 = single pane (session 0, active); tab1 = two panes (sessions 2
+        // + 1), NON-active. The tab-strip `×` can target tab1 while tab0 is
+        // active — it must reap the WHOLE tab1 and leave tab0 (and the active
+        // index) untouched.
+        let mut set = TabSet::new(build_session(), None);
+        set.push(build_session_with_id(SessionToken(2))); // tab1, single
+        assert!(set.switch(SessionToken(2))); // activate tab1
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        assert!(set.switch(SessionToken(0))); // back to tab0 (active)
+        assert_eq!(set.tab_count(), 2);
+        assert_eq!(set.len(), 3);
+        assert_eq!(set.active_id(), SessionToken(0));
+        assert!(set.active_is_single_pane());
+
+        // Close the NON-active multi-pane tab1 by index.
+        let last = set.close_tab_at(1);
+        assert!(!last, "tab0 remains");
+        assert_eq!(set.tab_count(), 1, "the whole non-active tab was removed");
+        assert_eq!(set.len(), 1, "both panes of tab1 were reaped");
+        // The active tab0 is unchanged: same session, still active, still single.
+        assert_eq!(set.active_id(), SessionToken(0));
+        assert!(set.active_is_single_pane());
+    }
+
+    #[test]
+    fn close_tab_at_a_later_index_keeps_the_active_index_stable() {
+        // active = tab0; closing tab2 (to the right) must not shift the active
+        // index, and closing tab0 (the active one) clamps the active index.
+        let mut set = TabSet::new(build_session(), None);
+        set.push(build_session_with_id(SessionToken(1))); // tab1
+        set.push(build_session_with_id(SessionToken(2))); // tab2
+        assert_eq!(set.active_id(), SessionToken(0)); // tab0 active
+        // Close the rightmost tab: active stays on tab0.
+        assert!(!set.close_tab_at(2));
+        assert_eq!(set.active_id(), SessionToken(0));
+        assert_eq!(set.tab_count(), 2);
+        // Close the active tab0: active clamps onto the survivor (old tab1).
+        assert!(!set.close_tab_at(0));
+        assert_eq!(set.active_id(), SessionToken(1));
+        assert_eq!(set.tab_count(), 1);
     }
 
     #[test]
