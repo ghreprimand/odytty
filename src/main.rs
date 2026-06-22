@@ -42,6 +42,15 @@ fn main() -> Result<()> {
     if let Some(command) =
         cli::session_command_for_args(&args).map_err(|err| anyhow::anyhow!(err))?
     {
+        // Live `odytty attach <id>` opens a native window reattached to the
+        // hosted session (the operator-chosen v0.3.0 behavior). Every other
+        // session subcommand — including `attach --diagnostic` — stays CLI-only.
+        if let Some(session_id) = command.live_attach_id() {
+            let settings = Settings::from_env();
+            let options = cli::native_attach_options(session_id, &settings);
+            run_native(options, settings)?;
+            return Ok(());
+        }
         print!("{}", cli::run_session_command(command)?);
         return Ok(());
     }
@@ -72,29 +81,9 @@ fn main() -> Result<()> {
 }
 
 fn print_usage() {
-    println!("OdyTTY {}", env!("CARGO_PKG_VERSION"));
-    println!("usage: odytty [OPTION]");
-    println!();
-    println!("With no option, launch the native terminal.");
-    println!();
-    println!("Options:");
-    println!("  --native        launch the native terminal");
-    println!("  -e COMMAND...   execute a command instead of the user's shell");
-    println!("  --working-directory DIR");
-    println!("                  set the initial working directory");
-    println!("  --title TITLE   set the initial window title");
-    println!("  --version       print the OdyTTY version and exit");
-    println!("  --list-themes   list built-in themes and exit");
-    println!("  --list-fonts    list discoverable monospace fonts and exit");
-    println!("  --show-config   print the effective configuration and exit");
-    println!("  --core-smoke    print a parser/core smoke transcript and exit");
-    println!("  -h, --help      print this help");
-    println!();
-    println!("Session commands:");
-    println!("  new --detached [-e COMMAND...]");
-    println!("                  start a detached resumable session and print its id");
-    println!("  list            list live detached sessions");
-    println!("  attach ID       diagnostic attach; native window reattach is pending");
+    // The usage text lives in `cli` so it is unit-tested and cannot drift from
+    // the real CLI behavior (notably the live `odytty attach` verb).
+    print!("{}", cli::usage_text());
 }
 
 fn core_smoke() -> Result<()> {

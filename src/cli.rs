@@ -77,6 +77,27 @@ pub struct SessionListOptions {
 pub struct SessionAttachOptions {
     pub id: String,
     pub runtime_base: Option<PathBuf>,
+    /// When `true` (`odytty attach --diagnostic <id>`), print a one-line status
+    /// snapshot and exit instead of opening a window. When `false` (the default
+    /// `odytty attach <id>`), the verb opens a live native window reattached to
+    /// the hosted session — see [`SessionCliCommand::live_attach_id`].
+    pub diagnostic: bool,
+}
+
+impl SessionCliCommand {
+    /// The session id to reattach in a **live native window**, or `None` for
+    /// every command that stays CLI-only (list, new, and diagnostic attach).
+    ///
+    /// Live attach is the one session subcommand that launches the native window
+    /// instead of printing a script-friendly string, so `main` uses this to
+    /// route `odytty attach <id>` to [`native_attach_options`] + the native run
+    /// path rather than [`run_session_command`].
+    pub fn live_attach_id(&self) -> Option<&str> {
+        match self {
+            SessionCliCommand::Attach(options) if !options.diagnostic => Some(&options.id),
+            _ => None,
+        }
+    }
 }
 
 /// Parse public resumable-session subcommands.
@@ -91,15 +112,32 @@ pub fn session_command_for_args(args: &[String]) -> Result<Option<SessionCliComm
             Ok(Some(SessionCliCommand::List(SessionListOptions::default())))
         }
         Some("attach") => {
-            let id = args
-                .get(1)
-                .ok_or_else(|| "odytty attach requires a session id".to_owned())?;
-            if args.len() != 2 {
-                return Err("odytty attach takes exactly one session id".to_owned());
+            let mut id: Option<String> = None;
+            let mut diagnostic = false;
+            for arg in &args[1..] {
+                match arg.as_str() {
+                    "--diagnostic" => {
+                        if diagnostic {
+                            return Err("odytty attach: --diagnostic specified twice".to_owned());
+                        }
+                        diagnostic = true;
+                    }
+                    other if other.starts_with("--") => {
+                        return Err(format!("unknown odytty attach argument: {other}"));
+                    }
+                    other => {
+                        if id.is_some() {
+                            return Err("odytty attach takes exactly one session id".to_owned());
+                        }
+                        id = Some(other.to_owned());
+                    }
+                }
             }
+            let id = id.ok_or_else(|| "odytty attach requires a session id".to_owned())?;
             Ok(Some(SessionCliCommand::Attach(SessionAttachOptions {
-                id: id.clone(),
+                id,
                 runtime_base: None,
+                diagnostic,
             })))
         }
         _ => Ok(None),
@@ -258,6 +296,53 @@ fn read_attach_snapshot(client: &mut SessionHostClient) -> AnyResult<Vec<u8>> {
 
 fn generate_session_id() -> String {
     format!("s-{}-{}", std::process::id(), now_unix_ms())
+}
+
+/// Native window options for a **live** `odytty attach <id>`.
+///
+/// Exactly [`NativeOptions::from_settings`] with `attach_session` set, so the
+/// attach launch differs from a normal launch by the attach target alone: the
+/// window opens its normal initial local session and then reattaches the hosted
+/// session as a live, focused tab (the wiring proven by the session-host e2e).
+pub fn native_attach_options(id: &str, settings: &Settings) -> NativeOptions {
+    NativeOptions {
+        attach_session: Some(id.to_owned()),
+        ..NativeOptions::from_settings(settings)
+    }
+}
+
+/// The full `--help` / `-h` usage text.
+///
+/// Lives in the library (not `main`) so the documented CLI surface is covered by
+/// a test and cannot drift from the real behavior — in particular the
+/// `odytty attach` verb, which now opens a live attached window by default.
+pub fn usage_text() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let mut out = String::new();
+    out.push_str(&format!("OdyTTY {version}\n"));
+    out.push_str("usage: odytty [OPTION]\n\n");
+    out.push_str("With no option, launch the native terminal.\n\n");
+    out.push_str("Options:\n");
+    out.push_str("  --native        launch the native terminal\n");
+    out.push_str("  -e COMMAND...   execute a command instead of the user's shell\n");
+    out.push_str("  --working-directory DIR\n");
+    out.push_str("                  set the initial working directory\n");
+    out.push_str("  --title TITLE   set the initial window title\n");
+    out.push_str("  --version       print the OdyTTY version and exit\n");
+    out.push_str("  --list-themes   list built-in themes and exit\n");
+    out.push_str("  --list-fonts    list discoverable monospace fonts and exit\n");
+    out.push_str("  --show-config   print the effective configuration and exit\n");
+    out.push_str("  --core-smoke    print a parser/core smoke transcript and exit\n");
+    out.push_str("  -h, --help      print this help\n");
+    out.push('\n');
+    out.push_str("Session commands:\n");
+    out.push_str("  new --detached [-e COMMAND...]\n");
+    out.push_str("                  start a detached resumable session and print its id\n");
+    out.push_str("  list            list live detached sessions\n");
+    out.push_str("  attach [--diagnostic] ID\n");
+    out.push_str("                  reattach a detached session in a live native window;\n");
+    out.push_str("                  --diagnostic prints a one-line status and exits\n");
+    out
 }
 
 /// Parse arguments that launch the native terminal.

@@ -120,6 +120,124 @@ fn session_command_parser_accepts_list_and_attach() {
 }
 
 #[test]
+fn attach_without_flag_is_live_and_carries_the_session_id() {
+    // `odytty attach <id>` (no flag) is a LIVE attach: it must route to the
+    // native window path with the session id intact.
+    let command = cli::session_command_for_args(&["attach".to_owned(), "s-live".to_owned()])
+        .expect("parse")
+        .expect("attach command");
+    assert!(matches!(
+        &command,
+        cli::SessionCliCommand::Attach(cli::SessionAttachOptions { id, diagnostic, .. })
+            if id == "s-live" && !*diagnostic
+    ));
+    assert_eq!(
+        command.live_attach_id(),
+        Some("s-live"),
+        "no-flag attach must route to the native window"
+    );
+}
+
+#[test]
+fn attach_diagnostic_flag_stays_cli_only() {
+    // `--diagnostic` preserves the script-friendly dump path: it must NOT route
+    // to the native window. Flag order is irrelevant.
+    for args in [
+        vec![
+            "attach".to_owned(),
+            "--diagnostic".to_owned(),
+            "s-1".to_owned(),
+        ],
+        vec![
+            "attach".to_owned(),
+            "s-1".to_owned(),
+            "--diagnostic".to_owned(),
+        ],
+    ] {
+        let command = cli::session_command_for_args(&args)
+            .expect("parse")
+            .expect("attach command");
+        assert!(matches!(
+            &command,
+            cli::SessionCliCommand::Attach(cli::SessionAttachOptions { id, diagnostic, .. })
+                if id == "s-1" && *diagnostic
+        ));
+        assert_eq!(
+            command.live_attach_id(),
+            None,
+            "diagnostic attach must stay CLI-only"
+        );
+    }
+}
+
+#[test]
+fn attach_rejects_unknown_flag_and_extra_id() {
+    assert_eq!(
+        cli::session_command_for_args(&["attach".to_owned(), "--bogus".to_owned()]).unwrap_err(),
+        "unknown odytty attach argument: --bogus"
+    );
+    assert_eq!(
+        cli::session_command_for_args(&["attach".to_owned(), "s-1".to_owned(), "s-2".to_owned(),])
+            .unwrap_err(),
+        "odytty attach takes exactly one session id"
+    );
+}
+
+#[test]
+fn live_attach_id_is_none_for_list_and_new_detached() {
+    // list and new --detached must never route to the native window.
+    let list = cli::session_command_for_args(&["list".to_owned()])
+        .expect("parse")
+        .expect("list command");
+    assert_eq!(list.live_attach_id(), None);
+
+    let new = cli::session_command_for_args(&["new".to_owned(), "--detached".to_owned()])
+        .expect("parse")
+        .expect("new command");
+    assert_eq!(new.live_attach_id(), None);
+}
+
+#[test]
+fn native_attach_options_set_attach_session_and_nothing_else() {
+    // The CLI arg must flow into NativeOptions.attach_session, and every other
+    // field must equal the normal settings-derived launch — so the attach
+    // launch differs from a normal launch only by the attach target.
+    let settings = odytty::settings::Settings::default();
+    let baseline = odytty::native::NativeOptions::from_settings(&settings);
+    let attach = cli::native_attach_options("s-1", &settings);
+
+    assert_eq!(attach.attach_session.as_deref(), Some("s-1"));
+    assert_eq!(
+        odytty::native::NativeOptions {
+            attach_session: None,
+            ..attach
+        },
+        baseline,
+        "attach options must match a normal launch apart from attach_session"
+    );
+}
+
+#[test]
+fn usage_text_documents_live_attach_and_drops_pending_wording() {
+    let usage = cli::usage_text();
+    assert!(
+        usage.contains("attach [--diagnostic] ID"),
+        "usage must document the attach flag form: {usage}"
+    );
+    assert!(
+        usage.contains("reattach a detached session in a live native window"),
+        "usage must describe the live attach behavior: {usage}"
+    );
+    assert!(
+        !usage.contains("pending"),
+        "stale 'reattach is pending' wording must be gone: {usage}"
+    );
+    // The other documented verbs are unchanged.
+    assert!(usage.contains("list            list live detached sessions"));
+    assert!(usage.contains("new --detached [-e COMMAND...]"));
+}
+
+#[test]
 fn session_command_parser_rejects_incomplete_session_commands() {
     assert_eq!(
         cli::session_command_for_args(&["new".to_owned()]).unwrap_err(),
@@ -172,6 +290,7 @@ fn attach_reports_unknown_session_without_creating_daemons() {
         cli::run_session_command(cli::SessionCliCommand::Attach(cli::SessionAttachOptions {
             id: "missing".to_owned(),
             runtime_base: Some(temp.path().to_owned()),
+            diagnostic: true,
         }))
         .unwrap_err();
 
@@ -228,6 +347,7 @@ fn list_and_attach_use_live_session_host_without_scrollback_dump() {
         cli::run_session_command(cli::SessionCliCommand::Attach(cli::SessionAttachOptions {
             id: "s-live".to_owned(),
             runtime_base: Some(temp.path().to_owned()),
+            diagnostic: true,
         }))
         .expect("diagnostic attach");
     assert_eq!(

@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- `odytty attach <id>` opens a live attached window (v0.3.0)
+
+Wired the public `odytty attach <id>` CLI verb to the live native attach path.
+The native capability already existed (`NativeOptions.attach_session` →
+`attach_session_in_new_tab`, proven by the real-process session-host e2e); this
+packet exposes it through the public verb instead of the diagnostic dump.
+
+- `cli.rs`: `odytty attach <id>` now parses to a live attach
+  (`SessionAttachOptions { diagnostic: false }`); `odytty attach --diagnostic
+  <id>` preserves the script-friendly one-line status dump (useful for headless
+  CI that can't open a GPU window). New `SessionCliCommand::live_attach_id()`
+  returns the session id only for a live attach, so `main` routes it to the
+  native window and leaves every other session subcommand CLI-only. New
+  `native_attach_options(id, settings)` = `NativeOptions::from_settings` with
+  `attach_session` set — the attach launch differs from a normal launch by the
+  attach target alone.
+- `main.rs`: live attach builds the native options and calls `run_native`
+  instead of printing a CLI string. Help text moved into the unit-tested
+  `cli::usage_text()` (single source of truth) and updated — the stale "native
+  window reattach is pending" wording is gone, replaced by "reattach a detached
+  session in a live native window; --diagnostic prints a one-line status and
+  exits".
+- Byte-identity: the non-attach launch paths (normal launch, `list`, `new
+  --detached`, all introspection flags) are unchanged — attach is the only
+  behavior change. Verified by routing tests + a real run: `attach <missing>`
+  reaches the native window/wgpu path (with the wired attach-failure note),
+  while `attach --diagnostic <missing>` exits cleanly with "session not found".
+- Tests (`tests/cli.rs`, all green): no-flag attach is live and carries the id
+  + `live_attach_id` returns it; `--diagnostic` (either flag order) stays
+  CLI-only; unknown-flag / extra-id rejection; `list`/`new --detached` have
+  `live_attach_id == None`; `native_attach_options` sets `attach_session` and
+  every other field equals a normal launch; `usage_text` documents the live
+  behavior and drops the "pending" wording.
+- Verification: `cargo test --test cli` 21/21, `--lib` 2128/0, `license_headers`
+  green; `cargo fmt --check` clean; `cargo clippy --lib --bins --tests -D
+  warnings` clean. Docs (README/SPEC/runtime-knobs/odytty.conf.example) left to
+  GPT this round to avoid public-markdown collisions.
+
+---
+
 ## 2026-06-22 -- Phase 5: public docs inactive-pane dim reconciliation
 
 Cleaned up public documentation drift after the inactive-pane dimming feature
