@@ -30,8 +30,11 @@ static UNIQUE: AtomicU64 = AtomicU64::new(0);
 /// A `0700` runtime dir owned by the current uid, satisfying
 /// `validate_socket_parent`. Best-effort cleanup is left to the OS temp reaper.
 fn unique_runtime_dir() -> PathBuf {
+    // Keep this base SHORT: the resolved socket is `<base>/odytty/session-<id>.sock`
+    // and on macOS the temp base is a long `/var/folders/.../T/` path, so a verbose
+    // unique dir overflows the 104-byte `AF_UNIX` sun_path limit and `bind()` fails.
     let dir = std::env::temp_dir().join(format!(
-        "odytty_attach_{}_{}",
+        "oda_{}_{}",
         std::process::id(),
         UNIQUE.fetch_add(1, Ordering::SeqCst)
     ));

@@ -702,7 +702,18 @@ its first stable layer.
   per-user Unix-domain socket under `$XDG_RUNTIME_DIR/odytty/`, requires a
   `0700` current-user runtime directory, rejects incompatible protocol/snapshot
   versions, sends a current `SnapshotEnvelope` on every attach, streams
-  output/invalidation frames, and reaps the child process. Client detach or
+  output/invalidation frames, and reaps the child process. Runtime-dir
+  resolution: an explicitly-set `XDG_RUNTIME_DIR` always wins on every platform
+  (Linux uses its standard `/run/user/<uid>`, byte-identical). On macOS, which
+  has no `XDG_RUNTIME_DIR`, the host falls back to the per-user Darwin temp
+  directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`, e.g. `/var/folders/.../T/`);
+  the `odytty/` socket subdirectory is still created `0700` and validated
+  owner-private, so the macOS runtime directory upholds the same local-only,
+  owner-private privacy charter — the socket never touches the network and
+  nothing leaves the machine. Because `AF_UNIX` socket paths are bounded
+  (`sun_path` is 104 bytes on macOS, 108 on Linux), the host rejects a runtime
+  base that would overflow the limit with a clear error rather than an opaque
+  `bind()` failure. Client detach or
   socket close removes only that client; the hosted PTY and bounded terminal
   model continue until the child exits or the detached idle timeout kills and
   reaps it. Public CLI commands now cover `odytty new --detached`,

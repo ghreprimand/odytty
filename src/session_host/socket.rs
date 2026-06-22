@@ -5,6 +5,7 @@ use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::fd::AsRawFd;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -17,6 +18,33 @@ const SOCKET_SUFFIX: &str = ".sock";
 const RUNTIME_DIR_MODE: u32 = 0o700;
 const LOCK_FILE_MODE: u32 = 0o600;
 
+/// Upper bound on a bindable `AF_UNIX` socket path, in bytes. `sun_path` is a
+/// fixed-size field in `sockaddr_un` and the path must fit with a trailing NUL:
+/// macOS sizes it at 104 bytes, Linux at 108. Exceeding it makes `bind()` fail
+/// with an opaque error, so we check up front and report the real cause. On
+/// Linux the runtime base (`XDG_RUNTIME_DIR`, e.g. `/run/user/<uid>`) is short and
+/// never approaches this; the guard is inert there, so the Linux path stays
+/// byte-identical.
+#[cfg(target_os = "macos")]
+const MAX_SOCKET_PATH_LEN: usize = 104;
+#[cfg(not(target_os = "macos"))]
+const MAX_SOCKET_PATH_LEN: usize = 108;
+
+/// Reject a socket path that would overflow `sun_path` before `bind()`/`connect()`
+/// turns it into an opaque failure. The path plus a NUL terminator must fit, so
+/// the usable budget is `MAX_SOCKET_PATH_LEN - 1`.
+fn check_socket_path_len(path: &Path) -> Result<()> {
+    let len = path.as_os_str().as_bytes().len();
+    if len >= MAX_SOCKET_PATH_LEN {
+        bail!(
+            "session-host socket path is {len} bytes, which does not fit the \
+             platform AF_UNIX sun_path limit of {MAX_SOCKET_PATH_LEN} (path + NUL): {}",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimePaths {
     pub dir: PathBuf,
@@ -25,9 +53,27 @@ pub struct RuntimePaths {
 }
 
 pub fn runtime_base_from_env() -> Result<PathBuf> {
-    env::var_os("XDG_RUNTIME_DIR")
-        .map(PathBuf::from)
-        .ok_or_else(|| anyhow::anyhow!("XDG_RUNTIME_DIR is required for session-host sockets"))
+    // An explicitly-set `XDG_RUNTIME_DIR` always wins, on every platform. This
+    // keeps Linux byte-identical (its standard `/run/user/<uid>` is owner-private
+    // and local) and lets any environment pin the location deterministically.
+    if let Some(dir) = env::var_os("XDG_RUNTIME_DIR") {
+        return Ok(PathBuf::from(dir));
+    }
+
+    // macOS has no `XDG_RUNTIME_DIR`. Fall back to the per-user Darwin temp dir
+    // (`std::env::temp_dir()` resolves `confstr(_CS_DARWIN_USER_TEMP_DIR)`, e.g.
+    // `/var/folders/.../T/`), which is per-user and on a local filesystem. We do
+    // not trust the parent's mode: `prepare_runtime_dir` creates the `odytty`
+    // subdir 0700 and `validate_runtime_dir` enforces it is owner-private, so the
+    // socket directory upholds the same local-only, owner-private charter as
+    // Linux -- no network, nothing leaves the machine.
+    #[cfg(target_os = "macos")]
+    {
+        return Ok(env::temp_dir());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    bail!("XDG_RUNTIME_DIR is required for session-host sockets")
 }
 
 pub fn runtime_dir_path(runtime_base: &Path) -> PathBuf {
@@ -108,7 +154,9 @@ pub fn validate_socket_parent(socket_path: &Path) -> Result<()> {
 pub fn session_socket_path(runtime_dir: &Path, session_id: &str) -> Result<PathBuf> {
     validate_runtime_dir(runtime_dir)?;
     let safe = safe_session_id(session_id)?;
-    Ok(runtime_dir.join(format!("{SOCKET_PREFIX}{safe}{SOCKET_SUFFIX}")))
+    let socket = runtime_dir.join(format!("{SOCKET_PREFIX}{safe}{SOCKET_SUFFIX}"));
+    check_socket_path_len(&socket)?;
+    Ok(socket)
 }
 
 pub fn session_metadata_path(runtime_dir: &Path, session_id: &str) -> Result<PathBuf> {
@@ -124,6 +172,10 @@ pub fn session_id_from_socket_name(name: &str) -> Option<&str> {
 
 pub fn bind_listener(socket_path: &Path, lock_path: &Path) -> Result<(UnixListener, StartupLock)> {
     validate_socket_parent(socket_path)?;
+    // Both the socket and the (longer) lock path must fit `sun_path`; fail with
+    // the real cause instead of an opaque bind error on long macOS temp paths.
+    check_socket_path_len(socket_path)?;
+    check_socket_path_len(lock_path)?;
     let lock = StartupLock::acquire(lock_path)?;
     cleanup_stale_socket(socket_path)?;
     let listener = UnixListener::bind(socket_path)

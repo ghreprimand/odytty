@@ -63,6 +63,19 @@ the detached idle timeout kills and reaps it. Scrollback is not printed by
 `list` and is not sent anywhere except over the per-user Unix-domain socket to an
 attaching local client.
 
+The session-host socket lives under a per-user runtime directory. An
+explicitly-set `XDG_RUNTIME_DIR` always wins on every platform (Linux uses its
+standard `/run/user/<uid>`). On macOS, which does not set `XDG_RUNTIME_DIR`, the
+host falls back to the per-user Darwin temp directory
+(`std::env::temp_dir()` → `confstr(_CS_DARWIN_USER_TEMP_DIR)`,
+e.g. `/var/folders/.../T/`). In both cases the `odytty/` socket subdirectory is
+created `0700` and validated owner-private, so the runtime directory is
+local-only and owner-private on every platform — no network, nothing leaves the
+machine (the privacy charter is unchanged). `AF_UNIX` socket paths are bounded
+(`sun_path` is 104 bytes on macOS, 108 on Linux); a runtime base long enough to
+overflow that limit is rejected with a clear error instead of an opaque
+`bind()` failure.
+
 ## Command Palette
 
 The command palette is exposed through the `command-palette` action in

@@ -6,7 +6,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use crate::core::{
     Dimensions, SnapshotCaptureLimits, SnapshotEnvelope, SnapshotEnvelopeCaps, Terminal,
@@ -78,7 +78,7 @@ fn protocol_handshake_rejects_version_mismatch() {
 
 #[test]
 fn runtime_dir_validation_requires_owner_private_mode() {
-    let temp = TempDir::new("odytty-host-perms");
+    let temp = TempDir::new("sh-perm");
     let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
     validate_runtime_dir(&runtime_dir).expect("runtime dir valid");
 
@@ -93,7 +93,7 @@ fn runtime_dir_validation_requires_owner_private_mode() {
 
 #[test]
 fn stale_socket_cleanup_keeps_live_peer_and_removes_dead_socket() {
-    let temp = TempDir::new("odytty-host-stale");
+    let temp = TempDir::new("sh-stale");
     let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
     let socket_path = session_socket_path(&runtime_dir, "demo").expect("socket path");
 
@@ -143,7 +143,7 @@ fn wait_until_socket_refuses(socket_path: &Path) {
 
 #[test]
 fn host_detach_keeps_session_alive_then_idle_timeout_exits() {
-    let temp = TempDir::new("odytty-host-lifecycle");
+    let temp = TempDir::new("sh-life");
     let config = host_config(
         temp.path(),
         "keepalive",
@@ -182,7 +182,7 @@ fn host_detach_keeps_session_alive_then_idle_timeout_exits() {
 
 #[test]
 fn host_reattach_replays_output_produced_while_detached() {
-    let temp = TempDir::new("odytty-host-reattach");
+    let temp = TempDir::new("sh-reat");
     let config = host_config(
         temp.path(),
         "reattach",
@@ -219,7 +219,7 @@ fn host_reattach_replays_output_produced_while_detached() {
 
 #[test]
 fn host_exits_when_child_exits_even_with_client_attached() {
-    let temp = TempDir::new("odytty-host-exit");
+    let temp = TempDir::new("sh-exit");
     let config = host_config(
         temp.path(),
         "exits",
@@ -246,7 +246,7 @@ fn host_exits_when_child_exits_even_with_client_attached() {
 
 #[test]
 fn host_enforces_configured_scrollback_bound_on_reattach() {
-    let temp = TempDir::new("odytty-host-scrollback-bound");
+    let temp = TempDir::new("sh-scrl");
     let mut config = host_config_with_sh(
         temp.path(),
         "bounded",
@@ -423,19 +423,17 @@ struct TempDir {
 
 impl TempDir {
     fn new(prefix: &str) -> Self {
-        // Per-test isolation: pid + nanos + a process-global monotonic counter
-        // guarantee a unique directory even when two tests share a prefix or land
-        // on the same nanosecond under heavy parallel scheduling. The counter is
-        // the deciding factor; the clock components only aid human inspection.
+        // Per-test isolation: pid + a process-global monotonic counter guarantee a
+        // unique directory across processes (pid) and within one (the counter is
+        // the deciding factor). We deliberately keep this name SHORT and omit a
+        // nanos timestamp: the host appends `<base>/odytty/session-<id>.sock`, and
+        // on macOS the temp base is a long `/var/folders/.../T/` path, so an
+        // `AF_UNIX` socket under a verbose, timestamped base overflows the 104-byte
+        // `sun_path` limit and `bind()` fails. Keep `prefix` to a short tag.
         use std::sync::atomic::{AtomicU64, Ordering};
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock before unix epoch")
-            .as_nanos();
-        let path =
-            std::env::temp_dir().join(format!("{prefix}-{}-{nanos}-{seq}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("{prefix}-{}-{seq}", std::process::id()));
         fs::create_dir(&path).expect("create temp dir");
         Self { path }
     }

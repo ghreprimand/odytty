@@ -7,6 +7,68 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- macOS session-host support: runtime-dir fallback + sun_path guard
+
+GitHub CI had **never** been green on `macos-latest` in this repo's history: the
+session-host / attach integration tests have failed since they were introduced in
+Phase 2 — a latent never-passed state, not a regression. Ubuntu is now fully
+green; this packet makes the session-host feature (and its tests) actually work on
+macOS, per the operator's "make them work on macOS, do not gate to Linux"
+decision.
+
+**Root cause (two real problems):**
+
+1. **`AF_UNIX` `sun_path` overflow (the test failures).** macOS sizes `sun_path`
+   at 104 bytes (Linux 108), and macOS's per-user temp base is a long
+   `/var/folders/.../T/` path. The integration tests build their runtime base
+   under `std::env::temp_dir()` with verbose, timestamped unique dir names
+   (the session-host `TempDir` used a 19-digit nanos suffix), then the host
+   appends `odytty/session-<id>.sock`. The full path reached ~127 bytes on
+   macOS — over the limit — so `UnixListener::bind` failed *inside* the host
+   thread. Because the test polls `wait_for_socket` (which only watches for the
+   socket file), the bind failure surfaced as the reported 30s "socket did not
+   become ready" timeout, not as a bind error. On Linux the base is short
+   (`/tmp`, `/run/user/<uid>`) and the limit is 108, so it never overflowed.
+
+2. **No `XDG_RUNTIME_DIR` on macOS (the production gap).** `runtime_base_from_env`
+   hard-errored without `XDG_RUNTIME_DIR`, which macOS never sets — so the
+   feature could not start at all on macOS even outside tests.
+
+**Fixes:**
+
+- **Product — macOS runtime-dir fallback (`socket.rs`).** An explicitly-set
+  `XDG_RUNTIME_DIR` still wins on every platform (Linux byte-identical). When it
+  is unset, macOS now falls back to the per-user Darwin temp dir
+  (`std::env::temp_dir()`, which resolves `confstr(_CS_DARWIN_USER_TEMP_DIR)`);
+  the `odytty/` socket subdir is still created `0700` and validated owner-private,
+  so the local-only, owner-private privacy charter is preserved. Linux without
+  `XDG_RUNTIME_DIR` keeps its existing hard error. The macOS branch is
+  `cfg(target_os = "macos")`-gated.
+- **Product — `sun_path` length guard (`socket.rs`).** A new `check_socket_path_len`
+  (limit `cfg`-selected: 104 macOS / 108 Linux) rejects an over-long socket/lock
+  path in `session_socket_path` and `bind_listener` with a clear error, instead of
+  letting `bind()`/`connect()` fail opaquely. Inert on Linux (short paths) →
+  byte-identical.
+- **Tests — short runtime bases.** The session-host `TempDir` dropped its 19-digit
+  nanos component and the attach / e2e helpers shortened their unique-dir prefixes
+  (and the e2e session id) so the resolved socket path stays comfortably under the
+  macOS 104-byte limit (worst realistic case ~96–98 bytes incl. the `.sock.lock`).
+  These make the failing tests pass for the *right* reason — the host genuinely
+  binds and runs on macOS — not by being skipped.
+- **Docs.** SPEC.md (session-host section) and docs/runtime-knobs.md document the
+  macOS runtime-dir resolution, the `sun_path` bound, and the unchanged privacy
+  charter.
+
+Verified on Linux (cannot run macOS locally): `cargo build --tests --locked`
+clean, `cargo clippy --all-targets --locked -- -D warnings` clean, full
+`cargo test --locked --lib` 2166 passed / 0 failed, and the integration binaries
+(`gpu_composite_smoke` 3/3 byte-identity, `license_headers` 1/1, `cli` 21/21)
+green — Linux byte-identity preserved. The macOS effect will be confirmed on the
+GitHub `macos-latest` runner; expect possible iteration on the exact path-length
+margin if the runner's `$TMPDIR` is longer than the representative sample.
+
+---
+
 ## 2026-06-22 -- CI hardening follow-up: attach-by-id snapshot-restore race
 
 After the previous CI-hardening pass, GitHub CI was green on 8 of 9 targeted

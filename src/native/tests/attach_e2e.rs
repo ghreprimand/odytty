@@ -56,8 +56,12 @@ fn odytty_bin() -> PathBuf {
 /// A unique synthetic runtime base under the OS temp dir. The host creates and
 /// `0700`-locks `<base>/odytty/` itself; we only own the outer dir for cleanup.
 fn unique_base() -> PathBuf {
+    // Keep this base SHORT: the host binds `<base>/odytty/session-<id>.sock`
+    // (plus a `.sock.lock`), and on macOS the temp base is a long
+    // `/var/folders/.../T/` path, so a verbose unique dir overflows the 104-byte
+    // `AF_UNIX` sun_path limit and `bind()` fails.
     let base = std::env::temp_dir().join(format!(
-        "odytty_e2e_{}_{}",
+        "ode_{}_{}",
         std::process::id(),
         UNIQUE.fetch_add(1, Ordering::SeqCst)
     ));
@@ -188,7 +192,7 @@ fn poll_attach_until(
 fn real_host_survives_detach_and_reattach_restores_scrollback() {
     let bin = odytty_bin();
     let base = unique_base();
-    let id = "e2e-survive";
+    let id = "esurv";
     // 40 numbered lines push early output into scrollback (80x24 grid); `cat`
     // keeps the child alive across detach until we send EOF (Ctrl-D).
     let child_command = "i=1; while [ $i -le 40 ]; do echo \"L$i\"; i=$((i+1)); done; cat";
