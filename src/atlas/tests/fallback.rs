@@ -217,9 +217,20 @@ mod runtime_resolver {
         crate::text::resolve_symbol_font().map(Arc::new)
     }
 
+    // `NEG_CALLS` / `neg_resolver` are owned exclusively by
+    // `negative_runtime_result_is_cached`, which asserts on the exact call
+    // count. No other test may mutate this counter, or the assertion would
+    // observe another thread's invocations under parallel scheduling. Tests that
+    // only need a negative resolver (without counting) use `silent_neg_resolver`.
     static NEG_CALLS: AtomicUsize = AtomicUsize::new(0);
     fn neg_resolver(_ch: char) -> Option<Arc<FontVec>> {
         NEG_CALLS.fetch_add(1, Ordering::SeqCst);
+        None
+    }
+
+    /// A negative resolver that touches no shared counter, so tests that merely
+    /// need "resolver returns None" stay isolated from the counting tests.
+    fn silent_neg_resolver(_ch: char) -> Option<Arc<FontVec>> {
         None
     }
 
@@ -339,7 +350,9 @@ mod runtime_resolver {
         };
         let mut atlas = GlyphAtlas::build(&primary, 24.0);
         atlas.set_fallback_fonts(Vec::new());
-        atlas.set_runtime_symbol_resolver(Some(neg_resolver));
+        // Uses the silent resolver: this test does not count calls, so it must
+        // not perturb `NEG_CALLS` (owned by `negative_runtime_result_is_cached`).
+        atlas.set_runtime_symbol_resolver(Some(silent_neg_resolver));
         let _ = atlas.ensure(&primary, absent);
         // Reinstalling clears the cache; clearing to None disables the query.
         atlas.set_runtime_symbol_resolver(None);

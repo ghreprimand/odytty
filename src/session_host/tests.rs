@@ -94,8 +94,40 @@ fn stale_socket_cleanup_keeps_live_peer_and_removes_dead_socket() {
     );
     drop(listener);
 
+    // Dropping the listener closes it, but under heavy parallel scheduling the
+    // kernel's teardown of the listening socket can lag a beat -- a `connect()`
+    // probe may still briefly succeed against the soon-to-be-dead inode, which
+    // `cleanup_stale_socket` correctly reports as a live peer. The path is
+    // per-test unique, so nothing else can be binding it; this races only the
+    // kernel, not another test. Wait until the socket genuinely refuses
+    // connections before asserting the stale-cleanup path removes it. Pure test
+    // timing -- the production cleanup logic is exercised unchanged.
+    wait_until_socket_refuses(&socket_path);
+
     cleanup_stale_socket(&socket_path).expect("remove stale socket");
     assert!(!socket_path.exists());
+}
+
+/// Poll until a `connect()` to `socket_path` fails, i.e. no listener answers.
+/// Used after dropping a test listener to wait out the kernel's asynchronous
+/// listening-socket teardown before probing for a stale socket.
+fn wait_until_socket_refuses(socket_path: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match UnixStream::connect(socket_path) {
+            // Still connectable: the listener teardown is not yet visible.
+            Ok(_) => {}
+            // Refused / not found: the socket is now stale, safe to clean up.
+            Err(_) => return,
+        }
+        if Instant::now() >= deadline {
+            panic!(
+                "socket {} still answers connections 5s after listener drop",
+                socket_path.display()
+            );
+        }
+        thread::sleep(Duration::from_millis(2));
+    }
 }
 
 #[test]
@@ -380,11 +412,19 @@ struct TempDir {
 
 impl TempDir {
     fn new(prefix: &str) -> Self {
+        // Per-test isolation: pid + nanos + a process-global monotonic counter
+        // guarantee a unique directory even when two tests share a prefix or land
+        // on the same nanosecond under heavy parallel scheduling. The counter is
+        // the deciding factor; the clock components only aid human inspection.
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock before unix epoch")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("{prefix}-{}-{nanos}", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("{prefix}-{}-{nanos}-{seq}", std::process::id()));
         fs::create_dir(&path).expect("create temp dir");
         Self { path }
     }

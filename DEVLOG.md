@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Phase 5: fix two parallel-run test flakes (test isolation only)
+
+Made the default parallel `cargo test` deterministic by isolating shared
+test-only state. **No production behavior changed** — both flakes were test
+harness races, not feature bugs; the byte-identity/plain-path guarantees are
+untouched.
+
+- `atlas::tests::fallback::runtime_resolver::negative_runtime_result_is_cached`
+  asserts an exact resolver call count via the module static `NEG_CALLS`. The
+  sibling `reinstalling_resolver_clears_the_cache` also drove `neg_resolver`
+  (which increments `NEG_CALLS`) without reading it, so under parallel
+  scheduling the counting test observed the sibling's increments and the
+  `== 1` assertion flaked. Fix: a dedicated `silent_neg_resolver` (no counter)
+  for the non-counting test, making `NEG_CALLS`/`neg_resolver` the exclusive
+  property of the one test that asserts on the count. Before: 8/15 parallel
+  runs failed; after: 0/25.
+- `session_host::tests::stale_socket_cleanup_keeps_live_peer_and_removes_dead_socket`
+  drops a live `UnixListener`, then immediately probes the path expecting a
+  stale (refused) socket. Under heavy parallel load the kernel's teardown of
+  the listening socket lags, so the `connect()` probe can still briefly succeed
+  — correctly reported as a live peer — and the stale-removal step flaked. The
+  path is per-test unique, so this races only the kernel, never another test.
+  Fix: poll `wait_until_socket_refuses` after the drop so the test waits out the
+  teardown window before asserting cleanup. Production `cleanup_stale_socket`
+  is exercised unchanged. Also hardened `TempDir::new` with a process-global
+  monotonic counter so two same-prefix temp dirs can never collide on a shared
+  nanosecond.
+- Verification (default parallel `cargo test`, no `--test-threads=1`): 6/6 full
+  suite runs green (2128 passed each), 30/30 heavy `session_host` runs green,
+  25/25 targeted atlas-resolver runs green; `cargo fmt --check` clean, `cargo
+  clippy --lib --tests` clean, `license_headers` green.
+
+---
+
 ## 2026-06-22 -- Connection-manager overlay (Phase 4 list/select UI)
 
 Added the keyboard-driven connection-manager overlay that consumes the
