@@ -13,7 +13,7 @@ use super::connection_overlay::{
     ConnectionOverlay, ConnectionOverlayLine, ConnectionOverlayOutcome, ConnectionOverlaySignature,
 };
 use super::context_menu_ui::{
-    ContextMenuItem, ContextMenuOutcome, ContextMenuSignature, ContextMenuUi,
+    CONTEXT_MENU_ITEMS, ContextMenuItem, ContextMenuOutcome, ContextMenuSignature, ContextMenuUi,
 };
 use super::font_picker::{FontPicker, FontPickerLine, FontPickerOutcome, FontPickerSignature};
 use super::key_remap_ui::{KeyRemapLine, KeyRemapOutcome, KeyRemapSignature, KeyRemapUi};
@@ -241,6 +241,10 @@ impl OverlayUi {
     /// clipboard. Unlike the other openers this does NOT clear the selection —
     /// the Copy item needs it — so the App must not route through
     /// `reset_pointer_state_for_overlay` here.
+    // A thin forwarding shim: the App snapshots each item's enabled state and
+    // accelerator before opening, so the arg list mirrors that snapshot rather
+    // than wrapping it in a one-use struct.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn open_context_menu(
         &mut self,
         spawn: CellPoint,
@@ -249,10 +253,12 @@ impl OverlayUi {
         paste: bool,
         delete: bool,
         rename_target: Option<SessionToken>,
+        accelerators: [Option<String>; CONTEXT_MENU_ITEMS],
     ) {
         self.panel.end_slider_drag();
         self.context_menu
             .open(spawn, copy, cut, paste, delete, rename_target);
+        self.context_menu.set_accelerators(accelerators);
         self.mode = OverlayMode::ContextMenu;
         self.open = true;
     }
@@ -323,6 +329,8 @@ impl OverlayUi {
                         }
                     }
                     ContextMenuItem::CloseTab => OverlayOutcome::ContextMenuCloseTab,
+                    ContextMenuItem::SplitColumns => OverlayOutcome::ContextMenuSplitColumns,
+                    ContextMenuItem::SplitRows => OverlayOutcome::ContextMenuSplitRows,
                     ContextMenuItem::Settings => OverlayOutcome::ContextMenuSettings,
                 }
             }
@@ -927,6 +935,11 @@ pub(super) enum OverlayOutcome {
     ContextMenuNewTab,
     ContextMenuRenameTab(SessionToken),
     ContextMenuCloseTab,
+    /// Split the focused pane from the context menu (Part B). The overlay has
+    /// already closed itself; the App dispatches these to the same
+    /// `split_active_pane` the keyboard split chords fire.
+    ContextMenuSplitColumns,
+    ContextMenuSplitRows,
     /// Open the settings panel from the context menu (D-IN2-SETTINGS). The
     /// overlay has already closed itself; the App opens the settings panel
     /// through the existing toggle path.
@@ -1357,6 +1370,7 @@ fn apply_context_menu(snapshot: &mut Snapshot, overlay: &OverlayUi, rect: Overla
             }
             ContextMenuRow::Item {
                 label,
+                accelerator,
                 focused,
                 enabled,
             } => {
@@ -1371,6 +1385,17 @@ fn apply_context_menu(snapshot: &mut Snapshot, overlay: &OverlayUi, rect: Overla
                 // spans the whole width, then write the label over it.
                 fill_rect(snapshot, text_column, y, text_width, 1, attrs);
                 write_text(snapshot, y, text_column, text_width, label, attrs);
+                // Part C: the effective keybind, right-aligned in the row. Only
+                // drawn when it fits beside the label (rect() sizes the box to
+                // fit via `menu_width`, so this normally holds).
+                if let Some(accel) = accelerator {
+                    let accel_len = accel.chars().count();
+                    let label_len = label.chars().count();
+                    if accel_len > 0 && accel_len + label_len < text_width {
+                        let accel_col = text_column + text_width - accel_len;
+                        write_text(snapshot, y, accel_col, accel_len, accel, attrs);
+                    }
+                }
             }
         }
     }
@@ -1939,6 +1964,49 @@ mod tests {
             OverlayOutcome::Connect(host) => assert_eq!(host.alias, "web1"),
             other => panic!("expected Connect, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn context_menu_split_items_emit_split_outcomes() {
+        // Part B: activating the split items routes up as the split outcomes the
+        // App dispatches to `split_active_pane` (the same action the keyboard
+        // split chords fire).
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            None,
+            Default::default(),
+        );
+        // Focus starts at item 0 (Copy); Split Right is item index 8.
+        for _ in 0..8 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuSplitColumns
+        );
+
+        // Reopen and walk to Split Down (item index 9).
+        overlay.open_context_menu(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            None,
+            Default::default(),
+        );
+        for _ in 0..9 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuSplitRows
+        );
     }
 
     #[test]

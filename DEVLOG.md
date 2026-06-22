@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-22 -- Direct split chords + context-menu split section + accelerators (release unblock)
+
+Operator validation surfaced a release-blocker: the panes>1 prefix gate made the
+**first** split unreachable. Split was bound only via the multiplexer prefix
+table (`%`/`"`), and that prefix is gated off at single-pane — so on a lone shell
+there was no way to create the first split (chicken-and-egg). Operator decision
+(validated against Ghostty, which uses direct chords by default): add direct GUI
+split chords; keep the single-pane `Ctrl+b` passthrough byte-identity fix. One
+coherent native packet, three parts:
+
+- **Part A — direct split chords.** `default_key_bindings()` now binds
+  `Ctrl+Shift+E` → `SplitColumns` (new pane right) and `Ctrl+Shift+O` →
+  `SplitRows` (new pane down), matching Ghostty's Linux defaults. These resolve
+  at single-pane (create the first split) and multi-pane; the prefix `%`/`"`
+  keep working once a tab is split. `handle_key_event`'s flat match dispatches
+  them via the same `apply_pane_action` the prefix path fires. The other
+  pane-management actions stay prefix-only. No existing binding changed; the
+  single-pane `Ctrl+b` passthrough gate is untouched.
+- **Part B — context-menu split section.** Added `ContextMenuItem::SplitColumns`
+  / `SplitRows` ("Split Right" / "Split Down") as their own visual section with
+  a third separator (edit / tab / splits / settings). New `OverlayOutcome`
+  variants route activation to the same `split_active_pane` action. The menu's
+  hardcoded row/separator math (`CONTEXT_MENU_ITEMS` 9→11, three separators,
+  body rows +3) was updated end-to-end.
+- **Part C — accelerator labels.** Each selectable item renders its *effective*
+  keybind right-aligned beside its label, derived from the live `KeyBindings`
+  (reverse action→chord lookup, so it reflects user rebinds); items with no
+  bound chord render blank. Reuses `format_key_chord` for the chord
+  decomposition (`humanize_chord` only title-cases tokens). The menu width grew
+  to fit "longest label + gap + longest accelerator".
+
+Tests: `direct_chord_ctrl_shift_e/_o_splits_*`, `default_key_bindings_have_no_duplicate_chords`
+still green, `single_pane_passes_ctrl_b_through` regression green; context-menu
+unit tests for the split section, row-math, accelerator rendering/width, and
+`humanize_chord`; overlay `context_menu_split_items_emit_split_outcomes`; the
+App-level integration test updated for three separators. Verified: full
+`cargo test --lib` 2138/0; `gpu_composite_smoke` 3/3 (byte-identity preserved);
+`license_headers` green; `cargo clippy --lib --tests -- -D warnings` clean; fmt
+clean. Context menu is GUI-only, so the plain/fast terminal path is unaffected;
+the direct split chords are additive.
+
+---
+
 ## 2026-06-22 -- Phase 5: public docs pane-prefix gate reconciliation
 
 Reconciled public markdown with the shipped panes>1 multiplexer-prefix gate.

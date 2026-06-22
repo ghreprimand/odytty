@@ -331,9 +331,14 @@ the same reserved tab-bar row as text, so Kitty/Sixel placements stay aligned
 with the visible grid while the bar is shown. Right-click a tab to rename it for
 the session; the custom name overrides shell title updates until cleared.
 
-Any tab can be split into panes. Once the active tab has multiple panes, a
-tmux-style prefix (default `Ctrl+b`, configurable via `pane_prefix`) opens a
-transient pane-command mode; press the prefix then a pane key:
+Any tab can be split into panes. The direct chords `Ctrl+Shift+E` (split into
+columns, new pane on the right) and `Ctrl+Shift+O` (split into rows, new pane
+below) create a split on a single-pane tab — they match Ghostty's Linux
+defaults and work at both single-pane and multi-pane. You can also split from
+the right-click menu's "Split Right" / "Split Down" items. Once the active tab
+has multiple panes, a tmux-style prefix (default `Ctrl+b`, configurable via
+`pane_prefix`) opens a transient pane-command mode; press the prefix then a pane
+key:
 
 | After the prefix | Action |
 | --- | --- |
@@ -361,6 +366,7 @@ Core local shortcuts:
 
 | Shortcut | Action |
 | --- | --- |
+| `Ctrl+Shift+E` / `Ctrl+Shift+O` | Split the focused pane into columns / rows |
 | `Ctrl+Shift+F` | Search scrollback |
 | `Ctrl+Shift+,` | Settings panel |
 | `Ctrl+Shift+H` | Theme picker |

@@ -10,7 +10,7 @@
 
 use super::super::context_menu_ui::{
     CONTEXT_MENU_BODY_ROWS, CONTEXT_MENU_SECOND_SEPARATOR_ROW, CONTEXT_MENU_SEPARATOR_ROW,
-    ContextMenuRow, ContextMenuUi,
+    CONTEXT_MENU_THIRD_SEPARATOR_ROW, ContextMenuRow, ContextMenuUi,
 };
 use super::super::pty::UserEvent;
 use super::super::session::{Session, SessionToken, TabSet};
@@ -109,7 +109,7 @@ fn enable_tui_mouse_reporting(terminal: &Arc<Mutex<Terminal>>) {
 }
 
 #[test]
-fn context_menu_rows_include_tab_items_and_two_separators() {
+fn context_menu_rows_include_tab_split_items_and_three_separators() {
     let mut menu = ContextMenuUi::new();
     menu.open(
         CellPoint { row: 5, column: 10 },
@@ -128,6 +128,10 @@ fn context_menu_rows_include_tab_items_and_two_separators() {
     ));
     assert!(matches!(
         rows[CONTEXT_MENU_SECOND_SEPARATOR_ROW],
+        ContextMenuRow::Separator
+    ));
+    assert!(matches!(
+        rows[CONTEXT_MENU_THIRD_SEPARATOR_ROW],
         ContextMenuRow::Separator
     ));
     assert!(matches!(
@@ -156,6 +160,22 @@ fn context_menu_rows_include_tab_items_and_two_separators() {
     ));
     assert!(matches!(
         rows[10],
+        ContextMenuRow::Item {
+            label: "Split Right",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[11],
+        ContextMenuRow::Item {
+            label: "Split Down",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[13],
         ContextMenuRow::Item {
             label: "Settings",
             enabled: true,

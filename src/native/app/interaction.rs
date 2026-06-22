@@ -116,6 +116,17 @@ impl App {
                 self.flush_pending_overlay_settings();
                 let _ = self.close_active_tab();
             }
+            // Part B: the context menu closed itself; split the focused pane
+            // through the exact same action the keyboard split chords fire
+            // (`apply_pane_action` → `split_active_pane`).
+            OverlayOutcome::ContextMenuSplitColumns => {
+                self.flush_pending_overlay_settings();
+                self.apply_pane_action(crate::settings::BindableAction::SplitColumns);
+            }
+            OverlayOutcome::ContextMenuSplitRows => {
+                self.flush_pending_overlay_settings();
+                self.apply_pane_action(crate::settings::BindableAction::SplitRows);
+            }
             // D-IN2-SETTINGS: the context menu closed itself; open the settings
             // panel through the existing toggle path (same destination as
             // Ctrl+Shift+,). No extra state: the toggle path handles open/close.

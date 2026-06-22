@@ -324,6 +324,22 @@ impl KeyBindings {
 
 fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
     vec![
+        // Direct split chords (GUI). Unlike the other pane-management actions
+        // (focus/close/zoom/equalize), which resolve only on the tmux prefix,
+        // the two *creation* splits have direct chords so the first split on a
+        // single-pane tab is reachable without the prefix (the prefix engine is
+        // gated off at single-pane for byte-identity). Matches Ghostty's Linux
+        // defaults: Ctrl+Shift+E splits columns (new pane right), Ctrl+Shift+O
+        // splits rows (new pane down). They work at single-pane and multi-pane;
+        // the prefix `%`/`"` keep working once a tab is split.
+        (
+            char_chord('e', true, true, false, false),
+            BindableAction::SplitColumns,
+        ),
+        (
+            char_chord('o', true, true, false, false),
+            BindableAction::SplitRows,
+        ),
         (
             char_chord('f', true, true, false, false),
             BindableAction::Search,
@@ -681,6 +697,51 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn direct_chord_ctrl_shift_e_splits_columns() {
+        // The first split on a single-pane tab is reachable via the direct GUI
+        // chord (the prefix engine is gated off at single-pane). The binding
+        // table is pane-count-agnostic, so this resolves regardless of panes.
+        let bindings = KeyBindings::default();
+        let chord = char_chord('e', true, true, false, false);
+        assert_eq!(
+            bindings.action_for_chord(chord),
+            Some(BindableAction::SplitColumns)
+        );
+    }
+
+    #[test]
+    fn direct_chord_ctrl_shift_o_splits_rows() {
+        let bindings = KeyBindings::default();
+        let chord = char_chord('o', true, true, false, false);
+        assert_eq!(
+            bindings.action_for_chord(chord),
+            Some(BindableAction::SplitRows)
+        );
+    }
+
+    #[test]
+    fn direct_split_chords_survive_pane_action_override_skip() {
+        // A pane-action override cannot bind a bare global chord (it is skipped
+        // in `from_overrides`), but the *default* direct split chords must
+        // survive that skip so the GUI split remains reachable.
+        let overrides = vec![KeyBindingOverride {
+            chord: char_chord('g', true, true, false, false),
+            action: BindableAction::SplitColumns,
+        }];
+        let bindings = KeyBindings::from_overrides(&overrides);
+        // The override was skipped; the default Ctrl+Shift+E still splits.
+        assert_eq!(
+            bindings.action_for_chord(char_chord('e', true, true, false, false)),
+            Some(BindableAction::SplitColumns)
+        );
+        // The attempted bare override chord did not take.
+        assert_eq!(
+            bindings.action_for_chord(char_chord('g', true, true, false, false)),
+            None
+        );
     }
 
     #[test]

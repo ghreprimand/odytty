@@ -998,14 +998,22 @@ impl App {
                 | Some(BindableAction::SettingsPanel)
                 | Some(BindableAction::ThemePicker)
                 | None => {}
-                // Pane-management actions (§7) resolve only on the multiplexer
-                // prefix and are excluded from the flat global binding table
-                // (`is_pane_action`), so `action_for` never returns one here.
-                // These arms exist for match exhaustiveness; the prefix engine
-                // (K2) dispatches these before this flat match runs.
-                Some(BindableAction::SplitColumns)
-                | Some(BindableAction::SplitRows)
-                | Some(BindableAction::FocusPaneLeft)
+                // Direct split chords (GUI, Ctrl+Shift+E / Ctrl+Shift+O). These
+                // two *creation* splits have direct global bindings so the first
+                // split on a single-pane tab is reachable without the prefix
+                // (which is gated off at single-pane for byte-identity). They
+                // dispatch the same action the prefix `%`/`"` path fires, and
+                // work at single-pane (create the first split) and multi-pane.
+                Some(action @ (BindableAction::SplitColumns | BindableAction::SplitRows)) => {
+                    self.apply_pane_action(action);
+                    return;
+                }
+                // The remaining pane-management actions (§7) resolve only on the
+                // multiplexer prefix and are excluded from the flat global
+                // binding table (`is_pane_action`), so `action_for` never
+                // returns one here. These arms exist for match exhaustiveness;
+                // the prefix engine (K2) dispatches them before this flat match.
+                Some(BindableAction::FocusPaneLeft)
                 | Some(BindableAction::FocusPaneRight)
                 | Some(BindableAction::FocusPaneUp)
                 | Some(BindableAction::FocusPaneDown)
@@ -1270,6 +1278,18 @@ impl App {
         let copy_enabled = self.selection.range().is_some();
         let editable_selection = self.editable_input_selection_for_context_menu();
         let paste_enabled = self.clipboard.read_text().is_some();
+        // Part C: each item's *effective* keybind, derived from the live
+        // `KeyBindings` (reverse action→chord lookup) so it reflects user
+        // rebinds. Items with no bound chord get `None` (rendered blank). Reuses
+        // `format_key_chord` for the chord decomposition; `humanize_chord` only
+        // title-cases the tokens for display.
+        let accelerators = super::context_menu_ui::ContextMenuItem::ALL.map(|item| {
+            item.bindable_action()
+                .and_then(|action| self.key_bindings.chord_for_action(action))
+                .map(|chord| {
+                    super::context_menu_ui::humanize_chord(crate::settings::format_key_chord(chord))
+                })
+        });
         self.overlay.open_context_menu(
             spawn,
             copy_enabled,
@@ -1277,6 +1297,7 @@ impl App {
             paste_enabled,
             editable_selection.is_some(),
             rename_target,
+            accelerators,
         );
         self.request_selection_redraw();
     }
