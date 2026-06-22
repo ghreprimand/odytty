@@ -1330,6 +1330,20 @@ mod tests {
         assert!(sessions.is_empty());
     }
 
+    // macOS forbids constructing a winit `EventLoop` off the main thread
+    // (winit panics: "Initializing the event loop outside of the main thread is
+    // a significant cross-platform compatibility hazard"). `cargo test` runs
+    // each test on a worker thread, and Linux offers `with_any_thread(true)` to
+    // opt out of that check while macOS does not. This test only needs a real
+    // `EventLoopProxy` so the connect action can spawn a PTY-backed session;
+    // there is no headless seam for the concrete winit proxy type without
+    // abstracting the whole PTY-pump wake path, so it is ignored on macOS as an
+    // accepted v0.3.0 stopgap. The connect/spawn logic is identical across
+    // platforms and stays covered on Linux CI.
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
     #[test]
     fn connect_action_spawns_new_session_with_stub_command() {
         let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {

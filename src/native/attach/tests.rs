@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::*;
 use crate::core::{Dimensions, SnapshotCaptureLimits, Terminal};
@@ -94,6 +94,46 @@ fn test_caps() -> SnapshotEnvelopeCaps {
 
 fn test_deadline() -> Duration {
     Duration::from_secs(5)
+}
+
+/// Poll `cond` every 5ms until it returns true or a generous CI-aware timeout
+/// elapses; returns whether it became true. Replaces fixed `sleep` + assert-once
+/// so a slow runner that pumps a frame late still observes the expected state.
+fn wait_until(mut cond: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if cond() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return cond();
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+/// Host-side teardown that holds the connection open until the attach client
+/// disconnects (a clean `Detach` frame or EOF), then returns so the stream drops.
+/// Because the host does not close until the client has finished, the client's
+/// read pump can never EOF mid-frame on a slow runner — every host-written frame
+/// is consumed before the socket closes (the ACK-based teardown the flaky fixed
+/// `sleep(150ms); drop` lacked).
+fn drain_until_disconnect(mut stream: UnixStream) {
+    loop {
+        match read_client_frame(&mut stream) {
+            // A clean `Detach` is the client signaling it is done. It arrives
+            // before the client's write half is dropped (the app's
+            // `Session::close` sends `Detach` and then *joins* the pump before
+            // the socket drops), so we must return here rather than waiting for
+            // EOF — otherwise the host never drops, the pump never EOFs, and the
+            // join deadlocks.
+            Ok(ClientFrame::Detach) => return,
+            // Input / resize before the detach: keep holding the link open.
+            Ok(_) => continue,
+            // EOF / disconnect / protocol end: the client is gone, safe to drop.
+            Err(_) => return,
+        }
+    }
 }
 
 /// Channel-backed event sink so the pump is exercisable without a winit loop.
@@ -419,10 +459,11 @@ fn attach_by_id_presents_live_tab_and_repaints() {
         let _hello = read_client_hello(&mut stream).expect("read client hello");
         write_host_hello(&mut stream, &HostHello::accepted()).expect("write host hello");
         write_host_frame(&mut stream, &HostFrame::Snapshot(snapshot)).expect("write snapshot");
-        // Live output after the snapshot, then hold the link open briefly.
+        // Live output after the snapshot, then hold the link open until the
+        // client detaches — ACK-based teardown, never an abrupt drop that could
+        // EOF the pump mid-frame on a slow runner.
         write_host_frame(&mut stream, &HostFrame::Output(b"XYZ".to_vec())).expect("write output");
-        std::thread::sleep(Duration::from_millis(150));
-        drop(stream);
+        drain_until_disconnect(stream);
     });
 
     let mut set = TabSet::new(build_local_session(), None);
@@ -445,26 +486,37 @@ fn attach_by_id_presents_live_tab_and_repaints() {
         assert_eq!(row_text(&term, 2), "PROMPT$");
     }
 
-    // Live output repaints the mirror (wait for the pump's redraw).
-    let mut saw_redraw = false;
-    while let Ok(ev) = rx.recv_timeout(Duration::from_secs(2)) {
-        if ev == Ev::Redraw(token) {
-            saw_redraw = true;
-            break;
+    // Live output repaints the mirror. Wait for the pump's redraw event AND
+    // poll the mirror until the appended bytes actually land — a redraw can be
+    // observed independently of the lock-ordering of the apply, so the content
+    // poll is the deterministic gate (not a single assert after the first
+    // event). Both together prove the pump signaled a redraw and the output was
+    // applied.
+    let saw_redraw = wait_until(|| {
+        while let Ok(ev) = rx.try_recv() {
+            if ev == Ev::Redraw(token) {
+                return true;
+            }
         }
-    }
+        false
+    });
     assert!(saw_redraw, "live output must repaint the attached tab");
-    {
+    let applied = wait_until(|| {
         let term = set
             .get(token)
             .expect("attached session")
             .terminal
             .lock()
             .unwrap();
-        assert_eq!(row_text(&term, 2), "PROMPT$ XYZ");
-    }
+        row_text(&term, 2) == "PROMPT$ XYZ"
+    });
+    assert!(
+        applied,
+        "live output must append to the mirror at the cursor"
+    );
 
-    // Closing the attached tab cleanly detaches and reaps its pump.
+    // Closing the attached tab cleanly detaches and reaps its pump; the clean
+    // Detach also unblocks the host's `drain_until_disconnect`.
     assert!(!set.close(token), "two tabs: closing one is not last");
     handle.join().expect("host thread");
 }

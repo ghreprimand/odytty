@@ -21,7 +21,18 @@ use super::{
     prepare_runtime_dir, run_host, session_socket_path, validate_runtime_dir,
 };
 
-const SHORT_WAIT: Duration = Duration::from_secs(3);
+// Frame-read / output-wait budget. Generous so a cold, heavily-parallel CI
+// runner (especially macOS) that is slow to schedule the host thread and pump
+// frames does not lose the race. Polling stays at a fine interval, so a healthy
+// host still completes near-instantly — this only raises the failure ceiling.
+const SHORT_WAIT: Duration = Duration::from_secs(15);
+
+// Socket-bind readiness budget. The host thread must spawn its PTY child and
+// bind the per-user socket before the first connect; on a cold macOS CI runner
+// that cold-start can take several seconds under load. Separated from
+// `SHORT_WAIT` and set very generously so `wait_for_socket` never panics with
+// "socket did not become ready" on a slow runner.
+const SOCKET_READY_WAIT: Duration = Duration::from_secs(30);
 
 #[test]
 fn protocol_handshake_round_trip_accepts_current_versions() {
@@ -112,7 +123,7 @@ fn stale_socket_cleanup_keeps_live_peer_and_removes_dead_socket() {
 /// Used after dropping a test listener to wait out the kernel's asynchronous
 /// listening-socket teardown before probing for a stale socket.
 fn wait_until_socket_refuses(socket_path: &Path) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + SHORT_WAIT;
     loop {
         match UnixStream::connect(socket_path) {
             // Still connectable: the listener teardown is not yet visible.
@@ -122,7 +133,7 @@ fn wait_until_socket_refuses(socket_path: &Path) {
         }
         if Instant::now() >= deadline {
             panic!(
-                "socket {} still answers connections 5s after listener drop",
+                "socket {} still answers connections {SHORT_WAIT:?} after listener drop",
                 socket_path.display()
             );
         }
@@ -385,7 +396,7 @@ fn reattach_snapshot_with_text(socket_path: &Path, session_id: &str, needle: &st
 }
 
 fn wait_for_socket(socket_path: &Path) {
-    let deadline = Instant::now() + SHORT_WAIT;
+    let deadline = Instant::now() + SOCKET_READY_WAIT;
     loop {
         match UnixStream::connect(socket_path) {
             Ok(_) => return,

@@ -29,6 +29,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::core::Terminal;
 use crate::native::attach::{AttachClient, resolve_session_socket};
 
 static UNIQUE: AtomicU64 = AtomicU64::new(0);
@@ -138,6 +139,51 @@ fn wait_until(timeout: Duration, mut cond: impl FnMut() -> bool) -> bool {
     }
 }
 
+/// Attach once, restore the snapshot, and return the mirror terminal if `accept`
+/// passes; otherwise cleanly detach and return `None`. A connect/snapshot error
+/// (e.g. the previous client's detach not yet processed, or a transient
+/// snapshot read hiccup on a slow runner) also maps to `None` so the poll
+/// retries rather than failing — the read is repeated against fresh host state
+/// instead of trusting a single timing-sensitive attempt.
+fn try_attach_matching(
+    socket: &Path,
+    id: &str,
+    accept: impl Fn(&Terminal) -> bool,
+) -> Option<Terminal> {
+    let (client, reader, terminal) = AttachClient::connect(socket, id).ok()?;
+    let matched = accept(&terminal);
+    // Clean detach: the host keeps the session alive for the next attach.
+    drop(client);
+    drop(reader);
+    matched.then_some(terminal)
+}
+
+/// Poll [`try_attach_matching`] until the restored snapshot satisfies `accept`
+/// or the deadline elapses. This is the deterministic replacement for "sleep a
+/// fixed amount, then attach once and hope the host's terminal model already
+/// reflects the expected state" — host-side work (the child printing, or an echo
+/// of mid-attach input folding into the model) is observed by re-reading the
+/// snapshot until it appears, not by a fixed wait. Sequential attaches only
+/// (each fully detached before the next), so the single-client host invariant
+/// holds.
+fn poll_attach_until(
+    socket: &Path,
+    id: &str,
+    timeout: Duration,
+    accept: impl Fn(&Terminal) -> bool,
+) -> Terminal {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(terminal) = try_attach_matching(socket, id, &accept) {
+            return terminal;
+        }
+        if Instant::now() >= deadline {
+            panic!("attach snapshot never satisfied the expected condition within {timeout:?}");
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
 #[test]
 fn real_host_survives_detach_and_reattach_restores_scrollback() {
     let bin = odytty_bin();
@@ -151,13 +197,14 @@ fn real_host_survives_detach_and_reattach_restores_scrollback() {
         base: base.clone(),
     };
 
-    let socket = wait_for_socket(&base, id, Duration::from_secs(5));
-    // Let the child finish printing its 40 lines before the first snapshot.
-    std::thread::sleep(Duration::from_millis(400));
+    let socket = wait_for_socket(&base, id, Duration::from_secs(30));
 
-    // --- Attach #1: the snapshot carries the pre-attach scrollback. ---
-    let (mut client1, reader1, term1) =
-        AttachClient::connect(&socket, id).expect("first attach connects + restores snapshot");
+    // --- Attach #1: poll until the child has printed all 40 lines, so the
+    //     snapshot deterministically carries the pre-attach scrollback (no fixed
+    //     "sleep 400ms and hope the child finished"). ---
+    let term1 = poll_attach_until(&socket, id, Duration::from_secs(15), |t| {
+        t.screen().scrollback_len() > 0 && t.screen().plain_text().contains("L40")
+    });
     let scrollback1 = term1.screen().scrollback_len();
     assert!(
         scrollback1 > 0,
@@ -168,21 +215,27 @@ fn real_host_survives_detach_and_reattach_restores_scrollback() {
         "the latest printed line must be on screen:\n{}",
         term1.screen().plain_text()
     );
+    drop(term1);
 
-    // --- Produce output INTO the host PTY during the attach. It must fold into
-    //     the host's own terminal model (proven by the reattach snapshot). ---
+    // --- Produce output INTO the host PTY during a real attach. It must fold
+    //     into the host's own terminal model (proven by the reattach snapshot).
+    //     The Input frame is ordered before the Detach on the same stream, so
+    //     the host receives the keystrokes before the detach; the echo folding
+    //     into the model is async and is awaited by the reattach poll below. ---
+    let (mut client1, reader1, _term1live) =
+        AttachClient::connect(&socket, id).expect("second attach connects for mid-attach input");
     client1
         .send_input(b"MIDLINE\n")
         .expect("send mid-attach input");
-    // Bounded settle so the host reads + echoes the input before we detach.
-    std::thread::sleep(Duration::from_millis(300));
 
     // --- Detach #1 == window close: drop the client (clean Detach frame). ---
     drop(client1);
     drop(reader1);
 
     // The host process MUST survive a client disconnect (daemon survival). Give
-    // it a moment to process the detach, then assert it is still running.
+    // it a moment to process the detach, then assert it is still running. (A
+    // negative "stays alive" assertion has no condition to poll toward, so a
+    // short bounded settle is appropriate here.)
     std::thread::sleep(Duration::from_millis(200));
     assert!(
         guard.child.try_wait().expect("poll host process").is_none(),
@@ -190,14 +243,21 @@ fn real_host_survives_detach_and_reattach_restores_scrollback() {
     );
     assert!(socket.exists(), "socket must remain after a clean detach");
 
-    // --- Reattach #2 by id with a fresh client: scrollback restored. ---
+    // --- Reattach #2 by id: poll until the mid-attach output has folded into
+    //     the host model AND scrollback survived, instead of a single
+    //     timing-sensitive snapshot read. The id must resolve to the same
+    //     per-user socket. ---
     let socket2 = resolve_session_socket(Some(&base), id).expect("resolve session by id");
     assert_eq!(
         socket2, socket,
         "the id resolves to the same per-user socket"
     );
-    let (mut client2, reader2, term2) =
-        AttachClient::connect(&socket2, id).expect("reattach connects + restores snapshot");
+    let term2 = poll_attach_until(&socket2, id, Duration::from_secs(15), |t| {
+        let text = t.screen().plain_text();
+        t.screen().scrollback_len() >= scrollback1
+            && text.contains("L40")
+            && text.contains("MIDLINE")
+    });
     assert!(
         term2.screen().scrollback_len() >= scrollback1,
         "scrollback must survive the detach (>= pre-detach length): before={scrollback1} after={}",
@@ -213,13 +273,17 @@ fn real_host_survives_detach_and_reattach_restores_scrollback() {
         "mid-attach output must have landed in the host model and repaint on reattach:\n{}",
         term2.screen().plain_text()
     );
+    drop(term2);
 
-    // --- End the child: EOF to `cat` -> child exits -> host reaps + exits. ---
-    client2
+    // --- End the child: EOF to `cat` -> child exits -> host reaps + exits. A
+    //     fresh client sends the EOF (the poll above already detached). ---
+    let (mut client3, reader3, _term3) =
+        AttachClient::connect(&socket, id).expect("attach connects to send EOF");
+    client3
         .send_input(&[0x04])
         .expect("send EOF to the hosted child");
-    drop(client2);
-    drop(reader2);
+    drop(client3);
+    drop(reader3);
 
     // Clean reaping: the host process exits (no orphaned daemon)...
     let exited = wait_until(Duration::from_secs(5), || {
