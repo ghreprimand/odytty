@@ -7,6 +7,55 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-23 -- Release v0.3.0 — splits/panes, sessions, palette, SSH manager
+
+Version bump to **0.3.0**, marking the four r/commandline gap-fill phases as
+shipped on top of the v0.2.x rendering/terminal core.
+
+**Phase 1 — native splits / panes.** A tab owns a binary layout tree (leaf =
+session, node = H/V split + ratio); single-pane tabs stay byte-identical. Each
+pane keeps its own scrollback, selection, viewport, search, and cursor. Splits
+are reachable via tmux-compatible prefix bindings (`Ctrl-b %` / `"`) and direct
+GUI chords (`Ctrl+Shift+E` / `Ctrl+Shift+O`), plus a right-click context-menu
+section with live accelerator labels. Dividers are drag-resizable (with a
+resize-cursor affordance), and panes support directional focus-move, close,
+zoom/toggle-fullscreen, and equalize.
+
+**Phase 2 — resumable / persistent sessions.** A detached session-host process
+owns the PTYs and terminal models so a window can close and reattach with full
+scrollback, driven by an owned, versioned snapshot format. CLI surface:
+`odytty new --detached`, `odytty list`, `odytty attach <id>`. The host socket is
+a per-user, filesystem-permission-scoped, local-only Unix socket (no network —
+preserves the privacy charter). Opt-in per-session output recording with a
+bounded ring buffer feeds a scrubbable, presentation-only replay overlay.
+
+**Phase 3 — fuzzy command palette.** A keyboard-driven overlay fuzzy-finds over
+terminal-local actions, shell history, and recent directories using an owned
+subsequence scorer (no new dependency). History is read read-only and bounded;
+recent dirs reuse OSC 7 cwd tracking. Selecting an entry types it into the
+active pane's PTY (no auto-exec) or runs the local action.
+
+**Phase 4 — SSH / connection manager.** An overlay lists saved hosts and
+quick-connects with per-host profiles. By default it uses an OdyTTY-owned hosts
+list; an explicit opt-in enables read-only, name-only parsing of
+`~/.ssh/config` (never key material). Connecting spawns the system `ssh` binary
+in a new pane/session — OdyTTY never handles credentials or private keys, and an
+SSH pane can be a persistent/resumable session.
+
+**Polish / correctness this cycle.** Split-time cursor-offset fix (same-dims
+pane resize is a model no-op, killing the fish `❯ ` drift); `%` / `"`
+prefix-chord hardware fix; divider resize-cursor affordance; palette fish-history
+XDG-data-dir path fix; uniform 1px inter-pane gap + release-snap dividers;
+scrollback never-terminated-line front-drain amortized O(n²) → O(1); CI macOS
+test serialization to mitigate a parallel-PTY child-reap hang.
+
+**State.** master green on Ubuntu + macOS; full gate
+(`cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`,
+`cargo test --locked`) green; the single-pane / plain render path remains
+byte-identical (`gpu_composite_smoke` 3/3). Tag + checksums are operator-gated.
+
+---
+
 ## 2026-06-23 -- CI: serialize macOS tests to mitigate parallel-PTY deadlock
 
 The macOS CI job intermittently (~1 in 4 runs) deadlocked past the 15-min
