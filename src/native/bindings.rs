@@ -500,6 +500,36 @@ pub(in crate::native) fn chord_from_winit(
     })
 }
 
+/// Build the multiplexer prefix-engine chord from a key event, resolving the
+/// shifted-character ambiguity that `key_without_modifiers()` introduces.
+///
+/// tmux's prefix table matches the *produced* character for printable second
+/// keys (`%`, `"`, `o`, …) but a modifier-qualified base key for control chords
+/// (e.g. `<prefix> Ctrl+f`). winit gives two views of a key: `logical` carries
+/// the shifted character (`%` for Shift+5, `"` for Shift+'), while `binding_key`
+/// (`key_without_modifiers()`) carries the unshifted base key (`5`, `'`). Using
+/// `binding_key` alone — the previous behaviour — meant `%`/`"` never matched
+/// their stored chords (`5` != `%`), so the tmux split chords silently did
+/// nothing on hardware.
+///
+/// Resolve by preferring the logical character when it yields a printable
+/// (ascii-graphic, single-char) chord, falling back to the base key otherwise.
+/// This fires `%`/`"` correctly, while a `Ctrl+<letter>` second key (whose
+/// `logical` is a non-printable control char on platforms that fold Ctrl into
+/// `logical_key`) and the `Ctrl-b` prefix itself both fall through to the base
+/// key unchanged. When `logical` and `binding_key` agree (every unshifted key:
+/// `o`, `x`, arrows) the two paths are identical, so this is a strict superset
+/// of the old behaviour.
+pub(in crate::native) fn prefix_chord_from_winit(
+    logical: &WinitKey,
+    binding_key: &WinitKey,
+    mods: Modifiers,
+    super_key: bool,
+) -> Option<KeyChord> {
+    chord_from_winit(logical, mods, super_key)
+        .or_else(|| chord_from_winit(binding_key, mods, super_key))
+}
+
 /// Native settings-panel chord. Kept as a named helper for tests and callers
 /// that need the UX1/UX2 default without duplicating binding-table details.
 #[cfg(test)]
@@ -813,6 +843,84 @@ mod tests {
         assert!(!engine.is_pending());
         // After resolving, the same `%` is plain input again.
         assert_eq!(engine.on_chord(pct, now), PrefixOutcome::Inactive);
+    }
+
+    #[test]
+    fn prefix_then_shifted_punctuation_resolves_through_the_real_wiring() {
+        // REGRESSION (v0.3.0): the live winit path feeds the prefix engine a
+        // chord built from BOTH `logical` (the shifted character) and
+        // `binding_key` (`key_without_modifiers()`), via `prefix_chord_from_winit`
+        // — exactly as `handle_key_event` does. On a US layout Shift+5 yields
+        // `logical = '%'` but `binding_key = '5'`, and Shift+' yields
+        // `logical = '"'` but `binding_key = '''`. The earlier test injected a
+        // pre-shifted `%` straight into the engine, so it passed while the real
+        // wiring (which only had `5`) silently no-op'd. This drives the genuine
+        // two-key construction.
+        let shift = Modifiers {
+            ctrl: false,
+            shift: true,
+            alt: false,
+        };
+
+        // `<prefix> %` → SplitColumns. binding_key is the unshifted '5'.
+        let mut engine = engine_ctrl_b();
+        let now = Instant::now();
+        assert_eq!(engine.on_chord(ctrl_b(), now), PrefixOutcome::Entered);
+        let pct = prefix_chord_from_winit(
+            &WinitKey::Character("%".into()),
+            &WinitKey::Character("5".into()),
+            shift,
+            false,
+        )
+        .expect("shifted punctuation builds a chord");
+        assert_eq!(
+            engine.on_chord(pct, now),
+            PrefixOutcome::Action(BindableAction::SplitColumns),
+            "Shift+5 (logical '%', base '5') must split columns"
+        );
+
+        // `<prefix> \"` → SplitRows. binding_key is the unshifted '\''.
+        let mut engine = engine_ctrl_b();
+        let now = Instant::now();
+        assert_eq!(engine.on_chord(ctrl_b(), now), PrefixOutcome::Entered);
+        let quote = prefix_chord_from_winit(
+            &WinitKey::Character("\"".into()),
+            &WinitKey::Character("'".into()),
+            shift,
+            false,
+        )
+        .expect("shifted quote builds a chord");
+        assert_eq!(
+            engine.on_chord(quote, now),
+            PrefixOutcome::Action(BindableAction::SplitRows),
+            "Shift+' (logical '\"', base ''') must split rows"
+        );
+    }
+
+    #[test]
+    fn prefix_chord_from_winit_falls_back_to_base_key_for_unshifted_keys() {
+        // For an unshifted second key the two winit views agree, so the helper
+        // is identical to the old `binding_key`-only path: `o`/`x`/`z` still
+        // resolve. Guards against the fix perturbing the non-punctuation chords.
+        let none = Modifiers {
+            ctrl: false,
+            shift: false,
+            alt: false,
+        };
+        let mut engine = engine_ctrl_b();
+        let now = Instant::now();
+        engine.on_chord(ctrl_b(), now);
+        let o = prefix_chord_from_winit(
+            &WinitKey::Character("o".into()),
+            &WinitKey::Character("o".into()),
+            none,
+            false,
+        )
+        .expect("letter builds a chord");
+        assert_eq!(
+            engine.on_chord(o, now),
+            PrefixOutcome::Action(BindableAction::FocusPaneNext)
+        );
     }
 
     #[test]

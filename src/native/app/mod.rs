@@ -39,9 +39,9 @@ use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::window::{CursorIcon, Window, WindowId};
 
 use super::bindings::{
-    KeyBindings, PrefixEngine, PrefixOutcome, changed_window_title, chord_from_winit,
-    encode_native_focus_report, encode_native_mouse_report, map_keypad_physical_key, map_named_key,
-    map_winit_mouse_button, motion_report_button, wheel_report_button,
+    KeyBindings, PrefixEngine, PrefixOutcome, changed_window_title, encode_native_focus_report,
+    encode_native_mouse_report, map_keypad_physical_key, map_named_key, map_winit_mouse_button,
+    motion_report_button, prefix_chord_from_winit, wheel_report_button,
 };
 use super::clipboard::{
     NativeClipboard, read_clipboard_selection, selected_clipboard_text, write_clipboard_selection,
@@ -853,7 +853,14 @@ impl App {
                 && !self.overlay.is_open()
                 && !self.search.is_open()
                 && self.active_modal() == ActiveModal::None
-                && let Some(chord) = chord_from_winit(&binding_key, mods, self.super_key)
+                // Prefer the shifted logical character for the second key so
+                // tmux punctuation chords (`%` = Shift+5, `"` = Shift+') match
+                // their stored bindings; fall back to the unshifted base key for
+                // `Ctrl+<letter>` second keys and the prefix itself. Passing
+                // only `binding_key` (`key_without_modifiers()`) here is the bug
+                // that made `%`/`"` silently no-op on hardware.
+                && let Some(chord) =
+                    prefix_chord_from_winit(&logical, &binding_key, mods, self.super_key)
             {
                 match self.prefix_engine.on_chord(chord, Instant::now()) {
                     PrefixOutcome::Inactive => {}

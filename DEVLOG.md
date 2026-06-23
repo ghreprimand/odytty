@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-23 -- Fix: tmux prefix split chords `%` / `"` did nothing on hardware
+
+The tmux-style multiplexer split chords — `<prefix> %` (split columns) and
+`<prefix> "` (split rows) — silently fired nothing on a real keyboard, while the
+non-character pane chords (`o`, `x`, `z`, arrows, Space, `=`) worked.
+
+**Root cause.** The prefix engine was fed a chord built only from winit's
+`key_without_modifiers()` (the unshifted base key). On a US layout Shift+5
+produces the character `%` but its base key is `5`, and Shift+' produces `"` with
+base key `'`. The default prefix table stores the produced characters (`%`, `"`),
+so the lookup compared `5` against `%` (and `'` against `"`), never matched, and
+the engine returned `Cancelled` — swallowing the key and firing no split. The
+existing unit test injected an already-shifted `%` straight into the engine, so
+it stayed green while the live winit wiring (which only carried `5`) was broken.
+
+**Fix.** New `prefix_chord_from_winit(logical, binding_key, …)` builds the
+second-key chord preferring the shifted *logical* character (`%`, `"`) when it
+yields a printable chord, falling back to the unshifted base key otherwise. This
+fires the punctuation chords correctly while leaving `Ctrl+<letter>` second keys
+and the `Ctrl-b` prefix itself (whose `logical` is a non-graphic control char)
+resolving via the base key, and is a strict superset of the old behaviour for
+every unshifted key (where the two winit views agree). The call site in
+`handle_key_event` now passes both `logical` and `binding_key`.
+
+**Durable guard.** Added `prefix_then_shifted_punctuation_resolves_through_the_real_wiring`,
+which drives the genuine two-key construction (`logical='%'`, `binding_key='5'`)
+through `prefix_chord_from_winit` and asserts `SplitColumns` (and `"`/`'` →
+`SplitRows`), plus an unshifted-fallback guard. Reverting the helper to
+base-key-only makes it fail with `Cancelled` — the exact hardware bug — so it
+locks the wiring, not a pre-shifted shortcut.
+
+Verified on Linux: `cargo fmt --check` clean, `cargo clippy --all-targets
+--locked -D warnings` clean, `gpu_composite_smoke` 3/3 (single-pane byte-identity
+intact — the prefix engine still only engages when the active tab is split),
+full `cargo test --locked --lib` 2173/0 (7 ignored = macOS-winit). Confirmed on
+hardware: `Ctrl+b %` splits columns, `Ctrl+b "` splits rows.
+
+---
+
 ## 2026-06-23 -- Fix: split-time cursor offset (fish `❯ ` bug); same-dims pane resize is now a model no-op
 
 A v0.3.0-blocking defect: after splitting, a left pane running fish lost the
