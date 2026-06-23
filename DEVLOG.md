@@ -7,6 +7,54 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-23 -- Fix: split-time cursor offset (fish `❯ ` bug); same-dims pane resize is now a model no-op
+
+A v0.3.0-blocking defect: after splitting, a left pane running fish lost the
+space after its `❯ ` prompt and the cursor sat one column too far left, so
+typing looked jammed against the prompt. Resizing the OdyTTY window made it
+snap back to correct — the tell that the fault was transient split-time state a
+full resize cycle repaired.
+
+**Root cause.** `TabSet::resize_all_panes` runs on every structural change
+(split / close / equalize / window resize) and reflows *every* pane of the tab —
+including panes a split did not actually resize. It called
+`terminal.resize(cols, rows)` unconditionally, so a pane whose grid dimensions
+were unchanged still ran the column reflow. That reflow's trailing-blank trim ate
+the blank cell the shell had printed after its prompt and dragged the cursor one
+column left. Because the pane's PTY size was unchanged, no `SIGWINCH` reached its
+shell to repaint and self-correct, so the offset stuck until an unrelated real
+resize changed the PTY size and triggered a fish repaint.
+
+**Fix.** Guard the per-pane model resize on a genuine dimension change: skip
+`terminal.resize()` when the terminal's current `(columns, rows)` already equal
+the target. `set_cell_metrics` stays unconditional (it never reflows columns,
+only pixel metrics), and the PTY/attached `resize` routing is unchanged. A resize
+to identical grid dimensions is now a true model no-op, so an untouched pane's
+cells and cursor are byte-identical across the pass.
+
+**Durable guard.** Added headless regression
+`resize_all_panes_same_dims_preserves_cursor_and_trailing_blank`: it prints a
+fish-style `❯ ` prompt into a settled pane, re-runs `resize_all_panes` with
+identical dims (what a split of the *other* column does to this pane), and
+asserts the cursor column and the trailing blank survive. Reverting the guard
+makes it fail with `cursor left:1 right:2` — the exact shift seen in the live
+hardware capture — so it locks the fix without needing the GPU layer. The bug was
+bisected with a temporary `ODYTTY_DEBUG_PANE_CURSOR` stderr knob that logged each
+pane's snapshot cursor/dims/origin at render time; that scaffolding has been
+removed now that the headless test is the permanent guard.
+
+Verified on Linux: `cargo fmt --check` clean, `cargo clippy --all-targets
+--locked -D warnings` clean, `gpu_composite_smoke` 3/3 (byte-identity preserved),
+full `cargo test --locked --lib` 2171/0 (7 ignored = macOS-winit). Confirmed on
+hardware: a 3-split repro no longer drops the left pane to column 1, and the
+cursor holds its column through a row-only split (columns unchanged).
+
+The deeper reflow invariant — the trailing-blank trim violating its documented
+cursor-preserve contract even for a genuine same-size reflow — remains parked as
+a post-v0.3.0 hardening item; the no-op guard sidesteps it for this release.
+
+---
+
 ## 2026-06-23 -- Universal glyph fallback for printable missing glyphs
 
 The atlas fallback gate no longer depends on the hand-curated symbol allowlist.

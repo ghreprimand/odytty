@@ -626,7 +626,25 @@ impl TabSet {
                     continue;
                 };
                 if let Ok(mut terminal) = session.terminal.lock() {
-                    terminal.resize(cols, rows);
+                    // A resize to identical grid dimensions MUST be a model
+                    // no-op. `resize_all_panes` runs on every structural change
+                    // (split / close / equalize / window resize), and for a
+                    // split it touches EVERY pane of the tab — including panes
+                    // the split did not actually resize. Calling
+                    // `terminal.resize(cols, rows)` with unchanged dimensions
+                    // still drives the column reflow, whose trailing-blank trim
+                    // shifts a shell's printed prompt-trailing space and drags
+                    // the cursor one column left (the v0.3.0 fish `❯ ` bug). The
+                    // PTY size is unchanged for such a pane, so no SIGWINCH
+                    // reaches its shell to repaint and self-correct; the offset
+                    // sticks until an unrelated real resize. Guarding the resize
+                    // on a genuine dimension change keeps the untouched pane's
+                    // cells + cursor byte-identical. Cell *pixel* metrics are
+                    // still applied unconditionally — they never reflow columns.
+                    let current = terminal.screen().dimensions();
+                    if current.columns != cols || current.rows != rows {
+                        terminal.resize(cols, rows);
+                    }
                     terminal.set_cell_metrics(cell_w, cell_h);
                 }
                 // Route the kernel-side resize to whichever source backs the
@@ -1754,6 +1772,67 @@ mod tests {
         set.resize_all_panes(content, 10, 20, 1.0);
         assert_eq!(pane_dims(&set, SessionToken(0)), (40, 20));
         assert_eq!(pane_dims(&set, right), (40, 20));
+    }
+
+    #[test]
+    fn resize_all_panes_same_dims_preserves_cursor_and_trailing_blank() {
+        // v0.3.0 regression guard (the fish `❯ ` cursor-offset bug). A split
+        // runs `resize_all_panes` over EVERY pane of the tab, including panes
+        // the split did not actually resize. When such a pane's grid dimensions
+        // are unchanged, the model resize must be a no-op: re-running the column
+        // reflow would trim the trailing blank the shell printed after its
+        // prompt and drag the cursor one column left, and because the PTY size
+        // is unchanged no SIGWINCH reaches the shell to repaint and self-correct.
+        let mut set = TabSet::new(build_session(), None);
+        let _right =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        // Settle both panes at 40x20 (801px wide, 1px divider, 10x20 cell).
+        let content = PaneRect::new(0.0, 0.0, 801.0, 400.0);
+        set.resize_all_panes(content, 10, 20, 1.0);
+        assert_eq!(pane_dims(&set, SessionToken(0)), (40, 20));
+
+        // Print a fish-style prompt with its trailing space into the left pane:
+        // `❯` at column 0, a space at column 1, cursor parked at column 2.
+        set.get(SessionToken(0))
+            .expect("left pane")
+            .terminal
+            .lock()
+            .expect("terminal lock")
+            .advance("❯ ".as_bytes());
+
+        let before = set
+            .get(SessionToken(0))
+            .expect("left pane")
+            .terminal
+            .lock()
+            .expect("terminal lock")
+            .snapshot();
+        assert_eq!(before.cursor.column, 2, "prompt parks the cursor at col 2");
+        assert_eq!(before.cells[0].ch, '❯');
+        assert_eq!(before.cells[1].ch, ' ', "trailing prompt space present");
+
+        // Re-run the exact same layout pass (what a split of the OTHER column
+        // does to this untouched pane: identical 40x20 dims). With the no-op
+        // guard the cursor and the trailing blank are byte-identical.
+        set.resize_all_panes(content, 10, 20, 1.0);
+        assert_eq!(pane_dims(&set, SessionToken(0)), (40, 20));
+
+        let after = set
+            .get(SessionToken(0))
+            .expect("left pane")
+            .terminal
+            .lock()
+            .expect("terminal lock")
+            .snapshot();
+        assert_eq!(
+            after.cursor.column, 2,
+            "same-dims resize must not shift the cursor"
+        );
+        assert_eq!(after.cells[0].ch, '❯');
+        assert_eq!(
+            after.cells[1].ch, ' ',
+            "same-dims resize must not trim the trailing prompt space"
+        );
     }
 
     #[test]
