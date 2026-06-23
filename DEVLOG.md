@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-23 -- CI: serialize macOS tests to mitigate parallel-PTY deadlock
+
+The macOS CI job intermittently (~1 in 4 runs) deadlocked past the 15-min
+timeout while Ubuntu stayed green. The hanging test varied run-to-run
+(`context_menu::tui_right_click`, overlay-pointer, etc.) — the tell of a
+concurrency race rather than one bad test. Root cause: tests that spawn real
+PTYs (via `app_for_test()` → `PtySession::spawn_shell_command`) contend on
+child-reap / PTY-teardown under parallel `cargo test` on macOS.
+
+Mitigation: the CI `Test` step now runs single-threaded on macOS only
+(`cargo test --locked -- --test-threads=1` via a `matrix.os == 'macos-latest'`
+GitHub Actions expression); Ubuntu keeps the parallel/fast run. The 15-min
+`timeout-minutes` is retained as the fail-fast tripwire so any residual hang
+still surfaces as a clean, quick failure. CI-only change — no product code, no
+test logic touched. The earlier scrollback O(n²) fix was a real perf win but
+not this root cause.
+
+---
+
 ## 2026-06-23 -- Panes: uniform 1px inter-pane gap + release-snap dividers
 
 Two related multi-pane geometry fixes so the visible separation between adjacent

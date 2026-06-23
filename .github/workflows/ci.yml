@@ -20,10 +20,15 @@ jobs:
   build-test:
     name: Build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # A normal run is ~4 min; an intermittent session-host test hang on the
-    # macOS runner can otherwise spin until GitHub's 6-hour default. Fail fast
-    # at 15 min (well above a cold toolchain install + build, well below a hang)
-    # so a hang surfaces as a clean, quick failure instead of burning minutes.
+    # A normal run is ~4 min. The macOS runner intermittently deadlocked
+    # (~1 in 4 runs) in tests that spawn real PTYs under parallel `cargo test`
+    # — a child-reap / PTY-teardown contention specific to macOS (Ubuntu was
+    # always green). Mitigation: the Test step runs single-threaded on macOS
+    # only (`--test-threads=1`), which serializes PTY spawn/teardown; Ubuntu
+    # stays parallel/fast. The 15-min timeout is kept as the fail-fast tripwire
+    # (well above a cold toolchain install + build, well below a hang) so any
+    # residual hang still surfaces as a clean, quick failure rather than
+    # spinning until GitHub's 6-hour default.
     timeout-minutes: 15
     strategy:
       fail-fast: false
@@ -52,5 +57,7 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
+      # macOS runs single-threaded to serialize parallel-PTY child-reap
+      # contention (see the timeout-minutes note above); Ubuntu stays parallel.
       - name: Test
-        run: cargo test --locked
+        run: cargo test --locked ${{ matrix.os == 'macos-latest' && '-- --test-threads=1' || '' }}
