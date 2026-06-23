@@ -70,12 +70,13 @@ pub struct ShellHistorySource {
 ///
 /// The function only derives a path; it does not touch the filesystem. `shell`
 /// may be an executable basename (`zsh`) or a path (`/bin/zsh`). Fish history
-/// follows `$XDG_CONFIG_HOME/fish/fish_history`, or
-/// `~/.config/fish/fish_history` when no XDG config dir is supplied.
+/// follows `$XDG_DATA_HOME/fish/fish_history`, or
+/// `~/.local/share/fish/fish_history` when no XDG data dir is supplied.
 pub fn detect_shell_history(
     shell: impl AsRef<str>,
     home_dir: impl AsRef<Path>,
-    xdg_config_home: Option<&Path>,
+    _xdg_config_home: Option<&Path>,
+    xdg_data_home: Option<&Path>,
 ) -> Option<ShellHistorySource> {
     let shell_name = Path::new(shell.as_ref())
         .file_name()
@@ -92,11 +93,11 @@ pub fn detect_shell_history(
             format: ShellHistoryFormat::ZshExtended,
         }),
         "fish" => {
-            let config_dir = xdg_config_home
+            let data_dir = xdg_data_home
                 .map(PathBuf::from)
-                .unwrap_or_else(|| home_dir.join(".config"));
+                .unwrap_or_else(|| home_dir.join(".local").join("share"));
             Some(ShellHistorySource {
-                path: config_dir.join("fish").join("fish_history"),
+                path: data_dir.join("fish").join("fish_history"),
                 format: ShellHistoryFormat::Fish,
             })
         }
@@ -109,11 +110,13 @@ pub fn read_history_for_shell(
     shell: impl AsRef<str>,
     home_dir: impl AsRef<Path>,
     xdg_config_home: Option<&Path>,
+    xdg_data_home: Option<&Path>,
 ) -> Vec<String> {
     read_history_for_shell_with_limits(
         shell,
         home_dir,
         xdg_config_home,
+        xdg_data_home,
         HistoryReadLimits::default(),
     )
 }
@@ -123,9 +126,10 @@ pub fn read_history_for_shell_with_limits(
     shell: impl AsRef<str>,
     home_dir: impl AsRef<Path>,
     xdg_config_home: Option<&Path>,
+    xdg_data_home: Option<&Path>,
     limits: HistoryReadLimits,
 ) -> Vec<String> {
-    let Some(source) = detect_shell_history(shell, home_dir, xdg_config_home) else {
+    let Some(source) = detect_shell_history(shell, home_dir, xdg_config_home, xdg_data_home) else {
         return Vec::new();
     };
     read_shell_history_with_limits(source.path, source.format, limits)
@@ -470,30 +474,42 @@ mod tests {
     #[test]
     fn detects_conventional_shell_history_paths_without_reading() {
         let home = PathBuf::from("/synthetic/home");
-        let xdg = PathBuf::from("/synthetic/config");
+        let xdg_config = PathBuf::from("/synthetic/config");
+        let xdg_data = PathBuf::from("/synthetic/data");
 
         assert_eq!(
-            detect_shell_history("/usr/bin/bash", &home, None),
+            detect_shell_history("/usr/bin/bash", &home, None, None),
             Some(ShellHistorySource {
                 path: home.join(".bash_history"),
                 format: ShellHistoryFormat::Plain,
             })
         );
         assert_eq!(
-            detect_shell_history("-zsh", &home, None),
+            detect_shell_history("-zsh", &home, None, None),
             Some(ShellHistorySource {
                 path: home.join(".zsh_history"),
                 format: ShellHistoryFormat::ZshExtended,
             })
         );
         assert_eq!(
-            detect_shell_history("fish", &home, Some(&xdg)),
+            detect_shell_history("fish", &home, Some(&xdg_config), Some(&xdg_data)),
             Some(ShellHistorySource {
-                path: xdg.join("fish").join("fish_history"),
+                path: xdg_data.join("fish").join("fish_history"),
                 format: ShellHistoryFormat::Fish,
             })
         );
-        assert!(detect_shell_history("sh", &home, None).is_none());
+        assert_eq!(
+            detect_shell_history("fish", &home, Some(&xdg_config), None),
+            Some(ShellHistorySource {
+                path: home
+                    .join(".local")
+                    .join("share")
+                    .join("fish")
+                    .join("fish_history"),
+                format: ShellHistoryFormat::Fish,
+            })
+        );
+        assert!(detect_shell_history("sh", &home, None, None).is_none());
     }
 
     #[test]
@@ -503,7 +519,7 @@ mod tests {
         fs::write(&path, b": 1700000000:0;cargo test\n").expect("write synthetic zsh history");
 
         let entries =
-            read_history_for_shell_with_limits("/bin/zsh", home.path(), None, small_limits());
+            read_history_for_shell_with_limits("/bin/zsh", home.path(), None, None, small_limits());
 
         assert_eq!(entries, vec!["cargo test"]);
     }

@@ -92,9 +92,13 @@ read-only from the foreground shell's conventional file using the same hard caps
 as the source provider: 1 MiB from the file tail, 20,000 physical lines scanned,
 5,000 returned entries, and 4,096 characters per entry. Missing, unreadable,
 malformed, oversized, or non-UTF-8 files return empty or partial in-memory
-candidates without panicking. Recent directories are fed from already-parsed OSC
-7 cwd values; OdyTTY does not query the filesystem for directories and never
-logs, writes, or transmits history contents.
+candidates without panicking. Conventional history paths are `~/.bash_history`
+for bash, `~/.zsh_history` for zsh, and
+`$XDG_DATA_HOME/fish/fish_history` for fish (falling back to
+`~/.local/share/fish/fish_history` when `XDG_DATA_HOME` is unset). Recent
+directories are fed from already-parsed OSC 7 cwd values; OdyTTY does not query
+the filesystem for directories and never logs, writes, or transmits history
+contents.
 
 Selecting a history or directory row types that text into the active pane's PTY
 without appending a newline. Selecting an action closes the overlay and runs the

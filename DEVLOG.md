@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-23 -- Palette: fix modern Fish history discovery
+
+The command palette now resolves Fish history from the modern XDG data location:
+`$XDG_DATA_HOME/fish/fish_history`, falling back to
+`~/.local/share/fish/fish_history` when `XDG_DATA_HOME` is unset. The previous
+path used the pre-2016 config location (`~/.config/fish/fish_history`), which
+left current Fish users with empty history candidates despite having a populated
+history file.
+
+The fix is limited to the palette source layer and the native overlay's
+environment handoff. Bash and zsh history paths are unchanged. Added synthetic
+path-resolution coverage so Fish exercises XDG data-dir selection directly,
+without reading real user history.
+
+---
+
 ## 2026-06-23 -- Scrollback: amortize never-terminated open-line trim (O(n²) → O(1))
 
 Fixed an O(n²) front-drain in `Scrollback::enforce_limit()` that hung the macOS
@@ -1240,7 +1256,7 @@ overlay and does not touch `src/native/`.
 - `src/palette_sources.rs` now resolves conventional shell history files from a
   supplied shell executable and synthetic/home path: bash `.bash_history`, zsh
   `.zsh_history` with extended-history parsing, and Fish
-  `fish/fish_history` under an XDG config dir or `~/.config`.
+  `fish/fish_history` under an XDG data dir or `~/.local/share`.
 - Reads are read-only and bounded: default tail window 1 MiB, default physical
   line scan cap 20,000, default returned entry cap 5,000, and default per-entry
   cap 4,096 characters. Zero limits return no entries without reading.

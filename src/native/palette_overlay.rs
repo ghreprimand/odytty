@@ -202,7 +202,15 @@ fn read_history_from_process_env() -> Vec<String> {
     let xdg_config_home = env::var_os("XDG_CONFIG_HOME")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
-    read_history_for_shell(shell, home, xdg_config_home.as_deref())
+    let xdg_data_home = env::var_os("XDG_DATA_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
+    read_history_for_shell(
+        shell,
+        home,
+        xdg_config_home.as_deref(),
+        xdg_data_home.as_deref(),
+    )
 }
 
 fn source_tag(kind: PaletteSourceKind) -> &'static str {
