@@ -1085,9 +1085,9 @@ const SYMBOL_FONT_HINTS: &[&str] = &["symbolsnerdfont", "nerdfont"];
 /// `U+23FA` and the large squares `U+2B1B`/`U+2B1C` that drive a TUI's status
 /// markers and block grids. They sit *after* the Nerd faces so PUA icons still
 /// resolve from the pinned faces first, and their Latin glyphs never shadow the
-/// body font because the symbol fallback is only consulted for
-/// [`crate::atlas::fallback::is_symbol_codepoint`] codepoints. Broadest coverage
-/// first; each is skipped silently if absent.
+/// body font because glyph fallback is only consulted after the primary face
+/// misses a printable spacing codepoint. Broadest coverage first; each is
+/// skipped silently if absent.
 #[cfg(target_os = "macos")]
 const SYSTEM_SYMBOL_FALLBACK_FONTS: &[&str] = &[
     "/System/Library/Fonts/Menlo.ttc",
@@ -1103,11 +1103,11 @@ const SYSTEM_SYMBOL_FALLBACK_FONTS: &[&str] = &[
 /// [`font_search_dirs`] and appended to the chain when present (skipped silently
 /// if absent, same effect as the macOS list). This is the deterministic *floor*:
 /// it covers hosts that ship Noto Symbols / Symbola / DejaVu, but cannot promise
-/// coverage of arbitrary symbols on hosts that ship none of them -- the runtime
-/// [`runtime_resolve_symbol_font`] query is the actual backfill there. Broadest
-/// coverage first; the appended faces never shadow the body font because the
-/// symbol fallback is only consulted for
-/// [`crate::atlas::fallback::is_symbol_codepoint`] codepoints.
+/// coverage of arbitrary printable codepoints on hosts that ship none of them --
+/// the runtime [`runtime_resolve_symbol_font`] query is the actual backfill
+/// there. Broadest coverage first; the appended faces never shadow the body font
+/// because glyph fallback is only consulted after the primary face misses a
+/// printable spacing codepoint.
 #[cfg(all(unix, not(target_os = "macos")))]
 const LINUX_SYMBOL_FALLBACK_HINTS: &[&str] = &[
     "notosanssymbols2",
@@ -1326,19 +1326,20 @@ pub fn font_provides_outline_glyph(font: &FontVec, ch: char) -> bool {
         })
 }
 
-/// Runtime per-codepoint symbol fallback via fontconfig (RV6 Linux backfill).
+/// Runtime per-codepoint glyph fallback via fontconfig (RV6 Linux backfill).
 ///
-/// Invoked by the glyph atlas **only** when a symbol codepoint misses the static
-/// fallback chain (and the result is cached per-codepoint by the atlas, so this
-/// shells out at most once per distinct missing symbol -- never on the hot path
-/// repeatedly). It runs `fc-match -f %{file} :charset=<hex>` to ask fontconfig
-/// for a host face that covers the codepoint, then loads it and rejects
-/// color/bitmap-only faces via [`font_provides_outline_glyph`] so only a
-/// monochrome outline face is installed. Read-only, local-only subprocess (no
-/// network, no user data), mirroring the emoji discovery path's `fc-match` use.
-/// Returns `None` when fontconfig is absent (e.g. headless CI), when no face
-/// covers the codepoint, or when the only match is color/bitmap-only -- all of
-/// which preserve the historical hollow-box behavior.
+/// Invoked by the glyph atlas **only** when a printable spacing codepoint misses
+/// the static fallback chain (and the result is cached per-codepoint by the
+/// atlas, so this shells out at most once per distinct missing codepoint --
+/// never on the hot path repeatedly). It runs
+/// `fc-match -f %{file} :charset=<hex>` to ask fontconfig for a host face that
+/// covers the codepoint, then loads it and rejects color/bitmap-only faces via
+/// [`font_provides_outline_glyph`] so only a monochrome outline face is
+/// installed. Read-only, local-only subprocess (no network, no user data),
+/// mirroring the emoji discovery path's `fc-match` use. Returns `None` when
+/// fontconfig is absent (e.g. headless CI), when no face covers the codepoint,
+/// or when the only match is color/bitmap-only -- all of which preserve the
+/// historical hollow-box behavior.
 #[cfg(all(unix, not(target_os = "macos")))]
 pub fn runtime_resolve_symbol_font(ch: char) -> Option<std::sync::Arc<FontVec>> {
     let charset = format!(":charset={:x}", ch as u32);

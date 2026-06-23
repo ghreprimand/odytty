@@ -4,12 +4,14 @@
 //! The gate-critical guarantee is **default-safe**: with no fallback font
 //! installed, a printable codepoint the primary lacks renders the historical
 //! hollow box and consumes no slot — byte-for-byte the pre-feature path. When a
-//! fallback is installed it is only used for PUA symbol codepoints the fallback
-//! actually covers.
+//! fallback is installed it is used for printable spacing codepoints the
+//! fallback actually covers.
 
 use super::*;
 use crate::atlas::fallback::is_symbol_codepoint;
 use std::sync::Arc;
+
+const NON_SYMBOL_FALLBACK: char = '\u{2200}';
 
 /// A PUA codepoint the bundled/system test font does *not* map (so it exercises
 /// the missing-glyph path), plus one it *does* — discovered at runtime so the
@@ -59,8 +61,16 @@ fn confirmed_symbol_markers_reject_blank_glyph_coverage() {
     }
 
     assert!(
-        glyph_coverage_decision('A', true, false),
-        "ordinary text keeps the historic cmap-only coverage decision"
+        !glyph_coverage_decision(NON_SYMBOL_FALLBACK, true, false),
+        "printable fallback candidates must not count blank outlines as coverage"
+    );
+    assert!(
+        glyph_coverage_decision(NON_SYMBOL_FALLBACK, true, true),
+        "printable fallback candidates with ink count as coverage"
+    );
+    assert!(
+        glyph_coverage_decision('\u{0301}', true, false),
+        "combining marks keep the cmap-only decision because they never fall back standalone"
     );
 }
 
@@ -109,6 +119,72 @@ fn confirmed_symbol_markers_fall_through_blank_faces_to_inked_fallback() {
         assert!(
             cell_ink(&atlas, uv) > 0,
             "{ch:?} fallback slot must contain visible ink"
+        );
+    }
+}
+
+#[test]
+fn non_symbol_missing_glyph_uses_static_fallback_chain() {
+    assert!(!is_symbol_codepoint(NON_SYMBOL_FALLBACK));
+    assert!(should_attempt_fallback(NON_SYMBOL_FALLBACK));
+
+    let primary = marker_blank_font();
+    let inked_static = Arc::new(marker_inked_font());
+    assert!(
+        !font_has_glyph(&primary, NON_SYMBOL_FALLBACK),
+        "primary fixture must not cover the non-symbol codepoint"
+    );
+    assert!(
+        font_has_glyph(&inked_static, NON_SYMBOL_FALLBACK),
+        "inked fixture must cover the non-symbol codepoint"
+    );
+
+    let mut atlas = GlyphAtlas::build(&primary, 24.0);
+    let box_uv = atlas.slot_uv(FALLBACK_SLOT);
+    let count = atlas.slot_count();
+    atlas.set_fallback_fonts(vec![inked_static]);
+
+    let uv = atlas
+        .ensure(&primary, NON_SYMBOL_FALLBACK)
+        .expect("non-symbol fallback uv");
+    assert_ne!(
+        uv, box_uv,
+        "non-symbol printable glyph must resolve from the fallback chain"
+    );
+    assert!(
+        atlas.slot_count() > count,
+        "non-symbol fallback must allocate a real slot"
+    );
+    assert!(
+        cell_ink(&atlas, uv) > 0,
+        "non-symbol fallback slot must contain visible ink"
+    );
+}
+
+#[test]
+fn excluded_categories_do_not_attempt_fallback() {
+    for ch in ['\u{0301}', '\u{0007}', '\u{200D}', '\u{FE0F}'] {
+        assert!(
+            !should_attempt_fallback(ch),
+            "{ch:?} must be excluded from standalone fallback"
+        );
+        let primary = marker_blank_font();
+        let inked_static = Arc::new(marker_inked_font());
+        let mut atlas = GlyphAtlas::build(&primary, 24.0);
+        let box_uv = atlas.slot_uv(FALLBACK_SLOT);
+        let count = atlas.slot_count();
+        atlas.set_fallback_fonts(vec![inked_static]);
+
+        let uv = atlas.ensure(&primary, ch);
+        if wants_glyph(ch) {
+            assert_eq!(uv, Some(box_uv), "{ch:?} must stay on the hollow box");
+        } else {
+            assert_eq!(uv, None, "{ch:?} must draw no standalone glyph");
+        }
+        assert_eq!(
+            atlas.slot_count(),
+            count,
+            "{ch:?} must not allocate through fallback"
         );
     }
 }
@@ -290,7 +366,7 @@ fn empty_chain_keeps_the_hollow_box() {
 
 /// Runtime per-codepoint symbol fallback (RV6 Linux backfill): the resolver is
 /// consulted only on a static-chain miss, cached per-codepoint (so the
-/// subprocess never runs more than once per distinct missing symbol), and never
+/// subprocess never runs more than once per distinct missing codepoint), and never
 /// consulted when the static chain already covers the glyph (the byte-identity
 /// guarantee). Each test owns distinct statics so the bare-`fn` resolvers stay
 /// parallel-safe.
@@ -327,6 +403,18 @@ mod runtime_resolver {
         None
     }
 
+    static UNIVERSAL_CALLS: AtomicUsize = AtomicUsize::new(0);
+    fn universal_resolver(_ch: char) -> Option<Arc<FontVec>> {
+        UNIVERSAL_CALLS.fetch_add(1, Ordering::SeqCst);
+        Some(Arc::new(marker_inked_font()))
+    }
+
+    static EXCLUDED_CALLS: AtomicUsize = AtomicUsize::new(0);
+    fn excluded_resolver(_ch: char) -> Option<Arc<FontVec>> {
+        EXCLUDED_CALLS.fetch_add(1, Ordering::SeqCst);
+        Some(Arc::new(marker_inked_font()))
+    }
+
     /// Static chain misses -> resolver resolves the glyph; a second lookup of the
     /// same codepoint is served from the cache (resolver called exactly once).
     #[test]
@@ -360,6 +448,67 @@ mod runtime_resolver {
             1,
             "resolver must be consulted at most once per codepoint (cached)"
         );
+    }
+
+    /// Non-symbol printable codepoints also reach the runtime resolver, and the
+    /// positive result is cached just like the historical PUA path.
+    #[test]
+    fn non_symbol_static_miss_resolves_at_runtime_and_caches() {
+        let primary = marker_blank_font();
+        let mut atlas = GlyphAtlas::build(&primary, 24.0);
+        let box_uv = atlas.slot_uv(FALLBACK_SLOT);
+        atlas.set_fallback_fonts(Vec::new());
+        UNIVERSAL_CALLS.store(0, Ordering::SeqCst);
+        atlas.set_runtime_symbol_resolver(Some(universal_resolver));
+
+        let uv1 = atlas
+            .ensure(&primary, NON_SYMBOL_FALLBACK)
+            .expect("runtime non-symbol fallback uv");
+        assert_ne!(
+            uv1, box_uv,
+            "runtime resolver must back the missing non-symbol glyph"
+        );
+        let uv2 = atlas
+            .ensure(&primary, NON_SYMBOL_FALLBACK)
+            .expect("cached runtime non-symbol fallback uv");
+        assert_eq!(uv1, uv2, "second lookup must reuse the resolved slot");
+        assert_eq!(
+            UNIVERSAL_CALLS.load(Ordering::SeqCst),
+            1,
+            "resolver must be consulted at most once per non-symbol codepoint"
+        );
+    }
+
+    /// Excluded categories must not reach the runtime resolver even when one is
+    /// installed and willing to return a font.
+    #[test]
+    fn excluded_categories_never_consult_runtime_resolver() {
+        for ch in ['\u{0301}', '\u{0007}', '\u{200D}', '\u{FE0F}'] {
+            let primary = marker_blank_font();
+            let mut atlas = GlyphAtlas::build(&primary, 24.0);
+            let box_uv = atlas.slot_uv(FALLBACK_SLOT);
+            let count = atlas.slot_count();
+            atlas.set_fallback_fonts(Vec::new());
+            EXCLUDED_CALLS.store(0, Ordering::SeqCst);
+            atlas.set_runtime_symbol_resolver(Some(excluded_resolver));
+
+            let uv = atlas.ensure(&primary, ch);
+            if wants_glyph(ch) {
+                assert_eq!(uv, Some(box_uv), "{ch:?} must stay on the hollow box");
+            } else {
+                assert_eq!(uv, None, "{ch:?} must draw no standalone glyph");
+            }
+            assert_eq!(
+                EXCLUDED_CALLS.load(Ordering::SeqCst),
+                0,
+                "{ch:?} must not consult the runtime resolver"
+            );
+            assert_eq!(
+                atlas.slot_count(),
+                count,
+                "{ch:?} must not allocate through runtime fallback"
+            );
+        }
     }
 
     /// A negative resolver result is cached too: the codepoint keeps the hollow

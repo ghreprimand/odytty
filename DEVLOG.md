@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-23 -- Universal glyph fallback for printable missing glyphs
+
+The atlas fallback gate no longer depends on the hand-curated symbol allowlist.
+When the primary face lacks a printable spacing codepoint, OdyTTY now tries the
+configured fallback chain and the cached runtime `fc-match :charset` resolver
+for that codepoint. The remaining exclusions are non-standalone glyph categories:
+control characters, format controls, whitespace, combining marks, and variation
+selectors. Runtime positive and negative results remain cached per codepoint, so
+fontconfig is still at most once per distinct miss.
+
+The blank-glyph safeguard now applies to all fallback-eligible codepoints, not
+only the old symbol blocks, so a mapped-but-empty placeholder cannot block a
+later fallback face. Added synthetic-font regressions for a non-allowlisted
+codepoint (`U+2200`) resolving through both static and runtime fallback, and for
+excluded categories staying on the hollow-box/no-glyph path without consulting
+the runtime resolver.
+
+---
+
 ## 2026-06-23 -- macOS session-host: robustness + bounded test waits (defang the intermittent hang)
 
 The `12727d4` fix made the macOS session-host tests pass, but the operator saw
