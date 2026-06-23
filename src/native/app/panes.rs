@@ -127,12 +127,27 @@ impl App {
         if self.sessions.active_is_single_pane() {
             return None;
         }
-        let gpu = self.gpu.as_ref()?;
-        let cell = gpu.cell();
-        let (w, h) = gpu.surface_size();
-        let content =
-            pane_content_rect(w, h, cell, gpu.window_padding(), self.should_show_tab_bar());
+        let cell = self.resolved_cell()?;
+        let (w, h, padding) = self.resolved_surface()?;
+        let content = pane_content_rect(w, h, cell, padding, self.should_show_tab_bar());
         Some((content, cell))
+    }
+
+    /// The surface size and window padding for pane geometry: from the GPU in
+    /// production; in headless tests (no GPU) a [`App::test_surface`] override
+    /// stands in so the multi-pane pointer/cursor path is testable. In non-test
+    /// builds the override field does not exist, so this is exactly
+    /// `self.gpu.as_ref().map(|g| (g.surface_size(), g.window_padding()))` —
+    /// byte-identical to the previous inline `gpu.surface_size()` /
+    /// `gpu.window_padding()` reads.
+    fn resolved_surface(&self) -> Option<(u32, u32, WindowPadding)> {
+        #[cfg(test)]
+        if let Some((size, padding)) = self.test_surface {
+            return Some((size.0, size.1, padding));
+        }
+        let gpu = self.gpu.as_ref()?;
+        let (w, h) = gpu.surface_size();
+        Some((w, h, gpu.window_padding()))
     }
 
     /// The cell dimensions a **window-level overlay** (context menu / settings /

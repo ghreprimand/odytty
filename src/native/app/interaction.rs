@@ -523,6 +523,18 @@ impl App {
         }
     }
 
+    /// The resize cursor for a divider of the given split axis: a column split
+    /// (panes side-by-side, vertical divider) drags horizontally → `ColResize`
+    /// (`↔`); a row split (panes stacked, horizontal divider) drags vertically →
+    /// `RowResize` (`↕`). Pure mapping, shared by the hover and active-drag
+    /// cursor paths so both agree.
+    pub(super) fn divider_resize_icon(axis: SplitAxis) -> CursorIcon {
+        match axis {
+            SplitAxis::Columns => CursorIcon::ColResize,
+            SplitAxis::Rows => CursorIcon::RowResize,
+        }
+    }
+
     pub(super) fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
         let Some(cell) = self.resolved_cell() else {
             return;
@@ -534,12 +546,23 @@ impl App {
             .unwrap_or(WindowPadding::ZERO);
         self.pointer_px = Some((x_px, y_px));
         // While a divider is grabbed, pointer motion reflows the split and
-        // nothing else — no selection, hover, or cursor-icon work. `divider_drag`
-        // is only ever `Some` in a multi-pane tab, so the single-pane motion
-        // path below is byte-identical.
-        if self.divider_drag.is_some() {
+        // nothing else — no selection or hover work. `divider_drag` is only ever
+        // `Some` in a multi-pane tab, so the single-pane motion path below is
+        // byte-identical. Keep the matching resize cursor (`↔`/`↕`) for the
+        // dragged divider's axis even as the pointer strays off the hairline, so
+        // the affordance is stable through the whole gesture; fall back to the
+        // arrow only if the divider can't be resolved.
+        if let Some(idx) = self.divider_drag {
             self.drag_divider_to_pointer();
-            self.apply_cursor_icon(CursorIcon::Default);
+            let icon = self
+                .multipane_geometry()
+                .and_then(|(content, _)| {
+                    self.sessions
+                        .active_divider_axis(content, PANE_DIVIDER_PX, idx)
+                })
+                .map(Self::divider_resize_icon)
+                .unwrap_or(CursorIcon::Default);
+            self.apply_cursor_icon(icon);
             return;
         }
         let tab_bar_hit = if self.should_show_tab_bar() {
@@ -603,6 +626,28 @@ impl App {
         if let Some(grab_dy) = self.pointer_drag.scrollbar_grab() {
             self.apply_cursor_icon(CursorIcon::Default);
             self.drag_scrollbar_to(y_px, grab_dy, cell, padding);
+            return;
+        }
+        // Divider hover (multi-pane): show a resize cursor over a divider grab
+        // zone so drag-to-resize is discoverable (the press path already grabs
+        // the same band). Absolute pointer coords (`self.pointer_px`) match the
+        // press-time hit-test basis — `content.y` already includes the tab-bar
+        // offset, unlike the tab-bar-relative `y_px` shadowed above. Skipped
+        // while a text selection is in progress (the gesture owns the pointer)
+        // and never reached on a single-pane tab (`multipane_geometry` is
+        // `None`), so the byte-identical path never shows a resize cursor.
+        if !self.pointer_drag.is_selecting()
+            && let Some((content, _)) = self.multipane_geometry()
+            && let Some((px, py)) = self.pointer_px
+            && let Some(axis) = self.sessions.active_divider_axis_at_point(
+                content,
+                PANE_DIVIDER_PX,
+                px as f32,
+                py as f32,
+                DIVIDER_GRAB_PX,
+            )
+        {
+            self.apply_cursor_icon(Self::divider_resize_icon(axis));
             return;
         }
         self.update_hover_hyperlink();

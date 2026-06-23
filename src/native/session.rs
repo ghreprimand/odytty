@@ -9,6 +9,8 @@ use std::time::Instant;
 
 use crate::connection_hosts::ConnectionHost;
 use crate::core::{LinkId, Snapshot, Terminal};
+#[cfg(test)]
+use crate::native::WindowPadding;
 use crate::pty::{ForegroundJob, PtySession};
 use crate::selection::{
     AbsoluteSelectionRange, AbsoluteSelectionState, CellPoint, ClickTracker, PointerDrag,
@@ -25,8 +27,9 @@ use super::app::{
 use super::attach::{AttachClient, attach_input_writer, resolve_session_socket, spawn_attach_pump};
 use super::copy_mode::CopyModeState;
 use super::layout::{
-    EVEN_RATIO, FocusDir, PaneNode, PaneRect, SplitAxis, divider_at_point, drag_divider_to,
-    focus_move, grid_dims_for_rect, layout_rects, pane_at_point,
+    EVEN_RATIO, FocusDir, PaneNode, PaneRect, SplitAxis, divider_at_point, divider_axis_at_point,
+    divider_rects_with_axis, drag_divider_to, focus_move, grid_dims_for_rect, layout_rects,
+    pane_at_point,
 };
 use super::output_recorder::RecorderHandle;
 use super::pty::{PtyWriter, UserEvent, spawn_pty_pump};
@@ -81,6 +84,12 @@ pub(super) struct Session {
     pub(super) pointer_px: Option<(f64, f64)>,
     #[cfg(test)]
     pub(super) test_cell: Option<CellSize>,
+    /// Headless multi-pane geometry seam: a `(surface_px, padding)` override so
+    /// `multipane_geometry()` (and the divider hover/drag cursor path it feeds)
+    /// can run without a GPU/window. `None` in production builds — the field
+    /// only exists under `cfg(test)` — so the live path is unchanged.
+    #[cfg(test)]
+    pub(super) test_surface: Option<((u32, u32), WindowPadding)>,
     pub(super) hovered_hyperlink: Option<LinkId>,
     pub(super) pointer_drag: PointerDrag,
     pub(super) selection_block: bool,
@@ -226,6 +235,8 @@ impl Session {
             pointer_px: None,
             #[cfg(test)]
             test_cell: None,
+            #[cfg(test)]
+            test_surface: None,
             hovered_hyperlink: None,
             pointer_drag: PointerDrag::None,
             selection_block: false,
@@ -579,6 +590,48 @@ impl TabSet {
             // No dividers are drawn while zoomed, so none can be grabbed.
             .filter(|tab| !tab.is_effectively_zoomed())
             .and_then(|tab| divider_at_point(&tab.layout, content, divider_px, x, y, grab_px))
+    }
+
+    /// The [`SplitAxis`] of the active tab's divider under a pixel point (widened
+    /// by `grab_px`), or `None` when the point is over no divider. Drives the
+    /// hover resize-cursor affordance (`ColResize` for a column split's vertical
+    /// divider, `RowResize` for a row split's horizontal one). Mirrors
+    /// [`Self::active_divider_at_point`]'s zoom and hit-test gating so hover and
+    /// grab agree. A single-pane tab has no dividers, so this is always `None`
+    /// there — the byte-identical path never sees a resize cursor.
+    pub(super) fn active_divider_axis_at_point(
+        &self,
+        content: PaneRect,
+        divider_px: f32,
+        x: f32,
+        y: f32,
+        grab_px: f32,
+    ) -> Option<SplitAxis> {
+        self.tabs
+            .get(self.active_tab)
+            .filter(|tab| !tab.is_effectively_zoomed())
+            .and_then(|tab| divider_axis_at_point(&tab.layout, content, divider_px, x, y, grab_px))
+    }
+
+    /// The [`SplitAxis`] of the active tab's divider at tree-order `idx` (the
+    /// index a divider drag started from), or `None` when no such divider
+    /// exists. Lets an in-progress drag keep showing the matching resize cursor
+    /// even when the pointer strays off the hairline. Same pre-order numbering
+    /// as [`Self::active_divider_at_point`].
+    pub(super) fn active_divider_axis(
+        &self,
+        content: PaneRect,
+        divider_px: f32,
+        idx: usize,
+    ) -> Option<SplitAxis> {
+        self.tabs
+            .get(self.active_tab)
+            .and_then(|tab| {
+                divider_rects_with_axis(&tab.layout, content, divider_px)
+                    .into_iter()
+                    .nth(idx)
+            })
+            .map(|(_, axis)| axis)
     }
 
     /// Drag the active tab's divider at tree-order `target` to a pixel point,

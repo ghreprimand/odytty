@@ -268,6 +268,20 @@ impl App {
         self.test_cell = Some(cell);
     }
 
+    /// Test seam (CURSOR-ICON / divider hover): inject the surface size and
+    /// window padding so `multipane_geometry()` — and the divider resize-cursor
+    /// path it feeds — resolves headlessly without a GPU. See
+    /// [`App::test_surface`].
+    #[cfg(test)]
+    pub(in crate::native) fn set_test_surface_for_test(
+        &mut self,
+        width_px: u32,
+        height_px: u32,
+        padding: WindowPadding,
+    ) {
+        self.test_surface = Some(((width_px, height_px), padding));
+    }
+
     /// Test seam (CURSOR-ICON): drive the production `CursorMoved` handler
     /// headlessly so the cursor-shape selection (I-beam / hand / arrow) can be
     /// asserted without a window or GPU.

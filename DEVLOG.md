@@ -7,6 +7,74 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-23 -- Scrollback: amortize never-terminated open-line trim (O(n²) → O(1))
+
+Fixed an O(n²) front-drain in `Scrollback::enforce_limit()` that hung the macOS
+CI job (the `open_logical_line_is_bounded_without_a_terminator` guard took
+~30 s as a single unit test and blew past the 15-min runner timeout under
+parallel contention; Ubuntu stayed green). A never-terminated, always-wrapped
+stream is one ever-open logical line; once it saturated the `1<<20`
+(`MAX_LOGICAL_LINE_CELLS`) ceiling, every push added a row's worth of cells then
+`Vec::drain(0..W)` shifted the whole ~1.05M-element buffer left — O(n) per push,
+O(n²) over a long stream. This was also a live-terminal jank on binary spew /
+`yes` without newlines / a stuck progress redraw, not just a slow test.
+
+**Fix.** Added a hysteresis / slack band: the trim still *triggers* at the
+high-water mark (`len > MAX_LOGICAL_LINE_CELLS`), but now drains down to the
+low-water mark (`MAX_LOGICAL_LINE_CELLS - SLACK`, `SLACK = MAX/2`) instead of
+exactly to the ceiling. The front-drain therefore fires only once per ~`SLACK/W`
+pushes, each O(MAX), amortizing to O(1) per push. Peak length stays
+`≤ MAX + (one over-ceiling push)`, so the per-line ceiling and the test's
+`total_cells <= (1<<20) + W` bound are preserved unchanged.
+
+**Tests.** No new test — the existing 200k-iteration guard is kept as the
+correctness-and-perf witness; it now runs in ~0.06 s instead of ~30 s, and the
+speedup itself proves the amortization. Full suite green
+(`cargo test --locked`, `cargo fmt --check`, `cargo clippy --all-targets
+--locked -- -D warnings`). Diff is scrollback.rs-only.
+
+---
+
+## 2026-06-23 -- Divider resize-cursor affordance (discoverable drag-to-resize)
+
+Pane dividers were already drag-to-resize, but nothing signalled it — the
+pointer kept the I-beam over a divider, so the gesture was invisible. Now
+hovering a divider's grab band shows the platform resize cursor: `ColResize`
+(`↔`) over a column split's vertical divider, `RowResize` (`↕`) over a row
+split's horizontal one. The cursor also persists for the whole drag, even if the
+pointer strays off the 1px hairline. (No modifier+drag gesture was added — Super
+belongs to the compositor and OdyTTY is a client window; the existing click-drag
+mechanism is unchanged, only the hover affordance is new.)
+
+`layout::divider_rects_with_axis` / `divider_axis_at_point` surface each
+divider's [`SplitAxis`] in the same pre-order numbering the drag path already
+uses; `TabSet::active_divider_axis_at_point` (hover) and `active_divider_axis`
+(in-drag, by index) wrap them with the same zoom gating as the grab hit-test, so
+hover and grab always agree on what counts as "on a divider". `update_pointer_cell`
+gains a hover branch (before the grid-icon decision, skipped mid-selection) and
+the in-drag branch now picks the axis cursor.
+
+**Byte-identity.** A single-pane tab has no dividers and never enters
+`multipane_geometry()`, so the resize branch can't fire — the plain path stays an
+I-beam. The geometry refactor routes the existing GPU reads through new
+`resolved_surface()` / `resolved_cell()` helpers whose production arms are
+identical to the prior inline `gpu.surface_size()` / `gpu.window_padding()` /
+`gpu.cell()`; the `#[cfg(test)]` `test_surface` override (paired seam
+`set_test_surface_for_test`) only exists in test builds, letting the multi-pane
+pointer path run headlessly.
+
+**Tests.** Extended `tests/cursor_icon.rs`: column divider → `ColResize`, row
+divider → `RowResize`, off-divider grid → `Text`, single-pane at the same pixel →
+never a resize cursor, and a press→drag→move that keeps `ColResize`. Disabling
+the hover branch makes the two divider-hover assertions fail with `Text` — a
+genuine guard.
+
+Verified on Linux: `cargo fmt --check` clean, `cargo clippy --all-targets
+--locked -D warnings` clean, `gpu_composite_smoke` 3/3 (byte-identity), full
+`cargo test --locked --lib` 2178/0 (7 ignored = macOS-winit).
+
+---
+
 ## 2026-06-23 -- Fix: tmux prefix split chords `%` / `"` did nothing on hardware
 
 The tmux-style multiplexer split chords — `<prefix> %` (split columns) and

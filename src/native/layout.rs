@@ -338,12 +338,33 @@ fn split_rect(
 /// tree, for the render layer to paint as themed `SolidQuad`s. Order is tree
 /// order; one rect per internal split node.
 pub(super) fn divider_rects(tree: &PaneNode, content: PaneRect, divider_px: f32) -> Vec<PaneRect> {
+    divider_rects_with_axis(tree, content, divider_px)
+        .into_iter()
+        .map(|(rect, _)| rect)
+        .collect()
+}
+
+/// Like [`divider_rects`] but tags each divider with the [`SplitAxis`] it
+/// divides along, in the same pre-order numbering. A column split yields a
+/// vertical divider (panes side-by-side → a horizontal `↔` resize affordance);
+/// a row split yields a horizontal divider (panes stacked → a vertical `↕`
+/// one). Used by the hover cursor-shape path to pick `ColResize` vs `RowResize`.
+pub(super) fn divider_rects_with_axis(
+    tree: &PaneNode,
+    content: PaneRect,
+    divider_px: f32,
+) -> Vec<(PaneRect, SplitAxis)> {
     let mut out = Vec::new();
     dividers_into(tree, content, divider_px, &mut out);
     out
 }
 
-fn dividers_into(node: &PaneNode, rect: PaneRect, divider_px: f32, out: &mut Vec<PaneRect>) {
+fn dividers_into(
+    node: &PaneNode,
+    rect: PaneRect,
+    divider_px: f32,
+    out: &mut Vec<(PaneRect, SplitAxis)>,
+) {
     if let PaneNode::Split {
         axis,
         ratio,
@@ -357,10 +378,34 @@ fn dividers_into(node: &PaneNode, rect: PaneRect, divider_px: f32, out: &mut Vec
             SplitAxis::Columns => PaneRect::new(first_rect.right(), rect.y, divider_px, rect.h),
             SplitAxis::Rows => PaneRect::new(rect.x, first_rect.bottom(), rect.w, divider_px),
         };
-        out.push(divider);
+        out.push((divider, *axis));
         dividers_into(first, first_rect, divider_px, out);
         dividers_into(second, second_rect, divider_px, out);
     }
+}
+
+/// The [`SplitAxis`] of the divider under a pixel point (widened by `grab_px`),
+/// or `None` when the point is over no divider grab band. Mirrors
+/// [`divider_at_point`]'s hit-test exactly so the hover cursor shape and the
+/// press-to-drag grab agree on what counts as "on a divider". Drives the
+/// `ColResize`/`RowResize` hover affordance.
+pub(super) fn divider_axis_at_point(
+    tree: &PaneNode,
+    content: PaneRect,
+    divider_px: f32,
+    x: f32,
+    y: f32,
+    grab_px: f32,
+) -> Option<SplitAxis> {
+    divider_rects_with_axis(tree, content, divider_px)
+        .into_iter()
+        .find(|(d, _)| {
+            x >= d.x - grab_px
+                && x <= d.x + d.w + grab_px
+                && y >= d.y - grab_px
+                && y <= d.y + d.h + grab_px
+        })
+        .map(|(_, axis)| axis)
 }
 
 /// Convert a pane rect to its cell grid dimensions for a given cell size. Pure
