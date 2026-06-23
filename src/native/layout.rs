@@ -417,6 +417,74 @@ pub(super) fn grid_dims_for_rect(rect: PaneRect, cell_w: u32, cell_h: u32) -> (u
     (cols.max(1) as usize, rows.max(1) as usize)
 }
 
+/// Tolerance (physical px) for the "is this edge flush with the content
+/// boundary?" test in [`pane_grid_origin`]. Pane rects tile `content` exactly,
+/// so an edge is either flush with the content boundary (a window-margin edge)
+/// or inset by at least `divider_px` (a divider-facing edge); a sub-pixel
+/// epsilon absorbs float rounding without misclassifying a divider edge.
+const EDGE_EPS: f32 = 0.5;
+
+/// The physical-pixel origin at which a pane's (floored) cell grid should be
+/// drawn inside its `rect`, given the surrounding `content` rect.
+///
+/// [`grid_dims_for_rect`] floors a pane to whole cells, leaving a sub-cell
+/// remainder (`rect.w - cols·cell_w`, `rect.h - rows·cell_h`). Drawn naïvely at
+/// `rect`'s top-left, that remainder strands as background **between the grid
+/// edge and the adjacent divider** — the visible inter-pane gap the operator
+/// reported (and, since cells are ~2:1 tall, a *row* split strands ~2× a
+/// *column* split's pixels, so gaps look non-uniform across axes).
+///
+/// This absorbs the remainder onto each pane's **outer** (window-margin) side so
+/// the grid edge that abuts a divider sits flush to it: the visible separation
+/// between any two adjacent panes is then exactly the 1px themed divider,
+/// uniform across both axes and stable as the divider drags smoothly (the
+/// divider position is unchanged — only the grid content shifts within the
+/// pane). Leftover pixels pool at the window margin, where a sub-cell strip is
+/// invisible/acceptable.
+///
+/// Edge classification is geometric: an edge flush with the `content` boundary
+/// is an outer (margin) edge; an inset edge abuts a divider. A pane is pushed
+/// toward a divider only when its *opposite* edge is a margin (so the remainder
+/// has somewhere to pool). Consequences:
+/// - **Single-pane / zoomed** (`rect == content`): both edges are margins on
+///   each axis → zero offset → byte-identical to today's top-left placement.
+/// - **Two-pane split**: the first child (margin on its outer side, divider on
+///   its inner) is pushed flush to the divider; the second child stays flush at
+///   the divider with its remainder at the far margin → exact 1px gap.
+/// - **Sandwiched pane** (a 3+-way split along one axis, divider on *both*
+///   sides): can't be flush on both with a floored grid, so it stays flush on
+///   its low (left/top) side and a sub-cell residual remains on the far side.
+///   2×2 grids and binary trees where every leaf touches a margin are exact.
+pub(super) fn pane_grid_origin(
+    rect: PaneRect,
+    content: PaneRect,
+    cell_w: u32,
+    cell_h: u32,
+) -> [f32; 2] {
+    let (cols, rows) = grid_dims_for_rect(rect, cell_w, cell_h);
+    let rem_w = (rect.w - cols as f32 * cell_w.max(1) as f32).max(0.0);
+    let rem_h = (rect.h - rows as f32 * cell_h.max(1) as f32).max(0.0);
+
+    let left_outer = rect.x <= content.x + EDGE_EPS;
+    let right_inner = rect.right() < content.right() - EDGE_EPS;
+    let top_outer = rect.y <= content.y + EDGE_EPS;
+    let bottom_inner = rect.bottom() < content.bottom() - EDGE_EPS;
+
+    // Push toward an inner (divider) edge only when the opposite edge is an
+    // outer (margin) edge, so the absorbed remainder pools at the margin.
+    let off_x = if left_outer && right_inner {
+        rem_w
+    } else {
+        0.0
+    };
+    let off_y = if top_outer && bottom_inner {
+        rem_h
+    } else {
+        0.0
+    };
+    [rect.x + off_x, rect.y + off_y]
+}
+
 /// Resolve directional focus movement: from the pane currently `focused`, pick
 /// the spatial neighbor in direction `dir`, or `None` when there is none.
 ///
@@ -570,6 +638,97 @@ fn drag_into(
         return Some(found);
     }
     drag_into(second, second_rect, divider_px, target, counter, x, y)
+}
+
+/// Snap the active dragged split (`target`, in the same pre-order numbering as
+/// [`drag_divider_to`]) so its divider lands on a whole-cell boundary, returning
+/// the snapped ratio when the split exists. Called once on drag *release* so the
+/// outer window margins are identical at every rest position (the smooth
+/// per-pixel drag is untouched — only the release re-derives a snapped ratio).
+///
+/// Why this makes the outer margin constant: snapping the first child to exactly
+/// `k·cell` pixels leaves it flush on both its sides (zero remainder), so the
+/// only stranded remainder is the far pane's `usable mod cell`, which is
+/// **independent of `k`** → the same at every snap position. Without the snap,
+/// the first child's sub-cell remainder varies continuously with the drag and
+/// (via [`pane_grid_origin`]) breathes at its outer margin.
+///
+/// The first child is clamped to `[cell, usable − cell]` so neither child ever
+/// snaps below one cell (then re-clamped to the legal ratio band), mirroring the
+/// min-size guarantee the drag path already enforces.
+pub(super) fn snap_divider_to_cells(
+    tree: &mut PaneNode,
+    content: PaneRect,
+    divider_px: f32,
+    target: usize,
+    cell_w: u32,
+    cell_h: u32,
+) -> Option<f32> {
+    let mut counter = 0usize;
+    snap_into(
+        tree,
+        content,
+        divider_px,
+        target,
+        &mut counter,
+        cell_w,
+        cell_h,
+    )
+}
+
+fn snap_into(
+    node: &mut PaneNode,
+    rect: PaneRect,
+    divider_px: f32,
+    target: usize,
+    counter: &mut usize,
+    cell_w: u32,
+    cell_h: u32,
+) -> Option<f32> {
+    let PaneNode::Split {
+        axis,
+        ratio,
+        first,
+        second,
+    } = node
+    else {
+        return None;
+    };
+    let me = *counter;
+    *counter += 1;
+    if me == target {
+        // `usable` and `cell` along the split's primary axis; matches the
+        // floored first-child extent `split_rect` computes for this split.
+        let (usable, cell) = match axis {
+            SplitAxis::Columns => ((rect.w - divider_px).max(0.0), cell_w.max(1) as f32),
+            SplitAxis::Rows => ((rect.h - divider_px).max(0.0), cell_h.max(1) as f32),
+        };
+        let first_px = (usable * clamp_ratio(*ratio)).floor();
+        // Snap to the nearest whole-cell boundary, then keep both children ≥ 1
+        // cell when the split is large enough to hold two.
+        let mut snapped = (first_px / cell).round() * cell;
+        if usable >= 2.0 * cell {
+            snapped = snapped.clamp(cell, usable - cell);
+        }
+        let new_ratio = clamp_ratio(snapped / usable.max(1.0));
+        *ratio = new_ratio;
+        return Some(new_ratio);
+    }
+    let (first_rect, second_rect) = split_rect(rect, *axis, *ratio, divider_px);
+    if let Some(found) = snap_into(
+        first, first_rect, divider_px, target, counter, cell_w, cell_h,
+    ) {
+        return Some(found);
+    }
+    snap_into(
+        second,
+        second_rect,
+        divider_px,
+        target,
+        counter,
+        cell_w,
+        cell_h,
+    )
 }
 
 /// The pane token whose rect contains the pixel point, or `None` when the point
@@ -820,6 +979,213 @@ mod tests {
             grid_dims_for_rect(PaneRect::new(0.0, 0.0, 3.0, 3.0), 8, 16),
             (1, 1)
         );
+    }
+
+    // ----- pane_grid_origin: remainder absorption (uniform 1px gap) -----
+
+    /// A single-pane tab (`rect == content`) must keep its top-left placement
+    /// exactly — the byte-identical path. Both edges are window margins, so no
+    /// remainder is absorbed regardless of how the content fails to tile evenly.
+    #[test]
+    fn single_pane_grid_origin_is_byte_identical_top_left() {
+        // 101x99 content, 8x16 cells: neither axis divides evenly.
+        let content = PaneRect::new(7.0, 13.0, 101.0, 99.0);
+        assert_eq!(pane_grid_origin(content, content, 8, 16), [7.0, 13.0]);
+    }
+
+    /// Regression guard for the operator-reported non-uniform gap: at a
+    /// non-cell-aligned ratio, the gap between the two panes' grid edges must be
+    /// exactly `divider_px` on a COLUMN split (vertical divider).
+    #[test]
+    fn column_split_grid_gap_is_exactly_the_divider() {
+        let (cell_w, cell_h, divider_px) = (8u32, 16u32, 1.0f32);
+        // usable = 101 - 1 = 100; first_w = floor(100*0.5) = 50 (not a multiple
+        // of 8, so the left pane floors to 6 cols = 48px with a 2px remainder).
+        let content = PaneRect::new(0.0, 0.0, 101.0, 64.0);
+        let tree = PaneNode::Split {
+            axis: SplitAxis::Columns,
+            ratio: 0.5,
+            first: Box::new(PaneNode::Leaf(tok(0))),
+            second: Box::new(PaneNode::Leaf(tok(1))),
+        };
+        let rects = layout_rects(&tree, content, divider_px);
+        let (left, right) = (rects[0].1, rects[1].1);
+        let (cols_l, _) = grid_dims_for_rect(left, cell_w, cell_h);
+        let ol = pane_grid_origin(left, content, cell_w, cell_h);
+        let or = pane_grid_origin(right, content, cell_w, cell_h);
+        let left_grid_right = ol[0] + cols_l as f32 * cell_w as f32;
+        let right_grid_left = or[0];
+        assert_eq!(
+            right_grid_left - left_grid_right,
+            divider_px,
+            "column-split inter-pane gap must equal the divider width exactly"
+        );
+    }
+
+    /// Same regression guard on a ROW split (horizontal divider) — the axis that
+    /// looked visibly worse because cells are ~2:1 tall.
+    #[test]
+    fn row_split_grid_gap_is_exactly_the_divider() {
+        let (cell_w, cell_h, divider_px) = (8u32, 16u32, 1.0f32);
+        // usable = 99 - 1 = 98; first_h = floor(98*0.5) = 49 → 3 rows = 48px,
+        // 1px remainder on the top pane.
+        let content = PaneRect::new(0.0, 0.0, 80.0, 99.0);
+        let tree = PaneNode::Split {
+            axis: SplitAxis::Rows,
+            ratio: 0.5,
+            first: Box::new(PaneNode::Leaf(tok(0))),
+            second: Box::new(PaneNode::Leaf(tok(1))),
+        };
+        let rects = layout_rects(&tree, content, divider_px);
+        let (top, bottom) = (rects[0].1, rects[1].1);
+        let (_, rows_t) = grid_dims_for_rect(top, cell_w, cell_h);
+        let ot = pane_grid_origin(top, content, cell_w, cell_h);
+        let ob = pane_grid_origin(bottom, content, cell_w, cell_h);
+        let top_grid_bottom = ot[1] + rows_t as f32 * cell_h as f32;
+        let bottom_grid_top = ob[1];
+        assert_eq!(
+            bottom_grid_top - top_grid_bottom,
+            divider_px,
+            "row-split inter-pane gap must equal the divider width exactly"
+        );
+    }
+
+    /// The absorbed origin must keep pointer→cell mapping consistent: a pixel at
+    /// the center of cell (c, r) inside a pane maps back to (c, r) when the
+    /// pane's grid origin is folded in. Uses the same flooring a consumer does.
+    #[test]
+    fn pointer_to_cell_round_trips_through_absorbed_origin() {
+        let (cell_w, cell_h, divider_px) = (8u32, 16u32, 1.0f32);
+        let content = PaneRect::new(0.0, 0.0, 101.0, 64.0);
+        let tree = PaneNode::Split {
+            axis: SplitAxis::Columns,
+            ratio: 0.5,
+            first: Box::new(PaneNode::Leaf(tok(0))),
+            second: Box::new(PaneNode::Leaf(tok(1))),
+        };
+        let rects = layout_rects(&tree, content, divider_px);
+        // The left pane carries the absorbed x-offset (its grid is pushed right
+        // to sit flush against the divider), so it is the interesting case.
+        let left = rects[0].1;
+        let (cols, rows) = grid_dims_for_rect(left, cell_w, cell_h);
+        let [ox, oy] = pane_grid_origin(left, content, cell_w, cell_h);
+        for (c, r) in [(0usize, 0usize), (2, 1), (cols - 1, rows - 1)] {
+            let px = ox + (c as f32 + 0.5) * cell_w as f32;
+            let py = oy + (r as f32 + 0.5) * cell_h as f32;
+            let col = ((px - ox).max(0.0) as u32 / cell_w) as usize;
+            let row = ((py - oy).max(0.0) as u32 / cell_h) as usize;
+            assert_eq!((col, row), (c, r), "round-trip failed at cell ({c},{r})");
+        }
+    }
+
+    // ----- snap_divider_to_cells: release-snap → constant outer margin -----
+
+    /// Helper: far-pane (second-child) outer-margin remainder for a 2-pane split
+    /// after a drag-release-snap to `drag_px`. Returns the far margin in pixels;
+    /// the regression guard asserts it is constant across release positions and
+    /// that the first child lands on an exact whole-cell boundary.
+    fn far_margin_after_snap(
+        axis: SplitAxis,
+        content: PaneRect,
+        cell_w: u32,
+        cell_h: u32,
+        divider_px: f32,
+        drag_px: f32,
+    ) -> (f32, f32) {
+        // Build a fresh 2-pane split, drag it to `drag_px`, then snap on release.
+        let mut tree = PaneNode::Split {
+            axis,
+            ratio: 0.5,
+            first: Box::new(PaneNode::Leaf(tok(0))),
+            second: Box::new(PaneNode::Leaf(tok(1))),
+        };
+        let (dx, dy) = match axis {
+            SplitAxis::Columns => (content.x + drag_px, content.y),
+            SplitAxis::Rows => (content.x, content.y + drag_px),
+        };
+        drag_divider_to(&mut tree, content, divider_px, 0, dx, dy);
+        snap_divider_to_cells(&mut tree, content, divider_px, 0, cell_w, cell_h);
+        let rects = layout_rects(&tree, content, divider_px);
+        let (first, second) = (rects[0].1, rects[1].1);
+        // First child's grid extent along the axis (must be a whole-cell
+        // multiple → zero remainder → flush both sides).
+        let (first_extent, first_remainder, far_margin) = match axis {
+            SplitAxis::Columns => {
+                let (cols, _) = grid_dims_for_rect(first, cell_w, cell_h);
+                let (cols2, _) = grid_dims_for_rect(second, cell_w, cell_h);
+                (
+                    first.w,
+                    first.w - cols as f32 * cell_w as f32,
+                    second.w - cols2 as f32 * cell_w as f32,
+                )
+            }
+            SplitAxis::Rows => {
+                let (_, rows) = grid_dims_for_rect(first, cell_w, cell_h);
+                let (_, rows2) = grid_dims_for_rect(second, cell_w, cell_h);
+                (
+                    first.h,
+                    first.h - rows as f32 * cell_h as f32,
+                    second.h - rows2 as f32 * cell_h as f32,
+                )
+            }
+        };
+        let _ = first_extent;
+        // The first child must be flush (no sub-cell remainder) post-snap.
+        assert_eq!(
+            first_remainder, 0.0,
+            "release-snap must land the divider on a whole-cell boundary"
+        );
+        (first_remainder, far_margin)
+    }
+
+    /// THE release-snap regression guard (column split): dragging the divider to
+    /// two different non-cell-aligned positions and releasing must leave the
+    /// SAME far-margin remainder — the outer margin is constant at every rest
+    /// position. Revert the snap → margins differ across positions → this fails.
+    #[test]
+    fn column_release_snap_gives_constant_outer_margin() {
+        let content = PaneRect::new(0.0, 0.0, 101.0, 64.0);
+        let (_, m_a) = far_margin_after_snap(SplitAxis::Columns, content, 8, 16, 1.0, 37.0);
+        let (_, m_b) = far_margin_after_snap(SplitAxis::Columns, content, 8, 16, 1.0, 61.0);
+        assert_eq!(
+            m_a, m_b,
+            "outer margin must be identical across two release positions"
+        );
+        // usable = 100; 100 mod 8 = 4 → the constant far margin.
+        assert_eq!(m_a, 4.0);
+    }
+
+    /// Same guard on a row split (the axis that looked worse: ~2:1 tall cells).
+    #[test]
+    fn row_release_snap_gives_constant_outer_margin() {
+        let content = PaneRect::new(0.0, 0.0, 80.0, 101.0);
+        let (_, m_a) = far_margin_after_snap(SplitAxis::Rows, content, 8, 16, 1.0, 33.0);
+        let (_, m_b) = far_margin_after_snap(SplitAxis::Rows, content, 8, 16, 1.0, 71.0);
+        assert_eq!(
+            m_a, m_b,
+            "outer margin must be identical across two release positions"
+        );
+        // usable = 100; 100 mod 16 = 4 → the constant far margin.
+        assert_eq!(m_a, 4.0);
+    }
+
+    /// Snap never collapses a pane below one cell even when dragged to the edge.
+    #[test]
+    fn release_snap_keeps_both_panes_at_least_one_cell() {
+        let content = PaneRect::new(0.0, 0.0, 101.0, 64.0);
+        let mut tree = PaneNode::Split {
+            axis: SplitAxis::Columns,
+            ratio: 0.5,
+            first: Box::new(PaneNode::Leaf(tok(0))),
+            second: Box::new(PaneNode::Leaf(tok(1))),
+        };
+        // Drag hard to the left edge, then snap.
+        drag_divider_to(&mut tree, content, 1.0, 0, content.x, content.y);
+        snap_divider_to_cells(&mut tree, content, 1.0, 0, 8, 16);
+        let rects = layout_rects(&tree, content, 1.0);
+        let (c0, _) = grid_dims_for_rect(rects[0].1, 8, 16);
+        let (c1, _) = grid_dims_for_rect(rects[1].1, 8, 16);
+        assert!(c0 >= 1 && c1 >= 1, "both panes must keep at least one cell");
     }
 
     // ----- focus_move: 2x2 grid -----

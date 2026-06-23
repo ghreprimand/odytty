@@ -309,7 +309,16 @@ impl App {
                 ));
             }
             drop(terminal);
-            panes_owned.push((snapshot, [rect.x, rect.y], is_focused, cursor_style));
+            // Absorb each pane's sub-cell remainder onto its window-margin side
+            // so the grid edge facing a divider sits flush to it: the visible
+            // inter-pane separation is then exactly the 1px divider, uniform
+            // across both axes (a single-pane / zoomed rect == content yields a
+            // zero offset, so the byte-identical path is unchanged). The divider
+            // position itself is untouched — only the grid content shifts within
+            // the pane — so smooth per-pixel divider drag is preserved.
+            let origin =
+                crate::native::layout::pane_grid_origin(*rect, content, cell.width, cell.height);
+            panes_owned.push((snapshot, origin, is_focused, cursor_style));
         }
 
         // Paint the focused pane's selection + search highlights onto its own

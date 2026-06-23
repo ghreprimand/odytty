@@ -7,6 +7,59 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-23 -- Panes: uniform 1px inter-pane gap + release-snap dividers
+
+Two related multi-pane geometry fixes so the visible separation between adjacent
+panes is exactly the 1px themed divider, uniform across both split axes and
+stable as the divider drags.
+
+**Problem.** Pane rects tile the content exactly, but `grid_dims_for_rect` floors
+each pane to whole cells. The grid was drawn at the pane rect's top-left, so the
+sub-cell remainder (`rect.w − cols·cell_w` / `rect.h − rows·cell_h`) stranded as
+background **between the grid edge and the adjacent divider** — the visible gap.
+Cells are ~2:1 tall, so a row (stacked) split stranded ~2× a column split's
+pixels and the gaps looked non-uniform across axes.
+
+**Fix 1 — remainder absorption (`layout::pane_grid_origin`).** Each pane's
+sub-cell remainder is absorbed onto its **outer** (window-margin) side so the
+grid edge that abuts a divider sits flush to it. Edge classification is
+geometric: an edge flush with the content boundary is a margin edge, an inset
+edge abuts a divider; a pane is pushed toward a divider only when its opposite
+edge is a margin (so the remainder has somewhere to pool). The divider rects are
+computed independently of pane rects and are unchanged, so smooth per-pixel
+divider drag is preserved. Single call site in `app::panes::rebuild_multipane`,
+replacing the old `[rect.x, rect.y]` origin.
+
+**Fix 2 — release-snap (`layout::snap_divider_to_cells`).** Remainder absorption
+fixes the between-pane gap, but the *outer* margin then breathes as the divider
+drags (the first child's remainder varies continuously). On left-button release
+(in `app::pointer`, before `divider_drag` is cleared) the active split's ratio is
+snapped so the divider lands on a whole-cell boundary, then `resize_all_panes`
+reflows once. Snapping the first child to exactly `k·cell` leaves it flush on both
+sides (zero remainder); the only stranded remainder is the far pane's
+`usable mod cell`, which is independent of `k` → the outer margin is identical at
+every rest position. Both children are kept ≥ 1 cell. The smooth drag during
+motion is untouched — only the release adds the snap.
+
+**Invariants.** Single-pane / zoomed tabs (`rect == content`) absorb zero
+remainder and have no divider to snap → byte-identical to before
+(`gpu_composite_smoke` 3/3, `cursor_icon` 8/8). No content clipping; PTY
+whole-cell sizing unchanged; divider hit-testing / pointer math unaffected.
+
+**Known residual (documented).** A pane *sandwiched* between two dividers on the
+same axis (a 3+-way split along one axis) can't be flush on both sides with a
+floored grid, so it keeps a sub-cell residual on its far side. 2-pane splits and
+2×2 grids are exact.
+
+**Tests.** `layout.rs` gains 7 units: single-pane byte-identity, column/row gap
+== divider exactly, pointer→cell round-trip through the absorbed origin, and
+column/row release-snap → constant outer margin across two release positions
+(the regression guard) plus a min-one-cell clamp. Full suite green
+(`cargo test --locked` 2185 lib, `cargo fmt --check`, `cargo clippy
+--all-targets --locked -- -D warnings`).
+
+---
+
 ## 2026-06-23 -- Palette: fix modern Fish history discovery
 
 The command palette now resolves Fish history from the modern XDG data location:

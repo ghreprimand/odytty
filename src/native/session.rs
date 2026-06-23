@@ -29,7 +29,7 @@ use super::copy_mode::CopyModeState;
 use super::layout::{
     EVEN_RATIO, FocusDir, PaneNode, PaneRect, SplitAxis, divider_at_point, divider_axis_at_point,
     divider_rects_with_axis, drag_divider_to, focus_move, grid_dims_for_rect, layout_rects,
-    pane_at_point,
+    pane_at_point, snap_divider_to_cells,
 };
 use super::output_recorder::RecorderHandle;
 use super::pty::{PtyWriter, UserEvent, spawn_pty_pump};
@@ -648,6 +648,23 @@ impl TabSet {
         self.tabs
             .get_mut(self.active_tab)
             .and_then(|tab| drag_divider_to(&mut tab.layout, content, divider_px, target, x, y))
+    }
+
+    /// Snap the active tab's `target` divider onto a whole-cell boundary,
+    /// returning the snapped ratio when the split exists. Called once on drag
+    /// release so every rest position leaves identical outer margins; the caller
+    /// reflows the affected panes afterward (same path the drag uses).
+    pub(super) fn snap_active_divider(
+        &mut self,
+        content: PaneRect,
+        divider_px: f32,
+        target: usize,
+        cell_w: u32,
+        cell_h: u32,
+    ) -> Option<f32> {
+        self.tabs.get_mut(self.active_tab).and_then(|tab| {
+            snap_divider_to_cells(&mut tab.layout, content, divider_px, target, cell_w, cell_h)
+        })
     }
 
     /// Resize **every pane of every tab** to its laid-out cell dimensions within

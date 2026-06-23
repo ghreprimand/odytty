@@ -43,10 +43,32 @@ impl App {
         // A left-release always ends an in-progress divider drag (design doc
         // §4.2), before any other press routing. `divider_drag` is only ever
         // `Some` inside a multi-pane tab, so the single-pane path is unaffected.
-        if self.divider_drag.is_some()
+        if let Some(target) = self.divider_drag
             && button == WinitMouseButton::Left
             && state == ElementState::Released
         {
+            // RELEASE-SNAP: the smooth per-pixel drag leaves the active split at
+            // an arbitrary sub-cell ratio, whose floored-grid remainder breathes
+            // at the outer window margin as the divider moves. On release, snap
+            // the dragged split's divider onto a whole-cell boundary and reflow
+            // once, so every rest position leaves identical outer margins (the
+            // between-pane gap stays the 1px divider either way). Runs before
+            // clearing `divider_drag` so the dragged split index is still known;
+            // `multipane_geometry()` is `None` on a single-pane tab, so the
+            // byte-identical path never snaps.
+            if let Some((content, cell)) = self.multipane_geometry()
+                && self
+                    .sessions
+                    .snap_active_divider(content, PANE_DIVIDER_PX, target, cell.width, cell.height)
+                    .is_some()
+            {
+                self.sessions
+                    .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
+                self.sessions.active_mut().needs_rebuild = true;
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
             self.divider_drag = None;
             return;
         }
