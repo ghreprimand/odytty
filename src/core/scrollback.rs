@@ -254,10 +254,23 @@ impl Scrollback {
 
         // Bound the pathological no-terminator case: a never-closed leading
         // logical line accreting cells forever. Drop oldest cells from its front.
+        //
+        // Hysteresis: trim only when the line crosses the high-water mark
+        // (`> MAX_LOGICAL_LINE_CELLS`), but when it does, drain all the way down
+        // to the low-water mark (`MAX_LOGICAL_LINE_CELLS - SLACK`) rather than
+        // exactly to the ceiling. A naive "drain to exactly MAX after every
+        // push" is O(n) per push once saturated — `Vec::drain(0..W)` shifts the
+        // whole ~MAX-element buffer left each call — making a long never-newline
+        // stream O(n²) (a real live-terminal jank on binary spew / `yes` / a
+        // stuck redraw, not just a slow test). With a slack band the front-drain
+        // fires only once per ~SLACK/row-width pushes, amortizing to O(1) per
+        // push. Peak length stays ≤ MAX + (one over-ceiling push), so the
+        // per-line ceiling and memory bound are preserved.
+        const SLACK: usize = MAX_LOGICAL_LINE_CELLS / 2;
         if let Some(first) = self.lines.first_mut()
             && first.cells.len() > MAX_LOGICAL_LINE_CELLS
         {
-            let drop = first.cells.len() - MAX_LOGICAL_LINE_CELLS;
+            let drop = first.cells.len() - (MAX_LOGICAL_LINE_CELLS - SLACK);
             first.cells.drain(0..drop);
             trimmed = true;
         }
