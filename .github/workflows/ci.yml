@@ -20,6 +20,11 @@ jobs:
   build-test:
     name: Build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # A normal run is ~4 min; an intermittent session-host test hang on the
+    # macOS runner can otherwise spin until GitHub's 6-hour default. Fail fast
+    # at 15 min (well above a cold toolchain install + build, well below a hang)
+    # so a hang surfaces as a clean, quick failure instead of burning minutes.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
