@@ -78,6 +78,14 @@ Distribution build systems that forbid network access during the build should
 vendor Rust crates before the build step, for example with `cargo vendor`, and
 configure Cargo to use the vendored source.
 
+## Testing during packaging
+
+If your `check()` runs the test suite, use the full `cargo test` (or run
+`cargo build` first). The attach/detach end-to-end tests locate the compiled
+`odytty` binary in `target/`, and `cargo test --lib` alone does not build the
+binary target — those tests then fail with an "odytty binary not found" error.
+`cargo test` (what upstream CI runs) builds the binary and passes.
+
 ## Upstream Release Tracking
 
 Use GitHub releases/tags as the upstream version source:
