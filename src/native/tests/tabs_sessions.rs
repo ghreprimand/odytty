@@ -933,3 +933,106 @@ fn doubled_prefix_passes_the_literal_byte_to_the_pty() {
     app.drive_char_with_mods_for_test('b', true, false);
     assert_eq!(&*bytes.lock().expect("bytes"), &[0x02]);
 }
+
+/// Build a two-pane split `App` headlessly at an exact `COLS×ROWS`-cell surface
+/// with zero padding and a single tab (no tab bar), then reflow so each pane
+/// holds its narrow split sub-grid. The active (focused) pane is the new one
+/// `split_active_with` focuses, so closing it collapses the tab back onto the
+/// original survivor. Returns `None` when no PTY is available (CI sandboxes).
+fn split_app_at_surface(columns: bool, cols: usize, rows: usize, cw: u32, ch: u32) -> Option<App> {
+    let dims = Dimensions::new(cols, rows);
+    let (t1, w1, p1, _) = recorded_session(dims)?;
+    let mut app = App::new(
+        NativeOptions::default(),
+        t1,
+        w1,
+        p1,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    // The headless cell/surface seams are per-session (they Deref to the active
+    // session — production resolves these from the shared GPU instead). Set them
+    // while the original pane is focused so the *survivor* of the close carries
+    // them, then again after the split so the new (focused) pane has them too;
+    // otherwise the post-close reflow can't resolve the content rect headlessly.
+    let surf_w = cols as u32 * cw;
+    let surf_h = rows as u32 * ch;
+    app.set_test_cell_for_test(cell(cw, ch));
+    app.set_test_surface_for_test(surf_w, surf_h, crate::native::WindowPadding::ZERO);
+    let (t2, w2, p2, _) = recorded_session(dims)?;
+    app.seed_split_pane_for_test(columns, t2, w2, p2);
+    app.set_test_cell_for_test(cell(cw, ch));
+    app.set_test_surface_for_test(surf_w, surf_h, crate::native::WindowPadding::ZERO);
+    // Reflow the split so each pane is sized to its (narrow) sub-rect — the
+    // pre-close state where the survivor is clipped to half-width.
+    app.reflow_active_panes_for_test();
+    Some(app)
+}
+
+#[test]
+fn closing_a_column_split_reflows_survivor_to_full_width() {
+    // Regression: closing one half of a column split must reflow the surviving
+    // pane back to the FULL content width. Before the fix, `multipane_geometry()`
+    // returned `None` once single-pane and the reflow was skipped entirely, so
+    // the survivor kept its narrow split sub-grid (wrapping + selection clipped).
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let Some(mut app) = split_app_at_surface(true, COLS, ROWS, CW, CH) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Precondition: the focused split pane is narrower than the full width.
+    let (split_cols, _) = app.active_session_grid_dims_for_test();
+    assert!(
+        split_cols < COLS,
+        "split pane should be narrower than full width, got {split_cols}"
+    );
+    // Close the focused pane → the tab collapses onto the survivor.
+    app.close_focused_pane_for_test();
+    assert_eq!(
+        app.active_pane_count_for_test(),
+        1,
+        "tab collapsed to one pane"
+    );
+    // The survivor must now span the full content width (and full height — a
+    // column split never changed the row count, so this also guards no regress).
+    let (cols, rows) = app.active_session_grid_dims_for_test();
+    assert_eq!(
+        (cols, rows),
+        (COLS, ROWS),
+        "survivor must reflow to the full content grid after the split collapses"
+    );
+}
+
+#[test]
+fn closing_a_row_split_reflows_survivor_to_full_height() {
+    // Analogous guard on a row split: the survivor must reflow back to the full
+    // content height (the axis a row split had clipped).
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let Some(mut app) = split_app_at_surface(false, COLS, ROWS, CW, CH) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let (_, split_rows) = app.active_session_grid_dims_for_test();
+    assert!(
+        split_rows < ROWS,
+        "split pane should be shorter than full height, got {split_rows}"
+    );
+    app.close_focused_pane_for_test();
+    assert_eq!(
+        app.active_pane_count_for_test(),
+        1,
+        "tab collapsed to one pane"
+    );
+    let (cols, rows) = app.active_session_grid_dims_for_test();
+    assert_eq!(
+        (cols, rows),
+        (COLS, ROWS),
+        "survivor must reflow to the full content grid after the split collapses"
+    );
+}

@@ -859,6 +859,33 @@ impl App {
         token.0 as usize
     }
 
+    /// Test seam (pane-close reflow): drive the production structural-reflow
+    /// path (`split` / `equalize` / `close` all funnel through it) headlessly so
+    /// a test can establish the narrow split sub-grids before closing a pane.
+    #[cfg(test)]
+    pub(in crate::native) fn reflow_active_panes_for_test(&mut self) {
+        self.reflow_active_panes_and_redraw();
+    }
+
+    /// Test seam (pane-close reflow): close the focused pane via the production
+    /// `close_focused_pane` path so a regression test can prove the survivor
+    /// reflows back to the full content width after a split collapses.
+    #[cfg(test)]
+    pub(in crate::native) fn close_focused_pane_for_test(&mut self) {
+        self.close_focused_pane();
+    }
+
+    /// Test seam (pane-close reflow): the active (focused) session's terminal
+    /// grid dimensions `(columns, rows)`. After a split collapses this is the
+    /// surviving pane, so a test can assert it returned to the full content
+    /// width rather than keeping its narrow split sub-grid.
+    #[cfg(test)]
+    pub(in crate::native) fn active_session_grid_dims_for_test(&self) -> (usize, usize) {
+        let terminal = self.sessions.active().terminal.lock().expect("terminal");
+        let dims = terminal.screen().dimensions();
+        (dims.columns, dims.rows)
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn set_session_tab_title_for_test(
         &mut self,

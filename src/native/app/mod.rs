@@ -750,6 +750,35 @@ impl App {
         if let Some((content, cell)) = self.multipane_geometry() {
             self.sessions
                 .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
+        } else if let (Some(cell), Some((width_px, height_px, padding))) =
+            (self.resolved_cell(), self.resolved_surface())
+        {
+            // Collapsed back to a single pane (the common case: closing one half
+            // of a split). `multipane_geometry()` returns `None` once the tab is
+            // single-pane, so the branch above is skipped — without this arm the
+            // lone survivor keeps the narrow sub-grid it had as a split pane, and
+            // text wrapping + selection stay clipped to the old half-width until
+            // the next real window resize.
+            //
+            // Resize the survivor to the full content rect explicitly:
+            // `resize_all_panes` over the full content sizes the tab's lone leaf
+            // to the full grid (its single-pane arm). We can't lean on
+            // `resize_grid_with_padding` alone here — `self.grid` is only ever the
+            // *window* content grid, so it is already full at close time and that
+            // call early-returns a no-op without ever resizing the (narrow)
+            // survivor session. We still call it afterward to keep `self.grid`
+            // current (wrapping + selection read it); it no-ops when unchanged,
+            // so a genuinely single-pane tab is byte-identical here.
+            let content = pane_content_rect(
+                width_px,
+                height_px,
+                cell,
+                padding,
+                self.should_show_tab_bar(),
+            );
+            self.sessions
+                .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
+            let _ = self.resize_grid_with_padding(cell, padding, width_px, height_px);
         }
         self.on_active_session_changed();
     }

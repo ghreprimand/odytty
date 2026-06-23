@@ -140,7 +140,11 @@ impl App {
     /// `self.gpu.as_ref().map(|g| (g.surface_size(), g.window_padding()))` —
     /// byte-identical to the previous inline `gpu.surface_size()` /
     /// `gpu.window_padding()` reads.
-    fn resolved_surface(&self) -> Option<(u32, u32, WindowPadding)> {
+    ///
+    /// `pub(super)` so the close-collapse single-pane reflow in
+    /// [`App::reflow_active_panes_and_redraw`] can resolve the full content rect
+    /// the same way (it mirrors `multipane_geometry`'s own access).
+    pub(super) fn resolved_surface(&self) -> Option<(u32, u32, WindowPadding)> {
         #[cfg(test)]
         if let Some((size, padding)) = self.test_surface {
             return Some((size.0, size.1, padding));

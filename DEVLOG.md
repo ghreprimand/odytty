@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-23 -- Fix: survivor pane stuck at split width after closing a split
+
+Closing one half of a split so the tab collapsed back to a single pane left the
+survivor rendering at the *old* split width — text wrapped at the former divider
+column and selection only spanned the old half. A later window resize fixed it
+(that path reflows), the same tell as the earlier split-time cursor-offset bug.
+
+Root cause: `close_focused_pane` → `reflow_active_panes_and_redraw` only resized
+panes when `multipane_geometry()` was `Some`, but once the close collapsed the
+tab to a single pane that returns `None`, so the reflow was skipped entirely and
+the lone survivor kept the narrow sub-grid it held as a split pane. (The doc
+comment even claimed it resized the single-pane case — it didn't.)
+
+Fix: in the single-pane branch, reflow the survivor to the full content rect via
+`resize_all_panes` over the full content (its lone-leaf arm sizes the survivor
+to the full grid), then refresh `self.grid` through the same
+`resize_grid_with_padding` window-resize uses (which wrapping + selection read).
+Note `resize_grid_with_padding` alone is insufficient here: `self.grid` is only
+ever the *window* content grid, so it is already full at close time and that call
+early-returns a no-op without resizing the narrow survivor session — the explicit
+`resize_all_panes` is what actually reflows it. `resolved_surface` is promoted to
+`pub(super)` so the reflow can resolve the content rect the way
+`multipane_geometry` does.
+
+Invariants: split / equalize / zoom stay multi-pane and take the unchanged
+first branch; a genuinely single-pane tab is byte-identical (the reflow no-ops
+when dimensions are unchanged). `gpu_composite_smoke` 3/3, `cursor_icon` 8/8.
+
+Tests: headless guards in `tabs_sessions` — build a 2-pane column split and a row
+split at a known surface, close the focused pane, and assert the survivor's grid
+returns to the full content `(cols, rows)` rather than the narrow sub-grid.
+Reverting the reflow makes both fail (verified). Full gate green
+(`cargo test --locked` 2187 lib, `cargo fmt --check`, `cargo clippy
+--all-targets --locked -- -D warnings`).
+
+---
+
 ## 2026-06-23 -- Release v0.3.0 — splits/panes, sessions, palette, SSH manager
 
 Version bump to **0.3.0**, marking the four r/commandline gap-fill phases as
