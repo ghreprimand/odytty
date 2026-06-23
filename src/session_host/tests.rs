@@ -34,6 +34,35 @@ const SHORT_WAIT: Duration = Duration::from_secs(15);
 // "socket did not become ready" on a slow runner.
 const SOCKET_READY_WAIT: Duration = Duration::from_secs(30);
 
+// Upper bound on awaiting a spawned helper thread (the session-host) to finish.
+// The host is expected to exit in well under a second once the test drives it to
+// its terminal condition (child exit or detached idle timeout). This is purely a
+// safety net: if `run_host` ever fails to return — the intermittent macOS
+// non-exit we are hardening against — the test FAILS FAST with a clear message
+// instead of hanging the whole suite (and CI) indefinitely.
+const JOIN_DEADLINE: Duration = Duration::from_secs(30);
+
+/// Join a spawned thread with a hard deadline. Returns the thread's value, or
+/// panics with a clear message if it does not finish in `JOIN_DEADLINE`
+/// (re-raising the thread's own panic if it panicked). A timed-out helper thread
+/// is intentionally left detached: the point is to turn a silent infinite hang
+/// into a loud, attributable test failure.
+fn join_within<T: Send + 'static>(handle: thread::JoinHandle<T>, what: &str) -> T {
+    let (tx, rx) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let _ = tx.send(handle.join());
+    });
+    match rx.recv_timeout(JOIN_DEADLINE) {
+        Ok(Ok(value)) => value,
+        Ok(Err(panic)) => std::panic::resume_unwind(panic),
+        Err(_) => panic!(
+            "{what} did not finish within {JOIN_DEADLINE:?} — the session-host \
+             loop is wedged (run_host never returned). Failing fast instead of \
+             hanging the suite."
+        ),
+    }
+}
+
 #[test]
 fn protocol_handshake_round_trip_accepts_current_versions() {
     let (mut client, mut server) = UnixStream::pair().expect("socket pair");
@@ -183,10 +212,7 @@ fn host_detach_keeps_session_alive_then_idle_timeout_exits() {
     reattached.detach().expect("detach reattached");
     drop(reattached);
 
-    let exit = host
-        .join()
-        .expect("host thread")
-        .expect("host exits cleanly");
+    let exit = join_within(host, "session-host thread").expect("host exits cleanly");
     assert_eq!(exit.reason, HostExitReason::DetachedIdleTimeout);
 }
 
@@ -227,10 +253,7 @@ fn host_reattach_replays_output_produced_while_detached() {
     reattached.detach().expect("detach reattached");
     drop(reattached);
 
-    let exit = host
-        .join()
-        .expect("host thread")
-        .expect("host exits cleanly");
+    let exit = join_within(host, "session-host thread").expect("host exits cleanly");
     assert_eq!(exit.reason, HostExitReason::DetachedIdleTimeout);
 }
 
@@ -263,10 +286,7 @@ fn host_exits_when_child_exits_even_with_client_attached() {
     wait_for_output(&mut client, "done");
     expect_session_exit(&mut client, Some(7));
 
-    let exit = host
-        .join()
-        .expect("host thread")
-        .expect("host exits cleanly");
+    let exit = join_within(host, "session-host thread").expect("host exits cleanly");
     assert_eq!(exit.reason, HostExitReason::SessionExited);
     assert_eq!(exit.exit_code, Some(7));
     assert!(!socket_path.exists(), "host socket must be removed on exit");
@@ -309,10 +329,7 @@ fn host_enforces_configured_scrollback_bound_on_reattach() {
         restored.screen().scrollback_len()
     );
 
-    let exit = host
-        .join()
-        .expect("host thread")
-        .expect("host exits cleanly");
+    let exit = join_within(host, "session-host thread").expect("host exits cleanly");
     assert_eq!(exit.reason, HostExitReason::DetachedIdleTimeout);
 }
 

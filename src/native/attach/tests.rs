@@ -99,6 +99,31 @@ fn test_deadline() -> Duration {
     Duration::from_secs(5)
 }
 
+/// Upper bound on awaiting a spawned helper thread (the attach pump or the fake
+/// host) to finish. Generous; purely a safety net so a wedged pump that never
+/// EOFs fails the test fast with a clear message instead of hanging the suite.
+const JOIN_DEADLINE: Duration = Duration::from_secs(30);
+
+/// Join a spawned thread with a hard deadline, re-raising its panic if it
+/// panicked, or panicking with a clear message if it does not finish in time. A
+/// timed-out thread is left detached on purpose: the goal is to convert a silent
+/// infinite hang into a loud, attributable failure.
+fn join_within<T: Send + 'static>(handle: JoinHandle<T>, what: &str) -> T {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(handle.join());
+    });
+    match rx.recv_timeout(JOIN_DEADLINE) {
+        Ok(Ok(value)) => value,
+        Ok(Err(panic)) => std::panic::resume_unwind(panic),
+        Err(_) => panic!(
+            "{what} did not finish within {JOIN_DEADLINE:?} — the attach pump or \
+             fake host is wedged (never EOFed). Failing fast instead of hanging \
+             the suite."
+        ),
+    }
+}
+
 /// Poll `cond` every 5ms until it returns true or a generous CI-aware timeout
 /// elapses; returns whether it became true. Replaces fixed `sleep` + assert-once
 /// so a slow runner that pumps a frame late still observes the expected state.
@@ -197,7 +222,13 @@ fn live_output_incremental_repaint() {
     let terminal = Arc::new(Mutex::new(terminal));
     let (tx, rx) = mpsc::channel();
     let token = SessionToken(7);
-    run_attach_pump(reader, terminal.clone(), ChannelSink(tx), token);
+    // Run the pump on its own thread and join it under a deadline: a wedged pump
+    // that never EOFs must fail this test fast, not hang the suite.
+    let pump_terminal = terminal.clone();
+    let pump = std::thread::spawn(move || {
+        run_attach_pump(reader, pump_terminal, ChannelSink(tx), token);
+    });
+    join_within(pump, "attach pump");
 
     // Output landed and appended at the restored cursor (after "PROMPT$ ").
     let term = terminal.lock().unwrap();
@@ -213,7 +244,7 @@ fn live_output_incremental_repaint() {
         events.contains(&Ev::Exited(token)),
         "EOF after output must signal exit: {events:?}"
     );
-    handle.join().expect("host thread");
+    join_within(handle, "fake host thread");
 }
 
 #[test]
@@ -230,17 +261,21 @@ fn session_exit_is_handled() {
             .expect("attach connects");
     let (tx, rx) = mpsc::channel();
     let token = SessionToken(3);
-    // Pump must return (not hang) after SessionExit.
-    run_attach_pump(
-        reader,
-        Arc::new(Mutex::new(terminal)),
-        ChannelSink(tx),
-        token,
-    );
+    // Pump must return (not hang) after SessionExit. Run it on its own thread and
+    // join under a deadline so a regression here fails fast instead of hanging.
+    let pump = std::thread::spawn(move || {
+        run_attach_pump(
+            reader,
+            Arc::new(Mutex::new(terminal)),
+            ChannelSink(tx),
+            token,
+        );
+    });
+    join_within(pump, "attach pump");
 
     let events: Vec<Ev> = rx.try_iter().collect();
     assert_eq!(events, vec![Ev::Exited(token)]);
-    handle.join().expect("host thread");
+    join_within(handle, "fake host thread");
 }
 
 #[test]

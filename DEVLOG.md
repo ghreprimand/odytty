@@ -7,6 +7,68 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-23 -- macOS session-host: robustness + bounded test waits (defang the intermittent hang)
+
+The `12727d4` fix made the macOS session-host tests pass, but the operator saw
+the suite hang ~19 min on a later commit that changed only `rust-toolchain.toml`
++ DEVLOG (zero test/socket code) — i.e. the underlying non-exit race is rare and
+load-dependent, not eliminated. This packet does NOT claim to have caught that
+exact race (see "what we could not reproduce" below); it makes the system robust
+to it and converts any future recurrence from a silent infinite hang into a
+fast, attributable failure. Done on real macOS hardware (Apple Silicon, macOS
+26, rustc 1.96.0).
+
+**What we could not reproduce (measured, on this 10-core box).** The 7 suspects
+20× each in isolation: 0 hangs. Full lib suite at full parallelism ~10×: 0 hangs.
+Fork-heavy subset at 32–48 threads 25×: 0 hangs. fork→exec window widened to
+500–800 ms in-process: only bounded delays, never an infinite hang. Constrained
+to ~3 cores (CI-like) the suite slowed (80 s → 242 s) but still never hung. Two
+leading theories were *disproven* by standalone repros: (a) "macOS doesn't
+deliver PTY-master EOF on child exit" — EOF arrives in 10–11 ms; (b) "a
+concurrently-forked child inherits another test's socket/PTY fd and blocks EOF"
+— widening that window only delays, never wedges. The race needs the CI runner's
+exact scheduling (3–4 slow cores under contention), which this hardware can
+approximate but not match. No captured stuck-thread backtrace, because nothing
+hung here.
+
+**Robustness (product, `src/session_host/host.rs`).** The host previously
+detected child exit *only* via `PtyEvent::Eof` from the PTY-reader thread. If
+that EOF ever lags or never arrives (the failure mode the symptoms point to),
+the reader and every caller awaiting the host (`host.join()`) block forever. The
+run loop now ALSO polls `session.try_wait()` directly. When the child has gone it
+gives the reader a 2 s grace (`CHILD_EXIT_DRAIN_GRACE`) to flush its final
+output + EOF in order — the normal path wins this race on every healthy run, so
+the fallback stays inert — and only if that grace elapses without EOF does the
+host broadcast `SessionExit` itself and shut down. Proven on hardware: with PTY
+EOF artificially suppressed (simulating the wedged reader), `host_exits_when_
+child_exits` still PASSES via the fallback, exiting in 2.14 s with the correct
+exit code 7; with EOF intact the normal path returns in 0.12 s (no grace
+penalty). On Linux EOF is prompt, so the grace never elapses and the fallback is
+inert → no behavior change.
+
+**Bounded test waits (`src/session_host/tests.rs`,
+`src/native/attach/tests.rs`).** Added a `join_within(handle, what)` helper that
+joins a helper thread under a 30 s deadline, re-raising its panic or panicking
+with a clear "…wedged (run_host never returned)…" message. Routed the four
+`host.join()` sites and the two attach tests' inline `run_attach_pump` + fake-
+host joins through it. A future recurrence now fails fast with an attributable
+message instead of hanging CI for the full job timeout. (The e2e test was already
+bounded via `wait_until` + a kill-on-drop `HostGuard`, so it was left as-is.)
+
+Verified on macOS 26 / rustc 1.96.0: `cargo fmt --check` clean; `cargo clippy
+--all-targets --locked -D warnings` clean; full `cargo test --locked` green and
+exiting, run 3× back-to-back — lib 2163 pass / 9 ignored, `cli` 21/21, e2e 1/1,
+`gpu_composite_smoke` 3/3 byte-identity, `license_headers` 1/1. The 7 suspect
+tests looped 20× each with zero failures/hangs. Linux paths unchanged (the
+fallback is inert when EOF is prompt; the test helpers are test-only).
+
+**Honest status.** This is robustness + fail-fast, not a proven root-cause fix
+for the exact intermittent race (never reproduced on this hardware). If CI ever
+hangs again it will now self-abort in ~30 s with a message naming the wedged
+wait, yielding the evidence a blind-from-Linux fix would need.
+
+---
+
 ## 2026-06-22 -- Pin the toolchain (rust-toolchain.toml) so CI is reproducible
 
 CI green-ness was depending on whichever rustc the GitHub runner image happened

@@ -30,6 +30,15 @@ const DEFAULT_ROWS: usize = 24;
 const DEFAULT_MAX_CLIENTS: usize = 8;
 const DEFAULT_DETACHED_IDLE_TIMEOUT: Duration = Duration::from_secs(12 * 60 * 60);
 const HOST_LOOP_SLEEP: Duration = Duration::from_millis(10);
+/// Grace window between observing the hosted child has exited (via a direct
+/// `try_wait`) and forcing host shutdown. It lets the PTY reader thread flush any
+/// final buffered output and deliver its own EOF — the normal, in-order exit path
+/// — before the fallback fires. On a healthy host the EOF path always wins this
+/// race well inside the grace, so the fallback never triggers; it exists only so
+/// that a delayed or missing PTY-master EOF (observed on macOS/BSD under load, or
+/// if another process transiently holds the slave fd open) can never wedge the
+/// host indefinitely. Generous so a slow runner still flushes output in order.
+const CHILD_EXIT_DRAIN_GRACE: Duration = Duration::from_secs(2);
 const ATTACH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 const ATTACH_WRITE_TIMEOUT: Duration = Duration::from_millis(500);
 const STARTUP_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
@@ -231,6 +240,11 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
     let mut session_alive = true;
     let mut exit_code = None;
     let mut detached_since = Some(Instant::now());
+    // Tracks the first moment a direct `try_wait` observed the child gone, so the
+    // PTY-EOF path is given `CHILD_EXIT_DRAIN_GRACE` to deliver final output + its
+    // own EOF before the robustness fallback forces shutdown. `None` while the
+    // child is still running.
+    let mut child_gone_since: Option<Instant> = None;
 
     loop {
         accept_pending_clients(
@@ -258,6 +272,44 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
                 reason: HostExitReason::SessionExited,
                 exit_code,
             });
+        }
+
+        // Robustness fallback: detect child exit directly, not only via PTY EOF.
+        //
+        // The normal exit path is `PtyEvent::Eof` from the reader thread (handled
+        // in `drain_pty_events` above), which delivers the child's final output in
+        // order and then flips `session_alive`. But a PTY-master read does not
+        // always observe EOF promptly when the child exits — on macOS/BSD under
+        // scheduler pressure, or whenever another process transiently holds a
+        // slave fd open, that EOF can lag badly or never arrive, which would hang
+        // the reader and any caller awaiting this host. So we also poll the child
+        // directly. When it has gone, we still give the reader `CHILD_EXIT_DRAIN
+        // _GRACE` to deliver its buffered output + EOF (the in-order path wins and
+        // returns via the `!session_alive` branch above on every healthy run, so
+        // this fallback stays inert); only if that grace elapses without EOF do we
+        // broadcast `SessionExit` ourselves and shut the host down. On Linux EOF
+        // is prompt, so the grace never elapses and this is inert → no behavior
+        // change there.
+        match session.try_wait() {
+            Ok(Some(status)) => {
+                let since = *child_gone_since.get_or_insert_with(Instant::now);
+                if since.elapsed() >= CHILD_EXIT_DRAIN_GRACE {
+                    exit_code = status.code();
+                    broadcast(
+                        &mut clients,
+                        &HostFrame::SessionExit {
+                            exit_code: status.code(),
+                        },
+                    );
+                    let _ = std::fs::remove_file(&paths.socket);
+                    return Ok(HostExit {
+                        reason: HostExitReason::SessionExited,
+                        exit_code,
+                    });
+                }
+            }
+            Ok(None) => child_gone_since = None,
+            Err(_) => {}
         }
 
         drain_client_events(
