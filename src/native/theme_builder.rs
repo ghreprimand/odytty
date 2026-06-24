@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use std::cell::Cell;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -33,6 +34,16 @@ pub(super) struct ThemeBuilder {
     /// [`ThemeBuilder::is_dragging`] so ordinary hover stays cheap, exactly like
     /// the settings-panel slider.
     dragging_channel: bool,
+    /// How many role rows the last [`ThemeBuilder::build_rows`] render actually
+    /// fit below the fixed header/preview block (OVERLAY-SMALL-WINDOW). The role
+    /// list is the only windowed region, and the header count is variable (the
+    /// hint/message wrap, the conditional preview rows), so this capacity cannot
+    /// be re-derived from `body_height` alone. Interior-mutable because only the
+    /// render pass knows it, yet `clamp` (keyboard nav, `&mut self`) must follow
+    /// the selection through the *real* visible window — replacing the old
+    /// hardcoded `slack = 8` that over-scrolled on short overlays. `0` until the
+    /// first render; the render pass always runs before `scroll_indicator`.
+    last_role_capacity: Cell<usize>,
 }
 
 /// The OKLCH channel the keyboard editor is focused on (U2). Lightness and
@@ -377,6 +388,10 @@ impl ThemeBuilder {
         body_height: usize,
     ) -> Vec<(ThemeBuilderLine, BuilderZone)> {
         let mut rows: Vec<(ThemeBuilderLine, BuilderZone)> = Vec::new();
+        // Default to "no role rows fit" so an early return (degenerate geometry,
+        // or a message that fills the body) cannot leave a stale capacity behind;
+        // the real value is recorded just before the role loop below.
+        self.last_role_capacity.set(0);
         if body_width == 0 || body_height == 0 {
             return rows;
         }
@@ -476,6 +491,13 @@ impl ThemeBuilder {
             ));
         }
 
+        // Record how many role rows actually fit below the (variable) header /
+        // preview block, so keyboard nav's `clamp` follows the selection through
+        // the real visible window and `scroll_indicator` can flag overflow. This
+        // is the single place that knows the true role-list capacity.
+        self.last_role_capacity
+            .set(body_height.saturating_sub(rows.len()));
+
         for (index, field) in FIELDS.iter().enumerate().skip(self.scroll) {
             if rows.len() >= body_height {
                 break;
@@ -526,6 +548,7 @@ impl ThemeBuilder {
             channel: OklchChannel::Lightness,
             save_snap_count: 0,
             dragging_channel: false,
+            last_role_capacity: Cell::new(0),
         }
     }
 
@@ -756,6 +779,22 @@ impl ThemeBuilder {
         self.scroll = (self.scroll as isize + delta).clamp(0, max) as usize;
     }
 
+    /// Hidden role rows above / below the visible window, for the shared ▲/▼
+    /// scroll affordance (OVERLAY-SMALL-WINDOW). The role list is the only
+    /// windowed region; its capacity is whatever [`ThemeBuilder::build_rows`]
+    /// recorded for the current geometry — the render pass always runs before
+    /// this, so the memoized value is fresh. `body_height` is unused because the
+    /// header block above the list is variable; the recorded capacity already
+    /// accounts for it. `(false, false)` whenever every role fits, so a tall
+    /// builder draws no arrows and stays byte-identical.
+    pub(super) fn scroll_indicator(&self, _body_height: usize) -> (bool, bool) {
+        let capacity = self.last_role_capacity.get();
+        if capacity == 0 || FIELDS.len() <= capacity {
+            return (false, false);
+        }
+        (self.scroll > 0, self.scroll + capacity < FIELDS.len())
+    }
+
     /// Handle a left/right press inside the builder body (U2 Step 2/3).
     /// `row_in_body` / `col_in_body` are 0-based offsets from the first body cell.
     /// A click on a role row focuses it; a click on an L/C/H picker token focuses
@@ -952,7 +991,12 @@ impl ThemeBuilder {
         if self.selected < self.scroll {
             self.scroll = self.selected;
         }
-        let visible_slack = 8;
+        // Follow the selection through the *real* visible window recorded by the
+        // last render, not a fixed slack: on a short overlay the role list fits
+        // far fewer than 8 rows, so the old constant scrolled the selection off
+        // screen (the ThemeBuilder half of OVERLAY-SMALL-WINDOW). `max(1)` keeps
+        // the selection visible before the first render seeds the capacity.
+        let visible_slack = self.last_role_capacity.get().max(1);
         if self.selected >= self.scroll + visible_slack {
             self.scroll = self.selected.saturating_sub(visible_slack - 1);
         }

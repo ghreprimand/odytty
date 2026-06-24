@@ -12,6 +12,33 @@ mod sections;
 use path_picker::{PathPickerOutcome, PathPickerSignature, PathPickerState, resolve_start_dir};
 use sections::SECTIONS;
 
+/// Synthetic entry key for the "Open Theme Builder" action row injected at the
+/// end of the Themes section's Level-2 list (v0.3.1 discoverability). It is not
+/// a real setting: it carries no value, is excluded from live value-sync, and on
+/// Activate emits [`SettingsPanelOutcome::OpenThemeBuilder`]. The sentinel key
+/// must not collide with any real setting key.
+const THEME_BUILDER_ACTION_KEY: &str = "__action_open_theme_builder";
+
+/// Build the synthetic "Open Theme Builder" action entry. Rendered as an action
+/// row (a `→` affordance in the value column) rather than an editable setting;
+/// `reloadable` is `true` so the activation is not blocked by the startup-only
+/// guard.
+fn theme_builder_action_entry() -> SettingInfo {
+    SettingInfo {
+        group: "Theme",
+        key: THEME_BUILDER_ACTION_KEY,
+        env: "",
+        name: "Open Theme Builder",
+        value: "\u{2192}".to_owned(),
+        description: "Clone the active theme and edit its colors, then save it as a new theme.",
+        kind: SettingKind::String,
+        range: None,
+        numeric: None,
+        options: &[],
+        reloadable: true,
+    }
+}
+
 /// Two-level navigation state for `SettingsPanel`.
 ///
 /// Level 1 (`SectionList`) renders the short section menu; Level 2
@@ -71,6 +98,11 @@ pub(super) struct SettingsPanelSignature {
     /// Two-level navigation state (SETTINGS-REDESIGN).
     pub(super) level: SettingsLevel,
     pub(super) section_selected: usize,
+    /// Level-1 section-list scroll offset. MUST be in the signature so a
+    /// wheel/keyboard scroll that moves only the view (not the selection)
+    /// still reclassifies the render cache to a repaint (OVERLAY-SMALL-WINDOW:
+    /// its absence left the Level-1 list visually frozen on a small window).
+    pub(super) section_scroll: usize,
     pub(super) pending_close_prompt: bool,
     pub(super) path_picker: Option<PathPickerSignature>,
 }
@@ -262,6 +294,11 @@ impl SettingsPanel {
             }
         }
         for entry in &mut self.entries {
+            // The synthetic action row carries no live value; skip it so it never
+            // forces a spurious full rebuild (its value is static by design).
+            if entry.key == THEME_BUILDER_ACTION_KEY {
+                continue;
+            }
             match settings.display_value_for_key(entry.key) {
                 Some(value) => entry.value = value,
                 None => unknown = true,
@@ -376,9 +413,11 @@ impl SettingsPanel {
             OverlayInput::PageDown => self.move_section_selection(4),
             OverlayInput::Home => {
                 self.section_selected = 0;
+                self.follow_section_selection();
             }
             OverlayInput::End => {
                 self.section_selected = SECTIONS.len().saturating_sub(1);
+                self.follow_section_selection();
             }
             OverlayInput::Activate | OverlayInput::Right => {
                 let idx = self.section_selected;
@@ -635,20 +674,36 @@ impl SettingsPanel {
 
     // ── Drilling and level navigation ───────────────────────────────────────
 
-    /// Drill into section `section_index`: filter `entries` to the section's
-    /// groups, reset Level-2 scroll/selection to the top, and update `level`.
-    /// Clears editing, path_picker, and message (T-editing-clears-on-level-change).
-    pub(super) fn drill_into_section(&mut self, section_index: usize) {
-        let section = match SECTIONS.get(section_index) {
-            Some(s) => s,
-            None => return,
+    /// Build the Level-2 entry list for the section at `section_index`: the
+    /// group-filtered real settings, plus any synthetic action rows the section
+    /// offers. The Themes section appends an "Open Theme Builder" action at the
+    /// end (v0.3.1 discoverability). Both `drill_into_section` and the
+    /// post-commit `refresh_entries_after_commit` build through this so the
+    /// action row survives a live value-sync rebuild.
+    fn section_entries(&self, section_index: usize) -> Vec<SettingInfo> {
+        let Some(section) = SECTIONS.get(section_index) else {
+            return Vec::new();
         };
-        self.entries = self
+        let mut entries: Vec<SettingInfo> = self
             .all_entries
             .iter()
             .filter(|e| section.groups.contains(&e.group))
             .cloned()
             .collect();
+        if section.name == "Themes" {
+            entries.push(theme_builder_action_entry());
+        }
+        entries
+    }
+
+    /// Drill into section `section_index`: filter `entries` to the section's
+    /// groups, reset Level-2 scroll/selection to the top, and update `level`.
+    /// Clears editing, path_picker, and message (T-editing-clears-on-level-change).
+    pub(super) fn drill_into_section(&mut self, section_index: usize) {
+        if SECTIONS.get(section_index).is_none() {
+            return;
+        }
+        self.entries = self.section_entries(section_index);
         // Reset Level-2 state (T-scroll-per-level: entering starts at top).
         self.selected = 0;
         self.scroll = 0;
@@ -663,6 +718,49 @@ impl SettingsPanel {
         let n = SECTIONS.len() as isize;
         let next = (self.section_selected as isize + delta).clamp(0, n - 1) as usize;
         self.section_selected = next;
+        self.follow_section_selection();
+    }
+
+    /// Whether the body has hidden rows above / below the visible window, for
+    /// the scroll affordance (OVERLAY-SMALL-WINDOW). Approximate but stable:
+    /// `(false, false)` whenever everything fits, so a normal window draws no
+    /// arrows and stays byte-identical. Level 1 reserves one body row for the
+    /// footer hint; Level 2 / search compares the entry scroll against the count.
+    pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
+        if body_height == 0 {
+            return (false, false);
+        }
+        if self.path_picker.is_some() {
+            // The path picker is its own sub-list; it manages its own window and
+            // is left without an arrow affordance for now.
+            return (false, false);
+        }
+        if matches!(self.level, SettingsLevel::SectionList) && !self.search_active {
+            let window = body_height.saturating_sub(1).max(1);
+            let total = SECTIONS.len();
+            return (
+                self.section_scroll > 0,
+                self.section_scroll + window < total,
+            );
+        }
+        let total = self.entries.len();
+        (self.scroll > 0, self.scroll + body_height < total)
+    }
+
+    /// Keep the selected section inside the Level-1 visible window by adjusting
+    /// `section_scroll` (OVERLAY-SMALL-WINDOW). Without this, ArrowDown on a
+    /// short window walked the selection off-screen while the view stayed put.
+    /// The footer hint consumes one body row when there is room, so the section
+    /// viewport is `last_body_height - 1` rows (min 1).
+    fn follow_section_selection(&mut self) {
+        let window = self.last_body_height.saturating_sub(1).max(1);
+        if self.section_selected < self.section_scroll {
+            self.section_scroll = self.section_selected;
+        } else if self.section_selected >= self.section_scroll + window {
+            self.section_scroll = self.section_selected + 1 - window;
+        }
+        let max_scroll = SECTIONS.len().saturating_sub(1);
+        self.section_scroll = self.section_scroll.min(max_scroll);
     }
 
     // ── Render ───────────────────────────────────────────────────────────────
@@ -687,6 +785,7 @@ impl SettingsPanel {
             search_active: self.search_active,
             level: self.level,
             section_selected: self.section_selected,
+            section_scroll: self.section_scroll,
             pending_close_prompt: self.pending_close_prompt,
             path_picker: self
                 .path_picker
@@ -747,6 +846,12 @@ impl SettingsPanel {
         if !entry.reloadable {
             self.message = Some("Startup-only setting; edit odytty.conf and restart.".to_owned());
             return SettingsPanelOutcome::Consumed;
+        }
+        // The synthetic "Open Theme Builder" action row opens the builder
+        // directly (v0.3.1 discoverability) — no `b` press, no row edit.
+        if entry.key == THEME_BUILDER_ACTION_KEY {
+            self.message = Some("Opening theme builder.".to_owned());
+            return SettingsPanelOutcome::OpenThemeBuilder;
         }
         // Key-specific overrides (run before kind dispatch):
         // - theme: Enter opens the theme picker (not RowEdit) in the two-level model.
@@ -962,17 +1067,11 @@ impl SettingsPanel {
         }
         if let SettingsLevel::SectionDetail { section_index } = &self.level.clone() {
             let si = *section_index;
-            let section = match SECTIONS.get(si) {
-                Some(s) => s,
-                None => return,
-            };
+            if SECTIONS.get(si).is_none() {
+                return;
+            }
             let key = self.entries.get(self.selected).map(|e| e.key);
-            self.entries = self
-                .all_entries
-                .iter()
-                .filter(|e| section.groups.contains(&e.group))
-                .cloned()
-                .collect();
+            self.entries = self.section_entries(si);
             // Re-find the selected key in the new list (values may have changed).
             if let Some(key) = key
                 && let Some(pos) = self.entries.iter().position(|e| e.key == key)
@@ -1449,6 +1548,67 @@ mod tests {
         assert_eq!(
             panel.handle_input(OverlayInput::Char('b')),
             SettingsPanelOutcome::OpenThemeBuilder
+        );
+    }
+
+    #[test]
+    fn themes_section_has_open_theme_builder_action_entry() {
+        // v0.3.1 discoverability: the Themes Level-2 list ends with a selectable
+        // "Open Theme Builder" action row that emits OpenThemeBuilder on Enter —
+        // no `b` press, no row edit (the operator couldn't find the builder).
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let themes = SECTIONS
+            .iter()
+            .position(|s| s.name == "Themes")
+            .expect("Themes section");
+        panel.drill_into_section(themes);
+
+        // The action entry is present and last in the list.
+        let action_pos = panel
+            .entries
+            .iter()
+            .position(|e| e.key == THEME_BUILDER_ACTION_KEY)
+            .expect("action entry present in Themes");
+        assert_eq!(
+            action_pos,
+            panel.entries.len() - 1,
+            "the action row sits at the end of the Themes entries"
+        );
+        assert_eq!(panel.entries[action_pos].name, "Open Theme Builder");
+
+        // Activating it opens the builder directly.
+        panel.set_selection(action_pos);
+        assert_eq!(
+            panel.handle_input(OverlayInput::Activate),
+            SettingsPanelOutcome::OpenThemeBuilder
+        );
+    }
+
+    #[test]
+    fn theme_builder_action_survives_live_value_sync() {
+        // A live settings echo (apply_settings) must not drop the synthetic
+        // action row — it has no real value, so a naive value-sync would force a
+        // group-filter rebuild that loses it.
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let themes = SECTIONS
+            .iter()
+            .position(|s| s.name == "Themes")
+            .expect("Themes section");
+        panel.drill_into_section(themes);
+        assert!(
+            panel
+                .entries
+                .iter()
+                .any(|e| e.key == THEME_BUILDER_ACTION_KEY)
+        );
+
+        panel.apply_settings(&Settings::default());
+        assert!(
+            panel
+                .entries
+                .iter()
+                .any(|e| e.key == THEME_BUILDER_ACTION_KEY),
+            "the action row survives a live value-sync"
         );
     }
 

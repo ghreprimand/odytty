@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Right-click context menu (IN2). A small, cell-rendered popup offering Copy /
-//! Cut / Paste / Delete / Select All / New Tab / Close Tab / Settings, spawned
-//! at the pointer cell and edge-clamped to the grid.
+//! Cut / Paste / Delete / Select All / New Tab / Close Tab / Settings and the
+//! v0.3.1 launcher section (Connection Manager / Command Palette / Session
+//! Replay), spawned at the pointer cell and edge-clamped to the grid.
 //!
 //! The menu is *always available* — there is no `context_menu` enable bool. The
 //! TUI mouse-reporting passthrough guard in [`super::app`] is the effective off
@@ -23,11 +24,12 @@
 //! Tab, Close Tab, and Settings are always enabled. A disabled item renders dim
 //! and its activation is a no-op.
 //!
-//! Three visual separator lines partition the menu into editing/selection
+//! Four visual separator lines partition the menu into editing/selection
 //! commands (Copy…Select All), tab actions (New Tab / Rename Tab / Close Tab),
-//! split/pane actions (Split Right / Split Down / Close Pane), and the Settings
-//! launcher. Separators occupy body rows but are neither selectable nor
-//! focusable (D-IN2-SETTINGS).
+//! split/pane actions (Split Right / Split Down / Close Pane), the Settings
+//! launcher, and the overlay launcher section (Connection Manager / Command
+//! Palette / Session Replay). Separators occupy body rows but are neither
+//! selectable nor focusable (D-IN2-SETTINGS).
 //!
 //! Pane-count gating: the **Close Pane** item is shown only when the active tab
 //! is multi-pane (the App passes `multi_pane` at open time). In a single-pane
@@ -50,10 +52,11 @@ use crate::settings::BindableAction;
 
 /// Number of entries in [`ContextMenuItem::ALL`] (Copy / Cut / Paste / Delete /
 /// Select All / New Tab / Rename Tab / Close Tab / Split Right / Split Down /
-/// Close Pane / Settings) — the size of the accelerator array the App fills in
-/// `ALL` order. NOT the number of *visible* items: Close Pane is hidden in a
-/// single-pane tab, so the visible count is 11 there and 12 in a multi-pane tab.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 12;
+/// Close Pane / Settings / Connection Manager / Command Palette / Session
+/// Replay) — the size of the accelerator array the App fills in `ALL` order. NOT
+/// the number of *visible* items: Close Pane is hidden in a single-pane tab, so
+/// the visible count is 14 there and 15 in a multi-pane tab.
+pub(super) const CONTEXT_MENU_ITEMS: usize = 15;
 
 /// Body row index of the first visual separator (single-pane layout), between
 /// Select All and New Tab. The separators move when Close Pane appears in a
@@ -73,12 +76,18 @@ pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 9;
 #[cfg(test)]
 pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 12;
 
-/// Total body rows in the **single-pane** layout: eleven visible items plus
-/// three separator lines (Close Pane hidden). The multi-pane layout has one
+/// Body row index of the fourth visual separator (single-pane layout), between
+/// Settings and the launcher section (Connection Manager / Command Palette /
+/// Session Replay) added in v0.3.1.
+#[cfg(test)]
+pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 14;
+
+/// Total body rows in the **single-pane** layout: fourteen visible items plus
+/// four separator lines (Close Pane hidden). The multi-pane layout has one
 /// more row; production uses [`ContextMenuUi::body_row_count`] for the live
 /// count.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 14;
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 18;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -107,6 +116,15 @@ pub(super) enum ContextMenuItem {
     ClosePane,
     /// Open the settings panel (always enabled, D-IN2-SETTINGS).
     Settings,
+    /// Open the connection manager overlay (v0.3.1 discoverability). Always
+    /// enabled; same destination as the `Ctrl+Shift+S` chord.
+    ConnectionManager,
+    /// Open the command palette overlay (v0.3.1 discoverability). Always
+    /// enabled; same destination as the `Ctrl+Shift+P` chord.
+    CommandPalette,
+    /// Open the session-replay overlay (v0.3.1 discoverability). Always enabled;
+    /// same destination as the `Ctrl+Shift+R` chord.
+    SessionReplay,
 }
 
 impl ContextMenuItem {
@@ -126,6 +144,9 @@ impl ContextMenuItem {
         Self::SplitRows,
         Self::ClosePane,
         Self::Settings,
+        Self::ConnectionManager,
+        Self::CommandPalette,
+        Self::SessionReplay,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -139,6 +160,7 @@ impl ContextMenuItem {
             Self::NewTab | Self::RenameTab | Self::CloseTab => 1,
             Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
             Self::Settings => 3,
+            Self::ConnectionManager | Self::CommandPalette | Self::SessionReplay => 4,
         }
     }
 
@@ -157,6 +179,9 @@ impl ContextMenuItem {
             Self::SplitRows => "Split Down",
             Self::ClosePane => "Close Pane",
             Self::Settings => "Settings",
+            Self::ConnectionManager => "Connection Manager",
+            Self::CommandPalette => "Command Palette",
+            Self::SessionReplay => "Session Replay",
         }
     }
 
@@ -174,6 +199,9 @@ impl ContextMenuItem {
             Self::SplitColumns => Some(BindableAction::SplitColumns),
             Self::SplitRows => Some(BindableAction::SplitRows),
             Self::Settings => Some(BindableAction::SettingsPanel),
+            Self::ConnectionManager => Some(BindableAction::ConnectionManager),
+            Self::CommandPalette => Some(BindableAction::CommandPalette),
+            Self::SessionReplay => Some(BindableAction::SessionReplay),
             // Close Pane has no chord in the flat global table — it resolves only
             // on the multiplexer prefix (`Ctrl-b x`), which the flat
             // `chord_for_action` lookup cannot represent. The App fills its
@@ -184,13 +212,16 @@ impl ContextMenuItem {
     }
 }
 
-/// Map a selectable item index to its body row, accounting for the three
+/// Map a selectable item index to its body row, accounting for the four
 /// separators. Items 0–4 sit at body rows 0–4; items 5–7 (tab actions) sit at
 /// body rows 6–8; items 8–9 (splits) sit at body rows 10–11; Settings (index
-/// 10) sits at body row 13.
+/// 10) sits at body row 13; the launcher items 11–13 (Connection Manager /
+/// Command Palette / Session Replay) sit at body rows 15–17.
 #[cfg(test)]
 fn item_to_body_row(item_index: usize) -> usize {
-    if item_index >= 10 {
+    if item_index >= 11 {
+        item_index + 4
+    } else if item_index >= 10 {
         item_index + 3
     } else if item_index >= 8 {
         item_index + 2
@@ -210,8 +241,11 @@ fn body_row_to_item(body_row: usize) -> Option<usize> {
     if body_row == CONTEXT_MENU_SEPARATOR_ROW
         || body_row == CONTEXT_MENU_SECOND_SEPARATOR_ROW
         || body_row == CONTEXT_MENU_THIRD_SEPARATOR_ROW
+        || body_row == CONTEXT_MENU_FOURTH_SEPARATOR_ROW
     {
         None
+    } else if body_row > CONTEXT_MENU_FOURTH_SEPARATOR_ROW {
+        Some(body_row - 4)
     } else if body_row > CONTEXT_MENU_THIRD_SEPARATOR_ROW {
         Some(body_row - 3)
     } else if body_row > CONTEXT_MENU_SECOND_SEPARATOR_ROW {
@@ -273,8 +307,10 @@ pub(super) struct ContextMenuSignature {
 }
 
 /// The right-click context menu state. Holds the spawn cell, the focused item,
-/// and the snapshot of which items are enabled. No scroll state — the items
-/// always fit.
+/// and the snapshot of which items are enabled. No stored scroll state: when the
+/// window is too short to show every row, the visible window is derived purely
+/// from the focused item and the box-clamped body height (see
+/// [`ContextMenuUi::scroll_offset`]), so it stays unit-testable without a GPU.
 #[derive(Debug, Clone)]
 pub(super) struct ContextMenuUi {
     spawn: CellPoint,
@@ -371,6 +407,9 @@ impl ContextMenuUi {
             ContextMenuItem::SplitRows => true,
             ContextMenuItem::ClosePane => true,
             ContextMenuItem::Settings => true,
+            ContextMenuItem::ConnectionManager => true,
+            ContextMenuItem::CommandPalette => true,
+            ContextMenuItem::SessionReplay => true,
         }
     }
 
@@ -472,6 +511,11 @@ impl ContextMenuUi {
         let height = (body_rows + 2).min(rows.max(1));
         let left = self.spawn.column.min(columns.saturating_sub(width));
         let top = self.spawn.row.min(rows.saturating_sub(height));
+        // Clamp the body window to the box interior (height minus the top and
+        // bottom border rows). When the menu fits, `height == body_rows + 2` so
+        // this equals `body_rows` and the layout is byte-identical to before
+        // scrolling existed; only a too-short window produces a smaller window.
+        let body_height = height.saturating_sub(2).min(body_rows);
         OverlayRect {
             left,
             top,
@@ -480,8 +524,35 @@ impl ContextMenuUi {
             body_left: left + 2,
             body_top: top + 1,
             body_width: width.saturating_sub(4),
-            body_height: body_rows,
+            body_height,
         }
+    }
+
+    /// The body row of the currently focused item (separators are never
+    /// focused), used to keep the focus inside the visible scroll window.
+    fn focused_body_row(&self) -> usize {
+        let focused_item = self.visible_items()[self.focused];
+        self.body_layout()
+            .iter()
+            .position(|row| *row == Some(focused_item))
+            .unwrap_or(0)
+    }
+
+    /// The first body row to render, given the box-clamped `body_height`. When
+    /// every row fits (`body_height >= body_row_count`) this is always `0` — the
+    /// normal case, byte-identical to the pre-scroll layout. Otherwise it is the
+    /// smallest offset that keeps the focused item inside the
+    /// `[offset, offset + body_height)` window, clamped so the last row is
+    /// reachable and the window never scrolls past the final body row.
+    pub(super) fn scroll_offset(&self, body_height: usize) -> usize {
+        let total = self.body_row_count();
+        if body_height == 0 || total <= body_height {
+            return 0;
+        }
+        let max_scroll = total - body_height;
+        let focused_row = self.focused_body_row();
+        let desired = focused_row.saturating_sub(body_height - 1);
+        desired.min(max_scroll)
     }
 
     fn focus_prev(&mut self) {
@@ -525,18 +596,26 @@ impl ContextMenuUi {
     }
 
     /// Handle a press on a body row (already resolved to a body-relative row by
-    /// the overlay). Activation happens on PRESS. A press on the separator row
-    /// or a row past the last body row is inert. The pressed item also takes
-    /// focus. Disabled items swallow the press (D-IN2-6).
+    /// the overlay, i.e. relative to the *visible* window). `body_height` is the
+    /// box-clamped visible row count, so the press is offset by the current
+    /// [`Self::scroll_offset`] to reach the true body row. Activation happens on
+    /// PRESS. A press past the visible window, on the separator row, or past the
+    /// last body row is inert. The pressed item also takes focus. Disabled items
+    /// swallow the press (D-IN2-6).
     pub(super) fn handle_press(
         &mut self,
         row_in_body: usize,
+        body_height: usize,
         _button: PointerButton,
     ) -> ContextMenuOutcome {
-        if row_in_body >= self.body_row_count() {
+        if row_in_body >= body_height {
             return ContextMenuOutcome::Consumed;
         }
-        let Some(item_index) = self.body_row_to_item_index(row_in_body) else {
+        let body_row = self.scroll_offset(body_height) + row_in_body;
+        if body_row >= self.body_row_count() {
+            return ContextMenuOutcome::Consumed;
+        }
+        let Some(item_index) = self.body_row_to_item_index(body_row) else {
             // Separator row: inert.
             return ContextMenuOutcome::Consumed;
         };
@@ -551,11 +630,15 @@ impl ContextMenuUi {
 
     /// Move focus to the item under a hovering pointer (D-IN2-6). `row_in_body`
     /// is `None` when the pointer is on the border / off a body row, leaving
-    /// focus unchanged. The separator row is skipped (hover over it leaves focus
-    /// on its last position).
-    pub(super) fn handle_hover(&mut self, row_in_body: Option<usize>) {
+    /// focus unchanged. `body_height` is the box-clamped visible row count; the
+    /// hovered row is offset by the current [`Self::scroll_offset`] to reach the
+    /// true body row. A hover past the visible window or on a separator row is
+    /// skipped (focus stays on its last position).
+    pub(super) fn handle_hover(&mut self, row_in_body: Option<usize>, body_height: usize) {
         if let Some(row) = row_in_body
-            && let Some(item_index) = self.body_row_to_item_index(row)
+            && row < body_height
+            && let Some(item_index) =
+                self.body_row_to_item_index(self.scroll_offset(body_height) + row)
         {
             self.focused = item_index;
         }
@@ -684,14 +767,91 @@ mod tests {
     }
 
     #[test]
+    fn tall_window_has_no_scroll_and_full_body() {
+        // The fits-on-screen case: the whole body is visible, the scroll offset
+        // is zero, and the layout is byte-identical to the pre-scroll menu.
+        let m = menu(true, true);
+        let rect = m.rect(80, 24);
+        assert_eq!(
+            rect.body_height,
+            m.body_row_count(),
+            "full body visible when it fits"
+        );
+        assert_eq!(
+            m.scroll_offset(rect.body_height),
+            0,
+            "no scroll when the menu fits"
+        );
+    }
+
+    #[test]
+    fn rect_clamps_body_window_to_short_window() {
+        // A window too short for the 14-row body: the body window is clamped to
+        // the box interior and never overflows past the bottom border / window.
+        let m = menu(true, true);
+        let rect = m.rect(40, 8);
+        assert!(rect.top + rect.height <= 8, "box stays on screen");
+        assert!(
+            rect.body_height <= rect.height.saturating_sub(2),
+            "body window fits inside the top/bottom borders"
+        );
+        assert!(
+            rect.body_top + rect.body_height < rect.top + rect.height,
+            "body window must not overflow into/below the bottom border"
+        );
+        assert!(
+            rect.body_height < m.body_row_count(),
+            "the window really is shorter than the menu"
+        );
+    }
+
+    #[test]
+    fn focus_down_scrolls_last_item_into_view() {
+        // Walking focus down to the last item must scroll the window so the last
+        // item becomes visible and reachable by both keyboard and pointer.
+        let mut m = menu(true, true);
+        let rect = m.rect(40, 8);
+        let body_height = rect.body_height;
+        assert_eq!(
+            m.scroll_offset(body_height),
+            0,
+            "starts unscrolled at item 0"
+        );
+
+        for _ in 0..(m.item_count() - 1) {
+            m.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(m.focused, m.item_count() - 1, "focus reached the last item");
+
+        let scroll = m.scroll_offset(body_height);
+        let last_body_row = m.focused_body_row();
+        assert!(
+            scroll <= last_body_row && last_body_row < scroll + body_height,
+            "focused last item must sit inside the visible window \
+             (scroll={scroll}, last_body_row={last_body_row}, body_height={body_height})"
+        );
+
+        // A press on the visible row holding the last item activates it. The
+        // last visible single-pane item is now Session Replay (the v0.3.1
+        // launcher section sits below Settings).
+        let visible_row = last_body_row - scroll;
+        assert_eq!(
+            m.handle_press(visible_row, body_height, PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::SessionReplay),
+            "last item reachable via the scrolled visible window"
+        );
+    }
+
+    #[test]
     fn focus_cycles_with_wrap() {
         let mut m = menu(true, true);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        // Wraps from 0 to the last *visible* item (Settings). Single-pane hides
-        // Close Pane, so the visible count is 11 and the last index is 10.
+        // Wraps from 0 to the last *visible* item (Session Replay). Single-pane
+        // hides Close Pane, so the visible count is 14 (10 original + 1 Settings
+        // + 3 launchers) and the last index is 13.
         assert_eq!(m.focused, m.item_count() - 1);
-        assert_eq!(m.item_count(), 11);
+        assert_eq!(m.item_count(), 14);
         m.handle_input(OverlayInput::Down);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Down);
@@ -703,7 +863,7 @@ mod tests {
         let mut m = menu(false, true);
         // Focus Copy (index 0, body row 0) and press it — disabled, so no Activate.
         assert_eq!(
-            m.handle_press(0, PointerButton::Left),
+            m.handle_press(0, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Consumed
         );
         // Focus + activate via keyboard is also a no-op.
@@ -718,7 +878,7 @@ mod tests {
         let mut m = menu(true, false);
         // Paste is at item index 2 → body row 2.
         assert_eq!(
-            m.handle_press(2, PointerButton::Left),
+            m.handle_press(2, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Consumed
         );
     }
@@ -728,7 +888,7 @@ mod tests {
         let mut m = menu(false, false);
         // SelectAll is at item index 4 → body row 4.
         assert_eq!(
-            m.handle_press(4, PointerButton::Left),
+            m.handle_press(4, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::SelectAll)
         );
     }
@@ -738,12 +898,12 @@ mod tests {
         let mut m = menu(false, false);
         assert_eq!(item_to_body_row(5), 6, "New Tab item is at body row 6");
         assert_eq!(
-            m.handle_press(6, PointerButton::Left),
+            m.handle_press(6, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::NewTab)
         );
         assert_eq!(item_to_body_row(6), 7, "Rename Tab item is at body row 7");
         assert_eq!(
-            m.handle_press(7, PointerButton::Left),
+            m.handle_press(7, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Consumed
         );
         m.open(
@@ -756,13 +916,13 @@ mod tests {
             false,
         );
         assert_eq!(
-            m.handle_press(7, PointerButton::Left),
+            m.handle_press(7, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::RenameTab)
         );
         assert_eq!(m.rename_target(), Some(SessionToken(9)));
         assert_eq!(item_to_body_row(7), 8, "Close Tab item is at body row 8");
         assert_eq!(
-            m.handle_press(8, PointerButton::Left),
+            m.handle_press(8, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::CloseTab)
         );
     }
@@ -777,12 +937,12 @@ mod tests {
             "Split Right item is at body row 10"
         );
         assert_eq!(
-            m.handle_press(10, PointerButton::Left),
+            m.handle_press(10, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::SplitColumns)
         );
         assert_eq!(item_to_body_row(9), 11, "Split Down item is at body row 11");
         assert_eq!(
-            m.handle_press(11, PointerButton::Left),
+            m.handle_press(11, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::SplitRows)
         );
     }
@@ -793,19 +953,20 @@ mod tests {
         // Settings is at item index 10 → body row 13.
         assert_eq!(item_to_body_row(10), 13, "Settings item is at body row 13");
         assert_eq!(
-            m.handle_press(13, PointerButton::Left),
+            m.handle_press(13, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::Settings)
         );
     }
 
     #[test]
     fn single_pane_menu_hides_close_pane() {
-        // Single-pane: Close Pane is absent, layout is the legacy 14-row menu
-        // (byte-identical to before the item existed), Settings is the last row.
+        // Single-pane: Close Pane is absent; the layout is the 18-row menu with
+        // the v0.3.1 launcher section below Settings. Settings stays at body row
+        // 13; the launcher items follow after the fourth separator.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 11);
+        assert_eq!(m.item_count(), 14);
         let rows = m.rows();
-        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 14
+        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 18
         assert!(
             !rows.iter().any(|r| matches!(
                 r,
@@ -821,16 +982,21 @@ mod tests {
             item("Settings", false, true),
             "Settings stays at body row 13 single-pane"
         );
+        assert_eq!(rows[14], ContextMenuRow::Separator);
+        assert_eq!(rows[15], item("Connection Manager", false, true));
+        assert_eq!(rows[16], item("Command Palette", false, true));
+        assert_eq!(rows[17], item("Session Replay", false, true));
     }
 
     #[test]
     fn multi_pane_menu_shows_close_pane_in_the_split_section() {
         // Multi-pane: Close Pane appears after Split Down in the split/pane
-        // section; the third separator and Settings shift down one row.
+        // section; the third separator and Settings shift down one row, and the
+        // v0.3.1 launcher section follows below Settings.
         let m = multipane_menu();
-        assert_eq!(m.item_count(), 12);
+        assert_eq!(m.item_count(), 15);
         let rows = m.rows();
-        assert_eq!(rows.len(), 15, "one more row than single-pane");
+        assert_eq!(rows.len(), 19, "one more row than single-pane");
         assert_eq!(rows[10], item("Split Right", false, true));
         assert_eq!(rows[11], item("Split Down", false, true));
         assert_eq!(
@@ -844,6 +1010,10 @@ mod tests {
             item("Settings", false, true),
             "Settings shifts to body row 14 in the multi-pane layout"
         );
+        assert_eq!(rows[15], ContextMenuRow::Separator);
+        assert_eq!(rows[16], item("Connection Manager", false, true));
+        assert_eq!(rows[17], item("Command Palette", false, true));
+        assert_eq!(rows[18], item("Session Replay", false, true));
     }
 
     #[test]
@@ -851,20 +1021,21 @@ mod tests {
         // Pressing the Close Pane body row (12) activates the item.
         let mut m = multipane_menu();
         assert_eq!(
-            m.handle_press(12, PointerButton::Left),
+            m.handle_press(12, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::ClosePane)
         );
     }
 
     #[test]
-    fn multi_pane_focus_wraps_through_twelve_items() {
-        // Up from item 0 wraps to the last visible item (Settings, index 11),
-        // proving Close Pane is in the focus cycle only when multi-pane.
+    fn multi_pane_focus_wraps_through_all_items() {
+        // Up from item 0 wraps to the last visible item (Session Replay, index
+        // 14), proving Close Pane is in the focus cycle only when multi-pane and
+        // the launcher items extend the cycle.
         let mut m = multipane_menu();
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        assert_eq!(m.focused, 11);
-        assert_eq!(m.item_count(), 12);
+        assert_eq!(m.focused, 14);
+        assert_eq!(m.item_count(), 15);
     }
 
     #[test]
@@ -877,7 +1048,7 @@ mod tests {
             CONTEXT_MENU_THIRD_SEPARATOR_ROW,
         ] {
             assert_eq!(
-                m.handle_press(sep, PointerButton::Left),
+                m.handle_press(sep, m.body_row_count(), PointerButton::Left),
                 ContextMenuOutcome::Consumed
             );
             assert_eq!(m.focused, before, "separator press does not move focus");
@@ -887,7 +1058,7 @@ mod tests {
     #[test]
     fn hover_skips_separator() {
         let mut m = menu(true, true);
-        m.handle_hover(Some(2)); // Paste
+        m.handle_hover(Some(2), m.body_row_count()); // Paste
         assert_eq!(m.focused, 2);
         // Hovering each separator leaves focus unchanged.
         for sep in [
@@ -895,11 +1066,11 @@ mod tests {
             CONTEXT_MENU_SECOND_SEPARATOR_ROW,
             CONTEXT_MENU_THIRD_SEPARATOR_ROW,
         ] {
-            m.handle_hover(Some(sep));
+            m.handle_hover(Some(sep), m.body_row_count());
             assert_eq!(m.focused, 2, "separator hover is inert");
         }
         // Hovering Settings (body row 13) focuses it (item index 10).
-        m.handle_hover(Some(13));
+        m.handle_hover(Some(13), m.body_row_count());
         assert_eq!(m.focused, 10, "hover Settings focuses it");
     }
 
@@ -907,11 +1078,11 @@ mod tests {
     fn enabled_items_activate_on_press() {
         let mut m = menu(true, true);
         assert_eq!(
-            m.handle_press(0, PointerButton::Left),
+            m.handle_press(0, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::Copy)
         );
         assert_eq!(
-            m.handle_press(2, PointerButton::Left),
+            m.handle_press(2, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::Paste)
         );
     }
@@ -929,11 +1100,11 @@ mod tests {
             false,
         );
         assert_eq!(
-            m.handle_press(1, PointerButton::Left),
+            m.handle_press(1, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Consumed
         );
         assert_eq!(
-            m.handle_press(3, PointerButton::Left),
+            m.handle_press(3, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Consumed
         );
     }
@@ -943,7 +1114,11 @@ mod tests {
         let mut m = menu(true, true);
         // row_in_body == CONTEXT_MENU_BODY_ROWS is past the bottom border.
         assert_eq!(
-            m.handle_press(CONTEXT_MENU_BODY_ROWS, PointerButton::Left),
+            m.handle_press(
+                CONTEXT_MENU_BODY_ROWS,
+                m.body_row_count(),
+                PointerButton::Left
+            ),
             ContextMenuOutcome::Consumed
         );
     }
@@ -960,13 +1135,13 @@ mod tests {
     #[test]
     fn hover_moves_focus_only_over_items() {
         let mut m = menu(true, true);
-        m.handle_hover(Some(2));
+        m.handle_hover(Some(2), m.body_row_count());
         assert_eq!(m.focused, 2);
         // Off-item hover leaves focus unchanged.
-        m.handle_hover(None);
+        m.handle_hover(None, m.body_row_count());
         assert_eq!(m.focused, 2);
         // Row past all body rows is inert.
-        m.handle_hover(Some(CONTEXT_MENU_BODY_ROWS + 5));
+        m.handle_hover(Some(CONTEXT_MENU_BODY_ROWS + 5), m.body_row_count());
         assert_eq!(m.focused, 2);
     }
 

@@ -952,6 +952,10 @@ impl App {
                 self.open_connection_overlay();
                 return;
             }
+            if action == Some(BindableAction::ThemeBuilder) {
+                self.open_theme_builder_overlay();
+                return;
+            }
             if action == Some(BindableAction::Search) {
                 self.toggle_search();
                 return;
@@ -1045,6 +1049,7 @@ impl App {
                 | Some(BindableAction::CommandPalette)
                 | Some(BindableAction::SessionReplay)
                 | Some(BindableAction::ConnectionManager)
+                | Some(BindableAction::ThemeBuilder)
                 | Some(BindableAction::SettingsPanel)
                 | Some(BindableAction::ThemePicker)
                 | None => {}

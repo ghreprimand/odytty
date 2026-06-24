@@ -211,19 +211,23 @@ pub enum BindableAction {
     /// Clear the current shell input line (IN1). Writes a readline-style
     /// kill-whole-line sequence to the PTY; inert when unbound.
     ClearInput,
-    /// Open the in-window command palette. No default chord is installed; users
-    /// opt in with `keybinds` / `ODYTTY_KEYBINDS` so the unset input path stays
-    /// byte-identical.
+    /// Open the in-window command palette. Bound to `Ctrl+Shift+P` by default
+    /// (the industry-standard palette chord; v0.3.1 discoverability). This
+    /// reclaims `Ctrl+Shift+P` from prompt-jump, whose primary bindings are the
+    /// `Ctrl+Shift+Up/Down` arrow chords (unchanged).
     CommandPalette,
-    /// Open the output-replay overlay (Phase 2). No default chord is installed;
-    /// users opt in with `keybinds` / `ODYTTY_KEYBINDS`, so the unset input path
-    /// stays byte-identical. Replay is presentation-only.
+    /// Open the output-replay overlay (Phase 2). Bound to `Ctrl+Shift+R` by
+    /// default (v0.3.1 discoverability). Replay is presentation-only.
     SessionReplay,
-    /// Open the connection-manager overlay (Phase 4). No default chord is
-    /// installed; users opt in with `keybinds` / `ODYTTY_KEYBINDS`, so the unset
-    /// input path stays byte-identical. The overlay is presentation-only; it
+    /// Open the connection-manager overlay (Phase 4). Bound to `Ctrl+Shift+S`
+    /// by default (v0.3.1 discoverability). The overlay is presentation-only; it
     /// lists saved hosts and emits a connect request on accept.
     ConnectionManager,
+    /// Open the theme builder overlay directly (v0.3.1 discoverability). Bound to
+    /// `Ctrl+Shift+B` by default. Previously reachable only via the settings
+    /// Themes section; this gives it a first-class action so a chord and a menu
+    /// entry can open it without navigating the panel.
+    ThemeBuilder,
     NewTab,
     NextTab,
     PrevTab,
@@ -287,6 +291,7 @@ impl BindableAction {
             "connectionmanager" | "connections" | "connect" | "sshmanager" | "hosts" => {
                 Some(Self::ConnectionManager)
             }
+            "themebuilder" | "buildtheme" | "newtheme" | "themeeditor" => Some(Self::ThemeBuilder),
             "newtab" | "tabnew" => Some(Self::NewTab),
             "nexttab" | "tabnext" => Some(Self::NextTab),
             "prevtab" | "previoustab" | "tabprev" => Some(Self::PrevTab),

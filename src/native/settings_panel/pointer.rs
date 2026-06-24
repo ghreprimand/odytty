@@ -151,11 +151,16 @@ impl SettingsPanel {
                 },
             ));
         }
-        // Footer hint.
+        // Footer hint. Word-fitted to the body so a narrow window degrades to a
+        // shorter whole-word hint instead of a mid-word cut ("Ctrl+S sav");
+        // byte-identical on a normal window where the full hint fits.
         if rows.len() < body_height {
             rows.push((
                 SettingsPanelLine {
-                    text: "  Enter/\u{2192} open  / search  Ctrl+S save  Esc close".to_owned(),
+                    text: crate::native::overlay::fit_hint_to_width(
+                        "  Enter/\u{2192} open  / search  Ctrl+S save  Esc close",
+                        body_width,
+                    ),
                     focused: false,
                     bold: false,
                 },
@@ -627,6 +632,12 @@ impl SettingsPanel {
             self.message = Some("Startup-only setting; edit odytty.conf and restart.".to_owned());
             return SettingsPanelOutcome::Consumed;
         }
+        // The synthetic "Open Theme Builder" action row opens the builder
+        // directly on click (v0.3.1 discoverability), mirroring `activate_selected`.
+        if entry.key == super::THEME_BUILDER_ACTION_KEY {
+            self.message = Some("Opening theme builder.".to_owned());
+            return SettingsPanelOutcome::OpenThemeBuilder;
+        }
         match entry.kind {
             // Key-specific overrides run before kind dispatch (theme is Enum,
             // font_family is String — both open pickers not editors).
@@ -757,6 +768,38 @@ mod tests {
                     .map(|_| (row, hit.zone))
             })
             .expect("stepper row present")
+    }
+
+    #[test]
+    fn level1_footer_word_fits_on_a_narrow_panel() {
+        // OVERLAY-SMALL-WINDOW: the Level-1 section-list footer must degrade to
+        // a whole-word hint on a narrow panel, never a mid-word cut.
+        const FULL: &str = "  Enter/\u{2192} open  / search  Ctrl+S save  Esc close";
+        // Default panel is Level 1 (section list), so the footer hint is built.
+        let p = SettingsPanel::new(&Settings::default());
+
+        // Wide body: byte-identical to the full footer (large-window guard).
+        let wide = p.build_visible_rows(W, H);
+        assert_eq!(
+            wide.last().expect("rows present").0.text,
+            FULL,
+            "wide panel shows the full footer unchanged"
+        );
+
+        // Narrow body: footer fits and breaks only on word boundaries. 21 is
+        // chosen because a naive char cut at 21 lands mid-word ("…/ sea"),
+        // so this width genuinely distinguishes the word-fit from a char cut.
+        let narrow = 21;
+        let rows = p.build_visible_rows(narrow, H);
+        let footer = &rows.last().expect("rows present").0.text;
+        assert!(
+            footer.chars().count() <= narrow,
+            "footer must fit the narrow body: {footer:?}"
+        );
+        assert!(footer.len() < FULL.len(), "footer really was shortened");
+        for (got, want) in footer.split(' ').zip(FULL.split(' ')) {
+            assert_eq!(got, want, "footer trimmed on a word boundary, not mid-word");
+        }
     }
 
     #[test]

@@ -173,6 +173,17 @@ impl ThemePicker {
         longest.saturating_add(28).max(54).min(columns)
     }
 
+    /// Hidden entries above / below the visible window, for the scroll
+    /// affordance (OVERLAY-SMALL-WINDOW). One body row is the header hint, so
+    /// the entry viewport is `body_height - 1`. `(false, false)` when all fit.
+    pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
+        let window = body_height.saturating_sub(1);
+        (
+            self.scroll > 0,
+            window > 0 && self.scroll + window < self.entries.len(),
+        )
+    }
+
     pub(super) fn visible_lines(
         &self,
         body_width: usize,

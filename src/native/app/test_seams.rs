@@ -49,6 +49,59 @@ impl App {
         self.overlay.close();
     }
 
+    /// Test seam (OVERLAY-SMALL-WINDOW): open the connection-manager overlay
+    /// pre-loaded with `count` SYNTHETIC OdyTTY-owned hosts, bypassing the real
+    /// `~/.ssh` / `hosts.conf` load path entirely. Synthetic data only — no real
+    /// host or key material is ever read (privacy rule). Lets a small-window
+    /// scroll test overflow the list deterministically without files.
+    #[cfg(test)]
+    pub(in crate::native) fn open_connections_with_synthetic_hosts_for_test(
+        &mut self,
+        count: usize,
+    ) {
+        use crate::connection_hosts::{ConnectionHost, ConnectionHostSource};
+        let entries = (0..count)
+            .map(|i| ConnectionHost {
+                alias: format!("synthetic-host-{i:02}"),
+                host_name: Some(format!("10.0.0.{i}")),
+                user: Some("tester".to_owned()),
+                port: None,
+                theme: None,
+                font: None,
+                title: None,
+                source: ConnectionHostSource::Odytty,
+            })
+            .collect();
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_connections(entries);
+        self.request_selection_redraw();
+    }
+
+    /// Test seam (OVERLAY-SMALL-WINDOW): open the command palette pre-seeded
+    /// with `count` SYNTHETIC history entries, bypassing the real shell-history
+    /// read so a small-window scroll test overflows deterministically. Synthetic
+    /// data only — no real history is read.
+    #[cfg(test)]
+    pub(in crate::native) fn open_palette_with_synthetic_history_for_test(&mut self, count: usize) {
+        let history: Vec<String> = (0..count)
+            .map(|i| format!("synthetic command {i:02}"))
+            .collect();
+        self.reset_pointer_state_for_overlay();
+        self.overlay
+            .open_command_palette_for_test(history.iter().map(String::as_str), None);
+        self.request_selection_redraw();
+    }
+
+    /// Test seam (OVERLAY-SMALL-WINDOW / ThemeBuilder): open the theme builder
+    /// through the production overlay entry (`open_theme_builder_overlay`), so a
+    /// small-window scroll test drives its role-list selection-follow and ▲/▼
+    /// affordance through the real input/render path, without a window/GPU.
+    #[cfg(test)]
+    pub(in crate::native) fn open_theme_builder_for_test(&mut self) {
+        self.open_theme_builder_overlay();
+        self.request_selection_redraw();
+    }
+
     /// Test seam (UX4-P1): inject a cached pointer cell, as `update_pointer_cell`
     /// would after a `CursorMoved`, so a press has coordinates.
     #[cfg(test)]
@@ -226,6 +279,35 @@ impl App {
         &self,
     ) -> crate::native::overlay::OverlayRenderSignature {
         self.overlay.render_signature()
+    }
+
+    /// Test seam (OVERLAY-SMALL-WINDOW): composite the open overlay into a blank
+    /// `cols`×`rows` snapshot via the exact production `apply_overlay` path and
+    /// return the painted text of every row (grapheme per cell, trailing blanks
+    /// trimmed). Lets an end-to-end test assert that the *rendered* rows shift
+    /// when scroll/focus changes — proving the live repaint, not just geometry.
+    #[cfg(test)]
+    pub(in crate::native) fn render_overlay_rows_for_test(
+        &mut self,
+        cols: usize,
+        rows: usize,
+    ) -> Vec<String> {
+        let mut snap = Snapshot {
+            dimensions: Dimensions::new(cols, rows),
+            cursor: Position { row: 0, column: 0 },
+            cursor_visible: false,
+            colors: crate::core::DynamicColors::default(),
+            cells: vec![crate::core::Cell::default(); cols * rows],
+        };
+        crate::native::overlay::apply_overlay(&mut snap, &mut self.overlay);
+        (0..rows)
+            .map(|r| {
+                let line: String = (0..cols)
+                    .map(|c| snap.cells[r * cols + c].grapheme())
+                    .collect();
+                line.trim_end().to_owned()
+            })
+            .collect()
     }
 
     /// Test seam (UX4-P2): absolute down/up button cells for the first visible

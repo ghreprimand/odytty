@@ -209,6 +209,18 @@ impl FontPicker {
         longest.saturating_add(10).max(54).min(columns)
     }
 
+    /// Hidden entries above / below the visible window, for the scroll
+    /// affordance (OVERLAY-SMALL-WINDOW). One body row is the header/filter
+    /// hint, so the entry viewport is `body_height - 1`. `(false, false)` when
+    /// everything fits.
+    pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
+        let window = body_height.saturating_sub(1);
+        (
+            self.scroll > 0,
+            window > 0 && self.scroll + window < self.entries.len(),
+        )
+    }
+
     pub(super) fn visible_lines(
         &self,
         body_width: usize,

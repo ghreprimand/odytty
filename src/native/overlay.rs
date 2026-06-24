@@ -334,6 +334,11 @@ impl OverlayUi {
                     ContextMenuItem::SplitRows => OverlayOutcome::ContextMenuSplitRows,
                     ContextMenuItem::ClosePane => OverlayOutcome::ContextMenuClosePane,
                     ContextMenuItem::Settings => OverlayOutcome::ContextMenuSettings,
+                    ContextMenuItem::ConnectionManager => {
+                        OverlayOutcome::ContextMenuConnectionManager
+                    }
+                    ContextMenuItem::CommandPalette => OverlayOutcome::ContextMenuCommandPalette,
+                    ContextMenuItem::SessionReplay => OverlayOutcome::ContextMenuSessionReplay,
                 }
             }
         }
@@ -448,7 +453,9 @@ impl OverlayUi {
                         self.apply_builder_outcome(outcome)
                     }
                     OverlayMode::ContextMenu => {
-                        let outcome = self.context_menu.handle_press(row_in_body, button);
+                        let outcome =
+                            self.context_menu
+                                .handle_press(row_in_body, rect.body_height, button);
                         self.apply_context_menu_outcome(outcome)
                     }
                     OverlayMode::ThemePicker
@@ -485,7 +492,8 @@ impl OverlayUi {
                         // Hover-to-focus (D-IN2-6): move focus to the item under
                         // the pointer; off-item (border) hovers leave it as is.
                         let row_in_body = cell.row.checked_sub(rect.body_top);
-                        self.context_menu.handle_hover(row_in_body);
+                        self.context_menu
+                            .handle_hover(row_in_body, rect.body_height);
                         OverlayOutcome::Consumed
                     }
                     OverlayMode::ThemePicker
@@ -542,9 +550,18 @@ impl OverlayUi {
                     }
                     OverlayMode::Replay => self.replay.scroll_lines(lines),
                     OverlayMode::Connections => self.connections.scroll_lines(lines),
-                    OverlayMode::Onboarding
-                    | OverlayMode::ContextMenu
-                    | OverlayMode::ConfirmClose => {}
+                    OverlayMode::ContextMenu => {
+                        // Wheel moves the focused item (and thus the focus-
+                        // derived scroll window), mirroring the picker overlays.
+                        self.context_menu.handle_input(if lines < 0 {
+                            OverlayInput::Up
+                        } else {
+                            OverlayInput::Down
+                        });
+                    }
+                    // Onboarding and the close dialog are static, non-scrolling
+                    // cards: the wheel has nothing to move.
+                    OverlayMode::Onboarding | OverlayMode::ConfirmClose => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -715,6 +732,33 @@ impl OverlayUi {
     ) {
         self.theme_builder.save_succeeded(saved_name, path, changed);
         self.close();
+    }
+
+    /// Whether the open centered overlay has hidden body rows above / below the
+    /// visible window, for the shared scroll affordance (OVERLAY-SMALL-WINDOW).
+    /// `(false, false)` whenever the body fits, so a normal window draws no
+    /// arrows and stays byte-identical. The context menu draws its own arrows
+    /// (it is not a centered panel), so it returns `(false, false)` here. Each
+    /// list-shaped overlay owns its windowing math and exposes a
+    /// `scroll_indicator`; this just dispatches to the active mode's.
+    pub(super) fn scroll_arrows(&self, body_height: usize) -> (bool, bool) {
+        match self.mode {
+            OverlayMode::Settings => self.panel.scroll_indicator(body_height),
+            OverlayMode::ThemePicker => self.theme_picker.scroll_indicator(body_height),
+            OverlayMode::FontPicker => self.font_picker.scroll_indicator(body_height),
+            OverlayMode::KeyBindings => self.key_remap.scroll_indicator(body_height),
+            OverlayMode::Connections => self.connections.scroll_indicator(body_height),
+            OverlayMode::CommandPalette => self.command_palette.scroll_indicator(body_height),
+            OverlayMode::ThemeBuilder => self.theme_builder.scroll_indicator(body_height),
+            // Replay (read-only frame preview whose scroll axis is time, not a
+            // list) keeps a different body model; it draws no list affordance
+            // here. Its scrubbing and the static Onboarding/close cards have
+            // nothing to window.
+            OverlayMode::Replay
+            | OverlayMode::Onboarding
+            | OverlayMode::ContextMenu
+            | OverlayMode::ConfirmClose => (false, false),
+        }
     }
 
     pub(super) fn render_signature(&self) -> OverlayRenderSignature {
@@ -950,6 +994,13 @@ pub(super) enum OverlayOutcome {
     /// overlay has already closed itself; the App opens the settings panel
     /// through the existing toggle path.
     ContextMenuSettings,
+    /// Open the connection manager / command palette / session replay overlays
+    /// from the context menu's launcher section (v0.3.1 discoverability). The
+    /// menu has already closed itself; the App opens each through the same entry
+    /// the `Ctrl+Shift+S` / `Ctrl+Shift+P` / `Ctrl+Shift+R` chords fire.
+    ContextMenuConnectionManager,
+    ContextMenuCommandPalette,
+    ContextMenuSessionReplay,
     /// Type text accepted from the command palette into the active pane's PTY.
     /// The App writes the exact bytes with no trailing newline.
     PaletteTypeText(String),
@@ -1332,6 +1383,19 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         let text_width = body_width.saturating_sub(text_column.saturating_sub(rect.left + 2));
         write_text(snapshot, y, text_column, text_width, &row.text, attrs);
     }
+    // Shared scroll affordance (OVERLAY-SMALL-WINDOW): a ▲ on the top border and
+    // a ▼ on the bottom border when the body overflows the visible window.
+    // Painted onto the border (right side, clear of the title), so a window tall
+    // enough to show everything draws neither arrow and stays byte-identical.
+    let (more_above, more_below) = overlay.scroll_arrows(rect.body_height);
+    let arrow_col = rect.left + rect.width.saturating_sub(2);
+    if more_above {
+        write_text(snapshot, rect.top, arrow_col, 1, "▲", border_attrs());
+    }
+    if more_below {
+        let bottom = rect.top + rect.height.saturating_sub(1);
+        write_text(snapshot, bottom, arrow_col, 1, "▼", border_attrs());
+    }
 }
 
 /// Render the right-click context menu (IN2): a bordered box at the spawn cell
@@ -1360,10 +1424,15 @@ fn apply_context_menu(snapshot: &mut Snapshot, overlay: &OverlayUi, rect: Overla
     );
     let text_column = rect.left + 2;
     let text_width = rect.width.saturating_sub(4);
-    for (index, row) in overlay.context_menu.rows().iter().enumerate() {
-        let y = rect.body_top + index;
+    // When the window is too short to show every row, render only the visible
+    // window starting at the scroll offset; otherwise `scroll == 0` and every
+    // row renders, byte-identical to the pre-scroll layout.
+    let rows = overlay.context_menu.rows();
+    let scroll = overlay.context_menu.scroll_offset(rect.body_height);
+    for (visible_index, row) in rows.iter().skip(scroll).take(rect.body_height).enumerate() {
+        let y = rect.body_top + visible_index;
         // Guard against a grid so short the body row falls on/under the bottom
-        // border (defensive; `rect()` already sizes the box to fit).
+        // border (defensive; `rect()` already sizes the body window to fit).
         if y >= rect.top + rect.height.saturating_sub(1) || y >= snapshot.dimensions.rows {
             break;
         }
@@ -1404,6 +1473,18 @@ fn apply_context_menu(snapshot: &mut Snapshot, overlay: &OverlayUi, rect: Overla
                 }
             }
         }
+    }
+    // Scroll affordances: a ▲ on the top border when rows are hidden above the
+    // visible window and a ▼ on the bottom border when rows are hidden below.
+    // Painting onto the border (not a body row) keeps the body window full, so
+    // the fits-on-screen case draws neither and stays byte-identical.
+    let arrow_col = rect.left + rect.width / 2;
+    if scroll > 0 {
+        write_text(snapshot, rect.top, arrow_col, 1, "▲", border_attrs());
+    }
+    if scroll + rect.body_height < rows.len() {
+        let bottom = rect.top + rect.height.saturating_sub(1);
+        write_text(snapshot, bottom, arrow_col, 1, "▼", border_attrs());
     }
 }
 
@@ -1646,6 +1727,74 @@ fn draw_border(
     }
 }
 
+/// Display width (in terminal cells) of `text`, matching the per-char width
+/// [`write_text`] uses to lay glyphs out.
+fn text_display_width(text: &str) -> usize {
+    text.chars()
+        .filter(|ch| !ch.is_control())
+        .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(1).max(1))
+        .sum()
+}
+
+/// Hard character-truncate `text` to at most `max_width` display cells (the
+/// `write_text` clip rule), used as the last-resort fallback when not even one
+/// word of a hint fits.
+fn fit_chars(text: &str, max_width: usize) -> String {
+    let mut out = String::new();
+    let mut width = 0usize;
+    for ch in text.chars() {
+        if ch.is_control() {
+            continue;
+        }
+        let w = UnicodeWidthChar::width(ch).unwrap_or(1).max(1);
+        if width + w > max_width {
+            break;
+        }
+        out.push(ch);
+        width += w;
+    }
+    out
+}
+
+/// Fit a footer / hint line into `max_width` display cells **without cutting a
+/// word in half** (OVERLAY-SMALL-WINDOW). When the whole hint already fits the
+/// string is returned unchanged, so the normal/large-window render is
+/// byte-identical to before this helper existed — the word-boundary trim only
+/// engages on a window too narrow to show the full hint. If even the first word
+/// overflows, it falls back to a hard character cut so something legible still
+/// shows. Leading indentation spaces are preserved.
+pub(super) fn fit_hint_to_width(text: &str, max_width: usize) -> String {
+    if max_width == 0 {
+        return String::new();
+    }
+    if text_display_width(text) <= max_width {
+        return text.to_owned();
+    }
+    // Keep the longest space-delimited prefix that fits. Splitting on a single
+    // space preserves leading-indent spaces as empty leading tokens.
+    let mut fitted = String::new();
+    let mut width = 0usize;
+    for (index, word) in text.split(' ').enumerate() {
+        let sep = usize::from(index > 0);
+        let word_w = text_display_width(word);
+        if width + sep + word_w > max_width {
+            break;
+        }
+        if index > 0 {
+            fitted.push(' ');
+            width += 1;
+        }
+        fitted.push_str(word);
+        width += word_w;
+    }
+    if fitted.trim().is_empty() {
+        return fit_chars(text, max_width);
+    }
+    // Drop any trailing whitespace left by stopping at a word boundary.
+    fitted.truncate(fitted.trim_end().len());
+    fitted
+}
+
 fn write_text(
     snapshot: &mut Snapshot,
     row: usize,
@@ -1746,6 +1895,63 @@ mod tests {
             colors: crate::core::DynamicColors::default(),
             cells: vec![Cell::new('.', Attrs::default()); columns * rows],
         }
+    }
+
+    #[test]
+    fn fit_hint_returns_full_string_when_it_fits() {
+        // Large-window byte-identity guard: a width that holds the whole hint
+        // returns it unchanged (no behavior change on normal windows).
+        let hint = "  Enter/\u{2192} open  / search  Ctrl+S save  Esc close";
+        assert_eq!(fit_hint_to_width(hint, 80), hint);
+        // Exactly-fits boundary also returns the full string.
+        let w = text_display_width(hint);
+        assert_eq!(fit_hint_to_width(hint, w), hint);
+    }
+
+    #[test]
+    fn fit_hint_truncates_on_a_word_boundary_not_mid_word() {
+        // A narrow window must never cut a word in half ("Ctrl+S sav").
+        let hint = "Enter open search Ctrl+S save Esc close";
+        // At/above the first word's width the trim is always on a word boundary;
+        // below that the char-fallback (a legible head) is exercised separately.
+        let first_word_w = text_display_width(hint.split(' ').next().unwrap());
+        for width in first_word_w..text_display_width(hint) {
+            let fitted = fit_hint_to_width(hint, width);
+            assert!(
+                text_display_width(&fitted) <= width,
+                "fitted hint must fit in {width}: {fitted:?}"
+            );
+            // The fitted text is a whole-word prefix of the original: splitting
+            // both on spaces, every fitted word equals the matching source word
+            // (no partial trailing word).
+            for (got, want) in fitted.split(' ').zip(hint.split(' ')) {
+                assert_eq!(got, want, "word boundary preserved (width {width})");
+            }
+            assert!(
+                !fitted.ends_with(' '),
+                "no trailing space left by the word trim: {fitted:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn fit_hint_falls_back_to_char_cut_when_first_word_overflows() {
+        // A single very long word can't be word-split; show a legible head
+        // rather than nothing.
+        let fitted = fit_hint_to_width("supercalifragilistic", 5);
+        assert_eq!(fitted, "super");
+        assert_eq!(fit_hint_to_width("anything", 0), "");
+    }
+
+    #[test]
+    fn fit_hint_preserves_leading_indent() {
+        // Leading indentation spaces are kept (the footer is indented two cols).
+        let fitted = fit_hint_to_width("  Enter open close", 9);
+        assert!(
+            fitted.starts_with("  Enter"),
+            "kept indent + first word: {fitted:?}"
+        );
+        assert!(text_display_width(&fitted) <= 9);
     }
 
     #[test]

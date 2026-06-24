@@ -91,8 +91,16 @@ sh_click = off
 keybinds =
 # Example:
 # keybinds = ctrl+shift+y=copy;ctrl+alt+v=paste
-# Command palette opt-in example (unbound by default):
-# keybinds = ctrl+alt+p=command-palette
+# Default discoverability chords (v0.3.1): the command palette, connection
+# manager, session replay, and theme builder ship with default Ctrl+Shift
+# chords — Ctrl+Shift+P (command-palette), Ctrl+Shift+S (connection-manager),
+# Ctrl+Shift+R (session-replay), Ctrl+Shift+B (theme-builder). These are all
+# Ctrl+Shift+<letter>, which a TUI cannot receive as input, so the PTY input
+# path is unchanged. Reclaiming Ctrl+Shift+P from prompt-jump dropped the
+# Ctrl+Shift+P / Ctrl+Shift+N prompt-jump *letter fallbacks*; prompt navigation
+# still works via the primary Ctrl+Shift+Up / Ctrl+Shift+Down arrow chords. Add
+# your own override to rebind any of these, e.g.
+# keybinds = ctrl+alt+p=command-palette;ctrl+shift+p=jump-prompt-prev
 
 # Connection hosts for the SSH manager live in:
 #   $XDG_CONFIG_HOME/odytty/hosts.conf
@@ -116,8 +124,8 @@ keybinds =
 # surfaces key directives or credentials.
 #
 # Browse and quick-connect to saved hosts through the connection-manager overlay.
-# Bind a chord to the connection-manager action to open it (no default chord, so
-# the unset input path stays byte-identical), e.g.
+# It opens with Ctrl+Shift+S by default (or the right-click menu's "Connection
+# Manager" item); rebind via the connection-manager action, e.g.
 # keybinds = ctrl+alt+h=connection-manager. The overlay is type-to-filter; Enter
 # quick-connects, Esc dismisses. With ssh_config_hosts off it lists OdyTTY-owned
 # hosts only and never references ~/.ssh.
@@ -127,8 +135,9 @@ ssh_config_hosts = off
 # while off the PTY pump records nothing and the path is byte-identical. When on,
 # each session keeps a bounded in-memory ring of recent screen frames (capped by
 # 600 frames AND 24 MiB, whichever binds first). Recording is local-only — frames
-# never touch disk or the network and are dropped when the session closes. Bind a
-# chord to the session-replay action to open the scrubbable overlay, e.g.
+# never touch disk or the network and are dropped when the session closes. The
+# scrubbable overlay opens with Ctrl+Shift+R by default (or the right-click
+# menu's "Session Replay" item); rebind via the session-replay action, e.g.
 # keybinds = ctrl+alt+r=session-replay.
 session_replay = off
 
@@ -154,8 +163,9 @@ pane_prefix = ctrl+b
 # and bounded terminal model alive until the child exits or the detached idle
 # timeout reaps it.
 
-# The command palette is configured through keybinds above. When opened it reads
-# conventional shell history files read-only with fixed caps: 1 MiB tail,
+# The command palette opens with Ctrl+Shift+P by default (or the right-click
+# menu's "Command Palette" item) and is rebindable through keybinds above. When
+# opened it reads conventional shell history files read-only with fixed caps: 1 MiB tail,
 # 20,000 physical lines, 5,000 entries, 4,096 chars per entry. Accepting a
 # history/directory row types it into the active pane without pressing Enter.
 

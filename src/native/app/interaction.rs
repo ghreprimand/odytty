@@ -140,6 +140,20 @@ impl App {
             OverlayOutcome::ContextMenuSettings => {
                 self.toggle_settings_overlay();
             }
+            // v0.3.1 launcher section: the context menu closed itself; open each
+            // overlay through the same entry the discoverability chords fire.
+            OverlayOutcome::ContextMenuConnectionManager => {
+                self.flush_pending_overlay_settings();
+                self.open_connection_overlay();
+            }
+            OverlayOutcome::ContextMenuCommandPalette => {
+                self.flush_pending_overlay_settings();
+                self.open_command_palette_overlay();
+            }
+            OverlayOutcome::ContextMenuSessionReplay => {
+                self.flush_pending_overlay_settings();
+                self.open_replay_overlay();
+            }
             OverlayOutcome::PaletteTypeText(text) => {
                 self.flush_pending_overlay_settings();
                 self.handle_palette_type_text(text);

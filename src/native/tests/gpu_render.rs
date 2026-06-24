@@ -242,6 +242,7 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
             search_active: false,
             level: crate::native::settings_panel::SettingsLevel::SectionList,
             section_selected: 0,
+            section_scroll: 0,
             pending_close_prompt: false,
             path_picker: None,
         },

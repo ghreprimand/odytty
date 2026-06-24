@@ -79,8 +79,9 @@ overflow that limit is rejected with a clear error instead of an opaque
 ## Command Palette
 
 The command palette is exposed through the `command-palette` action in
-`keybinds` / `ODYTTY_KEYBINDS`. It is unbound by default so existing input stays
-byte-identical until the user opts in:
+`keybinds` / `ODYTTY_KEYBINDS`. As of v0.3.1 it is bound by default to
+`Ctrl+Shift+P` (and a right-click menu "Command Palette" item); rebind or
+override it as usual:
 
 ```sh
 ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" cargo run --release
@@ -138,10 +139,11 @@ and ignores key material such as identity files. OdyTTY never handles SSH
 credentials, private keys, or passphrases; authentication remains with the
 system `ssh` binary and agent.
 
-The saved hosts are browsed through the **connection-manager overlay**. Bind a
-chord to the `connection-manager` action via `keybinds` / `ODYTTY_KEYBINDS` (no
-default chord is installed, so the unset input path stays byte-identical), for
-example `ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager"`. The overlay lists the
+The saved hosts are browsed through the **connection-manager overlay**, opened
+by default with `Ctrl+Shift+S` (or the right-click menu's "Connection Manager"
+item) as of v0.3.1. Rebind the `connection-manager` action via `keybinds` /
+`ODYTTY_KEYBINDS`, for example
+`ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager"`. The overlay lists the
 merged hosts (OdyTTY-owned first, then any opt-in OpenSSH-config names), with
 type-to-filter fuzzy matching over alias, host name, and user; `↑`/`↓` select,
 `Enter` quick-connects the highlighted host, and `Esc` dismisses. With
@@ -294,14 +296,26 @@ Default local shortcuts:
 | `Ctrl+Shift+C` | `copy` |
 | `Ctrl+Shift+V` | `paste` |
 | `Shift+PageUp` / `Shift+PageDown` | `scroll-up` / `scroll-down` |
-| `Ctrl+Shift+Up` / `Ctrl+Shift+P` | `jump-prompt-prev` |
-| `Ctrl+Shift+Down` / `Ctrl+Shift+N` | `jump-prompt-next` |
+| `Ctrl+Shift+Up` | `jump-prompt-prev` |
+| `Ctrl+Shift+Down` | `jump-prompt-next` |
+| `Ctrl+Shift+P` | `command-palette` |
+| `Ctrl+Shift+S` | `connection-manager` |
+| `Ctrl+Shift+R` | `session-replay` |
+| `Ctrl+Shift+B` | `theme-builder` |
 | `Ctrl+Shift+Space` | `copy-mode` |
 | `Ctrl+Shift+L` | `hints` |
 | `Ctrl+Shift+K` | `clear-input` |
 | `Ctrl+Shift+T` | `new-tab` |
 | `Ctrl+Shift+W` | `close-tab` |
 | `Ctrl+PageDown` / `Ctrl+PageUp` | `next-tab` / `prev-tab` |
+
+In v0.3.1 the command palette, connection manager, session replay, and theme
+builder each gained a default `Ctrl+Shift+<letter>` chord (and a right-click
+menu entry / Themes-section entry). All are `Ctrl+Shift+<letter>` chords, which
+a TUI cannot receive, so no PTY input path changed. Reclaiming `Ctrl+Shift+P`
+for the palette dropped the `Ctrl+Shift+P` / `Ctrl+Shift+N` prompt-jump *letter
+fallbacks*; prompt navigation continues to work via the primary `Ctrl+Shift+Up`
+/ `Ctrl+Shift+Down` arrow chords.
 
 `ODYTTY_KEYBINDS` accepts comma- or semicolon-separated `chord=action` entries:
 
@@ -314,8 +328,8 @@ Chord modifiers are `ctrl`, `shift`, `alt`, and `super`. Keys may be letters,
 digits, `f1`-`f24`, `pageup`, `pagedown`, `home`, `end`, `enter`, `esc`,
 `backspace`, `delete`, `insert`, `tab`, `space`, arrow keys, or `comma`.
 
-Valid actions are `search`, `settings`, `theme-picker`, `copy`, `paste`,
-`scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`,
+Valid actions are `search`, `settings`, `theme-picker`, `theme-builder`, `copy`,
+`paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`,
 `copy-mode`, `hints`, `clear-input`, `command-palette`, `session-replay`,
 `connection-manager`, `new-tab`, `next-tab`, `prev-tab`, and `close-tab`, plus
 the pane-management actions below.
@@ -391,9 +405,9 @@ Recording is **local-only**: frames live only in process memory — they are nev
 written to disk, logged, or sent anywhere, and they are dropped when the session
 closes or recording is turned off.
 
-To scrub, bind a chord to the `session-replay` action via `keybinds` /
-`ODYTTY_KEYBINDS` (no default chord is installed, so the unset input path stays
-byte-identical) and press it to open the replay overlay. `←`/`→` step one frame,
+To scrub, press `Ctrl+Shift+R` (the v0.3.1 default, or the right-click menu's
+"Session Replay" item) to open the replay overlay; rebind the `session-replay`
+action via `keybinds` / `ODYTTY_KEYBINDS` if you prefer. `←`/`→` step one frame,
 `PgUp`/`PgDn` jump ten, `Home`/`End` go to the oldest/newest frame, and `Esc`
 closes it. Replay is **presentation-only**: the overlay scrubs a frozen, fully
 decoupled clone of the ring and never mutates the live terminal — the session

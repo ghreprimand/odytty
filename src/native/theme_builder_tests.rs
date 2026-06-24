@@ -519,6 +519,58 @@ fn generate_honors_appearance_and_preserves_name() {
     );
 }
 
+// --- OVERLAY-SMALL-WINDOW: role-list selection-follow + ▲/▼ affordance -------
+
+/// On a mid-size window the role list fits far fewer than the old hardcoded
+/// slack of 8, so keyboard nav must follow the selection through the *real*
+/// recorded capacity. Genuine-guard: reverting `clamp` to `let visible_slack =
+/// 8;` scrolls the selection off-screen here and this assert fails.
+#[test]
+fn role_follow_uses_real_capacity_not_fixed_slack() {
+    let mut b = ThemeBuilder::new(&Settings::default());
+    let (w, h) = (68, 12);
+    // Seed the recorded role capacity from a real render (selected = 0).
+    let _ = b.visible_lines(w, h);
+    // Navigate to a high field index; clamp must scroll it into view.
+    b.set_selection(12);
+    let lines = b.visible_lines(w, h);
+    assert!(
+        lines.iter().any(|line| line.focused),
+        "selected role stays visible at body_height={h}; slack=8 would scroll it off"
+    );
+}
+
+/// The role list is the only windowed region: `scroll_indicator` flags overflow
+/// on a short window and clears (byte-identity) once every role fits a tall one.
+#[test]
+fn scroll_indicator_flags_role_overflow_and_clears_when_all_fit() {
+    let mut b = ThemeBuilder::new(&Settings::default());
+
+    // Tall window: every role fits below the header block → no arrows, and all
+    // 24 roles render (the affordance's byte-identity baseline).
+    let _ = b.visible_lines(68, 40);
+    assert_eq!(b.scroll_indicator(40), (false, false));
+    let field_rows = b
+        .visible_hit_map(68, 40)
+        .into_iter()
+        .filter(|zone| matches!(zone, BuilderZone::Field(_)))
+        .count();
+    assert_eq!(
+        field_rows,
+        FIELDS.len(),
+        "all roles render at a tall window"
+    );
+
+    // Short window at the top of the list: more below, none above.
+    let _ = b.visible_lines(68, 12);
+    assert_eq!(b.scroll_indicator(12), (false, true));
+
+    // Scroll to the last role: more above, none below.
+    b.set_selection(FIELDS.len() - 1);
+    let _ = b.visible_lines(68, 12);
+    assert_eq!(b.scroll_indicator(12), (true, false));
+}
+
 /// Esc out of seed entry cancels without authoring a theme.
 #[test]
 fn seed_entry_cancels_on_escape() {

@@ -14,6 +14,7 @@
 //! behind the `ssh_config_hosts` opt-in. When the opt-in is off the App hands
 //! this overlay only OdyTTY-owned hosts.
 
+use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -38,6 +39,15 @@ pub(super) struct ConnectionOverlay {
     filtered: Vec<usize>,
     /// Selection cursor into `filtered`. Clamped whenever `filtered` changes.
     selected: usize,
+    /// Scroll offset into `filtered` for the visible window on a short overlay
+    /// (OVERLAY-SMALL-WINDOW). Interior-mutable so the render pass — which is
+    /// the only place the live body height is known — can keep the selection in
+    /// view, mirroring the palette overlay's pattern. `0` whenever everything
+    /// fits, so a tall overlay is byte-identical to before scrolling existed.
+    scroll_offset: Cell<usize>,
+    /// The last body height the render pass saw, so keyboard nav (which has no
+    /// body height) can re-follow the selection through the same math.
+    last_body_height: Cell<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,6 +86,7 @@ impl ConnectionOverlay {
         self.entries = entries;
         self.query.clear();
         self.selected = 0;
+        self.reset_scroll();
         self.recompute();
     }
 
@@ -129,28 +140,36 @@ impl ConnectionOverlay {
             OverlayInput::Close => ConnectionOverlayOutcome::Close,
             OverlayInput::Up => {
                 self.move_selection(-1);
+                self.follow_selection_for_known_body_height();
                 ConnectionOverlayOutcome::Consumed
             }
             OverlayInput::Down => {
                 self.move_selection(1);
+                self.follow_selection_for_known_body_height();
                 ConnectionOverlayOutcome::Consumed
             }
             OverlayInput::PageUp | OverlayInput::Home => {
                 self.move_selection(-(MAX_RESULTS as isize));
+                self.follow_selection_for_known_body_height();
                 ConnectionOverlayOutcome::Consumed
             }
             OverlayInput::PageDown | OverlayInput::End => {
                 self.move_selection(MAX_RESULTS as isize);
+                self.follow_selection_for_known_body_height();
                 ConnectionOverlayOutcome::Consumed
             }
             OverlayInput::Backspace => {
                 self.query.pop();
                 self.recompute();
+                self.reset_scroll();
+                self.follow_selection_for_known_body_height();
                 ConnectionOverlayOutcome::Consumed
             }
             OverlayInput::Char(ch) if !ch.is_control() => {
                 self.query.push(ch);
                 self.recompute();
+                self.reset_scroll();
+                self.follow_selection_for_known_body_height();
                 ConnectionOverlayOutcome::Consumed
             }
             OverlayInput::Activate => match self.selected_entry() {
@@ -168,6 +187,7 @@ impl ConnectionOverlay {
     /// Scroll one row in response to a wheel notch (negative = toward the top).
     pub(super) fn scroll_lines(&mut self, lines: isize) {
         self.move_selection(lines.signum());
+        self.follow_selection_for_known_body_height();
     }
 
     pub(super) fn visible_lines(
@@ -176,8 +196,11 @@ impl ConnectionOverlay {
         body_height: usize,
     ) -> Vec<ConnectionOverlayLine> {
         if body_height == 0 {
+            self.last_body_height.set(0);
+            self.scroll_offset.set(0);
             return Vec::new();
         }
+        let scroll_offset = self.scroll_offset_for_body_height(body_height);
         let mut lines = Vec::with_capacity(body_height.min(MAX_RESULTS + 2));
         lines.push(ConnectionOverlayLine {
             text: truncate_for_width(&format!("> {}", self.query), body_width),
@@ -188,6 +211,7 @@ impl ConnectionOverlay {
             return lines;
         }
         if self.entries.is_empty() {
+            self.scroll_offset.set(0);
             lines.push(ConnectionOverlayLine {
                 text: truncate_for_width(
                     "No saved connections — add hosts to hosts.conf or enable ssh_config_hosts.",
@@ -199,6 +223,7 @@ impl ConnectionOverlay {
             return lines;
         }
         if self.filtered.is_empty() {
+            self.scroll_offset.set(0);
             lines.push(ConnectionOverlayLine {
                 text: "No matches".to_owned(),
                 focused: false,
@@ -207,7 +232,14 @@ impl ConnectionOverlay {
             return lines;
         }
         let remaining = body_height - lines.len();
-        for (row, &entry_index) in self.filtered.iter().take(remaining).enumerate() {
+        for (visible_index, &entry_index) in self
+            .filtered
+            .iter()
+            .skip(scroll_offset)
+            .take(remaining)
+            .enumerate()
+        {
+            let row = scroll_offset + visible_index;
             let Some(entry) = self.entries.get(entry_index) else {
                 continue;
             };
@@ -218,6 +250,59 @@ impl ConnectionOverlay {
             });
         }
         lines
+    }
+
+    /// Hidden result rows above / below the visible window, for the shared
+    /// scroll affordance (OVERLAY-SMALL-WINDOW). One body row is the query
+    /// line, so the result viewport is `body_height - 1`. `(false, false)`
+    /// whenever everything fits, so a tall overlay draws no arrows.
+    pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
+        let visible_results = body_height.saturating_sub(1);
+        if visible_results == 0 || self.filtered.len() <= visible_results {
+            self.scroll_offset.set(0);
+            return (false, false);
+        }
+        let scroll_offset = self.scroll_offset_for_body_height(body_height);
+        (
+            scroll_offset > 0,
+            scroll_offset + visible_results < self.filtered.len(),
+        )
+    }
+
+    fn reset_scroll(&self) {
+        self.scroll_offset.set(0);
+    }
+
+    /// Re-follow the selection using the last body height the render pass saw,
+    /// so keyboard/wheel nav (which has no body height) keeps the selection in
+    /// view between frames. No-op until the overlay has rendered once.
+    fn follow_selection_for_known_body_height(&self) {
+        let body_height = self.last_body_height.get();
+        if body_height > 0 {
+            self.scroll_offset_for_body_height(body_height);
+        }
+    }
+
+    /// Resolve (and memoize) the scroll offset for a given body height, keeping
+    /// the selected row inside the `[offset, offset + visible_results)` window.
+    /// Mirrors the palette overlay so the two list overlays scroll identically.
+    fn scroll_offset_for_body_height(&self, body_height: usize) -> usize {
+        self.last_body_height.set(body_height);
+        let visible_results = body_height.saturating_sub(1);
+        let results_len = self.filtered.len();
+        if visible_results == 0 || results_len <= visible_results {
+            self.scroll_offset.set(0);
+            return 0;
+        }
+        let max_scroll = results_len - visible_results;
+        let mut scroll_offset = self.scroll_offset.get().min(max_scroll);
+        if self.selected < scroll_offset {
+            scroll_offset = self.selected;
+        } else if self.selected >= scroll_offset + visible_results {
+            scroll_offset = self.selected + 1 - visible_results;
+        }
+        self.scroll_offset.set(scroll_offset);
+        scroll_offset
     }
 
     pub(super) fn desired_width(&self, columns: usize) -> usize {
@@ -239,6 +324,11 @@ impl ConnectionOverlay {
 
     fn results_fingerprint(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
+        // Fold in the scroll offset so a view-only scroll (selection unchanged)
+        // still changes the signature → the render cache repaints instead of
+        // classifying the frame `Retained` and freezing the list (the
+        // cache-staleness lesson from the settings Level-1 list).
+        self.scroll_offset.get().hash(&mut hasher);
         for &entry_index in self.filtered.iter().take(MAX_RESULTS) {
             if let Some(entry) = self.entries.get(entry_index) {
                 entry.alias.hash(&mut hasher);

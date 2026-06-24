@@ -395,15 +395,17 @@ fn key_bindings_default_prompt_copymode_and_hints_chords() {
         alt: false,
     };
 
-    // Prompt navigation: arrow primaries plus the letter fallbacks both resolve
-    // to the same action.
+    // Prompt navigation (v0.3.1): the arrow chords are the sole default
+    // bindings. The `Ctrl+Shift+P` / `Ctrl+Shift+N` letter fallbacks were
+    // reclaimed — P now opens the command palette, N is unbound.
     assert_eq!(
         bindings.action_for(&WinitKey::Named(NamedKey::ArrowUp), ctrl_shift, false),
         Some(BindableAction::JumpPromptPrev)
     );
     assert_eq!(
         bindings.action_for(&WinitKey::Character("p".into()), ctrl_shift, false),
-        Some(BindableAction::JumpPromptPrev)
+        Some(BindableAction::CommandPalette),
+        "Ctrl+Shift+P now opens the command palette, not prompt-jump"
     );
     assert_eq!(
         bindings.action_for(&WinitKey::Named(NamedKey::ArrowDown), ctrl_shift, false),
@@ -411,7 +413,8 @@ fn key_bindings_default_prompt_copymode_and_hints_chords() {
     );
     assert_eq!(
         bindings.action_for(&WinitKey::Character("n".into()), ctrl_shift, false),
-        Some(BindableAction::JumpPromptNext)
+        None,
+        "Ctrl+Shift+N is unbound after the prompt-jump fallback was dropped"
     );
     assert_eq!(
         bindings.action_for(&WinitKey::Named(NamedKey::Space), ctrl_shift, false),

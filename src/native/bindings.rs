@@ -387,25 +387,38 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             named_chord(KeyBindingNamedKey::PageDown, false, true, false, false),
             BindableAction::ScrollPageDown,
         ),
-        // Prompt navigation (OSC 133): the arrow chords are the primary
-        // bindings; the letter chords are fallbacks for keyboards/terminals
-        // where Ctrl+Shift+Arrow is intercepted upstream. Both resolve to the
-        // same action (action_for scans every binding).
+        // Prompt navigation (OSC 133): the `Ctrl+Shift+Up/Down` arrow chords are
+        // the primary (and now sole) default bindings. The `Ctrl+Shift+P` /
+        // `Ctrl+Shift+N` letter fallbacks were dropped in v0.3.1 so the
+        // industry-standard `Ctrl+Shift+P` can open the command palette; prompt
+        // jump still fully works via the arrows (and users can re-add letter
+        // chords with `keybinds` if a terminal intercepts the arrow chords).
         (
             named_chord(KeyBindingNamedKey::ArrowUp, true, true, false, false),
-            BindableAction::JumpPromptPrev,
-        ),
-        (
-            char_chord('p', true, true, false, false),
             BindableAction::JumpPromptPrev,
         ),
         (
             named_chord(KeyBindingNamedKey::ArrowDown, true, true, false, false),
             BindableAction::JumpPromptNext,
         ),
+        // Discoverability defaults (v0.3.1): each of these overlays previously
+        // had no default chord. They are all `Ctrl+Shift+<letter>`, which a TUI
+        // cannot receive as input, so no PTY input path is perturbed.
         (
-            char_chord('n', true, true, false, false),
-            BindableAction::JumpPromptNext,
+            char_chord('p', true, true, false, false),
+            BindableAction::CommandPalette,
+        ),
+        (
+            char_chord('s', true, true, false, false),
+            BindableAction::ConnectionManager,
+        ),
+        (
+            char_chord('r', true, true, false, false),
+            BindableAction::SessionReplay,
+        ),
+        (
+            char_chord('b', true, true, false, false),
+            BindableAction::ThemeBuilder,
         ),
         (
             named_chord(KeyBindingNamedKey::Space, true, true, false, false),
@@ -794,11 +807,72 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_has_no_default_chord() {
+    fn discoverability_chords_resolve_to_their_overlays() {
+        // v0.3.1: the four previously-unbound overlays gained default
+        // `Ctrl+Shift+<letter>` chords (a TUI cannot receive these, so no PTY
+        // input path is perturbed).
         let bindings = KeyBindings::default();
-        let recommended = char_chord('p', true, false, true, false);
+        assert_eq!(
+            bindings.action_for_chord(char_chord('p', true, true, false, false)),
+            Some(BindableAction::CommandPalette),
+            "Ctrl+Shift+P opens the command palette (industry standard)"
+        );
+        assert_eq!(
+            bindings.action_for_chord(char_chord('s', true, true, false, false)),
+            Some(BindableAction::ConnectionManager),
+            "Ctrl+Shift+S opens the connection manager"
+        );
+        assert_eq!(
+            bindings.action_for_chord(char_chord('r', true, true, false, false)),
+            Some(BindableAction::SessionReplay),
+            "Ctrl+Shift+R opens session replay"
+        );
+        assert_eq!(
+            bindings.action_for_chord(char_chord('b', true, true, false, false)),
+            Some(BindableAction::ThemeBuilder),
+            "Ctrl+Shift+B opens the theme builder"
+        );
+    }
 
-        assert_eq!(bindings.action_for_chord(recommended), None);
+    #[test]
+    fn prompt_jump_keeps_arrow_chords_and_drops_letter_fallbacks() {
+        // The arrow chords remain the primary (and now sole default) prompt-jump
+        // bindings; the `Ctrl+Shift+P` / `Ctrl+Shift+N` letter fallbacks were
+        // reclaimed in v0.3.1 (P → command palette, N is simply unbound).
+        let bindings = KeyBindings::default();
+        assert_eq!(
+            bindings.action_for_chord(named_chord(
+                KeyBindingNamedKey::ArrowUp,
+                true,
+                true,
+                false,
+                false
+            )),
+            Some(BindableAction::JumpPromptPrev),
+            "Ctrl+Shift+Up still jumps to the previous prompt"
+        );
+        assert_eq!(
+            bindings.action_for_chord(named_chord(
+                KeyBindingNamedKey::ArrowDown,
+                true,
+                true,
+                false,
+                false
+            )),
+            Some(BindableAction::JumpPromptNext),
+            "Ctrl+Shift+Down still jumps to the next prompt"
+        );
+        // The reclaimed P no longer maps to prompt-jump, and N is now unbound.
+        assert_ne!(
+            bindings.action_for_chord(char_chord('p', true, true, false, false)),
+            Some(BindableAction::JumpPromptPrev),
+            "Ctrl+Shift+P no longer jumps prompts (reclaimed by the palette)"
+        );
+        assert_eq!(
+            bindings.action_for_chord(char_chord('n', true, true, false, false)),
+            None,
+            "Ctrl+Shift+N is unbound after the fallback was dropped"
+        );
     }
 
     // ----- §7 K1 prefix-engine state machine -----

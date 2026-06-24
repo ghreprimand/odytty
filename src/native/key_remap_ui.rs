@@ -376,6 +376,16 @@ impl KeyRemapUi {
         }
     }
 
+    /// Hidden actions above / below the visible window, for the scroll
+    /// affordance (OVERLAY-SMALL-WINDOW). `(false, false)` when all fit, so a
+    /// normal window draws no arrows and stays byte-identical.
+    pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
+        (
+            self.scroll > 0,
+            body_height > 0 && self.scroll + body_height < ACTIONS.len(),
+        )
+    }
+
     pub(super) fn visible_lines(
         &self,
         _body_width: usize,

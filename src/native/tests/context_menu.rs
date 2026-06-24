@@ -9,8 +9,8 @@
 //! `context_menu_ui`.
 
 use super::super::context_menu_ui::{
-    CONTEXT_MENU_BODY_ROWS, CONTEXT_MENU_SECOND_SEPARATOR_ROW, CONTEXT_MENU_SEPARATOR_ROW,
-    CONTEXT_MENU_THIRD_SEPARATOR_ROW, ContextMenuRow, ContextMenuUi,
+    CONTEXT_MENU_BODY_ROWS, CONTEXT_MENU_FOURTH_SEPARATOR_ROW, CONTEXT_MENU_SECOND_SEPARATOR_ROW,
+    CONTEXT_MENU_SEPARATOR_ROW, CONTEXT_MENU_THIRD_SEPARATOR_ROW, ContextMenuRow, ContextMenuUi,
 };
 use super::super::pty::UserEvent;
 use super::super::session::{Session, SessionToken, TabSet};
@@ -102,6 +102,39 @@ fn app_with_recording_writer(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>
     Some((app, bytes))
 }
 
+/// Click the open context-menu item whose rendered row contains `needle`,
+/// resolving its grid row from the live composited menu at the App's real grid
+/// dims (so the rect/edge-clamp matches the click path exactly) and clicking at
+/// the rect-derived body column. Robust to layout shifts — the v0.3.1 launcher
+/// section changed item rows and the edge-clamped top, so hardcoded grid rows
+/// would silently drift onto the wrong item.
+fn click_menu_item(app: &mut App, needle: &str) {
+    let (cols, rows) = app.grid_dims_for_test();
+    let rendered = app.render_overlay_rows_for_test(cols, rows);
+    let grid_row = rendered
+        .iter()
+        .position(|line| line.contains(needle))
+        .unwrap_or_else(|| panic!("menu item {needle:?} not visible in {rendered:?}"));
+    let rect = app.overlay_rect_for_test().expect("context menu open");
+    app.set_pointer_cell_for_test(grid_row, rect.body_left);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+}
+
+/// The grid row of the `nth` (0-based) separator line in the live composited
+/// menu, for the separator-inert test. Uses the box-drawing glyph the renderer
+/// paints for separators.
+fn separator_grid_row(app: &mut App, nth: usize) -> usize {
+    let (cols, rows) = app.grid_dims_for_test();
+    let rendered = app.render_overlay_rows_for_test(cols, rows);
+    rendered
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.contains('\u{2500}'))
+        .map(|(i, _)| i)
+        .nth(nth)
+        .unwrap_or_else(|| panic!("separator #{nth} not found in {rendered:?}"))
+}
+
 fn enable_tui_mouse_reporting(terminal: &Arc<Mutex<Terminal>>) {
     let mut t = terminal.lock().expect("terminal");
     // DECSET 1000 + SGR 1006 — the mode where a no-overlay press reports to PTY.
@@ -179,6 +212,36 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         rows[13],
         ContextMenuRow::Item {
             label: "Settings",
+            enabled: true,
+            ..
+        }
+    ));
+    // v0.3.1 launcher section: a fourth separator, then the three always-enabled
+    // launcher items below Settings.
+    assert!(matches!(
+        rows[CONTEXT_MENU_FOURTH_SEPARATOR_ROW],
+        ContextMenuRow::Separator
+    ));
+    assert!(matches!(
+        rows[15],
+        ContextMenuRow::Item {
+            label: "Connection Manager",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[16],
+        ContextMenuRow::Item {
+            label: "Command Palette",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[17],
+        ContextMenuRow::Item {
+            label: "Session Replay",
             enabled: true,
             ..
         }
@@ -451,8 +514,7 @@ fn delete_selected_input_sends_shell_edit_bytes_without_copying() {
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
 
-    app.set_pointer_cell_for_test(9, 12);
-    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    click_menu_item(&mut app, "Delete");
 
     let written = bytes.lock().expect("bytes").clone();
     assert_eq!(
@@ -484,9 +546,8 @@ fn cut_clipboard_failure_leaves_input_and_selection_intact() {
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
 
-    // Click Cut (spawn_row=5, Cut=index 1 ⇒ item row 7).
-    app.set_pointer_cell_for_test(7, 12);
-    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    // Click Cut.
+    click_menu_item(&mut app, "Cut");
 
     // Menu closes when any item is activated.
     assert!(
@@ -523,9 +584,8 @@ fn cut_selected_input_sends_edit_bytes_when_clipboard_succeeds() {
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
 
-    // Click Cut (spawn_row=5, Cut=index 1 ⇒ item row 7).
-    app.set_pointer_cell_for_test(7, 12);
-    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    // Click Cut.
+    click_menu_item(&mut app, "Cut");
     assert!(!app.context_menu_open_for_test(), "menu closes on Cut");
 
     let written = bytes.lock().expect("bytes").clone();
@@ -559,9 +619,7 @@ fn clicking_select_all_selects_whole_buffer_and_closes() {
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
 
-    // Menu spawns at (5,10): left=10, top=5, items at rows 6..10. Click Select All.
-    app.set_pointer_cell_for_test(10, 12);
-    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    click_menu_item(&mut app, "Select All");
 
     assert!(
         !app.context_menu_open_for_test(),
@@ -621,9 +679,7 @@ fn clicking_new_tab_spawns_session_and_closes_menu() {
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
 
-    // Body row 6 = New Tab => grid row 12.
-    app.set_pointer_cell_for_test(12, 12);
-    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    click_menu_item(&mut app, "New Tab");
 
     assert!(!app.context_menu_open_for_test());
     assert_eq!(app.session_count_for_test(), 2);
@@ -654,9 +710,7 @@ fn clicking_close_tab_closes_active_session_and_keeps_neighbor_active() {
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
 
-    // Body row 8 = Close Tab => grid row 14.
-    app.set_pointer_cell_for_test(14, 12);
-    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    click_menu_item(&mut app, "Close Tab");
 
     assert!(!app.context_menu_open_for_test());
     assert_eq!(app.session_count_for_test(), 1);
@@ -664,21 +718,10 @@ fn clicking_close_tab_closes_active_session_and_keeps_neighbor_active() {
 }
 
 /// D-IN2-SETTINGS: clicking the Settings item closes the context menu and
-/// opens the settings panel. Settings is at the bottom of the menu, below
-/// the second separator. The item is always enabled.
-///
-/// Menu spawned at (5, 10):
-///   top = 5, body_top = 6
-///   Body row 0 = Copy → grid row 6
-///   Body row 1 = Cut  → grid row 7
-///   ...
-///   Body row 4 = SelectAll → grid row 10
-///   Body row 5 = Separator → grid row 11
-///   Body row 6 = New Tab   → grid row 12
-///   Body row 7 = Rename Tab → grid row 13
-///   Body row 8 = Close Tab  → grid row 14
-///   Body row 9 = Separator  → grid row 15
-///   Body row 10 = Settings  → grid row 16
+/// opens the settings panel. Settings is below the split section; the item is
+/// always enabled. The exact grid row is resolved from the live menu so the
+/// v0.3.1 launcher section (which sits below Settings) cannot shift this test
+/// onto the wrong row.
 #[test]
 fn clicking_settings_opens_settings_panel_and_closes_menu() {
     let Some((mut app, _terminal)) = app_for_test() else {
@@ -692,9 +735,7 @@ fn clicking_settings_opens_settings_panel_and_closes_menu() {
         "right-click opens the context menu"
     );
 
-    // Click the Settings item (body row 10, grid row 16).
-    app.set_pointer_cell_for_test(16, 12);
-    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    click_menu_item(&mut app, "Settings");
 
     assert!(
         !app.context_menu_open_for_test(),
@@ -720,8 +761,10 @@ fn clicking_separator_rows_is_inert() {
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
     assert!(app.context_menu_open_for_test());
 
-    // Click the first separator (body row 5, grid row 11).
-    app.set_pointer_cell_for_test(11, 12);
+    // Click the first separator (resolved live from the rendered menu).
+    let sep0 = separator_grid_row(&mut app, 0);
+    let rect = app.overlay_rect_for_test().expect("menu open");
+    app.set_pointer_cell_for_test(sep0, rect.body_left);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 
     assert!(
@@ -734,8 +777,10 @@ fn clicking_separator_rows_is_inert() {
         "first separator click must not open the settings panel"
     );
 
-    // Click the second separator (body row 9, grid row 15).
-    app.set_pointer_cell_for_test(15, 12);
+    // Click the second separator (resolved live from the rendered menu).
+    let sep1 = separator_grid_row(&mut app, 1);
+    let rect = app.overlay_rect_for_test().expect("menu open");
+    app.set_pointer_cell_for_test(sep1, rect.body_left);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 
     assert!(
@@ -746,5 +791,97 @@ fn clicking_separator_rows_is_inert() {
         app.overlay_signature_for_test().mode,
         OverlayMode::Settings,
         "second separator click must not open the settings panel"
+    );
+}
+
+/// v0.3.1 launcher section: the three new items render with the live accelerator
+/// labels from the default bindings (Ctrl+Shift+S / P / R), proving the
+/// `set_accelerators` path covers them and they auto-track rebinds.
+#[test]
+fn launcher_items_show_live_accelerator_labels() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_cell_for_test(5, 10);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+    assert!(app.context_menu_open_for_test());
+
+    let (cols, rows) = app.grid_dims_for_test();
+    let rendered = app.render_overlay_rows_for_test(cols, rows);
+    let row_with = |needle: &str| -> String {
+        rendered
+            .iter()
+            .find(|line| line.contains(needle))
+            .unwrap_or_else(|| panic!("{needle} not rendered in {rendered:?}"))
+            .clone()
+    };
+    assert!(
+        row_with("Connection Manager").contains("Ctrl+Shift+S"),
+        "Connection Manager shows its bound chord"
+    );
+    assert!(
+        row_with("Command Palette").contains("Ctrl+Shift+P"),
+        "Command Palette shows its bound chord"
+    );
+    assert!(
+        row_with("Session Replay").contains("Ctrl+Shift+R"),
+        "Session Replay shows its bound chord"
+    );
+}
+
+/// v0.3.1 launcher section: clicking each launcher item closes the menu and
+/// opens the matching overlay through the production outcome→App apply path.
+#[test]
+fn clicking_connection_manager_opens_the_connection_overlay() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_cell_for_test(5, 10);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+    assert!(app.context_menu_open_for_test());
+    click_menu_item(&mut app, "Connection Manager");
+    assert!(!app.context_menu_open_for_test());
+    assert_eq!(
+        app.overlay_signature_for_test().mode,
+        OverlayMode::Connections,
+        "Connection Manager item opens the connection overlay"
+    );
+}
+
+#[test]
+fn clicking_command_palette_opens_the_palette_overlay() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_cell_for_test(5, 10);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+    assert!(app.context_menu_open_for_test());
+    click_menu_item(&mut app, "Command Palette");
+    assert!(!app.context_menu_open_for_test());
+    assert_eq!(
+        app.overlay_signature_for_test().mode,
+        OverlayMode::CommandPalette,
+        "Command Palette item opens the palette overlay"
+    );
+}
+
+#[test]
+fn clicking_session_replay_opens_the_replay_overlay() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_cell_for_test(5, 10);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+    assert!(app.context_menu_open_for_test());
+    click_menu_item(&mut app, "Session Replay");
+    assert!(!app.context_menu_open_for_test());
+    assert_eq!(
+        app.overlay_signature_for_test().mode,
+        OverlayMode::Replay,
+        "Session Replay item opens the replay overlay"
     );
 }

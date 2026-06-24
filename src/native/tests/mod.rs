@@ -83,6 +83,7 @@ mod mouse_rect;
 mod os_theme;
 mod overlay_pointer;
 mod overlay_registry;
+mod overlay_small_window;
 mod replay_isolation;
 mod scrollbar;
 mod selection_extend;

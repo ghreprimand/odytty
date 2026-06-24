@@ -79,6 +79,7 @@ fn closed_overlay_sig() -> OverlayRenderSignature {
             search_active: false,
             level: SettingsLevel::SectionList,
             section_selected: 0,
+            section_scroll: 0,
             pending_close_prompt: false,
             path_picker: None,
         },
