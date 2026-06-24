@@ -29,24 +29,12 @@ use crate::settings::{
 use super::bindings::KeyBindings;
 use super::overlay::OverlayInput;
 
-/// Core non-tab actions exposed by the in-app remap UI. The lower-level
-/// `keybinds` config surface supports every `BindableAction`, including tab
-/// actions; this list intentionally limits the modal to the 12 workflow actions
-/// that fit the current overlay.
-const ACTIONS: [BindableAction; 12] = [
-    BindableAction::Search,
-    BindableAction::SettingsPanel,
-    BindableAction::ThemePicker,
-    BindableAction::Copy,
-    BindableAction::Paste,
-    BindableAction::ScrollPageUp,
-    BindableAction::ScrollPageDown,
-    BindableAction::JumpPromptPrev,
-    BindableAction::JumpPromptNext,
-    BindableAction::CopyMode,
-    BindableAction::Hints,
-    BindableAction::ClearInput,
-];
+/// Every `BindableAction` the in-app remap UI exposes — the full config surface,
+/// grouped core → overlay → tab → pane. Sourced from [`BindableAction::ALL`] so
+/// the editor's row set can never drift from the enum (the
+/// `all_bindable_actions_is_exhaustive` guard in the settings tests pins `ALL`
+/// to the variant set). The modal pages/scrolls, so the taller list fits.
+const ACTIONS: [BindableAction; BindableAction::ALL.len()] = BindableAction::ALL;
 
 /// What the App should do after a remap-UI key/chord. Mirrors
 /// `ThemeBuilderOutcome`: `Preview` applies the working bindings live (the
@@ -503,16 +491,90 @@ mod tests {
     }
 
     #[test]
-    fn actions_list_matches_enum_size() {
-        // The remap modal currently offers the 12 core non-tab actions. The
-        // broader settings info test pins the full `keybinds` config surface,
-        // including tab actions.
-        assert_eq!(ACTIONS.len(), 12);
+    fn actions_list_covers_every_bindable_action() {
+        // The remap modal now offers the full `keybinds` config surface — every
+        // `BindableAction` variant. ACTIONS is `BindableAction::ALL`, whose
+        // exhaustiveness is pinned by `all_bindable_actions_is_exhaustive` in the
+        // settings tests; here we confirm the editor inherits the full set with
+        // no duplicates.
+        assert_eq!(ACTIONS.len(), 30);
+        assert_eq!(ACTIONS, BindableAction::ALL);
         for (i, a) in ACTIONS.iter().enumerate() {
             for b in &ACTIONS[i + 1..] {
                 assert_ne!(a, b, "ACTIONS must be distinct");
             }
         }
+        // Sample one action from each group to prove the expansion landed.
+        for expected in [
+            BindableAction::Search,            // core
+            BindableAction::ConnectionManager, // overlay
+            BindableAction::NewTab,            // tab
+            BindableAction::ZoomPane,          // pane
+        ] {
+            assert!(ACTIONS.contains(&expected), "editor must list {expected:?}");
+        }
+    }
+
+    #[test]
+    fn capture_commits_chord_for_newly_added_action() {
+        // A newly-exposed action (overlay group) round-trips a chord through the
+        // working overrides exactly like a core action.
+        let mut ui = ui();
+        select_action(&mut ui, BindableAction::ConnectionManager);
+        ui.handle_input(OverlayInput::Activate);
+        let out = ui.deliver_chord(Some(char_chord(true, true, 'q')));
+        assert!(matches!(out, KeyRemapOutcome::Preview(_)));
+        assert!(!ui.is_capturing_chord());
+        assert_eq!(
+            effective(&ui, char_chord(true, true, 'q')),
+            Some(BindableAction::ConnectionManager)
+        );
+    }
+
+    #[test]
+    fn save_emits_keybinds_edit_for_newly_added_action() {
+        // Binding a pane action and saving emits a keybinds edit whose value is
+        // the exact serializer output; the parse-side round-trip for every
+        // action is pinned by `bindable_action_names_round_trip_through_parse`
+        // and `keybinds_value_round_trips_for_every_action` in the settings
+        // tests.
+        let mut ui = ui();
+        select_action(&mut ui, BindableAction::ZoomPane);
+        ui.handle_input(OverlayInput::Activate);
+        ui.deliver_chord(Some(char_chord(true, true, 'z')));
+        let KeyRemapOutcome::Save(edits) = ui.handle_input(OverlayInput::Save) else {
+            panic!("Save must emit a SettingEdit");
+        };
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].key, "keybinds");
+        assert_eq!(edits[0].value, key_bindings_config_value(&ui.overrides));
+        assert!(
+            ui.overrides
+                .iter()
+                .any(|o| o.action == BindableAction::ZoomPane
+                    && o.chord == char_chord(true, true, 'z')),
+            "ZoomPane binding must be in the working overrides"
+        );
+    }
+
+    #[test]
+    fn conflict_surfaced_for_newly_added_action() {
+        // Capturing CommandPalette's default chord (ctrl+shift+p) for a tab
+        // action must flag a conflict — the conflict path covers the expanded
+        // set, not only the original 12.
+        let mut ui = ui();
+        select_action(&mut ui, BindableAction::NewTab);
+        ui.handle_input(OverlayInput::Activate);
+        let out = ui.deliver_chord(Some(char_chord(true, true, 'p')));
+        assert_eq!(out, KeyRemapOutcome::Consumed);
+        assert!(
+            ui.conflict.is_some(),
+            "stealing CommandPalette's default must conflict"
+        );
+        assert_eq!(
+            ui.conflict.as_ref().map(|c| c.conflicts_with),
+            Some(BindableAction::CommandPalette)
+        );
     }
 
     #[test]

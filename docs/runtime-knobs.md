@@ -336,8 +336,10 @@ Valid actions are `search`, `settings`, `theme-picker`, `theme-builder`, `copy`,
 the pane-management actions below.
 
 The in-app keybinding editor is opened from the Settings panel's Keybindings
-row. It covers the 12 core non-tab actions. Palette, tab, and pane actions are
-configurable through `keybinds` / `ODYTTY_KEYBINDS`.
+row. It covers every bindable action — the core workflow actions plus the
+overlay (command palette, connection manager, session replay, theme builder),
+tab, and pane-management actions — writing through to the same `keybinds` /
+`ODYTTY_KEYBINDS` config the file and env drive.
 
 ### Panes — multiplexer prefix (`pane_prefix`)
 

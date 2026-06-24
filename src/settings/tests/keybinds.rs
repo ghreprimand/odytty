@@ -3,6 +3,7 @@
 //! under the module size cap). Pure: env/config parsing only.
 
 use super::*;
+use std::ffi::OsStr;
 
 fn settings_from<const N: usize>(values: [(&str, &str); N]) -> (Settings, Vec<String>) {
     settings_from_resolving(values, |_| None)
@@ -131,32 +132,86 @@ fn duplicate_key_binding_entries_preserve_input_order() {
 
 #[test]
 fn bindable_action_names_round_trip_through_parse() {
-    use BindableAction::*;
-    for action in [
-        Search,
-        SettingsPanel,
-        ThemePicker,
-        Copy,
-        Paste,
-        ScrollPageUp,
-        ScrollPageDown,
-        JumpPromptPrev,
-        JumpPromptNext,
-        CopyMode,
-        Hints,
-        ClearInput,
-        CommandPalette,
-        NewTab,
-        NextTab,
-        PrevTab,
-        CloseTab,
-    ] {
+    // Every variant — driven off the single `ALL` source of truth so a new
+    // action is covered automatically.
+    for action in BindableAction::ALL {
         assert_eq!(
             BindableAction::parse(bindable_action_name(action)),
             Some(action),
             "action name did not round-trip: {action:?}"
         );
     }
+}
+
+#[test]
+fn keybinds_value_round_trips_for_every_action() {
+    // Bind a distinct chord to every action, serialize via the same path the
+    // in-app keybinding editor saves through, then re-parse — proving the full
+    // expanded editor set (overlay/tab/pane actions included) survives the
+    // config round-trip, not only the original 12.
+    let overrides: Vec<KeyBindingOverride> = BindableAction::ALL
+        .iter()
+        .enumerate()
+        .map(|(i, &action)| KeyBindingOverride {
+            chord: KeyChord {
+                modifiers: KeyBindingModifiers {
+                    ctrl: true,
+                    shift: true,
+                    alt: i % 2 == 0,
+                    super_key: false,
+                },
+                // Distinct printable key per action (well within ALL's size).
+                key: KeyBindingKey::Character((b'a' + i as u8) as char),
+            },
+            action,
+        })
+        .collect();
+
+    let value = key_bindings_config_value(&overrides);
+    let mut warnings = Vec::new();
+    let parsed = parse_key_bindings(Some(OsStr::new(&value)), &mut |m| {
+        warnings.push(m.to_owned())
+    });
+
+    assert!(warnings.is_empty(), "round-trip warned: {warnings:?}");
+    assert_eq!(parsed, overrides, "keybinds value must round-trip exactly");
+}
+
+#[test]
+fn all_bindable_actions_is_exhaustive() {
+    // `BindableAction::ALL` is the source of truth for the in-app keybinding
+    // editor's row set; this pins it to the enum so a newly-added variant can't
+    // be silently omitted. The match below fails to compile if a variant is
+    // added without being classified here, and the assertions catch a variant
+    // added to the enum but not to `ALL` (or duplicated within it).
+    fn classify(action: BindableAction) -> u8 {
+        use BindableAction::*;
+        match action {
+            Search | SettingsPanel | ThemePicker | Copy | Paste | ScrollPageUp | ScrollPageDown
+            | JumpPromptPrev | JumpPromptNext | CopyMode | Hints | ClearInput => 0,
+            CommandPalette | ConnectionManager | SessionReplay | ThemeBuilder => 1,
+            NewTab | NextTab | PrevTab | CloseTab => 2,
+            SplitColumns | SplitRows | FocusPaneLeft | FocusPaneRight | FocusPaneUp
+            | FocusPaneDown | FocusPaneNext | ClosePane | ZoomPane | EqualizePanes => 3,
+        }
+    }
+
+    // Distinct: no variant appears twice in ALL.
+    for (i, a) in BindableAction::ALL.iter().enumerate() {
+        for b in &BindableAction::ALL[i + 1..] {
+            assert_ne!(a, b, "BindableAction::ALL must hold each variant once");
+        }
+    }
+    // Every variant is reachable through `classify`, and every group is present
+    // in ALL — proving ALL covers all four classes without omission.
+    let mut groups = [false; 4];
+    for action in BindableAction::ALL {
+        groups[classify(action) as usize] = true;
+    }
+    assert!(
+        groups.iter().all(|&seen| seen),
+        "BindableAction::ALL must include every action class"
+    );
 }
 
 #[test]

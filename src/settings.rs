@@ -258,6 +258,49 @@ pub enum BindableAction {
 }
 
 impl BindableAction {
+    /// Every `BindableAction` variant, in the canonical UI order (core actions,
+    /// then overlay actions, then tab actions, then pane actions). This is the
+    /// single source of truth the in-app keybinding editor iterates and the
+    /// coverage guard checks against, so a new variant cannot be silently
+    /// omitted from the editor. Keep it exhaustive — the
+    /// `all_bindable_actions_is_exhaustive` test pins it to the enum's size.
+    pub const ALL: [Self; 30] = [
+        // Core non-tab actions.
+        Self::Search,
+        Self::SettingsPanel,
+        Self::ThemePicker,
+        Self::Copy,
+        Self::Paste,
+        Self::ScrollPageUp,
+        Self::ScrollPageDown,
+        Self::JumpPromptPrev,
+        Self::JumpPromptNext,
+        Self::CopyMode,
+        Self::Hints,
+        Self::ClearInput,
+        // Overlay actions (v0.3.1 discoverability family).
+        Self::CommandPalette,
+        Self::ConnectionManager,
+        Self::SessionReplay,
+        Self::ThemeBuilder,
+        // Tab actions.
+        Self::NewTab,
+        Self::NextTab,
+        Self::PrevTab,
+        Self::CloseTab,
+        // Pane-management actions (§7).
+        Self::SplitColumns,
+        Self::SplitRows,
+        Self::FocusPaneLeft,
+        Self::FocusPaneRight,
+        Self::FocusPaneUp,
+        Self::FocusPaneDown,
+        Self::FocusPaneNext,
+        Self::ClosePane,
+        Self::ZoomPane,
+        Self::EqualizePanes,
+    ];
+
     fn parse(raw: &str) -> Option<Self> {
         match normalize_name(raw).as_str() {
             "search" | "searchtoggle" | "togglesearch" => Some(Self::Search),

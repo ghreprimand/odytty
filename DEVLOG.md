@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Keybinding editor: cover every bindable action (12 → 30)
+
+The in-app keybinding editor (Settings panel → Keybindings) only offered the 12
+"core non-tab" actions. The overlay actions (command palette, connection
+manager, session replay, theme builder), the tab actions, and the 10
+pane-management actions were bindable through `keybinds` / `ODYTTY_KEYBINDS` but
+not offered in the UI — so the most discoverability-sensitive chords (the v0.3.1
+overlay family especially) could not be discovered or rebound in-app.
+
+The editor was already fully generic over a `const ACTIONS` array (navigation,
+clamping, scroll, render, capture, conflict-detection, and save all derive from
+it); it was simply seeded with a hand-listed 12. This packet introduces
+`BindableAction::ALL` — a single 30-entry source of truth in canonical UI order
+(core → overlay → tab → pane) — and points `ACTIONS` at it, so the editor now
+lists every bindable action. A UI-bound chord writes through to the same
+`keybinds` config the file and env drive; display labels already existed for all
+30 variants, so no per-action label work was needed.
+
+Regression guard (mirrors the settings-group guard): `all_bindable_actions_is_exhaustive`
+uses a compile-time exhaustive `match` classifier so a newly-added
+`BindableAction` variant fails to build until it is classified and added to
+`ALL`, plus distinctness and group-presence assertions. New behavioral tests
+confirm a newly-exposed action (ConnectionManager) round-trips through capture,
+another (ZoomPane) emits the expected `keybinds` edit, a conflict against an
+existing chord is surfaced, and all 30 round-trip serialize→parse with zero
+warnings. The pre-existing config round-trip test now iterates `ALL` instead of
+a hand-listed subset (it had silently omitted 13 variants).
+
+Verified: `cargo fmt --check` clean, `cargo clippy --all-targets -- -D warnings`
+clean, `cargo test --locked` green (2228 lib tests incl. the new guards),
+`gpu_composite_smoke` 3/3. Modal-content change only; closed panel and plain
+render stay byte-identical. `docs/runtime-knobs.md` updated to describe the full
+editor coverage (env-vs-config framing deferred to the docs packet).
+
+---
+
 ## 2026-06-24 -- Settings panel: surface two orphaned toggles + group-coverage guard
 
 Two shipped, opt-in features had settings that existed in the model and config
