@@ -75,10 +75,9 @@ fn output_for_args_supports_list_fonts() {
 }
 
 #[test]
-fn session_command_parser_accepts_new_detached_with_exec_options() {
+fn session_command_parser_accepts_new_default_detached_with_exec_options() {
     let command = cli::session_command_for_args(&[
         "new".to_owned(),
-        "--detached".to_owned(),
         "--title".to_owned(),
         "Demo".to_owned(),
         "--working-directory=/tmp".to_owned(),
@@ -105,6 +104,19 @@ fn session_command_parser_accepts_new_detached_with_exec_options() {
             args: vec!["-lc".into(), "printf ok".into()],
         })
     );
+}
+
+#[test]
+fn session_command_parser_accepts_new_detached_alias() {
+    let default = cli::session_command_for_args(&["new".to_owned()])
+        .expect("parse default")
+        .expect("default new command");
+    let alias = cli::session_command_for_args(&["new".to_owned(), "--detached".to_owned()])
+        .expect("parse alias")
+        .expect("alias new command");
+
+    assert_eq!(alias, default);
+    assert!(matches!(default, cli::SessionCliCommand::NewDetached(_)));
 }
 
 #[test]
@@ -190,13 +202,13 @@ fn attach_rejects_unknown_flag_and_extra_id() {
 
 #[test]
 fn live_attach_id_is_none_for_list_and_new_detached() {
-    // list and new --detached must never route to the native window.
+    // list and new must never route to the native window.
     let list = cli::session_command_for_args(&["list".to_owned()])
         .expect("parse")
         .expect("list command");
     assert_eq!(list.live_attach_id(), None);
 
-    let new = cli::session_command_for_args(&["new".to_owned(), "--detached".to_owned()])
+    let new = cli::session_command_for_args(&["new".to_owned()])
         .expect("parse")
         .expect("new command");
     assert_eq!(new.live_attach_id(), None);
@@ -247,15 +259,11 @@ fn usage_text_documents_live_attach_and_drops_pending_wording() {
     );
     // The other documented verbs are unchanged.
     assert!(usage.contains("list            list live detached sessions"));
-    assert!(usage.contains("new --detached [-e COMMAND...]"));
+    assert!(usage.contains("new [--detached] [-e COMMAND...]"));
 }
 
 #[test]
 fn session_command_parser_rejects_incomplete_session_commands() {
-    assert_eq!(
-        cli::session_command_for_args(&["new".to_owned()]).unwrap_err(),
-        "odytty new requires --detached"
-    );
     assert_eq!(
         cli::session_command_for_args(&["attach".to_owned(), "--diagnostic".to_owned()])
             .unwrap_err(),

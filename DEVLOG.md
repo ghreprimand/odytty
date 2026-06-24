@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Fix — `odytty new` defaults to detached; attach hint now actionable (P1-7)
+
+v0.4.1 bug-fix sprint, Phase 5. `odytty new` hard-errored without `--detached`
+("odytty new requires --detached"), yet the session-attach overlay's empty-state
+literally instructed the user to "start one with `odytty new`" — a command the
+CLI rejected. The two were contradictory.
+
+`odytty new` with no flags now parses to a default detached session (the only
+useful behaviour — it prints the new session id). `--detached` is retained as an
+accepted no-op alias so existing invocations/scripts keep working, and both forms
+parse identically. Usage text now reads `new [--detached] [-e COMMAND...]`. The
+attach overlay's empty-state hint ("No live sessions — start one with
+`odytty new` to attach here.") is now correct as-is and needed no change.
+
+Tests (`tests/cli.rs`): no-flag `new` accepts title/working-dir/exec options and
+yields a detached launch; `new` and `new --detached` parse identically; usage
+text and incomplete-command rejection updated. Verified (isolated worktree on the
+post-Phase-2 master, serialized): `cargo fmt --check` clean; `cargo clippy
+--all-targets --locked -- -D warnings` clean; `cargo test --locked --test cli`
+26 passed / 0 failed; `gpu_composite_smoke` 3/3; `license_headers` 1/1. Staged
+diff scanned — no secrets or personal paths.
+
 ## 2026-06-24 -- Fix — platform-aware file open + visible open failures (P0-1, P0-2)
 
 v0.4.1 bug-fix sprint, Phase 2 — the headline v0.4.0 breakage. File-open was

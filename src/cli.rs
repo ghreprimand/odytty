@@ -255,13 +255,11 @@ fn display_field_value(value: &str) -> String {
 
 fn parse_session_new(args: &[String]) -> Result<DetachedSessionOptions, String> {
     let mut options = DetachedSessionOptions::default();
-    let mut detached = false;
     let mut index = 0;
     while index < args.len() {
         let arg = &args[index];
         match arg.as_str() {
             "--detached" => {
-                detached = true;
                 index += 1;
             }
             "--title" => {
@@ -301,10 +299,6 @@ fn parse_session_new(args: &[String]) -> Result<DetachedSessionOptions, String> 
                 }
             }
         }
-    }
-
-    if !detached {
-        return Err("odytty new requires --detached".to_owned());
     }
 
     Ok(options)
@@ -421,7 +415,7 @@ pub fn usage_text() -> String {
     out.push_str("  -h, --help      print this help\n");
     out.push('\n');
     out.push_str("Session commands:\n");
-    out.push_str("  new --detached [-e COMMAND...]\n");
+    out.push_str("  new [--detached] [-e COMMAND...]\n");
     out.push_str("                  start a detached resumable session and print its id\n");
     out.push_str("  list            list live detached sessions\n");
     out.push_str("  attach [ID]\n");
