@@ -404,23 +404,34 @@ old `Ctrl+Shift+P` / `Ctrl+Shift+N` prompt-jump *letter fallbacks* (prompt
 navigation still works via the `Ctrl+Shift+Up/Down` arrows). Rebind any of them,
 for example:
 
-```sh
-ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" odytty
+```conf
+# odytty.conf
+keybinds = ctrl+alt+p=command-palette
 ```
+
+For a one-off/dev override, run
+`ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" odytty`; env wins for that
+session.
 
 The palette fuzzy-filters local actions, bounded read-only shell history, and
 recent OSC 7 directories. Selecting a history or directory row types that text
 into the active pane without pressing Enter; selecting an action runs the local
 action after the overlay closes.
 
-Output replay is available as the `session-replay` action (also unbound by
-default). Turn on recording with `session_replay = on` (or
-`ODYTTY_SESSION_REPLAY=on`) — off by default, so the plain path is unchanged —
-then bind a chord to scrub a bounded in-memory ring of recent screen frames:
+Output replay is available as the `session-replay` action, bound by default to
+`Ctrl+Shift+R`. Turn on recording with `session_replay = on` (or
+`ODYTTY_SESSION_REPLAY=on` as a one-off override) — off by default, so the plain
+path is unchanged — then rebind the scrub overlay if desired:
 
-```sh
-ODYTTY_SESSION_REPLAY=on ODYTTY_KEYBINDS="ctrl+alt+r=session-replay" odytty
+```conf
+# odytty.conf
+session_replay = on
+keybinds = ctrl+alt+r=session-replay
 ```
+
+For a one-off/dev override, run
+`ODYTTY_SESSION_REPLAY=on ODYTTY_KEYBINDS="ctrl+alt+r=session-replay" odytty`;
+env wins for that session.
 
 The ring is capped (600 frames and 24 MiB, whichever binds first) and
 local-only — frames never touch disk or the network. The overlay is
@@ -428,13 +439,18 @@ presentation-only: `←`/`→` step, `PgUp`/`PgDn` jump ten, `Home`/`End` jump t
 the ends, and the live session keeps running underneath untouched while you
 scrub.
 
-The connection manager is available as the `connection-manager` action (also
-unbound by default). Bind a chord to open a type-to-filter list of saved hosts
-and quick-connect with Enter:
+The connection manager is available as the `connection-manager` action, bound by
+default to `Ctrl+Shift+S`. Rebind it to open a type-to-filter list of saved
+hosts and quick-connect with Enter:
 
-```sh
-ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager" odytty
+```conf
+# odytty.conf
+keybinds = ctrl+alt+h=connection-manager
 ```
+
+For a one-off/dev override, run
+`ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager" odytty`; env wins for that
+session.
 
 Hosts come from the OdyTTY-owned `hosts.conf` and, only when
 `ssh_config_hosts = on`, name-only entries from your OpenSSH config. With the
@@ -442,15 +458,16 @@ opt-in off, the overlay lists OdyTTY-owned hosts only and never references
 `~/.ssh`. The overlay is presentation-only; selecting a host spawns the system
 `ssh` in a new session.
 
-`ODYTTY_KEYBINDS` can rebind local actions: `search`, `settings`,
-`theme-picker`, `copy`, `paste`, `scroll-up`, `scroll-down`,
+The `keybinds` config key can rebind local actions: `search`, `settings`,
+`theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`,
 `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`, `clear-input`,
 `command-palette`, `session-replay`, `connection-manager`, `new-tab`,
 `next-tab`, `prev-tab`, and `close-tab`. The pane actions
 (`split-columns`, `split-rows`, `focus-pane-left` / `-right` / `-up` / `-down`,
 `focus-pane-next`, `close-pane`, `zoom-pane`, `equalize-panes`) are rebindable
 too — the chord is the key pressed *after* the prefix, e.g.
-`ODYTTY_KEYBINDS="ctrl+f=zoom-pane"`.
+`keybinds = ctrl+f=zoom-pane`. `ODYTTY_KEYBINDS` provides the same syntax as a
+session-scoped override.
 
 ### Settings And Themes
 
@@ -459,13 +476,15 @@ Settings load in this order:
 1. Built-in defaults.
 2. `$XDG_CONFIG_HOME/odytty/odytty.conf`, or
    `~/.config/odytty/odytty.conf`.
-3. `ODYTTY_*` environment variables.
+3. `ODYTTY_*` environment variables, which override config values for the
+   current session.
 
-The config file format is `key = value` with `#` comments. The native app polls
-the resolved file about once per second; env-pinned keys stay pinned for the
-session. The settings panel live-applies changes and writes only changed keys
-back to `odytty.conf`, preserving comments, blank lines, unknown keys, and
-ordering via same-directory atomic rename.
+The config file is the primary place to set durable preferences. Its format is
+`key = value` with `#` comments. The native app polls the resolved file about
+once per second; env-pinned keys stay pinned for the session and are best suited
+to one-off/dev overrides. The settings panel live-applies changes and writes
+only changed keys back to `odytty.conf`, preserving comments, blank lines,
+unknown keys, and ordering via same-directory atomic rename.
 
 `theme = system` or `ODYTTY_THEME=system` follows the desktop dark/light
 preference using OdyTTY defaults (`odyssey` dark, `odyssey-light` light).

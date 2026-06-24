@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Docs: reframe keybinds as config-first (env is the override path)
+
+The keybinds documentation led with the `ODYTTY_KEYBINDS="…"` env form and
+treated `odytty.conf` as secondary, which misled readers into thinking the env
+var is the primary mechanism. It is the reverse: `odytty.conf` `keybinds = …` is
+the durable, user-facing place to set bindings; `ODYTTY_*` env vars are the
+dev/one-off override path (env wins for the session). `docs/odytty.conf.example`
+was already config-first, so this aligns the prose with the canonical reference.
+
+`README.md` and `docs/runtime-knobs.md` now lead each rebind example with the
+`odytty.conf` form and present `ODYTTY_KEYBINDS` as a session-scoped override;
+the settings load-order prose frames the config file as primary and env as
+override/dev. Config-form examples went from 0 → 4 in each file; the env-form
+examples dropped to a minimal override mention. While in the same sections, the
+"valid actions" enumerations in both files were brought current with the full
+30-action set the editor now exposes (adds `theme-builder` and the complete pane
+set).
+
+Docs-only: no `.rs`, Cargo, or config code changed. `cargo test --locked --doc`
+(0 doctests) and the license-header test stay green; code fences balanced.
+This completes Initiative A (settings completeness & discoverability).
+
+---
+
 ## 2026-06-24 -- Keybinding editor: cover every bindable action (12 → 30)
 
 The in-app keybinding editor (Settings panel → Keybindings) only offered the 12

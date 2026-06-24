@@ -2,7 +2,8 @@
 
 OdyTTY loads native runtime settings from built-in defaults, then
 `odytty.conf`, then environment variables. Environment variables always win and
-remain pinned for the session.
+remain pinned for the session, so use `odytty.conf` for durable preferences and
+environment variables for one-off/dev overrides.
 
 Config path:
 
@@ -79,13 +80,16 @@ overflow that limit is rejected with a clear error instead of an opaque
 ## Command Palette
 
 The command palette is exposed through the `command-palette` action in
-`keybinds` / `ODYTTY_KEYBINDS`. As of v0.3.1 it is bound by default to
-`Ctrl+Shift+P` (and a right-click menu "Command Palette" item); rebind or
-override it as usual:
+`keybinds`. As of v0.3.1 it is bound by default to `Ctrl+Shift+P` (and a
+right-click menu "Command Palette" item); rebind it in `odytty.conf` as usual:
 
-```sh
-ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" cargo run --release
+```conf
+keybinds = ctrl+alt+p=command-palette
 ```
+
+For a one-off/dev override, run
+`ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" cargo run --release`; env wins for
+that session.
 
 When opened, the native overlay fuzzy-filters three bounded sources:
 terminal-local actions, shell history, and recent directories. History is read
@@ -142,16 +146,22 @@ system `ssh` binary and agent.
 
 The saved hosts are browsed through the **connection-manager overlay**, opened
 by default with `Ctrl+Shift+S` (or the right-click menu's "Connection Manager"
-item) as of v0.3.1. Rebind the `connection-manager` action via `keybinds` /
-`ODYTTY_KEYBINDS`, for example
-`ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager"`. The overlay lists the
-merged hosts (OdyTTY-owned first, then any opt-in OpenSSH-config names), with
-type-to-filter fuzzy matching over alias, host name, and user; `↑`/`↓` select,
-`Enter` quick-connects the highlighted host, and `Esc` dismisses. With
-`ssh_config_hosts` off, the overlay shows OdyTTY-owned hosts only and OdyTTY
-never references `~/.ssh` at all. The overlay is **presentation-only**: it reads
-a frozen snapshot of the hosts list and never mutates live terminal state;
-accepting a host hands the connect action a name-only target to spawn.
+item) as of v0.3.1. Rebind the `connection-manager` action in `odytty.conf`:
+
+```conf
+keybinds = ctrl+alt+h=connection-manager
+```
+
+For a one-off/dev override, run
+`ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager" cargo run --release`; env wins
+for that session. The overlay lists the merged hosts (OdyTTY-owned first, then
+any opt-in OpenSSH-config names), with type-to-filter fuzzy matching over alias,
+host name, and user; `↑`/`↓` select, `Enter` quick-connects the highlighted
+host, and `Esc` dismisses. With `ssh_config_hosts` off, the overlay shows
+OdyTTY-owned hosts only and OdyTTY never references `~/.ssh` at all. The overlay
+is **presentation-only**: it reads a frozen snapshot of the hosts list and never
+mutates live terminal state; accepting a host hands the connect action a
+name-only target to spawn.
 
 ## Settings Reference
 
@@ -318,12 +328,15 @@ for the palette dropped the `Ctrl+Shift+P` / `Ctrl+Shift+N` prompt-jump *letter
 fallbacks*; prompt navigation continues to work via the primary `Ctrl+Shift+Up`
 / `Ctrl+Shift+Down` arrow chords.
 
-`ODYTTY_KEYBINDS` accepts comma- or semicolon-separated `chord=action` entries:
+`keybinds` accepts comma- or semicolon-separated `chord=action` entries in
+`odytty.conf`:
 
-```sh
-ODYTTY_KEYBINDS="ctrl+shift+y=copy;ctrl+alt+v=paste" cargo run --release
-ODYTTY_KEYBINDS="super+f=search;alt+pageup=scroll-up;alt+pagedown=scroll-down" cargo run --release
+```conf
+keybinds = ctrl+shift+y=copy;ctrl+alt+v=paste;super+f=search;alt+pageup=scroll-up;alt+pagedown=scroll-down
 ```
+
+For a one-off/dev override, pass the same list through `ODYTTY_KEYBINDS`; env
+wins for that session.
 
 Chord modifiers are `ctrl`, `shift`, `alt`, and `super`. Keys may be letters,
 digits, `f1`-`f24`, `pageup`, `pagedown`, `home`, `end`, `enter`, `esc`,
@@ -333,13 +346,15 @@ Valid actions are `search`, `settings`, `theme-picker`, `theme-builder`, `copy`,
 `paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`,
 `copy-mode`, `hints`, `clear-input`, `command-palette`, `session-replay`,
 `connection-manager`, `new-tab`, `next-tab`, `prev-tab`, and `close-tab`, plus
-the pane-management actions below.
+the pane-management actions `split-columns`, `split-rows`, `focus-pane-left`,
+`focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`,
+`close-pane`, `zoom-pane`, and `equalize-panes`.
 
 The in-app keybinding editor is opened from the Settings panel's Keybindings
 row. It covers every bindable action — the core workflow actions plus the
 overlay (command palette, connection manager, session replay, theme builder),
-tab, and pane-management actions — writing through to the same `keybinds` /
-`ODYTTY_KEYBINDS` config the file and env drive.
+tab, and pane-management actions — writing through to `keybinds`; the
+`ODYTTY_KEYBINDS` env var can override the same setting for a session.
 
 ### Panes — multiplexer prefix (`pane_prefix`)
 
@@ -374,7 +389,8 @@ own prefix and works normally. In a single-pane tab, the first `Ctrl+b` already
 passes through literally. Alternatively, change `pane_prefix` so the outer and
 inner prefixes differ. Individual pane actions are rebindable via `keybinds`
 (the chord is the *second* key, after the prefix), e.g.
-`ODYTTY_KEYBINDS="ctrl+f=zoom-pane"` rebinds zoom to `<prefix> Ctrl+f`.
+`keybinds = ctrl+f=zoom-pane` rebinds zoom to `<prefix> Ctrl+f`.
+`ODYTTY_KEYBINDS` provides the same syntax as a session-scoped override.
 
 > Zoom (`<prefix> z`) makes the focused pane fill the whole content area while
 > the split layout underneath is preserved; press it again to restore the exact
@@ -411,7 +427,8 @@ closes or recording is turned off.
 
 To scrub, press `Ctrl+Shift+R` (the v0.3.1 default, or the right-click menu's
 "Session Replay" item) to open the replay overlay; rebind the `session-replay`
-action via `keybinds` / `ODYTTY_KEYBINDS` if you prefer. `←`/`→` step one frame,
+action via `keybinds` if you prefer. `ODYTTY_KEYBINDS` provides the same syntax
+as a session-scoped override. `←`/`→` step one frame,
 `PgUp`/`PgDn` jump ten, `Home`/`End` go to the oldest/newest frame, and `Esc`
 closes it. Replay is **presentation-only**: the overlay scrubs a frozen, fully
 decoupled clone of the ring and never mutates the live terminal — the session
