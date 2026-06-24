@@ -6,6 +6,7 @@
 //! the terminal model. Accepting a row returns an outcome for the App to run
 //! after the overlay closes.
 
+use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::hash::{Hash, Hasher};
@@ -25,6 +26,8 @@ const MAX_RESULTS: usize = 40;
 pub(super) struct PaletteOverlay {
     model: PaletteModel,
     recent_dirs: RecentDirs,
+    scroll_offset: Cell<usize>,
+    last_body_height: Cell<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +64,8 @@ impl PaletteOverlay {
         Self {
             model: PaletteModel::with_options(Vec::new(), palette_options()),
             recent_dirs: RecentDirs::default(),
+            scroll_offset: Cell::new(0),
+            last_body_height: Cell::new(0),
         }
     }
 
@@ -87,6 +92,7 @@ impl PaletteOverlay {
         let directories = self.recent_dirs.candidates();
         let entries = compose_default_palette_entries(history, directories);
         self.model = PaletteModel::with_options(entries, palette_options());
+        self.reset_scroll();
     }
 
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> PaletteOverlayOutcome {
@@ -94,26 +100,34 @@ impl PaletteOverlay {
             OverlayInput::Close => PaletteOverlayOutcome::Close,
             OverlayInput::Up => {
                 self.model.select_previous();
+                self.follow_selection_for_known_body_height();
                 PaletteOverlayOutcome::Consumed
             }
             OverlayInput::Down => {
                 self.model.select_next();
+                self.follow_selection_for_known_body_height();
                 PaletteOverlayOutcome::Consumed
             }
             OverlayInput::PageUp | OverlayInput::Home => {
                 self.model.move_selection(-(MAX_RESULTS as isize));
+                self.follow_selection_for_known_body_height();
                 PaletteOverlayOutcome::Consumed
             }
             OverlayInput::PageDown | OverlayInput::End => {
                 self.model.move_selection(MAX_RESULTS as isize);
+                self.follow_selection_for_known_body_height();
                 PaletteOverlayOutcome::Consumed
             }
             OverlayInput::Backspace => {
                 self.model.backspace_query();
+                self.reset_scroll();
+                self.follow_selection_for_known_body_height();
                 PaletteOverlayOutcome::Consumed
             }
             OverlayInput::Char(ch) if !ch.is_control() => {
                 self.model.push_query_char(ch);
+                self.reset_scroll();
+                self.follow_selection_for_known_body_height();
                 PaletteOverlayOutcome::Consumed
             }
             OverlayInput::Char(_) => PaletteOverlayOutcome::Consumed,
@@ -136,8 +150,11 @@ impl PaletteOverlay {
         body_height: usize,
     ) -> Vec<PaletteOverlayLine> {
         if body_height == 0 {
+            self.last_body_height.set(0);
+            self.scroll_offset.set(0);
             return Vec::new();
         }
+        let scroll_offset = self.scroll_offset_for_body_height(body_height);
         let mut lines = Vec::with_capacity(body_height.min(MAX_RESULTS + 2));
         lines.push(PaletteOverlayLine {
             text: truncate_for_width(&format!("> {}", self.model.query()), body_width),
@@ -148,6 +165,7 @@ impl PaletteOverlay {
             return lines;
         }
         if self.model.results().is_empty() {
+            self.scroll_offset.set(0);
             lines.push(PaletteOverlayLine {
                 text: "No matches".to_owned(),
                 focused: false,
@@ -156,7 +174,15 @@ impl PaletteOverlay {
             return lines;
         }
         let remaining = body_height - lines.len();
-        for (index, result) in self.model.results().iter().take(remaining).enumerate() {
+        for (visible_index, result) in self
+            .model
+            .results()
+            .iter()
+            .skip(scroll_offset)
+            .take(remaining)
+            .enumerate()
+        {
+            let index = scroll_offset + visible_index;
             let source = source_tag(result.kind);
             let label = sanitize_label(&result.label);
             lines.push(PaletteOverlayLine {
@@ -168,6 +194,19 @@ impl PaletteOverlay {
         lines
     }
 
+    pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
+        let visible_results = visible_result_rows(body_height);
+        if visible_results == 0 || self.model.results().len() <= visible_results {
+            self.scroll_offset.set(0);
+            return (false, false);
+        }
+        let scroll_offset = self.scroll_offset_for_body_height(body_height);
+        (
+            scroll_offset > 0,
+            scroll_offset + visible_results < self.model.results().len(),
+        )
+    }
+
     pub(super) fn desired_width(&self, columns: usize) -> usize {
         columns.min(84)
     }
@@ -177,8 +216,41 @@ impl PaletteOverlay {
             query: self.model.query().to_owned(),
             selected: self.model.selected_index(),
             results_len: self.model.results().len(),
-            results_fingerprint: results_fingerprint(&self.model),
+            results_fingerprint: results_fingerprint(&self.model, self.scroll_offset.get()),
         }
+    }
+
+    fn reset_scroll(&self) {
+        self.scroll_offset.set(0);
+    }
+
+    fn follow_selection_for_known_body_height(&self) {
+        let body_height = self.last_body_height.get();
+        if body_height > 0 {
+            self.scroll_offset_for_body_height(body_height);
+        }
+    }
+
+    fn scroll_offset_for_body_height(&self, body_height: usize) -> usize {
+        self.last_body_height.set(body_height);
+        let visible_results = visible_result_rows(body_height);
+        let results_len = self.model.results().len();
+        if visible_results == 0 || results_len <= visible_results {
+            self.scroll_offset.set(0);
+            return 0;
+        }
+
+        let max_scroll = results_len - visible_results;
+        let mut scroll_offset = self.scroll_offset.get().min(max_scroll);
+        if let Some(selected) = self.model.selected_index() {
+            if selected < scroll_offset {
+                scroll_offset = selected;
+            } else if selected >= scroll_offset + visible_results {
+                scroll_offset = selected + 1 - visible_results;
+            }
+        }
+        self.scroll_offset.set(scroll_offset);
+        scroll_offset
     }
 }
 
@@ -187,6 +259,10 @@ fn palette_options() -> PaletteOptions {
         max_results: MAX_RESULTS,
         selection_wrap: SelectionWrap::Clamp,
     }
+}
+
+fn visible_result_rows(body_height: usize) -> usize {
+    body_height.saturating_sub(1)
 }
 
 fn read_history_from_process_env() -> Vec<String> {
@@ -221,8 +297,9 @@ fn source_tag(kind: PaletteSourceKind) -> &'static str {
     }
 }
 
-fn results_fingerprint(model: &PaletteModel) -> u64 {
+fn results_fingerprint(model: &PaletteModel, scroll_offset: usize) -> u64 {
     let mut hasher = DefaultHasher::new();
+    scroll_offset.hash(&mut hasher);
     for result in model.results().iter().take(MAX_RESULTS) {
         result.kind.hash(&mut hasher);
         result.label.hash(&mut hasher);
@@ -266,6 +343,10 @@ mod tests {
                 PaletteOverlayOutcome::Consumed
             );
         }
+    }
+
+    fn command_history(count: usize) -> Vec<String> {
+        (0..count).map(|index| format!("qqq {index:02}")).collect()
     }
 
     #[test]
@@ -325,6 +406,84 @@ mod tests {
         let overlay = open(&["one", "two", "three"], None);
 
         assert_eq!(overlay.visible_lines(80, 2).len(), 2);
+    }
+
+    #[test]
+    fn visible_lines_follow_selection_when_body_overflows() {
+        let history = command_history(10);
+        let mut overlay = PaletteOverlay::new();
+        overlay.open_for_test(history.iter().map(String::as_str), None);
+        type_query(&mut overlay, "qqq");
+
+        let before_lines = overlay.visible_lines(80, 4);
+        let before_signature = overlay.render_signature();
+        assert_eq!(before_lines[1].text, "History  qqq 00");
+        assert!(before_lines[1].focused);
+
+        for _ in 0..4 {
+            assert_eq!(
+                overlay.handle_input(OverlayInput::Down),
+                PaletteOverlayOutcome::Consumed
+            );
+        }
+
+        let after_lines = overlay.visible_lines(80, 4);
+        let after_signature = overlay.render_signature();
+        assert_ne!(after_lines, before_lines);
+        assert_ne!(after_signature, before_signature);
+        assert_ne!(
+            after_signature.results_fingerprint,
+            before_signature.results_fingerprint
+        );
+        assert_eq!(after_lines[1].text, "History  qqq 02");
+        assert!(
+            after_lines
+                .iter()
+                .any(|line| line.text == "History  qqq 04" && line.focused),
+            "selected row must remain rendered after the view scrolls"
+        );
+    }
+
+    #[test]
+    fn scroll_indicator_is_inert_when_results_fit() {
+        let history = command_history(3);
+        let mut overlay = PaletteOverlay::new();
+        overlay.open_for_test(history.iter().map(String::as_str), None);
+        type_query(&mut overlay, "qqq");
+
+        let before_signature = overlay.render_signature();
+        let lines = overlay.visible_lines(80, 8);
+        let after_signature = overlay.render_signature();
+
+        assert_eq!(lines.len(), 4);
+        assert_eq!(overlay.scroll_indicator(8), (false, false));
+        assert_eq!(after_signature, before_signature);
+    }
+
+    #[test]
+    fn scroll_indicator_reports_hidden_rows_after_selection_follow() {
+        let history = command_history(10);
+        let mut overlay = PaletteOverlay::new();
+        overlay.open_for_test(history.iter().map(String::as_str), None);
+        type_query(&mut overlay, "qqq");
+        let _ = overlay.visible_lines(80, 4);
+
+        for _ in 0..4 {
+            assert_eq!(
+                overlay.handle_input(OverlayInput::Down),
+                PaletteOverlayOutcome::Consumed
+            );
+        }
+
+        assert_eq!(overlay.scroll_indicator(4), (true, true));
+
+        assert_eq!(
+            overlay.handle_input(OverlayInput::End),
+            PaletteOverlayOutcome::Consumed
+        );
+
+        assert_eq!(overlay.scroll_indicator(4), (true, false));
+        assert_eq!(overlay.visible_lines(80, 4)[1].text, "History  qqq 07");
     }
 
     #[test]
