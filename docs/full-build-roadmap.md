@@ -148,6 +148,39 @@ that remaps the ANSI palette in perceptual space for color-vision deficiencies.
 pixel↔cell coordinate seam, optional themed border, decoration toggle, OS
 dark/light following, and a visible tab bar once multiple sessions exist.
 
+**Multiple contexts — panes, sessions, palette, and connections.** OdyTTY now
+runs many shells in one window across three composition layers. **Splits /
+panes:** a tab owns a binary layout tree (leaf = session, node = split with a
+ratio); each pane keeps its own scrollback, selection, viewport, search, and
+cursor, with a 1px themed divider. Single-pane tabs stay byte-identical to a
+single session. Splits are reachable by tmux-compatible prefix bindings, direct
+GUI chords, and a right-click context-menu section with live accelerator labels;
+dividers are drag-resizable, and panes support directional focus-move, close,
+zoom, and equalize. **Persistent / detachable sessions:** a detached session-host
+process owns the PTYs and terminal models, so a window can close and a new one
+can reattach by id and repaint from a restored snapshot with full scrollback,
+through an OdyTTY-owned, versioned snapshot format. The host socket is a per-user,
+filesystem-permission-scoped, local-only Unix socket — no network, preserving the
+privacy posture — and scrollback persistence stays on the local filesystem.
+Opt-in per-session output recording with a bounded ring buffer feeds a
+scrubbable, presentation-only replay overlay. The CLI surface adds `odytty list`,
+`odytty attach <id>`, and `odytty new --detached`. **Command palette:** an
+in-window keyboard-driven fuzzy finder over terminal-local actions and settings,
+shell history, and recent directories; presentation-only, with an owned scorer
+and read-only, bounded history access. **Connection manager:** an overlay that
+lists saved hosts and quick-connects by spawning the system `ssh` in a new
+pane/session — OdyTTY never handles credentials or private keys itself.
+Reading host *names* from `~/.ssh/config` is read-only, opt-in, and parses names
+only; an OdyTTY-owned hosts list lets the feature work without touching `~/.ssh`
+at all.
+
+**Discoverability.** The command palette, connection manager, session replay, and
+theme builder each ship with both a default keybinding and a discoverable menu
+entry (a right-click launcher section, and a Themes-section entry for the theme
+builder), so the in-app surfaces are reachable without hand-editing config. All
+defaults are `Ctrl+Shift`+letter chords that a TUI cannot receive as input, so
+the application input path is unperturbed.
+
 **Privacy posture.** No telemetry, no cloud, no account — fully local. The
 absence of any phone-home path is a deliberate, stated feature.
 
@@ -170,12 +203,21 @@ labels, and visible font-load failure reporting all ship today.
   that route to the CRT scanline effect when no explicit `crt` setting is
   present; the old cell-shader scanline wash is retired.
 - **Shipped — First-run onboarding overlay** plus search within the settings
-  panel, so features are discoverable without a separate command palette.
+  panel, so features are discoverable from inside the app.
 - **Shipped — Customizable keybinding remap UI.** The settings panel can remap
-  the 12 core non-tab actions and writes back to the config. The `keybinds`
-  config surface supports all 16 bindable actions, including tabs.
+  the core actions and writes back to the config. The `keybinds` config surface
+  supports the full set of bindable actions, including tabs.
+- **Shipped — Discoverability defaults.** The command palette, connection
+  manager, session replay, and theme builder each gained a default keybinding and
+  a discoverable menu entry, so the in-app surfaces are reachable without
+  hand-editing config.
 - **Shipped — CLI introspection: list available fonts**, completing the
   existing introspection helpers.
+- **Next — Settings completeness.** Map every configuration group (including the
+  newer connection and session groups) into a settings section so no shipped knob
+  is unreachable from the panel, and extend the keybinding editor to cover the
+  newer overlay actions (palette, connection manager, session replay, theme
+  builder) alongside the core set.
 - **Someday — Profiles.** Named configuration profiles once the base config
   model has settled.
 
@@ -292,6 +334,16 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   decorations or borderless mode (compositor-dependent on Linux).
 - **Shipped — Bindable clear-input action** (low priority; the standard key
   combinations already cover the common case).
+- **Next — Interactive paths.** Detect file paths (and `path:line:col` spans) in
+  terminal output and make them actionable: hover affordance and modifier-click
+  to open a file in `$EDITOR` (jumping to the line/column where present), reusing
+  the existing argv-safe, no-shell-interpolation open dispatch. Stat-gated so
+  only paths that actually resolve light up, opt-in behind a setting with a
+  byte-identical off path, and cwd-aware via the OSC 7 tracking already in core.
+- **Next — In-terminal image viewer.** Open a resolved image path in a
+  presentation-only overlay rendered through the shipped graphics layer, so
+  viewing an image never has to leave the terminal. Opt-in and isolated from live
+  terminal state.
 
 ## Track 7 — Theming & palettes
 
@@ -312,23 +364,37 @@ and open — ships today (see *What's shipped today*).
 
 ## Track 9 — Multiple contexts: tabs, panes, sessions
 
-The first slice has shipped: OdyTTY can run multiple shell sessions in one
-window and shows a one-row tab bar when two or more sessions exist. Remaining
-work is the heavier session-management surface.
+This epic has largely shipped. OdyTTY runs multiple shell sessions in one window
+with a tab bar, splits each tab into resizable panes, and keeps sessions alive in
+a detached session-host so a window can close and reattach with full scrollback.
+What remains is launcher polish and a handful of deliberately-deferred niceties.
 
 - **Shipped — Tabs.** Multiple PTY/terminal sessions, tab switching, tab close,
   tab rename, new-tab affordance, and conventional tab keybindings.
-- **Next — Tab polish.** Offset in-band image placements correctly while the
-  tab bar is visible; continue tightening tab interaction details as evidence
-  appears.
-- **Someday — A detachable-capable core.** If persistent sessions are promoted,
-  architect detaching from day one rather than retrofitting it later.
-- **Someday — Panes / splits.** Split position, ratio, and direction;
-  table-stakes once session persistence and tab polish justify the complexity.
+- **Shipped — Tab polish.** In-band image placements offset correctly while the
+  tab bar is visible.
+- **Shipped — A detachable-capable core.** Persistent sessions were architected
+  with detaching designed in from the start rather than retrofitted, through an
+  OdyTTY-owned, versioned terminal-state snapshot format.
+- **Shipped — Panes / splits.** Binary layout tree with split direction and
+  ratio; per-pane scrollback/selection/search/cursor; tmux-compatible prefix
+  bindings plus direct GUI chords and a context-menu section; drag-resizable
+  dividers; directional focus-move, close, zoom, and equalize.
+- **Shipped — Persistent / detachable sessions** that survive a window closing.
+  The loudest real-user demand: a detached session-host owns the PTYs and
+  terminal models over a per-user, local-only socket, with an opt-in, bounded
+  output-recording ring buffer and a scrubbable replay overlay.
+- **Shipped — Connection manager.** An overlay listing saved hosts that
+  quick-connects by spawning the system `ssh` in a new pane/session; opt-in,
+  read-only, name-only `~/.ssh/config` parsing, with an OdyTTY-owned hosts list
+  as the default so the feature works without touching `~/.ssh`. An SSH pane can
+  itself be a persistent session, so a dropped link can be reattached locally.
+- **Next — Session attach launcher.** Make the shipped persistence pleasant to
+  reach: `odytty attach` with no id attaches the sole session (or lists when
+  several exist), plus an in-window summon overlay to filter and reattach a
+  detached session into a new tab. "Summon, not greet" — opening a window stays
+  fast, with an optional opt-in launch picker for those who want it.
 - **Someday — Broadcast input** to multiple panes at once.
-- **Someday — Persistent / detachable sessions** that survive disconnect. This
-  is the loudest real-user demand and the headline when this epic is promoted —
-  deferred by design, not abandoned.
 - **Someday — Window-state persistence** (reopen where you left off) — a lighter
   cousin of session persistence.
 - **Someday — Multi-window** management.
@@ -337,21 +403,26 @@ work is the heavier session-management surface.
 
 Making OdyTTY installable and maintainable outside the source tree.
 
-- **Someday — Release builds, desktop entry and icon, Linux packaging, CI
-  checks, versioning and a changelog, and a crash/logging story**, so a user can
-  install, launch, and update OdyTTY without building from source.
-- **Someday — Broader platform work.** Confirm behavior under both Wayland and
-  X11 where relevant; consider macOS or Windows only after the Linux app is
-  solid and the architecture earns it. Avoid portability abstractions until real
-  platform pressure exists. Linux-first remains the right constraint.
+- **Shipped — Release builds & packaging.** Tagged GitHub releases with
+  checksummed source archives, a desktop entry and icon, Linux packaging
+  metadata, CI checks on every push, and semantic versioning with a running
+  changelog (`DEVLOG.md`), so a user can install and update without building by
+  hand.
+- **Next — Crash & logging story.** A predictable diagnostics path (bounded,
+  local, privacy-preserving) for when something does go wrong.
+- **Ongoing — Broader platform work.** macOS now builds and is exercised in CI
+  alongside Linux; Linux-first remains the guiding constraint. Confirm behavior
+  under both Wayland and X11 where relevant, and avoid portability abstractions
+  until real platform pressure exists.
 
 ## Track 11 — Exploratory / far future
 
 Ideas worth recording, only sensible once OdyTTY is already a reliable terminal,
 and only if they never compromise terminal trust.
 
-- **Someday — Command palette** beyond the settings overlay. For now the project
-  borrows only search-within-overlay rather than a full palette.
+- **Shipped — Command palette.** A keyboard-driven in-window fuzzy finder over
+  terminal-local actions and settings, shell history, and recent directories,
+  beyond the settings-overlay search it grew out of.
 - **Someday — Full block-reflow rendering model.** Prompt marking and the
   command-aware UX deliver most of the value without this large scrollback
   departure; far future, if ever.
@@ -405,21 +476,21 @@ Named here so they get decided deliberately rather than by default:
 
 ## Near-term focus
 
-The honest current ordering, now that the friction-bug close-out, the in-app
-configuration UX, the readability flagships, and the pointer-excellence work all
-ship:
+The honest current ordering, now that the command-aware UX, the ergonomic cores,
+the readability-safe background treatments, and the multi-context epic (panes,
+persistent sessions, command palette, and connection manager) all ship:
 
-1. **Command-aware UX on the prompt-marking foundation** — jump to previous/next
-   prompt, select a command's output, and a per-command success/failure gutter.
-   The highest-leverage integration work, now in progress.
-2. **Native wiring for the banked ergonomic cores** — activation and overlays for
-   keyboard pattern-select (quick-select) and copy mode, whose pure cores ship.
-3. **Readability-safe background treatments** — gradient, vignette, and image
-   backgrounds whose readability dimming is bounded to the contrast floor by
-   construction; the pure scrim primitive is the active first step.
-4. **The cheaper ergonomic and visual knobs** — line height, box-drawing
-   thickness, per-codepoint overrides, follow-OS theme, and the rest — in
-   parallel as they fit a settings-owner slot.
+1. **Settings completeness & discoverability** — map every shipped configuration
+   group into the settings panel so nothing is unreachable, and extend the
+   keybinding editor to the newer overlay actions. The highest value-to-effort
+   work: it removes real friction with mostly wiring, not new subsystems.
+2. **Session attach launcher** — make the shipped persistence pleasant to reach:
+   `odytty attach` with no id, and an in-window summon overlay to filter and
+   reattach a detached session. Small, and it reuses the existing overlay
+   framework.
+3. **Interactive paths** — clickable files, semantic `path:line:col` open-in-
+   editor, and an in-terminal image viewer. The largest genuinely-new capability
+   surface, built on the argv-safe open dispatch and the shipped graphics layer.
 
 Everything beyond a plain terminal stays measured, opt-out-able, and — above all
 — never something you are forced to hand-edit a config file to reach.
