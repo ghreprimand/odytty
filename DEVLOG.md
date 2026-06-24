@@ -7,6 +7,64 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Release v0.4.0 — interactive paths, session-attach launcher & settings completeness
+
+The capstone of the post-v0.3.0 roadmap: three initiatives land together, all
+behind the project's standing invariants (default-off or closed-overlay
+byte-identical, argv-only spawns, no new network surface, `gpu_composite_smoke`
+3/3 on every packet).
+
+**A — Settings & keybinding completeness.** Two settings that existed only in
+config/env — `session_replay` (Sessions) and `ssh_config_hosts` (Connections) —
+were orphaned from the panel; both are now reachable, guarded by a regression
+test that asserts every setting group maps to exactly one visible section (with
+an explicit allowlist for any deliberately expert-only group, currently empty).
+The in-panel keybinding editor grew from the 12 core actions to all 30 bindable
+actions (command palette, connection manager, session replay, theme builder, and
+the tab/pane families), each chord round-tripping to the same `keybinds` config
+the file and env drive. Docs were reframed so `odytty.conf` `keybinds = …` is the
+primary mechanism and `ODYTTY_*` env vars are the dev/override path.
+
+**B — Session-attach launcher ("summon, not greet").** `odytty attach` with no id
+now resolves sensibly: one live session attaches, several print a list and
+require a choice (no surprise auto-attach), none prints a clear message; session
+rows read by `--title` instead of a numeric id. In-window, a new
+`Ctrl+Shift+A` overlay (and a right-click menu launcher item, label auto-tracking
+its bound chord) summons a frozen, type-to-filter list of live sessions and
+attaches the chosen one into a **new tab** — presentation-only, stale-session
+safe, closed-overlay byte-identical.
+
+**C — Interactive paths & in-terminal viewers.** Behind a single
+`interactive_paths` setting (default off), the terminal detects filesystem paths
+in its own output through a pure, bounded scanner (`src/paths/`, stat-gated via an
+injectable resolve probe — no real filesystem in tests). Hovering a resolved path
+shows a pointer cursor; **Ctrl+click** opens it (files via `xdg-open`,
+`path:line:col` via an editor invocation matrix with an
+`interactive_paths_editor` override knob, directories via the file manager). The
+right-click file section adds Open, **Open With…** (a new picker overlay
+enumerating MIME handlers via a hardened `.desktop` `Exec`→argv expander that is
+never a shell command — shell metacharacters in a path stay one inert argv
+element), Copy Path, Copy File, and Reveal in File Manager. Resolved **image**
+files gain **Open in OdyTTY**, an in-terminal viewer that renders through the
+existing GPU graphics path with a pre-decode bound (`image::Limits` before
+`.decode()`) that refuses decompression bombs gracefully. Every open routes
+through one argv-only `spawn_detached`; every decode through one bounded point;
+the one new captured spawn (`xdg-mime`) sits behind a single audited helper.
+
+All of it is local-only: detected paths are never logged or persisted, nothing
+leaves the machine, and the entire interactive layer is off until you turn it on.
+Deferred by design: an opt-in launch-time session picker (B3) and file mutations
+such as chmod/rename/delete (C5, declined). Gates at release: `cargo fmt --check`
+clean, `cargo clippy --all-targets -- -D warnings` clean, `cargo test --locked`
+green, `gpu_composite_smoke` 3/3, `license_headers` 1/1.
+
+Infra: the CI cargo cache was bounded to `~/.cargo` (registry + git) — caching
+`target` with `restore-keys` fallback had grown an unbounded compiled-artifact
+cache that exhausted the ubuntu runner's disk during restore; cold builds now run
+in ~4 min on a clean, bounded cache, both platform legs green.
+
+---
+
 ## 2026-06-24 -- Interactive paths: "Open With…" app picker
 
 The right-click file section gains **Open With…**, which enumerates the desktop

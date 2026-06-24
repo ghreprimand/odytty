@@ -91,7 +91,7 @@ For the current source release, install OdyTTY for the current user.
 Download and verify the release archive:
 
 ```sh
-version=0.3.1
+version=0.4.0
 workdir=$(mktemp -d /tmp/odytty-install.XXXXXX)
 cd "$workdir"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
@@ -149,7 +149,7 @@ natively on your machine).
 
 ```sh
 xcode-select --install   # once, if you don't already have the Command Line Tools
-version=0.3.1
+version=0.4.0
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/SHA256SUMS"
 grep "odytty-${version}.tar.gz" SHA256SUMS | shasum -a 256 -c -
