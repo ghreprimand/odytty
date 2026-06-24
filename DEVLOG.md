@@ -7,7 +7,7 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-06-24 -- Discoverability: default chords + menu entries for four overlays
+## 2026-06-24 -- Release v0.3.1 — discoverability: default chords + menu entries for four overlays
 
 The theme builder and connection manager had no keybinding and no menu entry,
 making them effectively undiscoverable. The command palette, session replay, and
