@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Diagnostics — native panic hook writes a crash record before AppKit aborts
+
+v0.4.1 bug-fix sprint, Phase 1 (diagnostic, ships first). When OdyTTY panics on
+the native UI thread — notably on macOS, where a panic on the cursor-move path
+cannot unwind across the AppKit→Rust FFI boundary and the process `SIGABRT`s —
+we previously got a black-box abort with nothing on disk. The next crash should
+not be a mystery.
+
+`run_native` now installs a panic hook (`src/native/panic_log.rs`) as its very
+first action. The hook captures the previous hook via `take_hook()`, appends a
+single greppable record — `odytty_panic timestamp_unix_ms=… panic_message="…"
+location="file:line:col"` (message and location escaped) — to a per-platform log
+file, then chains to the previous hook so existing abort behavior is unchanged.
+The log path is derived from the environment at runtime, never hardcoded: macOS
+`$HOME/Library/Logs/odytty/panic.log`; Linux `$XDG_STATE_HOME/odytty/` else
+`$HOME/.local/state/odytty/`; falling back to the system temp dir. Directory
+creation is best-effort, the file is append-only (repeated panics accumulate),
+and every I/O error inside the hook is swallowed — the hook can never itself
+panic. The no-panic runtime path is unchanged; render stays byte-identical.
+
+Tests (`native::panic_log::tests`): `panic_hook_record_writes_parseable_line`
+asserts the formatted record parses back (timestamp, escaped message, location);
+`write_record_appends_without_truncating` confirms append semantics. Both write
+to a synthetic temp dir — no real home path is touched.
+
+Verified (isolated worktree on a clean base, serialized to avoid GPU-test
+contention): `cargo fmt --check` clean; `cargo clippy --all-targets --locked
+-- -D warnings` clean; `cargo test --locked --lib` 2385 passed / 0 failed
+(panic_log 2/2); `gpu_composite_smoke` 3/3; `license_headers` 1/1 (SPDX present
+on the new file). Staged diff scanned — no secrets or personal paths.
+
+Remaining gaps (tracked in the v0.4.1 plan): platform-aware file openers +
+visible open failures (Phase 2), overlay click-to-activate + keybind save
+(Phase 3), bareword path detection (Phase 4), and the rest of the sprint.
+
 ## 2026-06-24 -- Fix — macOS mouse-move crash on Powerline-prompt hover (multibyte path scan)
 
 A confirmed hard crash on macOS 26.5: hovering the mouse over a line containing a

@@ -69,6 +69,7 @@ mod options;
 mod output_recorder;
 mod overlay;
 mod palette_overlay;
+mod panic_log;
 mod pty;
 mod render_helpers;
 mod replay_overlay;
@@ -106,6 +107,8 @@ use pty::{PtyWriter, UserEvent, spawn_pty_pump};
 use session::{Session, SessionToken, TabSet};
 
 pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), NativeError> {
+    panic_log::install_panic_hook();
+
     let event_loop = EventLoop::<UserEvent>::with_user_event()
         .build()
         .map_err(|err| NativeError::EventLoop(err.to_string()))?;
