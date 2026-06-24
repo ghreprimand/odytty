@@ -20,16 +20,19 @@ jobs:
   build-test:
     name: Build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # A normal run is ~4 min. The macOS runner intermittently deadlocked
-    # (~1 in 4 runs) in tests that spawn real PTYs under parallel `cargo test`
-    # — a child-reap / PTY-teardown contention specific to macOS (Ubuntu was
-    # always green). Mitigation: the Test step runs single-threaded on macOS
-    # only (`--test-threads=1`), which serializes PTY spawn/teardown; Ubuntu
-    # stays parallel/fast. The 15-min timeout is kept as the fail-fast tripwire
-    # (well above a cold toolchain install + build, well below a hang) so any
-    # residual hang still surfaces as a clean, quick failure rather than
-    # spinning until GitHub's 6-hour default.
-    timeout-minutes: 15
+    # The macOS runner intermittently deadlocked (~1 in 4 runs) in tests that
+    # spawn real PTYs under parallel `cargo test` — a child-reap / PTY-teardown
+    # contention specific to macOS (Ubuntu was always green). Mitigation: the
+    # Test step runs single-threaded on macOS only (`--test-threads=1`), which
+    # serializes PTY spawn/teardown; Ubuntu stays parallel/fast. Since the
+    # `target` dir is no longer cached (see the Cache step), every run now does
+    # a cold build of the full dependency graph (release + debug), so a normal
+    # run is ~8-12 min rather than the ~3 min a warm cache gave. The 25-min
+    # timeout is the fail-fast tripwire: comfortably above a cold toolchain
+    # install + double-profile build, well below a hang, so any residual hang
+    # still surfaces as a clean, quick failure rather than spinning until
+    # GitHub's 6-hour default.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -38,15 +41,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Cache cargo
+      # Cache only the dependency-download dirs (~/.cargo), NOT `target`.
+      # `target` grows without bound across runs, and with `restore-keys`
+      # fallback every run restored an ever-larger compiled-artifact cache,
+      # rebuilt more into it, then saved a bigger one — until the ubuntu
+      # runner hit "No space left on device" during cache restore (the macOS
+      # leg, with a roomier disk, stayed green). Dropping `target` keeps the
+      # cache bounded; a fresh build each run costs ~2 min but never exhausts
+      # disk. The `-v2-` key prefix retires the old bloated caches (they were
+      # saved under the previous prefix and would otherwise be pulled back in
+      # by restore-keys); they age out via GitHub's cache eviction.
+      - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
-          key: ${{ matrix.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: ${{ matrix.os }}-cargo-
+          key: ${{ matrix.os }}-cargo-v2-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ matrix.os }}-cargo-v2-
 
       - name: Format check
         run: cargo fmt --check
