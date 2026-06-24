@@ -47,16 +47,20 @@
 
 use super::overlay::{OverlayInput, OverlayRect, PointerButton};
 use super::session::SessionToken;
+use crate::paths::Resolved;
 use crate::selection::CellPoint;
 use crate::settings::BindableAction;
 
 /// Number of entries in [`ContextMenuItem::ALL`] (Copy / Cut / Paste / Delete /
 /// Select All / New Tab / Rename Tab / Close Tab / Split Right / Split Down /
 /// Close Pane / Settings / Connection Manager / Command Palette / Session
-/// Replay / Attach Session) — the size of the accelerator array the App fills in
-/// `ALL` order. NOT the number of *visible* items: Close Pane is hidden in a
-/// single-pane tab, so the visible count is 15 there and 16 in a multi-pane tab.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 16;
+/// Replay / Attach Session / Open / Copy Path / Copy File / Reveal in File
+/// Manager) — the size of the accelerator array the App fills in `ALL` order.
+/// NOT the number of *visible* items: Close Pane is hidden in a single-pane tab,
+/// and the four file items (Open … Reveal) are shown only when a resolved
+/// interactive path sits under the click. With no path and single-pane the
+/// visible count is 15; with no path and multi-pane it is 16.
+pub(super) const CONTEXT_MENU_ITEMS: usize = 20;
 
 /// Body row index of the first visual separator (single-pane layout), between
 /// Select All and New Tab. The separators move when Close Pane appears in a
@@ -128,6 +132,16 @@ pub(super) enum ContextMenuItem {
     /// Open the session-attach summon overlay (Phase 5 / B2). Always enabled;
     /// same destination as the `Ctrl+Shift+A` chord.
     SessionAttach,
+    /// Open the resolved interactive path under the click (Phase 8 / C3). Shown
+    /// only when a path resolved at the click cell; dispatches through the same
+    /// argv-only open the Ctrl+click path uses.
+    OpenPath,
+    /// Copy the resolved absolute path to the clipboard as text (C3).
+    CopyPath,
+    /// Copy a `file://<abs>` URI to the clipboard as text (C3).
+    CopyFile,
+    /// Reveal the resolved path in the desktop file manager (C3).
+    RevealPath,
 }
 
 impl ContextMenuItem {
@@ -151,6 +165,10 @@ impl ContextMenuItem {
         Self::CommandPalette,
         Self::SessionReplay,
         Self::SessionAttach,
+        Self::OpenPath,
+        Self::CopyPath,
+        Self::CopyFile,
+        Self::RevealPath,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -168,6 +186,7 @@ impl ContextMenuItem {
             | Self::CommandPalette
             | Self::SessionReplay
             | Self::SessionAttach => 4,
+            Self::OpenPath | Self::CopyPath | Self::CopyFile | Self::RevealPath => 5,
         }
     }
 
@@ -190,6 +209,10 @@ impl ContextMenuItem {
             Self::CommandPalette => "Command Palette",
             Self::SessionReplay => "Session Replay",
             Self::SessionAttach => "Attach Session",
+            Self::OpenPath => "Open",
+            Self::CopyPath => "Copy Path",
+            Self::CopyFile => "Copy File",
+            Self::RevealPath => "Reveal in File Manager",
         }
     }
 
@@ -215,8 +238,17 @@ impl ContextMenuItem {
             // on the multiplexer prefix (`Ctrl-b x`), which the flat
             // `chord_for_action` lookup cannot represent. The App fills its
             // accelerator slot specially from the prefix table, so this returns
-            // `None` to skip the generic flat-table lookup.
-            Self::Cut | Self::Delete | Self::SelectAll | Self::RenameTab | Self::ClosePane => None,
+            // `None` to skip the generic flat-table lookup. The file items
+            // (Open … Reveal) are pointer-only and carry no chord.
+            Self::Cut
+            | Self::Delete
+            | Self::SelectAll
+            | Self::RenameTab
+            | Self::ClosePane
+            | Self::OpenPath
+            | Self::CopyPath
+            | Self::CopyFile
+            | Self::RevealPath => None,
         }
     }
 }
@@ -313,6 +345,11 @@ pub(super) struct ContextMenuSignature {
     /// Whether the active tab is multi-pane (drives the Close Pane item's
     /// visibility, so a pane-count change must repaint the menu).
     pub(super) multi_pane: bool,
+    /// Whether a resolved interactive path sits under the click (drives the file
+    /// section's visibility, so its presence must repaint the menu). The
+    /// resolved path itself is not part of the signature — the labels are
+    /// static, so a bool fully describes the layout change.
+    pub(super) has_path_target: bool,
 }
 
 /// The right-click context menu state. Holds the spawn cell, the focused item,
@@ -333,6 +370,11 @@ pub(super) struct ContextMenuUi {
     /// visibility of the Close Pane item: `false` hides it entirely (single-pane
     /// layout is byte-identical to before the item existed).
     multi_pane: bool,
+    /// The resolved interactive path under the click cell, snapshotted at open
+    /// time (re-detected by the App, not reused from the hover state). `Some`
+    /// shows the file section (Open / Copy Path / Copy File / Reveal); `None`
+    /// hides it entirely so the menu is byte-identical to before C3.
+    path_target: Option<Resolved>,
     /// Per-item effective-keybind labels (Part C), indexed by
     /// [`ContextMenuItem::ALL`] order. `None` means the item shows no
     /// accelerator. Reset to all-`None` on `open`; the App overwrites via
@@ -351,6 +393,7 @@ impl Default for ContextMenuUi {
             delete_enabled: false,
             rename_target: None,
             multi_pane: false,
+            path_target: None,
             accelerators: Default::default(),
         }
     }
@@ -375,6 +418,7 @@ impl ContextMenuUi {
         delete_enabled: bool,
         rename_target: Option<SessionToken>,
         multi_pane: bool,
+        path_target: Option<Resolved>,
     ) {
         self.spawn = spawn;
         self.copy_enabled = copy_enabled;
@@ -383,6 +427,7 @@ impl ContextMenuUi {
         self.delete_enabled = delete_enabled;
         self.rename_target = rename_target;
         self.multi_pane = multi_pane;
+        self.path_target = path_target;
         self.focused = 0;
         // Clear any stale accelerators; the App repopulates immediately via
         // `set_accelerators`. A bare `open` (the unit-test path) shows no
@@ -400,6 +445,13 @@ impl ContextMenuUi {
 
     pub(super) fn rename_target(&self) -> Option<SessionToken> {
         self.rename_target
+    }
+
+    /// The resolved interactive path snapshotted at open time, if any. Used by
+    /// the overlay to build the file-item outcomes (Open / Copy Path / Copy
+    /// File / Reveal) when one of those items activates.
+    pub(super) fn path_target(&self) -> Option<&Resolved> {
+        self.path_target.as_ref()
     }
 
     fn item_enabled(&self, item: ContextMenuItem) -> bool {
@@ -420,6 +472,12 @@ impl ContextMenuUi {
             ContextMenuItem::CommandPalette => true,
             ContextMenuItem::SessionReplay => true,
             ContextMenuItem::SessionAttach => true,
+            // The file items are only ever visible when a path resolved, so
+            // they are enabled whenever shown.
+            ContextMenuItem::OpenPath
+            | ContextMenuItem::CopyPath
+            | ContextMenuItem::CopyFile
+            | ContextMenuItem::RevealPath => self.path_target.is_some(),
         }
     }
 
@@ -429,9 +487,19 @@ impl ContextMenuUi {
     /// placement, body-row mapping, and rendering, so the menu reflows cleanly
     /// when the pane count changes.
     fn visible_items(&self) -> Vec<ContextMenuItem> {
+        let has_path = self.path_target.is_some();
         ContextMenuItem::ALL
             .into_iter()
             .filter(|item| !matches!(item, ContextMenuItem::ClosePane) || self.multi_pane)
+            .filter(|item| {
+                !matches!(
+                    item,
+                    ContextMenuItem::OpenPath
+                        | ContextMenuItem::CopyPath
+                        | ContextMenuItem::CopyFile
+                        | ContextMenuItem::RevealPath
+                ) || has_path
+            })
             .collect()
     }
 
@@ -690,6 +758,7 @@ impl ContextMenuUi {
             delete_enabled: self.delete_enabled,
             rename_enabled: self.rename_target.is_some(),
             multi_pane: self.multi_pane,
+            has_path_target: self.path_target.is_some(),
         }
     }
 }
@@ -726,6 +795,7 @@ mod tests {
             copy,
             None,
             false,
+            None,
         );
         m
     }
@@ -741,6 +811,35 @@ mod tests {
             false,
             None,
             true,
+            None,
+        );
+        m
+    }
+
+    /// A synthetic resolved file with a line/col, for the path-present file
+    /// section variants. No real filesystem — a fixed `Resolved`.
+    fn resolved_file() -> Resolved {
+        Resolved {
+            abs: "/proj/src/main.rs".to_owned(),
+            kind: crate::paths::FsKind::File,
+            line: Some(42),
+            col: Some(7),
+        }
+    }
+
+    /// A single-pane menu with a resolved path under the click (file section
+    /// visible).
+    fn menu_with_path() -> ContextMenuUi {
+        let mut m = ContextMenuUi::new();
+        m.open(
+            CellPoint { row: 4, column: 7 },
+            false,
+            false,
+            false,
+            false,
+            None,
+            false,
+            Some(resolved_file()),
         );
         m
     }
@@ -760,6 +859,7 @@ mod tests {
             true,
             None,
             false,
+            None,
         );
         let rect = m.rect(40, 20);
         assert!(rect.left + rect.width <= 40);
@@ -926,6 +1026,7 @@ mod tests {
             false,
             Some(SessionToken(9)),
             false,
+            None,
         );
         assert_eq!(
             m.handle_press(7, m.body_row_count(), PointerButton::Left),
@@ -1000,6 +1101,111 @@ mod tests {
         assert_eq!(rows[16], item("Command Palette", false, true));
         assert_eq!(rows[17], item("Session Replay", false, true));
         assert_eq!(rows[18], item("Attach Session", false, true));
+    }
+
+    #[test]
+    fn no_path_menu_hides_the_file_section() {
+        // C3: with no resolved path under the click, the four file items are
+        // absent and the layout is byte-identical to before C3 (the 19-row
+        // single-pane menu). This is the byte-identity guarantee.
+        let m = menu(false, false);
+        assert_eq!(m.item_count(), 15);
+        let rows = m.rows();
+        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 19
+        for label in ["Open", "Copy Path", "Copy File", "Reveal in File Manager"] {
+            assert!(
+                !rows.iter().any(|r| matches!(
+                    r,
+                    ContextMenuRow::Item { label: l, .. } if *l == label
+                )),
+                "file item {label} must be absent with no path target"
+            );
+        }
+    }
+
+    #[test]
+    fn path_present_menu_appends_the_file_section() {
+        // C3: a resolved path adds a fifth section (Open / Copy Path / Copy File
+        // / Reveal) below the launcher section, with a leading separator. The
+        // base 19 rows are unchanged; +1 separator +4 items = 24 rows.
+        let m = menu_with_path();
+        assert_eq!(m.item_count(), 19, "15 base + 4 file items");
+        let rows = m.rows();
+        assert_eq!(rows.len(), 24, "19 base rows + 1 separator + 4 file items");
+        // The base single-pane layout (rows 0..=18) is unchanged.
+        assert_eq!(rows[18], item("Attach Session", false, true));
+        // Then a separator and the file section.
+        assert_eq!(rows[19], ContextMenuRow::Separator);
+        assert_eq!(rows[20], item("Open", false, true));
+        assert_eq!(rows[21], item("Copy Path", false, true));
+        assert_eq!(rows[22], item("Copy File", false, true));
+        assert_eq!(rows[23], item("Reveal in File Manager", false, true));
+    }
+
+    #[test]
+    fn file_items_carry_no_accelerator() {
+        // The file items are pointer-only; even with accelerators populated for
+        // other items, the file rows render a blank accelerator.
+        let mut m = menu_with_path();
+        let mut accels: [Option<String>; CONTEXT_MENU_ITEMS] = Default::default();
+        accels[0] = Some("Ctrl+Shift+C".to_owned());
+        m.set_accelerators(accels);
+        let rows = m.rows();
+        for (body_row, row) in rows.iter().enumerate().take(24).skip(20) {
+            assert!(
+                matches!(
+                    row,
+                    ContextMenuRow::Item {
+                        accelerator: None,
+                        ..
+                    }
+                ),
+                "file item at body row {body_row} must have no accelerator"
+            );
+        }
+    }
+
+    #[test]
+    fn file_items_activate_on_press() {
+        let mut m = menu_with_path();
+        // Open is at body row 20, then Copy Path / Copy File / Reveal.
+        assert_eq!(
+            m.handle_press(20, m.body_row_count(), PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::OpenPath)
+        );
+        assert_eq!(
+            m.handle_press(21, m.body_row_count(), PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::CopyPath)
+        );
+        assert_eq!(
+            m.handle_press(22, m.body_row_count(), PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::CopyFile)
+        );
+        assert_eq!(
+            m.handle_press(23, m.body_row_count(), PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::RevealPath)
+        );
+    }
+
+    #[test]
+    fn path_target_presence_changes_the_signature() {
+        // The file section changes the rendered rows, so its presence must alter
+        // the render-cache signature (repaint when the section appears).
+        assert_ne!(
+            menu(false, false).render_signature(),
+            menu_with_path().render_signature()
+        );
+        assert!(menu_with_path().render_signature().has_path_target);
+        assert!(!menu(false, false).render_signature().has_path_target);
+    }
+
+    #[test]
+    fn path_target_accessor_returns_the_resolved() {
+        let m = menu_with_path();
+        let target = m.path_target().expect("path target present");
+        assert_eq!(target.abs, "/proj/src/main.rs");
+        assert_eq!(target.line, Some(42));
+        assert!(menu(false, false).path_target().is_none());
     }
 
     #[test]
@@ -1113,6 +1319,7 @@ mod tests {
             false,
             None,
             false,
+            None,
         );
         assert_eq!(
             m.handle_press(1, m.body_row_count(), PointerButton::Left),

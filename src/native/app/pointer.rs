@@ -220,7 +220,11 @@ impl App {
         if button == WinitMouseButton::Left {
             match state {
                 ElementState::Pressed => {
-                    if !self.try_open_hovered_hyperlink() {
+                    // OSC 8 hyperlink wins ties; then a resolved interactive
+                    // path (Ctrl+click); else begin a text selection. Both open
+                    // helpers return false when their gate/feature is off, so
+                    // the selection path stays byte-identical when neither fires.
+                    if !self.try_open_hovered_hyperlink() && !self.try_open_hovered_path() {
                         self.begin_selection();
                     }
                 }

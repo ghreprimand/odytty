@@ -275,11 +275,20 @@ impl OverlayUi {
         delete: bool,
         rename_target: Option<SessionToken>,
         multi_pane: bool,
+        path_target: Option<crate::paths::Resolved>,
         accelerators: [Option<String>; CONTEXT_MENU_ITEMS],
     ) {
         self.panel.end_slider_drag();
-        self.context_menu
-            .open(spawn, copy, cut, paste, delete, rename_target, multi_pane);
+        self.context_menu.open(
+            spawn,
+            copy,
+            cut,
+            paste,
+            delete,
+            rename_target,
+            multi_pane,
+            path_target,
+        );
         self.context_menu.set_accelerators(accelerators);
         self.mode = OverlayMode::ContextMenu;
         self.open = true;
@@ -361,6 +370,32 @@ impl OverlayUi {
                     ContextMenuItem::CommandPalette => OverlayOutcome::ContextMenuCommandPalette,
                     ContextMenuItem::SessionReplay => OverlayOutcome::ContextMenuSessionReplay,
                     ContextMenuItem::SessionAttach => OverlayOutcome::ContextMenuSessionAttach,
+                    // C3 file section: build each outcome from the resolved path
+                    // snapshotted at open time (survives the `close()` above, as
+                    // the rename-target read does). A missing target (defensive —
+                    // these items are only visible with a target) is inert.
+                    ContextMenuItem::OpenPath => match self.context_menu.path_target() {
+                        Some(resolved) => {
+                            OverlayOutcome::ContextMenuOpenPath(Box::new(resolved.clone()))
+                        }
+                        None => OverlayOutcome::Consumed,
+                    },
+                    ContextMenuItem::CopyPath => match self.context_menu.path_target() {
+                        Some(resolved) => OverlayOutcome::ContextMenuCopyPath(resolved.abs.clone()),
+                        None => OverlayOutcome::Consumed,
+                    },
+                    ContextMenuItem::CopyFile => match self.context_menu.path_target() {
+                        Some(resolved) => OverlayOutcome::ContextMenuCopyFile(
+                            super::app::interactive_paths::file_uri(&resolved.abs),
+                        ),
+                        None => OverlayOutcome::Consumed,
+                    },
+                    ContextMenuItem::RevealPath => match self.context_menu.path_target() {
+                        Some(resolved) => OverlayOutcome::ContextMenuRevealPath(
+                            super::app::interactive_paths::reveal_target(resolved),
+                        ),
+                        None => OverlayOutcome::Consumed,
+                    },
                 }
             }
         }
@@ -1050,6 +1085,19 @@ pub(super) enum OverlayOutcome {
     /// (Phase 5 / B2). The menu has already closed itself; the App opens it
     /// through the same entry the `Ctrl+Shift+A` chord fires.
     ContextMenuSessionAttach,
+    /// Open a resolved interactive path from the context menu's file section
+    /// (Phase 8 / C3). The menu has already closed itself; the App dispatches
+    /// through the same argv-only `path_open_argv` + `spawn_detached` the
+    /// Ctrl+click path uses. Boxed to keep this short-lived enum small.
+    ContextMenuOpenPath(Box<crate::paths::Resolved>),
+    /// Copy the resolved absolute path to the clipboard as text (C3).
+    ContextMenuCopyPath(String),
+    /// Copy a `file://<abs>` URI to the clipboard as text (C3). The clipboard is
+    /// text-only; this pastes into file managers as a file reference.
+    ContextMenuCopyFile(String),
+    /// Reveal the resolved path in the desktop file manager (C3): `xdg-open` on
+    /// the parent directory (a file) or the path itself (a directory).
+    ContextMenuRevealPath(String),
     /// Type text accepted from the command palette into the active pane's PTY.
     /// The App writes the exact bytes with no trailing newline.
     PaletteTypeText(String),
@@ -2354,6 +2402,7 @@ mod tests {
             true,
             None,
             false,
+            None,
             Default::default(),
         );
         // Focus starts at item 0 (Copy); Split Right is item index 8.
@@ -2374,6 +2423,7 @@ mod tests {
             true,
             None,
             false,
+            None,
             Default::default(),
         );
         for _ in 0..9 {
@@ -2399,6 +2449,7 @@ mod tests {
             true,
             None,
             true,
+            None,
             Default::default(),
         );
         for _ in 0..10 {
@@ -2419,6 +2470,7 @@ mod tests {
             true,
             None,
             false,
+            None,
             Default::default(),
         );
         for _ in 0..10 {
@@ -2427,6 +2479,84 @@ mod tests {
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
             OverlayOutcome::ContextMenuSettings
+        );
+    }
+
+    #[test]
+    fn context_menu_file_items_emit_path_outcomes() {
+        // C3: with a resolved path target, the file section's four items lift
+        // into the matching path outcomes carrying the resolved data. Synthetic
+        // path only — no real filesystem.
+        let resolved = crate::paths::Resolved {
+            abs: "/proj/src/main.rs".to_owned(),
+            kind: crate::paths::FsKind::File,
+            line: Some(42),
+            col: Some(7),
+        };
+        // Single-pane visible order: 15 base items (indices 0..=14), then the
+        // file section Open(15) / CopyPath(16) / CopyFile(17) / Reveal(18).
+        let open_menu = |steps: usize| {
+            let mut overlay = OverlayUi::default();
+            overlay.open_context_menu(
+                CellPoint { row: 0, column: 0 },
+                true,
+                true,
+                true,
+                true,
+                None,
+                false,
+                Some(resolved.clone()),
+                Default::default(),
+            );
+            for _ in 0..steps {
+                overlay.handle_input(OverlayInput::Down);
+            }
+            overlay.handle_input(OverlayInput::Activate)
+        };
+
+        assert_eq!(
+            open_menu(15),
+            OverlayOutcome::ContextMenuOpenPath(Box::new(resolved.clone()))
+        );
+        assert_eq!(
+            open_menu(16),
+            OverlayOutcome::ContextMenuCopyPath("/proj/src/main.rs".to_owned())
+        );
+        assert_eq!(
+            open_menu(17),
+            OverlayOutcome::ContextMenuCopyFile("file:///proj/src/main.rs".to_owned())
+        );
+        assert_eq!(
+            open_menu(18),
+            OverlayOutcome::ContextMenuRevealPath("/proj/src".to_owned())
+        );
+    }
+
+    #[test]
+    fn context_menu_without_path_has_no_file_outcomes() {
+        // With no path target the file items are not visible; walking to where
+        // they would be lands on the launcher section instead (byte-identical
+        // to the pre-C3 menu).
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            None,
+            false,
+            None,
+            Default::default(),
+        );
+        // 15 visible items single-pane; index 14 is the last (Attach Session).
+        for _ in 0..14 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuSessionAttach,
+            "last single-pane item is Attach Session, not a file item"
         );
     }
 

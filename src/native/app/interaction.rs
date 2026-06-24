@@ -158,6 +158,28 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.open_session_attach_overlay();
             }
+            // C3 file section: the menu closed itself before emitting these.
+            // Open dispatches through the same argv-only path the Ctrl+click
+            // open uses; copy items write text to the clipboard; reveal opens
+            // the parent directory. All best-effort — a spawn/clipboard failure
+            // never panics the UI.
+            OverlayOutcome::ContextMenuOpenPath(resolved) => {
+                self.flush_pending_overlay_settings();
+                let argv = self.path_open_argv_for(&resolved);
+                super::interactive_paths::spawn_detached(&argv);
+            }
+            OverlayOutcome::ContextMenuCopyPath(abs) => {
+                self.flush_pending_overlay_settings();
+                let _ = self.clipboard.write_text(&abs);
+            }
+            OverlayOutcome::ContextMenuCopyFile(uri) => {
+                self.flush_pending_overlay_settings();
+                let _ = self.clipboard.write_text(&uri);
+            }
+            OverlayOutcome::ContextMenuRevealPath(dir) => {
+                self.flush_pending_overlay_settings();
+                super::interactive_paths::spawn_detached(&["xdg-open".to_owned(), dir]);
+            }
             OverlayOutcome::PaletteTypeText(text) => {
                 self.flush_pending_overlay_settings();
                 self.handle_palette_type_text(text);
@@ -410,7 +432,7 @@ impl App {
     /// pane's OSC 7 working directory and `$HOME`, stat-gated through the active
     /// [`crate::paths::ResolveProbe`]. Pure aside from the single probe call;
     /// `None` when no live filesystem path sits under the pointer.
-    fn resolved_hovered_path(&self) -> Option<crate::paths::Resolved> {
+    pub(super) fn resolved_hovered_path(&self) -> Option<crate::paths::Resolved> {
         let point = self.pointer_cell?;
         let (line, column, cwd) = self.hovered_row_text_and_cwd(point)?;
         // Map the pointer's cell column to a byte offset in the row string, then
@@ -506,14 +528,55 @@ impl App {
 
         // Security: OdyTTY never auto-opens OSC 8 links. A URI is opened only
         // after explicit Ctrl+click, scheme allowlist filtering, and direct
-        // argv passing to xdg-open. No shell interpolation is involved.
-        let _ = Command::new("xdg-open")
-            .arg(uri)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+        // argv passing to xdg-open. No shell interpolation is involved. Routed
+        // through the single argv-only spawn point shared with path opens.
+        super::interactive_paths::spawn_detached(&["xdg-open".to_owned(), uri]);
         true
+    }
+
+    /// INTERACTIVE-PATHS (Phase 8 / C3): Ctrl+click open for a resolved path
+    /// span under the pointer. Chained in the pointer Pressed arm AFTER
+    /// [`Self::try_open_hovered_hyperlink`] (OSC 8 wins ties) and BEFORE
+    /// `begin_selection`, so when this returns `false` the selection path is
+    /// byte-identical.
+    ///
+    /// Returns `false` immediately — opening nothing, starting no selection
+    /// change — when the feature is off, the Ctrl+click gate is not satisfied,
+    /// or no live path span sits under the pointer. The gate reused is exactly
+    /// the hyperlink one ([`hyperlink_action_allowed`]): Ctrl required,
+    /// suppressed under mouse reporting unless Shift overrides. The open itself
+    /// is an argv-only [`super::interactive_paths::spawn_detached`] of the
+    /// dispatch vector ([`super::interactive_paths::path_open_argv`]) — never a
+    /// shell string.
+    pub(super) fn try_open_hovered_path(&mut self) -> bool {
+        if !self.settings.interactive_paths {
+            return false;
+        }
+        if !hyperlink_action_allowed(self.modifiers, self.mouse_reporting_enabled()) {
+            return false;
+        }
+        let Some(resolved) = self.hovered_path.clone() else {
+            return false;
+        };
+        let argv = self.path_open_argv_for(&resolved);
+        super::interactive_paths::spawn_detached(&argv);
+        true
+    }
+
+    /// Build the argv vector to open a resolved path, threading the configured
+    /// editor override (`interactive_paths_editor`) and the `$EDITOR`/`$VISUAL`
+    /// environment (read at open time). Pure aside from the env read; the spawn
+    /// is the caller's separate step. Shared by the Ctrl+click path and the
+    /// context-menu Open item so both dispatch identically.
+    pub(super) fn path_open_argv_for(&self, resolved: &crate::paths::Resolved) -> Vec<String> {
+        let editor_env = std::env::var("EDITOR")
+            .ok()
+            .or_else(|| std::env::var("VISUAL").ok());
+        super::interactive_paths::path_open_argv(
+            resolved,
+            &self.settings.interactive_paths_editor,
+            editor_env.as_deref(),
+        )
     }
 
     pub(super) fn write_pty_bytes(&self, bytes: &[u8]) {

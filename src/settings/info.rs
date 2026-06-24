@@ -1112,6 +1112,23 @@ impl Settings {
                 numeric: None,
             },
             SettingInfo {
+                group: "Input",
+                key: "interactive_paths_editor",
+                env: INTERACTIVE_PATHS_EDITOR_ENV,
+                name: "Interactive path editor",
+                value: if self.interactive_paths_editor.is_empty() {
+                    "default".to_owned()
+                } else {
+                    self.interactive_paths_editor.clone()
+                },
+                description: "Editor used to open a path with a line/column suffix (path:line:col). Empty (default) detects the editor from $EDITOR/$VISUAL. Set a known editor name (vim, nvim, code, emacs, helix, sublime, nano, micro) or an argv template with {file}, {line}, {col} placeholders. Always passed as an argv vector, never run through a shell.",
+                kind: SettingKind::String,
+                range: None,
+                options: &[],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
                 group: "Connections",
                 key: "ssh_config_hosts",
                 env: SSH_CONFIG_HOSTS_ENV,
@@ -1330,6 +1347,13 @@ impl Settings {
             "ssh_config_hosts" => bool_display(self.ssh_config_hosts).to_owned(),
             "session_replay" => bool_display(self.session_replay).to_owned(),
             "interactive_paths" => bool_display(self.interactive_paths).to_owned(),
+            "interactive_paths_editor" => {
+                if self.interactive_paths_editor.is_empty() {
+                    "default".to_owned()
+                } else {
+                    self.interactive_paths_editor.clone()
+                }
+            }
             "osc52_read" => bool_display(self.osc52_read).to_owned(),
             "copy_on_select" => bool_display(self.copy_on_select).to_owned(),
             "cvd_mode" => self.cvd_mode.as_str().to_owned(),

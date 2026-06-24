@@ -152,6 +152,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         false,
         None,
         false,
+        None,
     );
 
     let rows = menu.rows();
@@ -267,6 +268,88 @@ fn right_click_opens_menu_in_a_plain_shell() {
         sig.context_menu.spawn,
         (5, 10),
         "menu spawns at the click cell"
+    );
+}
+
+#[test]
+fn right_click_over_resolved_path_shows_file_section() {
+    // C3: right-clicking over a resolved interactive path (feature on) re-detects
+    // the path at the click cell and surfaces the file section. Synthetic only:
+    // the stat-gate is a MapProbe over a fixed map; `/proj/...` is fabricated.
+    let Some((mut app, terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"/proj/src/main.rs:42:7");
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_interactive_paths_for_test(true);
+    app.set_test_path_probe_for_test(crate::native::app::interactive_paths::MapProbe::new([(
+        "/proj/src/main.rs",
+        crate::paths::FsKind::File,
+    )]));
+    // Pointer at row 0, col 5 — inside the path span.
+    app.set_pointer_cell_for_test(0, 5);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+
+    assert!(app.context_menu_open_for_test());
+    assert!(
+        app.overlay_signature_for_test()
+            .context_menu
+            .has_path_target,
+        "the file section is present over a resolved path"
+    );
+    // The full file section (Open / Copy Path / Copy File / Reveal) is
+    // unit-tested in `context_menu_ui`; here the menu can exceed the 24-row grid
+    // and scroll, so assert the section surfaced via its top rows. `has_path_target`
+    // above is the structural guarantee that all four items are present.
+    let (cols, rows) = app.grid_dims_for_test();
+    let rendered = app.render_overlay_rows_for_test(cols, rows);
+    for label in ["Open", "Copy Path"] {
+        assert!(
+            rendered.iter().any(|line| line.contains(label)),
+            "file item {label:?} must render in {rendered:?}"
+        );
+    }
+}
+
+#[test]
+fn right_click_over_path_with_feature_off_has_no_file_section() {
+    // BYTE-IDENTITY GUARD: with the feature off (default), the same right-click
+    // over path-looking text never scans and the menu carries no file section.
+    let Some((mut app, terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    terminal
+        .lock()
+        .expect("terminal")
+        .advance(b"/proj/src/main.rs:42:7");
+    app.set_test_cell_for_test(cell(8, 16));
+    // Even with a probe that WOULD resolve, the off gate keeps it inert.
+    app.set_test_path_probe_for_test(crate::native::app::interactive_paths::MapProbe::new([(
+        "/proj/src/main.rs",
+        crate::paths::FsKind::File,
+    )]));
+    app.set_pointer_cell_for_test(0, 5);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+
+    assert!(app.context_menu_open_for_test());
+    assert!(
+        !app.overlay_signature_for_test()
+            .context_menu
+            .has_path_target,
+        "no file section when the feature is off"
+    );
+    let (cols, rows) = app.grid_dims_for_test();
+    let rendered = app.render_overlay_rows_for_test(cols, rows);
+    assert!(
+        !rendered
+            .iter()
+            .any(|line| line.contains("Reveal in File Manager")),
+        "file items absent with feature off: {rendered:?}"
     );
 }
 

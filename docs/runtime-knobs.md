@@ -254,6 +254,7 @@ environment variable was not set at startup.
 | `command_status_gutter` | `ODYTTY_COMMAND_STATUS_GUTTER` | `on`, `off` | `off` |
 | `sh_click` | `ODYTTY_SH_CLICK` | `on`, `off` | `off` |
 | `interactive_paths` | `ODYTTY_INTERACTIVE_PATHS` | `on`, `off` | `off` |
+| `interactive_paths_editor` | `ODYTTY_INTERACTIVE_PATHS_EDITOR` | editor name or argv template | *(empty — use `$EDITOR`)* |
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
@@ -474,16 +475,47 @@ relative path that contains a slash (`src/main.rs`) — that **resolves to a rea
 file or directory** shows the pointer (hand) cursor, the same affordance as an
 OSC 8 hyperlink. Relative paths resolve against the shell's reported working
 directory (OSC 7); `~` expands against `$HOME`. A trailing `:line[:col]` suffix
-(`src/main.rs:42:10`) is recognized and carried through for the editor-open
-action that ships in a later phase.
+(`src/main.rs:42:10`) is recognized and carried through to the editor-open
+action below.
 
-This phase ships the **cursor affordance only** — there is no underline or other
-frame-affecting decoration, so with the feature on the rendered frame bytes are
-unchanged and only the mouse cursor shape reflects a hovered path. Detection is
-**local-only**: candidate spans are never logged, persisted, or sent anywhere,
-and the single filesystem `stat` happens only on a span actually under the
-pointer (the default, feature-off path makes zero `stat` calls). Hover detection
-runs on the **focused pane only** (a v1 bound shared with OSC 8 hyperlink hover).
+The cursor affordance is the **only** frame-affecting change — there is no
+underline or other decoration, so with the feature on the rendered frame bytes
+are unchanged and only the mouse cursor shape reflects a hovered path. Detection
+is **local-only**: candidate spans are never logged, persisted, or sent
+anywhere, and the single filesystem `stat` happens only on a span actually under
+the pointer (the default, feature-off path makes zero `stat` calls). Hover
+detection runs on the **focused pane only** (a v1 bound shared with OSC 8
+hyperlink hover).
+
+**Opening a path (Ctrl+click + context menu).** With the feature on, **Ctrl+click**
+on a resolved span opens it (the same gate as OSC 8 hyperlinks — Ctrl is
+required, and the action is suppressed while a TUI owns the mouse unless Shift
+overrides). A right-click over a resolved span adds a **file section** to the
+context menu — Open, Copy Path, Copy File, Reveal in File Manager. Every open is
+an **argv vector**, never a shell string, so a path containing spaces, `;`,
+`$()`, or backticks is inert. The dispatch:
+
+| Span | Action |
+|------|--------|
+| File, no `:line` | `xdg-open <abs>` (default app) |
+| File, `:line[:col]` | editor at that position (see below) |
+| Directory | `xdg-open <abs>` (file manager) |
+
+"Copy Path" copies the absolute path; "Copy File" copies a `file://<abs>` URI as
+text (the clipboard is text-only — this pastes into file managers as a file
+reference); "Reveal in File Manager" opens the containing directory.
+
+**Editor selection (`interactive_paths_editor`).** A `path:line:col` span opens
+in an editor chosen by: the `interactive_paths_editor` setting (env
+`ODYTTY_INTERACTIVE_PATHS_EDITOR`) if non-empty, else `$EDITOR`/`$VISUAL`, else
+`xdg-open` (position lost). The value is either a **known editor name** — `vim`,
+`nvim`, `vi`, `code`, `emacs`, `emacsclient`, `helix`/`hx`, `sublime`/`subl`,
+`nano`, `micro` (each mapped to its position-flag form, e.g. `code --goto
+F:L:C`, `vim +call cursor(L,C) F`, `nano +L,C F`) — or an **argv template** with
+`{file}`, `{line}`, `{col}` placeholders (e.g. `myeditor --line {line} {file}`).
+The spec is always whitespace-tokenized into argv and **never** evaluated by a
+shell; a `$EDITOR` carrying args (`code --wait`) is split into argv too. Both the
+toggle and the editor knob live in the Settings panel's Input section.
 
 ## Native UI
 
@@ -495,7 +527,9 @@ runs on the **focused pane only** (a v1 bound shared with OSC 8 hyperlink hover)
 - Right-click opens the context menu. On OSC 133-aware prompts it can copy, cut,
   delete, clear input, open settings, and create, rename, or close tabs. A
   custom tab name is session-local; it overrides shell title updates until an
-  empty rename clears it.
+  empty rename clears it. With `interactive_paths` on, right-clicking over a
+  resolved path adds a file section (Open / Copy Path / Copy File / Reveal in
+  File Manager).
 - First launch without a config file shows an onboarding card. Set
   `ODYTTY_ONBOARDING=1` to force it.
 

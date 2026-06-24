@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Interactive paths: Ctrl+click open + file context menu
+
+The hover affordance from the previous entry becomes actionable. **Ctrl+click**
+on a resolved path now opens it: files via `xdg-open`, a `path:line:col` span via
+your editor (a built-in invocation matrix covers vim/nvim/vi, VS Code, emacs,
+helix, sublime, micro, nano, with a config override knob for everything else),
+and directories via the file manager. The click gate reuses the existing
+`hyperlink_action_allowed` check — OSC 8 hyperlinks still win ties — so with the
+feature off, or without Ctrl, or over a non-path, selection behaviour is
+byte-identical to before.
+
+Every process launch in this packet routes through a single argv-only spawn point
+(`spawn_detached`): null stdio, `Command::new(program).args(rest)`, never
+`sh -c`. The pre-existing inline OSC 8 hyperlink open was migrated onto the same
+helper, so there is now exactly one auditable spawn site for path/link opens.
+
+Right-click over a resolved path grows a **file section**: Open, Copy Path,
+Copy File (as a `file://` URI, since the clipboard is text-only), and Reveal in
+File Manager. The section is re-detected at the clicked cell (gated on the
+setting) and filtered out of `visible_items()` whenever there is no path target,
+so a closed menu — and a right-click that lands on no path — stays byte-identical
+(the Close-Pane conditional-item precedent). **Open With…** is deferred to a
+later packet (C3b); no mutating actions (chmod/rename/delete) are present —
+those remain declined.
+
+A new `interactive_paths_editor` string setting (env
+`ODYTTY_INTERACTIVE_PATHS_EDITOR`, default empty) is the override knob; precedence
+is override → `$EDITOR`/`$VISUAL` → `xdg-open` (position lost). It lives in the
+Input group, off the SECTIONS table by design, and passes the A1 orphan-coverage
+guard.
+
+Verified: `cargo fmt --check` clean, `cargo clippy --all-targets -- -D warnings`
+clean, `cargo test --locked` 2458 pass / 0 fail (dispatch matrix, tokenisation,
+template substitution, menu presence/byte-identity, App-level right-click, gate
+false-branches — all synthetic paths via an injectable probe, no real filesystem,
+no spawn in tests), `gpu_composite_smoke` 3/3, `license_headers` 1/1. Detection
+stays default-off; no new render surface; `src/paths/` stays pure; `src/core/`
+untouched.
+
 ## 2026-06-24 -- Interactive paths: hover + pointer-cursor affordance (icon-first)
 
 The detection spine from the previous entry gets its first UI: hovering a path

@@ -73,6 +73,7 @@ pub const CONFIRM_CLOSE_ENV: &str = "ODYTTY_CONFIRM_CLOSE";
 pub const SSH_CONFIG_HOSTS_ENV: &str = "ODYTTY_SSH_CONFIG_HOSTS";
 pub const SESSION_REPLAY_ENV: &str = "ODYTTY_SESSION_REPLAY";
 pub const INTERACTIVE_PATHS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS";
+pub const INTERACTIVE_PATHS_EDITOR_ENV: &str = "ODYTTY_INTERACTIVE_PATHS_EDITOR";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
 /// Subdirectory of the config dir where user theme files (`*.theme`) live.
@@ -148,6 +149,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SSH_CONFIG_HOSTS_ENV,
     SESSION_REPLAY_ENV,
     INTERACTIVE_PATHS_ENV,
+    INTERACTIVE_PATHS_EDITOR_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 

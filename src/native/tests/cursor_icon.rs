@@ -258,3 +258,96 @@ fn unresolved_path_span_gets_no_hand() {
     assert_eq!(app.cursor_icon_for_test(), CursorIcon::Text);
     assert!(app.hovered_path_for_test().is_none());
 }
+
+// ── INTERACTIVE-PATHS (Phase 8 / C3): Ctrl+click open gate + dispatch argv ──
+//
+// The success branch spawns a process, so these tests only exercise the gate's
+// FALSE branches (no open, selection path untouched) and verify the dispatch
+// argv via the pure `path_open_argv_for_test` seam (reads $EDITOR, never spawns).
+
+/// Without Ctrl held, the Ctrl+click open gate never fires even over a resolved
+/// path — the press would fall through to selection (byte-identical).
+#[test]
+fn ctrl_click_open_requires_ctrl() {
+    let Some(mut app) = build_app(b"/proj/src/main.rs") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_interactive_paths_for_test(true);
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
+    app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
+    assert!(app.hovered_path_for_test().is_some(), "path is hovered");
+    // No Ctrl → gate returns false, nothing opens.
+    assert!(!app.try_open_hovered_path_for_test());
+}
+
+/// With the feature off, the open gate returns false immediately even if a Ctrl
+/// click lands where a path would be — the default click path is unchanged.
+#[test]
+fn ctrl_click_open_is_inert_when_setting_off() {
+    let Some(mut app) = build_app(b"/proj/src/main.rs") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
+    app.set_ctrl_modifier_for_test(true);
+    app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
+    // Feature off → no hovered path and the gate short-circuits to false.
+    assert!(!app.try_open_hovered_path_for_test());
+    assert!(app.hovered_path_for_test().is_none());
+}
+
+/// With no path under the pointer, the gate returns false even with Ctrl held
+/// and the feature on.
+#[test]
+fn ctrl_click_open_is_inert_with_no_path() {
+    let Some(mut app) = build_app(b"plain text") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_interactive_paths_for_test(true);
+    app.set_test_path_probe_for_test(MapProbe::default());
+    app.set_ctrl_modifier_for_test(true);
+    app.pointer_move_for_test(f64::from(CELL_W) * 2.5, f64::from(CELL_H) * 0.5);
+    assert!(!app.try_open_hovered_path_for_test());
+}
+
+/// A `path:line:col` span under the pointer builds the editor-matrix argv from
+/// the configured override (`interactive_paths_editor`), tokenized and never
+/// shell-evaluated. Asserts the vector; never spawns.
+#[test]
+fn ctrl_click_dispatch_builds_editor_argv_for_path_line_col() {
+    let Some(mut app) = build_app(b"/proj/src/main.rs:42:7") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_interactive_paths_for_test(true);
+    app.set_interactive_paths_editor_for_test("vim");
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
+    app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
+    assert_eq!(
+        app.path_open_argv_for_test(),
+        Some(vec![
+            "vim".to_owned(),
+            "+call cursor(42,7)".to_owned(),
+            "/proj/src/main.rs".to_owned()
+        ])
+    );
+}
+
+/// A plain file span (no line suffix) dispatches to `xdg-open` with the absolute
+/// path as a single argv element.
+#[test]
+fn ctrl_click_dispatch_builds_xdg_open_for_plain_file() {
+    let Some(mut app) = build_app(b"/proj/src/main.rs") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_interactive_paths_for_test(true);
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
+    app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
+    assert_eq!(
+        app.path_open_argv_for_test(),
+        Some(vec!["xdg-open".to_owned(), "/proj/src/main.rs".to_owned()])
+    );
+}

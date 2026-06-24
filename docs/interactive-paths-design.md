@@ -1,8 +1,12 @@
 # Interactive Paths — Design (C0)
 
-Status: design + pure detection spine landed (Phase 6 / C0–C1). UI wiring
-(hover, click dispatch, context menu, image viewer) is deferred to Phases 7–9
-and is **not** built by this packet. This document is the contract those phases
+Status: design + pure detection spine landed (Phase 6 / C0–C1). Phase 7 (C2)
+shipped the hover cursor affordance. Phase 8 (C3) shipped the Ctrl+click open
+dispatch, the editor invocation matrix + `interactive_paths_editor` knob, and
+the context-menu file section (Open / Copy Path / Copy File / Reveal in File
+Manager). **"Open With…"** (xdg-mime/.desktop handler enumeration) and the
+in-terminal image viewer (Phase 9 / C4) are **not** built yet — Open With… is
+deferred to a follow-up **C3b**. This document is the contract those phases
 implement against.
 
 ## Goal
@@ -175,8 +179,9 @@ per-pane interactive overlays.
 
 ## 3. Open-action dispatch table (for Phase 8)
 
-Recorded now; implemented in C3. All spawns are **argv vectors**, never a shell
-string.
+**Shipped in C3.** All spawns are **argv vectors**, never a shell string, routed
+through the single `spawn_detached(argv)` point shared with the OSC 8 hyperlink
+open.
 
 | Span kind | Action | argv |
 |-----------|--------|------|
@@ -215,9 +220,10 @@ Notes:
 
 ### Config-override knob: `interactive_paths_editor`
 
-A settings key `interactive_paths_editor` (env `ODYTTY_INTERACTIVE_PATHS_EDITOR`)
-lets the user pin the editor + argv template explicitly, overriding `$EDITOR`
-detection. Accepts a known editor name (keys into the matrix above) or a
+A settings key `interactive_paths_editor` (env `ODYTTY_INTERACTIVE_PATHS_EDITOR`,
+**shipped in C3** as a `String` setting in the Input group) lets the user pin the
+editor + argv template explicitly, overriding `$EDITOR` detection. Accepts a
+known editor name (keys into the matrix above) or a
 template with `{file}` / `{line}` / `{col}` placeholders that expands to an argv
 vector (split on whitespace *before* placeholder substitution, so a substituted
 path with spaces stays one argv element). This knob is wired in Phase 8; it is

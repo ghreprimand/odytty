@@ -2,7 +2,6 @@
 use std::io::Write;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
-use std::process::{Command, Stdio};
 use std::sync::Arc;
 #[cfg(test)]
 use std::sync::Mutex;
@@ -1376,6 +1375,15 @@ impl App {
         {
             accelerators[slot] = Some(label);
         }
+        // C3: re-detect the interactive path at the click cell (do NOT reuse the
+        // hover snapshot — a right-click may not pass through the hover path).
+        // Gated on the setting so the default (feature-off) menu never scans and
+        // is byte-identical. `None` hides the file section entirely.
+        let path_target = if self.settings.interactive_paths {
+            self.resolved_hovered_path()
+        } else {
+            None
+        };
         self.overlay.open_context_menu(
             spawn,
             copy_enabled,
@@ -1384,6 +1392,7 @@ impl App {
             editable_selection.is_some(),
             rename_target,
             multi_pane,
+            path_target,
             accelerators,
         );
         self.request_selection_redraw();

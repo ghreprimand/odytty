@@ -413,6 +413,34 @@ impl App {
         self.settings.interactive_paths = on;
     }
 
+    /// Test seam (INTERACTIVE-PATHS / C3): set the `interactive_paths_editor`
+    /// override so the editor-matrix dispatch can be pinned without an env var.
+    #[cfg(test)]
+    pub(in crate::native) fn set_interactive_paths_editor_for_test(&mut self, spec: &str) {
+        self.settings.interactive_paths_editor = spec.to_owned();
+    }
+
+    /// Test seam (INTERACTIVE-PATHS / C3): drive the Ctrl+click open gate
+    /// directly and report whether it fired. Returns `false` (no spawn) when the
+    /// feature is off, the Ctrl gate is unmet, or no path is hovered — the cases
+    /// the gate tests assert. The success branch spawns, so tests only exercise
+    /// the false branches.
+    #[cfg(test)]
+    pub(in crate::native) fn try_open_hovered_path_for_test(&mut self) -> bool {
+        self.try_open_hovered_path()
+    }
+
+    /// Test seam (INTERACTIVE-PATHS / C3): the argv vector the Ctrl+click /
+    /// menu-Open path would spawn for the currently hovered path, or `None` when
+    /// nothing is hovered. Pure (reads `$EDITOR`/`$VISUAL`, never spawns), so a
+    /// test can assert the dispatch vector without launching a process.
+    #[cfg(test)]
+    pub(in crate::native) fn path_open_argv_for_test(&self) -> Option<Vec<String>> {
+        self.hovered_path
+            .clone()
+            .map(|resolved| self.path_open_argv_for(&resolved))
+    }
+
     /// Test seam (MOUSE-SCROLLBAR): set the cached raw pointer pixel position the
     /// button handlers hit-test against (button events carry no coordinates).
     #[cfg(test)]
