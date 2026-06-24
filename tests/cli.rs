@@ -117,6 +117,11 @@ fn session_command_parser_accepts_list_and_attach() {
         cli::session_command_for_args(&["attach".to_owned(), "s-1".to_owned()]).expect("parse"),
         Some(cli::SessionCliCommand::Attach(cli::SessionAttachOptions { id, .. })) if id == "s-1"
     ));
+    assert!(matches!(
+        cli::session_command_for_args(&["attach".to_owned()]).expect("parse"),
+        Some(cli::SessionCliCommand::Attach(cli::SessionAttachOptions { id, diagnostic, .. }))
+            if id.is_empty() && !diagnostic
+    ));
 }
 
 #[test]
@@ -221,12 +226,20 @@ fn native_attach_options_set_attach_session_and_nothing_else() {
 fn usage_text_documents_live_attach_and_drops_pending_wording() {
     let usage = cli::usage_text();
     assert!(
-        usage.contains("attach [--diagnostic] ID"),
-        "usage must document the attach flag form: {usage}"
+        usage.contains("attach [ID]"),
+        "usage must document optional attach id: {usage}"
     );
     assert!(
         usage.contains("reattach a detached session in a live native window"),
         "usage must describe the live attach behavior: {usage}"
+    );
+    assert!(
+        usage.contains("without ID: attach the only live session or list choices"),
+        "usage must document no-id attach behavior: {usage}"
+    );
+    assert!(
+        usage.contains("attach --diagnostic ID"),
+        "usage must document diagnostic attach id: {usage}"
     );
     assert!(
         !usage.contains("pending"),
@@ -244,25 +257,121 @@ fn session_command_parser_rejects_incomplete_session_commands() {
         "odytty new requires --detached"
     );
     assert_eq!(
-        cli::session_command_for_args(&["attach".to_owned()]).unwrap_err(),
-        "odytty attach requires a session id"
+        cli::session_command_for_args(&["attach".to_owned(), "--diagnostic".to_owned()])
+            .unwrap_err(),
+        "odytty attach --diagnostic requires a session id"
     );
 }
 
 #[test]
-fn list_sessions_output_is_script_friendly_and_escaped() {
-    let output = cli::list_sessions_output(&[ListedSession {
-        id: "s-1".to_owned(),
-        name: "Demo\tName".to_owned(),
-        state: "running",
-        age_ms: 42,
-        pane_count: 1,
-    }]);
+fn list_sessions_output_is_readable_and_name_first() {
+    let output = cli::list_sessions_output(&[
+        ListedSession {
+            id: "s-0001-aaaa".to_owned(),
+            name: "build".to_owned(),
+            state: "running",
+            age_ms: 42,
+            pane_count: 1,
+        },
+        ListedSession {
+            id: "s-0002-bbbb".to_owned(),
+            name: "s-0002-bbbb".to_owned(),
+            state: "running",
+            age_ms: 65_000,
+            pane_count: 2,
+        },
+    ]);
 
     assert_eq!(
         output,
-        "id=s-1\tname=Demo\\tName\tstate=running\tage_ms=42\tpanes=1\n"
+        "build\t1 pane\t42ms\t(s-0001-aaaa)\ns-0002-bbbb\t2 panes\t1m\n"
     );
+}
+
+#[test]
+fn attach_no_id_resolver_errors_when_no_sessions_exist() {
+    let options = cli::SessionAttachOptions {
+        id: String::new(),
+        runtime_base: None,
+        diagnostic: false,
+    };
+    let error = cli::resolve_attach_from_sessions(&options, &[]).unwrap_err();
+    assert_eq!(error.to_string(), "no live sessions to attach");
+}
+
+#[test]
+fn attach_no_id_resolver_attaches_single_session() {
+    let options = cli::SessionAttachOptions {
+        id: String::new(),
+        runtime_base: None,
+        diagnostic: false,
+    };
+    let action = cli::resolve_attach_from_sessions(
+        &options,
+        &[ListedSession {
+            id: "s-0001-aaaa".to_owned(),
+            name: "build".to_owned(),
+            state: "running",
+            age_ms: 1_000,
+            pane_count: 1,
+        }],
+    )
+    .expect("resolve attach");
+    assert_eq!(
+        action,
+        cli::AttachAction::LiveWindow("s-0001-aaaa".to_owned())
+    );
+}
+
+#[test]
+fn attach_resolver_keeps_explicit_id_live_without_enumerating() {
+    let action = cli::resolve_attach(&cli::SessionAttachOptions {
+        id: "s-0001-aaaa".to_owned(),
+        runtime_base: None,
+        diagnostic: false,
+    })
+    .expect("resolve attach");
+
+    assert_eq!(
+        action,
+        cli::AttachAction::LiveWindow("s-0001-aaaa".to_owned())
+    );
+}
+
+#[test]
+fn attach_no_id_resolver_lists_multiple_sessions_and_requires_choice() {
+    let options = cli::SessionAttachOptions {
+        id: String::new(),
+        runtime_base: None,
+        diagnostic: false,
+    };
+    let action = cli::resolve_attach_from_sessions(
+        &options,
+        &[
+            ListedSession {
+                id: "s-0001-aaaa".to_owned(),
+                name: "build".to_owned(),
+                state: "running",
+                age_ms: 1_000,
+                pane_count: 1,
+            },
+            ListedSession {
+                id: "s-0002-bbbb".to_owned(),
+                name: "web".to_owned(),
+                state: "running",
+                age_ms: 2_000,
+                pane_count: 2,
+            },
+        ],
+    )
+    .expect("resolve attach");
+
+    let cli::AttachAction::PrintCli(output) = action else {
+        panic!("multiple sessions must print choices");
+    };
+    assert!(output.contains("build\t1 pane\t1s\t(s-0001-aaaa)"));
+    assert!(output.contains("web\t2 panes\t2s\t(s-0002-bbbb)"));
+    assert!(output.contains("multiple live sessions; specify an id: odytty attach <id>"));
 }
 
 #[test]
@@ -336,12 +445,10 @@ fn list_and_attach_use_live_session_host_without_scrollback_dump() {
     assert!(
         list_output
             .lines()
-            .any(|line| line.starts_with("id=s-live\t")),
+            .any(|line| line.starts_with("Demo\t1 pane\t")),
         "s-live not listed: {list_output}"
     );
-    assert!(list_output.contains("name=Demo"));
-    assert!(list_output.contains("state=running"));
-    assert!(list_output.contains("panes=1"));
+    assert!(list_output.contains("(s-live)"));
     assert!(
         !list_output.contains("private-output"),
         "list output must not include scrollback"

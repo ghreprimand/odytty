@@ -229,6 +229,7 @@ Detached-session CLI commands are additive and local-only:
 odytty new --detached
 odytty new --detached --title work -e bash
 odytty list
+odytty attach
 odytty attach <id>
 odytty attach --diagnostic <id>
 ```
@@ -251,16 +252,19 @@ symbol/Nerd-font fallback **chain**, joined with ` > ` — e.g.
 
 `odytty new --detached` starts a local session-host process and prints a stable
 `id=...` row. `odytty list` prints live detached sessions as metadata-only rows
-(`id`, `name`, `state`, `age_ms`, `panes`) and never dumps scrollback or command
-output. `odytty attach <id>` reattaches a detached session in a live native
-window: the window opens its normal local shell, adds the hosted session as a
-focused tab, repaints from the host snapshot, then streams live output. If the
-id is missing or dead, the local shell still opens and stderr reports
-`odytty: attach session <id> failed: <err>`. `odytty attach --diagnostic <id>`
-is the script/CI form: it prints a one-line status dump and exits without
-opening a window. The host keeps the PTY and bounded terminal model alive across
-attach/detach cycles until the child exits or the detached idle timeout reaps
-it.
+with the session name first, pane count, age, and id when the name is distinct;
+it never dumps scrollback or command output. `odytty attach` with no id attaches
+the only live session; if several are live, it prints the same readable list and
+asks you to choose `odytty attach <id>`; if none are live, it reports that there
+is nothing to attach. `odytty attach <id>` reattaches a detached session in a
+live native window: the window opens its normal local shell, adds the hosted
+session as a focused tab, repaints from the host snapshot, then streams live
+output. If the id is missing or dead, the local shell still opens and stderr
+reports `odytty: attach session <id> failed: <err>`. `odytty attach
+--diagnostic <id>` is the script/CI form: it prints a one-line status dump and
+exits without opening a window. The host keeps the PTY and bounded terminal
+model alive across attach/detach cycles until the child exits or the detached
+idle timeout reaps it.
 
 ## Current Feature Surface
 

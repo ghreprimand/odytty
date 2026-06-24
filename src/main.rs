@@ -51,6 +51,19 @@ fn main() -> Result<()> {
             run_native(options, settings)?;
             return Ok(());
         }
+        if let cli::SessionCliCommand::Attach(options) = &command {
+            match cli::resolve_attach(options)? {
+                cli::AttachAction::LiveWindow(session_id) => {
+                    let settings = Settings::from_env();
+                    let options = cli::native_attach_options(&session_id, &settings);
+                    run_native(options, settings)?;
+                }
+                cli::AttachAction::PrintCli(output) => {
+                    print!("{output}");
+                }
+            }
+            return Ok(());
+        }
         print!("{}", cli::run_session_command(command)?);
         return Ok(());
     }

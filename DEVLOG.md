@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- `odytty attach` with no id: attach the sole session, or list
+
+Reattaching a detached session required reading a long opaque id from `odytty
+list` and pasting it into `odytty attach <id>`. `odytty attach` with no id now
+resolves: zero live sessions → a clear "no live sessions" message; exactly one →
+attach it; several → print the session list and require an explicit
+`odytty attach <id>` (no surprise auto-attach — the operator picks). `odytty
+attach <id>` and `attach --diagnostic <id>` are unchanged.
+
+The window-vs-CLI fork stays clean: `live_attach_id()` remains a pure,
+side-effect-free fast path for the explicit-id case, so the common `attach <id>`
+never enumerates sessions. No-id resolution moves into `resolve_attach()` →
+`AttachAction::{LiveWindow(id), PrintCli(message)}`, which performs the registry
+read only when needed; `main.rs` launches the native attach for `LiveWindow` and
+prints for `PrintCli`. A test seam (`resolve_attach_from_sessions`) takes a
+synthetic `Vec<ListedSession>` so the 0/1/N cases are unit-tested without
+touching the real filesystem or runtime dir.
+
+Session listings are now name-first: the `--title` already carried into
+`ListedSession.name` is shown prominently with pane count, humanized age, and
+the id in parentheses (id alone when no title was set), so rows read "build"
+not a bare numeric id. `docs/session-attach-launcher-design.md` records the
+"summon, not greet" principle, the attach-into-a-new-tab decision, the 0/1/N
+rule, the row schema, and the rejected pre-window-launcher option — the design
+baseline for the upcoming in-window summon overlay.
+
+Verified: `cargo fmt --check` clean, `cargo clippy --all-targets -- -D warnings`
+clean, `cargo test --locked` green (CLI suite 25/25 incl. the new resolver and
+listing tests), `gpu_composite_smoke` 3/3. CLI-only change; no render path
+touched.
+
+---
+
 ## 2026-06-24 -- Docs: reframe keybinds as config-first (env is the override path)
 
 The keybinds documentation led with the `ODYTTY_KEYBINDS="…"` env form and

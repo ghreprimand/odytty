@@ -84,6 +84,12 @@ pub struct SessionAttachOptions {
     pub diagnostic: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttachAction {
+    LiveWindow(String),
+    PrintCli(String),
+}
+
 impl SessionCliCommand {
     /// The session id to reattach in a **live native window**, or `None` for
     /// every command that stays CLI-only (list, new, and diagnostic attach).
@@ -94,7 +100,9 @@ impl SessionCliCommand {
     /// path rather than [`run_session_command`].
     pub fn live_attach_id(&self) -> Option<&str> {
         match self {
-            SessionCliCommand::Attach(options) if !options.diagnostic => Some(&options.id),
+            SessionCliCommand::Attach(options) if !options.diagnostic && !options.id.is_empty() => {
+                Some(&options.id)
+            }
             _ => None,
         }
     }
@@ -133,7 +141,10 @@ pub fn session_command_for_args(args: &[String]) -> Result<Option<SessionCliComm
                     }
                 }
             }
-            let id = id.ok_or_else(|| "odytty attach requires a session id".to_owned())?;
+            if diagnostic && id.is_none() {
+                return Err("odytty attach --diagnostic requires a session id".to_owned());
+            }
+            let id = id.unwrap_or_default();
             Ok(Some(SessionCliCommand::Attach(SessionAttachOptions {
                 id,
                 runtime_base: None,
@@ -141,6 +152,38 @@ pub fn session_command_for_args(args: &[String]) -> Result<Option<SessionCliComm
             })))
         }
         _ => Ok(None),
+    }
+}
+
+pub fn resolve_attach(options: &SessionAttachOptions) -> AnyResult<AttachAction> {
+    if options.diagnostic {
+        return run_attach_diagnostic(options.clone()).map(AttachAction::PrintCli);
+    }
+    if !options.id.is_empty() {
+        return Ok(AttachAction::LiveWindow(options.id.clone()));
+    }
+    let sessions = list_live_sessions(options.runtime_base.as_deref())?;
+    resolve_attach_from_sessions(options, &sessions)
+}
+
+pub fn resolve_attach_from_sessions(
+    options: &SessionAttachOptions,
+    sessions: &[ListedSession],
+) -> AnyResult<AttachAction> {
+    if options.diagnostic {
+        return Ok(AttachAction::PrintCli(String::new()));
+    }
+    if !options.id.is_empty() {
+        return Ok(AttachAction::LiveWindow(options.id.clone()));
+    }
+    match sessions {
+        [] => bail!("no live sessions to attach"),
+        [session] => Ok(AttachAction::LiveWindow(session.id.clone())),
+        _ => {
+            let mut out = list_sessions_output(sessions);
+            out.push_str("multiple live sessions; specify an id: odytty attach <id>\n");
+            Ok(AttachAction::PrintCli(out))
+        }
     }
 }
 
@@ -156,16 +199,58 @@ pub fn run_session_command(command: SessionCliCommand) -> AnyResult<String> {
 pub fn list_sessions_output(sessions: &[ListedSession]) -> String {
     let mut out = String::new();
     for session in sessions {
-        out.push_str(&format!(
-            "id={}\tname={}\tstate={}\tage_ms={}\tpanes={}\n",
-            cli_field_value(&session.id),
-            cli_field_value(&session.name),
-            session.state,
-            session.age_ms,
-            session.pane_count
-        ));
+        out.push_str(&format_listed_session(session));
+        out.push('\n');
     }
     out
+}
+
+fn format_listed_session(session: &ListedSession) -> String {
+    let label = display_field_value(if session.name == session.id {
+        &session.id
+    } else {
+        &session.name
+    });
+    let pane_label = if session.pane_count == 1 {
+        "1 pane".to_owned()
+    } else {
+        format!("{} panes", session.pane_count)
+    };
+    let age = humanize_age_ms(session.age_ms);
+    if session.name == session.id {
+        format!("{label}\t{pane_label}\t{age}")
+    } else {
+        format!(
+            "{label}\t{pane_label}\t{age}\t({})",
+            display_field_value(&session.id)
+        )
+    }
+}
+
+fn humanize_age_ms(age_ms: u128) -> String {
+    if age_ms < 1_000 {
+        return format!("{age_ms}ms");
+    }
+    let seconds = age_ms / 1_000;
+    if seconds < 60 {
+        return format!("{seconds}s");
+    }
+    let minutes = seconds / 60;
+    if minutes < 60 {
+        return format!("{minutes}m");
+    }
+    let hours = minutes / 60;
+    if hours < 24 {
+        return format!("{hours}h");
+    }
+    format!("{}d", hours / 24)
+}
+
+fn display_field_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect()
 }
 
 fn parse_session_new(args: &[String]) -> Result<DetachedSessionOptions, String> {
@@ -339,8 +424,10 @@ pub fn usage_text() -> String {
     out.push_str("  new --detached [-e COMMAND...]\n");
     out.push_str("                  start a detached resumable session and print its id\n");
     out.push_str("  list            list live detached sessions\n");
-    out.push_str("  attach [--diagnostic] ID\n");
+    out.push_str("  attach [ID]\n");
     out.push_str("                  reattach a detached session in a live native window;\n");
+    out.push_str("                  without ID: attach the only live session or list choices\n");
+    out.push_str("  attach --diagnostic ID\n");
     out.push_str("                  --diagnostic prints a one-line status and exits\n");
     out
 }
