@@ -93,11 +93,13 @@ mod ime;
 mod interaction;
 pub(in crate::native) mod interactive_paths;
 mod new_row_fade;
+mod open_notice;
 mod open_with_ui;
 mod os_theme;
 mod overlay_registry;
 mod palette_ui;
 mod panes;
+pub(in crate::native) mod platform_opener;
 mod pointer;
 mod prompt_jump;
 mod replay_ui;
@@ -270,6 +272,14 @@ pub(super) struct App {
     /// each animation frame reclassifies the render cache (the flash alpha moves
     /// while cell content does not). Constant while no flash is in flight.
     bell_flash_epoch: u64,
+    /// OPEN-NOTICE (P0-2): a transient, non-blocking status line shown when an
+    /// open/reveal spawn fails (a missing/broken `xdg-open`/`open`), so a failed
+    /// open is never an indistinguishable silent no-op. `None` on every success
+    /// and feature-off path, so the default render path is byte-identical (the
+    /// painter and signature both early-out on `None`). Auto-expires after
+    /// [`open_notice::NOTICE_DURATION`]; carries the message and the instant it
+    /// was raised.
+    open_notice: Option<open_notice::OpenNotice>,
     /// Active IME pre-edit (composition) string as delivered by `winit`'s
     /// `Ime::Preedit`. Empty when no composition is in progress. Rendered inline
     /// at the terminal cursor; never sent to the PTY until the IME commits.
@@ -406,6 +416,7 @@ impl App {
             focused: true,
             bell_flash_start: None,
             bell_flash_epoch: 0,
+            open_notice: None,
             ime_preedit: String::new(),
             autoclose,
             deadline: None,
@@ -2237,6 +2248,10 @@ impl ApplicationHandler<UserEvent> for App {
                                 self.note_bell(now, window.as_deref());
                             }
                             self.update_bell_flash(now);
+                            // OPEN-NOTICE (P0-2): expire a transient open-failure
+                            // banner once it has outlived its lifetime; no-op when
+                            // none is in flight.
+                            self.update_open_notice(now);
                             let added = scrollback_len.saturating_sub(self.last_scrollback_len);
                             self.viewport.anchor_after_growth(added, scrollback_len);
                             self.last_scrollback_len = scrollback_len;
@@ -2331,6 +2346,10 @@ impl ApplicationHandler<UserEvent> for App {
                         // IME pre-edit: paint the in-progress composition inline
                         // at the cursor; empty on the no-composition path.
                         self.paint_ime_preedit_cells(&mut snapshot);
+                        // OPEN-NOTICE (P0-2): a transient one-row failure banner
+                        // across the top of the grid; empty on the success /
+                        // no-notice path so the frame is byte-identical.
+                        self.paint_open_notice_cells(&mut snapshot);
                         // Frame-overlay quad manifest: scroll indicator, then the
                         // off-by-default SH2 gutter, then the no-op new slots.
                         let mut overlays: Vec<SolidQuad> = Vec::new();
@@ -2406,6 +2425,7 @@ impl ApplicationHandler<UserEvent> for App {
                                     rename: self.rename_overlay_signature(),
                                     bell_flash: self.bell_flash_overlay_signature(),
                                     ime_preedit: self.ime_overlay_signature(),
+                                    open_notice: self.open_notice_overlay_signature(),
                                 },
                             },
                             cursor: CursorRenderSignature {

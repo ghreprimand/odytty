@@ -463,9 +463,9 @@ impl OverlayUi {
                         None => OverlayOutcome::Consumed,
                     },
                     ContextMenuItem::RevealPath => match self.context_menu.path_target() {
-                        Some(resolved) => OverlayOutcome::ContextMenuRevealPath(
-                            super::app::interactive_paths::reveal_target(resolved),
-                        ),
+                        Some(resolved) => {
+                            OverlayOutcome::ContextMenuRevealPath(Box::new(resolved.clone()))
+                        }
                         None => OverlayOutcome::Consumed,
                     },
                 }
@@ -1220,9 +1220,12 @@ pub(super) enum OverlayOutcome {
     /// Copy a `file://<abs>` URI to the clipboard as text (C3). The clipboard is
     /// text-only; this pastes into file managers as a file reference.
     ContextMenuCopyFile(String),
-    /// Reveal the resolved path in the desktop file manager (C3): `xdg-open` on
-    /// the parent directory (a file) or the path itself (a directory).
-    ContextMenuRevealPath(String),
+    /// Reveal the resolved path in the desktop file manager (C3). Carries the
+    /// full [`crate::paths::Resolved`] so the platform-opener seam picks the
+    /// per-OS reveal verb at the App boundary: Linux opens the parent directory
+    /// (a file) or the path itself (a directory) with `xdg-open`; macOS reveals
+    /// the file ITSELF with `open -R`. Boxed to keep this short-lived enum small.
+    ContextMenuRevealPath(Box<crate::paths::Resolved>),
     /// Type text accepted from the command palette into the active pane's PTY.
     /// The App writes the exact bytes with no trailing newline.
     PaletteTypeText(String),
@@ -2704,7 +2707,7 @@ mod tests {
         );
         assert_eq!(
             open_menu(19),
-            OverlayOutcome::ContextMenuRevealPath("/proj/src".to_owned())
+            OverlayOutcome::ContextMenuRevealPath(Box::new(resolved.clone()))
         );
     }
 

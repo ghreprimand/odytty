@@ -7,6 +7,62 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Fix — platform-aware file open + visible open failures (P0-1, P0-2)
+
+v0.4.1 bug-fix sprint, Phase 2 — the headline v0.4.0 breakage. File-open was
+hard-coded to `xdg-open`/`xdg-mime`, neither of which exists on macOS, so every
+"open" silently failed there; and even on Linux a broken/missing opener was
+indistinguishable from "feature off" because the single spawn point swallowed
+the error.
+
+Platform-aware dispatch (P0-1). A new pure seam (`src/native/app/platform_opener.rs`)
+keys the opener argv on an explicit `OpenerOs { Linux, Macos }` enum rather than
+scattered `cfg!(target_os = …)` checks: `open_default_argv` → Linux
+`["xdg-open", target]` / macOS `["open", target]`; `reveal_argv` → Linux
+`["xdg-open", parent_dir]` / macOS `["open", "-R", abs]` (note `open -R` reveals
+the file itself in Finder, not the parent). Production resolves the host once at
+the boundary via `OpenerOs::host()` — the only `cfg!(target_os = "macos")`
+selector — while unit tests assert BOTH the Linux and macOS argv on a single CI
+host. That directly answers the root cause of the v0.4.0 miss: the macOS branch
+can no longer go unexercised. The MIME probe is likewise platform-aware
+(`PlatformMimeProbe`): Linux keeps the audited `xdg-mime query filetype` spawn,
+macOS returns `None` for now (a best-effort seam; the magic-byte fallback is
+Phase 9) so the picker shows its visible empty-state hint instead of a silent
+no-op. `path_open_argv`/`editor_argv` now take the OS; `ContextMenuRevealPath`
+carries the full `Resolved` (boxed) so the per-OS reveal verb is chosen at the
+App boundary.
+
+Visible open failures (P0-2). `spawn_detached` now returns
+`#[must_use] std::io::Result<()>` instead of swallowing the error. A new
+`App::spawn_open_or_notice` routes all five open/reveal sites (Ctrl+click open,
+hovered-hyperlink open, context-menu Open/Reveal, Open-With launch) through it
+and, ONLY on `Err`, raises a transient `OpenNotice` — a one-row inverse banner
+painted across the top of the grid naming the missing/broken opener (e.g.
+"Couldn't open — 'xdg-open' not found (is it installed?)"). It is non-blocking
+(no focus capture, no loop pause, no modal), auto-expires after 4s, and is
+modelled on the existing bell-flash plumbing. The success path raises nothing.
+
+Byte-identical when off: `open_notice` is `None` on every success and feature-off
+path; the painter, the cache signature, and the animation deadline all early-out
+on `None`, so a no-error frame is unchanged (verified by the passthrough
+composite smoke plus a `successful_open_spawn_raises_no_notice` test). OSC 8
+hyperlink open on Linux is still exactly `["xdg-open", uri]`.
+
+Tests: `platform_opener::tests` assert both OS branches for open/reveal incl.
+root-level file and dir, and URI/space inertness; `path_open_argv_uses_macos_open_on_macos`;
+`macos_mime_probe_returns_none_without_spawning` (never spawns); cursor_icon
+`failed_open_spawn_raises_visible_notice` + `successful_open_spawn_raises_no_notice`.
+Existing dispatch/cursor tests were rewired through the seam's Linux branch
+(coverage kept, not deleted).
+
+Verified (isolated worktree on a clean base, serialized to avoid GPU-test
+contention): `cargo fmt --check` clean; `cargo clippy --all-targets --locked
+-- -D warnings` clean; `cargo test --locked --lib` 2396 passed / 0 failed;
+`gpu_composite_smoke` 3/3; `license_headers` 1/1 (SPDX on both new files). Staged
+diff scanned — no secrets or personal paths. Manual cross-platform exercise
+(Linux click-to-open + Reveal + Open-With + the failure banner; macOS `open` /
+`open -R`) is the operator's release gate.
+
 ## 2026-06-24 -- Diagnostics — native panic hook writes a crash record before AppKit aborts
 
 v0.4.1 bug-fix sprint, Phase 1 (diagnostic, ships first). When OdyTTY panics on

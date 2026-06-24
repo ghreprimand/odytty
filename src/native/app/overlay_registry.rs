@@ -515,6 +515,8 @@ impl App {
             self.scroll_anim_deadline(),
             // BELL visual flash — `None` on the off / urgent-only path.
             self.bell_flash_deadline(),
+            // OPEN-NOTICE (P0-2) auto-expiry — `None` when no notice is in flight.
+            self.open_notice_deadline(),
         ]
         .into_iter()
         .flatten()

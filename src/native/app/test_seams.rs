@@ -448,6 +448,24 @@ impl App {
         self.pointer_px = Some((x, y));
     }
 
+    /// Test seam (OPEN-NOTICE / P0-2): drive the production open-or-notice path
+    /// for an explicit argv, so a test can assert that a FAILED spawn raises a
+    /// visible notice and a SUCCESSFUL spawn does not — without going through the
+    /// pointer/menu plumbing.
+    #[cfg(test)]
+    pub(in crate::native) fn spawn_open_or_notice_for_test(&mut self, argv: &[String]) {
+        self.spawn_open_or_notice(argv);
+    }
+
+    /// Test seam (OPEN-NOTICE / P0-2): the current transient notice message, or
+    /// `None` when no notice is in flight (the success / default path).
+    #[cfg(test)]
+    pub(in crate::native) fn open_notice_message_for_test(&self) -> Option<String> {
+        self.open_notice
+            .as_ref()
+            .map(|notice| notice.message_for_test().to_owned())
+    }
+
     /// Test seam (multi-pane overlay geometry): the window-overlay grid dims and
     /// window-space pointer cell the overlay handlers use. In a single-pane tab
     /// these MUST equal `(grid dims, pointer_cell)` so the single-pane overlay

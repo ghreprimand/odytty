@@ -351,3 +351,52 @@ fn ctrl_click_dispatch_builds_xdg_open_for_plain_file() {
         Some(vec!["xdg-open".to_owned(), "/proj/src/main.rs".to_owned()])
     );
 }
+
+// ── OPEN-NOTICE (P0-2): a failed open spawn surfaces a visible notice; a
+// successful spawn does NOT ──
+//
+// The whole point of P0-2 is that a missing/broken opener is no longer an
+// indistinguishable silent no-op. These drive the production
+// `spawn_open_or_notice` path with a deliberately-nonexistent program (the
+// missing-opener case) and a real one, asserting the notice is set only on
+// failure.
+
+/// A spawn of a program that does not exist (the missing-`xdg-open`/`open` case)
+/// raises a visible, non-blocking notice naming the program.
+#[test]
+fn failed_open_spawn_raises_visible_notice() {
+    let Some(mut app) = build_app(b"") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    assert!(app.open_notice_message_for_test().is_none(), "clean start");
+    let argv = vec![
+        "odytty-nonexistent-opener-xyz".to_owned(),
+        "/proj/a.png".to_owned(),
+    ];
+    app.spawn_open_or_notice_for_test(&argv);
+    let message = app
+        .open_notice_message_for_test()
+        .expect("a failed open must surface a notice");
+    assert!(
+        message.contains("odytty-nonexistent-opener-xyz"),
+        "notice names the missing opener: {message}"
+    );
+    assert!(message.contains("Couldn't open"), "user-facing phrasing");
+}
+
+/// A spawn of a real program (`true`, which exists on every unix CI host and
+/// exits immediately) does NOT raise a notice — the success path is silent.
+#[test]
+fn successful_open_spawn_raises_no_notice() {
+    let Some(mut app) = build_app(b"") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let argv = vec!["true".to_owned()];
+    app.spawn_open_or_notice_for_test(&argv);
+    assert!(
+        app.open_notice_message_for_test().is_none(),
+        "the success path must NOT fire a notice"
+    );
+}

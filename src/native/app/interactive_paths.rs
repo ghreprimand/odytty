@@ -17,6 +17,8 @@
 
 use crate::paths::{FsKind, ResolveProbe, Resolved};
 
+use super::platform_opener::{OpenerOs, open_default_argv};
+
 /// Production stat-gate: classifies an absolute path via `std::fs`. Only the
 /// `cfg(not(test))` hover arm constructs it; under the test target the hover
 /// path uses [`MapProbe`] instead, so the struct is (correctly) unused there.
@@ -60,42 +62,59 @@ pub(in crate::native) struct ImageOverlayState {
 /// The single argv-only spawn point. Routes BOTH the OSC 8 hyperlink open and
 /// every interactive-path open through one auditable place: a detached child
 /// with null stdio, launched from an explicit `argv` vector — never `sh -c`,
-/// never a shell string. A spawn failure is swallowed (best-effort open).
+/// never a shell string. The first element is the program; the rest are
+/// arguments.
 ///
-/// The first element is the program; the rest are arguments. An empty vector is
-/// a no-op (defensive — the dispatch functions never return one).
-pub(crate) fn spawn_detached(argv: &[String]) {
+/// Returns `Ok(())` when the child was spawned, `Err(..)` when the spawn failed
+/// (most commonly a missing opener binary — `xdg-open`/`open` not installed or
+/// not on `PATH`, surfaced as `ErrorKind::NotFound`) or the argv was empty. P0-2:
+/// the caller uses this to surface a VISIBLE, non-blocking notice on failure
+/// instead of the old silent no-op that made a broken opener indistinguishable
+/// from "feature off". The success path must NOT fire any notice.
+///
+/// An empty argv is reported as `ErrorKind::InvalidInput` (defensive — the
+/// dispatch functions never return one).
+#[must_use = "a failed open must surface a visible notice, not be silently dropped"]
+pub(crate) fn spawn_detached(argv: &[String]) -> std::io::Result<()> {
     use std::process::{Command, Stdio};
     let Some((program, args)) = argv.split_first() else {
-        return;
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "empty argv",
+        ));
     };
-    let _ = Command::new(program)
+    Command::new(program)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn();
+        .spawn()
+        .map(|_child| ())
 }
 
 /// Build the argv vector that opens a [`Resolved`] path (design §3 dispatch
 /// table). Pure — returns the vector; the caller spawns it via
-/// [`spawn_detached`].
+/// [`spawn_detached`]. `os` selects the platform default opener
+/// ([`open_default_argv`]): Linux `xdg-open`, macOS `open`.
 ///
-/// * Directory → `["xdg-open", <abs>]` (the desktop file manager).
-/// * File without a `:line` suffix → `["xdg-open", <abs>]` (the default app).
+/// * Directory → the platform default opener on `<abs>` (the desktop file
+///   manager).
+/// * File without a `:line` suffix → the platform default opener on `<abs>`
+///   (the default app).
 /// * File with a `:line[:col]` suffix → the editor matrix ([`editor_argv`]),
 ///   selecting the editor by precedence: the configured `editor_override`
-///   (settings `interactive_paths_editor`), else `$EDITOR`/`$VISUAL`, else
-///   `xdg-open` (position lost — the file still opens).
+///   (settings `interactive_paths_editor`), else `$EDITOR`/`$VISUAL`, else the
+///   platform default opener (position lost — the file still opens).
 pub(crate) fn path_open_argv(
     resolved: &Resolved,
     editor_override: &str,
     editor_env: Option<&str>,
+    os: OpenerOs,
 ) -> Vec<String> {
     match resolved.kind {
-        FsKind::Dir => vec!["xdg-open".to_owned(), resolved.abs.clone()],
+        FsKind::Dir => open_default_argv(os, &resolved.abs),
         FsKind::File => match resolved.line {
-            None => vec!["xdg-open".to_owned(), resolved.abs.clone()],
+            None => open_default_argv(os, &resolved.abs),
             Some(line) => {
                 let override_trimmed = editor_override.trim();
                 let spec = if !override_trimmed.is_empty() {
@@ -104,10 +123,10 @@ pub(crate) fn path_open_argv(
                     editor_env.map(str::trim).filter(|env| !env.is_empty())
                 };
                 match spec {
-                    Some(spec) => editor_argv(spec, &resolved.abs, line, resolved.col),
+                    Some(spec) => editor_argv(spec, &resolved.abs, line, resolved.col, os),
                     // No editor configured or in the environment: open the file
                     // with the default app and accept that the line/col is lost.
-                    None => vec!["xdg-open".to_owned(), resolved.abs.clone()],
+                    None => open_default_argv(os, &resolved.abs),
                 }
             }
         },
@@ -119,20 +138,6 @@ pub(crate) fn path_open_argv(
 /// file managers as a file reference. Pure.
 pub(crate) fn file_uri(abs: &str) -> String {
     format!("file://{abs}")
-}
-
-/// The `xdg-open` target for "Reveal in File Manager": a file's parent
-/// directory (so the file manager opens showing the file's folder), or a
-/// directory itself. Pure. A root-level file (`/foo`) reveals `/`.
-pub(crate) fn reveal_target(resolved: &Resolved) -> String {
-    match resolved.kind {
-        FsKind::Dir => resolved.abs.clone(),
-        FsKind::File => match resolved.abs.rfind('/') {
-            Some(0) => "/".to_owned(),
-            Some(idx) => resolved.abs[..idx].to_owned(),
-            None => resolved.abs.clone(),
-        },
-    }
 }
 
 /// The argv vector to open `abs` at `line`(`:col`) with the given editor `spec`
@@ -151,7 +156,16 @@ pub(crate) fn reveal_target(resolved: &Resolved) -> String {
 ///
 /// Unknown editors degrade to `[<spec…>, <abs>]` (open the file, lose the
 /// position) rather than guessing a flag that might be read as a filename.
-pub(crate) fn editor_argv(spec: &str, abs: &str, line: u32, col: Option<u32>) -> Vec<String> {
+///
+/// `os` is only consulted on the defensive empty-spec path (callers always pass
+/// a non-empty spec), where it selects the platform default opener.
+pub(crate) fn editor_argv(
+    spec: &str,
+    abs: &str,
+    line: u32,
+    col: Option<u32>,
+    os: OpenerOs,
+) -> Vec<String> {
     // Template form: substitute placeholders into pre-split tokens.
     if spec.contains("{file}") || spec.contains("{line}") || spec.contains("{col}") {
         let col_str = col.map(|c| c.to_string()).unwrap_or_default();
@@ -172,7 +186,7 @@ pub(crate) fn editor_argv(spec: &str, abs: &str, line: u32, col: Option<u32>) ->
     let Some(program) = tokens.next() else {
         // Empty spec: should not happen (callers pass a non-empty spec), but
         // degrade safely to opening the file with the default app.
-        return vec!["xdg-open".to_owned(), abs.to_owned()];
+        return open_default_argv(os, abs);
     };
     let extra: Vec<String> = tokens.collect();
     let base = program
@@ -270,6 +284,17 @@ mod dispatch_tests {
     //! no real filesystem, no real home paths.
     use super::*;
 
+    // The dispatch/editor matrix is OS-agnostic except for the default-opener
+    // fallback; these wrappers pin the Linux branch so each case still asserts a
+    // concrete argv. The per-OS opener program itself is covered in
+    // `platform_opener::tests` (both branches).
+    fn open_argv_lin(r: &Resolved, ovr: &str, env: Option<&str>) -> Vec<String> {
+        path_open_argv(r, ovr, env, OpenerOs::Linux)
+    }
+    fn editor_argv_lin(spec: &str, abs: &str, line: u32, col: Option<u32>) -> Vec<String> {
+        editor_argv(spec, abs, line, col, OpenerOs::Linux)
+    }
+
     fn file(abs: &str, line: Option<u32>, col: Option<u32>) -> Resolved {
         Resolved {
             abs: abs.to_owned(),
@@ -294,7 +319,7 @@ mod dispatch_tests {
     fn file_without_line_opens_with_xdg_open() {
         let r = file("/proj/src/main.rs", None, None);
         assert_eq!(
-            path_open_argv(&r, "", None),
+            open_argv_lin(&r, "", None),
             vec!["xdg-open".to_owned(), "/proj/src/main.rs".to_owned()]
         );
     }
@@ -303,7 +328,7 @@ mod dispatch_tests {
     fn directory_opens_with_xdg_open() {
         let r = dir("/proj/src");
         assert_eq!(
-            path_open_argv(&r, "", Some("vim")),
+            open_argv_lin(&r, "", Some("vim")),
             vec!["xdg-open".to_owned(), "/proj/src".to_owned()]
         );
     }
@@ -312,7 +337,7 @@ mod dispatch_tests {
     fn file_with_line_uses_editor_env_when_no_override() {
         let r = file("/proj/src/main.rs", Some(42), Some(10));
         assert_eq!(
-            path_open_argv(&r, "", Some("nvim")),
+            open_argv_lin(&r, "", Some("nvim")),
             vec![
                 "nvim".to_owned(),
                 "+call cursor(42,10)".to_owned(),
@@ -326,7 +351,7 @@ mod dispatch_tests {
         let r = file("/proj/a.rs", Some(7), None);
         // Override = code; env = vim. Override wins.
         assert_eq!(
-            path_open_argv(&r, "code", Some("vim")),
+            open_argv_lin(&r, "code", Some("vim")),
             vec![
                 "code".to_owned(),
                 "--goto".to_owned(),
@@ -340,12 +365,12 @@ mod dispatch_tests {
         let r = file("/proj/a.rs", Some(7), Some(3));
         // No override, no env → open the file, lose the position.
         assert_eq!(
-            path_open_argv(&r, "", None),
+            open_argv_lin(&r, "", None),
             vec!["xdg-open".to_owned(), "/proj/a.rs".to_owned()]
         );
         // A whitespace-only env is treated as unset.
         assert_eq!(
-            path_open_argv(&r, "   ", Some("  ")),
+            open_argv_lin(&r, "   ", Some("  ")),
             vec!["xdg-open".to_owned(), "/proj/a.rs".to_owned()]
         );
     }
@@ -356,7 +381,7 @@ mod dispatch_tests {
     fn vim_family_uses_call_cursor_with_col() {
         for ed in ["vim", "nvim", "vi"] {
             assert_eq!(
-                editor_argv(ed, "/p/f.rs", 12, Some(5)),
+                editor_argv_lin(ed, "/p/f.rs", 12, Some(5)),
                 vec![
                     ed.to_owned(),
                     "+call cursor(12,5)".to_owned(),
@@ -364,7 +389,7 @@ mod dispatch_tests {
                 ]
             );
             assert_eq!(
-                editor_argv(ed, "/p/f.rs", 12, None),
+                editor_argv_lin(ed, "/p/f.rs", 12, None),
                 vec![ed.to_owned(), "+12".to_owned(), "/p/f.rs".to_owned()]
             );
         }
@@ -373,7 +398,7 @@ mod dispatch_tests {
     #[test]
     fn vscode_uses_goto() {
         assert_eq!(
-            editor_argv("code", "/p/f.rs", 12, Some(5)),
+            editor_argv_lin("code", "/p/f.rs", 12, Some(5)),
             vec![
                 "code".to_owned(),
                 "--goto".to_owned(),
@@ -381,7 +406,7 @@ mod dispatch_tests {
             ]
         );
         assert_eq!(
-            editor_argv("code", "/p/f.rs", 12, None),
+            editor_argv_lin("code", "/p/f.rs", 12, None),
             vec![
                 "code".to_owned(),
                 "--goto".to_owned(),
@@ -393,11 +418,11 @@ mod dispatch_tests {
     #[test]
     fn emacs_uses_plus_line_col() {
         assert_eq!(
-            editor_argv("emacs", "/p/f.rs", 12, Some(5)),
+            editor_argv_lin("emacs", "/p/f.rs", 12, Some(5)),
             vec!["emacs".to_owned(), "+12:5".to_owned(), "/p/f.rs".to_owned()]
         );
         assert_eq!(
-            editor_argv("emacsclient", "/p/f.rs", 12, None),
+            editor_argv_lin("emacsclient", "/p/f.rs", 12, None),
             vec![
                 "emacsclient".to_owned(),
                 "+12".to_owned(),
@@ -410,11 +435,11 @@ mod dispatch_tests {
     fn helix_sublime_micro_use_positional() {
         for ed in ["hx", "helix", "subl", "sublime", "micro"] {
             assert_eq!(
-                editor_argv(ed, "/p/f.rs", 12, Some(5)),
+                editor_argv_lin(ed, "/p/f.rs", 12, Some(5)),
                 vec![ed.to_owned(), "/p/f.rs:12:5".to_owned()]
             );
             assert_eq!(
-                editor_argv(ed, "/p/f.rs", 12, None),
+                editor_argv_lin(ed, "/p/f.rs", 12, None),
                 vec![ed.to_owned(), "/p/f.rs:12".to_owned()]
             );
         }
@@ -423,11 +448,11 @@ mod dispatch_tests {
     #[test]
     fn nano_uses_plus_line_comma_col() {
         assert_eq!(
-            editor_argv("nano", "/p/f.rs", 12, Some(5)),
+            editor_argv_lin("nano", "/p/f.rs", 12, Some(5)),
             vec!["nano".to_owned(), "+12,5".to_owned(), "/p/f.rs".to_owned()]
         );
         assert_eq!(
-            editor_argv("nano", "/p/f.rs", 12, None),
+            editor_argv_lin("nano", "/p/f.rs", 12, None),
             vec!["nano".to_owned(), "+12".to_owned(), "/p/f.rs".to_owned()]
         );
     }
@@ -435,7 +460,7 @@ mod dispatch_tests {
     #[test]
     fn unknown_editor_opens_file_loses_position() {
         assert_eq!(
-            editor_argv("kak", "/p/f.rs", 12, Some(5)),
+            editor_argv_lin("kak", "/p/f.rs", 12, Some(5)),
             vec!["kak".to_owned(), "/p/f.rs".to_owned()]
         );
     }
@@ -445,7 +470,7 @@ mod dispatch_tests {
         // A full path to the editor still matches the matrix by basename, but
         // the original (full-path) program is kept as argv[0].
         assert_eq!(
-            editor_argv("/usr/bin/nvim", "/p/f.rs", 9, None),
+            editor_argv_lin("/usr/bin/nvim", "/p/f.rs", 9, None),
             vec![
                 "/usr/bin/nvim".to_owned(),
                 "+9".to_owned(),
@@ -458,7 +483,7 @@ mod dispatch_tests {
     fn editor_with_args_is_tokenized_not_shell_evaluated() {
         // "code --wait" → program=code, leading arg --wait, then --goto.
         assert_eq!(
-            editor_argv("code --wait", "/p/f.rs", 3, Some(1)),
+            editor_argv_lin("code --wait", "/p/f.rs", 3, Some(1)),
             vec![
                 "code".to_owned(),
                 "--wait".to_owned(),
@@ -468,7 +493,7 @@ mod dispatch_tests {
         );
         // "emacsclient -nw" → program=emacsclient, leading arg -nw.
         assert_eq!(
-            editor_argv("emacsclient -nw", "/p/f.rs", 3, None),
+            editor_argv_lin("emacsclient -nw", "/p/f.rs", 3, None),
             vec![
                 "emacsclient".to_owned(),
                 "-nw".to_owned(),
@@ -481,7 +506,7 @@ mod dispatch_tests {
     #[test]
     fn template_splits_then_substitutes() {
         assert_eq!(
-            editor_argv(
+            editor_argv_lin(
                 "myed --line {line} --col {col} {file}",
                 "/p/f.rs",
                 8,
@@ -503,7 +528,7 @@ mod dispatch_tests {
         // The path has a space; because the split happens on the *template*
         // before substitution, the substituted path stays a single argv element.
         assert_eq!(
-            editor_argv("code --goto {file}:{line}", "/p/my dir/f.rs", 4, None),
+            editor_argv_lin("code --goto {file}:{line}", "/p/my dir/f.rs", 4, None),
             vec![
                 "code".to_owned(),
                 "--goto".to_owned(),
@@ -515,7 +540,7 @@ mod dispatch_tests {
     #[test]
     fn command_form_keeps_path_with_spaces_as_one_element() {
         // Even in the matrix (non-template) form the file is one argv element.
-        let argv = editor_argv("vim", "/p/my dir/f.rs", 4, Some(2));
+        let argv = editor_argv_lin("vim", "/p/my dir/f.rs", 4, Some(2));
         assert_eq!(argv.last().unwrap(), "/p/my dir/f.rs");
         assert_eq!(argv.len(), 3);
     }
@@ -524,7 +549,7 @@ mod dispatch_tests {
     fn template_col_placeholder_empty_when_no_col() {
         // {col} with no column resolves to an empty string token.
         assert_eq!(
-            editor_argv("ed +{line}:{col} {file}", "/p/f.rs", 5, None),
+            editor_argv_lin("ed +{line}:{col} {file}", "/p/f.rs", 5, None),
             vec!["ed".to_owned(), "+5:".to_owned(), "/p/f.rs".to_owned()]
         );
     }
@@ -536,14 +561,31 @@ mod dispatch_tests {
         assert_eq!(file_uri("/proj/a.rs"), "file:///proj/a.rs");
     }
 
+    // Reveal argv (parent dir on Linux, `open -R <file>` on macOS) now lives in
+    // `platform_opener::reveal_argv`; its per-OS behaviour is tested there.
+
+    // --- per-OS opener selection -------------------------------------------
+
     #[test]
-    fn reveal_target_is_parent_for_file_self_for_dir() {
+    fn path_open_argv_uses_macos_open_on_macos() {
+        // The dispatch honours the OS parameter: a plain file and a directory
+        // both open with `open` on macOS rather than `xdg-open`.
+        let f = file("/proj/src/main.rs", None, None);
         assert_eq!(
-            reveal_target(&file("/proj/src/a.rs", None, None)),
-            "/proj/src"
+            path_open_argv(&f, "", None, OpenerOs::Macos),
+            vec!["open".to_owned(), "/proj/src/main.rs".to_owned()]
         );
-        assert_eq!(reveal_target(&dir("/proj/src")), "/proj/src");
-        // Root-level file reveals the root.
-        assert_eq!(reveal_target(&file("/a.rs", None, None)), "/");
+        let d = dir("/proj/src");
+        assert_eq!(
+            path_open_argv(&d, "", None, OpenerOs::Macos),
+            vec!["open".to_owned(), "/proj/src".to_owned()]
+        );
+        // The editor fallback (line present, no editor configured) also routes
+        // through the macOS opener.
+        let fl = file("/proj/a.rs", Some(7), None);
+        assert_eq!(
+            path_open_argv(&fl, "", None, OpenerOs::Macos),
+            vec!["open".to_owned(), "/proj/a.rs".to_owned()]
+        );
     }
 }

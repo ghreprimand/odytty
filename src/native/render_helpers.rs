@@ -125,6 +125,11 @@ pub(super) enum OverlayFragment {
     /// inline pre-edit overlay repaints via a Full geometry update. `Inert` when
     /// no composition is in progress.
     ImePreedit { text: String },
+    /// OPEN-NOTICE (P0-2) transient open-failure banner text. Changes when a new
+    /// failure is raised so the banner repaints; `Inert` when no notice is in
+    /// flight (the default / success path), keeping the cache decision
+    /// unchanged.
+    OpenNotice { text: String },
 }
 
 /// Folds the NEW overlay contributors' fragments into one hashable cache key.
@@ -144,6 +149,7 @@ pub(super) struct OverlayCompositeSignature {
     pub(super) rename: OverlayFragment,
     pub(super) bell_flash: OverlayFragment,
     pub(super) ime_preedit: OverlayFragment,
+    pub(super) open_notice: OverlayFragment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

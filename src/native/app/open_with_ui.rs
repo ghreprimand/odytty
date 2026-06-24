@@ -26,27 +26,62 @@ use super::*;
 /// `is_offerable` filter or drops a field) — never an error.
 const MAX_DESKTOP_FILE_BYTES: u64 = 256 * 1024;
 
-/// Production MIME probe: the single audited captured-output `xdg-mime` spawn.
-/// `xdg-mime query filetype <abs>` is argv-only and read-only; a non-zero exit,
-/// missing binary, or empty output yields `None` → an empty picker (graceful).
-/// This is the ONLY new spawn shape C3b introduces; the open itself reuses the
-/// C3 `spawn_detached`.
-pub(in crate::native) struct XdgMimeProbe;
+/// Production MIME probe: the platform-aware, single audited captured-output
+/// MIME query (P0-1). On Linux it spawns `xdg-mime query filetype <abs>`
+/// (argv-only, read-only); a non-zero exit, missing binary, or empty output
+/// yields `None` → an empty picker (graceful). macOS has no `xdg-mime`, so its
+/// arm is a best-effort seam that returns `None` for now — the magic-byte MIME
+/// fallback is Phase 9. A `None` on either OS surfaces the empty picker with its
+/// visible empty-state hint rather than a silent no-op.
+///
+/// The OS is held as a value ([`OpenerOs`]) rather than read from `cfg!` inline
+/// so BOTH arms are unit-testable on one CI host (the v0.4.0 lesson: never let
+/// the macOS branch go unexercised). Production constructs it via
+/// [`PlatformMimeProbe::host`].
+pub(in crate::native) struct PlatformMimeProbe {
+    os: super::platform_opener::OpenerOs,
+}
 
-impl MimeProbe for XdgMimeProbe {
-    fn query(&self, abs: &str) -> Option<String> {
-        let output = Command::new("xdg-mime")
-            .args(["query", "filetype", abs])
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-            .ok()?;
-        if !output.status.success() {
-            return None;
+impl PlatformMimeProbe {
+    /// The probe for the host OS (the single `cfg!` boundary lives in
+    /// [`super::platform_opener::OpenerOs::host`]).
+    pub(in crate::native) fn host() -> Self {
+        Self {
+            os: super::platform_opener::OpenerOs::host(),
         }
-        let mime = String::from_utf8(output.stdout).ok()?.trim().to_owned();
-        if mime.is_empty() { None } else { Some(mime) }
     }
+
+    #[cfg(test)]
+    fn for_os(os: super::platform_opener::OpenerOs) -> Self {
+        Self { os }
+    }
+}
+
+impl MimeProbe for PlatformMimeProbe {
+    fn query(&self, abs: &str) -> Option<String> {
+        match self.os {
+            super::platform_opener::OpenerOs::Linux => xdg_mime_query(abs),
+            // macOS: no xdg-mime. Best-effort seam → None for now (the magic-byte
+            // sniff is Phase 9). The empty picker then shows its visible hint.
+            super::platform_opener::OpenerOs::Macos => None,
+        }
+    }
+}
+
+/// The Linux `xdg-mime query filetype <abs>` spawn (captured output, argv-only,
+/// read-only). Factored out so the OS dispatch above stays a thin match.
+fn xdg_mime_query(abs: &str) -> Option<String> {
+    let output = Command::new("xdg-mime")
+        .args(["query", "filetype", abs])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let mime = String::from_utf8(output.stdout).ok()?.trim().to_owned();
+    if mime.is_empty() { None } else { Some(mime) }
 }
 
 /// Production desktop environment: the real `XDG_*` ladders and bounded
@@ -150,6 +185,23 @@ impl App {
     /// out so a test seam can swap in synthetic probes without spawning
     /// `xdg-mime` or touching the real filesystem.
     fn enumerate_open_with_apps(&self, abs: &str) -> Vec<DesktopApp> {
-        enumerate_open_with(&XdgMimeProbe, &FsDesktopEnv, abs)
+        enumerate_open_with(&PlatformMimeProbe::host(), &FsDesktopEnv, abs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::desktop::MimeProbe;
+
+    /// The macOS MIME arm is a best-effort seam that returns `None` for now (no
+    /// `xdg-mime`; the magic-byte fallback is Phase 9). Asserted on the Linux CI
+    /// host via the OS-as-value seam so the macOS branch can never go
+    /// unexercised. NEVER spawns under the test target (it short-circuits before
+    /// the Linux `xdg-mime` spawn).
+    #[test]
+    fn macos_mime_probe_returns_none_without_spawning() {
+        let probe = PlatformMimeProbe::for_os(super::super::platform_opener::OpenerOs::Macos);
+        assert_eq!(probe.query("/proj/a.png"), None);
     }
 }

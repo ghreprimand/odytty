@@ -60,6 +60,7 @@ fn inert_composite() -> OverlayCompositeSignature {
         rename: OverlayFragment::Inert,
         bell_flash: OverlayFragment::Inert,
         ime_preedit: OverlayFragment::Inert,
+        open_notice: OverlayFragment::Inert,
     }
 }
 

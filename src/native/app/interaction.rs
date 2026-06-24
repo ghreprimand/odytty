@@ -166,7 +166,7 @@ impl App {
             OverlayOutcome::ContextMenuOpenPath(resolved) => {
                 self.flush_pending_overlay_settings();
                 let argv = self.path_open_argv_for(&resolved);
-                super::interactive_paths::spawn_detached(&argv);
+                self.spawn_open_or_notice(&argv);
             }
             // C4: open the resolved image span in the in-terminal viewer.
             OverlayOutcome::ContextMenuOpenInOdytty(resolved) => {
@@ -182,11 +182,11 @@ impl App {
             }
             // C3b: launch the app chosen in the picker. The overlay closed
             // itself before emitting this; the argv was built argv-only by
-            // `exec_to_argv` (path already one inert element). Best-effort — a
-            // spawn failure never panics the UI.
+            // `exec_to_argv` (path already one inert element). A spawn failure
+            // never panics the UI — it surfaces a transient notice (P0-2).
             OverlayOutcome::OpenWithApp(argv) => {
                 self.flush_pending_overlay_settings();
-                super::interactive_paths::spawn_detached(&argv);
+                self.spawn_open_or_notice(&argv);
             }
             OverlayOutcome::ContextMenuCopyPath(abs) => {
                 self.flush_pending_overlay_settings();
@@ -196,9 +196,13 @@ impl App {
                 self.flush_pending_overlay_settings();
                 let _ = self.clipboard.write_text(&uri);
             }
-            OverlayOutcome::ContextMenuRevealPath(dir) => {
+            OverlayOutcome::ContextMenuRevealPath(resolved) => {
                 self.flush_pending_overlay_settings();
-                super::interactive_paths::spawn_detached(&["xdg-open".to_owned(), dir]);
+                let argv = super::platform_opener::reveal_argv(
+                    super::platform_opener::OpenerOs::host(),
+                    &resolved,
+                );
+                self.spawn_open_or_notice(&argv);
             }
             OverlayOutcome::PaletteTypeText(text) => {
                 self.flush_pending_overlay_settings();
@@ -548,9 +552,14 @@ impl App {
 
         // Security: OdyTTY never auto-opens OSC 8 links. A URI is opened only
         // after explicit Ctrl+click, scheme allowlist filtering, and direct
-        // argv passing to xdg-open. No shell interpolation is involved. Routed
-        // through the single argv-only spawn point shared with path opens.
-        super::interactive_paths::spawn_detached(&["xdg-open".to_owned(), uri]);
+        // argv passing to the platform default opener. No shell interpolation is
+        // involved. Routed through the single argv-only spawn point shared with
+        // path opens; a failed/missing opener surfaces a transient notice (P0-2).
+        let argv = super::platform_opener::open_default_argv(
+            super::platform_opener::OpenerOs::host(),
+            &uri,
+        );
+        self.spawn_open_or_notice(&argv);
         true
     }
 
@@ -579,7 +588,7 @@ impl App {
             return false;
         };
         let argv = self.path_open_argv_for(&resolved);
-        super::interactive_paths::spawn_detached(&argv);
+        self.spawn_open_or_notice(&argv);
         true
     }
 
@@ -596,6 +605,7 @@ impl App {
             resolved,
             &self.settings.interactive_paths_editor,
             editor_env.as_deref(),
+            super::platform_opener::OpenerOs::host(),
         )
     }
 
