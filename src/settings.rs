@@ -228,6 +228,11 @@ pub enum BindableAction {
     /// Themes section; this gives it a first-class action so a chord and a menu
     /// entry can open it without navigating the panel.
     ThemeBuilder,
+    /// Open the in-window session-attach summon overlay (Phase 5 / B2). Bound to
+    /// `Ctrl+Shift+A` by default. Lists live detached sessions; accepting a row
+    /// attaches that session into a new tab. Presentation-only — the overlay
+    /// never attaches anything itself, it emits an attach request on accept.
+    SessionAttach,
     NewTab,
     NextTab,
     PrevTab,
@@ -264,7 +269,7 @@ impl BindableAction {
     /// coverage guard checks against, so a new variant cannot be silently
     /// omitted from the editor. Keep it exhaustive — the
     /// `all_bindable_actions_is_exhaustive` test pins it to the enum's size.
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 31] = [
         // Core non-tab actions.
         Self::Search,
         Self::SettingsPanel,
@@ -283,6 +288,7 @@ impl BindableAction {
         Self::ConnectionManager,
         Self::SessionReplay,
         Self::ThemeBuilder,
+        Self::SessionAttach,
         // Tab actions.
         Self::NewTab,
         Self::NextTab,
@@ -335,6 +341,9 @@ impl BindableAction {
                 Some(Self::ConnectionManager)
             }
             "themebuilder" | "buildtheme" | "newtheme" | "themeeditor" => Some(Self::ThemeBuilder),
+            "sessionattach" | "attach" | "attachsession" | "sessions" | "sessionpicker" => {
+                Some(Self::SessionAttach)
+            }
             "newtab" | "tabnew" => Some(Self::NewTab),
             "nexttab" | "tabnext" => Some(Self::NextTab),
             "prevtab" | "previoustab" | "tabprev" => Some(Self::PrevTab),

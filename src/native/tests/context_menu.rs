@@ -828,6 +828,10 @@ fn launcher_items_show_live_accelerator_labels() {
         row_with("Session Replay").contains("Ctrl+Shift+R"),
         "Session Replay shows its bound chord"
     );
+    assert!(
+        row_with("Attach Session").contains("Ctrl+Shift+A"),
+        "Attach Session shows its bound chord (Phase 5 / B2)"
+    );
 }
 
 /// v0.3.1 launcher section: clicking each launcher item closes the menu and
@@ -883,5 +887,27 @@ fn clicking_session_replay_opens_the_replay_overlay() {
         app.overlay_signature_for_test().mode,
         OverlayMode::Replay,
         "Session Replay item opens the replay overlay"
+    );
+}
+
+/// Phase 5 / B2: clicking the Attach Session launcher item closes the menu and
+/// opens the session-attach overlay through the production outcome→App apply
+/// path. The test runtime has no live sessions, so the overlay opens in its
+/// empty-list hint state — the assertion is on the overlay mode switch.
+#[test]
+fn clicking_attach_session_opens_the_session_attach_overlay() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_cell_for_test(5, 10);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+    assert!(app.context_menu_open_for_test());
+    click_menu_item(&mut app, "Attach Session");
+    assert!(!app.context_menu_open_for_test());
+    assert_eq!(
+        app.overlay_signature_for_test().mode,
+        OverlayMode::SessionAttach,
+        "Attach Session item opens the session-attach overlay"
     );
 }

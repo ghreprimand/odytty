@@ -163,6 +163,29 @@ is **presentation-only**: it reads a frozen snapshot of the hosts list and never
 mutates live terminal state; accepting a host hands the connect action a
 name-only target to spawn.
 
+### Session-attach summon overlay (`session-attach`)
+
+The in-window analogue of the `odytty attach` CLI: a **session-attach overlay**
+that lists the live, detached session-host sessions so you can reattach one
+without leaving the window. Open it with `Ctrl+Shift+A` by default (or the
+right-click menu's "Attach Session" item). Rebind the `session-attach` action in
+`odytty.conf`:
+
+```conf
+keybinds = ctrl+alt+a=session-attach
+```
+
+For a one-off/dev override, run
+`ODYTTY_KEYBINDS="ctrl+alt+a=session-attach" cargo run --release`; env wins for
+that session. The overlay lists each live session by its `--title` (falling back
+to the session id), with type-to-filter fuzzy matching over title and id;
+`↑`/`↓` select, `Enter` attaches the highlighted session **into a new tab**, and
+`Esc` dismisses. With no live sessions it opens to a hint rather than failing.
+The overlay is **presentation-only**: it reads a frozen snapshot of the live
+sessions and never attaches anything itself; accepting a row hands the App an
+attach request. If the chosen session ended between listing and accepting, the
+attach fails gracefully (no panic) and the user can retry.
+
 ## Settings Reference
 
 All settings except `native_autoclose_ms` are live-reloadable when their
@@ -313,6 +336,7 @@ Default local shortcuts:
 | `Ctrl+Shift+S` | `connection-manager` |
 | `Ctrl+Shift+R` | `session-replay` |
 | `Ctrl+Shift+B` | `theme-builder` |
+| `Ctrl+Shift+A` | `session-attach` |
 | `Ctrl+Shift+Space` | `copy-mode` |
 | `Ctrl+Shift+L` | `hints` |
 | `Ctrl+Shift+K` | `clear-input` |

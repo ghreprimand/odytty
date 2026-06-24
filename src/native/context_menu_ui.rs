@@ -53,10 +53,10 @@ use crate::settings::BindableAction;
 /// Number of entries in [`ContextMenuItem::ALL`] (Copy / Cut / Paste / Delete /
 /// Select All / New Tab / Rename Tab / Close Tab / Split Right / Split Down /
 /// Close Pane / Settings / Connection Manager / Command Palette / Session
-/// Replay) — the size of the accelerator array the App fills in `ALL` order. NOT
-/// the number of *visible* items: Close Pane is hidden in a single-pane tab, so
-/// the visible count is 14 there and 15 in a multi-pane tab.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 15;
+/// Replay / Attach Session) — the size of the accelerator array the App fills in
+/// `ALL` order. NOT the number of *visible* items: Close Pane is hidden in a
+/// single-pane tab, so the visible count is 15 there and 16 in a multi-pane tab.
+pub(super) const CONTEXT_MENU_ITEMS: usize = 16;
 
 /// Body row index of the first visual separator (single-pane layout), between
 /// Select All and New Tab. The separators move when Close Pane appears in a
@@ -82,12 +82,12 @@ pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 12;
 #[cfg(test)]
 pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 14;
 
-/// Total body rows in the **single-pane** layout: fourteen visible items plus
+/// Total body rows in the **single-pane** layout: fifteen visible items plus
 /// four separator lines (Close Pane hidden). The multi-pane layout has one
 /// more row; production uses [`ContextMenuUi::body_row_count`] for the live
 /// count.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 18;
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 19;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -125,6 +125,9 @@ pub(super) enum ContextMenuItem {
     /// Open the session-replay overlay (v0.3.1 discoverability). Always enabled;
     /// same destination as the `Ctrl+Shift+R` chord.
     SessionReplay,
+    /// Open the session-attach summon overlay (Phase 5 / B2). Always enabled;
+    /// same destination as the `Ctrl+Shift+A` chord.
+    SessionAttach,
 }
 
 impl ContextMenuItem {
@@ -147,6 +150,7 @@ impl ContextMenuItem {
         Self::ConnectionManager,
         Self::CommandPalette,
         Self::SessionReplay,
+        Self::SessionAttach,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -160,7 +164,10 @@ impl ContextMenuItem {
             Self::NewTab | Self::RenameTab | Self::CloseTab => 1,
             Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
             Self::Settings => 3,
-            Self::ConnectionManager | Self::CommandPalette | Self::SessionReplay => 4,
+            Self::ConnectionManager
+            | Self::CommandPalette
+            | Self::SessionReplay
+            | Self::SessionAttach => 4,
         }
     }
 
@@ -182,6 +189,7 @@ impl ContextMenuItem {
             Self::ConnectionManager => "Connection Manager",
             Self::CommandPalette => "Command Palette",
             Self::SessionReplay => "Session Replay",
+            Self::SessionAttach => "Attach Session",
         }
     }
 
@@ -202,6 +210,7 @@ impl ContextMenuItem {
             Self::ConnectionManager => Some(BindableAction::ConnectionManager),
             Self::CommandPalette => Some(BindableAction::CommandPalette),
             Self::SessionReplay => Some(BindableAction::SessionReplay),
+            Self::SessionAttach => Some(BindableAction::SessionAttach),
             // Close Pane has no chord in the flat global table — it resolves only
             // on the multiplexer prefix (`Ctrl-b x`), which the flat
             // `chord_for_action` lookup cannot represent. The App fills its
@@ -410,6 +419,7 @@ impl ContextMenuUi {
             ContextMenuItem::ConnectionManager => true,
             ContextMenuItem::CommandPalette => true,
             ContextMenuItem::SessionReplay => true,
+            ContextMenuItem::SessionAttach => true,
         }
     }
 
@@ -759,7 +769,9 @@ mod tests {
     #[test]
     fn rect_tracks_spawn_when_it_fits() {
         let m = menu(true, true);
-        let rect = m.rect(80, 24);
+        // The 19-row single-pane menu (21 rows with borders) needs a grid tall
+        // enough to host it at the spawn row without clamping upward.
+        let rect = m.rect(80, 30);
         assert_eq!(rect.left, 7);
         assert_eq!(rect.top, 4);
         assert_eq!(rect.body_top, 5);
@@ -832,12 +844,12 @@ mod tests {
         );
 
         // A press on the visible row holding the last item activates it. The
-        // last visible single-pane item is now Session Replay (the v0.3.1
-        // launcher section sits below Settings).
+        // last visible single-pane item is now Attach Session (the launcher
+        // section sits below Settings).
         let visible_row = last_body_row - scroll;
         assert_eq!(
             m.handle_press(visible_row, body_height, PointerButton::Left),
-            ContextMenuOutcome::Activate(ContextMenuItem::SessionReplay),
+            ContextMenuOutcome::Activate(ContextMenuItem::SessionAttach),
             "last item reachable via the scrolled visible window"
         );
     }
@@ -847,11 +859,11 @@ mod tests {
         let mut m = menu(true, true);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        // Wraps from 0 to the last *visible* item (Session Replay). Single-pane
-        // hides Close Pane, so the visible count is 14 (10 original + 1 Settings
-        // + 3 launchers) and the last index is 13.
+        // Wraps from 0 to the last *visible* item (Attach Session). Single-pane
+        // hides Close Pane, so the visible count is 15 (10 original + 1 Settings
+        // + 4 launchers) and the last index is 14.
         assert_eq!(m.focused, m.item_count() - 1);
-        assert_eq!(m.item_count(), 14);
+        assert_eq!(m.item_count(), 15);
         m.handle_input(OverlayInput::Down);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Down);
@@ -960,13 +972,14 @@ mod tests {
 
     #[test]
     fn single_pane_menu_hides_close_pane() {
-        // Single-pane: Close Pane is absent; the layout is the 18-row menu with
-        // the v0.3.1 launcher section below Settings. Settings stays at body row
-        // 13; the launcher items follow after the fourth separator.
+        // Single-pane: Close Pane is absent; the layout is the 19-row menu with
+        // the launcher section (Connection Manager / Command Palette / Session
+        // Replay / Attach Session) below Settings. Settings stays at body row 13;
+        // the launcher items follow after the fourth separator.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 14);
+        assert_eq!(m.item_count(), 15);
         let rows = m.rows();
-        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 18
+        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 19
         assert!(
             !rows.iter().any(|r| matches!(
                 r,
@@ -986,6 +999,7 @@ mod tests {
         assert_eq!(rows[15], item("Connection Manager", false, true));
         assert_eq!(rows[16], item("Command Palette", false, true));
         assert_eq!(rows[17], item("Session Replay", false, true));
+        assert_eq!(rows[18], item("Attach Session", false, true));
     }
 
     #[test]
@@ -994,9 +1008,9 @@ mod tests {
         // section; the third separator and Settings shift down one row, and the
         // v0.3.1 launcher section follows below Settings.
         let m = multipane_menu();
-        assert_eq!(m.item_count(), 15);
+        assert_eq!(m.item_count(), 16);
         let rows = m.rows();
-        assert_eq!(rows.len(), 19, "one more row than single-pane");
+        assert_eq!(rows.len(), 20, "one more row than single-pane");
         assert_eq!(rows[10], item("Split Right", false, true));
         assert_eq!(rows[11], item("Split Down", false, true));
         assert_eq!(
@@ -1014,6 +1028,7 @@ mod tests {
         assert_eq!(rows[16], item("Connection Manager", false, true));
         assert_eq!(rows[17], item("Command Palette", false, true));
         assert_eq!(rows[18], item("Session Replay", false, true));
+        assert_eq!(rows[19], item("Attach Session", false, true));
     }
 
     #[test]
@@ -1028,14 +1043,14 @@ mod tests {
 
     #[test]
     fn multi_pane_focus_wraps_through_all_items() {
-        // Up from item 0 wraps to the last visible item (Session Replay, index
-        // 14), proving Close Pane is in the focus cycle only when multi-pane and
+        // Up from item 0 wraps to the last visible item (Attach Session, index
+        // 15), proving Close Pane is in the focus cycle only when multi-pane and
         // the launcher items extend the cycle.
         let mut m = multipane_menu();
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        assert_eq!(m.focused, 14);
-        assert_eq!(m.item_count(), 15);
+        assert_eq!(m.focused, 15);
+        assert_eq!(m.item_count(), 16);
     }
 
     #[test]

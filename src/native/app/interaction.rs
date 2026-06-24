@@ -154,6 +154,10 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.open_replay_overlay();
             }
+            OverlayOutcome::ContextMenuSessionAttach => {
+                self.flush_pending_overlay_settings();
+                self.open_session_attach_overlay();
+            }
             OverlayOutcome::PaletteTypeText(text) => {
                 self.flush_pending_overlay_settings();
                 self.handle_palette_type_text(text);
@@ -170,6 +174,15 @@ impl App {
             OverlayOutcome::Connect(host) => {
                 self.flush_pending_overlay_settings();
                 let _ = self.connect_ssh_host_in_new_tab(&host);
+            }
+            // Phase 5 / B2: the session-attach overlay closed itself before
+            // emitting this; attach the chosen session into a new tab. A stale
+            // id (the session ended between list and accept) returns Err from
+            // the attach path; swallow it like the connect arm — the overlay is
+            // already closed and the user can retry. Never panics.
+            OverlayOutcome::AttachSession(id) => {
+                self.flush_pending_overlay_settings();
+                let _ = self.attach_session_in_new_tab(None, &id);
             }
             // CLOSE-CONFIRM: the dialog closed itself before emitting this; flag
             // the exit so `window_event` exits the loop on this same turn (the

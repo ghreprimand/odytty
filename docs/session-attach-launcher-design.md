@@ -60,6 +60,32 @@ with `Enter`.
 Accepting a row attaches the selected hosted session into a new tab. The existing
 tab and pane layout remain intact.
 
+### Status: shipped (Phase 5 / B2)
+
+The overlay shipped as `OverlayMode::SessionAttach`, a structural clone of the
+connection-manager overlay sourced from
+`session_host::list_live_sessions(None)`. It is **presentation-only**: a frozen
+list captured at open time, type-to-filter fuzzy matching over title and id,
+`↑`/`↓` selection, `Enter` → attach into a **new tab** via
+`App::attach_session_in_new_tab`, `Esc` → dismiss. An empty live set opens to a
+"No live sessions" hint rather than failing. Session names are control-char
+sanitized before display (the `--title` is user-supplied). A session that ended
+between listing and accept yields an `Err` from the attach path, which the App
+swallows like the connection-manager connect arm — no panic.
+
+Summoning paths:
+
+- **Chord:** the bindable `session-attach` action, default `Ctrl+Shift+A` (a
+  TUI-unreachable `Ctrl+Shift+<letter>` chord, consistent with the v0.3.1
+  discoverability family; verified free against the existing letter set).
+- **Right-click menu:** an "Attach Session" item in the launcher section of the
+  context menu (alongside Connection Manager / Command Palette / Session Replay),
+  whose accelerator label auto-tracks the bound chord via the existing
+  `set_accelerators` path.
+
+Closed overlay = live frame byte-identical (the mode is never entered until
+summoned); `gpu_composite_smoke` stays 3/3.
+
 ## Rejected Option 4: Pre-Window Launcher
 
 The pre-window launcher option is rejected. A chooser before the native window

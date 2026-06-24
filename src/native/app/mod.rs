@@ -101,6 +101,7 @@ mod pointer;
 mod prompt_jump;
 mod replay_ui;
 mod scroll_anim;
+mod session_attach_ui;
 mod ssh_connect;
 mod tab_bar;
 #[cfg(test)]
@@ -952,6 +953,10 @@ impl App {
                 self.open_connection_overlay();
                 return;
             }
+            if action == Some(BindableAction::SessionAttach) {
+                self.open_session_attach_overlay();
+                return;
+            }
             if action == Some(BindableAction::ThemeBuilder) {
                 self.open_theme_builder_overlay();
                 return;
@@ -1049,6 +1054,7 @@ impl App {
                 | Some(BindableAction::CommandPalette)
                 | Some(BindableAction::SessionReplay)
                 | Some(BindableAction::ConnectionManager)
+                | Some(BindableAction::SessionAttach)
                 | Some(BindableAction::ThemeBuilder)
                 | Some(BindableAction::SettingsPanel)
                 | Some(BindableAction::ThemePicker)

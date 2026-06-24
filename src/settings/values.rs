@@ -1039,6 +1039,7 @@ pub(super) fn bindable_action_name(action: BindableAction) -> &'static str {
         BindableAction::SessionReplay => "session-replay",
         BindableAction::ConnectionManager => "connection-manager",
         BindableAction::ThemeBuilder => "theme-builder",
+        BindableAction::SessionAttach => "session-attach",
         BindableAction::NewTab => "new-tab",
         BindableAction::NextTab => "next-tab",
         BindableAction::PrevTab => "prev-tab",

@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- In-window session-attach summon overlay + menu launcher
+
+Initiative B is complete: live sessions are now attachable from inside a running
+window, not only from the CLI. A new `OverlayMode::SessionAttach` clones the
+connection-manager overlay over `list_live_sessions()` — frozen rows captured at
+open, fuzzy type-to-filter across the session name and id, arrow navigation,
+Enter to attach, Esc to dismiss. Attaching opens the session **in a new tab**
+(`attach_session_in_new_tab`), consistent with the "summon, not greet"
+principle: the overlay is summoned on demand, never forced at launch. Rows read
+`build (s-0001-aaaa)` — the human `--title` first, id in parens — so sessions
+are recognizable rather than numeric. A stale id (session ended between listing
+and Enter) errors without panic.
+
+Two ways in, both discoverable: the new bindable `session-attach` action
+(default chord `Ctrl+Shift+A` — verified free; "A" reads as *Attach*) and a
+right-click **menu launcher item** ("Attach Session") in the bottom launcher
+section alongside Connection Manager / Command Palette / Session Replay / Theme
+Builder. The menu accelerator auto-tracks rebinds through the existing
+`ContextMenuItem::ALL → bindable_action → chord` path, so a user-rebound chord
+relabels the menu with no special-casing. The P2 keybinding editor likewise
+auto-gained the row via `BindableAction::ALL` (now 31 actions).
+
+The `OverlayMode` enum carries no `_` wildcard, so the compiler enumerated all
+13 match sites plus the `OverlayOutcome::AttachSession` / `ContextMenuItem` /
+`BindableAction` dispatch arms — completeness is compiler-enforced, not
+review-hoped. The user-supplied `--title` is control-char-sanitized before
+render.
+
+State: `cargo fmt --check` clean, `cargo clippy --all-targets -- -D warnings` 0,
+`cargo test --locked` **2421 passed / 0 failed** (+163), `gpu_composite_smoke`
+**3/3** (closed overlay pixel-inert — byte-identity held), `license_headers`
+1/1 (SPDX on both new files). Synthetic session ids only; no real paths,
+usernames, or hostnames; argv-only attach path unchanged; `src/core/` untouched.
+Gaps: hover/cursor path affordance (C2) is next; the overlay is focused-window
+scope by design.
+
+---
+
 ## 2026-06-24 -- Interactive paths: design record + the pure detection spine
 
 First slice of the interactive-paths capability (clickable files / semantic

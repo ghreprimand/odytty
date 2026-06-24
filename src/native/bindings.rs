@@ -421,6 +421,10 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             BindableAction::ThemeBuilder,
         ),
         (
+            char_chord('a', true, true, false, false),
+            BindableAction::SessionAttach,
+        ),
+        (
             named_chord(KeyBindingNamedKey::Space, true, true, false, false),
             BindableAction::CopyMode,
         ),

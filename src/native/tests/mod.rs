@@ -37,6 +37,7 @@ use super::render_helpers::{
 };
 use super::replay_overlay::ReplayOverlaySignature;
 use super::search_ui::SearchRenderSignature;
+use super::session_attach_overlay::SessionAttachOverlaySignature;
 use super::settings_panel::SettingsPanelSignature;
 use super::theme_builder::ThemeBuilderSignature;
 use super::theme_picker::ThemePickerSignature;

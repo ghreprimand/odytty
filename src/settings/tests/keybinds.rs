@@ -157,11 +157,15 @@ fn keybinds_value_round_trips_for_every_action() {
                 modifiers: KeyBindingModifiers {
                     ctrl: true,
                     shift: true,
-                    alt: i % 2 == 0,
+                    // The `alt` bit distinguishes the second pass over the
+                    // alphabet, so every action gets a distinct chord even once
+                    // `ALL` grows past 26 entries.
+                    alt: i >= 26,
                     super_key: false,
                 },
-                // Distinct printable key per action (well within ALL's size).
-                key: KeyBindingKey::Character((b'a' + i as u8) as char),
+                // Distinct printable key per action: cycle the alphabet, with
+                // the `alt` bit above keeping the wrapped letters distinct.
+                key: KeyBindingKey::Character((b'a' + (i % 26) as u8) as char),
             },
             action,
         })
@@ -189,7 +193,7 @@ fn all_bindable_actions_is_exhaustive() {
         match action {
             Search | SettingsPanel | ThemePicker | Copy | Paste | ScrollPageUp | ScrollPageDown
             | JumpPromptPrev | JumpPromptNext | CopyMode | Hints | ClearInput => 0,
-            CommandPalette | ConnectionManager | SessionReplay | ThemeBuilder => 1,
+            CommandPalette | ConnectionManager | SessionReplay | ThemeBuilder | SessionAttach => 1,
             NewTab | NextTab | PrevTab | CloseTab => 2,
             SplitColumns | SplitRows | FocusPaneLeft | FocusPaneRight | FocusPaneUp
             | FocusPaneDown | FocusPaneNext | ClosePane | ZoomPane | EqualizePanes => 3,

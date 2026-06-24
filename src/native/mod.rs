@@ -73,6 +73,7 @@ mod replay_overlay;
 mod resize;
 mod search_ui;
 mod session;
+mod session_attach_overlay;
 mod settings_panel;
 mod theme_builder;
 mod theme_picker;

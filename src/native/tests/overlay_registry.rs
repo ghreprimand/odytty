@@ -136,6 +136,12 @@ fn closed_overlay_sig() -> OverlayRenderSignature {
             results_len: 0,
             results_fingerprint: 0,
         },
+        session_attach: SessionAttachOverlaySignature {
+            query: String::new(),
+            selected: None,
+            results_len: 0,
+            results_fingerprint: 0,
+        },
     }
 }
 

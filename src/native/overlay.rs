@@ -3,6 +3,7 @@ use crate::connection_hosts::ConnectionHost;
 use crate::core::{Attrs, Cell, Color, Snapshot};
 use crate::input::Modifiers;
 use crate::selection::CellPoint;
+use crate::session_host::ListedSession;
 use crate::settings::{KeyChord, Settings};
 use crate::theme::{Srgb, Theme};
 
@@ -25,6 +26,10 @@ use super::replay_overlay::{
     ReplayOverlay, ReplayOverlayLine, ReplayOverlayOutcome, ReplayOverlaySignature,
 };
 use super::session::SessionToken;
+use super::session_attach_overlay::{
+    SessionAttachOverlay, SessionAttachOverlayLine, SessionAttachOverlayOutcome,
+    SessionAttachOverlaySignature,
+};
 use super::settings_panel::{
     SettingsLevel, SettingsPanel, SettingsPanelOutcome, SettingsPanelSignature,
 };
@@ -49,6 +54,7 @@ pub(super) struct OverlayUi {
     command_palette: PaletteOverlay,
     replay: ReplayOverlay,
     connections: ConnectionOverlay,
+    session_attach: SessionAttachOverlay,
     /// Set when a `SaveAndClose` outcome arrives from the settings panel (dirty
     /// close prompt). On the next `save_succeeded` call for Settings mode, the
     /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
@@ -83,6 +89,7 @@ impl OverlayUi {
             command_palette: PaletteOverlay::new(),
             replay: ReplayOverlay::new(),
             connections: ConnectionOverlay::new(),
+            session_attach: SessionAttachOverlay::new(),
             close_after_save: false,
             picker_return: None,
             builder_from_picker: false,
@@ -209,6 +216,20 @@ impl OverlayUi {
         self.theme_builder.end_channel_drag();
         self.connections.open(entries);
         self.mode = OverlayMode::Connections;
+        self.open = true;
+    }
+
+    /// Open the in-window session-attach summon overlay over a frozen list of
+    /// live detached sessions (Phase 5 / B2). Presentation-only: the overlay
+    /// owns the list and never attaches anything itself. Accepting a row emits a
+    /// [`OverlayOutcome::AttachSession`] for the App to attach into a new tab.
+    /// `entries` is empty when no sessions are live, in which case the overlay
+    /// shows a hint rather than failing to open.
+    pub(super) fn open_session_attach(&mut self, entries: Vec<ListedSession>) {
+        self.panel.end_slider_drag();
+        self.theme_builder.end_channel_drag();
+        self.session_attach.open(entries);
+        self.mode = OverlayMode::SessionAttach;
         self.open = true;
     }
 
@@ -339,6 +360,7 @@ impl OverlayUi {
                     }
                     ContextMenuItem::CommandPalette => OverlayOutcome::ContextMenuCommandPalette,
                     ContextMenuItem::SessionReplay => OverlayOutcome::ContextMenuSessionReplay,
+                    ContextMenuItem::SessionAttach => OverlayOutcome::ContextMenuSessionAttach,
                 }
             }
         }
@@ -384,6 +406,7 @@ impl OverlayUi {
             OverlayMode::CommandPalette => return self.handle_command_palette_input(input),
             OverlayMode::Replay => return self.handle_replay_input(input),
             OverlayMode::Connections => return self.handle_connections_input(input),
+            OverlayMode::SessionAttach => return self.handle_session_attach_input(input),
             OverlayMode::Settings => {}
         }
 
@@ -465,6 +488,7 @@ impl OverlayUi {
                     | OverlayMode::CommandPalette
                     | OverlayMode::Replay
                     | OverlayMode::Connections
+                    | OverlayMode::SessionAttach
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
@@ -503,6 +527,7 @@ impl OverlayUi {
                     | OverlayMode::CommandPalette
                     | OverlayMode::Replay
                     | OverlayMode::Connections
+                    | OverlayMode::SessionAttach
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
@@ -518,6 +543,7 @@ impl OverlayUi {
                     | OverlayMode::CommandPalette
                     | OverlayMode::Replay
                     | OverlayMode::Connections
+                    | OverlayMode::SessionAttach
                     | OverlayMode::ConfirmClose => {}
                 }
                 OverlayOutcome::Consumed
@@ -550,6 +576,7 @@ impl OverlayUi {
                     }
                     OverlayMode::Replay => self.replay.scroll_lines(lines),
                     OverlayMode::Connections => self.connections.scroll_lines(lines),
+                    OverlayMode::SessionAttach => self.session_attach.scroll_lines(lines),
                     OverlayMode::ContextMenu => {
                         // Wheel moves the focused item (and thus the focus-
                         // derived scroll window), mirroring the picker overlays.
@@ -583,6 +610,7 @@ impl OverlayUi {
             | OverlayMode::CommandPalette
             | OverlayMode::Replay
             | OverlayMode::Connections
+            | OverlayMode::SessionAttach
             | OverlayMode::ConfirmClose => false,
         }
     }
@@ -602,6 +630,7 @@ impl OverlayUi {
             | OverlayMode::CommandPalette
             | OverlayMode::Replay
             | OverlayMode::Connections
+            | OverlayMode::SessionAttach
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -704,6 +733,7 @@ impl OverlayUi {
             | OverlayMode::CommandPalette
             | OverlayMode::Replay
             | OverlayMode::Connections
+            | OverlayMode::SessionAttach
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -720,6 +750,7 @@ impl OverlayUi {
             | OverlayMode::CommandPalette
             | OverlayMode::Replay
             | OverlayMode::Connections
+            | OverlayMode::SessionAttach
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -748,6 +779,7 @@ impl OverlayUi {
             OverlayMode::FontPicker => self.font_picker.scroll_indicator(body_height),
             OverlayMode::KeyBindings => self.key_remap.scroll_indicator(body_height),
             OverlayMode::Connections => self.connections.scroll_indicator(body_height),
+            OverlayMode::SessionAttach => self.session_attach.scroll_indicator(body_height),
             OverlayMode::CommandPalette => self.command_palette.scroll_indicator(body_height),
             OverlayMode::ThemeBuilder => self.theme_builder.scroll_indicator(body_height),
             // Replay (read-only frame preview whose scroll axis is time, not a
@@ -775,6 +807,7 @@ impl OverlayUi {
             command_palette: self.command_palette.render_signature(),
             replay: self.replay.render_signature(),
             connections: self.connections.render_signature(),
+            session_attach: self.session_attach.render_signature(),
         }
     }
 
@@ -941,6 +974,18 @@ impl OverlayUi {
         }
     }
 
+    /// Route a key to the session-attach summon overlay (Phase 5 / B2). The
+    /// overlay type-filters and selects (Consumed), requests Close, or accepts a
+    /// session (Attach) which the App attaches into a new tab — the overlay
+    /// never attaches anything itself.
+    fn handle_session_attach_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match self.session_attach.handle_input(input) {
+            SessionAttachOverlayOutcome::Consumed => OverlayOutcome::Consumed,
+            SessionAttachOverlayOutcome::Close => OverlayOutcome::Close,
+            SessionAttachOverlayOutcome::Attach(id) => OverlayOutcome::AttachSession(id),
+        }
+    }
+
     fn settings_with_theme(&self, theme: Theme) -> Settings {
         let mut settings = self.settings.clone();
         settings.theme = theme;
@@ -1001,6 +1046,10 @@ pub(super) enum OverlayOutcome {
     ContextMenuConnectionManager,
     ContextMenuCommandPalette,
     ContextMenuSessionReplay,
+    /// Open the session-attach overlay from the context menu's launcher section
+    /// (Phase 5 / B2). The menu has already closed itself; the App opens it
+    /// through the same entry the `Ctrl+Shift+A` chord fires.
+    ContextMenuSessionAttach,
     /// Type text accepted from the command palette into the active pane's PTY.
     /// The App writes the exact bytes with no trailing newline.
     PaletteTypeText(String),
@@ -1013,6 +1062,12 @@ pub(super) enum OverlayOutcome {
     /// [`ConnectionHost`] so the connect action has alias, host name, user, and
     /// port without re-reading any file.
     Connect(Box<ConnectionHost>),
+    /// Attach to a live session accepted from the session-attach overlay (Phase
+    /// 5 / B2). The overlay has already closed itself by the time this is
+    /// emitted; the App attaches the session id into a new tab. A stale id (the
+    /// session ended between list and accept) is swallowed gracefully, never
+    /// panics.
+    AttachSession(String),
     /// The user confirmed the close-confirmation dialog (CLOSE-CONFIRM): close
     /// the window. The overlay has already closed itself by the time this is
     /// emitted; the App sets its `pending_exit` flag and exits the event loop on
@@ -1090,6 +1145,11 @@ pub(super) enum OverlayMode {
     /// and quick-connect. Presentation-only; accepting a row emits a connect
     /// request for the App to spawn. Never mutates live core state.
     Connections,
+    /// Session-attach summon overlay (Phase 5 / B2): list live detached
+    /// sessions, type-to-filter, and attach into a new tab. Presentation-only;
+    /// accepting a row emits an attach request for the App. Never mutates live
+    /// core state.
+    SessionAttach,
     /// Close-confirmation dialog (CLOSE-CONFIRM). A centered, static two-line
     /// modal shown when a close is requested while a foreground job is running;
     /// Enter/Y confirms (emits [`OverlayOutcome::ForceClose`]), Esc/N cancels.
@@ -1177,6 +1237,7 @@ pub(super) struct OverlayRenderSignature {
     pub(super) command_palette: PaletteOverlaySignature,
     pub(super) replay: ReplayOverlaySignature,
     pub(super) connections: ConnectionOverlaySignature,
+    pub(super) session_attach: SessionAttachOverlaySignature,
 }
 
 pub(super) fn overlay_input_from_winit(
@@ -1271,6 +1332,7 @@ pub(super) fn overlay_rect(
         OverlayMode::CommandPalette => overlay.command_palette.desired_width(columns),
         OverlayMode::Replay => overlay.replay.desired_width(columns),
         OverlayMode::Connections => overlay.connections.desired_width(columns),
+        OverlayMode::SessionAttach => overlay.session_attach.desired_width(columns),
         // Unreachable: handled by the early return above.
         OverlayMode::ContextMenu => overlay.context_menu.menu_width(),
         // Static two-line dialog; the `.max(36)` floor below gives it room and
@@ -1324,6 +1386,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         OverlayMode::CommandPalette => "Command Palette".to_owned(),
         OverlayMode::Replay => "\u{2190} Session Replay  (Esc = back)".to_owned(),
         OverlayMode::Connections => "\u{2190} Connections  (Esc = back)".to_owned(),
+        OverlayMode::SessionAttach => "\u{2190} Attach Session  (Esc = back)".to_owned(),
         // Unreachable: handled by the early dispatch above.
         OverlayMode::ContextMenu => String::new(),
         OverlayMode::ConfirmClose => "Close?".to_owned(),
@@ -1545,6 +1608,12 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
+            OverlayMode::SessionAttach => self
+                .session_attach
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
             // The context menu renders via `apply_context_menu`, not this shared
             // body walker (IN2).
             OverlayMode::ContextMenu => Vec::new(),
@@ -1674,6 +1743,17 @@ impl From<ReplayOverlayLine> for OverlayLine {
 
 impl From<ConnectionOverlayLine> for OverlayLine {
     fn from(line: ConnectionOverlayLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: None,
+            bold: line.bold,
+        }
+    }
+}
+
+impl From<SessionAttachOverlayLine> for OverlayLine {
+    fn from(line: SessionAttachOverlayLine) -> Self {
         Self {
             text: line.text,
             focused: line.focused,
@@ -2175,6 +2255,88 @@ mod tests {
         match overlay.handle_input(OverlayInput::Activate) {
             OverlayOutcome::Connect(host) => assert_eq!(host.alias, "web1"),
             other => panic!("expected Connect, got {other:?}"),
+        }
+    }
+
+    /// A synthetic live session for the session-attach overlay tests.
+    fn listed_session(id: &str, name: &str) -> ListedSession {
+        ListedSession {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            state: "running",
+            age_ms: 1000,
+            pane_count: 1,
+        }
+    }
+
+    #[test]
+    fn session_attach_overlay_draws_into_snapshot_copy_only() {
+        // SESSION-ATTACH-OVERLAY-ISOLATION (render side): apply_overlay only
+        // mutates the snapshot copy it is handed; the source frame is untouched,
+        // and the session list shows.
+        let mut overlay = OverlayUi::default();
+        overlay.open_session_attach(vec![
+            listed_session("s-0001-aaaa", "build"),
+            listed_session("s-0002-bbbb", "web"),
+        ]);
+        let original = snapshot(80, 20);
+        let mut rendered = original.clone();
+
+        apply_overlay(&mut rendered, &mut overlay);
+
+        // The input snapshot is never mutated in place.
+        assert_eq!(
+            original.cells,
+            vec![Cell::new('.', Attrs::default()); 80 * 20]
+        );
+        // The panel border and a session title show.
+        assert!(rendered.cells.iter().any(|cell| cell.ch == '+'));
+        assert!(rendered.cells.iter().any(|cell| cell.ch == 'b'));
+    }
+
+    #[test]
+    fn closed_session_attach_overlay_is_pixel_inert() {
+        // OVERLAY-CLOSED-BYTE-IDENTICAL: once closed, the session-attach overlay
+        // paints nothing — the frame is byte-identical to the input.
+        let mut overlay = OverlayUi::default();
+        overlay.open_session_attach(vec![listed_session("s-0001-aaaa", "build")]);
+        overlay.close();
+        let original = snapshot(80, 20);
+        let mut rendered = original.clone();
+
+        apply_overlay(&mut rendered, &mut overlay);
+
+        assert_eq!(rendered, original);
+    }
+
+    #[test]
+    fn empty_session_attach_overlay_opens_with_hint() {
+        // Opening the session-attach overlay with no live sessions still opens
+        // (showing a hint) rather than failing; it draws a panel into the copy.
+        let mut overlay = OverlayUi::default();
+        overlay.open_session_attach(Vec::new());
+        let original = snapshot(80, 20);
+        let mut rendered = original.clone();
+
+        apply_overlay(&mut rendered, &mut overlay);
+
+        assert_eq!(
+            original.cells,
+            vec![Cell::new('.', Attrs::default()); 80 * 20]
+        );
+        assert!(rendered.cells.iter().any(|cell| cell.ch == '+'));
+    }
+
+    #[test]
+    fn session_attach_overlay_accept_emits_attach_outcome() {
+        // The overlay routes an accepted session up as
+        // OverlayOutcome::AttachSession(id) for the App's new-tab attach;
+        // presentation stays in the overlay.
+        let mut overlay = OverlayUi::default();
+        overlay.open_session_attach(vec![listed_session("s-0001-aaaa", "build")]);
+        match overlay.handle_input(OverlayInput::Activate) {
+            OverlayOutcome::AttachSession(id) => assert_eq!(id, "s-0001-aaaa"),
+            other => panic!("expected AttachSession, got {other:?}"),
         }
     }
 
