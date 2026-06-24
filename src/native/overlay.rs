@@ -19,6 +19,9 @@ use super::context_menu_ui::{
 use super::font_picker::{FontPicker, FontPickerLine, FontPickerOutcome, FontPickerSignature};
 use super::key_remap_ui::{KeyRemapLine, KeyRemapOutcome, KeyRemapSignature, KeyRemapUi};
 use super::onboarding::{OnboardingLine, OnboardingPanel, OnboardingSignature};
+use super::open_with_overlay::{
+    OpenWithOverlay, OpenWithOverlayLine, OpenWithOverlayOutcome, OpenWithOverlaySignature,
+};
 use super::palette_overlay::{
     PaletteOverlay, PaletteOverlayLine, PaletteOverlayOutcome, PaletteOverlaySignature,
 };
@@ -55,6 +58,7 @@ pub(super) struct OverlayUi {
     replay: ReplayOverlay,
     connections: ConnectionOverlay,
     session_attach: SessionAttachOverlay,
+    open_with: OpenWithOverlay,
     /// Caption (the image's filename) shown in the C4 image-viewer overlay's
     /// body. The image itself draws through the GPU image layer, over the panel;
     /// this presentation-only string is the only state the viewer mode carries.
@@ -94,6 +98,7 @@ impl OverlayUi {
             replay: ReplayOverlay::new(),
             connections: ConnectionOverlay::new(),
             session_attach: SessionAttachOverlay::new(),
+            open_with: OpenWithOverlay::new(),
             image_view_caption: String::new(),
             close_after_save: false,
             picker_return: None,
@@ -235,6 +240,20 @@ impl OverlayUi {
         self.theme_builder.end_channel_drag();
         self.session_attach.open(entries);
         self.mode = OverlayMode::SessionAttach;
+        self.open = true;
+    }
+
+    /// Open the "Open With…" app-picker overlay over a frozen list of apps that
+    /// can open the resolved file (C3b). Presentation-only: the App enumerated
+    /// the apps (each row carries a pre-built, argv-only command) and this
+    /// overlay only displays/filters them. Accepting a row emits a
+    /// [`OverlayOutcome::OpenWithApp`] the App hands to `spawn_detached`. An
+    /// empty list shows a hint rather than failing to open.
+    pub(super) fn open_open_with(&mut self, entries: Vec<crate::desktop::DesktopApp>) {
+        self.panel.end_slider_drag();
+        self.theme_builder.end_channel_drag();
+        self.open_with.open(entries);
+        self.mode = OverlayMode::OpenWith;
         self.open = true;
     }
 
@@ -425,6 +444,14 @@ impl OverlayUi {
                         }
                         None => OverlayOutcome::Consumed,
                     },
+                    // C3b: only ever visible on a resolved file span; the App
+                    // enumerates the handler apps and opens the picker overlay.
+                    ContextMenuItem::OpenWith => match self.context_menu.path_target() {
+                        Some(resolved) => {
+                            OverlayOutcome::ContextMenuOpenWith(Box::new(resolved.clone()))
+                        }
+                        None => OverlayOutcome::Consumed,
+                    },
                     ContextMenuItem::CopyPath => match self.context_menu.path_target() {
                         Some(resolved) => OverlayOutcome::ContextMenuCopyPath(resolved.abs.clone()),
                         None => OverlayOutcome::Consumed,
@@ -487,6 +514,7 @@ impl OverlayUi {
             OverlayMode::Replay => return self.handle_replay_input(input),
             OverlayMode::Connections => return self.handle_connections_input(input),
             OverlayMode::SessionAttach => return self.handle_session_attach_input(input),
+            OverlayMode::OpenWith => return self.handle_open_with_input(input),
             OverlayMode::ImageView => return self.handle_image_view_input(input),
             OverlayMode::Settings => {}
         }
@@ -570,6 +598,7 @@ impl OverlayUi {
                     | OverlayMode::Replay
                     | OverlayMode::Connections
                     | OverlayMode::SessionAttach
+                    | OverlayMode::OpenWith
                     | OverlayMode::ImageView
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
@@ -610,6 +639,7 @@ impl OverlayUi {
                     | OverlayMode::Replay
                     | OverlayMode::Connections
                     | OverlayMode::SessionAttach
+                    | OverlayMode::OpenWith
                     | OverlayMode::ImageView
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
@@ -627,6 +657,7 @@ impl OverlayUi {
                     | OverlayMode::Replay
                     | OverlayMode::Connections
                     | OverlayMode::SessionAttach
+                    | OverlayMode::OpenWith
                     | OverlayMode::ImageView
                     | OverlayMode::ConfirmClose => {}
                 }
@@ -661,6 +692,7 @@ impl OverlayUi {
                     OverlayMode::Replay => self.replay.scroll_lines(lines),
                     OverlayMode::Connections => self.connections.scroll_lines(lines),
                     OverlayMode::SessionAttach => self.session_attach.scroll_lines(lines),
+                    OverlayMode::OpenWith => self.open_with.scroll_lines(lines),
                     OverlayMode::ContextMenu => {
                         // Wheel moves the focused item (and thus the focus-
                         // derived scroll window), mirroring the picker overlays.
@@ -697,6 +729,7 @@ impl OverlayUi {
             | OverlayMode::Replay
             | OverlayMode::Connections
             | OverlayMode::SessionAttach
+            | OverlayMode::OpenWith
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose => false,
         }
@@ -718,6 +751,7 @@ impl OverlayUi {
             | OverlayMode::Replay
             | OverlayMode::Connections
             | OverlayMode::SessionAttach
+            | OverlayMode::OpenWith
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose => {}
         }
@@ -822,6 +856,7 @@ impl OverlayUi {
             | OverlayMode::Replay
             | OverlayMode::Connections
             | OverlayMode::SessionAttach
+            | OverlayMode::OpenWith
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose => {}
         }
@@ -840,6 +875,7 @@ impl OverlayUi {
             | OverlayMode::Replay
             | OverlayMode::Connections
             | OverlayMode::SessionAttach
+            | OverlayMode::OpenWith
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose => {}
         }
@@ -870,6 +906,7 @@ impl OverlayUi {
             OverlayMode::KeyBindings => self.key_remap.scroll_indicator(body_height),
             OverlayMode::Connections => self.connections.scroll_indicator(body_height),
             OverlayMode::SessionAttach => self.session_attach.scroll_indicator(body_height),
+            OverlayMode::OpenWith => self.open_with.scroll_indicator(body_height),
             OverlayMode::CommandPalette => self.command_palette.scroll_indicator(body_height),
             OverlayMode::ThemeBuilder => self.theme_builder.scroll_indicator(body_height),
             // Replay (read-only frame preview whose scroll axis is time, not a
@@ -899,6 +936,7 @@ impl OverlayUi {
             replay: self.replay.render_signature(),
             connections: self.connections.render_signature(),
             session_attach: self.session_attach.render_signature(),
+            open_with: self.open_with.render_signature(),
         }
     }
 
@@ -1077,6 +1115,21 @@ impl OverlayUi {
         }
     }
 
+    /// Route a key to the "Open With…" app-picker overlay (C3b). The overlay
+    /// type-filters and selects (Consumed), requests Close, or accepts an app
+    /// (Open) whose pre-built argv the App hands to `spawn_detached` — the
+    /// overlay never spawns anything itself.
+    fn handle_open_with_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match self.open_with.handle_input(input) {
+            OpenWithOverlayOutcome::Consumed => OverlayOutcome::Consumed,
+            OpenWithOverlayOutcome::Close => OverlayOutcome::Close,
+            OpenWithOverlayOutcome::Open(argv) => {
+                self.close();
+                OverlayOutcome::OpenWithApp(argv)
+            }
+        }
+    }
+
     fn settings_with_theme(&self, theme: Theme) -> Settings {
         let mut settings = self.settings.clone();
         settings.theme = theme;
@@ -1152,6 +1205,16 @@ pub(super) enum OverlayOutcome {
     /// the GPU image layer, and opens the `ImageView` overlay. Boxed to keep
     /// this short-lived enum small.
     ContextMenuOpenInOdytty(Box<crate::paths::Resolved>),
+    /// Open the "Open With…" app picker for a resolved file from the context
+    /// menu's file section (C3b). The menu has already closed itself; the App
+    /// enumerates the handler apps (`crate::desktop::enumerate_open_with`) and
+    /// opens the `OpenWith` overlay. Boxed to keep this short-lived enum small.
+    ContextMenuOpenWith(Box<crate::paths::Resolved>),
+    /// Launch a chosen application from the "Open With…" picker (C3b). The
+    /// overlay has already closed itself; the App hands the pre-built, argv-only
+    /// command (path already a single inert element) to `spawn_detached`. Never
+    /// a shell string.
+    OpenWithApp(Vec<String>),
     /// Copy the resolved absolute path to the clipboard as text (C3).
     ContextMenuCopyPath(String),
     /// Copy a `file://<abs>` URI to the clipboard as text (C3). The clipboard is
@@ -1260,6 +1323,11 @@ pub(super) enum OverlayMode {
     /// accepting a row emits an attach request for the App. Never mutates live
     /// core state.
     SessionAttach,
+    /// "Open With…" app-picker overlay (C3b): list the applications that can
+    /// open a resolved file, type-to-filter, and on Enter launch the chosen app
+    /// (argv-only, via `spawn_detached`). Presentation-only; the rows carry
+    /// pre-built argv. Never mutates live core state.
+    OpenWith,
     /// In-terminal image viewer (Phase 9 / C4): a presentation-only overlay
     /// that renders a decoded image span ("Open in OdyTTY") centered over a
     /// dimmed backdrop panel, through the existing GPU image-layer raster path.
@@ -1353,6 +1421,7 @@ pub(super) struct OverlayRenderSignature {
     pub(super) replay: ReplayOverlaySignature,
     pub(super) connections: ConnectionOverlaySignature,
     pub(super) session_attach: SessionAttachOverlaySignature,
+    pub(super) open_with: OpenWithOverlaySignature,
 }
 
 pub(super) fn overlay_input_from_winit(
@@ -1448,6 +1517,7 @@ pub(super) fn overlay_rect(
         OverlayMode::Replay => overlay.replay.desired_width(columns),
         OverlayMode::Connections => overlay.connections.desired_width(columns),
         OverlayMode::SessionAttach => overlay.session_attach.desired_width(columns),
+        OverlayMode::OpenWith => overlay.open_with.desired_width(columns),
         // The image viewer (C4) uses a full-width backdrop panel; the decoded
         // image is drawn centered over it by the GPU image layer, so the panel
         // is just the dimmed frame behind the picture.
@@ -1506,6 +1576,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         OverlayMode::Replay => "\u{2190} Session Replay  (Esc = back)".to_owned(),
         OverlayMode::Connections => "\u{2190} Connections  (Esc = back)".to_owned(),
         OverlayMode::SessionAttach => "\u{2190} Attach Session  (Esc = back)".to_owned(),
+        OverlayMode::OpenWith => "\u{2190} Open With\u{2026}  (Esc = back)".to_owned(),
         OverlayMode::ImageView => {
             format!("\u{2190} {}  (Esc = close)", overlay.image_view_caption)
         }
@@ -1736,6 +1807,12 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
+            OverlayMode::OpenWith => self
+                .open_with
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
             // The image viewer (C4) draws the decoded picture over the panel via
             // the GPU image layer; the only cell-rendered body is a short hint,
             // which the image covers when it is large enough.
@@ -1885,6 +1962,17 @@ impl From<ConnectionOverlayLine> for OverlayLine {
 
 impl From<SessionAttachOverlayLine> for OverlayLine {
     fn from(line: SessionAttachOverlayLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: None,
+            bold: line.bold,
+        }
+    }
+}
+
+impl From<OpenWithOverlayLine> for OverlayLine {
+    fn from(line: OpenWithOverlayLine) -> Self {
         Self {
             text: line.text,
             focused: line.focused,
@@ -2577,7 +2665,8 @@ mod tests {
             col: Some(7),
         };
         // Single-pane visible order: 15 base items (indices 0..=14), then the
-        // file section Open(15) / CopyPath(16) / CopyFile(17) / Reveal(18).
+        // file section Open(15) / Open With…(16) / CopyPath(17) / CopyFile(18) /
+        // Reveal(19) for a non-image file.
         let open_menu = |steps: usize| {
             let mut overlay = OverlayUi::default();
             overlay.open_context_menu(
@@ -2603,14 +2692,18 @@ mod tests {
         );
         assert_eq!(
             open_menu(16),
-            OverlayOutcome::ContextMenuCopyPath("/proj/src/main.rs".to_owned())
+            OverlayOutcome::ContextMenuOpenWith(Box::new(resolved.clone()))
         );
         assert_eq!(
             open_menu(17),
-            OverlayOutcome::ContextMenuCopyFile("file:///proj/src/main.rs".to_owned())
+            OverlayOutcome::ContextMenuCopyPath("/proj/src/main.rs".to_owned())
         );
         assert_eq!(
             open_menu(18),
+            OverlayOutcome::ContextMenuCopyFile("file:///proj/src/main.rs".to_owned())
+        );
+        assert_eq!(
+            open_menu(19),
             OverlayOutcome::ContextMenuRevealPath("/proj/src".to_owned())
         );
     }

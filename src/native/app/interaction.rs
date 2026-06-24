@@ -173,6 +173,21 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.open_image_view(&resolved);
             }
+            // C3b: enumerate the apps that can open the resolved file and open
+            // the "Open With…" picker overlay. Enumeration is read-only; a file
+            // with no handlers opens the overlay with its empty-state hint.
+            OverlayOutcome::ContextMenuOpenWith(resolved) => {
+                self.flush_pending_overlay_settings();
+                self.open_open_with_overlay(&resolved);
+            }
+            // C3b: launch the app chosen in the picker. The overlay closed
+            // itself before emitting this; the argv was built argv-only by
+            // `exec_to_argv` (path already one inert element). Best-effort — a
+            // spawn failure never panics the UI.
+            OverlayOutcome::OpenWithApp(argv) => {
+                self.flush_pending_overlay_settings();
+                super::interactive_paths::spawn_detached(&argv);
+            }
             OverlayOutcome::ContextMenuCopyPath(abs) => {
                 self.flush_pending_overlay_settings();
                 let _ = self.clipboard.write_text(&abs);

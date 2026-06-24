@@ -6,6 +6,7 @@ pub mod color;
 pub mod connection_hosts;
 pub mod core;
 pub mod cvd;
+pub mod desktop;
 pub mod emoji;
 pub mod fuzzy;
 pub mod graphics;

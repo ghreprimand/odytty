@@ -64,6 +64,7 @@ mod image_layer;
 mod key_remap_ui;
 mod layout;
 mod onboarding;
+mod open_with_overlay;
 mod options;
 mod output_recorder;
 mod overlay;

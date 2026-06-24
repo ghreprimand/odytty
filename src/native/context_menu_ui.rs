@@ -58,11 +58,12 @@ use crate::settings::BindableAction;
 /// Reveal in File Manager) — the size of the accelerator array the App fills in
 /// `ALL` order. NOT the number of *visible* items: Close Pane is hidden in a
 /// single-pane tab; the file items (Open / Copy Path / Copy File / Reveal) are
-/// shown only when a resolved interactive path sits under the click; and "Open
-/// in OdyTTY" is shown only when that resolved path is an image file (C4). With
-/// no path and single-pane the visible count is 15; with no path and multi-pane
-/// it is 16.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 21;
+/// shown only when a resolved interactive path sits under the click; "Open in
+/// OdyTTY" is shown only when that resolved path is an image file (C4); and
+/// "Open With…" is shown only when the resolved path is a regular file (C3b).
+/// With no path and single-pane the visible count is 15; with no path and
+/// multi-pane it is 16.
+pub(super) const CONTEXT_MENU_ITEMS: usize = 22;
 
 /// Body row index of the first visual separator (single-pane layout), between
 /// Select All and New Tab. The separators move when Close Pane appears in a
@@ -143,6 +144,10 @@ pub(super) enum ContextMenuItem {
     /// [`crate::paths::IMAGE_EXTENSIONS`]); decodes + renders it through the GPU
     /// image layer as a presentation-only overlay.
     OpenInOdytty,
+    /// Open the resolved file with a chosen application (Phase 8b / C3b). Shown
+    /// only when the resolved path is a regular file; activating it opens the
+    /// "Open With…" app-picker overlay (`OverlayMode::OpenWith`).
+    OpenWith,
     /// Copy the resolved absolute path to the clipboard as text (C3).
     CopyPath,
     /// Copy a `file://<abs>` URI to the clipboard as text (C3).
@@ -174,6 +179,7 @@ impl ContextMenuItem {
         Self::SessionAttach,
         Self::OpenPath,
         Self::OpenInOdytty,
+        Self::OpenWith,
         Self::CopyPath,
         Self::CopyFile,
         Self::RevealPath,
@@ -196,6 +202,7 @@ impl ContextMenuItem {
             | Self::SessionAttach => 4,
             Self::OpenPath
             | Self::OpenInOdytty
+            | Self::OpenWith
             | Self::CopyPath
             | Self::CopyFile
             | Self::RevealPath => 5,
@@ -223,6 +230,7 @@ impl ContextMenuItem {
             Self::SessionAttach => "Attach Session",
             Self::OpenPath => "Open",
             Self::OpenInOdytty => "Open in OdyTTY",
+            Self::OpenWith => "Open With\u{2026}",
             Self::CopyPath => "Copy Path",
             Self::CopyFile => "Copy File",
             Self::RevealPath => "Reveal in File Manager",
@@ -260,6 +268,7 @@ impl ContextMenuItem {
             | Self::ClosePane
             | Self::OpenPath
             | Self::OpenInOdytty
+            | Self::OpenWith
             | Self::CopyPath
             | Self::CopyFile
             | Self::RevealPath => None,
@@ -367,6 +376,10 @@ pub(super) struct ContextMenuSignature {
     /// Whether the resolved path is an image file (drives the "Open in OdyTTY"
     /// item's visibility, so its presence must repaint the menu). C4.
     pub(super) is_image_target: bool,
+    /// Whether the resolved path is a regular file (drives the "Open With…"
+    /// item's visibility — file-only — so a file-vs-directory target repaints
+    /// the menu). C3b.
+    pub(super) is_file_target: bool,
 }
 
 /// The right-click context menu state. Holds the spawn cell, the focused item,
@@ -498,7 +511,19 @@ impl ContextMenuUi {
             // "Open in OdyTTY" is enabled only when the resolved path is an
             // image file — the same condition that makes it visible.
             ContextMenuItem::OpenInOdytty => self.is_image_target(),
+            // "Open With…" is enabled only when the resolved path is a regular
+            // file — the same condition that makes it visible.
+            ContextMenuItem::OpenWith => self.is_file_target(),
         }
+    }
+
+    /// Whether the resolved path under the click is a regular file. Drives the
+    /// visibility + enablement of the C3b "Open With…" item (a file-only
+    /// affordance; a directory has no application handler list here).
+    fn is_file_target(&self) -> bool {
+        self.path_target
+            .as_ref()
+            .is_some_and(|resolved| resolved.kind == crate::paths::FsKind::File)
     }
 
     /// Whether the resolved path under the click is an image file (a regular
@@ -520,6 +545,7 @@ impl ContextMenuUi {
     fn visible_items(&self) -> Vec<ContextMenuItem> {
         let has_path = self.path_target.is_some();
         let is_image = self.is_image_target();
+        let is_file = self.is_file_target();
         ContextMenuItem::ALL
             .into_iter()
             .filter(|item| !matches!(item, ContextMenuItem::ClosePane) || self.multi_pane)
@@ -535,6 +561,9 @@ impl ContextMenuUi {
             // "Open in OdyTTY" (C4) appears only on a resolved IMAGE span, so a
             // non-image path (or no path) keeps the menu byte-identical to C3.
             .filter(|item| !matches!(item, ContextMenuItem::OpenInOdytty) || is_image)
+            // "Open With…" (C3b) appears only on a resolved regular FILE span, so
+            // a directory (or no path) does not show it.
+            .filter(|item| !matches!(item, ContextMenuItem::OpenWith) || is_file)
             .collect()
     }
 
@@ -795,6 +824,7 @@ impl ContextMenuUi {
             multi_pane: self.multi_pane,
             has_path_target: self.path_target.is_some(),
             is_image_target: self.is_image_target(),
+            is_file_target: self.is_file_target(),
         }
     }
 }
@@ -1188,31 +1218,38 @@ mod tests {
 
     #[test]
     fn path_present_menu_appends_the_file_section() {
-        // C3: a resolved path adds a fifth section (Open / Copy Path / Copy File
-        // / Reveal) below the launcher section, with a leading separator. The
-        // base 19 rows are unchanged; +1 separator +4 items = 24 rows.
+        // C3 + C3b: a resolved file adds a fifth section (Open / Open With… /
+        // Copy Path / Copy File / Reveal) below the launcher section, with a
+        // leading separator. The base 19 rows are unchanged; +1 separator +5
+        // items = 25 rows. ("Open With…" is shown on any regular file.)
         let m = menu_with_path();
-        assert_eq!(m.item_count(), 19, "15 base + 4 file items");
+        assert_eq!(m.item_count(), 20, "15 base + 5 file items");
         let rows = m.rows();
-        assert_eq!(rows.len(), 24, "19 base rows + 1 separator + 4 file items");
+        assert_eq!(rows.len(), 25, "19 base rows + 1 separator + 5 file items");
         // The base single-pane layout (rows 0..=18) is unchanged.
         assert_eq!(rows[18], item("Attach Session", false, true));
         // Then a separator and the file section.
         assert_eq!(rows[19], ContextMenuRow::Separator);
         assert_eq!(rows[20], item("Open", false, true));
-        assert_eq!(rows[21], item("Copy Path", false, true));
-        assert_eq!(rows[22], item("Copy File", false, true));
-        assert_eq!(rows[23], item("Reveal in File Manager", false, true));
+        assert_eq!(rows[21], item("Open With\u{2026}", false, true));
+        assert_eq!(rows[22], item("Copy Path", false, true));
+        assert_eq!(rows[23], item("Copy File", false, true));
+        assert_eq!(rows[24], item("Reveal in File Manager", false, true));
     }
 
     #[test]
     fn non_image_path_hides_open_in_odytty() {
-        // C4: a resolved *non-image* file shows the C3 file section but NOT
-        // "Open in OdyTTY" — the layout is byte-identical to C3 (24 rows).
+        // C4: a resolved *non-image* file shows the C3/C3b file section but NOT
+        // "Open in OdyTTY" — 25 rows (Open / Open With… / Copy Path / Copy File
+        // / Reveal).
         let m = menu_with_path();
-        assert_eq!(m.item_count(), 19, "15 base + 4 C3 file items, no C4 item");
+        assert_eq!(
+            m.item_count(),
+            20,
+            "15 base + 5 file items (incl. Open With…), no C4 item"
+        );
         let rows = m.rows();
-        assert_eq!(rows.len(), 24);
+        assert_eq!(rows.len(), 25);
         assert!(
             !rows.iter().any(|r| matches!(
                 r,
@@ -1228,19 +1265,25 @@ mod tests {
     #[test]
     fn image_path_shows_open_in_odytty_after_open() {
         // C4: a resolved image span adds "Open in OdyTTY" right after "Open" in
-        // the file section: 15 base + 5 file items = 20; 19 base rows + 1
-        // separator + 5 file items = 25 rows.
+        // the file section: 15 base + 6 file items = 21; 19 base rows + 1
+        // separator + 6 file items = 26 rows. "Open With…" follows "Open in
+        // OdyTTY".
         let m = menu_with_image();
-        assert_eq!(m.item_count(), 20, "15 base + 5 file items (incl. C4)");
+        assert_eq!(
+            m.item_count(),
+            21,
+            "15 base + 6 file items (incl. C4 + C3b)"
+        );
         let rows = m.rows();
-        assert_eq!(rows.len(), 25, "19 base + separator + 5 file items");
+        assert_eq!(rows.len(), 26, "19 base + separator + 6 file items");
         assert_eq!(rows[18], item("Attach Session", false, true));
         assert_eq!(rows[19], ContextMenuRow::Separator);
         assert_eq!(rows[20], item("Open", false, true));
         assert_eq!(rows[21], item("Open in OdyTTY", false, true));
-        assert_eq!(rows[22], item("Copy Path", false, true));
-        assert_eq!(rows[23], item("Copy File", false, true));
-        assert_eq!(rows[24], item("Reveal in File Manager", false, true));
+        assert_eq!(rows[22], item("Open With\u{2026}", false, true));
+        assert_eq!(rows[23], item("Copy Path", false, true));
+        assert_eq!(rows[24], item("Copy File", false, true));
+        assert_eq!(rows[25], item("Reveal in File Manager", false, true));
     }
 
     #[test]
@@ -1251,6 +1294,54 @@ mod tests {
             m.handle_press(21, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::OpenInOdytty)
         );
+    }
+
+    #[test]
+    fn open_with_shows_for_a_file_activates_and_carries_no_accelerator() {
+        // C3b: "Open With…" is a file affordance; it activates on press and is
+        // pointer-only (no chord).
+        let mut m = menu_with_path();
+        assert_eq!(
+            m.handle_press(21, m.body_row_count(), PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::OpenWith)
+        );
+        assert_eq!(ContextMenuItem::OpenWith.bindable_action(), None);
+    }
+
+    #[test]
+    fn open_with_hidden_for_a_directory_target() {
+        // C3b: a resolved *directory* keeps the C3 copy/reveal items but NOT
+        // "Open With…" (a file-only affordance).
+        let mut m = ContextMenuUi::new();
+        m.open(
+            CellPoint { row: 4, column: 7 },
+            false,
+            false,
+            false,
+            false,
+            None,
+            false,
+            Some(Resolved {
+                abs: "/proj/src".to_owned(),
+                kind: crate::paths::FsKind::Dir,
+                line: None,
+                col: None,
+            }),
+        );
+        let rows = m.rows();
+        assert!(
+            !rows.iter().any(|r| matches!(
+                r,
+                ContextMenuRow::Item {
+                    label: "Open With\u{2026}",
+                    ..
+                }
+            )),
+            "Open With… must be absent on a directory target"
+        );
+        // The signature distinguishes file from directory targets.
+        assert!(!m.render_signature().is_file_target);
+        assert!(menu_with_path().render_signature().is_file_target);
     }
 
     #[test]
@@ -1280,7 +1371,7 @@ mod tests {
         accels[0] = Some("Ctrl+Shift+C".to_owned());
         m.set_accelerators(accels);
         let rows = m.rows();
-        for (body_row, row) in rows.iter().enumerate().take(24).skip(20) {
+        for (body_row, row) in rows.iter().enumerate().take(25).skip(20) {
             assert!(
                 matches!(
                     row,
@@ -1297,21 +1388,26 @@ mod tests {
     #[test]
     fn file_items_activate_on_press() {
         let mut m = menu_with_path();
-        // Open is at body row 20, then Copy Path / Copy File / Reveal.
+        // Open is at body row 20, then Open With… / Copy Path / Copy File /
+        // Reveal (non-image file, so no "Open in OdyTTY").
         assert_eq!(
             m.handle_press(20, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::OpenPath)
         );
         assert_eq!(
             m.handle_press(21, m.body_row_count(), PointerButton::Left),
-            ContextMenuOutcome::Activate(ContextMenuItem::CopyPath)
+            ContextMenuOutcome::Activate(ContextMenuItem::OpenWith)
         );
         assert_eq!(
             m.handle_press(22, m.body_row_count(), PointerButton::Left),
-            ContextMenuOutcome::Activate(ContextMenuItem::CopyFile)
+            ContextMenuOutcome::Activate(ContextMenuItem::CopyPath)
         );
         assert_eq!(
             m.handle_press(23, m.body_row_count(), PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::CopyFile)
+        );
+        assert_eq!(
+            m.handle_press(24, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::RevealPath)
         );
     }

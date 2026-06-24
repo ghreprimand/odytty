@@ -7,6 +7,69 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Interactive paths: "Open With…" app picker
+
+The right-click file section gains **Open With…**, which enumerates the desktop
+applications registered for a file's MIME type and opens it in the one you pick.
+The picker is a new overlay (`OverlayMode::OpenWith`) — a frozen, type-to-filter
+list cloned from the session-attach overlay — because the context menu is a fixed
+static array and cannot host a runtime-length app list. The menu therefore grows
+just **one** static item (`CONTEXT_MENU_ITEMS` 21→22), gated to a resolved
+*file* span (directories don't show it); activating it opens the picker.
+
+The security-critical core is a single pure function, `src/desktop/exec.rs`
+`exec_to_argv`, which turns a `.desktop` `Exec=` string into an **argv vector,
+never a shell command**. A `.desktop` Exec is not shell: it is a token list with
+a small Desktop-Entry quoting subset (only `\" \\ \$ \`` unescape inside double
+quotes — no `$VAR`, no `~`, no globbing, no command substitution) plus `%`-field
+codes. `%f`/`%F` expand to the bare absolute path, `%u`/`%U` to its `file://`
+URI, each as exactly one argv element; `%i`/`%c`/`%k` and the deprecated
+`%d %D %n %N %v %m` are stripped; `%%` is a literal `%`; a substring code like
+`--file=%f` substitutes in place and stays one element; an Exec with no file
+code gets the path appended. A path full of shell metacharacters
+(`/tmp/$(touch pwned);` `` `id` `` `&& rm -rf ~|evil.png`) is proven inert — one
+element handed to `Command::args`, never interpolated. The open reuses the C3
+`spawn_detached` (argv-only, null stdio) verbatim.
+
+Enumeration lives in the new std-only `src/desktop/` library module (no
+windowing/GPU import, per the SPEC layering rule) behind two injectable seams:
+`MimeProbe` (production = the one new captured-output spawn, `xdg-mime query
+filetype <abs>`, a single audited helper) and `DesktopEnv` (production = the real
+XDG data/config dir ladders + 256 KiB-bounded `std::fs`). It hand-parses
+`mimeapps.list` (`[Default Applications]` → `[Added Associations]`, honoring
+`[Removed Associations]`) and `mimeinfo.cache` (`[MIME Cache]`) — INI-ish
+key=value text, **no new dependency** — resolves `.desktop` ids across the dir
+ladder (user dir wins; subdir-prefixed `kde-foo.desktop` → `kde/foo.desktop`),
+and filters out `Type≠Application` / `NoDisplay` / `Hidden` / missing-`Exec` /
+`Terminal=true` entries. Results are deduped by desktop id and capped
+(`MAX_OPEN_WITH = 12`). A missing `xdg-mime`, an empty MIME, or no handlers
+yields an empty section — graceful, never a panic.
+
+Presentation-only and **byte-identity-safe**: a closed Open With… overlay and a
+right-click that lands on no path (or a non-file) are byte-identical, the same
+invariant the session-attach overlay already meets; the menu signature gained an
+`is_file_target` field so file-vs-directory repaints correctly. The third-party
+app `Name` is control-char-sanitized before display (same treatment as session
+titles). Tests are **100% synthetic** — a `HashMap` filesystem map + a MIME map,
+no real `~/.local/share`, no real `/usr/share`, no real `xdg-mime` invocation,
+no `/home` paths: the field-code matrix + quoting (incl. the hostile-path case),
+resolution precedence (defaults beat cache, user overrides system,
+`[Removed Associations]` subtracts, subdir id resolves), filtering/skip/cap/dedup,
+empty-list graceful, closed-overlay byte-identity, and hostile-`Name`
+sanitization.
+
+Known v1 gaps (documented, deliberate): `Terminal=true` apps are excluded (a
+detached null-stdio launch misbehaves for a TTY-owning app), and `TryExec`
+PATH-existence filtering is skipped (a dead row is acceptable). The whole feature
+sits behind `interactive_paths` (default off). Gates green: `cargo fmt --check`
+clean, `cargo clippy --all-targets -D warnings` clean, `cargo test --locked`
+2382 lib pass / 0 fail (+48), `gpu_composite_smoke` 3/3, `license_headers` 1/1
+(SPDX line 1 on all 5 new files). This was the last substantive build packet of
+the post-v0.3.0 roadmap — **Open With… closes initiative C**; B3 (launch
+greeting) and C5 (file mutations) remain deferred/declined pending an opt-in.
+
+---
+
 ## 2026-06-24 -- Interactive paths: in-terminal image viewer
 
 A resolved **image** span (extension `.png`, `.jpg`/`.jpeg`, or `.webp`) gains an

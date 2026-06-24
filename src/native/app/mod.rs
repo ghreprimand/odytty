@@ -93,6 +93,7 @@ mod ime;
 mod interaction;
 pub(in crate::native) mod interactive_paths;
 mod new_row_fade;
+mod open_with_ui;
 mod os_theme;
 mod overlay_registry;
 mod palette_ui;

@@ -301,13 +301,14 @@ fn right_click_over_resolved_path_shows_file_section() {
             .has_path_target,
         "the file section is present over a resolved path"
     );
-    // The full file section (Open / Copy Path / Copy File / Reveal) is
-    // unit-tested in `context_menu_ui`; here the menu can exceed the 24-row grid
-    // and scroll, so assert the section surfaced via its top rows. `has_path_target`
-    // above is the structural guarantee that all four items are present.
+    // The full file section (Open / Open With… / Copy Path / Copy File /
+    // Reveal) is unit-tested in `context_menu_ui`; here the menu can exceed the
+    // grid and scroll, so assert the section surfaced via its top rows.
+    // `has_path_target` above is the structural guarantee that every item is
+    // present.
     let (cols, rows) = app.grid_dims_for_test();
     let rendered = app.render_overlay_rows_for_test(cols, rows);
-    for label in ["Open", "Copy Path"] {
+    for label in ["Open", "Open With\u{2026}"] {
         assert!(
             rendered.iter().any(|line| line.contains(label)),
             "file item {label:?} must render in {rendered:?}"

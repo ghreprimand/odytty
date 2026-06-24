@@ -26,6 +26,7 @@ use super::gpu::{
 };
 use super::key_remap_ui::KeyRemapSignature;
 use super::onboarding::OnboardingSignature;
+use super::open_with_overlay::OpenWithOverlaySignature;
 use super::options::NativeOptions;
 use super::overlay::{OverlayMode, OverlayRenderSignature};
 use super::palette_overlay::PaletteOverlaySignature;

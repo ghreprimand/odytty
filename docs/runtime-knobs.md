@@ -491,7 +491,8 @@ hyperlink hover).
 on a resolved span opens it (the same gate as OSC 8 hyperlinks — Ctrl is
 required, and the action is suppressed while a TUI owns the mouse unless Shift
 overrides). A right-click over a resolved span adds a **file section** to the
-context menu — Open, Copy Path, Copy File, Reveal in File Manager. Every open is
+context menu — Open, Open With…, Copy Path, Copy File, Reveal in File Manager
+("Open With…" appears only on a regular file, not a directory). Every open is
 an **argv vector**, never a shell string, so a path containing spaces, `;`,
 `$()`, or backticks is inert. The dispatch:
 
@@ -504,6 +505,24 @@ an **argv vector**, never a shell string, so a path containing spaces, `;`,
 "Copy Path" copies the absolute path; "Copy File" copies a `file://<abs>` URI as
 text (the clipboard is text-only — this pastes into file managers as a file
 reference); "Reveal in File Manager" opens the containing directory.
+
+**Choosing an application ("Open With…").** On a regular-file span the file
+section gains an **Open With…** item that opens a type-to-filter picker overlay
+of the desktop applications registered to handle the file's MIME type. The MIME
+type is detected with a single read-only `xdg-mime query filetype <abs>` call;
+the candidate applications are read from the standard freedesktop locations
+(`mimeapps.list` defaults + added associations, then `mimeinfo.cache`, across the
+`XDG_CONFIG_*`/`XDG_DATA_*` directory ladders), honoring `[Removed Associations]`.
+Apps marked `NoDisplay`, `Hidden`, or `Terminal=true`, or without an `Exec`, are
+excluded; the list is capped and deduplicated (user entries override system
+ones). Selecting an app launches it on the file. The launch is built **per the
+Desktop-Entry quoting rules, not a shell**: the `.desktop` `Exec` is tokenized,
+`%f`/`%F` expand to the bare path and `%u`/`%U` to a `file://` URI as a single
+argv element, and `%i`/`%c`/`%k` plus the deprecated field codes are stripped —
+so a path containing spaces, `;`, `$()`, or backticks is one inert argument,
+never interpolated. If the MIME type cannot be detected or no application
+handles it, the picker opens with an empty-state hint. Closed, the overlay is
+byte-identical to the live frame.
 
 **In-terminal image viewer ("Open in OdyTTY").** When the resolved span is an
 image file — extension `.png`, `.jpg`/`.jpeg`, or `.webp` (matching the built-in
@@ -542,8 +561,10 @@ toggle and the editor knob live in the Settings panel's Input section.
   delete, clear input, open settings, and create, rename, or close tabs. A
   custom tab name is session-local; it overrides shell title updates until an
   empty rename clears it. With `interactive_paths` on, right-clicking over a
-  resolved path adds a file section (Open / Copy Path / Copy File / Reveal in
-  File Manager), plus **Open in OdyTTY** on an image file (in-terminal viewer).
+  resolved path adds a file section (Open / Open With… / Copy Path / Copy File /
+  Reveal in File Manager), plus **Open in OdyTTY** on an image file (in-terminal
+  viewer). **Open With…** opens an app picker for the file's MIME type; the
+  launch is argv-only (Desktop-Entry quoting, never a shell).
 - First launch without a config file shows an onboarding card. Set
   `ODYTTY_ONBOARDING=1` to force it.
 

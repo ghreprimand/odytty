@@ -5,9 +5,9 @@ shipped the hover cursor affordance. Phase 8 (C3) shipped the Ctrl+click open
 dispatch, the editor invocation matrix + `interactive_paths_editor` knob, and
 the context-menu file section (Open / Copy Path / Copy File / Reveal in File
 Manager). Phase 9 (C4) shipped the in-terminal image viewer ("Open in OdyTTY";
-see §8). **"Open With…"** (xdg-mime/.desktop handler enumeration) is **not** built
-yet — deferred to a follow-up **C3b**. This document is the contract those phases
-implement against.
+see §8). Phase 8b (C3b) shipped **"Open With…"** — the xdg-mime/.desktop handler
+enumeration + app-picker overlay (see §9). This document is the contract those
+phases implement against.
 
 ## Goal
 
@@ -328,3 +328,61 @@ re-centers the image from the cached pixels without re-decoding.
 image detection, no menu item, no viewer while off.
 
 **Deferred:** read-only text preview of non-image files (above); animated GIF.
+
+## 9. "Open With…" app picker (Phase 8b / C3b) — shipped
+
+On a resolved **regular-file** span the context-menu file section gains an
+**Open With…** item that opens a type-to-filter picker overlay
+(`OverlayMode::OpenWith`, a 1:1 clone of the session-attach summon overlay) of
+the desktop applications that can open the file. Directories do not show it (no
+application-handler list for them here).
+
+**Module layout.** The pure logic lives in `src/desktop/` (std-only, no
+windowing/GPU import — the §6 layering rule), unit-tested entirely on synthetic
+fixtures:
+- `exec.rs` — `exec_to_argv(exec, abs)`, the security spine (below).
+- `parse.rs` — hand parsers for `.desktop` / `mimeapps.list` / `mimeinfo.cache`
+  (one small INI-ish group reader; no new dependency).
+- `mod.rs` — `enumerate_open_with(probe, env, abs)` behind two injectable seams
+  (`MimeProbe`, `DesktopEnv`), capped at `MAX_OPEN_WITH` (12).
+
+The production seam implementations live in `native/app/open_with_ui.rs` (they
+touch the real process/filesystem): `XdgMimeProbe` (the single audited
+captured-output `xdg-mime query filetype <abs>` spawn — the *only* new spawn
+shape) and `FsDesktopEnv` (the real `XDG_*` ladders + bounded `std::fs` reads,
+256 KiB per file).
+
+**Enumeration.** `xdg-mime` → MIME type; then candidate desktop ids are gathered
+in priority order — `mimeapps.list` `[Default Applications]` then
+`[Added Associations]` across the config ladder, then `mimeinfo.cache`
+`[MIME Cache]` across the data ladder — with `[Removed Associations]` subtracted
+and ids deduplicated (first occurrence wins). Each id resolves to its `.desktop`
+file across the data ladder (user dir wins; a dash-prefixed id `kde-foo.desktop`
+maps to `applications/kde/foo.desktop`). Entries that are not
+`Type=Application`, or are `NoDisplay`/`Hidden`/`Terminal=true`, or lack an
+`Exec`, are skipped. `Terminal=true` apps are **excluded in v1** (launching a
+TTY-owning app detached with null stdio misbehaves); revisitable. `TryExec`
+PATH-existence filtering is **not** done in v1 (a documented gap — a dead row is
+acceptable).
+
+**`exec_to_argv` — the security spine.** The `.desktop` `Exec=` value is NOT a
+shell command; it is tokenized per Desktop-Entry quoting (double quotes group;
+`\"` `\\` `\$` `` \` `` unescape inside quotes; `$VAR`, `~`, globs, command
+substitution are all literal text). Field codes then expand per token: `%f`/`%F`
+→ the bare absolute path, `%u`/`%U` → its `file://` URI (each a **single** argv
+element), `%i`/`%c`/`%k` and the deprecated `%d %D %n %N %v %m` are stripped,
+`%%` → literal `%`, and a substring code (`--file=%f`) substitutes in place yet
+stays one element. With no `%f/%F/%u/%U` the path is appended as a trailing
+element. The expanded argv flows into the shared C3 `spawn_detached` (argv-only,
+null stdio) — so a path containing spaces, `;`, `$()`, or backticks is one inert
+argument, never interpolated into a shell.
+
+**Overlay.** A frozen `Vec<DesktopApp>` captured at open (each row carries a
+pre-built argv), `fuzzy::rank` type-to-filter over the app names, scroll, a
+render signature for byte-identity, control-char-sanitized `Name` (third-party
+text — sanitized like session titles). Enter launches the chosen app; Esc
+dismisses. An empty list (no handlers / `xdg-mime` absent) shows a hint rather
+than failing to open. Closed, the overlay is byte-identical to the live frame.
+
+**Gating.** Part of the `interactive_paths` feature (default off): with the
+feature off there is no path detection, so no menu item and no picker.
