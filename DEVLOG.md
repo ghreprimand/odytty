@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Settings panel: surface two orphaned toggles + group-coverage guard
+
+Two shipped, opt-in features had settings that existed in the model and config
+file but were **unreachable in the settings panel**: `session_replay` (group
+`Sessions`) and `ssh_config_hosts` (group `Connections`). The two-level panel
+derives its section list from `SECTIONS` in
+`src/native/settings_panel/sections.rs`, and that table mapped neither group, so
+the only way to flip either toggle was hand-editing `odytty.conf` or setting an
+`ODYTTY_*` env var. v0.3.1 made the connection-manager and session-replay
+*overlays* discoverable (chords + menu); this entry closes the matching gap on
+their *enable toggles*.
+
+Fix: `SECTIONS` now maps `Sessions` → a "Sessions" section and `Connections` →
+a "Connections" section (9 visible sections over 11 raw groups). Both toggles
+are now reachable in the panel; `ssh_config_hosts` stays default-off and its
+privacy contract (local, read-only, name-only OpenSSH-config read) is unchanged
+— only its discoverability improved.
+
+Regression guard: a new unit test
+(`every_setting_group_has_one_visible_section_unless_expert_only`) asserts every
+`group` in the `SettingInfo` catalog maps to **exactly one** visible section,
+with an explicit `EXPERT_ONLY_GROUPS` allowlist (currently empty) for any group
+deliberately kept out of the panel — so a future orphaned group fails the build
+instead of going silently invisible. Docs (`docs/runtime-knobs.md`) note both
+toggles are now panel-reachable.
+
+Verified: `cargo fmt --check` clean, `cargo clippy --all-targets -- -D warnings`
+clean, `cargo test --locked` green (2229 lib tests incl. the new guard),
+`gpu_composite_smoke` 3/3. Panel-content-only change; closed panel and plain
+render stay byte-identical. No remaining settings-panel orphans.
+
+---
+
 ## 2026-06-24 -- Release v0.3.1 — discoverability: default chords + menu entries for four overlays
 
 The theme builder and connection manager had no keybinding and no menu entry,

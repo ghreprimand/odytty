@@ -15,7 +15,7 @@ pub(super) struct Section {
     pub(super) groups: &'static [&'static str],
 }
 
-/// Compile-time section table. Maps 9 raw groups → 7 display sections.
+/// Compile-time section table. Maps 11 raw groups → 9 display sections.
 /// Both the Level-1 section list and the Level-2 entry filter are derived
 /// from this table; filter logic is never duplicated per section.
 pub(super) const SECTIONS: &[Section] = &[
@@ -42,6 +42,14 @@ pub(super) const SECTIONS: &[Section] = &[
     Section {
         name: "Input",
         groups: &["Input", "Clipboard"],
+    },
+    Section {
+        name: "Sessions",
+        groups: &["Sessions"],
+    },
+    Section {
+        name: "Connections",
+        groups: &["Connections"],
     },
     Section {
         name: "Advanced",

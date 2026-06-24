@@ -1262,6 +1262,9 @@ impl SettingsPanel {
 mod tests {
     use super::*;
     use crate::settings::{FONT_SIZE_ENV, Settings};
+    use std::collections::BTreeSet;
+
+    const EXPERT_ONLY_GROUPS: &[&str] = &[];
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -1330,6 +1333,47 @@ mod tests {
                 .iter()
                 .all(|entry| !entry.description.trim().is_empty())
         );
+    }
+
+    #[test]
+    fn every_setting_group_has_one_visible_section_unless_expert_only() {
+        let settings = Settings::default();
+        let catalog_groups = settings
+            .setting_info()
+            .into_iter()
+            .map(|entry| entry.group)
+            .collect::<BTreeSet<_>>();
+
+        assert!(!catalog_groups.is_empty());
+
+        for group in EXPERT_ONLY_GROUPS {
+            assert!(
+                catalog_groups.contains(*group),
+                "expert-only group {group:?} is not present in the settings catalog"
+            );
+            let section_count = SECTIONS
+                .iter()
+                .filter(|section| section.groups.contains(group))
+                .count();
+            assert_eq!(
+                section_count, 0,
+                "expert-only group {group:?} should not map to a visible section"
+            );
+        }
+
+        for group in catalog_groups {
+            if EXPERT_ONLY_GROUPS.contains(&group) {
+                continue;
+            }
+            let section_count = SECTIONS
+                .iter()
+                .filter(|section| section.groups.contains(&group))
+                .count();
+            assert_eq!(
+                section_count, 1,
+                "setting group {group:?} should map to exactly one visible section"
+            );
+        }
     }
 
     #[test]

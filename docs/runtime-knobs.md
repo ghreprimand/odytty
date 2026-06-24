@@ -133,7 +133,8 @@ per-host profile fields reserved for the overlay UI.
 
 OpenSSH config import is separate and default-off. `ssh_config_hosts = on` (or
 `ODYTTY_SSH_CONFIG_HOSTS=on`) lets the connection manager merge host names from
-a caller-resolved OpenSSH config path. While it is off, OdyTTY does not read
+a caller-resolved OpenSSH config path. The same toggle is reachable in the
+Settings panel's Connections section. While it is off, OdyTTY does not read
 OpenSSH config. When enabled, the read is local, read-only, name-only, bounded,
 and ignores key material such as identity files. OdyTTY never handles SSH
 credentials, private keys, or passphrases; authentication remains with the
@@ -393,7 +394,8 @@ applies so text stays legible. The plain renderer profile forces it off.
 `session_replay = on` (or `ODYTTY_SESSION_REPLAY=on`) turns on opt-in per-session
 output recording for the scrubbable replay overlay. It is **off by default**:
 while off, the PTY pump records nothing and the render/output path is
-byte-identical to before the feature existed.
+byte-identical to before the feature existed. The same toggle is reachable in
+the Settings panel's Sessions section.
 
 When on, each session keeps a **bounded, in-memory ring** of recent screen
 frames. The cap is fixed and bounded by both a frame count (600 frames) and a
