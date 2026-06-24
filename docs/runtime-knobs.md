@@ -253,6 +253,7 @@ environment variable was not set at startup.
 | `wheel_zoom` | `ODYTTY_WHEEL_ZOOM` | `on`, `off` | `on` |
 | `command_status_gutter` | `ODYTTY_COMMAND_STATUS_GUTTER` | `on`, `off` | `off` |
 | `sh_click` | `ODYTTY_SH_CLICK` | `on`, `off` | `off` |
+| `interactive_paths` | `ODYTTY_INTERACTIVE_PATHS` | `on`, `off` | `off` |
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
@@ -458,6 +459,31 @@ closes it. Replay is **presentation-only**: the overlay scrubs a frozen, fully
 decoupled clone of the ring and never mutates the live terminal — the session
 keeps running underneath while you scrub. The scrub view is a monochrome text
 preview of the recorded screen at each point.
+
+### Interactive file paths (`interactive_paths`)
+
+`interactive_paths = on` (or `ODYTTY_INTERACTIVE_PATHS=on`) turns on opt-in
+detection of filesystem paths in terminal output. It is **off by default**:
+while off, the pointer path never scans terminal text for paths and the hover
+path is byte-identical to before the feature existed. The same toggle is
+reachable in the Settings panel's Input section.
+
+When on, hovering a path-looking span — absolute (`/etc/hosts`), home-relative
+(`~/notes.md`), explicit-relative (`./build.rs`, `../Cargo.toml`), or a bare
+relative path that contains a slash (`src/main.rs`) — that **resolves to a real
+file or directory** shows the pointer (hand) cursor, the same affordance as an
+OSC 8 hyperlink. Relative paths resolve against the shell's reported working
+directory (OSC 7); `~` expands against `$HOME`. A trailing `:line[:col]` suffix
+(`src/main.rs:42:10`) is recognized and carried through for the editor-open
+action that ships in a later phase.
+
+This phase ships the **cursor affordance only** — there is no underline or other
+frame-affecting decoration, so with the feature on the rendered frame bytes are
+unchanged and only the mouse cursor shape reflects a hovered path. Detection is
+**local-only**: candidate spans are never logged, persisted, or sent anywhere,
+and the single filesystem `stat` happens only on a span actually under the
+pointer (the default, feature-off path makes zero `stat` calls). Hover detection
+runs on the **focused pane only** (a v1 bound shared with OSC 8 hyperlink hover).
 
 ## Native UI
 

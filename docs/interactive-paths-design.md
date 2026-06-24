@@ -146,6 +146,31 @@ the pointer is over a candidate span (Phase 7), gated behind the
 detector runs on the single hovered line on demand. This mirrors the OSC 8
 hyperlink hover path the wiring will reuse.
 
+### Phase 7 shipped: cursor affordance only (no underline)
+
+Phase 7 wires hover detection into the pointer path and shows the pointer (hand)
+cursor over a resolved span — the same affordance OdyTTY already uses for OSC 8
+hyperlinks. **It deliberately ships the cursor icon only; there is no underline
+or other frame-affecting decoration.** OdyTTY draws no hover underline for OSC 8
+links either: a render-time underline keyed on the hovered span previously
+smeared across unrelated cells as live output streamed under a stationary
+pointer, so that path was removed. Because the cursor shape is not part of the
+rendered frame bytes, the icon-only design is **trivially byte-identical** with
+the feature off — no render-signature field, no per-frame span contributor. An
+underline decoration is a possible, explicitly-deferred follow-up (Phase 7b);
+if pursued it must recompute the hovered span from the live pointer each frame
+(never cache a stale span across output) to avoid the documented smear.
+
+The single byte-identity gate is the first line of the hover recompute
+(`update_hover_path`): when `interactive_paths` is off it returns before any
+terminal lock, row build, `detect_paths` scan, or stat probe, so the default
+hover path makes zero scans and zero `stat` calls and stays byte-identical. The
+hovered span is deduped exactly like the OSC 8 hovered-link state, so an
+unchanged hover triggers no redraw. Hover detection operates on the **focused
+pane only** — a v1 bound inherited from the OSC 8 hyperlink hover path, which is
+likewise focused-pane-only; non-focused panes are not yet composited for
+per-pane interactive overlays.
+
 ---
 
 ## 3. Open-action dispatch table (for Phase 8)

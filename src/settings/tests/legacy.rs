@@ -167,6 +167,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "sh_click",
             "confirm_close",
             "bell",
+            "interactive_paths",
             "ssh_config_hosts",
             "session_replay",
             "osc52_read",

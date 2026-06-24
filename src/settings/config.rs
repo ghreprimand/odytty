@@ -22,7 +22,10 @@ use super::{
     THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV,
     WINDOW_PADDING_ENV, normalize_name,
 };
-use super::{BOX_THICKNESS_ENV, LINE_HEIGHT_ENV, SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV};
+use super::{
+    BOX_THICKNESS_ENV, INTERACTIVE_PATHS_ENV, LINE_HEIGHT_ENV, SESSION_REPLAY_ENV,
+    SSH_CONFIG_HOSTS_ENV,
+};
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
     values: HashMap<&'static str, OsString>,
@@ -171,6 +174,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "sessionreplay" | "replay" | "outputreplay" | "scrollbackreplay" => {
             Some(SESSION_REPLAY_ENV)
         }
+        "interactivepaths" | "paths" | "clickablepaths" | "pathlinks" => {
+            Some(INTERACTIVE_PATHS_ENV)
+        }
         "nativeautoclosems" => Some(NATIVE_AUTOCLOSE_ENV),
         _ => None,
     }
@@ -246,6 +252,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         CONFIRM_CLOSE_ENV => Some("confirm_close"),
         SSH_CONFIG_HOSTS_ENV => Some("ssh_config_hosts"),
         SESSION_REPLAY_ENV => Some("session_replay"),
+        INTERACTIVE_PATHS_ENV => Some("interactive_paths"),
         NATIVE_AUTOCLOSE_ENV => Some("native_autoclose_ms"),
         _ => None,
     }

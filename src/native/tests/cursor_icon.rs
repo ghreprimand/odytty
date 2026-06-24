@@ -192,3 +192,69 @@ fn pointer_over_hovered_hyperlink_is_a_hand() {
     app.pointer_move_for_test(f64::from(CELL_W) * 20.5, f64::from(CELL_H) * 5.5);
     assert_eq!(app.cursor_icon_for_test(), CursorIcon::Text);
 }
+
+// ── INTERACTIVE-PATHS (Phase 7): hover affordance over resolved path spans ──
+//
+// Synthetic only: an absolute path is printed into the grid and the stat-gate is
+// a `MapProbe` over a fixed in-memory map, so no test reaches the real
+// filesystem. The path is absolute, so neither OSC 7 cwd nor `$HOME` is
+// consulted — the resolution is fully synthetic. `/proj/...` is a fabricated
+// path, never a real machine path.
+use crate::native::app::interactive_paths::MapProbe;
+use crate::paths::FsKind;
+
+/// Print an absolute path at row 0 col 0; with `interactive_paths` on and the
+/// probe classifying it as a real file, hovering inside the span shows the hand
+/// and hovering off it falls back to the I-beam.
+#[test]
+fn pointer_over_resolved_path_is_a_hand() {
+    let Some(mut app) = build_app(b"/proj/src/main.rs") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_interactive_paths_for_test(true);
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
+
+    // Hover within the path span (col 5 of "/proj/src/main.rs") -> the hand.
+    app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
+    assert_eq!(app.cursor_icon_for_test(), CursorIcon::Pointer);
+
+    // Move onto a blank row far from the path -> back to the I-beam.
+    app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 6.5);
+    assert_eq!(app.cursor_icon_for_test(), CursorIcon::Text);
+}
+
+/// With the setting OFF (the default), the scanner never runs: hovering the same
+/// path text yields the plain I-beam, so the default hover path is unchanged.
+#[test]
+fn path_hover_is_inert_when_setting_off() {
+    let Some(mut app) = build_app(b"/proj/src/main.rs") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Even with a probe that *would* resolve the span, the gate keeps the
+    // scanner from ever running while the setting is off.
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
+
+    app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
+    assert_eq!(app.cursor_icon_for_test(), CursorIcon::Text);
+    assert!(app.hovered_path_for_test().is_none());
+}
+
+/// A span that does not resolve (probe reports it absent) gets no affordance:
+/// detection is syntactic, but the stat-gate keeps a dead path inert.
+#[test]
+fn unresolved_path_span_gets_no_hand() {
+    let Some(mut app) = build_app(b"/proj/src/main.rs") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_interactive_paths_for_test(true);
+    // Empty synthetic fs -> the span is syntactically a path but resolves to
+    // nothing, so no hand.
+    app.set_test_path_probe_for_test(MapProbe::default());
+
+    app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
+    assert_eq!(app.cursor_icon_for_test(), CursorIcon::Text);
+    assert!(app.hovered_path_for_test().is_none());
+}

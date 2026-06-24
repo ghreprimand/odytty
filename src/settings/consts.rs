@@ -72,6 +72,7 @@ pub const OS_THEME_LIGHT_ENV: &str = "ODYTTY_OS_THEME_LIGHT";
 pub const CONFIRM_CLOSE_ENV: &str = "ODYTTY_CONFIRM_CLOSE";
 pub const SSH_CONFIG_HOSTS_ENV: &str = "ODYTTY_SSH_CONFIG_HOSTS";
 pub const SESSION_REPLAY_ENV: &str = "ODYTTY_SESSION_REPLAY";
+pub const INTERACTIVE_PATHS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
 /// Subdirectory of the config dir where user theme files (`*.theme`) live.
@@ -146,6 +147,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CONFIRM_CLOSE_ENV,
     SSH_CONFIG_HOSTS_ENV,
     SESSION_REPLAY_ENV,
+    INTERACTIVE_PATHS_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
 
@@ -213,6 +215,15 @@ pub const DEFAULT_SSH_CONFIG_HOSTS: bool = false;
 /// in-memory ring of recent screen frames; recording is local-only (never
 /// written to disk or sent anywhere).
 pub const DEFAULT_SESSION_REPLAY: bool = false;
+
+/// Opt-in interactive filesystem paths (`ODYTTY_INTERACTIVE_PATHS`). Off by
+/// default, so the pointer path never scans terminal text for paths and the
+/// plain hover path is byte-identical. When on, hovering a path-looking span
+/// that resolves to a real entry shows the pointer (hand) cursor; detection is
+/// local-only — nothing is logged, persisted, or sent anywhere, and the single
+/// `stat` happens only on a hovered candidate. Hover detection runs on the
+/// focused pane only (v1 bound, shared with OSC 8 hyperlink hover).
+pub const DEFAULT_INTERACTIVE_PATHS: bool = false;
 
 /// Window padding (`ODYTTY_WINDOW_PADDING`): logical pixels of inset on every
 /// window edge before the terminal grid begins. `0.0` restores the historical

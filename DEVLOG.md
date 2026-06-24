@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Interactive paths: hover + pointer-cursor affordance (icon-first)
+
+The detection spine from the previous entry gets its first UI: hovering a path
+that actually exists on disk now shows the pointer (hand) cursor, the same
+affordance OSC 8 hyperlinks already use. This is deliberately **icon-only** — no
+underline. Recon found the OSC 8 underline path is a deliberate no-op (an earlier
+render-time underline keyed on the hovered link id smeared across unrelated cells
+after the hyperlink table cleared), so reusing it would have reintroduced a known
+bug. The cursor icon is not part of the frame bytes, so the affordance is
+trivially byte-identical; an underline decoration is deferred as optional later
+work.
+
+Gated off by default. New setting `interactive_paths` (env
+`ODYTTY_INTERACTIVE_PATHS`, default **off**), folded into the existing Input
+settings section. The gate is the first line of the hover routine: with the
+setting off, the path scanner, the stat probe, and any redraw are all skipped —
+no work, no signature change, frame bytes identical to before. `gpu_composite_smoke`
+stays 3/3.
+
+When on, a single terminal lock yields both the row text under the pointer and
+the pane's OSC 7 working directory; a candidate span is resolved to a canonical
+absolute path and **stat-gated** — only a path that exists lights up. The real
+filesystem probe (`FsResolveProbe`, `std::fs::symlink_metadata`) lives in
+`src/native/`, keeping `src/paths/` pure and std-only; tests inject a synthetic
+`MapProbe` over a fake fs map and never touch the real filesystem. `$HOME` is
+cached once on the app. Hover is focused-pane-only in this version — a documented
+v1 bound, inherited from the OSC 8 hover path.
+
+State: `cargo fmt --check` clean, `cargo clippy --all-targets -- -D warnings` 0,
+`cargo test --locked` **2424 passed / 0 failed** (+3 hover tests),
+`gpu_composite_smoke` **3/3**, `license_headers` 1/1 (SPDX on the new file).
+Synthetic fixtures only; no real paths/usernames/session-ids; no spawns this
+packet; `src/core/` untouched. Next: Ctrl+click open dispatch + file context
+menu (C3).
+
+---
+
 ## 2026-06-24 -- In-window session-attach summon overlay + menu launcher
 
 Initiative B is complete: live sessions are now attachable from inside a running

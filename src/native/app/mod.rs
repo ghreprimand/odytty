@@ -92,6 +92,7 @@ mod gutter_ui;
 mod hints_ui;
 mod ime;
 mod interaction;
+pub(in crate::native) mod interactive_paths;
 mod new_row_fade;
 mod os_theme;
 mod overlay_registry;
@@ -302,6 +303,11 @@ pub(super) struct App {
     /// somehow stale. `CursorMoved` carries no button state, so this flag is the
     /// reliable held-button seam for the settings-slider path (D-SLIDER-GUARD).
     overlay_left_held: bool,
+    /// INTERACTIVE-PATHS (Phase 7): the process `$HOME`, cached once at startup
+    /// (it never changes mid-process) so `~`-prefixed path spans can be expanded
+    /// at hover time without a per-move `getenv`. `None` when `$HOME` is unset or
+    /// not valid UTF-8; only consulted while `interactive_paths` is on.
+    home_dir: Option<String>,
     pub(super) startup_error: Option<NativeError>,
 }
 
@@ -403,6 +409,7 @@ impl App {
             tab_bar: TabBar::default(),
             rename_state: None,
             overlay_left_held: false,
+            home_dir: std::env::var_os("HOME").and_then(|h| h.into_string().ok()),
             startup_error: None,
         };
         // ONBOARD (D-OB-1/D-OB-2): open the first-run welcome card iff the
@@ -481,6 +488,7 @@ impl App {
             self.pointer_cell = None;
             self.pointer_px = None;
             self.hovered_hyperlink = None;
+            self.hovered_path = None;
             // Reflow changes the row/scrollback layout; return to the live
             // bottom so the offset is never stale against the new geometry.
             // Search closes because its absolute row matches were computed

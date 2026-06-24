@@ -91,6 +91,17 @@ pub(super) struct Session {
     #[cfg(test)]
     pub(super) test_surface: Option<((u32, u32), WindowPadding)>,
     pub(super) hovered_hyperlink: Option<LinkId>,
+    /// INTERACTIVE-PATHS (Phase 7): the path span currently under the pointer
+    /// that resolved to a real filesystem entry, or `None`. Drives the pointer
+    /// (hand) cursor exactly like `hovered_hyperlink`. Permanently `None` while
+    /// the `interactive_paths` setting is off (the scanner is gated off before
+    /// it can ever run), so the default hover path is byte-identical.
+    pub(super) hovered_path: Option<crate::paths::Resolved>,
+    /// Test seam (INTERACTIVE-PATHS): synthetic stat-gate so headless hover
+    /// tests resolve path spans against an injected fs map, never the real
+    /// filesystem. Production builds compile this out and use `FsResolveProbe`.
+    #[cfg(test)]
+    pub(super) test_path_probe: super::app::interactive_paths::MapProbe,
     pub(super) pointer_drag: PointerDrag,
     pub(super) selection_block: bool,
     pub(super) drag_anchor_unit: Option<AbsoluteSelectionRange>,
@@ -238,6 +249,9 @@ impl Session {
             #[cfg(test)]
             test_surface: None,
             hovered_hyperlink: None,
+            hovered_path: None,
+            #[cfg(test)]
+            test_path_probe: super::app::interactive_paths::MapProbe::default(),
             pointer_drag: PointerDrag::None,
             selection_block: false,
             drag_anchor_unit: None,

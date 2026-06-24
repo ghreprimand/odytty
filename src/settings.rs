@@ -947,6 +947,13 @@ pub struct Settings {
     /// in-memory ring of recent screen frames the replay overlay can scrub.
     /// Recording is local-only: frames never leave memory (no disk, no network).
     pub session_replay: bool,
+    /// Opt-in interactive filesystem paths (Phase 7+). Off by default; while off
+    /// the pointer path never scans terminal text for paths and the plain hover
+    /// path is byte-identical. When on, hovering a path-looking span that
+    /// resolves to a real filesystem entry shows the pointer (hand) cursor.
+    /// Detection is local-only (nothing logged, persisted, or sent) and runs on
+    /// the focused pane only (v1 bound, shared with OSC 8 hyperlink hover).
+    pub interactive_paths: bool,
     pub native_autoclose: Option<Duration>,
 }
 
@@ -1023,6 +1030,7 @@ impl Default for Settings {
             confirm_close: DEFAULT_CONFIRM_CLOSE,
             ssh_config_hosts: DEFAULT_SSH_CONFIG_HOSTS,
             session_replay: DEFAULT_SESSION_REPLAY,
+            interactive_paths: DEFAULT_INTERACTIVE_PATHS,
             native_autoclose: None,
         }
     }
@@ -1585,6 +1593,12 @@ impl Settings {
             DEFAULT_SESSION_REPLAY,
             &mut warn,
         );
+        let interactive_paths = parse_bool_setting(
+            get(INTERACTIVE_PATHS_ENV).as_deref(),
+            INTERACTIVE_PATHS_ENV,
+            DEFAULT_INTERACTIVE_PATHS,
+            &mut warn,
+        );
         let native_autoclose = parse_autoclose(get(NATIVE_AUTOCLOSE_ENV).as_deref());
 
         Self {
@@ -1658,6 +1672,7 @@ impl Settings {
             confirm_close,
             ssh_config_hosts,
             session_replay,
+            interactive_paths,
             native_autoclose,
         }
     }
@@ -1840,6 +1855,10 @@ impl Settings {
         values.insert(
             SESSION_REPLAY_ENV,
             bool_display(self.session_replay).to_owned(),
+        );
+        values.insert(
+            INTERACTIVE_PATHS_ENV,
+            bool_display(self.interactive_paths).to_owned(),
         );
         if let Some(duration) = self.native_autoclose {
             values.insert(NATIVE_AUTOCLOSE_ENV, duration.as_millis().to_string());

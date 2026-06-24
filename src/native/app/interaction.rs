@@ -374,6 +374,104 @@ impl App {
         }
     }
 
+    /// INTERACTIVE-PATHS (Phase 7): recompute the resolved path span under the
+    /// pointer and update the hover state that drives the pointer (hand) cursor.
+    ///
+    /// **The byte-identity gate.** The very first thing this does is check the
+    /// `interactive_paths` setting; when it is off (the default) it returns
+    /// before any terminal lock, row build, `detect_paths` scan, or stat probe —
+    /// so the default hover path never scans and produces byte-identical frames.
+    /// When on, it dedupes exactly like [`Self::update_hover_hyperlink`]: the
+    /// rebuild flag/redraw fire only when the resolved span actually changes.
+    fn update_hover_path(&mut self) {
+        if !self.settings.interactive_paths {
+            // Clear a stale span if the setting was toggled off live while one
+            // was hovered; otherwise nothing to do — the scanner never runs.
+            if self.hovered_path.is_some() {
+                self.hovered_path = None;
+                self.needs_rebuild = true;
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
+            return;
+        }
+        let resolved = self.resolved_hovered_path();
+        if self.hovered_path != resolved {
+            self.hovered_path = resolved;
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+    }
+
+    /// Resolve the path span (if any) under the current pointer cell against the
+    /// pane's OSC 7 working directory and `$HOME`, stat-gated through the active
+    /// [`crate::paths::ResolveProbe`]. Pure aside from the single probe call;
+    /// `None` when no live filesystem path sits under the pointer.
+    fn resolved_hovered_path(&self) -> Option<crate::paths::Resolved> {
+        let point = self.pointer_cell?;
+        let (line, column, cwd) = self.hovered_row_text_and_cwd(point)?;
+        // Map the pointer's cell column to a byte offset in the row string, then
+        // find the detected span covering that offset. Paths are ASCII/narrow,
+        // so one char per cell column keeps the column and char indices aligned.
+        let target = line.char_indices().nth(column).map(|(byte, _)| byte)?;
+        let span = crate::paths::detect_paths(&line)
+            .into_iter()
+            .find(|span| target >= span.start && target < span.end)?;
+        self.classify_hovered_path(&span, cwd.as_deref(), self.home_dir.as_deref())
+    }
+
+    /// Single-lock fetch of the row text under `point` plus the pane's OSC 7
+    /// working directory. Mirrors [`Self::visible_cell_hyperlink`]'s one-lock
+    /// structure: the row string and the cwd both come from the same `terminal`
+    /// lock. The row is built one char per cell column so a column index maps to
+    /// a char index.
+    fn hovered_row_text_and_cwd(
+        &self,
+        point: CellPoint,
+    ) -> Option<(String, usize, Option<String>)> {
+        if point.row >= self.grid.rows || point.column >= self.grid.columns {
+            return None;
+        }
+        let terminal = self.terminal.lock().ok()?;
+        let snapshot = terminal.snapshot_with_scrollback(self.viewport.offset());
+        let cols = snapshot.dimensions.columns;
+        if point.row >= snapshot.dimensions.rows {
+            return None;
+        }
+        let start = point.row * cols;
+        let row = snapshot.cells.get(start..start + cols)?;
+        let line: String = row.iter().map(|cell| cell.ch).collect();
+        let cwd = terminal.current_working_directory().map(str::to_owned);
+        Some((line, point.column, cwd))
+    }
+
+    /// Stat-gate a candidate span through the production probe. Split on
+    /// `cfg(test)` so headless hover tests resolve against an injected synthetic
+    /// fs map (`test_path_probe`) and never touch the real filesystem, while
+    /// production wires the real `std::fs::symlink_metadata` probe.
+    #[cfg(not(test))]
+    fn classify_hovered_path(
+        &self,
+        span: &crate::paths::PathSpan,
+        cwd: Option<&str>,
+        home: Option<&str>,
+    ) -> Option<crate::paths::Resolved> {
+        crate::paths::resolve(span, cwd, home, &super::interactive_paths::FsResolveProbe)
+    }
+
+    #[cfg(test)]
+    fn classify_hovered_path(
+        &self,
+        span: &crate::paths::PathSpan,
+        cwd: Option<&str>,
+        home: Option<&str>,
+    ) -> Option<crate::paths::Resolved> {
+        crate::paths::resolve(span, cwd, home, &self.test_path_probe)
+    }
+
     fn visible_cell_hyperlink(&self, point: CellPoint) -> Option<LinkId> {
         if point.row >= self.grid.rows || point.column >= self.grid.columns {
             return None;
@@ -678,11 +776,19 @@ impl App {
             return;
         }
         self.update_hover_hyperlink();
-        // Cursor shape over the terminal grid: a hand on a hovered hyperlink, the
-        // arrow while a TUI has mouse reporting enabled (it owns clicks, so an
-        // I-beam would mislead), and the I-beam over plain selectable text — the
-        // standard terminal affordance OdyTTY previously never set.
-        let grid_icon = if self.hovered_hyperlink.is_some() {
+        // INTERACTIVE-PATHS (Phase 7): recompute the hovered path span. Gated on
+        // the `interactive_paths` setting inside `update_hover_path`, so with the
+        // feature off (the default) it returns before scanning and this call is a
+        // single bool test — the hover path stays byte-identical.
+        self.update_hover_path();
+        // Cursor shape over the terminal grid: a hand on a hovered hyperlink OR a
+        // resolved interactive path, the arrow while a TUI has mouse reporting
+        // enabled (it owns clicks, so an I-beam would mislead), and the I-beam
+        // over plain selectable text — the standard terminal affordance OdyTTY
+        // previously never set. `hovered_path` is permanently `None` while the
+        // feature is off, so the default decision is unchanged. OSC 8 wins ties
+        // (cosmetically identical icon; the precedence matters for C3 click).
+        let grid_icon = if self.hovered_hyperlink.is_some() || self.hovered_path.is_some() {
             CursorIcon::Pointer
         } else if self.mouse_reporting_enabled() {
             CursorIcon::Default

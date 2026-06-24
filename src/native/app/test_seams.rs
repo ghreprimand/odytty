@@ -350,6 +350,17 @@ impl App {
         self.test_cell = Some(cell);
     }
 
+    /// Test seam (INTERACTIVE-PATHS): inject the synthetic stat-gate the hover
+    /// path resolves against, so headless tests classify path spans from a fixed
+    /// `(absolute_path, kind)` map instead of reaching the real filesystem.
+    #[cfg(test)]
+    pub(in crate::native) fn set_test_path_probe_for_test(
+        &mut self,
+        probe: super::interactive_paths::MapProbe,
+    ) {
+        self.test_path_probe = probe;
+    }
+
     /// Test seam (CURSOR-ICON / divider hover): inject the surface size and
     /// window padding so `multipane_geometry()` — and the divider resize-cursor
     /// path it feeds — resolves headlessly without a GPU. See
@@ -380,11 +391,26 @@ impl App {
         self.cursor_icon
     }
 
+    /// Test seam (INTERACTIVE-PATHS): the resolved path span currently under the
+    /// pointer, so a test can assert the gate keeps it `None` when the feature is
+    /// off and that an unresolved span never latches.
+    #[cfg(test)]
+    pub(in crate::native) fn hovered_path_for_test(&self) -> Option<&crate::paths::Resolved> {
+        self.hovered_path.as_ref()
+    }
+
     /// Test seam (MOUSE-SCROLLBAR): toggle the `scrollbar_drag` setting so the
     /// inverted-gate (off-switch) parity can be pinned.
     #[cfg(test)]
     pub(in crate::native) fn set_scrollbar_drag_for_test(&mut self, on: bool) {
         self.settings.scrollbar_drag = on;
+    }
+
+    /// Test seam (INTERACTIVE-PATHS): toggle the `interactive_paths` setting so
+    /// the gated hover-scan path (and its byte-identical off path) can be pinned.
+    #[cfg(test)]
+    pub(in crate::native) fn set_interactive_paths_for_test(&mut self, on: bool) {
+        self.settings.interactive_paths = on;
     }
 
     /// Test seam (MOUSE-SCROLLBAR): set the cached raw pointer pixel position the
