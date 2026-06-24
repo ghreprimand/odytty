@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Interactive paths: design record + the pure detection spine
+
+First slice of the interactive-paths capability (clickable files / semantic
+`path:line:col` / viewers): the design record and the pure, owned, fully-tested
+detection engine. No UI is wired yet — this module is unreferenced by any
+render/input/settings path, so runtime behavior is unchanged
+(`gpu_composite_smoke` 3/3 trivially). The hover/cursor/click/menu/viewer
+packets build on top of it.
+
+`docs/interactive-paths-design.md` records the whole design: the detection model
+(absolute, `./`/`../`, `~/`, and bare `dir/file` requiring an interior
+separator, plus a separate `:line[:col]` capture), the resolution model
+(OSC 7-cwd-relative → canonical absolute, **stat-gated** via an injectable
+probe), the open-action dispatch table, the editor invocation matrix for
+`path:line:col` (vim/nvim, vscode, emacs, helix, sublime, nano, micro, `$EDITOR`
+fallback) plus a `interactive_paths_editor` override knob, and the security
+argument (argv-only, local-only, default-off, never logged/persisted).
+
+`src/paths/` is a hand-rolled single-pass scanner — no regex, no new dependency
+(follows the owned `fuzzy`/`hints` precedent). `detect_paths(line) -> Vec<
+PathSpan>` is pure (no I/O); the false-positive guard rejects `1.2.3`, `v1.2.3`,
+`foo.bar`, and `example.com` by requiring an interior `/` on bare candidates.
+Cost is bounded (4096-byte candidate cap, 64 candidates/line, single pass, no
+backtracking) and UTF-8-safe. Resolution (`resolve` + `ResolveProbe`/`FsKind`/
+`Resolved`) makes a candidate absolute, lexically canonicalizes without touching
+the filesystem, then performs a single stat-gate probe call — so the only fs
+contact is the caller's probe, and the 34 unit tests inject a synthetic
+`HashMap` fs and never reach the real filesystem.
+
+The module imports std only — no winit/wgpu/render/settings and no `std::fs` —
+keeping the detection spine pure and portable. Verified: `cargo fmt --check`
+clean, `cargo clippy --all-targets -- -D warnings` clean, `cargo test --locked`
+green (2258 tests; `paths` 34/34), `license_headers` green (SPDX on all 3 new
+files), `gpu_composite_smoke` 3/3.
+
+---
+
 ## 2026-06-24 -- `odytty attach` with no id: attach the sole session, or list
 
 Reattaching a detached session required reading a long opaque id from `odytty

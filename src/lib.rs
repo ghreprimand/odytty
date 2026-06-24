@@ -18,6 +18,7 @@ pub mod palette_catalog;
 pub mod palette_gen;
 pub mod palette_sources;
 pub mod parser;
+pub mod paths;
 pub mod pty;
 pub mod render;
 pub mod selection;
