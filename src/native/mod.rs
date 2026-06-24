@@ -59,6 +59,7 @@ mod cursor;
 mod cvd_theme;
 mod font_picker;
 mod gpu;
+mod image_decode;
 mod image_layer;
 mod key_remap_ui;
 mod layout;

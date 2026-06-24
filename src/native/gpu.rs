@@ -1721,6 +1721,24 @@ impl GpuState {
         );
     }
 
+    /// Set (or clear) the C4 in-terminal image-viewer overlay (Phase 9). The
+    /// image is `(rgba, width, height)` of a decoded, tightly-packed RGBA8
+    /// buffer; `None` clears it. The fit-rect is computed for the current
+    /// surface size, so the image stays centered across resizes. Drawn as the
+    /// final scene step — presentation-only, byte-identical when cleared.
+    pub(super) fn set_overlay_image(&mut self, image: Option<(&[u8], u32, u32)>) {
+        let viewport_w = self.config.width as f32;
+        let viewport_h = self.config.height as f32;
+        self.image_layer.set_overlay_image(
+            &self.device,
+            &self.queue,
+            &self.viewport_buf,
+            image,
+            viewport_w,
+            viewport_h,
+        );
+    }
+
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot plus
     /// presentation-only solid overlays, drawing the cursor in `cursor_style`.
     pub(super) fn update_from_snapshot_with_overlays(
@@ -1994,6 +2012,10 @@ impl GpuState {
             pass.draw(cell_count..self.vertex_count, 0..1);
         }
         self.image_layer.draw_above(pass);
+        // C4: the in-terminal image viewer draws LAST — over the terminal, the
+        // placements, and the overlay panel/scrim. A no-op when no viewer image
+        // is set, so the closed-viewer frame is byte-identical.
+        self.image_layer.draw_overlay(pass);
     }
 
     fn encode_scene_pass<'pass>(

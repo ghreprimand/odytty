@@ -7,6 +7,51 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Interactive paths: in-terminal image viewer
+
+A resolved **image** span (extension `.png`, `.jpg`/`.jpeg`, or `.webp`) gains an
+**Open in OdyTTY** item in the right-click file section. Activating it decodes the
+image and renders it centered, aspect-preserved, over a dimmed backdrop — drawn
+as the final scene step through the *existing* GPU image-layer raster path, the
+same pipeline/shader/texture upload terminal graphics already use. No second
+rendering path. `Esc` (or a mode switch) dismisses it; resize re-centers from the
+cached pixels without re-decoding.
+
+The offer gate is pure and std-only (`crate::paths::is_image_path`): it trusts
+only the extension and the allowlist is kept **exactly equal** to the enabled
+`image`-crate decoders (png/jpeg/webp) — GIF/BMP/TIFF are not offered because
+their decoders are not built. The real format trust is the content-sniff at
+decode time, not the name.
+
+The security-critical piece is a single shared decode point,
+`src/native/image_decode.rs`, which sets `image::Limits` (max 12000 px/axis,
+256 MiB allocation) on the reader **before** `.decode()`. The terminal graphics
+store's 64 MiB cap runs *after* decode, so it can't stop a decompression bomb
+(tiny on disk, enormous decoded) from exhausting memory mid-decode — the
+pre-decode limit can, and a forged-IHDR dimension-bomb test proves it's refused
+before allocation. Any failure (unreadable / unidentifiable / truncated /
+garbage / over-limit) returns `None` and the viewer simply does not open: never a
+panic, never an unbounded allocation. The pre-existing background-image decode
+was migrated onto this same bounded point (FLAG F), so there is now one auditable
+decode site.
+
+Presentation-only and **byte-identity-safe**: with no overlay image set,
+`draw_overlay` emits zero quads, so a closed viewer is byte-identical to the
+no-viewer frame (`gpu_composite_smoke` 3/3 holds). The whole feature sits behind
+`interactive_paths` (default off): off → no detection, no menu item, no viewer.
+`CONTEXT_MENU_ITEMS` goes 20→21; the item is visible only on a resolved image
+span (non-image/closed menu byte-identical, asserted at 24 vs 25 rows).
+
+Trigger is **menu-only** this packet — Ctrl+click stays mapped to the C3
+`xdg-open` dispatch, unchanged. Tests are synthetic only (in-memory encoded
+PNG/JPEG buffers, forged headers, the dimension bomb; no real files, no
+`/home`). Gates green: `cargo fmt --check` clean, `cargo clippy --all-targets
+-D warnings` clean, `cargo test --locked` 2478 pass / 0 fail, `gpu_composite_smoke`
+3/3, `license_headers` 1/1. **Open With…** remains deferred to C3b; file
+mutations (C5) remain declined.
+
+---
+
 ## 2026-06-24 -- Interactive paths: Ctrl+click open + file context menu
 
 The hover affordance from the previous entry becomes actionable. **Ctrl+click**

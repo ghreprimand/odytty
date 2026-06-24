@@ -75,7 +75,16 @@ impl BgImageGpu {
         theme: &Theme,
         cell_bg_opacity: f32,
     ) -> Option<Self> {
-        let (mut rgba, width, height) = load_image_rgba(path)?;
+        let (mut rgba, width, height) = match super::super::image_decode::decode_image_rgba(path) {
+            Some(decoded) => decoded,
+            None => {
+                eprintln!(
+                    "odytty: background_image: cannot load {}; no image",
+                    path.display()
+                );
+                return None;
+            }
+        };
         let blur_radius = blur_radius.min(MAX_BACKGROUND_BLUR_RADIUS);
         if blur_radius > 0 {
             if width > MAX_BG_IMAGE_DIM || height > MAX_BG_IMAGE_DIM {
@@ -314,43 +323,6 @@ fn compute_scrim(
         None => readability_scrim_for(l_treat, l_bg, opacity, text::min_contrast(), polarity),
     };
     (alpha, matches!(polarity, ScrimPolarity::Light))
-}
-
-/// Decode a PNG/JPEG/WebP file to tightly-packed RGBA8 + dimensions. Resilient
-/// by design: a bad path never crashes the renderer.
-fn load_image_rgba(path: &Path) -> Option<(Vec<u8>, u32, u32)> {
-    let reader = match image::ImageReader::open(path) {
-        Ok(reader) => reader,
-        Err(err) => {
-            eprintln!(
-                "odytty: background_image: cannot read {}: {err}; no image",
-                path.display()
-            );
-            return None;
-        }
-    };
-    let reader = match reader.with_guessed_format() {
-        Ok(reader) => reader,
-        Err(err) => {
-            eprintln!(
-                "odytty: background_image: cannot identify {}: {err}; no image",
-                path.display()
-            );
-            return None;
-        }
-    };
-    let image = match reader.decode() {
-        Ok(image) => image.into_rgba8(),
-        Err(err) => {
-            eprintln!(
-                "odytty: background_image: failed to decode {}: {err}; no image",
-                path.display()
-            );
-            return None;
-        }
-    };
-    let (width, height) = image.dimensions();
-    Some((image.into_raw(), width, height))
 }
 
 /// Worst-case post-blur luminances over the whole image: `(max, min)` WCAG

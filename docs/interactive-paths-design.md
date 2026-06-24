@@ -4,9 +4,9 @@ Status: design + pure detection spine landed (Phase 6 / C0–C1). Phase 7 (C2)
 shipped the hover cursor affordance. Phase 8 (C3) shipped the Ctrl+click open
 dispatch, the editor invocation matrix + `interactive_paths_editor` knob, and
 the context-menu file section (Open / Copy Path / Copy File / Reveal in File
-Manager). **"Open With…"** (xdg-mime/.desktop handler enumeration) and the
-in-terminal image viewer (Phase 9 / C4) are **not** built yet — Open With… is
-deferred to a follow-up **C3b**. This document is the contract those phases
+Manager). Phase 9 (C4) shipped the in-terminal image viewer ("Open in OdyTTY";
+see §8). **"Open With…"** (xdg-mime/.desktop handler enumeration) is **not** built
+yet — deferred to a follow-up **C3b**. This document is the contract those phases
 implement against.
 
 ## Goal
@@ -256,7 +256,8 @@ named here so the matrix and the setting agree.
 
 ```
 src/paths/
-  mod.rs      pub use; resolve(), ResolveProbe, FsKind, Resolved, PathSpan re-export
+  mod.rs      pub use; resolve(), ResolveProbe, FsKind, Resolved, PathSpan re-export;
+              is_image_path() + IMAGE_EXTENSIONS  (pure, std-only — C4 offer gate)
   detect.rs   detect_paths(), PathSpan  (pure scanner, no I/O)
 ```
 
@@ -281,3 +282,49 @@ src/paths/
 - **Read-only text preview** of non-image files — optional/later (C4 ships the
   image viewer first).
 - **File mutations** (chmod/rename/delete) — declined for now (C5).
+
+---
+
+## 8. In-terminal image viewer (Phase 9 / C4) — shipped
+
+When a resolved span is an **image file**, the context-menu file section gains
+an **"Open in OdyTTY"** item that renders the image inside the terminal window.
+
+**Offer gate (pure, no I/O).** `crate::paths::is_image_path` (std-only) trusts
+only the extension against `IMAGE_EXTENSIONS` = `png`, `jpg`, `jpeg`, `webp`.
+This list **must equal the enabled `image`-crate decoders** (`Cargo.toml`
+features `jpeg`/`png`/`webp`); GIF/BMP/TIFF are deliberately excluded (their
+decoders are not enabled, and animated GIF implies frame handling the raster
+path rejects). The menu item appears only on an image span — a non-image path
+keeps the menu byte-identical to C3.
+
+**Trigger.** Menu-only this packet: "Open in OdyTTY" is the sole entry point.
+Ctrl+click stays mapped to the C3 `xdg-open` dispatch, unchanged.
+
+**Decode bound (the security-critical part).** All image-file decoding funnels
+through one module, `src/native/image_decode.rs`, which sets `image::Limits`
+(max 12000 px/axis, 256 MiB allocation) on the reader **before** `.decode()`.
+The terminal graphics store's 64 MiB cap is enforced *after* decode, so it
+cannot stop a decompression bomb (tiny on disk, enormous decoded) from
+exhausting memory mid-decode; the pre-decode limit can, and does. Format is
+confirmed by content sniff (`with_guessed_format`), not the file name. Any
+failure — unreadable, unidentifiable, truncated, garbage, or over-limit —
+returns `None` and the viewer simply does not open. Never panics, never an
+unbounded allocation.
+
+**Rendering (presentation-only).** The decoded RGBA is uploaded into the
+existing `native::image_layer::ImageLayer` via a dedicated overlay entrypoint
+(`set_overlay_image`) and drawn as the **final** scene step — over the terminal,
+the graphics placements, and the overlay panel/scrim — reusing the same
+shader/pipeline/texture path as terminal graphics (no second rendering path).
+The image is centered, aspect-preserved, and **never upscaled past its source**,
+fitting within ~90% of the viewport. It is **not** injected into the terminal's
+`ImageScene` (that would corrupt scroll/clear/alt-buffer semantics). With no
+overlay image set, `draw_overlay` emits zero quads → the frame is byte-identical,
+so a closed viewer satisfies the `gpu_composite_smoke` invariant. A resize
+re-centers the image from the cached pixels without re-decoding.
+
+**Gating.** The whole feature is behind `interactive_paths` (default off): no
+image detection, no menu item, no viewer while off.
+
+**Deferred:** read-only text preview of non-image files (above); animated GIF.

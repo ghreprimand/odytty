@@ -307,6 +307,12 @@ pub(super) struct App {
     /// at hover time without a per-move `getenv`. `None` when `$HOME` is unset or
     /// not valid UTF-8; only consulted while `interactive_paths` is on.
     home_dir: Option<String>,
+    /// C4 image viewer: the decoded RGBA buffer + dims for the image currently
+    /// shown in the `ImageView` overlay, kept so a window resize can recompute
+    /// the centered fit-rect without re-decoding. `None` whenever the viewer is
+    /// closed; the per-frame [`Self::sync_image_overlay`] clears it (and the GPU
+    /// overlay texture) once the overlay is no longer open.
+    image_overlay: Option<interactive_paths::ImageOverlayState>,
     pub(super) startup_error: Option<NativeError>,
 }
 
@@ -409,6 +415,7 @@ impl App {
             rename_state: None,
             overlay_left_held: false,
             home_dir: std::env::var_os("HOME").and_then(|h| h.into_string().ok()),
+            image_overlay: None,
             startup_error: None,
         };
         // ONBOARD (D-OB-1/D-OB-2): open the first-run welcome card iff the
@@ -2125,6 +2132,8 @@ impl ApplicationHandler<UserEvent> for App {
                 if let Some(resize) = resize {
                     self.record_pending_resize(resize, Instant::now());
                 }
+                // C4: re-center the image viewer for the new surface size.
+                self.refresh_image_overlay_on_resize();
                 if let Some(window) = self.window.as_ref() {
                     window.request_redraw();
                 }
@@ -2169,6 +2178,10 @@ impl ApplicationHandler<UserEvent> for App {
                 self.flush_pending_overlay_settings();
                 self.handle_terminal_clipboard_requests();
                 self.update_window_title();
+                // C4: clear the GPU image-viewer texture the frame after the
+                // viewer overlay closes, so the closed-viewer frame is
+                // byte-identical to the no-viewer path.
+                self.sync_image_overlay();
                 // Rebuild geometry at most once per redraw, no matter how many
                 // pump wakes coalesced into this frame. Snapshot under the lock,
                 // then drop it before touching the GPU.

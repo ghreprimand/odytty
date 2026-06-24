@@ -47,6 +47,16 @@ impl ResolveProbe for FsResolveProbe {
 // (editor matrix).
 // ---------------------------------------------------------------------------
 
+/// The decoded image backing the C4 in-terminal viewer overlay. The App keeps
+/// it while the `ImageView` overlay is open so a window resize can recompute the
+/// centered fit-rect from the same pixels without re-reading or re-decoding the
+/// file. Tightly-packed RGBA8, `width`×`height`.
+pub(in crate::native) struct ImageOverlayState {
+    pub(in crate::native) rgba: Vec<u8>,
+    pub(in crate::native) width: u32,
+    pub(in crate::native) height: u32,
+}
+
 /// The single argv-only spawn point. Routes BOTH the OSC 8 hyperlink open and
 /// every interactive-path open through one auditable place: a detached child
 /// with null stdio, launched from an explicit `argv` vector — never `sh -c`,

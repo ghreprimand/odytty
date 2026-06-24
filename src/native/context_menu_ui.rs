@@ -54,13 +54,15 @@ use crate::settings::BindableAction;
 /// Number of entries in [`ContextMenuItem::ALL`] (Copy / Cut / Paste / Delete /
 /// Select All / New Tab / Rename Tab / Close Tab / Split Right / Split Down /
 /// Close Pane / Settings / Connection Manager / Command Palette / Session
-/// Replay / Attach Session / Open / Copy Path / Copy File / Reveal in File
-/// Manager) — the size of the accelerator array the App fills in `ALL` order.
-/// NOT the number of *visible* items: Close Pane is hidden in a single-pane tab,
-/// and the four file items (Open … Reveal) are shown only when a resolved
-/// interactive path sits under the click. With no path and single-pane the
-/// visible count is 15; with no path and multi-pane it is 16.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 20;
+/// Replay / Attach Session / Open / Open in OdyTTY / Copy Path / Copy File /
+/// Reveal in File Manager) — the size of the accelerator array the App fills in
+/// `ALL` order. NOT the number of *visible* items: Close Pane is hidden in a
+/// single-pane tab; the file items (Open / Copy Path / Copy File / Reveal) are
+/// shown only when a resolved interactive path sits under the click; and "Open
+/// in OdyTTY" is shown only when that resolved path is an image file (C4). With
+/// no path and single-pane the visible count is 15; with no path and multi-pane
+/// it is 16.
+pub(super) const CONTEXT_MENU_ITEMS: usize = 21;
 
 /// Body row index of the first visual separator (single-pane layout), between
 /// Select All and New Tab. The separators move when Close Pane appears in a
@@ -136,6 +138,11 @@ pub(super) enum ContextMenuItem {
     /// only when a path resolved at the click cell; dispatches through the same
     /// argv-only open the Ctrl+click path uses.
     OpenPath,
+    /// Open a resolved **image** span in the in-terminal viewer (Phase 9 / C4).
+    /// Shown only when the resolved path is an image file (extension in
+    /// [`crate::paths::IMAGE_EXTENSIONS`]); decodes + renders it through the GPU
+    /// image layer as a presentation-only overlay.
+    OpenInOdytty,
     /// Copy the resolved absolute path to the clipboard as text (C3).
     CopyPath,
     /// Copy a `file://<abs>` URI to the clipboard as text (C3).
@@ -166,6 +173,7 @@ impl ContextMenuItem {
         Self::SessionReplay,
         Self::SessionAttach,
         Self::OpenPath,
+        Self::OpenInOdytty,
         Self::CopyPath,
         Self::CopyFile,
         Self::RevealPath,
@@ -186,7 +194,11 @@ impl ContextMenuItem {
             | Self::CommandPalette
             | Self::SessionReplay
             | Self::SessionAttach => 4,
-            Self::OpenPath | Self::CopyPath | Self::CopyFile | Self::RevealPath => 5,
+            Self::OpenPath
+            | Self::OpenInOdytty
+            | Self::CopyPath
+            | Self::CopyFile
+            | Self::RevealPath => 5,
         }
     }
 
@@ -210,6 +222,7 @@ impl ContextMenuItem {
             Self::SessionReplay => "Session Replay",
             Self::SessionAttach => "Attach Session",
             Self::OpenPath => "Open",
+            Self::OpenInOdytty => "Open in OdyTTY",
             Self::CopyPath => "Copy Path",
             Self::CopyFile => "Copy File",
             Self::RevealPath => "Reveal in File Manager",
@@ -246,6 +259,7 @@ impl ContextMenuItem {
             | Self::RenameTab
             | Self::ClosePane
             | Self::OpenPath
+            | Self::OpenInOdytty
             | Self::CopyPath
             | Self::CopyFile
             | Self::RevealPath => None,
@@ -350,6 +364,9 @@ pub(super) struct ContextMenuSignature {
     /// resolved path itself is not part of the signature — the labels are
     /// static, so a bool fully describes the layout change.
     pub(super) has_path_target: bool,
+    /// Whether the resolved path is an image file (drives the "Open in OdyTTY"
+    /// item's visibility, so its presence must repaint the menu). C4.
+    pub(super) is_image_target: bool,
 }
 
 /// The right-click context menu state. Holds the spawn cell, the focused item,
@@ -478,7 +495,21 @@ impl ContextMenuUi {
             | ContextMenuItem::CopyPath
             | ContextMenuItem::CopyFile
             | ContextMenuItem::RevealPath => self.path_target.is_some(),
+            // "Open in OdyTTY" is enabled only when the resolved path is an
+            // image file — the same condition that makes it visible.
+            ContextMenuItem::OpenInOdytty => self.is_image_target(),
         }
+    }
+
+    /// Whether the resolved path under the click is an image file (a regular
+    /// file whose extension is in [`crate::paths::IMAGE_EXTENSIONS`]). Drives
+    /// the visibility + enablement of the C4 "Open in OdyTTY" item. Pure: trusts
+    /// only the extension (the real decode confirm happens native at open time).
+    fn is_image_target(&self) -> bool {
+        self.path_target.as_ref().is_some_and(|resolved| {
+            resolved.kind == crate::paths::FsKind::File
+                && crate::paths::is_image_path(&resolved.abs)
+        })
     }
 
     /// The items currently visible, in display order. Close Pane is included
@@ -488,6 +519,7 @@ impl ContextMenuUi {
     /// when the pane count changes.
     fn visible_items(&self) -> Vec<ContextMenuItem> {
         let has_path = self.path_target.is_some();
+        let is_image = self.is_image_target();
         ContextMenuItem::ALL
             .into_iter()
             .filter(|item| !matches!(item, ContextMenuItem::ClosePane) || self.multi_pane)
@@ -500,6 +532,9 @@ impl ContextMenuUi {
                         | ContextMenuItem::RevealPath
                 ) || has_path
             })
+            // "Open in OdyTTY" (C4) appears only on a resolved IMAGE span, so a
+            // non-image path (or no path) keeps the menu byte-identical to C3.
+            .filter(|item| !matches!(item, ContextMenuItem::OpenInOdytty) || is_image)
             .collect()
     }
 
@@ -759,6 +794,7 @@ impl ContextMenuUi {
             rename_enabled: self.rename_target.is_some(),
             multi_pane: self.multi_pane,
             has_path_target: self.path_target.is_some(),
+            is_image_target: self.is_image_target(),
         }
     }
 }
@@ -840,6 +876,33 @@ mod tests {
             None,
             false,
             Some(resolved_file()),
+        );
+        m
+    }
+
+    /// A synthetic resolved IMAGE file (C4): drives the "Open in OdyTTY" item.
+    fn resolved_image() -> Resolved {
+        Resolved {
+            abs: "/proj/assets/diagram.png".to_owned(),
+            kind: crate::paths::FsKind::File,
+            line: None,
+            col: None,
+        }
+    }
+
+    /// A single-pane menu with a resolved image path under the click (the full
+    /// file section, including "Open in OdyTTY", is visible).
+    fn menu_with_image() -> ContextMenuUi {
+        let mut m = ContextMenuUi::new();
+        m.open(
+            CellPoint { row: 4, column: 7 },
+            false,
+            false,
+            false,
+            false,
+            None,
+            false,
+            Some(resolved_image()),
         );
         m
     }
@@ -1140,6 +1203,72 @@ mod tests {
         assert_eq!(rows[21], item("Copy Path", false, true));
         assert_eq!(rows[22], item("Copy File", false, true));
         assert_eq!(rows[23], item("Reveal in File Manager", false, true));
+    }
+
+    #[test]
+    fn non_image_path_hides_open_in_odytty() {
+        // C4: a resolved *non-image* file shows the C3 file section but NOT
+        // "Open in OdyTTY" — the layout is byte-identical to C3 (24 rows).
+        let m = menu_with_path();
+        assert_eq!(m.item_count(), 19, "15 base + 4 C3 file items, no C4 item");
+        let rows = m.rows();
+        assert_eq!(rows.len(), 24);
+        assert!(
+            !rows.iter().any(|r| matches!(
+                r,
+                ContextMenuRow::Item {
+                    label: "Open in OdyTTY",
+                    ..
+                }
+            )),
+            "Open in OdyTTY must be absent on a non-image path"
+        );
+    }
+
+    #[test]
+    fn image_path_shows_open_in_odytty_after_open() {
+        // C4: a resolved image span adds "Open in OdyTTY" right after "Open" in
+        // the file section: 15 base + 5 file items = 20; 19 base rows + 1
+        // separator + 5 file items = 25 rows.
+        let m = menu_with_image();
+        assert_eq!(m.item_count(), 20, "15 base + 5 file items (incl. C4)");
+        let rows = m.rows();
+        assert_eq!(rows.len(), 25, "19 base + separator + 5 file items");
+        assert_eq!(rows[18], item("Attach Session", false, true));
+        assert_eq!(rows[19], ContextMenuRow::Separator);
+        assert_eq!(rows[20], item("Open", false, true));
+        assert_eq!(rows[21], item("Open in OdyTTY", false, true));
+        assert_eq!(rows[22], item("Copy Path", false, true));
+        assert_eq!(rows[23], item("Copy File", false, true));
+        assert_eq!(rows[24], item("Reveal in File Manager", false, true));
+    }
+
+    #[test]
+    fn open_in_odytty_activates_on_press_for_an_image() {
+        let mut m = menu_with_image();
+        // "Open in OdyTTY" sits at body row 21.
+        assert_eq!(
+            m.handle_press(21, m.body_row_count(), PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::OpenInOdytty)
+        );
+    }
+
+    #[test]
+    fn image_target_changes_the_signature() {
+        // The C4 item changes the rendered rows, so its presence must alter the
+        // render-cache signature (repaint when the item appears).
+        let image_sig = menu_with_image().render_signature();
+        let file_sig = menu_with_path().render_signature();
+        assert_ne!(image_sig, file_sig);
+        assert!(image_sig.is_image_target, "image span sets the flag");
+        assert!(!file_sig.is_image_target, "a .rs file does not");
+        assert!(!menu(false, false).render_signature().is_image_target);
+    }
+
+    #[test]
+    fn open_in_odytty_carries_no_accelerator() {
+        // The C4 item is pointer-only.
+        assert_eq!(ContextMenuItem::OpenInOdytty.bindable_action(), None);
     }
 
     #[test]

@@ -505,6 +505,20 @@ an **argv vector**, never a shell string, so a path containing spaces, `;`,
 text (the clipboard is text-only — this pastes into file managers as a file
 reference); "Reveal in File Manager" opens the containing directory.
 
+**In-terminal image viewer ("Open in OdyTTY").** When the resolved span is an
+image file — extension `.png`, `.jpg`/`.jpeg`, or `.webp` (matching the built-in
+decoders; GIF/BMP/TIFF are not offered) — the file section gains an **Open in
+OdyTTY** item. It decodes the image and renders it centered, aspect-preserved,
+over a dimmed backdrop through the existing GPU graphics path; `Esc` (or a click
+away) dismisses it. The viewer is presentation-only: while it is closed the
+frame is byte-identical, and opening it never mutates the live terminal. The
+decode is bounded **before** it runs (max 12000 px per axis, 256 MiB allocation),
+so a corrupt or decompression-bomb file is refused gracefully — it simply does
+not open, never crashes or hangs. The image type is confirmed by content
+(magic-byte sniff), not by trusting the file name. It is gated by the same
+`interactive_paths` setting: off by default, no image detection and no menu item
+while off.
+
 **Editor selection (`interactive_paths_editor`).** A `path:line:col` span opens
 in an editor chosen by: the `interactive_paths_editor` setting (env
 `ODYTTY_INTERACTIVE_PATHS_EDITOR`) if non-empty, else `$EDITOR`/`$VISUAL`, else
@@ -529,7 +543,7 @@ toggle and the editor knob live in the Settings panel's Input section.
   custom tab name is session-local; it overrides shell title updates until an
   empty rename clears it. With `interactive_paths` on, right-clicking over a
   resolved path adds a file section (Open / Copy Path / Copy File / Reveal in
-  File Manager).
+  File Manager), plus **Open in OdyTTY** on an image file (in-terminal viewer).
 - First launch without a config file shows an onboarding card. Set
   `ODYTTY_ONBOARDING=1` to force it.
 

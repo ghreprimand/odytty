@@ -209,6 +209,15 @@ struct ImageDraw {
     z_index: i32,
 }
 
+/// The C4 viewer's free-floating overlay image: one texture + bind group and a
+/// 6-vertex fit-quad, drawn as the final scene step over everything (including
+/// the overlay panel/scrim). `None` ⇒ no overlay quads ⇒ the frame is
+/// byte-identical, which is the presentation-only invariant.
+struct OverlayImage {
+    _texture: wgpu::Texture,
+    bind_group: wgpu::BindGroup,
+}
+
 pub(super) struct ImageLayer {
     pipeline: wgpu::RenderPipeline,
     target_format: wgpu::TextureFormat,
@@ -219,6 +228,11 @@ pub(super) struct ImageLayer {
     vertex_capacity_bytes: u64,
     vertices: Vec<ImageVertex>,
     draws: Vec<ImageDraw>,
+    /// The C4 viewer overlay image, if any (drawn last, over the panel/scrim).
+    overlay_image: Option<OverlayImage>,
+    /// A fixed 6-vertex buffer holding the overlay image's fit-quad. Allocated
+    /// once; rewritten whenever the overlay image / viewport changes.
+    overlay_vertex_buf: wgpu::Buffer,
 }
 
 impl ImageLayer {
@@ -270,6 +284,10 @@ impl ImageLayer {
 
         let vertex_capacity_bytes = std::mem::size_of::<ImageVertex>() as u64;
         let vertex_buf = create_vertex_buffer(device, vertex_capacity_bytes);
+        // The overlay quad is always exactly 6 vertices; size the buffer for it
+        // up front so `set_overlay_image` only ever writes, never reallocates.
+        let overlay_vertex_buf =
+            create_vertex_buffer(device, (std::mem::size_of::<ImageVertex>() * 6) as u64);
 
         Self {
             pipeline,
@@ -281,7 +299,76 @@ impl ImageLayer {
             vertex_capacity_bytes,
             vertices: Vec::new(),
             draws: Vec::new(),
+            overlay_image: None,
+            overlay_vertex_buf,
         }
+    }
+
+    /// Set (or clear) the C4 viewer's overlay image. `image` is
+    /// `(rgba, width, height)` of a decoded, tightly-packed RGBA8 buffer;
+    /// `None` clears the overlay so the frame returns to byte-identical. The
+    /// fit-quad is recomputed for the current `viewport_w`×`viewport_h` so a
+    /// resize re-centers the image. A zero-sized or under-length buffer is
+    /// treated as "clear" (defensive — the decode path never produces one).
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn set_overlay_image(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        viewport_buf: &wgpu::Buffer,
+        image: Option<(&[u8], u32, u32)>,
+        viewport_w: f32,
+        viewport_h: f32,
+    ) {
+        let Some((rgba, width, height)) = image else {
+            self.overlay_image = None;
+            return;
+        };
+        let needed = (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4);
+        if width == 0 || height == 0 || rgba.len() < needed {
+            self.overlay_image = None;
+            return;
+        }
+        let (texture, bind_group) = create_image_texture(
+            device,
+            queue,
+            &self.bind_group_layout,
+            &self.sampler,
+            viewport_buf,
+            width,
+            height,
+            rgba,
+        );
+        let quad = overlay_fit_quad(width, height, viewport_w, viewport_h);
+        let mut verts = Vec::with_capacity(6);
+        push_quad(&mut verts, quad);
+        queue.write_buffer(&self.overlay_vertex_buf, 0, bytemuck::cast_slice(&verts));
+        self.overlay_image = Some(OverlayImage {
+            _texture: texture,
+            bind_group,
+        });
+    }
+
+    /// Whether a C4 overlay image is currently set (used by tests / callers to
+    /// reason about the presentation-only invariant).
+    #[cfg(test)]
+    pub(super) fn has_overlay_image(&self) -> bool {
+        self.overlay_image.is_some()
+    }
+
+    /// Draw the C4 viewer overlay image, if any, as the final scene step — over
+    /// the terminal, the placements, and the overlay panel/scrim. A no-op when
+    /// no overlay image is set, so the closed-viewer frame is byte-identical.
+    pub(super) fn draw_overlay<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
+        let Some(overlay) = self.overlay_image.as_ref() else {
+            return;
+        };
+        pass.set_pipeline(&self.pipeline);
+        pass.set_vertex_buffer(0, self.overlay_vertex_buf.slice(..));
+        pass.set_bind_group(0, &overlay.bind_group, &[]);
+        pass.draw(0..6, 0..1);
     }
 
     pub(super) fn rebuild_pipeline(
@@ -497,19 +584,26 @@ fn create_vertex_buffer(device: &wgpu::Device, capacity_bytes: u64) -> wgpu::Buf
     })
 }
 
-fn upload_image(
+/// Create an RGBA8 texture + its bind group from tightly-packed pixels. Shared
+/// by the terminal-placement upload ([`upload_image`]) and the C4 viewer
+/// overlay ([`ImageLayer::set_overlay_image`]) so both go through one
+/// texture-creation path with the same format/sampler/viewport binding.
+#[allow(clippy::too_many_arguments)]
+fn create_image_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     layout: &wgpu::BindGroupLayout,
     sampler: &wgpu::Sampler,
     viewport_buf: &wgpu::Buffer,
-    upload: &ImageUpload,
-) -> CachedImage {
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+) -> (wgpu::Texture, wgpu::BindGroup) {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("odytty-image-texture"),
         size: wgpu::Extent3d {
-            width: upload.width,
-            height: upload.height,
+            width,
+            height,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -526,15 +620,15 @@ fn upload_image(
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        &upload.rgba,
+        rgba,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(upload.width * 4),
-            rows_per_image: Some(upload.height),
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
         },
         wgpu::Extent3d {
-            width: upload.width,
-            height: upload.height,
+            width,
+            height,
             depth_or_array_layers: 1,
         },
     );
@@ -558,13 +652,59 @@ fn upload_image(
             },
         ],
     });
+    (texture, bind_group)
+}
 
+fn upload_image(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+    sampler: &wgpu::Sampler,
+    viewport_buf: &wgpu::Buffer,
+    upload: &ImageUpload,
+) -> CachedImage {
+    let (texture, bind_group) = create_image_texture(
+        device,
+        queue,
+        layout,
+        sampler,
+        viewport_buf,
+        upload.width,
+        upload.height,
+        &upload.rgba,
+    );
     CachedImage {
         width: upload.width,
         height: upload.height,
         generation: upload.generation,
         _texture: texture,
         bind_group,
+    }
+}
+
+/// Compute the centered, aspect-preserved pixel rect for an overlay image of
+/// `img_w`×`img_h` inside a `vp_w`×`vp_h` viewport (C4 viewer). The image is
+/// scaled to fit within `OVERLAY_FIT_FRACTION` of the viewport on both axes and
+/// is **never upscaled past its source size** (`scale <= 1.0`), so small images
+/// render crisp at native size rather than blown up. The UV is the full texture.
+pub(super) fn overlay_fit_quad(img_w: u32, img_h: u32, vp_w: f32, vp_h: f32) -> ImageQuad {
+    /// Fraction of the viewport an overlay image may fill on each axis, leaving
+    /// a margin so the dimmed terminal stays visible around the image.
+    const OVERLAY_FIT_FRACTION: f32 = 0.9;
+
+    let iw = (img_w.max(1)) as f32;
+    let ih = (img_h.max(1)) as f32;
+    let max_w = (vp_w * OVERLAY_FIT_FRACTION).max(1.0);
+    let max_h = (vp_h * OVERLAY_FIT_FRACTION).max(1.0);
+    // Fit on the tighter axis; never upscale past the source.
+    let scale = (max_w / iw).min(max_h / ih).min(1.0);
+    let w = iw * scale;
+    let h = ih * scale;
+    let x0 = ((vp_w - w) / 2.0).max(0.0);
+    let y0 = ((vp_h - h) / 2.0).max(0.0);
+    ImageQuad {
+        rect: [x0, y0, x0 + w, y0 + h],
+        uv: [0.0, 0.0, 1.0, 1.0],
     }
 }
 

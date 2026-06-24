@@ -61,6 +61,38 @@ pub trait ResolveProbe {
     fn classify(&self, abs_path: &str) -> Option<FsKind>;
 }
 
+/// The image extensions the in-terminal viewer (Phase 9 / C4) will *offer* to
+/// open. This is the cheap, I/O-free "should we show the menu item" gate: it
+/// trusts only the extension. The list MUST match the decoders enabled in
+/// `Cargo.toml` exactly — `png`, `jpeg`, `webp` — and no more: offering a format
+/// the native decoder cannot read would dead-end at open time. Lowercase; the
+/// check is case-insensitive (see [`is_image_path`]). GIF/BMP/TIFF are
+/// deliberately absent (their decoders are not enabled).
+///
+/// Staying in this pure, std-only module keeps the `image` crate out of
+/// `src/paths/`; the real format trust is the content-sniff at decode time.
+pub const IMAGE_EXTENSIONS: [&str; 4] = ["png", "jpg", "jpeg", "webp"];
+
+/// Whether `abs` has an extension in [`IMAGE_EXTENSIONS`] (case-insensitive).
+/// Pure and std-only — no filesystem touch, no `image` dependency. Used to
+/// conditionally show the "Open in OdyTTY" menu item on a resolved image span;
+/// the actual decode (with its content-sniff and decode bound) is the real
+/// gate. A path with no extension, a trailing dot, or a non-image extension
+/// returns `false`.
+pub fn is_image_path(abs: &str) -> bool {
+    // The extension is the text after the final `.` in the final path segment.
+    let name = abs.rsplit('/').next().unwrap_or(abs);
+    let Some((stem, ext)) = name.rsplit_once('.') else {
+        return false;
+    };
+    if stem.is_empty() {
+        // A dotfile like `.png` has no stem before the dot — not an extension.
+        return false;
+    }
+    let ext = ext.to_ascii_lowercase();
+    IMAGE_EXTENSIONS.contains(&ext.as_str())
+}
+
 /// Resolve a syntactic [`PathSpan`] into a live [`Resolved`] entry, or `None` if
 /// it cannot be made absolute (missing cwd/home) or the probe says it does not
 /// exist (stat-gate).
@@ -284,6 +316,35 @@ mod tests {
         let probe = MapProbe::new([("/a/b/c", FsKind::File)]);
         let r = resolve(&span("/a//b///c", None, None), None, None, &probe).unwrap();
         assert_eq!(r.abs, "/a/b/c");
+    }
+
+    #[test]
+    fn is_image_path_matches_enabled_decoders_only() {
+        // The enabled decoders (png/jpeg/webp) are offered, case-insensitively.
+        for ok in [
+            "/proj/a.png",
+            "/proj/a.PNG",
+            "photo.jpg",
+            "photo.JPEG",
+            "render.webp",
+            "/deep/dir/Screenshot.Png",
+        ] {
+            assert!(is_image_path(ok), "{ok} should be offered");
+        }
+        // Disabled / non-image extensions are not offered.
+        for no in [
+            "/proj/a.gif",  // decoder not enabled
+            "/proj/a.bmp",  // decoder not enabled
+            "/proj/a.tiff", // decoder not enabled
+            "/proj/a.txt",
+            "/proj/main.rs",
+            "/proj/noext",
+            "/proj/.png", // dotfile, no stem
+            "/proj/archive.png.gz",
+            "png",
+        ] {
+            assert!(!is_image_path(no), "{no} should NOT be offered");
+        }
     }
 
     #[test]

@@ -6,7 +6,7 @@ use crate::graphics::{GraphicsProtocol, PlacementId, SourceRect, StoredImageId, 
 
 use super::app::TAB_BAR_ROWS;
 use super::image_layer::{
-    ImageUpload, cache_sync_plan, placement_quad, placement_quad_with_padding,
+    ImageUpload, cache_sync_plan, overlay_fit_quad, placement_quad, placement_quad_with_padding,
     placement_quad_with_padding_and_row_offset, visible_image_ids,
 };
 use super::viewport::WindowPadding;
@@ -211,4 +211,63 @@ fn visible_placement_row_already_includes_scrollback_projection() {
 
     assert_eq!(quad.rect[0], 14.0);
     assert_eq!(quad.rect[1], 55.0);
+}
+
+// ---------------------------------------------------------------------------
+// C4 viewer overlay fit-quad (pure geometry; no GPU).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn overlay_fit_centers_a_small_image_without_upscaling() {
+    // A 100×50 image inside a 1000×800 viewport: well under 90% on both axes,
+    // so it renders at native size, centered.
+    let quad = overlay_fit_quad(100, 50, 1000.0, 800.0);
+    let w = quad.rect[2] - quad.rect[0];
+    let h = quad.rect[3] - quad.rect[1];
+    assert_eq!(w, 100.0, "never upscaled past source width");
+    assert_eq!(h, 50.0, "never upscaled past source height");
+    // Centered: equal margins on each axis.
+    assert_eq!(quad.rect[0], (1000.0 - 100.0) / 2.0);
+    assert_eq!(quad.rect[1], (800.0 - 50.0) / 2.0);
+    // Full texture UV.
+    assert_eq!(quad.uv, [0.0, 0.0, 1.0, 1.0]);
+}
+
+#[test]
+fn overlay_fit_scales_a_large_image_down_preserving_aspect() {
+    // A 2000×1000 (2:1) image inside a 1000×1000 viewport. Max box is 900×900;
+    // width is the binding axis → scale 900/2000 = 0.45 → 900×450, aspect kept.
+    let quad = overlay_fit_quad(2000, 1000, 1000.0, 1000.0);
+    let w = quad.rect[2] - quad.rect[0];
+    let h = quad.rect[3] - quad.rect[1];
+    assert!((w - 900.0).abs() < 1e-3, "fit to 90% width, got {w}");
+    assert!((h - 450.0).abs() < 1e-3, "aspect preserved, got {h}");
+    // Aspect ratio preserved.
+    assert!((w / h - 2.0).abs() < 1e-3);
+    // Centered vertically (height < viewport), flush-ish horizontally (90%).
+    assert!((quad.rect[1] - (1000.0 - 450.0) / 2.0).abs() < 1e-3);
+}
+
+#[test]
+fn overlay_fit_height_bound_image() {
+    // A tall 500×4000 image inside a 1000×1000 viewport: height is the binding
+    // axis. Max box 900×900 → scale 900/4000 = 0.225 → 112.5×900.
+    let quad = overlay_fit_quad(500, 4000, 1000.0, 1000.0);
+    let w = quad.rect[2] - quad.rect[0];
+    let h = quad.rect[3] - quad.rect[1];
+    assert!((h - 900.0).abs() < 1e-3, "fit to 90% height, got {h}");
+    assert!((w - 112.5).abs() < 1e-3, "aspect preserved, got {w}");
+}
+
+#[test]
+fn overlay_fit_is_robust_to_degenerate_dims() {
+    // Zero dims must not divide-by-zero / NaN; the quad stays finite and inside
+    // the viewport (defensive — the decode path never yields a zero dimension).
+    let quad = overlay_fit_quad(0, 0, 800.0, 600.0);
+    for v in quad.rect {
+        assert!(
+            v.is_finite(),
+            "fit rect must stay finite for degenerate dims"
+        );
+    }
 }

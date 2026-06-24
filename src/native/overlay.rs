@@ -55,6 +55,10 @@ pub(super) struct OverlayUi {
     replay: ReplayOverlay,
     connections: ConnectionOverlay,
     session_attach: SessionAttachOverlay,
+    /// Caption (the image's filename) shown in the C4 image-viewer overlay's
+    /// body. The image itself draws through the GPU image layer, over the panel;
+    /// this presentation-only string is the only state the viewer mode carries.
+    image_view_caption: String,
     /// Set when a `SaveAndClose` outcome arrives from the settings panel (dirty
     /// close prompt). On the next `save_succeeded` call for Settings mode, the
     /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
@@ -90,6 +94,7 @@ impl OverlayUi {
             replay: ReplayOverlay::new(),
             connections: ConnectionOverlay::new(),
             session_attach: SessionAttachOverlay::new(),
+            image_view_caption: String::new(),
             close_after_save: false,
             picker_return: None,
             builder_from_picker: false,
@@ -304,6 +309,38 @@ impl OverlayUi {
         self.open = true;
     }
 
+    /// Open the in-terminal image-viewer overlay (Phase 9 / C4). The decoded
+    /// image is uploaded into the GPU image layer by the App; this overlay only
+    /// carries the presentation-only caption (the filename) and owns the
+    /// open/close lifecycle. Esc dismisses; the App clears the GPU overlay image
+    /// when the viewer is no longer open. Presentation-only — the live terminal
+    /// stays unchanged behind it.
+    pub(super) fn open_image_view(&mut self, caption: String) {
+        self.panel.end_slider_drag();
+        self.theme_builder.end_channel_drag();
+        self.image_view_caption = caption;
+        self.mode = OverlayMode::ImageView;
+        self.open = true;
+    }
+
+    /// Whether the C4 image viewer is the active overlay mode. The App polls
+    /// this each frame to clear the GPU overlay image once the viewer closes
+    /// (via Esc, click-outside, or any mode switch).
+    pub(super) fn image_view_open(&self) -> bool {
+        self.open && self.mode == OverlayMode::ImageView
+    }
+
+    /// Keyboard contract for the image viewer (C4): Esc / Enter dismisses; every
+    /// other key is swallowed so nothing leaks to the PTY behind the overlay.
+    /// Dismissal emits `Close`; the App's per-frame sync clears the GPU overlay
+    /// image so the next frame is byte-identical.
+    fn handle_image_view_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match input {
+            OverlayInput::Close | OverlayInput::Activate => OverlayOutcome::Close,
+            _ => OverlayOutcome::Consumed,
+        }
+    }
+
     /// Keyboard contract for the close-confirmation dialog (CLOSE-CONFIRM).
     /// Enter or Y confirms the close (`ForceClose`); Esc or N cancels (closes the
     /// dialog, the window stays open); every other key is swallowed so nothing
@@ -380,6 +417,14 @@ impl OverlayUi {
                         }
                         None => OverlayOutcome::Consumed,
                     },
+                    // C4: only ever visible on a resolved image span; build the
+                    // viewer-open outcome from the snapshotted target.
+                    ContextMenuItem::OpenInOdytty => match self.context_menu.path_target() {
+                        Some(resolved) => {
+                            OverlayOutcome::ContextMenuOpenInOdytty(Box::new(resolved.clone()))
+                        }
+                        None => OverlayOutcome::Consumed,
+                    },
                     ContextMenuItem::CopyPath => match self.context_menu.path_target() {
                         Some(resolved) => OverlayOutcome::ContextMenuCopyPath(resolved.abs.clone()),
                         None => OverlayOutcome::Consumed,
@@ -442,6 +487,7 @@ impl OverlayUi {
             OverlayMode::Replay => return self.handle_replay_input(input),
             OverlayMode::Connections => return self.handle_connections_input(input),
             OverlayMode::SessionAttach => return self.handle_session_attach_input(input),
+            OverlayMode::ImageView => return self.handle_image_view_input(input),
             OverlayMode::Settings => {}
         }
 
@@ -524,6 +570,7 @@ impl OverlayUi {
                     | OverlayMode::Replay
                     | OverlayMode::Connections
                     | OverlayMode::SessionAttach
+                    | OverlayMode::ImageView
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
@@ -563,6 +610,7 @@ impl OverlayUi {
                     | OverlayMode::Replay
                     | OverlayMode::Connections
                     | OverlayMode::SessionAttach
+                    | OverlayMode::ImageView
                     | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
                 }
             }
@@ -579,6 +627,7 @@ impl OverlayUi {
                     | OverlayMode::Replay
                     | OverlayMode::Connections
                     | OverlayMode::SessionAttach
+                    | OverlayMode::ImageView
                     | OverlayMode::ConfirmClose => {}
                 }
                 OverlayOutcome::Consumed
@@ -621,9 +670,11 @@ impl OverlayUi {
                             OverlayInput::Down
                         });
                     }
-                    // Onboarding and the close dialog are static, non-scrolling
-                    // cards: the wheel has nothing to move.
-                    OverlayMode::Onboarding | OverlayMode::ConfirmClose => {}
+                    // Onboarding, the close dialog, and the image viewer are
+                    // static, non-scrolling cards: the wheel has nothing to move.
+                    OverlayMode::Onboarding
+                    | OverlayMode::ConfirmClose
+                    | OverlayMode::ImageView => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -646,6 +697,7 @@ impl OverlayUi {
             | OverlayMode::Replay
             | OverlayMode::Connections
             | OverlayMode::SessionAttach
+            | OverlayMode::ImageView
             | OverlayMode::ConfirmClose => false,
         }
     }
@@ -666,6 +718,7 @@ impl OverlayUi {
             | OverlayMode::Replay
             | OverlayMode::Connections
             | OverlayMode::SessionAttach
+            | OverlayMode::ImageView
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -769,6 +822,7 @@ impl OverlayUi {
             | OverlayMode::Replay
             | OverlayMode::Connections
             | OverlayMode::SessionAttach
+            | OverlayMode::ImageView
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -786,6 +840,7 @@ impl OverlayUi {
             | OverlayMode::Replay
             | OverlayMode::Connections
             | OverlayMode::SessionAttach
+            | OverlayMode::ImageView
             | OverlayMode::ConfirmClose => {}
         }
     }
@@ -824,6 +879,7 @@ impl OverlayUi {
             OverlayMode::Replay
             | OverlayMode::Onboarding
             | OverlayMode::ContextMenu
+            | OverlayMode::ImageView
             | OverlayMode::ConfirmClose => (false, false),
         }
     }
@@ -1090,6 +1146,12 @@ pub(super) enum OverlayOutcome {
     /// through the same argv-only `path_open_argv` + `spawn_detached` the
     /// Ctrl+click path uses. Boxed to keep this short-lived enum small.
     ContextMenuOpenPath(Box<crate::paths::Resolved>),
+    /// Open a resolved image span in the in-terminal viewer from the context
+    /// menu's file section (Phase 9 / C4). The menu has already closed itself;
+    /// the App decodes the image (with the FLAG B decode bound), uploads it to
+    /// the GPU image layer, and opens the `ImageView` overlay. Boxed to keep
+    /// this short-lived enum small.
+    ContextMenuOpenInOdytty(Box<crate::paths::Resolved>),
     /// Copy the resolved absolute path to the clipboard as text (C3).
     ContextMenuCopyPath(String),
     /// Copy a `file://<abs>` URI to the clipboard as text (C3). The clipboard is
@@ -1198,6 +1260,11 @@ pub(super) enum OverlayMode {
     /// accepting a row emits an attach request for the App. Never mutates live
     /// core state.
     SessionAttach,
+    /// In-terminal image viewer (Phase 9 / C4): a presentation-only overlay
+    /// that renders a decoded image span ("Open in OdyTTY") centered over a
+    /// dimmed backdrop panel, through the existing GPU image-layer raster path.
+    /// Esc dismisses; closed = live frame byte-identical.
+    ImageView,
     /// Close-confirmation dialog (CLOSE-CONFIRM). A centered, static two-line
     /// modal shown when a close is requested while a foreground job is running;
     /// Enter/Y confirms (emits [`OverlayOutcome::ForceClose`]), Esc/N cancels.
@@ -1381,6 +1448,10 @@ pub(super) fn overlay_rect(
         OverlayMode::Replay => overlay.replay.desired_width(columns),
         OverlayMode::Connections => overlay.connections.desired_width(columns),
         OverlayMode::SessionAttach => overlay.session_attach.desired_width(columns),
+        // The image viewer (C4) uses a full-width backdrop panel; the decoded
+        // image is drawn centered over it by the GPU image layer, so the panel
+        // is just the dimmed frame behind the picture.
+        OverlayMode::ImageView => columns,
         // Unreachable: handled by the early return above.
         OverlayMode::ContextMenu => overlay.context_menu.menu_width(),
         // Static two-line dialog; the `.max(36)` floor below gives it room and
@@ -1435,6 +1506,9 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         OverlayMode::Replay => "\u{2190} Session Replay  (Esc = back)".to_owned(),
         OverlayMode::Connections => "\u{2190} Connections  (Esc = back)".to_owned(),
         OverlayMode::SessionAttach => "\u{2190} Attach Session  (Esc = back)".to_owned(),
+        OverlayMode::ImageView => {
+            format!("\u{2190} {}  (Esc = close)", overlay.image_view_caption)
+        }
         // Unreachable: handled by the early dispatch above.
         OverlayMode::ContextMenu => String::new(),
         OverlayMode::ConfirmClose => "Close?".to_owned(),
@@ -1662,6 +1736,15 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
+            // The image viewer (C4) draws the decoded picture over the panel via
+            // the GPU image layer; the only cell-rendered body is a short hint,
+            // which the image covers when it is large enough.
+            OverlayMode::ImageView => vec![OverlayLine {
+                text: "Press Esc to close.".to_owned(),
+                focused: false,
+                swatch: None,
+                bold: false,
+            }],
             // The context menu renders via `apply_context_menu`, not this shared
             // body walker (IN2).
             OverlayMode::ContextMenu => Vec::new(),
@@ -2658,6 +2741,38 @@ mod tests {
             OverlayOutcome::Consumed
         );
         assert!(overlay.is_open());
+    }
+
+    #[test]
+    fn image_view_opens_renders_caption_and_dismisses() {
+        // C4: the image-viewer overlay opens in its own mode, paints its caption
+        // title + the static hint, and dismisses on Esc / Enter while swallowing
+        // every other key (no PTY leak behind the overlay).
+        let mut overlay = OverlayUi::default();
+        overlay.open_image_view("diagram.png".to_owned());
+        assert!(overlay.is_open());
+        assert!(overlay.image_view_open());
+        assert_eq!(overlay.render_signature().mode, OverlayMode::ImageView);
+
+        // The overlay paints the filename caption and the close hint.
+        let mut rendered = snapshot(70, 18);
+        apply_overlay(&mut rendered, &mut overlay);
+        let painted: String = rendered.cells.iter().map(|cell| cell.ch).collect();
+        assert!(painted.contains("diagram.png"), "caption is painted");
+        assert!(painted.contains("Press Esc to close."), "hint is painted");
+
+        // A stray key is swallowed; the overlay stays open.
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Char('x')),
+            OverlayOutcome::Consumed
+        );
+        assert!(overlay.image_view_open());
+
+        // Esc and Enter both dismiss (emit Close).
+        for input in [OverlayInput::Close, OverlayInput::Activate] {
+            overlay.open_image_view("pic.webp".to_owned());
+            assert_eq!(overlay.handle_input(input), OverlayOutcome::Close);
+        }
     }
 
     #[test]

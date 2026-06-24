@@ -168,6 +168,11 @@ impl App {
                 let argv = self.path_open_argv_for(&resolved);
                 super::interactive_paths::spawn_detached(&argv);
             }
+            // C4: open the resolved image span in the in-terminal viewer.
+            OverlayOutcome::ContextMenuOpenInOdytty(resolved) => {
+                self.flush_pending_overlay_settings();
+                self.open_image_view(&resolved);
+            }
             OverlayOutcome::ContextMenuCopyPath(abs) => {
                 self.flush_pending_overlay_settings();
                 let _ = self.clipboard.write_text(&abs);
@@ -577,6 +582,72 @@ impl App {
             &self.settings.interactive_paths_editor,
             editor_env.as_deref(),
         )
+    }
+
+    /// Open a resolved image span in the in-terminal viewer (Phase 9 / C4).
+    /// Decodes the file through the single bounded decode point
+    /// ([`super::image_decode::decode_image_rgba`], FLAG B), uploads the pixels
+    /// to the GPU image layer, and opens the `ImageView` overlay. A decode that
+    /// fails or is refused by the decode bound is a graceful no-op — the menu
+    /// item only ever appears on an extension match, so a corrupt/oversized file
+    /// simply does not open rather than erroring. Presentation-only.
+    pub(super) fn open_image_view(&mut self, resolved: &crate::paths::Resolved) {
+        // Only files are images; a directory span never reaches here, but guard
+        // anyway so the decode is never attempted on a non-file.
+        if resolved.kind != crate::paths::FsKind::File {
+            return;
+        }
+        let Some((rgba, width, height)) =
+            crate::native::image_decode::decode_image_rgba(std::path::Path::new(&resolved.abs))
+        else {
+            return;
+        };
+        // Hand the pixels to the GPU overlay slot (centered fit computed there),
+        // then open the presentation-only overlay with the filename caption.
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.set_overlay_image(Some((rgba.as_slice(), width, height)));
+        }
+        let caption = resolved
+            .abs
+            .rsplit('/')
+            .next()
+            .unwrap_or(resolved.abs.as_str())
+            .to_owned();
+        self.overlay.open_image_view(caption);
+        self.image_overlay = Some(super::interactive_paths::ImageOverlayState {
+            rgba,
+            width,
+            height,
+        });
+        self.needs_rebuild = true;
+    }
+
+    /// Keep the GPU image-viewer overlay in lockstep with the overlay state
+    /// (C4). Called once per frame before drawing: when the `ImageView` overlay
+    /// is no longer open (dismissed via Esc, click-outside, or any mode switch),
+    /// clear the decoded buffer and the GPU overlay texture so the very next
+    /// frame is byte-identical to the no-viewer path. Cheap no-op while the
+    /// viewer stays open or was never opened.
+    pub(super) fn sync_image_overlay(&mut self) {
+        if self.image_overlay.is_some() && !self.overlay.image_view_open() {
+            self.image_overlay = None;
+            if let Some(gpu) = self.gpu.as_mut() {
+                gpu.set_overlay_image(None);
+            }
+        }
+    }
+
+    /// Re-push the current image-viewer overlay image after a surface resize so
+    /// its centered fit-rect is recomputed for the new dimensions (C4). No-op
+    /// when the viewer is closed.
+    pub(super) fn refresh_image_overlay_on_resize(&mut self) {
+        if let Some(state) = self.image_overlay.as_ref() {
+            let rgba = state.rgba.clone();
+            let (width, height) = (state.width, state.height);
+            if let Some(gpu) = self.gpu.as_mut() {
+                gpu.set_overlay_image(Some((rgba.as_slice(), width, height)));
+            }
+        }
     }
 
     pub(super) fn write_pty_bytes(&self, bytes: &[u8]) {

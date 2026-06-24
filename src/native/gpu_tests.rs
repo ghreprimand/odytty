@@ -450,6 +450,79 @@ fn background_image_pipeline_builds_from_png() {
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
+/// C4: the in-terminal image viewer's overlay slot toggles cleanly between
+/// present and absent. Absent (closed viewer) means `draw_overlay` emits no
+/// quads → the frame is byte-identical to the no-viewer path, the
+/// presentation-only invariant. GPU-gated (skips when no adapter is available).
+#[test]
+fn overlay_image_set_and_clear_toggles_presence() {
+    let Some((device, queue)) = test_device_with_hdr() else {
+        return;
+    };
+    let mut layer = super::image_layer::ImageLayer::new(&device, TEST_SURFACE_FORMAT);
+    let viewport_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("test-viewport"),
+        size: 64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    assert!(
+        !layer.has_overlay_image(),
+        "a fresh layer holds no overlay image (closed viewer = byte-identical)"
+    );
+
+    // A synthetic 2×2 RGBA image — no file, no decoder.
+    let rgba = vec![0xFFu8; 2 * 2 * 4];
+    layer.set_overlay_image(
+        &device,
+        &queue,
+        &viewport_buf,
+        Some((&rgba, 2, 2)),
+        100.0,
+        80.0,
+    );
+    assert!(
+        layer.has_overlay_image(),
+        "set installs the overlay image so draw_overlay emits a quad"
+    );
+
+    layer.set_overlay_image(&device, &queue, &viewport_buf, None, 100.0, 80.0);
+    assert!(
+        !layer.has_overlay_image(),
+        "clearing removes it → the next frame is byte-identical again"
+    );
+
+    // A degenerate (zero-dimension) buffer is treated as clear, never installed.
+    layer.set_overlay_image(
+        &device,
+        &queue,
+        &viewport_buf,
+        Some((&rgba, 0, 0)),
+        100.0,
+        80.0,
+    );
+    assert!(
+        !layer.has_overlay_image(),
+        "degenerate dims do not install an overlay image"
+    );
+    // An under-length buffer for the claimed dims is also rejected.
+    layer.set_overlay_image(
+        &device,
+        &queue,
+        &viewport_buf,
+        Some((&rgba, 64, 64)),
+        100.0,
+        80.0,
+    );
+    assert!(
+        !layer.has_overlay_image(),
+        "an rgba buffer too small for the claimed dims is rejected"
+    );
+
+    device.poll(wgpu::PollType::wait_indefinitely()).ok();
+}
+
 fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
