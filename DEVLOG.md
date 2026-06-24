@@ -7,6 +7,82 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Discoverability: default chords + menu entries for four overlays
+
+The theme builder and connection manager had no keybinding and no menu entry,
+making them effectively undiscoverable. The command palette, session replay, and
+connection manager were intentionally left unbound for input byte-identity, but
+the discoverability cost was too high. v0.3.1 reverses that for these four
+overlays: each now has BOTH a default keybinding AND a discoverable menu entry.
+
+Keybindings (`default_key_bindings`): `Ctrl+Shift+P` → command palette (the
+industry-standard chord), `Ctrl+Shift+S` → connection manager, `Ctrl+Shift+R` →
+session replay, `Ctrl+Shift+B` → theme builder. A new `BindableAction::ThemeBuilder`
+backs the builder (previously reachable only via the settings Themes `b`-on-row
+path); it dispatches to `open_theme_builder_overlay` alongside the other overlay
+chords. All four are `Ctrl+Shift+<letter>` chords, which a TUI cannot receive as
+input, so no PTY input path is perturbed.
+
+**Existing-binding change (documented explicitly):** reclaiming `Ctrl+Shift+P`
+for the palette dropped BOTH prompt-jump *letter fallbacks* (`Ctrl+Shift+P` and
+`Ctrl+Shift+N`). Prompt navigation's primary bindings — the `Ctrl+Shift+Up` /
+`Ctrl+Shift+Down` arrow chords — are unchanged and still fully work. This is the
+one default-input-path change in the packet; users who relied on the letter
+fallbacks can re-add them via `keybinds`.
+
+Right-click menu: a new launcher section below Settings adds "Connection Manager",
+"Command Palette", and "Session Replay" (each always-enabled, each labelled with
+its live effective chord via the existing `set_accelerators` path, so the labels
+auto-track rebinds). The menu grew 12→15 items / 14→18 single-pane body rows; the
+existing small-window scroll work handles the taller menu (affordance + scroll
+confirmed). The theme builder is NOT in the right-click menu — its home is the
+Themes settings section.
+
+Settings → Themes: a selectable "Open Theme Builder" action row at the end of the
+Themes Level-2 list emits `OpenThemeBuilder` on Enter/click (no `b` press). It is
+a synthetic action entry (not a real setting) that survives live value-sync via a
+dedicated skip, built through a shared `section_entries` helper so both the drill
+and post-commit rebuild paths preserve it.
+
+Tests: bindings (all four chords resolve; arrows still prompt-jump; P→palette and
+N unbound), context-menu launcher items (present in their own section, each
+activates to the right overlay, accelerator labels reflect the bound chords),
+settings-panel action entry (emits `OpenThemeBuilder`, survives value-sync), and
+chord-opens-overlay E2Es through the production key path. Geometry-coupled menu
+tests were made layout-robust (resolve the click row from the live composited
+menu rather than hardcoding, immune to the taller menu's edge-clamp). Genuine-
+guards confirmed on bindings, outcome wiring, settings interception, and section
+placement. `cargo test --locked` green; `gpu_composite_smoke` 3/3.
+
+---
+
+## 2026-06-24 -- Overlays scroll correctly on small windows (render-cache fix)
+
+On a short terminal the overlays — context menu, settings, theme/font pickers,
+key bindings, connection manager, theme builder, command palette — could walk
+their selection off-screen while the visible list stayed frozen in place. The
+math was correct; the GPU kept showing a stale frame.
+
+Root cause: a **render-signature cache-staleness bug**. Each overlay's scroll
+offset was absent from the signature the renderer compares to decide whether to
+repaint. A wheel/keyboard scroll that moved only the view (not the selection)
+produced an unchanged signature, so the renderer reused the cached frame and the
+list never moved. A second bug: the context-menu wheel arm was a literal no-op
+(`ContextMenu => {}`), so the menu could not scroll at all.
+
+Fix: fold each overlay's scroll offset into its render signature so a view-only
+scroll reclassifies to a repaint; wire the context-menu wheel; and add a shared
+▲/▼ scroll affordance (`scroll_arrows`) that is drawn only when content actually
+overflows. When everything fits, the affordance returns `(false, false)` and the
+overlay paints byte-identically to before — the plain/fast path is unperturbed
+(`gpu_composite_smoke` 3/3). Selection-follow keeps the focused row inside the
+visible window on every overlay (context menu, settings Level-1/2, pickers,
+connection manager, theme builder, palette). E2E tests assert the composited
+snapshot **and** a render-signature change (catching the cache staleness that a
+geometry-only test would miss). `cargo test --locked` green.
+
+---
+
 ## 2026-06-23 -- Fix: survivor pane stuck at split width after closing a split
 
 Closing one half of a split so the tab collapsed back to a single pane left the

@@ -91,7 +91,7 @@ For the current source release, install OdyTTY for the current user.
 Download and verify the release archive:
 
 ```sh
-version=0.3.0
+version=0.3.1
 workdir=$(mktemp -d /tmp/odytty-install.XXXXXX)
 cd "$workdir"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
@@ -149,7 +149,7 @@ natively on your machine).
 
 ```sh
 xcode-select --install   # once, if you don't already have the Command Line Tools
-version=0.3.0
+version=0.3.1
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
 curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/SHA256SUMS"
 grep "odytty-${version}.tar.gz" SHA256SUMS | shasum -a 256 -c -
@@ -345,7 +345,10 @@ the right-click menu's "Split Right" / "Split Down" items. When the active tab
 is already multi-pane, the right-click menu also offers a "Close Pane" item
 (labelled with the effective `Ctrl+b x` prefix chord) to close just the focused
 pane; it is hidden in a single-pane tab, where closing the tab is the only
-close. Once the active tab has multiple panes, a tmux-style prefix (default
+close. The right-click menu also has a launcher section at the bottom —
+"Connection Manager", "Command Palette", and "Session Replay" — each labelled
+with its effective chord and opening the matching overlay. Once the active tab
+has multiple panes, a tmux-style prefix (default
 `Ctrl+b`, configurable via
 `pane_prefix`) opens a transient pane-command mode; press the prefix then a pane
 key:
@@ -380,6 +383,10 @@ Core local shortcuts:
 | `Ctrl+Shift+F` | Search scrollback |
 | `Ctrl+Shift+,` | Settings panel |
 | `Ctrl+Shift+H` | Theme picker |
+| `Ctrl+Shift+B` | Theme builder |
+| `Ctrl+Shift+P` | Command palette |
+| `Ctrl+Shift+S` | Connection manager |
+| `Ctrl+Shift+R` | Session replay |
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste |
 | `Shift+PageUp` / `Shift+PageDown` | Scroll local viewport |
 | `Ctrl+Shift+L` | Keyboard quick-select hints |
@@ -387,9 +394,15 @@ Core local shortcuts:
 | `Ctrl+Shift+Up` / `Ctrl+Shift+Down` | Jump to previous / next prompt mark |
 | `Ctrl+Shift+K` | Clear editable prompt input when shell integration allows it |
 
-The command palette is available as the `command-palette` action, but it is
-unbound by default so existing PTY input stays unchanged. Opt in with a free
-chord, for example:
+The command palette, connection manager, session replay, and theme builder each
+ship with a default `Ctrl+Shift+<letter>` chord (v0.3.1) and a discoverable
+menu entry — the first three appear in the right-click menu's launcher section,
+and the theme builder is an "Open Theme Builder" entry in the Settings → Themes
+section. These chords are all `Ctrl+Shift+<letter>`, which a TUI cannot receive,
+so PTY input is unchanged; reclaiming `Ctrl+Shift+P` for the palette dropped the
+old `Ctrl+Shift+P` / `Ctrl+Shift+N` prompt-jump *letter fallbacks* (prompt
+navigation still works via the `Ctrl+Shift+Up/Down` arrows). Rebind any of them,
+for example:
 
 ```sh
 ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" odytty
