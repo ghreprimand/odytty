@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Fix — macOS mouse-move crash on Powerline-prompt hover (multibyte path scan)
+
+A confirmed hard crash on macOS 26.5: hovering the mouse over a line containing a
+Powerline/Nerd-Font prompt glyph aborted the whole process. Root cause was in the
+interactive-paths scanner (`src/paths/detect.rs`), not in winit or AppKit.
+
+`detect_paths` walked the line byte-by-byte testing `(bytes[i] as char).is_whitespace()`
+to find token boundaries. That cast is unsound for non-ASCII: a UTF-8 continuation
+byte cast `as char` can alias a Unicode whitespace codepoint. A Powerline glyph
+`\u{e0a0}` is UTF-8 `EE 82 A0`, and its tail byte `0xA0 as char` is U+00A0
+NO-BREAK SPACE — which `char::is_whitespace()` reports as `true`. The scanner then
+split the token in the middle of that 3-byte character and sliced `&line[..]` on a
+non-char-boundary, panicking. Because the scan runs on the mouse-move hover path,
+the panic unwound into winit's `WinitView::mouse_moved`, could not cross the
+AppKit→Rust FFI boundary, and aborted (SIGABRT) instead of unwinding.
+
+Fix: test `bytes[i].is_ascii_whitespace()` on the raw byte at both scan sites.
+ASCII bytes are always char boundaries, so the slice can never land mid-character,
+and ASCII whitespace is the only whitespace that should delimit a token here.
+Regression test `powerline_continuation_byte_does_not_split_token_or_panic` covers
+the exact `\u{e0a0}` glyph from the crash report plus a U+2028 case.
+
+Verified: `fmt`/`clippy --all-targets --locked -D warnings` clean; lib suite
+2383 pass / 0 fail (detect module 17→18); `gpu_composite_smoke` 3/3;
+`license_headers` 1/1. Diagnostic captured via `RUST_BACKTRACE=1` from the
+installed 0.4.0 build (the persistent panic-hook log is still upcoming work).
+
+---
+
 ## 2026-06-24 -- Release v0.4.0 — interactive paths, session-attach launcher & settings completeness
 
 The capstone of the post-v0.3.0 roadmap: three initiatives land together, all

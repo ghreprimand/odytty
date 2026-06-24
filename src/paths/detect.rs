@@ -59,15 +59,21 @@ pub fn detect_paths(line: &str) -> Vec<PathSpan> {
     let bytes = line.as_bytes();
     let mut i = 0usize;
     while i < bytes.len() {
-        // Advance to the start of a non-whitespace token. `line` is UTF-8;
-        // whitespace bytes are all ASCII so byte scanning is safe here.
-        if (bytes[i] as char).is_whitespace() {
+        // Advance to the start of a non-whitespace token. We MUST test only
+        // ASCII whitespace on the raw byte: a UTF-8 continuation byte cast
+        // `as char` can alias a Unicode whitespace codepoint (e.g. the `0xA0`
+        // tail of a Powerline glyph `\u{e0a0}` becomes U+00A0 NO-BREAK SPACE,
+        // which `char::is_whitespace()` reports as true). That would split a
+        // token mid-character and make the `&line[..]` slice below panic on a
+        // non-char-boundary. `is_ascii_whitespace` on the byte is boundary-safe
+        // and is the only whitespace that should delimit a token here anyway.
+        if bytes[i].is_ascii_whitespace() {
             i += 1;
             continue;
         }
         // Find the end of this whitespace-delimited token.
         let tok_start = i;
-        while i < bytes.len() && !(bytes[i] as char).is_whitespace() {
+        while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
             i += 1;
         }
         let tok_end = i;
@@ -376,6 +382,30 @@ mod tests {
         let s = &spans[0];
         // Offsets must land on char boundaries (slicing would panic otherwise).
         assert_eq!(&line[s.start..s.end], "/proj/données/файл.txt");
+    }
+
+    #[test]
+    fn powerline_continuation_byte_does_not_split_token_or_panic() {
+        // Regression for the macOS 26.5 mouse-move abort: a Powerline prompt
+        // glyph `\u{e0a0}` is UTF-8 `EE 82 A0`. Its tail byte `0xA0`, if cast
+        // `as char`, becomes U+00A0 NO-BREAK SPACE, which `is_whitespace()`
+        // reports true — splitting the token mid-character and panicking the
+        // `&line[..]` slice. The scanner must treat the whole glyph as
+        // non-whitespace and never panic.
+        let line = "\u{e0a0} ~/Projects/Archon \u{e0b0} main";
+        let spans = detect_paths(line);
+        // The home path is still found, and every offset is a char boundary.
+        for s in &spans {
+            // Slicing on a non-boundary would panic; this asserts boundaries.
+            let _ = &line[s.start..s.end];
+        }
+        assert_eq!(raws(line), vec!["~/Projects/Archon".to_owned()]);
+
+        // The other Unicode-whitespace alias: NEL is the `0x85` tail of many
+        // glyphs. A token containing a raw `0x85` continuation byte must not
+        // split either.
+        let nel_glyph = "/proj/\u{2028}x.rs"; // U+2028 = E2 80 A8
+        let _ = detect_paths(nel_glyph); // must not panic
     }
 
     #[test]
