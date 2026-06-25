@@ -261,12 +261,12 @@ pub fn visible_range_from_absolute(
     let start_column = if range.start.row < top {
         0
     } else {
-        range.start.column.min(dimensions.columns - 1)
+        range.start.column.min(dimensions.columns.saturating_sub(1))
     };
     let end_column = if range.end.row > bottom {
-        dimensions.columns - 1
+        dimensions.columns.saturating_sub(1)
     } else {
-        range.end.column.min(dimensions.columns - 1)
+        range.end.column.min(dimensions.columns.saturating_sub(1))
     };
 
     normalize_range(
@@ -317,7 +317,7 @@ pub fn visible_block_range_from_absolute(
 
     let visible_start_row = range.start.row.max(top) - top;
     let visible_end_row = range.end.row.min(bottom) - top;
-    let last_column = dimensions.columns - 1;
+    let last_column = dimensions.columns.saturating_sub(1);
     let lo = range.start.column.min(range.end.column).min(last_column);
     let hi = range.start.column.max(range.end.column).min(last_column);
 
@@ -376,8 +376,8 @@ pub(crate) fn cell_at_physical_with_padding(
     let column = ((x_px - pad).max(0.0) as u32 / cell.width.max(1)) as usize;
     let row = ((y_px - pad).max(0.0) as u32 / cell.height.max(1)) as usize;
     CellPoint {
-        row: row.min(dimensions.rows - 1),
-        column: column.min(dimensions.columns - 1),
+        row: row.min(dimensions.rows.saturating_sub(1)),
+        column: column.min(dimensions.columns.saturating_sub(1)),
     }
 }
 
@@ -457,12 +457,12 @@ pub fn word_range_at(snapshot: &Snapshot, point: CellPoint) -> Option<SelectionR
 pub fn line_range_at(point: CellPoint, dimensions: Dimensions) -> Option<SelectionRange> {
     normalize_range(
         CellPoint {
-            row: point.row.min(dimensions.rows - 1),
+            row: point.row.min(dimensions.rows.saturating_sub(1)),
             column: 0,
         },
         CellPoint {
-            row: point.row.min(dimensions.rows - 1),
-            column: dimensions.columns - 1,
+            row: point.row.min(dimensions.rows.saturating_sub(1)),
+            column: dimensions.columns.saturating_sub(1),
         },
     )
 }
@@ -529,19 +529,31 @@ fn autoscroll_rows(overshoot_px: f64, cell_height: f64, max_rows: isize) -> isiz
 
 pub fn selected_text(snapshot: &Snapshot, range: SelectionRange) -> String {
     let mut lines = Vec::new();
-    let start_row = range.start.row.min(snapshot.dimensions.rows - 1);
-    let end_row = range.end.row.min(snapshot.dimensions.rows - 1);
+    let start_row = range
+        .start
+        .row
+        .min(snapshot.dimensions.rows.saturating_sub(1));
+    let end_row = range
+        .end
+        .row
+        .min(snapshot.dimensions.rows.saturating_sub(1));
 
     for row in start_row..=end_row {
         let start_column = if row == start_row {
-            range.start.column.min(snapshot.dimensions.columns - 1)
+            range
+                .start
+                .column
+                .min(snapshot.dimensions.columns.saturating_sub(1))
         } else {
             0
         };
         let end_column = if row == end_row {
-            range.end.column.min(snapshot.dimensions.columns - 1)
+            range
+                .end
+                .column
+                .min(snapshot.dimensions.columns.saturating_sub(1))
         } else {
-            snapshot.dimensions.columns - 1
+            snapshot.dimensions.columns.saturating_sub(1)
         };
         let offset = row * snapshot.dimensions.columns;
         let line = snapshot.cells[offset + start_column..=offset + end_column]
@@ -572,10 +584,16 @@ pub fn selected_text(snapshot: &Snapshot, range: SelectionRange) -> String {
 /// is a visible-space range whose two corner columns define the band.
 pub fn selected_text_block(snapshot: &Snapshot, range: SelectionRange) -> String {
     let (lo, hi) = block_column_bounds(range);
-    let start_row = range.start.row.min(snapshot.dimensions.rows - 1);
-    let end_row = range.end.row.min(snapshot.dimensions.rows - 1);
-    let lo = lo.min(snapshot.dimensions.columns - 1);
-    let hi = hi.min(snapshot.dimensions.columns - 1);
+    let start_row = range
+        .start
+        .row
+        .min(snapshot.dimensions.rows.saturating_sub(1));
+    let end_row = range
+        .end
+        .row
+        .min(snapshot.dimensions.rows.saturating_sub(1));
+    let lo = lo.min(snapshot.dimensions.columns.saturating_sub(1));
+    let hi = hi.min(snapshot.dimensions.columns.saturating_sub(1));
 
     let mut lines = Vec::new();
     for row in start_row..=end_row {
@@ -618,19 +636,31 @@ pub fn apply_highlight(
     range: SelectionRange,
     themed: Option<SelectionStyle>,
 ) {
-    let start_row = range.start.row.min(snapshot.dimensions.rows - 1);
-    let end_row = range.end.row.min(snapshot.dimensions.rows - 1);
+    let start_row = range
+        .start
+        .row
+        .min(snapshot.dimensions.rows.saturating_sub(1));
+    let end_row = range
+        .end
+        .row
+        .min(snapshot.dimensions.rows.saturating_sub(1));
 
     for row in start_row..=end_row {
         let start_column = if row == start_row {
-            range.start.column.min(snapshot.dimensions.columns - 1)
+            range
+                .start
+                .column
+                .min(snapshot.dimensions.columns.saturating_sub(1))
         } else {
             0
         };
         let end_column = if row == end_row {
-            range.end.column.min(snapshot.dimensions.columns - 1)
+            range
+                .end
+                .column
+                .min(snapshot.dimensions.columns.saturating_sub(1))
         } else {
-            snapshot.dimensions.columns - 1
+            snapshot.dimensions.columns.saturating_sub(1)
         };
         let offset = row * snapshot.dimensions.columns;
         for cell in &mut snapshot.cells[offset + start_column..=offset + end_column] {
@@ -680,10 +710,16 @@ pub fn apply_highlight_block(
     themed: Option<SelectionStyle>,
 ) {
     let (lo, hi) = block_column_bounds(range);
-    let start_row = range.start.row.min(snapshot.dimensions.rows - 1);
-    let end_row = range.end.row.min(snapshot.dimensions.rows - 1);
-    let lo = lo.min(snapshot.dimensions.columns - 1);
-    let hi = hi.min(snapshot.dimensions.columns - 1);
+    let start_row = range
+        .start
+        .row
+        .min(snapshot.dimensions.rows.saturating_sub(1));
+    let end_row = range
+        .end
+        .row
+        .min(snapshot.dimensions.rows.saturating_sub(1));
+    let lo = lo.min(snapshot.dimensions.columns.saturating_sub(1));
+    let hi = hi.min(snapshot.dimensions.columns.saturating_sub(1));
 
     for row in start_row..=end_row {
         let offset = row * snapshot.dimensions.columns;
@@ -765,6 +801,59 @@ mod tests {
         assert_eq!(
             cell_at_physical_with_padding(25.0, 41.0, cell, dims, padding),
             CellPoint { row: 2, column: 2 }
+        );
+    }
+
+    #[test]
+    fn cell_at_physical_zero_area_surface_does_not_underflow() {
+        // P0-3 headline: a pointer-move while the surface is 0-area (minimized,
+        // mid-resize-to-zero, or a degenerate pre-layout grid) must NOT underflow
+        // `rows - 1` / `columns - 1` — that panics in debug and wraps to
+        // usize::MAX in release, letting an out-of-range cell escape downstream.
+        // saturating_sub(1) pins a zero-dim grid to the (0,0) edge cell, which
+        // downstream `.get()` bounds checks absorb safely.
+        let cell = CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        };
+        let pad = WindowPadding::ZERO;
+        // Fully zero-area.
+        assert_eq!(
+            cell_at_physical_with_padding(40.0, 40.0, cell, Dimensions::new(0, 0), pad),
+            CellPoint { row: 0, column: 0 },
+        );
+        // Degenerate single-axis permutations (one dim zero).
+        assert_eq!(
+            cell_at_physical_with_padding(40.0, 40.0, cell, Dimensions::new(1, 0), pad),
+            CellPoint { row: 0, column: 0 },
+        );
+        assert_eq!(
+            cell_at_physical_with_padding(40.0, 40.0, cell, Dimensions::new(0, 1), pad),
+            CellPoint { row: 0, column: 0 },
+        );
+        // A negative (off-window-left/above) coordinate at zero-dim is still (0,0)
+        // — lower clamp and saturating upper clamp compose.
+        assert_eq!(
+            cell_at_physical_with_padding(-9999.0, -9999.0, cell, Dimensions::new(0, 0), pad),
+            CellPoint { row: 0, column: 0 },
+        );
+    }
+
+    #[test]
+    fn cell_at_physical_far_multidisplay_coordinate_clamps_without_wrap() {
+        // An off-window-right / far secondary-display coordinate must saturate to
+        // the last cell, never wrap. Rust's saturating float→int cast pins the
+        // huge pixel value to u32::MAX, then `.min(dim-1)` clamps.
+        let cell = CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        };
+        let dims = Dimensions::new(4, 3); // cols=4, rows=3
+        assert_eq!(
+            cell_at_physical(5_000_000.0, 5_000_000.0, cell, dims),
+            CellPoint { row: 2, column: 3 },
         );
     }
 

@@ -1510,7 +1510,8 @@ impl App {
             return;
         };
         let Some(title) = ({
-            let mut terminal = self.terminal.lock().expect("terminal mutex");
+            // P0-3: OSC-title event path — poison-recover, never abort.
+            let mut terminal = crate::native::lock_recover(&self.terminal);
             changed_window_title(&mut terminal, &self.options.title)
         }) else {
             return;
@@ -2243,7 +2244,8 @@ impl ApplicationHandler<UserEvent> for App {
                             image_uploads,
                         ) = {
                             let (scrollback_len, prompt_marks_changed, bell_rang) = {
-                                let mut terminal = self.terminal.lock().expect("terminal mutex");
+                                // P0-3: per-frame paint read — poison-recover.
+                                let mut terminal = crate::native::lock_recover(&self.terminal);
                                 (
                                     terminal.screen().scrollback_len(),
                                     self.settings.command_status_gutter
@@ -2269,7 +2271,8 @@ impl ApplicationHandler<UserEvent> for App {
                             }
                             let offset = self.viewport.offset();
                             let mut search = std::mem::take(&mut self.search);
-                            let terminal = self.terminal.lock().expect("terminal mutex");
+                            // P0-3: same-frame search refresh + graphics read.
+                            let terminal = crate::native::lock_recover(&self.terminal);
                             if search.is_open() {
                                 search.refresh(&terminal);
                             }

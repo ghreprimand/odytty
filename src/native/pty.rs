@@ -77,7 +77,10 @@ pub(super) fn spawn_pty_pump(
                 }
                 Ok(len) => {
                     let host_output = {
-                        let mut term = terminal.lock().expect("terminal mutex");
+                        // P0-3: a poison from any unrelated hot-path panic must
+                        // not stall the reader thread — recover and keep output
+                        // flowing. Byte-identical when healthy.
+                        let mut term = super::lock_recover(&terminal);
                         term.advance(&buffer[..len]);
                         // Opt-in output recording (session_replay). The atomic
                         // gate makes the default-off path a single relaxed load

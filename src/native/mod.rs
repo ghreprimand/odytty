@@ -256,3 +256,17 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
 fn rgb(color: (u8, u8, u8)) -> RgbColor {
     RgbColor::new(color.0, color.1, color.2)
 }
+
+/// Lock a `Mutex`, recovering the guard if a previous holder panicked while
+/// holding it (P0-3 defense-in-depth).
+///
+/// The shared terminal model's invariants survive a poisoned panic: the panics
+/// this guards against live in scanner / paint / title code that reads the grid
+/// or appends bytes without leaving it half-mutated, so taking the inner guard
+/// is safe. Recovering keeps the event loop alive instead of converting the next
+/// mouse-move / paint / OSC-title event into a second abort that unwinds across
+/// the AppKit→Rust FFI boundary. **Byte-identical on the happy path** — the
+/// recovery closure runs only when the lock is already poisoned.
+pub(crate) fn lock_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}

@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Fix — hot-path crash hardening: mutex poison-recovery + pixel→cell underflow (P0-3 defense-in-depth)
+
+v0.4.1 bug-fix sprint, Phase 7. Defense-in-depth only — the macOS 26.5 SIGABRT
+was already root-caused (the path scanner casting a UTF-8 continuation byte
+`as char`) and fixed in c240220 with a regression test. This packet does not
+chase that crash or touch winit; it hardens two hot paths that could turn an
+unrelated panic into a second abort unwinding across the AppKit→Rust FFI.
+
+Mutex poison-recovery (Item A). A panic while holding a `Mutex` poisons it, so
+the next `.lock().unwrap()` aborts — and on the event-loop / paint / mouse-move
+paths that abort crosses the FFI exactly like the original crash. A new
+`lock_recover` helper takes the inner guard when a previous holder poisoned the
+lock, and the six hot terminal-lock sites — copy/PRIMARY selection text, the
+drag-autoscroll snapshot, the per-frame paint scrollback/bell read and the
+same-frame search/graphics read, the OSC window-title update, and the PTY reader
+thread's `advance` — now recover instead of aborting, keeping the event loop and
+output flowing. Byte-identical on the healthy path: the recovery closure runs
+only on an already-poisoned lock. Cold init and test-only lock sites are
+deliberately left untouched.
+
+Pixel→cell underflow (Item B). `cell_at_physical_with_padding` runs on every
+pointer-move and used unchecked `rows - 1` / `columns - 1`, which underflowed on
+a 0-area surface (window minimized, mid-resize-to-zero, or pre-layout) — a debug
+panic / release wrap on the exact mouse-move FFI path. It and the rest of the
+selection-range geometry now use `saturating_sub(1)`, pinning a zero-dim grid to
+the (0,0) edge cell that downstream `.get()`-based checks absorb, matching the
+guard the sibling overlay converter (`window_overlay_cell`) already had. Negative
+/ off-window / far-multi-display coordinates were already clamped and are
+unchanged.
+
+Tests (4 new): the `lock_recover` helper hands back a usable guard after a
+deliberate poison; the live `current_selection_text` copy choke point returns
+(instead of aborting) over a poisoned terminal lock; a zero-area surface yields
+(0,0) without underflow; and a far multi-display coordinate clamps to the last
+cell without wrapping. Verified (isolated worktree on post-Phase-9 master,
+serialized): `cargo fmt --check` clean; `cargo clippy --all-targets --locked --
+-D warnings` clean; `cargo test --locked --lib` 2445 passed / 0 failed / 7
+ignored; `gpu_composite_smoke` 3/3 (incl. byte-identity passthrough);
+`license_headers` 1/1 (the new test file carries its SPDX header). Staged diff
+scanned — no secrets or personal paths.
+
 ## 2026-06-24 -- Fix — `--show-config` interactive-path knobs + magic-byte MIME fallback + docs (P2-10, P2-11)
 
 v0.4.1 bug-fix sprint, Phase 9.

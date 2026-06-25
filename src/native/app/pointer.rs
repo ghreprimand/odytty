@@ -406,7 +406,9 @@ impl App {
 
     pub(super) fn current_selection_text(&self) -> Option<String> {
         let range = self.selection.range()?;
-        let terminal = self.terminal.lock().expect("terminal mutex");
+        // P0-3: poison-recover instead of aborting across the AppKit→Rust FFI on
+        // the copy / PRIMARY-selection choke point. Byte-identical when healthy.
+        let terminal = crate::native::lock_recover(&self.terminal);
         let scrollback_len = terminal.screen().scrollback_len();
         let offset = self.viewport.offset();
         // MOUSE-RECT: a block selection copies the column band on every row

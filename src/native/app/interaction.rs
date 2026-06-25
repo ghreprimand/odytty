@@ -1238,7 +1238,8 @@ impl App {
     }
 
     fn selection_snapshot(&self) -> (Snapshot, usize) {
-        let terminal = self.terminal.lock().expect("terminal mutex");
+        // P0-3: drag-autoscroll selection path — poison-recover, never abort.
+        let terminal = crate::native::lock_recover(&self.terminal);
         (
             terminal.snapshot_with_scrollback(self.viewport.offset()),
             terminal.screen().scrollback_len(),
