@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-25 -- Interactive paths — file-scoped right-click menu + Copy/Paste relabel (UX-B)
+
+Interactive-paths UX pass toward v0.5.0, driven by the dev-build exercise. Right-
+clicking a resolved path used to show the entire global terminal menu (Copy / Cut
+/ Paste / Delete / Select All / New Tab / Splits / Settings / …) with a file
+section bolted on the end, and three different "Copy" verbs sat side by side —
+"Copy" (copy the terminal selection), "Copy Path", and "Copy File" — with no way
+to tell them apart.
+
+Right-click ON a resolved path now opens a *scoped* menu containing only the
+relevant actions: Open, Open in OdyTTY (images only), Open With… (regular files
+only), Copy Path, Copy File, Reveal in File Manager, then the pinned terminal
+Copy Text / Paste Text. Right-click OFF a path keeps today's full global menu
+unchanged. To kill the naming collision, the two terminal verbs are relabeled in
+BOTH menus: "Copy" → "Copy Text" (copies the terminal selection) and "Paste" →
+"Paste Text" (types the clipboard into the PTY). Bindable actions, accelerators,
+and enable-gating are unchanged — only the labels and the path-scoped item set
+move. The off-path menu is byte-identical to before.
+
+Verified (isolated worktree at clean HEAD, this packet only, gates serialized):
+`cargo fmt --check` clean; `cargo clippy --all-targets --locked -D warnings`
+clean; `cargo test --locked --lib` 2451 passed / 0 failed / 7 ignored, including
+the full `context_menu_ui` suite (scoped non-image / image / directory / no-path,
+separator reflow, absence of global items on a path target, the Copy Text / Paste
+Text label assertion, and activation row mapping); `gpu_composite_smoke` 3/3
+(passthrough byte-identity holds); `license_headers` 1/1. No new files. Staged
+diff scanned for secrets / personal paths — clean.
+
 ## 2026-06-24 -- Fix — OSC 7 working-directory tracking for real-hostname shells (interactive-paths regression)
 
 v0.4.1 bug-fix sprint, found during the pre-release dev-build exercise on a real

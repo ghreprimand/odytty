@@ -54,15 +54,14 @@ use crate::settings::BindableAction;
 /// Number of entries in [`ContextMenuItem::ALL`] (Copy / Cut / Paste / Delete /
 /// Select All / New Tab / Rename Tab / Close Tab / Split Right / Split Down /
 /// Close Pane / Settings / Connection Manager / Command Palette / Session
-/// Replay / Attach Session / Open / Open in OdyTTY / Copy Path / Copy File /
-/// Reveal in File Manager) — the size of the accelerator array the App fills in
+/// Replay / Attach Session / Open / Open in OdyTTY / Open With… / Copy Path /
+/// Copy File / Reveal in File Manager) — the size of the accelerator array the App fills in
 /// `ALL` order. NOT the number of *visible* items: Close Pane is hidden in a
-/// single-pane tab; the file items (Open / Copy Path / Copy File / Reveal) are
-/// shown only when a resolved interactive path sits under the click; "Open in
-/// OdyTTY" is shown only when that resolved path is an image file (C4); and
-/// "Open With…" is shown only when the resolved path is a regular file (C3b).
-/// With no path and single-pane the visible count is 15; with no path and
-/// multi-pane it is 16.
+/// single-pane tab; path-scoped menus show only file actions plus pinned
+/// Copy/Paste text actions; "Open in OdyTTY" is shown only when the resolved
+/// path is an image file (C4); and "Open With…" is shown only when the resolved
+/// path is a regular file (C3b). With no path and single-pane the visible count
+/// is 15; with no path and multi-pane it is 16.
 pub(super) const CONTEXT_MENU_ITEMS: usize = 22;
 
 /// Body row index of the first visual separator (single-pane layout), between
@@ -212,9 +211,9 @@ impl ContextMenuItem {
     /// The label painted for this item.
     pub(super) fn label(self) -> &'static str {
         match self {
-            Self::Copy => "Copy",
+            Self::Copy => "Copy Text",
             Self::Cut => "Cut",
-            Self::Paste => "Paste",
+            Self::Paste => "Paste Text",
             Self::Delete => "Delete",
             Self::SelectAll => "Select All",
             Self::NewTab => "New Tab",
@@ -546,6 +545,23 @@ impl ContextMenuUi {
         let has_path = self.path_target.is_some();
         let is_image = self.is_image_target();
         let is_file = self.is_file_target();
+        if has_path {
+            let mut items = vec![ContextMenuItem::OpenPath];
+            if is_image {
+                items.push(ContextMenuItem::OpenInOdytty);
+            }
+            if is_file {
+                items.push(ContextMenuItem::OpenWith);
+            }
+            items.extend([
+                ContextMenuItem::CopyPath,
+                ContextMenuItem::CopyFile,
+                ContextMenuItem::RevealPath,
+                ContextMenuItem::Copy,
+                ContextMenuItem::Paste,
+            ]);
+            return items;
+        }
         ContextMenuItem::ALL
             .into_iter()
             .filter(|item| !matches!(item, ContextMenuItem::ClosePane) || self.multi_pane)
@@ -1218,38 +1234,58 @@ mod tests {
 
     #[test]
     fn path_present_menu_appends_the_file_section() {
-        // C3 + C3b: a resolved file adds a fifth section (Open / Open With… /
-        // Copy Path / Copy File / Reveal) below the launcher section, with a
-        // leading separator. The base 19 rows are unchanged; +1 separator +5
-        // items = 25 rows. ("Open With…" is shown on any regular file.)
+        // UX-B: a resolved file shows only path actions plus pinned terminal
+        // Copy/Paste text actions. Global tab/split/settings rows are filtered
+        // out; a separator reflows between the file section and text actions.
         let m = menu_with_path();
-        assert_eq!(m.item_count(), 20, "15 base + 5 file items");
+        assert_eq!(m.item_count(), 7, "5 file items + 2 pinned text items");
         let rows = m.rows();
-        assert_eq!(rows.len(), 25, "19 base rows + 1 separator + 5 file items");
-        // The base single-pane layout (rows 0..=18) is unchanged.
-        assert_eq!(rows[18], item("Attach Session", false, true));
-        // Then a separator and the file section.
-        assert_eq!(rows[19], ContextMenuRow::Separator);
-        assert_eq!(rows[20], item("Open", false, true));
-        assert_eq!(rows[21], item("Open With\u{2026}", false, true));
-        assert_eq!(rows[22], item("Copy Path", false, true));
-        assert_eq!(rows[23], item("Copy File", false, true));
-        assert_eq!(rows[24], item("Reveal in File Manager", false, true));
+        assert_eq!(rows.len(), 8, "5 file rows + separator + 2 text rows");
+        assert_eq!(rows[0], item("Open", true, true));
+        assert_eq!(rows[1], item("Open With\u{2026}", false, true));
+        assert_eq!(rows[2], item("Copy Path", false, true));
+        assert_eq!(rows[3], item("Copy File", false, true));
+        assert_eq!(rows[4], item("Reveal in File Manager", false, true));
+        assert_eq!(rows[5], ContextMenuRow::Separator);
+        assert_eq!(rows[6], item("Copy Text", false, false));
+        assert_eq!(rows[7], item("Paste Text", false, false));
+        for label in [
+            "Cut",
+            "Delete",
+            "Select All",
+            "New Tab",
+            "Rename Tab",
+            "Close Tab",
+            "Split Right",
+            "Split Down",
+            "Settings",
+            "Connection Manager",
+            "Command Palette",
+            "Session Replay",
+            "Attach Session",
+        ] {
+            assert!(
+                !rows.iter().any(|r| matches!(
+                    r,
+                    ContextMenuRow::Item { label: l, .. } if *l == label
+                )),
+                "global item {label} must be absent in a path-scoped menu"
+            );
+        }
     }
 
     #[test]
     fn non_image_path_hides_open_in_odytty() {
-        // C4: a resolved *non-image* file shows the C3/C3b file section but NOT
-        // "Open in OdyTTY" — 25 rows (Open / Open With… / Copy Path / Copy File
-        // / Reveal).
+        // C4: a resolved *non-image* file shows the path-scoped file section
+        // but NOT "Open in OdyTTY".
         let m = menu_with_path();
         assert_eq!(
             m.item_count(),
-            20,
-            "15 base + 5 file items (incl. Open With…), no C4 item"
+            7,
+            "5 file/text items (incl. Open With…), no C4 item"
         );
         let rows = m.rows();
-        assert_eq!(rows.len(), 25);
+        assert_eq!(rows.len(), 8);
         assert!(
             !rows.iter().any(|r| matches!(
                 r,
@@ -1265,33 +1301,32 @@ mod tests {
     #[test]
     fn image_path_shows_open_in_odytty_after_open() {
         // C4: a resolved image span adds "Open in OdyTTY" right after "Open" in
-        // the file section: 15 base + 6 file items = 21; 19 base rows + 1
-        // separator + 6 file items = 26 rows. "Open With…" follows "Open in
-        // OdyTTY".
+        // the path-scoped file section. "Open With…" follows "Open in OdyTTY".
         let m = menu_with_image();
         assert_eq!(
             m.item_count(),
-            21,
-            "15 base + 6 file items (incl. C4 + C3b)"
+            8,
+            "6 file items (incl. C4 + C3b) + 2 pinned text items"
         );
         let rows = m.rows();
-        assert_eq!(rows.len(), 26, "19 base + separator + 6 file items");
-        assert_eq!(rows[18], item("Attach Session", false, true));
-        assert_eq!(rows[19], ContextMenuRow::Separator);
-        assert_eq!(rows[20], item("Open", false, true));
-        assert_eq!(rows[21], item("Open in OdyTTY", false, true));
-        assert_eq!(rows[22], item("Open With\u{2026}", false, true));
-        assert_eq!(rows[23], item("Copy Path", false, true));
-        assert_eq!(rows[24], item("Copy File", false, true));
-        assert_eq!(rows[25], item("Reveal in File Manager", false, true));
+        assert_eq!(rows.len(), 9, "6 file rows + separator + 2 text rows");
+        assert_eq!(rows[0], item("Open", true, true));
+        assert_eq!(rows[1], item("Open in OdyTTY", false, true));
+        assert_eq!(rows[2], item("Open With\u{2026}", false, true));
+        assert_eq!(rows[3], item("Copy Path", false, true));
+        assert_eq!(rows[4], item("Copy File", false, true));
+        assert_eq!(rows[5], item("Reveal in File Manager", false, true));
+        assert_eq!(rows[6], ContextMenuRow::Separator);
+        assert_eq!(rows[7], item("Copy Text", false, false));
+        assert_eq!(rows[8], item("Paste Text", false, false));
     }
 
     #[test]
     fn open_in_odytty_activates_on_press_for_an_image() {
         let mut m = menu_with_image();
-        // "Open in OdyTTY" sits at body row 21.
+        // "Open in OdyTTY" sits at body row 1.
         assert_eq!(
-            m.handle_press(21, m.body_row_count(), PointerButton::Left),
+            m.handle_press(1, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::OpenInOdytty)
         );
     }
@@ -1302,7 +1337,7 @@ mod tests {
         // pointer-only (no chord).
         let mut m = menu_with_path();
         assert_eq!(
-            m.handle_press(21, m.body_row_count(), PointerButton::Left),
+            m.handle_press(1, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::OpenWith)
         );
         assert_eq!(ContextMenuItem::OpenWith.bindable_action(), None);
@@ -1329,6 +1364,18 @@ mod tests {
             }),
         );
         let rows = m.rows();
+        assert_eq!(
+            rows,
+            vec![
+                item("Open", true, true),
+                item("Copy Path", false, true),
+                item("Copy File", false, true),
+                item("Reveal in File Manager", false, true),
+                ContextMenuRow::Separator,
+                item("Copy Text", false, false),
+                item("Paste Text", false, false),
+            ]
+        );
         assert!(
             !rows.iter().any(|r| matches!(
                 r,
@@ -1371,7 +1418,7 @@ mod tests {
         accels[0] = Some("Ctrl+Shift+C".to_owned());
         m.set_accelerators(accels);
         let rows = m.rows();
-        for (body_row, row) in rows.iter().enumerate().take(25).skip(20) {
+        for (body_row, row) in rows.iter().enumerate().take(5) {
             assert!(
                 matches!(
                     row,
@@ -1388,26 +1435,26 @@ mod tests {
     #[test]
     fn file_items_activate_on_press() {
         let mut m = menu_with_path();
-        // Open is at body row 20, then Open With… / Copy Path / Copy File /
+        // Open is at body row 0, then Open With… / Copy Path / Copy File /
         // Reveal (non-image file, so no "Open in OdyTTY").
         assert_eq!(
-            m.handle_press(20, m.body_row_count(), PointerButton::Left),
+            m.handle_press(0, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::OpenPath)
         );
         assert_eq!(
-            m.handle_press(21, m.body_row_count(), PointerButton::Left),
+            m.handle_press(1, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::OpenWith)
         );
         assert_eq!(
-            m.handle_press(22, m.body_row_count(), PointerButton::Left),
+            m.handle_press(2, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::CopyPath)
         );
         assert_eq!(
-            m.handle_press(23, m.body_row_count(), PointerButton::Left),
+            m.handle_press(3, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::CopyFile)
         );
         assert_eq!(
-            m.handle_press(24, m.body_row_count(), PointerButton::Left),
+            m.handle_press(4, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::RevealPath)
         );
     }
@@ -1619,9 +1666,9 @@ mod tests {
         let m = menu(true, false);
         let rows = m.rows();
         assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS);
-        assert_eq!(rows[0], item("Copy", true, true));
+        assert_eq!(rows[0], item("Copy Text", true, true));
         assert_eq!(rows[1], item("Cut", false, true));
-        assert_eq!(rows[2], item("Paste", false, false));
+        assert_eq!(rows[2], item("Paste Text", false, false));
         assert_eq!(rows[3], item("Delete", false, true));
         assert_eq!(rows[4], item("Select All", false, true));
         assert_eq!(rows[5], ContextMenuRow::Separator);
@@ -1633,6 +1680,12 @@ mod tests {
         assert_eq!(rows[11], item("Split Down", false, true));
         assert_eq!(rows[12], ContextMenuRow::Separator);
         assert_eq!(rows[13], item("Settings", false, true));
+    }
+
+    #[test]
+    fn copy_and_paste_are_labeled_as_text_actions() {
+        assert_eq!(ContextMenuItem::Copy.label(), "Copy Text");
+        assert_eq!(ContextMenuItem::Paste.label(), "Paste Text");
     }
 
     #[test]
@@ -1649,7 +1702,7 @@ mod tests {
         assert_eq!(
             rows[0],
             ContextMenuRow::Item {
-                label: "Copy",
+                label: "Copy Text",
                 accelerator: Some("Ctrl+Shift+C".to_owned()),
                 focused: true,
                 enabled: true,

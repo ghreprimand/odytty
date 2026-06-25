@@ -2794,9 +2794,9 @@ mod tests {
             line: Some(42),
             col: Some(7),
         };
-        // Single-pane visible order: 15 base items (indices 0..=14), then the
-        // file section Open(15) / Open With…(16) / CopyPath(17) / CopyFile(18) /
-        // Reveal(19) for a non-image file.
+        // Path-scoped visible order: Open(0) / Open With…(1) / CopyPath(2) /
+        // CopyFile(3) / Reveal(4) for a non-image file, then pinned text
+        // Copy/Paste after a separator.
         let open_menu = |steps: usize| {
             let mut overlay = OverlayUi::default();
             overlay.open_context_menu(
@@ -2817,23 +2817,23 @@ mod tests {
         };
 
         assert_eq!(
-            open_menu(15),
+            open_menu(0),
             OverlayOutcome::ContextMenuOpenPath(Box::new(resolved.clone()))
         );
         assert_eq!(
-            open_menu(16),
+            open_menu(1),
             OverlayOutcome::ContextMenuOpenWith(Box::new(resolved.clone()))
         );
         assert_eq!(
-            open_menu(17),
+            open_menu(2),
             OverlayOutcome::ContextMenuCopyPath("/proj/src/main.rs".to_owned())
         );
         assert_eq!(
-            open_menu(18),
+            open_menu(3),
             OverlayOutcome::ContextMenuCopyFile("file:///proj/src/main.rs".to_owned())
         );
         assert_eq!(
-            open_menu(19),
+            open_menu(4),
             OverlayOutcome::ContextMenuRevealPath(Box::new(resolved.clone()))
         );
     }
