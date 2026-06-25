@@ -716,6 +716,193 @@ fn overlay_draws_image_over_backing_onto_swapchain() {
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
+/// Phase 13a-sampler: the C4 viewer overlay uses a LINEAR sampler, so a photo
+/// scaled DOWN to fit is smoothly interpolated rather than stair-stepped. Proof
+/// by behavior: render a pure 0/255 grayscale checkerboard overlay that the fit
+/// logic scales below 1.0, read back the swapchain, and assert intermediate gray
+/// values appear inside the image region. With a NEAREST sampler, minification
+/// returns exactly one source texel per output pixel — always 0 or 255 — so no
+/// intermediate value could exist; their presence is unambiguous Linear filtering.
+/// (Placements keep their NEAREST sampler; this only exercises the overlay path.)
+/// GPU-gated (skips when no adapter is available).
+#[test]
+fn overlay_uses_linear_sampling_for_scaled_images() {
+    let Some((device, queue)) = test_device_with_hdr() else {
+        return;
+    };
+    const W: u32 = 16;
+    const H: u32 = 12;
+    let mut layer =
+        super::image_layer::ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+    let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("test-linear-viewport"),
+        contents: bytemuck::bytes_of(&ViewportUniform {
+            size: [W as f32, H as f32],
+            effect: [0.0, 1.0],
+            text: [1.0, 0.0, 0.0, 0.0],
+        }),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+
+    // 32×24 opaque 1px checkerboard of pure black / white. With a 16×12 viewport
+    // the fit scale is 0.45 (< 1.0) → genuine minification, where Linear blends
+    // 2×2 source texels (→ mid-gray) but Nearest would return a single 0/255.
+    const IW: u32 = 32;
+    const IH: u32 = 24;
+    let mut img = vec![0u8; (IW * IH * 4) as usize];
+    for y in 0..IH {
+        for x in 0..IW {
+            let i = ((y * IW + x) * 4) as usize;
+            let v = if (x + y) % 2 == 0 { 255 } else { 0 };
+            img[i] = v;
+            img[i + 1] = v;
+            img[i + 2] = v;
+            img[i + 3] = 255; // opaque
+        }
+    }
+    layer.set_overlay_image(
+        &device,
+        &queue,
+        &viewport_buf,
+        Some((&img, IW, IH)),
+        W as f32,
+        H as f32,
+    );
+    assert!(layer.has_overlay_image());
+
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("test-linear-target"),
+        size: wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TEST_SURFACE_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("test-linear-encoder"),
+    });
+    {
+        let _scene = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("test-linear-scene"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+    }
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("test-linear-overlay"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        layer.draw_overlay(&mut pass);
+    }
+
+    let bpr = {
+        let unpadded = W * 4;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        unpadded.div_ceil(align) * align
+    };
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("test-linear-readback"),
+        size: bpr as u64 * H as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &target,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bpr),
+                rows_per_image: Some(H),
+            },
+        },
+        wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(std::iter::once(encoder.finish()));
+
+    let slice = readback.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| {
+        tx.send(r).ok();
+    });
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("device poll");
+    rx.recv().expect("map cb").expect("map readback");
+    let mapped = slice.get_mapped_range();
+    let mut pixels = Vec::with_capacity((W * H * 4) as usize);
+    for row in mapped.chunks(bpr as usize).take(H as usize) {
+        pixels.extend_from_slice(&row[..(W * 4) as usize]);
+    }
+    drop(mapped);
+    readback.unmap();
+
+    // Sample well inside the fit-rect (x∈[0.8,15.2), y∈[0.6,11.4)) and count
+    // pixels that are neither pure black nor pure white — i.e. interpolated.
+    let mut intermediate = 0usize;
+    for y in 3..9u32 {
+        for x in 3..13u32 {
+            let i = ((y * W + x) * 4) as usize;
+            let r = pixels[i];
+            // Grayscale checkerboard → blended texels are gray; ignore the green
+            // scene channel by requiring near-neutral RGB too.
+            let g = pixels[i + 1];
+            let b = pixels[i + 2];
+            let neutral = r.abs_diff(g) <= 24 && r.abs_diff(b) <= 24;
+            if neutral && (40..=215).contains(&r) {
+                intermediate += 1;
+            }
+        }
+    }
+    assert!(
+        intermediate > 0,
+        "Linear minification must produce intermediate gray texels in the image \
+         region; found none → sampler is not interpolating (would be Nearest)"
+    );
+
+    device.poll(wgpu::PollType::wait_indefinitely()).ok();
+}
+
 fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

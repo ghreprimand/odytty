@@ -232,7 +232,13 @@ pub(super) struct ImageLayer {
     backing_pipeline: wgpu::RenderPipeline,
     target_format: wgpu::TextureFormat,
     bind_group_layout: wgpu::BindGroupLayout,
+    /// NEAREST sampler for terminal-graphics placements. Kept Nearest so
+    /// placement rendering (and its byte-identity) is unchanged.
     sampler: wgpu::Sampler,
+    /// LINEAR sampler used ONLY by the C4 viewer overlay, so a scaled-down photo
+    /// is smoothly interpolated rather than stair-stepped. The layout's binding 2
+    /// is `Filtering`, so a linear sampler is layout-compatible.
+    overlay_sampler: wgpu::Sampler,
     textures: HashMap<StoredImageId, CachedImage>,
     vertex_buf: wgpu::Buffer,
     vertex_capacity_bytes: u64,
@@ -293,6 +299,19 @@ impl ImageLayer {
             mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
+        // Linear sampler for the C4 viewer overlay only. The bind-group layout's
+        // sampler binding (binding 2) is `SamplerBindingType::Filtering`, which
+        // accepts a linear (filtering) sampler — no layout change required.
+        let overlay_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("odytty-image-overlay-sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
 
         let pipeline = create_image_pipeline(device, target_format, &bind_group_layout, "fs_main");
         // Viewer overlay + its backing render onto the swapchain AFTER post, so
@@ -316,6 +335,7 @@ impl ImageLayer {
             target_format,
             bind_group_layout,
             sampler,
+            overlay_sampler,
             textures: HashMap::new(),
             vertex_buf,
             vertex_capacity_bytes,
@@ -353,11 +373,13 @@ impl ImageLayer {
             self.overlay_image = None;
             return;
         }
+        // The viewer overlay uses the LINEAR `overlay_sampler` so a scaled photo
+        // is smoothly interpolated; placements keep the NEAREST `sampler`.
         let (texture, bind_group) = create_image_texture(
             device,
             queue,
             &self.bind_group_layout,
-            &self.sampler,
+            &self.overlay_sampler,
             viewport_buf,
             width,
             height,

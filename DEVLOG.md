@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-25 -- Image viewer — smooth (linear) scaling for the in-OdyTTY viewer (UX-C, part 2)
+
+Follow-up to the image-viewer composite work. The in-OdyTTY viewer shared the
+terminal-graphics sampler, which is NEAREST, so a photo scaled down to fit the
+viewport showed stair-stepped edges. The viewer overlay now binds its own LINEAR
+sampler, while terminal graphics placements keep NEAREST — unchanged and
+byte-identical. The bind-group layout's sampler binding is already `Filtering`,
+so the linear sampler is layout-compatible with no layout change; only the
+overlay's bind-group creation references the new sampler, and the placement
+upload path still uses the nearest one. A scaled-down photo in the viewer is now
+smoothly interpolated.
+
+Verified (isolated worktree at clean HEAD, this packet's 2 files only, GPU suites
+serialized — note: `--lib` now needs `--test-threads=1` because there are two
+real-device GPU tests in the lib target that contend for the adapter under
+parallelism): `cargo fmt --check` clean; `cargo clippy --all-targets --locked
+-D warnings` clean; `cargo test --locked --lib` 2472 passed / 0 failed / 7
+ignored, including a behavioral GPU test that minifies a 0/255 checkerboard
+through the real overlay path and asserts intermediate gray texels appear inside
+the fit-rect (unambiguous proof of linear interpolation — a nearest sampler can
+only ever return 0 or 255); `gpu_composite_smoke` 6/6 with
+`passthrough_composite_matches_direct_render_bytes` byte-identity unchanged;
+`license_headers` 1/1 (no new files). Staged diff scanned — clean.
+
+This completes the render-quality work for the viewer (composite above post +
+solid backing + smooth scaling). Making Ctrl+click on an image default to the
+inline viewer, behind an `interactive_paths_image_inline` knob, remains a
+separate follow-up gated on hands-on confirmation that the viewer now looks clean
+in a dev build.
+
 ## 2026-06-25 -- Image viewer — composite above the CRT/bloom post pass + solid backing (UX-C, part 1)
 
 Interactive-paths UX pass toward v0.5.0. The in-OdyTTY image viewer (right-click
