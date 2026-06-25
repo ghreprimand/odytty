@@ -587,6 +587,18 @@ pub fn show_config_output(settings: &Settings) -> String {
             settings.font_family.clone().unwrap_or_default(),
         ),
         ("font_size", float_value(settings.font_size_px)),
+        (
+            "interactive_paths",
+            bool_value(settings.interactive_paths).to_owned(),
+        ),
+        (
+            "interactive_paths_barewords",
+            bool_value(settings.interactive_paths_barewords).to_owned(),
+        ),
+        (
+            "interactive_paths_editor",
+            settings.interactive_paths_editor.clone(),
+        ),
         ("keybinds", key_bindings_value(&settings.key_bindings)),
         (
             "native_autoclose_ms",
@@ -869,6 +881,30 @@ mod tests {
             native_options_for_args(&strings(&["--bogus"]), &Settings::default())
                 .expect("parse")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn show_config_output_includes_interactive_path_knobs() {
+        let settings = Settings {
+            interactive_paths: true,
+            interactive_paths_barewords: false,
+            interactive_paths_editor: "code --goto {file}:{line}:{col}".to_owned(),
+            ..Settings::default()
+        };
+
+        let output = show_config_output(&settings);
+
+        assert!(output.lines().any(|line| line == "interactive_paths=on"));
+        assert!(
+            output
+                .lines()
+                .any(|line| line == "interactive_paths_barewords=off")
+        );
+        assert!(
+            output
+                .lines()
+                .any(|line| line == "interactive_paths_editor=code --goto {file}:{line}:{col}")
         );
     }
 }

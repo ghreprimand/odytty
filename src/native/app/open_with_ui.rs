@@ -29,9 +29,9 @@ const MAX_DESKTOP_FILE_BYTES: u64 = 256 * 1024;
 /// Production MIME probe: the platform-aware, single audited captured-output
 /// MIME query (P0-1). On Linux it spawns `xdg-mime query filetype <abs>`
 /// (argv-only, read-only); a non-zero exit, missing binary, or empty output
-/// yields `None` → an empty picker (graceful). macOS has no `xdg-mime`, so its
-/// arm is a best-effort seam that returns `None` for now — the magic-byte MIME
-/// fallback is Phase 9. A `None` on either OS surfaces the empty picker with its
+/// yields `None` and then falls back to a small built-in magic-byte sniffer.
+/// macOS has no `xdg-mime`, so its platform arm is `None` and uses that same
+/// fallback. A final `None` on either OS surfaces the empty picker with its
 /// visible empty-state hint rather than a silent no-op.
 ///
 /// The OS is held as a value ([`OpenerOs`]) rather than read from `cfg!` inline
@@ -59,12 +59,14 @@ impl PlatformMimeProbe {
 
 impl MimeProbe for PlatformMimeProbe {
     fn query(&self, abs: &str) -> Option<String> {
-        match self.os {
+        let platform_mime = match self.os {
             super::platform_opener::OpenerOs::Linux => xdg_mime_query(abs),
-            // macOS: no xdg-mime. Best-effort seam → None for now (the magic-byte
-            // sniff is Phase 9). The empty picker then shows its visible hint.
+            // macOS: no xdg-mime/LaunchServices query wired here yet, so use the
+            // fallback below. The empty picker still shows its visible hint when
+            // neither path identifies the file.
             super::platform_opener::OpenerOs::Macos => None,
-        }
+        };
+        platform_mime.or_else(|| super::platform_opener::sniff_mime_path(abs))
     }
 }
 
@@ -194,14 +196,31 @@ mod tests {
     use super::*;
     use crate::desktop::MimeProbe;
 
-    /// The macOS MIME arm is a best-effort seam that returns `None` for now (no
-    /// `xdg-mime`; the magic-byte fallback is Phase 9). Asserted on the Linux CI
-    /// host via the OS-as-value seam so the macOS branch can never go
-    /// unexercised. NEVER spawns under the test target (it short-circuits before
-    /// the Linux `xdg-mime` spawn).
+    /// The macOS MIME arm has no `xdg-mime` spawn. Asserted on the Linux CI host
+    /// via the OS-as-value seam so the macOS branch can never go unexercised.
+    /// NEVER spawns under the test target (it short-circuits before the Linux
+    /// `xdg-mime` spawn).
     #[test]
     fn macos_mime_probe_returns_none_without_spawning() {
         let probe = PlatformMimeProbe::for_os(super::super::platform_opener::OpenerOs::Macos);
         assert_eq!(probe.query("/proj/a.png"), None);
+    }
+
+    #[test]
+    fn macos_mime_probe_uses_magic_byte_fallback_without_spawning() {
+        let probe = PlatformMimeProbe::for_os(super::super::platform_opener::OpenerOs::Macos);
+        let path = temp_probe_file("magic.png", &[0x89, b'P', b'N', b'G', 0x0d, 0x0a]);
+
+        let mime = probe.query(path.to_str().expect("utf8 temp path"));
+
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(mime, Some("image/png".to_owned()));
+    }
+
+    fn temp_probe_file(name: &str, bytes: &[u8]) -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("odytty-open-with-ui-{}-{name}", std::process::id()));
+        std::fs::write(&path, bytes).expect("write synthetic probe file");
+        path
     }
 }

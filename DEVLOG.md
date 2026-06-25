@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Fix — `--show-config` interactive-path knobs + magic-byte MIME fallback + docs (P2-10, P2-11)
+
+v0.4.1 bug-fix sprint, Phase 9.
+
+`--show-config` completeness (P2-10). The interactive-paths knobs were missing
+from the config dump. `--show-config` now emits `interactive_paths`,
+`interactive_paths_barewords`, and `interactive_paths_editor` alongside the rest,
+so the diagnostic output reflects the actual effective configuration.
+
+Magic-byte MIME fallback (P2-11). Phase 2's `PlatformMimeProbe` returns `None` on
+macOS (LaunchServices is not wired), which left the Open With picker without a
+type on that platform. A dependency-free magic-byte sniffer now recognises common
+types — PNG, JPEG, GIF, PDF, WEBP/RIFF, BMP, TIFF — from a bounded 32-byte prefix
+read, and is wired as `platform_mime.or_else(sniff_mime_path)` so a successful
+Linux `xdg-mime` result stays authoritative and the fallback only fires when the
+platform probe yields nothing. No new crates (CI has no network); the Linux MIME
+path is unchanged and byte-identical.
+
+Docs. `docs/runtime-knobs.md` now documents the interactive-paths knobs (including
+the `interactive_paths_barewords` default), how open/reveal dispatch differs
+between Linux (`xdg-open` / parent-dir reveal) and macOS (`open` / `open -R`), the
+MIME fallback behaviour, and an interactive-paths troubleshooting section.
+
+Tests: magic-byte recognition and rejection (unknown / too-short data), the macOS
+probe falling back to `image/png` without spawning, and `--show-config` emitting
+the interactive-path rows. Verified (isolated worktree on post-Phase-6 master,
+serialized): `cargo fmt --check` clean; `cargo clippy --all-targets --locked --
+-D warnings` clean; `cargo test --locked --lib` 2441 passed / 0 failed / 7
+ignored; the bin-context `show_config_output_includes_interactive_path_knobs`
+test passes; `gpu_composite_smoke` 3/3 (incl. byte-identity passthrough);
+`license_headers` 1/1. Staged diff scanned — no secrets or personal paths.
+
 ## 2026-06-24 -- Fix — macOS overlay menus scroll one item per detent (P1-8)
 
 v0.4.1 bug-fix sprint, Phase 6. On macOS, a trackpad or Magic-Mouse flick over a

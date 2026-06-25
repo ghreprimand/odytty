@@ -19,6 +19,11 @@
 
 use crate::paths::{FsKind, Resolved};
 
+/// Maximum bytes read from a file for dependency-free MIME sniffing. Every
+/// signature currently checked fits within the first 12 bytes; the slightly
+/// larger cap leaves room for future signatures without broadening I/O.
+const MIME_SNIFF_BYTES: u64 = 32;
+
 /// The target operating system for opener dispatch. Production resolves the host
 /// via [`OpenerOs::host`]; unit tests construct both variants explicitly so each
 /// argv branch is asserted regardless of the runner OS.
@@ -90,6 +95,47 @@ fn reveal_parent(resolved: &Resolved) -> String {
             None => resolved.abs.clone(),
         },
     }
+}
+
+/// Best-effort MIME fallback from leading magic bytes. This is intentionally
+/// dependency-free and conservative: unknown or too-short data returns `None`,
+/// letting the platform probe remain authoritative whenever it succeeds.
+pub(in crate::native) fn sniff_mime_bytes(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        return Some("image/png");
+    }
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.starts_with(b"%PDF") {
+        return Some("application/pdf");
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    if bytes.starts_with(b"BM") {
+        return Some("image/bmp");
+    }
+    if bytes.starts_with(b"II*\0") || bytes.starts_with(b"MM\0*") {
+        return Some("image/tiff");
+    }
+    None
+}
+
+/// Read a tiny prefix from `abs` and apply [`sniff_mime_bytes`]. I/O failures,
+/// directories, and unrecognized data all return `None` so callers can preserve
+/// the existing empty-picker behavior when neither the platform nor the fallback
+/// can identify the type.
+pub(in crate::native) fn sniff_mime_path(abs: &str) -> Option<String> {
+    use std::io::Read;
+
+    let file = std::fs::File::open(abs).ok()?;
+    let mut bytes = Vec::new();
+    file.take(MIME_SNIFF_BYTES).read_to_end(&mut bytes).ok()?;
+    sniff_mime_bytes(&bytes).map(str::to_owned)
 }
 
 #[cfg(test)]
@@ -201,5 +247,33 @@ mod tests {
             reveal_argv(OpenerOs::Macos, &r),
             vec!["open".to_owned(), "-R".to_owned(), "/a.rs".to_owned()]
         );
+    }
+
+    #[test]
+    fn sniff_mime_bytes_recognizes_common_magic_headers() {
+        assert_eq!(
+            sniff_mime_bytes(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a]),
+            Some("image/png")
+        );
+        assert_eq!(
+            sniff_mime_bytes(&[0xff, 0xd8, 0xff, 0xe0]),
+            Some("image/jpeg")
+        );
+        assert_eq!(sniff_mime_bytes(b"GIF89a..."), Some("image/gif"));
+        assert_eq!(sniff_mime_bytes(b"%PDF-1.7"), Some("application/pdf"));
+        assert_eq!(
+            sniff_mime_bytes(b"RIFF\x00\x00\x00\x00WEBPVP8 "),
+            Some("image/webp")
+        );
+        assert_eq!(sniff_mime_bytes(b"BM...."), Some("image/bmp"));
+        assert_eq!(sniff_mime_bytes(b"II*\0...."), Some("image/tiff"));
+        assert_eq!(sniff_mime_bytes(b"MM\0*...."), Some("image/tiff"));
+    }
+
+    #[test]
+    fn sniff_mime_bytes_rejects_unknown_or_too_short_data() {
+        assert_eq!(sniff_mime_bytes(b""), None);
+        assert_eq!(sniff_mime_bytes(b"RIFFshort"), None);
+        assert_eq!(sniff_mime_bytes(b"plain text"), None);
     }
 }

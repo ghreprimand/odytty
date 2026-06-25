@@ -254,6 +254,7 @@ environment variable was not set at startup.
 | `command_status_gutter` | `ODYTTY_COMMAND_STATUS_GUTTER` | `on`, `off` | `off` |
 | `sh_click` | `ODYTTY_SH_CLICK` | `on`, `off` | `off` |
 | `interactive_paths` | `ODYTTY_INTERACTIVE_PATHS` | `on`, `off` | `off` |
+| `interactive_paths_barewords` | `ODYTTY_INTERACTIVE_PATHS_BAREWORDS` | `on`, `off` | `on` |
 | `interactive_paths_editor` | `ODYTTY_INTERACTIVE_PATHS_EDITOR` | editor name or argv template | *(empty — use `$EDITOR`)* |
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
@@ -478,6 +479,13 @@ directory (OSC 7); `~` expands against `$HOME`. A trailing `:line[:col]` suffix
 (`src/main.rs:42:10`) is recognized and carried through to the editor-open
 action below.
 
+`interactive_paths_barewords = on` (the default) also treats basename-like
+tokens with an extension, such as `carpet1.jpg` in `ls` output, as candidates
+when the parent `interactive_paths` gate is on. Bareword candidates still go
+through the same cwd-aware filesystem check before they become interactive, so
+plain words, domains, versions, and non-existent filenames stay inert. Set
+`interactive_paths_barewords = off` for the older slash-required behavior.
+
 The cursor affordance is the **only** frame-affecting change — there is no
 underline or other decoration, so with the feature on the rendered frame bytes
 are unchanged and only the mouse cursor shape reflects a hovered path. Detection
@@ -498,31 +506,35 @@ an **argv vector**, never a shell string, so a path containing spaces, `;`,
 
 | Span | Action |
 |------|--------|
-| File, no `:line` | `xdg-open <abs>` (default app) |
+| File, no `:line` | Linux: `xdg-open <abs>`; macOS: `open <abs>` (default app) |
 | File, `:line[:col]` | editor at that position (see below) |
-| Directory | `xdg-open <abs>` (file manager) |
+| Directory | Linux: `xdg-open <abs>`; macOS: `open <abs>` (file manager) |
 
 "Copy Path" copies the absolute path; "Copy File" copies a `file://<abs>` URI as
 text (the clipboard is text-only — this pastes into file managers as a file
-reference); "Reveal in File Manager" opens the containing directory.
+reference); "Reveal in File Manager" opens the containing directory on Linux
+and uses `open -R <abs>` to reveal the item in Finder on macOS.
 
 **Choosing an application ("Open With…").** On a regular-file span the file
 section gains an **Open With…** item that opens a type-to-filter picker overlay
-of the desktop applications registered to handle the file's MIME type. The MIME
-type is detected with a single read-only `xdg-mime query filetype <abs>` call;
-the candidate applications are read from the standard freedesktop locations
-(`mimeapps.list` defaults + added associations, then `mimeinfo.cache`, across the
-`XDG_CONFIG_*`/`XDG_DATA_*` directory ladders), honoring `[Removed Associations]`.
-Apps marked `NoDisplay`, `Hidden`, or `Terminal=true`, or without an `Exec`, are
-excluded; the list is capped and deduplicated (user entries override system
-ones). Selecting an app launches it on the file. The launch is built **per the
-Desktop-Entry quoting rules, not a shell**: the `.desktop` `Exec` is tokenized,
-`%f`/`%F` expand to the bare path and `%u`/`%U` to a `file://` URI as a single
-argv element, and `%i`/`%c`/`%k` plus the deprecated field codes are stripped —
-so a path containing spaces, `;`, `$()`, or backticks is one inert argument,
-never interpolated. If the MIME type cannot be detected or no application
-handles it, the picker opens with an empty-state hint. Closed, the overlay is
-byte-identical to the live frame.
+of the desktop applications registered to handle the file's MIME type. On Linux,
+the MIME type is detected first with a single read-only
+`xdg-mime query filetype <abs>` call. If that system probe is unavailable or
+empty, and on macOS where no LaunchServices probe is wired yet, OdyTTY falls back
+to a small built-in magic-byte sniff for common file types (PNG, JPEG, GIF, PDF,
+WebP, BMP, TIFF). The candidate applications are read from the standard
+freedesktop locations (`mimeapps.list` defaults + added associations, then
+`mimeinfo.cache`, across the `XDG_CONFIG_*`/`XDG_DATA_*` directory ladders),
+honoring `[Removed Associations]`. Apps marked `NoDisplay`, `Hidden`, or
+`Terminal=true`, or without an `Exec`, are excluded; the list is capped and
+deduplicated (user entries override system ones). Selecting an app launches it
+on the file. The launch is built **per the Desktop-Entry quoting rules, not a
+shell**: the `.desktop` `Exec` is tokenized, `%f`/`%F` expand to the bare path
+and `%u`/`%U` to a `file://` URI as a single argv element, and `%i`/`%c`/`%k`
+plus the deprecated field codes are stripped — so a path containing spaces, `;`,
+`$()`, or backticks is one inert argument, never interpolated. If the MIME type
+cannot be detected or no application handles it, the picker opens with an
+empty-state hint. Closed, the overlay is byte-identical to the live frame.
 
 **In-terminal image viewer ("Open in OdyTTY").** When the resolved span is an
 image file — extension `.png`, `.jpg`/`.jpeg`, or `.webp` (matching the built-in
@@ -549,6 +561,15 @@ F:L:C`, `vim +call cursor(L,C) F`, `nano +L,C F`) — or an **argv template** wi
 The spec is always whitespace-tokenized into argv and **never** evaluated by a
 shell; a `$EDITOR` carrying args (`code --wait`) is split into argv too. Both the
 toggle and the editor knob live in the Settings panel's Input section.
+
+**Troubleshooting interactive paths.** If Ctrl+click does nothing, confirm
+`interactive_paths = on`, the pointer is over the focused pane, and the span
+resolves to a real file or directory from the pane cwd. Bare filenames from
+plain `ls` output require `interactive_paths_barewords = on`. If Open or Reveal
+fails, Linux needs `xdg-open` available on `PATH`; macOS uses the system `open`
+command. If Open With is empty, the file type was not reported by `xdg-mime`, was
+not recognized by the fallback sniffer, or no matching desktop application was
+registered in the freedesktop application database.
 
 ## Native UI
 
