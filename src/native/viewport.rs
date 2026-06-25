@@ -278,6 +278,81 @@ impl WheelAccumulator {
     }
 }
 
+/// Pixels of macOS trackpad travel per emitted overlay list step, expressed in
+/// cell-heights. Deliberately several times the one-cell threshold the terminal
+/// scroll path uses (one notch ≈ one cell-height), so a single deliberate
+/// two-finger detent advances ~one item rather than flying. This is the Phase 6
+/// (P1-8) feel constant flagged as having no portable-correct value — it starts
+/// conservative and is dialed in during the macOS 26.5 hands-on exercise.
+const OVERLAY_DETENT_CELLS: f64 = 3.0;
+
+/// Per-detent damper for the **macOS overlay wheel path** (P1-8).
+///
+/// macOS trackpads / Magic Mouse deliver overlay scroll as a `PixelDelta` burst
+/// with a decaying inertial tail that keeps firing after the finger lifts; winit
+/// does not expose the `NSEvent` momentum phase, so this damps from the delta
+/// stream alone (magnitude + direction). It integrates pixel displacement
+/// against a threshold several cell-heights tall and emits exactly **±1 list
+/// step per crossing, resetting the carry to zero on every emit** (the
+/// [`WheelAccumulator::coalesce_zoom`] precedent) so the sub-threshold inertial
+/// tail can never re-accumulate fast enough to cascade. A discrete `LineDelta`
+/// detent (Magic Mouse line mode) emits exactly ±1.
+///
+/// Platform-independent and unit-tested directly: the `cfg!(target_os =
+/// "macos")` gate in `handle_overlay_pointer_wheel` selects whether the handler
+/// routes through this damper, but the struct compiles and runs on every target
+/// so Linux CI exercises it. The non-macOS handler branch keeps the historical
+/// [`WheelAccumulator`] path verbatim, so Linux stays byte-identical.
+#[derive(Debug, Default, Clone, Copy)]
+pub(super) struct OverlayWheelDamper {
+    /// Signed fractional-pixel carry toward the next detent threshold.
+    carry: f64,
+}
+
+impl OverlayWheelDamper {
+    /// Feed a raw wheel delta; return a signed overlay step (`+1` = wheel-up /
+    /// toward earlier content, `-1` = toward later) at most once per call, or
+    /// `None` while still sub-threshold.
+    ///
+    /// `LineDelta` is treated as a clean discrete detent → exactly ±1 (and drops
+    /// any stale pixel carry so a prior sub-threshold flick cannot bias its
+    /// direction). A `PixelDelta` integrates against the cell-height-scaled
+    /// threshold and emits one step per crossing, resetting the carry to damp the
+    /// momentum tail. Direction reversal drops the stale carry (`carry_add`).
+    pub(super) fn step(&mut self, delta: MouseScrollDelta, cell_height: u32) -> Option<isize> {
+        match delta {
+            MouseScrollDelta::LineDelta(_, y) => {
+                if y == 0.0 {
+                    return None;
+                }
+                self.carry = 0.0;
+                Some(y.signum() as isize)
+            }
+            MouseScrollDelta::PixelDelta(pos) => {
+                if pos.y == 0.0 {
+                    return None;
+                }
+                let threshold = (cell_height.max(1) as f64) * OVERLAY_DETENT_CELLS;
+                self.carry = carry_add(self.carry, pos.y);
+                if self.carry.abs() >= threshold {
+                    let dir = self.carry.signum() as isize;
+                    self.carry = 0.0;
+                    Some(dir)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// Clear the pixel carry (overlay entry / focus loss), mirroring
+    /// [`WheelAccumulator::reset`] so a partial flick never bleeds across
+    /// surfaces.
+    pub(super) fn reset(&mut self) {
+        self.carry = 0.0;
+    }
+}
+
 /// Convert a wheel delta into a signed font-size step count for Ctrl+wheel zoom
 /// (MOUSE-WHEEL): positive = wheel up = larger font, negative = smaller. One
 /// discrete wheel notch maps to one step; continuous touchpad input maps by

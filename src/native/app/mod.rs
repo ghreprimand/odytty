@@ -74,7 +74,7 @@ pub(super) use super::resize::{
 use super::search_ui::{SearchStyle, apply_search_ui};
 use super::session::{Session, SessionToken, TabSet};
 use super::viewport::{
-    SELECTION_AUTOSCROLL_INTERVAL, WheelAccumulator, WindowPadding,
+    OverlayWheelDamper, SELECTION_AUTOSCROLL_INTERVAL, WheelAccumulator, WindowPadding,
     grid_dimensions_for_with_padding, scroll_indicator_hit_with_padding,
     scroll_indicator_quad_with_padding, scrollbar_offset_for_drag_with_padding, wheel_lines,
     wheel_lines_scaled, wheel_zoom_steps,
@@ -301,6 +301,13 @@ pub(super) struct App {
     /// physical detent is one scroll/zoom step. Identity for a clean
     /// `LineDelta(_, ±1.0)`. Reset on focus loss and overlay open.
     wheel_accum: WheelAccumulator,
+    /// P1-8: macOS-only per-detent damper for the overlay list wheel path. Emits
+    /// exactly one item per physical detent and absorbs the inertial momentum
+    /// tail of a trackpad flick. Only consulted on the macOS handler branch of
+    /// `handle_overlay_pointer_wheel`; idle (and byte-identity-irrelevant) on
+    /// every other target. Reset alongside `wheel_accum` on focus loss and
+    /// overlay open.
+    overlay_wheel: OverlayWheelDamper,
     /// Visible multi-session tab strip state. Presentation-only; the session
     /// model stays in `TabSet`.
     tab_bar: TabBar,
@@ -423,6 +430,7 @@ impl App {
             os_theme: None,
             pending_exit: false,
             wheel_accum: WheelAccumulator::default(),
+            overlay_wheel: OverlayWheelDamper::default(),
             tab_bar: TabBar::default(),
             rename_state: None,
             overlay_left_held: false,
@@ -2536,6 +2544,9 @@ impl ApplicationHandler<UserEvent> for App {
                     // notch so a gesture interrupted by an alt-tab does not
                     // resume against the next surface on focus regain.
                     self.wheel_accum.reset();
+                    // P1-8: drop the overlay damper's pixel carry too, for the
+                    // same reason (a half-detent flick must not resume later).
+                    self.overlay_wheel.reset();
                     // §7: drop any pending multiplexer prefix on focus loss so a
                     // half-entered prefix does not survive an alt-tab and capture
                     // the first key on focus regain.

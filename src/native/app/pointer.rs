@@ -530,6 +530,9 @@ impl App {
         // partial grid-scroll notch does not bleed into the overlay list scroll
         // (and vice-versa) once the overlay captures the wheel.
         self.wheel_accum.reset();
+        // P1-8: clear the overlay damper's pixel carry too, so a partial
+        // terminal-scroll flick can't seed the first overlay detent.
+        self.overlay_wheel.reset();
     }
 
     /// On focus loss, abandon any in-progress overlay slider drag (UX4-P2).

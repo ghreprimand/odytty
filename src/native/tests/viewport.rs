@@ -634,6 +634,157 @@ fn wheel_accumulator_reset_clears_both_carries() {
     assert!(accum.coalesce_zoom(px, 16).is_none());
 }
 
+// --- P1-8 macOS overlay wheel damper (OverlayWheelDamper) ------------------
+// The damper is platform-independent and unit-tested directly here; the
+// `cfg!(target_os = "macos")` gate in `handle_overlay_pointer_wheel` only
+// selects whether the handler routes through it, so these run on Linux CI.
+
+#[test]
+fn overlay_damper_inertial_burst_emits_one_step() {
+    // A macOS two-finger flick is a same-sign PixelDelta burst (one detent of
+    // travel) plus a decaying momentum tail that keeps firing after the finger
+    // lifts. At a 16px cell the threshold is 48px; the detent (30+30) crosses it
+    // once, then the carry resets to 0 so the 20+12+6+3 tail (41px < 48) can
+    // never re-accumulate a second crossing. Exactly ONE step, not a cascade.
+    let mut damper = OverlayWheelDamper::default();
+    let burst = [30.0, 30.0, 20.0, 12.0, 6.0, 3.0];
+    let mut steps = 0isize;
+    for dy in burst {
+        if let Some(step) = damper.step(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, dy)),
+            16,
+        ) {
+            steps += step;
+        }
+    }
+    assert_eq!(steps, 1, "one detent + inertial tail == one overlay step");
+}
+
+#[test]
+fn overlay_damper_discrete_notch_emits_one_step_each_direction() {
+    // A Magic Mouse in line mode (or any discrete wheel reaching the macOS
+    // branch) delivers LineDelta(0, ±1) — treated as a clean detent → exactly
+    // ±1, correct sign, no pixel accumulation needed.
+    let mut damper = OverlayWheelDamper::default();
+    assert_eq!(
+        damper.step(MouseScrollDelta::LineDelta(0.0, 1.0), 16),
+        Some(1),
+        "up notch == +1"
+    );
+    assert_eq!(
+        damper.step(MouseScrollDelta::LineDelta(0.0, -1.0), 16),
+        Some(-1),
+        "down notch == -1"
+    );
+}
+
+#[test]
+fn overlay_damper_subthreshold_pixels_emit_nothing() {
+    // A gentle sub-detent nudge (under 48px at a 16px cell) carries silently —
+    // no step until a full detent of travel accrues.
+    let mut damper = OverlayWheelDamper::default();
+    for _ in 0..3 {
+        // 3x 12px = 36px < 48px threshold.
+        assert_eq!(
+            damper.step(
+                MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 12.0)),
+                16
+            ),
+            None,
+        );
+    }
+}
+
+#[test]
+fn overlay_damper_direction_reversal_drops_stale_carry() {
+    // A sub-threshold up nudge then a full down detent yields exactly one DOWN
+    // step; the stale up carry is dropped on reversal (carry_add) so it neither
+    // cancels nor biases the down detent.
+    let mut damper = OverlayWheelDamper::default();
+    assert_eq!(
+        damper.step(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 30.0)),
+            16
+        ),
+        None,
+        "30px up is sub-threshold"
+    );
+    // One downward event large enough to cross the 48px threshold on its own.
+    assert_eq!(
+        damper.step(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, -60.0)),
+            16
+        ),
+        Some(-1),
+        "reversal resets carry, then one down detent emits exactly one down step"
+    );
+}
+
+#[test]
+fn overlay_damper_large_single_event_caps_at_one_step() {
+    // Even a single huge PixelDelta (well over 2x the threshold) emits at most
+    // ONE step and resets the carry to 0 — the excess is discarded, not carried.
+    // This is the inertial-tail damping guarantee: bounded per event.
+    let mut damper = OverlayWheelDamper::default();
+    assert_eq!(
+        damper.step(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 200.0)),
+            16
+        ),
+        Some(1),
+        "200px (>>48px) still only one step"
+    );
+    // The residual did not carry: a fresh sub-threshold nudge emits nothing.
+    assert_eq!(
+        damper.step(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 12.0)),
+            16
+        ),
+        None,
+        "no residual carry leaks a phantom step"
+    );
+}
+
+#[test]
+fn overlay_damper_reset_clears_carry() {
+    // Overlay entry / focus loss clears the pixel carry so a partial flick never
+    // resumes against the next surface.
+    let mut damper = OverlayWheelDamper::default();
+    assert_eq!(
+        damper.step(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 40.0)),
+            16
+        ),
+        None,
+        "40px carried (sub-48px)"
+    );
+    damper.reset();
+    // After reset, a fresh 40px is again only 40px — the prior carry is gone
+    // (otherwise 40+40=80 would cross and emit).
+    assert_eq!(
+        damper.step(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 40.0)),
+            16
+        ),
+        None,
+    );
+}
+
+#[test]
+fn overlay_damper_zero_cell_height_does_not_divide_by_zero() {
+    // GPU metrics may be absent (headless / pre-first-frame): cell_height 0 must
+    // clamp to 1, giving a 3px threshold rather than panicking.
+    let mut damper = OverlayWheelDamper::default();
+    assert_eq!(
+        damper.step(
+            MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, 5.0)),
+            0
+        ),
+        Some(1),
+        "5px > 3px (clamped) threshold emits one step"
+    );
+}
+
 #[test]
 fn scroll_keys_require_shift_without_ctrl_or_alt() {
     let shift = Modifiers {

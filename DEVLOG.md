@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Fix — macOS overlay menus scroll one item per detent (P1-8)
+
+v0.4.1 bug-fix sprint, Phase 6. On macOS, a trackpad or Magic-Mouse flick over a
+list overlay flew past items — overlays scrolled many entries per gesture instead
+of one.
+
+Cause was twofold: a macOS inertial scroll arrives as a `PixelDelta` burst with a
+decaying momentum tail that winit does not phase-tag, so the shared cell-height
+coalescer fired many list steps per flick, and the overlay path additionally
+applied the ×3 `WHEEL_STEP_LINES` multiplier on top. A new platform-independent
+`OverlayWheelDamper` integrates pixel travel against a several-cell-tall threshold
+and emits exactly ±1 list step per detent, resetting its carry on each emit so the
+decaying tail is absorbed rather than cascading; discrete notches (Magic Mouse
+line mode) map straight to ±1. This unifies both overlay routing groups
+(`scroll_lines` row-movers and `handle_input` focus-movers) to one step per detent.
+
+The damper is gated behind `cfg!(target_os = "macos")` in
+`handle_overlay_pointer_wheel` — a runtime boolean, so both arms are type-checked
+on every target, but on every non-macOS target (including Linux hi-res `PixelDelta`
+mice) the historical `coalesce_scroll` → `wheel_lines` path runs verbatim. Linux
+scroll is therefore byte-identical by construction, with no feature flag; the
+terminal-scroll path is untouched. The per-detent pixel threshold
+(`OVERLAY_DETENT_CELLS`) is a conservative starting feel-constant to be tuned
+during the macOS 26.5 hands-on exercise — it is the single tuning knob.
+
+Tests: 7 new direct `OverlayWheelDamper` unit tests (inertial burst → one step,
+discrete notch → ±1, sub-threshold carry, direction reversal, large-event cap,
+reset, zero-cell-height divide guard), run on Linux CI since the damper is
+platform-independent; existing overlay-wheel tests unchanged. Verified (isolated
+worktree on post-Phase-4 master, serialized): `cargo fmt --check` clean; `cargo
+clippy --all-targets --locked -- -D warnings` clean; `cargo test --locked --lib`
+2438 passed / 0 failed / 7 ignored; `gpu_composite_smoke` 3/3 (incl. the
+byte-identity passthrough); `license_headers` 1/1. Staged diff scanned — no
+secrets or personal paths.
+
 ## 2026-06-24 -- Fix — clickable bare filenames in command output (P1-4)
 
 v0.4.1 bug-fix sprint, Phase 4. Interactive paths only recognised tokens with a

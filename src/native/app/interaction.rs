@@ -362,25 +362,47 @@ impl App {
     /// [`OverlayPointer::Wheel`] free-scroll of the panel list (UX4-P1).
     pub(in crate::native) fn handle_overlay_pointer_wheel(&mut self, delta: MouseScrollDelta) {
         let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
-        // WHEEL-SENS (T-overlay): coalesce the high-resolution burst so the
-        // settings list advances one entry per physical notch instead of flying.
-        // The overlay deliberately uses the fixed default step (the user's
-        // `scroll_wheel_lines` multiplier is a terminal-scroll knob), but it
-        // still benefits from notch-coalescing.
-        let Some(notch) = self.wheel_accum.coalesce_scroll(delta, cell_height) else {
-            return;
+        // P1-8: macOS trackpad / Magic-Mouse inertial scroll arrives as a
+        // `PixelDelta` burst with a decaying momentum tail that winit does not
+        // phase-tag, so the shared cell-height coalescer would fire many list
+        // steps per flick (and the ×3 `WHEEL_STEP_LINES` multiplier multiplies
+        // each). On macOS route through a SEPARATE overlay-only damper that emits
+        // exactly one item per detent and absorbs the tail. Every OTHER target
+        // keeps the historical `coalesce_scroll` → `wheel_lines` path verbatim,
+        // so Linux (including hi-res `PixelDelta` mice) stays byte-identical by
+        // construction — no feature flag, the `cfg!` gate is the only seam.
+        let lines = if cfg!(target_os = "macos") {
+            // One row/item per detent: the damper returns ±1, dropping the ×3
+            // multiplier so the `scroll_lines` overlays move one row and the
+            // `handle_input` overlays move one focus-step — unified across both
+            // overlay routing groups.
+            let Some(step) = self.overlay_wheel.step(delta, cell_height) else {
+                return;
+            };
+            step
+        } else {
+            // WHEEL-SENS (T-overlay): coalesce the high-resolution burst so the
+            // settings list advances one entry per physical notch instead of
+            // flying. The overlay deliberately uses the fixed default step (the
+            // user's `scroll_wheel_lines` multiplier is a terminal-scroll knob),
+            // but it still benefits from notch-coalescing.
+            let Some(notch) = self.wheel_accum.coalesce_scroll(delta, cell_height) else {
+                return;
+            };
+            let lines = wheel_lines(notch, cell_height);
+            if lines == 0 {
+                return;
+            }
+            lines
         };
-        let lines = wheel_lines(notch, cell_height);
-        if lines == 0 {
-            return;
-        }
         // Window-space overlay dims (identical to `self.grid` single-pane).
         let (win_cols, win_rows) = self.overlay_grid_dims();
         let Some(rect) = overlay_rect(&self.overlay, win_cols, win_rows) else {
             return;
         };
-        // `wheel_lines` is positive for wheel-up (toward earlier content); the
-        // settings list scrolls toward earlier entries (lower index), so negate.
+        // Both the `wheel_lines` notch and the damper step are positive for
+        // wheel-up (toward earlier content); the list scrolls toward earlier
+        // entries (lower index), so negate.
         let outcome = self
             .overlay
             .handle_pointer(OverlayPointer::Wheel { lines: -lines }, rect);
