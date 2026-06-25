@@ -959,6 +959,12 @@ pub struct Settings {
     /// behind the global `interactive_paths` gate; resolution is still
     /// stat-gated, so non-existent barewords stay inert.
     pub interactive_paths_barewords: bool,
+    /// UX-A (Phase 11): show the transient "Ctrl+click to open" discoverability
+    /// hint after two plain mis-clicks on a resolved path within a short window.
+    /// On by default behind the global `interactive_paths` gate; off silences
+    /// only the hint (hand cursor, Ctrl+hover underline, and Ctrl+click open all
+    /// still work).
+    pub interactive_paths_click_hint: bool,
     /// Optional editor override for opening `path:line:col` spans (Phase 8 / C3).
     /// Empty (the default) means "detect from `$EDITOR`/`$VISUAL` via the
     /// invocation matrix". A non-empty value pins the editor: either a known
@@ -1044,6 +1050,7 @@ impl Default for Settings {
             session_replay: DEFAULT_SESSION_REPLAY,
             interactive_paths: DEFAULT_INTERACTIVE_PATHS,
             interactive_paths_barewords: DEFAULT_INTERACTIVE_PATHS_BAREWORDS,
+            interactive_paths_click_hint: DEFAULT_INTERACTIVE_PATHS_CLICK_HINT,
             interactive_paths_editor: String::new(),
             native_autoclose: None,
         }
@@ -1619,6 +1626,12 @@ impl Settings {
             DEFAULT_INTERACTIVE_PATHS_BAREWORDS,
             &mut warn,
         );
+        let interactive_paths_click_hint = parse_bool_setting(
+            get(INTERACTIVE_PATHS_CLICK_HINT_ENV).as_deref(),
+            INTERACTIVE_PATHS_CLICK_HINT_ENV,
+            DEFAULT_INTERACTIVE_PATHS_CLICK_HINT,
+            &mut warn,
+        );
         // Trim surrounding whitespace; empty (the default) means "use $EDITOR".
         // No validation here — the editor spec is tokenized + matched at open
         // time (a path/template with internal spaces is preserved as written).
@@ -1701,6 +1714,7 @@ impl Settings {
             session_replay,
             interactive_paths,
             interactive_paths_barewords,
+            interactive_paths_click_hint,
             interactive_paths_editor,
             native_autoclose,
         }
@@ -1892,6 +1906,10 @@ impl Settings {
         values.insert(
             INTERACTIVE_PATHS_BAREWORDS_ENV,
             bool_display(self.interactive_paths_barewords).to_owned(),
+        );
+        values.insert(
+            INTERACTIVE_PATHS_CLICK_HINT_ENV,
+            bool_display(self.interactive_paths_click_hint).to_owned(),
         );
         if !self.interactive_paths_editor.is_empty() {
             values.insert(

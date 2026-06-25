@@ -183,6 +183,56 @@ fn scrollbar_drag_has_a_bool_row_in_the_input_group() {
 }
 
 #[test]
+fn interactive_paths_click_hint_defaults_on_and_parses() {
+    // UX-A (Phase 11): default on behind the global interactive_paths gate.
+    let (settings, warnings) = settings_from([]);
+    assert!(settings.interactive_paths_click_hint);
+    assert!(warnings.is_empty());
+
+    let (off, _) = settings_from([(INTERACTIVE_PATHS_CLICK_HINT_ENV, "off")]);
+    assert!(!off.interactive_paths_click_hint);
+
+    let (on, _) = settings_from([(INTERACTIVE_PATHS_CLICK_HINT_ENV, "on")]);
+    assert!(on.interactive_paths_click_hint);
+}
+
+#[test]
+fn interactive_paths_click_hint_round_trips_through_config_key_mapping() {
+    assert_eq!(
+        config_key_to_env("interactive_paths_click_hint"),
+        Some(INTERACTIVE_PATHS_CLICK_HINT_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("clickhint"),
+        Some(INTERACTIVE_PATHS_CLICK_HINT_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(INTERACTIVE_PATHS_CLICK_HINT_ENV),
+        Some("interactive_paths_click_hint")
+    );
+}
+
+#[test]
+fn interactive_paths_click_hint_round_trips_through_edit_values() {
+    let settings = Settings {
+        interactive_paths_click_hint: false,
+        ..Settings::default()
+    };
+    assert_eq!(
+        settings
+            .to_edit_values()
+            .get(INTERACTIVE_PATHS_CLICK_HINT_ENV),
+        Some(&"off".to_owned())
+    );
+    assert_eq!(
+        Settings::default()
+            .to_edit_values()
+            .get(INTERACTIVE_PATHS_CLICK_HINT_ENV),
+        Some(&"on".to_owned())
+    );
+}
+
+#[test]
 fn wheel_zoom_defaults_on_and_parses() {
     // CTRL-WHEEL-ZOOM: default on. It only fires on the explicit Ctrl+wheel
     // gesture while mouse reporting is off, so default-on leaves a plain wheel

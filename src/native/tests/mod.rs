@@ -70,6 +70,7 @@ use winit::keyboard::{Key as WinitKey, KeyCode, NamedKey, PhysicalKey};
 
 mod alt_scroll;
 mod attach_e2e;
+mod click_hint;
 mod clipboard_paste;
 mod close_confirm;
 mod command_palette;

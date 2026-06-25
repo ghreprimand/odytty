@@ -346,6 +346,8 @@ fn render_sig() -> RenderSignature {
                 bell_flash: OverlayFragment::Inert,
                 ime_preedit: OverlayFragment::Inert,
                 open_notice: OverlayFragment::Inert,
+                click_hint: OverlayFragment::Inert,
+                armed_path: OverlayFragment::Inert,
             },
         },
         cursor: CursorRenderSignature {

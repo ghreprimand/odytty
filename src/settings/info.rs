@@ -1126,6 +1126,19 @@ impl Settings {
             },
             SettingInfo {
                 group: "Input",
+                key: "interactive_paths_click_hint",
+                env: INTERACTIVE_PATHS_CLICK_HINT_ENV,
+                name: "Click-to-open hint",
+                value: bool_display(self.interactive_paths_click_hint).to_owned(),
+                description: "When interactive file paths are on, show a transient bottom-left \"Ctrl+click to open\" hint after two plain mis-clicks on a resolved path land within a short window. On by default behind the global interactive_paths gate. Off silences only the hint; the hand cursor, the Ctrl+hover underline, and Ctrl+click open all still work.",
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
+                group: "Input",
                 key: "interactive_paths_editor",
                 env: INTERACTIVE_PATHS_EDITOR_ENV,
                 name: "Interactive path editor",
@@ -1362,6 +1375,9 @@ impl Settings {
             "interactive_paths" => bool_display(self.interactive_paths).to_owned(),
             "interactive_paths_barewords" => {
                 bool_display(self.interactive_paths_barewords).to_owned()
+            }
+            "interactive_paths_click_hint" => {
+                bool_display(self.interactive_paths_click_hint).to_owned()
             }
             "interactive_paths_editor" => {
                 if self.interactive_paths_editor.is_empty() {

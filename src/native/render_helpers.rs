@@ -130,6 +130,20 @@ pub(super) enum OverlayFragment {
     /// flight (the default / success path), keeping the cache decision
     /// unchanged.
     OpenNotice { text: String },
+    /// UX-A (Phase 11) transient "Ctrl+click to open" discoverability hint.
+    /// `Inert` when the hint is not shown (the default / feature-off path), so
+    /// the cache decision is unchanged; `ClickHint { shown: true }` while the
+    /// bottom-left hint is visible so it repaints when it raises and clears.
+    ClickHint { shown: bool },
+    /// UX-A (Phase 11) armed underline on the Ctrl+hovered interactive-path
+    /// span. `Inert` unless `interactive_paths` is on, Ctrl is held, and a
+    /// resolved path is hovered — so plain hover and feature-off are unchanged;
+    /// the span coordinates change the key so moving the armed hover repaints.
+    ArmedPath {
+        row: usize,
+        start: usize,
+        end: usize,
+    },
 }
 
 /// Folds the NEW overlay contributors' fragments into one hashable cache key.
@@ -150,6 +164,12 @@ pub(super) struct OverlayCompositeSignature {
     pub(super) bell_flash: OverlayFragment,
     pub(super) ime_preedit: OverlayFragment,
     pub(super) open_notice: OverlayFragment,
+    /// UX-A (Phase 11) bottom-left click-to-open hint. `Inert` on the default /
+    /// feature-off / not-shown path, so the composite stays constant there.
+    pub(super) click_hint: OverlayFragment,
+    /// UX-A (Phase 11) Ctrl+hover armed underline span. `Inert` unless armed, so
+    /// toggling Ctrl while hovering a path reclassifies to a Full rebuild.
+    pub(super) armed_path: OverlayFragment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

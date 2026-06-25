@@ -97,6 +97,13 @@ pub(super) struct Session {
     /// the `interactive_paths` setting is off (the scanner is gated off before
     /// it can ever run), so the default hover path is byte-identical.
     pub(super) hovered_path: Option<crate::paths::Resolved>,
+    /// UX-A (Phase 11): the visible-cell span of `hovered_path`, captured in the
+    /// same hover computation so the Ctrl+hover armed underline can decorate
+    /// exactly those cells without re-scanning the row at paint time. Kept in
+    /// lockstep with `hovered_path` (set/cleared together); `None` whenever
+    /// `hovered_path` is `None`, so it is permanently `None` while the feature is
+    /// off and the default hover path is byte-identical.
+    pub(super) hovered_path_cells: Option<super::app::click_hint::HoverPathCells>,
     /// Test seam (INTERACTIVE-PATHS): synthetic stat-gate so headless hover
     /// tests resolve path spans against an injected fs map, never the real
     /// filesystem. Production builds compile this out and use `FsResolveProbe`.
@@ -250,6 +257,7 @@ impl Session {
             test_surface: None,
             hovered_hyperlink: None,
             hovered_path: None,
+            hovered_path_cells: None,
             #[cfg(test)]
             test_path_probe: super::app::interactive_paths::MapProbe::default(),
             pointer_drag: PointerDrag::None,

@@ -399,6 +399,32 @@ impl App {
         self.hovered_path.as_ref()
     }
 
+    /// Test seam (UX-A / Phase 11): toggle the `interactive_paths_click_hint`
+    /// setting so the hint-on / hint-silenced parity can be pinned.
+    #[cfg(test)]
+    pub(in crate::native) fn set_interactive_paths_click_hint_for_test(&mut self, on: bool) {
+        self.settings.interactive_paths_click_hint = on;
+    }
+
+    /// Test seam (UX-A / Phase 11): whether the transient bottom-left
+    /// "Ctrl+click to open" hint is currently shown.
+    #[cfg(test)]
+    pub(in crate::native) fn click_hint_shown_for_test(&self) -> bool {
+        self.click_hint.is_shown()
+    }
+
+    /// Test seam (UX-A / Phase 11): the armed-underline span (row, start, end) as
+    /// the painter + cache signature see it — `Some` only when `interactive_paths`
+    /// is on, Ctrl is held, and a resolved path is hovered; `None` otherwise so
+    /// the plain-hover / feature-off byte-identity can be asserted.
+    #[cfg(test)]
+    pub(in crate::native) fn armed_underline_cells_for_test(
+        &self,
+    ) -> Option<(usize, usize, usize)> {
+        self.armed_path_underline_cells()
+            .map(|cells| (cells.row, cells.start, cells.end))
+    }
+
     /// Test seam (MOUSE-SCROLLBAR): toggle the `scrollbar_drag` setting so the
     /// inverted-gate (off-switch) parity can be pinned.
     #[cfg(test)]

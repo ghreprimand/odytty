@@ -82,6 +82,7 @@ use super::viewport::{
 
 mod background_ui;
 mod bell;
+pub(in crate::native) mod click_hint;
 mod connections_ui;
 mod copy_mode_ui;
 mod cursor;
@@ -280,6 +281,12 @@ pub(super) struct App {
     /// [`open_notice::NOTICE_DURATION`]; carries the message and the instant it
     /// was raised.
     open_notice: Option<open_notice::OpenNotice>,
+    /// UX-A (Phase 11): in-memory, per-launch click-to-open discoverability
+    /// state — the transient bottom-left "Ctrl+click to open" hint plus the
+    /// mis-click bookkeeping that decides when to raise it. NOT persisted; resets
+    /// every window launch. Idle (and byte-identity-irrelevant) on the default /
+    /// feature-off path: the painter and signature both early-out when not shown.
+    click_hint: click_hint::ClickHintState,
     /// Active IME pre-edit (composition) string as delivered by `winit`'s
     /// `Ime::Preedit`. Empty when no composition is in progress. Rendered inline
     /// at the terminal cursor; never sent to the PTY until the IME commits.
@@ -424,6 +431,7 @@ impl App {
             bell_flash_start: None,
             bell_flash_epoch: 0,
             open_notice: None,
+            click_hint: click_hint::ClickHintState::default(),
             ime_preedit: String::new(),
             autoclose,
             deadline: None,
@@ -515,6 +523,9 @@ impl App {
             self.pointer_px = None;
             self.hovered_hyperlink = None;
             self.hovered_path = None;
+            // UX-A (Phase 11): drop the armed-underline span alongside the
+            // hovered path it mirrors; a reflow makes its old row coords stale.
+            self.hovered_path_cells = None;
             // Reflow changes the row/scrollback layout; return to the live
             // bottom so the offset is never stale against the new geometry.
             // Search closes because its absolute row matches were computed
@@ -2262,6 +2273,9 @@ impl ApplicationHandler<UserEvent> for App {
                             // banner once it has outlived its lifetime; no-op when
                             // none is in flight.
                             self.update_open_notice(now);
+                            // UX-A (Phase 11): expire the click hint + drop a
+                            // stale unpaired mis-click. No-op on the idle path.
+                            self.update_click_hint(now);
                             let added = scrollback_len.saturating_sub(self.last_scrollback_len);
                             self.viewport.anchor_after_growth(added, scrollback_len);
                             self.last_scrollback_len = scrollback_len;
@@ -2361,6 +2375,13 @@ impl ApplicationHandler<UserEvent> for App {
                         // across the top of the grid; empty on the success /
                         // no-notice path so the frame is byte-identical.
                         self.paint_open_notice_cells(&mut snapshot);
+                        // UX-A (Phase 11): the Ctrl+hover armed underline on the
+                        // hovered path span, then the transient bottom-left
+                        // "Ctrl+click to open" hint. Both no-op (byte-identical)
+                        // off their gates — armed underline needs interactive_paths
+                        // + Ctrl + a hovered path; the hint needs to be shown.
+                        self.paint_armed_path_underline_cells(&mut snapshot);
+                        self.paint_click_hint_cells(&mut snapshot);
                         // Frame-overlay quad manifest: scroll indicator, then the
                         // off-by-default SH2 gutter, then the no-op new slots.
                         let mut overlays: Vec<SolidQuad> = Vec::new();
@@ -2437,6 +2458,12 @@ impl ApplicationHandler<UserEvent> for App {
                                     bell_flash: self.bell_flash_overlay_signature(),
                                     ime_preedit: self.ime_overlay_signature(),
                                     open_notice: self.open_notice_overlay_signature(),
+                                    // UX-A (Phase 11): both Inert off their gates,
+                                    // so the composite stays constant on the
+                                    // default path; armed_path flips on Ctrl
+                                    // toggle / span move so it reclassifies Full.
+                                    click_hint: self.click_hint_overlay_signature(),
+                                    armed_path: self.armed_path_overlay_signature(),
                                 },
                             },
                             cursor: CursorRenderSignature {
@@ -2532,12 +2559,27 @@ impl ApplicationHandler<UserEvent> for App {
             // it so the next `KeyboardInput` encodes with Ctrl/Alt/Shift held.
             WindowEvent::ModifiersChanged(state) => {
                 let state = state.state();
+                let was_ctrl = self.modifiers.ctrl;
                 self.modifiers = Modifiers {
                     ctrl: state.control_key(),
                     alt: state.alt_key(),
                     shift: state.shift_key(),
                 };
                 self.super_key = state.super_key();
+                // UX-A (Phase 11): the Ctrl+hover armed underline appears/clears
+                // as Ctrl toggles while a path is hovered, so a Ctrl transition
+                // there must trigger a rebuild + redraw to repaint the span.
+                // Gated on `interactive_paths` + a hovered path, so the default /
+                // feature-off path is untouched (byte-identical).
+                if was_ctrl != self.modifiers.ctrl
+                    && self.settings.interactive_paths
+                    && self.hovered_path.is_some()
+                {
+                    self.needs_rebuild = true;
+                    if let Some(window) = self.window.as_ref() {
+                        window.request_redraw();
+                    }
+                }
             }
             WindowEvent::Focused(focused) => {
                 self.focused = focused;

@@ -517,6 +517,8 @@ impl App {
             self.bell_flash_deadline(),
             // OPEN-NOTICE (P0-2) auto-expiry — `None` when no notice is in flight.
             self.open_notice_deadline(),
+            // UX-A (Phase 11) click-hint auto-expiry — `None` when no hint shown.
+            self.click_hint_deadline(),
         ]
         .into_iter()
         .flatten()

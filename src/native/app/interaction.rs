@@ -455,8 +455,9 @@ impl App {
         if !self.settings.interactive_paths {
             // Clear a stale span if the setting was toggled off live while one
             // was hovered; otherwise nothing to do — the scanner never runs.
-            if self.hovered_path.is_some() {
+            if self.hovered_path.is_some() || self.hovered_path_cells.is_some() {
                 self.hovered_path = None;
+                self.hovered_path_cells = None;
                 self.needs_rebuild = true;
                 if let Some(window) = self.window.as_ref() {
                     window.request_redraw();
@@ -464,9 +465,16 @@ impl App {
             }
             return;
         }
-        let resolved = self.resolved_hovered_path();
-        if self.hovered_path != resolved {
+        let (resolved, cells) = match self.resolved_hovered_path_with_cells() {
+            Some((resolved, cells)) => (Some(resolved), Some(cells)),
+            None => (None, None),
+        };
+        // Compare BOTH the resolved entry and the cell span: two occurrences of
+        // the same filename on different rows resolve to the same `Resolved`, so
+        // the span comparison is what moves the armed underline between them.
+        if self.hovered_path != resolved || self.hovered_path_cells != cells {
             self.hovered_path = resolved;
+            self.hovered_path_cells = cells;
             self.needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();
@@ -477,8 +485,22 @@ impl App {
     /// Resolve the path span (if any) under the current pointer cell against the
     /// pane's OSC 7 working directory and `$HOME`, stat-gated through the active
     /// [`crate::paths::ResolveProbe`]. Pure aside from the single probe call;
-    /// `None` when no live filesystem path sits under the pointer.
+    /// `None` when no live filesystem path sits under the pointer. Thin wrapper
+    /// over [`Self::resolved_hovered_path_with_cells`] that drops the span — used
+    /// by the context-menu path target which only needs the resolved entry.
     pub(super) fn resolved_hovered_path(&self) -> Option<crate::paths::Resolved> {
+        self.resolved_hovered_path_with_cells()
+            .map(|(resolved, _)| resolved)
+    }
+
+    /// As [`Self::resolved_hovered_path`], but also returns the visible-cell span
+    /// (UX-A): the row and column range the detected path occupies, so the
+    /// Ctrl+hover armed underline can decorate exactly those cells. The span's
+    /// byte offsets are mapped to column indices by counting chars (correct for
+    /// any multi-byte content earlier in the row, though paths are ASCII/narrow).
+    pub(super) fn resolved_hovered_path_with_cells(
+        &self,
+    ) -> Option<(crate::paths::Resolved, super::click_hint::HoverPathCells)> {
         let point = self.pointer_cell?;
         let (line, column, cwd) = self.hovered_row_text_and_cwd(point)?;
         // Map the pointer's cell column to a byte offset in the row string, then
@@ -493,7 +515,49 @@ impl App {
         )
         .into_iter()
         .find(|span| target >= span.start && target < span.end)?;
-        self.classify_hovered_path(&span, cwd.as_deref(), self.home_dir.as_deref())
+        let resolved =
+            self.classify_hovered_path(&span, cwd.as_deref(), self.home_dir.as_deref())?;
+        // Panic-free byte→column mapping: count chars whose byte offset is below
+        // the span boundary (never indexes a String slice at a raw byte).
+        let start = line
+            .char_indices()
+            .filter(|(byte, _)| *byte < span.start)
+            .count();
+        let end = line
+            .char_indices()
+            .filter(|(byte, _)| *byte < span.end)
+            .count();
+        let cells = super::click_hint::HoverPathCells {
+            row: point.row,
+            start,
+            end,
+        };
+        Some((resolved, cells))
+    }
+
+    /// UX-A (Phase 11): note a plain left-click that landed on a resolved path
+    /// but did NOT open (the Ctrl modifier gate failed) — the "I clicked,
+    /// nothing happened" mis-click. Raises the bottom-left teaching hint once two
+    /// such mis-clicks land within the window. Gated INSIDE `interactive_paths`
+    /// AND `interactive_paths_click_hint`; a no-op (no redraw) on every other
+    /// path, so feature-off frames are byte-identical. Called from the left-press
+    /// arm only when neither open helper fired.
+    pub(super) fn note_possible_path_misclick(&mut self) {
+        if !self.settings.interactive_paths || !self.settings.interactive_paths_click_hint {
+            return;
+        }
+        // Only a click that actually landed on a resolved path counts.
+        if self.hovered_path.is_none() {
+            return;
+        }
+        // If the open gate WOULD have fired, this is not a mis-click (the open
+        // path already handled it before we were called).
+        if hyperlink_action_allowed(self.modifiers, self.mouse_reporting_enabled()) {
+            return;
+        }
+        if self.click_hint.note_misclick(std::time::Instant::now()) {
+            self.request_selection_redraw();
+        }
     }
 
     /// Single-lock fetch of the row text under `point` plus the pane's OSC 7

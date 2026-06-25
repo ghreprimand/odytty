@@ -23,8 +23,9 @@ use super::{
     WINDOW_PADDING_ENV, normalize_name,
 };
 use super::{
-    BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_EDITOR_ENV,
-    INTERACTIVE_PATHS_ENV, LINE_HEIGHT_ENV, SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV,
+    BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
+    INTERACTIVE_PATHS_EDITOR_ENV, INTERACTIVE_PATHS_ENV, LINE_HEIGHT_ENV, SESSION_REPLAY_ENV,
+    SSH_CONFIG_HOSTS_ENV,
 };
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
@@ -180,6 +181,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "interactivepathsbarewords" | "pathbarewords" | "barepaths" | "barewordpaths" => {
             Some(INTERACTIVE_PATHS_BAREWORDS_ENV)
         }
+        "interactivepathsclickhint" | "pathclickhint" | "clickhint" | "pathopenhint" => {
+            Some(INTERACTIVE_PATHS_CLICK_HINT_ENV)
+        }
         "interactivepathseditor" | "pathseditor" | "patheditor" | "pathopeneditor" => {
             Some(INTERACTIVE_PATHS_EDITOR_ENV)
         }
@@ -260,6 +264,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         SESSION_REPLAY_ENV => Some("session_replay"),
         INTERACTIVE_PATHS_ENV => Some("interactive_paths"),
         INTERACTIVE_PATHS_BAREWORDS_ENV => Some("interactive_paths_barewords"),
+        INTERACTIVE_PATHS_CLICK_HINT_ENV => Some("interactive_paths_click_hint"),
         INTERACTIVE_PATHS_EDITOR_ENV => Some("interactive_paths_editor"),
         NATIVE_AUTOCLOSE_ENV => Some("native_autoclose_ms"),
         _ => None,

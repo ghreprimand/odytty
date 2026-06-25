@@ -74,6 +74,7 @@ pub const SSH_CONFIG_HOSTS_ENV: &str = "ODYTTY_SSH_CONFIG_HOSTS";
 pub const SESSION_REPLAY_ENV: &str = "ODYTTY_SESSION_REPLAY";
 pub const INTERACTIVE_PATHS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS";
 pub const INTERACTIVE_PATHS_BAREWORDS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS_BAREWORDS";
+pub const INTERACTIVE_PATHS_CLICK_HINT_ENV: &str = "ODYTTY_INTERACTIVE_PATHS_CLICK_HINT";
 pub const INTERACTIVE_PATHS_EDITOR_ENV: &str = "ODYTTY_INTERACTIVE_PATHS_EDITOR";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
@@ -151,6 +152,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SESSION_REPLAY_ENV,
     INTERACTIVE_PATHS_ENV,
     INTERACTIVE_PATHS_BAREWORDS_ENV,
+    INTERACTIVE_PATHS_CLICK_HINT_ENV,
     INTERACTIVE_PATHS_EDITOR_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
@@ -235,6 +237,15 @@ pub const DEFAULT_INTERACTIVE_PATHS: bool = false;
 /// global `interactive_paths` gate is still off by default and resolution stays
 /// stat-gated against the pane cwd, so non-existent words remain inert.
 pub const DEFAULT_INTERACTIVE_PATHS_BAREWORDS: bool = true;
+
+/// Click-to-open discoverability hint for interactive paths
+/// (`ODYTTY_INTERACTIVE_PATHS_CLICK_HINT`). On by default behind the global
+/// `interactive_paths` gate. When on, two plain mis-clicks on a resolved path
+/// within a short window raise a transient bottom-left "Ctrl+click to open"
+/// hint. Off silences only the hint — the hand cursor, Ctrl+hover underline, and
+/// Ctrl+click open all still work. The global `interactive_paths` gate is still
+/// off by default, so nothing shows until paths are enabled.
+pub const DEFAULT_INTERACTIVE_PATHS_CLICK_HINT: bool = true;
 
 /// Window padding (`ODYTTY_WINDOW_PADDING`): logical pixels of inset on every
 /// window edge before the terminal grid begins. `0.0` restores the historical

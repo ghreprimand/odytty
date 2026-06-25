@@ -225,6 +225,12 @@ impl App {
                     // helpers return false when their gate/feature is off, so
                     // the selection path stays byte-identical when neither fires.
                     if !self.try_open_hovered_hyperlink() && !self.try_open_hovered_path() {
+                        // UX-A (Phase 11): neither open fired. If this was a plain
+                        // click on a resolved path (the Ctrl gate failed), note it
+                        // as a mis-click so the discoverability hint can raise
+                        // after two-in-a-row. No-op off the feature path, so the
+                        // selection path stays byte-identical.
+                        self.note_possible_path_misclick();
                         self.begin_selection();
                     }
                 }

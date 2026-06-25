@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-25 -- Interactive paths — click-to-open discoverability: armed underline + mis-click hint (UX-A)
+
+Interactive-paths UX pass toward v0.5.0. The hand cursor appeared on plain hover
+over a resolved path, but opening actually requires Ctrl+click — so a plain click
+silently fell through to text selection and "nothing happened." The cursor was
+the only signal, and it lied. Two teaching affordances now sit INSIDE the
+`interactive_paths` master gate:
+
+1. Holding Ctrl while hovering a resolved path underlines the span — the "now it
+   will open" armed signal. The hovered span is captured during the hover scan
+   and repainted when Ctrl is toggled.
+2. After two plain mis-clicks on a path land within ~1.5s, a transient bottom-
+   left "Ctrl+click to open" chip appears for ~3s (informational blue, distinct
+   from the red top failure banner), with a cooldown so a burst never restacks it
+   and a single accidental click never triggers it.
+
+A new `interactive_paths_click_hint` knob (bool, default on, nested under the
+master gate) silences only the chip; the cursor, the armed underline, and
+Ctrl+click open are unaffected. The gating hierarchy: `interactive_paths` off →
+no hover scan, so no cursor / underline / hint at all (byte-identical to the pre-
+feature build); `interactive_paths` on + `interactive_paths_click_hint` off →
+underline + cursor + Ctrl+click work, chip silenced; both on → full behavior.
+Both affordances early-out to byte-identical frames when off/inactive (the
+click-hint and armed-underline composite-signature fragments are Inert unless
+active), and the feel-constants (`CLICK_HINT_MISCLICK_WINDOW` 1500ms,
+`CLICK_HINT_DURATION` 3000ms, `CLICK_HINT_COOLDOWN` 3000ms) are named for dev-
+build tuning. The hint state is in-memory and resets per window launch — no
+config write on click, so there is no new failure surface. The new knob is
+emitted by `--show-config`.
+
+Verified (isolated worktree at clean HEAD including the UX-B commit — so this
+doubled as the combined-integration check, this packet's 19 files only, gates
+serialized): `cargo fmt --check` clean; `cargo clippy --all-targets --locked
+-D warnings` clean; `cargo test --locked --lib` 2469 passed / 0 failed / 7
+ignored; the click-hint suite 18/18 (8 pure-state unit — two-in-window raise,
+single-click no-raise, cooldown, expiry, stale-drop, burst-no-restack, feel
+constants, informational-attrs; 7 App-level wiring — armed underline only on
+Ctrl+hover+resolved, absent over unresolved / when feature off, hint raise,
+master-gate-off and knob-off both silencing it; 3 settings round-trips); the
+bin-crate `--show-config` test asserts `interactive_paths_click_hint`;
+`gpu_composite_smoke` 3/3 (passthrough byte-identity holds); `license_headers`
+1/1 (both new files SPDX-headed). Staged diff scanned — no secrets / personal
+paths ("odyssey" appears only as the pre-existing theme name).
+
 ## 2026-06-25 -- Interactive paths — file-scoped right-click menu + Copy/Paste relabel (UX-B)
 
 Interactive-paths UX pass toward v0.5.0, driven by the dev-build exercise. Right-
