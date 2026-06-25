@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Fix — clickable bare filenames in command output (P1-4)
+
+v0.4.1 bug-fix sprint, Phase 4. Interactive paths only recognised tokens with a
+`/` in them, so a bare `carpet1.jpg` in `ls` output was never clickable — the
+common "click an image in a listing to open it" workflow was dead.
+
+Opt-in bareword detection. A new `DetectionOptions { barewords }` plus
+`detect_paths_with_options` extends the scanner; the existing `detect_paths(line)`
+keeps the original slash-required behaviour and stays byte-identical with
+barewords off. In bareword mode the scanner emits basename-like, file-ish tokens
+(a name with an extension) while keeping syntax guards that reject version
+strings (`1.2.3`), domains (`example.com`), plain words (`README`), dotfiles, and
+trailing-dot tokens. Hover detection passes `self.settings.interactive_paths_barewords`;
+resolution is unchanged and still flows through `crate::paths::resolve(span, cwd,
+home, probe)`, whose cwd-aware stat probe is the false-positive guard — a bare
+token only lights up when it resolves to a real file in the pane's cwd.
+
+Knob + default. New setting `interactive_paths_barewords` /
+`ODYTTY_INTERACTIVE_PATHS_BAREWORDS`, default ON. The decision is deliberate: the
+parent `interactive_paths` gate is still OFF by default, so the no-feature hover
+path is byte-identical for anyone who hasn't opted in. Once a user turns
+interactive paths on, clicking `ls` output is the primary expected workflow, and
+stat-gating keeps non-existent barewords inert — so the useful case works without
+a second opt-in, while conservative users can set `interactive_paths_barewords =
+off` for slash-only behaviour.
+
+Tests: bareword mode detects file-ish names only when enabled; version/domain/
+plain-word/dotted guards hold; detect-then-resolve lights up only when the probe
+has the file; and a default-mode byte-identity check. Legacy
+`setting_info_covers_every_field` updated for the new row. Verified (isolated
+worktree on post-Phase-3 master, serialized): `cargo fmt --check` clean; `cargo
+clippy --all-targets --locked -- -D warnings` clean; `cargo test --locked --lib`
+2431 passed / 0 failed / 7 ignored; `gpu_composite_smoke` 3/3; `license_headers`
+1/1. Staged diff scanned — no secrets or personal paths. (`--show-config`
+exposure of the interactive-paths knobs is tracked for Phase 9.)
+
 ## 2026-06-24 -- Fix — overlay rows are clickable; keybind editor saves on close (P1-5, P1-6)
 
 v0.4.1 bug-fix sprint, Phase 3. Two overlay-interaction gaps from v0.4.0.

@@ -168,6 +168,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "confirm_close",
             "bell",
             "interactive_paths",
+            "interactive_paths_barewords",
             "interactive_paths_editor",
             "ssh_config_hosts",
             "session_replay",

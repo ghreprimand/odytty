@@ -12,9 +12,12 @@
 //! * A candidate is a whitespace-delimited token, after stripping wrapping
 //!   quotes/brackets and trailing prose punctuation, that satisfies a shape
 //!   rule: absolute (`/…`), home (`~/…`), explicit relative (`./…`, `../…`), or
-//!   bare relative that **contains a `/`** (`src/main.rs`). The interior-`/`
-//!   requirement is the key false-positive guard — a lone word, a version
-//!   string (`1.2.3`), or a domain (`example.com`) is never a candidate.
+//!   bare relative that **contains a `/`** (`src/main.rs`). The default
+//!   interior-`/` requirement is the key false-positive guard — a lone word, a
+//!   version string (`1.2.3`), or a domain (`example.com`) is never a candidate.
+//!   [`DetectionOptions::barewords`] can additionally emit basename-like tokens
+//!   such as `carpet1.jpg`; callers must still resolve them through the stat
+//!   gate before treating them as live.
 //! * A trailing `:N` or `:N:M` (decimal) is parsed off the path body and
 //!   reported separately as `line` / `col`.
 //! * Cost is bounded: O(line length), with a per-candidate length cap and a
@@ -41,6 +44,16 @@ pub struct PathSpan {
     pub col: Option<u32>,
 }
 
+/// Optional scanner features. The default keeps the original conservative path
+/// shape exactly: bare relative candidates require a `/`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DetectionOptions {
+    /// When on, emit basename-like file tokens with an extension (for example
+    /// `carpet1.jpg`) as candidates. Resolution remains stat-gated, so a
+    /// candidate only becomes live if it exists relative to the pane cwd.
+    pub barewords: bool,
+}
+
 /// Longest candidate body (bytes) the scanner will consider. A token longer
 /// than this is rejected rather than grown — anti-DoS bound for hostile lines.
 const MAX_CANDIDATE_LEN: usize = 4096;
@@ -55,6 +68,12 @@ const LEADING_WRAPPERS: &[char] = &['(', '[', '{', '<', '"', '\'', '`'];
 /// Scan one line of text for path-looking spans. Pure; no I/O. Offsets in the
 /// returned [`PathSpan`]s index into `line`.
 pub fn detect_paths(line: &str) -> Vec<PathSpan> {
+    detect_paths_with_options(line, DetectionOptions::default())
+}
+
+/// Scan one line of text for path-looking spans with explicit feature options.
+/// Pure; no I/O. Offsets in the returned [`PathSpan`]s index into `line`.
+pub fn detect_paths_with_options(line: &str, options: DetectionOptions) -> Vec<PathSpan> {
     let mut spans = Vec::new();
     let bytes = line.as_bytes();
     let mut i = 0usize;
@@ -78,7 +97,7 @@ pub fn detect_paths(line: &str) -> Vec<PathSpan> {
         }
         let tok_end = i;
         let token = &line[tok_start..tok_end];
-        if let Some(mut span) = scan_token(token) {
+        if let Some(mut span) = scan_token(token, options) {
             // Rebase token-relative offsets onto the original line.
             span.start += tok_start;
             span.end += tok_start;
@@ -93,7 +112,7 @@ pub fn detect_paths(line: &str) -> Vec<PathSpan> {
 
 /// Try to extract a single path span from one whitespace-delimited token.
 /// Returns offsets **relative to the token**.
-fn scan_token(token: &str) -> Option<PathSpan> {
+fn scan_token(token: &str, options: DetectionOptions) -> Option<PathSpan> {
     if token.is_empty() || token.len() > MAX_CANDIDATE_LEN {
         return None;
     }
@@ -112,7 +131,7 @@ fn scan_token(token: &str) -> Option<PathSpan> {
         return None;
     }
     // 4. Shape test — only true path shapes qualify.
-    if !is_path_shape(body) {
+    if !is_path_shape(body, options) {
         return None;
     }
     Some(PathSpan {
@@ -214,8 +233,9 @@ fn strip_trailing_colon_num(s: &str) -> Option<(&str, u32)> {
 }
 
 /// Whether `body` has a true path shape: absolute, home, explicit relative, or
-/// bare relative that contains an interior `/`.
-fn is_path_shape(body: &str) -> bool {
+/// bare relative that contains an interior `/`. With bareword mode enabled,
+/// basename-like file tokens with extensions may also qualify.
+fn is_path_shape(body: &str, options: DetectionOptions) -> bool {
     if body.starts_with('/') {
         return true;
     }
@@ -228,8 +248,65 @@ fn is_path_shape(body: &str) -> bool {
     // Bare relative: must contain a separator so a lone word / version / domain
     // is never matched. A leading or trailing `/` already returned true above /
     // is fine here too.
-    body.contains('/')
+    if body.contains('/') {
+        return true;
+    }
+    options.barewords && is_bareword_path_shape(body)
 }
+
+fn is_bareword_path_shape(body: &str) -> bool {
+    if body.is_empty()
+        || body.contains(char::is_whitespace)
+        || body.starts_with('.')
+        || body.ends_with('.')
+    {
+        return false;
+    }
+    let Some((stem, ext)) = body.rsplit_once('.') else {
+        return false;
+    };
+    if stem.is_empty() || ext.is_empty() || !is_file_extension(ext) {
+        return false;
+    }
+    if is_version_like_bareword(body) || is_domain_like_bareword(body) {
+        return false;
+    }
+    true
+}
+
+fn is_file_extension(ext: &str) -> bool {
+    ext.len() <= 16
+        && ext
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+        && ext.bytes().any(|byte| byte.is_ascii_alphabetic())
+}
+
+fn is_version_like_bareword(body: &str) -> bool {
+    let trimmed = body.strip_prefix('v').unwrap_or(body);
+    !trimmed.is_empty()
+        && trimmed.contains('.')
+        && trimmed
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b'.')
+        && trimmed.bytes().any(|byte| byte == b'.')
+        && trimmed.bytes().any(|byte| byte.is_ascii_digit())
+}
+
+fn is_domain_like_bareword(body: &str) -> bool {
+    let Some((name, tld)) = body.rsplit_once('.') else {
+        return false;
+    };
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'.')
+        && COMMON_DOMAIN_TLDS.contains(&tld.to_ascii_lowercase().as_str())
+}
+
+const COMMON_DOMAIN_TLDS: &[&str] = &[
+    "app", "biz", "cloud", "co", "com", "dev", "edu", "gov", "io", "local", "net", "org", "site",
+];
 
 #[cfg(test)]
 mod tests {
@@ -247,6 +324,13 @@ mod tests {
 
     fn raws(line: &str) -> Vec<String> {
         detect_paths(line).into_iter().map(|s| s.raw).collect()
+    }
+
+    fn raws_with_barewords(line: &str) -> Vec<String> {
+        detect_paths_with_options(line, DetectionOptions { barewords: true })
+            .into_iter()
+            .map(|s| s.raw)
+            .collect()
     }
 
     #[test]
@@ -277,6 +361,31 @@ mod tests {
         assert!(detect_paths("foo.bar").is_empty());
         assert!(detect_paths("visit example.com now").is_empty());
         assert!(detect_paths("a.b.c").is_empty());
+    }
+
+    #[test]
+    fn bareword_mode_detects_fileish_names_only_when_enabled() {
+        assert!(detect_paths("carpet1.jpg").is_empty());
+        assert_eq!(raws_with_barewords("carpet1.jpg"), vec!["carpet1.jpg"]);
+        assert_eq!(raws_with_barewords("open main.rs"), vec!["main.rs"]);
+        assert_eq!(raws_with_barewords("photo.JPG:12"), vec!["photo.JPG"]);
+    }
+
+    #[test]
+    fn bareword_mode_keeps_version_domain_and_plain_word_guards() {
+        for inert in [
+            "1.2.3",
+            "v1.2.3",
+            "example.com",
+            "README",
+            ".hidden",
+            "trailing.",
+        ] {
+            assert!(
+                detect_paths_with_options(inert, DetectionOptions { barewords: true }).is_empty(),
+                "{inert:?} should stay inert"
+            );
+        }
     }
 
     #[test]

@@ -1113,6 +1113,19 @@ impl Settings {
             },
             SettingInfo {
                 group: "Input",
+                key: "interactive_paths_barewords",
+                env: INTERACTIVE_PATHS_BAREWORDS_ENV,
+                name: "Bare filename paths",
+                value: bool_display(self.interactive_paths_barewords).to_owned(),
+                description: "When interactive file paths are on, also consider basename-like tokens with extensions (for example carpet1.jpg) as path candidates. On by default behind the global interactive_paths gate; candidates still resolve through the filesystem check against the pane cwd, so non-existent words stay inert.",
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
+                group: "Input",
                 key: "interactive_paths_editor",
                 env: INTERACTIVE_PATHS_EDITOR_ENV,
                 name: "Interactive path editor",
@@ -1347,6 +1360,9 @@ impl Settings {
             "ssh_config_hosts" => bool_display(self.ssh_config_hosts).to_owned(),
             "session_replay" => bool_display(self.session_replay).to_owned(),
             "interactive_paths" => bool_display(self.interactive_paths).to_owned(),
+            "interactive_paths_barewords" => {
+                bool_display(self.interactive_paths_barewords).to_owned()
+            }
             "interactive_paths_editor" => {
                 if self.interactive_paths_editor.is_empty() {
                     "default".to_owned()

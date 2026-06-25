@@ -463,9 +463,14 @@ impl App {
         // find the detected span covering that offset. Paths are ASCII/narrow,
         // so one char per cell column keeps the column and char indices aligned.
         let target = line.char_indices().nth(column).map(|(byte, _)| byte)?;
-        let span = crate::paths::detect_paths(&line)
-            .into_iter()
-            .find(|span| target >= span.start && target < span.end)?;
+        let span = crate::paths::detect_paths_with_options(
+            &line,
+            crate::paths::DetectionOptions {
+                barewords: self.settings.interactive_paths_barewords,
+            },
+        )
+        .into_iter()
+        .find(|span| target >= span.start && target < span.end)?;
         self.classify_hovered_path(&span, cwd.as_deref(), self.home_dir.as_deref())
     }
 

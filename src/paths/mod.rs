@@ -25,7 +25,7 @@
 
 pub mod detect;
 
-pub use detect::{PathSpan, detect_paths};
+pub use detect::{DetectionOptions, PathSpan, detect_paths, detect_paths_with_options};
 
 /// What kind of filesystem entry a resolved path points at. The probe reports
 /// this; the open-action dispatch (Phase 8) branches on it.
@@ -358,5 +358,29 @@ mod tests {
         assert_eq!(r.abs, "/proj/src/main.rs");
         assert_eq!((r.line, r.col), (Some(42), Some(10)));
         assert_eq!(r.kind, FsKind::File);
+    }
+
+    #[test]
+    fn bareword_detect_then_resolve_lights_up_only_when_probe_has_it() {
+        let options = DetectionOptions { barewords: true };
+        let spans = detect_paths_with_options("carpet1.jpg", options);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].raw, "carpet1.jpg");
+
+        let live = MapProbe::new([("/proj/carpet1.jpg", FsKind::File)]);
+        let dead = MapProbe::new([]);
+        let resolved = resolve(&spans[0], Some("/proj"), Some("/home/user"), &live).unwrap();
+
+        assert_eq!(resolved.abs, "/proj/carpet1.jpg");
+        assert_eq!(resolved.kind, FsKind::File);
+        assert!(resolve(&spans[0], Some("/proj"), Some("/home/user"), &dead).is_none());
+    }
+
+    #[test]
+    fn bareword_detect_then_resolve_keeps_default_mode_byte_identical() {
+        assert!(detect_paths("carpet1.jpg").is_empty());
+        assert!(detect_paths("README").is_empty());
+        assert!(detect_paths("1.2.3").is_empty());
+        assert!(detect_paths("example.com").is_empty());
     }
 }

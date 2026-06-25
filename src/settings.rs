@@ -954,6 +954,11 @@ pub struct Settings {
     /// Detection is local-only (nothing logged, persisted, or sent) and runs on
     /// the focused pane only (v1 bound, shared with OSC 8 hyperlink hover).
     pub interactive_paths: bool,
+    /// When interactive paths are enabled, detect basename-like file tokens such
+    /// as `carpet1.jpg` and resolve them against the pane cwd. On by default
+    /// behind the global `interactive_paths` gate; resolution is still
+    /// stat-gated, so non-existent barewords stay inert.
+    pub interactive_paths_barewords: bool,
     /// Optional editor override for opening `path:line:col` spans (Phase 8 / C3).
     /// Empty (the default) means "detect from `$EDITOR`/`$VISUAL` via the
     /// invocation matrix". A non-empty value pins the editor: either a known
@@ -1038,6 +1043,7 @@ impl Default for Settings {
             ssh_config_hosts: DEFAULT_SSH_CONFIG_HOSTS,
             session_replay: DEFAULT_SESSION_REPLAY,
             interactive_paths: DEFAULT_INTERACTIVE_PATHS,
+            interactive_paths_barewords: DEFAULT_INTERACTIVE_PATHS_BAREWORDS,
             interactive_paths_editor: String::new(),
             native_autoclose: None,
         }
@@ -1607,6 +1613,12 @@ impl Settings {
             DEFAULT_INTERACTIVE_PATHS,
             &mut warn,
         );
+        let interactive_paths_barewords = parse_bool_setting(
+            get(INTERACTIVE_PATHS_BAREWORDS_ENV).as_deref(),
+            INTERACTIVE_PATHS_BAREWORDS_ENV,
+            DEFAULT_INTERACTIVE_PATHS_BAREWORDS,
+            &mut warn,
+        );
         // Trim surrounding whitespace; empty (the default) means "use $EDITOR".
         // No validation here — the editor spec is tokenized + matched at open
         // time (a path/template with internal spaces is preserved as written).
@@ -1688,6 +1700,7 @@ impl Settings {
             ssh_config_hosts,
             session_replay,
             interactive_paths,
+            interactive_paths_barewords,
             interactive_paths_editor,
             native_autoclose,
         }
@@ -1875,6 +1888,10 @@ impl Settings {
         values.insert(
             INTERACTIVE_PATHS_ENV,
             bool_display(self.interactive_paths).to_owned(),
+        );
+        values.insert(
+            INTERACTIVE_PATHS_BAREWORDS_ENV,
+            bool_display(self.interactive_paths_barewords).to_owned(),
         );
         if !self.interactive_paths_editor.is_empty() {
             values.insert(
