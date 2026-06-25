@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-25 -- Fix — click-to-open hint retires after a few shows (UX-A nag)
+
+Found during the hands-on dev-build exercise: the "Ctrl+click to open" teaching
+hint re-raised every time two plain clicks landed on a path, forever — so a user
+who keeps plain-clicking got nagged indefinitely. A teaching affordance should
+teach a few times and then give up. The hint now retires after
+`CLICK_HINT_MAX_SHOWS` (3) appearances per launch: once it has been shown that
+many times, further plain mis-clicks no longer raise it until the next launch.
+The counter is in-memory like the rest of the hint state (resets per launch), and
+the cap only ever reduces how often the hint shows, so feature-off and no-hint
+frames are unchanged. Verified: fmt/clippy clean, `cargo test --locked --lib`
+2473 passed / 0 failed (the new retirement test raises the hint exactly three
+times across cooldown gaps then asserts no further raise), `gpu_composite_smoke`
+6/6 (byte-identity unaffected — pure CPU logic), `license_headers` 1/1.
+
 ## 2026-06-25 -- Image viewer — smooth (linear) scaling for the in-OdyTTY viewer (UX-C, part 2)
 
 Follow-up to the image-viewer composite work. The in-OdyTTY viewer shared the

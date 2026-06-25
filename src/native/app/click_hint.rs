@@ -45,6 +45,13 @@ pub(in crate::native) const CLICK_HINT_COOLDOWN: Duration = Duration::from_milli
 /// The teaching text. Kept short so it fits a few bottom-left cells.
 pub(in crate::native) const CLICK_HINT_TEXT: &str = " Ctrl+click to open ";
 
+/// How many times the hint may appear in a single launch before it gives up for
+/// the rest of the session. A teaching affordance should teach a few times and
+/// then stop nagging — once the user has plausibly seen "Ctrl+click to open"
+/// this many times, further plain mis-clicks no longer raise it (until the next
+/// launch). Reset per launch because the state is in-memory only.
+pub(in crate::native) const CLICK_HINT_MAX_SHOWS: u32 = 3;
+
 /// In-memory, per-launch click-hint state (NOT persisted). Tracks the active
 /// transient hint plus the mis-click bookkeeping that decides when to raise it.
 /// Pure and platform-independent so the trigger logic is unit-tested directly.
@@ -59,6 +66,11 @@ pub(in crate::native) struct ClickHintState {
     /// Suppress raising a new hint until this instant (re-arm point). `None`
     /// before the first hint ever fires.
     cooldown_until: Option<Instant>,
+    /// How many times the hint has been raised this launch. Once it reaches
+    /// [`CLICK_HINT_MAX_SHOWS`] the hint retires for the session so it stops
+    /// nagging a user who keeps plain-clicking. In-memory only (resets per
+    /// launch).
+    times_shown: u32,
 }
 
 impl ClickHintState {
@@ -66,12 +78,17 @@ impl ClickHintState {
     /// open because the Ctrl gate failed) at `now`. Returns `true` iff this
     /// raised the hint, so the caller can request a redraw.
     ///
-    /// Rules: a hint already shown or an active cooldown swallows the click (no
-    /// restack); otherwise the first click is recorded and a SECOND click within
-    /// [`CLICK_HINT_MISCLICK_WINDOW`] raises the hint and arms the cooldown.
+    /// Rules: a hint already shown, an active cooldown, or a reached per-launch
+    /// show cap swallows the click (no restack); otherwise the first click is
+    /// recorded and a SECOND click within [`CLICK_HINT_MISCLICK_WINDOW`] raises
+    /// the hint, arms the cooldown, and counts toward the cap.
     pub(in crate::native) fn note_misclick(&mut self, now: Instant) -> bool {
         // Already visible — additional clicks never restack it.
         if self.shown_at.is_some() {
+            return false;
+        }
+        // Taught enough this launch — retire the hint so it stops nagging.
+        if self.times_shown >= CLICK_HINT_MAX_SHOWS {
             return false;
         }
         // Cooling down after a recent hint — suppress to avoid flicker.
@@ -87,6 +104,7 @@ impl ClickHintState {
             self.shown_at = Some(now);
             self.last_misclick = None;
             self.cooldown_until = Some(now + CLICK_HINT_DURATION + CLICK_HINT_COOLDOWN);
+            self.times_shown = self.times_shown.saturating_add(1);
             true
         } else {
             // First (or stale-partner) click: record and wait for a partner.
@@ -321,6 +339,31 @@ mod tests {
         assert!(!state.note_misclick(rearmed));
         assert!(state.note_misclick(rearmed + Duration::from_millis(50)));
         assert!(state.is_shown());
+    }
+
+    #[test]
+    fn hint_retires_after_the_per_launch_show_cap() {
+        let mut state = ClickHintState::default();
+        let mut now = t0();
+        // Raise the hint exactly CLICK_HINT_MAX_SHOWS times, each a fresh pair
+        // past the prior re-arm point.
+        for _ in 0..CLICK_HINT_MAX_SHOWS {
+            assert!(!state.note_misclick(now), "first of the pair records");
+            assert!(state.note_misclick(now), "second of the pair raises");
+            assert!(state.is_shown());
+            // Clear it and advance past the cooldown re-arm point.
+            now += CLICK_HINT_DURATION + CLICK_HINT_COOLDOWN + Duration::from_millis(1);
+            state.tick(now);
+            assert!(!state.is_shown());
+        }
+        // The cap is now reached: no further pair ever raises it this launch,
+        // even well past every cooldown.
+        assert!(!state.note_misclick(now));
+        assert!(
+            !state.note_misclick(now),
+            "past the per-launch cap, the hint retires and stops nagging"
+        );
+        assert!(!state.is_shown());
     }
 
     #[test]
