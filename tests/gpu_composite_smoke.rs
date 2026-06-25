@@ -472,6 +472,413 @@ fn crt_off_is_exact_and_crt_on_bounded_dims_lit_cells() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Phase 13a: the C4 viewer overlay is composited AFTER the CRT/bloom post pass,
+// directly onto the swapchain, so effects never touch the photo. These tests
+// REPLICATE that architecture (scene -> HDR offscreen -> CRT+bloom -> swapchain,
+// then a LoadOp::Load overlay pass that draws an opaque backing + the image in
+// surface format). The real implementation lives in image_layer.rs / gpu.rs;
+// `gpu_tests::overlay_draws_image_over_backing_onto_swapchain` exercises that
+// real code path. The shader below mirrors the real overlay/backing shaders.
+// ---------------------------------------------------------------------------
+
+const OVERLAY_SHADER: &str = r#"
+struct VsIn {
+    @location(0) pos: vec2<f32>,
+    @location(1) uv: vec2<f32>,
+};
+struct VsOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+@vertex
+fn vs_main(input: VsIn) -> VsOut {
+    var out: VsOut;
+    out.pos = vec4<f32>(input.pos, 0.0, 1.0);
+    out.uv = input.uv;
+    return out;
+}
+@group(0) @binding(0) var image_tex: texture_2d<f32>;
+@group(0) @binding(1) var image_sampler: sampler;
+@fragment
+fn fs_image(input: VsOut) -> @location(0) vec4<f32> {
+    return textureSample(image_tex, image_sampler, input.uv);
+}
+@fragment
+fn fs_backing(input: VsOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(0.01, 0.01, 0.01, 1.0);
+}
+"#;
+
+// Centered NDC fit-rect [-0.5, 0.5]² → in the 16×12 frame: x∈[4,12), y∈[3,9).
+const OVERLAY_NDC_VERTS: [f32; 24] = [
+    -0.5, 0.5, 0.0, 0.0, // tl
+    -0.5, -0.5, 0.0, 1.0, // bl
+    0.5, 0.5, 1.0, 0.0, // tr
+    0.5, 0.5, 1.0, 0.0, // tr
+    -0.5, -0.5, 0.0, 1.0, // bl
+    0.5, -0.5, 1.0, 1.0, // br
+];
+
+fn create_overlay_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    fragment_entry: &'static str,
+    bgl: &wgpu::BindGroupLayout,
+) -> wgpu::RenderPipeline {
+    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("overlay-smoke-pl"),
+        bind_group_layouts: &[Some(bgl)],
+        immediate_size: 0,
+    });
+    let attrs = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2];
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("overlay-smoke-pipeline"),
+        layout: Some(&layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_main"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: 16,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &attrs,
+            }],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some(fragment_entry),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: FORMAT,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
+/// Render one frame through the full CRT+bloom post chain onto the swapchain,
+/// then (when `overlay` is `Some`) composite an opaque backing + the image in a
+/// `LoadOp::Load` pass — exactly the real post-then-overlay order. Returns the
+/// read-back swapchain pixels. All GPU resources stay alive until submit.
+fn render_overlay_frame(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    overlay: Option<(&[u8], u32, u32)>,
+) -> Vec<u8> {
+    // --- Post chain (CRT on + bloom on), scene = checkerboard.
+    let offscreen_pipeline = create_scene_pipeline(device, HDR_FORMAT, SCENE_SHADER);
+    let offscreen = create_render_texture(device, "overlay-smoke-offscreen", HDR_FORMAT, false);
+    let bright = create_bloom_texture(device, "overlay-smoke-bright");
+    let ping = create_bloom_texture(device, "overlay-smoke-ping");
+    let out = create_render_texture(device, "overlay-smoke-out", FORMAT, true);
+    let offscreen_view = offscreen.create_view(&wgpu::TextureViewDescriptor::default());
+    let bright_view = bright.create_view(&wgpu::TextureViewDescriptor::default());
+    let ping_view = ping.create_view(&wgpu::TextureViewDescriptor::default());
+    let out_view = out.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let bloom_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("overlay-smoke-bloom"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../src/shaders/bloom.wgsl").into()),
+    });
+    let bright_bgl = create_bloom_source_bgl(device, "overlay-smoke-bright-bgl");
+    let blur_bgl = create_bloom_source_bgl(device, "overlay-smoke-blur-bgl");
+    let composite_bgl = create_bloom_composite_bgl(device);
+    let bright_pipeline =
+        create_bloom_pipeline(device, &bloom_shader, "fs_bright", HDR_FORMAT, &bright_bgl);
+    let blur_h_pipeline =
+        create_bloom_pipeline(device, &bloom_shader, "fs_blur_h", HDR_FORMAT, &blur_bgl);
+    let blur_v_pipeline =
+        create_bloom_pipeline(device, &bloom_shader, "fs_blur_v", HDR_FORMAT, &blur_bgl);
+    let composite_pipeline = create_bloom_pipeline(
+        device,
+        &bloom_shader,
+        "fs_composite_bloom",
+        FORMAT,
+        &composite_bgl,
+    );
+    let nearest = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("overlay-smoke-nearest"),
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        ..Default::default()
+    });
+    let linear = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("overlay-smoke-linear"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        ..Default::default()
+    });
+    let threshold = default_bloom_threshold_for_theme(Theme::PLAIN);
+    let uniform = create_bloom_uniform(device, threshold, 0.4, 3.0);
+    let crt_uniform = create_crt_uniform(device, true, 0.18, 2.0, 0.16);
+    let bright_bg = create_bloom_source_bg(
+        device,
+        &bright_bgl,
+        &offscreen_view,
+        &nearest,
+        &uniform,
+        "overlay-smoke-bright-bg",
+    );
+    let blur_h_bg = create_bloom_source_bg(
+        device,
+        &blur_bgl,
+        &bright_view,
+        &linear,
+        &uniform,
+        "overlay-smoke-blur-h-bg",
+    );
+    let blur_v_bg = create_bloom_source_bg(
+        device,
+        &blur_bgl,
+        &ping_view,
+        &linear,
+        &uniform,
+        "overlay-smoke-blur-v-bg",
+    );
+    let composite_bg = create_bloom_composite_bg(
+        device,
+        &composite_bgl,
+        &offscreen_view,
+        &bright_view,
+        &nearest,
+        &linear,
+        &uniform,
+        &crt_uniform,
+    );
+
+    // --- Overlay resources (only when drawing a viewer image).
+    let overlay_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("overlay-smoke-overlay-shader"),
+        source: wgpu::ShaderSource::Wgsl(OVERLAY_SHADER.into()),
+    });
+    let overlay_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("overlay-smoke-bgl"),
+        entries: &[texture_entry(0), sampler_entry(1)],
+    });
+    let image_pipeline = create_overlay_pipeline(device, &overlay_shader, "fs_image", &overlay_bgl);
+    let backing_pipeline =
+        create_overlay_pipeline(device, &overlay_shader, "fs_backing", &overlay_bgl);
+    let overlay_vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("overlay-smoke-vbuf"),
+        contents: bytemuck::cast_slice(&OVERLAY_NDC_VERTS),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    // Built lazily but must outlive submit, so declare here.
+    let overlay_image_state = overlay.map(|(rgba, w, h)| {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("overlay-smoke-image"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(w * 4),
+                rows_per_image: Some(h),
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("overlay-smoke-image-bg"),
+            layout: &overlay_bgl,
+            entries: &[bind_texture(0, &view), bind_sampler(1, &nearest)],
+        });
+        (texture, bg)
+    });
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("overlay-smoke-encoder"),
+    });
+    encode_scene(&mut encoder, &offscreen_pipeline, &offscreen_view);
+    encode_composite(&mut encoder, &bright_pipeline, &bright_bg, &bright_view);
+    encode_composite(&mut encoder, &blur_h_pipeline, &blur_h_bg, &ping_view);
+    encode_composite(&mut encoder, &blur_v_pipeline, &blur_v_bg, &bright_view);
+    encode_composite(&mut encoder, &composite_pipeline, &composite_bg, &out_view);
+
+    if let Some((_texture, image_bg)) = overlay_image_state.as_ref() {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("overlay-smoke-overlay-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &out_view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_vertex_buffer(0, overlay_vbuf.slice(..));
+        pass.set_bind_group(0, image_bg, &[]);
+        pass.set_pipeline(&backing_pipeline);
+        pass.draw(0..6, 0..1);
+        pass.set_pipeline(&image_pipeline);
+        pass.draw(0..6, 0..1);
+    }
+
+    let buffer = create_readback_buffer(device);
+    copy_texture_to_buffer(&mut encoder, &out, &buffer);
+    queue.submit(std::iter::once(encoder.finish()));
+    readback(device, &buffer)
+}
+
+#[test]
+fn viewer_image_survives_post_effects() {
+    let Some((device, queue, hdr_supported)) = gpu_device() else {
+        eprintln!("skipping: no GPU adapter available");
+        return;
+    };
+    assert!(hdr_supported, "HDR offscreen required");
+
+    // A flat opaque mid-gray image. After CRT+bloom + the overlay pass, the
+    // whole fit-rect must be that gray with NO scanline modulation.
+    let gray = vec![128u8; (8 * 6 * 4) as usize];
+    let mut gray_rgba = gray.clone();
+    for px in gray_rgba.chunks_exact_mut(4) {
+        px[3] = 255; // opaque
+    }
+    let with_overlay = render_overlay_frame(&device, &queue, Some((&gray_rgba, 8, 6)));
+    let baseline = render_overlay_frame(&device, &queue, None);
+
+    // Reference interior pixel of the fit-rect (x∈[4,12), y∈[3,9)).
+    let r0 = pixel_index(6, 5);
+    let reference = &with_overlay[r0..r0 + 4];
+    // Mid-gray round-trips through the sRGB swapchain to ~128.
+    for &v in reference.iter().take(3) {
+        assert!(
+            v.abs_diff(128) <= 4,
+            "viewer pixel should match source gray ~128, got {v}"
+        );
+    }
+    // No scanline periodicity inside the rect: every interior pixel is byte-
+    // identical to the reference (effects never modulated the photo row-to-row).
+    for y in 4..8 {
+        for x in 5..11 {
+            let i = pixel_index(x, y);
+            assert_eq!(
+                &with_overlay[i..i + 4],
+                reference,
+                "fit-rect pixel ({x},{y}) differs → effects/scanlines touched the photo"
+            );
+        }
+    }
+    // The overlay genuinely replaced post-processed content (proves the pass ran
+    // on top of an effect-bearing frame, not a blank one).
+    assert_ne!(
+        &with_overlay[r0..r0 + 4],
+        &baseline[r0..r0 + 4],
+        "overlay must change the post-processed pixels under the fit-rect"
+    );
+}
+
+#[test]
+fn viewer_backing_blocks_scene_bleed() {
+    let Some((device, queue, hdr_supported)) = gpu_device() else {
+        eprintln!("skipping: no GPU adapter available");
+        return;
+    };
+    assert!(hdr_supported, "HDR offscreen required");
+
+    // 8×6 image: top 3 rows opaque red, bottom 3 rows fully transparent. The
+    // transparent rows must reveal the OPAQUE BACKING (dark), never the scene.
+    let mut img = vec![0u8; (8 * 6 * 4) as usize];
+    for y in 0..6u32 {
+        for x in 0..8u32 {
+            let i = ((y * 8 + x) * 4) as usize;
+            if y < 3 {
+                img[i] = 255; // red
+                img[i + 3] = 255; // opaque
+            }
+            // else transparent (0,0,0,0)
+        }
+    }
+    let frame = render_overlay_frame(&device, &queue, Some((&img, 8, 6)));
+
+    // Upper half of the fit-rect (y∈[3,6)) shows the red image.
+    let red = pixel_index(8, 4);
+    assert!(
+        frame[red] >= 250 && frame[red + 1] <= 5 && frame[red + 2] <= 5,
+        "opaque image region must show red, got {:?}",
+        &frame[red..red + 4]
+    );
+    // Lower half (y∈[6,9)) is transparent → opaque near-black backing shows,
+    // emphatically not the checkerboard scene.
+    let back = pixel_index(8, 7);
+    assert!(
+        frame[back] < 90 && frame[back + 1] < 90 && frame[back + 2] < 90,
+        "transparent region must reveal the opaque backing (dark), got {:?}",
+        &frame[back..back + 4]
+    );
+}
+
+#[test]
+fn cleared_viewer_frame_is_byte_identical() {
+    let Some((device, queue, hdr_supported)) = gpu_device() else {
+        eprintln!("skipping: no GPU adapter available");
+        return;
+    };
+    assert!(hdr_supported, "HDR offscreen required");
+
+    let gray = vec![200u8; (8 * 6 * 4) as usize];
+    let mut gray_rgba = gray.clone();
+    for px in gray_rgba.chunks_exact_mut(4) {
+        px[3] = 255;
+    }
+    let baseline = render_overlay_frame(&device, &queue, None);
+    let with_overlay = render_overlay_frame(&device, &queue, Some((&gray_rgba, 8, 6)));
+    // Clearing the viewer skips the overlay pass entirely (gated on
+    // has_overlay_image in the real code) → the frame returns to the no-viewer
+    // bytes exactly.
+    let cleared = render_overlay_frame(&device, &queue, None);
+
+    assert_ne!(
+        baseline, with_overlay,
+        "with a viewer image, the overlay pass must change pixels"
+    );
+    assert_eq!(
+        baseline, cleared,
+        "clearing the viewer (no overlay pass) must be byte-identical to the no-viewer frame"
+    );
+}
+
 fn gpu_device() -> Option<(wgpu::Device, wgpu::Queue, bool)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {

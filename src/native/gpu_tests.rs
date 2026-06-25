@@ -459,7 +459,8 @@ fn overlay_image_set_and_clear_toggles_presence() {
     let Some((device, queue)) = test_device_with_hdr() else {
         return;
     };
-    let mut layer = super::image_layer::ImageLayer::new(&device, TEST_SURFACE_FORMAT);
+    let mut layer =
+        super::image_layer::ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
     let viewport_buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("test-viewport"),
         size: 64,
@@ -518,6 +519,198 @@ fn overlay_image_set_and_clear_toggles_presence() {
     assert!(
         !layer.has_overlay_image(),
         "an rgba buffer too small for the claimed dims is rejected"
+    );
+
+    device.poll(wgpu::PollType::wait_indefinitely()).ok();
+}
+
+/// C4 (Phase 13a) real-code render proof: `draw_overlay` paints the viewer
+/// (opaque backing + image) onto a swapchain-format target via the real overlay
+/// pipelines. Renders a scene fill (green) first, then opens a `LoadOp::Load`
+/// overlay pass exactly as `render` does post-effects, and reads back:
+///
+/// - the image's opaque region shows the image color,
+/// - the image's transparent region shows the opaque backing (NOT the scene),
+///   proving the backing blocks terminal/bg bleed,
+/// - pixels outside the fit-rect keep the scene fill (LoadOp::Load preserved).
+///
+/// GPU-gated (skips when no adapter is available).
+#[test]
+fn overlay_draws_image_over_backing_onto_swapchain() {
+    let Some((device, queue)) = test_device_with_hdr() else {
+        return;
+    };
+    const W: u32 = 16;
+    const H: u32 = 12;
+    let mut layer =
+        super::image_layer::ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+    let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("test-overlay-viewport"),
+        contents: bytemuck::bytes_of(&ViewportUniform {
+            size: [W as f32, H as f32],
+            effect: [0.0, 1.0],
+            text: [1.0, 0.0, 0.0, 0.0],
+        }),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+
+    // A 4×4 image: top-left 2×2 opaque red, the rest fully transparent. With a
+    // 16×12 viewport the 4×4 fits at native size, centered → fit-rect [6,4)-[10,8).
+    let mut img = vec![0u8; 4 * 4 * 4];
+    for y in 0..4 {
+        for x in 0..4 {
+            let i = (y * 4 + x) * 4;
+            if x < 2 && y < 2 {
+                img[i] = 255; // opaque red
+                img[i + 3] = 255;
+            }
+            // else: left as (0,0,0,0) fully transparent
+        }
+    }
+    layer.set_overlay_image(
+        &device,
+        &queue,
+        &viewport_buf,
+        Some((&img, 4, 4)),
+        W as f32,
+        H as f32,
+    );
+    assert!(layer.has_overlay_image());
+
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("test-overlay-target"),
+        size: wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TEST_SURFACE_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("test-overlay-encoder"),
+    });
+    // Scene fill: clear the whole target to green (stands in for the
+    // post-processed terminal frame).
+    {
+        let _scene = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("test-overlay-scene"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+    }
+    // Overlay pass: preserve the scene, draw backing + image over it.
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("test-overlay-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        layer.draw_overlay(&mut pass);
+    }
+
+    let bpr = {
+        let unpadded = W * 4;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        unpadded.div_ceil(align) * align
+    };
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("test-overlay-readback"),
+        size: bpr as u64 * H as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &target,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bpr),
+                rows_per_image: Some(H),
+            },
+        },
+        wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(std::iter::once(encoder.finish()));
+
+    let slice = readback.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| {
+        tx.send(r).ok();
+    });
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("device poll");
+    rx.recv().expect("map cb").expect("map readback");
+    let mapped = slice.get_mapped_range();
+    let mut pixels = Vec::with_capacity((W * H * 4) as usize);
+    for row in mapped.chunks(bpr as usize).take(H as usize) {
+        pixels.extend_from_slice(&row[..(W * 4) as usize]);
+    }
+    drop(mapped);
+    readback.unmap();
+
+    let at = |x: u32, y: u32| {
+        let i = ((y * W + x) * 4) as usize;
+        [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]]
+    };
+
+    // Opaque red image texel (image px (0,0) → target (6,4)).
+    let red = at(6, 4);
+    assert!(
+        red[0] >= 250 && red[1] <= 5 && red[2] <= 5,
+        "opaque image region must show the image color, got {red:?}"
+    );
+    // Transparent image texel over the backing (image px (3,3) → target (9,7)).
+    // The opaque backing must show through — dark and emphatically NOT green.
+    let backing = at(9, 7);
+    assert!(
+        backing[1] < 100 && backing.iter().take(3).all(|&c| c < 90),
+        "transparent image region must reveal the opaque backing, not the green scene, got {backing:?}"
+    );
+    // Outside the fit-rect the scene fill is preserved by LoadOp::Load.
+    let scene = at(0, 0);
+    assert!(
+        scene[1] >= 250 && scene[0] <= 5 && scene[2] <= 5,
+        "pixels outside the fit-rect keep the scene (green), got {scene:?}"
     );
 
     device.poll(wgpu::PollType::wait_indefinitely()).ok();

@@ -969,7 +969,10 @@ impl GpuState {
             post_process_format,
             PostProcessOptions { bloom, crt },
         );
-        let image_layer = ImageLayer::new(&device, scene_target_format);
+        // The viewer overlay is composited after post directly onto the
+        // swapchain, so the layer also needs the surface format for its overlay
+        // + backing pipelines (distinct from the scene-target format above).
+        let image_layer = ImageLayer::new(&device, scene_target_format, config.format);
 
         // --- Render pipeline from the shared cell shader.
         let pipeline =
@@ -2012,10 +2015,46 @@ impl GpuState {
             pass.draw(cell_count..self.vertex_count, 0..1);
         }
         self.image_layer.draw_above(pass);
-        // C4: the in-terminal image viewer draws LAST — over the terminal, the
-        // placements, and the overlay panel/scrim. A no-op when no viewer image
-        // is set, so the closed-viewer frame is byte-identical.
-        self.image_layer.draw_overlay(pass);
+        // NOTE: the C4 viewer overlay is intentionally NOT drawn here. It is
+        // composited in a dedicated pass on the swapchain AFTER the CRT/bloom
+        // post pass (see `encode_overlay_pass` / `render`) so the photo is never
+        // touched by effects. Drawing it inside the scene pass would route it
+        // through the HDR offscreen and the post shaders.
+    }
+
+    /// Composite the C4 viewer overlay onto the swapchain AFTER post-processing.
+    ///
+    /// Opened with `LoadOp::Load` so the post-processed frame is preserved and
+    /// the viewer (backing + image, both in surface format) draws crisply on
+    /// top, untouched by CRT/bloom. The whole pass is gated on
+    /// `has_overlay_image()`: with no viewer image set, no pass is encoded and
+    /// the command buffer is byte-for-byte identical to the no-viewer path.
+    fn encode_overlay_pass<'pass>(
+        &'pass self,
+        encoder: &'pass mut wgpu::CommandEncoder,
+        view: &'pass wgpu::TextureView,
+    ) {
+        if !self.image_layer.has_overlay_image() {
+            return;
+        }
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("odytty-overlay-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    // Preserve the post-processed frame, then draw the viewer.
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        self.image_layer.draw_overlay(&mut pass);
     }
 
     fn encode_scene_pass<'pass>(
@@ -2090,11 +2129,15 @@ impl GpuState {
                     &view,
                     self.post_options(),
                 );
+                // Viewer draws over the post-processed frame (effects-free).
+                self.encode_overlay_pass(&mut encoder, &view);
             } else {
                 self.encode_scene_pass(&mut encoder, &view);
+                self.encode_overlay_pass(&mut encoder, &view);
             }
         } else {
             self.encode_scene_pass(&mut encoder, &view);
+            self.encode_overlay_pass(&mut encoder, &view);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         frame.present();

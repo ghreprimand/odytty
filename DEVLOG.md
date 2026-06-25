@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-25 -- Image viewer — composite above the CRT/bloom post pass + solid backing (UX-C, part 1)
+
+Interactive-paths UX pass toward v0.5.0. The in-OdyTTY image viewer (right-click
+→ "Open in OdyTTY") was being drawn into the HDR offscreen as the last step of
+the scene pass — which is still BEFORE the CRT/bloom post pass — so scanlines,
+bloom, and vignette smeared the photo, and terminal text bled through behind it.
+
+The viewer now composites in a dedicated render pass directly on the swapchain
+AFTER post-processing, opened with `LoadOp::Load` so the post-processed frame is
+preserved and the photo draws on top untouched by effects. To draw on the
+swapchain (surface format) rather than the HDR offscreen, `ImageLayer` gained its
+own surface-format `overlay_pipeline` and `backing_pipeline`, distinct from the
+placement pipeline (terminal graphics draw_below/draw_above), which still renders
+in the scene/HDR format inside the scene pass. An opaque backing quad under the
+fit-rect (drawn before the image in the same pass) stops terminal text and the
+background image from bleeding through behind the photo, while the existing panel
+border and "← <name> (Esc = close)" caption stay visible around it.
+
+The entire post-post pass is gated on a live viewer image
+(`has_overlay_image()`): with no viewer set, no pass is encoded and the command
+buffer is byte-for-byte identical to the no-viewer path — the passthrough
+composite smoke stays unmodified and green. This is render quality only; how the
+viewer is invoked (still the context menu) is unchanged. Making Ctrl+click on an
+image default to the inline viewer, with an `interactive_paths_image_inline`
+knob, is a separate follow-up gated on hands-on confirmation that the new render
+looks clean.
+
+Verified (isolated worktree at clean HEAD, this packet's 5 files only, GPU suites
+serialized): `cargo fmt --check` clean; `cargo clippy --all-targets --locked
+-D warnings` clean; `cargo test --locked --lib` 2471 passed / 0 failed / 7
+ignored (incl. a real-code overlay render test — opaque texel red, transparent
+texel reveals the dark backing not the scene, outside-rect scene preserved — and
+a CPU fit-quad centering unit); `gpu_composite_smoke` 6/6, including
+`viewer_image_survives_post_effects` (with CRT + bloom ON, the fit-rect interior
+carries no scanline modulation and the center matches the source), and the
+UNMODIFIED `passthrough_composite_matches_direct_render_bytes` (byte-identity
+holds); `license_headers` 1/1 (no new files). Staged diff scanned — clean.
+
+Known follow-up: the viewer currently shares `ImageLayer`'s NEAREST sampler (also
+used by terminal graphics placements), so a scaled photo samples Nearest. A
+separate overlay-only Linear sampler is queued so downscaled/upscaled photos look
+smooth, without altering placement rendering.
+
 ## 2026-06-25 -- Interactive paths — click-to-open discoverability: armed underline + mis-click hint (UX-A)
 
 Interactive-paths UX pass toward v0.5.0. The hand cursor appeared on plain hover

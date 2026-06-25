@@ -220,6 +220,16 @@ struct OverlayImage {
 
 pub(super) struct ImageLayer {
     pipeline: wgpu::RenderPipeline,
+    /// Overlay (C4 viewer) pipeline in the SWAPCHAIN/surface format. The viewer
+    /// is composited AFTER the CRT/bloom post pass directly onto the swapchain,
+    /// so its pipeline targets the surface format — distinct from `pipeline`
+    /// (placements), which draws inside the scene pass in the scene-target
+    /// format (the HDR offscreen format when post is active).
+    overlay_pipeline: wgpu::RenderPipeline,
+    /// Opaque backing-quad pipeline (surface format) drawn under the overlay
+    /// fit-rect so terminal text / background image never bleed through behind
+    /// the photo. Shares the overlay bind-group layout + fit-quad geometry.
+    backing_pipeline: wgpu::RenderPipeline,
     target_format: wgpu::TextureFormat,
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -236,7 +246,11 @@ pub(super) struct ImageLayer {
 }
 
 impl ImageLayer {
-    pub(super) fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
+    pub(super) fn new(
+        device: &wgpu::Device,
+        target_format: wgpu::TextureFormat,
+        surface_format: wgpu::TextureFormat,
+    ) -> Self {
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("odytty-image-bgl"),
             entries: &[
@@ -280,7 +294,13 @@ impl ImageLayer {
             ..Default::default()
         });
 
-        let pipeline = create_image_pipeline(device, target_format, &bind_group_layout);
+        let pipeline = create_image_pipeline(device, target_format, &bind_group_layout, "fs_main");
+        // Viewer overlay + its backing render onto the swapchain AFTER post, so
+        // both target the surface format (not the scene-target HDR format).
+        let overlay_pipeline =
+            create_image_pipeline(device, surface_format, &bind_group_layout, "fs_main");
+        let backing_pipeline =
+            create_image_pipeline(device, surface_format, &bind_group_layout, "fs_backing");
 
         let vertex_capacity_bytes = std::mem::size_of::<ImageVertex>() as u64;
         let vertex_buf = create_vertex_buffer(device, vertex_capacity_bytes);
@@ -291,6 +311,8 @@ impl ImageLayer {
 
         Self {
             pipeline,
+            overlay_pipeline,
+            backing_pipeline,
             target_format,
             bind_group_layout,
             sampler,
@@ -351,23 +373,31 @@ impl ImageLayer {
         });
     }
 
-    /// Whether a C4 overlay image is currently set (used by tests / callers to
-    /// reason about the presentation-only invariant).
-    #[cfg(test)]
+    /// Whether a C4 overlay image is currently set. The render loop gates the
+    /// entire post-post overlay pass on this: `false` ⇒ no pass is encoded ⇒ the
+    /// frame is byte-identical to the no-viewer path (presentation-only
+    /// invariant). Also used by tests to reason about that invariant.
     pub(super) fn has_overlay_image(&self) -> bool {
         self.overlay_image.is_some()
     }
 
-    /// Draw the C4 viewer overlay image, if any, as the final scene step — over
-    /// the terminal, the placements, and the overlay panel/scrim. A no-op when
-    /// no overlay image is set, so the closed-viewer frame is byte-identical.
+    /// Draw the C4 viewer overlay, if any, onto the SWAPCHAIN — called from a
+    /// dedicated pass opened AFTER the CRT/bloom post pass, so the photo is
+    /// never touched by effects. Draws an opaque backing quad first (so terminal
+    /// text / background image cannot bleed through behind the photo), then the
+    /// image itself, both over the same fit-rect in surface format. A no-op when
+    /// no overlay image is set; combined with the gated pass in `render`, the
+    /// closed-viewer frame stays byte-identical.
     pub(super) fn draw_overlay<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
         let Some(overlay) = self.overlay_image.as_ref() else {
             return;
         };
-        pass.set_pipeline(&self.pipeline);
         pass.set_vertex_buffer(0, self.overlay_vertex_buf.slice(..));
         pass.set_bind_group(0, &overlay.bind_group, &[]);
+        // Opaque backing under the fit-rect, then the image on top.
+        pass.set_pipeline(&self.backing_pipeline);
+        pass.draw(0..6, 0..1);
+        pass.set_pipeline(&self.overlay_pipeline);
         pass.draw(0..6, 0..1);
     }
 
@@ -379,7 +409,10 @@ impl ImageLayer {
         if self.target_format == target_format {
             return;
         }
-        self.pipeline = create_image_pipeline(device, target_format, &self.bind_group_layout);
+        // Only the placement pipeline tracks the scene-target format; the
+        // overlay/backing pipelines stay in the (stable) surface format.
+        self.pipeline =
+            create_image_pipeline(device, target_format, &self.bind_group_layout, "fs_main");
         self.target_format = target_format;
     }
 
@@ -526,6 +559,7 @@ fn create_image_pipeline(
     device: &wgpu::Device,
     target_format: wgpu::TextureFormat,
     bind_group_layout: &wgpu::BindGroupLayout,
+    fragment_entry: &str,
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("odytty-image-shader"),
@@ -562,7 +596,7 @@ fn create_image_pipeline(
         multisample: wgpu::MultisampleState::default(),
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: Some("fs_main"),
+            entry_point: Some(fragment_entry),
             targets: &[Some(wgpu::ColorTargetState {
                 format: target_format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
@@ -747,5 +781,13 @@ fn vs_main(input: VsIn) -> VsOut {
 @fragment
 fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
     return textureSample(image_tex, image_sampler, input.uv);
+}
+
+@fragment
+fn fs_backing(input: VsOut) -> @location(0) vec4<f32> {
+    // Opaque near-black backing under the viewer fit-rect so terminal text and
+    // any background image never bleed through behind the photo. Constant color
+    // (no texture sample); the bound texture/sampler are ignored here.
+    return vec4<f32>(0.01, 0.01, 0.01, 1.0);
 }
 "#;

@@ -271,3 +271,39 @@ fn overlay_fit_is_robust_to_degenerate_dims() {
         );
     }
 }
+
+#[test]
+fn overlay_fit_constraining_axis_is_ninety_percent_and_centered() {
+    // Phase 13a framing contract: a large image is fit to exactly 0.9 of the
+    // viewport on the CONSTRAINING axis, and is centered with equal L/R and T/B
+    // margins. Use a square image in a wide viewport: width is the tighter axis
+    // relative to 0.9 on each side, so the fit is height-bound here.
+    let (vp_w, vp_h) = (1600.0f32, 1000.0f32);
+    let quad = overlay_fit_quad(2000, 2000, vp_w, vp_h);
+    let (x0, y0, x1, y1) = (quad.rect[0], quad.rect[1], quad.rect[2], quad.rect[3]);
+    let w = x1 - x0;
+    let h = y1 - y0;
+
+    // Square image stays square.
+    assert!((w - h).abs() < 1e-3, "aspect preserved: {w} vs {h}");
+    // Height is the constraining axis (1000*0.9 = 900 < 1600*0.9 = 1440).
+    assert!(
+        (h - vp_h * 0.9).abs() < 1e-3,
+        "constraining axis at 90%, got {h}"
+    );
+    assert!(w <= vp_w * 0.9 + 1e-3, "non-constraining axis within 90%");
+
+    // Equal margins on each axis (centered).
+    let left = x0;
+    let right = vp_w - x1;
+    let top = y0;
+    let bottom = vp_h - y1;
+    assert!(
+        (left - right).abs() < 1e-3,
+        "L/R margins equal: {left} vs {right}"
+    );
+    assert!(
+        (top - bottom).abs() < 1e-3,
+        "T/B margins equal: {top} vs {bottom}"
+    );
+}
