@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-25 -- Image viewer — lightbox framing (dim the terminal, show only the photo) (UX-C, part 3)
+
+Driven by the dev-build exercise: the operator confirmed the photo now renders
+crisp (composite-above-post + linear sampler held up), but the viewer still drew
+the image inside a bordered popup panel — chrome it had borrowed from the generic
+overlay system (theme/font/settings modals). Wrong furniture for a photo.
+
+The viewer is now a lightbox. Instead of an opaque backing sized to the image, it
+draws a full-viewport semi-transparent dark scrim (`SCRIM_ALPHA`, dev-tunable,
+0.72) that dims the whole post-processed terminal, then the image on top of the
+0.9 fit-rect — both in the dedicated overlay pass that runs after CRT/bloom, so
+the photo stays crisp while everything behind it is uniformly dimmed. The bordered
+`ImageView` panel chrome (fill + border) is gone: the overlay grid paint now
+early-dispatches on `ImageView` to a minimal caption only ("← <name> (Esc =
+close)"), mirroring the existing context-menu early-dispatch, and returns before
+the generic panel paint — so every other overlay (settings, pickers, key
+bindings, replay, onboarding, confirm-close) is untouched. The caption paints into
+the cell grid and is therefore dimmed by the scrim along with the terminal;
+bright-white bold keeps it legible as light gray (a brighter GPU-drawn caption is
+a noted follow-up if hands-on finds it too dim).
+
+The scrim + image live in the post-post overlay pass already gated on a live
+viewer image, so a closed viewer encodes no pass and the frame stays
+byte-identical. Verified (isolated worktree at clean HEAD, this packet's 4 files
+only, GPU serialized): `cargo fmt --check` clean; `cargo clippy --all-targets
+--locked -D warnings` clean; `cargo test --locked --lib` 2473 passed / 0 failed
+/ 7 ignored; `gpu_composite_smoke` 6/6, including a new
+`viewer_scrim_dims_whole_viewport` (a corner far from the image is measurably
+darkened with a viewer open vs. none — proving the dim covers the whole terminal,
+not just the image rect) and the UNMODIFIED
+`passthrough_composite_matches_direct_render_bytes` (byte-identity holds);
+`license_headers` 1/1 (no new files). Staged diff scanned — clean.
+`SCRIM_ALPHA` (0.72) and the fit fraction (0.9) are one-line tunables for the
+dev build.
+
 ## 2026-06-25 -- Fix — click-to-open hint retires after a few shows (UX-A nag)
 
 Found during the hands-on dev-build exercise: the "Ctrl+click to open" teaching

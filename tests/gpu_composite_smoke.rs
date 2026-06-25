@@ -473,42 +473,52 @@ fn crt_off_is_exact_and_crt_on_bounded_dims_lit_cells() {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 13a: the C4 viewer overlay is composited AFTER the CRT/bloom post pass,
-// directly onto the swapchain, so effects never touch the photo. These tests
-// REPLICATE that architecture (scene -> HDR offscreen -> CRT+bloom -> swapchain,
-// then a LoadOp::Load overlay pass that draws an opaque backing + the image in
-// surface format). The real implementation lives in image_layer.rs / gpu.rs;
+// Phase 13a/13c: the C4 viewer overlay is composited AFTER the CRT/bloom post
+// pass, directly onto the swapchain, so effects never touch the photo. Phase 13c
+// made it a LIGHTBOX: a full-viewport semi-transparent scrim dims the whole
+// terminal, then the image draws crisp on top of its centered fit-rect. These
+// tests REPLICATE that architecture (scene -> HDR offscreen -> CRT+bloom ->
+// swapchain, then a LoadOp::Load overlay pass that draws the scrim + the image
+// in surface format). The real implementation lives in image_layer.rs / gpu.rs;
 // `gpu_tests::overlay_draws_image_over_backing_onto_swapchain` exercises that
-// real code path. The shader below mirrors the real overlay/backing shaders.
+// real code path. The shader below mirrors the real overlay/backing shaders,
+// including the semi-transparent SCRIM_ALPHA.
 // ---------------------------------------------------------------------------
 
-const OVERLAY_SHADER: &str = r#"
-struct VsIn {
+// Mirror of image_layer::SCRIM_ALPHA for the replicated fs_backing below.
+const SMOKE_SCRIM_ALPHA: f32 = 0.72;
+
+fn overlay_shader_source() -> String {
+    format!(
+        r#"
+struct VsIn {{
     @location(0) pos: vec2<f32>,
     @location(1) uv: vec2<f32>,
-};
-struct VsOut {
+}};
+struct VsOut {{
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
-};
+}};
 @vertex
-fn vs_main(input: VsIn) -> VsOut {
+fn vs_main(input: VsIn) -> VsOut {{
     var out: VsOut;
     out.pos = vec4<f32>(input.pos, 0.0, 1.0);
     out.uv = input.uv;
     return out;
-}
+}}
 @group(0) @binding(0) var image_tex: texture_2d<f32>;
 @group(0) @binding(1) var image_sampler: sampler;
 @fragment
-fn fs_image(input: VsOut) -> @location(0) vec4<f32> {
+fn fs_image(input: VsOut) -> @location(0) vec4<f32> {{
     return textureSample(image_tex, image_sampler, input.uv);
-}
+}}
 @fragment
-fn fs_backing(input: VsOut) -> @location(0) vec4<f32> {
-    return vec4<f32>(0.01, 0.01, 0.01, 1.0);
+fn fs_backing(input: VsOut) -> @location(0) vec4<f32> {{
+    return vec4<f32>(0.0, 0.0, 0.0, {SMOKE_SCRIM_ALPHA:?});
+}}
+"#
+    )
 }
-"#;
 
 // Centered NDC fit-rect [-0.5, 0.5]² → in the 16×12 frame: x∈[4,12), y∈[3,9).
 const OVERLAY_NDC_VERTS: [f32; 24] = [
@@ -518,6 +528,16 @@ const OVERLAY_NDC_VERTS: [f32; 24] = [
     0.5, 0.5, 1.0, 0.0, // tr
     -0.5, -0.5, 0.0, 1.0, // bl
     0.5, -0.5, 1.0, 1.0, // br
+];
+
+// Full-viewport NDC quad [-1, 1]² for the lightbox scrim (covers the whole frame).
+const SCRIM_NDC_VERTS: [f32; 24] = [
+    -1.0, 1.0, 0.0, 0.0, // tl
+    -1.0, -1.0, 0.0, 1.0, // bl
+    1.0, 1.0, 1.0, 0.0, // tr
+    1.0, 1.0, 1.0, 0.0, // tr
+    -1.0, -1.0, 0.0, 1.0, // bl
+    1.0, -1.0, 1.0, 1.0, // br
 ];
 
 fn create_overlay_pipeline(
@@ -662,7 +682,7 @@ fn render_overlay_frame(
     // --- Overlay resources (only when drawing a viewer image).
     let overlay_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("overlay-smoke-overlay-shader"),
-        source: wgpu::ShaderSource::Wgsl(OVERLAY_SHADER.into()),
+        source: wgpu::ShaderSource::Wgsl(overlay_shader_source().into()),
     });
     let overlay_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("overlay-smoke-bgl"),
@@ -674,6 +694,11 @@ fn render_overlay_frame(
     let overlay_vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("overlay-smoke-vbuf"),
         contents: bytemuck::cast_slice(&OVERLAY_NDC_VERTS),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let scrim_vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("overlay-smoke-scrim-vbuf"),
+        contents: bytemuck::cast_slice(&SCRIM_NDC_VERTS),
         usage: wgpu::BufferUsages::VERTEX,
     });
     // Built lazily but must outlive submit, so declare here.
@@ -746,11 +771,14 @@ fn render_overlay_frame(
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_vertex_buffer(0, overlay_vbuf.slice(..));
         pass.set_bind_group(0, image_bg, &[]);
+        // Lightbox: full-viewport scrim first (dims the whole frame), then the
+        // image on its centered fit-rect.
         pass.set_pipeline(&backing_pipeline);
+        pass.set_vertex_buffer(0, scrim_vbuf.slice(..));
         pass.draw(0..6, 0..1);
         pass.set_pipeline(&image_pipeline);
+        pass.set_vertex_buffer(0, overlay_vbuf.slice(..));
         pass.draw(0..6, 0..1);
     }
 
@@ -810,42 +838,60 @@ fn viewer_image_survives_post_effects() {
 }
 
 #[test]
-fn viewer_backing_blocks_scene_bleed() {
+fn viewer_scrim_dims_whole_viewport() {
     let Some((device, queue, hdr_supported)) = gpu_device() else {
         eprintln!("skipping: no GPU adapter available");
         return;
     };
     assert!(hdr_supported, "HDR offscreen required");
 
-    // 8×6 image: top 3 rows opaque red, bottom 3 rows fully transparent. The
-    // transparent rows must reveal the OPAQUE BACKING (dark), never the scene.
+    // 8×6 opaque red image (fits centered at x∈[4,12), y∈[3,9) in the 16×12
+    // frame). The lightbox scrim must dim the WHOLE viewport — including the
+    // surround far from the fit-rect — while the image stays crisp on top.
     let mut img = vec![0u8; (8 * 6 * 4) as usize];
-    for y in 0..6u32 {
-        for x in 0..8u32 {
-            let i = ((y * 8 + x) * 4) as usize;
-            if y < 3 {
-                img[i] = 255; // red
-                img[i + 3] = 255; // opaque
-            }
-            // else transparent (0,0,0,0)
-        }
+    for px in img.chunks_exact_mut(4) {
+        px[0] = 255; // red
+        px[3] = 255; // opaque
     }
+    let baseline = render_overlay_frame(&device, &queue, None);
     let frame = render_overlay_frame(&device, &queue, Some((&img, 8, 6)));
 
-    // Upper half of the fit-rect (y∈[3,6)) shows the red image.
-    let red = pixel_index(8, 4);
+    // The image fit-rect shows the opaque red, crisp on top of the scrim.
+    let red = pixel_index(8, 5);
     assert!(
         frame[red] >= 250 && frame[red + 1] <= 5 && frame[red + 2] <= 5,
         "opaque image region must show red, got {:?}",
         &frame[red..red + 4]
     );
-    // Lower half (y∈[6,9)) is transparent → opaque near-black backing shows,
-    // emphatically not the checkerboard scene.
-    let back = pixel_index(8, 7);
+
+    // SCRIM PROOF: sum luma over the SURROUND (every pixel OUTSIDE the fit-rect).
+    // Both frames share identical CRT+bloom; the only difference is the scrim
+    // applied afterward, so the surround must be strictly darker with the viewer.
+    let fit_x = 4..12u32;
+    let fit_y = 3..9u32;
+    let luma_outside = |buf: &[u8]| -> u64 {
+        let mut sum = 0u64;
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                if fit_x.contains(&x) && fit_y.contains(&y) {
+                    continue;
+                }
+                let i = pixel_index(x, y);
+                sum += buf[i] as u64 + buf[i + 1] as u64 + buf[i + 2] as u64;
+            }
+        }
+        sum
+    };
+    let base_luma = luma_outside(&baseline);
+    let scrim_luma = luma_outside(&frame);
     assert!(
-        frame[back] < 90 && frame[back + 1] < 90 && frame[back + 2] < 90,
-        "transparent region must reveal the opaque backing (dark), got {:?}",
-        &frame[back..back + 4]
+        scrim_luma < base_luma,
+        "scrim must dim the whole surround: outside-luma {scrim_luma} not < baseline {base_luma}"
+    );
+    // And it must be a MEANINGFUL dim (alpha ~0.72), not a rounding wobble.
+    assert!(
+        (scrim_luma as f64) < (base_luma as f64) * 0.6,
+        "scrim should darken the surround substantially: {scrim_luma} vs {base_luma}"
     );
 }
 

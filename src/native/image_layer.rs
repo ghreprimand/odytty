@@ -249,6 +249,11 @@ pub(super) struct ImageLayer {
     /// A fixed 6-vertex buffer holding the overlay image's fit-quad. Allocated
     /// once; rewritten whenever the overlay image / viewport changes.
     overlay_vertex_buf: wgpu::Buffer,
+    /// A fixed 6-vertex buffer holding the full-viewport scrim quad (lightbox
+    /// dimmer). Allocated once; rewritten to cover the current viewport whenever
+    /// the overlay image / viewport changes. Drawn with the backing pipeline
+    /// (semi-transparent dark) BEFORE the image so the whole terminal dims.
+    scrim_vertex_buf: wgpu::Buffer,
 }
 
 impl ImageLayer {
@@ -327,6 +332,9 @@ impl ImageLayer {
         // up front so `set_overlay_image` only ever writes, never reallocates.
         let overlay_vertex_buf =
             create_vertex_buffer(device, (std::mem::size_of::<ImageVertex>() * 6) as u64);
+        // The scrim is also exactly 6 vertices (a full-viewport quad).
+        let scrim_vertex_buf =
+            create_vertex_buffer(device, (std::mem::size_of::<ImageVertex>() * 6) as u64);
 
         Self {
             pipeline,
@@ -343,6 +351,7 @@ impl ImageLayer {
             draws: Vec::new(),
             overlay_image: None,
             overlay_vertex_buf,
+            scrim_vertex_buf,
         }
     }
 
@@ -389,6 +398,19 @@ impl ImageLayer {
         let mut verts = Vec::with_capacity(6);
         push_quad(&mut verts, quad);
         queue.write_buffer(&self.overlay_vertex_buf, 0, bytemuck::cast_slice(&verts));
+        // Full-viewport scrim quad in pixel space (vs_main maps it to NDC -1..1).
+        // Covers the whole terminal so the semi-transparent backing dims it all.
+        let scrim = ImageQuad {
+            rect: [0.0, 0.0, viewport_w.max(1.0), viewport_h.max(1.0)],
+            uv: [0.0, 0.0, 1.0, 1.0],
+        };
+        let mut scrim_verts = Vec::with_capacity(6);
+        push_quad(&mut scrim_verts, scrim);
+        queue.write_buffer(
+            &self.scrim_vertex_buf,
+            0,
+            bytemuck::cast_slice(&scrim_verts),
+        );
         self.overlay_image = Some(OverlayImage {
             _texture: texture,
             bind_group,
@@ -414,12 +436,15 @@ impl ImageLayer {
         let Some(overlay) = self.overlay_image.as_ref() else {
             return;
         };
-        pass.set_vertex_buffer(0, self.overlay_vertex_buf.slice(..));
         pass.set_bind_group(0, &overlay.bind_group, &[]);
-        // Opaque backing under the fit-rect, then the image on top.
+        // Lightbox: a full-viewport semi-transparent dark scrim dims the whole
+        // post-processed terminal (backing pipeline = fs_backing, alpha-blended),
+        // then the opaque image draws crisp on top over its centered fit-rect.
         pass.set_pipeline(&self.backing_pipeline);
+        pass.set_vertex_buffer(0, self.scrim_vertex_buf.slice(..));
         pass.draw(0..6, 0..1);
         pass.set_pipeline(&self.overlay_pipeline);
+        pass.set_vertex_buffer(0, self.overlay_vertex_buf.slice(..));
         pass.draw(0..6, 0..1);
     }
 
@@ -585,7 +610,7 @@ fn create_image_pipeline(
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("odytty-image-shader"),
-        source: wgpu::ShaderSource::Wgsl(IMAGE_SHADER.into()),
+        source: wgpu::ShaderSource::Wgsl(image_shader_source().into()),
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("odytty-image-pl"),
@@ -764,12 +789,24 @@ pub(super) fn overlay_fit_quad(img_w: u32, img_h: u32, vp_w: f32, vp_h: f32) -> 
     }
 }
 
-const IMAGE_SHADER: &str = r#"
-struct Viewport {
+/// Alpha of the full-viewport lightbox scrim that the viewer draws behind the
+/// image to dim the whole post-processed terminal. Higher = darker surround.
+/// Dev-build tunable (the operator dials dimness on re-test); has no
+/// portable-correct value. Drawn alpha-blended, so the terminal shows through at
+/// `1.0 - SCRIM_ALPHA`.
+pub(in crate::native) const SCRIM_ALPHA: f32 = 0.72;
+
+/// The image-layer WGSL, built with [`SCRIM_ALPHA`] baked into `fs_backing`.
+/// A function (not a `const`) so the tunable scrim alpha is the single source of
+/// truth rather than a hand-synced literal in the shader text.
+fn image_shader_source() -> String {
+    format!(
+        r#"
+struct Viewport {{
     size: vec2<f32>,
     effect: vec2<f32>,
     text: vec4<f32>,
-};
+}};
 
 @group(0) @binding(0)
 var<uniform> viewport: Viewport;
@@ -778,18 +815,18 @@ var image_tex: texture_2d<f32>;
 @group(0) @binding(2)
 var image_sampler: sampler;
 
-struct VsIn {
+struct VsIn {{
     @location(0) pos_px: vec2<f32>,
     @location(1) uv: vec2<f32>,
-};
+}};
 
-struct VsOut {
+struct VsOut {{
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
-};
+}};
 
 @vertex
-fn vs_main(input: VsIn) -> VsOut {
+fn vs_main(input: VsIn) -> VsOut {{
     var out: VsOut;
     let ndc = vec2<f32>(
         (input.pos_px.x / viewport.size.x) * 2.0 - 1.0,
@@ -798,18 +835,21 @@ fn vs_main(input: VsIn) -> VsOut {
     out.pos = vec4<f32>(ndc, 0.0, 1.0);
     out.uv = input.uv;
     return out;
-}
+}}
 
 @fragment
-fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
+fn fs_main(input: VsOut) -> @location(0) vec4<f32> {{
     return textureSample(image_tex, image_sampler, input.uv);
-}
+}}
 
 @fragment
-fn fs_backing(input: VsOut) -> @location(0) vec4<f32> {
-    // Opaque near-black backing under the viewer fit-rect so terminal text and
-    // any background image never bleed through behind the photo. Constant color
-    // (no texture sample); the bound texture/sampler are ignored here.
-    return vec4<f32>(0.01, 0.01, 0.01, 1.0);
+fn fs_backing(input: VsOut) -> @location(0) vec4<f32> {{
+    // Lightbox scrim: a semi-transparent dark fill over the WHOLE viewport so
+    // the post-processed terminal dims behind the photo (the image then draws
+    // opaque on top). Alpha-blended via ALPHA_BLENDING. Constant color; the
+    // bound texture/sampler are ignored here.
+    return vec4<f32>(0.0, 0.0, 0.0, {SCRIM_ALPHA:?});
+}}
+"#
+    )
 }
-"#;

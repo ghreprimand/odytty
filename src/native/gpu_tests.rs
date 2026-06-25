@@ -525,14 +525,16 @@ fn overlay_image_set_and_clear_toggles_presence() {
 }
 
 /// C4 (Phase 13a) real-code render proof: `draw_overlay` paints the viewer
-/// (opaque backing + image) onto a swapchain-format target via the real overlay
-/// pipelines. Renders a scene fill (green) first, then opens a `LoadOp::Load`
-/// overlay pass exactly as `render` does post-effects, and reads back:
+/// (full-viewport scrim + image) onto a swapchain-format target via the real
+/// overlay pipelines. Renders a scene fill (green) first, then opens a
+/// `LoadOp::Load` overlay pass exactly as `render` does post-effects, and reads
+/// back the Phase 13c lightbox behavior:
 ///
-/// - the image's opaque region shows the image color,
-/// - the image's transparent region shows the opaque backing (NOT the scene),
-///   proving the backing blocks terminal/bg bleed,
-/// - pixels outside the fit-rect keep the scene fill (LoadOp::Load preserved).
+/// - the image's opaque region shows the image color (crisp on top),
+/// - the image's transparent region shows the dimmed scene through the
+///   semi-transparent scrim (not the raw scene, not pure black),
+/// - pixels OUTSIDE the fit-rect are also dimmed by the full-viewport scrim
+///   (the whole terminal dims — that's the lightbox).
 ///
 /// GPU-gated (skips when no adapter is available).
 #[test]
@@ -693,24 +695,27 @@ fn overlay_draws_image_over_backing_onto_swapchain() {
         [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]]
     };
 
-    // Opaque red image texel (image px (0,0) → target (6,4)).
+    // Opaque red image texel (image px (0,0) → target (6,4)). The image is
+    // opaque (alpha 255), so it fully replaces the scrim → crisp red on top.
     let red = at(6, 4);
     assert!(
         red[0] >= 250 && red[1] <= 5 && red[2] <= 5,
         "opaque image region must show the image color, got {red:?}"
     );
-    // Transparent image texel over the backing (image px (3,3) → target (9,7)).
-    // The opaque backing must show through — dark and emphatically NOT green.
-    let backing = at(9, 7);
+    // Transparent image texel (image px (3,3) → target (9,7)): no opaque image
+    // here, so the dimmed scene shows through the scrim — green, but darkened
+    // (NOT the raw 255 green, and NOT pure black).
+    let through = at(9, 7);
     assert!(
-        backing[1] < 100 && backing.iter().take(3).all(|&c| c < 90),
-        "transparent image region must reveal the opaque backing, not the green scene, got {backing:?}"
+        through[1] > 20 && through[1] < 230 && through[0] <= 40 && through[2] <= 40,
+        "transparent region shows the scrim-dimmed scene (darkened green), got {through:?}"
     );
-    // Outside the fit-rect the scene fill is preserved by LoadOp::Load.
-    let scene = at(0, 0);
+    // Outside the fit-rect: the full-viewport scrim dims the whole terminal, so
+    // the corner is darkened relative to the raw green scene (the lightbox).
+    let corner = at(0, 0);
     assert!(
-        scene[1] >= 250 && scene[0] <= 5 && scene[2] <= 5,
-        "pixels outside the fit-rect keep the scene (green), got {scene:?}"
+        corner[1] < 230 && corner[1] > 20 && corner[0] <= 40 && corner[2] <= 40,
+        "scrim must dim the whole viewport (corner darker than raw green), got {corner:?}"
     );
 
     device.poll(wgpu::PollType::wait_indefinitely()).ok();

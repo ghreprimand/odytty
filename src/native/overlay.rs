@@ -1691,6 +1691,14 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         apply_context_menu(snapshot, overlay, rect);
         return;
     }
+    // The image viewer is a LIGHTBOX (Phase 13c): the GPU draws a full-viewport
+    // scrim + the image AFTER post-processing, so the cell grid must NOT paint a
+    // bordered panel behind it. Paint ONLY a minimal caption and return — no
+    // fill, no border. The scrim dims this caption to legible light gray.
+    if overlay.mode == OverlayMode::ImageView {
+        apply_image_view_caption(snapshot, overlay);
+        return;
+    }
     let rows = snapshot.dimensions.rows;
     // The Settings title is dynamic (shows level, editing state, search query).
     // ThemePicker, FontPicker, ThemeBuilder, and KeyBindings show a ← back
@@ -1782,6 +1790,29 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         let bottom = rect.top + rect.height.saturating_sub(1);
         write_text(snapshot, bottom, arrow_col, 1, "▼", border_attrs());
     }
+}
+
+/// Paint ONLY the image-viewer lightbox caption (Phase 13c) — no panel fill, no
+/// border. The image + a full-viewport dimming scrim are composited on the GPU
+/// after post-processing; the cell grid contributes just this caption so the
+/// viewer reads as a classic lightbox (dimmed terminal, bright photo). The
+/// caption sits on the top row, clear of the centered ≤90% fit-rect, in clean
+/// bold bright-white so the scrim dims it to a legible light gray.
+fn apply_image_view_caption(snapshot: &mut Snapshot, overlay: &OverlayUi) {
+    let columns = snapshot.dimensions.columns;
+    if columns == 0 || snapshot.dimensions.rows == 0 {
+        return;
+    }
+    let caption = format!("\u{2190} {}  (Esc = close)", overlay.image_view_caption);
+    // Top row, small left inset; truncated to the terminal width by write_text.
+    write_text(
+        snapshot,
+        0,
+        2,
+        columns.saturating_sub(2),
+        &caption,
+        image_caption_attrs(),
+    );
 }
 
 /// Render the right-click context menu (IN2): a bordered box at the spawn cell
@@ -2293,6 +2324,18 @@ fn border_attrs() -> Attrs {
 fn title_attrs() -> Attrs {
     let mut attrs = panel_attrs();
     attrs.foreground = Color::Indexed(15);
+    attrs
+}
+
+/// Caption attrs for the Phase 13c image-viewer LIGHTBOX: a clean bold
+/// bright-white caption on the DEFAULT background (no inverse-video bar, no
+/// panel chrome). The GPU scrim dims the whole terminal including this text, so
+/// bright white reads as legible light gray over the dimmed surround.
+fn image_caption_attrs() -> Attrs {
+    let mut attrs = Attrs::default();
+    attrs.foreground = Color::Indexed(15);
+    attrs.background = Color::Default;
+    attrs.set_bold(true);
     attrs
 }
 
@@ -2968,21 +3011,25 @@ mod tests {
 
     #[test]
     fn image_view_opens_renders_caption_and_dismisses() {
-        // C4: the image-viewer overlay opens in its own mode, paints its caption
-        // title + the static hint, and dismisses on Esc / Enter while swallowing
-        // every other key (no PTY leak behind the overlay).
+        // C4 + Phase 13c lightbox: the image-viewer overlay opens in its own
+        // mode and paints ONLY a minimal caption (no bordered panel — the image
+        // + dimming scrim are composited on the GPU). It dismisses on Esc / Enter
+        // while swallowing every other key (no PTY leak behind the overlay).
         let mut overlay = OverlayUi::default();
         overlay.open_image_view("diagram.png".to_owned());
         assert!(overlay.is_open());
         assert!(overlay.image_view_open());
         assert_eq!(overlay.render_signature().mode, OverlayMode::ImageView);
 
-        // The overlay paints the filename caption and the close hint.
+        // The lightbox paints the filename caption with an inline close hint.
         let mut rendered = snapshot(70, 18);
         apply_overlay(&mut rendered, &mut overlay);
         let painted: String = rendered.cells.iter().map(|cell| cell.ch).collect();
         assert!(painted.contains("diagram.png"), "caption is painted");
-        assert!(painted.contains("Press Esc to close."), "hint is painted");
+        assert!(
+            painted.contains("Esc = close"),
+            "caption carries the close hint"
+        );
 
         // A stray key is swallowed; the overlay stays open.
         assert_eq!(
