@@ -45,6 +45,11 @@ pub(super) enum KeyRemapOutcome {
     Consumed,
     Preview(Settings),
     Save(Vec<SettingEdit>),
+    /// Save the working overrides AND return to the settings panel — emitted by
+    /// the dirty-close prompt's "save" choice (P1-6). Distinct from `Save`
+    /// (which keeps the editor open after an in-modal Ctrl+S) so the overlay can
+    /// navigate back only on this path.
+    SaveAndClose(Vec<SettingEdit>),
     Cancel(Settings),
 }
 
@@ -71,6 +76,11 @@ pub(super) struct KeyRemapUi {
     capture: Option<BindableAction>,
     /// `Some(_)` while a captured chord awaits conflict confirmation.
     conflict: Option<ConflictState>,
+    /// `true` while the dirty-close save/discard/cancel prompt is showing
+    /// (P1-6). Mirrors the settings panel's `pending_close_prompt`: Esc on a
+    /// dirty editor raises it instead of silently discarding the working
+    /// overrides; while it is up, all input routes to the prompt.
+    pending_close_prompt: bool,
     message: Option<String>,
 }
 
@@ -89,6 +99,7 @@ impl KeyRemapUi {
             scroll: 0,
             capture: None,
             conflict: None,
+            pending_close_prompt: false,
             message: None,
         }
     }
@@ -131,6 +142,11 @@ impl KeyRemapUi {
         if self.is_capturing_chord() {
             return KeyRemapOutcome::Consumed;
         }
+        // The dirty-close prompt captures ALL browsing input until resolved
+        // (P1-6), mirroring the settings panel's `handle_close_prompt_input`.
+        if self.pending_close_prompt {
+            return self.handle_close_prompt_input(input);
+        }
         match input {
             OverlayInput::Up => self.move_selection(-1),
             OverlayInput::Down => self.move_selection(1),
@@ -142,10 +158,57 @@ impl KeyRemapUi {
             OverlayInput::Backspace => return self.reset_selected_row(),
             OverlayInput::Char('r') | OverlayInput::Char('R') => return self.reset_all(),
             OverlayInput::Save => return self.save(),
-            OverlayInput::Close => return KeyRemapOutcome::Cancel(self.base.clone()),
+            OverlayInput::Close => return self.request_close(),
             _ => {}
         }
         KeyRemapOutcome::Consumed
+    }
+
+    /// Whether the working overrides differ from the bindings present when the
+    /// modal opened (or were last saved) — i.e. there are uncommitted edits the
+    /// user could lose. Drives the dirty-close prompt (P1-6).
+    fn is_dirty(&self) -> bool {
+        self.overrides != self.base.key_bindings
+    }
+
+    /// Esc handling (P1-6): a clean editor closes immediately (Cancel restores
+    /// the base settings); a DIRTY editor raises the save/discard/cancel prompt
+    /// instead of silently discarding the captured chords.
+    fn request_close(&mut self) -> KeyRemapOutcome {
+        if self.is_dirty() {
+            self.pending_close_prompt = true;
+            self.message = Some(
+                "Unsaved keybinding changes — [S] save  [D] discard  [C] keep editing.".to_owned(),
+            );
+            KeyRemapOutcome::Consumed
+        } else {
+            KeyRemapOutcome::Cancel(self.base.clone())
+        }
+    }
+
+    /// Resolve the dirty-close prompt: S/Enter/Ctrl+S saves and returns to the
+    /// settings panel, D discards (restores base), C/Esc keeps editing. Mirrors
+    /// the settings panel's prompt key map.
+    fn handle_close_prompt_input(&mut self, input: OverlayInput) -> KeyRemapOutcome {
+        match input {
+            OverlayInput::Char('s')
+            | OverlayInput::Char('S')
+            | OverlayInput::Activate
+            | OverlayInput::Save => {
+                self.pending_close_prompt = false;
+                KeyRemapOutcome::SaveAndClose(self.save_edits())
+            }
+            OverlayInput::Char('d') | OverlayInput::Char('D') => {
+                self.pending_close_prompt = false;
+                KeyRemapOutcome::Cancel(self.base.clone())
+            }
+            OverlayInput::Char('c') | OverlayInput::Char('C') | OverlayInput::Close => {
+                self.pending_close_prompt = false;
+                self.message = None;
+                KeyRemapOutcome::Consumed
+            }
+            _ => KeyRemapOutcome::Consumed,
+        }
     }
 
     fn move_selection(&mut self, delta: isize) {
@@ -197,12 +260,49 @@ impl KeyRemapUi {
     }
 
     fn save(&mut self) -> KeyRemapOutcome {
-        let value = key_bindings_config_value(&self.overrides);
-        KeyRemapOutcome::Save(vec![SettingEdit {
+        KeyRemapOutcome::Save(self.save_edits())
+    }
+
+    /// The `keybinds = …` edit for the current working overrides, built via the
+    /// shared serializer so a UI-authored chord and a hand-typed one round-trip
+    /// to identical bytes. Shared by the in-modal Ctrl+S [`Self::save`] and the
+    /// dirty-close prompt's save choice.
+    fn save_edits(&self) -> Vec<SettingEdit> {
+        vec![SettingEdit {
             key: "keybinds",
             env: KEYBINDS_ENV,
-            value,
-        }])
+            value: key_bindings_config_value(&self.overrides),
+        }]
+    }
+
+    /// Map a clicked body row to the action index it represents — the inverse of
+    /// [`Self::visible_lines`] (UX4-P1 click→Activate). The optional message line
+    /// occupies row 0 when present; action rows follow from `self.scroll`.
+    /// Returns `None` for the message row or a click past the last action.
+    pub(super) fn row_at(&self, row_in_body: usize) -> Option<usize> {
+        let prefix = usize::from(self.message.is_some());
+        if row_in_body < prefix {
+            return None;
+        }
+        let index = self.scroll + (row_in_body - prefix);
+        (index < ACTIONS.len()).then_some(index)
+    }
+
+    /// Select the action row under a left-click, reporting whether it landed on a
+    /// real action so the caller can route the existing Activate (which ARMS
+    /// chord capture for the row — a click selects + arms, it does not capture).
+    /// Inert while capturing or while the dirty-close prompt is up.
+    pub(super) fn click_row(&mut self, row_in_body: usize) -> bool {
+        if self.is_capturing_chord() || self.pending_close_prompt {
+            return false;
+        }
+        match self.row_at(row_in_body) {
+            Some(index) => {
+                self.set_selection(index);
+                true
+            }
+            None => false,
+        }
     }
 
     // -- Capture-mode input (raw chord bypass) --------------------------------
@@ -349,6 +449,7 @@ impl KeyRemapUi {
         KeyRemapSignature {
             selected: self.selected,
             scroll: self.scroll,
+            pending_close_prompt: self.pending_close_prompt,
             capture: self.capture.map(bindable_action_display_name),
             conflict: self.conflict.as_ref().map(|c| {
                 format!(
@@ -436,6 +537,7 @@ pub(super) struct KeyRemapLine {
 pub(super) struct KeyRemapSignature {
     pub(super) selected: usize,
     pub(super) scroll: usize,
+    pub(super) pending_close_prompt: bool,
     pub(super) capture: Option<&'static str>,
     pub(super) conflict: Option<String>,
     pub(super) message: Option<String>,
@@ -764,10 +866,137 @@ mod tests {
 
     #[test]
     fn browsing_close_emits_cancel() {
-        // Esc while browsing closes the modal (Cancel restores the base
-        // settings); it is NOT consumed as a no-op.
+        // Esc while browsing (clean editor) closes the modal (Cancel restores the
+        // base settings); it is NOT consumed as a no-op.
         let mut ui = ui();
         let out = ui.handle_input(OverlayInput::Close);
         assert!(matches!(out, KeyRemapOutcome::Cancel(_)));
+        assert!(!ui.render_signature().pending_close_prompt);
+    }
+
+    // ── UX4-P1 click→select+arm parity ─────────────────────────────────────
+
+    #[test]
+    fn click_row_selects_and_routes_activate_to_arm_capture() {
+        // open() sets a help message, so row 0 is the message and action rows
+        // start at row 1. Clicking row 1 selects ACTIONS[0]; routing Activate
+        // (as the overlay does) arms capture — a click selects + arms, exactly
+        // like Enter.
+        let mut ui = ui();
+        assert!(ui.click_row(1));
+        assert_eq!(ui.render_signature().selected, 0);
+        let out = ui.handle_input(OverlayInput::Activate);
+        assert_eq!(out, KeyRemapOutcome::Consumed);
+        assert!(ui.is_capturing_chord(), "click then Activate arms capture");
+    }
+
+    #[test]
+    fn click_row_maps_offset_past_the_message_line() {
+        let mut ui = ui();
+        // Row 3 = message(0) + ACTIONS[2] (rows 1,2,3 → actions 0,1,2).
+        assert!(ui.click_row(3));
+        assert_eq!(ui.render_signature().selected, 2);
+    }
+
+    #[test]
+    fn click_message_row_is_inert() {
+        let ui_ref = ui();
+        assert!(ui_ref.row_at(0).is_none());
+        let mut ui = ui();
+        assert!(!ui.click_row(0));
+    }
+
+    // ── P1-6 dirty-close prompt ─────────────────────────────────────────────
+
+    fn make_dirty(ui: &mut KeyRemapUi) {
+        select_action(ui, BindableAction::Hints);
+        ui.handle_input(OverlayInput::Activate);
+        ui.deliver_chord(Some(char_chord(true, true, 'j')));
+        assert!(
+            ui.overrides
+                .iter()
+                .any(|o| o.action == BindableAction::Hints),
+            "precondition: a working override exists"
+        );
+    }
+
+    #[test]
+    fn esc_on_dirty_editor_raises_prompt_without_discarding() {
+        let mut ui = ui();
+        make_dirty(&mut ui);
+        let out = ui.handle_input(OverlayInput::Close);
+        assert_eq!(
+            out,
+            KeyRemapOutcome::Consumed,
+            "Esc on dirty shows the prompt"
+        );
+        assert!(ui.render_signature().pending_close_prompt);
+        // The captured chord survives — it is NOT silently discarded.
+        assert!(
+            ui.overrides
+                .iter()
+                .any(|o| o.action == BindableAction::Hints)
+        );
+    }
+
+    #[test]
+    fn dirty_prompt_save_emits_save_and_close_with_round_trip_value() {
+        let mut ui = ui();
+        make_dirty(&mut ui);
+        ui.handle_input(OverlayInput::Close); // raise the prompt
+        let out = ui.handle_input(OverlayInput::Char('s'));
+        let KeyRemapOutcome::SaveAndClose(edits) = out else {
+            panic!("the save choice must emit SaveAndClose");
+        };
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].key, "keybinds");
+        assert_eq!(edits[0].env, KEYBINDS_ENV);
+        // Same bytes as the in-modal Ctrl+S serializer → the UI-authored chord
+        // round-trips to odytty.conf identically to a hand-typed one.
+        assert_eq!(edits[0].value, key_bindings_config_value(&ui.overrides));
+        assert!(!ui.render_signature().pending_close_prompt);
+    }
+
+    #[test]
+    fn dirty_prompt_discard_restores_base() {
+        let mut ui = ui();
+        make_dirty(&mut ui);
+        ui.handle_input(OverlayInput::Close); // raise the prompt
+        let out = ui.handle_input(OverlayInput::Char('d'));
+        assert!(matches!(out, KeyRemapOutcome::Cancel(_)));
+        assert!(!ui.render_signature().pending_close_prompt);
+    }
+
+    #[test]
+    fn dirty_prompt_keep_editing_dismisses_and_stays_dirty() {
+        let mut ui = ui();
+        make_dirty(&mut ui);
+        ui.handle_input(OverlayInput::Close); // raise the prompt
+        let out = ui.handle_input(OverlayInput::Char('c'));
+        assert_eq!(out, KeyRemapOutcome::Consumed);
+        assert!(!ui.render_signature().pending_close_prompt);
+        // Override still present: the editor stayed open with edits intact.
+        assert!(
+            ui.overrides
+                .iter()
+                .any(|o| o.action == BindableAction::Hints)
+        );
+    }
+
+    #[test]
+    fn dirty_prompt_esc_keeps_editing() {
+        // Esc at the prompt is the "keep editing" choice (cancel the close), not
+        // a second discard.
+        let mut ui = ui();
+        make_dirty(&mut ui);
+        ui.handle_input(OverlayInput::Close); // raise the prompt
+        let out = ui.handle_input(OverlayInput::Close);
+        assert_eq!(out, KeyRemapOutcome::Consumed);
+        assert!(!ui.render_signature().pending_close_prompt);
+        assert!(
+            ui.overrides
+                .iter()
+                .any(|o| o.action == BindableAction::Hints)
+        );
     }
 }

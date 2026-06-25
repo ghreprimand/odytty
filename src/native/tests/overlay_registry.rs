@@ -113,6 +113,7 @@ fn closed_overlay_sig() -> OverlayRenderSignature {
         key_remap: KeyRemapSignature {
             selected: 0,
             scroll: 0,
+            pending_close_prompt: false,
             capture: None,
             conflict: None,
             message: None,

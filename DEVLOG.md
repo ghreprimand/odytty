@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Fix — overlay rows are clickable; keybind editor saves on close (P1-5, P1-6)
+
+v0.4.1 bug-fix sprint, Phase 3. Two overlay-interaction gaps from v0.4.0.
+
+Click-to-activate (P1-5). Left-clicking a row in a list overlay did nothing —
+only the keyboard could drive selection. Every list overlay (theme/font pickers,
+command palette, connections, session-attach, Open With, keybind editor) and the
+close-confirm dialog now route a left-click through the SAME `Activate` path the
+keyboard uses. Each overlay gained a `row_at(...)` that inverts its own render
+windowing (header/prompt/scroll-offset geometry), plus a `click_row(...)` that
+sets the same selection cursor a `Down` move would and re-follows scroll, so
+click-on-row-N is `Down×(N-1)+Enter` by construction — hit geometry can't drift
+from render geometry. Non-row overlays (Onboarding/Replay/ImageView) stay inert,
+and click-away-to-close is unchanged. The close-confirm dialog hit-tests the
+action line by column span: the "Yes" span force-closes, the "No" span cancels,
+and the prompt text plus any other row are inert so a stray click can never
+destroy a running job. Render and hit-test share one line constant.
+
+Keybind save on close (P1-6). The keybinds settings row used to pop a dead
+"type a value" text prompt — the remap editor was mouse-unreachable; clicking it
+now opens the editor. Esc on an editor with unsaved chords used to silently drop
+them; it now raises a save / discard / keep-editing prompt mirroring the settings
+panel's dirty-close flow. "Save" persists via the existing shared `keybinds=`
+serializer and returns to the settings panel; in-modal Ctrl+S still saves and
+stays open. A UI-authored chord round-trips to `odytty.conf` byte-identically to
+a hand-typed one. Per the minimal ruling, keybind edits stay in the editor's own
+overrides — not refactored into the panel's edit set.
+
+Pure input-routing plus a dirty-prompt state; no render path changed for the
+feature-off / no-overlay-open case, so the byte-identity smoke holds. Tests (30
+new): per-overlay click==`Down×N`+Activate parity, header/prompt/empty/past-end
+inert guards, font group-header inert, keybind click-selects-and-arms, the P1-6
+dirty-prompt save/discard/keep-editing/round-trip, and OverlayUi-level
+integration for session attach, keybind arm, and confirm-close Yes/No/prompt.
+Verified (isolated worktree on post-Phase-5 master, serialized): `cargo fmt
+--check` clean; `cargo clippy --all-targets --locked -- -D warnings` clean;
+`cargo test --locked --lib` 2427 passed / 0 failed / 7 ignored; `gpu_composite_smoke`
+3/3; `license_headers` 1/1. Staged diff scanned — no secrets or personal paths.
+
 ## 2026-06-24 -- Fix — `odytty new` defaults to detached; attach hint now actionable (P1-7)
 
 v0.4.1 bug-fix sprint, Phase 5. `odytty new` hard-errored without `--detached`

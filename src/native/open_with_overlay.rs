@@ -179,6 +179,39 @@ impl OpenWithOverlay {
         self.follow_selection_for_known_body_height();
     }
 
+    /// Map a clicked body row to the selection cursor it represents — the
+    /// inverse of the [`Self::visible_lines`] windowing (UX4-P1 click→Activate).
+    /// Row 0 is the `> query` prompt; app rows follow from the live
+    /// `scroll_offset`. Returns `None` for the prompt row, the empty/"No
+    /// applications"/"No matches" hint, or a click past the last row.
+    pub(super) fn row_at(&self, row_in_body: usize, body_height: usize) -> Option<usize> {
+        if body_height == 0 || row_in_body == 0 || self.filtered.is_empty() {
+            return None;
+        }
+        let visible_results = body_height - 1;
+        let within = row_in_body - 1;
+        if within >= visible_results {
+            return None;
+        }
+        let scroll_offset = self.scroll_offset_for_body_height(body_height);
+        let cursor = scroll_offset + within;
+        (cursor < self.filtered.len()).then_some(cursor)
+    }
+
+    /// Select the row under a left-click, reporting whether it landed on a
+    /// selectable row so the caller can route the existing Activate. Parity with
+    /// Down×N + Activate by construction.
+    pub(super) fn click_row(&mut self, row_in_body: usize, body_height: usize) -> bool {
+        match self.row_at(row_in_body, body_height) {
+            Some(cursor) => {
+                self.selected = cursor;
+                self.follow_selection_for_known_body_height();
+                true
+            }
+            None => false,
+        }
+    }
+
     pub(super) fn visible_lines(
         &self,
         body_width: usize,
@@ -480,5 +513,40 @@ mod tests {
             overlay.handle_input(OverlayInput::Activate),
             OpenWithOverlayOutcome::Open(argv) if argv[0] == "krita"
         ));
+    }
+
+    // ── UX4-P1 click→Activate parity ───────────────────────────────────────
+
+    #[test]
+    fn click_row_selects_same_app_as_down_then_activate() {
+        for target in 0..3 {
+            let mut by_click = open(entries());
+            let _ = by_click.visible_lines(80, 10);
+            assert!(by_click.click_row(target + 1, 10));
+            let click_open = by_click.handle_input(OverlayInput::Activate);
+
+            let mut by_keys = open(entries());
+            for _ in 0..target {
+                by_keys.handle_input(OverlayInput::Down);
+            }
+            let key_open = by_keys.handle_input(OverlayInput::Activate);
+
+            assert_eq!(click_open, key_open, "row {target} parity");
+        }
+    }
+
+    #[test]
+    fn click_query_prompt_and_past_end_are_inert() {
+        let mut overlay = open(entries());
+        let _ = overlay.visible_lines(80, 10);
+        assert!(!overlay.click_row(0, 10)); // query prompt
+        assert!(!overlay.click_row(4, 10)); // past the last app
+    }
+
+    #[test]
+    fn click_on_empty_picker_hint_is_inert() {
+        let mut overlay = open(Vec::new());
+        let _ = overlay.visible_lines(80, 10);
+        assert!(!overlay.click_row(1, 10));
     }
 }

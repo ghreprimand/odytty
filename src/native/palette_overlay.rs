@@ -144,6 +144,45 @@ impl PaletteOverlay {
         }
     }
 
+    /// Map a clicked body row to the result index it represents — the inverse of
+    /// the [`Self::visible_lines`] windowing (UX4-P1 click→Activate). Row 0 is
+    /// the `> query` prompt; results follow from the live `scroll_offset`.
+    /// Returns `None` for the prompt row, the "No matches" hint, or a click past
+    /// the last result.
+    pub(super) fn row_at(&self, row_in_body: usize, body_height: usize) -> Option<usize> {
+        if body_height == 0 || row_in_body == 0 {
+            return None;
+        }
+        let results_len = self.model.results().len();
+        if results_len == 0 {
+            return None;
+        }
+        let visible_results = visible_result_rows(body_height);
+        let within = row_in_body - 1;
+        if within >= visible_results {
+            return None;
+        }
+        let scroll_offset = self.scroll_offset_for_body_height(body_height);
+        let index = scroll_offset + within;
+        (index < results_len).then_some(index)
+    }
+
+    /// Select the result under a left-click, reporting whether it landed on a
+    /// selectable row so the caller can route the existing Activate. Parity with
+    /// Down×N + Activate by construction: it moves the model's selection cursor
+    /// to the same index a Wheel/Down move would reach and re-follows the window.
+    pub(super) fn click_row(&mut self, row_in_body: usize, body_height: usize) -> bool {
+        let Some(target) = self.row_at(row_in_body, body_height) else {
+            return false;
+        };
+        if let Some(current) = self.model.selected_index() {
+            self.model
+                .move_selection(target as isize - current as isize);
+        }
+        self.follow_selection_for_known_body_height();
+        true
+    }
+
     pub(super) fn visible_lines(
         &self,
         body_width: usize,
@@ -494,5 +533,49 @@ mod tests {
             overlay.handle_input(OverlayInput::Close),
             PaletteOverlayOutcome::Close
         );
+    }
+
+    // ── UX4-P1 click→Activate parity ───────────────────────────────────────
+
+    #[test]
+    fn click_row_selects_same_result_as_down_then_activate() {
+        // A tall body so every result is visible; click body row N (1-based
+        // after the prompt) must match Down×(N-1) + Activate.
+        let history = command_history(5);
+        for target in 0..5usize {
+            let mut by_click = PaletteOverlay::new();
+            by_click.open_for_test(history.iter().map(String::as_str), None);
+            type_query(&mut by_click, "qqq");
+            let _ = by_click.visible_lines(80, 12);
+            assert!(
+                by_click.click_row(target + 1, 12),
+                "row {target} selectable"
+            );
+            let click_outcome = by_click.handle_input(OverlayInput::Activate);
+
+            let mut by_keys = PaletteOverlay::new();
+            by_keys.open_for_test(history.iter().map(String::as_str), None);
+            type_query(&mut by_keys, "qqq");
+            let _ = by_keys.visible_lines(80, 12);
+            for _ in 0..target {
+                by_keys.handle_input(OverlayInput::Down);
+            }
+            let key_outcome = by_keys.handle_input(OverlayInput::Activate);
+
+            assert_eq!(click_outcome, key_outcome, "row {target} parity");
+        }
+    }
+
+    #[test]
+    fn click_query_prompt_and_empty_results_are_inert() {
+        let mut overlay = open(&["cargo test"], None);
+        type_query(&mut overlay, "cargo");
+        let _ = overlay.visible_lines(80, 8);
+        assert!(!overlay.click_row(0, 8)); // the `> query` prompt row
+        // A query that matches nothing → the "No matches" hint, not a row.
+        let mut empty = open(&["cargo test"], None);
+        type_query(&mut empty, "zzzznope");
+        let _ = empty.visible_lines(80, 8);
+        assert!(!empty.click_row(1, 8));
     }
 }

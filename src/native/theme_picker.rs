@@ -243,6 +243,61 @@ impl ThemePicker {
         lines
     }
 
+    /// The number of non-entry prefix lines [`Self::visible_lines`] draws before
+    /// the first theme row (the header hint plus any wrapped message), capped by
+    /// `body_height` exactly as the render loop caps it. The click→row inverse
+    /// uses this so hit geometry can never drift from render geometry.
+    fn header_line_count(&self, body_width: usize, body_height: usize) -> usize {
+        let mut count = 1; // the header hint line is always present
+        if let Some(message) = self.message.as_deref() {
+            for _ in wrap_words(message, body_width.saturating_sub(4)) {
+                if count >= body_height {
+                    return count;
+                }
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Map a clicked body row to the theme-entry index it represents — the
+    /// inverse of [`Self::visible_lines`] (UX4-P1 click→Activate). Returns `None`
+    /// for the header/message rows or a click past the last entry.
+    pub(super) fn row_at(
+        &self,
+        row_in_body: usize,
+        body_width: usize,
+        body_height: usize,
+    ) -> Option<usize> {
+        if body_width == 0 || body_height == 0 {
+            return None;
+        }
+        let prefix = self.header_line_count(body_width, body_height);
+        if row_in_body < prefix {
+            return None;
+        }
+        let index = self.scroll + (row_in_body - prefix);
+        (index < self.entries.len()).then_some(index)
+    }
+
+    /// Select the theme row under a left-click, reporting whether it landed on a
+    /// real entry so the caller can route the existing Activate. Parity with
+    /// Down×N + Activate by construction.
+    pub(super) fn click_row(
+        &mut self,
+        row_in_body: usize,
+        body_width: usize,
+        body_height: usize,
+    ) -> bool {
+        match self.row_at(row_in_body, body_width, body_height) {
+            Some(index) => {
+                self.set_selection(index);
+                true
+            }
+            None => false,
+        }
+    }
+
     fn persist_selected(&mut self) -> ThemePickerOutcome {
         let Some(entry) = self.entries.get(self.selected) else {
             return ThemePickerOutcome::Consumed;
@@ -531,5 +586,63 @@ mod tests {
         let picker = ThemePicker::new(&settings);
         let entry = picker.selected_entry().expect("an entry must be selected");
         assert!(entry.is_system, "system alias must be selected");
+    }
+
+    // ── UX4-P1 click→Activate parity ───────────────────────────────────────
+
+    #[test]
+    fn click_row_persists_same_theme_as_set_selection() {
+        // `new()` leaves message None, so the only prefix line is the header;
+        // entry K is at body row K+1.
+        for target in 0..3usize {
+            let mut by_click = ThemePicker::new(&Settings::default());
+            let _ = by_click.visible_lines(80, 40);
+            assert!(
+                by_click.click_row(target + 1, 80, 40),
+                "row {target} hits an entry"
+            );
+            let ThemePickerOutcome::Persist(click) = by_click.handle_input(OverlayInput::Activate)
+            else {
+                panic!("click must persist a theme");
+            };
+
+            let mut by_key = ThemePicker::new(&Settings::default());
+            by_key.set_selection(target);
+            let ThemePickerOutcome::Persist(key) = by_key.handle_input(OverlayInput::Activate)
+            else {
+                panic!("set_selection must persist a theme");
+            };
+
+            assert_eq!(click, key, "row {target} parity");
+        }
+    }
+
+    #[test]
+    fn click_header_row_is_inert() {
+        let mut picker = ThemePicker::new(&Settings::default());
+        let _ = picker.visible_lines(80, 40);
+        // Row 0 is the header hint, never a selectable entry.
+        assert!(picker.row_at(0, 80, 40).is_none());
+        assert!(!picker.click_row(0, 80, 40));
+    }
+
+    #[test]
+    fn click_with_message_present_accounts_for_wrapped_prefix() {
+        // open() sets a wrapped help message, so the entries start several rows
+        // down. Clicking the focused (selected) row must still map to `selected`,
+        // proving the prefix accounting matches the render.
+        let mut picker = ThemePicker::new(&Settings::default());
+        picker.open(&Settings::default());
+        let lines = picker.visible_lines(60, 40);
+        let focused_row = lines
+            .iter()
+            .position(|line| line.focused)
+            .expect("the selected entry renders focused");
+        // The clicked focused row maps back to whatever entry is selected — the
+        // prefix accounting (header + wrapped message) matches the render.
+        let selected = picker.render_signature().selected;
+        assert_eq!(picker.row_at(focused_row, 60, 40), Some(selected));
+        // A click on the header (row 0) remains inert with a message present.
+        assert!(!picker.click_row(0, 60, 40));
     }
 }

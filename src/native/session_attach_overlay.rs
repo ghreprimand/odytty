@@ -190,6 +190,40 @@ impl SessionAttachOverlay {
         self.follow_selection_for_known_body_height();
     }
 
+    /// Map a clicked body row to the selection cursor it represents — the
+    /// inverse of the [`Self::visible_lines`] windowing (UX4-P1 click→Activate).
+    /// Row 0 is the `> query` prompt; results follow from the live
+    /// `scroll_offset`. Returns `None` for the prompt row, the empty/"No
+    /// matches" hint, or a click past the last result.
+    pub(super) fn row_at(&self, row_in_body: usize, body_height: usize) -> Option<usize> {
+        if body_height == 0 || row_in_body == 0 || self.filtered.is_empty() {
+            return None;
+        }
+        let visible_results = body_height - 1;
+        let within = row_in_body - 1;
+        if within >= visible_results {
+            return None;
+        }
+        let scroll_offset = self.scroll_offset_for_body_height(body_height);
+        let cursor = scroll_offset + within;
+        (cursor < self.filtered.len()).then_some(cursor)
+    }
+
+    /// Select the row under a left-click, reporting whether it landed on a
+    /// selectable row so the caller can route the existing Activate. Parity with
+    /// Down×N + Activate by construction: it sets the same `selected` cursor a
+    /// Wheel/Down move would and re-follows the scroll window.
+    pub(super) fn click_row(&mut self, row_in_body: usize, body_height: usize) -> bool {
+        match self.row_at(row_in_body, body_height) {
+            Some(cursor) => {
+                self.selected = cursor;
+                self.follow_selection_for_known_body_height();
+                true
+            }
+            None => false,
+        }
+    }
+
     pub(super) fn visible_lines(
         &self,
         body_width: usize,
@@ -543,5 +577,56 @@ mod tests {
         let lines = overlay.visible_lines(120, 10);
         assert!(!lines[1].text.contains('\u{1b}'));
         assert!(!lines[1].text.contains('\u{7}'));
+    }
+
+    // ── UX4-P1 click→Activate parity ───────────────────────────────────────
+
+    #[test]
+    fn click_row_zero_is_the_query_prompt_not_a_row() {
+        let mut overlay = open(entries());
+        let _ = overlay.visible_lines(80, 10);
+        // Row 0 is the `> query` prompt — never a selectable row.
+        assert!(overlay.row_at(0, 10).is_none());
+        assert!(!overlay.click_row(0, 10));
+    }
+
+    #[test]
+    fn click_row_selects_same_cursor_as_down_then_activate() {
+        // Press on body row N (1-based after the prompt) must select the SAME
+        // entry as Down×(N-1), so click→Activate == Down×(N-1)+Activate.
+        for target in 0..3 {
+            let mut by_click = open(entries());
+            let _ = by_click.visible_lines(80, 10);
+            assert!(
+                by_click.click_row(target + 1, 10),
+                "row {target} selectable"
+            );
+            let click_attach = by_click.handle_input(OverlayInput::Activate);
+
+            let mut by_keys = open(entries());
+            for _ in 0..target {
+                by_keys.handle_input(OverlayInput::Down);
+            }
+            let key_attach = by_keys.handle_input(OverlayInput::Activate);
+
+            assert_eq!(click_attach, key_attach, "row {target} parity");
+        }
+    }
+
+    #[test]
+    fn click_past_last_row_is_inert() {
+        let mut overlay = open(entries());
+        let _ = overlay.visible_lines(80, 10);
+        // 3 entries → rows 1,2,3 valid; row 4 is past the end.
+        assert!(overlay.row_at(4, 10).is_none());
+        assert!(!overlay.click_row(4, 10));
+    }
+
+    #[test]
+    fn click_on_empty_overlay_hint_is_inert() {
+        let mut overlay = open(Vec::new());
+        let _ = overlay.visible_lines(80, 10);
+        // The hint line (row 1) is not a selectable row.
+        assert!(!overlay.click_row(1, 10));
     }
 }

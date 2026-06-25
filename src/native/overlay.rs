@@ -67,6 +67,11 @@ pub(super) struct OverlayUi {
     /// close prompt). On the next `save_succeeded` call for Settings mode, the
     /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
     close_after_save: bool,
+    /// Set when the keybind editor's dirty-close prompt chose "save" (P1-6). On
+    /// the next `save_succeeded` for KeyBindings mode, the overlay returns to the
+    /// settings panel (rather than the in-modal Ctrl+S behaviour of staying
+    /// open). Mirrors `close_after_save` for the keybind-editor lane.
+    key_remap_close_after_save: bool,
     picker_return: Option<PickerReturn>,
     /// True while `ThemeBuilder` is the active mode AND it was entered from
     /// `ThemePicker` (via `ThemePickerOutcome::OpenBuilder`). Esc / back-button
@@ -101,6 +106,7 @@ impl OverlayUi {
             open_with: OpenWithOverlay::new(),
             image_view_caption: String::new(),
             close_after_save: false,
+            key_remap_close_after_save: false,
             picker_return: None,
             builder_from_picker: false,
         }
@@ -378,6 +384,32 @@ impl OverlayUi {
         }
     }
 
+    /// Hit-test a left-click in the close-confirmation dialog body (UX4-P1
+    /// click→Activate parity). The action line ([`CONFIRM_CLOSE_ACTION_LINE`])
+    /// is the 3rd body row (index 2); a click on the "Yes" region confirms
+    /// (`ForceClose`), the "No" region cancels (`Close`), and anywhere else —
+    /// including the leading prompt text and the other two rows — is inert so a
+    /// stray click never destroys a running job (TRAP-2: the dismiss path never
+    /// emits `ForceClose`). `col_in_body` indexes the left-aligned body line; the
+    /// line is ASCII, so byte offsets equal columns.
+    fn confirm_close_click(&mut self, row_in_body: usize, col_in_body: usize) -> OverlayOutcome {
+        const ACTION_ROW: usize = 2;
+        if row_in_body != ACTION_ROW {
+            return OverlayOutcome::Consumed;
+        }
+        let text = CONFIRM_CLOSE_ACTION_LINE;
+        let yes_start = text.find("[Enter").unwrap_or(0);
+        let no_start = text.find("[Esc").unwrap_or(text.len());
+        if col_in_body >= no_start {
+            OverlayOutcome::Close
+        } else if col_in_body >= yes_start {
+            self.close();
+            OverlayOutcome::ForceClose
+        } else {
+            OverlayOutcome::Consumed
+        }
+    }
+
     /// Whether the context menu is the active overlay mode (IN2). The App uses
     /// this to route bare hover Moves to the menu for hover-to-focus, alongside
     /// the slider-drag gate.
@@ -590,17 +622,93 @@ impl OverlayUi {
                                 .handle_press(row_in_body, rect.body_height, button);
                         self.apply_context_menu_outcome(outcome)
                     }
-                    OverlayMode::ThemePicker
-                    | OverlayMode::FontPicker
-                    | OverlayMode::KeyBindings
-                    | OverlayMode::Onboarding
-                    | OverlayMode::CommandPalette
-                    | OverlayMode::Replay
-                    | OverlayMode::Connections
-                    | OverlayMode::SessionAttach
-                    | OverlayMode::OpenWith
-                    | OverlayMode::ImageView
-                    | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
+                    // UX4-P1 click→Activate parity: a left-click on a list row
+                    // selects the row under the pointer (the inverse of each
+                    // overlay's `visible_lines` windowing) and routes the SAME
+                    // Activate the keyboard uses, so click-on-row-N == Down×N +
+                    // Enter. Right-clicks and clicks that miss a row are inert.
+                    // Onboarding / Replay / ImageView have no list rows.
+                    OverlayMode::ThemePicker => {
+                        if button == PointerButton::Left
+                            && self.theme_picker.click_row(
+                                row_in_body,
+                                rect.body_width,
+                                rect.body_height,
+                            )
+                        {
+                            self.handle_theme_picker_input(OverlayInput::Activate)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
+                    OverlayMode::FontPicker => {
+                        if button == PointerButton::Left
+                            && self.font_picker.click_row(
+                                row_in_body,
+                                rect.body_width,
+                                rect.body_height,
+                            )
+                        {
+                            self.handle_font_picker_input(OverlayInput::Activate)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
+                    OverlayMode::KeyBindings => {
+                        if button == PointerButton::Left && self.key_remap.click_row(row_in_body) {
+                            self.handle_key_remap_input(OverlayInput::Activate)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
+                    OverlayMode::CommandPalette => {
+                        if button == PointerButton::Left
+                            && self
+                                .command_palette
+                                .click_row(row_in_body, rect.body_height)
+                        {
+                            self.handle_command_palette_input(OverlayInput::Activate)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
+                    OverlayMode::Connections => {
+                        if button == PointerButton::Left
+                            && self.connections.click_row(row_in_body, rect.body_height)
+                        {
+                            self.handle_connections_input(OverlayInput::Activate)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
+                    OverlayMode::SessionAttach => {
+                        if button == PointerButton::Left
+                            && self.session_attach.click_row(row_in_body, rect.body_height)
+                        {
+                            self.handle_session_attach_input(OverlayInput::Activate)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
+                    OverlayMode::OpenWith => {
+                        if button == PointerButton::Left
+                            && self.open_with.click_row(row_in_body, rect.body_height)
+                        {
+                            self.handle_open_with_input(OverlayInput::Activate)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
+                    OverlayMode::ConfirmClose => {
+                        if button == PointerButton::Left {
+                            self.confirm_close_click(row_in_body, col_in_body)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
+                    OverlayMode::Onboarding | OverlayMode::Replay | OverlayMode::ImageView => {
+                        OverlayOutcome::Consumed
+                    }
                 }
             }
             OverlayPointer::Move { cell, x_in_body } => {
@@ -844,10 +952,17 @@ impl OverlayUi {
                 self.font_picker.save_succeeded(changed);
             }
             OverlayMode::ThemeBuilder => {}
-            // KB-REMAP stays open after a save so the user can keep editing; the
-            // modal reports the saved count and adopts the persisted bindings as
-            // its new restore baseline.
-            OverlayMode::KeyBindings => self.key_remap.save_succeeded(changed),
+            // KB-REMAP stays open after an in-modal Ctrl+S so the user can keep
+            // editing; the modal reports the saved count and adopts the persisted
+            // bindings as its new restore baseline. But if the save came from the
+            // dirty-close prompt's "save" choice (P1-6), return to the settings
+            // panel after recording it.
+            OverlayMode::KeyBindings => {
+                self.key_remap.save_succeeded(changed);
+                if std::mem::take(&mut self.key_remap_close_after_save) {
+                    self.return_to_settings_panel();
+                }
+            }
             // The onboarding card, context menu, and close dialog have no save
             // path of their own.
             OverlayMode::Onboarding
@@ -1042,6 +1157,13 @@ impl OverlayUi {
                 OverlayOutcome::ApplySettings(Box::new(settings))
             }
             KeyRemapOutcome::Save(changes) => OverlayOutcome::SaveSettings(changes),
+            KeyRemapOutcome::SaveAndClose(changes) => {
+                // Persist the working overrides; after the App reports
+                // `save_succeeded`, the KeyBindings arm returns to the settings
+                // panel (P1-6 dirty-close prompt "save" choice).
+                self.key_remap_close_after_save = true;
+                OverlayOutcome::SaveSettings(changes)
+            }
             KeyRemapOutcome::Cancel(settings) => {
                 self.settings = settings.clone();
                 // KeyBindings is always opened from Settings; Esc / back-button
@@ -1496,6 +1618,11 @@ impl OverlayRect {
 /// `.max(36)` floor in [`overlay_rect`] keeps small grids sane.
 const CONFIRM_CLOSE_WIDTH: usize = 52;
 
+/// The close-confirmation dialog's action line, shared by the body builder and
+/// the click hit-test ([`OverlayUi::confirm_close_click`]) so the two can never
+/// drift. The `[Enter` and `[Esc` bracket tokens anchor the Yes / No regions.
+const CONFIRM_CLOSE_ACTION_LINE: &str = "Close anyway?   [Enter / Y] Yes     [Esc / N] No";
+
 pub(super) fn overlay_rect(
     overlay: &OverlayUi,
     columns: usize,
@@ -1844,7 +1971,7 @@ impl OverlayUi {
                     bold: false,
                 },
                 OverlayLine {
-                    text: "Close anyway?   [Enter / Y] Yes     [Esc / N] No".to_owned(),
+                    text: CONFIRM_CLOSE_ACTION_LINE.to_owned(),
                     focused: true,
                     swatch: None,
                     bold: false,
@@ -3440,6 +3567,96 @@ mod tests {
         let after = overlay.render_signature().panel;
         assert!(after.scroll > before.scroll, "wheel scrolled the list");
         assert_eq!(after.selected, before.selected, "selection did not move");
+    }
+
+    // --- UX4-P1 click→Activate parity: list overlays + ConfirmClose ---
+
+    fn body_press(rect: OverlayRect, row_in_body: usize, col_in_body: usize) -> OverlayPointer {
+        OverlayPointer::Press {
+            cell: CellPoint {
+                row: rect.body_top + row_in_body,
+                column: rect.body_left + col_in_body,
+            },
+            button: PointerButton::Left,
+            x_in_body: None,
+        }
+    }
+
+    #[test]
+    fn pointer_click_session_row_attaches_like_enter() {
+        let sessions = vec![
+            ListedSession {
+                id: "s-1".to_owned(),
+                name: "build".to_owned(),
+                state: "running",
+                age_ms: 1,
+                pane_count: 1,
+            },
+            ListedSession {
+                id: "s-2".to_owned(),
+                name: "web".to_owned(),
+                state: "running",
+                age_ms: 1,
+                pane_count: 1,
+            },
+        ];
+        let mut overlay = OverlayUi::default();
+        overlay.open_session_attach(sessions);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        // Prime the scroll window with a render, then click body row 2 (the
+        // second session; row 0 is the `> query` prompt, row 1 the first).
+        let _ = overlay.visible_lines(rect.body_width, rect.body_height);
+        let outcome = overlay.handle_pointer(body_press(rect, 2, 0), rect);
+        assert_eq!(outcome, OverlayOutcome::AttachSession("s-2".to_owned()));
+    }
+
+    #[test]
+    fn pointer_click_keybind_row_selects_and_arms_capture() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_key_bindings(&overlay.settings.clone());
+        let rect = overlay_rect(&overlay, 80, 30).expect("rect");
+        let _ = overlay.visible_lines(rect.body_width, rect.body_height);
+        // Row 0 is the help message; row 1 is the first action row.
+        let outcome = overlay.handle_pointer(body_press(rect, 1, 0), rect);
+        assert_eq!(outcome, OverlayOutcome::Consumed);
+        assert!(
+            overlay.is_capturing_chord(),
+            "a click on an action row selects + arms chord capture (parity with Enter)"
+        );
+    }
+
+    #[test]
+    fn pointer_click_yes_in_confirm_close_forces_close() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_close();
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        // Action line is the 3rd body row; click inside the "[Enter / Y] Yes" span.
+        let yes_col = CONFIRM_CLOSE_ACTION_LINE.find("[Enter").unwrap() + 2;
+        let outcome = overlay.handle_pointer(body_press(rect, 2, yes_col), rect);
+        assert_eq!(outcome, OverlayOutcome::ForceClose);
+        assert!(!overlay.is_open(), "Yes confirms and closes the dialog");
+    }
+
+    #[test]
+    fn pointer_click_no_in_confirm_close_cancels() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_close();
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let no_col = CONFIRM_CLOSE_ACTION_LINE.find("[Esc").unwrap() + 2;
+        let outcome = overlay.handle_pointer(body_press(rect, 2, no_col), rect);
+        assert_eq!(outcome, OverlayOutcome::Close);
+    }
+
+    #[test]
+    fn pointer_click_confirm_close_prompt_text_is_inert() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_close();
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        // Column 0 of the action line is the "Close anyway?" prompt — never a
+        // button, so a stray click cannot destroy a running job (TRAP-2).
+        let outcome = overlay.handle_pointer(body_press(rect, 2, 0), rect);
+        assert_eq!(outcome, OverlayOutcome::Consumed);
+        assert!(overlay.is_open(), "a prompt-text click never force-closes");
     }
 
     // --- Settings numeric steppers: no live drag capture ---

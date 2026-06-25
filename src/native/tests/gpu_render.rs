@@ -275,6 +275,7 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
         key_remap: KeyRemapSignature {
             selected: 0,
             scroll: 0,
+            pending_close_prompt: false,
             capture: None,
             conflict: None,
             message: None,

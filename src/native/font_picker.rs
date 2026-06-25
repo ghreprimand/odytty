@@ -298,6 +298,62 @@ impl FontPicker {
         lines
     }
 
+    /// The number of non-entry prefix lines [`Self::visible_lines`] draws before
+    /// the first family/header row (the header hint plus any wrapped message),
+    /// capped by `body_height` exactly as the render loop caps it. The click→row
+    /// inverse uses this so hit geometry can never drift from render geometry.
+    fn header_line_count(&self, body_width: usize, body_height: usize) -> usize {
+        let mut count = 1; // the header hint line is always present
+        if let Some(message) = self.message.as_deref() {
+            for _ in wrap_words(message, body_width.saturating_sub(4)) {
+                if count >= body_height {
+                    return count;
+                }
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Map a clicked body row to the `filtered` position it represents — the
+    /// inverse of [`Self::visible_lines`] (UX4-P1 click→Activate). Returns `None`
+    /// for the header/message rows, a click on a non-selectable group header, or
+    /// a click past the last row.
+    pub(super) fn row_at(
+        &self,
+        row_in_body: usize,
+        body_width: usize,
+        body_height: usize,
+    ) -> Option<usize> {
+        if body_width == 0 || body_height == 0 {
+            return None;
+        }
+        let prefix = self.header_line_count(body_width, body_height);
+        if row_in_body < prefix {
+            return None;
+        }
+        let pos = self.scroll + (row_in_body - prefix);
+        (pos < self.filtered.len() && self.is_selectable(pos)).then_some(pos)
+    }
+
+    /// Select the family row under a left-click, reporting whether it landed on a
+    /// selectable family (not a group header) so the caller can route the
+    /// existing Activate. Parity with Down×N + Activate by construction.
+    pub(super) fn click_row(
+        &mut self,
+        row_in_body: usize,
+        body_width: usize,
+        body_height: usize,
+    ) -> bool {
+        match self.row_at(row_in_body, body_width, body_height) {
+            Some(pos) => {
+                self.set_selection(pos);
+                true
+            }
+            None => false,
+        }
+    }
+
     // --- private helpers ----------------------------------------------------
 
     fn persist_selected(&mut self) -> FontPickerOutcome {
@@ -830,5 +886,73 @@ mod tests {
             panic!("expected Persist for system pick");
         };
         assert_eq!(changes[0].value, "Cascadia Code");
+    }
+
+    // ── UX4-P1 click→Activate parity ───────────────────────────────────────
+
+    #[test]
+    fn click_family_row_persists_that_family() {
+        let settings = Settings::default();
+        let families = make_families(&["Cascadia Code", "Hack", "Fira Code"]);
+        let mut picker = FontPicker::new(&settings);
+        picker.open(&settings, families);
+        let lines = picker.visible_lines(70, 40);
+        // The focused row is the first selectable family (Cascadia Code).
+        let focused_row = lines
+            .iter()
+            .position(|line| line.focused)
+            .expect("a focused family row");
+        assert!(picker.click_row(focused_row, 70, 40));
+        let FontPickerOutcome::Persist(changes) = picker.handle_input(OverlayInput::Activate)
+        else {
+            panic!("click must persist a family");
+        };
+        assert_eq!(changes[0].value, "Cascadia Code");
+    }
+
+    #[test]
+    fn click_group_header_row_is_inert() {
+        let settings = Settings::default();
+        let groups = FontFamilyGroups {
+            bundled: vec!["Victor Mono".to_owned()],
+            system: vec!["Hack".to_owned()],
+        };
+        let mut picker = FontPicker::new(&settings);
+        picker.open(&settings, groups);
+        let lines = picker.visible_lines(70, 40);
+        // A group-label row (rendered with the "──" rule) is never selectable.
+        let header_row = lines
+            .iter()
+            .position(|line| line.text.contains("──"))
+            .expect("a group header row");
+        assert!(picker.row_at(header_row, 70, 40).is_none());
+        assert!(!picker.click_row(header_row, 70, 40));
+    }
+
+    #[test]
+    fn click_matches_navigation_for_second_family() {
+        // Clicking the second family must persist the same value as Down+Activate.
+        let settings = Settings::default();
+        let families = make_families(&["Cascadia Code", "Hack", "Fira Code"]);
+
+        let mut by_click = FontPicker::new(&settings);
+        by_click.open(&settings, families.clone());
+        let lines = by_click.visible_lines(70, 40);
+        let focused_row = lines.iter().position(|l| l.focused).unwrap();
+        // The next family row is directly below the focused first family.
+        assert!(by_click.click_row(focused_row + 1, 70, 40));
+        let FontPickerOutcome::Persist(click) = by_click.handle_input(OverlayInput::Activate)
+        else {
+            panic!("click persist");
+        };
+
+        let mut by_key = FontPicker::new(&settings);
+        by_key.open(&settings, families);
+        by_key.handle_input(OverlayInput::Down);
+        let FontPickerOutcome::Persist(key) = by_key.handle_input(OverlayInput::Activate) else {
+            panic!("key persist");
+        };
+        assert_eq!(click[0].value, key[0].value);
+        assert_eq!(click[0].value, "Hack");
     }
 }

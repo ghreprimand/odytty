@@ -671,6 +671,15 @@ impl SettingsPanel {
                 ));
                 SettingsPanelOutcome::Consumed
             }
+            // The `keybinds` row opens the remap editor on click, exactly like
+            // the keyboard `activate_selected` (mod.rs) does — without this arm
+            // it fell through to the generic List branch below and popped a
+            // useless "type a value" prompt, leaving the editor mouse-unreachable
+            // (P1-5/P1-6). Must run before the generic List arm.
+            SettingKind::List if entry.key == "keybinds" => {
+                self.message = Some("Opening keybinding editor.".to_owned());
+                SettingsPanelOutcome::OpenKeyBindings
+            }
             SettingKind::Number | SettingKind::String | SettingKind::List => {
                 self.editing = Some(RowEdit {
                     key: entry.key,
@@ -842,6 +851,25 @@ mod tests {
         assert_eq!(
             p.handle_pointer_press(W, H, row, 0, PointerButton::Left, None),
             SettingsPanelOutcome::OpenThemePicker
+        );
+    }
+
+    #[test]
+    fn clicking_the_keybinds_value_row_opens_the_editor() {
+        // P1-5/P1-6: the keybinds row (a List kind) must open the remap editor on
+        // CLICK, exactly like the keyboard `activate_selected`. Before the fix the
+        // click path fell through to the generic List arm and popped a useless
+        // "type a value" prompt, leaving the editor mouse-unreachable.
+        let mut p = panel();
+        let row = value_row(&p, "keybinds");
+        assert_eq!(
+            p.handle_pointer_press(W, H, row, 0, PointerButton::Left, None),
+            SettingsPanelOutcome::OpenKeyBindings,
+            "click on keybinds opens the editor (parity with Enter)"
+        );
+        assert!(
+            p.editing.is_none(),
+            "click must NOT start an inline text edit on the keybinds row"
         );
     }
 
