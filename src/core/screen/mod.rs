@@ -173,11 +173,16 @@ pub struct Screen {
     title_changed: bool,
     /// Working directory reported via OSC 7 (`file://host/path`). `None` until a
     /// well-formed OSC 7 sets it. Stores the percent-decoded path only; the host
-    /// is validated (empty / "localhost") then dropped. The core performs NO
-    /// filesystem access — this is advisory string state for the front end (e.g.
-    /// open-new-tab-in-same-directory). See [`parse_osc7_cwd`] for the parse and
-    /// hostname policy.
+    /// is validated (empty / "localhost" / injected local hostname) then
+    /// dropped. The core performs NO filesystem access — this is advisory string
+    /// state for the front end (e.g. open-new-tab-in-same-directory). See
+    /// [`parse_osc7_cwd`] for the parse and hostname policy.
     working_directory: Option<String>,
+    /// Local hostname injected by the front end so OSC 7 URLs such as
+    /// `file://workstation/path` can be recognized as local without the core
+    /// performing a syscall. Live config only: it is intentionally absent from
+    /// [`SnapshotEnvelope`] encode/decode.
+    local_hostname: Option<String>,
     /// Set whenever the working directory changes; cleared by
     /// [`Screen::take_working_directory_changed`] so a front end can poll once
     /// per frame without re-reading an unchanged value.
@@ -327,6 +332,7 @@ impl Screen {
             title: None,
             title_changed: false,
             working_directory: None,
+            local_hostname: None,
             working_directory_changed: false,
             prompt_marks_changed: false,
             mouse: MouseProtocol::default(),
@@ -1028,6 +1034,13 @@ impl Screen {
         std::mem::take(&mut self.working_directory_changed)
     }
 
+    /// Set or clear the local hostname accepted by OSC 7. With `None`, OSC 7
+    /// hostname behavior is byte-identical to the historical default: only empty
+    /// host and `localhost` are accepted.
+    pub fn set_local_hostname(&mut self, local_hostname: Option<String>) {
+        self.local_hostname = local_hostname.filter(|host| !host.is_empty());
+    }
+
     /// The OSC 133 prompt mark anchored to absolute row `row`, or `None` if the
     /// row carries no mark (SH1). The coordinate convention matches
     /// [`Screen::snapshot_with_scrollback`] and [`super::search`]: row `0` is the
@@ -1562,7 +1575,7 @@ impl Screen {
             b"6" => {}
             // OSC 7 = report the current working directory as a file:// URL.
             b"7" => {
-                if let Some(cwd) = parse_osc7_cwd(&params[1..]) {
+                if let Some(cwd) = parse_osc7_cwd(&params[1..], self.local_hostname.as_deref()) {
                     self.set_working_directory(cwd);
                 }
             }
@@ -1870,6 +1883,12 @@ impl Terminal {
     /// flag.
     pub fn take_working_directory_changed(&mut self) -> bool {
         self.screen.take_working_directory_changed()
+    }
+
+    /// Set or clear the local hostname accepted by OSC 7. See
+    /// [`Screen::set_local_hostname`].
+    pub fn set_local_hostname(&mut self, local_hostname: Option<String>) {
+        self.screen.set_local_hostname(local_hostname);
     }
 
     /// The OSC 133 prompt mark anchored to absolute row `row` (SH1), or `None`.

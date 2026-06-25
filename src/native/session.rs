@@ -435,6 +435,10 @@ pub(super) struct TabSet {
     /// [`Self::set_recording_enabled`] fans a toggle out to every session's
     /// recorder handle. Default off ⇒ the plain path is untouched.
     recording_enabled: bool,
+    /// Local hostname injected into every terminal model so OSC 7
+    /// `file://host/path` URLs from the local shell can update cwd while remote
+    /// hosts remain rejected by the core.
+    local_hostname: Option<String>,
 }
 
 impl TabSet {
@@ -450,6 +454,16 @@ impl TabSet {
             next_token,
             proxy,
             recording_enabled: false,
+            local_hostname: None,
+        }
+    }
+
+    pub(super) fn set_local_hostname(&mut self, local_hostname: Option<String>) {
+        self.local_hostname = local_hostname;
+        for session in self.sessions.values() {
+            if let Ok(mut terminal) = session.terminal.lock() {
+                terminal.set_local_hostname(self.local_hostname.clone());
+            }
         }
     }
 
@@ -846,7 +860,9 @@ impl TabSet {
         let writer: PtyWriter = Arc::new(Mutex::new(
             session.take_writer().map_err(std::io::Error::other)?,
         ));
-        let terminal = Arc::new(Mutex::new(Terminal::new(grid.columns, grid.rows)));
+        let mut model = Terminal::new(grid.columns, grid.rows);
+        model.set_local_hostname(self.local_hostname.clone());
+        let terminal = Arc::new(Mutex::new(model));
         // One recorder handle shared between the pump (writer) and the session
         // (reader). Inherits the current recording-enabled state so a session
         // spawned while replay is on starts recording immediately; otherwise it
@@ -956,6 +972,8 @@ impl TabSet {
         let token = SessionToken(self.next_token);
         self.next_token = self.next_token.saturating_add(1);
 
+        let mut terminal = terminal;
+        terminal.set_local_hostname(self.local_hostname.clone());
         let terminal = Arc::new(Mutex::new(terminal));
         let client = Arc::new(Mutex::new(client));
         let writer = attach_input_writer(client.clone());

@@ -19,6 +19,7 @@ const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
 pub fn run_interactive() -> Result<()> {
     let mut dimensions = current_dimensions();
     let mut terminal = Terminal::new(dimensions.columns, dimensions.rows);
+    terminal.set_local_hostname(crate::local_hostname::get());
     let mut session = PtySession::spawn_default_shell(dimensions)?;
     let mut writer = session.take_writer()?;
     let (pty_tx, pty_rx) = mpsc::channel();

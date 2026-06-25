@@ -7,6 +7,53 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-24 -- Fix — OSC 7 working-directory tracking for real-hostname shells (interactive-paths regression)
+
+v0.4.1 bug-fix sprint, found during the pre-release dev-build exercise on a real
+Linux desktop. Click-to-open of a bare filename in `ls` output (the Phase 4
+headline) did nothing — and the cause was upstream of path detection: OdyTTY was
+silently dropping the pane's working directory.
+
+The OSC 7 parser accepted a `file://host/path` cwd report only when the host was
+empty or literally `localhost`. But fish (and bash/zsh via `vte.sh`) emit
+`file://<local-hostname>/path` — e.g. `file://<host>/home/user/project`. Any real
+hostname was rejected, so `current_working_directory()` stayed `None`, and every
+cwd-dependent feature broke on any machine not named "localhost": bareword and
+relative path resolution (stat-gated against the cwd), command-palette recent
+directories, and new-tab-in-same-directory. The single OSC 7 unit test used
+`file://localhost/…`, so CI stayed green while real shells were broken — exactly
+the green-units-but-untested-on-real-hardware gap this sprint exists to close.
+
+The fix keeps the core deterministic and filesystem/syscall-free: the front end
+acquires the local hostname once (`local_hostname::get()` via `libc::gethostname`
+— no new dependency) and injects it into the terminal core
+(`Terminal::set_local_hostname`), which `parse_osc7_cwd` then accepts in addition
+to empty/`localhost`. Matching is case-insensitive and short-vs-FQDN tolerant
+(comparing both the full names and the leading label before the first `.`, so a
+shell's short `host` matches a `host.local` / `host.lan` from `gethostname`, and
+vice-versa) while a genuinely different host (an ssh remote's path) is still
+rejected — preserving the original safety intent. When no hostname is injected
+the policy is unchanged (empty/`localhost` only), so the default is byte-identical
+and the live hostname is deliberately kept out of `SnapshotEnvelope`, so serialized
+session state and the envelope byte-stability contract are untouched. Injection is
+wired at every Terminal construction site: initial native launch, spawned tabs,
+attached-session mirror terminals, the detached session host, and the legacy
+interactive app.
+
+Tests (`src/core/tests/osc_cwd.rs`): with no injected hostname, `file://<real>/…`
+is rejected and `file://localhost/…` / `file:///…` accepted (the byte-identical
+default); with an injected hostname, the matching host is accepted, case- and
+FQDN-label-tolerantly, while a remote host is still rejected; plus a Unix helper
+test that `gethostname` yields a non-empty host without hardcoding or printing the
+real one. Verified (isolated worktree on post-Phase-7 master, serialized): `cargo
+fmt --check` clean; `cargo clippy --all-targets --locked -- -D warnings` clean;
+`cargo test --locked --lib` 2450 passed / 0 failed / 7 ignored; the `osc7` suite
+23/0; `envelope_round_trip_is_byte_stable` green; `gpu_composite_smoke` 3/3 (incl.
+byte-identity passthrough); `license_headers` 1/1 (the new helper file carries its
+SPDX header). Staged diff scanned — tests use synthetic `testhost` /
+`example.invalid` / `/home/user`; the real hostname is runtime-only, never
+hardcoded; no secrets or personal paths.
+
 ## 2026-06-24 -- Fix — hot-path crash hardening: mutex poison-recovery + pixel→cell underflow (P0-3 defense-in-depth)
 
 v0.4.1 bug-fix sprint, Phase 7. Defense-in-depth only — the macOS 26.5 SIGABRT

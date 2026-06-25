@@ -32,15 +32,15 @@ pub(super) fn osc_string(parts: &[&[u8]]) -> String {
 ///
 /// ## Hostname policy
 ///
-/// Only an empty host or `localhost` (ASCII case-insensitive) is accepted; any
-/// other host causes the OSC 7 to be ignored. Rationale: a `file://` URL with a
-/// foreign host names a path on *another* machine. The core cannot tell whether
-/// that host is the local machine (resolving it would need `gethostname`, a
-/// syscall the core deliberately avoids to stay deterministic and
-/// filesystem-free), and silently storing a remote path as if it were local
-/// would mislead front-end consumers such as "open new tab in same directory".
-/// Ignoring is the conservative call; matching a real hostname is a front-end
-/// concern and can layer on later without changing this contract.
+/// An empty host or `localhost` (ASCII case-insensitive) is always accepted. A
+/// front end may also inject the local hostname; when present, an OSC 7 host
+/// matching that name is accepted too. Matching is case-insensitive and tolerant
+/// of short-vs-FQDN forms by comparing both full names and the leading label
+/// before the first `.`. Any other host causes the OSC 7 to be ignored.
+/// Rationale: a `file://` URL with a foreign host names a path on *another*
+/// machine. The core cannot resolve hostnames itself (it stays deterministic
+/// and filesystem-free), so the local name is live front-end config, not
+/// serialized terminal state.
 ///
 /// ## Robustness policy
 ///
@@ -52,7 +52,7 @@ pub(super) fn osc_string(parts: &[&[u8]]) -> String {
 ///   path and accepting it risks truncation bugs downstream.
 /// - Surviving non-UTF-8 bytes are replaced lossily so a malformed path can
 ///   never desync the parser.
-pub(super) fn parse_osc7_cwd(parts: &[&[u8]]) -> Option<String> {
+pub(super) fn parse_osc7_cwd(parts: &[&[u8]], local_hostname: Option<&str>) -> Option<String> {
     // Rejoin on ';' to recover a URL whose path contains a semicolon (the OSC
     // parser splits payloads on ';'). Work on raw bytes so percent-decoding
     // sees the exact wire form before any UTF-8 interpretation.
@@ -77,12 +77,40 @@ pub(super) fn parse_osc7_cwd(parts: &[&[u8]]) -> Option<String> {
     let host = &after_scheme[..slash];
     let path = &after_scheme[slash..];
 
-    if !host.is_empty() && !host.eq_ignore_ascii_case(b"localhost") {
+    if !osc7_host_is_local(host, local_hostname) {
         return None;
     }
 
     let decoded = percent_decode_path(path)?;
     Some(String::from_utf8_lossy(&decoded).into_owned())
+}
+
+fn osc7_host_is_local(host: &[u8], local_hostname: Option<&str>) -> bool {
+    if host.is_empty() || host.eq_ignore_ascii_case(b"localhost") {
+        return true;
+    }
+    let Ok(host) = std::str::from_utf8(host) else {
+        return false;
+    };
+    let Some(local_hostname) = local_hostname.filter(|hostname| !hostname.is_empty()) else {
+        return false;
+    };
+    hostname_matches(host, local_hostname)
+}
+
+fn hostname_matches(host: &str, local_hostname: &str) -> bool {
+    if host.eq_ignore_ascii_case(local_hostname) {
+        return true;
+    }
+    let host_label = leading_label(host);
+    let local_label = leading_label(local_hostname);
+    !host_label.is_empty()
+        && !local_label.is_empty()
+        && host_label.eq_ignore_ascii_case(local_label)
+}
+
+fn leading_label(host: &str) -> &str {
+    host.split_once('.').map(|(label, _)| label).unwrap_or(host)
 }
 
 /// Percent-decode a path's bytes. Returns `None` on a malformed escape or a

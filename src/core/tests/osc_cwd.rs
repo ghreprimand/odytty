@@ -68,6 +68,72 @@ fn osc7_foreign_host_is_ignored() {
 }
 
 #[test]
+fn osc7_real_host_is_ignored_without_injected_local_hostname() {
+    let mut terminal = Terminal::new(8, 3);
+    terminal.advance(&osc7_bel("file://localhost/local"));
+    assert_eq!(terminal.current_working_directory(), Some("/local"));
+    assert!(terminal.take_working_directory_changed());
+
+    terminal.advance(&osc7_bel("file://testhost/home/user/project"));
+    assert_eq!(terminal.current_working_directory(), Some("/local"));
+    assert!(!terminal.take_working_directory_changed());
+}
+
+#[test]
+fn osc7_accepts_injected_local_hostname() {
+    let mut terminal = Terminal::new(8, 3);
+    terminal.set_local_hostname(Some("testhost".to_owned()));
+
+    terminal.advance(&osc7_bel("file://testhost/home/user/project"));
+
+    assert_eq!(
+        terminal.current_working_directory(),
+        Some("/home/user/project")
+    );
+    assert!(terminal.take_working_directory_changed());
+}
+
+#[test]
+fn osc7_injected_hostname_match_is_case_and_fqdn_tolerant() {
+    let mut terminal = Terminal::new(8, 3);
+    terminal.set_local_hostname(Some("testhost.example.invalid".to_owned()));
+
+    terminal.advance(&osc7_bel("file://TESTHOST/home/user/case"));
+    assert_eq!(
+        terminal.current_working_directory(),
+        Some("/home/user/case")
+    );
+    assert!(terminal.take_working_directory_changed());
+
+    terminal.advance(&osc7_bel("file://testhost.local/home/user/short"));
+    assert_eq!(
+        terminal.current_working_directory(),
+        Some("/home/user/short")
+    );
+    assert!(terminal.take_working_directory_changed());
+}
+
+#[test]
+fn osc7_injected_hostname_still_rejects_remote_hosts() {
+    let mut terminal = Terminal::new(8, 3);
+    terminal.set_local_hostname(Some("testhost".to_owned()));
+    terminal.advance(&osc7_bel("file://testhost/home/user/local"));
+    assert_eq!(
+        terminal.current_working_directory(),
+        Some("/home/user/local")
+    );
+    assert!(terminal.take_working_directory_changed());
+
+    terminal.advance(&osc7_bel("file://otherbox/home/user/remote"));
+
+    assert_eq!(
+        terminal.current_working_directory(),
+        Some("/home/user/local")
+    );
+    assert!(!terminal.take_working_directory_changed());
+}
+
+#[test]
 fn osc7_percent_decodes_path() {
     let mut terminal = Terminal::new(8, 3);
     terminal.advance(&osc7_bel("file://localhost/home/user/My%20Projects"));

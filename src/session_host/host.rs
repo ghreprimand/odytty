@@ -227,6 +227,7 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
     let paths = config.runtime_paths()?;
     let (listener, _lock) = bind_listener(&paths.socket, &paths.lock)?;
     let mut terminal = Terminal::new(config.dimensions.columns, config.dimensions.rows);
+    terminal.set_local_hostname(crate::local_hostname::get());
     terminal.set_scrollback_limit(config.snapshot_limits.max_scrollback_rows);
     let mut session = config.command.spawn(config.dimensions)?;
     let mut pty_writer = session.take_writer()?;

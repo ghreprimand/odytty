@@ -147,7 +147,9 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     crate::settings::set_symbol_map(settings.symbol_map.clone());
     // Shared terminal model, sized to the initial grid. The pump thread writes
     // to it; the UI thread snapshots from it.
+    let local_hostname = crate::local_hostname::get();
     let mut model = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);
+    model.set_local_hostname(local_hostname.clone());
     model.set_base_colors(
         rgb(theme.foreground),
         rgb(theme.background),
@@ -208,7 +210,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // Share the session: the App pushes window-size changes to it on resize,
     // and this function reaps the child on the way out.
     let session = Arc::new(Mutex::new(session));
-    let session_set = TabSet::new(
+    let mut session_set = TabSet::new(
         Session::new_local_with_recorder(
             SessionToken(0),
             terminal,
@@ -219,6 +221,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         ),
         Some(proxy),
     );
+    session_set.set_local_hostname(local_hostname);
 
     // Phase 2 startup attach (opt-in; `None` leaves the launch byte-identical):
     // the window opened its normal initial local session above, and now also
