@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-25 -- Interactive paths — Ctrl+click on an image opens the in-OdyTTY viewer by default (UX-C, part 4)
+
+Completes the image-viewer work. The inline viewer previously opened only via the
+right-click "Open in OdyTTY" menu item; a plain Ctrl+click on an image went to the
+external OS image app. Now Ctrl+click on a resolved image path opens the in-OdyTTY
+lightbox viewer by default, while non-images (and images when the knob is off)
+still go to the external opener.
+
+The choice is a pure, unit-tested helper `interactive_path_open_kind(settings,
+resolved) -> {InlineImage, External}`: inline when `interactive_paths_image_inline`
+is on AND the path matches the same image-extension predicate the context-menu
+"Open in OdyTTY" item uses (so Ctrl+click and the menu agree). `open_image_view`
+now returns a bool — `false` when the target is not a file, the decode is
+refused/fails, or there is no GPU image layer — and the Ctrl+click path uses that
+to FALL BACK to the external opener, so a corrupt or unsupported "image" still
+opens somewhere instead of doing nothing. The right-click menu action keeps its
+historical no-op-on-failure by ignoring the return value.
+
+A new `interactive_paths_image_inline` setting (bool, default on) sits under the
+`interactive_paths` master gate: master off → no hover/open at all (unchanged);
+master on + image_inline on → Ctrl+click image opens inline, non-image external;
+master on + image_inline off → Ctrl+click image opens external (the prior
+behavior). The knob is plumbed through config keys/aliases, the settings info row,
+edit-values serialization, and `--show-config` (the show-config test asserts it).
+
+Verified (isolated worktree at clean HEAD — the lightbox + hint-cap commits both
+already landed, so this doubled as the combined-integration check, this packet's 8
+files only, GPU serialized): `cargo fmt --check` clean; `cargo clippy
+--all-targets --locked -D warnings` clean; `cargo test --locked --lib` 2479
+passed / 0 failed / 7 ignored (incl. the 3 decision-helper cases — image+on→inline,
+image+off→external, non-image→external — and 3 settings round-trips); the
+bin-crate `--show-config` test asserts `interactive_paths_image_inline`;
+`gpu_composite_smoke` 6/6 (passthrough byte-identity holds); `license_headers`
+1/1. Staged diff scanned — clean.
+
 ## 2026-06-25 -- Image viewer — lightbox framing (dim the terminal, show only the photo) (UX-C, part 3)
 
 Driven by the dev-build exercise: the operator confirmed the photo now renders

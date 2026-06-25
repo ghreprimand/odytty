@@ -233,6 +233,56 @@ fn interactive_paths_click_hint_round_trips_through_edit_values() {
 }
 
 #[test]
+fn interactive_paths_image_inline_defaults_on_and_parses() {
+    // UX-C (Phase 13): default on behind the global interactive_paths gate.
+    let (settings, warnings) = settings_from([]);
+    assert!(settings.interactive_paths_image_inline);
+    assert!(warnings.is_empty());
+
+    let (off, _) = settings_from([(INTERACTIVE_PATHS_IMAGE_INLINE_ENV, "off")]);
+    assert!(!off.interactive_paths_image_inline);
+
+    let (on, _) = settings_from([(INTERACTIVE_PATHS_IMAGE_INLINE_ENV, "on")]);
+    assert!(on.interactive_paths_image_inline);
+}
+
+#[test]
+fn interactive_paths_image_inline_round_trips_through_config_key_mapping() {
+    assert_eq!(
+        config_key_to_env("interactive_paths_image_inline"),
+        Some(INTERACTIVE_PATHS_IMAGE_INLINE_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("imageinline"),
+        Some(INTERACTIVE_PATHS_IMAGE_INLINE_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(INTERACTIVE_PATHS_IMAGE_INLINE_ENV),
+        Some("interactive_paths_image_inline")
+    );
+}
+
+#[test]
+fn interactive_paths_image_inline_round_trips_through_edit_values() {
+    let settings = Settings {
+        interactive_paths_image_inline: false,
+        ..Settings::default()
+    };
+    assert_eq!(
+        settings
+            .to_edit_values()
+            .get(INTERACTIVE_PATHS_IMAGE_INLINE_ENV),
+        Some(&"off".to_owned())
+    );
+    assert_eq!(
+        Settings::default()
+            .to_edit_values()
+            .get(INTERACTIVE_PATHS_IMAGE_INLINE_ENV),
+        Some(&"on".to_owned())
+    );
+}
+
+#[test]
 fn wheel_zoom_defaults_on_and_parses() {
     // CTRL-WHEEL-ZOOM: default on. It only fires on the explicit Ctrl+wheel
     // gesture while mouse reporting is off, so default-on leaves a plain wheel

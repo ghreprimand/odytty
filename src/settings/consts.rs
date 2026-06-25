@@ -75,6 +75,7 @@ pub const SESSION_REPLAY_ENV: &str = "ODYTTY_SESSION_REPLAY";
 pub const INTERACTIVE_PATHS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS";
 pub const INTERACTIVE_PATHS_BAREWORDS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS_BAREWORDS";
 pub const INTERACTIVE_PATHS_CLICK_HINT_ENV: &str = "ODYTTY_INTERACTIVE_PATHS_CLICK_HINT";
+pub const INTERACTIVE_PATHS_IMAGE_INLINE_ENV: &str = "ODYTTY_INTERACTIVE_PATHS_IMAGE_INLINE";
 pub const INTERACTIVE_PATHS_EDITOR_ENV: &str = "ODYTTY_INTERACTIVE_PATHS_EDITOR";
 pub const CONFIG_FILE_NAME: &str = "odytty.conf";
 pub const CONFIG_DIR_NAME: &str = "odytty";
@@ -153,6 +154,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     INTERACTIVE_PATHS_ENV,
     INTERACTIVE_PATHS_BAREWORDS_ENV,
     INTERACTIVE_PATHS_CLICK_HINT_ENV,
+    INTERACTIVE_PATHS_IMAGE_INLINE_ENV,
     INTERACTIVE_PATHS_EDITOR_ENV,
     NATIVE_AUTOCLOSE_ENV,
 ];
@@ -246,6 +248,13 @@ pub const DEFAULT_INTERACTIVE_PATHS_BAREWORDS: bool = true;
 /// Ctrl+click open all still work. The global `interactive_paths` gate is still
 /// off by default, so nothing shows until paths are enabled.
 pub const DEFAULT_INTERACTIVE_PATHS_CLICK_HINT: bool = true;
+
+/// Inline image opening for interactive paths
+/// (`ODYTTY_INTERACTIVE_PATHS_IMAGE_INLINE`). On by default behind the global
+/// `interactive_paths` gate. When on, Ctrl+clicking a resolved image path opens
+/// the in-OdyTTY viewer; when off, images use the external opener like other
+/// paths. The right-click "Open in OdyTTY" action remains available either way.
+pub const DEFAULT_INTERACTIVE_PATHS_IMAGE_INLINE: bool = true;
 
 /// Window padding (`ODYTTY_WINDOW_PADDING`): logical pixels of inset on every
 /// window edge before the terminal grid begins. `0.0` restores the historical

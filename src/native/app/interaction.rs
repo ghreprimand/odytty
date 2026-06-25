@@ -10,6 +10,23 @@
 
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum InteractivePathOpenKind {
+    InlineImage,
+    External,
+}
+
+fn interactive_path_open_kind(
+    settings: &crate::settings::Settings,
+    resolved: &crate::paths::Resolved,
+) -> InteractivePathOpenKind {
+    if settings.interactive_paths_image_inline && crate::paths::is_image_path(&resolved.abs) {
+        InteractivePathOpenKind::InlineImage
+    } else {
+        InteractivePathOpenKind::External
+    }
+}
+
 impl App {
     fn mouse_protocol(&self) -> MouseProtocol {
         self.terminal
@@ -678,6 +695,12 @@ impl App {
         let Some(resolved) = self.hovered_path.clone() else {
             return false;
         };
+        if interactive_path_open_kind(&self.settings, &resolved)
+            == InteractivePathOpenKind::InlineImage
+            && self.open_image_view(&resolved)
+        {
+            return true;
+        }
         let argv = self.path_open_argv_for(&resolved);
         self.spawn_open_or_notice(&argv);
         true
@@ -703,26 +726,28 @@ impl App {
     /// Open a resolved image span in the in-terminal viewer (Phase 9 / C4).
     /// Decodes the file through the single bounded decode point
     /// ([`super::image_decode::decode_image_rgba`], FLAG B), uploads the pixels
-    /// to the GPU image layer, and opens the `ImageView` overlay. A decode that
-    /// fails or is refused by the decode bound is a graceful no-op — the menu
-    /// item only ever appears on an extension match, so a corrupt/oversized file
-    /// simply does not open rather than erroring. Presentation-only.
-    pub(super) fn open_image_view(&mut self, resolved: &crate::paths::Resolved) {
+    /// to the GPU image layer, and opens the `ImageView` overlay. Returns
+    /// `false` when the resolved target is not a file, decode is refused/fails,
+    /// or no GPU image layer exists; Ctrl+click uses that to fall back to the
+    /// external opener. The context-menu action keeps its historical no-op on
+    /// failure by ignoring this return value. Presentation-only.
+    pub(super) fn open_image_view(&mut self, resolved: &crate::paths::Resolved) -> bool {
         // Only files are images; a directory span never reaches here, but guard
         // anyway so the decode is never attempted on a non-file.
         if resolved.kind != crate::paths::FsKind::File {
-            return;
+            return false;
         }
         let Some((rgba, width, height)) =
             crate::native::image_decode::decode_image_rgba(std::path::Path::new(&resolved.abs))
         else {
-            return;
+            return false;
+        };
+        let Some(gpu) = self.gpu.as_mut() else {
+            return false;
         };
         // Hand the pixels to the GPU overlay slot (centered fit computed there),
         // then open the presentation-only overlay with the filename caption.
-        if let Some(gpu) = self.gpu.as_mut() {
-            gpu.set_overlay_image(Some((rgba.as_slice(), width, height)));
-        }
+        gpu.set_overlay_image(Some((rgba.as_slice(), width, height)));
         let caption = resolved
             .abs
             .rsplit('/')
@@ -736,6 +761,7 @@ impl App {
             height,
         });
         self.needs_rebuild = true;
+        true
     }
 
     /// Keep the GPU image-viewer overlay in lockstep with the overlay state
@@ -1645,6 +1671,51 @@ fn pixel_coords_for_report(
 mod tests {
     use super::*;
     use crate::core::{ClickReport, MouseTracking};
+
+    fn resolved_path(abs: &str) -> crate::paths::Resolved {
+        crate::paths::Resolved {
+            abs: abs.to_owned(),
+            kind: crate::paths::FsKind::File,
+            line: None,
+            col: None,
+        }
+    }
+
+    #[test]
+    fn image_open_kind_uses_inline_for_images_when_enabled() {
+        let settings = crate::settings::Settings {
+            interactive_paths_image_inline: true,
+            ..crate::settings::Settings::default()
+        };
+        assert_eq!(
+            interactive_path_open_kind(&settings, &resolved_path("/home/user/carpet1.jpg")),
+            InteractivePathOpenKind::InlineImage
+        );
+    }
+
+    #[test]
+    fn image_open_kind_uses_external_for_images_when_disabled() {
+        let settings = crate::settings::Settings {
+            interactive_paths_image_inline: false,
+            ..crate::settings::Settings::default()
+        };
+        assert_eq!(
+            interactive_path_open_kind(&settings, &resolved_path("/home/user/carpet1.jpg")),
+            InteractivePathOpenKind::External
+        );
+    }
+
+    #[test]
+    fn image_open_kind_uses_external_for_non_images() {
+        let settings = crate::settings::Settings {
+            interactive_paths_image_inline: true,
+            ..crate::settings::Settings::default()
+        };
+        assert_eq!(
+            interactive_path_open_kind(&settings, &resolved_path("/home/user/notes.txt")),
+            InteractivePathOpenKind::External
+        );
+    }
 
     // --- SH-CLICK: click-to-position arrow encoding (Finding A) ---
 

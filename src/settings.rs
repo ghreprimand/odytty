@@ -965,6 +965,11 @@ pub struct Settings {
     /// only the hint (hand cursor, Ctrl+hover underline, and Ctrl+click open all
     /// still work).
     pub interactive_paths_click_hint: bool,
+    /// UX-C (Phase 13): when interactive paths are enabled, Ctrl+clicking an
+    /// image path opens the in-OdyTTY viewer by default. On by default behind
+    /// the global `interactive_paths` gate; off restores the external opener
+    /// behavior for images while keeping the right-click "Open in OdyTTY" item.
+    pub interactive_paths_image_inline: bool,
     /// Optional editor override for opening `path:line:col` spans (Phase 8 / C3).
     /// Empty (the default) means "detect from `$EDITOR`/`$VISUAL` via the
     /// invocation matrix". A non-empty value pins the editor: either a known
@@ -1051,6 +1056,7 @@ impl Default for Settings {
             interactive_paths: DEFAULT_INTERACTIVE_PATHS,
             interactive_paths_barewords: DEFAULT_INTERACTIVE_PATHS_BAREWORDS,
             interactive_paths_click_hint: DEFAULT_INTERACTIVE_PATHS_CLICK_HINT,
+            interactive_paths_image_inline: DEFAULT_INTERACTIVE_PATHS_IMAGE_INLINE,
             interactive_paths_editor: String::new(),
             native_autoclose: None,
         }
@@ -1632,6 +1638,12 @@ impl Settings {
             DEFAULT_INTERACTIVE_PATHS_CLICK_HINT,
             &mut warn,
         );
+        let interactive_paths_image_inline = parse_bool_setting(
+            get(INTERACTIVE_PATHS_IMAGE_INLINE_ENV).as_deref(),
+            INTERACTIVE_PATHS_IMAGE_INLINE_ENV,
+            DEFAULT_INTERACTIVE_PATHS_IMAGE_INLINE,
+            &mut warn,
+        );
         // Trim surrounding whitespace; empty (the default) means "use $EDITOR".
         // No validation here — the editor spec is tokenized + matched at open
         // time (a path/template with internal spaces is preserved as written).
@@ -1715,6 +1727,7 @@ impl Settings {
             interactive_paths,
             interactive_paths_barewords,
             interactive_paths_click_hint,
+            interactive_paths_image_inline,
             interactive_paths_editor,
             native_autoclose,
         }
@@ -1910,6 +1923,10 @@ impl Settings {
         values.insert(
             INTERACTIVE_PATHS_CLICK_HINT_ENV,
             bool_display(self.interactive_paths_click_hint).to_owned(),
+        );
+        values.insert(
+            INTERACTIVE_PATHS_IMAGE_INLINE_ENV,
+            bool_display(self.interactive_paths_image_inline).to_owned(),
         );
         if !self.interactive_paths_editor.is_empty() {
             values.insert(

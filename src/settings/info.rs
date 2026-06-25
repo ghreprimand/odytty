@@ -1139,6 +1139,19 @@ impl Settings {
             },
             SettingInfo {
                 group: "Input",
+                key: "interactive_paths_image_inline",
+                env: INTERACTIVE_PATHS_IMAGE_INLINE_ENV,
+                name: "Inline image paths",
+                value: bool_display(self.interactive_paths_image_inline).to_owned(),
+                description: "When interactive file paths are on, Ctrl+clicking a resolved image path opens the in-OdyTTY viewer by default. On by default behind the global interactive_paths gate. Off restores the external opener for images; the right-click Open in OdyTTY action remains available.",
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
+                group: "Input",
                 key: "interactive_paths_editor",
                 env: INTERACTIVE_PATHS_EDITOR_ENV,
                 name: "Interactive path editor",
@@ -1378,6 +1391,9 @@ impl Settings {
             }
             "interactive_paths_click_hint" => {
                 bool_display(self.interactive_paths_click_hint).to_owned()
+            }
+            "interactive_paths_image_inline" => {
+                bool_display(self.interactive_paths_image_inline).to_owned()
             }
             "interactive_paths_editor" => {
                 if self.interactive_paths_editor.is_empty() {

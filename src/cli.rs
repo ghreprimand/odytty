@@ -600,6 +600,10 @@ pub fn show_config_output(settings: &Settings) -> String {
             bool_value(settings.interactive_paths_click_hint).to_owned(),
         ),
         (
+            "interactive_paths_image_inline",
+            bool_value(settings.interactive_paths_image_inline).to_owned(),
+        ),
+        (
             "interactive_paths_editor",
             settings.interactive_paths_editor.clone(),
         ),
@@ -894,6 +898,7 @@ mod tests {
             interactive_paths: true,
             interactive_paths_barewords: false,
             interactive_paths_click_hint: false,
+            interactive_paths_image_inline: false,
             interactive_paths_editor: "code --goto {file}:{line}:{col}".to_owned(),
             ..Settings::default()
         };
@@ -910,6 +915,11 @@ mod tests {
             output
                 .lines()
                 .any(|line| line == "interactive_paths_click_hint=off")
+        );
+        assert!(
+            output
+                .lines()
+                .any(|line| line == "interactive_paths_image_inline=off")
         );
         assert!(
             output
