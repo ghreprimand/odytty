@@ -141,11 +141,16 @@ fn ctrl_hover_arms_underline_over_url() {
         "plain hover does not arm the underline"
     );
 
-    // Ctrl+hover: the shared armed underline lights the exact URL span.
+    // Open-modifier + hover: the shared armed underline lights the exact URL
+    // span. The open modifier is platform-aware (Cmd on macOS, Ctrl on Linux,
+    // per `open_modifier_held`), so arm whichever the host actually checks.
+    #[cfg(target_os = "macos")]
+    app.set_super_key_for_test(true);
+    #[cfg(not(target_os = "macos"))]
     app.set_ctrl_modifier_for_test(true);
     assert_eq!(
         app.armed_underline_cells_for_test(),
         Some((0, URL_START_COL, URL_END_COL + 1)),
-        "Ctrl+hover arms the underline over the bare-URL span"
+        "open-modifier hover arms the underline over the bare-URL span"
     );
 }
