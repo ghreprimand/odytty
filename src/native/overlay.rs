@@ -63,6 +63,12 @@ pub(super) struct OverlayUi {
     /// body. The image itself draws through the GPU image layer, over the panel;
     /// this presentation-only string is the only state the viewer mode carries.
     image_view_caption: String,
+    /// The pending host session-id carried by the attach-choice dialog (Phase
+    /// 14). Set when the dialog opens; the "New tab"/"Replace current" arms emit
+    /// it back to the App. Empty when the dialog is not open. The dialog body is
+    /// static text, so this is the only state the mode carries (it does not enter
+    /// the render signature — the card looks identical for any id).
+    attach_choice_session_id: String,
     /// Set when a `SaveAndClose` outcome arrives from the settings panel (dirty
     /// close prompt). On the next `save_succeeded` call for Settings mode, the
     /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
@@ -105,6 +111,7 @@ impl OverlayUi {
             session_attach: SessionAttachOverlay::new(),
             open_with: OpenWithOverlay::new(),
             image_view_caption: String::new(),
+            attach_choice_session_id: String::new(),
             close_after_save: false,
             key_remap_close_after_save: false,
             picker_return: None,
@@ -410,6 +417,75 @@ impl OverlayUi {
         }
     }
 
+    /// Open the attach-choice dialog (Phase 14) for host `session_id`. Called by
+    /// the App when the selected session is NOT already open in a tab (the
+    /// already-open case dedups by switching, never reaching here). Idempotent:
+    /// starts with `close()` so a repeated open cannot stack dialogs. The id is
+    /// stashed so the New-tab / Replace arms can emit it back to the App.
+    pub(super) fn open_attach_choice(&mut self, session_id: String) {
+        self.close();
+        self.attach_choice_session_id = session_id;
+        self.mode = OverlayMode::AttachChoice;
+        self.open = true;
+    }
+
+    /// Keyboard contract for the attach-choice dialog (Phase 14). `N`/Enter
+    /// attaches in a new tab; `R` replaces the current tab; Esc/`Close` cancels;
+    /// every other key is swallowed so nothing leaks to the PTY behind the modal.
+    /// Both action arms close the dialog before emitting, mirroring
+    /// `ConfirmClose`, and carry the stashed host session-id.
+    fn handle_attach_choice_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match input {
+            OverlayInput::Activate | OverlayInput::Char('n') | OverlayInput::Char('N') => {
+                let id = std::mem::take(&mut self.attach_choice_session_id);
+                self.close();
+                OverlayOutcome::AttachChoiceNewTab(id)
+            }
+            OverlayInput::Char('r') | OverlayInput::Char('R') => {
+                let id = std::mem::take(&mut self.attach_choice_session_id);
+                self.close();
+                OverlayOutcome::AttachChoiceReplace(id)
+            }
+            OverlayInput::Close => OverlayOutcome::Close,
+            _ => OverlayOutcome::Consumed,
+        }
+    }
+
+    /// Hit-test a left-click in the attach-choice dialog body (Phase 14;
+    /// click→key parity, mirroring `confirm_close_click`). The action line
+    /// ([`ATTACH_CHOICE_ACTION_LINE`]) is the 3rd body row (index 2); a click on
+    /// the "New tab" region attaches in a new tab, the "Replace" region replaces
+    /// the current tab, and anywhere else — including the leading prompt text and
+    /// the other rows — is inert so a stray click never attaches. ASCII line, so
+    /// byte offsets equal columns.
+    fn attach_choice_click(&mut self, row_in_body: usize, col_in_body: usize) -> OverlayOutcome {
+        const ACTION_ROW: usize = 2;
+        if row_in_body != ACTION_ROW {
+            return OverlayOutcome::Consumed;
+        }
+        let text = ATTACH_CHOICE_ACTION_LINE;
+        let new_start = text.find("[N").unwrap_or(0);
+        let replace_start = text.find("[R").unwrap_or(text.len());
+        if col_in_body >= replace_start {
+            let id = std::mem::take(&mut self.attach_choice_session_id);
+            self.close();
+            OverlayOutcome::AttachChoiceReplace(id)
+        } else if col_in_body >= new_start {
+            let id = std::mem::take(&mut self.attach_choice_session_id);
+            self.close();
+            OverlayOutcome::AttachChoiceNewTab(id)
+        } else {
+            OverlayOutcome::Consumed
+        }
+    }
+
+    /// Whether the attach-choice dialog is the active overlay mode (Phase 14).
+    /// Used by the App's test seam to assert the dialog opened.
+    #[cfg(test)]
+    pub(super) fn is_attach_choice(&self) -> bool {
+        self.open && self.mode == OverlayMode::AttachChoice
+    }
+
     /// Whether the context menu is the active overlay mode (IN2). The App uses
     /// this to route bare hover Moves to the menu for hover-to-focus, alongside
     /// the slider-drag gate.
@@ -542,6 +618,7 @@ impl OverlayUi {
             OverlayMode::Onboarding => return self.handle_onboarding_input(input),
             OverlayMode::ContextMenu => return self.handle_context_menu_input(input),
             OverlayMode::ConfirmClose => return self.handle_confirm_close_input(input),
+            OverlayMode::AttachChoice => return self.handle_attach_choice_input(input),
             OverlayMode::CommandPalette => return self.handle_command_palette_input(input),
             OverlayMode::Replay => return self.handle_replay_input(input),
             OverlayMode::Connections => return self.handle_connections_input(input),
@@ -706,6 +783,13 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
+                    OverlayMode::AttachChoice => {
+                        if button == PointerButton::Left {
+                            self.attach_choice_click(row_in_body, col_in_body)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
                     OverlayMode::Onboarding | OverlayMode::Replay | OverlayMode::ImageView => {
                         OverlayOutcome::Consumed
                     }
@@ -749,7 +833,8 @@ impl OverlayUi {
                     | OverlayMode::SessionAttach
                     | OverlayMode::OpenWith
                     | OverlayMode::ImageView
-                    | OverlayMode::ConfirmClose => OverlayOutcome::Consumed,
+                    | OverlayMode::ConfirmClose
+                    | OverlayMode::AttachChoice => OverlayOutcome::Consumed,
                 }
             }
             OverlayPointer::Release { .. } => {
@@ -767,7 +852,8 @@ impl OverlayUi {
                     | OverlayMode::SessionAttach
                     | OverlayMode::OpenWith
                     | OverlayMode::ImageView
-                    | OverlayMode::ConfirmClose => {}
+                    | OverlayMode::ConfirmClose
+                    | OverlayMode::AttachChoice => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -810,10 +896,12 @@ impl OverlayUi {
                             OverlayInput::Down
                         });
                     }
-                    // Onboarding, the close dialog, and the image viewer are
-                    // static, non-scrolling cards: the wheel has nothing to move.
+                    // Onboarding, the close/attach dialogs, and the image viewer
+                    // are static, non-scrolling cards: the wheel has nothing to
+                    // move.
                     OverlayMode::Onboarding
                     | OverlayMode::ConfirmClose
+                    | OverlayMode::AttachChoice
                     | OverlayMode::ImageView => {}
                 }
                 OverlayOutcome::Consumed
@@ -839,7 +927,8 @@ impl OverlayUi {
             | OverlayMode::SessionAttach
             | OverlayMode::OpenWith
             | OverlayMode::ImageView
-            | OverlayMode::ConfirmClose => false,
+            | OverlayMode::ConfirmClose
+            | OverlayMode::AttachChoice => false,
         }
     }
 
@@ -861,7 +950,8 @@ impl OverlayUi {
             | OverlayMode::SessionAttach
             | OverlayMode::OpenWith
             | OverlayMode::ImageView
-            | OverlayMode::ConfirmClose => {}
+            | OverlayMode::ConfirmClose
+            | OverlayMode::AttachChoice => {}
         }
     }
 
@@ -973,7 +1063,8 @@ impl OverlayUi {
             | OverlayMode::SessionAttach
             | OverlayMode::OpenWith
             | OverlayMode::ImageView
-            | OverlayMode::ConfirmClose => {}
+            | OverlayMode::ConfirmClose
+            | OverlayMode::AttachChoice => {}
         }
     }
 
@@ -992,7 +1083,8 @@ impl OverlayUi {
             | OverlayMode::SessionAttach
             | OverlayMode::OpenWith
             | OverlayMode::ImageView
-            | OverlayMode::ConfirmClose => {}
+            | OverlayMode::ConfirmClose
+            | OverlayMode::AttachChoice => {}
         }
     }
 
@@ -1032,7 +1124,8 @@ impl OverlayUi {
             | OverlayMode::Onboarding
             | OverlayMode::ContextMenu
             | OverlayMode::ImageView
-            | OverlayMode::ConfirmClose => (false, false),
+            | OverlayMode::ConfirmClose
+            | OverlayMode::AttachChoice => (false, false),
         }
     }
 
@@ -1371,6 +1464,14 @@ pub(super) enum OverlayOutcome {
     /// emitted; the App sets its `pending_exit` flag and exits the event loop on
     /// the same turn (the outcome can't reach `ActiveEventLoop` directly).
     ForceClose,
+    /// The user chose "New tab" in the attach-choice dialog (Phase 14): attach
+    /// the carried host session-id in a new tab. The overlay has already closed
+    /// itself; the App runs the existing new-tab attach path.
+    AttachChoiceNewTab(String),
+    /// The user chose "Replace current" in the attach-choice dialog (Phase 14):
+    /// attach the carried host session-id in a new tab, then close the tab that
+    /// was active when the manager opened. The overlay has already closed itself.
+    AttachChoiceReplace(String),
 }
 
 impl OverlayUi {
@@ -1462,6 +1563,13 @@ pub(super) enum OverlayMode {
     /// modal shown when a close is requested while a foreground job is running;
     /// Enter/Y confirms (emits [`OverlayOutcome::ForceClose`]), Esc/N cancels.
     ConfirmClose,
+    /// Attach-choice dialog (Phase 14). A centered, static modal shown when the
+    /// user selects a detached session that is NOT already open in a tab:
+    /// `[N / Enter]` attaches it in a new tab, `[R]` replaces the current tab,
+    /// Esc cancels. (When the session IS already open, the App dedups by
+    /// switching to its tab and this dialog never appears.) Modeled on
+    /// `ConfirmClose`; the pending host session-id is carried on the overlay.
+    AttachChoice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1623,6 +1731,18 @@ const CONFIRM_CLOSE_WIDTH: usize = 52;
 /// drift. The `[Enter` and `[Esc` bracket tokens anchor the Yes / No regions.
 const CONFIRM_CLOSE_ACTION_LINE: &str = "Close anyway?   [Enter / Y] Yes     [Esc / N] No";
 
+/// Fixed body width (cells) for the attach-choice dialog (Phase 14). Sized for
+/// the longest static line plus the panel border inset; the `.max(36)` floor in
+/// [`overlay_rect`] keeps small grids sane.
+const ATTACH_CHOICE_WIDTH: usize = 52;
+
+/// The attach-choice dialog's action line, shared by the body builder and the
+/// click hit-test ([`OverlayUi::attach_choice_click`]) so the two can never
+/// drift. A leading prompt gives an inert region at col 0 (a stray click there
+/// never attaches, mirroring the ConfirmClose guard); the `[N` and `[R` bracket
+/// tokens anchor the New-tab / Replace regions.
+const ATTACH_CHOICE_ACTION_LINE: &str = "Open where?  [N / Enter] New tab   [R] Replace";
+
 pub(super) fn overlay_rect(
     overlay: &OverlayUi,
     columns: usize,
@@ -1657,6 +1777,8 @@ pub(super) fn overlay_rect(
         // Static two-line dialog; the `.max(36)` floor below gives it room and
         // the body text fits comfortably (CLOSE-CONFIRM).
         OverlayMode::ConfirmClose => CONFIRM_CLOSE_WIDTH,
+        // Static choice dialog (Phase 14); same fixed-width/floor treatment.
+        OverlayMode::AttachChoice => ATTACH_CHOICE_WIDTH,
     }
     .max(36)
     .min(columns);
@@ -1721,6 +1843,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         // Unreachable: handled by the early dispatch above.
         OverlayMode::ContextMenu => String::new(),
         OverlayMode::ConfirmClose => "Close?".to_owned(),
+        OverlayMode::AttachChoice => "Attach session".to_owned(),
     };
 
     fill_rect(
@@ -2003,6 +2126,29 @@ impl OverlayUi {
                 },
                 OverlayLine {
                     text: CONFIRM_CLOSE_ACTION_LINE.to_owned(),
+                    focused: true,
+                    swatch: None,
+                    bold: false,
+                },
+            ],
+            // Static choice copy (Phase 14). Row 0 prompt, row 1 blank, row 2 the
+            // action line — the action row index (2) matches `ACTION_ROW` in
+            // `attach_choice_click` so the click hit-test lands on it.
+            OverlayMode::AttachChoice => vec![
+                OverlayLine {
+                    text: "This session is not open in a tab yet.".to_owned(),
+                    focused: false,
+                    swatch: None,
+                    bold: false,
+                },
+                OverlayLine {
+                    text: String::new(),
+                    focused: false,
+                    swatch: None,
+                    bold: false,
+                },
+                OverlayLine {
+                    text: ATTACH_CHOICE_ACTION_LINE.to_owned(),
                     focused: true,
                     swatch: None,
                     bold: false,
@@ -3704,6 +3850,102 @@ mod tests {
         let outcome = overlay.handle_pointer(body_press(rect, 2, 0), rect);
         assert_eq!(outcome, OverlayOutcome::Consumed);
         assert!(overlay.is_open(), "a prompt-text click never force-closes");
+    }
+
+    // --- Phase 14: attach-choice dialog (open / key route / click parity) ---
+
+    #[test]
+    fn attach_choice_opens_in_attach_choice_mode() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_attach_choice("s-0001-aaaa".to_owned());
+        assert!(
+            overlay.is_attach_choice(),
+            "the dialog opens in AttachChoice"
+        );
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::AttachChoice,
+            "render signature reflects the new mode"
+        );
+        // The dialog has a real centered rect (renderable).
+        assert!(overlay_rect(&overlay, 80, 24).is_some());
+    }
+
+    #[test]
+    fn attach_choice_key_n_and_enter_emit_new_tab() {
+        for input in [OverlayInput::Char('n'), OverlayInput::Activate] {
+            let mut overlay = OverlayUi::default();
+            overlay.open_attach_choice("s-0001-aaaa".to_owned());
+            let outcome = overlay.handle_input(input);
+            assert_eq!(
+                outcome,
+                OverlayOutcome::AttachChoiceNewTab("s-0001-aaaa".to_owned())
+            );
+            assert!(!overlay.is_open(), "the dialog closes after choosing");
+        }
+    }
+
+    #[test]
+    fn attach_choice_key_r_emits_replace() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_attach_choice("s-0001-aaaa".to_owned());
+        let outcome = overlay.handle_input(OverlayInput::Char('R'));
+        assert_eq!(
+            outcome,
+            OverlayOutcome::AttachChoiceReplace("s-0001-aaaa".to_owned())
+        );
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn attach_choice_esc_cancels_without_attaching() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_attach_choice("s-0001-aaaa".to_owned());
+        let outcome = overlay.handle_input(OverlayInput::Close);
+        assert_eq!(outcome, OverlayOutcome::Close);
+    }
+
+    #[test]
+    fn pointer_click_new_tab_in_attach_choice_emits_new_tab() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_attach_choice("s-0001-aaaa".to_owned());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let new_col = ATTACH_CHOICE_ACTION_LINE.find("[N").unwrap() + 1;
+        let outcome = overlay.handle_pointer(body_press(rect, 2, new_col), rect);
+        assert_eq!(
+            outcome,
+            OverlayOutcome::AttachChoiceNewTab("s-0001-aaaa".to_owned())
+        );
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn pointer_click_replace_in_attach_choice_emits_replace() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_attach_choice("s-0001-aaaa".to_owned());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let replace_col = ATTACH_CHOICE_ACTION_LINE.find("[R").unwrap() + 1;
+        let outcome = overlay.handle_pointer(body_press(rect, 2, replace_col), rect);
+        assert_eq!(
+            outcome,
+            OverlayOutcome::AttachChoiceReplace("s-0001-aaaa".to_owned())
+        );
+    }
+
+    #[test]
+    fn pointer_click_attach_choice_prompt_text_is_inert() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_attach_choice("s-0001-aaaa".to_owned());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        // Col 0 of the action line is the "Open where?" prompt — never a button,
+        // so a stray click cannot attach (parity with the ConfirmClose guard).
+        let outcome = overlay.handle_pointer(body_press(rect, 2, 0), rect);
+        assert_eq!(outcome, OverlayOutcome::Consumed);
+        assert!(overlay.is_open(), "a prompt-text click never attaches");
+        // A click on the prompt body row (row 0) is also inert.
+        let outcome_row0 = overlay.handle_pointer(body_press(rect, 0, 5), rect);
+        assert_eq!(outcome_row0, OverlayOutcome::Consumed);
+        assert!(overlay.is_open());
     }
 
     // --- Settings numeric steppers: no live drag capture ---

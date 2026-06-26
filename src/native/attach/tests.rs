@@ -408,7 +408,21 @@ fn attached_session_over(socket: &std::path::Path, id: &str) -> Session {
     let terminal = Arc::new(Mutex::new(terminal));
     let client = Arc::new(Mutex::new(client));
     let writer = attach_input_writer(client.clone());
-    Session::new_attached(SessionToken(0), terminal, writer, client, None)
+    Session::new_attached(SessionToken(0), terminal, writer, client, id, None)
+}
+
+/// Like [`attached_session_over`] but with an explicit token, so several
+/// attached sessions can coexist in one [`TabSet`] without a token collision
+/// (the test-only `push` does not mint fresh tokens). Used by the Phase 14
+/// dedup / replace tests.
+fn attached_session_token(socket: &std::path::Path, id: &str, token: u64) -> Session {
+    let (client, _reader, terminal) =
+        AttachClient::connect_with(socket, id, test_caps(), test_deadline())
+            .expect("attach connects");
+    let terminal = Arc::new(Mutex::new(terminal));
+    let client = Arc::new(Mutex::new(client));
+    let writer = attach_input_writer(client.clone());
+    Session::new_attached(SessionToken(token), terminal, writer, client, id, None)
 }
 
 /// A real local-PTY [`Session`] to seed a [`TabSet`] for the present-live-tab
@@ -476,6 +490,112 @@ fn window_close_detaches_attached_tab_host_survives() {
     assert!(was_last, "closing the only session reports last");
     let frame = handle.join().expect("host thread");
     assert_eq!(frame, ClientFrame::Detach);
+}
+
+// --- Phase 14: attach dedup + new-tab/replace orchestration (TabSet level) ---
+
+/// Dedup (the reported triple-open fix): an attached session records its host
+/// id, `find_attached_tab` locates the open tab, and re-selecting it switches
+/// instead of appending a duplicate.
+#[test]
+fn attach_dedup_finds_open_tab_and_switch_adds_no_tab() {
+    let (sock, host) = spawn_fake_host(
+        snapshot_bytes(&sample_host_terminal()),
+        drain_until_disconnect,
+    );
+    let mut set = TabSet::new(build_local_session(), None); // local tab, token 0
+    let tok = set.push(attached_session_token(&sock, "s-0001-aaaa", 1)); // + attached
+    assert_eq!(set.len(), 2);
+
+    // The host id is recorded, so dedup can locate the open tab; an unrelated id
+    // is not found.
+    assert_eq!(set.find_attached_tab("s-0001-aaaa"), Some(tok));
+    assert_eq!(
+        set.find_attached_tab("s-9999-zzzz"),
+        None,
+        "an id with no open tab is not found"
+    );
+
+    // Dedup path: re-selecting an already-open session switches to its tab and
+    // adds NO duplicate tab.
+    let before = set.len();
+    let found = set.find_attached_tab("s-0001-aaaa").expect("already open");
+    set.switch(found);
+    assert_eq!(
+        set.len(),
+        before,
+        "selecting an already-open session adds no tab"
+    );
+    assert_eq!(set.active_id(), tok, "and focuses the existing tab");
+
+    set.close(tok); // clean Detach so the fake host EOFs
+    join_within(host, "dedup fake host");
+}
+
+/// "Replace current" over a LOCAL current tab: attach appends exactly one tab,
+/// then the previously-active local tab is closed directly (its PTY reaped),
+/// netting one tab with the attached session focused.
+#[test]
+fn attach_replace_closes_local_current_and_focuses_attached() {
+    let (sock, host) = spawn_fake_host(
+        snapshot_bytes(&sample_host_terminal()),
+        drain_until_disconnect,
+    );
+    let mut set = TabSet::new(build_local_session(), None); // local current, token 0
+    let old_active = set.active_id();
+    assert_eq!(old_active, SessionToken(0));
+
+    // Mirror App::attach_session_replacing_current: capture old active → attach
+    // new (appends + focus) → close the old tab.
+    let attached = set.push(attached_session_token(&sock, "s-0003-cccc", 1));
+    assert_eq!(set.len(), 2, "attach adds exactly one tab");
+    set.switch(attached);
+    let old_idx = set.position_of_token(old_active).expect("old tab present");
+    let _ = set.close_tab_at(old_idx);
+
+    assert_eq!(set.len(), 1, "replace nets exactly one tab");
+    assert_eq!(set.active_id(), attached, "the attached tab stays focused");
+    assert_eq!(set.find_attached_tab("s-0003-cccc"), Some(attached));
+
+    set.close(attached);
+    join_within(host, "replace-local fake host");
+}
+
+/// "Replace current" over a HOSTED/attached current tab: the replaced tab is
+/// closed via the same path, which sends a clean `Detach` (the host keeps the
+/// PTY alive, so the replaced session stays reattachable) rather than a kill.
+#[test]
+fn attach_replace_detaches_hosted_current_host_survives() {
+    let (sock_cur, host_cur) = spawn_fake_host(snapshot_bytes(&sample_host_terminal()), |mut s| {
+        read_client_frame(&mut s).expect("read client frame")
+    });
+    let (sock_new, host_new) = spawn_fake_host(
+        snapshot_bytes(&sample_host_terminal()),
+        drain_until_disconnect,
+    );
+
+    // The CURRENT tab is itself a hosted/attached session (token 0).
+    let current = attached_session_token(&sock_cur, "s-cur-0001", 0);
+    let mut set = TabSet::new(current, None);
+    let old_active = set.active_id();
+
+    let new_tok = set.push(attached_session_token(&sock_new, "s-new-0002", 1));
+    set.switch(new_tok);
+    let old_idx = set.position_of_token(old_active).expect("old tab present");
+    let _ = set.close_tab_at(old_idx);
+
+    assert_eq!(set.len(), 1, "replace nets one tab");
+    assert_eq!(set.active_id(), new_tok, "the new attached tab is focused");
+    // Replacing a hosted current sends a clean Detach — host survives.
+    let frame = join_within(host_cur, "replaced hosted current");
+    assert_eq!(
+        frame,
+        ClientFrame::Detach,
+        "hosted current detaches cleanly, host survives"
+    );
+
+    set.close(new_tok);
+    join_within(host_new, "replace-hosted new host");
 }
 
 #[test]

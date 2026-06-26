@@ -7,6 +7,58 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Session-attach — dedup duplicate tabs + New tab / Replace prompt (UX-D)
+
+Driven by the dev-build exercise: the operator opened the Attach manager and
+selected the same detached session three times, getting three identical tabs all
+mirroring one host. The accept path (`attach_session_in_new_tab`) unconditionally
+appended a fresh attached tab on every selection — the host happily serves several
+clients (that is how detach/reattach works), but stacking duplicates inside one
+window is a pure UX bug. The operator also asked for a way to fully swap the
+current tab into a detached session, not only open it alongside.
+
+Selecting a session now routes through `App::route_attach_session`. First it
+dedups: an attached `Session` records the host id it was attached by (new
+`attached_session_id: Option<String>`, `None` for a locally-spawned PTY, set only
+on the attached construction path so the default is unchanged), and
+`TabSet::find_attached_tab` locates an already-open tab for that id. If one exists,
+the manager switches to it — no duplicate, no prompt — which kills the reported
+triple-open. Otherwise a small static modal opens (`OverlayMode::AttachChoice`,
+modeled on `ConfirmClose`): `[N / Enter]` New tab, `[R]` Replace current, Esc
+cancels. The pending host id rides on the overlay (not in the render signature —
+the card text is static, so any id renders an identical card). "New tab" runs
+today's path. "Replace current" captures the active token, attaches the new
+session (appends + focuses), then closes the previously-active tab through the
+existing whole-tab close path — which sends a clean `Detach` for a hosted/attached
+current (the host keeps the PTY, so it stays reattachable) and closes a local PTY
+directly, no nested confirm dialog since the user explicitly chose Replace. A stale
+id leaves the current tab untouched.
+
+Click→key parity mirrors `ConfirmClose`: the action line is a shared const
+(`ATTACH_CHOICE_ACTION_LINE`) used by both the body builder and the hit-test so the
+two cannot drift, a leading "Open where?" prompt gives an inert col-0 region, and
+clicks off the buttons are inert. `AttachChoice` was wired into every exhaustive
+`OverlayMode` match arm as a static, non-scrolling card alongside `ConfirmClose`.
+
+Verified (isolated worktree at clean HEAD e928de0, this packet's 5 files only, bin
+built first, GPU serialized): `cargo fmt --check` clean; `cargo clippy
+--all-targets --locked -D warnings` clean; `cargo test --locked --lib
+--test-threads=1` 2493 passed / 0 failed / 7 ignored (+10: seven overlay dialog
+cases covering open/render-signature, N/Enter/R key routing, Esc cancel, click
+parity on both buttons, and inert prompt text; three TabSet orchestration cases
+covering dedup-switch-adds-no-tab, replace-over-local nets one + focuses attached,
+and replace-over-hosted sends a clean `Detach` so the host survives — synthetic
+session ids only); `gpu_composite_smoke` 6/6 (UNMODIFIED
+`passthrough_composite_matches_direct_render_bytes` byte-identity holds — the new
+mode renders nothing unless opened); `license_headers` 1/1 (no new files). Staged
+diff scanned — clean (no personal paths or real hostname; synthetic session ids
+only).
+
+Remaining gaps: operator hands-on re-test on the dev build (select a session ≥3×
+→ switches, no duplicates; pick a fresh one → New tab / Replace prompt; Replace
+swaps the current tab); still pending the Linux non-image Ctrl+click spot-check and
+the full macOS 26.5 exercise before any v0.5.0 bump or tag.
+
 ## 2026-06-25 -- Image viewer — click outside the lightbox to dismiss (UX-C, part 4d)
 
 Driven by the dev-build exercise: the operator found that with the lightbox open,

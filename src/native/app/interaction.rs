@@ -259,7 +259,18 @@ impl App {
             // already closed and the user can retry. Never panics.
             OverlayOutcome::AttachSession(id) => {
                 self.flush_pending_overlay_settings();
+                self.route_attach_session(id);
+            }
+            // Phase 14: the attach-choice dialog closed itself before emitting
+            // these; run the chosen attach. New tab = today's path. Replace =
+            // attach + close the tab that was active when the manager opened.
+            OverlayOutcome::AttachChoiceNewTab(id) => {
+                self.flush_pending_overlay_settings();
                 let _ = self.attach_session_in_new_tab(None, &id);
+            }
+            OverlayOutcome::AttachChoiceReplace(id) => {
+                self.flush_pending_overlay_settings();
+                self.attach_session_replacing_current(id);
             }
             // CLOSE-CONFIRM: the dialog closed itself before emitting this; flag
             // the exit so `window_event` exits the loop on this same turn (the

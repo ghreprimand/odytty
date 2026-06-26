@@ -63,6 +63,12 @@ pub(super) struct Session {
     pub(super) terminal: Arc<Mutex<Terminal>>,
     pub(super) writer: PtyWriter,
     pub(super) source: SessionSource,
+    /// The host session-id string this session was attached by (Phase 14), or
+    /// `None` for a locally-spawned PTY. Drives attach dedup: selecting a
+    /// session already open in a tab switches to it instead of appending a
+    /// duplicate. Set only on the attached construction path; the local path
+    /// leaves it `None`, so the default behavior is unchanged.
+    pub(super) attached_session_id: Option<String>,
     pub(super) pump_thread: Option<JoinHandle<()>>,
     /// Bounded ring of recorded screen frames for the replay overlay (Phase 2).
     /// A clonable handle shared with this session's pump thread, which writes
@@ -192,15 +198,20 @@ impl Session {
         terminal: Arc<Mutex<Terminal>>,
         writer: PtyWriter,
         client: Arc<Mutex<AttachClient>>,
+        session_id: &str,
         pump_thread: Option<JoinHandle<()>>,
     ) -> Self {
-        Self::from_parts(
+        let mut session = Self::from_parts(
             id,
             terminal,
             writer,
             SessionSource::Attached { client },
             pump_thread,
-        )
+        );
+        // Record the host id so attach dedup (Phase 14) can match a re-selected
+        // session to its already-open tab.
+        session.attached_session_id = Some(session_id.to_owned());
+        session
     }
 
     fn from_parts(
@@ -239,6 +250,7 @@ impl Session {
             terminal,
             writer,
             source,
+            attached_session_id: None,
             pump_thread,
             recorder,
             tab_title,
@@ -988,7 +1000,14 @@ impl TabSet {
         let pump_thread = spawn_attach_pump(reader, terminal.clone(), sink, token);
         self.sessions.insert(
             token,
-            Session::new_attached(token, terminal, writer, client, Some(pump_thread)),
+            Session::new_attached(
+                token,
+                terminal,
+                writer,
+                client,
+                session_id,
+                Some(pump_thread),
+            ),
         );
         self.tabs.push(Tab::single(token));
         Ok(token)
@@ -1018,6 +1037,18 @@ impl TabSet {
     /// The strip index of the tab that contains `token` as one of its panes.
     pub(super) fn position_of_token(&self, token: SessionToken) -> Option<usize> {
         self.tabs.iter().position(|tab| tab.layout.contains(token))
+    }
+
+    /// The token of an already-open session attached by host id `session_id`, if
+    /// any (Phase 14 attach dedup). Scans every session for an attached one whose
+    /// recorded host id matches, so a re-selected session can switch to its
+    /// existing tab instead of appending a duplicate. `None` when no open tab
+    /// mirrors that host.
+    pub(super) fn find_attached_tab(&self, session_id: &str) -> Option<SessionToken> {
+        self.sessions
+            .iter()
+            .find(|(_, session)| session.attached_session_id.as_deref() == Some(session_id))
+            .map(|(token, _)| *token)
     }
 
     pub(super) fn switch(&mut self, token: SessionToken) -> bool {

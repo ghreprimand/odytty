@@ -643,6 +643,48 @@ impl App {
         Ok(())
     }
 
+    /// Route an accepted session from the Attach-Session overlay (Phase 14).
+    /// Dedup first: if the session is already open in a tab in this window,
+    /// switch to that tab — no duplicate, no prompt (this kills the reported
+    /// triple-open bug). Otherwise open the attach-choice dialog so the user
+    /// picks New tab vs Replace current.
+    pub(in crate::native) fn route_attach_session(&mut self, session_id: String) {
+        if let Some(token) = self.sessions.find_attached_tab(&session_id) {
+            if self.sessions.switch(token) {
+                self.on_active_session_changed();
+            }
+            return;
+        }
+        self.overlay.open_attach_choice(session_id);
+    }
+
+    /// Attach `session_id` in a new tab and then close the tab that was active
+    /// when the Attach manager opened — the "Replace current" choice (Phase 14).
+    /// Opening an overlay does not change the active session, so `active_id()`
+    /// captured here is the correct replace target. Order: capture old active →
+    /// attach new (appends + focuses it) → close the old tab via the existing
+    /// whole-tab close path. That path routes each session through
+    /// `Session::close`, which cleanly `Detach`es a hosted/attached tab (the host
+    /// keeps the PTY, so it stays reattachable) and closes a local PTY tab
+    /// directly — no nested confirm-close dialog, since the user explicitly chose
+    /// Replace. A stale id (nothing attached) leaves the current tab untouched.
+    fn attach_session_replacing_current(&mut self, session_id: String) {
+        let replace_target = self.sessions.active_id();
+        if self.attach_session_in_new_tab(None, &session_id).is_err() {
+            return;
+        }
+        if let Some(tab_idx) = self.sessions.position_of_token(replace_target) {
+            let _ = self.sessions.close_tab_at(tab_idx);
+        }
+        // A surviving single-pane tab may return input to the plain fast path;
+        // clear any pending multiplexer prefix so stale state can't swallow keys
+        // (mirrors `close_active_tab`).
+        if self.sessions.active_is_single_pane() {
+            self.prefix_engine.cancel();
+        }
+        self.on_active_session_changed();
+    }
+
     fn switch_to_next_tab(&mut self) {
         if self.sessions.next() {
             self.on_active_session_changed();
