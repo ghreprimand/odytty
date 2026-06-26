@@ -27,6 +27,20 @@ fn interactive_path_open_kind(
     }
 }
 
+/// Pure hit-test for the lightbox click-outside-to-dismiss (Phase 13d): is the
+/// pointer pixel `(px, py)` OUTSIDE the image fit-rect `[x0, y0, x1, y1]`?
+///
+/// Boundary convention: edges are INCLUSIVE — a point exactly on the rect border
+/// counts as ON the image (inside), so it is inert rather than dismissing; only
+/// a point strictly beyond an edge returns `true`. Kept a free, pure fn so it is
+/// unit-testable headless, with no GPU/window state. The pointer pixel and the
+/// fit-rect share the same physical-pixel origin (full-viewport lightbox), so
+/// the comparison is exact.
+fn point_outside_rect(px: f64, py: f64, rect: [f32; 4]) -> bool {
+    let [x0, y0, x1, y1] = rect;
+    px < x0 as f64 || px > x1 as f64 || py < y0 as f64 || py > y1 as f64
+}
+
 impl App {
     fn mouse_protocol(&self) -> MouseProtocol {
         self.terminal
@@ -286,6 +300,28 @@ impl App {
                 }
                 ElementState::Pressed => {} // set below, after overlay confirms a drag
             }
+        }
+        // Phase 13d — lightbox click-outside-to-dismiss. A left PRESS while the
+        // C4 image viewer is open intercepts before the generic cell/rect
+        // dispatch: outside the drawn image fit-rect closes the viewer exactly
+        // like Esc (overlay `Close` → the per-frame sync clears the GPU image →
+        // byte-identical next frame); a press ON the image is inert (a
+        // conventional lightbox has nothing to interact with, and we avoid a
+        // surprise-close on a direct hit). Only when BOTH the fit-rect and the
+        // pointer pixel are known — otherwise fall through so there is no
+        // regression on the normal overlay path.
+        if state == ElementState::Pressed
+            && pointer_button == PointerButton::Left
+            && self.overlay.image_view_open()
+            && let Some(fit_rect) = self.gpu.as_ref().and_then(|g| g.overlay_image_fit_rect())
+            && let Some((px, py)) = self.pointer_px
+        {
+            if point_outside_rect(px, py, fit_rect) {
+                let o = self.overlay.handle_input(OverlayInput::Close);
+                self.apply_overlay_outcome_with_policy(o, false);
+                self.request_selection_redraw();
+            }
+            return;
         }
         // Window-level overlays use window-overlay cell space, not the focused
         // pane's sub-grid. In a single-pane tab these are exactly
@@ -1679,6 +1715,46 @@ mod tests {
             line: None,
             col: None,
         }
+    }
+
+    #[test]
+    fn point_inside_fit_rect_is_not_outside() {
+        // Centered fit-rect within a synthetic 1000x800 viewport.
+        let rect = [200.0_f32, 150.0, 800.0, 650.0];
+        // Dead-center → inside.
+        assert!(!point_outside_rect(500.0, 400.0, rect));
+        // Just inside each edge.
+        assert!(!point_outside_rect(201.0, 400.0, rect));
+        assert!(!point_outside_rect(799.0, 400.0, rect));
+        assert!(!point_outside_rect(500.0, 151.0, rect));
+        assert!(!point_outside_rect(500.0, 649.0, rect));
+    }
+
+    #[test]
+    fn point_past_each_edge_is_outside() {
+        let rect = [200.0_f32, 150.0, 800.0, 650.0];
+        // Left of x0.
+        assert!(point_outside_rect(199.0, 400.0, rect));
+        // Right of x1.
+        assert!(point_outside_rect(801.0, 400.0, rect));
+        // Above y0.
+        assert!(point_outside_rect(500.0, 149.0, rect));
+        // Below y1.
+        assert!(point_outside_rect(500.0, 651.0, rect));
+        // A corner well outside (both axes beyond).
+        assert!(point_outside_rect(0.0, 0.0, rect));
+    }
+
+    #[test]
+    fn point_on_fit_rect_border_is_inclusive_inside() {
+        // Boundary convention: a point exactly on an edge counts as ON the image
+        // (inside) → inert, never a dismiss.
+        let rect = [200.0_f32, 150.0, 800.0, 650.0];
+        assert!(!point_outside_rect(200.0, 400.0, rect)); // on x0
+        assert!(!point_outside_rect(800.0, 400.0, rect)); // on x1
+        assert!(!point_outside_rect(500.0, 150.0, rect)); // on y0
+        assert!(!point_outside_rect(500.0, 650.0, rect)); // on y1
+        assert!(!point_outside_rect(200.0, 150.0, rect)); // exact corner
     }
 
     #[test]

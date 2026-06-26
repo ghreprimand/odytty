@@ -1742,6 +1742,14 @@ impl GpuState {
         );
     }
 
+    /// The centered fit-rect (surface PIXELS, `[x0,y0,x1,y1]`) of the current C4
+    /// viewer image, or `None` when no overlay image is set. Delegates to the
+    /// image layer — the rect is the one actually drawn, so the App's
+    /// click-outside-to-dismiss hit-test (Phase 13d) is pixel-exact.
+    pub(super) fn overlay_image_fit_rect(&self) -> Option<[f32; 4]> {
+        self.image_layer.overlay_image_fit_rect()
+    }
+
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot plus
     /// presentation-only solid overlays, drawing the cursor in `cursor_style`.
     pub(super) fn update_from_snapshot_with_overlays(

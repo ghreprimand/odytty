@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-25 -- Image viewer — click outside the lightbox to dismiss (UX-C, part 4d)
+
+Driven by the dev-build exercise: the operator found that with the lightbox open,
+clicking above or below the photo closed it, but clicking to the left or right did
+not. That asymmetry was an accident of the old overlay geometry — the `ImageView`
+`OverlayRect` is full-width but only ~80% tall and vertically centered, so the
+generic "click outside the panel = Esc" path fired in the top/bottom margins but
+never on the left/right (still inside the full-width rect). The lightbox draws a
+full-viewport scrim, so to the eye the whole surround should dismiss.
+
+The viewer now hit-tests against the actual drawn image rectangle. `set_overlay_image`
+records the centered fit-rect (viewport pixels, `[x0,y0,x1,y1]`) from the same
+`overlay_fit_quad` that builds the draw geometry — one source of truth — and the
+image layer exposes it through `GpuState::overlay_image_fit_rect()` (`None` when no
+image is set). A left press while the viewer is open is intercepted before the
+generic cell/rect dispatch: a pure `point_outside_rect(px, py, rect)` predicate
+(edges inclusive — a point exactly on the border counts as ON the image) decides.
+Outside the image on ANY edge → `Close` (same path as Esc; the per-frame sync
+clears the GPU image so the next frame is byte-identical); on the image → inert (a
+lightbox has nothing to interact with, and this avoids a surprise-close on a direct
+hit). When the fit-rect or pointer pixel is unknown the press falls through to the
+existing path, so there is no regression off the viewer.
+
+No new knob; the code runs only while the image viewer is open, so a closed viewer
+and the feature-off render stay byte-identical. Verified (isolated worktree at
+clean HEAD, this packet's 5 files only, GPU serialized): `cargo fmt --check` clean;
+`cargo clippy --all-targets --locked -D warnings` clean; `cargo test --locked --lib
+--test-threads=1` 2483 passed / 0 failed / 7 ignored, including 3 headless
+predicate cases (inside not-outside, past each of the 4 edges, border inclusive)
+and a real-device GPU test that asserts `overlay_image_fit_rect()` is the centered
+rect when an image is set and `None` after clear; `gpu_composite_smoke` 6/6
+(UNMODIFIED `passthrough_composite_matches_direct_render_bytes` byte-identity
+holds); `license_headers` 1/1. Staged diff scanned — clean.
+
 ## 2026-06-25 -- README demo banner refreshed (version-free tagline) + reproducible generator
 
 Replaced the README hero screenshot (`assets/demo.png`) with a fresh capture and

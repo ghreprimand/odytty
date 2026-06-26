@@ -50,7 +50,7 @@ use super::cvd_theme::CvdThemeCache;
 use super::gpu::{BloomOptions, CrtOptions, FrameOutcome, GpuState};
 use super::options::{NativeError, NativeOptions};
 use super::overlay::{
-    OverlayOutcome, OverlayPointer, OverlayUi, PointerButton, apply_overlay,
+    OverlayInput, OverlayOutcome, OverlayPointer, OverlayUi, PointerButton, apply_overlay,
     overlay_input_from_winit, overlay_rect,
 };
 #[cfg(test)]

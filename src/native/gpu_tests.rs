@@ -524,6 +524,64 @@ fn overlay_image_set_and_clear_toggles_presence() {
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
+/// Phase 13d real-device proof: `overlay_image_fit_rect()` exposes the centered
+/// fit-rect actually drawn while a viewer image is set, and `None` once cleared.
+/// This rect is the single source of truth for the lightbox click-outside hit
+/// test. Mirrors `overlay_image_set_and_clear_toggles_presence`. GPU-gated.
+#[test]
+fn overlay_image_fit_rect_tracks_set_and_clear() {
+    let Some((device, queue)) = test_device_with_hdr() else {
+        return;
+    };
+    let mut layer =
+        super::image_layer::ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+    let viewport_buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("test-viewport"),
+        size: 64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    assert_eq!(
+        layer.overlay_image_fit_rect(),
+        None,
+        "no overlay image → no fit-rect (the click-outside hit test stays inert)"
+    );
+
+    // A synthetic 2×2 RGBA image centered in a 100×80 viewport. The image is
+    // never upscaled, so it occupies its native 2×2 px centered: x0=(100-2)/2=49,
+    // y0=(80-2)/2=39 → rect [49,39,51,41].
+    let rgba = vec![0xFFu8; 2 * 2 * 4];
+    layer.set_overlay_image(
+        &device,
+        &queue,
+        &viewport_buf,
+        Some((&rgba, 2, 2)),
+        100.0,
+        80.0,
+    );
+    let expected = super::image_layer::overlay_fit_quad(2, 2, 100.0, 80.0).rect;
+    assert_eq!(
+        layer.overlay_image_fit_rect(),
+        Some(expected),
+        "set records the drawn fit-rect (single source of truth)"
+    );
+    assert_eq!(
+        expected,
+        [49.0, 39.0, 51.0, 41.0],
+        "the recorded rect is the centered, native-size fit-rect"
+    );
+
+    layer.set_overlay_image(&device, &queue, &viewport_buf, None, 100.0, 80.0);
+    assert_eq!(
+        layer.overlay_image_fit_rect(),
+        None,
+        "clearing drops the fit-rect back to None"
+    );
+
+    device.poll(wgpu::PollType::wait_indefinitely()).ok();
+}
+
 /// C4 (Phase 13a) real-code render proof: `draw_overlay` paints the viewer
 /// (full-viewport scrim + image) onto a swapchain-format target via the real
 /// overlay pipelines. Renders a scene fill (green) first, then opens a

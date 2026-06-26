@@ -216,6 +216,11 @@ struct ImageDraw {
 struct OverlayImage {
     _texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
+    /// The centered fit-rect (viewport PIXELS, `[x0,y0,x1,y1]`) the image is
+    /// actually drawn over — the single source of truth for hit-testing a
+    /// click-outside-to-dismiss (Phase 13d). Recorded at `set_overlay_image`
+    /// time from the same `overlay_fit_quad` that builds the draw geometry.
+    fit_rect: [f32; 4],
 }
 
 pub(super) struct ImageLayer {
@@ -395,6 +400,7 @@ impl ImageLayer {
             rgba,
         );
         let quad = overlay_fit_quad(width, height, viewport_w, viewport_h);
+        let fit_rect = quad.rect;
         let mut verts = Vec::with_capacity(6);
         push_quad(&mut verts, quad);
         queue.write_buffer(&self.overlay_vertex_buf, 0, bytemuck::cast_slice(&verts));
@@ -414,7 +420,17 @@ impl ImageLayer {
         self.overlay_image = Some(OverlayImage {
             _texture: texture,
             bind_group,
+            fit_rect,
         });
+    }
+
+    /// The centered fit-rect (viewport PIXELS, `[x0,y0,x1,y1]`) of the current
+    /// C4 viewer image, or `None` when no overlay image is set. This is the exact
+    /// rect the image is drawn over, so a click-outside hit-test (Phase 13d) is
+    /// pixel-accurate. `None` after clear (no image / zero-size / under-length
+    /// buffer all leave `overlay_image == None`).
+    pub(super) fn overlay_image_fit_rect(&self) -> Option<[f32; 4]> {
+        self.overlay_image.as_ref().map(|img| img.fit_rect)
     }
 
     /// Whether a C4 overlay image is currently set. The render loop gates the
