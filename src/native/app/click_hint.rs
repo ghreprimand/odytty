@@ -2,16 +2,19 @@
 //! UX-A (Phase 11): click-to-open discoverability for interactive paths.
 //!
 //! The hand cursor appears on plain hover over a resolved path, but OPENING
-//! requires Ctrl+click (`hyperlink_action_allowed`). A user sees the hand,
+//! requires a modifier+click — Ctrl on Linux, Cmd on macOS
+//! (`hyperlink_action_allowed`). A user sees the hand,
 //! left-clicks, gets a text selection, and thinks nothing happened — the cursor
 //! lies and there is no other signal. This module adds two teaching affordances,
 //! both strictly INSIDE the `interactive_paths` master gate so the default
 //! (feature-off) frame is byte-identical:
 //!
-//! 1. **Armed underline** — when Ctrl is held while hovering a resolved path,
-//!    the span is underlined (the "now it will open" signal). Presentation-only;
-//!    painted onto the snapshot cells like the selection/search highlights.
-//! 2. **Click hint** — a transient bottom-left "Ctrl+click to open" message that
+//! 1. **Armed underline** — when the open modifier is held (Ctrl on Linux, Cmd
+//!    on macOS) while hovering a resolved path, the span is underlined (the "now
+//!    it will open" signal). Presentation-only; painted onto the snapshot cells
+//!    like the selection/search highlights.
+//! 2. **Click hint** — a transient bottom-left "Ctrl+click to open" (macOS:
+//!    "Cmd+click to open") message that
 //!    fires only after ≥2 plain mis-clicks on a path land within a short window
 //!    (the "I clicked, nothing happened, let me try again" signal). It reuses the
 //!    [`super::open_notice::OpenNotice`] *pattern* (transient `raised_at` clock,
@@ -26,6 +29,7 @@ use std::time::{Duration, Instant};
 
 use crate::core::{Attrs, Cell, Color, Snapshot};
 
+use super::super::render_helpers::open_modifier_held;
 use super::{App, OverlayFragment};
 
 /// How close together the two plain mis-clicks must land to count as the
@@ -42,8 +46,23 @@ pub(in crate::native) const CLICK_HINT_DURATION: Duration = Duration::from_milli
 /// re-arm point is `raised_at + CLICK_HINT_DURATION + CLICK_HINT_COOLDOWN`.
 pub(in crate::native) const CLICK_HINT_COOLDOWN: Duration = Duration::from_millis(3000);
 
-/// The teaching text. Kept short so it fits a few bottom-left cells.
+/// The teaching text (Linux). Kept short so it fits a few bottom-left cells.
 pub(in crate::native) const CLICK_HINT_TEXT: &str = " Ctrl+click to open ";
+
+/// The teaching text on macOS, where the open modifier is Cmd, not Ctrl (Ctrl
+/// is consumed by the OS as a secondary-click). ASCII "Cmd" is used rather than
+/// the ⌘ glyph to stay within the safe glyph-atlas character set.
+pub(in crate::native) const CLICK_HINT_TEXT_MACOS: &str = " Cmd+click to open ";
+
+/// Resolve the teaching text for `os`: macOS → [`CLICK_HINT_TEXT_MACOS`]
+/// ("Cmd+click"), everything else → [`CLICK_HINT_TEXT`] ("Ctrl+click",
+/// byte-for-byte unchanged on Linux). Production passes [`OpenerOs::host`].
+pub(in crate::native) fn click_hint_text(os: super::platform_opener::OpenerOs) -> &'static str {
+    match os {
+        super::platform_opener::OpenerOs::Macos => CLICK_HINT_TEXT_MACOS,
+        super::platform_opener::OpenerOs::Linux => CLICK_HINT_TEXT,
+    }
+}
 
 /// How many times the hint may appear in a single launch before it gives up for
 /// the rest of the session. A teaching affordance should teach a few times and
@@ -154,12 +173,20 @@ pub(in crate::native) struct HoverPathCells {
 }
 
 impl App {
-    /// The armed-underline span, or `None` unless `interactive_paths` is on, Ctrl
-    /// is held, and a resolved path is hovered. Both the painter and the cache
-    /// signature read this, so the underline appears/disappears coherently when
-    /// Ctrl toggles or the hovered span moves.
+    /// The armed-underline span, or `None` unless `interactive_paths` is on, the
+    /// platform open modifier is held (Ctrl on Linux, Cmd on macOS — same
+    /// per-OS resolution as the open gesture, [`open_modifier_held`]), and a
+    /// resolved path is hovered. Both the painter and the cache signature read
+    /// this, so the underline appears/disappears coherently when the open
+    /// modifier toggles or the hovered span moves.
     pub(in crate::native) fn armed_path_underline_cells(&self) -> Option<HoverPathCells> {
-        if !self.settings.interactive_paths || !self.modifiers.ctrl {
+        if !self.settings.interactive_paths
+            || !open_modifier_held(
+                self.modifiers,
+                self.super_key,
+                super::platform_opener::OpenerOs::host(),
+            )
+        {
             return None;
         }
         self.hovered_path_cells
@@ -242,7 +269,7 @@ impl App {
         let attrs = hint_attrs();
         let base = (rows - 1) * columns;
         let mut x = 0usize;
-        for ch in CLICK_HINT_TEXT.chars() {
+        for ch in click_hint_text(super::platform_opener::OpenerOs::host()).chars() {
             if ch.is_control() {
                 continue;
             }

@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Cmd+click to open on macOS: platform-aware open modifier
+
+The macOS dev-build exercise found that Ctrl+click popped the context menu
+instead of opening the hovered path. That is correct macOS behavior, not a bug:
+the OS translates Ctrl+left-click into a secondary (right) click before winit
+ever sees it, so on a Mac the open path could never be reached by Ctrl — Cmd is
+the platform-native "open" chord. The fix makes the open modifier platform-aware.
+
+A new `open_modifier_held(mods, super_key, os)` resolves the chord per-OS — `super`
+(Cmd) on macOS, `ctrl` on Linux — and the single open predicate
+`hyperlink_action_allowed` is rebuilt on top of it. All four open behaviors funnel
+through that predicate: OSC 8 hyperlink open, interactive-path open, the mis-click
+teaching hint, and the armed-underline hover decoration (which had its own separate
+`ctrl` check — now unified, so the underline arms on Cmd+hover on macOS). The
+bottom-left teaching hint reads "Cmd+click to open" on macOS and "Ctrl+click to
+open" on Linux (ASCII "Cmd", kept in the safe glyph set). The OS is taken as a
+value (`OpenerOs`) rather than a `cfg`, so both arms are unit-tested on the Linux
+CI host.
+
+Linux behavior and render are byte-identical: on `OpenerOs::Linux` the predicate
+reduces to `mods.ctrl && (!mouse_reporting || mods.shift)`, the underline gates on
+`mods.ctrl`, and the hint string is the exact pre-existing bytes. Three new tests
+assert the per-OS split (Ctrl-on-Linux / Cmd-on-macOS, the Cmd+Shift escape hatch
+under mouse reporting, and the platform-aware hint text). Verified isolated on the
+runtime-dir HEAD: fmt/clippy clean, `--lib` 2533 / 0, `gpu_composite_smoke` 6/6
+incl. passthrough byte-identity, `license_headers` 1/1, staged diff scanned —
+clean. The Cmd-reaches-the-open-branch assumption (vs. the Ctrl→right translation)
+is the one thing only operator hardware can confirm.
+
 ## 2026-06-26 -- macOS session discovery: read path now matches the write path's runtime base
 
 `odytty list` returned empty on macOS despite live session hosts — surfaced in

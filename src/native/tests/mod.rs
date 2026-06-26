@@ -3,6 +3,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use super::app::click_hint::{CLICK_HINT_TEXT, CLICK_HINT_TEXT_MACOS, click_hint_text};
+use super::app::platform_opener::OpenerOs;
 use super::app::{
     ActiveModal, App, PendingResize, ResizeDebouncer, SYNCHRONIZED_OUTPUT_TIMEOUT,
     SynchronizedOutputHold, pending_resize_for_surface, scale_factor_changed,
@@ -34,7 +36,8 @@ use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 use super::render_helpers::{
     CursorAnimKey, CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature,
     OverlayFragment, RenderContentSignature, RenderSignature, SelectionSignature,
-    VisibleGraphicSignature, hyperlink_action_allowed, key_modes_from_core, openable_hyperlink_uri,
+    VisibleGraphicSignature, hyperlink_action_allowed, key_modes_from_core, open_modifier_held,
+    openable_hyperlink_uri,
 };
 use super::replay_overlay::ReplayOverlaySignature;
 use super::search_ui::SearchRenderSignature;

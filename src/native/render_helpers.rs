@@ -12,6 +12,7 @@ use crate::input::Modifiers;
 use crate::selection::AbsoluteSelectionRange;
 use crate::text::CellSize;
 
+use super::app::platform_opener::OpenerOs;
 use super::image_layer::ImageUpload;
 use super::overlay::OverlayRenderSignature;
 use super::search_ui::SearchRenderSignature;
@@ -45,8 +46,39 @@ pub(super) fn image_uploads_for_visible(
         .collect()
 }
 
-pub(super) fn hyperlink_action_allowed(mods: Modifiers, mouse_reporting_enabled: bool) -> bool {
-    mods.ctrl && (!mouse_reporting_enabled || mods.shift)
+/// Whether the platform's "open" modifier is currently held: Ctrl on Linux,
+/// Cmd (the super/logo key) on macOS.
+///
+/// macOS translates Ctrl+left-click into a SECONDARY (right) click at the OS
+/// level, so winit reports it as a right button and it opens the context menu —
+/// Ctrl can never reach the left/open path on a Mac. Cmd+left-click is NOT
+/// translated (stays a left event) and is the macOS-native "open" convention,
+/// so it is the open modifier there. Linux is unchanged (Ctrl).
+///
+/// The OS is taken as a value ([`OpenerOs`]) rather than read from `cfg!`
+/// inline so BOTH arms are unit-testable on one CI host (the v0.4.0 lesson:
+/// never let the macOS branch go unexercised). Production passes
+/// [`OpenerOs::host`].
+pub(super) fn open_modifier_held(mods: Modifiers, super_key: bool, os: OpenerOs) -> bool {
+    match os {
+        OpenerOs::Macos => super_key, // Cmd on macOS (Ctrl is taken by secondary-click)
+        OpenerOs::Linux => mods.ctrl, // unchanged on Linux
+    }
+}
+
+/// Whether a click/hover should trigger the open/armed-underline path: the
+/// platform open modifier ([`open_modifier_held`]) is held, and either mouse
+/// reporting is off or Shift overrides it (the TUI mouse-reporting escape
+/// hatch). All three open behaviors — OSC 8 hyperlink open, interactive-path
+/// open, and the armed-underline hover decoration — funnel through this one
+/// predicate so the open gesture is consistent and platform-aware everywhere.
+pub(super) fn hyperlink_action_allowed(
+    mods: Modifiers,
+    super_key: bool,
+    mouse_reporting_enabled: bool,
+    os: OpenerOs,
+) -> bool {
+    open_modifier_held(mods, super_key, os) && (!mouse_reporting_enabled || mods.shift)
 }
 
 pub(super) fn openable_hyperlink_uri(uri: &str) -> bool {

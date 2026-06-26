@@ -640,7 +640,8 @@ impl App {
     }
 
     /// UX-A (Phase 11): note a plain left-click that landed on a resolved path
-    /// but did NOT open (the Ctrl modifier gate failed) — the "I clicked,
+    /// but did NOT open (the open-modifier gate failed — Ctrl on Linux, Cmd on
+    /// macOS) — the "I clicked,
     /// nothing happened" mis-click. Raises the bottom-left teaching hint once two
     /// such mis-clicks land within the window. Gated INSIDE `interactive_paths`
     /// AND `interactive_paths_click_hint`; a no-op (no redraw) on every other
@@ -656,7 +657,12 @@ impl App {
         }
         // If the open gate WOULD have fired, this is not a mis-click (the open
         // path already handled it before we were called).
-        if hyperlink_action_allowed(self.modifiers, self.mouse_reporting_enabled()) {
+        if hyperlink_action_allowed(
+            self.modifiers,
+            self.super_key,
+            self.mouse_reporting_enabled(),
+            super::platform_opener::OpenerOs::host(),
+        ) {
             return;
         }
         if self.click_hint.note_misclick(std::time::Instant::now()) {
@@ -735,7 +741,12 @@ impl App {
     }
 
     pub(super) fn try_open_hovered_hyperlink(&mut self) -> bool {
-        if !hyperlink_action_allowed(self.modifiers, self.mouse_reporting_enabled()) {
+        if !hyperlink_action_allowed(
+            self.modifiers,
+            self.super_key,
+            self.mouse_reporting_enabled(),
+            super::platform_opener::OpenerOs::host(),
+        ) {
             return false;
         }
         let Some(uri) = self.hovered_hyperlink_uri() else {
@@ -746,7 +757,8 @@ impl App {
         }
 
         // Security: OdyTTY never auto-opens OSC 8 links. A URI is opened only
-        // after explicit Ctrl+click, scheme allowlist filtering, and direct
+        // after an explicit modifier+click (Ctrl on Linux, Cmd on macOS),
+        // scheme allowlist filtering, and direct
         // argv passing to the platform default opener. No shell interpolation is
         // involved. Routed through the single argv-only spawn point shared with
         // path opens; a failed/missing opener surfaces a transient notice (P0-2).
@@ -758,17 +770,19 @@ impl App {
         true
     }
 
-    /// INTERACTIVE-PATHS (Phase 8 / C3): Ctrl+click open for a resolved path
-    /// span under the pointer. Chained in the pointer Pressed arm AFTER
+    /// INTERACTIVE-PATHS (Phase 8 / C3): modifier+click open for a resolved
+    /// path span under the pointer (Ctrl on Linux, Cmd on macOS). Chained in the
+    /// pointer Pressed arm AFTER
     /// [`Self::try_open_hovered_hyperlink`] (OSC 8 wins ties) and BEFORE
     /// `begin_selection`, so when this returns `false` the selection path is
     /// byte-identical.
     ///
     /// Returns `false` immediately — opening nothing, starting no selection
-    /// change — when the feature is off, the Ctrl+click gate is not satisfied,
-    /// or no live path span sits under the pointer. The gate reused is exactly
-    /// the hyperlink one ([`hyperlink_action_allowed`]): Ctrl required,
-    /// suppressed under mouse reporting unless Shift overrides. The open itself
+    /// change — when the feature is off, the open-modifier gate is not
+    /// satisfied, or no live path span sits under the pointer. The gate reused
+    /// is exactly the hyperlink one ([`hyperlink_action_allowed`]): the platform
+    /// open modifier required (Ctrl on Linux, Cmd on macOS), suppressed under
+    /// mouse reporting unless Shift overrides. The open itself
     /// is an argv-only [`super::interactive_paths::spawn_detached`] of the
     /// dispatch vector ([`super::interactive_paths::path_open_argv`]) — never a
     /// shell string.
@@ -776,7 +790,12 @@ impl App {
         if !self.settings.interactive_paths {
             return false;
         }
-        if !hyperlink_action_allowed(self.modifiers, self.mouse_reporting_enabled()) {
+        if !hyperlink_action_allowed(
+            self.modifiers,
+            self.super_key,
+            self.mouse_reporting_enabled(),
+            super::platform_opener::OpenerOs::host(),
+        ) {
             return false;
         }
         let Some(resolved) = self.hovered_path.clone() else {

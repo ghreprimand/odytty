@@ -489,17 +489,109 @@ fn render_signature_update_matrix_covers_pixel_invalidators() {
 
 #[test]
 fn hyperlink_click_policy_respects_mouse_tracking_escape_hatch() {
-    assert!(hyperlink_action_allowed(Modifiers::CTRL, false));
-    assert!(!hyperlink_action_allowed(Modifiers::CTRL, true));
+    // Linux arm: Ctrl (no super) opens; mouse-reporting suppresses unless Shift.
+    assert!(hyperlink_action_allowed(
+        Modifiers::CTRL,
+        false,
+        false,
+        OpenerOs::Linux
+    ));
+    assert!(!hyperlink_action_allowed(
+        Modifiers::CTRL,
+        false,
+        true,
+        OpenerOs::Linux
+    ));
     assert!(hyperlink_action_allowed(
         Modifiers {
             ctrl: true,
             shift: true,
             alt: false,
         },
+        false,
         true,
+        OpenerOs::Linux
     ));
-    assert!(!hyperlink_action_allowed(Modifiers::default(), false));
+    assert!(!hyperlink_action_allowed(
+        Modifiers::default(),
+        false,
+        false,
+        OpenerOs::Linux
+    ));
+}
+
+#[test]
+fn open_modifier_is_platform_aware_ctrl_on_linux_cmd_on_macos() {
+    // Linux: Ctrl is the open modifier; super (Cmd) alone does NOT open.
+    assert!(open_modifier_held(Modifiers::CTRL, false, OpenerOs::Linux));
+    assert!(!open_modifier_held(
+        Modifiers::default(),
+        true,
+        OpenerOs::Linux
+    ));
+    // macOS: super (Cmd) is the open modifier; Ctrl alone does NOT open (the OS
+    // turns Ctrl+left-click into a secondary click that never reaches here).
+    assert!(open_modifier_held(
+        Modifiers::default(),
+        true,
+        OpenerOs::Macos
+    ));
+    assert!(!open_modifier_held(Modifiers::CTRL, false, OpenerOs::Macos));
+    // Neither modifier never opens on either platform.
+    assert!(!open_modifier_held(
+        Modifiers::default(),
+        false,
+        OpenerOs::Linux
+    ));
+    assert!(!open_modifier_held(
+        Modifiers::default(),
+        false,
+        OpenerOs::Macos
+    ));
+}
+
+#[test]
+fn hyperlink_action_macos_uses_cmd_and_keeps_shift_escape_hatch() {
+    // macOS: Cmd opens; Cmd under mouse-reporting still needs Shift.
+    assert!(hyperlink_action_allowed(
+        Modifiers::default(),
+        true,
+        false,
+        OpenerOs::Macos
+    ));
+    assert!(!hyperlink_action_allowed(
+        Modifiers::default(),
+        true,
+        true,
+        OpenerOs::Macos
+    ));
+    assert!(hyperlink_action_allowed(
+        Modifiers {
+            ctrl: false,
+            shift: true,
+            alt: false,
+        },
+        true,
+        true,
+        OpenerOs::Macos
+    ));
+    // Ctrl (no Cmd) never opens on macOS, even with mouse-reporting off.
+    assert!(!hyperlink_action_allowed(
+        Modifiers::CTRL,
+        false,
+        false,
+        OpenerOs::Macos
+    ));
+}
+
+#[test]
+fn click_hint_text_is_platform_aware() {
+    assert_eq!(click_hint_text(OpenerOs::Linux), CLICK_HINT_TEXT);
+    assert!(click_hint_text(OpenerOs::Linux).contains("Ctrl+click"));
+    assert_eq!(click_hint_text(OpenerOs::Macos), CLICK_HINT_TEXT_MACOS);
+    assert!(click_hint_text(OpenerOs::Macos).contains("Cmd+click"));
+    // The Linux string is byte-for-byte unchanged.
+    assert_eq!(CLICK_HINT_TEXT, " Ctrl+click to open ");
 }
 
 #[test]
