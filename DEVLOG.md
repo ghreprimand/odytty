@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Release v0.5.3 — smart Ctrl+C, clickable URLs, keyboard Delete, AppImage + AUR
+
+v0.5.3 packages the three ergonomic features landed since v0.5.2 and adds the
+first binary/package artifacts to the release.
+
+**Features (all shipped earlier this cycle, now released):**
+
+- **Smart Ctrl+C** (`smart_ctrl_c = copy-or-interrupt`, default off): plain
+  Ctrl+C copies and clears a local selection when one exists, otherwise sends
+  the `0x03` interrupt unchanged.
+- **Clickable bare URLs** (`interactive_urls`, default on): printed
+  `http`/`https` links (non-OSC 8) get a hand cursor, Ctrl+hover underline, and
+  Ctrl+click open through the existing OSC 8 dispatch allowlist.
+- **Delete/Backspace removes a selected editable prompt input**: keyboard
+  counterpart to the right-click Delete, reusing the same OSC 133
+  shell-integration-gated path and falling through byte-identically otherwise.
+
+**CI fix:** the new `ctrl_hover_arms_underline_over_url` test hard-coded Ctrl,
+but the open modifier is platform-aware (Cmd on macOS, Ctrl on Linux, per
+`open_modifier_held`), so the macOS CI leg failed. The test now arms the
+host-correct modifier. Both platforms green.
+
+**Packaging (new):**
+
+- A best-effort **x86_64 AppImage**, built in the Release workflow on the oldest
+  supported Ubuntu LTS (glibc floor) via `dist/appimage/build-appimage.sh`.
+  linuxdeploy bundles OdyTTY's own libraries but deliberately leaves the graphics
+  stack (libvulkan/libGL/X11/Wayland) on the host, so the AppImage uses the
+  host Vulkan ICD; a headless `--version` smoke test gates the build. The
+  artifact is attached to the GitHub Release and checksummed in `SHA256SUMS`.
+- An **AUR package** (`odytty`) under `dist/aur/` (PKGBUILD + `.SRCINFO` +
+  publish runbook), building from the release source tarball under pacman
+  ownership.
+
+Release-workflow `release` job now needs both the `source` and `appimage` build
+jobs, so a broken bundle publishes nothing. AppStream `<releases>` history was
+backfilled (0.5.0–0.5.3) and `docs/install.md` gained AppImage + AUR sections.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked -D warnings`
+clean, full suite green (2706 passed, 0 failed). AppImage/AUR build paths are
+exercised by CI on tag push (not in the unit suite).
+
+---
+
 ## 2026-06-26 -- Delete/Backspace key deletes a selected editable prompt input
 
 Keyboard counterpart to the existing right-click Delete/Cut. Pressing `Delete`

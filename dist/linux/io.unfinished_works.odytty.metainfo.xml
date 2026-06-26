@@ -44,6 +44,26 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.5.3" date="2026-06-26">
+      <description>
+        <p>Adds two opt-in ergonomic features and keyboard parity for prompt editing: a smart Ctrl+C mode (copy-or-interrupt) that copies a local selection when one exists and otherwise sends the interrupt, clickable bare URLs (Ctrl+click to open printed http/https links, on by default), and Delete/Backspace removing a selected editable prompt input via the same shell-integration-gated path as the right-click Delete. Ships a best-effort x86_64 AppImage and an AUR package alongside the source release.</p>
+      </description>
+    </release>
+    <release version="0.5.2" date="2026-06-26">
+      <description>
+        <p>One-fix patch release: the native window now announces its application id (io.unfinished_works.odytty) on Linux, so Wayland compositors and X11 bars resolve the OdyTTY taskbar/dock icon instead of a generic placeholder. The desktop file gains a matching StartupWMClass so spawned windows group under their launcher entry.</p>
+      </description>
+    </release>
+    <release version="0.5.1" date="2026-06-26">
+      <description>
+        <p>Visual-polish release: Nerd Font / symbol icon glyphs are now scaled aspect-preserving and centered in their cell so icon columns (e.g. a fastfetch panel) render even and uncropped, while body text stays byte-identical. OdyTTY also self-identifies to terminal-aware tooling by exporting TERM_PROGRAM=odytty and TERM_PROGRAM_VERSION.</p>
+      </description>
+    </release>
+    <release version="0.5.0" date="2026-06-26">
+      <description>
+        <p>Bug-fix and UX release validated hands-on on both Linux and macOS: click-to-open now works on a real desktop (Ctrl+click on Linux, Cmd+click on macOS), closing the v0.4.0 cross-platform regressions, and extends the interactive-paths workflow layer.</p>
+      </description>
+    </release>
     <release version="0.4.0" date="2026-06-24">
       <description>
         <p>Brings multi-tab and split-pane multiplexing (each pane keeps its own scrollback, selection, viewport, and search), detached resumable sessions with reattach driven by a local-only, per-user Unix socket, and an in-window Manage Sessions overlay (default Ctrl+Shift+A) for attach, rename, kill, and Detach and switch. Adds an SSH connection manager, a Ctrl+Shift+P command palette, and a scrubbable session-replay overlay. Introduces interactive paths (default off): with the gate enabled, OdyTTY detects filesystem paths in its output and Ctrl+click opens them — files via xdg-open, path:line:col via an editor matrix, directories via the file manager — plus Open, Open With…, Copy Path, Copy File, and Reveal in File Manager context items. Resolved image paths open in an in-app lightbox viewer (Esc or click-outside to dismiss). The in-panel keybinding editor now covers every bindable action.</p>

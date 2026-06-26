@@ -1,18 +1,61 @@
 # Installing OdyTTY On Linux
 
-OdyTTY ships as a versioned source release. The current recommended release
-shape is:
+OdyTTY ships as a versioned release. Each release provides:
 
-- `v0.4.0` git tag and source tarball;
-- GitHub Release entry with checksums for release artifacts;
+- a git tag (`vX.Y.Z`) and source tarball;
+- a GitHub Release entry with `SHA256SUMS` for every artifact;
+- a best-effort x86_64 **AppImage** (one download for most Linux distributions);
+- an **AUR** package (`odytty`) for Arch-family systems;
 - source-build instructions for Odyssey/LFS and other developer systems;
 - a desktop entry, AppStream metadata, and icon installed into Freedesktop
   locations.
 
-An AppImage is a good later public artifact for people who want one download on
-many Linux distributions, but Odyssey itself should use a pacman-tracked source
-package so the install is versioned, owned, removable, and visible to
-Odyssey-Mon.
+Pick by system: AppImage for a no-install single-file run, the AUR package on
+Arch-family systems, and a pacman-tracked source package on Odyssey itself so
+the install is versioned, owned, removable, and visible to Odyssey-Mon.
+
+## AppImage (x86_64)
+
+Download `odytty-<version>-x86_64.AppImage` from the GitHub Release, verify it
+against `SHA256SUMS`, mark it executable, and run it:
+
+```sh
+sha256sum -c SHA256SUMS --ignore-missing
+chmod +x odytty-*-x86_64.AppImage
+./odytty-*-x86_64.AppImage
+```
+
+The AppImage bundles OdyTTY's own dependencies but **not** the graphics driver:
+it uses the host's Vulkan ICD (Mesa or a vendor driver), so the machine needs a
+working Vulkan setup — the same requirement as a source build. It is built on
+the oldest supported Ubuntu LTS for a wide glibc floor. This is a best-effort
+artifact; if Vulkan initialization fails on your host, build from source.
+
+To integrate it into menus, tools like [Gear Lever][gearlever] or
+`appimaged` register the bundled desktop entry and icon. The AppImage can be
+built locally with `dist/appimage/build-appimage.sh`.
+
+[gearlever]: https://github.com/mijorus/gearlever
+
+## Arch Linux (AUR)
+
+Install the `odytty` package with an AUR helper:
+
+```sh
+paru -S odytty      # or: yay -S odytty
+```
+
+…or manually:
+
+```sh
+git clone https://aur.archlinux.org/odytty.git
+cd odytty
+makepkg -si
+```
+
+The package builds from the release source tarball and installs the binary,
+desktop entry, AppStream metadata, and icons under pacman ownership. The
+PKGBUILD source of truth and its publish runbook live in `dist/aur/`.
 
 ## Build From Source
 
@@ -338,14 +381,15 @@ the distribution or local system owner installs it.
 
 For an upstream release that avoids maintaining many distro-specific packages:
 
-- publish `v0.4.0` source tarballs with checksums/signatures;
+- publish source tarballs with `SHA256SUMS` (the Release workflow attaches both);
 - create a GitHub Release for the tag so package monitors can track upstream
   versions;
+- attach the x86_64 AppImage built by `dist/appimage/build-appimage.sh`;
+- publish the AUR `odytty` package from `dist/aur/` (see its README runbook);
 - include `dist/linux/io.unfinished_works.odytty.desktop`;
 - include `dist/linux/io.unfinished_works.odytty.metainfo.xml`;
 - include `dist/icons/hicolor/`;
 - include install docs for source builds, versioned user-local installs, and
   packagers;
-- add an AppImage once the binary dependency and icon/metainfo story is stable;
-- let distro-specific `.deb`, `.rpm`, Arch, Nix, and similar packages be
+- let other distro-specific `.deb`, `.rpm`, Nix, and similar packages be
   maintained downstream using the same install surface.

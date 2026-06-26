@@ -1,9 +1,10 @@
 name: Release
 
 # Publishes a GitHub Release when a version tag (vX.Y.Z) is pushed. OdyTTY ships
-# as source only: the single artifact is a source tarball (plus SHA256SUMS) that
-# builds on both Linux and macOS. Tag pushes are restricted to maintainers, so
-# this never runs from fork pull requests. A failed build publishes nothing.
+# a source tarball (builds on Linux and macOS) plus a best-effort x86_64
+# AppImage, all checksummed in SHA256SUMS. Tag pushes are restricted to
+# maintainers, so this never runs from fork pull requests. A failed build in any
+# job publishes nothing (the release job needs both build jobs).
 on:
   push:
     tags:
@@ -37,9 +38,50 @@ jobs:
           name: source
           path: dist/build/*.tar.gz
 
+  appimage:
+    name: AppImage (x86_64)
+    # Built on the oldest supported Ubuntu LTS so the bundle links against an
+    # old glibc floor and runs on a wide range of distros. The graphics stack
+    # (libvulkan/libGL/X11/Wayland) is intentionally NOT bundled — the host
+    # must provide a working Vulkan driver (Mesa or vendor ICD).
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig-1-dev libfreetype-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Build AppImage
+        run: dist/appimage/build-appimage.sh "${{ steps.ver.outputs.version }}"
+
+      - name: Smoke test the AppImage
+        # --version exits before any GPU/window init, so it runs headlessly in
+        # CI; this confirms the bundle's loader, libs, and entrypoint are sound.
+        run: |
+          APPIMAGE_EXTRACT_AND_RUN=1 \
+            ./odytty-${{ steps.ver.outputs.version }}-x86_64.AppImage --version
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: appimage
+          path: odytty-*-x86_64.AppImage
+
   release:
     name: Publish release
-    needs: [source]
+    needs: [source, appimage]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
@@ -50,7 +92,8 @@ jobs:
       - name: Collect artifacts and checksum
         run: |
           mkdir -p out
-          find artifacts -type f -name '*.tar.gz' -exec cp {} out/ \;
+          find artifacts -type f \
+            \( -name '*.tar.gz' -o -name '*.AppImage' \) -exec cp {} out/ \;
           cd out
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
@@ -60,6 +103,7 @@ jobs:
         with:
           files: |
             out/*.tar.gz
+            out/*.AppImage
             out/SHA256SUMS
           generate_release_notes: true
           fail_on_unmatched_files: true
