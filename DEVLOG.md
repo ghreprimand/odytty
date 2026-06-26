@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Contribution stance + security policy
+
+Documented the project's stance on outside contributions and added a security
+policy — governance docs, no code change.
+
+`CONTRIBUTING.md` gains a **Project status and contributions** section stating
+the stance plainly: OdyTTY is a personal, maintainer-led project with a specific
+vision, developed in the open but **not soliciting contributions**. The door
+stays ajar for small self-contained PRs (a tested bug fix, a doc correction, a
+new built-in theme) at the maintainer's discretion, with a discuss-first ask and
+no promise of review; anything straying from the vision/roadmap/owned-core
+boundary will be declined. Forks are encouraged (GPL-3.0-only; name/branding
+separate).
+
+New `SECURITY.md`: because OdyTTY parses untrusted byte streams (escape
+sequences, OSC/clipboard payloads, file-open paths), it documents supported
+versions (latest release + `master`), private vulnerability reporting via GitHub
+Security Advisories (no email/PII channel), and in/out-of-scope guidance.
+Linked from the README doc index.
+
+---
+
 ## 2026-06-26 -- Release v0.5.2 — Linux window app id (taskbar/dock icon)
 
 v0.5.2 is a one-fix patch release. The native window previously set no

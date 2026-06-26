@@ -5,6 +5,30 @@ conventions for changes and commits. See `DEVLOG.md` for current state, `TODO.md
 for the milestone checklist, and `SPEC.md` for durable product/architecture
 decisions.
 
+## Project status and contributions
+
+OdyTTY is a personal, maintainer-led project with a specific design vision (see
+`SPEC.md` and the OdysseyOS visual identity). It is developed in the open
+because the source is public and the development history is worth keeping — not
+because it is seeking contributors or community development. **Outside
+contributions are not actively solicited.**
+
+That said, the door is not closed. A small, self-contained pull request — a bug
+fix with a test, a documentation correction, a new built-in theme — may be
+accepted at the maintainer's discretion. If you want to propose anything
+non-trivial, **open an issue first and ask before writing code**, so you don't
+sink effort into something that won't land. Changes that stray from the vision,
+the roadmap (`TODO.md`, `docs/full-build-roadmap.md`), or the owned-core
+boundary will be declined — and as a solo, best-effort project, there is no
+expectation of timely review or any response at all.
+
+If you want to take OdyTTY in your own direction, **fork it** — that is what the
+license is for. The code is GPL-3.0-only; the OdyTTY name and branding are not
+(see the README license note), so a fork should ship under its own name.
+
+Security vulnerabilities are different: please do **not** open a public issue
+for one. See [`SECURITY.md`](SECURITY.md) for private reporting.
+
 ## Developer Certificate of Origin (DCO)
 
 OdyTTY uses the Developer Certificate of Origin (DCO) — the same mechanism

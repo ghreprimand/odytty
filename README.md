@@ -620,8 +620,10 @@ analytics, no crash reporting, and no update pings.
 - [`SPEC.md`](SPEC.md) — product charter and architecture decisions.
 - [`TODO.md`](TODO.md) — current milestone checklist and remaining work.
 - [`DEVLOG.md`](DEVLOG.md) — reverse-chronological development record.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution, testing, and public-repo
-  safety rules.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — project stance on contributions, plus
+  testing and public-repo safety rules.
+- [`SECURITY.md`](SECURITY.md) — supported versions and private vulnerability
+  reporting.
 - [`PACKAGING.md`](PACKAGING.md) — downstream package install surface and
   release packaging notes.
 - [`docs/install.md`](docs/install.md) — source builds, desktop launcher
