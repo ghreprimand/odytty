@@ -242,16 +242,15 @@ fn host_reattach_replays_output_produced_while_detached() {
     client.detach().expect("detach");
     drop(client);
 
-    thread::sleep(Duration::from_millis(350));
-    let mut reattached = SessionHostClient::connect(&socket_path, "reattach").expect("reattach");
-    let snapshot = expect_snapshot(&mut reattached);
+    // Poll the reattach snapshot until the detached-produced "after" lands,
+    // instead of betting a fixed sleep is long enough (flaky on loaded macOS CI).
+    // "after" implies "before" already replayed, but assert both for clarity.
+    let snapshot = reattach_snapshot_with_text(&socket_path, "reattach", "after");
     let text = snapshot_plain_text(&snapshot);
     assert!(
         text.contains("before") && text.contains("after"),
         "reattach snapshot did not replay detached output: {text:?}"
     );
-    reattached.detach().expect("detach reattached");
-    drop(reattached);
 
     let exit = join_within(host, "session-host thread").expect("host exits cleanly");
     assert_eq!(exit.reason, HostExitReason::DetachedIdleTimeout);

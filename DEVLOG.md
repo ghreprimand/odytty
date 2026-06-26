@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Harden macOS session-host reattach test against PTY timing flake
+
+Test-only hardening for a macOS CI flake in
+`host_reattach_replays_output_produced_while_detached`: the test no longer bets
+on a fixed 350 ms sleep before reattach. It now reuses the existing
+`reattach_snapshot_with_text` polling helper, reconnecting until the detached
+`after` marker appears or the standard short timeout expires. Production code is
+unchanged; rendering and byte-identity paths are unaffected.
+
+Verified with fmt, clippy (`--all-targets -D warnings`), the full locked test
+suite serialized, a 20/20 tight loop of the touched test, and
+`gpu_composite_smoke` 6/6 including
+`passthrough_composite_matches_direct_render_bytes`.
+
+---
+
 ## 2026-06-26 -- Contribution stance + security policy
 
 Documented the project's stance on outside contributions and added a security
