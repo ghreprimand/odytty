@@ -7,6 +7,7 @@ use super::*;
 use crate::text::load_font;
 
 mod fallback;
+mod fit;
 mod geometry;
 mod glyph_quad;
 mod metrics;

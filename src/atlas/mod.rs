@@ -903,6 +903,7 @@ impl GlyphAtlas {
                     outer_w: slot_w(cell),
                 },
                 SynthTransform::none(),
+                None, // ASCII: natural-bearing text, never fitted
             ) {
                 slot_ink[slot as usize] = ink;
             }
@@ -1145,6 +1146,20 @@ impl GlyphAtlas {
                 Some(fb) => (fb, SynthTransform::none()),
                 None => (font, self.synth_for(style)),
             };
+            // Symbol-fallback and SYMMAP-override faces are icon faces: fit each
+            // glyph into its cell box (aspect-preserving) and center it, so they
+            // form an even column instead of rendering at the body em-size with
+            // natural bearing (overflow/clip + ragged x). Primary-font glyphs
+            // (`symbol_font` is `None`) pass `None` → byte-identical placement.
+            let fit = symbol_font.as_ref().map(|_| {
+                let pad =
+                    (SYMBOL_CELL_INSET * self.cell.width.min(self.cell.height) as f32).round();
+                CellFit {
+                    box_w: (cells * self.cell.width) as f32,
+                    box_h: self.cell.height as f32,
+                    pad,
+                }
+            });
             rasterize_glyph(
                 raster_font,
                 Pen {
@@ -1163,6 +1178,7 @@ impl GlyphAtlas {
                     outer_w: cells * slot_w(self.cell),
                 },
                 synth,
+                fit,
             )
             .unwrap_or_else(|| GlyphInk::cell(self.cell))
         };
@@ -1544,6 +1560,61 @@ fn apply_stem_darken(value: u8, strength: f32) -> u8 {
     (boosted * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
+/// Fraction of the smaller cell dimension reserved as inset padding on **each**
+/// side of a fitted symbol/icon glyph, so icons never kiss the cell edge or a
+/// neighbour. ~10% mirrors ghostty's default symbol padding; the operator may
+/// tune this during the dev-build eyeball.
+const SYMBOL_CELL_INSET: f32 = 0.10;
+
+/// Maximum upscale applied when fitting a *sub-cell* symbol/icon glyph to the
+/// cell box. Downscaling (oversized glyphs, the common Nerd-Font case) is
+/// uncapped; upscaling is capped so a tiny icon fills consistently without a
+/// 1-pixel dot ballooning to flood the whole cell. Tunable in the dev build.
+const SYMBOL_MAX_UPSCALE: f32 = 1.6;
+
+/// Opt-in directive to **fit-and-center** a glyph inside its cell box instead of
+/// placing it at the font's natural left bearing on the text baseline. Passed
+/// `Some` only for symbol-fallback / SYMMAP-override (icon) faces, whose em-size
+/// ink does not match OdyTTY's cell aspect and would otherwise overflow/clip and
+/// render as a ragged column. Every text path (primary font, ASCII build,
+/// synthetic styles) passes `None`, leaving placement byte-identical.
+#[derive(Clone, Copy)]
+struct CellFit {
+    /// Drawable cell-box width in pixels (`span * cell.width`).
+    box_w: f32,
+    /// Drawable cell-box height in pixels (`cell.height`).
+    box_h: f32,
+    /// Inset padding in pixels applied on every side inside the box.
+    pad: f32,
+}
+
+/// Aspect-preserving scale to fit an ink box (`ink_w` × `ink_h`) inside a target
+/// box (`target_w` × `target_h`). Downscaling is uncapped; upscaling is capped
+/// at [`SYMBOL_MAX_UPSCALE`]. Inputs are clamped strictly positive; a non-finite
+/// or non-positive result degrades to `1.0` (no scaling).
+fn symbol_fit_scale(ink_w: f32, ink_h: f32, target_w: f32, target_h: f32) -> f32 {
+    let ink_w = ink_w.max(1.0);
+    let ink_h = ink_h.max(1.0);
+    let target_w = target_w.max(1.0);
+    let target_h = target_h.max(1.0);
+    let s = (target_w / ink_w)
+        .min(target_h / ink_h)
+        .min(SYMBOL_MAX_UPSCALE);
+    if s.is_finite() && s > 0.0 { s } else { 1.0 }
+}
+
+/// Resolved placement for a fitted symbol glyph: the scaled pen size and the
+/// pre-biased atlas-pixel origin. The origin already subtracts the measured ink
+/// bbox min, so in the draw closure `origin + bounds.min + (gx, gy)` lands the
+/// centered ink top-left exactly (with the per-channel subpixel shift preserved
+/// through `bounds.min.x`).
+#[derive(Clone, Copy)]
+struct FitPlacement {
+    scale: PxScale,
+    origin_x: f32,
+    origin_y: f32,
+}
+
 /// Destination slot geometry for [`rasterize_glyph`].
 struct SlotRegion {
     /// Outer top-left of the (lead) slot in atlas pixels.
@@ -1565,6 +1636,7 @@ fn rasterize_glyph(
     subpixel: SubpixelMode,
     region: SlotRegion,
     synth: SynthTransform,
+    fit: Option<CellFit>,
 ) -> Option<GlyphInk> {
     let SlotRegion {
         origin,
@@ -1587,6 +1659,37 @@ fn rasterize_glyph(
     let border = slot_border(cell) as i32;
     let inner_x = ox as i32 + border;
     let inner_y = oy as i32 + border;
+    // Symbol/icon fit (RV6+): when `fit` is `Some`, measure the glyph's natural
+    // ink box at the body em-size, scale it aspect-preserving to fit the cell
+    // box minus inset padding, and CENTER it on the cell box — ignoring the
+    // font's bearing and text baseline, since icons are not baseline-aligned
+    // text. `None` (every text path) leaves placement at the natural bearing on
+    // `pen.baseline`, byte-identical to the pre-fit renderer.
+    let fit_placement: Option<FitPlacement> = fit.and_then(|f| {
+        let glyph_id = font.glyph_id(ch);
+        let measure = |sc: PxScale| {
+            font.outline_glyph(glyph_id.with_scale_and_position(sc, point(0.0, 0.0)))
+                .map(|o| o.px_bounds())
+        };
+        let nb = measure(PxScale::from(pen.px))?;
+        let target_w = (f.box_w - 2.0 * f.pad).max(1.0);
+        let target_h = (f.box_h - 2.0 * f.pad).max(1.0);
+        let s = symbol_fit_scale(nb.width(), nb.height(), target_w, target_h);
+        let scaled = PxScale::from(pen.px * s);
+        let sb = measure(scaled)?;
+        // Centered ink top-left in absolute atlas pixels.
+        let left = inner_x as f32 + f.pad + (target_w - sb.width()) / 2.0;
+        let top = inner_y as f32 + f.pad + (target_h - sb.height()) / 2.0;
+        Some(FitPlacement {
+            scale: scaled,
+            // Pre-subtract the measured bbox min so that a glyph re-outlined at
+            // position `(shift_x, 0)` in the draw closure lands its ink top-left
+            // exactly at `(left, top)`: `origin + bounds.min == (left, top)`
+            // plus the per-channel subpixel `shift_x` carried in `bounds.min.x`.
+            origin_x: left - sb.min.x,
+            origin_y: top - sb.min.y,
+        })
+    });
     let x_lo = ox as i32 + ATLAS_PAD as i32;
     let x_hi = (ox + outer_w) as i32 - ATLAS_PAD as i32;
     let y_lo = oy as i32 + ATLAS_PAD as i32;
@@ -1596,9 +1699,16 @@ fn rasterize_glyph(
     let mut max_x = i32::MIN;
     let mut max_y = i32::MIN;
     let mut draw_sample = |shift_x: f32, channel: Option<usize>| {
+        // Fitted symbol glyphs re-outline at the scaled pen size on baseline 0
+        // (the fit origin supplies absolute placement); text glyphs use the body
+        // scale on `pen.baseline` exactly as before.
+        let (use_scale, pos_y) = match fit_placement {
+            Some(fp) => (fp.scale, 0.0),
+            None => (scale, pen.baseline),
+        };
         let glyph = font
             .glyph_id(ch)
-            .with_scale_and_position(scale, point(shift_x, pen.baseline));
+            .with_scale_and_position(use_scale, point(shift_x, pos_y));
         let Some(outline) = font.outline_glyph(glyph) else {
             return;
         };
@@ -1612,8 +1722,12 @@ fn rasterize_glyph(
             // stems hold weight. Identity at the default strength of 0.0.
             let value = apply_stem_darken(value, stem);
             // Round to the nearest atlas pixel (truncation drifts edges and can
-            // drop a glyph's final row/column).
-            let ay = inner_y + (bounds.min.y + gy as f32).round() as i32;
+            // drop a glyph's final row/column). Fitted glyphs center on the cell
+            // box via `fit_placement`; text glyphs sit on the cell baseline.
+            let ay = match fit_placement {
+                Some(fp) => (fp.origin_y + bounds.min.y + gy as f32).round() as i32,
+                None => inner_y + (bounds.min.y + gy as f32).round() as i32,
+            };
             if ay < y_lo || ay >= y_hi {
                 return; // clip vertically (rows are unaffected by synthesis)
             }
@@ -1623,13 +1737,20 @@ fn rasterize_glyph(
             // y gives a smooth oblique. Rounding to whole atlas pixels introduces
             // minor stair-stepping along near-horizontal edges — acceptable for a
             // fallback face that exists only when no real italic is installed.
-            let shear_dx = if synth.shear != 0.0 {
-                let gy_abs = bounds.min.y + gy as f32;
-                (synth.shear * (pen.baseline - gy_abs)).round() as i32
-            } else {
-                0
+            // Synthesis is never combined with fit (icon faces use `synth`
+            // identity), so the fitted branch needs no shear.
+            let base_ax = match fit_placement {
+                Some(fp) => (fp.origin_x + bounds.min.x + gx as f32).round() as i32,
+                None => {
+                    let shear_dx = if synth.shear != 0.0 {
+                        let gy_abs = bounds.min.y + gy as f32;
+                        (synth.shear * (pen.baseline - gy_abs)).round() as i32
+                    } else {
+                        0
+                    };
+                    inner_x + (bounds.min.x + gx as f32).round() as i32 + shear_dx
+                }
             };
-            let base_ax = inner_x + (bounds.min.x + gx as f32).round() as i32 + shear_dx;
             // Synthetic bold: strike a second time shifted right by `embolden_px`
             // (max-combined by `write_coverage`), thickening horizontal weight
             // without touching verticals, the baseline, or the cell advance.

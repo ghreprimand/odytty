@@ -180,6 +180,7 @@ fn rasterize_clip_width_relieves_wide_glyph_clipping() {
                 outer_w,
             },
             SynthTransform::none(),
+            None,
         )
     };
     let single = raster(slot_w(cell)).expect("single-clip ink");
