@@ -194,6 +194,13 @@ impl App {
         self.modifiers.ctrl = ctrl;
     }
 
+    /// Test seam (CMD-OPEN): set the macOS `super` (Cmd) key so the
+    /// platform-aware open modifier can be driven on the macOS host path.
+    #[cfg(test)]
+    pub(in crate::native) fn set_super_key_for_test(&mut self, super_key: bool) {
+        self.super_key = super_key;
+    }
+
     /// Test seam (MOUSE-RECT): set the Alt modifier so an Alt+drag block
     /// selection can be driven through the production `begin_selection` route.
     #[cfg(test)]

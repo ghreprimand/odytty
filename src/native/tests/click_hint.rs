@@ -61,6 +61,19 @@ fn plain_left_click(app: &mut App) {
     app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
 }
 
+/// Hold/release the host's open modifier — Cmd (super) on macOS, Ctrl on Linux —
+/// the same per-OS chord `OpenerOs::host()` resolves inside
+/// `armed_path_underline_cells`. The live App method reads the host OS
+/// internally (unlike the `gpu_render.rs` value-seam tests), so the test must
+/// drive whichever modifier is the open chord on the runner.
+fn hold_open_modifier(app: &mut App, held: bool) {
+    if cfg!(target_os = "macos") {
+        app.set_super_key_for_test(held);
+    } else {
+        app.set_ctrl_modifier_for_test(held);
+    }
+}
+
 // ── Armed underline (Ctrl+hover) ───────────────────────────────────────────
 
 #[test]
@@ -81,16 +94,16 @@ fn ctrl_hover_over_resolved_path_arms_the_underline() {
         "plain hover does not arm the underline"
     );
 
-    // Ctrl held: the span is armed across its full cell range.
-    app.set_ctrl_modifier_for_test(true);
+    // Open modifier held: the span is armed across its full cell range.
+    hold_open_modifier(&mut app, true);
     assert_eq!(
         app.armed_underline_cells_for_test(),
         Some((0, 0, PATH_LEN)),
-        "ctrl+hover arms the underline over the whole path span"
+        "open modifier (Ctrl/Cmd) hover arms the underline over the whole path span"
     );
 
-    // Releasing Ctrl disarms it again.
-    app.set_ctrl_modifier_for_test(false);
+    // Releasing the open modifier disarms it again.
+    hold_open_modifier(&mut app, false);
     assert_eq!(app.armed_underline_cells_for_test(), None);
 }
 
@@ -100,10 +113,11 @@ fn armed_underline_is_inert_when_feature_off() {
         eprintln!("skipping: no PTY available");
         return;
     };
-    // Feature OFF (default): even with Ctrl held over the path text, nothing is
-    // hovered (the scanner never runs) so nothing is armed — byte-identical.
+    // Feature OFF (default): even with the open modifier held over the path
+    // text, nothing is hovered (the scanner never runs) so nothing is armed —
+    // byte-identical.
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
-    app.set_ctrl_modifier_for_test(true);
+    hold_open_modifier(&mut app, true);
     hover_on_path(&mut app);
     assert!(app.hovered_path_for_test().is_none());
     assert_eq!(app.armed_underline_cells_for_test(), None);
@@ -118,7 +132,7 @@ fn armed_underline_absent_over_unresolved_span() {
     app.set_interactive_paths_for_test(true);
     // Empty fs map: the span is syntactically a path but resolves to nothing.
     app.set_test_path_probe_for_test(MapProbe::default());
-    app.set_ctrl_modifier_for_test(true);
+    hold_open_modifier(&mut app, true);
     hover_on_path(&mut app);
     assert_eq!(app.armed_underline_cells_for_test(), None);
 }
