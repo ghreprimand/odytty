@@ -161,8 +161,6 @@ Before every commit, run through this gate and stop if anything is unclear:
 6. **Keep local-only files out.** Machine-local config, generated credentials,
    private notes, `.env*`, and editor/agent scratch files stay untracked.
 7. **Check file sizes.** No source file should exceed approximately 2000 lines.
-8. **No `Co-Authored-By` trailers.** Do not add `Co-Authored-By:` lines to
-   commit messages, PR bodies, or generated descriptions.
 
 ## Public repository safety
 
