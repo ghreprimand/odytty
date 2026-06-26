@@ -10,6 +10,7 @@ Icon=io.unfinished_works.odytty
 Categories=System;TerminalEmulator;
 Keywords=terminal;tty;pty;shell;
 StartupNotify=true
+StartupWMClass=io.unfinished_works.odytty
 Terminal=false
 X-TerminalArgExec=-e
 X-TerminalArgDir=--working-directory=

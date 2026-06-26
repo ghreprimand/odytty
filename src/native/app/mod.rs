@@ -120,6 +120,7 @@ pub(in crate::native) use self::tab_bar::{TAB_BAR_ROWS, TabBarSource};
 use self::tab_bar::{TabBar, TabHit};
 pub(in crate::native) use overlay_registry::ActiveModal;
 
+const APP_ID: &str = "io.unfinished_works.odytty";
 pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(150);
 
 /// Native presenter policy for DECSET 2026 synchronized output.
@@ -2077,6 +2078,11 @@ impl ApplicationHandler<UserEvent> for App {
             .with_title(self.options.title.clone())
             .with_inner_size(LogicalSize::new(w, h))
             .with_decorations(self.settings.window_decorations);
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let attributes = {
+            use winit::platform::wayland::WindowAttributesExtWayland;
+            attributes.with_name(APP_ID, "odytty")
+        };
 
         let window = match event_loop.create_window(attributes) {
             Ok(window) => Arc::new(window),
@@ -2754,6 +2760,18 @@ mod tests {
 
     fn blink() -> CursorBlinkState {
         CursorBlinkState::new(Duration::from_millis(500))
+    }
+
+    #[test]
+    fn app_id_matches_packaged_desktop_identity() {
+        assert_eq!(APP_ID, "io.unfinished_works.odytty");
+    }
+
+    #[test]
+    fn desktop_file_startup_wm_class_matches_app_id() {
+        let desktop = include_str!("../../../dist/linux/io.unfinished_works.odytty.desktop");
+        assert!(desktop.contains("Icon=io.unfinished_works.odytty\n"));
+        assert!(desktop.contains(&format!("StartupWMClass={APP_ID}\n")));
     }
 
     #[test]
