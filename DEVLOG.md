@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- CI: make two unit tests portable on the macOS leg (test-only)
+
+The macOS CI leg (`cargo test` on `macos-latest`) had been red while every
+local Linux verification was green — the project's recurring blind spot, and the
+reason cross-platform CI exists. Two unit tests, not the product, were
+platform-naive; the production code is correct on both platforms.
+
+`ctrl_click_dispatch_builds_xdg_open_for_plain_file` hardcoded `xdg-open` as the
+expected open argv, but the dispatch resolves the opener through
+`OpenerOs::host()` (`cfg!(target_os = "macos")`), which correctly yields `open`
+on macOS. The test now chooses the expected command per platform and is renamed
+`ctrl_click_dispatch_builds_platform_open_for_plain_file` with a doc comment that
+spells out `xdg-open` on Linux / `open` on macOS.
+
+`kill_session_terminates_a_live_host` (added with the kill-from-manager work)
+bound a real session-host socket under a `TempDir` whose prefix + session id were
+long enough that, beneath macOS's verbose `/var/folders/.../T/` temp base, the
+`<base>/odytty/session-<id>.sock` path overflowed the 104-byte `AF_UNIX`
+`sun_path` limit — so `bind()` failed and the host never came up. Shortened the
+prefix (`sh-reg-kill` → `sh-rk`) and id (`reg-killme` → `rk`), matching the
+short-name discipline the `TempDir` doc comment already calls out for exactly
+this reason; the sibling host-binding tests were already short enough and were
+untouched.
+
+Verified (isolated worktree at clean HEAD 6cb3ec8, these two files only): `cargo
+fmt --check` clean; `cargo clippy --all-targets --locked -D warnings` clean;
+`cargo test --locked --lib -- --test-threads=1` 2521 passed / 0 failed / 7
+ignored, both fixed tests green on Linux (the macOS arm is compile-time-selected
+and validated by the macOS CI leg); `license_headers` 1/1. Process fix going
+forward: confirm the CI status of both legs after each push rather than treating
+local Linux gates as the whole signal.
+
 ## 2026-06-26 -- Detach & switch — convert the focused pane to a fresh managed session (UX-E, part 2)
 
 Driven by the dev-build exercise: the operator wanted a way to take the terminal

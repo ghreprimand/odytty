@@ -335,10 +335,11 @@ fn ctrl_click_dispatch_builds_editor_argv_for_path_line_col() {
     );
 }
 
-/// A plain file span (no line suffix) dispatches to `xdg-open` with the absolute
-/// path as a single argv element.
+/// A plain file span (no line suffix) dispatches to the platform opener --
+/// `xdg-open` on Linux, `open` on macOS -- with the absolute path as a single
+/// argv element.
 #[test]
-fn ctrl_click_dispatch_builds_xdg_open_for_plain_file() {
+fn ctrl_click_dispatch_builds_platform_open_for_plain_file() {
     let Some(mut app) = build_app(b"/proj/src/main.rs") else {
         eprintln!("skipping: no PTY available");
         return;
@@ -346,9 +347,17 @@ fn ctrl_click_dispatch_builds_xdg_open_for_plain_file() {
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
+    let expected_opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
     assert_eq!(
         app.path_open_argv_for_test(),
-        Some(vec!["xdg-open".to_owned(), "/proj/src/main.rs".to_owned()])
+        Some(vec![
+            expected_opener.to_owned(),
+            "/proj/src/main.rs".to_owned()
+        ])
     );
 }
 

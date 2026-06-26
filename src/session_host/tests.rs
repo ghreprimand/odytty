@@ -317,18 +317,13 @@ fn host_shutdown_frame_terminates_session_and_cleans_up_socket() {
 
 #[test]
 fn kill_session_terminates_a_live_host() {
-    let temp = TempDir::new("sh-reg-kill");
-    let config = host_config(
-        temp.path(),
-        "reg-killme",
-        "sleep 30",
-        Duration::from_secs(3600),
-    );
+    let temp = TempDir::new("sh-rk");
+    let config = host_config(temp.path(), "rk", "sleep 30", Duration::from_secs(3600));
     let socket_path = config.runtime_paths().expect("runtime paths").socket;
     let host = thread::spawn(move || run_host(config));
 
     wait_for_socket(&socket_path);
-    kill_session(Some(temp.path()), "reg-killme").expect("kill_session");
+    kill_session(Some(temp.path()), "rk").expect("kill_session");
 
     let exit = join_within(host, "session-host thread").expect("host exits cleanly");
     assert_eq!(exit.reason, HostExitReason::Killed);
