@@ -17,8 +17,8 @@ pub use host::{
     run_internal_host_from_args, spawn_host_on_demand,
 };
 pub use registry::{
-    ListedSession, SessionMetadata, list_live_sessions, now_unix_ms, read_session_metadata,
-    write_session_metadata,
+    ListedSession, SessionMetadata, kill_session, list_live_sessions, now_unix_ms,
+    read_session_metadata, write_session_metadata,
 };
 pub use socket::{
     RuntimePaths, StartupLock, cleanup_stale_socket, existing_runtime_dir, prepare_runtime_dir,

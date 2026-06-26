@@ -75,4 +75,12 @@ impl SessionHostClient {
         write_client_frame(&mut self.stream, &ClientFrame::Detach)
             .context("write session-host detach frame")
     }
+
+    /// Ask the host to terminate the whole session (manager "kill session").
+    /// Mirrors [`Self::detach`]; the host SIGHUPs its shell and tears down,
+    /// unlinking the socket so the session disappears from the registry.
+    pub fn shutdown(&mut self) -> Result<()> {
+        write_client_frame(&mut self.stream, &ClientFrame::Shutdown)
+            .context("write session-host shutdown frame")
+    }
 }

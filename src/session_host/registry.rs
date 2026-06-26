@@ -136,6 +136,37 @@ pub fn list_live_sessions(runtime_base: Option<&Path>) -> Result<Vec<ListedSessi
     Ok(sessions)
 }
 
+/// Terminate a detached session by id: resolve its socket, connect, and send a
+/// [`ClientFrame::Shutdown`](super::protocol::ClientFrame::Shutdown). The host
+/// SIGHUPs its shell, exits, and unlinks the socket, so the session leaves the
+/// registry. Idempotent-ish: a missing runtime dir or a dead/absent socket means
+/// the session is already gone, which is success, not an error — so a double-kill
+/// or a race with idle-timeout never surfaces a failure. `runtime_base` is `None`
+/// in production (derived from `XDG_RUNTIME_DIR`); tests pass an explicit base.
+pub fn kill_session(runtime_base: Option<&Path>, id: &str) -> Result<()> {
+    let Some(runtime_dir) = existing_runtime_dir(runtime_base)? else {
+        return Ok(());
+    };
+    let socket_path = session_socket_path(&runtime_dir, id)?;
+    let mut client = match SessionHostClient::connect(&socket_path, id) {
+        Ok(client) => client,
+        // A dead or absent socket = the session is already gone. The host
+        // unlinks its socket on exit, so connect failing here is the expected
+        // "already reaped" outcome, not an error.
+        Err(_) => return Ok(()),
+    };
+    // Drain the post-handshake snapshot frame before sending Shutdown, exactly
+    // like `list_live_sessions`. The host writes the snapshot right after the
+    // hello; if we dropped the connection before reading it, that write would
+    // race a `BrokenPipe` and make the host exit through its error path instead
+    // of the clean Shutdown teardown. Reading one frame synchronizes past the
+    // snapshot write so the host always tears down cleanly and unlinks its
+    // socket. A read error is non-fatal — we still send the kill.
+    let _ = client.read_frame(Duration::from_millis(200));
+    client.shutdown()?;
+    Ok(())
+}
+
 fn socket_created_unix_ms(path: &Path) -> Result<u128> {
     Ok(fs::metadata(path)?
         .modified()?

@@ -210,8 +210,18 @@ pub enum HostFrame {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientFrame {
     Input(Vec<u8>),
-    Resize { columns: u32, rows: u32 },
+    Resize {
+        columns: u32,
+        rows: u32,
+    },
     Detach,
+    /// Ask the host to terminate the whole session: reap the shell, exit the
+    /// run loop, and unlink the socket + lock so the session disappears from the
+    /// registry. Emitted by "kill session" from the manager (kind 104, empty
+    /// payload). A host from an OLDER binary that predates this frame decodes it
+    /// as [`ProtocolError::InvalidFrameKind`] and drops the client without dying
+    /// — acceptable degradation; the idle timeout still reaps it.
+    Shutdown,
 }
 
 pub fn write_host_frame(writer: &mut impl Write, frame: &HostFrame) -> Result<(), ProtocolError> {
@@ -276,6 +286,7 @@ pub fn write_client_frame(
             write_frame(writer, 102, &payload)
         }
         ClientFrame::Detach => write_frame(writer, 103, &[]),
+        ClientFrame::Shutdown => write_frame(writer, 104, &[]),
     }
 }
 
@@ -293,6 +304,8 @@ pub fn read_client_frame(reader: &mut impl Read) -> Result<ClientFrame, Protocol
         }
         103 if payload.is_empty() => Ok(ClientFrame::Detach),
         103 => Err(ProtocolError::InvalidPayload("detach")),
+        104 if payload.is_empty() => Ok(ClientFrame::Shutdown),
+        104 => Err(ProtocolError::InvalidPayload("shutdown")),
         value => Err(ProtocolError::InvalidFrameKind(value)),
     }
 }
@@ -379,4 +392,49 @@ fn read_u32(reader: &mut impl Read) -> Result<u32, ProtocolError> {
     let mut bytes = [0u8; 4];
     reader.read_exact(&mut bytes)?;
     Ok(u32::from_be_bytes(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn client_roundtrip(frame: &ClientFrame) -> ClientFrame {
+        let mut buffer = Vec::new();
+        write_client_frame(&mut buffer, frame).expect("write client frame");
+        read_client_frame(&mut buffer.as_slice()).expect("read client frame")
+    }
+
+    #[test]
+    fn shutdown_client_frame_round_trips() {
+        assert_eq!(
+            client_roundtrip(&ClientFrame::Shutdown),
+            ClientFrame::Shutdown
+        );
+    }
+
+    #[test]
+    fn detach_client_frame_round_trips() {
+        // Sibling of the Shutdown frame; the empty-payload kinds must not alias.
+        assert_eq!(client_roundtrip(&ClientFrame::Detach), ClientFrame::Detach);
+    }
+
+    #[test]
+    fn shutdown_kind_with_payload_is_invalid() {
+        // Hand-craft a kind-104 frame carrying a byte; the empty-payload guard
+        // (mirroring Detach) must reject it rather than mis-decode.
+        let mut buffer = Vec::new();
+        write_frame(&mut buffer, 104, b"x").expect("write frame");
+        let err = read_client_frame(&mut buffer.as_slice()).expect_err("payload must be rejected");
+        assert!(matches!(err, ProtocolError::InvalidPayload("shutdown")));
+    }
+
+    #[test]
+    fn unknown_client_frame_kind_errors_without_panicking() {
+        // Version-skew safety: an unknown kind decodes to InvalidFrameKind, never
+        // a panic, so a reader thread can drop the client cleanly.
+        let mut buffer = Vec::new();
+        write_frame(&mut buffer, 200, &[]).expect("write frame");
+        let err = read_client_frame(&mut buffer.as_slice()).expect_err("unknown kind must error");
+        assert!(matches!(err, ProtocolError::InvalidFrameKind(200)));
+    }
 }

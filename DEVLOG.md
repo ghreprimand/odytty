@@ -7,6 +7,64 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Manage Sessions — rename + kill a session from the manager (UX-E, part 1)
+
+Driven by the dev-build exercise: with the session manager open, the operator
+wanted to terminate a detached session directly from the list rather than having to
+attach to it and exit the shell. Since the overlay is becoming a management surface
+rather than a pure attach picker, its user-facing name changes too.
+
+The "Attach Session" overlay is now "Manage Sessions" — user-facing copy only; the
+`OverlayMode::SessionAttach` enum, the `Ctrl+Shift+A` accelerator, and every
+internal identifier are unchanged, so the rename is a tight string diff with no
+match-arm churn. Right-clicking a session row now opens a kill-confirmation dialog
+(`[Enter / Y] Kill · [Esc / N] Cancel`); confirming terminates that detached
+session and reopens the manager so the now-dead row disappears. Left-click / Enter
+still attaches, byte-identically.
+
+The kill travels over a new in-band client→host frame, `ClientFrame::Shutdown`
+(kind 104, empty payload), mirroring `Detach`'s encoding and its empty-payload
+guard. On receipt the host reaps its shell (SIGHUP + wait), exits its run loop, and
+unlinks the socket + lock through the same teardown the idle-timeout path uses,
+reporting a new `HostExitReason::Killed`. `drain_client_events` now returns
+`Result<bool>` to flag the request after draining the batch (queued frames still
+process); the client-reader thread treats `Shutdown` as terminal like `Detach`.
+`registry::kill_session` resolves the socket, drains the post-handshake snapshot
+frame (the same synchronization `list_live_sessions` uses — without it the host
+would race a `BrokenPipe` on its snapshot write and exit through its error path,
+leaving a stale socket), then sends the frame; a missing or dead socket means the
+session is already gone and is treated as success, so a double-kill or a race with
+the idle timeout never surfaces an error.
+
+Version-skew is safe: a host spawned by an older binary that predates this frame
+decodes kind 104 as `InvalidFrameKind` and drops the client without dying (the idle
+timeout still reaps it) — the decode never panics. The confirm dialog is modeled on
+the Phase 14 `AttachChoice` card: a static modal whose pending session-id rides on
+the overlay and never enters the render signature (the mode flips through `close()`
+between distinct dialogs, forcing a repaint), with click→key parity via a shared
+action-line const and an inert leading-prompt region, wired into every exhaustive
+`OverlayMode` arm. If the killed session was also open in a tab, that tab's host
+connection EOFs through the existing detach/exit path without panicking.
+
+Verified (isolated worktree at clean HEAD 40a4de9, this packet's 12 files only, bin
+built first, GPU serialized): `cargo fmt --check` clean; `cargo clippy --all-targets
+--locked -D warnings` clean; `cargo test --locked --lib -- --test-threads=1` 2508
+passed / 0 failed / 7 ignored (+15: protocol roundtrip + payload/unknown-kind
+guards, host `Shutdown` drives a clean teardown that unlinks the socket,
+`kill_session` on live + missing hosts, the confirm dialog's open / key / click
+parity + inert prompt, right-click→kill vs left-click→attach, and the relabel
+assertions — synthetic ids only); `gpu_composite_smoke` 6/6 (UNMODIFIED
+`passthrough_composite_matches_direct_render_bytes` byte-identity holds);
+`license_headers` 1/1 (no new files); `snapshot_envelope` 13/0 — the new frame is
+client→host, not envelope state, so the snapshot wire bytes are unchanged. Staged
+diff scanned — clean (no personal paths or real hostname).
+
+Remaining gaps: operator hands-on re-test on the dev build (right-click a session →
+Kill → row disappears; left-click still attaches; cancel leaves it running). The
+companion "Detach & switch" action (convert the focused pane to a fresh managed
+session) lands next. Still pending the Linux non-image Ctrl+click spot-check and the
+full macOS 26.5 exercise before any v0.5.0 bump or tag.
+
 ## 2026-06-26 -- Session-attach — dedup duplicate tabs + New tab / Replace prompt (UX-D)
 
 Driven by the dev-build exercise: the operator opened the Attach manager and

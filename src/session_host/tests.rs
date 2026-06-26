@@ -17,7 +17,7 @@ use super::protocol::{
     read_host_hello, versions_compatible, write_client_hello, write_host_hello,
 };
 use super::{
-    HostCommand, HostConfig, HostExitReason, SessionHostClient, cleanup_stale_socket,
+    HostCommand, HostConfig, HostExitReason, SessionHostClient, cleanup_stale_socket, kill_session,
     prepare_runtime_dir, run_host, session_socket_path, validate_runtime_dir,
 };
 
@@ -290,6 +290,61 @@ fn host_exits_when_child_exits_even_with_client_attached() {
     assert_eq!(exit.reason, HostExitReason::SessionExited);
     assert_eq!(exit.exit_code, Some(7));
     assert!(!socket_path.exists(), "host socket must be removed on exit");
+}
+
+#[test]
+fn host_shutdown_frame_terminates_session_and_cleans_up_socket() {
+    let temp = TempDir::new("sh-kill");
+    // A long-lived child + long idle timeout: nothing but the Shutdown frame can
+    // end this host within the test window, so the assertion is unambiguous.
+    let config = host_config(temp.path(), "killme", "sleep 30", Duration::from_secs(3600));
+    let socket_path = config.runtime_paths().expect("runtime paths").socket;
+    let host = thread::spawn(move || run_host(config));
+
+    wait_for_socket(&socket_path);
+    let mut client = SessionHostClient::connect(&socket_path, "killme").expect("attach");
+    expect_snapshot(&mut client);
+    client.shutdown().expect("send shutdown frame");
+    drop(client);
+
+    let exit = join_within(host, "session-host thread").expect("host exits cleanly");
+    assert_eq!(exit.reason, HostExitReason::Killed);
+    assert!(
+        !socket_path.exists(),
+        "host socket must be removed after a kill"
+    );
+}
+
+#[test]
+fn kill_session_terminates_a_live_host() {
+    let temp = TempDir::new("sh-reg-kill");
+    let config = host_config(
+        temp.path(),
+        "reg-killme",
+        "sleep 30",
+        Duration::from_secs(3600),
+    );
+    let socket_path = config.runtime_paths().expect("runtime paths").socket;
+    let host = thread::spawn(move || run_host(config));
+
+    wait_for_socket(&socket_path);
+    kill_session(Some(temp.path()), "reg-killme").expect("kill_session");
+
+    let exit = join_within(host, "session-host thread").expect("host exits cleanly");
+    assert_eq!(exit.reason, HostExitReason::Killed);
+    assert!(
+        !socket_path.exists(),
+        "host socket must be removed after kill_session"
+    );
+}
+
+#[test]
+fn kill_session_on_missing_socket_is_ok() {
+    let temp = TempDir::new("sh-reg-gone");
+    // The runtime dir exists (owner-private) but no host is bound for this id, so
+    // the connect fails and kill_session treats it as already-gone → Ok.
+    prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
+    kill_session(Some(temp.path()), "never-existed").expect("kill of absent session is Ok");
 }
 
 #[test]

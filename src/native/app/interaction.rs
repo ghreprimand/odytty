@@ -272,6 +272,26 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.attach_session_replacing_current(id);
             }
+            // Manage Sessions: a right-click on a session row asks to kill it.
+            // Open the confirm dialog over the carried id; the manager closes
+            // (the dialog replaces it on screen). Confirming routes to
+            // KillSessionConfirmed below.
+            OverlayOutcome::KillSessionRequest(id) => {
+                self.flush_pending_overlay_settings();
+                self.reset_pointer_state_for_overlay();
+                self.overlay.open_confirm_kill_session(id);
+                self.request_selection_redraw();
+            }
+            // Manage Sessions: the kill was confirmed. Terminate the host and
+            // reopen the manager so the now-dead row disappears. A stale/missing
+            // socket is treated as already-gone by `kill_session` (Ok), so a
+            // double-kill or a race with idle-timeout never panics. The dialog
+            // already closed itself before emitting this.
+            OverlayOutcome::KillSessionConfirmed(id) => {
+                self.flush_pending_overlay_settings();
+                let _ = crate::session_host::kill_session(None, &id);
+                self.open_session_attach_overlay();
+            }
             // CLOSE-CONFIRM: the dialog closed itself before emitting this; flag
             // the exit so `window_event` exits the loop on this same turn (the
             // outcome cannot reach `ActiveEventLoop` from here — `&mut self`).

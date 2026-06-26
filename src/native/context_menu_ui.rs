@@ -54,7 +54,7 @@ use crate::settings::BindableAction;
 /// Number of entries in [`ContextMenuItem::ALL`] (Copy / Cut / Paste / Delete /
 /// Select All / New Tab / Rename Tab / Close Tab / Split Right / Split Down /
 /// Close Pane / Settings / Connection Manager / Command Palette / Session
-/// Replay / Attach Session / Open / Open in OdyTTY / Open With… / Copy Path /
+/// Replay / Manage Sessions / Open / Open in OdyTTY / Open With… / Copy Path /
 /// Copy File / Reveal in File Manager) — the size of the accelerator array the App fills in
 /// `ALL` order. NOT the number of *visible* items: Close Pane is hidden in a
 /// single-pane tab; path-scoped menus show only file actions plus pinned
@@ -226,7 +226,7 @@ impl ContextMenuItem {
             Self::ConnectionManager => "Connection Manager",
             Self::CommandPalette => "Command Palette",
             Self::SessionReplay => "Session Replay",
-            Self::SessionAttach => "Attach Session",
+            Self::SessionAttach => "Manage Sessions",
             Self::OpenPath => "Open",
             Self::OpenInOdytty => "Open in OdyTTY",
             Self::OpenWith => "Open With\u{2026}",
@@ -1053,7 +1053,7 @@ mod tests {
         );
 
         // A press on the visible row holding the last item activates it. The
-        // last visible single-pane item is now Attach Session (the launcher
+        // last visible single-pane item is now Manage Sessions (the launcher
         // section sits below Settings).
         let visible_row = last_body_row - scroll;
         assert_eq!(
@@ -1068,7 +1068,7 @@ mod tests {
         let mut m = menu(true, true);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        // Wraps from 0 to the last *visible* item (Attach Session). Single-pane
+        // Wraps from 0 to the last *visible* item (Manage Sessions). Single-pane
         // hides Close Pane, so the visible count is 15 (10 original + 1 Settings
         // + 4 launchers) and the last index is 14.
         assert_eq!(m.focused, m.item_count() - 1);
@@ -1184,7 +1184,7 @@ mod tests {
     fn single_pane_menu_hides_close_pane() {
         // Single-pane: Close Pane is absent; the layout is the 19-row menu with
         // the launcher section (Connection Manager / Command Palette / Session
-        // Replay / Attach Session) below Settings. Settings stays at body row 13;
+        // Replay / Manage Sessions) below Settings. Settings stays at body row 13;
         // the launcher items follow after the fourth separator.
         let m = menu(false, false);
         assert_eq!(m.item_count(), 15);
@@ -1209,7 +1209,7 @@ mod tests {
         assert_eq!(rows[15], item("Connection Manager", false, true));
         assert_eq!(rows[16], item("Command Palette", false, true));
         assert_eq!(rows[17], item("Session Replay", false, true));
-        assert_eq!(rows[18], item("Attach Session", false, true));
+        assert_eq!(rows[18], item("Manage Sessions", false, true));
     }
 
     #[test]
@@ -1262,7 +1262,7 @@ mod tests {
             "Connection Manager",
             "Command Palette",
             "Session Replay",
-            "Attach Session",
+            "Manage Sessions",
         ] {
             assert!(
                 !rows.iter().any(|r| matches!(
@@ -1506,7 +1506,7 @@ mod tests {
         assert_eq!(rows[16], item("Connection Manager", false, true));
         assert_eq!(rows[17], item("Command Palette", false, true));
         assert_eq!(rows[18], item("Session Replay", false, true));
-        assert_eq!(rows[19], item("Attach Session", false, true));
+        assert_eq!(rows[19], item("Manage Sessions", false, true));
     }
 
     #[test]
@@ -1521,7 +1521,7 @@ mod tests {
 
     #[test]
     fn multi_pane_focus_wraps_through_all_items() {
-        // Up from item 0 wraps to the last visible item (Attach Session, index
+        // Up from item 0 wraps to the last visible item (Manage Sessions, index
         // 15), proving Close Pane is in the focus cycle only when multi-pane and
         // the launcher items extend the cycle.
         let mut m = multipane_menu();

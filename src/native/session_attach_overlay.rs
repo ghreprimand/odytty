@@ -224,6 +224,18 @@ impl SessionAttachOverlay {
         }
     }
 
+    /// The session id at a clicked body row WITHOUT moving the selection — the
+    /// handle for a right-click "kill this session" (Manage Sessions). Reuses
+    /// [`Self::row_at`] so it lands on exactly the same rows a left-click would
+    /// select; the prompt row, the empty/"No matches" hint, and clicks past the
+    /// last result all return `None`. Read-only: the attach (left-click) path is
+    /// untouched.
+    pub(super) fn id_at_row(&self, row_in_body: usize, body_height: usize) -> Option<String> {
+        let cursor = self.row_at(row_in_body, body_height)?;
+        let entry_index = *self.filtered.get(cursor)?;
+        self.entries.get(entry_index).map(|entry| entry.id.clone())
+    }
+
     pub(super) fn visible_lines(
         &self,
         body_width: usize,

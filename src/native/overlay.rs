@@ -69,6 +69,15 @@ pub(super) struct OverlayUi {
     /// static text, so this is the only state the mode carries (it does not enter
     /// the render signature — the card looks identical for any id).
     attach_choice_session_id: String,
+    /// The pending host session-id carried by the kill-confirmation dialog
+    /// (Manage Sessions). Set when the dialog opens (right-click a session row);
+    /// the confirm arm emits it back to the App, which calls
+    /// `session_host::kill_session`. Empty when the dialog is not open. The card
+    /// shows a short id hint but does not enter the render signature: the mode
+    /// flips through `close()` between distinct kill dialogs, forcing a repaint,
+    /// so the carried id never needs to gate the cache (same trick as
+    /// `attach_choice_session_id`).
+    confirm_kill_session_id: String,
     /// Set when a `SaveAndClose` outcome arrives from the settings panel (dirty
     /// close prompt). On the next `save_succeeded` call for Settings mode, the
     /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
@@ -112,6 +121,7 @@ impl OverlayUi {
             open_with: OpenWithOverlay::new(),
             image_view_caption: String::new(),
             attach_choice_session_id: String::new(),
+            confirm_kill_session_id: String::new(),
             close_after_save: false,
             key_remap_close_after_save: false,
             picker_return: None,
@@ -486,6 +496,75 @@ impl OverlayUi {
         self.open && self.mode == OverlayMode::AttachChoice
     }
 
+    /// Open the kill-confirmation dialog (Manage Sessions) for host
+    /// `session_id`. Called by the App when the user right-clicks a session row
+    /// in the manager. Idempotent: starts with `close()` so a repeated open
+    /// cannot stack dialogs. The id is stashed so the confirm arm can emit it
+    /// back to the App, which runs `session_host::kill_session`.
+    pub(super) fn open_confirm_kill_session(&mut self, session_id: String) {
+        self.close();
+        self.confirm_kill_session_id = session_id;
+        self.mode = OverlayMode::ConfirmKillSession;
+        self.open = true;
+    }
+
+    /// Keyboard contract for the kill-confirmation dialog (Manage Sessions).
+    /// Enter or Y confirms (emits [`OverlayOutcome::KillSessionConfirmed`] with
+    /// the stashed id); Esc or N cancels (closes the dialog, kills nothing);
+    /// every other key is swallowed so nothing leaks to the PTY behind the
+    /// modal. The confirm arm closes the dialog before emitting, mirroring
+    /// `ConfirmClose`.
+    fn handle_confirm_kill_session_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match input {
+            OverlayInput::Activate | OverlayInput::Char('y') | OverlayInput::Char('Y') => {
+                let id = std::mem::take(&mut self.confirm_kill_session_id);
+                self.close();
+                OverlayOutcome::KillSessionConfirmed(id)
+            }
+            OverlayInput::Close | OverlayInput::Char('n') | OverlayInput::Char('N') => {
+                OverlayOutcome::Close
+            }
+            _ => OverlayOutcome::Consumed,
+        }
+    }
+
+    /// Hit-test a left-click in the kill-confirmation dialog body (click→key
+    /// parity, mirroring `confirm_close_click`). The action line
+    /// ([`CONFIRM_KILL_SESSION_ACTION_LINE`]) is the 3rd body row (index 2); a
+    /// click on the "Kill" region confirms, the "Cancel" region cancels, and
+    /// anywhere else — including the leading prompt text and the other rows — is
+    /// inert so a stray click never kills a session. ASCII line, so byte offsets
+    /// equal columns.
+    fn confirm_kill_session_click(
+        &mut self,
+        row_in_body: usize,
+        col_in_body: usize,
+    ) -> OverlayOutcome {
+        const ACTION_ROW: usize = 2;
+        if row_in_body != ACTION_ROW {
+            return OverlayOutcome::Consumed;
+        }
+        let text = CONFIRM_KILL_SESSION_ACTION_LINE;
+        let kill_start = text.find("[Enter").unwrap_or(0);
+        let cancel_start = text.find("[Esc").unwrap_or(text.len());
+        if col_in_body >= cancel_start {
+            OverlayOutcome::Close
+        } else if col_in_body >= kill_start {
+            let id = std::mem::take(&mut self.confirm_kill_session_id);
+            self.close();
+            OverlayOutcome::KillSessionConfirmed(id)
+        } else {
+            OverlayOutcome::Consumed
+        }
+    }
+
+    /// Whether the kill-confirmation dialog is the active overlay mode (Manage
+    /// Sessions). Used by the App's test seam to assert the dialog opened.
+    #[cfg(test)]
+    pub(super) fn is_confirm_kill_session(&self) -> bool {
+        self.open && self.mode == OverlayMode::ConfirmKillSession
+    }
+
     /// Whether the context menu is the active overlay mode (IN2). The App uses
     /// this to route bare hover Moves to the menu for hover-to-focus, alongside
     /// the slider-drag gate.
@@ -619,6 +698,9 @@ impl OverlayUi {
             OverlayMode::ContextMenu => return self.handle_context_menu_input(input),
             OverlayMode::ConfirmClose => return self.handle_confirm_close_input(input),
             OverlayMode::AttachChoice => return self.handle_attach_choice_input(input),
+            OverlayMode::ConfirmKillSession => {
+                return self.handle_confirm_kill_session_input(input);
+            }
             OverlayMode::CommandPalette => return self.handle_command_palette_input(input),
             OverlayMode::Replay => return self.handle_replay_input(input),
             OverlayMode::Connections => return self.handle_connections_input(input),
@@ -758,15 +840,26 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
-                    OverlayMode::SessionAttach => {
-                        if button == PointerButton::Left
-                            && self.session_attach.click_row(row_in_body, rect.body_height)
-                        {
-                            self.handle_session_attach_input(OverlayInput::Activate)
-                        } else {
-                            OverlayOutcome::Consumed
+                    OverlayMode::SessionAttach => match button {
+                        // Left-click on a row attaches (unchanged from Phase 5).
+                        PointerButton::Left => {
+                            if self.session_attach.click_row(row_in_body, rect.body_height) {
+                                self.handle_session_attach_input(OverlayInput::Activate)
+                            } else {
+                                OverlayOutcome::Consumed
+                            }
                         }
-                    }
+                        // Right-click on a row asks to kill that session (Manage
+                        // Sessions): emit its id so the App opens the confirm
+                        // dialog. A right-click off a row is inert. The attach
+                        // (left-click) path stays byte-identical.
+                        PointerButton::Right => {
+                            match self.session_attach.id_at_row(row_in_body, rect.body_height) {
+                                Some(id) => OverlayOutcome::KillSessionRequest(id),
+                                None => OverlayOutcome::Consumed,
+                            }
+                        }
+                    },
                     OverlayMode::OpenWith => {
                         if button == PointerButton::Left
                             && self.open_with.click_row(row_in_body, rect.body_height)
@@ -786,6 +879,13 @@ impl OverlayUi {
                     OverlayMode::AttachChoice => {
                         if button == PointerButton::Left {
                             self.attach_choice_click(row_in_body, col_in_body)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
+                    OverlayMode::ConfirmKillSession => {
+                        if button == PointerButton::Left {
+                            self.confirm_kill_session_click(row_in_body, col_in_body)
                         } else {
                             OverlayOutcome::Consumed
                         }
@@ -834,7 +934,8 @@ impl OverlayUi {
                     | OverlayMode::OpenWith
                     | OverlayMode::ImageView
                     | OverlayMode::ConfirmClose
-                    | OverlayMode::AttachChoice => OverlayOutcome::Consumed,
+                    | OverlayMode::AttachChoice
+                    | OverlayMode::ConfirmKillSession => OverlayOutcome::Consumed,
                 }
             }
             OverlayPointer::Release { .. } => {
@@ -853,7 +954,8 @@ impl OverlayUi {
                     | OverlayMode::OpenWith
                     | OverlayMode::ImageView
                     | OverlayMode::ConfirmClose
-                    | OverlayMode::AttachChoice => {}
+                    | OverlayMode::AttachChoice
+                    | OverlayMode::ConfirmKillSession => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -902,6 +1004,7 @@ impl OverlayUi {
                     OverlayMode::Onboarding
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
+                    | OverlayMode::ConfirmKillSession
                     | OverlayMode::ImageView => {}
                 }
                 OverlayOutcome::Consumed
@@ -928,7 +1031,8 @@ impl OverlayUi {
             | OverlayMode::OpenWith
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
-            | OverlayMode::AttachChoice => false,
+            | OverlayMode::AttachChoice
+            | OverlayMode::ConfirmKillSession => false,
         }
     }
 
@@ -951,7 +1055,8 @@ impl OverlayUi {
             | OverlayMode::OpenWith
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
-            | OverlayMode::AttachChoice => {}
+            | OverlayMode::AttachChoice
+            | OverlayMode::ConfirmKillSession => {}
         }
     }
 
@@ -1064,7 +1169,8 @@ impl OverlayUi {
             | OverlayMode::OpenWith
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
-            | OverlayMode::AttachChoice => {}
+            | OverlayMode::AttachChoice
+            | OverlayMode::ConfirmKillSession => {}
         }
     }
 
@@ -1084,7 +1190,8 @@ impl OverlayUi {
             | OverlayMode::OpenWith
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
-            | OverlayMode::AttachChoice => {}
+            | OverlayMode::AttachChoice
+            | OverlayMode::ConfirmKillSession => {}
         }
     }
 
@@ -1125,7 +1232,8 @@ impl OverlayUi {
             | OverlayMode::ContextMenu
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
-            | OverlayMode::AttachChoice => (false, false),
+            | OverlayMode::AttachChoice
+            | OverlayMode::ConfirmKillSession => (false, false),
         }
     }
 
@@ -1472,6 +1580,16 @@ pub(super) enum OverlayOutcome {
     /// attach the carried host session-id in a new tab, then close the tab that
     /// was active when the manager opened. The overlay has already closed itself.
     AttachChoiceReplace(String),
+    /// The user right-clicked a session row in the manager (Manage Sessions):
+    /// open the kill-confirmation dialog for the carried host session-id. The
+    /// App calls `open_confirm_kill_session`; the manager stays the prior
+    /// surface to return to logically, but the dialog replaces it on screen.
+    KillSessionRequest(String),
+    /// The user confirmed the kill-confirmation dialog (Manage Sessions):
+    /// terminate the carried host session-id. The overlay has already closed
+    /// itself; the App calls `session_host::kill_session` and refreshes the
+    /// manager so the row disappears.
+    KillSessionConfirmed(String),
 }
 
 impl OverlayUi {
@@ -1570,6 +1688,12 @@ pub(super) enum OverlayMode {
     /// switching to its tab and this dialog never appears.) Modeled on
     /// `ConfirmClose`; the pending host session-id is carried on the overlay.
     AttachChoice,
+    /// Kill-confirmation dialog (Manage Sessions). A centered, static modal
+    /// shown when the user right-clicks a session row in the manager:
+    /// `[Enter / Y]` kills the session (emits
+    /// [`OverlayOutcome::KillSessionConfirmed`]), `[Esc / N]` cancels. Modeled
+    /// on `ConfirmClose`; the pending host session-id is carried on the overlay.
+    ConfirmKillSession,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1743,6 +1867,18 @@ const ATTACH_CHOICE_WIDTH: usize = 52;
 /// tokens anchor the New-tab / Replace regions.
 const ATTACH_CHOICE_ACTION_LINE: &str = "Open where?  [N / Enter] New tab   [R] Replace";
 
+/// Fixed body width (cells) for the kill-confirmation dialog (Manage Sessions).
+/// Sized for the longest static line plus the panel border inset; the `.max(36)`
+/// floor in [`overlay_rect`] keeps small grids sane.
+const CONFIRM_KILL_SESSION_WIDTH: usize = 52;
+
+/// The kill-confirmation dialog's action line, shared by the body builder and
+/// the click hit-test ([`OverlayUi::confirm_kill_session_click`]) so the two can
+/// never drift. A leading prompt gives an inert region at col 0 (a stray click
+/// there never kills, mirroring the ConfirmClose guard); the `[Enter` and `[Esc`
+/// bracket tokens anchor the Kill / Cancel regions.
+const CONFIRM_KILL_SESSION_ACTION_LINE: &str = "Kill it?   [Enter / Y] Kill     [Esc / N] Cancel";
+
 pub(super) fn overlay_rect(
     overlay: &OverlayUi,
     columns: usize,
@@ -1779,6 +1915,8 @@ pub(super) fn overlay_rect(
         OverlayMode::ConfirmClose => CONFIRM_CLOSE_WIDTH,
         // Static choice dialog (Phase 14); same fixed-width/floor treatment.
         OverlayMode::AttachChoice => ATTACH_CHOICE_WIDTH,
+        // Static kill-confirmation dialog (Manage Sessions); same treatment.
+        OverlayMode::ConfirmKillSession => CONFIRM_KILL_SESSION_WIDTH,
     }
     .max(36)
     .min(columns);
@@ -1835,7 +1973,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         OverlayMode::CommandPalette => "Command Palette".to_owned(),
         OverlayMode::Replay => "\u{2190} Session Replay  (Esc = back)".to_owned(),
         OverlayMode::Connections => "\u{2190} Connections  (Esc = back)".to_owned(),
-        OverlayMode::SessionAttach => "\u{2190} Attach Session  (Esc = back)".to_owned(),
+        OverlayMode::SessionAttach => "\u{2190} Manage Sessions  (Esc = back)".to_owned(),
         OverlayMode::OpenWith => "\u{2190} Open With\u{2026}  (Esc = back)".to_owned(),
         OverlayMode::ImageView => {
             format!("\u{2190} {}  (Esc = close)", overlay.image_view_caption)
@@ -1844,6 +1982,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         OverlayMode::ContextMenu => String::new(),
         OverlayMode::ConfirmClose => "Close?".to_owned(),
         OverlayMode::AttachChoice => "Attach session".to_owned(),
+        OverlayMode::ConfirmKillSession => "Kill session".to_owned(),
     };
 
     fill_rect(
@@ -2154,6 +2293,35 @@ impl OverlayUi {
                     bold: false,
                 },
             ],
+            // Static kill-confirmation copy (Manage Sessions). Row 0 names the
+            // target session (truncated to the body), row 1 blank, row 2 the
+            // action line — the action row index (2) matches `ACTION_ROW` in
+            // `confirm_kill_session_click`. The id is plain (validated to
+            // alnum/._- by `safe_session_id`), so it cannot inject escapes.
+            OverlayMode::ConfirmKillSession => {
+                let prompt = format!("Terminate session \"{}\"?", self.confirm_kill_session_id);
+                let prompt: String = prompt.chars().take(body_width.max(1)).collect();
+                vec![
+                    OverlayLine {
+                        text: prompt,
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: String::new(),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: CONFIRM_KILL_SESSION_ACTION_LINE.to_owned(),
+                        focused: true,
+                        swatch: None,
+                        bold: false,
+                    },
+                ]
+            }
         }
     }
 }
@@ -3044,14 +3212,14 @@ mod tests {
             None,
             Default::default(),
         );
-        // 15 visible items single-pane; index 14 is the last (Attach Session).
+        // 15 visible items single-pane; index 14 is the last (Manage Sessions).
         for _ in 0..14 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
             OverlayOutcome::ContextMenuSessionAttach,
-            "last single-pane item is Attach Session, not a file item"
+            "last single-pane item is Manage Sessions, not a file item"
         );
     }
 
@@ -3946,6 +4114,157 @@ mod tests {
         let outcome_row0 = overlay.handle_pointer(body_press(rect, 0, 5), rect);
         assert_eq!(outcome_row0, OverlayOutcome::Consumed);
         assert!(overlay.is_open());
+    }
+
+    // --- Manage Sessions: kill-confirmation dialog (open / key / click parity) ---
+
+    #[test]
+    fn confirm_kill_session_opens_in_confirm_kill_mode() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_kill_session("s-0001-aaaa".to_owned());
+        assert!(
+            overlay.is_confirm_kill_session(),
+            "the dialog opens in ConfirmKillSession"
+        );
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::ConfirmKillSession,
+            "render signature reflects the new mode"
+        );
+        // The dialog has a real centered rect (renderable), and the body names
+        // the target session.
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let lines = overlay.visible_lines(rect.body_width, rect.body_height);
+        assert!(lines[0].text.contains("s-0001-aaaa"), "body names the id");
+    }
+
+    #[test]
+    fn confirm_kill_session_key_y_and_enter_emit_confirmed() {
+        for input in [OverlayInput::Char('y'), OverlayInput::Activate] {
+            let mut overlay = OverlayUi::default();
+            overlay.open_confirm_kill_session("s-0001-aaaa".to_owned());
+            let outcome = overlay.handle_input(input);
+            assert_eq!(
+                outcome,
+                OverlayOutcome::KillSessionConfirmed("s-0001-aaaa".to_owned())
+            );
+            assert!(!overlay.is_open(), "the dialog closes after confirming");
+        }
+    }
+
+    #[test]
+    fn confirm_kill_session_esc_and_n_cancel_without_killing() {
+        for input in [OverlayInput::Close, OverlayInput::Char('n')] {
+            let mut overlay = OverlayUi::default();
+            overlay.open_confirm_kill_session("s-0001-aaaa".to_owned());
+            let outcome = overlay.handle_input(input);
+            assert_eq!(outcome, OverlayOutcome::Close, "cancel never kills");
+        }
+    }
+
+    #[test]
+    fn pointer_click_kill_in_confirm_kill_session_confirms() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_kill_session("s-0001-aaaa".to_owned());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let kill_col = CONFIRM_KILL_SESSION_ACTION_LINE.find("[Enter").unwrap() + 2;
+        let outcome = overlay.handle_pointer(body_press(rect, 2, kill_col), rect);
+        assert_eq!(
+            outcome,
+            OverlayOutcome::KillSessionConfirmed("s-0001-aaaa".to_owned())
+        );
+        assert!(!overlay.is_open(), "Kill confirms and closes the dialog");
+    }
+
+    #[test]
+    fn pointer_click_cancel_in_confirm_kill_session_cancels() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_kill_session("s-0001-aaaa".to_owned());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let cancel_col = CONFIRM_KILL_SESSION_ACTION_LINE.find("[Esc").unwrap() + 2;
+        let outcome = overlay.handle_pointer(body_press(rect, 2, cancel_col), rect);
+        assert_eq!(outcome, OverlayOutcome::Close);
+    }
+
+    #[test]
+    fn pointer_click_confirm_kill_session_prompt_text_is_inert() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_kill_session("s-0001-aaaa".to_owned());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        // Col 0 of the action line is the "Kill it?" prompt — never a button, so
+        // a stray click cannot kill (parity with the ConfirmClose guard).
+        let outcome = overlay.handle_pointer(body_press(rect, 2, 0), rect);
+        assert_eq!(outcome, OverlayOutcome::Consumed);
+        assert!(overlay.is_open(), "a prompt-text click never kills");
+    }
+
+    #[test]
+    fn right_click_session_row_requests_kill_left_click_still_attaches() {
+        let sessions = vec![
+            ListedSession {
+                id: "s-1".to_owned(),
+                name: "build".to_owned(),
+                state: "running",
+                age_ms: 1,
+                pane_count: 1,
+            },
+            ListedSession {
+                id: "s-2".to_owned(),
+                name: "web".to_owned(),
+                state: "running",
+                age_ms: 1,
+                pane_count: 1,
+            },
+        ];
+        // Right-click body row 2 (the second session) requests a kill for its id
+        // and leaves the manager open (the App opens the confirm dialog).
+        let mut overlay = OverlayUi::default();
+        overlay.open_session_attach(sessions.clone());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let _ = overlay.visible_lines(rect.body_width, rect.body_height);
+        let right_press = OverlayPointer::Press {
+            cell: CellPoint {
+                row: rect.body_top + 2,
+                column: rect.body_left,
+            },
+            button: PointerButton::Right,
+            x_in_body: None,
+        };
+        assert_eq!(
+            overlay.handle_pointer(right_press, rect),
+            OverlayOutcome::KillSessionRequest("s-2".to_owned())
+        );
+
+        // Left-click the same row still attaches (Phase 5 path unchanged).
+        let mut overlay = OverlayUi::default();
+        overlay.open_session_attach(sessions);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let _ = overlay.visible_lines(rect.body_width, rect.body_height);
+        assert_eq!(
+            overlay.handle_pointer(body_press(rect, 2, 0), rect),
+            OverlayOutcome::AttachSession("s-2".to_owned())
+        );
+    }
+
+    #[test]
+    fn right_click_off_a_session_row_is_inert() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_session_attach(Vec::new());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let _ = overlay.visible_lines(rect.body_width, rect.body_height);
+        // Row 0 is the `> query` prompt — never a session row.
+        let right_press = OverlayPointer::Press {
+            cell: CellPoint {
+                row: rect.body_top,
+                column: rect.body_left,
+            },
+            button: PointerButton::Right,
+            x_in_body: None,
+        };
+        assert_eq!(
+            overlay.handle_pointer(right_press, rect),
+            OverlayOutcome::Consumed
+        );
     }
 
     // --- Settings numeric steppers: no live drag capture ---

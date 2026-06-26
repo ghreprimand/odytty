@@ -168,7 +168,7 @@ name-only target to spawn.
 The in-window analogue of the `odytty attach` CLI: a **session-attach overlay**
 that lists the live, detached session-host sessions so you can reattach one
 without leaving the window. Open it with `Ctrl+Shift+A` by default (or the
-right-click menu's "Attach Session" item). Rebind the `session-attach` action in
+right-click menu's "Manage Sessions" item). Rebind the `session-attach` action in
 `odytty.conf`:
 
 ```conf

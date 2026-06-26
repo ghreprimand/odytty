@@ -161,6 +161,11 @@ impl HostConfig {
 pub enum HostExitReason {
     SessionExited,
     DetachedIdleTimeout,
+    /// A client asked the host to terminate via [`ClientFrame::Shutdown`] (the
+    /// manager's "kill session"). The shell is SIGHUP'd and reaped, and the
+    /// socket + lock are cleaned up through the same teardown the other exit
+    /// reasons use, so the session disappears from the registry.
+    Killed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -313,13 +318,27 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
             Err(_) => {}
         }
 
-        drain_client_events(
+        let shutdown_requested = drain_client_events(
             &client_rx,
             &mut clients,
             &mut pty_writer,
             &mut terminal,
             &mut session,
         )?;
+
+        if shutdown_requested {
+            // Manager "kill session": SIGHUP + reap the shell, then fall through
+            // the same socket-unlink teardown the idle-timeout path uses so the
+            // registry row disappears. The lock file is released when `_lock`
+            // drops on return.
+            let _ = session.kill();
+            let status = session.wait().ok();
+            let _ = std::fs::remove_file(&paths.socket);
+            return Ok(HostExit {
+                reason: HostExitReason::Killed,
+                exit_code: status.and_then(|status| status.code()),
+            });
+        }
 
         if clients.is_empty() {
             let since = *detached_since.get_or_insert_with(Instant::now);
@@ -526,13 +545,17 @@ fn drain_pty_events(
     Ok(())
 }
 
+/// Drain queued client events into the PTY / terminal. Returns `Ok(true)` when a
+/// client asked the host to terminate ([`ClientFrame::Shutdown`]), so `run_host`
+/// can break its loop and tear down; `Ok(false)` for normal traffic.
 fn drain_client_events(
     client_rx: &Receiver<ClientEvent>,
     clients: &mut Vec<ClientConnection>,
     pty_writer: &mut Box<dyn Write + Send>,
     terminal: &mut Terminal,
     session: &mut PtySession,
-) -> Result<()> {
+) -> Result<bool> {
+    let mut shutdown_requested = false;
     while let Ok(event) = client_rx.try_recv() {
         match event {
             ClientEvent::Frame(id, ClientFrame::Input(bytes)) => {
@@ -556,6 +579,11 @@ fn drain_client_events(
                     );
                 }
             }
+            ClientEvent::Frame(_, ClientFrame::Shutdown) => {
+                // Whole-session kill. Keep draining so already-queued frames are
+                // processed, but flag the loop to tear down after this batch.
+                shutdown_requested = true;
+            }
             ClientEvent::Frame(id, ClientFrame::Detach)
             | ClientEvent::Disconnected(id)
             | ClientEvent::Error(id) => {
@@ -563,7 +591,7 @@ fn drain_client_events(
             }
         }
     }
-    Ok(())
+    Ok(shutdown_requested)
 }
 
 fn broadcast(clients: &mut Vec<ClientConnection>, frame: &HostFrame) {
@@ -602,8 +630,10 @@ fn spawn_client_reader(id: u64, mut stream: UnixStream, tx: Sender<ClientEvent>)
         loop {
             match super::protocol::read_client_frame(&mut stream) {
                 Ok(frame) => {
-                    let detach = matches!(frame, ClientFrame::Detach);
-                    if tx.send(ClientEvent::Frame(id, frame)).is_err() || detach {
+                    // Both Detach and Shutdown are terminal for this reader: the
+                    // client is going away (detach) or the whole host is (kill).
+                    let last = matches!(frame, ClientFrame::Detach | ClientFrame::Shutdown);
+                    if tx.send(ClientEvent::Frame(id, frame)).is_err() || last {
                         break;
                     }
                 }
