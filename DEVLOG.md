@@ -7,6 +7,53 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Release v0.5.0 — cross-platform bug-fix + interactive-paths UX
+
+v0.5.0 is a bug-fix and UX release that closes out the v0.4.0 cross-platform
+regressions and adds an interactive-paths workflow layer, validated hands-on on
+**both** real Linux and macOS 26.5 (M4) before tagging — the discipline v0.4.0
+skipped (it shipped Linux-unit-tested but never click-exercised, and the
+click-to-open path was broken on a real desktop).
+
+**The v0.4.0 failure modes, fixed and exercised live:** click-to-open now works
+on a real desktop on both platforms — Ctrl+click on Linux, Cmd+click on macOS
+(the OS routes Ctrl+click as a secondary click, so Cmd is the native open chord
+there). Failed/missing openers surface a visible non-blocking error instead of a
+silent no-op. A native panic hook records panic message + location before AppKit
+aborts. The macOS mouse-move crash does not reproduce (1,556 synthetic move
+events across the window and its edges, stable RSS, no crash report).
+
+**Platform-aware foundation:** a `PlatformOpener` seam (macOS `open` / `open -R`,
+Linux `xdg-open`), platform-aware MIME resolution (LaunchServices on macOS,
+`xdg-mime` on Linux with a built-in magic-byte sniff fallback), and a native
+macOS "Open With" picker via `NSWorkspace` (the freedesktop `.desktop`
+enumeration is Linux-only). Session discovery now resolves the same runtime base
+on read and write, so `odytty list` and the session overlay find live hosts on
+macOS (where `XDG_RUNTIME_DIR` is unset).
+
+**Interactive-paths UX:** Ctrl/Cmd+hover arms a path underline with a teaching
+hint after repeated plain mis-clicks (retiring after a few shows); a file-scoped
+right-click menu (Open / Open in OdyTTY / Open With / Copy Path / Copy File /
+Reveal) with Copy/Paste relabelled to "Copy Text" / "Paste Text"; opt-in
+stat-gated bareword path detection; an in-OdyTTY image lightbox that composites
+above the CRT/bloom post-pass (effects never touch the photo) with
+click-outside-to-dismiss; and a knob set surfaced in `--show-config`.
+
+**Session management:** "Manage Sessions" (renamed from "Attach Session") with
+attach-dedup + a New-tab/Replace/Cancel prompt, kill-a-session-from-the-manager
+(new in-band `ClientFrame::Shutdown`), and "Detach & switch" to spawn a fresh
+managed session in the focused pane's cwd. `odytty new` defaults to detached.
+Plus: OSC 7 cwd accepts the local hostname, overlay click-to-activate parity,
+keybind editor save/persist, macOS menu scroll one-per-detent damping, and
+poison-recovery on hot-path mutexes.
+
+Every feature is gated so the render is byte-identical when off
+(`passthrough_composite_matches_direct_render_bytes` held throughout). Verified
+green on both CI legs (ubuntu + macos-latest) at every step; cross-platform
+sign-off: Linux human hands-on, macOS all target behaviors externally observed
+(`odytty list` populated, Open With launched a non-default app, Cmd+click opens
+while Ctrl+click menus). Version bumped 0.4.0 → 0.5.0.
+
 ## 2026-06-26 -- Cmd+click to open on macOS: platform-aware open modifier
 
 The macOS dev-build exercise found that Ctrl+click popped the context menu
