@@ -613,6 +613,76 @@ fn delete_selected_input_sends_shell_edit_bytes_without_copying() {
     );
 }
 
+/// SELDEL-KEY: pressing Delete with a selection on the editable prompt input
+/// deletes that selection through the same shell-edit-byte path as the menu's
+/// Delete item, and clears the stale visual selection.
+#[test]
+fn delete_key_deletes_editable_selection_like_menu() {
+    let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
+    else {
+        return;
+    };
+    app.force_selection_for_test(0, 0, 0, 4);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert_eq!(
+        written,
+        [b"\x1b[D".repeat(3), b"\x1b[3~".repeat(3)].concat(),
+        "Delete key sends the same clipped editable-input edit bytes as the menu Delete"
+    );
+    assert!(
+        app.selection_range_for_test().is_none(),
+        "the Delete key clears the stale visual selection after editing"
+    );
+}
+
+/// SELDEL-KEY: Backspace behaves the same as Delete for an editable selection
+/// (the universal GUI convention — either key removes the selection).
+#[test]
+fn backspace_key_deletes_editable_selection() {
+    let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
+    else {
+        return;
+    };
+    app.force_selection_for_test(0, 0, 0, 4);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Backspace);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert_eq!(
+        written,
+        [b"\x1b[D".repeat(3), b"\x1b[3~".repeat(3)].concat(),
+        "Backspace deletes the editable selection identically to Delete"
+    );
+    assert!(app.selection_range_for_test().is_none());
+}
+
+/// SELDEL-KEY off path: a Delete with a selection that is NOT on editable input
+/// (prompt-only) falls through to the normal key encode — byte-identical to
+/// before the feature — and never touches the selection via the editable path.
+#[test]
+fn delete_key_falls_through_when_selection_not_editable() {
+    let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
+    else {
+        return;
+    };
+    // Prompt-only selection (column 0..1 covers "$"): no editable clipped text.
+    app.force_selection_for_test(0, 0, 0, 1);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert_eq!(
+        written, b"\x1b[3~",
+        "a non-editable selection lets Delete encode normally to the shell"
+    );
+}
+
 /// D-IN2-CUT-SAFE: if `write_text` returns `None`, Cut must NOT delete the
 /// editable input and must NOT clear the selection. The menu closes (item was
 /// activated) but the text and selection survive intact.

@@ -506,6 +506,25 @@ impl App {
         self.delete_editable_input_selection(selection);
     }
 
+    /// SELDEL-KEY: delete the selected editable prompt input via the Delete /
+    /// Backspace key, sharing the exact gated path as the right-click Delete /
+    /// Cut. Returns `true` (the key was consumed) only when a local selection
+    /// intersects the current editable input line — i.e. the same condition that
+    /// enables the menu's Delete item (shell integration reported the input
+    /// boundary, the selection is on the live prompt row, and the viewport is at
+    /// the live tail). Returns `false` in every other case so the caller falls
+    /// through to the normal key encode and the byte sent to the shell is
+    /// unchanged: Delete/Backspace with no selection, with a selection that is
+    /// not on editable input, or without shell integration all behave exactly as
+    /// before.
+    pub(super) fn try_delete_selected_editable_input(&mut self) -> bool {
+        let Some(selection) = self.editable_input_selection_for_context_menu() else {
+            return false;
+        };
+        self.delete_editable_input_selection(selection);
+        true
+    }
+
     fn delete_editable_input_selection(&mut self, selection: EditableInputSelection) {
         self.return_to_live();
         self.write_pty_bytes(&selection.edit_bytes);

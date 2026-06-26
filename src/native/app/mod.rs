@@ -1190,6 +1190,23 @@ impl App {
             if self.smart_ctrl_c_intercept(&logical, mods) {
                 return;
             }
+            // SELDEL-KEY: a plain Delete/Backspace with a local selection on the
+            // editable prompt line deletes that selection through the same gated,
+            // shell-integration-aware path as the right-click Delete/Cut, then
+            // swallows the key. Returns false (falls through to the normal key
+            // encode) with no selection, a selection not on editable input, or no
+            // shell integration — so the byte sent to the shell is unchanged in
+            // every case the menu's Delete item would be disabled. Gated to no
+            // Ctrl/Alt/Super so word-delete chords (Ctrl+W, Alt+Backspace) still
+            // reach the shell. Press-only via the enclosing guard.
+            if is_selection_delete_key(&logical)
+                && !mods.ctrl
+                && !mods.alt
+                && !self.super_key
+                && self.try_delete_selected_editable_input()
+            {
+                return;
+            }
         }
         if self.overlay.is_open() {
             return;
@@ -2788,6 +2805,16 @@ fn is_ctrl_c_key(logical: &WinitKey) -> bool {
             .is_some_and(|ch| ch == '\u{3}' || ch.eq_ignore_ascii_case(&'c')),
         _ => false,
     }
+}
+
+/// Whether a logical key is `Delete` or `Backspace` (SELDEL-KEY) — either one
+/// deletes a selection, matching the universal GUI convention. Modifier state is
+/// checked by the caller; this only inspects the key identity.
+fn is_selection_delete_key(logical: &WinitKey) -> bool {
+    matches!(
+        logical,
+        WinitKey::Named(NamedKey::Delete) | WinitKey::Named(NamedKey::Backspace)
+    )
 }
 
 fn bloom_options(settings: &Settings) -> BloomOptions {

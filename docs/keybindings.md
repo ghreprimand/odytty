@@ -43,6 +43,7 @@ These work anywhere in the window. They are all rebindable (see
 | `Ctrl+Shift+Up` | Jump to the previous prompt mark | `jump-prompt-prev` |
 | `Ctrl+Shift+Down` | Jump to the next prompt mark | `jump-prompt-next` |
 | `Ctrl+Shift+K` | Clear the editable prompt input (when shell integration allows) | `clear-input` |
+| `Delete` / `Backspace` | Delete the selected editable prompt input (when shell integration allows; otherwise the key behaves normally) | — |
 | `Shift+PageUp` | Scroll the viewport up one page | `scroll-up` |
 | `Shift+PageDown` | Scroll the viewport down one page | `scroll-down` |
 | `Ctrl+Shift+T` | New tab | `new-tab` |

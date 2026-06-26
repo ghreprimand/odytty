@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Delete/Backspace key deletes a selected editable prompt input
+
+Keyboard counterpart to the existing right-click Delete/Cut. Pressing `Delete`
+or `Backspace` while a local selection sits on the current editable prompt line
+now removes that selection, reusing the exact same gated, shell-integration-aware
+path as the context-menu Delete (`editable_input_selection_for_context_menu` →
+`delete_editable_input_selection`, which sends the clipped cursor-left + delete
+edit bytes to the shell and clears the stale visual selection).
+
+The intercept lives in the press-only branch of `handle_key_event`, after the
+smart-Ctrl+C check, gated to no Ctrl/Alt/Super (so word-delete chords like
+`Ctrl+W` / `Alt+Backspace` still reach the shell). It returns `false` and falls
+through to the normal key encode in every case the menu's Delete item would be
+disabled — no selection, a selection not on the editable input line, or no
+OSC 133 shell integration — so the byte sent to the shell is unchanged there.
+Like the menu path it only acts when the shell reports its input boundary, the
+selection is on the live prompt row, and the viewport is at the live tail; the
+terminal never edits a buffer it doesn't own.
+
+Verified with `cargo fmt --check`, `cargo clippy --all-targets` (clean), and the
+full test suite green, including three new `native::tests::context_menu` tests:
+`delete_key_deletes_editable_selection_like_menu`,
+`backspace_key_deletes_editable_selection`, and
+`delete_key_falls_through_when_selection_not_editable` (byte-identical off path).
+`docs/keybindings.md` updated.
+
+---
+
 ## 2026-06-26 -- Smart Ctrl+C (copy-or-interrupt) and clickable bare URLs
 
 Two opt-in interaction ergonomics, each behind a setting with a byte-identical
