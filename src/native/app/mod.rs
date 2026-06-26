@@ -120,6 +120,11 @@ pub(in crate::native) use self::tab_bar::{TAB_BAR_ROWS, TabBarSource};
 use self::tab_bar::{TabBar, TabHit};
 pub(in crate::native) use overlay_registry::ActiveModal;
 
+/// Linux desktop identity used for Wayland app_id/WM_CLASS matching.
+///
+/// macOS and Windows take process identity from their bundle/host metadata, so
+/// the runtime use is cfg'd out there.
+#[cfg(all(unix, not(target_os = "macos")))]
 const APP_ID: &str = "io.unfinished_works.odytty";
 pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(150);
 
@@ -2762,11 +2767,13 @@ mod tests {
         CursorBlinkState::new(Duration::from_millis(500))
     }
 
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn app_id_matches_packaged_desktop_identity() {
         assert_eq!(APP_ID, "io.unfinished_works.odytty");
     }
 
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn desktop_file_startup_wm_class_matches_app_id() {
         let desktop = include_str!("../../../dist/linux/io.unfinished_works.odytty.desktop");
