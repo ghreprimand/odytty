@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Release v0.5.2 — Linux window app id (taskbar/dock icon)
+
+v0.5.2 is a one-fix patch release. The native window previously set no
+application id, so on Wayland it announced an empty `app_id` (and on X11 an empty
+`WM_CLASS`). Compositors and bars (waybar, docks, the Hyprland taskbar) key the
+window's icon off that identity, so an OdyTTY window mapped to a generic
+placeholder block instead of the shipped OdyTTY icon.
+
+The window now announces `app_id = io.unfinished_works.odytty` on Linux —
+matching the installed desktop file (`io.unfinished_works.odytty.desktop`) and
+the hicolor icon names (`io.unfinished_works.odytty.png` / `.svg`) — via winit's
+`WindowAttributesExtWayland::with_name`, which writes the shared name field used
+by both the Wayland and X11 backends. The packaged desktop file also gains
+`StartupWMClass=io.unfinished_works.odytty` so the spawned window groups under
+its launcher entry. The change is Linux-only (cfg'd out on macOS/Windows, where
+app identity comes from the bundle); window rendering is untouched
+(`passthrough_composite_matches_direct_render_bytes` held). Two guard tests pin
+the app-id constant and the desktop `StartupWMClass`/`Icon` to the same string so
+the icon can't silently break from a future rename. Verified on a live Hyprland
+session: a window built from this change reports
+`class=io.unfinished_works.odytty` (was empty), resolving to the installed icon.
+
+---
+
 ## 2026-06-26 -- Release v0.5.1 — Nerd Font icon fit + terminal self-identification
 
 v0.5.1 is a small visual-polish release on top of v0.5.0, driven by a hands-on
