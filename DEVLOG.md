@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-25 -- README demo banner refreshed (version-free tagline) + reproducible generator
+
+Replaced the README hero screenshot (`assets/demo.png`) with a fresh capture and
+added `scripts/make-demo.sh` so the banner is reproducible instead of a one-off.
+
+The previous banner was a one-off screenshot with no saved generator; its tagline
+read "a from-scratch GPU terminal emulator for Linux — v0.2.0", pinning a stale
+version into the hero image and tying it to one platform. The new capture drops
+the version and the platform qualifier and retitles the line to "a GPU-accelerated
+terminal emulator written in Rust".
+
+`scripts/make-demo.sh` reconstructs the showcase frame the original used — a
+sanitized `/tmp` fake repo (synthetic prompt `ody ~/projects/nebula`, no real user
+data) feeding the OdyTTY block-art wordmark, a truecolor gradient bar, a curated
+`git log --graph`, a `tree -L 2`, style swatches, and a ligature teaser — and
+renders it inside a real OdyTTY window, so the shot goes through OdyTTY's own glyph
+atlas and CRT/bloom/vignette post stack rather than a synthetic mock. The capture
+step stays manual (grim+slurp), operator-driven.
+
+Docs/asset-only change: no code, no version bump, no tag. The image is a sanitized
+synthetic demo (no real home path or hostname); the staged diff was scanned before
+commit.
+
 ## 2026-06-25 -- Interactive paths — Ctrl+click on an image opens the in-OdyTTY viewer by default (UX-C, part 4)
 
 Completes the image-viewer work. The inline viewer previously opened only via the
