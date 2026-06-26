@@ -20,9 +20,11 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 mod exec;
+mod macos_apps;
 mod parse;
 
 pub use exec::exec_to_argv;
+pub use macos_apps::map_macos_app_paths;
 
 /// Maximum apps offered in the picker, applied after dedup (keeps the overlay
 /// compact and the fuzzy ranking bounded regardless of how many handlers a MIME

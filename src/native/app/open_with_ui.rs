@@ -187,7 +187,16 @@ impl App {
     /// out so a test seam can swap in synthetic probes without spawning
     /// `xdg-mime` or touching the real filesystem.
     fn enumerate_open_with_apps(&self, abs: &str) -> Vec<DesktopApp> {
-        enumerate_open_with(&PlatformMimeProbe::host(), &FsDesktopEnv, abs)
+        #[cfg(target_os = "macos")]
+        {
+            // macOS has no freedesktop database; ask NSWorkspace directly. The
+            // Linux seam-based enumeration would always return empty here.
+            crate::native::macos_open_with::enumerate(abs)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            enumerate_open_with(&PlatformMimeProbe::host(), &FsDesktopEnv, abs)
+        }
     }
 }
 

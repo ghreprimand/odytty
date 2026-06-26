@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Open With on macOS: native NSWorkspace app enumeration (Phase 17)
+
+The "Open With…" picker showed "No applications found to open this file" on
+macOS — discovered in the macOS dev-build exercise — even though Ctrl+click open
+(via `open`) and inline image viewing both worked. Root cause: the enumeration in
+`crate::desktop::enumerate_open_with` is 100% freedesktop (`.desktop` /
+`mimeapps.list` / `mimeinfo.cache`), none of which exist on a Mac, so that path is
+structurally always empty there. Linux was unaffected and correct.
+
+Added a native macOS arm. `native::macos_open_with::enumerate` asks
+`NSWorkspace::URLsForApplicationsToOpenURL` for the apps LaunchServices
+associates with the file's URL (already UTI-appropriate, so no separate MIME
+query is needed), and a pure `desktop::map_macos_app_paths` turns the returned
+bundle paths into the same `DesktopApp { id, name, argv = ["open", "-a", bundle,
+file] }` rows the Linux path produces — so the picker overlay and the
+`spawn_detached` launch path stay platform-agnostic. All Objective-C FFI is
+confined behind `#[cfg(target_os = "macos")]`; every bit of testable logic (the
+`.app` basename labels, dedup preserving LaunchServices order, the cap at
+`MAX_OPEN_WITH`) lives in the pure mapper, which compiles and unit-tests on the
+Linux CI host (the v0.4.0 lesson: never let the macOS branch go unexercised — here
+the untestable surface is only the thin FFI binding).
+
+The macOS objc2 stack (`objc2` 0.5.2, `objc2-app-kit` 0.2.2, `objc2-foundation`
+0.2.2) is pinned to the exact versions winit 0.30.13 already locks, added under a
+`cfg(target_os = "macos")` dependency table — no third copy, and `Cargo.lock`
+gained only three dependency edges with no version or checksum changes. The
+dispatch in `open_with_ui.rs` is a `cfg` split: macOS → the native arm; everything
+else → the unchanged freedesktop enumeration. The Linux path is byte-identical.
+
+Verified (isolated worktree at clean HEAD 36d4e0f, the two new files + five
+modified, Linux gates): `cargo fmt --check` clean; `cargo clippy --all-targets
+--locked -D warnings` clean (the pure mapper carries
+`#[cfg_attr(not(target_os = "macos"), allow(dead_code))]` so Linux, where its only
+production caller is `cfg`'d out, stays green); `cargo test --locked --lib --
+--test-threads=1` 2528 passed / 0 failed / 7 ignored (+7 pure-mapper cases:
+`.app` stripping, exact argv, dedup, cap, empty input, trailing-slash labels —
+synthetic `/Applications/Foo.app` + `/home/user/...` only); `gpu_composite_smoke`
+6/6 (UNMODIFIED `passthrough_composite_matches_direct_render_bytes` holds);
+`license_headers` 1/1 (both new files carry SPDX). The macOS FFI compile + a
+lenient no-panic smoke are validated on the macOS CI leg (the binding names were
+read from the locally extracted objc2-0.2.2 sources, not guessed). Staged diff
+scanned — clean.
+
 ## 2026-06-26 -- Docs: full code-vs-docs audit & accuracy sweep across README, SPEC, packaging, and docs/
 
 Audited every tracked document against the current working tree (the post-0.4.0

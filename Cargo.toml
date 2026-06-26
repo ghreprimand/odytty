@@ -36,6 +36,15 @@ unicode-width = "0.2.2"
 wgpu = "29.0.3"
 winit = "0.30.13"
 
+# macOS-only: native "Open With…" app enumeration via NSWorkspace (Phase 17).
+# Pinned to the exact objc2 stack winit 0.30.13 already locks so no third copy
+# is pulled (objc2 0.5.2 / objc2-foundation 0.2.2 / objc2-app-kit 0.2.2). All
+# FFI is behind cfg(target_os = "macos"); the pure mapper compiles everywhere.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.5.2"
+objc2-foundation = { version = "0.2.2", features = ["NSURL", "NSString", "NSArray"] }
+objc2-app-kit = { version = "0.2.2", features = ["NSWorkspace"] }
+
 # Headless performance benchmarks (dependency-free custom harness). Run with
 # `cargo bench --bench perf`; excluded from `cargo test`.
 [[bench]]
