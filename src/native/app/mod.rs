@@ -88,6 +88,7 @@ mod copy_mode_ui;
 mod cursor;
 mod cursor_frame;
 mod cursor_trail;
+mod detach_switch;
 mod gutter_ui;
 mod hints_ui;
 mod ime;

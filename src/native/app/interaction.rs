@@ -292,6 +292,26 @@ impl App {
                 let _ = crate::session_host::kill_session(None, &id);
                 self.open_session_attach_overlay();
             }
+            // Packet 2: "Detach & switch" was chosen on the focused pane. The
+            // menu closed itself; read the focused pane's cwd and open the 3-way
+            // choice dialog.
+            OverlayOutcome::ContextMenuDetachSwitch => {
+                self.flush_pending_overlay_settings();
+                self.open_detach_switch_choice();
+            }
+            // Packet 2: the Detach & switch dialog closed itself before emitting
+            // these; run the chosen orchestration. Swap = spawn + attach + close
+            // the original pane; Keep both = spawn + attach, original untouched.
+            // A spawn/attach failure surfaces a transient notice and leaves the
+            // original pane untouched (handled inside the orchestration).
+            OverlayOutcome::DetachSwitchSwap(cwd) => {
+                self.flush_pending_overlay_settings();
+                self.detach_switch_swap(cwd);
+            }
+            OverlayOutcome::DetachSwitchKeepBoth(cwd) => {
+                self.flush_pending_overlay_settings();
+                self.detach_switch_keep_both(cwd);
+            }
             // CLOSE-CONFIRM: the dialog closed itself before emitting this; flag
             // the exit so `window_event` exits the loop on this same turn (the
             // outcome cannot reach `ActiveEventLoop` from here — `&mut self`).

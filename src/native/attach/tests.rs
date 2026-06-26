@@ -598,6 +598,75 @@ fn attach_replace_detaches_hosted_current_host_survives() {
     join_within(host_new, "replace-hosted new host");
 }
 
+// --- Packet 2: Detach & switch orchestration (TabSet level) ---
+//
+// The App reads the focused pane's cwd, spawns a FRESH managed session in it,
+// attaches + focuses it, then (Swap only) closes the ORIGINAL focused pane via
+// the existing close path. These tests stand the spawned managed session in
+// with an attached session over a fake host (the spawn itself is exercised at
+// the App level via the spawn-failure seam; here the focus is the close/keep
+// orchestration shape). The capture-original → attach → close-original ordering
+// mirrors Phase 14 Replace, but the close is PANE-scoped (`close`), not
+// whole-tab.
+
+/// "Swap" over a single-pane original: after the managed session is attached and
+/// focused, closing the original focused pane removes its (single-pane) tab,
+/// netting exactly one tab with the managed session focused.
+#[test]
+fn detach_switch_swap_closes_single_pane_original_and_focuses_managed() {
+    let (sock, host) = spawn_fake_host(
+        snapshot_bytes(&sample_host_terminal()),
+        drain_until_disconnect,
+    );
+    let mut set = TabSet::new(build_local_session(), None); // original, token 0
+    let original = set.active_id();
+    assert_eq!(original, SessionToken(0));
+
+    // Capture original → attach managed (appends + focus) → close original pane.
+    let managed = set.push(attached_session_token(&sock, "s-0001-aaaa", 1));
+    assert_eq!(set.len(), 2, "attach adds exactly one tab");
+    set.switch(managed);
+    let was_last = set.close(original);
+    assert!(!was_last, "the managed tab keeps the set non-empty");
+
+    assert_eq!(set.len(), 1, "swap nets exactly one tab");
+    assert_eq!(
+        set.active_id(),
+        managed,
+        "the managed session stays focused"
+    );
+
+    set.close(managed);
+    join_within(host, "detach-switch swap fake host");
+}
+
+/// "Keep both": after the managed session is attached and focused, the original
+/// pane is left untouched — two tabs, managed focused, original still present.
+#[test]
+fn detach_switch_keep_both_leaves_original_and_adds_one() {
+    let (sock, host) = spawn_fake_host(
+        snapshot_bytes(&sample_host_terminal()),
+        drain_until_disconnect,
+    );
+    let mut set = TabSet::new(build_local_session(), None); // original, token 0
+    let original = set.active_id();
+
+    let managed = set.push(attached_session_token(&sock, "s-0002-bbbb", 1));
+    set.switch(managed);
+    // Keep both: no close.
+
+    assert_eq!(set.len(), 2, "keep both adds exactly one tab");
+    assert_eq!(set.active_id(), managed, "the managed session is focused");
+    assert!(
+        set.position_of_token(original).is_some(),
+        "the original pane is left untouched"
+    );
+
+    set.close(managed);
+    set.close(original);
+    join_within(host, "detach-switch keep-both fake host");
+}
+
 #[test]
 fn attach_by_id_presents_live_tab_and_repaints() {
     // Lay out the runtime tree the id resolver expects:

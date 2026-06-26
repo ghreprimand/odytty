@@ -995,3 +995,52 @@ fn clicking_attach_session_opens_the_session_attach_overlay() {
         "Manage Sessions item opens the session-attach overlay"
     );
 }
+
+/// Packet 2: clicking the "Detach & switch" menu item closes the menu and opens
+/// the 3-way choice dialog. The test terminal has no OSC 7 cwd, so the dialog
+/// names the default directory — the assertion is on the overlay mode switch.
+#[test]
+fn clicking_detach_switch_opens_the_choice_dialog() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_cell_for_test(5, 10);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+    assert!(app.context_menu_open_for_test());
+    click_menu_item(&mut app, "Detach & switch");
+    assert!(!app.context_menu_open_for_test());
+    assert_eq!(
+        app.overlay_signature_for_test().mode,
+        OverlayMode::DetachSwitchChoice,
+        "Detach & switch item opens the choice dialog"
+    );
+}
+
+/// Packet 2 failure guard: a spawn failure during Detach & switch surfaces a
+/// transient notice and leaves the original pane untouched — never close the
+/// original before the new managed session is confirmed live.
+#[test]
+fn detach_switch_spawn_failure_raises_notice_and_keeps_panes() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let before = app.session_count_for_test();
+    assert!(
+        app.open_notice_message_for_test().is_none(),
+        "clean start: no notice"
+    );
+    // Drive the full orchestration with a spawner that always fails (swap=true,
+    // the destructive path — proves the original is NOT closed on failure).
+    app.detach_switch_spawn_failure_for_test(true);
+    assert!(
+        app.open_notice_message_for_test().is_some(),
+        "a spawn failure raises a transient notice"
+    );
+    assert_eq!(
+        app.session_count_for_test(),
+        before,
+        "a spawn failure adds no session and closes none — original untouched"
+    );
+}

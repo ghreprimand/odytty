@@ -78,6 +78,16 @@ pub(super) struct OverlayUi {
     /// so the carried id never needs to gate the cache (same trick as
     /// `attach_choice_session_id`).
     confirm_kill_session_id: String,
+    /// The focused pane's cwd carried by the Detach & switch dialog (Packet 2).
+    /// Set when the dialog opens; the Swap / Keep-both arms emit it back to the
+    /// App, which spawns a managed session in it. Empty = unknown cwd (spawn in
+    /// the default directory). Operator-controlled text (an OSC 7 path), so the
+    /// body truncates it to the panel width and it is display-only here — it
+    /// re-enters the App only as the `working_directory` of the same spawn config
+    /// `odytty new` uses, never a raw shell arg. Not in the render signature: the
+    /// card layout is identical for any cwd, and the mode flips through `close()`
+    /// between opens, forcing a repaint.
+    detach_switch_cwd: String,
     /// Set when a `SaveAndClose` outcome arrives from the settings panel (dirty
     /// close prompt). On the next `save_succeeded` call for Settings mode, the
     /// overlay closes itself after recording the save (SETTINGS-REDESIGN §7).
@@ -122,6 +132,7 @@ impl OverlayUi {
             image_view_caption: String::new(),
             attach_choice_session_id: String::new(),
             confirm_kill_session_id: String::new(),
+            detach_switch_cwd: String::new(),
             close_after_save: false,
             key_remap_close_after_save: false,
             picker_return: None,
@@ -565,6 +576,83 @@ impl OverlayUi {
         self.open && self.mode == OverlayMode::ConfirmKillSession
     }
 
+    /// Open the Detach & switch choice dialog (Packet 2) for the focused pane's
+    /// `cwd` (empty = unknown → spawn in the default directory). Called by the
+    /// App after it reads the focused pane's cwd (the overlay cannot read the
+    /// terminal). Idempotent: starts with `close()` so a repeated open cannot
+    /// stack dialogs. The cwd is stashed so the Swap / Keep-both arms can emit
+    /// it back to the App.
+    pub(super) fn open_detach_switch_choice(&mut self, cwd: String) {
+        self.close();
+        self.detach_switch_cwd = cwd;
+        self.mode = OverlayMode::DetachSwitchChoice;
+        self.open = true;
+    }
+
+    /// Keyboard contract for the Detach & switch dialog (Packet 2). `S` swaps
+    /// (spawn + close this pane); `K` keeps both (spawn + leave this pane); Esc
+    /// cancels; every other key — INCLUDING Enter — is swallowed. There is no
+    /// Enter default on purpose: Swap is destructive (it closes the focused
+    /// pane), so the user must explicitly choose S or K. Both action arms close
+    /// the dialog before emitting, mirroring `ConfirmClose`, and carry the
+    /// stashed cwd.
+    fn handle_detach_switch_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match input {
+            OverlayInput::Char('s') | OverlayInput::Char('S') => {
+                let cwd = std::mem::take(&mut self.detach_switch_cwd);
+                self.close();
+                OverlayOutcome::DetachSwitchSwap(cwd)
+            }
+            OverlayInput::Char('k') | OverlayInput::Char('K') => {
+                let cwd = std::mem::take(&mut self.detach_switch_cwd);
+                self.close();
+                OverlayOutcome::DetachSwitchKeepBoth(cwd)
+            }
+            OverlayInput::Close => OverlayOutcome::Close,
+            _ => OverlayOutcome::Consumed,
+        }
+    }
+
+    /// Hit-test a left-click in the Detach & switch dialog body (click→key
+    /// parity, mirroring `attach_choice_click`). The action line
+    /// ([`DETACH_SWITCH_ACTION_LINE`]) is the 4th body row (index 3); a click on
+    /// the "Swap" region swaps, the "Keep both" region keeps both, the "Cancel"
+    /// region cancels, and anywhere else — including the leading prompt text and
+    /// the other rows — is inert so a stray click never spawns or closes a pane.
+    /// ASCII line, so byte offsets equal columns. Regions are tested right-to-
+    /// left (Cancel, then Keep, then Swap) since their anchors are ordered S < K
+    /// < Esc in the line.
+    fn detach_switch_click(&mut self, row_in_body: usize, col_in_body: usize) -> OverlayOutcome {
+        const ACTION_ROW: usize = 3;
+        if row_in_body != ACTION_ROW {
+            return OverlayOutcome::Consumed;
+        }
+        let text = DETACH_SWITCH_ACTION_LINE;
+        let swap_start = text.find("[S").unwrap_or(0);
+        let keep_start = text.find("[K").unwrap_or(text.len());
+        let cancel_start = text.find("[Esc").unwrap_or(text.len());
+        if col_in_body >= cancel_start {
+            OverlayOutcome::Close
+        } else if col_in_body >= keep_start {
+            let cwd = std::mem::take(&mut self.detach_switch_cwd);
+            self.close();
+            OverlayOutcome::DetachSwitchKeepBoth(cwd)
+        } else if col_in_body >= swap_start {
+            let cwd = std::mem::take(&mut self.detach_switch_cwd);
+            self.close();
+            OverlayOutcome::DetachSwitchSwap(cwd)
+        } else {
+            OverlayOutcome::Consumed
+        }
+    }
+
+    /// Whether the Detach & switch dialog is the active overlay mode (Packet 2).
+    /// Used by the App's test seam to assert the dialog opened.
+    #[cfg(test)]
+    pub(super) fn is_detach_switch_choice(&self) -> bool {
+        self.open && self.mode == OverlayMode::DetachSwitchChoice
+    }
+
     /// Whether the context menu is the active overlay mode (IN2). The App uses
     /// this to route bare hover Moves to the menu for hover-to-focus, alongside
     /// the slider-drag gate.
@@ -655,6 +743,11 @@ impl OverlayUi {
                         }
                         None => OverlayOutcome::Consumed,
                     },
+                    // Packet 2: the menu closed itself; the App reads the focused
+                    // pane's cwd (it owns the terminal lock) and opens the 3-way
+                    // Detach & switch choice dialog. The overlay cannot read the
+                    // terminal, so the cwd is resolved App-side, not here.
+                    ContextMenuItem::DetachSwitch => OverlayOutcome::ContextMenuDetachSwitch,
                 }
             }
         }
@@ -701,6 +794,7 @@ impl OverlayUi {
             OverlayMode::ConfirmKillSession => {
                 return self.handle_confirm_kill_session_input(input);
             }
+            OverlayMode::DetachSwitchChoice => return self.handle_detach_switch_input(input),
             OverlayMode::CommandPalette => return self.handle_command_palette_input(input),
             OverlayMode::Replay => return self.handle_replay_input(input),
             OverlayMode::Connections => return self.handle_connections_input(input),
@@ -890,6 +984,13 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
+                    OverlayMode::DetachSwitchChoice => {
+                        if button == PointerButton::Left {
+                            self.detach_switch_click(row_in_body, col_in_body)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
                     OverlayMode::Onboarding | OverlayMode::Replay | OverlayMode::ImageView => {
                         OverlayOutcome::Consumed
                     }
@@ -935,7 +1036,8 @@ impl OverlayUi {
                     | OverlayMode::ImageView
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
-                    | OverlayMode::ConfirmKillSession => OverlayOutcome::Consumed,
+                    | OverlayMode::ConfirmKillSession
+                    | OverlayMode::DetachSwitchChoice => OverlayOutcome::Consumed,
                 }
             }
             OverlayPointer::Release { .. } => {
@@ -955,7 +1057,8 @@ impl OverlayUi {
                     | OverlayMode::ImageView
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
-                    | OverlayMode::ConfirmKillSession => {}
+                    | OverlayMode::ConfirmKillSession
+                    | OverlayMode::DetachSwitchChoice => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -1005,6 +1108,7 @@ impl OverlayUi {
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
                     | OverlayMode::ConfirmKillSession
+                    | OverlayMode::DetachSwitchChoice
                     | OverlayMode::ImageView => {}
                 }
                 OverlayOutcome::Consumed
@@ -1032,7 +1136,8 @@ impl OverlayUi {
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
-            | OverlayMode::ConfirmKillSession => false,
+            | OverlayMode::ConfirmKillSession
+            | OverlayMode::DetachSwitchChoice => false,
         }
     }
 
@@ -1056,7 +1161,8 @@ impl OverlayUi {
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
-            | OverlayMode::ConfirmKillSession => {}
+            | OverlayMode::ConfirmKillSession
+            | OverlayMode::DetachSwitchChoice => {}
         }
     }
 
@@ -1170,7 +1276,8 @@ impl OverlayUi {
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
-            | OverlayMode::ConfirmKillSession => {}
+            | OverlayMode::ConfirmKillSession
+            | OverlayMode::DetachSwitchChoice => {}
         }
     }
 
@@ -1191,7 +1298,8 @@ impl OverlayUi {
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
-            | OverlayMode::ConfirmKillSession => {}
+            | OverlayMode::ConfirmKillSession
+            | OverlayMode::DetachSwitchChoice => {}
         }
     }
 
@@ -1233,7 +1341,8 @@ impl OverlayUi {
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
-            | OverlayMode::ConfirmKillSession => (false, false),
+            | OverlayMode::ConfirmKillSession
+            | OverlayMode::DetachSwitchChoice => (false, false),
         }
     }
 
@@ -1590,6 +1699,22 @@ pub(super) enum OverlayOutcome {
     /// itself; the App calls `session_host::kill_session` and refreshes the
     /// manager so the row disappears.
     KillSessionConfirmed(String),
+    /// The user chose "Detach & switch" on the focused pane (Packet 2). The menu
+    /// has already closed itself; the App reads the focused pane's cwd and opens
+    /// the [`OverlayMode::DetachSwitchChoice`] dialog.
+    ContextMenuDetachSwitch,
+    /// The user chose "Swap (close this)" in the Detach & switch dialog (Packet
+    /// 2): spawn a fresh managed session in the carried cwd, attach + focus it,
+    /// then close the original focused pane. The overlay has already closed
+    /// itself. Empty string = unknown cwd (spawn in the default directory). The
+    /// cwd is display+spawn-config only — it flows into the same
+    /// `working_directory` `odytty new` uses, never a raw shell arg.
+    DetachSwitchSwap(String),
+    /// The user chose "Keep both" in the Detach & switch dialog (Packet 2):
+    /// spawn a fresh managed session in the carried cwd, attach + focus it, and
+    /// leave the original pane untouched. The overlay has already closed itself.
+    /// Empty string = unknown cwd (spawn in the default directory).
+    DetachSwitchKeepBoth(String),
 }
 
 impl OverlayUi {
@@ -1694,6 +1819,13 @@ pub(super) enum OverlayMode {
     /// [`OverlayOutcome::KillSessionConfirmed`]), `[Esc / N]` cancels. Modeled
     /// on `ConfirmClose`; the pending host session-id is carried on the overlay.
     ConfirmKillSession,
+    /// Detach & switch choice dialog (Packet 2). A centered, static 3-way modal
+    /// shown when the user picks "Detach & switch" on the focused pane: `[S]`
+    /// swaps (spawn a managed session + close this pane), `[K]` keeps both
+    /// (spawn + leave this pane), `[Esc]` cancels. Honest framing: a SPAWN of a
+    /// fresh shell in the same cwd, not a live-process migration. Modeled on
+    /// `AttachChoice`; the focused pane's cwd is carried on the overlay.
+    DetachSwitchChoice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1879,6 +2011,20 @@ const CONFIRM_KILL_SESSION_WIDTH: usize = 52;
 /// bracket tokens anchor the Kill / Cancel regions.
 const CONFIRM_KILL_SESSION_ACTION_LINE: &str = "Kill it?   [Enter / Y] Kill     [Esc / N] Cancel";
 
+/// Fixed body width (cells) for the Detach & switch dialog (Packet 2). Sized for
+/// the action line plus the panel border inset; the `.max(36)` floor in
+/// [`overlay_rect`] keeps small grids sane.
+const DETACH_SWITCH_WIDTH: usize = 64;
+
+/// The Detach & switch dialog's action line, shared by the body builder and the
+/// click hit-test ([`OverlayUi::detach_switch_click`]) so the two can never
+/// drift. A leading prompt gives an inert region at col 0 (a stray click there
+/// never spawns or closes a pane); the `[S`, `[K`, and `[Esc` bracket tokens
+/// anchor the Swap / Keep-both / Cancel regions (ordered S < K < Esc, so the
+/// click hit-test scans them right-to-left).
+const DETACH_SWITCH_ACTION_LINE: &str =
+    "Swap closes this.  [S] Swap   [K] Keep both   [Esc] Cancel";
+
 pub(super) fn overlay_rect(
     overlay: &OverlayUi,
     columns: usize,
@@ -1917,6 +2063,8 @@ pub(super) fn overlay_rect(
         OverlayMode::AttachChoice => ATTACH_CHOICE_WIDTH,
         // Static kill-confirmation dialog (Manage Sessions); same treatment.
         OverlayMode::ConfirmKillSession => CONFIRM_KILL_SESSION_WIDTH,
+        // Static Detach & switch choice dialog (Packet 2); same treatment.
+        OverlayMode::DetachSwitchChoice => DETACH_SWITCH_WIDTH,
     }
     .max(36)
     .min(columns);
@@ -1983,6 +2131,7 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         OverlayMode::ConfirmClose => "Close?".to_owned(),
         OverlayMode::AttachChoice => "Attach session".to_owned(),
         OverlayMode::ConfirmKillSession => "Kill session".to_owned(),
+        OverlayMode::DetachSwitchChoice => "Detach & switch".to_owned(),
     };
 
     fill_rect(
@@ -2316,6 +2465,51 @@ impl OverlayUi {
                     },
                     OverlayLine {
                         text: CONFIRM_KILL_SESSION_ACTION_LINE.to_owned(),
+                        focused: true,
+                        swatch: None,
+                        bold: false,
+                    },
+                ]
+            }
+            // Static Detach & switch copy (Packet 2). Row 0 names the cwd, row 1
+            // is the honest data-loss warning, row 2 blank, row 3 the action
+            // line — the action row index (3) matches `ACTION_ROW` in
+            // `detach_switch_click`. The cwd is operator-controlled text, so it
+            // is control-stripped and truncated to the body width; it is
+            // display-only here.
+            OverlayMode::DetachSwitchChoice => {
+                let where_line = if self.detach_switch_cwd.is_empty() {
+                    "New managed shell in the default directory.".to_owned()
+                } else {
+                    let cwd: String = self
+                        .detach_switch_cwd
+                        .chars()
+                        .filter(|ch| !ch.is_control())
+                        .collect();
+                    format!("New managed shell in {cwd}")
+                };
+                let where_line: String = where_line.chars().take(body_width.max(1)).collect();
+                vec![
+                    OverlayLine {
+                        text: where_line,
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: "Swap ends anything running in this pane.".to_owned(),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: String::new(),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: DETACH_SWITCH_ACTION_LINE.to_owned(),
                         focused: true,
                         swatch: None,
                         bold: false,
@@ -4265,6 +4459,137 @@ mod tests {
             overlay.handle_pointer(right_press, rect),
             OverlayOutcome::Consumed
         );
+    }
+
+    // --- Packet 2: Detach & switch choice dialog (open / key / click parity) ---
+
+    #[test]
+    fn detach_switch_opens_in_detach_switch_mode_and_names_cwd() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_detach_switch_choice("/home/user/proj".to_owned());
+        assert!(
+            overlay.is_detach_switch_choice(),
+            "the dialog opens in DetachSwitchChoice"
+        );
+        assert_eq!(
+            overlay.render_signature().mode,
+            OverlayMode::DetachSwitchChoice,
+            "render signature reflects the new mode"
+        );
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let lines = overlay.visible_lines(rect.body_width, rect.body_height);
+        assert!(
+            lines[0].text.contains("/home/user/proj"),
+            "body names the cwd"
+        );
+    }
+
+    #[test]
+    fn detach_switch_unknown_cwd_shows_default_directory_copy() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_detach_switch_choice(String::new());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let lines = overlay.visible_lines(rect.body_width, rect.body_height);
+        assert!(
+            lines[0].text.contains("default directory"),
+            "unknown cwd falls back to a clear default-directory line"
+        );
+    }
+
+    #[test]
+    fn detach_switch_key_s_emits_swap() {
+        for input in [OverlayInput::Char('s'), OverlayInput::Char('S')] {
+            let mut overlay = OverlayUi::default();
+            overlay.open_detach_switch_choice("/home/user/proj".to_owned());
+            let outcome = overlay.handle_input(input);
+            assert_eq!(
+                outcome,
+                OverlayOutcome::DetachSwitchSwap("/home/user/proj".to_owned())
+            );
+            assert!(!overlay.is_open(), "the dialog closes after choosing");
+        }
+    }
+
+    #[test]
+    fn detach_switch_key_k_emits_keep_both() {
+        for input in [OverlayInput::Char('k'), OverlayInput::Char('K')] {
+            let mut overlay = OverlayUi::default();
+            overlay.open_detach_switch_choice("/home/user/proj".to_owned());
+            let outcome = overlay.handle_input(input);
+            assert_eq!(
+                outcome,
+                OverlayOutcome::DetachSwitchKeepBoth("/home/user/proj".to_owned())
+            );
+            assert!(!overlay.is_open());
+        }
+    }
+
+    #[test]
+    fn detach_switch_esc_cancels_and_enter_is_inert() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_detach_switch_choice("/home/user/proj".to_owned());
+        // Enter has NO default here (Swap is destructive) — it is swallowed.
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Consumed,
+            "Enter must not trigger the destructive Swap"
+        );
+        assert!(overlay.is_open(), "Enter leaves the dialog open");
+        // Esc cancels, spawning/closing nothing.
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Close),
+            OverlayOutcome::Close
+        );
+    }
+
+    #[test]
+    fn pointer_click_swap_in_detach_switch_emits_swap() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_detach_switch_choice("/home/user/proj".to_owned());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        // Action line is the 4th body row (index 3).
+        let swap_col = DETACH_SWITCH_ACTION_LINE.find("[S").unwrap() + 1;
+        let outcome = overlay.handle_pointer(body_press(rect, 3, swap_col), rect);
+        assert_eq!(
+            outcome,
+            OverlayOutcome::DetachSwitchSwap("/home/user/proj".to_owned())
+        );
+        assert!(!overlay.is_open());
+    }
+
+    #[test]
+    fn pointer_click_keep_both_in_detach_switch_emits_keep_both() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_detach_switch_choice("/home/user/proj".to_owned());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let keep_col = DETACH_SWITCH_ACTION_LINE.find("[K").unwrap() + 1;
+        let outcome = overlay.handle_pointer(body_press(rect, 3, keep_col), rect);
+        assert_eq!(
+            outcome,
+            OverlayOutcome::DetachSwitchKeepBoth("/home/user/proj".to_owned())
+        );
+    }
+
+    #[test]
+    fn pointer_click_cancel_in_detach_switch_cancels() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_detach_switch_choice("/home/user/proj".to_owned());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let cancel_col = DETACH_SWITCH_ACTION_LINE.find("[Esc").unwrap() + 1;
+        let outcome = overlay.handle_pointer(body_press(rect, 3, cancel_col), rect);
+        assert_eq!(outcome, OverlayOutcome::Close);
+    }
+
+    #[test]
+    fn pointer_click_detach_switch_prompt_text_is_inert() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_detach_switch_choice("/home/user/proj".to_owned());
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        // Col 0 of the action line is the "Swap closes this." prompt — never a
+        // button, so a stray click cannot spawn or close a pane.
+        let outcome = overlay.handle_pointer(body_press(rect, 3, 0), rect);
+        assert_eq!(outcome, OverlayOutcome::Consumed);
+        assert!(overlay.is_open(), "a prompt-text click never acts");
     }
 
     // --- Settings numeric steppers: no live drag capture ---

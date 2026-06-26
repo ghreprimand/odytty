@@ -62,7 +62,7 @@ use crate::settings::BindableAction;
 /// path is an image file (C4); and "Open With…" is shown only when the resolved
 /// path is a regular file (C3b). With no path and single-pane the visible count
 /// is 15; with no path and multi-pane it is 16.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 22;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 23;
 
 /// Body row index of the first visual separator (single-pane layout), between
 /// Select All and New Tab. The separators move when Close Pane appears in a
@@ -88,12 +88,13 @@ pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 12;
 #[cfg(test)]
 pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 14;
 
-/// Total body rows in the **single-pane** layout: fifteen visible items plus
+/// Total body rows in the **single-pane** layout: sixteen visible items plus
 /// four separator lines (Close Pane hidden). The multi-pane layout has one
 /// more row; production uses [`ContextMenuUi::body_row_count`] for the live
-/// count.
+/// count. (The sixteenth item is "Detach & switch", appended to the launcher
+/// section after "Manage Sessions" in Packet 2.)
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 19;
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 20;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -153,6 +154,16 @@ pub(super) enum ContextMenuItem {
     CopyFile,
     /// Reveal the resolved path in the desktop file manager (C3).
     RevealPath,
+    /// Convert the focused pane into a fresh **managed** session in the same cwd
+    /// and switch to it (Packet 2 / Detach & switch). Always available (there is
+    /// always a focused pane). HONEST framing: this is a SPAWN of a new shell in
+    /// the same directory, not a live-process migration — the running shell is
+    /// the window's child and cannot be losslessly handed to a survivable host.
+    /// Activating it reads the focused pane's cwd and opens a 3-way choice
+    /// dialog (Swap / Keep both / Cancel). Placed last in [`Self::ALL`] so the
+    /// file-section indices stay stable; rendered in the session-management
+    /// section (4), right after "Manage Sessions", in the non-path menu.
+    DetachSwitch,
 }
 
 impl ContextMenuItem {
@@ -182,6 +193,7 @@ impl ContextMenuItem {
         Self::CopyPath,
         Self::CopyFile,
         Self::RevealPath,
+        Self::DetachSwitch,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -198,7 +210,8 @@ impl ContextMenuItem {
             Self::ConnectionManager
             | Self::CommandPalette
             | Self::SessionReplay
-            | Self::SessionAttach => 4,
+            | Self::SessionAttach
+            | Self::DetachSwitch => 4,
             Self::OpenPath
             | Self::OpenInOdytty
             | Self::OpenWith
@@ -233,6 +246,7 @@ impl ContextMenuItem {
             Self::CopyPath => "Copy Path",
             Self::CopyFile => "Copy File",
             Self::RevealPath => "Reveal in File Manager",
+            Self::DetachSwitch => "Detach & switch",
         }
     }
 
@@ -270,7 +284,10 @@ impl ContextMenuItem {
             | Self::OpenWith
             | Self::CopyPath
             | Self::CopyFile
-            | Self::RevealPath => None,
+            | Self::RevealPath
+            // Detach & switch is pointer-only (no global chord); skip the
+            // flat-table lookup.
+            | Self::DetachSwitch => None,
         }
     }
 }
@@ -501,6 +518,8 @@ impl ContextMenuUi {
             ContextMenuItem::CommandPalette => true,
             ContextMenuItem::SessionReplay => true,
             ContextMenuItem::SessionAttach => true,
+            // Detach & switch acts on the focused pane, which always exists.
+            ContextMenuItem::DetachSwitch => true,
             // The file items are only ever visible when a path resolved, so
             // they are enabled whenever shown.
             ContextMenuItem::OpenPath
@@ -1053,12 +1072,12 @@ mod tests {
         );
 
         // A press on the visible row holding the last item activates it. The
-        // last visible single-pane item is now Manage Sessions (the launcher
-        // section sits below Settings).
+        // last visible single-pane item is now Detach & switch (appended to the
+        // launcher section after Manage Sessions in Packet 2).
         let visible_row = last_body_row - scroll;
         assert_eq!(
             m.handle_press(visible_row, body_height, PointerButton::Left),
-            ContextMenuOutcome::Activate(ContextMenuItem::SessionAttach),
+            ContextMenuOutcome::Activate(ContextMenuItem::DetachSwitch),
             "last item reachable via the scrolled visible window"
         );
     }
@@ -1068,11 +1087,11 @@ mod tests {
         let mut m = menu(true, true);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        // Wraps from 0 to the last *visible* item (Manage Sessions). Single-pane
-        // hides Close Pane, so the visible count is 15 (10 original + 1 Settings
-        // + 4 launchers) and the last index is 14.
+        // Wraps from 0 to the last *visible* item (Detach & switch). Single-pane
+        // hides Close Pane, so the visible count is 16 (10 original + 1 Settings
+        // + 4 launchers + Detach & switch) and the last index is 15.
         assert_eq!(m.focused, m.item_count() - 1);
-        assert_eq!(m.item_count(), 15);
+        assert_eq!(m.item_count(), 16);
         m.handle_input(OverlayInput::Down);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Down);
@@ -1182,14 +1201,15 @@ mod tests {
 
     #[test]
     fn single_pane_menu_hides_close_pane() {
-        // Single-pane: Close Pane is absent; the layout is the 19-row menu with
+        // Single-pane: Close Pane is absent; the layout is the 20-row menu with
         // the launcher section (Connection Manager / Command Palette / Session
-        // Replay / Manage Sessions) below Settings. Settings stays at body row 13;
-        // the launcher items follow after the fourth separator.
+        // Replay / Manage Sessions / Detach & switch) below Settings. Settings
+        // stays at body row 13; the launcher items follow after the fourth
+        // separator.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 15);
+        assert_eq!(m.item_count(), 16);
         let rows = m.rows();
-        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 19
+        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 20
         assert!(
             !rows.iter().any(|r| matches!(
                 r,
@@ -1210,17 +1230,18 @@ mod tests {
         assert_eq!(rows[16], item("Command Palette", false, true));
         assert_eq!(rows[17], item("Session Replay", false, true));
         assert_eq!(rows[18], item("Manage Sessions", false, true));
+        assert_eq!(rows[19], item("Detach & switch", false, true));
     }
 
     #[test]
     fn no_path_menu_hides_the_file_section() {
         // C3: with no resolved path under the click, the four file items are
-        // absent and the layout is byte-identical to before C3 (the 19-row
+        // absent and the layout is byte-identical to before C3 (the 20-row
         // single-pane menu). This is the byte-identity guarantee.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 15);
+        assert_eq!(m.item_count(), 16);
         let rows = m.rows();
-        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 19
+        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 20
         for label in ["Open", "Copy Path", "Copy File", "Reveal in File Manager"] {
             assert!(
                 !rows.iter().any(|r| matches!(
@@ -1486,9 +1507,9 @@ mod tests {
         // section; the third separator and Settings shift down one row, and the
         // v0.3.1 launcher section follows below Settings.
         let m = multipane_menu();
-        assert_eq!(m.item_count(), 16);
+        assert_eq!(m.item_count(), 17);
         let rows = m.rows();
-        assert_eq!(rows.len(), 20, "one more row than single-pane");
+        assert_eq!(rows.len(), 21, "one more row than single-pane");
         assert_eq!(rows[10], item("Split Right", false, true));
         assert_eq!(rows[11], item("Split Down", false, true));
         assert_eq!(
@@ -1507,6 +1528,7 @@ mod tests {
         assert_eq!(rows[17], item("Command Palette", false, true));
         assert_eq!(rows[18], item("Session Replay", false, true));
         assert_eq!(rows[19], item("Manage Sessions", false, true));
+        assert_eq!(rows[20], item("Detach & switch", false, true));
     }
 
     #[test]
@@ -1521,14 +1543,14 @@ mod tests {
 
     #[test]
     fn multi_pane_focus_wraps_through_all_items() {
-        // Up from item 0 wraps to the last visible item (Manage Sessions, index
-        // 15), proving Close Pane is in the focus cycle only when multi-pane and
+        // Up from item 0 wraps to the last visible item (Detach & switch, index
+        // 16), proving Close Pane is in the focus cycle only when multi-pane and
         // the launcher items extend the cycle.
         let mut m = multipane_menu();
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        assert_eq!(m.focused, 15);
-        assert_eq!(m.item_count(), 16);
+        assert_eq!(m.focused, 16);
+        assert_eq!(m.item_count(), 17);
     }
 
     #[test]

@@ -7,6 +7,60 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Detach & switch — convert the focused pane to a fresh managed session (UX-E, part 2)
+
+Driven by the dev-build exercise: the operator wanted a way to take the terminal
+they are already working in and turn it into a managed (survivable, manager-listed)
+session, then switch into it — without going through `odytty new` and re-navigating.
+
+A new "Detach & switch" context-menu action on the focused pane does this. **Honest
+framing, baked into the code, the dialog copy, and this entry: it is a SPAWN, not a
+live-process migration.** The shell running in the focused pane is the window's own
+child — this process owns its PTY fds and reaps it — so it cannot be losslessly
+handed to a survivable session-host (that would require passing the PTY master across
+a socket and surrendering a child you can no longer `waitpid`, with SIGHUP/controlling-
+terminal hazards; a separate project, deliberately not attempted here). Instead we
+start a FRESH managed shell in the SAME working directory, via the same
+`spawn_host_on_demand` path `odytty new` uses, attach to it in a new tab, and switch.
+
+The unit is the focused pane (one session). A host serves exactly one shell, so a
+multi-pane tab cannot "become a session" — only the focused pane is affected; sibling
+panes stay. Activating the action reads the pane's OSC 7 cwd and opens a 3-way dialog
+whose copy is honest about data loss: `[S] Swap (close this) · [K] Keep both · [Esc]
+Cancel`. Enter has no default — Swap is destructive, so the choice must be explicit.
+**Swap** spawns + attaches the managed session, focuses it, then closes the original
+focused pane through the existing close path (single-pane tab → close the tab;
+multi-pane → collapse just that leaf into its sibling; an attached/hosted original
+detaches cleanly so its host survives). **Keep both** leaves the original untouched.
+
+The failure guard is strict and the reason the ordering is fixed: always spawn →
+attach → (Swap only) close-original. A spawn or attach failure surfaces a transient
+notice (the same `OpenNotice` channel the platform-opener failures use) and leaves
+the original pane live — the original is never closed before the new session is
+confirmed. The cwd is operator-controlled OSC 7 text, so it is control-stripped and
+width-truncated for display and only ever re-enters as a `HostConfig.working_directory`
+(the same spawn input as `odytty new --working-directory`), never a raw shell arg; it
+rides on the overlay and stays out of the render signature.
+
+Verified (isolated worktree at clean HEAD 4fd1473, this packet's 6 modified files +
+one new `src/native/app/detach_switch.rs`, bin built first, GPU serialized): `cargo
+fmt --check` clean; `cargo clippy --all-targets --locked -D warnings` clean; `cargo
+test --locked --lib -- --test-threads=1` 2521 passed / 0 failed / 7 ignored (+13: the
+dialog's open/key/click parity, the no-Enter-default and inert-prompt guards, the
+unknown-cwd default copy, Swap/Keep-both TabSet orchestration nets, and a spawn-failure
+case driven through an injected failing spawner that asserts the notice is raised and
+the original pane is untouched — synthetic cwd `/home/user/proj` and synthetic ids
+only); `gpu_composite_smoke` 6/6 (UNMODIFIED `passthrough_composite_matches_direct_render_bytes`
+byte-identity holds — the new mode renders nothing unless opened); `license_headers`
+1/1 (the new file carries its SPDX header). Staged diff scanned — clean (no personal
+paths or real hostname).
+
+This completes the Manage Sessions arc (kill-from-manager + detach-&-switch).
+Remaining gaps: operator hands-on re-test on the dev build (Detach & switch → Swap
+swaps the pane; Keep both adds a managed tab and keeps the original; Cancel is inert),
+plus the still-pending Linux non-image Ctrl+click spot-check and the full macOS 26.5
+exercise before any v0.5.0 bump or tag.
+
 ## 2026-06-26 -- Manage Sessions — rename + kill a session from the manager (UX-E, part 1)
 
 Driven by the dev-build exercise: with the session manager open, the operator
