@@ -13,10 +13,17 @@
 //! touch the real process/filesystem; `crate::desktop` itself stays pure and
 //! GPU/windowing-free. The open action reuses the C3 `spawn_detached` verbatim.
 
+// Used only by the Linux MIME/desktop enumeration below (gated off macOS).
+#[cfg(not(target_os = "macos"))]
 use std::path::{Path, PathBuf};
+#[cfg(not(target_os = "macos"))]
 use std::process::{Command, Stdio};
 
-use crate::desktop::{DesktopApp, DesktopEnv, MimeProbe, enumerate_open_with};
+use crate::desktop::DesktopApp;
+// The freedesktop MIME/desktop enumeration is Linux-only; on macOS the dispatch
+// uses NSWorkspace (`crate::native::macos_open_with`) and these are unused.
+#[cfg(not(target_os = "macos"))]
+use crate::desktop::{DesktopEnv, MimeProbe, enumerate_open_with};
 
 use super::*;
 
@@ -24,24 +31,32 @@ use super::*;
 /// small text files; the cap stops a pathological/hostile file from being slurped
 /// whole. A truncated read still parses (a partial entry simply fails the
 /// `is_offerable` filter or drops a field) — never an error.
+///
+/// Linux-only: the freedesktop file reads it bounds do not run on macOS.
+#[cfg(not(target_os = "macos"))]
 const MAX_DESKTOP_FILE_BYTES: u64 = 256 * 1024;
 
 /// Production MIME probe: the platform-aware, single audited captured-output
 /// MIME query (P0-1). On Linux it spawns `xdg-mime query filetype <abs>`
 /// (argv-only, read-only); a non-zero exit, missing binary, or empty output
 /// yields `None` and then falls back to a small built-in magic-byte sniffer.
-/// macOS has no `xdg-mime`, so its platform arm is `None` and uses that same
-/// fallback. A final `None` on either OS surfaces the empty picker with its
-/// visible empty-state hint rather than a silent no-op.
+/// A final `None` surfaces the empty picker with its visible empty-state hint
+/// rather than a silent no-op.
 ///
 /// The OS is held as a value ([`OpenerOs`]) rather than read from `cfg!` inline
 /// so BOTH arms are unit-testable on one CI host (the v0.4.0 lesson: never let
 /// the macOS branch go unexercised). Production constructs it via
 /// [`PlatformMimeProbe::host`].
+///
+/// Linux-only: on macOS the picker enumerates via NSWorkspace
+/// (`crate::native::macos_open_with`), so this probe and the whole MIME/desktop
+/// chain it drives are gated off there.
+#[cfg(not(target_os = "macos"))]
 pub(in crate::native) struct PlatformMimeProbe {
     os: super::platform_opener::OpenerOs,
 }
 
+#[cfg(not(target_os = "macos"))]
 impl PlatformMimeProbe {
     /// The probe for the host OS (the single `cfg!` boundary lives in
     /// [`super::platform_opener::OpenerOs::host`]).
@@ -57,6 +72,7 @@ impl PlatformMimeProbe {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 impl MimeProbe for PlatformMimeProbe {
     fn query(&self, abs: &str) -> Option<String> {
         let platform_mime = match self.os {
@@ -72,6 +88,7 @@ impl MimeProbe for PlatformMimeProbe {
 
 /// The Linux `xdg-mime query filetype <abs>` spawn (captured output, argv-only,
 /// read-only). Factored out so the OS dispatch above stays a thin match.
+#[cfg(not(target_os = "macos"))]
 fn xdg_mime_query(abs: &str) -> Option<String> {
     let output = Command::new("xdg-mime")
         .args(["query", "filetype", abs])
@@ -90,8 +107,13 @@ fn xdg_mime_query(abs: &str) -> Option<String> {
 /// `std::fs` reads. Mirrors the env-var idiom in `palette_overlay.rs`
 /// (`filter(non-empty).map(PathBuf)`), with the spec defaults when a variable is
 /// unset/empty.
+///
+/// Linux-only: macOS does not read the freedesktop ladders (NSWorkspace does
+/// the enumeration), so this and its impls are gated off there.
+#[cfg(not(target_os = "macos"))]
 pub(in crate::native) struct FsDesktopEnv;
 
+#[cfg(not(target_os = "macos"))]
 impl FsDesktopEnv {
     fn home() -> Option<PathBuf> {
         std::env::var_os("HOME")
@@ -116,6 +138,7 @@ impl FsDesktopEnv {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 impl DesktopEnv for FsDesktopEnv {
     fn config_dirs(&self) -> Vec<PathBuf> {
         let mut dirs = Vec::new();
@@ -200,7 +223,9 @@ impl App {
     }
 }
 
-#[cfg(test)]
+// These tests construct the Linux `PlatformMimeProbe` / `MimeProbe`, all gated
+// off macOS above — so the whole module is Linux-only too.
+#[cfg(all(test, not(target_os = "macos")))]
 mod tests {
     use super::*;
     use crate::desktop::MimeProbe;

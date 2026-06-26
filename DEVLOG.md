@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Phase 17 fix-up: gate the Linux MIME/desktop chain off macOS
+
+The Phase 17 push restored a native macOS Open-With arm but split the dispatch so
+the macOS path bypasses the entire freedesktop MIME/desktop enumeration
+(`NSWorkspace` replaces it). On macOS that left the whole Linux chain as dead code
+and tripped `clippy -D warnings`, turning the macOS CI leg red. Fixed by gating
+every Linux-only item behind `#[cfg(not(target_os = "macos"))]`:
+`PlatformMimeProbe`, `FsDesktopEnv`, `xdg_mime_query`, the magic-byte sniff
+(`sniff_mime_bytes` / `sniff_mime_path` / `MIME_SNIFF_BYTES`),
+`MAX_DESKTOP_FILE_BYTES`, their impls, the now-Linux-only `std::path` /
+`std::process` imports, and the tests that construct `PlatformMimeProbe`.
+`DesktopApp` stays shared — the macOS mapper returns it. Not `allow(dead_code)`:
+these items have zero macOS purpose, so a cfg gate is the honest expression.
+
+Linux is byte-identical (the items still compile on Linux; no behavior or render
+change). Verified in an isolated worktree on top of the Phase 17 HEAD: fmt clean,
+`clippy --all-targets --locked -D warnings` clean, `--lib` 2528 passed / 0 failed
+(test-count-neutral — the fix-up adds no tests), `gpu_composite_smoke` 6/6 incl.
+the passthrough byte-identity, `license_headers` 1/1, staged diff scanned — clean.
+The macOS dead-code resolution is unobservable on the Linux CI host by
+construction, so the macOS CI leg is the validator for this one.
+
 ## 2026-06-26 -- Open With on macOS: native NSWorkspace app enumeration (Phase 17)
 
 The "Open With…" picker showed "No applications found to open this file" on

@@ -22,6 +22,10 @@ use crate::paths::{FsKind, Resolved};
 /// Maximum bytes read from a file for dependency-free MIME sniffing. Every
 /// signature currently checked fits within the first 12 bytes; the slightly
 /// larger cap leaves room for future signatures without broadening I/O.
+///
+/// Linux-only: on macOS, NSWorkspace enumerates the openable apps directly
+/// (UTI-aware), so the magic-byte MIME fallback this caps has no caller there.
+#[cfg(not(target_os = "macos"))]
 const MIME_SNIFF_BYTES: u64 = 32;
 
 /// The target operating system for opener dispatch. Production resolves the host
@@ -100,6 +104,10 @@ fn reveal_parent(resolved: &Resolved) -> String {
 /// Best-effort MIME fallback from leading magic bytes. This is intentionally
 /// dependency-free and conservative: unknown or too-short data returns `None`,
 /// letting the platform probe remain authoritative whenever it succeeds.
+///
+/// Linux-only: macOS resolves openable apps through NSWorkspace (no MIME query
+/// or sniff fallback is wired there), so this has no macOS caller.
+#[cfg(not(target_os = "macos"))]
 pub(in crate::native) fn sniff_mime_bytes(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
         return Some("image/png");
@@ -129,6 +137,10 @@ pub(in crate::native) fn sniff_mime_bytes(bytes: &[u8]) -> Option<&'static str> 
 /// directories, and unrecognized data all return `None` so callers can preserve
 /// the existing empty-picker behavior when neither the platform nor the fallback
 /// can identify the type.
+///
+/// Linux-only: the sole caller is the Linux `PlatformMimeProbe`, which is itself
+/// gated off macOS (NSWorkspace replaces the whole MIME/desktop chain there).
+#[cfg(not(target_os = "macos"))]
 pub(in crate::native) fn sniff_mime_path(abs: &str) -> Option<String> {
     use std::io::Read;
 
@@ -249,6 +261,7 @@ mod tests {
         );
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn sniff_mime_bytes_recognizes_common_magic_headers() {
         assert_eq!(
@@ -270,6 +283,7 @@ mod tests {
         assert_eq!(sniff_mime_bytes(b"MM\0*...."), Some("image/tiff"));
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn sniff_mime_bytes_rejects_unknown_or_too_short_data() {
         assert_eq!(sniff_mime_bytes(b""), None);
