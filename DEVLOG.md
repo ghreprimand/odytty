@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Release v0.5.1 — Nerd Font icon fit + terminal self-identification
+
+v0.5.1 is a small visual-polish release on top of v0.5.0, driven by a hands-on
+dev-build review of `fastfetch` rendering against ghostty.
+
+**Symbol/icon glyphs now fit-and-center in their cell.** Nerd Font / symbol
+fallback glyphs (the bundled *Symbols Nerd Font Mono* face) were previously
+rasterized at the body em-size with the font's natural left bearing and clipped
+to one cell — wider-than-cell icons overflowed and each glyph's distinct bearing
+landed at a slightly different x, so icon columns (e.g. a `fastfetch` panel)
+rendered ragged and partly cropped. They are now measured, scaled
+aspect-preserving so the ink height fills a tuned fraction of the cell
+(`SYMBOL_CELL_FILL = 0.82`, operator-matched against ghostty), width-capped to
+the slot's drawable region so a wide glyph can never clip, and centered on the
+cell box. Icons form an even column. The constraint fires **only** for
+symbol-fallback / SYMMAP-override (icon) faces; every primary-font and ASCII
+glyph passes through the unchanged natural-bearing path, so body text is
+byte-identical (`passthrough_composite_matches_direct_render_bytes` held, and a
+per-ASCII-slot ink guard pins it). Box-drawing/geometric glyphs are untouched.
+
+**OdyTTY self-identifies to terminal-aware tooling.** Spawned shells now export
+`TERM_PROGRAM=odytty` and `TERM_PROGRAM_VERSION` (from `CARGO_PKG_VERSION`)
+alongside the existing `TERM`/`COLORTERM`, centralized through one
+`apply_terminal_env` helper so every spawn path advertises an identical
+environment. `fastfetch` (and other `TERM_PROGRAM`-aware tools) now report the
+terminal as `odytty <version>` instead of leaving the version blank.
+
+Feel constants (`SYMBOL_CELL_FILL`, `SYMBOL_CELL_INSET`, `SYMBOL_MAX_UPSCALE`)
+are named and documented for future tuning. Verified: fmt / clippy
+`--all-targets -D warnings` / `cargo test --locked` (serialized) /
+`gpu_composite_smoke` 6/6 / license headers / PII scan / off-path byte-identity.
+Size locked via a hands-on Linux dev-build review; the glyph math is
+platform-agnostic (no platform-specific code paths).
+
+---
+
 ## 2026-06-26 -- Release v0.5.0 — cross-platform bug-fix + interactive-paths UX
 
 v0.5.0 is a bug-fix and UX release that closes out the v0.4.0 cross-platform
