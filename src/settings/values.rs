@@ -516,6 +516,26 @@ pub(super) fn parse_scroll_drag_speed(
     }
 }
 
+pub(super) fn parse_smart_ctrl_c(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> SmartCtrlC {
+    let Some(raw) = raw else {
+        return SmartCtrlC::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return SmartCtrlC::default();
+    }
+    match SmartCtrlC::parse(trimmed) {
+        Some(mode) => mode,
+        None => {
+            warn(&format!(
+                "{SMART_CTRL_C_ENV}={trimmed:?} is not off|copy-or-interrupt; using off"
+            ));
+            SmartCtrlC::default()
+        }
+    }
+}
+
 pub(super) fn parse_cvd_mode(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> CvdMode {
     let Some(raw) = raw else {
         return CvdMode::default();

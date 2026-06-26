@@ -85,6 +85,12 @@ selection_drag_extend = on
 scrollbar_drag = on
 wheel_zoom = on
 copy_on_select = off
+# What plain Ctrl+C does. off (default) always sends the interrupt (^C).
+# copy-or-interrupt: copy + clear the selection when text is selected, else
+# interrupt. To interrupt while text is selected, press Esc first or Ctrl+C
+# twice; Ctrl+Shift+C always copies. (Plain Ctrl+V stays verbatim-insert; bind
+# `keybinds = ctrl+v=paste` if you want plain Ctrl+V to paste.)
+smart_ctrl_c = off
 confirm_close = on
 # Terminal bell (BEL) handling. There is no audible bell; off/visual/urgent/all
 # are the accepted values (urgent raises the window's urgency hint).
@@ -184,6 +190,11 @@ pane_prefix = ctrl+b
 #                                  clicking outside)
 #   interactive_paths_editor       editor command template for :line:col jumps
 #                                  (empty = fall back to the system opener)
+# Clickable bare URLs (on by default): a printed http(s):// URL gets a hand
+# cursor + Ctrl+hover underline and opens in the browser on Ctrl+click. Only
+# http/https/file/mailto open; never auto-opened, never shell-interpolated.
+# Independent of interactive_paths below. Set off to disable (byte-identical).
+interactive_urls = on
 interactive_paths = off
 interactive_paths_barewords = on
 interactive_paths_click_hint = on

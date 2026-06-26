@@ -17,15 +17,15 @@ use super::{
     NATIVE_AUTOCLOSE_ENV, NEW_OUTPUT_FADE_ENV, OS_THEME_DARK_ENV, OS_THEME_LIGHT_ENV,
     OSC52_READ_ENV, PANE_PREFIX_ENV, RENDER_QUALITY_ENV, RETRO_ENV, SCROLL_DRAG_SPEED_ENV,
     SCROLL_WHEEL_LINES_ENV, SCROLLBACK_LINES_ENV, SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV,
-    SH_CLICK_ENV, SMOOTH_SCROLL_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV,
-    SYMBOL_FONT_ENV, SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV, THEME_ENV,
-    THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV,
-    WINDOW_PADDING_ENV, normalize_name,
+    SH_CLICK_ENV, SMART_CTRL_C_ENV, SMOOTH_SCROLL_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV,
+    SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV,
+    THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV,
+    WINDOW_DECORATIONS_ENV, WINDOW_PADDING_ENV, normalize_name,
 };
 use super::{
     BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
     INTERACTIVE_PATHS_EDITOR_ENV, INTERACTIVE_PATHS_ENV, INTERACTIVE_PATHS_IMAGE_INLINE_ENV,
-    LINE_HEIGHT_ENV, SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV,
+    INTERACTIVE_URLS_ENV, LINE_HEIGHT_ENV, SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV,
 };
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
@@ -158,6 +158,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         }
         "smoothscroll" | "easedscroll" | "scrollanimation" => Some(SMOOTH_SCROLL_ENV),
         "copyonselect" | "selecttoclipboard" => Some(COPY_ON_SELECT_ENV),
+        "smartctrlc" | "ctrlccopy" | "copyorinterrupt" | "smartcopy" => Some(SMART_CTRL_C_ENV),
         "selectiondragextend" | "dragextend" | "dragextendselection" => {
             Some(SELECTION_DRAG_EXTEND_ENV)
         }
@@ -174,6 +175,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "sshconfighosts" | "sshconfig" | "opensshhosts" | "sshhosts" => Some(SSH_CONFIG_HOSTS_ENV),
         "sessionreplay" | "replay" | "outputreplay" | "scrollbackreplay" => {
             Some(SESSION_REPLAY_ENV)
+        }
+        "interactiveurls" | "urls" | "clickableurls" | "urllinks" | "linkify" => {
+            Some(INTERACTIVE_URLS_ENV)
         }
         "interactivepaths" | "paths" | "clickablepaths" | "pathlinks" => {
             Some(INTERACTIVE_PATHS_ENV)
@@ -250,6 +254,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         SCROLLBACK_LINES_ENV => Some("scrollback_lines"),
         SCROLL_DRAG_SPEED_ENV => Some("scroll_drag_speed"),
         COPY_ON_SELECT_ENV => Some("copy_on_select"),
+        SMART_CTRL_C_ENV => Some("smart_ctrl_c"),
         SELECTION_DRAG_EXTEND_ENV => Some("selection_drag_extend"),
         SCROLLBAR_DRAG_ENV => Some("scrollbar_drag"),
         WHEEL_ZOOM_ENV => Some("wheel_zoom"),
@@ -265,6 +270,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         CONFIRM_CLOSE_ENV => Some("confirm_close"),
         SSH_CONFIG_HOSTS_ENV => Some("ssh_config_hosts"),
         SESSION_REPLAY_ENV => Some("session_replay"),
+        INTERACTIVE_URLS_ENV => Some("interactive_urls"),
         INTERACTIVE_PATHS_ENV => Some("interactive_paths"),
         INTERACTIVE_PATHS_BAREWORDS_ENV => Some("interactive_paths_barewords"),
         INTERACTIVE_PATHS_CLICK_HINT_ENV => Some("interactive_paths_click_hint"),

@@ -52,6 +52,15 @@ These work anywhere in the window. They are all rebindable (see
 
 Notes that trip people up:
 
+- **Copy/paste are `Ctrl+Shift+C` / `Ctrl+Shift+V`** (the Linux-terminal
+  convention) — plain `Ctrl+C` sends the interrupt (`^C`) and plain `Ctrl+V` is
+  readline/vi verbatim-insert. Two ways to change the copy/paste feel:
+  - `smart_ctrl_c = copy-or-interrupt` (Settings → Clipboard) makes plain
+    `Ctrl+C` copy + clear a selection when one exists, and interrupt otherwise.
+  - To make plain `Ctrl+V` paste, bind it: `keybinds = ctrl+v=paste` (this
+    shadows verbatim-insert).
+- A printed `https://…` URL is clickable by default (`Ctrl+click` to open,
+  `Ctrl+hover` to preview the underline); toggle with `interactive_urls`.
 - The settings panel is `Ctrl+Shift+,` (comma), **not** `Ctrl+,`.
 - Prompt navigation is the `Ctrl+Shift+Up/Down` **arrows** only; there are no
   letter-key prompt-jump shortcuts.

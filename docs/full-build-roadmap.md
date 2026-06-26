@@ -343,6 +343,20 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   hover-affordanced links that open on modifier (`Ctrl`) click through the same
   argv-safe dispatch, gated to a `http`/`https`/`file`/`mailto` scheme allowlist
   — never auto-opened, never shell-interpolated.
+- **Shipped — Clickable bare URLs (`interactive_urls`, on by default).** A URL a
+  program printed as plain text (no OSC 8 escape) gets the hand cursor, a
+  `Ctrl`+hover armed underline, and `Ctrl`+click open — reusing the OSC 8 URL
+  scanner (`hints`) and the exact same argv-only, scheme-allowlisted dispatch.
+  Explicit OSC 8 hyperlinks win a tie (no double-decoration); the off path never
+  scans (byte-identical hover). Independent of `interactive_paths`.
+- **Shipped — Smart Ctrl+C (`smart_ctrl_c`, off by default).** Opt-in
+  `copy-or-interrupt` policy: plain `Ctrl+C` copies + clears a local selection
+  when one exists and otherwise sends the interrupt (`^C`). The interrupt stays
+  reachable (no selection, second press, `Esc`-first, or the always-unambiguous
+  `Ctrl+Shift+C`); a full-screen TUI never holds a local selection so its
+  `Ctrl+C` keeps interrupting. Off is byte-identical. Plain `Ctrl+V` stays
+  verbatim-insert (deliberately no smart paste); `keybinds = ctrl+v=paste` is the
+  documented opt-in for Windows-style paste.
 - **Shipped — Interactive paths.** Detect file paths (and `path:line:col` spans) in
   terminal output and make them actionable: an armed-underline hover affordance and
   modifier (`Ctrl`) click to open a file in the editor (jumping to the line/column

@@ -255,6 +255,7 @@ environment variable was not set at startup.
 | `wheel_zoom` | `ODYTTY_WHEEL_ZOOM` | `on`, `off` | `on` |
 | `command_status_gutter` | `ODYTTY_COMMAND_STATUS_GUTTER` | `on`, `off` | `off` |
 | `sh_click` | `ODYTTY_SH_CLICK` | `on`, `off` | `off` |
+| `interactive_urls` | `ODYTTY_INTERACTIVE_URLS` | `on`, `off` | `on` |
 | `interactive_paths` | `ODYTTY_INTERACTIVE_PATHS` | `on`, `off` | `off` |
 | `interactive_paths_barewords` | `ODYTTY_INTERACTIVE_PATHS_BAREWORDS` | `on`, `off` | `on` |
 | `interactive_paths_click_hint` | `ODYTTY_INTERACTIVE_PATHS_CLICK_HINT` | `on`, `off` | `on` |
@@ -265,6 +266,7 @@ environment variable was not set at startup.
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |
 | `copy_on_select` | `ODYTTY_COPY_ON_SELECT` | `on`, `off` | `off` |
+| `smart_ctrl_c` | `ODYTTY_SMART_CTRL_C` | `off`, `copy-or-interrupt` | `off` |
 | `cvd_mode` | `ODYTTY_CVD_MODE` | `off`, `protan`, `deutan`, `tritan` | `off` |
 | `cvd_strength` | `ODYTTY_CVD_STRENGTH` | Float, `0.0..=1.0` | `1.0` |
 | `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer ms | unset |
@@ -486,6 +488,55 @@ closes it. Replay is **presentation-only**: the overlay scrubs a frozen, fully
 decoupled clone of the ring and never mutates the live terminal — the session
 keeps running underneath while you scrub. The scrub view is a monochrome text
 preview of the recorded screen at each point.
+
+### Clickable URLs (`interactive_urls`)
+
+`interactive_urls = on` is the **default**: a bare URL that a program printed as
+plain text — `https://example.com`, not wrapped in an OSC 8 hyperlink escape —
+gets the pointer (hand) cursor on hover, a `Ctrl+hover` armed underline, and
+opens in your browser on `Ctrl+click` (Cmd+click on macOS). It is independent of
+`interactive_paths`: URL opening and filesystem-path detection toggle
+separately. The same toggle is in the Settings panel's Input section.
+
+Security mirrors OSC 8 and interactive paths exactly: URLs are **never
+auto-opened** (always an explicit modifier+click), only an allowlisted scheme
+opens (`http`, `https`, `file`, `mailto` — `ftp`/`ssh`/`git` are detected but
+not opened, and `javascript:` and friends never open), and the URL is passed as
+a direct argv vector to the platform opener with **no shell interpolation**.
+Detection is local-only and scans only the hovered row of the focused pane; an
+explicit OSC 8 hyperlink under the pointer always wins, so a cell is never
+double-decorated. Set `interactive_urls = off` (or `ODYTTY_INTERACTIVE_URLS=off`)
+to disable it — the off path never scans, so the hover frame is byte-identical.
+
+Keyboard alternative, regardless of this setting: `Ctrl+Shift+L` (the `hints`
+action) labels every on-screen URL, path, and hash for keyboard quick-select and
+copy.
+
+### Smart Ctrl+C (`smart_ctrl_c`)
+
+`smart_ctrl_c` controls what plain `Ctrl+C` does, and is **off by default** — so
+plain `Ctrl+C` always sends the interrupt signal (`^C`), exactly as a terminal
+normally does. Set `smart_ctrl_c = copy-or-interrupt` (or
+`ODYTTY_SMART_CTRL_C=copy-or-interrupt`) for the Windows-Terminal-style behavior:
+when text is selected, `Ctrl+C` **copies the selection and clears it**; when
+nothing is selected, `Ctrl+C` still sends the interrupt. The toggle is in the
+Settings panel's Clipboard section, where its value reads `copy-or-interrupt`
+verbatim.
+
+To still send an interrupt while text is selected, press `Esc` first (which
+clears the selection) and then `Ctrl+C`, or just press `Ctrl+C` twice — the first
+press copies and clears, so the second interrupts. `Ctrl+Shift+C` is always an
+unambiguous copy regardless of this setting, and a full-screen TUI never holds a
+local selection, so its `Ctrl+C` keeps interrupting.
+
+Paste is unaffected: `Ctrl+Shift+V` pastes. There is deliberately no
+"smart `Ctrl+V`" — plain `Ctrl+V` stays the readline/vi verbatim-insert (`^V`).
+If you want plain `Ctrl+V` to paste anyway, bind it directly:
+
+```ini
+# odytty.conf — map plain Ctrl+V to paste (shadows ^V verbatim-insert)
+keybinds = ctrl+v=paste
+```
 
 ### Interactive file paths (`interactive_paths`)
 

@@ -221,10 +221,14 @@ impl App {
             match state {
                 ElementState::Pressed => {
                     // OSC 8 hyperlink wins ties; then a resolved interactive
-                    // path (Ctrl+click); else begin a text selection. Both open
-                    // helpers return false when their gate/feature is off, so
-                    // the selection path stays byte-identical when neither fires.
-                    if !self.try_open_hovered_hyperlink() && !self.try_open_hovered_path() {
+                    // path (Ctrl+click); then a bare URL (Ctrl+click); else begin
+                    // a text selection. Each open helper returns false when its
+                    // gate/feature is off, so the selection path stays
+                    // byte-identical when none fires.
+                    if !self.try_open_hovered_hyperlink()
+                        && !self.try_open_hovered_path()
+                        && !self.try_open_hovered_url()
+                    {
                         // UX-A (Phase 11): neither open fired. If this was a plain
                         // click on a resolved path (the Ctrl gate failed), note it
                         // as a mis-click so the discoverability hint can raise

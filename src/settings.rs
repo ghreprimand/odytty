@@ -559,6 +559,55 @@ impl ScrollDragSpeed {
     }
 }
 
+/// What plain `Ctrl+C` does in the focused terminal (SMART-CTRLC).
+///
+/// `Off` (default) is the historical, byte-identical behavior: plain `Ctrl+C`
+/// is never intercepted and always encodes the interrupt byte (`0x03`) to the
+/// PTY. `CopyOrInterrupt` overloads it on a single unambiguous signal — the
+/// presence of a local OdyTTY selection: with text selected, `Ctrl+C` copies
+/// the selection to the clipboard and clears it; with no selection, it sends
+/// `0x03` exactly as before. The interrupt is always reachable (no selection,
+/// the second press after a copy cleared the selection, `Esc` then `Ctrl+C`, or
+/// the unambiguous `Ctrl+Shift+C` copy), and a full-screen TUI never holds a
+/// local selection so its `Ctrl+C` keeps interrupting. The enum (rather than a
+/// bool) lets the settings panel's value column read `copy-or-interrupt`
+/// verbatim and leaves room for future policies without a breaking rename.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SmartCtrlC {
+    /// Plain `Ctrl+C` always sends the interrupt byte (`0x03`). Byte-identical
+    /// to a build without the feature.
+    #[default]
+    Off,
+    /// Plain `Ctrl+C` copies and clears a local selection when one exists;
+    /// otherwise it sends the interrupt byte.
+    CopyOrInterrupt,
+}
+
+impl SmartCtrlC {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::CopyOrInterrupt => "copy-or-interrupt",
+        }
+    }
+
+    /// Whether plain `Ctrl+C` should be intercepted on a present selection.
+    /// `false` for [`SmartCtrlC::Off`], the byte-identical interrupt-always path.
+    pub fn is_active(self) -> bool {
+        self != Self::Off
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "off" | "none" | "disabled" | "interrupt" => Some(Self::Off),
+            "copyorinterrupt" | "copy" | "smart" | "on" | "selectioncopy" => {
+                Some(Self::CopyOrInterrupt)
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Colour-vision-deficiency (colour-blindness) adaptation mode (U4).
 ///
 /// `Off` (default) is the pixel-identical baseline: the palette is published
@@ -836,6 +885,18 @@ pub struct Settings {
     /// the PRIMARY selection (MOUSE-COPYSELECT). Off by default — the off path is
     /// byte-identical to before (PRIMARY + middle-click paste already work).
     pub copy_on_select: bool,
+    /// What plain `Ctrl+C` does in the focused terminal (SMART-CTRLC). `Off`
+    /// (default) always sends the interrupt byte, byte-identical to before;
+    /// `CopyOrInterrupt` copies and clears a local selection when one exists and
+    /// otherwise interrupts. Read live at keypress time; no rebuild on change.
+    pub smart_ctrl_c: SmartCtrlC,
+    /// When on, hovering a bare (non-OSC-8) URL with an allowlisted scheme shows
+    /// the hand cursor + Ctrl+hover armed underline and Ctrl+click opens it
+    /// through the same argv-only, scheme-allowlisted dispatch as OSC 8
+    /// (INTERACTIVE-URLS). On by default (operator decision); off makes the
+    /// bare-URL hover scan never run, so the hover path is byte-identical to a
+    /// build without the feature. Independent of `interactive_paths`.
+    pub interactive_urls: bool,
     /// When on, a double-click-then-drag extends the selection by whole words, a
     /// triple-click-then-drag by whole lines, and Shift+click extends the
     /// current selection (MOUSE-EXTEND). On by default (operator decision); off
@@ -1034,6 +1095,7 @@ impl Default for Settings {
             scrollback_lines: DEFAULT_SCROLLBACK_LINES,
             scroll_drag_speed: ScrollDragSpeed::default(),
             copy_on_select: DEFAULT_COPY_ON_SELECT,
+            smart_ctrl_c: SmartCtrlC::default(),
             selection_drag_extend: DEFAULT_SELECTION_DRAG_EXTEND,
             scrollbar_drag: DEFAULT_SCROLLBAR_DRAG,
             wheel_zoom: DEFAULT_WHEEL_ZOOM,
@@ -1053,6 +1115,7 @@ impl Default for Settings {
             confirm_close: DEFAULT_CONFIRM_CLOSE,
             ssh_config_hosts: DEFAULT_SSH_CONFIG_HOSTS,
             session_replay: DEFAULT_SESSION_REPLAY,
+            interactive_urls: DEFAULT_INTERACTIVE_URLS,
             interactive_paths: DEFAULT_INTERACTIVE_PATHS,
             interactive_paths_barewords: DEFAULT_INTERACTIVE_PATHS_BAREWORDS,
             interactive_paths_click_hint: DEFAULT_INTERACTIVE_PATHS_CLICK_HINT,
@@ -1530,6 +1593,7 @@ impl Settings {
             DEFAULT_COPY_ON_SELECT,
             &mut warn,
         );
+        let smart_ctrl_c = parse_smart_ctrl_c(get(SMART_CTRL_C_ENV).as_deref(), &mut warn);
         let selection_drag_extend = parse_bool_setting(
             get(SELECTION_DRAG_EXTEND_ENV).as_deref(),
             SELECTION_DRAG_EXTEND_ENV,
@@ -1620,6 +1684,12 @@ impl Settings {
             DEFAULT_SESSION_REPLAY,
             &mut warn,
         );
+        let interactive_urls = parse_bool_setting(
+            get(INTERACTIVE_URLS_ENV).as_deref(),
+            INTERACTIVE_URLS_ENV,
+            DEFAULT_INTERACTIVE_URLS,
+            &mut warn,
+        );
         let interactive_paths = parse_bool_setting(
             get(INTERACTIVE_PATHS_ENV).as_deref(),
             INTERACTIVE_PATHS_ENV,
@@ -1705,6 +1775,7 @@ impl Settings {
             scrollback_lines,
             scroll_drag_speed,
             copy_on_select,
+            smart_ctrl_c,
             selection_drag_extend,
             scrollbar_drag,
             wheel_zoom,
@@ -1724,6 +1795,7 @@ impl Settings {
             confirm_close,
             ssh_config_hosts,
             session_replay,
+            interactive_urls,
             interactive_paths,
             interactive_paths_barewords,
             interactive_paths_click_hint,
@@ -1857,6 +1929,7 @@ impl Settings {
             COPY_ON_SELECT_ENV,
             bool_display(self.copy_on_select).to_owned(),
         );
+        values.insert(SMART_CTRL_C_ENV, self.smart_ctrl_c.as_str().to_owned());
         values.insert(
             SELECTION_DRAG_EXTEND_ENV,
             bool_display(self.selection_drag_extend).to_owned(),
@@ -1911,6 +1984,10 @@ impl Settings {
         values.insert(
             SESSION_REPLAY_ENV,
             bool_display(self.session_replay).to_owned(),
+        );
+        values.insert(
+            INTERACTIVE_URLS_ENV,
+            bool_display(self.interactive_urls).to_owned(),
         );
         values.insert(
             INTERACTIVE_PATHS_ENV,

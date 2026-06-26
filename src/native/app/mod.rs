@@ -533,6 +533,10 @@ impl App {
             // UX-A (Phase 11): drop the armed-underline span alongside the
             // hovered path it mirrors; a reflow makes its old row coords stale.
             self.hovered_path_cells = None;
+            // INTERACTIVE-URLS: drop the hovered-URL span too; its row coords are
+            // equally stale after a reflow.
+            self.hovered_url = None;
+            self.hovered_url_cells = None;
             // Reflow changes the row/scrollback layout; return to the live
             // bottom so the offset is never stale against the new geometry.
             // Search closes because its absolute row matches were computed
@@ -1177,6 +1181,15 @@ impl App {
                 | Some(BindableAction::ZoomPane)
                 | Some(BindableAction::EqualizePanes) => {}
             }
+            // SMART-CTRLC: a plain Ctrl+C that matched no binding copies + clears
+            // a local selection when the copy-or-interrupt policy is on, then
+            // swallows the chord. With the policy off, no selection, or any other
+            // key it returns false and falls through to the interrupt-byte encode
+            // below, so the ^C path stays byte-identical. Inside the press-only
+            // guard, so a key release never triggers a copy.
+            if self.smart_ctrl_c_intercept(&logical, mods) {
+                return;
+            }
         }
         if self.overlay.is_open() {
             return;
@@ -1418,6 +1431,37 @@ impl App {
             return;
         };
         let _ = self.clipboard.write_text(text.as_str());
+    }
+
+    /// SMART-CTRLC: handle a plain `Ctrl+C` under the copy-or-interrupt policy.
+    ///
+    /// Returns `true` (the chord was consumed) only when the policy is active,
+    /// the chord is *plain* `Ctrl+C` (Ctrl held; no Shift/Alt/Super — so the
+    /// `Ctrl+Shift+C` copy binding, handled earlier, never reaches here), and a
+    /// local OdyTTY selection exists: it copies the selection and clears it so an
+    /// immediate second `Ctrl+C` interrupts. In every other case it returns
+    /// `false` and the caller falls through to the normal interrupt-byte encode,
+    /// so the `^C` path is byte-identical when the policy is off, when nothing is
+    /// selected, or for any non-`Ctrl+C` key. Press-only by virtue of the
+    /// enclosing `event_type != Release` guard at the call site.
+    fn smart_ctrl_c_intercept(&mut self, logical: &WinitKey, mods: Modifiers) -> bool {
+        if !self.settings.smart_ctrl_c.is_active() {
+            return false;
+        }
+        if !mods.ctrl || mods.shift || mods.alt || self.super_key {
+            return false;
+        }
+        if !is_ctrl_c_key(logical) {
+            return false;
+        }
+        if self.selection.range().is_none() {
+            return false;
+        }
+        self.handle_copy_shortcut();
+        self.selection.clear();
+        self.selection_block = false;
+        self.request_selection_redraw();
+        true
     }
 
     /// Open the right-click context menu (IN2) at the cached pointer cell, with
@@ -2729,6 +2773,21 @@ impl ApplicationHandler<UserEvent> for App {
 
 fn rgb(color: (u8, u8, u8)) -> RgbColor {
     RgbColor::new(color.0, color.1, color.2)
+}
+
+/// Whether a logical key is the `C` of a `Ctrl+C` chord (SMART-CTRLC). `winit`
+/// usually delivers the unmodified logical character (`"c"`/`"C"`), but some
+/// platforms surface the control transform (`U+0003`, ETX); accept both so the
+/// smart-Ctrl+C policy is robust across backends. Modifier state is checked by
+/// the caller, so this only inspects the key identity.
+fn is_ctrl_c_key(logical: &WinitKey) -> bool {
+    match logical {
+        WinitKey::Character(text) => text
+            .chars()
+            .next()
+            .is_some_and(|ch| ch == '\u{3}' || ch.eq_ignore_ascii_case(&'c')),
+        _ => false,
+    }
 }
 
 fn bloom_options(settings: &Settings) -> BloomOptions {

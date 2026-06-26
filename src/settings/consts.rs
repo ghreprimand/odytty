@@ -57,6 +57,7 @@ pub const SCROLLBACK_LINES_ENV: &str = "ODYTTY_SCROLLBACK_LINES";
 pub const SCROLL_DRAG_SPEED_ENV: &str = "ODYTTY_SCROLL_DRAG_SPEED";
 pub const SMOOTH_SCROLL_ENV: &str = "ODYTTY_SMOOTH_SCROLL";
 pub const COPY_ON_SELECT_ENV: &str = "ODYTTY_COPY_ON_SELECT";
+pub const SMART_CTRL_C_ENV: &str = "ODYTTY_SMART_CTRL_C";
 pub const SELECTION_DRAG_EXTEND_ENV: &str = "ODYTTY_SELECTION_DRAG_EXTEND";
 pub const SCROLLBAR_DRAG_ENV: &str = "ODYTTY_SCROLLBAR_DRAG";
 pub const WHEEL_ZOOM_ENV: &str = "ODYTTY_WHEEL_ZOOM";
@@ -72,6 +73,7 @@ pub const OS_THEME_LIGHT_ENV: &str = "ODYTTY_OS_THEME_LIGHT";
 pub const CONFIRM_CLOSE_ENV: &str = "ODYTTY_CONFIRM_CLOSE";
 pub const SSH_CONFIG_HOSTS_ENV: &str = "ODYTTY_SSH_CONFIG_HOSTS";
 pub const SESSION_REPLAY_ENV: &str = "ODYTTY_SESSION_REPLAY";
+pub const INTERACTIVE_URLS_ENV: &str = "ODYTTY_INTERACTIVE_URLS";
 pub const INTERACTIVE_PATHS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS";
 pub const INTERACTIVE_PATHS_BAREWORDS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS_BAREWORDS";
 pub const INTERACTIVE_PATHS_CLICK_HINT_ENV: &str = "ODYTTY_INTERACTIVE_PATHS_CLICK_HINT";
@@ -138,6 +140,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SCROLL_DRAG_SPEED_ENV,
     SMOOTH_SCROLL_ENV,
     COPY_ON_SELECT_ENV,
+    SMART_CTRL_C_ENV,
     SELECTION_DRAG_EXTEND_ENV,
     SCROLLBAR_DRAG_ENV,
     WHEEL_ZOOM_ENV,
@@ -151,6 +154,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CONFIRM_CLOSE_ENV,
     SSH_CONFIG_HOSTS_ENV,
     SESSION_REPLAY_ENV,
+    INTERACTIVE_URLS_ENV,
     INTERACTIVE_PATHS_ENV,
     INTERACTIVE_PATHS_BAREWORDS_ENV,
     INTERACTIVE_PATHS_CLICK_HINT_ENV,
@@ -232,6 +236,19 @@ pub const DEFAULT_SESSION_REPLAY: bool = false;
 /// `stat` happens only on a hovered candidate. Hover detection runs on the
 /// focused pane only (v1 bound, shared with OSC 8 hyperlink hover).
 pub const DEFAULT_INTERACTIVE_PATHS: bool = false;
+
+/// Interactive bare URLs (`ODYTTY_INTERACTIVE_URLS`). On by default (operator
+/// decision — match the common terminal expectation that printed URLs are
+/// clickable out of the box). When on, hovering a bare `http(s)://…` (or other
+/// allowlisted-scheme) URL that an application printed without an OSC 8 escape
+/// shows the pointer (hand) cursor and a Ctrl+hover armed underline, and
+/// Ctrl+click opens it through the same argv-only, scheme-allowlisted dispatch
+/// as OSC 8 hyperlinks — never auto-opened, never shell-interpolated. Off makes
+/// the bare-URL hover scan never run, so the hover path is byte-identical to a
+/// build without the feature. Independent of `interactive_paths`: URL opening
+/// and filesystem-path detection toggle separately. Explicit OSC 8 hyperlinks
+/// always win a tie so a cell is never double-decorated.
+pub const DEFAULT_INTERACTIVE_URLS: bool = true;
 
 /// Bare filename detection for interactive paths
 /// (`ODYTTY_INTERACTIVE_PATHS_BAREWORDS`). On by default once interactive paths

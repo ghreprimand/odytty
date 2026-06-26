@@ -597,6 +597,91 @@ impl App {
             .map(|(resolved, _)| resolved)
     }
 
+    /// INTERACTIVE-URLS: recompute the bare-URL span under the pointer.
+    ///
+    /// Mirrors [`Self::update_hover_path`]: when `interactive_urls` is off (and
+    /// after clearing any stale span) it returns before any terminal lock or
+    /// scan, so the default hover path is a single bool test and byte-identical.
+    /// When on, it latches the openable URL under the pointer (if any) and fires
+    /// a redraw only when the resolved URL or its span actually changes.
+    fn update_hover_url(&mut self) {
+        if !self.settings.interactive_urls {
+            if self.hovered_url.is_some() || self.hovered_url_cells.is_some() {
+                self.hovered_url = None;
+                self.hovered_url_cells = None;
+                self.needs_rebuild = true;
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
+            return;
+        }
+        let (url, cells) = match self.resolved_hovered_url_with_cells() {
+            Some((url, cells)) => (Some(url), Some(cells)),
+            None => (None, None),
+        };
+        if self.hovered_url != url || self.hovered_url_cells != cells {
+            self.hovered_url = url;
+            self.hovered_url_cells = cells;
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+    }
+
+    /// Find the bare (non-OSC-8) URL under the pointer cell and its visible-cell
+    /// span. Runs the shared, tested [`crate::hints`] URL scanner over the single
+    /// hovered row, picks the match covering the pointer column, and keeps it
+    /// only when its scheme is openable ([`openable_hyperlink_uri`]). Returns
+    /// `None` when no URL sits under the pointer, when the scheme is not openable
+    /// (e.g. `ftp`/`ssh` are detected but not opened), or when the hovered cell
+    /// already carries an OSC 8 hyperlink — that explicit path wins, so a cell is
+    /// never double-decorated. One terminal lock, no filesystem or network access.
+    fn resolved_hovered_url_with_cells(
+        &self,
+    ) -> Option<(String, super::click_hint::HoverPathCells)> {
+        let point = self.pointer_cell?;
+        if point.row >= self.grid.rows || point.column >= self.grid.columns {
+            return None;
+        }
+        let terminal = self.terminal.lock().ok()?;
+        let snapshot = terminal.snapshot_with_scrollback(self.viewport.offset());
+        let cols = snapshot.dimensions.columns;
+        if cols == 0 || point.row >= snapshot.dimensions.rows {
+            return None;
+        }
+        let start = point.row * cols;
+        let row_cells = snapshot.cells.get(start..start + cols)?;
+        // OSC 8 wins: an explicit hyperlink under the pointer is handled by the
+        // OSC 8 path, so never light the bare-URL decoration on the same cell.
+        if row_cells
+            .get(point.column)
+            .and_then(|cell| cell.attrs.hyperlink)
+            .is_some()
+        {
+            return None;
+        }
+        let rows = [crate::core::SearchRow {
+            cells: row_cells,
+            wrapped: false,
+        }];
+        let matched = crate::hints::scan(&rows, crate::hints::HintKinds::URLS)
+            .into_iter()
+            .find(|m| {
+                m.start.row == 0 && m.start.column <= point.column && point.column <= m.end.column
+            })?;
+        if !openable_hyperlink_uri(&matched.text) {
+            return None;
+        }
+        let cells = super::click_hint::HoverPathCells {
+            row: point.row,
+            start: matched.start.column,
+            end: matched.end.column + 1,
+        };
+        Some((matched.text, cells))
+    }
+
     /// As [`Self::resolved_hovered_path`], but also returns the visible-cell span
     /// (UX-A): the row and column range the detected path occupies, so the
     /// Ctrl+hover armed underline can decorate exactly those cells. The span's
@@ -808,6 +893,47 @@ impl App {
             return true;
         }
         let argv = self.path_open_argv_for(&resolved);
+        self.spawn_open_or_notice(&argv);
+        true
+    }
+
+    /// INTERACTIVE-URLS: modifier+click open for a bare (non-OSC-8) URL span
+    /// under the pointer (Ctrl on Linux, Cmd on macOS). Chained in the pointer
+    /// Pressed arm AFTER [`Self::try_open_hovered_hyperlink`] and
+    /// [`Self::try_open_hovered_path`] (OSC 8 and resolved paths win ties), before
+    /// `begin_selection`, so a `false` return leaves the selection path
+    /// byte-identical.
+    ///
+    /// Returns `false` immediately — opening nothing, starting no selection
+    /// change — when the feature is off, the open-modifier gate is not satisfied,
+    /// or no openable URL sits under the pointer. The gate and the open dispatch
+    /// are exactly the OSC 8 ones: [`hyperlink_action_allowed`] (platform open
+    /// modifier, suppressed under mouse reporting unless Shift overrides),
+    /// [`openable_hyperlink_uri`] scheme allowlist, and the argv-only
+    /// [`super::platform_opener::open_default_argv`] dispatch — never a shell
+    /// string, never auto-opened.
+    pub(super) fn try_open_hovered_url(&mut self) -> bool {
+        if !self.settings.interactive_urls {
+            return false;
+        }
+        if !hyperlink_action_allowed(
+            self.modifiers,
+            self.super_key,
+            self.mouse_reporting_enabled(),
+            super::platform_opener::OpenerOs::host(),
+        ) {
+            return false;
+        }
+        let Some(uri) = self.hovered_url.clone() else {
+            return false;
+        };
+        if !openable_hyperlink_uri(&uri) {
+            return false;
+        }
+        let argv = super::platform_opener::open_default_argv(
+            super::platform_opener::OpenerOs::host(),
+            &uri,
+        );
         self.spawn_open_or_notice(&argv);
         true
     }
@@ -1163,14 +1289,21 @@ impl App {
         // feature off (the default) it returns before scanning and this call is a
         // single bool test — the hover path stays byte-identical.
         self.update_hover_path();
+        // INTERACTIVE-URLS: recompute the hovered bare-URL span. Gated on the
+        // `interactive_urls` setting inside `update_hover_url`; off makes this a
+        // single bool test so the hover path stays byte-identical.
+        self.update_hover_url();
         // Cursor shape over the terminal grid: a hand on a hovered hyperlink OR a
-        // resolved interactive path, the arrow while a TUI has mouse reporting
-        // enabled (it owns clicks, so an I-beam would mislead), and the I-beam
-        // over plain selectable text — the standard terminal affordance OdyTTY
-        // previously never set. `hovered_path` is permanently `None` while the
-        // feature is off, so the default decision is unchanged. OSC 8 wins ties
-        // (cosmetically identical icon; the precedence matters for C3 click).
-        let grid_icon = if self.hovered_hyperlink.is_some() || self.hovered_path.is_some() {
+        // resolved interactive path OR a bare URL, the arrow while a TUI has mouse
+        // reporting enabled (it owns clicks, so an I-beam would mislead), and the
+        // I-beam over plain selectable text — the standard terminal affordance
+        // OdyTTY previously never set. The hovered spans are permanently `None`
+        // while their features are off, so the default decision is unchanged. OSC
+        // 8 wins ties (cosmetically identical icon; precedence matters for click).
+        let grid_icon = if self.hovered_hyperlink.is_some()
+            || self.hovered_path.is_some()
+            || self.hovered_url.is_some()
+        {
             CursorIcon::Pointer
         } else if self.mouse_reporting_enabled() {
             CursorIcon::Default

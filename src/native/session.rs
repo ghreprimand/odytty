@@ -110,6 +110,20 @@ pub(super) struct Session {
     /// `hovered_path` is `None`, so it is permanently `None` while the feature is
     /// off and the default hover path is byte-identical.
     pub(super) hovered_path_cells: Option<super::app::click_hint::HoverPathCells>,
+    /// INTERACTIVE-URLS: the bare (non-OSC-8) URL currently under the pointer
+    /// whose scheme is openable, or `None`. The full URI string to open; drives
+    /// the pointer (hand) cursor and the Ctrl+click open exactly like an OSC 8
+    /// hyperlink. Permanently `None` while the `interactive_urls` setting is off
+    /// (the scanner is gated off before it runs), so the default hover path is
+    /// byte-identical. Always `None` when the hovered cell already carries an
+    /// OSC 8 hyperlink — that explicit path wins, so a cell is never
+    /// double-decorated.
+    pub(super) hovered_url: Option<String>,
+    /// INTERACTIVE-URLS: the visible-cell span of `hovered_url`, captured in the
+    /// same hover computation so the Ctrl+hover armed underline can decorate
+    /// exactly those cells. Kept in lockstep with `hovered_url` (set/cleared
+    /// together), so it is permanently `None` while the feature is off.
+    pub(super) hovered_url_cells: Option<super::app::click_hint::HoverPathCells>,
     /// Test seam (INTERACTIVE-PATHS): synthetic stat-gate so headless hover
     /// tests resolve path spans against an injected fs map, never the real
     /// filesystem. Production builds compile this out and use `FsResolveProbe`.
@@ -270,6 +284,8 @@ impl Session {
             hovered_hyperlink: None,
             hovered_path: None,
             hovered_path_cells: None,
+            hovered_url: None,
+            hovered_url_cells: None,
             #[cfg(test)]
             test_path_probe: super::app::interactive_paths::MapProbe::default(),
             pointer_drag: PointerDrag::None,

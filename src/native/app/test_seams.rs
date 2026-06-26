@@ -406,6 +406,15 @@ impl App {
         self.hovered_path.as_ref()
     }
 
+    /// Test seam (INTERACTIVE-URLS): the bare-URL string currently under the
+    /// pointer, so a test can assert the gate keeps it `None` when the feature is
+    /// off, that an openable bare URL latches, and that an OSC 8 cell or a
+    /// non-openable scheme never latches.
+    #[cfg(test)]
+    pub(in crate::native) fn hovered_url_for_test(&self) -> Option<&str> {
+        self.hovered_url.as_deref()
+    }
+
     /// Test seam (UX-A / Phase 11): toggle the `interactive_paths_click_hint`
     /// setting so the hint-on / hint-silenced parity can be pinned.
     #[cfg(test)]
@@ -444,6 +453,25 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn set_interactive_paths_for_test(&mut self, on: bool) {
         self.settings.interactive_paths = on;
+    }
+
+    /// Test seam (INTERACTIVE-URLS): toggle the `interactive_urls` setting so the
+    /// gated bare-URL hover-scan path (and its byte-identical off path) can be
+    /// pinned without an env var.
+    #[cfg(test)]
+    pub(in crate::native) fn set_interactive_urls_for_test(&mut self, on: bool) {
+        self.settings.interactive_urls = on;
+    }
+
+    /// Test seam (SMART-CTRLC): set the `smart_ctrl_c` policy so the plain-Ctrl+C
+    /// copy-or-interrupt branch (and its byte-identical off path) can be pinned
+    /// through the production `handle_key_event` path.
+    #[cfg(test)]
+    pub(in crate::native) fn set_smart_ctrl_c_for_test(
+        &mut self,
+        mode: crate::settings::SmartCtrlC,
+    ) {
+        self.settings.smart_ctrl_c = mode;
     }
 
     /// Test seam (INTERACTIVE-PATHS / C3): set the `interactive_paths_editor`

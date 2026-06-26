@@ -227,6 +227,85 @@ fn copy_on_select_defaults_off_and_parses() {
 }
 
 #[test]
+fn smart_ctrl_c_defaults_off_and_parses() {
+    // Absent → off (byte-identical: plain Ctrl+C always sends the interrupt).
+    let (settings, warnings) = settings_from([]);
+    assert_eq!(settings.smart_ctrl_c, SmartCtrlC::Off);
+    assert!(!settings.smart_ctrl_c.is_active());
+    assert!(warnings.is_empty());
+
+    // Enabled via the env/config key (canonical token + aliases).
+    let (settings, _) = settings_from([(SMART_CTRL_C_ENV, "copy-or-interrupt")]);
+    assert_eq!(settings.smart_ctrl_c, SmartCtrlC::CopyOrInterrupt);
+    assert!(settings.smart_ctrl_c.is_active());
+
+    let (settings, _) = settings_from([(SMART_CTRL_C_ENV, "on")]);
+    assert_eq!(settings.smart_ctrl_c, SmartCtrlC::CopyOrInterrupt);
+
+    let (settings, _) = settings_from([(SMART_CTRL_C_ENV, "off")]);
+    assert_eq!(settings.smart_ctrl_c, SmartCtrlC::Off);
+
+    // Unknown value warns and falls back to off.
+    let (settings, warnings) = settings_from([(SMART_CTRL_C_ENV, "bogus")]);
+    assert_eq!(settings.smart_ctrl_c, SmartCtrlC::Off);
+    assert_eq!(warnings.len(), 1);
+
+    // Config-file key + alias map to the env key and back, and the value
+    // survives a to_edit_values round-trip.
+    assert_eq!(config_key_to_env("smart_ctrl_c"), Some(SMART_CTRL_C_ENV));
+    assert_eq!(
+        config_key_to_env("copy_or_interrupt"),
+        Some(SMART_CTRL_C_ENV)
+    );
+    assert_eq!(env_to_config_key(SMART_CTRL_C_ENV), Some("smart_ctrl_c"));
+    assert_eq!(
+        Settings {
+            smart_ctrl_c: SmartCtrlC::CopyOrInterrupt,
+            ..Settings::default()
+        }
+        .to_edit_values()
+        .get(SMART_CTRL_C_ENV)
+        .map(String::as_str),
+        Some("copy-or-interrupt")
+    );
+}
+
+#[test]
+fn interactive_urls_defaults_on_and_round_trips_through_config_key() {
+    // Absent → on (operator decision: printed URLs are clickable out of the box).
+    let (settings, warnings) = settings_from([]);
+    assert!(settings.interactive_urls);
+    assert!(warnings.is_empty());
+
+    let (settings, _) = settings_from([(INTERACTIVE_URLS_ENV, "off")]);
+    assert!(!settings.interactive_urls);
+
+    let (settings, _) = settings_from([(INTERACTIVE_URLS_ENV, "on")]);
+    assert!(settings.interactive_urls);
+
+    // Config-file key + alias map to the env key and back.
+    assert_eq!(
+        config_key_to_env("interactive_urls"),
+        Some(INTERACTIVE_URLS_ENV)
+    );
+    assert_eq!(config_key_to_env("linkify"), Some(INTERACTIVE_URLS_ENV));
+    assert_eq!(
+        env_to_config_key(INTERACTIVE_URLS_ENV),
+        Some("interactive_urls")
+    );
+    assert_eq!(
+        Settings {
+            interactive_urls: false,
+            ..Settings::default()
+        }
+        .to_edit_values()
+        .get(INTERACTIVE_URLS_ENV)
+        .map(String::as_str),
+        Some("off")
+    );
+}
+
+#[test]
 fn sh_click_defaults_off_and_round_trips_through_config_key() {
     // Absent → off (SH-CLICK click-to-position is off by default; the off path
     // emits no bytes and is byte-identical to today).

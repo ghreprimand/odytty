@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Smart Ctrl+C (copy-or-interrupt) and clickable bare URLs
+
+Two opt-in interaction ergonomics, each behind a setting with a byte-identical
+off path.
+
+**Smart Ctrl+C (`smart_ctrl_c`, off by default).** New enum setting in the
+Clipboard group: `off` (default) keeps plain `Ctrl+C` always sending the
+interrupt (`^C`), exactly as before; `copy-or-interrupt` makes plain `Ctrl+C`
+copy + clear a local selection when one exists, and interrupt when nothing is
+selected. The interrupt stays reachable via no-selection, a second press
+(the first copy clears the selection), `Esc`-first, or the always-unambiguous
+`Ctrl+Shift+C`; a full-screen TUI never holds a local selection, so its `Ctrl+C`
+keeps interrupting. The intercept lives in the press-only branch of
+`handle_key_event` before the PTY encode fall-through, so the off path is
+byte-identical. Plain `Ctrl+V` deliberately stays verbatim-insert (no smart
+paste — no clean disambiguating signal, and it would shadow `^V`);
+`keybinds = ctrl+v=paste` is the documented one-liner for Windows-style paste.
+The enum (not a bool) makes the settings-panel value read `copy-or-interrupt`
+verbatim — answering the "hard to find/understand" complaint directly.
+
+**Clickable bare URLs (`interactive_urls`, on by default).** A URL a program
+printed as plain text — not wrapped in an OSC 8 hyperlink — now gets the hand
+cursor on hover, a `Ctrl`+hover armed underline, and `Ctrl`+click open. It reuses
+the existing, tested `hints` URL scanner (run over the single hovered row) and
+the exact same argv-only, scheme-allowlisted (`http`/`https`/`file`/`mailto`)
+open dispatch as OSC 8 — never auto-opened, never shell-interpolated; `ftp`/`ssh`
+are detected but not opened. An explicit OSC 8 hyperlink under the pointer always
+wins (no double-decoration), and the off path never scans (byte-identical hover).
+Independent of `interactive_paths` so URL-opening and filesystem-path detection
+toggle separately. The armed-underline painter/signature were broadened to cover
+the URL span with no new render variant.
+
+State: implemented end to end (settings wiring, key handler, hover scan, cursor +
+armed underline, open dispatch). Verified with `cargo fmt --check`,
+`cargo clippy --all-targets` (clean), and the full `cargo test` suite green
+(2553 lib tests + all integration suites), including the new
+`settings::tests::numeric` round-trips, `native::tests::smart_ctrl_c` (4) and
+`native::tests::interactive_urls` (5). Public docs updated: `docs/runtime-knobs.md`
+(both keys + tables + prose), `docs/odytty.conf.example`, `docs/keybindings.md`
+(copy/paste notes + the `ctrl+v=paste` one-liner), and the build roadmap. No
+version bump — not cut as a release.
+
+---
+
 ## 2026-06-26 -- Harden macOS session-host reattach test against PTY timing flake
 
 Test-only hardening for a macOS CI flake in

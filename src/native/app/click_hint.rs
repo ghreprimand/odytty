@@ -173,23 +173,30 @@ pub(in crate::native) struct HoverPathCells {
 }
 
 impl App {
-    /// The armed-underline span, or `None` unless `interactive_paths` is on, the
-    /// platform open modifier is held (Ctrl on Linux, Cmd on macOS — same
-    /// per-OS resolution as the open gesture, [`open_modifier_held`]), and a
-    /// resolved path is hovered. Both the painter and the cache signature read
-    /// this, so the underline appears/disappears coherently when the open
-    /// modifier toggles or the hovered span moves.
+    /// The armed-underline span, or `None` unless the platform open modifier is
+    /// held (Ctrl on Linux, Cmd on macOS — same per-OS resolution as the open
+    /// gesture, [`open_modifier_held`]) and a hovered openable target exists: a
+    /// resolved interactive path (gated on `interactive_paths`) or a bare URL
+    /// (gated on `interactive_urls`). Both the painter and the cache signature
+    /// read this, so the underline appears/disappears coherently when the open
+    /// modifier toggles or the hovered span moves. A path and a URL can never be
+    /// hovered at the same cell, so the path span is preferred when both somehow
+    /// resolve.
     pub(in crate::native) fn armed_path_underline_cells(&self) -> Option<HoverPathCells> {
-        if !self.settings.interactive_paths
-            || !open_modifier_held(
-                self.modifiers,
-                self.super_key,
-                super::platform_opener::OpenerOs::host(),
-            )
-        {
+        if !open_modifier_held(
+            self.modifiers,
+            self.super_key,
+            super::platform_opener::OpenerOs::host(),
+        ) {
             return None;
         }
-        self.hovered_path_cells
+        if self.settings.interactive_paths && self.hovered_path_cells.is_some() {
+            return self.hovered_path_cells;
+        }
+        if self.settings.interactive_urls && self.hovered_url_cells.is_some() {
+            return self.hovered_url_cells;
+        }
+        None
     }
 
     /// Cache fragment for the armed underline: the span coords while armed, else
