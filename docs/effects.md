@@ -22,7 +22,7 @@ post-processing. Post effects cannot feed their output back into that CPU
 resolver, so any effect that changes brightness must be structurally bounded in
 the shader. Bloom adds light only; CRT scanlines and vignette use capped
 multiplicative dimming with a soft-knee brightness floor (no hard clamp step)
-plus an 8-bit ordered dither so the gradient never posterizes into banding.
+plus an 8×8 ordered dither so the gradient never posterizes into banding.
 
 **Adapter-gated.** Effects that require GPU features OdyTTY cannot guarantee
 (for example, a filterable HDR render target) silently fall back to the plain
@@ -36,7 +36,7 @@ direct and offscreen-passthrough paths.
 
 ---
 
-## Bloom (VE2)
+## Bloom
 
 Bloom adds an optional HDR phosphor glow around bright cells — glyphs whose
 linear luminance exceeds a configurable knee. The effect is achieved by
@@ -66,13 +66,14 @@ reference (all settings, types, defaults, and reload behaviour) is in
 direct scene path when no other post effect is active.
 
 **`bloom_threshold`** — linear luminance knee for the bright-pass. Pixels
-brighter than this value are eligible to glow; pixels below it are not. The
-`auto` derives the threshold from the active theme's foreground
-luminance plus a safety margin (`relative_luminance(foreground) + 0.12`),
-clamped to `0.70–1.25`. This keeps normal body text below the knee so it does
-not glow — only genuinely bright elements (bold highlights, status indicators,
-and glyphs rendered against a bright background) participate. Specify a fixed
-float to override the theme-derived value. The built-in default is `0.75`.
+brighter than this value are eligible to glow; pixels below it are not. `auto`
+(and an empty value) resolves to the static built-in default `0.75`; it is not
+theme-derived today. A theme-foreground-seeded knee
+(`relative_luminance(foreground) + 0.12`, clamped to `0.70–1.25`) is reserved in
+the code but not yet wired into config resolution. The default `0.75` keeps
+normal body text below the knee so it does not glow — only genuinely bright
+elements (bold highlights, status indicators, and glyphs rendered against a
+bright background) participate. Specify a fixed float to override the default.
 
 **`bloom_intensity`** — additive glow strength. `0.0` produces no glow even
 when enabled; `0.8` is the default ambient glow strength; `1.0` is the cap.
@@ -100,8 +101,9 @@ ODYTTY_BLOOM=on ODYTTY_BLOOM_THRESHOLD=0.75 ODYTTY_BLOOM_INTENSITY=0.8 ODYTTY_BL
 
 ### Enabling via the settings overlay
 
-Open the settings overlay with `Ctrl+Shift+,`, navigate to the `bloom` row, and
-toggle it with `Space` or `Enter`. Bloom activates immediately on the next
+Open the settings overlay with `Ctrl+Shift+,` (see
+[`docs/keybindings.md`](keybindings.md) for the full chord reference), navigate
+to the `bloom` row, and toggle it with `Space` or `Enter`. Bloom activates immediately on the next
 frame. Adjust `bloom_threshold`, `bloom_intensity`, and `bloom_radius` in the
 same panel; each change applies live. Press `Ctrl+S` in the overlay to persist
 the settings to `odytty.conf`.
@@ -189,8 +191,9 @@ physical pixels. `7.0` is the default.
 **`crt_vignette_strength`** — edge dimming strength. Values are clamped to
 `0.0–0.45`. The shader approaches its brightness floor through a soft knee
 rather than a hard clamp, so the edge gradient stays smooth instead of forming a
-visible banding ring, and a CRT-only 8-bit ordered dither breaks up any residual
-8-bit posterization. Lit cells are never zeroed by the vignette.
+visible banding ring, and the 8×8 ordered dither in the composite pass — applied
+whenever post-process is active (bloom or CRT), not CRT-only — breaks up any
+residual 8-bit posterization. Lit cells are never zeroed by the vignette.
 
 **`crt_curvature`** — subtle barrel-distortion screen curvature. `0.0` is flat
 and pixel-identical to the no-curvature path. The cap is intentionally low
@@ -217,6 +220,24 @@ ODYTTY_CRT=on ODYTTY_CRT_SCANLINE_INTENSITY=0.17 odytty
 CRT uses the same `Rgba16Float` post-process target as bloom. If the adapter
 cannot render, bind, and filter that format, OdyTTY uses the plain direct path.
 With both bloom and CRT disabled, no offscreen texture is allocated.
+
+---
+
+## The ambient visual setting
+
+`visual` is the back-compat selector for OdyTTY's scanline look.
+
+| Setting | Env | Values | Default |
+|---------|-----|--------|---------|
+| `visual` | `ODYTTY_VISUAL` | `off` / `ambient` (alias `scanlines`) | `ambient` |
+
+The scanline look is produced by the unified CRT post-process described above —
+the legacy per-cell ambient wash was retired and folded into it. `visual = ambient`
+(the default) and `visual = scanlines` are aliases that request that look: when
+no explicit `crt` value is set, an ambient `visual` turns the CRT pass on, while
+an explicit `crt` setting always wins, so the two never stack. `off`, `none`, and
+`plain` opt out of the alias. In practice you tune the scanline appearance with
+the `crt_*` knobs above; `visual` exists so older configs keep working.
 
 ---
 
@@ -327,6 +348,48 @@ smooth_scroll = on
 ```sh
 ODYTTY_SMOOTH_SCROLL=on cargo run --release
 ```
+
+---
+
+## Accessibility
+
+OdyTTY's accessibility effects share the same readability and pixel-identical-when-off
+contracts as the rest of this guide. The full reference — including the
+minimum-contrast floor and the bell — lives in
+[`docs/accessibility.md`](accessibility.md); the visual knobs are summarized here.
+
+| Setting | Env | Type | Default | Range |
+|---------|-----|------|---------|-------|
+| `cvd_mode` | `ODYTTY_CVD_MODE` | `off` / `protan` / `deutan` / `tritan` | `off` | — |
+| `cvd_strength` | `ODYTTY_CVD_STRENGTH` | float | `1.0` | `0.0–1.0` |
+| `focus_dim` | `ODYTTY_FOCUS_DIM` | float | `0.0` | `0.0–1.0` |
+| `inactive_pane_dim` | `ODYTTY_INACTIVE_PANE_DIM` | float | `0.0` | `0.0–1.0` |
+| `window_border` | `ODYTTY_WINDOW_BORDER` | `on` / `off` | `off` | — |
+
+**`cvd_mode`** — colour-vision-deficiency adaptation. `off` (default) publishes
+the authored palette unchanged. `protan` and `deutan` target red–green
+confusion; `tritan` targets blue–yellow. The adaptation is an OKLab
+daltonization scoped to the palette only — the 16 ANSI colours plus the
+cursor/selection/search roles — and is re-floored for readability. Application
+truecolour and indexed-256 output are not remapped.
+
+**`cvd_strength`** — how strongly the palette is daltonised toward separability
+for the selected mode. `1.0` (default) is the full correction; `0.0` is an exact
+passthrough. Inert while `cvd_mode = off`.
+
+**`focus_dim`** — how much the whole grid recedes while the window is unfocused.
+The dim runs at color-resolution time before the minimum-contrast floor, so
+legibility is preserved by construction. `0.0` (default) disables it and is
+pixel-identical to the plain renderer; the focused window is never dimmed.
+
+**`inactive_pane_dim`** — a subtle OKLab dim applied to the non-focused panes of
+a multi-pane tab so the focused pane stands out. `0.0` (default) disables it; the
+focused pane and single-pane tabs are never affected.
+
+**`window_border`** — draws a thin border in the theme `border` role color into
+the existing window padding band, framing the grid. Off by default; while off no
+border quads are emitted and the render path is byte-identical. It never eats
+cell area.
 
 ---
 

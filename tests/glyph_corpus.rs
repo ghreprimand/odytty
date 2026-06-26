@@ -107,13 +107,6 @@ fn fixture_contains_no_private_or_local_data() {
             n + 1
         );
 
-        // Username / host pairs from the operator environment.
-        assert!(
-            !lower.contains("joel@") && !lower.contains("@odyssey"),
-            "username/host leaked into corpus at line {}: {line}",
-            n + 1
-        );
-
         // No email addresses: the corpus uses no '@' at all. Banning it outright
         // is the clearest guarantee and matches the current synthetic content.
         assert!(

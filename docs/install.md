@@ -1,8 +1,9 @@
 # Installing OdyTTY On Linux
 
-OdyTTY is pre-release. The current recommended release shape is:
+OdyTTY ships as a versioned source release. The current recommended release
+shape is:
 
-- `v0.2.1` git tag and source tarball;
+- `v0.4.0` git tag and source tarball;
 - GitHub Release entry with checksums for release artifacts;
 - source-build instructions for Odyssey/LFS and other developer systems;
 - a desktop entry, AppStream metadata, and icon installed into Freedesktop
@@ -27,8 +28,8 @@ Run from the source tree:
 cargo run --release
 ```
 
-After installation, plain `odytty` opens the native terminal. The legacy parser
-smoke path is still available as:
+After installation, plain `odytty` opens the native terminal. To print a
+parser/core smoke transcript and exit:
 
 ```sh
 odytty --core-smoke
@@ -47,6 +48,54 @@ odytty -e btop
 odytty --working-directory /tmp -e sh -lc 'pwd; exec "$SHELL"'
 odytty --title Monitor -e btop
 ```
+
+## Command-Line Surface
+
+These introspection commands print a snapshot and exit, which is handy for
+verifying an install or wiring launchers:
+
+```sh
+odytty --version        # print the installed version
+odytty --list-themes    # list built-in themes
+odytty --list-fonts     # list discoverable monospace fonts
+odytty --show-config    # print the effective configuration
+odytty --core-smoke     # print a parser/core smoke transcript
+```
+
+OdyTTY also hosts detached sessions that outlive the window:
+
+```sh
+odytty new -e btop                # start a detached session, prints id=<id>
+odytty list                       # list live detached sessions
+odytty attach                     # reattach the only live session (or list choices)
+odytty attach <id>                # reattach a specific session in a native window
+odytty attach --diagnostic <id>   # print one status line without attaching
+```
+
+On non-macOS systems, detached sessions require `XDG_RUNTIME_DIR` to be set;
+their owner-private sockets live under `$XDG_RUNTIME_DIR/odytty/`. macOS falls
+back to the system temporary directory.
+
+## Configuration Files
+
+OdyTTY reads an optional config file at:
+
+```text
+$XDG_CONFIG_HOME/odytty/odytty.conf
+```
+
+falling back to `$HOME/.config/odytty/odytty.conf` when `XDG_CONFIG_HOME` is
+unset. User themes are loaded from the theme directory alongside it:
+
+```text
+$XDG_CONFIG_HOME/odytty/themes
+```
+
+The file is line-based `key = value`; environment variables set at startup
+override matching keys. See `docs/runtime-knobs.md` for every key, default, and
+range, `docs/keybindings.md` for the keyboard reference, and
+`docs/accessibility.md` for color-vision-deficiency modes, the minimum-contrast
+floor, and the bell.
 
 ## User-Local Install
 
@@ -94,7 +143,7 @@ installing each release under a versioned directory and pointing
 `~/.local/bin/odytty` at the selected version:
 
 ```sh
-version=0.2.1
+version=0.4.0
 cargo build --release --locked
 install -Dm755 target/release/odytty \
   "$HOME/.local/opt/odytty/$version/bin/odytty"
@@ -117,16 +166,16 @@ To roll back, repoint the symlink to an older directory under
 ## Odyssey/LFS Versioned Install
 
 Odyssey source builds are versioned by pacman, not by leaving build products in
-the source tree. A release tag such as `v0.2.0` should be archived into
-`/sources/odytty-0.2.0.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
+the source tree. A release tag such as `v0.4.0` should be archived into
+`/sources/odytty-0.4.0.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
 with `odyssey-build`.
 
 Example PKGBUILD:
 
 ```bash
-# Maintainer: Joel <joel@odyssey>
+# Maintainer: Unfinished Works <maintainers@odytty.unfinished-works.com>
 pkgname=odytty
-pkgver=0.2.1
+pkgver=0.4.0
 pkgrel=1
 pkgdesc="GPU-rendered Rust terminal emulator with an Odyssey visual identity"
 arch=('x86_64')
@@ -289,7 +338,7 @@ the distribution or local system owner installs it.
 
 For an upstream release that avoids maintaining many distro-specific packages:
 
-- publish `v0.2.0` source tarballs with checksums/signatures;
+- publish `v0.4.0` source tarballs with checksums/signatures;
 - create a GitHub Release for the tag so package monitors can track upstream
   versions;
 - include `dist/linux/io.unfinished_works.odytty.desktop`;

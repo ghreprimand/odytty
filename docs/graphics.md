@@ -26,9 +26,10 @@ draw order (cell backgrounds → images → glyphs).
 | `24` | Raw RGB (3 bytes/pixel, expanded to RGBA internally) | ✅ supported |
 | `100` | PNG still image — grayscale, grayscale+alpha, RGB, and RGBA color types; 16-bit samples normalized to 8-bit | ✅ supported |
 
-**Indexed PNG** (palette color type) is not supported and returns an explicit
-error response. **PNG animation frames** are not supported — only the first
-frame is decoded.
+**Indexed PNG** (palette color type) is accepted: the decoder normalizes
+palette frames to 8-bit RGB/RGBA before they reach the image store, so an
+indexed PNG transmits and displays like any other color type. **PNG animation
+frames** are not supported — only the first frame is decoded.
 
 ### Transports
 
@@ -83,7 +84,7 @@ rejected with an explicit error response; incomplete state is cleared.
 
 | `d=` | What is deleted | Uppercase (`D=`) variant |
 |------|-----------------|--------------------------|
-| `a`  | All placements on the primary screen | `A` also frees unreferenced image data |
+| `a`  | All placements in the active screen buffer | `A` also frees unreferenced image data |
 | `i`  | Placements for image `i=` (optionally filtered by `p=`) | `I` also frees data |
 | `c`  | Placements intersecting the current cursor cell | `C` also frees data |
 | `p`  | Placements intersecting cell `x=`,`y=` (defaults to cursor) | `P` also frees data |
@@ -158,8 +159,15 @@ rejected at the read stage; the decoder is never given a hostile payload.
 
 ## Sixel
 
-OdyTTY supports the complete Sixel DCS data language as defined by the DEC
-VT340 and extended by xterm and foot.
+OdyTTY decodes the Sixel DCS data language as defined by the DEC VT340 and
+extended by xterm and foot, covering the full set of features listed below.
+
+> **Note — DA1 does not advertise Sixel.** OdyTTY's Primary Device Attributes
+> reply is `CSI ? 1 ; 2 c` and does **not** include the `;4` Sixel attribute.
+> Applications that gate Sixel output on a DA1 probe will not emit Sixel to
+> OdyTTY; tools that emit unconditionally (such as `img2sixel`) work fine.
+> The raster `"Pan;Pad`-form aspect/grid parameters (DEC `P1`/`P3`) are parsed
+> but not honored.
 
 ### Supported features
 
@@ -201,6 +209,34 @@ DECSDM controls cursor behavior after a Sixel image is displayed.
 
 DECSDM resets to off on `RIS` and `DECSTR` along with all other resettable
 terminal modes.
+
+---
+
+## Protocol availability
+
+Both the Kitty graphics protocol and Sixel are always active — there is no
+config key or `ODYTTY_*` environment variable to enable or disable either one.
+Programs can emit images through whichever protocol they prefer without any
+opt-in on the terminal side.
+
+---
+
+## In-app image viewer (lightbox)
+
+Separately from the escape-sequence protocols above, OdyTTY can open a resolved
+image path directly from terminal output in an in-terminal lightbox overlay.
+When the interactive-paths feature is enabled (master gate `interactive_paths`,
+plus `interactive_paths_image_inline`, which defaults on), `Ctrl`+clicking a
+detected `png` / `jpg` / `jpeg` / `webp` path — or choosing **Open in OdyTTY**
+from the right-click menu — decodes the file with the `image` crate and presents
+it as a centered, scrim-dimmed overlay composited on top of the terminal. The
+overlay never upscales beyond the source pixels; dismiss it with `Esc` or by
+clicking outside the image.
+
+This viewer is a distinct surface from the Kitty/Sixel inline placements: it is
+driven by the path-interaction layer, not by bytes on the PTY. See
+[keybindings.md](keybindings.md) for the `Ctrl`+click chord and
+[runtime-knobs.md](runtime-knobs.md) for the `interactive_paths` settings.
 
 ---
 
@@ -259,9 +295,16 @@ monochrome coverage path:
 
 - **VS15 (`U+FE0E`)** anywhere in the grapheme → text presentation forced.
 - **VS16 (`U+FE0F`)** anywhere in the grapheme → color presentation forced.
-- No variation selector → color if any codepoint has the Unicode
-  `Emoji_Presentation` default (ranges `U+1F000`–`U+1FAFF`,
-  `U+1FC00`–`U+1FFFD`, `U+2600`–`U+26FF`, `U+2700`–`U+27BF`); text otherwise.
+- No variation selector → color if the codepoint has the Unicode
+  `Emoji_Presentation` default. That set is the two contiguous pictographic
+  ranges `U+1F000`–`U+1FAFF` and `U+1FC00`–`U+1FFFD`, plus a curated list of
+  individual emoji-default codepoints and small sub-ranges scattered through the
+  `U+231A`–`U+2B55` symbol area (for example `U+231A`–`U+231B`,
+  `U+2614`–`U+2615`, `U+2705`, `U+2728`, `U+2B1B`–`U+2B1C`, `U+2B50`). The whole
+  `U+2600`–`U+26FF` / `U+2700`–`U+27BF` blocks are deliberately **not** treated
+  as color-default — text-default symbols in those blocks (and the playback
+  triangles `U+23F4`–`U+23F7`) fall through to the monochrome coverage path.
+  Anything not in this set is text otherwise.
 
 **Shaping.** Eligible graphemes are shaped with `swash` using Script=Common,
 Direction=LTR, and the cell height as the pixel size. The shaper must produce
@@ -270,8 +313,10 @@ exactly one glyph id; if it produces zero (missing glyph) or more than one
 coverage path without error.
 
 **Rasterization.** `swash` renders the glyph using `Source::ColorBitmap` with
-`StrikeWith::BestFit`, requesting the CBDT/CBLC strike closest to the cell
-height. The returned image must have `Content::Color`; a monochrome strike
+`StrikeWith::BestFit`, requesting the embedded bitmap strike closest to the cell
+height — this covers both CBDT/CBLC strikes (Noto Color Emoji on Linux) and
+sbix strikes (Apple Color Emoji on macOS). The returned image must have
+`Content::Color`; a monochrome strike
 causes the cell to fall back silently. The rendered bitmap is scaled and
 centered into the atlas slot using nearest-neighbour downscale (aspect-ratio
 preserving, letterboxed), then straight-alpha is converted to premultiplied RGBA
@@ -293,6 +338,9 @@ monochrome coverage foreground quad is suppressed (`src/grid.rs`:
 (underline, strikethrough), and selection/search highlights are still emitted
 so SGR styling layers correctly around the color bitmap without tinting it.
 
-**Degradation.** If Noto Color Emoji is not installed, `EmojiRasterizer::discover()`
-returns `None` and the rasterizer emits no color glyph runs; all emoji cells
-fall through to the monochrome coverage path and remain readable.
+**Degradation.** If no color-emoji font is installed (Noto Color Emoji on
+Linux, Apple Color Emoji on macOS), `EmojiRasterizer::discover()` returns a
+rasterizer with no font rather than failing; it emits no color glyph runs, so
+all emoji cells fall through to the monochrome coverage path and remain
+readable. See [accessibility.md](accessibility.md) for the related readability
+guarantees.

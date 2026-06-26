@@ -164,7 +164,9 @@ filesystem-permission-scoped, local-only Unix socket — no network, preserving 
 privacy posture — and scrollback persistence stays on the local filesystem.
 Opt-in per-session output recording with a bounded ring buffer feeds a
 scrubbable, presentation-only replay overlay. The CLI surface adds `odytty list`,
-`odytty attach <id>`, and `odytty new --detached`. **Command palette:** an
+`odytty attach [<id>]` (no id attaches the sole session or lists when several
+exist), and `odytty new` (always detached — the `--detached` flag is a parsed
+no-op alias). **Command palette:** an
 in-window keyboard-driven fuzzy finder over terminal-local actions and settings,
 shell history, and recent directories; presentation-only, with an owned scorer
 and read-only, bounded history access. **Connection manager:** an overlay that
@@ -215,9 +217,11 @@ labels, and visible font-load failure reporting all ship today.
   existing introspection helpers.
 - **Next — Settings completeness.** Map every configuration group (including the
   newer connection and session groups) into a settings section so no shipped knob
-  is unreachable from the panel, and extend the keybinding editor to cover the
-  newer overlay actions (palette, connection manager, session replay, theme
-  builder) alongside the core set.
+  is unreachable from the panel. The `keybinds` parser and the in-app key-remap
+  editor already cover all 31 bindable actions; the only remaining gap is the
+  panel's keybinds *option list*, which still omits the theme-builder and
+  session-attach actions. See [keybindings.md](./keybindings.md) for the full
+  keyboard reference.
 - **Someday — Profiles.** Named configuration profiles once the base config
   model has settled.
 
@@ -257,7 +261,8 @@ universal legibility guarantee across 256-color and truecolor text, the
 perceptual-safe theme builder with OKLCH sliders and snap-to-floor, contrast-
 aware palette generation from a seed, and colorblind palette adaptation. The
 readability foundation is in place and is the safety net the visual-identity
-work in Track 4 validates against.
+work in Track 4 validates against. See [accessibility.md](./accessibility.md)
+for the CVD modes, the minimum-contrast floor, focus dimming, and bell behavior.
 
 - **Shipped — Readability scrim primitive.** A computed-bound dim that lets a
   background treatment (Track 4) keep the contrast floor valid by construction,
@@ -334,16 +339,24 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   decorations or borderless mode (compositor-dependent on Linux).
 - **Shipped — Bindable clear-input action** (low priority; the standard key
   combinations already cover the common case).
-- **Next — Interactive paths.** Detect file paths (and `path:line:col` spans) in
-  terminal output and make them actionable: hover affordance and modifier-click
-  to open a file in `$EDITOR` (jumping to the line/column where present), reusing
-  the existing argv-safe, no-shell-interpolation open dispatch. Stat-gated so
-  only paths that actually resolve light up, opt-in behind a setting with a
-  byte-identical off path, and cwd-aware via the OSC 7 tracking already in core.
-- **Next — In-terminal image viewer.** Open a resolved image path in a
-  presentation-only overlay rendered through the shipped graphics layer, so
-  viewing an image never has to leave the terminal. Opt-in and isolated from live
-  terminal state.
+- **Shipped — OSC 8 hyperlinks.** Explicit hyperlink escapes render as
+  hover-affordanced links that open on modifier (`Ctrl`) click through the same
+  argv-safe dispatch, gated to a `http`/`https`/`file`/`mailto` scheme allowlist
+  — never auto-opened, never shell-interpolated.
+- **Shipped — Interactive paths.** Detect file paths (and `path:line:col` spans) in
+  terminal output and make them actionable: an armed-underline hover affordance and
+  modifier (`Ctrl`) click to open a file in the editor (jumping to the line/column
+  where present), resolved through an editor matrix with a `$EDITOR`/`$VISUAL`
+  fallback and the existing argv-safe, no-shell-interpolation open dispatch.
+  Stat-gated so only paths that actually resolve light up, opt-in behind the
+  `interactive_paths` master gate with a byte-identical off path (the barewords,
+  click-hint, and inline-image sub-keys stay inert until the gate is on), and
+  cwd-aware via the OSC 7 tracking already in core.
+- **Shipped — In-terminal image viewer.** A resolved image path
+  (png/jpg/jpeg/webp) opens in a presentation-only lightbox drawn after the
+  post-process pass, so viewing an image never has to leave the terminal.
+  Dismiss with `Esc` or a click outside; opt-in behind the inline-image sub-key
+  and isolated from live terminal state.
 
 ## Track 7 — Theming & palettes
 
@@ -367,7 +380,8 @@ and open — ships today (see *What's shipped today*).
 This epic has largely shipped. OdyTTY runs multiple shell sessions in one window
 with a tab bar, splits each tab into resizable panes, and keeps sessions alive in
 a detached session-host so a window can close and reattach with full scrollback.
-What remains is launcher polish and a handful of deliberately-deferred niceties.
+The attach launcher and Manage Sessions overlay have shipped; what remains is a
+handful of deliberately-deferred niceties.
 
 - **Shipped — Tabs.** Multiple PTY/terminal sessions, tab switching, tab close,
   tab rename, new-tab affordance, and conventional tab keybindings.
@@ -389,11 +403,18 @@ What remains is launcher polish and a handful of deliberately-deferred niceties.
   read-only, name-only `~/.ssh/config` parsing, with an OdyTTY-owned hosts list
   as the default so the feature works without touching `~/.ssh`. An SSH pane can
   itself be a persistent session, so a dropped link can be reattached locally.
-- **Next — Session attach launcher.** Make the shipped persistence pleasant to
-  reach: `odytty attach` with no id attaches the sole session (or lists when
-  several exist), plus an in-window summon overlay to filter and reattach a
-  detached session into a new tab. "Summon, not greet" — opening a window stays
-  fast, with an optional opt-in launch picker for those who want it.
+- **Shipped — Session attach launcher.** The shipped persistence is now pleasant to
+  reach: `odytty attach` with no id attaches the sole live session (or lists when
+  several exist), and an in-window Manage Sessions overlay (default `Ctrl+Shift+A`)
+  filters and reattaches a detached session into a new tab, with New-tab/Replace
+  prompts and dedup of already-attached tabs. "Summon, not greet" — opening a
+  window stays fast.
+- **Shipped — Manage Sessions overlay management.** Beyond attach, the overlay
+  renames a session and kills a session (right-click, with confirmation) directly
+  from the manager.
+- **Shipped — Detach & switch.** A context-menu action that spawns a fresh managed
+  session in the focused pane's current directory and switches to it, so a window
+  can hand off to a new detached session without leaving the keyboard.
 - **Someday — Broadcast input** to multiple panes at once.
 - **Someday — Window-state persistence** (reopen where you left off) — a lighter
   cousin of session persistence.
@@ -477,20 +498,21 @@ Named here so they get decided deliberately rather than by default:
 ## Near-term focus
 
 The honest current ordering, now that the command-aware UX, the ergonomic cores,
-the readability-safe background treatments, and the multi-context epic (panes,
+the readability-safe background treatments, the interactive paths and image
+viewer, the session attach launcher, and the multi-context epic (panes,
 persistent sessions, command palette, and connection manager) all ship:
 
 1. **Settings completeness & discoverability** — map every shipped configuration
-   group into the settings panel so nothing is unreachable, and extend the
-   keybinding editor to the newer overlay actions. The highest value-to-effort
-   work: it removes real friction with mostly wiring, not new subsystems.
-2. **Session attach launcher** — make the shipped persistence pleasant to reach:
-   `odytty attach` with no id, and an in-window summon overlay to filter and
-   reattach a detached session. Small, and it reuses the existing overlay
-   framework.
-3. **Interactive paths** — clickable files, semantic `path:line:col` open-in-
-   editor, and an in-terminal image viewer. The largest genuinely-new capability
-   surface, built on the argv-safe open dispatch and the shipped graphics layer.
+   group into the settings panel so nothing is unreachable, and add the
+   theme-builder and session-attach actions to the panel's keybinds option list
+   (the parser and the key-remap editor already cover all 31 actions). The
+   highest value-to-effort work: it removes real friction with mostly wiring, not
+   new subsystems.
+2. **Crash & logging story** — a predictable, bounded, local, privacy-preserving
+   diagnostics path for when something does go wrong (see Track 10).
+3. **Effect default-tuning pass** — once a human-eye baseline exists, revisit the
+   conservative default strengths of stem darkening, standalone scanlines, and
+   bloom (see Track 2).
 
 Everything beyond a plain terminal stays measured, opt-out-able, and — above all
 — never something you are forced to hand-edit a config file to reach.

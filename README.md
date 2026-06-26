@@ -10,8 +10,8 @@ parsing, terminal state, render geometry, and shaders, while relying on focused
 external crates for lower-level infrastructure such as `wgpu`, `winit`,
 `ab_glyph`, `swash`, `arboard`, and Unicode width tables.
 
-The name and visual direction come from OdysseyOS, the maintainer's private
-Linux From Scratch system. That system is inspiration, not a platform
+The name and visual direction come from OdysseyOS, a companion Linux From
+Scratch system. That system is inspiration, not a platform
 requirement: OdyTTY is a public Linux application and does not require
 OdysseyOS or any custom distribution.
 
@@ -56,6 +56,14 @@ the macOS install notes below), while profiles remain a follow-up.
   (full-bleed the focused pane), and equalize once a tab has multiple panes;
   dividers are drag-resizable. On a single-pane tab, `Ctrl+b` passes through to
   the shell unchanged, and a single-pane tab renders exactly as before.
+- **Clickable paths and inline media:** opt-in interactive paths turn file paths
+  in output into Ctrl+click targets that open in your editor at the right line
+  and column, with an in-app image lightbox for image paths, an "Open With…"
+  picker, OSC 8 hyperlinks, and keyboard quick-select hints.
+- **Detached and managed sessions:** sessions that outlive the window — a local
+  CLI (`odytty new` / `list` / `attach`) plus an in-window Manage Sessions
+  overlay to attach, rename, and kill them, a New-tab/Replace attach prompt, and
+  detach-and-switch to hand the focused pane to a fresh managed session.
 - **Visual experience layer:** 100 built-in themes, user `.theme` files, live theme
   picker, theme builder, semantic cursor/selection/search roles, optional
   bloom/CRT/retro effects, background treatments, cursor motion, focus dimming,
@@ -70,8 +78,9 @@ the macOS install notes below), while profiles remain a follow-up.
   with the system `ssh` binary and agent.
 - **Privacy posture:** no telemetry, analytics, crash reporting, account,
   cloud sync, or update ping. Network-capable actions are explicit and
-  user-initiated: Ctrl-click link opening through `xdg-open` with a scheme
-  allowlist, and SSH connect entries that exec the system `ssh` binary.
+  user-initiated: Ctrl-click link and path opening through the platform opener
+  (`xdg-open` on Linux, `open` on macOS) with a scheme allowlist, and SSH
+  connect entries that exec the system `ssh` binary.
 
 ## Install And Run
 
@@ -391,6 +400,7 @@ Core local shortcuts:
 | `Ctrl+Shift+P` | Command palette |
 | `Ctrl+Shift+S` | Connection manager |
 | `Ctrl+Shift+R` | Session replay |
+| `Ctrl+Shift+A` | Manage Sessions (attach a detached session) |
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste |
 | `Shift+PageUp` / `Shift+PageDown` | Scroll local viewport |
 | `Ctrl+Shift+L` | Keyboard quick-select hints |
@@ -398,15 +408,13 @@ Core local shortcuts:
 | `Ctrl+Shift+Up` / `Ctrl+Shift+Down` | Jump to previous / next prompt mark |
 | `Ctrl+Shift+K` | Clear editable prompt input when shell integration allows it |
 
-The command palette, connection manager, session replay, and theme builder each
-ship with a default `Ctrl+Shift+<letter>` chord (v0.3.1) and a discoverable
-menu entry — the first three appear in the right-click menu's launcher section,
-and the theme builder is an "Open Theme Builder" entry in the Settings → Themes
-section. These chords are all `Ctrl+Shift+<letter>`, which a TUI cannot receive,
-so PTY input is unchanged; reclaiming `Ctrl+Shift+P` for the palette dropped the
-old `Ctrl+Shift+P` / `Ctrl+Shift+N` prompt-jump *letter fallbacks* (prompt
-navigation still works via the `Ctrl+Shift+Up/Down` arrows). Rebind any of them,
-for example:
+The command palette, connection manager, session replay, theme builder, and
+Manage Sessions each ship with a default `Ctrl+Shift+<letter>` chord and a
+discoverable menu entry — the launcher actions appear in the right-click menu's
+launcher section, and the theme builder is an "Open Theme Builder" entry in the
+Settings → Themes section. These chords are all `Ctrl+Shift+<letter>`, which a
+TUI cannot receive, so PTY input is unchanged. Prompt navigation is the
+`Ctrl+Shift+Up/Down` arrows. Rebind any of them, for example:
 
 ```conf
 # odytty.conf
@@ -462,16 +470,39 @@ opt-in off, the overlay lists OdyTTY-owned hosts only and never references
 `~/.ssh`. The overlay is presentation-only; selecting a host spawns the system
 `ssh` in a new session.
 
+Detached sessions are managed from inside the window as well as from the CLI. The
+`session-attach` action (default `Ctrl+Shift+A`, also the **Manage Sessions**
+entry in the right-click menu) lists the live detached sessions; selecting one
+attaches it. If that session is already open it switches to its tab; otherwise a
+prompt offers a **New tab** or **Replace** (which closes the current tab).
+Right-click a session to kill it behind a confirmation, and the **Detach &
+switch** context-menu action hands the focused pane's working directory to a
+fresh managed session. Attaching reconnects the live PTY and terminal model; the
+host keeps them alive across detach/attach cycles until the child exits or the
+idle timeout reaps it.
+
+Interactive paths are an opt-in layer (`interactive_paths`, off by default) that
+makes file paths in command output actionable. With it on, Ctrl+click opens a
+path: a file opens in your configured editor, jumping to the right `line:col`
+when the path carries one, and an image path (png/jpg/jpeg/webp) opens in an
+in-app lightbox you dismiss with `Esc` or a click outside. A discoverable click
+hint, plus right-click "Open", "Open With…", "Copy Path", "Copy File", and
+"Reveal in File Manager", round out the menu. Opening goes through the platform
+opener (`xdg-open` on Linux, `open` on macOS) with a scheme allowlist; nothing is
+ever run through a shell.
+
 The `keybinds` config key can rebind local actions: `search`, `settings`,
 `theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`,
 `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`, `clear-input`,
-`command-palette`, `session-replay`, `connection-manager`, `new-tab`,
-`next-tab`, `prev-tab`, and `close-tab`. The pane actions
+`command-palette`, `session-replay`, `connection-manager`, `session-attach`,
+`new-tab`, `next-tab`, `prev-tab`, and `close-tab`. The pane actions
 (`split-columns`, `split-rows`, `focus-pane-left` / `-right` / `-up` / `-down`,
 `focus-pane-next`, `close-pane`, `zoom-pane`, `equalize-panes`) are rebindable
 too — the chord is the key pressed *after* the prefix, e.g.
 `keybinds = ctrl+f=zoom-pane`. `ODYTTY_KEYBINDS` provides the same syntax as a
-session-scoped override.
+session-scoped override. See [`docs/keybindings.md`](docs/keybindings.md) for the
+complete keyboard reference — every default chord, the pane prefix, copy mode,
+hints, and rebinding.
 
 ### Settings And Themes
 
@@ -503,6 +534,10 @@ See:
 - [`docs/themes.md`](docs/themes.md) for the theme format and built-in roster.
 - [`docs/effects.md`](docs/effects.md) for bloom, CRT, retro, background, and
   motion effects.
+- [`docs/keybindings.md`](docs/keybindings.md) for the complete keyboard
+  reference and rebinding.
+- [`docs/accessibility.md`](docs/accessibility.md) for the minimum-contrast
+  floor, color-vision modes, dimming, and the bell.
 
 ## Architecture
 
@@ -541,9 +576,10 @@ ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture
 cargo bench --bench perf
 ```
 
-Recent library-only checks in the devlog show `cargo test --lib` at 2009
-passing tests, with the full tree carrying additional integration and smoke
-suites. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the commit gate.
+The library test suite alone runs in the thousands of cases and is exercised on
+every CI run; the current counts live in [`DEVLOG.md`](DEVLOG.md), with the full
+tree carrying additional integration and smoke suites. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for the commit gate.
 
 ## Status
 
@@ -551,6 +587,8 @@ suites. See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the commit gate.
 configurable tmux-style prefix, scrollback, search, selection,
 copy/paste, font/theme/settings overlays, theme builder, 100 themes, color
 emoji, Kitty graphics, Sixel, Kitty keyboard protocol, SGR-pixel mouse,
+clickable paths with an inline image viewer, detached and in-window managed
+sessions, a connection manager, command palette, session replay,
 OSC 8/52/133, dynamic colors, prompt navigation, command status gutter,
 readability and accessibility settings, bloom/CRT/retro effects, background
 treatments, and a large compatibility test surface.
@@ -592,6 +630,10 @@ analytics, no crash reporting, and no update pings.
 - [`docs/release.md`](docs/release.md) — release artifact checklist and
   Odyssey-Mon upstream tracking notes.
 - [`docs/runtime-knobs.md`](docs/runtime-knobs.md) — settings reference.
+- [`docs/keybindings.md`](docs/keybindings.md) — complete keyboard reference and
+  rebinding.
+- [`docs/accessibility.md`](docs/accessibility.md) — contrast floor, color-vision
+  modes, dimming, motion, and bell.
 - [`docs/themes.md`](docs/themes.md) — theme format and built-in library.
 - [`docs/graphics.md`](docs/graphics.md) — Kitty graphics and Sixel support.
 - [`docs/visual-architecture.md`](docs/visual-architecture.md) — renderer and

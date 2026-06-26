@@ -1,7 +1,8 @@
 # Interactive Paths — Design (C0)
 
 Status: design + pure detection spine landed (Phase 6 / C0–C1). Phase 7 (C2)
-shipped the hover cursor affordance. Phase 8 (C3) shipped the Ctrl+click open
+shipped the hover affordance (hand cursor plus the armed `Ctrl`-hover
+underline). Phase 8 (C3) shipped the Ctrl+click open
 dispatch, the editor invocation matrix + `interactive_paths_editor` knob, and
 the context-menu file section (Open / Copy Path / Copy File / Reveal in File
 Manager). Phase 9 (C4) shipped the in-terminal image viewer ("Open in OdyTTY";
@@ -48,13 +49,16 @@ A candidate is a maximal run of "path characters" that satisfies at least one
 | Home | starts with `~/` (or bare `~` followed by `/`) | `~/notes/a.txt` |
 | Explicit relative | starts with `./` or `../` | `./foo.rs`, `../sibling/x` |
 | Bare relative | contains a `/` separator and no leading scheme | `src/main.rs`, `dir/file` |
+| Bareword (opt-in) | a separator-less basename carrying a file extension; gated on `interactive_paths_barewords` (default on) | `main.rs`, `photo.JPG` |
 
-The **bare-relative rule requires an interior `/`**. This is the key
-false-positive guard: a lone word (`README`, `foo.bar`, `example.com`) is *not*
-a candidate, because every interesting path the feature targets has a separator
-or one of the explicit prefixes. (A bare existing file in cwd is intentionally
-out of scope for v1 to avoid lighting up every word; an explicit `./README`
-covers that need.)
+The **bare-relative rule requires an interior `/`**, the key false-positive
+guard: a separator-less word with *no* extension (`README`) is never a
+candidate. A separator-less basename that *carries a file extension*
+(`main.rs`, `photo.JPG`) is detected only when `interactive_paths_barewords` is
+on (the default, see §10), and is still stat-gated like every other span (§2);
+a pure extensionless word in cwd stays out of scope to avoid lighting up every
+token. Strings that look version-like (`1.2.3`, `v1.2.3`) or domain-like
+(`example.com`) are excluded from the bareword shape even with the toggle on.
 
 ### `:line[:col]` suffix capture
 
@@ -150,20 +154,23 @@ the pointer is over a candidate span (Phase 7), gated behind the
 detector runs on the single hovered line on demand. This mirrors the OSC 8
 hyperlink hover path the wiring will reuse.
 
-### Phase 7 shipped: cursor affordance only (no underline)
+### Hover affordance: hand cursor + armed `Ctrl`-hover underline
 
-Phase 7 wires hover detection into the pointer path and shows the pointer (hand)
-cursor over a resolved span — the same affordance OdyTTY already uses for OSC 8
-hyperlinks. **It deliberately ships the cursor icon only; there is no underline
-or other frame-affecting decoration.** OdyTTY draws no hover underline for OSC 8
-links either: a render-time underline keyed on the hovered span previously
-smeared across unrelated cells as live output streamed under a stationary
-pointer, so that path was removed. Because the cursor shape is not part of the
-rendered frame bytes, the icon-only design is **trivially byte-identical** with
-the feature off — no render-signature field, no per-frame span contributor. An
-underline decoration is a possible, explicitly-deferred follow-up (Phase 7b);
-if pursued it must recompute the hovered span from the live pointer each frame
-(never cache a stale span across output) to avoid the documented smear.
+Hover detection is wired into the pointer path. A plain hover over a resolved
+span shows the pointer (hand) cursor — the same affordance OdyTTY already uses
+for OSC 8 hyperlinks — and **when `Ctrl` is held while hovering a resolved span,
+that span's cells are underlined** (the "now it will open" signal), painted onto
+the snapshot cells like the selection/search highlights
+(`src/native/app/click_hint.rs`). The armed underline is **presentation-only**,
+and its coordinates feed the overlay signature so it **recomputes from the live
+pointer each frame** and tracks the pointer as output streams underneath — never
+caching a stale span. That discipline is deliberate: an always-on hover underline
+keyed on a *cached* span previously smeared across unrelated cells as live output
+scrolled under a stationary pointer, so the decoration is armed by `Ctrl` and
+recomputed per frame rather than left persistently lit. Both the cursor shape
+(not part of the frame bytes) and the armed underline live strictly inside the
+`interactive_paths` master gate, so the default feature-off frame is
+**byte-identical**.
 
 The single byte-identity gate is the first line of the hover recompute
 (`update_hover_path`): when `interactive_paths` is off it returns before any
@@ -185,12 +192,19 @@ open.
 
 | Span kind | Action | argv |
 |-----------|--------|------|
-| File, no `:line` | open with default app | `["xdg-open", <abs>]` |
+| File, no `:line` | open with default app | OS default-open (Linux `["xdg-open", <abs>]`, macOS `["open", <abs>]`) |
 | File, with `:line[:col]` | open editor at position | per the editor matrix (§4) |
-| Directory | open in file manager | `["xdg-open", <abs>]` (or `cd`, UI's choice) |
+| Directory | open in file manager | OS default-open (as above) |
 
-`xdg-open` receives the canonical absolute path as a **single argv element**, so
-spaces/quotes/`;`/`$()` in the path are inert — there is no shell.
+The default-open argv is selected per host by
+`platform_opener::open_default_argv` (`src/native/app/platform_opener.rs`):
+**Linux** uses `["xdg-open", <abs>]`, **macOS** uses `["open", <abs>]`. (The
+earlier hardcoded `xdg-open` was a macOS breakage this branch fixes.) The opener
+receives the canonical absolute path as a **single argv element**, so
+spaces/quotes/`;`/`$()` in the path are inert — there is no shell. The "Reveal in
+File Manager" item is likewise OS-branched: `["xdg-open", <parent dir>]` on
+Linux, `["open", "-R", <abs>]` (which reveals the file itself in Finder) on
+macOS.
 
 ---
 
@@ -210,7 +224,7 @@ vectors, never a shell string:
 | `nano` | `["nano", "+L,C", F]` | `["nano", "+L", F]` |
 | `micro` | `["micro", "F:L:C"]` | `["micro", "F:L"]` |
 | fallback (unknown `$EDITOR`) | `[$EDITOR, F]` (line/col lost) | `[$EDITOR, F]` |
-| no `$EDITOR` | `["xdg-open", F]` (line/col lost) | `["xdg-open", F]` |
+| no `$EDITOR` | OS default-open (§3: `xdg-open`/`open`), line/col lost | same |
 
 Notes:
 - The `vim` family uses `+call cursor(L,C)` (a real ex command) so the column is
@@ -266,9 +280,13 @@ src/paths/
   `fuzzy` and `hints` precedent).
 - No `std::fs` import in `src/paths/`; the only filesystem touch is the
   caller's `ResolveProbe` impl, which tests replace with a synthetic map.
-- This packet leaves the module **unreferenced** by any render/input/settings
-  path — it is additive, so runtime behavior is unchanged and
-  `gpu_composite_smoke` stays 3/3 trivially. Wiring happens in Phases 7–9.
+- `src/paths/` is now **wired live** into the input/render path through
+  `src/native/app/interaction.rs` (hover detection, `Ctrl`+click open, and the
+  image viewer). The pure spine stays I/O-free and std-only; only the caller in
+  `interaction.rs` runs the stat probe and spawns. (The original C0 packet
+  landed the module unreferenced and additive — that "adds zero runtime
+  behavior" framing, still echoed in the `src/paths/mod.rs` docstring, describes
+  only that first packet, not the current wired state.)
 
 ---
 
@@ -276,8 +294,11 @@ src/paths/
 
 - **Per-frame scrollback scan** — rejected; hover-time only, to keep the hot
   path untouched and cost bounded.
-- **Bare-word-in-cwd detection** (lighting up `README` with no `/`) — deferred;
-  too noisy. Explicit `./README` is supported.
+- **Extensionless bare-word-in-cwd detection** (lighting up a plain `README`
+  with no `/` and no extension) — out of scope; too noisy. Explicit `./README`
+  is supported. (Extension-bearing barewords like `main.rs` or `photo.jpg` *are*
+  detected — shipped behind `interactive_paths_barewords` (default on); see
+  §1 and §10.)
 - **Windows drive letters / UNC paths** — out of scope (Linux-first).
 - **Read-only text preview** of non-image files — optional/later (C4 ships the
   image viewer first).
@@ -298,8 +319,11 @@ decoders are not enabled, and animated GIF implies frame handling the raster
 path rejects). The menu item appears only on an image span — a non-image path
 keeps the menu byte-identical to C3.
 
-**Trigger.** Menu-only this packet: "Open in OdyTTY" is the sole entry point.
-Ctrl+click stays mapped to the C3 `xdg-open` dispatch, unchanged.
+**Trigger.** Two entry points. The context-menu **"Open in OdyTTY"** item opens
+the viewer directly; and when `interactive_paths_image_inline` is on (the
+default), a **`Ctrl`+click on a resolved image span opens the in-app viewer**
+too, falling back to the external default-open (§3) only if inline view is off
+or the decode fails.
 
 **Decode bound (the security-critical part).** All image-file decoding funnels
 through one module, `src/native/image_decode.rs`, which sets `image::Limits`
@@ -323,6 +347,13 @@ fitting within ~90% of the viewport. It is **not** injected into the terminal's
 overlay image set, `draw_overlay` emits zero quads → the frame is byte-identical,
 so a closed viewer satisfies the `gpu_composite_smoke` invariant. A resize
 re-centers the image from the cached pixels without re-decoding.
+
+**Dismissal.** The viewer closes on `Esc` or a left-press *outside* the fitted
+image rect (click-outside-to-dismiss). Behind the image it draws a
+`SCRIM_ALPHA` = 0.72 dimmer over the terminal; with no overlay image set both the
+dimmer and the image emit nothing, preserving the closed-viewer byte-identity
+contract above. (For the full keyboard reference see
+[`docs/keybindings.md`](keybindings.md).)
 
 **Gating.** The whole feature is behind `interactive_paths` (default off): no
 image detection, no menu item, no viewer while off.
@@ -386,3 +417,40 @@ than failing to open. Closed, the overlay is byte-identical to the live frame.
 
 **Gating.** Part of the `interactive_paths` feature (default off): with the
 feature off there is no path detection, so no menu item and no picker.
+
+## 10. Config keys, click-hint chip & failure notice
+
+### Config keys
+
+All five keys live in the **Input** settings group. The master gate defaults
+**off**; the three sub-toggles default **on** but are **inert until the master
+gate is on**.
+
+| Key | Env | Default | Effect |
+|-----|-----|---------|--------|
+| `interactive_paths` | `ODYTTY_INTERACTIVE_PATHS` | `off` | Master gate. Off → no detection, no hover, no menu items, no viewer; behavior byte-identical to a build without the feature. |
+| `interactive_paths_barewords` | `ODYTTY_INTERACTIVE_PATHS_BAREWORDS` | `on` | Detect extension-bearing separator-less basenames (`main.rs`, `photo.jpg`) in addition to slash-bearing paths (§1). |
+| `interactive_paths_click_hint` | `ODYTTY_INTERACTIVE_PATHS_CLICK_HINT` | `on` | Show the transient "Ctrl+click to open" teaching chip (below). |
+| `interactive_paths_image_inline` | `ODYTTY_INTERACTIVE_PATHS_IMAGE_INLINE` | `on` | `Ctrl`+click an image span opens the in-app viewer (§8); off → the external default-open (§3) is used. |
+| `interactive_paths_editor` | `ODYTTY_INTERACTIVE_PATHS_EDITOR` | *(empty)* | Pin the editor + argv template, overriding `$EDITOR` detection (§4). |
+
+### Click-hint chip
+
+The hand cursor appears on hover, but *opening* requires `Ctrl`+click — a plain
+left-click only makes a text selection, so the cursor can "lie." The click-hint
+chip (`src/native/app/click_hint.rs`, gated on `interactive_paths_click_hint`)
+closes that gap: after **≥2 plain mis-clicks** on a resolved path land within
+`CLICK_HINT_MISCLICK_WINDOW` (1500 ms), a transient bottom-left
+`" Ctrl+click to open "` message appears for `CLICK_HINT_DURATION` (3000 ms). It
+retires after `CLICK_HINT_MAX_SHOWS` (3) raises per launch so it never nags, and
+is byte-identical when absent.
+
+### Open-failure notice
+
+Every open spawn routes through `spawn_open_or_notice`
+(`src/native/app/open_notice.rs`): a detached, null-stdio argv spawn (§5). If the
+spawn fails — most commonly a missing opener (`xdg-open` / `open` not installed)
+— a transient full-width top banner surfaces
+`"Couldn't open — '<prog>' not found (is it installed?)"` for a few seconds
+instead of failing silently. The banner is presentation-only and byte-identical
+when absent.

@@ -39,6 +39,19 @@ The canonical scene order is:
 6. **Above/non-negative-z images** — Kitty/Sixel placements with `z >= 0`
    drawn by the image layer (`image_layer.draw_above`).
 
+Steps 2–6 are the scene pass — the sequence that the post-process branch
+re-targets to the offscreen `Rgba16Float` buffer when an effect is active. The
+in-app **image lightbox** (the C4 viewer overlay; `src/native/image_layer.rs`,
+`OverlayImage`) is the exception: it is composited **after** the CRT/bloom post
+pass, directly onto the swapchain, so the presented photo is never run through
+scanlines, vignette, or bloom. It draws a full-viewport dimming scrim
+(`SCRIM_ALPHA`) and then the fitted image (`OVERLAY_FIT_FRACTION` of the
+viewport, never upscaled) using a dedicated **`Linear`** sampler — distinct from
+the `Nearest` sampler used for inline terminal-graphics placements — so a
+scaled-down image is smoothly interpolated. It is opened by Ctrl+click on a
+resolved image path (see [`docs/keybindings.md`](keybindings.md)) and dismissed
+with `Esc` or a click outside.
+
 ### Cell pipeline (`cell.wgsl` / `cell_subpixel.wgsl`)
 
 Both shaders share the same vertex layout (`pos_px`, `uv`, `color`,
@@ -173,6 +186,22 @@ glyph-coverage gamma matters for text rendering).
 are live in the theme. The full theme epic is now complete — see the
 Theme and appearance system section below and `docs/themes.md` for details.
 
+### Color-vision-deficiency adaptation
+
+*Source: `src/cvd.rs`, `src/native/cvd_theme.rs`.*
+
+When `cvd_mode` is set (`protan`, `deutan`, or `tritan`; default `off`), the
+theme palette is daltonized in OKLab before it reaches the render path:
+`cvd_theme::effective_theme` calls `cvd::adapt_palette`, which separates the
+confusable opponent axis (red–green `a` for protan/deutan, blue–yellow `b` for
+tritan) and re-floors the result so it stays readable. `cvd_strength` (default
+`1.0`) scales the adaptation; the `off` short-circuit leaves the theme byte-for-byte
+untouched. The scope is **palette-only** — the 16 ANSI colors plus the structural
+foreground/background/chrome roles. Indexed-256 cube/grayscale colors and
+application truecolor are **not** remapped. This sits in the same accessibility
+band as the minimum-contrast floor and focus dimming; see
+[`docs/accessibility.md`](accessibility.md).
+
 ---
 
 ## Visual-enhancement direction
@@ -215,7 +244,7 @@ highest-priority additions.
   paths: `mix_oklab` for blends and the OKLab bisect for the contrast floor.
 - **Minimum-contrast guarantee (landed):** configurable perceptual fg/bg
   contrast floor applied at render time (`ODYTTY_MIN_CONTRAST`, `min_contrast`).
-  Value `1.0` = exact passthrough; the fresh-install default is `13.0`.
+  Value `1.0` = exact passthrough; the fresh-install default is `16.0`.
   The floor is measured via WCAG
   relative luminance; lift is applied by bisecting OKLab lightness while
   preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
@@ -231,10 +260,11 @@ highest-priority additions.
   Applied at rasterization time (`src/atlas/mod.rs`); `0.0` is the
   byte-identical opt-out to the classic raster.
 - **Nerd-font / symbol fallback (landed):** automatic PUA glyph fallback
-  for modern prompt icons (starship, powerlevel10k, eza). `symbol_fallback`
+  for modern prompt icons (starship, powerlevel10k, eza). The `symbol_fallback`
   setting / `ODYTTY_SYMBOL_FALLBACK` env var enables the secondary symbol-font
-  face; `symbol_font` / `ODYTTY_SYMBOL_FONT` specifies the face path (or uses
-  automatic font search). Default off.
+  face and is **default on**; `symbol_font` / `ODYTTY_SYMBOL_FONT` specifies an
+  explicit face path and is unset by default (the automatic font search supplies
+  the bundled Nerd Fonts Symbols faces when no path is given).
 
 ### Tier 2 — Identity and depth
 

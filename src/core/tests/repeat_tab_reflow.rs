@@ -102,7 +102,7 @@ fn repeat_char_repeats_wide_glyph() {
 
 #[test]
 fn narrow_resize_then_fish_old_height_repaint_does_not_duplicate_prompt() {
-    let prompt = b"joel@odyssey ~/Pr/odytty master > ";
+    let prompt = b"user@machine ~/Pr/odytty master > ";
     let mut terminal = Terminal::new(24, 8);
 
     terminal.advance(prompt);
@@ -112,7 +112,7 @@ fn narrow_resize_then_fish_old_height_repaint_does_not_duplicate_prompt() {
 
     let text = terminal.screen().plain_text();
     assert_eq!(
-        text.matches("joel@odyss").count(),
+        text.matches("user@machi").count(),
         1,
         "prompt duplicated:\n{text}"
     );

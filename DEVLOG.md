@@ -7,6 +7,79 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Docs: full code-vs-docs audit & accuracy sweep across README, SPEC, packaging, and docs/
+
+Audited every tracked document against the current working tree (the post-0.4.0
+state heading toward v0.5.0, still untagged) and the DEVLOG, then brought the
+docs back in line with the code. The spine was already accurate everywhere; the
+drift was concentrated and mechanical, so this was a precision sweep rather than
+a rewrite.
+
+**Sensitive-content scrub (public-repo hard gate).** Removed a personal
+maintainer name + private hostname from the example PKGBUILD in
+`docs/install.md`; neutralized "the maintainer's private LFS system" phrasing in
+`README.md`, `SPEC.md`, and `docs/themes.md`; and dropped a real
+`user@host`-style prompt fixture and a redundant named-handle assertion from two
+test files (`src/core/tests/repeat_tab_reflow.rs`, `tests/glyph_corpus.rs`). The
+removed assertion is fully subsumed by the existing blanket `@`-ban guard, so
+corpus protection is unchanged; the fixture swap is length-preserving so the
+reflow test behaves identically. A full re-scan of tracked files (excluding the
+DEVLOG's own synthetic guard examples) is clean.
+
+**Canonical-facts corrections.** Fixed recurring wrong defaults across docs:
+`min_contrast` 13.0 → 16.0; default font framing (Victor Mono / 20.0 px / line
+height 1.0; JetBrains Mono is bundled-and-selectable at 16 faces, 32 bundled
+total); `symbol_fallback` default on; and the overlay family's default
+`Ctrl+Shift+<letter>` chords (no longer described as "unbound"). Corrected the
+`visual = ambient` story everywhere: the legacy per-cell ambient scanline wash
+was retired (UX5) and folded into the unified CRT post-process, so `ambient` /
+`scanlines` are back-compat aliases that turn CRT on when no explicit `crt` is
+set — not a separate wash. (The independent verifier pass caught a writer that
+had documented the retired wash as current; corrected against
+`src/shaders/cell.wgsl` and `src/settings.rs`.)
+
+**Version handling.** Feature docs (README, SPEC, runtime-knobs, themes,
+graphics, effects, …) are now version-agnostic — stripped "(v0.3.1)", "new in
+vX", and phase/codename tags — while release and packaging docs pin the latest
+tagged release `0.4.0` via a swappable variable. The AppStream `<releases>`
+block in `dist/linux/io.unfinished_works.odytty.metainfo.xml`, frozen at 0.2.1,
+gained `0.3.0`, `0.3.1`, and `0.4.0` entries. `Cargo.toml` stays at `0.4.0`;
+bumping to 0.5.0 is left for the actual release cut.
+
+**Post-0.4.0 feature coverage.** README, SPEC, TODO, the roadmap, and the design
+docs now cover the band that landed after the 0.4.0 tag: interactive/clickable
+paths + editor line-jump, the in-app image lightbox, the in-window Manage
+Sessions overlay (attach / rename / kill, New-tab/Replace, dedup),
+detach-and-switch, keyboard quick-select hints, and CVD accessibility modes.
+Stale "Next/deferred" status in the design docs was re-tagged "Shipped" where
+features have landed, and broken in-tree / gitignored-`.archon` references were
+fixed or inlined.
+
+**Two new canonical docs.** Added `docs/keybindings.md` (the single keyboard
+reference — global chords, the tmux-style pane prefix, copy mode, hints, search,
+and rebinding incl. the 31 bindable-action tokens) and `docs/accessibility.md`
+(minimum-contrast floor, CVD modes, dimming, reduced-motion guidance, and the
+bell), cross-linked from the README and the relevant docs. These retire the
+scattered, drift-prone keybinding/accessibility fragments.
+
+**Method.** The audit and the per-document rewrites ran as multi-agent sweeps: a
+ground-truth code inventory per subsystem, a per-document drift audit, then one
+writer plus one independent verifier per file, with a final main-loop pass to
+reconcile cross-cutting facts (the ambient/UX5 correction came out of that).
+
+**Verified:** `cargo fmt --check` clean; `cargo test --locked` green (exit 0, no
+failures; the two scrubbed test files pass, latest lib tier 2521 passed / 0
+failed / 7 ignored). All 71 relative doc links resolve; the AppStream metadata
+is well-formed XML.
+
+**Gaps / follow-ups:** the `Cargo.toml` + AppStream version bump and a
+`## … Release v0.5.0 — …` DEVLOG heading are deferred to the actual v0.5.0 cut
+(gated on the macOS CI fix). The `docs/*-design.md` records intentionally keep
+their historical phase/codename framing, and `TODO.md` keeps its historical
+packet records (current state lives in the user-facing docs). An optional
+THIRD-PARTY-LICENSES manifest for the statically-linked crates is noted in the
+NOTICE audit but not yet added.
+
 ## 2026-06-26 -- CI: make two unit tests portable on the macOS leg (test-only)
 
 The macOS CI leg (`cargo test` on `macos-latest`) had been red while every

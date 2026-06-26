@@ -21,17 +21,23 @@ There are two kinds of theme:
 ```conf
 # odytty.conf
 theme = odyssey            # a built-in name
+# theme = system           # follow the OS dark/light appearance
 # theme = solarized        # a user theme: <config>/odytty/themes/solarized.theme
 # theme = /path/to/my.theme  # a user theme by absolute/relative path
 ```
 
 Resolution order for the `theme` value:
 
-1. If it matches a built-in name (any theme in the [library](#built-in-theme-library)),
+1. The special value `system` is a config alias — not a built-in name or a file.
+   It turns on OS dark/light following: OdyTTY selects `os_theme_dark` (default
+   `odyssey`) when the OS reports a dark appearance and `os_theme_light` (default
+   `odyssey-light`) when it reports light. This is resolved before the steps
+   below.
+2. Otherwise, if it matches a built-in name (any theme in the [library](#built-in-theme-library)),
    the built-in is used.
-2. Otherwise, if it looks like a path (contains `/` or ends in `.theme`), that
+3. Otherwise, if it looks like a path (contains `/` or ends in `.theme`), that
    file is read directly.
-3. Otherwise it is looked up in the user theme directory as
+4. Otherwise it is looked up in the user theme directory as
    `<name>.theme`, then `<name>`.
 
 If the value resolves to nothing, or the file cannot be read, OdyTTY falls back
@@ -55,6 +61,32 @@ takes effect on the next reload poll, the same way every other setting reloads
 is picked up the next time the config file itself changes; touch
 `odytty.conf` to force a re-read.)
 
+## In-app theme tools
+
+You can browse, preview, and create themes without editing files by hand.
+
+### Theme Picker
+
+The Theme Picker (default `Ctrl+Shift+H`, also reachable from the right-click
+menu) lists every built-in and user theme with a live preview, so you can scroll
+through the [library](#built-in-theme-library) and apply a theme by selecting
+it. Each entry's light/dark label is derived from its background luminance (see
+[File format](#file-format)). Press `B` inside the picker to open the Theme
+Builder on the highlighted theme.
+
+### Theme Builder
+
+The Theme Builder (default `Ctrl+Shift+B`) is a no-file way to author user
+themes. You can clone an existing theme, edit its foreground/background, palette,
+and role colors, or generate a starting palette from a seed color, then save the
+result. Saving writes `<theme_dir>/<name>.theme` in exactly the
+[file format](#file-format) documented below — so a builder-made theme is an
+ordinary user theme file you can keep editing by hand. On save, role colors are
+snapped to meet the WCAG AA 4.5 contrast target.
+
+See [docs/keybindings.md](keybindings.md) for the full set of default chords and
+how to rebind them.
+
 ## Built-in theme library
 
 OdyTTY ships a curated library of built-in themes, selectable by name with no
@@ -66,7 +98,7 @@ path — so the file format is exercised by the library on every startup.
 
 **OdyTTY original** — `plain`, `odyssey`, and the `odyssey-*` variants are
 original themes designed for OdyTTY's public visual identity. The `odyssey`
-name comes from OdysseyOS, the maintainer's private Linux From Scratch system,
+name comes from OdysseyOS, a companion Linux From Scratch system,
 but these themes are built into OdyTTY and do not require that system.
 `odyssey` is the fresh-install default;
 `plain` reproduces the historical xterm default palette byte-for-byte and
@@ -312,12 +344,18 @@ Colors are written as `#RRGGBB` or `#RGB` (the leading `#` is optional;
 | `color0` … `color15` | The 16 ANSI colors (0–7 normal, 8–15 bright). Alias: `palette0` … `palette15`. |
 | `font_family` | Optional font-family hint (schema metadata; not applied by theme selection). |
 | `font_size` | Optional font-size hint in px (schema metadata; not applied by theme selection). |
-| `visual` | Bundled visual-effect profile metadata: `off`, `ambient`, or `scanlines`. `ambient`/`scanlines` are back-compat aliases for the CRT scanline effect in settings, but theme selection does not auto-apply this field. |
+| `visual` | Bundled visual-effect profile metadata: `off`, `ambient`, or `scanlines`. `ambient` and `scanlines` are aliases for *each other* — both map to the `Ambient` effect, a faint static scanline wash applied to cell backgrounds only (glyphs untouched), which is distinct from the separate CRT post-process scanline pass (the `crt` / `crt_scanline_*` settings). Theme selection does not auto-apply this field. |
 
 `appearance`, `font_family`, `font_size`, and `visual` are parsed, validated,
-and round-tripped. `appearance` is used as metadata by theme-listing and picker
-surfaces; the font and visual fields are retained as schema metadata rather
-than auto-applied when the theme changes.
+and round-tripped, but none are projected into the running theme. In particular,
+the light/dark label shown by `--list-themes` and the in-app Theme Picker is
+derived at runtime from the theme's background **relative luminance** — a
+background luminance above `0.18` is treated as light — not from the file's
+`appearance` field, which is retained as round-tripped metadata only. (The
+appearance column in the [library](#built-in-theme-library) table agrees with
+the file because each built-in's authored `appearance` matches its background
+luminance.) The font and visual fields are likewise kept as schema metadata
+rather than auto-applied when the theme changes.
 
 ## Example
 
@@ -357,6 +395,19 @@ color13 = #d8a6ff
 color14 = #7ad4df
 color15 = #f0f4ff
 ```
+
+## How a selected theme is presented
+
+Two settings change how the active theme is rendered:
+
+- **`themed_ui_roles`** (default on) lets the theme's semantic role colors drive
+  OdyTTY's own overlay and UI chrome, so the picker, settings panel, and other
+  surfaces pick up the selected theme rather than a fixed palette.
+- **Color-vision-deficiency adaptation** (`cvd_mode`, default off; `cvd_strength`,
+  default `1.0`) applies OKLab daltonization to the theme's 16 ANSI slots plus
+  the cursor, selection, and search colors at render time, without altering the
+  theme file. See [docs/accessibility.md](accessibility.md) for the CVD modes and
+  the related readability controls (`min_contrast`, `focus_dim`, bell).
 
 ## Precedence with running applications
 

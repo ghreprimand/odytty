@@ -16,6 +16,12 @@
     <category>System</category>
     <category>TerminalEmulator</category>
   </categories>
+  <keywords>
+    <keyword>terminal</keyword>
+    <keyword>tty</keyword>
+    <keyword>pty</keyword>
+    <keyword>shell</keyword>
+  </keywords>
   <description>
     <p>
       OdyTTY is a from-scratch Rust terminal emulator for Linux. It owns the
@@ -31,7 +37,28 @@
   <url type="homepage">https://odytty.unfinished-works.com</url>
   <url type="bugtracker">https://github.com/ghreprimand/odytty/issues</url>
   <content_rating type="oars-1.1"/>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/ghreprimand/odytty/master/assets/demo.png</image>
+      <caption>OdyTTY running a shell with the Odyssey visual identity</caption>
+    </screenshot>
+  </screenshots>
   <releases>
+    <release version="0.4.0" date="2026-06-24">
+      <description>
+        <p>Brings multi-tab and split-pane multiplexing (each pane keeps its own scrollback, selection, viewport, and search), detached resumable sessions with reattach driven by a local-only, per-user Unix socket, and an in-window Manage Sessions overlay (default Ctrl+Shift+A) for attach, rename, kill, and Detach and switch. Adds an SSH connection manager, a Ctrl+Shift+P command palette, and a scrubbable session-replay overlay. Introduces interactive paths (default off): with the gate enabled, OdyTTY detects filesystem paths in its output and Ctrl+click opens them — files via xdg-open, path:line:col via an editor matrix, directories via the file manager — plus Open, Open With…, Copy Path, Copy File, and Reveal in File Manager context items. Resolved image paths open in an in-app lightbox viewer (Esc or click-outside to dismiss). The in-panel keybinding editor now covers every bindable action.</p>
+      </description>
+    </release>
+    <release version="0.3.1" date="2026-06-24">
+      <description>
+        <p>Makes four overlays discoverable by giving each a default Ctrl+Shift chord and a menu entry: Ctrl+Shift+P opens the command palette, Ctrl+Shift+S the connection manager, Ctrl+Shift+R the session-replay overlay, and Ctrl+Shift+B the theme builder. All four use Ctrl+Shift+&lt;letter&gt; chords that a TUI cannot receive, so no PTY input path is perturbed, and every chord remains rebindable. Prompt navigation stays on the Ctrl+Shift+Up / Ctrl+Shift+Down arrow chords.</p>
+      </description>
+    </release>
+    <release version="0.3.0" date="2026-06-23">
+      <description>
+        <p>Lands native splits and panes on a per-tab binary layout tree (single-pane tabs stay byte-identical), reachable via tmux-style prefix bindings and direct Ctrl+Shift+E / Ctrl+Shift+O chords with drag-resizable dividers and directional focus moves. Adds resumable, persistent sessions: a detached session-host process owns the PTYs and terminal models so a window can close and reattach with full scrollback over a per-user, local-only Unix socket, with CLI verbs odytty new, list, and attach. Also introduces an SSH connection manager and a command palette.</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-06-21">
       <description>
         <p>Fixes insert/replace mode (IRM, ANSI mode 4): printing in insert mode now shifts existing cells to the right instead of overwriting them, so editors that rely on incremental line redraw — notably Apple's pico/nano on macOS — no longer corrupt the current line. Also bounds scrollback memory by default (a runaway program can no longer grow history until the system runs out of memory) and makes the test suite deterministic. No change to terminal behavior beyond the IRM fix.</p>

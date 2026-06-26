@@ -2,10 +2,9 @@
 
 OdyTTY releases create both a source tag and a GitHub Release entry that package
 monitors can discover. The first public release was `v0.1.0`; the current
-release is `v0.2.1`, which fixes insert/replace mode (IRM) so editors like
-macOS pico/nano no longer overwrite text instead of inserting it, bounds
-scrollback memory by default, and makes the test suite deterministic.
-`Cargo.toml` must match the release version.
+release is `v0.4.0`. `Cargo.toml` must match the release version. The version
+examples below use `0.4.0` as the current tag — substitute the tag you are
+cutting.
 
 OdyTTY ships as **source only**. A release publishes a source tarball plus
 `SHA256SUMS`; there is no prebuilt binary or disk image for any platform. The
@@ -35,7 +34,7 @@ run finishes).
 
 ## Current Release Readiness
 
-`v0.2.1` ships:
+The current release ships:
 
 - plain `odytty` launches the native terminal;
 - `odytty -e command args...` executes a command directly in the initial PTY;
@@ -43,6 +42,16 @@ run finishes).
 - `--title TITLE` sets the initial window title;
 - `odytty --version`, `--help`, `--list-themes`, `--list-fonts`, and
   `--show-config` work without opening a window;
+- `odytty new` / `list` / `attach [ID]` manage detached sessions, with an
+  in-window Manage Sessions overlay and a Detach & switch action;
+- tabs and split panes (first split via `Ctrl+Shift+E` / `Ctrl+Shift+O`, then
+  the `Ctrl-b` prefix model);
+- overlays for the command palette, connection manager, session replay, theme
+  picker, and theme builder;
+- 100 built-in themes with a perceptual minimum-contrast floor and optional
+  color-vision-deficiency modes;
+- interactive/clickable paths (off by default) with `Ctrl+click`-to-open and an
+  in-app image lightbox;
 - a mouse-cursor shape over the grid (I-beam), hyperlinks (hand), and chrome
   (arrow);
 - desktop launcher metadata in `dist/linux/`;
@@ -68,12 +77,12 @@ register OdyTTY as available and let the user choose it.
 A release includes exactly:
 
 ```text
-odytty-0.2.0.tar.gz
+odytty-0.4.0.tar.gz
 SHA256SUMS
 ```
 
 These are produced and attached by `release.yml`. (Detached signatures such as
-`odytty-0.2.0.tar.gz.minisig` may be added later if upstream signing is set up;
+`odytty-0.4.0.tar.gz.minisig` may be added later if upstream signing is set up;
 CI does not sign today.)
 
 ## Create A Release
@@ -85,7 +94,7 @@ CI does not sign today.)
 
 ```sh
 cargo fmt --check
-cargo check --locked
+cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
 cargo build --release --locked
 target/release/odytty --version
@@ -93,27 +102,36 @@ desktop-file-validate dist/linux/io.unfinished_works.odytty.desktop
 appstreamcli validate --pedantic dist/linux/io.unfinished_works.odytty.metainfo.xml
 ```
 
-3. Commit the version bump and any release-note/doc updates, then push `master`.
-   Confirm the `ci.yml` run is green on both Linux and macOS.
+   The `clippy` line mirrors CI's `-D warnings` gate. On macOS, CI appends `--
+   --test-threads=1` to `cargo test --locked` to avoid PTY child-reap deadlocks;
+   run it the same way when reproducing a macOS failure. Run the full
+   `cargo test --locked` (not `cargo test --lib`): the CLI/attach integration
+   tests need the compiled `odytty` binary, which `--lib` does not build.
+
+3. Update `dist/linux/io.unfinished_works.odytty.metainfo.xml` to add a
+   `<release>` entry for the new version (newest first) and add the headline
+   `DEVLOG.md` entry with a `## YYYY-MM-DD -- Release vX.Y.Z` heading. Commit the
+   version bump together with these and any other release-note/doc updates, then
+   push `master`. Confirm the `ci.yml` run is green on both Linux and macOS.
 
 4. Tag the release and push the tag. This triggers `release.yml`, which builds
    the tarball, writes `SHA256SUMS`, and publishes the GitHub Release:
 
 ```sh
-git tag -a v0.2.0 -m "OdyTTY v0.2.0"
-git push origin v0.2.0
+git tag -a v0.4.0 -m "OdyTTY v0.4.0"
+git push origin v0.4.0
 ```
 
-5. Confirm the published release has exactly `odytty-0.2.0.tar.gz` and
+5. Confirm the published release has exactly `odytty-0.4.0.tar.gz` and
    `SHA256SUMS`, and that the archive builds with `cargo build --release
    --locked`.
 
    To produce the same tarball locally without CI (fallback):
 
 ```sh
-git archive --format=tar.gz --prefix=odytty-0.2.0/ \
-  -o odytty-0.2.0.tar.gz v0.2.0
-sha256sum odytty-0.2.0.tar.gz > SHA256SUMS
+git archive --format=tar.gz --prefix=odytty-0.4.0/ \
+  -o odytty-0.4.0.tar.gz v0.4.0
+sha256sum odytty-0.4.0.tar.gz > SHA256SUMS
 ```
 
 6. Build the Odyssey package from the published archive, not from the working
@@ -136,10 +154,10 @@ release title, source archive, checksum file, and `Cargo.toml` version should
 all agree:
 
 ```text
-tag: v0.2.0
-release title: v0.2.0
-Cargo.toml version: 0.2.0
-archive: odytty-0.2.0.tar.gz
+tag: v0.4.0
+release title: v0.4.0
+Cargo.toml version: 0.4.0
+archive: odytty-0.4.0.tar.gz
 ```
 
 Do not publish a release entry for a tag whose source archive cannot be built
@@ -148,7 +166,7 @@ with `cargo build --release --locked`.
 ## Odyssey-Mon Upstream Tracking
 
 After OdyTTY is installed as a local pacman package, Odyssey-Mon sees the local
-installed version from `pacman -Qi odytty`, for example `0.2.0-1`.
+installed version from `pacman -Qi odytty`, for example `0.4.0-1`.
 
 Configure upstream tracking as a GitHub source:
 
@@ -159,8 +177,8 @@ repo: odytty
 tag_prefix: v
 ```
 
-With that mapping, upstream releases such as `v0.2.0` can be compared against
-the installed pacman version `0.2.0-1`, after Odyssey-Mon normalizes the `v`
+With that mapping, upstream releases such as `v0.4.0` can be compared against
+the installed pacman version `0.4.0-1`, after Odyssey-Mon normalizes the `v`
 prefix and package-release suffix.
 
 ## Versioning

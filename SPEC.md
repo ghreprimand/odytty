@@ -2,7 +2,7 @@
 
 ## The Spark
 
-OdyTTY began as an answer to a private Linux From Scratch system called
+OdyTTY began as an answer to a Linux From Scratch system called
 OdysseyOS: if a system has a distinct working environment, what would its
 terminal feel like if it were built from the ground up rather than skinned from
 something else? OdysseyOS remains the naming and visual inspiration, but OdyTTY
@@ -178,8 +178,8 @@ bit is never touched by either op per xterm convention. DECSACE (`CSI Ps * x`)
 selects stream (Ps=0/1) or exact-rectangle (Ps=2) extent for subsequent DECCARA/
 DECRARA calls. The `rect_attr_extent` field lives on each `Screen`; it is carried
 across alternate-screen entry and exit (same extent restored), and both RIS and
-DECSTR reset it to `Stream` (the default). The `blink` field added to `Attrs`
-by RC2 follows the same `Debug` omission policy as `protected`: `Attrs::fmt`
+DECSTR reset it to `Stream` (the default). The `blink` field on `Attrs`
+follows the same `Debug` omission policy as `protected`: `Attrs::fmt`
 omits `blink: false` so oracle golden fixtures remain stable.
 
 **Graphics protocol decode and placement pipeline** (`src/graphics/`,
@@ -401,10 +401,10 @@ boolean field on the terminal screen; `RIS` and `DECSTR` both reset it to off.
 mode-query path in `src/core/screen/ops.rs`.
 
 The native layer owns the presentation-hold policy. `SynchronizedOutputHold`
-(`src/native/app.rs`) monitors the core mode flag and, while it is set, defers
+(`src/native/app/`) monitors the core mode flag and, while it is set, defers
 GPU content uploads — the terminal model continues to advance and process PTY
 bytes without interruption, but grid snapshots are not uploaded or rendered.
-After `SYNCHRONIZED_OUTPUT_TIMEOUT` (150 ms, `src/native/app.rs:56`), the hold
+After `SYNCHRONIZED_OUTPUT_TIMEOUT` (150 ms, `src/native/app/mod.rs:123`), the hold
 is released unconditionally and will not re-engage until the application resets
 the mode and sets it again. The timeout deadline is registered with the event
 loop so the release fires promptly at the deadline without additional polling.
@@ -413,7 +413,7 @@ display for longer than 150 ms. Cursor blink remains live during the hold: the
 hold path calls `update_held_cursor_frame`, which re-renders the cursor blink
 delta against the last presented snapshot without touching grid content.
 
-### Semantic Prompt Marking (OSC 133) — foundation
+### Semantic Prompt Marking (OSC 133)
 
 OSC 133 (`ESC ] 133 ; <letter> [; k=v ...] ST`) marks the prompt/command/output
 boundaries a shell-integration script emits: `A` prompt start, `B` prompt end /
@@ -432,11 +432,14 @@ they sit on change. A read-only poll API (`prompt_mark_at`,
 `take_prompt_marks_changed`) exposes the marks; the change flag is conservative
 (fires on any stamp, clear, or reposition).
 
-This is a **foundation slice with no render consumer**: `prompt_mark` is never
-read by the render path and is deliberately absent from `Snapshot`, so the
-plain renderer is byte-identical with or without OSC 133 in the stream. The
-command-aware UX that consumes these marks (jump-to-prompt, per-command output
-selection, success/fail gutter) is separate downstream work.
+The core mark model stays render-neutral: `prompt_mark` is never read by the
+render path and is deliberately absent from `Snapshot`, so the plain renderer is
+byte-identical with or without OSC 133 in the stream. The command-aware UX that
+consumes these marks reads them through the poll API instead. Jump-to-prompt is
+wired — `Ctrl+Shift+Up` / `Ctrl+Shift+Down` (and the matching command-palette
+actions) move the viewport between prompt marks — and a `command_status_gutter`
+setting marks command success/failure. Per-command output selection remains
+downstream work.
 
 ### Bell (BEL)
 
@@ -510,10 +513,11 @@ its first stable layer.
 - Configurable cursor shapes and blink policy (DECSCUSR + settings)
 - Configurable terminal-local key bindings; `keybinds` / `ODYTTY_KEYBINDS`
   supports all bindable local, tab, palette, and pane actions. The in-app
-  keybinding editor in the settings panel currently covers the 12 core non-tab actions
-  (capture a new chord by pressing a row, `Backspace` resets to default,
-  `R` resets all, conflict prompt on clash, writes to `odytty.conf` via the
-  preservation-first writeback path).
+  key-remap editor in the settings panel covers every bindable action (all 31)
+  (select a row and press `Enter` to capture a new chord, `Backspace` resets to
+  default, `R` resets all, conflict prompt on clash, writes to `odytty.conf` via
+  the preservation-first writeback path). See
+  [`docs/keybindings.md`](docs/keybindings.md) for the full keyboard reference.
 - Keyboard copy mode (`copy-mode` action, `Ctrl+Shift+Space` by default): a
   keyboard-driven scrollback selection mode. `h/j/k/l`, `w/b/e`, `0/^/$`,
   `gg/G` move the
@@ -526,9 +530,9 @@ its first stable layer.
   extension), 1006 (SGR decimal), 1015 (urxvt decimal); legacy byte protocol
   as default. Only one tracking mode and one encoding mode are active at a time;
   `DECRST` clears back to the default. SGR-pixel encoding (mode 1016) is
-  supported core-side as of MS1: `DECSET`/`DECRST`/`DECRQM` are wired, and a
+  supported core-side: `DECSET`/`DECRST`/`DECRQM` are wired, and a
   pure pixel encoder emits `CSI < Cb ; Px ; Py M|m` from caller-owned 1-based
-  pixel coordinates. As of MS2 the native pixel seam is closed end-to-end: when
+  pixel coordinates. The native pixel seam is closed end-to-end: when
   1016 is active the native mouse handler routes true 1-based physical pixel
   coordinates (floored from the winit cursor position, clamped to the grid
   pixel extent) to the core pixel encoder, while every other encoding keeps the
@@ -606,8 +610,9 @@ its first stable layer.
     this equivalence so the claim cannot silently drift.
   - **Minimum-contrast floor** (`ODYTTY_MIN_CONTRAST`, `min_contrast`): a
     configurable WCAG contrast ratio floor between foreground and background,
-    applied at render time. Default `13.0` is the fresh-install readability
-    floor; `1.0` is the exact passthrough opt-out. Higher
+    applied at render time. Default `16.0` is the fresh-install readability
+    floor (range `1.0`–`21.0`); `1.0` disables the floor and is the exact
+    passthrough opt-out. Higher
     values lift underpowered foregrounds toward legibility. The floor is measured
     via WCAG relative luminance; the lift is applied by bisecting OKLab lightness
     while preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
@@ -629,9 +634,10 @@ its first stable layer.
   replaced lossily; payloads are bounded by the parser's 128 KiB OSC cap. No
   response is emitted and no filesystem access occurs. RIS leaves the stored
   path untouched (it reflects the foreground process's state, not resettable
-  terminal state — mirroring the title decision). The native consumer
-  (e.g. open-new-tab-in-same-directory) is a deliberate follow-up packet (SI2).
-  OSC 6 is accepted-and-ignored.
+  terminal state — mirroring the title decision). The native layer now consumes
+  the tracked cwd: Detach & switch spawns the fresh session in the focused
+  pane's working directory, and the command palette feeds recent OSC 7
+  directories into its picker. OSC 6 is accepted-and-ignored.
 
 - Post-process pipeline foundation: lazy offscreen render target +
   fullscreen-triangle passthrough composite; default path stays
@@ -735,8 +741,9 @@ its first stable layer.
   values; the source layer never writes history files, never logs history
   contents, and never sends candidates over the network.
 - Native command-palette overlay: exposed as the `command-palette` bindable
-  action, unbound by default to preserve existing input. When bound (for
-  example `ODYTTY_KEYBINDS="ctrl+alt+p=command-palette"`), it presents a
+  action, which ships a default `Ctrl+Shift+P` chord (a `Ctrl+Shift+<letter>`
+  chord a full-screen TUI cannot itself receive) and remains rebindable. It
+  presents a
   keyboard-driven fuzzy picker over local actions, bounded shell history, and
   recent OSC 7 directories. Accepting a history or directory row types that
   text into the active pane without appending a newline; accepting an action
@@ -745,7 +752,7 @@ its first stable layer.
   off by default) keeps a bounded in-memory ring of recent screen frames —
   capped by both 600 frames and 24 MiB, whichever binds first, with the oldest
   evicted — recorded by the PTY pump off the render path. The `session-replay`
-  bindable action (unbound by default to preserve existing input) opens a
+  bindable action (default chord `Ctrl+Shift+R`, rebindable) opens a
   keyboard-scrubbable overlay over a frozen, fully decoupled clone of the ring:
   `←`/`→` step, `PgUp`/`PgDn` jump ten, `Home`/`End` go to the ring ends. Replay
   is presentation-only — it never mutates live core terminal state, so the live
@@ -753,7 +760,8 @@ its first stable layer.
   local-only: frames live only in memory, never written to disk or sent over the
   network, and are dropped when the session closes or recording is turned off.
 - Connection-manager overlay: exposed as the `connection-manager` bindable
-  action, unbound by default to preserve existing input. When bound, it presents
+  action, which ships a default `Ctrl+Shift+S` chord (also reachable from the
+  right-click menu) and remains rebindable. It presents
   a keyboard-driven, type-to-filter list of saved hosts merged from the
   OdyTTY-owned `hosts.conf` and, only when `ssh_config_hosts` is enabled, the
   name-only OpenSSH-config import; fuzzy matching ranks over alias, host name,
@@ -762,6 +770,69 @@ its first stable layer.
   mutates live core terminal state, so the live frame is byte-identical whether
   or not it is active. With the opt-in off, the overlay shows OdyTTY-owned hosts
   only and OdyTTY never reads or references `~/.ssh`.
+- Interactive / clickable file paths (`interactive_paths`, master gate, default
+  off): when enabled, OdyTTY syntactically detects file and directory spans in
+  the visible row under the pointer and stat-gates them against the filesystem
+  (`std::fs::symlink_metadata`, no symlink traversal), so only real paths arm.
+  Ctrl+click opens a resolved path through the platform default opener; a
+  `:line[:col]` suffix routes to an editor by an editor-argument matrix
+  (`vim`/`nvim`/`vi`, `code`, `emacs`/`emacsclient`, `hx`/`helix`/`subl`/
+  `micro`, `nano`, with an open-and-drop-position fallback) chosen by
+  `interactive_paths_editor` (empty by default → `$EDITOR` → `$VISUAL`). Three
+  sub-keys default on but are inert until the master gate is on:
+  `interactive_paths_barewords` (also detect basename-plus-extension tokens),
+  `interactive_paths_click_hint` (a transient "Ctrl+click to open" teaching chip
+  after repeated plain mis-clicks on a resolved path), and
+  `interactive_paths_image_inline` (route image paths to the in-app viewer). The
+  right-click menu adds **Open**, **Open in OdyTTY**, **Open With…** (a picker
+  built from an `xdg-mime`/magic-byte type query and desktop-entry enumeration),
+  **Copy Path**, **Copy File** (`file://` URI), and **Reveal in File Manager**.
+  Every open routes through a single argv-only detached-spawn point — never
+  `sh -c` — so a filename containing `;`, `$()`, backticks, or spaces is an inert
+  argv element.
+- In-app image lightbox: Ctrl+clicking a resolved `png`/`jpg`/`jpeg`/`webp` path
+  (or choosing **Open in OdyTTY**) opens a decoded image in a free-floating
+  overlay drawn after the post-process pass directly onto the swapchain, so CRT
+  and bloom never touch it. The image is aspect-fit to a fraction of the
+  viewport and never upscaled past source, behind a dark scrim. Dismiss with
+  `Esc` or a click outside the image rect. Decode is bounded
+  (`12_000` px per axis, `256 MiB` allocation) and content-sniffed, so a lying
+  `.png` extension cannot mislead the decoder.
+- Keyboard hints / quick-select (`hints` bindable action, default `Ctrl+Shift+L`,
+  rebindable): a pattern scanner labels URLs, paths, and SHA hashes in the
+  focused pane's visible viewport (joining soft-wrapped rows) with home-row
+  letter labels; completing a label copies the exact matched text to the
+  clipboard and closes. Presentation-only — terminal state is never modified, and
+  a zero-match activation consumes the chord without leaking it to the PTY.
+- Manage Sessions overlay (`session-attach` bindable action, default
+  `Ctrl+Shift+A`, rebindable; also reachable from the right-click menu): an
+  in-window, type-to-filter list of live detached sessions, the GUI counterpart
+  to the `odytty list` / `odytty attach` CLI verbs. Selecting a session attaches
+  it; an already-open session is de-duplicated to its existing tab instead of
+  opening a second copy, and otherwise a New-tab / Replace-current dialog
+  chooses placement (Replace attaches the new session, then cleanly detaches the
+  old hosted tab so it stays reattachable). Right-clicking a row requests a kill
+  with a "Terminate session" confirm; on confirm OdyTTY kills the host (a stale
+  socket is treated as already-gone) and reopens the manager so the dead row
+  disappears.
+- Detach & switch (right-click menu item, always available): spawns a **fresh**
+  managed session — honestly a spawn, not live-process migration, because the
+  focused pane's shell is this window's own child and cannot be handed off — in
+  the focused pane's OSC 7 working directory, attaches it in a new tab, and
+  switches. A three-way dialog chooses Swap (close the original pane once the
+  managed session is live), Keep both, or Cancel. The order is always
+  spawn → attach → (Swap only) close-original, so the original pane is never
+  closed before the new session confirms live; spawn or attach failure raises a
+  transient notice and leaves the pane untouched.
+- Color-vision-deficiency accessibility (`cvd_mode`, default off, values
+  `off`/`protan`/`deutan`/`tritan`; `cvd_strength`, default `1.0`): OKLab
+  daltonization of the theme palette (the 16 ANSI slots plus cursor/selection/
+  search roles), neutralizing the lost opponent axis and steering the cue onto a
+  retained one, then re-flooring against a WCAG-AA authoring gate. Palette-only:
+  indexed-256 and application truecolor are not remapped. `cvd_mode = off` or
+  `cvd_strength = 0.0` is a pixel-identical passthrough. See
+  [`docs/accessibility.md`](docs/accessibility.md) for the accessibility knobs
+  (CVD modes, `min_contrast`, `focus_dim`, bell).
 
 **Out of scope until foundations are stronger:**
 - Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering

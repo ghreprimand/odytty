@@ -1,8 +1,8 @@
 # Packaging OdyTTY
 
-OdyTTY is pre-release. The Linux release shape is a versioned source release
-(`v0.2.1`) plus desktop integration files that downstream packages can install
-in normal XDG locations.
+The Linux release shape is a versioned source release (latest tag `v0.4.0`)
+plus desktop integration files that downstream packages can install in normal
+XDG locations.
 
 This file describes the packaging surface for the source tree it ships with.
 For a tagged release, read the `PACKAGING.md` from that same tag.
@@ -16,17 +16,29 @@ Packages should install:
 /usr/share/applications/io.unfinished_works.odytty.desktop
 /usr/share/metainfo/io.unfinished_works.odytty.metainfo.xml
 /usr/share/icons/hicolor/scalable/apps/io.unfinished_works.odytty.svg
+/usr/share/icons/hicolor/48x48/apps/io.unfinished_works.odytty.png
+/usr/share/icons/hicolor/64x64/apps/io.unfinished_works.odytty.png
+/usr/share/icons/hicolor/128x128/apps/io.unfinished_works.odytty.png
 /usr/share/icons/hicolor/256x256/apps/io.unfinished_works.odytty.png
 /usr/share/doc/odytty/
 /usr/share/licenses/odytty/LICENSE
 ```
 
+`dist/icons/hicolor/` ships the scalable SVG plus four raster sizes
+(48x48, 64x64, 128x128, 256x256). Installing the full set is recommended;
+at minimum the scalable SVG plus the 256x256 PNG cover the common cases.
+
 The desktop entry uses `Icon=io.unfinished_works.odytty`, so the hicolor icon
 theme assets need to be installed with that basename.
 
-The AppStream metadata is intentionally small for `v0.2.0`: it gives software
+The AppStream metadata is intentionally small for `v0.4.0`: it gives software
 centers and inventory tools a stable component id, homepage, bug tracker,
 license, summary, and release version.
+
+On macOS the app bundle uses the Apple-valid reverse-DNS identifier
+`io.unfinished-works.odytty` (hyphen), which intentionally differs from the
+Linux component/icon basename `io.unfinished_works.odytty` (underscore). Both
+forms are correct for their platform; do not "normalize" one to the other.
 
 OdyTTY currently launches child shells with `TERM=xterm-256color`. Packages do
 not need to install a custom terminfo entry yet. If a future release switches to
@@ -63,16 +75,35 @@ odytty --show-config
 odytty --version
 ```
 
+The binary also exposes detached-session subcommands that packagers and
+launcher integrations should be aware of:
+
+```sh
+odytty new          # start a detached session, prints id=<id>
+odytty list         # list live detached sessions
+odytty attach [ID]  # reattach a session in a native window
+```
+
+Detached sessions require `XDG_RUNTIME_DIR` to be set on non-macOS platforms;
+their control sockets live under `$XDG_RUNTIME_DIR/odytty` (mode `0700`). The
+session host hard-errors if `XDG_RUNTIME_DIR` is unset, so packaging and
+launcher environments that use these subcommands must provide it. macOS falls
+back to the per-user Darwin temp dir and does not require it.
+
 Build requirements:
 
 ```text
 rust
 cargo
 pkg-config or pkgconf
-fontconfig
-freetype2
 vulkan-loader
 ```
+
+The font stack is pure-Rust (`ab_glyph`, `swash`, `ttf-parser` for
+metadata-only reads), so there is **no** build/link dependency on `freetype2`.
+`fontconfig` is a **runtime-only** dependency: OdyTTY shells out to `fc-match`
+to backfill symbol glyphs from the host font set. It is not needed to build or
+link the binary, only at run time on systems that rely on that backfill.
 
 Distribution build systems that forbid network access during the build should
 vendor Rust crates before the build step, for example with `cargo vendor`, and
@@ -118,7 +149,7 @@ a standard mechanism, then let the user choose it.
 
 On Odyssey, package OdyTTY as a normal source-build PKGBUILD in `~/pkgbuilds`
 and build it with `odyssey-build`. That makes pacman own `/usr/bin/odytty` and
-the desktop entry, giving a versioned install such as `odytty 0.2.0-1`.
+the desktop entry, giving a versioned install such as `odytty 0.4.0-1`.
 
 See [`docs/install.md`](docs/install.md) for a concrete Odyssey PKGBUILD
 example and default-terminal notes.

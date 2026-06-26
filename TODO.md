@@ -12,7 +12,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
   - [x] PA1: parser skeleton with ground/escape/CSI/OSC states, mid-stream
         UTF-8 decoding, an OdyTTY dispatch trait, and an oracle harness against
         the existing fixture corpus during the transition.
-    - [x] `src/parser/` introduced `OdyParser` (14-state DEC ANSI machine,
+    - [x] `src/parser/` introduced `OdyParser` (15-state DEC ANSI machine,
           split-codepoint UTF-8, 32-slot param cap with saturating accumulate,
           2-byte intermediate cap), an owned `Params`, and a `VtDispatch` trait
           plus first-class `apc_dispatch`.
@@ -211,7 +211,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
   - [x] Native render loop calls `ensure()` for non-ASCII cells, re-uploads the
         atlas texture on `take_dirty()`, and rebuilds vertices against the
         current atlas so real resident glyphs render instead of fallback boxes.
-  - [x] Symbol/Nerd-font fallback (v0.1.6): `symbol_fallback` defaults on, backed
+  - [x] Symbol/Nerd-font fallback: `symbol_fallback` defaults on, backed
         by a bundled `SymbolsNerdFontMono` face with explicit > bundled > host
         precedence so PUA prompt icons render out of the box; the classifier
         covers PUA plus standard symbol blocks (Arrows, Misc Technical, Geometric
@@ -230,7 +230,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         with a host copy of a bundled family de-duplicated into the bundled
         group. Headers are non-selectable; navigation/filtering skip them; either
         group resolves with zero config.
-  - [x] Geometric Symbols for Legacy Computing (v0.1.6): sextants, octants,
+  - [x] Geometric Symbols for Legacy Computing: sextants, octants,
         triangles, eighth strips/ladders, L-combo eighth blocks
         (`U+1FB7C..1FB81`), and segmented digits (`U+1FBF0..1FBF9`) render from
         cell geometry. Deferred (Packet B, post-v0.1.6): diagonal-edged blocks
@@ -535,7 +535,8 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         plain/fast render path untouched.
   - [x] Coherent effect grouping and clearer setting labels: `setting_info()`
         stable-sorts rows into contiguous groups (Theme, Font, Rendering,
-        Post-process, Cursor, Input, Clipboard, Development) and cryptic keys
+        Post-process, Cursor, Input, Connections, Sessions, Clipboard,
+        Accessibility, Development) and cryptic keys
         gained clear display labels + help text (e.g. `osc52_read` →
         "Allow clipboard read (OSC 52)", `render_quality` → "Renderer profile",
         `crt_scanline_period` → "CRT scanline spacing", `symbol_font` →
@@ -712,7 +713,7 @@ a floor; surpassing it is the standing ambition.
       to match the perceived brightness of the prior linear ×0.5).
 - [x] Minimum-contrast floor (`ODYTTY_MIN_CONTRAST`, `min_contrast`):
       configurable WCAG contrast ratio floor applied at render time. Default
-      `13.0` is the fresh-install readability floor; `1.0` is the exact
+      `16.0` is the fresh-install readability floor; `1.0` is the exact
       passthrough opt-out. The floor is measured via WCAG
       relative luminance; the lift bisects OKLab lightness while preserving hue
       and chroma (`src/color.rs:enforce_min_contrast`).
@@ -833,7 +834,8 @@ feature validates against.
         builder.
   - [x] Perceptual colorblind palette adaptation: remap the ANSI palette in
         OKLCH for protan/deutan/tritan, adaptive on output, in an Accessibility
-        settings group.
+        settings group. The contrast floor, CVD modes, focus dim, and bell are
+        described for users in `docs/accessibility.md`.
   - [x] Readability-scrim primitive for background treatments (core) —
         pure math that caps (dark) or lifts (light) the composited background
         luminance so a treatment cannot breach the contrast floor; native
@@ -862,6 +864,23 @@ feature validates against.
   - [x] Draggable scroll-thumb to scrub through scrollback.
   - [x] Configurable wheel scroll speed plus modifier+wheel font-size zoom
         (only when TUI mouse reporting is off).
+- [x] Interactive / clickable file paths (`interactive_paths`, master gate,
+      default off): the renderer scans cells for file/directory paths and
+      Ctrl+click opens them through the OS opener (`xdg-open` on Linux, `open`
+      on macOS) with the same scheme-allowlist / argv-only safety as OSC 8.
+      Everything below is inert until the master gate is on.
+  - [x] Sub-gates default on under the master gate:
+        `interactive_paths_barewords` (extension-bearing basenames),
+        `interactive_paths_click_hint` (a "Ctrl+click to open" teaching chip),
+        and `interactive_paths_image_inline`; `interactive_paths_editor` is an
+        empty editor-command template for `:line[:col]` jump (`{file}`/`{line}`/
+        `{col}` argv template, else `$EDITOR`/`$VISUAL`, else the default opener).
+  - [x] In-app image lightbox: Ctrl+click a resolved `png`/`jpg`/`jpeg`/`webp`
+        path (or the right-click "Open in OdyTTY" item) opens an in-window image
+        viewer; `Esc` or click-outside dismisses it.
+  - [x] Path right-click menu: Open, Open in OdyTTY (images), Open With… (the
+        `xdg-mime` / macOS app-picker overlay), Copy Path, Copy File, and Reveal
+        in File Manager. See `docs/keybindings.md` for the chord reference.
 - [ ] Theme library and config UX.
   - [x] Built-in theme library expanded to 100 contrast-validated themes
         (data-only, ongoing).
@@ -1022,6 +1041,21 @@ feature validates against.
 - [x] Public live reattach: `odytty attach <id>` routes through the native
       window attach seam, while `odytty attach --diagnostic <id>` remains the
       no-window script/CI form.
+- [x] In-window Manage Sessions overlay (`session-attach` bindable action,
+      default `Ctrl+Shift+A`; also the "Manage Sessions" right-click item): a
+      keyboard-driven list of live detached sessions that attaches the selected
+      session without leaving the window. The default chord and the full bindable
+      action set are catalogued in `docs/keybindings.md`.
+  - [x] Attach dedup + New tab / Replace prompt: attaching a session already
+        open in a tab focuses the existing tab; otherwise the `AttachChoice`
+        dialog offers New tab (attach alongside) or Replace (close the current
+        tab and attach in its place).
+  - [x] Kill a session from the manager: a right-click / confirm flow reaps the
+        selected hosted session and removes it from the list.
+- [x] Detach & switch (right-click "Detach & switch"): spawn a fresh managed
+      session in the focused pane's current working directory (OSC 7 cwd) and
+      switch to it, with an honest spawn-not-live-migration framing and a
+      Swap / Keep both / Cancel dialog.
 - [ ] Profiles remain future work.
 
 ## Archived First Prototype Checklist

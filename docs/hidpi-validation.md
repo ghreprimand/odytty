@@ -24,7 +24,7 @@ Status: turnkey — run each cell, record pass/fail in the rightmost column.
 | Variable                   | Purpose                                      |
 |----------------------------|----------------------------------------------|
 | `WINIT_X11_SCALE_FACTOR=N` | Force X11 scale to N (e.g. 1.25, 2.0)       |
-| `ODYTTY_FONT_SIZE=N`       | Override logical font size (default 22)      |
+| `ODYTTY_FONT_SIZE=N`       | Override logical font size (default 20, clamp 6.0–72.0) |
 | `ODYTTY_THEME=name`        | Theme selection (default `odyssey`)          |
 
 ---
@@ -54,6 +54,7 @@ Requires two monitors at different scales, or Wayland live-rescale.
 | B2 | 2.0 → 1.0 (drag back) | No blur, no oversized glyphs, grid resizes back | |
 | B3 | 1.0 → 1.25 (GNOME/KDE slider) | Seam-free grid at 1.25, no torn frame on transition | |
 | B4 | 1.25 → 1.5 → 1.75 → 2.0 (step through) | Crisp at each stop, grid adjusts, no stale density | |
+| B5 | Image lightbox open, then 1.0 → 2.0 | Ctrl+click a resolved image path to open the in-app lightbox, then change scale — image re-centers from retained pixels, stays fit to ~0.9 of the viewport, never upscales past 1.0 (no blur); Esc / click-outside dismisses | |
 
 ### C. Fractional-scale detail checks
 
@@ -66,6 +67,7 @@ At each scale, inspect these specific rendering details.
 | C3 | 1.75 | Cursor alignment | Move cursor with arrows — block cursor covers exactly one cell, no pixel offset | |
 | C4 | 2.0 | Selection highlight | Select text with mouse — highlight tracks cell boundaries exactly | |
 | C5 | any | Scroll indicator | Scroll up in history — indicator bar is at right edge, 3px wide, no artifacts | |
+| C6 | 1.5 | Pane split geometry | Split with `Ctrl+Shift+E` (pane right) then `Ctrl+Shift+O` (pane below) — the 1px divider stays crisp, each pane's grid floors cleanly with no sub-cell seam, and the ~6px divider grab band hit-tests on the visible line | |
 
 ### D. Shell / TUI interaction at non-default scales
 
@@ -96,3 +98,8 @@ Fill in the **Result** column with:
 Any failure should be captured as a deterministic fixture where the failure mode
 is headless-expressible (cell math, debounce), or documented as a known-gap
 with the exact visual description and screenshot if possible.
+
+## See also
+
+- [`docs/keybindings.md`](keybindings.md) — full reference for the chords used in
+  cells B5 and C6 (split, lightbox dismiss) and their rebinding.

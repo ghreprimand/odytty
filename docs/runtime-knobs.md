@@ -22,8 +22,8 @@ valid rewrite appears.
 
 ```conf
 theme = odyssey
-font_family = JetBrains Mono
-font_size = 22
+font_family = Victor Mono
+font_size = 20.0
 render_quality = balanced
 min_contrast = 16.0
 ```
@@ -60,7 +60,9 @@ Host lifecycle is local-only and bounded. Each attach receives a current
 `SnapshotEnvelope` first, then future `Output` and `Invalidate` frames while it
 stays connected. Detach or socket close removes only that client; the hosted PTY
 and terminal model keep running with bounded scrollback until the child exits or
-the detached idle timeout kills and reaps it. Scrollback is not printed by
+the detached idle timeout (12 hours with no attached client) kills and reaps it.
+The idle bound is internal (`--idle-timeout-ms`); there is no user-facing flag or
+environment variable for it. Scrollback is not printed by
 `list` and is not sent anywhere except over the per-user Unix-domain socket to an
 attaching local client.
 
@@ -80,7 +82,7 @@ overflow that limit is rejected with a clear error instead of an opaque
 ## Command Palette
 
 The command palette is exposed through the `command-palette` action in
-`keybinds`. As of v0.3.1 it is bound by default to `Ctrl+Shift+P` (and a
+`keybinds`. It is bound by default to `Ctrl+Shift+P` (and a
 right-click menu "Command Palette" item); rebind it in `odytty.conf` as usual:
 
 ```conf
@@ -146,7 +148,7 @@ system `ssh` binary and agent.
 
 The saved hosts are browsed through the **connection-manager overlay**, opened
 by default with `Ctrl+Shift+S` (or the right-click menu's "Connection Manager"
-item) as of v0.3.1. Rebind the `connection-manager` action in `odytty.conf`:
+item). Rebind the `connection-manager` action in `odytty.conf`:
 
 ```conf
 keybinds = ctrl+alt+h=connection-manager
@@ -255,6 +257,8 @@ environment variable was not set at startup.
 | `sh_click` | `ODYTTY_SH_CLICK` | `on`, `off` | `off` |
 | `interactive_paths` | `ODYTTY_INTERACTIVE_PATHS` | `on`, `off` | `off` |
 | `interactive_paths_barewords` | `ODYTTY_INTERACTIVE_PATHS_BAREWORDS` | `on`, `off` | `on` |
+| `interactive_paths_click_hint` | `ODYTTY_INTERACTIVE_PATHS_CLICK_HINT` | `on`, `off` | `on` |
+| `interactive_paths_image_inline` | `ODYTTY_INTERACTIVE_PATHS_IMAGE_INLINE` | `on`, `off` | `on` |
 | `interactive_paths_editor` | `ODYTTY_INTERACTIVE_PATHS_EDITOR` | editor name or argv template | *(empty — use `$EDITOR`)* |
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
@@ -267,11 +271,19 @@ environment variable was not set at startup.
 
 ### Notes
 
+- The accessibility-oriented knobs — `min_contrast`, `cvd_mode` / `cvd_strength`,
+  and `focus_dim` — are covered in depth in
+  [`accessibility.md`](accessibility.md), which explains the contrast floor, the
+  OKLab color-vision-deficiency daltonization modes, and the focus/dim controls.
 - `theme = system` is a convenience alias. It enables OS dark/light following
   and maps dark to `odyssey`, light to `odyssey-light`, unless explicit
   `os_theme_dark` / `os_theme_light` values are set.
-- `visual = ambient` and `visual = scanlines` are compatibility aliases for the
-  CRT path when no explicit `crt` setting is present. `crt` wins when set.
+- `visual = ambient` (the default) and `visual = scanlines` are back-compat
+  aliases for OdyTTY's scanline look, which is produced by the CRT post-process
+  (`crt` / `crt_scanline_*`) — the legacy per-cell ambient wash was retired and
+  folded into it. When no explicit `crt` value is set, an ambient `visual` turns
+  the CRT pass on; an explicit `crt` setting always wins, so the two never stack.
+  `off`, `none`, and `plain` opt out of the alias.
 - `render_quality = plain` is the hard direct-render fast path. It bypasses
   post-process effects and visual treatments even if individual effect knobs
   are enabled.
@@ -323,6 +335,10 @@ environment variable was not set at startup.
 
 ## Key Bindings
 
+For the full keyboard reference — every default chord, overlay shortcut, and the
+pane-prefix table in one place — see [`keybindings.md`](keybindings.md). The
+defaults below are the most common local shortcuts.
+
 Default local shortcuts:
 
 | Shortcut | Action |
@@ -346,14 +362,21 @@ Default local shortcuts:
 | `Ctrl+Shift+T` | `new-tab` |
 | `Ctrl+Shift+W` | `close-tab` |
 | `Ctrl+PageDown` / `Ctrl+PageUp` | `next-tab` / `prev-tab` |
+| `Ctrl+Shift+E` | `split-columns` (new pane right) |
+| `Ctrl+Shift+O` | `split-rows` (new pane below) |
 
-In v0.3.1 the command palette, connection manager, session replay, and theme
-builder each gained a default `Ctrl+Shift+<letter>` chord (and a right-click
-menu entry / Themes-section entry). All are `Ctrl+Shift+<letter>` chords, which
-a TUI cannot receive, so no PTY input path changed. Reclaiming `Ctrl+Shift+P`
-for the palette dropped the `Ctrl+Shift+P` / `Ctrl+Shift+N` prompt-jump *letter
-fallbacks*; prompt navigation continues to work via the primary `Ctrl+Shift+Up`
-/ `Ctrl+Shift+Down` arrow chords.
+`Ctrl+Shift+E` and `Ctrl+Shift+O` are *direct* global chords, not prefix-gated.
+They are how you create the **first** split: the `pane_prefix` engine (below) is
+inert on a single-pane tab, so the prefix split keys (`<prefix> %` / `<prefix> "`)
+only become available once a tab already has more than one pane. Both direct
+chords keep working on multi-pane tabs too.
+
+The command palette, connection manager, session replay, and theme builder each
+ship a default `Ctrl+Shift+<letter>` chord (and a right-click menu entry /
+Themes-section entry). All overlay chords are `Ctrl+Shift+<letter>` chords, which
+a TUI cannot receive, so the PTY input path is unaffected. Prompt navigation uses
+the `Ctrl+Shift+Up` / `Ctrl+Shift+Down` arrow chords only — there are no letter
+fallbacks.
 
 `keybinds` accepts comma- or semicolon-separated `chord=action` entries in
 `odytty.conf`:
@@ -372,14 +395,16 @@ digits, `f1`-`f24`, `pageup`, `pagedown`, `home`, `end`, `enter`, `esc`,
 Valid actions are `search`, `settings`, `theme-picker`, `theme-builder`, `copy`,
 `paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`,
 `copy-mode`, `hints`, `clear-input`, `command-palette`, `session-replay`,
-`connection-manager`, `new-tab`, `next-tab`, `prev-tab`, and `close-tab`, plus
+`connection-manager`, `session-attach`, `new-tab`, `next-tab`, `prev-tab`, and
+`close-tab`, plus
 the pane-management actions `split-columns`, `split-rows`, `focus-pane-left`,
 `focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`,
 `close-pane`, `zoom-pane`, and `equalize-panes`.
 
 The in-app keybinding editor is opened from the Settings panel's Keybindings
 row. It covers every bindable action — the core workflow actions plus the
-overlay (command palette, connection manager, session replay, theme builder),
+overlay (command palette, connection manager, session replay, theme builder,
+session-attach / Manage Sessions),
 tab, and pane-management actions — writing through to `keybinds`; the
 `ODYTTY_KEYBINDS` env var can override the same setting for a session.
 
@@ -452,7 +477,7 @@ Recording is **local-only**: frames live only in process memory — they are nev
 written to disk, logged, or sent anywhere, and they are dropped when the session
 closes or recording is turned off.
 
-To scrub, press `Ctrl+Shift+R` (the v0.3.1 default, or the right-click menu's
+To scrub, press `Ctrl+Shift+R` (the default, or the right-click menu's
 "Session Replay" item) to open the replay overlay; rebind the `session-replay`
 action via `keybinds` if you prefer. `ODYTTY_KEYBINDS` provides the same syntax
 as a session-scoped override. `←`/`→` step one frame,
@@ -485,6 +510,13 @@ when the parent `interactive_paths` gate is on. Bareword candidates still go
 through the same cwd-aware filesystem check before they become interactive, so
 plain words, domains, versions, and non-existent filenames stay inert. Set
 `interactive_paths_barewords = off` for the older slash-required behavior.
+
+`interactive_paths_click_hint = on` (the default) shows a transient, bottom-left
+"Ctrl+click to open" teaching chip after two plain (non-Ctrl) mis-clicks on a
+resolved path within a short window — a discoverability nudge, since opens are
+Ctrl-gated. It is purely presentational and rate-limited. Set
+`interactive_paths_click_hint = off` to suppress the chip entirely; it is also
+inert whenever the master `interactive_paths` gate is off.
 
 The cursor affordance is the **only** frame-affecting change — there is no
 underline or other decoration, so with the feature on the rendered frame bytes
@@ -546,9 +578,14 @@ frame is byte-identical, and opening it never mutates the live terminal. The
 decode is bounded **before** it runs (max 12000 px per axis, 256 MiB allocation),
 so a corrupt or decompression-bomb file is refused gracefully — it simply does
 not open, never crashes or hangs. The image type is confirmed by content
-(magic-byte sniff), not by trusting the file name. It is gated by the same
-`interactive_paths` setting: off by default, no image detection and no menu item
-while off.
+(magic-byte sniff), not by trusting the file name. It is gated by the master
+`interactive_paths` setting plus `interactive_paths_image_inline` (default `on`):
+with the master gate on and `interactive_paths_image_inline = on`, Ctrl+clicking
+a resolved `.png`/`.jpg`/`.jpeg`/`.webp` span opens the in-app viewer and the
+**Open in OdyTTY** menu item appears. Set `interactive_paths_image_inline = off`
+to route image paths to the external default app (the same `xdg-open`/`open`
+path as any other file) instead of the in-app lightbox. With the master gate off
+there is no image detection and no menu item at all.
 
 **Editor selection (`interactive_paths_editor`).** A `path:line:col` span opens
 in an editor chosen by: the `interactive_paths_editor` setting (env
@@ -581,7 +618,11 @@ registered in the freedesktop application database.
 - Right-click opens the context menu. On OSC 133-aware prompts it can copy, cut,
   delete, clear input, open settings, and create, rename, or close tabs. A
   custom tab name is session-local; it overrides shell title updates until an
-  empty rename clears it. With `interactive_paths` on, right-clicking over a
+  empty rename clears it. The menu also offers **Detach & switch**, which spawns
+  a fresh managed session in the focused pane's working directory and switches to
+  it (a Swap / Keep both / Cancel prompt; this is a new session, not a live
+  migration of the current one), and **Manage Sessions** (the `session-attach`
+  overlay, default `Ctrl+Shift+A`). With `interactive_paths` on, right-clicking over a
   resolved path adds a file section (Open / Open With… / Copy Path / Copy File /
   Reveal in File Manager), plus **Open in OdyTTY** on an image file (in-terminal
   viewer). **Open With…** opens an app picker for the file's MIME type; the

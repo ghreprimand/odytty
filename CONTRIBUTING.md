@@ -82,7 +82,7 @@ By making a contribution to this project, I certify that:
 
 Every byte from the PTY to the glyph quad passes through OdyTTY-owned code.
 Changes to `src/pty.rs`, `src/parser/`, `src/core/`, `src/grid.rs`, and the
-GPU shaders in `src/native/` must preserve that boundary — no new
+GPU shaders in `src/shaders/` must preserve that boundary — no new
 terminal-semantic dependencies belong inside it. External crates for font
 rasterization, GPU API, windowing, clipboard transport, and Unicode width data
 are acceptable below the product line but must not own terminal semantics. See
@@ -98,11 +98,15 @@ The source tree is organized into clear ownership lanes:
 | `src/core/` | Terminal model, screen, grid state, SGR/mode dispatch, protocol handlers (Kitty, Sixel routing, query, rect ops, search). Core never imports windowing, GPU, or rendering code. |
 | `src/grid.rs` | Render geometry and color resolution: backgrounds, glyphs, decorations, cursor/selection/search overlays, inverse/dim/minimum-contrast handling, and image/emoji ordering seams. |
 | `src/text.rs` + `src/atlas/` | Glyph rasterization: font loading, R8 and RGBA atlas, coverage/subpixel paths, synthetic bold/italic, symbol fallback chain. |
-| `src/native/` | GPU renderer (`gpu.rs`, WGSL shaders), event loop (`app/mod.rs`), settings panel and overlay (`settings_panel.rs`, `overlay.rs`, `theme_builder.rs`), selection, search, input. |
+| `src/native/` | GPU renderer (`gpu.rs`, `gpu/`), event loop (`app/mod.rs`), settings panel and overlays (`settings_panel/` directory, `overlay.rs`, `theme_builder.rs`), selection, search, input/keybindings (see `docs/keybindings.md`). |
+| `src/shaders/` | WGSL shader sources (`cell.wgsl`, `cell_subpixel.wgsl`, `bloom.wgsl`, `background_image.wgsl`) consumed by the `src/native/` renderer. |
 | `src/theme/` | `Theme` struct, `.theme` file format and parser (`spec.rs`), built-in registry (`builtins.rs`, `builtins/`), contrast validation, live reload. |
 | `src/settings/` | `Settings` struct, config file round-trip, live reload, atomic writeback, `SettingInfo` inventory for the in-app panel. |
 | `src/color.rs` | Perceptual color primitives: sRGB ↔ linear transfer, OKLab/OKLCH conversions, `dim_perceptual`, `mix_oklab`, `enforce_min_contrast`. Single source of truth for the sRGB transfer. |
 | `src/pty.rs` | Owned Linux PTY layer: openpt/grantpt/unlockpt, TIOCGPTPEER, TIOCSWINSZ, session-leader spawn. |
+| `src/session_host/` | Detached-session subsystem: host process and socket lifecycle, wire protocol, snapshot envelope. Deliberately kept outside `src/native/`; the `attach` launcher reattaches a live native window to a running host. |
+| `src/ssh_config.rs` + `src/connection_hosts.rs` | Connection substrate for the connection manager: name-only host import (alias/HostName/User/Port — never key material), gated behind `ssh_config_hosts` (default off). |
+| `src/paths/` | Interactive-paths engine: path/URL detection, `:line:col` editor jump, bareword and image span recognition. Wired live through `src/native/app/interactive_paths.rs`; inert until the `interactive_paths` master gate is on. |
 
 All visual settings flow from `src/settings.rs` through the `Settings` struct
 to the renderer; the core is never aware of them.
@@ -111,13 +115,16 @@ to the renderer; the core is never aware of them.
 
 The default `cargo test` run is deterministic and host-independent. Integration
 test buckets include
-`mouse_protocol`, `pixel_smoke` (42 compositor checks), `protocol_fuzz_*_smoke`
-(quick fuzzer tiers), `pty_alt_screen_smoke`, `transcript_smoke`,
-`emoji_pixel_smoke`, `boxdraw_pixel_smoke`, and `cli`. PTY smoke tests are
-`#[ignore]`d by default and require a real PTY (`cargo test -- --ignored` to
-run them).
+`mouse_protocol`, `pixel_smoke` (49 compositor checks across its module set),
+`protocol_fuzz_*_smoke` (quick fuzzer tiers), `pty_alt_screen_smoke`,
+`transcript_smoke`, `emoji_pixel_smoke`, `boxdraw_pixel_smoke`, and `cli`. Most
+of the PTY-backed suite runs in the default `cargo test` (e.g.
+`pty_alt_screen_smoke`); only a few live-PTY tests (`transcript_smoke`, the
+clipboard-paste test) are `#[ignore]`d and require a real PTY
+(`cargo test -- --ignored` to run them).
 
-**Pixel-smoke discipline.** `tests/pixel_smoke.rs` rasterizes the real
+**Pixel-smoke discipline.** `tests/pixel_smoke/` (a directory binary: entry
+`main.rs` plus its test modules) rasterizes the real
 `grid::build_vertices*` geometry through a headless CPU compositor and asserts
 structural invariants: blank-cell purity, glyph ink within bounds, inverse
 fg/bg swap, dim luminance drop, underline/strikethrough rows, box-drawing seam
@@ -194,7 +201,8 @@ hard rules:
   to the plain path without visual corruption or a crash.
 - **Readability-gated.** The minimum-contrast floor (`min_contrast`) is the
   safety net. No visual enhancement may make text less legible at the user's
-  configured contrast floor.
+  configured contrast floor. See `docs/accessibility.md` for the contrast floor,
+  CVD modes, focus dimming, and bell behavior.
 
 | Tier | Label | Examples | Status |
 |------|-------|---------|--------|

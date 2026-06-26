@@ -15,16 +15,16 @@ follow_os_theme = off
 themed_ui_roles = on
 
 # Font and text.
-font_family = JetBrains Mono
+font_family = Victor Mono
 # font =
 # font_weight =
-font_size = 22
+font_size = 20
 line_height = 1.0
 text_gamma = 1.5
 stem_darken = 0.5
 subpixel = off
 synthetic_styles = on
-symbol_fallback = off
+symbol_fallback = on
 # symbol_font = auto
 # symbol_map = U+E000-U+F8FF=Symbols Nerd Font
 
@@ -86,21 +86,24 @@ scrollbar_drag = on
 wheel_zoom = on
 copy_on_select = off
 confirm_close = on
+# Terminal bell (BEL) handling. There is no audible bell; off/visual/urgent/all
+# are the accepted values (urgent raises the window's urgency hint).
+bell = urgent
 command_status_gutter = off
 sh_click = off
 keybinds =
 # Example:
 # keybinds = ctrl+shift+y=copy;ctrl+alt+v=paste
-# Default discoverability chords (v0.3.1): the command palette, connection
-# manager, session replay, and theme builder ship with default Ctrl+Shift
-# chords — Ctrl+Shift+P (command-palette), Ctrl+Shift+S (connection-manager),
+# Default discoverability chords: the command palette, connection manager,
+# session replay, and theme builder ship with default Ctrl+Shift chords —
+# Ctrl+Shift+P (command-palette), Ctrl+Shift+S (connection-manager),
 # Ctrl+Shift+R (session-replay), Ctrl+Shift+B (theme-builder). These are all
 # Ctrl+Shift+<letter>, which a TUI cannot receive as input, so the PTY input
-# path is unchanged. Reclaiming Ctrl+Shift+P from prompt-jump dropped the
-# Ctrl+Shift+P / Ctrl+Shift+N prompt-jump *letter fallbacks*; prompt navigation
-# still works via the primary Ctrl+Shift+Up / Ctrl+Shift+Down arrow chords. Add
-# your own override to rebind any of these, e.g.
+# path is unchanged. Prompt navigation uses the Ctrl+Shift+Up / Ctrl+Shift+Down
+# arrow chords (there are no letter fallbacks). Add your own override to rebind
+# any of these, e.g.
 # keybinds = ctrl+alt+p=command-palette;ctrl+shift+p=jump-prompt-prev
+# See docs/keybindings.md for the full default chord reference.
 
 # Connection hosts for the SSH manager live in:
 #   $XDG_CONFIG_HOME/odytty/hosts.conf
@@ -169,7 +172,26 @@ pane_prefix = ctrl+b
 # 20,000 physical lines, 5,000 entries, 4,096 chars per entry. Accepting a
 # history/directory row types it into the active pane without pressing Enter.
 
-# Clipboard and accessibility.
+# Interactive (clickable) paths. The master gate is off by default; while off,
+# path detection does nothing and the input/render paths are unchanged. When on,
+# Ctrl+click opens a detected file or directory through the system opener
+# (xdg-open on Linux, open on macOS). The sub-keys are inert until the gate is
+# on:
+#   interactive_paths_barewords    detect unadorned paths, not just OSC 8 links
+#   interactive_paths_click_hint   show the "Ctrl+click to open" teaching chip
+#   interactive_paths_image_inline open image paths (png/jpg/jpeg/webp) in the
+#                                  in-app lightbox (dismiss with Esc or by
+#                                  clicking outside)
+#   interactive_paths_editor       editor command template for :line:col jumps
+#                                  (empty = fall back to the system opener)
+interactive_paths = off
+interactive_paths_barewords = on
+interactive_paths_click_hint = on
+interactive_paths_image_inline = on
+interactive_paths_editor =
+
+# Clipboard and accessibility. See docs/accessibility.md for cvd_mode,
+# min_contrast, focus_dim, and bell guidance.
 osc52_read = off
 cvd_mode = off
 cvd_strength = 1.0
