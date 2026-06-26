@@ -84,6 +84,27 @@ impl CommandBuilder {
         self
     }
 
+    /// Apply the standard OdyTTY terminal environment to a spawned child:
+    /// `TERM`/`COLORTERM` (capability advertisement, unchanged from before) plus
+    /// `TERM_PROGRAM`/`TERM_PROGRAM_VERSION` for terminal self-identification.
+    ///
+    /// fastfetch's generic version fallback reads `TERM_PROGRAM_VERSION` and
+    /// shows it when the detected terminal process name starts with
+    /// `TERM_PROGRAM`, so the literal must be exactly `"odytty"` (lowercase) to
+    /// match the binary name. The version comes from `CARGO_PKG_VERSION` at
+    /// compile time, staying in lockstep with `Cargo.toml` (same source
+    /// `main.rs` uses).
+    ///
+    /// Centralized so every spawn path advertises an identical environment and
+    /// the four variables can never drift between call sites.
+    fn apply_terminal_env(&mut self) -> &mut Self {
+        self.env("TERM", "xterm-256color");
+        self.env("COLORTERM", "truecolor");
+        self.env("TERM_PROGRAM", "odytty");
+        self.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
+        self
+    }
+
     pub fn current_dir(&mut self, path: impl Into<PathBuf>) -> &mut Self {
         self.current_dir = Some(path.into());
         self
@@ -118,8 +139,7 @@ impl PtySession {
     ) -> Result<Self> {
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
         let mut command = CommandBuilder::new(shell);
-        command.env("TERM", "xterm-256color");
-        command.env("COLORTERM", "truecolor");
+        command.apply_terminal_env();
         if let Some(path) = working_directory {
             command.current_dir(path);
         }
@@ -131,8 +151,7 @@ impl PtySession {
         let mut command_builder = CommandBuilder::new(shell);
         command_builder.arg("-lc");
         command_builder.arg(command);
-        command_builder.env("TERM", "xterm-256color");
-        command_builder.env("COLORTERM", "truecolor");
+        command_builder.apply_terminal_env();
 
         Self::spawn_command(dimensions, command_builder)
     }
@@ -147,8 +166,7 @@ impl PtySession {
         for arg in args {
             command.arg(arg);
         }
-        command.env("TERM", "xterm-256color");
-        command.env("COLORTERM", "truecolor");
+        command.apply_terminal_env();
         if let Some(path) = working_directory {
             command.current_dir(path);
         }
@@ -376,6 +394,43 @@ mod tests {
         rows: 24,
         columns: 80,
     };
+
+    /// Look up the last value set for `key` in a builder's env list (later
+    /// pushes win, matching the `into_command` apply order).
+    fn env_value<'a>(cmd: &'a CommandBuilder, key: &str) -> Option<&'a OsString> {
+        cmd.env.iter().rev().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
+
+    /// `apply_terminal_env` advertises the standard TERM/COLORTERM capabilities
+    /// (unchanged) plus the TERM_PROGRAM self-identification fastfetch reads.
+    /// The program literal must be exactly "odytty" and the version must track
+    /// the crate version at compile time.
+    #[test]
+    fn apply_terminal_env_sets_identification_and_capabilities() {
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.apply_terminal_env();
+
+        assert_eq!(
+            env_value(&cmd, "TERM").map(|v| v.as_os_str()),
+            Some(OsString::from("xterm-256color").as_os_str()),
+            "TERM capability must be unchanged"
+        );
+        assert_eq!(
+            env_value(&cmd, "COLORTERM").map(|v| v.as_os_str()),
+            Some(OsString::from("truecolor").as_os_str()),
+            "COLORTERM capability must be unchanged"
+        );
+        assert_eq!(
+            env_value(&cmd, "TERM_PROGRAM").map(|v| v.as_os_str()),
+            Some(OsString::from("odytty").as_os_str()),
+            "TERM_PROGRAM must be exactly \"odytty\" for fastfetch startsWith match"
+        );
+        assert_eq!(
+            env_value(&cmd, "TERM_PROGRAM_VERSION").map(|v| v.as_os_str()),
+            Some(OsString::from(env!("CARGO_PKG_VERSION")).as_os_str()),
+            "TERM_PROGRAM_VERSION must track CARGO_PKG_VERSION"
+        );
+    }
 
     /// A non-terminal fd (`/dev/null`) makes `tcgetpgrp` fail with `ENOTTY`,
     /// which must classify as `Unknown` — never `Running`, never a panic.
