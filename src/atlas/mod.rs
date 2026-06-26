@@ -1560,17 +1560,27 @@ fn apply_stem_darken(value: u8, strength: f32) -> u8 {
     (boosted * 255.0).round().clamp(0.0, 255.0) as u8
 }
 
-/// Fraction of the smaller cell dimension reserved as inset padding on **each**
-/// side of a fitted symbol/icon glyph, so icons never kiss the cell edge or a
-/// neighbour. ~10% mirrors ghostty's default symbol padding; the operator may
-/// tune this during the dev-build eyeball.
+/// **Primary size knob.** Fraction of cell HEIGHT a fitted symbol/icon glyph
+/// fills. The glyph is scaled so its ink height is `SYMBOL_CELL_FILL *
+/// cell.height` (then width-capped so it can never clip), and centered on the
+/// cell. Operator-tuned against ghostty on a dev build: ~0.82 matches; full
+/// height (~0.95) reads too big, the old width-fit (~0.6 em cell width) too
+/// small. Tune here during the dev-build eyeball.
+const SYMBOL_CELL_FILL: f32 = 0.82;
+
+/// Inset padding, as a fraction of the smaller cell dimension, used **only** to
+/// narrow the width safety cap for a fitted icon (so a wide glyph scaled to
+/// height still leaves a gutter inside the slot's drawable region and never
+/// kisses a neighbour). In the height-fraction model the inset no longer drives
+/// the size target — [`SYMBOL_CELL_FILL`] does — it just trims `max_draw_w`.
 const SYMBOL_CELL_INSET: f32 = 0.10;
 
-/// Maximum upscale applied when fitting a *sub-cell* symbol/icon glyph to the
-/// cell box. Downscaling (oversized glyphs, the common Nerd-Font case) is
-/// uncapped; upscaling is capped so a tiny icon fills consistently without a
-/// 1-pixel dot ballooning to flood the whole cell. Tunable in the dev build.
-const SYMBOL_MAX_UPSCALE: f32 = 1.6;
+/// Maximum upscale applied when fitting a *sub-cell* symbol/icon glyph. The
+/// height-fraction model needs more headroom than the old width-fit so small
+/// icons reach the target fill; downscaling (oversized glyphs, the common
+/// Nerd-Font case) is uncapped, upscaling is capped here so a 1-pixel dot does
+/// not balloon to flood the cell. Tunable in the dev build.
+const SYMBOL_MAX_UPSCALE: f32 = 2.0;
 
 /// Opt-in directive to **fit-and-center** a glyph inside its cell box instead of
 /// placing it at the font's natural left bearing on the text baseline. Passed
@@ -1584,22 +1594,29 @@ struct CellFit {
     box_w: f32,
     /// Drawable cell-box height in pixels (`cell.height`).
     box_h: f32,
-    /// Inset padding in pixels applied on every side inside the box.
+    /// Inset padding in pixels per side. In the height-fraction model this only
+    /// narrows the width safety cap (`max_draw_w`); it no longer drives size.
     pad: f32,
 }
 
-/// Aspect-preserving scale to fit an ink box (`ink_w` × `ink_h`) inside a target
-/// box (`target_w` × `target_h`). Downscaling is uncapped; upscaling is capped
-/// at [`SYMBOL_MAX_UPSCALE`]. Inputs are clamped strictly positive; a non-finite
-/// or non-positive result degrades to `1.0` (no scaling).
-fn symbol_fit_scale(ink_w: f32, ink_h: f32, target_w: f32, target_h: f32) -> f32 {
-    let ink_w = ink_w.max(1.0);
-    let ink_h = ink_h.max(1.0);
-    let target_w = target_w.max(1.0);
-    let target_h = target_h.max(1.0);
-    let s = (target_w / ink_w)
-        .min(target_h / ink_h)
-        .min(SYMBOL_MAX_UPSCALE);
+/// Height-fraction fit scale for a symbol/icon glyph (aspect-preserving).
+///
+/// The glyph is scaled so its natural ink height (`nat_h`) reaches `target_h`
+/// (= [`SYMBOL_CELL_FILL`] × cell height), then bounded by a width safety cap so
+/// a wide glyph scaled to height still cannot exceed `max_draw_w` (the slot's
+/// drawable region minus the inset gutter) and clip. Upscaling is capped at
+/// `max_upscale`; downscaling is uncapped. Inputs are clamped strictly
+/// positive; a non-finite or non-positive result degrades to `1.0` (no scaling).
+fn symbol_fit_scale_v2(
+    nat_w: f32,
+    nat_h: f32,
+    target_h: f32,
+    max_draw_w: f32,
+    max_upscale: f32,
+) -> f32 {
+    let s_h = target_h.max(1.0) / nat_h.max(1.0);
+    let s_w = max_draw_w.max(1.0) / nat_w.max(1.0);
+    let s = s_h.min(s_w).min(max_upscale);
     if s.is_finite() && s > 0.0 { s } else { 1.0 }
 }
 
@@ -1660,11 +1677,12 @@ fn rasterize_glyph(
     let inner_x = ox as i32 + border;
     let inner_y = oy as i32 + border;
     // Symbol/icon fit (RV6+): when `fit` is `Some`, measure the glyph's natural
-    // ink box at the body em-size, scale it aspect-preserving to fit the cell
-    // box minus inset padding, and CENTER it on the cell box — ignoring the
-    // font's bearing and text baseline, since icons are not baseline-aligned
-    // text. `None` (every text path) leaves placement at the natural bearing on
-    // `pen.baseline`, byte-identical to the pre-fit renderer.
+    // ink box at the body em-size, scale it so its ink height fills
+    // `SYMBOL_CELL_FILL` of the cell (width-capped so a wide glyph can't clip),
+    // and CENTER it on the cell box — ignoring the font's bearing and text
+    // baseline, since icons are not baseline-aligned text. `None` (every text
+    // path) leaves placement at the natural bearing on `pen.baseline`,
+    // byte-identical to the pre-fit renderer.
     let fit_placement: Option<FitPlacement> = fit.and_then(|f| {
         let glyph_id = font.glyph_id(ch);
         let measure = |sc: PxScale| {
@@ -1672,14 +1690,24 @@ fn rasterize_glyph(
                 .map(|o| o.px_bounds())
         };
         let nb = measure(PxScale::from(pen.px))?;
-        let target_w = (f.box_w - 2.0 * f.pad).max(1.0);
-        let target_h = (f.box_h - 2.0 * f.pad).max(1.0);
-        let s = symbol_fit_scale(nb.width(), nb.height(), target_w, target_h);
+        // Height-fraction target: fill SYMBOL_CELL_FILL of the cell height.
+        let target_h = (f.box_h * SYMBOL_CELL_FILL).max(1.0);
+        // Width safety cap: the slot's drawable region (cell + overflow margin)
+        // inside the ATLAS_PAD bleed gutter, minus the inset pad on each side, so
+        // a wide glyph scaled to height still cannot clip or kiss a neighbour.
+        let max_draw_w = (outer_w as f32 - 2.0 * ATLAS_PAD as f32 - 2.0 * f.pad).max(1.0);
+        let s = symbol_fit_scale_v2(
+            nb.width(),
+            nb.height(),
+            target_h,
+            max_draw_w,
+            SYMBOL_MAX_UPSCALE,
+        );
         let scaled = PxScale::from(pen.px * s);
         let sb = measure(scaled)?;
-        // Centered ink top-left in absolute atlas pixels.
-        let left = inner_x as f32 + f.pad + (target_w - sb.width()) / 2.0;
-        let top = inner_y as f32 + f.pad + (target_h - sb.height()) / 2.0;
+        // Centered ink top-left on the full cell box, both axes.
+        let left = inner_x as f32 + (f.box_w - sb.width()) / 2.0;
+        let top = inner_y as f32 + (f.box_h - sb.height()) / 2.0;
         Some(FitPlacement {
             scale: scaled,
             // Pre-subtract the measured bbox min so that a glyph re-outlined at

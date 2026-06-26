@@ -4,9 +4,9 @@
 //! body em-size, which does not match OdyTTY's cell aspect — wide icons overflow
 //! and clip and each glyph's distinct bearing puts ink at a different x, so an
 //! icon column reads ragged. The fit pass measures each glyph's natural ink box,
-//! scales it aspect-preserving to fit the cell box minus inset padding, and
-//! centers it on the cell box. Text paths (primary font, ASCII, synthetic) pass
-//! `None` and are byte-identical.
+//! scales it so the ink HEIGHT fills `SYMBOL_CELL_FILL` of the cell (width-capped
+//! so it can never clip), and centers it on the cell box. Text paths (primary
+//! font, ASCII, synthetic) pass `None` and are byte-identical.
 
 use super::*;
 use std::sync::Arc;
@@ -52,57 +52,52 @@ fn ink_bbox(atlas: &GlyphAtlas, uv: [f32; 4]) -> Option<(i32, i32, i32, i32)> {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn fit_scale_downscales_oversized_uncapped() {
-    // Ink twice the target in both axes → scale 0.5, no lower clamp.
-    let s = symbol_fit_scale(20.0, 20.0, 10.0, 10.0);
-    assert!((s - 0.5).abs() < 1e-6, "expected 0.5, got {s}");
-    // A grossly oversized glyph downscales freely (downscale is never clamped).
-    let s = symbol_fit_scale(1000.0, 1000.0, 10.0, 10.0);
-    assert!(
-        (s - 0.01).abs() < 1e-6,
-        "downscale must not be clamped, got {s}"
-    );
+fn fit_scale_height_binds_for_tall_narrow_glyph() {
+    // Tall/narrow glyph: the height ratio binds, the width cap is slack.
+    // nat 10x20, target_h 10, generous width cap 1000, no upscale clamp hit.
+    let s = symbol_fit_scale_v2(10.0, 20.0, 10.0, 1000.0, 2.0);
+    assert!((s - 0.5).abs() < 1e-6, "height must bind, got {s}");
 }
 
 #[test]
-fn fit_scale_is_aspect_preserving_min_ratio() {
-    // Wider than tall vs a square target → the width ratio (smaller) binds.
-    let s = symbol_fit_scale(20.0, 10.0, 10.0, 10.0);
-    assert!((s - 0.5).abs() < 1e-6, "width ratio must bind, got {s}");
-    // Taller than wide → the height ratio binds.
-    let s = symbol_fit_scale(10.0, 20.0, 10.0, 10.0);
-    assert!((s - 0.5).abs() < 1e-6, "height ratio must bind, got {s}");
+fn fit_scale_width_cap_binds_for_wide_glyph() {
+    // Wide/short glyph: scaling to height would overflow the width cap, so the
+    // width cap binds and the glyph stays within the drawable region (no clip).
+    // height-only scale = target_h/nat_h = 40/10 = 4.0, but width cap =
+    // max_draw_w/nat_w = 20/40 = 0.5 → 0.5 wins.
+    let s = symbol_fit_scale_v2(40.0, 10.0, 40.0, 20.0, 2.0);
+    assert!((s - 0.5).abs() < 1e-6, "width cap must bind, got {s}");
 }
 
 #[test]
 fn fit_scale_caps_upscale_of_subcell_glyph() {
-    // A tiny glyph wants a 50x upscale; the cap holds it to SYMBOL_MAX_UPSCALE.
-    let s = symbol_fit_scale(2.0, 2.0, 100.0, 100.0);
+    // A tiny glyph wants a huge upscale to reach the height target; the cap
+    // (2.0) holds it. height-only = 20/2 = 10.0, width cap = 1000/2 = 500 →
+    // both slack vs the 2.0 cap.
+    let s = symbol_fit_scale_v2(2.0, 2.0, 20.0, 1000.0, 2.0);
     assert!(
-        (s - SYMBOL_MAX_UPSCALE).abs() < 1e-6,
-        "sub-cell glyph must cap at {SYMBOL_MAX_UPSCALE}, got {s}"
+        (s - 2.0).abs() < 1e-6,
+        "sub-cell glyph must cap at 2.0, got {s}"
     );
-    // A modest sub-cell glyph upscales below the cap unclamped.
-    let s = symbol_fit_scale(10.0, 10.0, 12.0, 12.0);
-    assert!((s - 1.2).abs() < 1e-6, "expected 1.2, got {s}");
 }
 
 #[test]
 fn fit_scale_degenerate_inputs_stay_positive_and_capped() {
     // Zero/negative ink is clamped to 1px; the result is finite, > 0, and capped.
-    let s = symbol_fit_scale(0.0, 0.0, 10.0, 10.0);
+    let s = symbol_fit_scale_v2(0.0, 0.0, 10.0, 10.0, 2.0);
     assert!(
         s.is_finite() && s > 0.0,
         "degenerate scale must be positive, got {s}"
     );
     assert!(
-        s <= SYMBOL_MAX_UPSCALE + 1e-6,
+        s <= 2.0 + 1e-6,
         "degenerate scale must respect cap, got {s}"
     );
 }
 
 // ---------------------------------------------------------------------------
-// Integration — fit + center on a real cell via a SYMMAP override icon face.
+// Integration — height-fraction fit + center on a real cell via a SYMMAP
+// override icon face.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -111,7 +106,7 @@ fn override_symbol_glyph_fits_within_cell_and_is_centered() {
         eprintln!("skipping: no system font available");
         return;
     };
-    let symbol = '\u{2731}'; // HEAVY ASTERISK — inked in the fixture (~0.70 em)
+    let symbol = '\u{2731}'; // HEAVY ASTERISK — inked in the fixture (~0.70 em sq)
     let cp = symbol as u32;
     let mut atlas = GlyphAtlas::build(&font, 24.0);
     // Force the inked icon fixture for this codepoint regardless of primary
@@ -123,41 +118,53 @@ fn override_symbol_glyph_fits_within_cell_and_is_centered() {
     let (cx, cy) = (cx as i32, cy as i32);
     let cw = atlas.cell.width as i32;
     let ch = atlas.cell.height as i32;
-    let pad = (SYMBOL_CELL_INSET * atlas.cell.width.min(atlas.cell.height) as f32).round() as i32;
+    let margin = overflow_margin(atlas.cell) as i32;
+    // The slot's drawable region inside the ATLAS_PAD gutter and the inset pad,
+    // matching `max_draw_w` in the fitter. `outer_w` for a single cell is
+    // `slot_w(cell)`; the per-side inset pad mirrors the production formula.
+    let pad = (SYMBOL_CELL_INSET * atlas.cell.width.min(atlas.cell.height) as f32).round();
+    let outer_w = slot_w(atlas.cell) as f32;
+    let max_draw_w = (outer_w - 2.0 * ATLAS_PAD as f32 - 2.0 * pad).max(1.0);
 
     let (minx, miny, maxx, maxy) = ink_bbox(&atlas, uv).expect("fitted glyph must have ink");
+    let ink_w = (maxx - minx + 1) as f32;
+    let ink_h = (maxy - miny + 1) as f32;
 
-    // 1) Fits strictly inside the cell box in BOTH axes — no overflow, no clip.
-    //    Today (natural bearing at body em) this glyph overflows the cell width.
+    // 1) Ink HEIGHT ≈ SYMBOL_CELL_FILL * cell.height (within a couple px from
+    //    rounding + the fixture's symmetric-but-not-cell-square outline).
+    let target_h = SYMBOL_CELL_FILL * ch as f32;
     assert!(
-        minx >= cx,
-        "ink left {minx} must not spill left of cell {cx}"
-    );
-    assert!(
-        maxx < cx + cw,
-        "ink right {maxx} must not spill past cell right {}",
-        cx + cw - 1
-    );
-    assert!(miny >= cy, "ink top {miny} must not spill above cell {cy}");
-    assert!(
-        maxy < cy + ch,
-        "ink bottom {maxy} must not spill below cell {}",
-        cy + ch - 1
+        (ink_h - target_h).abs() <= 2.0,
+        "ink height {ink_h} should be ~{target_h} (SYMBOL_CELL_FILL * cell)"
     );
 
-    // 2) Inset padding honored: the glyph never kisses the cell edge.
+    // 2) Fully within the slot drawable region in BOTH axes — no clip. (Width
+    //    may exceed one cell into the overflow margin; that is intended.)
     assert!(
-        minx - cx >= pad.max(1) - 1,
-        "left inset {} < pad {pad}",
-        minx - cx
+        minx >= cx - margin,
+        "ink left {minx} spilled past drawable region"
     );
     assert!(
-        miny - cy >= pad.max(1) - 1,
-        "top inset {} < pad {pad}",
-        miny - cy
+        maxx <= cx + cw - 1 + margin,
+        "ink right {maxx} spilled past drawable region"
+    );
+    assert!(
+        miny >= cy - margin,
+        "ink top {miny} spilled past drawable region"
+    );
+    assert!(
+        maxy <= cy + ch - 1 + margin,
+        "ink bottom {maxy} spilled past drawable region"
     );
 
-    // 3) Centered on the cell box (not the text baseline): symmetric margins.
+    // 3) Width never exceeds the width safety cap (so it cannot clip/kiss).
+    assert!(
+        ink_w <= max_draw_w + 1.0,
+        "ink width {ink_w} must not exceed max_draw_w {max_draw_w}"
+    );
+
+    // 4) Centered on the full cell box, both axes: symmetric margins (the icon
+    //    fixture is symmetric, so a centered fit yields equal opposite margins).
     let left_margin = minx - cx;
     let right_margin = (cx + cw - 1) - maxx;
     let top_margin = miny - cy;
