@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- macOS session discovery: read path now matches the write path's runtime base
+
+`odytty list` returned empty on macOS despite live session hosts — surfaced in
+the macOS dev-build exercise — which silently broke every Manage-Sessions feature
+there (attach, dedup, kill, Detach & switch all read the same list, so the overlay
+was always empty). Root cause was a read/write divergence in
+`src/session_host/socket.rs`: the write path (`runtime_paths`) resolves a missing
+base through `runtime_base_from_env`, which falls back to the Darwin temp dir on
+macOS, so sockets are created there; the read path (`existing_runtime_dir`) only
+consulted `XDG_RUNTIME_DIR`, which is unset on macOS, so it always returned `None`
+and reported zero sessions. The two paths looked in different places.
+
+Fixed at a single point: a shared `resolved_runtime_base(Option<&Path>)` helper
+that both paths funnel through. An explicit base is used verbatim; a missing base
+defers to `runtime_base_from_env`. The read side maps a resolution failure to
+`Ok(None)` (no sessions, no error), while the write side re-raises it via
+`runtime_base_from_env()?` so socket creation still fails loudly when there is
+genuinely nowhere to write. Every reader — `existing_runtime_dir` (hence
+`list_live_sessions`, the Manage-Sessions overlay, `kill_session`,
+`resolve_session_socket`) and the CLI `attach`/`list` — now agrees with the
+writer.
+
+Two hermetic tests (custom `TempDir`, no env mutation, synthetic ids): an
+explicit base resolves without env, and `existing_runtime_dir` agrees with
+`runtime_paths` for the same base (the read/write convergence invariant). Linux
+behavior is unchanged — `XDG_RUNTIME_DIR` is exactly what `runtime_base_from_env`
+returns there, so the resolved base is identical. Verified isolated on the Phase
+17 fix-up HEAD: fmt/clippy clean, `--lib` 2530 / 0, `cli` 27 / 0,
+`gpu_composite_smoke` 6/6, `license_headers` 1/1, staged diff scanned — clean.
+
 ## 2026-06-26 -- Phase 17 fix-up: gate the Linux MIME/desktop chain off macOS
 
 The Phase 17 push restored a native macOS Open-With arm but split the dispatch so

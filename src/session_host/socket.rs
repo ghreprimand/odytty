@@ -84,11 +84,22 @@ pub fn runtime_dir_path(runtime_base: &Path) -> PathBuf {
     runtime_base.join(SOCKET_DIR_NAME)
 }
 
+fn resolved_runtime_base(runtime_base: Option<&Path>) -> Result<Option<PathBuf>> {
+    match runtime_base {
+        Some(path) => Ok(Some(path.to_owned())),
+        None => match runtime_base_from_env() {
+            Ok(base) => Ok(Some(base)),
+            Err(_) => Ok(None),
+        },
+    }
+}
+
+/// Return the existing session-host runtime directory, using the same
+/// `runtime_base_from_env` resolution as the write path. This keeps macOS
+/// discovery pointed at the Darwin temp fallback where `runtime_paths(None, ..)`
+/// creates sockets instead of only looking at `XDG_RUNTIME_DIR`.
 pub fn existing_runtime_dir(runtime_base: Option<&Path>) -> Result<Option<PathBuf>> {
-    let Some(base) = runtime_base
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from))
-    else {
+    let Some(base) = resolved_runtime_base(runtime_base)? else {
         return Ok(None);
     };
     let dir = runtime_dir_path(&base);
@@ -100,8 +111,8 @@ pub fn existing_runtime_dir(runtime_base: Option<&Path>) -> Result<Option<PathBu
 }
 
 pub fn runtime_paths(runtime_base: Option<&Path>, session_id: &str) -> Result<RuntimePaths> {
-    let base = match runtime_base {
-        Some(path) => path.to_owned(),
+    let base = match resolved_runtime_base(runtime_base)? {
+        Some(base) => base,
         None => runtime_base_from_env()?,
     };
     let dir = prepare_runtime_dir(&base)?;
@@ -282,4 +293,55 @@ fn safe_session_id(session_id: &str) -> Result<&str> {
         bail!("session id cannot be . or ..");
     }
     Ok(session_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TempDir {
+        path: PathBuf,
+    }
+
+    impl TempDir {
+        fn new(prefix: &str) -> Self {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static SEQ: AtomicU64 = AtomicU64::new(0);
+            let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+            let path = env::temp_dir().join(format!("{prefix}-{}-{seq}", std::process::id()));
+            fs::create_dir(&path).expect("create temp dir");
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    #[test]
+    fn resolved_runtime_base_uses_explicit_base_without_env() {
+        let temp = TempDir::new("shrb");
+
+        assert_eq!(
+            resolved_runtime_base(Some(temp.path())).expect("resolve base"),
+            Some(temp.path().to_owned())
+        );
+    }
+
+    #[test]
+    fn existing_runtime_dir_agrees_with_runtime_paths_for_explicit_base() {
+        let temp = TempDir::new("shrw");
+        let paths = runtime_paths(Some(temp.path()), "rw").expect("runtime paths");
+
+        assert_eq!(
+            existing_runtime_dir(Some(temp.path())).expect("existing runtime dir"),
+            Some(paths.dir)
+        );
+    }
 }
