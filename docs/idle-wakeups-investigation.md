@@ -62,3 +62,61 @@ not apply.
 A reproducible before/after thread-level measurement (same protocol as above),
 showing reduced wakeups with **no** regression in present latency or
 focus-regain responsiveness, plus a regression test where feasible.
+
+---
+
+## Decision: config live-reload uses mtime polling, not inotify
+
+This records *why* the config-file live-reload watcher polls (and why v0.5.5
+gated that poll on focus) rather than switching to OS change notifications, so
+the tradeoff does not have to be re-derived next time someone asks.
+
+### What the poll actually does
+
+`ConfigFileFingerprint::read` (`src/settings/reload.rs`) calls `fs::metadata()`
+and compares **mtime + size** only. It does **not** read or parse the file. So
+each poll is a single `stat()` syscall on the resolved config path. On a path
+the kernel already has in its dentry/inode cache that is sub-microsecond and
+does no disk I/O — which is why the measured cost was ~0.03s of CPU over a full
+minute of 1 Hz polling. The poller is deliberately dependency-free and
+time-injected so the native event loop folds it into existing sleeps instead of
+spawning a watcher thread (see the type's doc comment).
+
+### Why not event-driven (inotify / the `notify` crate)?
+
+"Reload on actual change" means the OS notifies us instead of us asking. On
+Linux that is inotify. Real reasons polling was the defensible default:
+
+- **No watcher thread, no extra dependency.** inotify means either a blocking
+  thread or wiring an fd into the winit event loop — more moving parts and more
+  failure modes for a feature whose whole job is "notice an occasional edit."
+- **inotify watches inodes, not paths.** Many editors save atomically by writing
+  a temp file and `rename()`-ing it over the original, which swaps the inode and
+  silently breaks a naive watch on the file after the first save (vim is the
+  classic offender). Doing it correctly means watching the *parent directory*
+  and filtering events — fiddly, and easy to get subtly wrong. mtime+size
+  polling sidesteps all of it and handles missing / deleted / recreated config
+  files uniformly with one `stat`.
+
+Event-driven's upside is real (truly zero idle cost, instant pickup instead of
+up-to-1s latency), but it only removes the *focused* 1 Hz poll — which happens
+while the user is actively using the window anyway, the cheapest time to do it.
+
+### Old-hardware note
+
+One `stat()/sec` is the same syscall regardless of CPU speed; even a decade-old
+CPU does millions of cached `stat`s per second, so the poll work itself is noise
+on any machine that can run a Vulkan/wgpu renderer at all. The cost that *does*
+matter on old / battery hardware is **waking the CPU out of a deep sleep state**
+once a second, which hurts idle power even when the work is trivial. That is
+precisely what the v0.5.5 focus-gate removes: backgrounded, there is no periodic
+wake, so the CPU can stay in a deep C-state.
+
+### Standing recommendation
+
+Keep mtime polling. The implementation is the cheap (stat-only) variant, the
+expensive case (the idle/backgrounded wake) is already gated out, and inotify
+would trade a tiny, well-understood cost for atomic-save/rename edge-case
+complexity. If a future change *does* move to a `notify`-crate watcher, watch
+the **parent directory** (not the file) and land a regression test covering the
+temp-file-then-rename atomic-save path before shipping.
