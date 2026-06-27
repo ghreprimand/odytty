@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.5.4" date="2026-06-27">
+      <description>
+        <p>Adds an in-app About section to the settings overlay: a read-only view (the last row of the settings list) showing version, build provenance (git commit, build date, target, Rust version), and live GPU/renderer diagnostics (adapter, backend, driver), plus clickable project links and a one-click "Copy diagnostics" for bug reports. The diagnostics block deliberately omits filesystem paths so it can be shared without leaking a username.</p>
+      </description>
+    </release>
     <release version="0.5.3" date="2026-06-26">
       <description>
         <p>Adds two opt-in ergonomic features and keyboard parity for prompt editing: a smart Ctrl+C mode (copy-or-interrupt) that copies a local selection when one exists and otherwise sends the interrupt, clickable bare URLs (Ctrl+click to open printed http/https links, on by default), and Delete/Backspace removing a selected editable prompt input via the same shell-integration-gated path as the right-click Delete. Ships a best-effort x86_64 AppImage and an AUR package alongside the source release.</p>

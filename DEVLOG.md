@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-27 -- Release v0.5.4 — in-app About section + always-latest install
+
+v0.5.4 adds an in-app **About** section and makes the install docs
+self-maintaining.
+
+**About section.** A read-only About view is now the last row of the settings
+overlay's section list. It surfaces what a GUI user previously had to drop to a
+shell for:
+
+- **Identity/build**: version, license, git commit (`+dirty`), build date,
+  target triple, and the Rust version the binary was built with. Provenance is
+  baked in by a new `build.rs` that degrades to "unknown" when there is no
+  `.git` in the crate root — so a `git archive` tarball extracted inside another
+  repo (e.g. `odyssey-build`'s git-tracked `~/pkgbuilds` tree) never bakes a
+  wrong parent-repo SHA.
+- **Renderer**: live GPU adapter name, backend, device type, and driver,
+  captured once from `adapter.get_info()` at GPU init into an owned
+  `AdapterDiagnostics` (the render path is untouched).
+- **Actions**: three clickable project links (opened through the same
+  scheme-allowlisted, argv-only opener the bare-URL/OSC 8 paths use) and a
+  one-click **Copy diagnostics** button. The diagnostics block deliberately
+  omits filesystem paths so it can be pasted into a bug report without leaking a
+  `$HOME`/username.
+
+The About view is a third settings level (`SettingsLevel::About`) reached by a
+synthetic section row; its rendered text and pointer hit-map project from one
+builder so they stay in lockstep. Six new tests pin the row placement, the
+version/GPU lines, the path-free diagnostics block, and the link/copy outcomes.
+
+**Always-latest install.** The release workflow now also publishes version-less
+artifact aliases (`odytty.tar.gz`, `odytty-x86_64.AppImage`) as checksummed
+copies, so the README can use `releases/latest/download/<name>` URLs that never
+name a version and never go stale. The AppImage section spells out the required
+`chmod +x`, and the CLI introspection commands are reframed as a scriptable
+*alternative* to OdyTTY's in-app menus (settings panel, theme/font pickers,
+command palette) rather than the primary path.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked` clean
+(manifest deny-gate), full suite green (2712 passed, 0 failed), release binary
+reports `odytty 0.5.4` with the baked provenance.
+
+---
+
 ## 2026-06-26 -- Manifest: declare verified MSRV + codify lint policy
 
 Two manifest-hygiene additions that surface existing, enforced facts where
