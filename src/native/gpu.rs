@@ -595,10 +595,42 @@ pub(super) fn create_color_glyph_pipeline(
     })
 }
 
+/// Plain, owned snapshot of the active GPU adapter for the About panel's
+/// renderer diagnostics. Captured once at init from `adapter.get_info()`; holds
+/// no `wgpu` types so it can be cloned and read far from the render path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::native) struct AdapterDiagnostics {
+    /// Adapter name, e.g. "NVIDIA GeForce RTX 4080".
+    pub(in crate::native) name: String,
+    /// Graphics backend, e.g. "Vulkan", "Metal", "GL".
+    pub(in crate::native) backend: String,
+    /// Device class, e.g. "DiscreteGpu", "IntegratedGpu", "Cpu".
+    pub(in crate::native) device_type: String,
+    /// Driver name, e.g. "NVIDIA" (may be empty on some backends).
+    pub(in crate::native) driver: String,
+    /// Driver detail/version string (may be empty on some backends).
+    pub(in crate::native) driver_info: String,
+}
+
+impl AdapterDiagnostics {
+    fn from_wgpu(info: &wgpu::AdapterInfo) -> Self {
+        Self {
+            name: info.name.clone(),
+            backend: format!("{:?}", info.backend),
+            device_type: format!("{:?}", info.device_type),
+            driver: info.driver.clone(),
+            driver_info: info.driver_info.clone(),
+        }
+    }
+}
+
 pub(super) struct GpuState {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
+    /// Owned adapter info for the About panel's renderer diagnostics. Captured
+    /// once at init; read-only thereafter. Not used by any render path.
+    adapter_diagnostics: AdapterDiagnostics,
     enabled_features: wgpu::Features,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
@@ -730,6 +762,12 @@ pub(super) struct GpuState {
 }
 
 impl GpuState {
+    /// Read-only GPU adapter diagnostics for the About panel (name, backend,
+    /// device type, driver). Captured once at init.
+    pub(super) fn adapter_diagnostics(&self) -> &AdapterDiagnostics {
+        &self.adapter_diagnostics
+    }
+
     /// Bring up the GPU surface for `window`.
     ///
     /// Synchronous from the caller's perspective: the async adapter/device
@@ -765,6 +803,10 @@ impl GpuState {
             compatible_surface: Some(&surface),
         }))
         .map_err(|err| NativeError::NoAdapter(err.to_string()))?;
+
+        // Capture adapter identity for the About panel before any device work.
+        // Read-only diagnostics; does not influence rendering.
+        let adapter_diagnostics = AdapterDiagnostics::from_wgpu(&adapter.get_info());
 
         let adapter_features = adapter.features();
         let enabled_features = adapter_features & wgpu::Features::DUAL_SOURCE_BLENDING;
@@ -1043,6 +1085,7 @@ impl GpuState {
             surface,
             device,
             queue,
+            adapter_diagnostics,
             enabled_features,
             config,
             pipeline,

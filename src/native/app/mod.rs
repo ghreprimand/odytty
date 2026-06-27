@@ -1256,6 +1256,15 @@ impl App {
             self.close_search(true);
         }
         self.reset_pointer_state_for_overlay();
+        // ABOUT: refresh the About data with the live GPU adapter before the
+        // panel opens. Cheap to recompute; the adapter is present once the
+        // renderer is up (`None` only on the headless/early path).
+        let adapter = self
+            .gpu
+            .as_ref()
+            .map(|gpu| gpu.adapter_diagnostics().clone());
+        self.overlay
+            .set_about_info(crate::native::about::AboutInfo::collect(adapter));
         self.overlay.toggle_settings();
         self.request_selection_redraw();
     }

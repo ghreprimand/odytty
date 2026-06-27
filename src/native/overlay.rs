@@ -174,6 +174,13 @@ impl OverlayUi {
         self.mode = OverlayMode::Settings;
     }
 
+    /// Refresh the read-only About data on the settings panel (ABOUT). Called by
+    /// the App when toggling the settings overlay so the About view reflects the
+    /// live GPU adapter (available once the renderer is up).
+    pub(super) fn set_about_info(&mut self, about: super::about::AboutInfo) {
+        self.panel.set_about(about);
+    }
+
     pub(super) fn close(&mut self) {
         // Clear any in-progress overlay drag on exit so a lost release (pointer
         // left the window / focus loss mid-drag) cannot leave it armed for the
@@ -1715,6 +1722,13 @@ pub(super) enum OverlayOutcome {
     /// leave the original pane untouched. The overlay has already closed itself.
     /// Empty string = unknown cwd (spawn in the default directory).
     DetachSwitchKeepBoth(String),
+    /// Open a project URL from the About view (ABOUT). The overlay stays open;
+    /// the App routes the URL through the same allowlisted opener the bare-URL /
+    /// OSC 8 paths use.
+    SettingsOpenUrl(String),
+    /// Copy the About diagnostics block to the clipboard (ABOUT). The overlay
+    /// stays open; the App writes the text via the native clipboard.
+    SettingsCopyDiagnostics(String),
 }
 
 impl OverlayUi {
@@ -1750,6 +1764,10 @@ impl OverlayUi {
                 // Save the changes; after save_succeeded, close the overlay.
                 self.close_after_save = true;
                 OverlayOutcome::SaveSettings(edits)
+            }
+            SettingsPanelOutcome::OpenUrl(url) => OverlayOutcome::SettingsOpenUrl(url),
+            SettingsPanelOutcome::CopyToClipboard(text) => {
+                OverlayOutcome::SettingsCopyDiagnostics(text)
             }
         }
     }

@@ -3,6 +3,7 @@ use crate::settings::{
     DEFAULT_CELL_BG_OPACITY, SettingEdit, SettingInfo, SettingKind, Settings, SettingsEditOverlay,
 };
 
+use super::about::{ABOUT_LINKS, AboutInfo};
 use super::overlay::OverlayInput;
 
 mod path_picker;
@@ -11,6 +12,12 @@ mod sections;
 
 use path_picker::{PathPickerOutcome, PathPickerSignature, PathPickerState, resolve_start_dir};
 use sections::SECTIONS;
+
+/// Count of actionable rows in the About view: one per project link plus the
+/// Copy-diagnostics row. `selected` indexes these while at `SettingsLevel::About`.
+const ABOUT_ACTION_ROWS: usize = ABOUT_LINKS.len() + 1;
+/// The index of the Copy-diagnostics action row (last actionable row).
+const ABOUT_COPY_ROW: usize = ABOUT_LINKS.len();
 
 /// Synthetic entry key for the "Open Theme Builder" action row injected at the
 /// end of the Themes section's Level-2 list (v0.3.1 discoverability). It is not
@@ -51,6 +58,10 @@ pub(super) enum SettingsLevel {
     SectionList,
     /// Level 2: the entry list for the section at `section_index`.
     SectionDetail { section_index: usize },
+    /// Level 2 (ABOUT): the read-only About view. Reached by drilling into the
+    /// synthetic "About" row appended after `SECTIONS`. Has no setting entries;
+    /// `selected` indexes its actionable rows (links + Copy diagnostics).
+    About,
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +75,9 @@ pub(super) struct SettingsPanel {
     entries: Vec<SettingInfo>,
     /// Two-level navigation state (SETTINGS-REDESIGN).
     level: SettingsLevel,
+    /// Read-only About data, populated when the overlay opens (ABOUT). `None`
+    /// until set; the About row still renders, showing a not-initialized note.
+    about: Option<AboutInfo>,
     /// Focused section row in Level 1 (index into `SECTIONS`).
     section_selected: usize,
     /// Scroll offset for Level 1 (usually 0 since sections fit in one screen).
@@ -142,6 +156,12 @@ pub(super) enum SettingsPanelOutcome {
     SaveAndClose(Vec<SettingEdit>),
     /// Discard all pending changes and close the overlay.
     DiscardAndClose,
+    /// Open a project URL from the About view (ABOUT). The host opens it through
+    /// the same allowlisted opener the bare-URL/OSC 8 paths use.
+    OpenUrl(String),
+    /// Copy the About diagnostics block to the clipboard (ABOUT). The host
+    /// writes it via the native clipboard.
+    CopyToClipboard(String),
     /// Close the overlay (emitted at Level 1 with no pending edits / dirty
     /// prompt already shown).
     Close,
@@ -161,6 +181,7 @@ impl SettingsPanel {
             all_entries: entries.clone(),
             entries,
             level: SettingsLevel::SectionList,
+            about: None,
             section_selected: 0,
             section_scroll: 0,
             pending_close_prompt: false,
@@ -372,6 +393,7 @@ impl SettingsPanel {
                     .unwrap_or("Settings");
                 format!("\u{2190} {name}  (Esc = back)")
             }
+            SettingsLevel::About => "\u{2190} About  (Esc = back)".to_owned(),
         }
     }
 
@@ -400,7 +422,56 @@ impl SettingsPanel {
             SettingsLevel::SectionDetail { section_index } => {
                 self.handle_section_detail_input(input, section_index)
             }
+            SettingsLevel::About => self.handle_about_input(input),
         }
+    }
+
+    /// Populate the read-only About data (called when the overlay opens). Cheap
+    /// to recompute; held so the About view renders without per-frame work.
+    pub(super) fn set_about(&mut self, about: AboutInfo) {
+        self.about = Some(about);
+    }
+
+    // ── Level 2 (ABOUT): read-only About view dispatch ─────────────────────
+
+    fn handle_about_input(&mut self, input: OverlayInput) -> SettingsPanelOutcome {
+        match input {
+            OverlayInput::Up => {
+                self.selected = self.selected.saturating_sub(1);
+            }
+            OverlayInput::Down => {
+                self.selected = (self.selected + 1).min(ABOUT_ACTION_ROWS - 1);
+            }
+            OverlayInput::Home => self.selected = 0,
+            OverlayInput::End => self.selected = ABOUT_ACTION_ROWS - 1,
+            OverlayInput::Activate | OverlayInput::Char(' ') => {
+                return self.activate_about_row();
+            }
+            OverlayInput::Close | OverlayInput::Left => {
+                self.message = None;
+                self.back_to_section_list();
+            }
+            _ => {}
+        }
+        SettingsPanelOutcome::Consumed
+    }
+
+    /// Act on the focused About row: open a project link, or copy diagnostics.
+    fn activate_about_row(&mut self) -> SettingsPanelOutcome {
+        if self.selected == ABOUT_COPY_ROW {
+            let text = self
+                .about
+                .as_ref()
+                .map(AboutInfo::diagnostics_block)
+                .unwrap_or_default();
+            self.message = Some("Diagnostics copied to clipboard.".to_owned());
+            return SettingsPanelOutcome::CopyToClipboard(text);
+        }
+        if let Some(link) = ABOUT_LINKS.get(self.selected) {
+            self.message = Some(format!("Opening {}.", link.label));
+            return SettingsPanelOutcome::OpenUrl(link.url.to_owned());
+        }
+        SettingsPanelOutcome::Consumed
     }
 
     // ── Level 1: section-list dispatch ──────────────────────────────────────
@@ -416,7 +487,8 @@ impl SettingsPanel {
                 self.follow_section_selection();
             }
             OverlayInput::End => {
-                self.section_selected = SECTIONS.len().saturating_sub(1);
+                // Last row is the synthetic "About" row at index SECTIONS.len().
+                self.section_selected = SECTIONS.len();
                 self.follow_section_selection();
             }
             OverlayInput::Activate | OverlayInput::Right => {
@@ -700,6 +772,16 @@ impl SettingsPanel {
     /// groups, reset Level-2 scroll/selection to the top, and update `level`.
     /// Clears editing, path_picker, and message (T-editing-clears-on-level-change).
     pub(super) fn drill_into_section(&mut self, section_index: usize) {
+        // The synthetic "About" row sits just past the real SECTIONS.
+        if section_index == SECTIONS.len() {
+            self.selected = 0;
+            self.scroll = 0;
+            self.editing = None;
+            self.path_picker = None;
+            self.message = None;
+            self.level = SettingsLevel::About;
+            return;
+        }
         if SECTIONS.get(section_index).is_none() {
             return;
         }
@@ -715,7 +797,8 @@ impl SettingsPanel {
     }
 
     fn move_section_selection(&mut self, delta: isize) {
-        let n = SECTIONS.len() as isize;
+        // +1 for the synthetic "About" row appended after SECTIONS.
+        let n = (SECTIONS.len() + 1) as isize;
         let next = (self.section_selected as isize + delta).clamp(0, n - 1) as usize;
         self.section_selected = next;
         self.follow_section_selection();
@@ -737,7 +820,8 @@ impl SettingsPanel {
         }
         if matches!(self.level, SettingsLevel::SectionList) && !self.search_active {
             let window = body_height.saturating_sub(1).max(1);
-            let total = SECTIONS.len();
+            // +1 for the synthetic "About" row appended after SECTIONS.
+            let total = SECTIONS.len() + 1;
             return (
                 self.section_scroll > 0,
                 self.section_scroll + window < total,
@@ -2815,6 +2899,141 @@ mod tests {
                 .map(|c| c.key)
                 .collect::<Vec<_>>(),
             vec!["font_size"]
+        );
+    }
+
+    // ── ABOUT: in-app About view ─────────────────────────────────────────────
+
+    /// Build an `AboutInfo` with a fixed synthetic adapter for deterministic
+    /// assertions (the real adapter varies by host).
+    fn test_about() -> AboutInfo {
+        AboutInfo {
+            name: "OdyTTY",
+            version: "9.9.9",
+            license: "GPL-3.0-only",
+            git_sha: "abc1234",
+            build_date: "2026-06-27",
+            target: "x86_64-unknown-linux-gnu",
+            rustc_version: "1.96.0 (test)",
+            display_server: "Wayland",
+            adapter: Some(crate::native::gpu::AdapterDiagnostics {
+                name: "Test GPU".to_owned(),
+                backend: "Vulkan".to_owned(),
+                device_type: "DiscreteGpu".to_owned(),
+                driver: "TestDriver".to_owned(),
+                driver_info: "1.2.3".to_owned(),
+            }),
+        }
+    }
+
+    fn body_text(panel: &SettingsPanel) -> String {
+        panel
+            .build_visible_rows(80, 40)
+            .into_iter()
+            .map(|(line, _)| line.text)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn about_row_is_the_last_section_row_and_drills_into_about() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        panel.update_body_height(40);
+        panel.update_body_width(80);
+
+        // The Level-1 list shows an "About" row past the real sections.
+        let listing = body_text(&panel);
+        assert!(
+            listing.contains("About"),
+            "section list shows an About row: {listing}"
+        );
+
+        // Selecting the last row (End) and activating drills into About.
+        panel.set_about(test_about());
+        let _ = panel.handle_input(OverlayInput::End);
+        assert_eq!(panel.section_selected, SECTIONS.len(), "About row focused");
+        let _ = panel.handle_input(OverlayInput::Activate);
+        assert!(
+            matches!(panel.level, SettingsLevel::About),
+            "activating the About row enters the About level"
+        );
+    }
+
+    #[test]
+    fn about_view_shows_version_build_and_gpu_lines() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        panel.update_body_height(40);
+        panel.update_body_width(80);
+        panel.set_about(test_about());
+        panel.drill_into_section(SECTIONS.len()); // enter About
+
+        let body = body_text(&panel);
+        assert!(body.contains("OdyTTY 9.9.9"), "version line: {body}");
+        assert!(body.contains("abc1234"), "commit line present");
+        assert!(body.contains("Test GPU"), "gpu name present");
+        assert!(body.contains("Vulkan"), "backend present");
+        // The three project links and the Copy row are actionable rows.
+        assert!(body.contains("Homepage"), "homepage link present");
+        assert!(body.contains("Copy diagnostics"), "copy row present");
+    }
+
+    #[test]
+    fn about_diagnostics_block_has_facts_but_no_home_paths() {
+        let about = test_about();
+        let block = about.diagnostics_block();
+        assert!(block.contains("OdyTTY 9.9.9"));
+        assert!(block.contains("x86_64-unknown-linux-gnu"));
+        assert!(block.contains("Test GPU"));
+        assert!(block.contains("Wayland"));
+        // Privacy: the copy blob must not carry filesystem/home paths.
+        assert!(
+            !block.contains("/home/") && !block.contains("$HOME"),
+            "diagnostics block must not leak home paths: {block}"
+        );
+    }
+
+    #[test]
+    fn about_copy_row_emits_copy_outcome_with_diagnostics() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        panel.set_about(test_about());
+        panel.drill_into_section(SECTIONS.len());
+        // Focus the Copy row (last actionable row) and activate.
+        let _ = panel.handle_input(OverlayInput::End);
+        let outcome = panel.handle_input(OverlayInput::Activate);
+        match outcome {
+            SettingsPanelOutcome::CopyToClipboard(text) => {
+                assert!(text.contains("OdyTTY 9.9.9"), "copies diagnostics: {text}");
+            }
+            other => panic!("expected CopyToClipboard, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn about_link_row_emits_open_url_outcome() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        panel.set_about(test_about());
+        panel.drill_into_section(SECTIONS.len());
+        // First actionable row is the first project link.
+        let _ = panel.handle_input(OverlayInput::Home);
+        let outcome = panel.handle_input(OverlayInput::Activate);
+        match outcome {
+            SettingsPanelOutcome::OpenUrl(url) => {
+                assert_eq!(url, ABOUT_LINKS[0].url, "opens the first project link");
+            }
+            other => panic!("expected OpenUrl, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn about_esc_returns_to_section_list() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        panel.set_about(test_about());
+        panel.drill_into_section(SECTIONS.len());
+        assert!(matches!(panel.level, SettingsLevel::About));
+        let _ = panel.handle_input(OverlayInput::Close);
+        assert!(
+            matches!(panel.level, SettingsLevel::SectionList),
+            "Esc from About returns to the section list"
         );
     }
 }

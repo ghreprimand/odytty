@@ -48,6 +48,7 @@
 //! Wayland surface (no XWayland). `wgpu` presents to that surface via its
 //! default backends (Vulkan on Linux), so the GPU path is Wayland-native too.
 
+mod about;
 mod app;
 mod attach;
 mod bindings;

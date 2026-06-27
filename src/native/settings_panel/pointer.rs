@@ -61,6 +61,12 @@ pub(in crate::native) enum RowZone {
     /// `entry_index` carries the section index; a click drills into that
     /// section. This zone only appears in Level-1 hit-maps (T-level-hitmap).
     SectionRow,
+    /// An About-view clickable project link (ABOUT). Carries the `'static` URL
+    /// to open; a click routes through the allowlisted opener.
+    AboutLink { url: &'static str },
+    /// The About-view "Copy diagnostics" action row (ABOUT). A click copies the
+    /// diagnostics block to the clipboard.
+    AboutCopy,
 }
 
 /// One entry of the hit-map: which setting row a body line belongs to (if any)
@@ -97,6 +103,10 @@ impl SettingsPanel {
         // Dirty-close prompt owns the body when active.
         if self.pending_close_prompt {
             return self.build_close_prompt_rows(body_width, body_height);
+        }
+        // Level 2 (ABOUT): the read-only About view.
+        if matches!(self.level, SettingsLevel::About) {
+            return self.build_about_rows(body_width, body_height);
         }
         // Level 1 (section list) unless search mode is forcing the flat view.
         if matches!(self.level, SettingsLevel::SectionList) && !self.search_active {
@@ -151,6 +161,25 @@ impl SettingsPanel {
                 },
             ));
         }
+        // Synthetic "About" row at logical index SECTIONS.len(), appended after
+        // the real sections. Drilling into it opens the read-only About view.
+        // It carries no entry count (informational, not setting-backed).
+        let about_index = SECTIONS.len();
+        if rows.len() < body_height && about_index >= self.section_scroll {
+            let focused = about_index == self.section_selected;
+            let marker = if focused { ">" } else { " " };
+            rows.push((
+                SettingsPanelLine {
+                    text: format!("{marker} About"),
+                    focused,
+                    bold: focused,
+                },
+                RowHit {
+                    entry_index: Some(about_index),
+                    zone: RowZone::SectionRow,
+                },
+            ));
+        }
         // Footer hint. Word-fitted to the body so a narrow window degrades to a
         // shorter whole-word hint instead of a mid-word cut ("Ctrl+S sav");
         // byte-identical on a normal window where the full hint fits.
@@ -171,6 +200,125 @@ impl SettingsPanel {
             ));
         }
         rows
+    }
+
+    /// Level-2 (ABOUT) read-only About view rows: inert info lines from
+    /// `AboutInfo::info_lines`, then the focusable project links and the Copy
+    /// diagnostics row, then any transient message. `self.selected` indexes the
+    /// actionable rows (0..ABOUT_LINKS.len() = links, then the Copy row), and is
+    /// reflected as the focused/bold line. The full list is windowed by
+    /// `self.scroll` so a short window scrolls; hit-map and text stay in lockstep
+    /// because both project from this one vector.
+    fn build_about_rows(
+        &self,
+        body_width: usize,
+        body_height: usize,
+    ) -> Vec<(SettingsPanelLine, RowHit)> {
+        let inert = RowHit {
+            entry_index: None,
+            zone: RowZone::Detail,
+        };
+        let mut rows: Vec<(SettingsPanelLine, RowHit)> = Vec::new();
+
+        // Informational block (inert). `None` shows a minimal placeholder.
+        match &self.about {
+            Some(about) => {
+                for line in about.info_lines() {
+                    rows.push((
+                        SettingsPanelLine {
+                            text: if line.is_empty() {
+                                String::new()
+                            } else {
+                                format!("  {line}")
+                            },
+                            focused: false,
+                            bold: false,
+                        },
+                        inert,
+                    ));
+                }
+            }
+            None => rows.push((
+                SettingsPanelLine {
+                    text: "  About information unavailable.".to_owned(),
+                    focused: false,
+                    bold: false,
+                },
+                inert,
+            )),
+        }
+
+        // Separator + actionable rows: project links, then Copy diagnostics.
+        rows.push((
+            SettingsPanelLine {
+                text: String::new(),
+                focused: false,
+                bold: false,
+            },
+            inert,
+        ));
+        for (i, link) in super::ABOUT_LINKS.iter().enumerate() {
+            let focused = self.selected == i;
+            let marker = if focused { ">" } else { " " };
+            rows.push((
+                SettingsPanelLine {
+                    text: format!("{marker} {}: {}", link.label, link.url),
+                    focused,
+                    bold: focused,
+                },
+                RowHit {
+                    entry_index: None,
+                    zone: RowZone::AboutLink { url: link.url },
+                },
+            ));
+        }
+        let copy_focused = self.selected == super::ABOUT_COPY_ROW;
+        let copy_marker = if copy_focused { ">" } else { " " };
+        rows.push((
+            SettingsPanelLine {
+                text: format!("{copy_marker} [ Copy diagnostics ]"),
+                focused: copy_focused,
+                bold: copy_focused,
+            },
+            RowHit {
+                entry_index: None,
+                zone: RowZone::AboutCopy,
+            },
+        ));
+
+        // Transient message (e.g. "Diagnostics copied").
+        if let Some(message) = &self.message {
+            rows.push((
+                SettingsPanelLine {
+                    text: format!("  {message}"),
+                    focused: false,
+                    bold: false,
+                },
+                RowHit {
+                    entry_index: None,
+                    zone: RowZone::Message,
+                },
+            ));
+        }
+
+        // Footer hint.
+        rows.push((
+            SettingsPanelLine {
+                text: crate::native::overlay::fit_hint_to_width(
+                    "  \u{2191}\u{2193} move  Enter open/copy  Esc back",
+                    body_width,
+                ),
+                focused: false,
+                bold: false,
+            },
+            inert,
+        ));
+
+        // Window to the visible height by `self.scroll` so a short overlay can
+        // scroll through the (normally short) About body.
+        let start = self.scroll.min(rows.len().saturating_sub(1));
+        let end = (start + body_height).min(rows.len());
+        rows[start..end].to_vec()
     }
 
     /// Dirty-close prompt body rows.
@@ -497,6 +645,32 @@ impl SettingsPanel {
             return SettingsPanelOutcome::Consumed;
         }
 
+        // About view actionable rows (ABOUT). These carry `entry_index: None`,
+        // so they are handled before the entry guard below. A click focuses the
+        // row (so keyboard and mouse focus agree) and acts.
+        match hit.zone {
+            RowZone::AboutLink { url } => {
+                if let Some(i) = super::ABOUT_LINKS.iter().position(|l| l.url == url) {
+                    self.selected = i;
+                }
+                if let Some(link) = super::ABOUT_LINKS.iter().find(|l| l.url == url) {
+                    self.message = Some(format!("Opening {}.", link.label));
+                }
+                return SettingsPanelOutcome::OpenUrl(url.to_owned());
+            }
+            RowZone::AboutCopy => {
+                self.selected = super::ABOUT_COPY_ROW;
+                let text = self
+                    .about
+                    .as_ref()
+                    .map(super::AboutInfo::diagnostics_block)
+                    .unwrap_or_default();
+                self.message = Some("Diagnostics copied to clipboard.".to_owned());
+                return SettingsPanelOutcome::CopyToClipboard(text);
+            }
+            _ => {}
+        }
+
         let Some(entry_index) = hit.entry_index else {
             // GroupHeader / Message: inert, no focus change.
             return SettingsPanelOutcome::Consumed;
@@ -509,6 +683,9 @@ impl SettingsPanel {
 
         match hit.zone {
             RowZone::SectionRow => SettingsPanelOutcome::Consumed, // handled above
+            // About zones carry `entry_index: None` and are handled before the
+            // entry guard above; unreachable here but kept for exhaustiveness.
+            RowZone::AboutLink { .. } | RowZone::AboutCopy => SettingsPanelOutcome::Consumed,
             RowZone::GroupHeader | RowZone::Message => SettingsPanelOutcome::Consumed,
             // A help line only selects its owning row; no value change.
             RowZone::Detail => SettingsPanelOutcome::Consumed,

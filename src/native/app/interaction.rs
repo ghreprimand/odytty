@@ -223,6 +223,25 @@ impl App {
                 self.flush_pending_overlay_settings();
                 let _ = self.clipboard.write_text(&abs);
             }
+            // ABOUT: open a project link from the About view. The overlay stays
+            // open. Routed through the SAME scheme allowlist + argv-only opener
+            // the bare-URL / OSC 8 click paths use — never a shell string. The
+            // URLs are hardcoded https project links, but the allowlist guard is
+            // kept for defense in depth.
+            OverlayOutcome::SettingsOpenUrl(url) => {
+                if openable_hyperlink_uri(&url) {
+                    let argv = super::platform_opener::open_default_argv(
+                        super::platform_opener::OpenerOs::host(),
+                        &url,
+                    );
+                    self.spawn_open_or_notice(&argv);
+                }
+            }
+            // ABOUT: copy the diagnostics block to the clipboard. The overlay
+            // stays open; the panel already showed its "copied" confirmation.
+            OverlayOutcome::SettingsCopyDiagnostics(text) => {
+                let _ = self.clipboard.write_text(&text);
+            }
             OverlayOutcome::ContextMenuCopyFile(uri) => {
                 self.flush_pending_overlay_settings();
                 let _ = self.clipboard.write_text(&uri);
