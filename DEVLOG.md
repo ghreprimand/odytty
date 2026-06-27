@@ -36,9 +36,11 @@ shows the wgpu/Vulkan backend keeps a few driver helper threads (`[vkrt]`,
 `[vkps]`, and a futex-waiting worker) that wake periodically while the GPU
 device is alive. These run on the CPU, not the GPU; they cost ~0.1% of one core
 in total and dispatch **zero** GPU work (the `sm` column never leaves `-`). They
-are not OdyTTY's own redraw loop and are not what the linux-latency article
-warns about (an app presenting a fresh frame every vblank): OdyTTY presents
-nothing while idle. Whether those driver threads can be quieted further — much
+are not OdyTTY's own redraw loop, and they are not the failure mode described
+in Jakub Okoński's ["Linux latency measurements and compositor
+tuning"](https://farnoy.dev/posts/linux-latency/) (a client presenting a fresh
+frame every vblank and starving the focused window's frame budget): OdyTTY
+presents nothing while idle. Whether those driver threads can be quieted further — much
 of it originates in the NVIDIA driver rather than our code — is left as a
 tracked follow-up (`docs/idle-wakeups-investigation.md`), not an overclaimed
 fix.

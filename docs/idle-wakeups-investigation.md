@@ -33,8 +33,9 @@ entire time — no frames presented.
   device-poll / maintenance thread.
 
 They run on the **CPU**, not the GPU, and dispatch no GPU work. This is distinct
-from the failure mode in <https://farnoy.dev/posts/linux-latency> (a client
-presenting a frame every vblank and starving the focused window's frame budget):
+from the failure mode described in Jakub Okoński's "Linux latency measurements
+and compositor tuning" (<https://farnoy.dev/posts/linux-latency/>) — a client
+presenting a frame every vblank and starving the focused window's frame budget:
 OdyTTY presents nothing while idle, so the compositor-frame-budget mechanism does
 not apply.
 
