@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-26 -- Manifest: declare verified MSRV + codify lint policy
+
+Two manifest-hygiene additions that surface existing, enforced facts where
+tooling and contributors look for them.
+
+**Declared MSRV.** `Cargo.toml` now carries `rust-version = "1.96"`. This is not
+aspirational: `rust-toolchain.toml` already pins the build to 1.96.0 because the
+fuzz/test suites use a method-resolution behavior that fails to compile on 1.95
+(the `rng.pick(...)` sites in `src/core/graphics_fuzz_tests.rs` and
+`tests/protocol_fuzz.rs`), so CI compiles AT this floor every run. The new line
+just makes the manifest agree with the toolchain pin. The two are now coupled:
+bumping one requires bumping the other (a drift-guard standing directive was
+added to the local agent notes).
+
+**Codified lint policy.** A `[lints.clippy] all = { level = "deny", priority =
+-1 }` table mirrors the CI gate (`clippy --all-targets -D warnings`) so the
+policy is reproducible from a bare `cargo clippy`, not only from the CI flag. It
+cannot introduce new failures — CI already proves the tree is Clippy-clean — and
+`cargo clippy --all-targets` now passes with no `-D` flag, confirming the table
+enforces the deny on its own. Pedantic is deliberately not enabled: under the
+deny gate it would promote style nits to hard errors.
+
+Verified: manifest parses (`cargo metadata`), `cargo fmt --check` clean,
+`cargo clippy --all-targets --locked` clean without the deny flag, full suite
+green (2706 passed, 0 failed).
+
+---
+
 ## 2026-06-26 -- Release v0.5.3 — smart Ctrl+C, clickable URLs, keyboard Delete, AppImage + AUR
 
 v0.5.3 packages the three ergonomic features landed since v0.5.2 and adds the

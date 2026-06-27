@@ -2,6 +2,13 @@
 name = "odytty"
 version = "0.5.3"
 edition = "2024"
+# Minimum Supported Rust Version. Verified, not aspirational: the fuzz/test
+# suites use a method-resolution/deref-coercion behavior that compiles on 1.96
+# but not 1.95 (see the `rng.pick(...)` sites noted in rust-toolchain.toml), and
+# rust-toolchain.toml pins the build to 1.96.0 — so CI already compiles AT this
+# floor on every run. Keep this in lockstep with rust-toolchain.toml's channel:
+# if that pin moves, this must move with it (and vice versa).
+rust-version = "1.96"
 license = "GPL-3.0-only"
 description = "A from-scratch, GPU-rendered Rust terminal emulator with an Odyssey visual identity."
 homepage = "https://odytty.unfinished-works.com"
@@ -12,6 +19,16 @@ repository = "https://github.com/ghreprimand/odytty"
 # icons render out of the box without host Nerd Font installation.
 default = ["bundled-symbols-font"]
 bundled-symbols-font = []
+
+# Lint policy lives in the manifest so it is reproducible from a bare
+# `cargo clippy`, not only from the CI flag. This mirrors the existing CI gate
+# (`cargo clippy --all-targets --locked -- -D warnings`): the whole default
+# Clippy set is denied. It cannot introduce new failures — CI already proves the
+# tree is Clippy-clean on every push. `priority = -1` lets any future per-lint
+# `allow` override the group. (Pedantic is intentionally NOT enabled: under the
+# `-D warnings` gate it would promote hundreds of style nits to hard errors.)
+[lints.clippy]
+all = { level = "deny", priority = -1 }
 
 [dependencies]
 ab_glyph = "0.2.32"
