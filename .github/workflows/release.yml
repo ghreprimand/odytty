@@ -89,12 +89,23 @@ jobs:
         with:
           path: artifacts
 
+      - name: Derive version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Collect artifacts and checksum
         run: |
           mkdir -p out
           find artifacts -type f \
             \( -name '*.tar.gz' -o -name '*.AppImage' \) -exec cp {} out/ \;
           cd out
+          # Version-less aliases so `releases/latest/download/<name>` resolves a
+          # stable URL the README can use without ever naming a version. These
+          # are copies of the versioned artifacts (same bytes), checksummed
+          # alongside them in SHA256SUMS.
+          version="${{ steps.ver.outputs.version }}"
+          cp "odytty-${version}.tar.gz" "odytty.tar.gz"
+          cp "odytty-${version}-x86_64.AppImage" "odytty-x86_64.AppImage"
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
 

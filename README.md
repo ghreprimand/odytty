@@ -95,19 +95,39 @@ Requires Linux and a Vulkan-capable GPU. Wayland is the primary target; X11
 works through the current `winit`/GPU stack with some window-manager-dependent
 behavior for borderless windows and OS theme detection.
 
+#### AppImage (quickest)
+
+Download the AppImage and `SHA256SUMS` from the latest release, verify it, make
+it executable, and run it:
+
+```sh
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+chmod +x odytty-x86_64.AppImage
+./odytty-x86_64.AppImage
+```
+
+The `chmod +x` is required — browsers download the AppImage without the
+executable bit, so without it the file opens in an archive viewer or fails with
+"permission denied". The AppImage needs a working host Vulkan driver (Mesa or a
+vendor driver); it deliberately does not bundle the GPU stack. This is a
+best-effort x86_64 artifact — if it fails to start, build from source below.
+
+#### Build from source
+
 For the current source release, install OdyTTY for the current user.
 
 Download and verify the release archive:
 
 ```sh
-version=0.5.2
 workdir=$(mktemp -d /tmp/odytty-install.XXXXXX)
 cd "$workdir"
-curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
-curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/SHA256SUMS"
-grep "odytty-${version}.tar.gz" SHA256SUMS | sha256sum -c -
-tar -xf "odytty-${version}.tar.gz"
-cd "odytty-${version}"
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty.tar.gz
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+grep " odytty.tar.gz$" SHA256SUMS | sha256sum -c -
+tar -xf odytty.tar.gz
+cd odytty-*/
 ```
 
 Build the release:
@@ -158,12 +178,11 @@ natively on your machine).
 
 ```sh
 xcode-select --install   # once, if you don't already have the Command Line Tools
-version=0.5.2
-curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/odytty-${version}.tar.gz"
-curl -LO "https://github.com/ghreprimand/odytty/releases/download/v${version}/SHA256SUMS"
-grep "odytty-${version}.tar.gz" SHA256SUMS | shasum -a 256 -c -
-tar -xf "odytty-${version}.tar.gz"
-cd "odytty-${version}"
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty.tar.gz
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+grep " odytty.tar.gz$" SHA256SUMS | shasum -a 256 -c -
+tar -xf odytty.tar.gz
+cd odytty-*/
 cargo build --release --locked
 ./target/release/odytty
 ```
@@ -224,7 +243,13 @@ cargo build --release --locked
 ./target/release/odytty
 ```
 
-CLI introspection commands print and exit without opening a window:
+OdyTTY is driven primarily by its in-app menus: the settings panel, the theme
+and font pickers, and the `Ctrl+Shift+P` command palette all run live inside the
+terminal, so browsing themes, choosing fonts, and changing configuration happen
+visually with an immediate preview — no command-line required. The introspection
+commands below are a **scriptable alternative** to those menus for quick checks,
+automation, and headless inspection; they print and exit without opening a
+window:
 
 ```sh
 odytty --list-themes
@@ -243,7 +268,7 @@ odytty attach <id>
 odytty attach --diagnostic <id>
 ```
 
-From the source tree without installing:
+The same introspection works from the source tree before installing:
 
 ```sh
 ./target/release/odytty --list-themes

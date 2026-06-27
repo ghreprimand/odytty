@@ -94,8 +94,11 @@ odytty --title Monitor -e btop
 
 ## Command-Line Surface
 
-These introspection commands print a snapshot and exit, which is handy for
-verifying an install or wiring launchers:
+Theming, fonts, and configuration are primarily driven by OdyTTY's in-app menus
+(the settings panel, theme/font pickers, and the `Ctrl+Shift+P` command palette),
+which change things live with a preview. These introspection commands are the
+scriptable alternative — they print a snapshot and exit, which is handy for
+verifying an install, automation, or wiring launchers:
 
 ```sh
 odytty --version        # print the installed version
