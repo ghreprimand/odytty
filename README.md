@@ -114,6 +114,13 @@ executable bit, so without it the file opens in an archive viewer or fails with
 vendor driver); it deliberately does not bundle the GPU stack. This is a
 best-effort x86_64 artifact — if it fails to start, build from source below.
 
+Each release attaches both version-less and version-pinned downloads:
+`odytty-x86_64.AppImage` / `odytty.tar.gz` are the always-latest names used
+above (resolved by the `releases/latest/download/` URLs), while
+`odytty-<version>-x86_64.AppImage` / `odytty-<version>.tar.gz` are the
+**identical** copies for pinning a specific version. Both carry matching
+checksums in `SHA256SUMS`.
+
 #### Build from source
 
 For the current source release, install OdyTTY for the current user.

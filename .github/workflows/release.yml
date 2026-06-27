@@ -116,5 +116,19 @@ jobs:
             out/*.tar.gz
             out/*.AppImage
             out/SHA256SUMS
+          # Static preamble above the auto-generated notes, clarifying that the
+          # version-less and version-pinned downloads are identical copies.
+          body: |
+            ### Downloads
+
+            `odytty-x86_64.AppImage` and `odytty.tar.gz` are the **always-latest**
+            names — use these for a stable URL that resolves to the newest
+            release. The `…-${{ steps.ver.outputs.version }}-…` files are the
+            **identical** version-pinned copies (same bytes), for when you want
+            to pin a specific version. Every file is checksummed in
+            `SHA256SUMS`; the two AppImages (and the two tarballs) therefore show
+            matching hashes.
+
+            ---
           generate_release_notes: true
           fail_on_unmatched_files: true
