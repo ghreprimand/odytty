@@ -891,8 +891,14 @@ impl App {
         }
     }
 
-    fn update_control_flow_deadline(&self, event_loop: &ActiveEventLoop) {
-        let next = [
+    /// Pure computation of the next timer wake instant: the minimum over every
+    /// scheduled wake source, or `None` when nothing is pending (the zero-wake
+    /// idle case → `ControlFlow::Wait`). Split out from
+    /// [`Self::update_control_flow_deadline`] so it is testable without an
+    /// `ActiveEventLoop` (which cannot be constructed in a unit test). The
+    /// caller maps `Some`/`None` onto `WaitUntil`/`Wait`.
+    fn next_wake_deadline(&self) -> Option<Instant> {
+        [
             self.deadline,
             self.resize_debounce.deadline(),
             // §7: wake when a pending multiplexer prefix times out, so the
@@ -903,7 +909,19 @@ impl App {
                 .iter()
                 .filter_map(|session| session.cursor_blink.deadline())
                 .min(),
-            self.settings_reloader.deadline(),
+            // Config-file live-reload poll. Only schedule its timer wake while
+            // the window is focused: a backgrounded terminal that nobody is
+            // editing config *and watching* has no reason to stat the file once
+            // a second, so suppressing this drops idle-unfocused self-wakes to
+            // zero (the only remaining wake source at rest). Edits made while
+            // away still apply on focus regain — the `Focused(true)` redraw
+            // walks `run_about_to_wait_maintenance` -> `poll_config_reload`,
+            // which fires immediately because `next_poll` is by then in the
+            // past — so live reload stays correct, it just defers the stat to
+            // the moment you look at the window again.
+            self.focused
+                .then(|| self.settings_reloader.deadline())
+                .flatten(),
             self.sessions
                 .iter()
                 .filter_map(|session| session.synchronized_output_hold.deadline())
@@ -924,8 +942,11 @@ impl App {
         ]
         .into_iter()
         .flatten()
-        .min();
-        match next {
+        .min()
+    }
+
+    fn update_control_flow_deadline(&self, event_loop: &ActiveEventLoop) {
+        match self.next_wake_deadline() {
             Some(deadline) => event_loop.set_control_flow(ControlFlow::WaitUntil(deadline)),
             None => event_loop.set_control_flow(ControlFlow::Wait),
         }
@@ -2860,6 +2881,57 @@ mod tests {
 
     fn blink() -> CursorBlinkState {
         CursorBlinkState::new(Duration::from_millis(500))
+    }
+
+    /// Build a fresh, un-driven `App` for wake-scheduling tests. Spawns a real
+    /// (short-lived) PTY like the sibling `App`-level tests; returns `None` if
+    /// the host cannot spawn one (skip rather than fail in constrained CI).
+    fn build_idle_app() -> Option<App> {
+        let dims = Dimensions::new(24, 80);
+        let session = crate::pty::PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+        let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
+        let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+        let pty = Arc::new(Mutex::new(session));
+        Some(App::new(
+            NativeOptions::default(),
+            terminal,
+            writer,
+            pty,
+            Settings::default(),
+            crate::settings::SettingsReloader::for_current_process(Instant::now()),
+        ))
+    }
+
+    /// Regression guard for the focus-gated config-reload poll. On a fresh,
+    /// un-driven `App` the live-reload watcher is the only focus-dependent wake
+    /// source (cursor blink stays `None` until polled, and every other source
+    /// is at rest), so toggling focus isolates the gate: focused schedules the
+    /// 1 Hz config stat, unfocused suppresses it and the loop parks at
+    /// zero-wake idle. A regression that drops the gate would bring back the
+    /// once-a-second background wake this test forbids.
+    #[test]
+    fn config_reload_wake_is_suppressed_while_unfocused() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        // No resolvable config path on this host ⇒ no deadline to gate; skip.
+        let Some(config_deadline) = app.settings_reloader.deadline() else {
+            return;
+        };
+
+        app.focused = true;
+        assert_eq!(
+            app.next_wake_deadline(),
+            Some(config_deadline),
+            "a focused window schedules the config-reload poll"
+        );
+
+        app.focused = false;
+        assert_eq!(
+            app.next_wake_deadline(),
+            None,
+            "a backgrounded window schedules no timer wake (zero-wake idle)"
+        );
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]

@@ -7,6 +7,52 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-27 -- Release v0.5.5 — gate config live-reload poll on window focus
+
+v0.5.5 trims an unnecessary background wake from the idle event loop.
+
+**What changed.** The config-file live-reload watcher polls once a second to
+notice edits to `odytty.conf`. That poll was scheduled unconditionally, so an
+idle, *unfocused* window still woke ~1×/sec to `stat()` a file nobody was
+editing. The wake source (`settings_reloader.deadline()`) is now gated on
+`self.focused`: a backgrounded window schedules no live-reload timer at all and
+parks at zero-wake idle for that source, while a focused window behaves exactly
+as before. Edits made while the window is away are not lost — the
+`Focused(true)` path walks `run_about_to_wait_maintenance` → `poll_config_reload`
+on focus regain, and because `next_poll` is by then in the past the catch-up
+stat fires immediately, so live reload stays correct; it just defers the check
+to the moment you look at the window again.
+
+**How it was found.** Measuring an idle, unfocused window from a separate
+terminal (so the monitor wasn't measuring itself): per-process GPU engine
+utilization (`nvidia-smi pmon`, `sm` column) was flat idle — zero frames drawn,
+even while other windows were active — confirming the renderer does no GPU work
+at rest. CPU was ~0.05–0.1% of one core, and `voluntary_ctxt_switches` showed a
+dead-steady 1.0/sec heartbeat that traced to this config poll. After the fix the
+event-loop thread quiets accordingly.
+
+**Honest remaining idle wakes.** A thread-by-thread look (`/proc/$pid/task/*`)
+shows the wgpu/Vulkan backend keeps a few driver helper threads (`[vkrt]`,
+`[vkps]`, and a futex-waiting worker) that wake periodically while the GPU
+device is alive. These run on the CPU, not the GPU; they cost ~0.1% of one core
+in total and dispatch **zero** GPU work (the `sm` column never leaves `-`). They
+are not OdyTTY's own redraw loop and are not what the linux-latency article
+warns about (an app presenting a fresh frame every vblank): OdyTTY presents
+nothing while idle. Whether those driver threads can be quieted further — much
+of it originates in the NVIDIA driver rather than our code — is left as a
+tracked follow-up (`docs/idle-wakeups-investigation.md`), not an overclaimed
+fix.
+
+**Test.** A new `config_reload_wake_is_suppressed_while_unfocused` regression
+test pins the gate: on a fresh `App` the live-reload poll is the only
+focus-dependent wake source, so it asserts the next-wake deadline is present
+when focused and `None` when unfocused. The deadline math was extracted into a
+pure `next_wake_deadline()` helper so it is testable without an `ActiveEventLoop`.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets` clean (manifest
+deny-gate), full suite green (15 test binaries, 0 failed), release binary
+relaunched and measured at 0 config-poll wakes while backgrounded.
+
 ## 2026-06-27 -- Release v0.5.4 — in-app About section + always-latest install
 
 v0.5.4 adds an in-app **About** section and makes the install docs

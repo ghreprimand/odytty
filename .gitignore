@@ -15,3 +15,7 @@ GEMINI.md
 
 # macOS release build output
 /dist/build
+
+# Locally-built release tarball (the published artifact of the same name is
+# produced by CI; a local copy must never be committed into the repo).
+/odytty.tar.gz
