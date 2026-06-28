@@ -143,6 +143,10 @@ impl PtySession {
             let hpcon =
                 CreatePseudoConsole(size, handle_of(&input_read), handle_of(&output_write), 0)
                     .context("CreatePseudoConsole")?;
+            // Guard the pseudoconsole so any `?` early return below (attribute
+            // setup or `CreateProcessW`) closes it instead of leaking it — Drop
+            // for PtySession only runs once `Self` is constructed at the bottom.
+            let hpcon_guard = HpconGuard(hpcon);
             drop(input_read);
             drop(output_write);
 
@@ -213,6 +217,11 @@ impl PtySession {
             //    are no longer needed. (`_attr_guard` deletes the list on drop.)
             let _ = CloseHandle(process_info.hThread);
             let process = OwnedHandle::from_raw_handle(process_info.hProcess.0 as RawHandle);
+
+            // Spawn succeeded: transfer pseudoconsole ownership into `Self` so
+            // `Drop for PtySession` is the single `ClosePseudoConsole` caller.
+            // Forgetting the guard prevents a double-close.
+            std::mem::forget(hpcon_guard);
 
             Ok(Self {
                 hpcon: hpcon.0,
@@ -322,6 +331,23 @@ impl Read for PtyReader {
         match self.file.read(buf) {
             Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(0),
             result => result,
+        }
+    }
+}
+
+/// RAII guard that closes a pseudoconsole on drop, so an early return between
+/// `CreatePseudoConsole` and `Self` construction cannot leak the `HPCON` (which
+/// has no `Drop`) plus its pipe buffers. On the success path the spawn forgets
+/// this guard and hands ownership to `Drop for PtySession`, the single closer.
+struct HpconGuard(HPCON);
+
+impl Drop for HpconGuard {
+    fn drop(&mut self) {
+        // SAFETY: `self.0` came from a successful `CreatePseudoConsole` and is
+        // closed exactly once — only reached when the spawn errors out before
+        // ownership transfers to `PtySession` (which `forget`s this guard).
+        unsafe {
+            ClosePseudoConsole(self.0);
         }
     }
 }

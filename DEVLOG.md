@@ -84,6 +84,24 @@ Follow-up nit fixed here: gated the now-Unix-only `use std::ffi::CString;` in
 already gated in the Phase 1 split), clearing the last Windows build warning.
 ubuntu + macOS legs stayed green (the `cfg(windows)` code is invisible to them).
 
+Phase 2 close — `HPCON` leak fix (parallel-review catch, unverifiable on a local
+compile): on the spawn error path `CreatePseudoConsole` could succeed and then a
+later `?` (`UpdateProcThreadAttribute` or `CreateProcessW` — e.g. `spawn_exec`
+with a nonexistent program) would return `Err` before `Self` was constructed,
+so `Drop for PtySession` (the only `ClosePseudoConsole` caller) never ran and one
+pseudoconsole + its pipe buffers leaked per failed spawn. Fixed with an
+`HpconGuard(HPCON)` RAII guard created immediately after `CreatePseudoConsole`;
+its `Drop` closes the console on any early return. The success path
+`std::mem::forget`s the guard after handing the `HPCON` to `Self`, so
+`Drop for PtySession` stays the single closer (no double-close — `HPCON` is a
+`Copy` isize handle). Mirrors the existing `AttrListGuard` pattern; happy path
+and Linux/macOS unaffected. The test-tree portability sweep
+(`dimensions_for_test` seam gating + the `spawn_shell_command("sleep 1")` sites
+that `cmd.exe` cannot run) moves to Phase 4b, where the Windows test tree can
+actually compile once the `app.rs`/`session_host` build errors are gated — every
+item still ships, just where CI can prove it. Phase 2's bar — windows.rs backend
+compiles clean on CI — is met, so Phase 2 is done.
+
 ## 2026-06-28 -- PTY backend split + Kitty transport gating (pure refactor)
 
 A behavior-preserving reorganization that localizes the POSIX-specific PTY and
