@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
+#![cfg(unix)]
+
 use std::fs;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};

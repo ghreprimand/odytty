@@ -147,7 +147,7 @@ mod tests {
 
     fn build_app() -> Option<App> {
         let d = Dimensions::new(COLS, ROWS);
-        let session = crate::pty::PtySession::spawn_shell_command(d, "sleep 1").ok()?;
+        let session = crate::native::test_support::spawn_test_pause_shell(d).ok()?;
         let writer: crate::native::pty::PtyWriter =
             Arc::new(Mutex::new(session.take_writer().ok()?));
         let terminal = Arc::new(Mutex::new(Terminal::new(d.columns, d.rows)));

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
+#![cfg(unix)]
+
 //! PTY-backed smoke coverage for alternate-screen editors and pagers.
 //!
 //! These tests drive real host binaries through a PTY while rendering their

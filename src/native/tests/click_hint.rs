@@ -29,7 +29,7 @@ const PATH_LEN: usize = 17; // "/proj/src/main.rs"
 
 fn build_app(content: &[u8]) -> Option<App> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     {

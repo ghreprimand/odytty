@@ -13,7 +13,7 @@ use super::*;
 /// terminal handle, or `None` when no PTY is available (callers then skip).
 fn app_with_content(content: &[u8]) -> Option<App> {
     let dims = Dimensions::new(80, 24);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     {

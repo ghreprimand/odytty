@@ -22,7 +22,7 @@ const GRID: &[u8] = b"ab12ef\r\ngh34ij\r\nkl56mn";
 /// selection has real cells to span. Returns `None` when no PTY is available.
 fn build_app(content: &[u8]) -> Option<App> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     {
@@ -65,7 +65,7 @@ impl Write for RecordingWriter {
 /// reporting enabled. Returns `None` when no PTY is available.
 fn build_recording_app(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));

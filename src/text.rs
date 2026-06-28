@@ -568,16 +568,33 @@ pub struct FontInventoryEntry {
     pub monospace: bool,
 }
 
-/// Standard Linux font search roots, plus per-user font dirs when `HOME` is set.
-/// Only existing directories are returned. Used by the settings layer to resolve
-/// `ODYTTY_FONT_FAMILY`; tests pass explicit dirs instead for hermeticity.
+/// Standard platform font search roots, plus per-user font dirs when available.
+/// Only existing directories are returned. Used by the settings layer to
+/// resolve `ODYTTY_FONT_FAMILY`; tests pass explicit dirs instead for
+/// hermeticity.
 pub fn font_search_dirs() -> Vec<PathBuf> {
     #[cfg(target_os = "macos")]
     let mut dirs = vec![
         PathBuf::from("/System/Library/Fonts"),
         PathBuf::from("/Library/Fonts"),
     ];
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    let mut dirs = {
+        let mut dirs = Vec::new();
+        if let Some(windir) = std::env::var_os("WINDIR") {
+            dirs.push(PathBuf::from(windir).join("Fonts"));
+        }
+        if let Some(local_appdata) = std::env::var_os("LOCALAPPDATA") {
+            dirs.push(
+                PathBuf::from(local_appdata)
+                    .join("Microsoft")
+                    .join("Windows")
+                    .join("Fonts"),
+            );
+        }
+        dirs
+    };
+    #[cfg(not(any(target_os = "macos", windows)))]
     let mut dirs = vec![
         PathBuf::from("/usr/share/fonts"),
         PathBuf::from("/usr/local/share/fonts"),
@@ -586,7 +603,7 @@ pub fn font_search_dirs() -> Vec<PathBuf> {
         let home = PathBuf::from(home);
         #[cfg(target_os = "macos")]
         dirs.push(home.join("Library/Fonts"));
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", windows)))]
         {
             dirs.push(home.join(".local/share/fonts"));
             dirs.push(home.join(".fonts"));

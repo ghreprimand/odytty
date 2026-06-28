@@ -266,6 +266,7 @@ fn device_attributes_query_produces_host_reply() {
 /// deterministic and host-independent; run with `cargo test -- --ignored`.
 /// Uses only `printf` (a POSIX shell builtin) — no less/vim/top/etc.
 #[test]
+#[cfg(unix)]
 #[ignore = "live PTY: run explicitly with --ignored"]
 fn live_pty_printf_roundtrip() {
     use odytty::core::Dimensions;

@@ -2344,6 +2344,14 @@ fn parse_font_weight_variant(raw: &str) -> String {
 }
 
 pub fn config_file_path() -> Option<PathBuf> {
+    #[cfg(windows)]
+    if let Some(base) = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return Some(base.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME));
+    }
+
     if let Some(base) = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
@@ -2365,6 +2373,14 @@ pub fn config_file_path() -> Option<PathBuf> {
 /// [`config_file_path`]'s base-directory rules. `ODYTTY_THEME` values that are
 /// not built-in names are looked up here (by `<name>.theme` or `<name>`).
 pub fn theme_dir_path() -> Option<PathBuf> {
+    #[cfg(windows)]
+    if let Some(base) = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return Some(base.join(CONFIG_DIR_NAME).join(THEME_DIR_NAME));
+    }
+
     if let Some(base) = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())

@@ -48,7 +48,7 @@ fn grid_dimensions_tolerate_degenerate_cell() {
 #[test]
 fn resize_grid_is_idempotent_and_updates_model() {
     let dims = Dimensions::new(80, 24);
-    let session = match PtySession::spawn_shell_command(dims, "sleep 1") {
+    let session = match spawn_test_pause_shell(dims) {
         Ok(session) => session,
         Err(_) => {
             eprintln!("skipping: no PTY available");

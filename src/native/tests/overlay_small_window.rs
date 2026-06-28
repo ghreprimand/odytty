@@ -25,7 +25,7 @@ const TALL_ROWS: usize = 200;
 
 fn app_for_test() -> Option<App> {
     let dims = Dimensions::new(80, 24);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let pty = Arc::new(Mutex::new(session));

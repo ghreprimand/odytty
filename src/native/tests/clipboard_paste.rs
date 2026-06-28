@@ -171,6 +171,7 @@ fn write_chunks_blocking_writes_all_chunks_and_flushes_once() {
 /// `#[ignore]`d like the other live-PTY smoke test: it needs a real shell
 /// and a PTY, so it is opt-in (`cargo test -- --ignored`).
 #[test]
+#[cfg(unix)]
 #[ignore = "spawns a real shell on a PTY"]
 fn pty_output_pumps_into_terminal_snapshot() {
     use std::io::Read;

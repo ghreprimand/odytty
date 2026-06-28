@@ -2888,7 +2888,7 @@ mod tests {
     /// the host cannot spawn one (skip rather than fail in constrained CI).
     fn build_idle_app() -> Option<App> {
         let dims = Dimensions::new(24, 80);
-        let session = crate::pty::PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+        let session = crate::native::test_support::spawn_test_pause_shell(dims).ok()?;
         let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
         let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
         let pty = Arc::new(Mutex::new(session));

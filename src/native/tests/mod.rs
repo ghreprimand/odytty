@@ -43,6 +43,7 @@ use super::replay_overlay::ReplayOverlaySignature;
 use super::search_ui::SearchRenderSignature;
 use super::session_attach_overlay::SessionAttachOverlaySignature;
 use super::settings_panel::SettingsPanelSignature;
+use super::test_support::spawn_test_pause_shell;
 use super::theme_builder::ThemeBuilderSignature;
 use super::theme_picker::ThemePickerSignature;
 use super::viewport::{
@@ -72,6 +73,7 @@ use winit::event::{MouseButton as WinitMouseButton, MouseScrollDelta};
 use winit::keyboard::{Key as WinitKey, KeyCode, NamedKey, PhysicalKey};
 
 mod alt_scroll;
+#[cfg(unix)]
 mod attach_e2e;
 mod click_hint;
 mod clipboard_paste;
