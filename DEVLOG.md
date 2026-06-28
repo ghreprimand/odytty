@@ -7,6 +7,77 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- Windows opener arm + clickable-path detection (Phase 3)
+
+The per-OS file/URI open dispatch and the interactive clickable-path
+detect/resolve spine now have a Windows arm. Linux/macOS path detection and
+opener argv are **byte-identical** — every Windows-specific matcher is either
+`#[cfg(windows)]`-wired-into-production (so it never affects POSIX detection) or
+guarded so no existing POSIX input can fire it. All new logic is unit-tested on
+the Linux CI host (no Windows machine needed to assert the argv vectors and the
+detection/resolution cases).
+
+What landed:
+
+- **`OpenerOs::Windows` variant + all six dispatch sites.** The plan named five
+  exhaustive `OpenerOs` matches; a **sixth** was found and handled —
+  `render_helpers.rs::open_modifier_held` (without its Windows arm the whole
+  build, Linux included, fails exhaustiveness). The six: `host()` (adds the
+  `cfg!(windows)` branch), `open_default_argv`, `reveal_argv`, `click_hint_text`,
+  `open_with_ui::PlatformMimeProbe::query`, and `open_modifier_held`. The variant
+  is always present (not `cfg`-gated), like `Macos`, so its branches are asserted
+  on any CI host.
+  - **default-open** → `["cmd", "/C", "start", "", target]`. The empty `""` is
+    the mandatory `start` TITLE arg (without it a quoted path is taken as a
+    window title); `target` stays a single inert argv element passed to the
+    one spawn point, never a shell string. Argv-vec (not `ShellExecuteW`)
+    deliberately preserves the module's pure-`Vec<String>`, cross-host-testable
+    contract.
+  - **reveal** → `["explorer", "/select,", <abs with '\\' separators>]` —
+    `/select,` is one token incl. the comma; the resolved path's `/` are
+    converted to `\` because Explorer only honors `/select,` with backslashes.
+    Reveals the entry itself (like macOS `-R`).
+  - **open modifier** → Ctrl on Windows (same as Linux); **click-hint text** →
+    "Ctrl+click to open"; **MIME probe** → `None` (no `xdg-mime`; falls through
+    to the magic-byte sniff).
+- **"Open With…" desktop enumeration scope cut.** The freedesktop `.desktop`
+  enumeration seams in `open_with_ui.rs` (and the magic-byte sniff chain in
+  `platform_opener.rs` they feed) are re-gated `not(macos)` → `all(unix,
+  not(macos))`; on Windows `enumerate_open_with_apps` returns an empty list. v1
+  Windows = default-open + reveal; the full Open-With app list is deferred. The
+  shared `DesktopApp` type stays compiled cross-platform.
+- **Clickable Windows paths — detection (`paths/detect.rs`).** A new
+  `is_windows_path_shape` recognizes drive-absolute (`C:\…` / `C:/…`), UNC
+  (`\\server\share`), and backslash-separator relative paths. It is compiled on
+  Windows (wired into `is_path_shape` under `#[cfg(windows)]`) **and** in test
+  builds (`#[cfg(any(windows, test))]`) so the logic is unit-tested on Linux;
+  it is absent from a Linux/macOS release build. The drive matcher requires
+  EXACTLY ONE ascii-alpha char before the colon — the URL-collision guard so
+  `https:`/`file:` are never mistaken for drives.
+- **Clickable Windows paths — suffix peel (`split_suffix`).** A drive-letter
+  guard stops `C:10` from wrongly peeling to body `C` + line 10: a `:<digits>`
+  suffix is not peeled when the only thing before the colon is a single
+  ascii-alpha char. Applied unconditionally — harmless on POSIX (a lone `a` from
+  `a:10` never forms a path span either way, so detection stays byte-identical),
+  necessary on Windows. `C:\src\main.rs:10:5` still peels correctly (many chars
+  before each colon).
+- **Clickable Windows paths — resolution (`paths/mod.rs`).** `make_absolute`
+  now treats `C:\…`, `C:/…`, and UNC `\\…` as ALREADY-ABSOLUTE (via a new
+  `is_windows_absolute`, same `#[cfg(any(windows, test))]` pattern + single-char
+  drive guard) so a detected `C:\src` is not joined onto cwd → `<cwd>/C:\src`.
+  Both the detect and resolve sides are fixed, not just detect.
+- **Tests:** Windows-arm assertions added to the `platform_opener`,
+  `open_with_ui`, `open_modifier_held` (gpu_render), `detect`, and `mod` suites —
+  all three argv branches plus the `C:\`/UNC/`:line:col`/drive-guard cases run
+  green on the Linux host (2578 tests, +10).
+
+Verified on Linux (the Windows-gated code is invisible to it, so a green Linux
+gate proves no POSIX regression): `cargo fmt --check`, `cargo build --release
+--locked`, `cargo clippy --all-targets --locked -- -D warnings`, and `cargo test
+--locked` (2578 passed, 0 failed). The Windows compile is validated on the CI
+`windows-latest` leg; interactive open/reveal on a real desktop is a manual
+on-device pass for later.
+
 ## 2026-06-28 -- Windows ConPTY PTY backend
 
 A new `#[cfg(windows)]`-gated PTY backend (`src/pty/windows.rs`) implementing the

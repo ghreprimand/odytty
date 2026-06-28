@@ -13,16 +13,18 @@
 //! touch the real process/filesystem; `crate::desktop` itself stays pure and
 //! GPU/windowing-free. The open action reuses the C3 `spawn_detached` verbatim.
 
-// Used only by the Linux MIME/desktop enumeration below (gated off macOS).
-#[cfg(not(target_os = "macos"))]
+// Used only by the freedesktop MIME/desktop enumeration below — Linux/other
+// free-desktop unixes only (gated off macOS, which uses NSWorkspace, and off
+// Windows, where the "Open With" list is a v1 scope cut).
+#[cfg(all(unix, not(target_os = "macos")))]
 use std::path::{Path, PathBuf};
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 use std::process::{Command, Stdio};
 
 use crate::desktop::DesktopApp;
 // The freedesktop MIME/desktop enumeration is Linux-only; on macOS the dispatch
 // uses NSWorkspace (`crate::native::macos_open_with`) and these are unused.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 use crate::desktop::{DesktopEnv, MimeProbe, enumerate_open_with};
 
 use super::*;
@@ -33,7 +35,7 @@ use super::*;
 /// `is_offerable` filter or drops a field) — never an error.
 ///
 /// Linux-only: the freedesktop file reads it bounds do not run on macOS.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 const MAX_DESKTOP_FILE_BYTES: u64 = 256 * 1024;
 
 /// Production MIME probe: the platform-aware, single audited captured-output
@@ -51,12 +53,12 @@ const MAX_DESKTOP_FILE_BYTES: u64 = 256 * 1024;
 /// Linux-only: on macOS the picker enumerates via NSWorkspace
 /// (`crate::native::macos_open_with`), so this probe and the whole MIME/desktop
 /// chain it drives are gated off there.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 pub(in crate::native) struct PlatformMimeProbe {
     os: super::platform_opener::OpenerOs,
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 impl PlatformMimeProbe {
     /// The probe for the host OS (the single `cfg!` boundary lives in
     /// [`super::platform_opener::OpenerOs::host`]).
@@ -72,7 +74,7 @@ impl PlatformMimeProbe {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 impl MimeProbe for PlatformMimeProbe {
     fn query(&self, abs: &str) -> Option<String> {
         let platform_mime = match self.os {
@@ -81,6 +83,10 @@ impl MimeProbe for PlatformMimeProbe {
             // fallback below. The empty picker still shows its visible hint when
             // neither path identifies the file.
             super::platform_opener::OpenerOs::Macos => None,
+            // Windows: no `xdg-mime` equivalent wired; fall through to the
+            // built-in magic-byte sniff below (the desktop "Open With" list is a
+            // v1 scope cut — see the desktop enumeration gating).
+            super::platform_opener::OpenerOs::Windows => None,
         };
         platform_mime.or_else(|| super::platform_opener::sniff_mime_path(abs))
     }
@@ -88,7 +94,7 @@ impl MimeProbe for PlatformMimeProbe {
 
 /// The Linux `xdg-mime query filetype <abs>` spawn (captured output, argv-only,
 /// read-only). Factored out so the OS dispatch above stays a thin match.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn xdg_mime_query(abs: &str) -> Option<String> {
     let output = Command::new("xdg-mime")
         .args(["query", "filetype", abs])
@@ -110,10 +116,10 @@ fn xdg_mime_query(abs: &str) -> Option<String> {
 ///
 /// Linux-only: macOS does not read the freedesktop ladders (NSWorkspace does
 /// the enumeration), so this and its impls are gated off there.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 pub(in crate::native) struct FsDesktopEnv;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 impl FsDesktopEnv {
     fn home() -> Option<PathBuf> {
         std::env::var_os("HOME")
@@ -138,7 +144,7 @@ impl FsDesktopEnv {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 impl DesktopEnv for FsDesktopEnv {
     fn config_dirs(&self) -> Vec<PathBuf> {
         let mut dirs = Vec::new();
@@ -216,16 +222,25 @@ impl App {
             // Linux seam-based enumeration would always return empty here.
             crate::native::macos_open_with::enumerate(abs)
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(all(unix, not(target_os = "macos")))]
         {
             enumerate_open_with(&PlatformMimeProbe::host(), &FsDesktopEnv, abs)
+        }
+        #[cfg(not(unix))]
+        {
+            // Windows: no freedesktop database and no NSWorkspace. The full
+            // "Open With…" app list is a v1 Windows scope cut, so enumerate
+            // nothing — the picker overlay still opens with its empty-state hint,
+            // and default-open + reveal remain available. (Item is file-only.)
+            let _ = abs;
+            Vec::new()
         }
     }
 }
 
 // These tests construct the Linux `PlatformMimeProbe` / `MimeProbe`, all gated
 // off macOS above — so the whole module is Linux-only too.
-#[cfg(all(test, not(target_os = "macos")))]
+#[cfg(all(test, unix, not(target_os = "macos")))]
 mod tests {
     use super::*;
     use crate::desktop::MimeProbe;
@@ -244,6 +259,26 @@ mod tests {
     fn macos_mime_probe_uses_magic_byte_fallback_without_spawning() {
         let probe = PlatformMimeProbe::for_os(super::super::platform_opener::OpenerOs::Macos);
         let path = temp_probe_file("magic.png", &[0x89, b'P', b'N', b'G', 0x0d, 0x0a]);
+
+        let mime = probe.query(path.to_str().expect("utf8 temp path"));
+
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(mime, Some("image/png".to_owned()));
+    }
+
+    /// The Windows MIME arm has no `xdg-mime` spawn (there is no freedesktop
+    /// database). Asserted on the Linux CI host via the OS-as-value seam so the
+    /// Windows branch can never go unexercised. Short-circuits before any spawn.
+    #[test]
+    fn windows_mime_probe_returns_none_without_spawning() {
+        let probe = PlatformMimeProbe::for_os(super::super::platform_opener::OpenerOs::Windows);
+        assert_eq!(probe.query("/proj/a.png"), None);
+    }
+
+    #[test]
+    fn windows_mime_probe_uses_magic_byte_fallback_without_spawning() {
+        let probe = PlatformMimeProbe::for_os(super::super::platform_opener::OpenerOs::Windows);
+        let path = temp_probe_file("magic-win.png", &[0x89, b'P', b'N', b'G', 0x0d, 0x0a]);
 
         let mime = probe.query(path.to_str().expect("utf8 temp path"));
 

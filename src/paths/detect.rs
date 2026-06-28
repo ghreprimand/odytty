@@ -228,6 +228,16 @@ fn strip_trailing_colon_num(s: &str) -> Option<(&str, u32)> {
     if colon == 0 {
         return None;
     }
+    // Windows drive-letter guard: never peel a `:<digits>` suffix when the only
+    // thing before the colon is a single ascii-alpha char — that is a drive
+    // letter (`C:10`), not a `body:line` suffix, so peeling would wrongly leave
+    // a bare `C`. Harmless on POSIX: a token like `a:10` never produces a path
+    // span either way (a lone `a` fails the shape test), so detection stays
+    // byte-identical. A real drive path with a suffix (`C:\src\x.rs:10:5`) has
+    // many chars before each colon and is unaffected.
+    if colon == 1 && bytes[0].is_ascii_alphabetic() {
+        return None;
+    }
     let number: u32 = s[idx..].parse().ok()?;
     Some((&s[..colon], number))
 }
@@ -251,7 +261,49 @@ fn is_path_shape(body: &str, options: DetectionOptions) -> bool {
     if body.contains('/') {
         return true;
     }
+    // Windows path shapes (drive-absolute / UNC / backslash separator). Wired in
+    // only on Windows so Linux/macOS detection stays byte-identical — no existing
+    // POSIX input can newly become a path. The matcher itself is also compiled in
+    // test builds (see [`is_windows_path_shape`]) so its logic is unit-tested on
+    // a Linux host.
+    #[cfg(windows)]
+    {
+        if is_windows_path_shape(body) {
+            return true;
+        }
+    }
     options.barewords && is_bareword_path_shape(body)
+}
+
+/// Whether `body` has a Windows path shape: drive-absolute (`C:\…` / `C:/…`),
+/// UNC (`\\server\share`), or a bare relative path using a backslash separator
+/// (`src\main.rs`).
+///
+/// Compiled on Windows (where [`is_path_shape`] wires it in) and in any test
+/// build (so the logic is unit-tested on a Linux host); absent from a Linux/
+/// macOS release build, which keeps POSIX path detection byte-identical.
+///
+/// The drive-absolute matcher requires EXACTLY ONE ascii-alphabetic char before
+/// the colon, then a separator — this is the critical URL-collision guard: a
+/// scheme like `https:`/`file:` has multiple chars before the colon and so can
+/// never be mistaken for a drive.
+#[cfg(any(windows, test))]
+fn is_windows_path_shape(body: &str) -> bool {
+    let bytes = body.as_bytes();
+    // Drive-absolute: <letter> ':' ('\' | '/') — single-letter drive only.
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+    {
+        return true;
+    }
+    // UNC: a leading `\\`.
+    if body.starts_with("\\\\") {
+        return true;
+    }
+    // Bare relative with a backslash separator.
+    body.contains('\\')
 }
 
 fn is_bareword_path_shape(body: &str) -> bool {
@@ -523,5 +575,52 @@ mod tests {
         let s = one("src/main.rs:");
         assert_eq!(s.raw, "src/main.rs");
         assert_eq!((s.line, s.col), (None, None));
+    }
+
+    // --- Windows path-shape matcher (unit-tested on the Linux CI host; wired
+    // into production detection only under `#[cfg(windows)]`) -----------------
+
+    #[test]
+    fn windows_drive_absolute_paths_match() {
+        assert!(is_windows_path_shape("C:\\src\\main.rs"));
+        assert!(is_windows_path_shape("c:\\src"));
+        assert!(is_windows_path_shape("C:/src/main.rs")); // forward-slash drive
+        assert!(is_windows_path_shape("Z:\\")); // bare drive root
+    }
+
+    #[test]
+    fn windows_unc_and_backslash_relative_match() {
+        assert!(is_windows_path_shape("\\\\server\\share\\file.txt")); // UNC
+        assert!(is_windows_path_shape("src\\main.rs")); // backslash separator
+    }
+
+    #[test]
+    fn windows_matcher_rejects_url_schemes_and_drive_relative() {
+        // The single-char-drive guard: multi-char schemes are NOT drives.
+        assert!(!is_windows_path_shape("https://example.com"));
+        assert!(!is_windows_path_shape("file:/etc/hosts"));
+        // Drive-RELATIVE (no separator after the colon) is not a drive-absolute
+        // shape and has no backslash, so it does not match here.
+        assert!(!is_windows_path_shape("C:10"));
+        assert!(!is_windows_path_shape("C:foo"));
+        // Plain words / POSIX-looking tokens never match the Windows matcher.
+        assert!(!is_windows_path_shape("README"));
+        assert!(!is_windows_path_shape("/usr/bin"));
+    }
+
+    #[test]
+    fn split_suffix_drive_letter_guard() {
+        // `C:10` must NOT peel to body `C` + line 10 (drive-letter guard).
+        assert_eq!(split_suffix("C:10"), ("C:10", None, None));
+        // A real drive path with a line:col suffix peels correctly — the chars
+        // before each colon are many, so the guard does not fire.
+        assert_eq!(
+            split_suffix("C:\\src\\main.rs:10:5"),
+            ("C:\\src\\main.rs", Some(10), Some(5))
+        );
+        // Drive path with no suffix is left intact.
+        assert_eq!(split_suffix("C:\\src"), ("C:\\src", None, None));
+        // POSIX body:line still peels (multi-char body before the colon).
+        assert_eq!(split_suffix("main.rs:42"), ("main.rs", Some(42), None));
     }
 }

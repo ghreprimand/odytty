@@ -25,7 +25,7 @@ use crate::paths::{FsKind, Resolved};
 ///
 /// Linux-only: on macOS, NSWorkspace enumerates the openable apps directly
 /// (UTI-aware), so the magic-byte MIME fallback this caps has no caller there.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 const MIME_SNIFF_BYTES: u64 = 32;
 
 /// The target operating system for opener dispatch. Production resolves the host
@@ -38,16 +38,24 @@ pub(in crate::native) enum OpenerOs {
     Linux,
     /// macOS: the `open` command (and, for reveal, `open -R`).
     Macos,
+    /// Windows: `cmd /C start` for default-open, `explorer /select,` for reveal.
+    /// Like [`OpenerOs::Macos`], this variant is always present (not
+    /// `cfg`-gated) so its argv branches are unit-tested on any CI host — the
+    /// v0.4.0 lesson that an unexercised platform branch silently rots.
+    Windows,
 }
 
 impl OpenerOs {
-    /// The host OS, resolved by the single `cfg!(target_os = "macos")` selector
-    /// in the codebase. macOS → [`OpenerOs::Macos`]; everything else →
-    /// [`OpenerOs::Linux`] (OdyTTY targets Linux + macOS; any other unix uses
-    /// the xdg path, which is the correct default on free-desktop systems).
+    /// The host OS, resolved by the single `cfg!(target_os)` selector in the
+    /// codebase. macOS → [`OpenerOs::Macos`]; Windows → [`OpenerOs::Windows`];
+    /// everything else → [`OpenerOs::Linux`] (OdyTTY targets Linux + macOS +
+    /// Windows; any other unix uses the xdg path, the correct default on
+    /// free-desktop systems).
     pub(in crate::native) fn host() -> Self {
         if cfg!(target_os = "macos") {
             OpenerOs::Macos
+        } else if cfg!(target_os = "windows") {
+            OpenerOs::Windows
         } else {
             OpenerOs::Linux
         }
@@ -60,13 +68,32 @@ impl OpenerOs {
 ///
 /// * Linux → `["xdg-open", target]`
 /// * macOS → `["open", target]`
+/// * Windows → `["cmd", "/C", "start", "", target]`
 ///
 /// `target` is always a single inert argv element — a path/URI containing `;`,
 /// `$()`, backticks, or spaces is never shell-interpreted.
+///
+/// Windows note: `cmd /C start` is the launcher (the built-in `start` verb has
+/// no standalone executable). The empty `""` after `start` is its mandatory
+/// TITLE argument — without it, `start "C:\with space\x"` treats a quoted target
+/// as a window title and opens nothing. `target` remains a SEPARATE argv element
+/// (the single spawn point passes the vector to `CreateProcessW`-style spawn,
+/// never a shell string), so `start` receives it as one inert token and a
+/// target with spaces/metacharacters is not re-parsed as a command. The argv-vec
+/// form (rather than a `ShellExecuteW` FFI call) is deliberate: it keeps every
+/// branch a pure `Vec<String>` asserted by the cross-host unit tests, matching
+/// the module's "argv-only, single spawn point" contract.
 pub(in crate::native) fn open_default_argv(os: OpenerOs, target: &str) -> Vec<String> {
     match os {
         OpenerOs::Linux => vec!["xdg-open".to_owned(), target.to_owned()],
         OpenerOs::Macos => vec!["open".to_owned(), target.to_owned()],
+        OpenerOs::Windows => vec![
+            "cmd".to_owned(),
+            "/C".to_owned(),
+            "start".to_owned(),
+            String::new(),
+            target.to_owned(),
+        ],
     }
 }
 
@@ -79,10 +106,21 @@ pub(in crate::native) fn open_default_argv(os: OpenerOs, target: &str) -> Vec<St
 /// * macOS → `["open", "-R", <abs>]` — `open -R` takes the file ITSELF (not the
 ///   parent) and reveals it selected in Finder; for a directory it selects the
 ///   directory in its parent.
+/// * Windows → `["explorer", "/select,", <abs with backslashes>]` — `explorer
+///   /select,<path>` opens the containing folder with the entry selected (like
+///   macOS `-R`, the entry ITSELF, not its parent). `/select,` is a SINGLE token
+///   including its trailing comma, and Explorer only honors it when the path
+///   uses backslash separators, so any `/` in the resolved path is converted to
+///   `\` for this argv.
 pub(in crate::native) fn reveal_argv(os: OpenerOs, resolved: &Resolved) -> Vec<String> {
     match os {
         OpenerOs::Linux => vec!["xdg-open".to_owned(), reveal_parent(resolved)],
         OpenerOs::Macos => vec!["open".to_owned(), "-R".to_owned(), resolved.abs.clone()],
+        OpenerOs::Windows => vec![
+            "explorer".to_owned(),
+            "/select,".to_owned(),
+            resolved.abs.replace('/', "\\"),
+        ],
     }
 }
 
@@ -107,7 +145,7 @@ fn reveal_parent(resolved: &Resolved) -> String {
 ///
 /// Linux-only: macOS resolves openable apps through NSWorkspace (no MIME query
 /// or sniff fallback is wired there), so this has no macOS caller.
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 pub(in crate::native) fn sniff_mime_bytes(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
         return Some("image/png");
@@ -140,7 +178,7 @@ pub(in crate::native) fn sniff_mime_bytes(bytes: &[u8]) -> Option<&'static str> 
 ///
 /// Linux-only: the sole caller is the Linux `PlatformMimeProbe`, which is itself
 /// gated off macOS (NSWorkspace replaces the whole MIME/desktop chain there).
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 pub(in crate::native) fn sniff_mime_path(abs: &str) -> Option<String> {
     use std::io::Read;
 
@@ -179,9 +217,12 @@ mod tests {
     #[test]
     fn host_resolves_to_a_single_cfg_boundary() {
         // The host selector is the ONLY production `cfg!(target_os)` for opener
-        // dispatch. On the Linux CI/dev host it is Linux; on macOS it is Macos.
+        // dispatch. On the Linux CI/dev host it is Linux; on macOS it is Macos;
+        // on Windows it is Windows.
         let expected = if cfg!(target_os = "macos") {
             OpenerOs::Macos
+        } else if cfg!(target_os = "windows") {
+            OpenerOs::Windows
         } else {
             OpenerOs::Linux
         };
@@ -189,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn open_default_argv_both_os_branches() {
+    fn open_default_argv_all_os_branches() {
         assert_eq!(
             open_default_argv(OpenerOs::Linux, "/proj/a.png"),
             vec!["xdg-open".to_owned(), "/proj/a.png".to_owned()]
@@ -197,6 +238,35 @@ mod tests {
         assert_eq!(
             open_default_argv(OpenerOs::Macos, "/proj/a.png"),
             vec!["open".to_owned(), "/proj/a.png".to_owned()]
+        );
+        // Windows: `cmd /C start "" <target>` — the empty title arg is mandatory
+        // and `target` stays a single inert element.
+        assert_eq!(
+            open_default_argv(OpenerOs::Windows, "C:\\proj\\a.png"),
+            vec![
+                "cmd".to_owned(),
+                "/C".to_owned(),
+                "start".to_owned(),
+                String::new(),
+                "C:\\proj\\a.png".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn open_default_argv_windows_keeps_spaces_and_uri_as_one_element() {
+        // A target with spaces stays a single inert argv element after the
+        // mandatory empty start-title arg.
+        let spaced = "C:\\my dir\\a.png";
+        assert_eq!(
+            open_default_argv(OpenerOs::Windows, spaced),
+            vec![
+                "cmd".to_owned(),
+                "/C".to_owned(),
+                "start".to_owned(),
+                String::new(),
+                spaced.to_owned()
+            ]
         );
     }
 
@@ -235,6 +305,42 @@ mod tests {
     }
 
     #[test]
+    fn reveal_argv_windows_selects_the_entry_with_backslashes() {
+        // A backslash drive path reveals the file itself with `/select,` (one
+        // token incl. the comma), backslashes preserved.
+        let r = file("C:\\proj\\src\\a.rs");
+        assert_eq!(
+            reveal_argv(OpenerOs::Windows, &r),
+            vec![
+                "explorer".to_owned(),
+                "/select,".to_owned(),
+                "C:\\proj\\src\\a.rs".to_owned()
+            ]
+        );
+        // A resolved path that carries forward slashes is converted to
+        // backslashes, which is what Explorer's `/select,` requires.
+        let fwd = file("C:/proj/src/a.rs");
+        assert_eq!(
+            reveal_argv(OpenerOs::Windows, &fwd),
+            vec![
+                "explorer".to_owned(),
+                "/select,".to_owned(),
+                "C:\\proj\\src\\a.rs".to_owned()
+            ]
+        );
+        // A directory is also selected (in its parent), not its parent opened.
+        let d = dir("C:\\proj\\src");
+        assert_eq!(
+            reveal_argv(OpenerOs::Windows, &d),
+            vec![
+                "explorer".to_owned(),
+                "/select,".to_owned(),
+                "C:\\proj\\src".to_owned()
+            ]
+        );
+    }
+
+    #[test]
     fn reveal_argv_dir_self_on_linux_dash_r_on_macos() {
         let r = dir("/proj/src");
         assert_eq!(
@@ -261,7 +367,7 @@ mod tests {
         );
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn sniff_mime_bytes_recognizes_common_magic_headers() {
         assert_eq!(
@@ -283,7 +389,7 @@ mod tests {
         assert_eq!(sniff_mime_bytes(b"MM\0*...."), Some("image/tiff"));
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[test]
     fn sniff_mime_bytes_rejects_unknown_or_too_short_data() {
         assert_eq!(sniff_mime_bytes(b""), None);

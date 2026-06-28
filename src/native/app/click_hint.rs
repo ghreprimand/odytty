@@ -56,11 +56,15 @@ pub(in crate::native) const CLICK_HINT_TEXT_MACOS: &str = " Cmd+click to open ";
 
 /// Resolve the teaching text for `os`: macOS → [`CLICK_HINT_TEXT_MACOS`]
 /// ("Cmd+click"), everything else → [`CLICK_HINT_TEXT`] ("Ctrl+click",
-/// byte-for-byte unchanged on Linux). Production passes [`OpenerOs::host`].
+/// byte-for-byte unchanged on Linux). Windows uses Ctrl+click, the same modifier
+/// as Linux, so it shares [`CLICK_HINT_TEXT`]. Production passes
+/// [`OpenerOs::host`].
 pub(in crate::native) fn click_hint_text(os: super::platform_opener::OpenerOs) -> &'static str {
     match os {
         super::platform_opener::OpenerOs::Macos => CLICK_HINT_TEXT_MACOS,
-        super::platform_opener::OpenerOs::Linux => CLICK_HINT_TEXT,
+        super::platform_opener::OpenerOs::Linux | super::platform_opener::OpenerOs::Windows => {
+            CLICK_HINT_TEXT
+        }
     }
 }
 

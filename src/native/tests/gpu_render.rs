@@ -537,7 +537,19 @@ fn open_modifier_is_platform_aware_ctrl_on_linux_cmd_on_macos() {
         OpenerOs::Macos
     ));
     assert!(!open_modifier_held(Modifiers::CTRL, false, OpenerOs::Macos));
-    // Neither modifier never opens on either platform.
+    // Windows: Ctrl is the open modifier (same as Linux); super (Cmd/Win) alone
+    // does NOT open.
+    assert!(open_modifier_held(
+        Modifiers::CTRL,
+        false,
+        OpenerOs::Windows
+    ));
+    assert!(!open_modifier_held(
+        Modifiers::default(),
+        true,
+        OpenerOs::Windows
+    ));
+    // Neither modifier never opens on any platform.
     assert!(!open_modifier_held(
         Modifiers::default(),
         false,
@@ -547,6 +559,11 @@ fn open_modifier_is_platform_aware_ctrl_on_linux_cmd_on_macos() {
         Modifiers::default(),
         false,
         OpenerOs::Macos
+    ));
+    assert!(!open_modifier_held(
+        Modifiers::default(),
+        false,
+        OpenerOs::Windows
     ));
 }
 

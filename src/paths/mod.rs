@@ -134,10 +134,43 @@ fn make_absolute(raw: &str, cwd: Option<&str>, home: Option<&str>) -> Option<Str
         let home = home?.trim_end_matches('/');
         return Some(format!("{home}/{rest}"));
     }
+    // Windows-absolute (`C:\…`, `C:/…`, UNC `\\…`): already rooted — must NOT be
+    // joined onto cwd, or a detected `C:\src` would wrongly become
+    // `<cwd>/C:\src`. Wired in only on Windows so POSIX resolution stays
+    // byte-identical; the predicate is also compiled in test builds so it is
+    // unit-tested on a Linux host (see [`is_windows_absolute`]).
+    #[cfg(windows)]
+    {
+        if is_windows_absolute(raw) {
+            return Some(raw.to_owned());
+        }
+    }
     // Relative (`./`, `../`, bare `dir/file`): join onto cwd; canonicalization
     // collapses the `.`/`..` components.
     let cwd = cwd?.trim_end_matches('/');
     Some(format!("{cwd}/{raw}"))
+}
+
+/// Whether `raw` is a Windows-absolute path: drive-absolute (`C:\…` / `C:/…`) or
+/// UNC (`\\server\share`). Drive-RELATIVE (`C:foo`, no separator after the
+/// colon) is intentionally NOT absolute.
+///
+/// Compiled on Windows (where [`make_absolute`] consults it) and in any test
+/// build (so the logic is unit-tested on a Linux host); absent from a Linux/
+/// macOS release build so POSIX resolution stays byte-identical. The drive
+/// matcher requires EXACTLY ONE ascii-alpha char before the colon (the same
+/// URL-collision guard as detection — `https:`/`file:` are never drives).
+#[cfg(any(windows, test))]
+fn is_windows_absolute(raw: &str) -> bool {
+    let bytes = raw.as_bytes();
+    if bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && (bytes[2] == b'\\' || bytes[2] == b'/')
+    {
+        return true;
+    }
+    raw.starts_with("\\\\")
 }
 
 /// Lexically canonicalize an absolute-or-relative path **without touching the
@@ -382,5 +415,29 @@ mod tests {
         assert!(detect_paths("README").is_empty());
         assert!(detect_paths("1.2.3").is_empty());
         assert!(detect_paths("example.com").is_empty());
+    }
+
+    // --- Windows-absolute predicate (unit-tested on the Linux CI host; consulted
+    // by the resolver only under `#[cfg(windows)]`) --------------------------
+
+    #[test]
+    fn windows_absolute_predicate_matches_drive_and_unc() {
+        assert!(is_windows_absolute("C:\\src\\main.rs"));
+        assert!(is_windows_absolute("c:/src/main.rs")); // forward-slash drive
+        assert!(is_windows_absolute("Z:\\")); // bare drive root
+        assert!(is_windows_absolute("\\\\server\\share")); // UNC
+    }
+
+    #[test]
+    fn windows_absolute_predicate_rejects_relative_and_schemes() {
+        // Drive-RELATIVE (no separator after the colon) is NOT absolute.
+        assert!(!is_windows_absolute("C:foo"));
+        assert!(!is_windows_absolute("C:10"));
+        // Multi-char scheme is not a single-letter drive (URL-collision guard).
+        assert!(!is_windows_absolute("https://example.com"));
+        // POSIX / bare-relative inputs are not Windows-absolute.
+        assert!(!is_windows_absolute("/usr/bin"));
+        assert!(!is_windows_absolute("src\\main.rs")); // backslash-relative, not rooted
+        assert!(!is_windows_absolute("README"));
     }
 }

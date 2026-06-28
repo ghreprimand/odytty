@@ -62,7 +62,8 @@ pub(super) fn image_uploads_for_visible(
 pub(super) fn open_modifier_held(mods: Modifiers, super_key: bool, os: OpenerOs) -> bool {
     match os {
         OpenerOs::Macos => super_key, // Cmd on macOS (Ctrl is taken by secondary-click)
-        OpenerOs::Linux => mods.ctrl, // unchanged on Linux
+        // Ctrl on Linux and Windows (Cmd/Super is not the open convention there).
+        OpenerOs::Linux | OpenerOs::Windows => mods.ctrl,
     }
 }
 
