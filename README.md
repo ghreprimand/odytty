@@ -207,8 +207,18 @@ Expand-Archive odytty-windows-x86_64.zip -DestinationPath .\odytty
 
 Compare the hash with the `odytty-windows-x86_64.zip` row in `SHA256SUMS`.
 Directly launching an unsigned `.exe` from a downloaded zip can trigger a
-SmartScreen warning. Detached/resumable session hosting is Unix-only in this
-release; the Windows build opens local ConPTY-backed tabs and panes.
+SmartScreen warning.
+
+**Windows scope (v1).** The Windows build opens local ConPTY-backed tabs and
+panes with the full rendering, theme, effect, and inline-graphics stack, plus
+persistent configuration under `%APPDATA%`, host-font discovery from
+`C:\Windows\Fonts`, Windows clickable-path detection (drive-letter and UNC),
+default-open/reveal via `cmd`/`explorer`, and SSH-in-a-tab over the local
+pseudoconsole. Not in this release: detachable/resumable session hosting and
+detached SSH (Unix-only), the headless `--interactive` mode, and the full
+"Open With" application list; the hostname field and command-palette shell
+history degrade to empty on Windows. Interactive Windows behaviour is verified
+manually on-device — CI proves the build compiles and its unit tests pass.
 
 ### macOS (experimental)
 

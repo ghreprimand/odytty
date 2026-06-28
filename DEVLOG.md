@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- Docs: record the Windows backend across SPEC, CONTRIBUTING, and README
+
+The public docs now describe the Windows port as a durable architecture record
+rather than an in-flight effort. SPEC's owned-PTY section is rewritten for the
+per-OS split — a platform-neutral `src/pty/mod.rs` contract selecting a
+`#[cfg(unix)]` `rustix`/termios backend or a `#[cfg(windows)]` ConPTY backend,
+with the identical `PtySession` surface and the `#[cfg(unix)]`-only
+`open_pty_pair` rationale — and a new Cross-Platform Architecture section records
+the three-OS blocking CI, the Windows runtime arms (`%APPDATA%` config, `%TEMP%`
+kitty, `C:\Windows\Fonts`, clickable paths, `cmd`/`explorer` open/reveal), the
+`#[cfg(unix)]`-gated detachable-session/attach/`--interactive` surface, the
+deliberately cross-platform pure pieces (wire protocol, CLI parsing, keybind
+variant), and honest supported/deferred/silent-degrade lists. CONTRIBUTING gains
+a per-platform-backend pattern section (new platform = a new `pty/<os>.rs`
+implementing the contract, gated at the module declaration, with no consumer
+edits) and the three-OS matrix. README's Windows section gains an explicit v1
+scope note: local ConPTY tabs/panes with the full render/theme/effect/graphics
+stack, `%APPDATA%` config, host-font discovery, clickable paths, and
+SSH-in-a-tab supported; detachable/resumable sessions, detached SSH,
+`--interactive`, and the full Open-With list deferred; hostname and shell-history
+degrade to empty.
+
+One durable-record correction: the Windows default *interactive* shell is
+`%ComSpec%` (cmd.exe) with no startup flag, and `spawn_shell_command` runs
+`cmd /C <command>` — the Windows analogue of the Unix `$SHELL` / `$SHELL -lc`
+split, not a `-lc` login shell.
+
+Docs only — no code changed; the Linux suite stays at 2578 passed / 0 failed.
+
 ## 2026-06-28 -- Windows packaging: portable zip release artifact + Scoop and winget manifests
 
 The release workflow now produces a Windows artifact, and the two friction-free
