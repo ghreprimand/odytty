@@ -7,6 +7,74 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- Windows ConPTY PTY backend
+
+A new `#[cfg(windows)]`-gated PTY backend (`src/pty/windows.rs`) implementing the
+same `PtySession` contract over a Windows pseudoconsole (ConPTY). The code is
+physically invisible to Unix builds — the Linux/macOS gate is unchanged and
+stays the regression proof — so this cannot affect the existing platforms.
+
+What landed:
+
+- **`Cargo.toml`:** the `[target.'cfg(windows)'.dependencies]` table is filled
+  with `windows = "0.62"` (features `Win32_Foundation`, `Win32_Security`,
+  `Win32_System_Console`, `Win32_System_Pipes`, `Win32_System_Threading`). Pinned
+  to the 0.62 stack `wgpu` already locks, so the lock resolves to a single
+  `windows` 0.62.2 copy (no second version pulled). `Win32_Security` is required
+  because the `CreatePipe`/`CreateProcessW` bindings are cfg-gated on it in
+  0.62.2 (their `SECURITY_ATTRIBUTES` parameters), even though the feature is not
+  called directly.
+- **`src/pty/windows.rs`:** the full backend. ConPTY spawn sequence —
+  `CreatePipe` ×2 → `CreatePseudoConsole` → two-call
+  `InitializeProcThreadAttributeList` sizing →
+  `UpdateProcThreadAttribute(PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE)` →
+  `CreateProcessW` with `EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT`.
+  The ConPTY-owned pipe ends are closed in the parent immediately after creation
+  (required, or output reads never see EOF). RAII guards (`OwnedHandle`, an
+  attribute-list guard) free every handle on any early return.
+  - Reader/writer: pipe handles are duplicated via `DuplicateHandle` into
+    independent `File`s (the Windows analogue of the Unix `master.try_clone()`),
+    so `try_clone_reader`/`take_writer` keep their `&self` contract and hand the
+    pump handles it owns and closes independently. The reader maps
+    `ErrorKind::BrokenPipe` → `Ok(0)`, mirroring the Unix `EIO`→EOF mapping.
+  - `spawn_default_shell` uses `%ComSpec%` (fallback `cmd.exe`) — no `$SHELL`,
+    no `-lc`; `spawn_shell_command` runs `cmd /C <command>`. `resize` →
+    `ResizePseudoConsole`; `kill` → `TerminateProcess` (root process only — a Job
+    Object for child-tree teardown is a documented follow-up); `foreground_job`
+    → `ForegroundJob::Unknown` (the contract's safe default); `try_wait`/`wait`
+    use `GetExitCodeProcess`/`WaitForSingleObject` and return the contract's
+    `std::process::ExitStatus` via `ExitStatusExt::from_raw`.
+  - Command line is built with MSVC `CommandLineToArgvW` quoting; the environment
+    is a `CREATE_UNICODE_ENVIRONMENT` block merged from the process env plus the
+    builder's overrides, deduplicated/sorted case-insensitively (Windows env
+    semantics).
+  - Pure-logic unit tests (command-line quoting, env-block shape/sort/dedup,
+    dimension clamping, default-shell) run on Windows CI without spawning.
+- **`src/pty/mod.rs`:** `#[cfg(windows)] mod windows;` +
+  `#[cfg(windows)] pub use windows::PtySession;`, mirroring the Unix re-export.
+  `open_pty_pair` stays `#[cfg(unix)]` only — a ConPTY has no `(File, File)`
+  slave, so there is deliberately no Windows analogue.
+
+Scope notes: `dimensions_for_test` (and its dimension assertions) stay Unix-only
+per the ConPTY reference — `GetConsoleScreenBufferInfo` does not fit the
+pipe-handle model. This packet's success bar is **compiles on Windows CI**; it is
+explicitly NOT a claim that interactive `cmd`/PowerShell spawn/render/resize
+works — that is a manual on-device pass for later. The broader test-tree
+portability sweep (`cmd.exe` has no `sleep`/`printf`; the effect-test inline
+spawns) is shared with Phase 4 and not done here.
+
+Verified locally on Linux (the `#[cfg(windows)]` code is invisible to it, so a
+green Linux gate proves no regression): `cargo fmt --check` (which *does* format
+the Windows file), `cargo build --release --locked`,
+`cargo clippy --all-targets --locked -- -D warnings`, and `cargo test --locked`
+all green. The Windows compile itself is validated on the CI `windows-latest`
+leg.
+
+Known gap: the lib still does not fully compile on Windows — `app.rs` (whole
+POSIX module) and the `session_host`/attach subsystems remain ungated and are the
+next phases' work. With this backend present, the prior `crate::pty::PtySession`
+unresolved-import errors on Windows are resolved.
+
 ## 2026-06-28 -- PTY backend split + Kitty transport gating (pure refactor)
 
 A behavior-preserving reorganization that localizes the POSIX-specific PTY and

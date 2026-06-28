@@ -20,9 +20,13 @@ use std::process::Command;
 
 #[cfg(unix)]
 mod unix;
+#[cfg(windows)]
+mod windows;
 
 #[cfg(unix)]
 pub use unix::PtySession;
+#[cfg(windows)]
+pub use windows::PtySession;
 // `open_pty_pair` is `pub(crate)` and exercised only from a `#[cfg(test)]`
 // caller (`app.rs` termios round-trip), so a non-test lib build sees the
 // re-export as unused. The Unix backend defined it unconditionally before the

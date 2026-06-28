@@ -1362,6 +1362,7 @@ dependencies = [
  "ttf-parser",
  "unicode-width",
  "wgpu",
+ "windows",
  "winit",
 ]
 
