@@ -19,3 +19,11 @@ GEMINI.md
 # Locally-built release tarball (the published artifact of the same name is
 # produced by CI; a local copy must never be committed into the repo).
 /odytty.tar.gz
+
+# Locally-built Windows release artifacts and installer work dirs
+*.exe
+*.zip
+*.pdb
+*.msi
+/wix/
+target/wix/

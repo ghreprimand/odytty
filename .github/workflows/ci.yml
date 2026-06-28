@@ -1,10 +1,11 @@
 name: CI
 
-# Build + test on both supported platforms. Runs on pushes to master and on
+# Build + test on the supported Unix platforms, with a non-blocking Windows leg
+# while the Windows port is being brought up. Runs on pushes to master and on
 # pull requests. Uses only standard GitHub-hosted runners (ubuntu-latest,
-# macos-latest) — free with no quota for public repositories, and ephemeral, so
-# this never touches a self-hosted runner. Produces no artifacts; this is a
-# correctness gate, not a packaging job.
+# macos-latest, windows-latest) — free with no quota for public repositories,
+# and ephemeral, so this never touches a self-hosted runner. Produces no
+# artifacts; this is a correctness gate, not a packaging job.
 on:
   push:
     branches: [master]
@@ -33,10 +34,11 @@ jobs:
     # still surfaces as a clean, quick failure rather than spinning until
     # GitHub's 6-hour default.
     timeout-minutes: 25
+    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v4

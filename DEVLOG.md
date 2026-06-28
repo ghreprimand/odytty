@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- Windows CI bring-up scaffold
+
+The CI matrix now includes `windows-latest` alongside Ubuntu and macOS. The
+Windows leg is intentionally non-blocking while the port is brought up, so it can
+surface the shrinking compile-error list without weakening the existing
+Linux/macOS gates.
+
+The manifest now reserves a Windows target-dependency table for the future
+ConPTY backend. POSIX-only dependency relocation stays paired with the upcoming
+source gating work so the dependency move and compile fixes land atomically.
+`.gitignore` also blocks locally-built Windows binaries, symbols, installers,
+archives, and common installer work directories from being staged.
+
+Verified locally on Linux: `cargo fmt --check`, `cargo build --release --locked`,
+`cargo clippy --all-targets --locked -- -D warnings`, and `cargo test --locked`
+green.
+
+Known gap: the Windows CI leg is expected to fail until the platform-specific
+PTY, attach/session-host, app-mode, opener, and test gating work lands.
+
 ## 2026-06-28 -- Release v0.6.1 — settings-description drift fix + GUI restore-default-background
 
 A correctness follow-up to v0.6.0. Flipping sixteen compiled defaults in v0.6.0

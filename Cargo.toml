@@ -53,6 +53,10 @@ unicode-width = "0.2.2"
 wgpu = "29.0.3"
 winit = "0.30.13"
 
+# Windows port bring-up: the `windows` crate is added here with the required
+# Win32 feature set when the ConPTY backend lands.
+[target.'cfg(windows)'.dependencies]
+
 # macOS-only: native "Open With…" app enumeration via NSWorkspace (Phase 17).
 # Pinned to the exact objc2 stack winit 0.30.13 already locks so no third copy
 # is pulled (objc2 0.5.2 / objc2-foundation 0.2.2 / objc2-app-kit 0.2.2). All
