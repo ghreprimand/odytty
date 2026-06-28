@@ -336,8 +336,8 @@ fn ctrl_click_dispatch_builds_editor_argv_for_path_line_col() {
 }
 
 /// A plain file span (no line suffix) dispatches to the platform opener --
-/// `xdg-open` on Linux, `open` on macOS -- with the absolute path as a single
-/// argv element.
+/// `xdg-open` on Linux, `open` on macOS, `cmd /C start` on Windows -- with the
+/// path passed through to the opener.
 #[test]
 fn ctrl_click_dispatch_builds_platform_open_for_plain_file() {
     let Some(mut app) = build_app(b"/proj/src/main.rs") else {
@@ -347,18 +347,22 @@ fn ctrl_click_dispatch_builds_platform_open_for_plain_file() {
     app.set_interactive_paths_for_test(true);
     app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
     app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
-    let expected_opener = if cfg!(target_os = "macos") {
-        "open"
-    } else {
-        "xdg-open"
-    };
-    assert_eq!(
-        app.path_open_argv_for_test(),
-        Some(vec![
-            expected_opener.to_owned(),
-            "/proj/src/main.rs".to_owned()
-        ])
-    );
+    // The opener argv is platform-specific: macOS `open <path>`, Windows
+    // `cmd /C start "" <path>` (the empty arg is `start`'s window-title slot),
+    // Linux `xdg-open <path>`.
+    #[cfg(target_os = "macos")]
+    let expected = vec!["open".to_owned(), "/proj/src/main.rs".to_owned()];
+    #[cfg(windows)]
+    let expected = vec![
+        "cmd".to_owned(),
+        "/C".to_owned(),
+        "start".to_owned(),
+        String::new(),
+        "/proj/src/main.rs".to_owned(),
+    ];
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let expected = vec!["xdg-open".to_owned(), "/proj/src/main.rs".to_owned()];
+    assert_eq!(app.path_open_argv_for_test(), Some(expected));
 }
 
 // ── OPEN-NOTICE (P0-2): a failed open spawn surfaces a visible notice; a

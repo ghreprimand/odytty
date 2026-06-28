@@ -535,10 +535,17 @@ mod tests {
 
     #[test]
     fn select_persists_via_writeback_without_touching_home() {
+        // The thread name is the full test path (e.g. `native::theme_picker::
+        // tests::…`); its `:` characters are illegal in a Windows filename, so
+        // sanitize to alphanumerics/`_` before using it as a path component.
+        let thread = std::thread::current()
+            .name()
+            .unwrap_or("test")
+            .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
         let base = std::env::temp_dir().join(format!(
             "odytty-theme-picker-{}-{}",
             std::process::id(),
-            std::thread::current().name().unwrap_or("test")
+            thread
         ));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).unwrap();

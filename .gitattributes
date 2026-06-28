@@ -1,0 +1,20 @@
+# Normalize line endings across platforms.
+#
+# Without this, a Windows checkout (default core.autocrlf=true) rewrites text
+# files to CRLF, which breaks code that matches source on a literal "\n" — e.g.
+# the WGSL shader-introspection tests that `split("@fragment\n…")` over an
+# `include_str!`-ed .wgsl. Forcing LF on checkout keeps shaders and other text
+# byte-identical on every platform.
+* text=auto eol=lf
+
+# Explicit: shader sources are always LF.
+*.wgsl text eol=lf
+
+# Binary assets must never be line-ending converted.
+*.png binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.gz binary
+*.AppImage binary
