@@ -145,9 +145,8 @@ sha256sum odytty-0.6.1.tar.gz > SHA256SUMS
 
 6. For Windows distribution metadata:
 
-   - confirm or change the proposed winget PackageIdentifier
-     `Odyssey.OdyTTY`;
-   - fill `packaging/winget/Odyssey.OdyTTY/*.installer.yaml`
+   - the winget PackageIdentifier is `UnfinishedWorks.OdyTTY`;
+   - fill `packaging/winget/UnfinishedWorks.OdyTTY/*.installer.yaml`
      `InstallerSha256` from the `odytty-0.6.1-windows-x86_64.zip` row in
      `SHA256SUMS`;
    - submit the manifest to `microsoft/winget-pkgs` after the GitHub Release is

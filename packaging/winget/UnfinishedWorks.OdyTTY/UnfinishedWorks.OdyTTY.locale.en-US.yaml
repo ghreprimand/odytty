@@ -1,8 +1,10 @@
-# Proposed PackageIdentifier; confirm before submitting to microsoft/winget-pkgs.
-PackageIdentifier: Odyssey.OdyTTY
+# PackageIdentifier is case-sensitive and effectively immutable once accepted
+# into microsoft/winget-pkgs. Lookup is case-insensitive, so users can type any
+# case. The Publisher segment is the studio brand ("Unfinished Works").
+PackageIdentifier: UnfinishedWorks.OdyTTY
 PackageVersion: 0.6.1
 PackageLocale: en-US
-Publisher: Odyssey
+Publisher: Unfinished Works
 PackageName: OdyTTY
 ShortDescription: A from-scratch, GPU-rendered Rust terminal emulator with an Odyssey visual identity.
 License: GPL-3.0-only

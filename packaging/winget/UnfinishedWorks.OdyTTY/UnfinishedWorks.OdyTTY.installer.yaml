@@ -1,5 +1,6 @@
-# Proposed PackageIdentifier; confirm before submitting to microsoft/winget-pkgs.
-PackageIdentifier: Odyssey.OdyTTY
+# PackageIdentifier is case-sensitive and effectively immutable once accepted
+# into microsoft/winget-pkgs (lookup is case-insensitive for users).
+PackageIdentifier: UnfinishedWorks.OdyTTY
 PackageVersion: 0.6.1
 InstallerType: zip
 NestedInstallerType: portable

@@ -42,11 +42,11 @@ The staged winget manifests live under `packaging/winget/`. They become live
 only after a maintainer submits them to `microsoft/winget-pkgs` after the first
 Windows release, with `InstallerSha256` filled from `SHA256SUMS`.
 
-The proposed package identifier is `Odyssey.OdyTTY` and needs maintainer
-confirmation before submission:
+The package identifier is `UnfinishedWorks.OdyTTY` (lookup is case-insensitive,
+so any casing resolves):
 
 ```powershell
-winget install Odyssey.OdyTTY
+winget install UnfinishedWorks.OdyTTY
 ```
 
 ### Portable zip

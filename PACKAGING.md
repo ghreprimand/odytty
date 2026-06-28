@@ -165,10 +165,11 @@ scoop bucket add odytty https://github.com/ghreprimand/odytty
 scoop install odytty
 ```
 
-The winget templates live under `packaging/winget/`. The proposed
-PackageIdentifier is `Odyssey.OdyTTY`; confirm that identifier before submitting
-to `microsoft/winget-pkgs`. The winget `InstallerSha256` placeholder must be
-filled from the release `SHA256SUMS` row before submission.
+The winget templates live under `packaging/winget/UnfinishedWorks.OdyTTY/`. The
+PackageIdentifier is `UnfinishedWorks.OdyTTY` (case-sensitive in storage but
+case-insensitive for `winget install`). The winget `InstallerSha256` placeholder
+must be filled from the release `SHA256SUMS` row before submitting to
+`microsoft/winget-pkgs`.
 
 ## Default-Terminal Integration
 

@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- Settle the winget package identifier as UnfinishedWorks.OdyTTY
+
+The provisional winget `PackageIdentifier` is finalized to
+`UnfinishedWorks.OdyTTY` (publisher display `Unfinished Works`), renaming the
+staged manifest directory and its three files and updating every doc reference.
+The publisher segment is the studio brand rather than the product's visual
+identity, so it stays stable across future submissions; lookup is
+case-insensitive, so `winget install` resolves any casing while storage keeps
+the branded form. Scoop stays lowercase (`odytty`), matching that ecosystem's
+convention. Settled before the first Windows release because a winget identifier
+is effectively immutable once accepted into `microsoft/winget-pkgs`. Docs/staging
+only — no code changed.
+
 ## 2026-06-28 -- Docs: record the Windows backend across SPEC, CONTRIBUTING, and README
 
 The public docs now describe the Windows port as a durable architecture record
@@ -57,10 +70,9 @@ the same release zip:
   `scoop bucket add odytty <repo>` + `scoop install odytty`, with `checkver` +
   `autoupdate` so the URL and hash resolve from each release's `SHA256SUMS`.
 - **winget** — a staged 3-file manifest under `packaging/winget/` (zip /
-  portable nested installer). Its `InstallerSha256` is a labelled placeholder and
-  the `PackageIdentifier` (`Odyssey.OdyTTY`) is marked provisional — both are
-  filled/confirmed when the manifest is submitted to `microsoft/winget-pkgs`
-  after the first Windows release.
+  portable nested installer) with `PackageIdentifier` `UnfinishedWorks.OdyTTY`.
+  Its `InstallerSha256` is a labelled placeholder, filled when the manifest is
+  submitted to `microsoft/winget-pkgs` after the first Windows release.
 
 The manifests are deliberately non-functional until the first Windows release tag
 exists (they point at a release URL that is not yet published) — that is called

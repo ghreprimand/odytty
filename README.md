@@ -187,11 +187,11 @@ scoop install odytty
 
 The winget manifest is staged under `packaging/winget/` and becomes usable only
 after it is submitted to `microsoft/winget-pkgs` following the first Windows
-release. The proposed package identifier is `Odyssey.OdyTTY` and needs
-maintainer confirmation before submission:
+release. The package identifier is `UnfinishedWorks.OdyTTY` (lookup is
+case-insensitive, so any casing resolves):
 
 ```powershell
-winget install Odyssey.OdyTTY
+winget install UnfinishedWorks.OdyTTY
 ```
 
 For a portable fallback, download the latest zip and checksum file, verify, and
