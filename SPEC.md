@@ -89,12 +89,35 @@ The owned path is not aspirational — it is in production.
 
 ### What OdyTTY owns
 
-**Linux PTY layer** (`src/pty.rs`). PTY allocation via `openpt`/`grantpt`/
-`unlockpt`/`TIOCGPTPEER` through `rustix`. Child spawn as a new session leader
-with a controlling terminal. `TIOCSWINSZ` resize. Nonblocking reader and writer
-via file-descriptor clones. Child reaping on drop. All PTY semantics are
-OdyTTY's own code; `portable-pty` and `crossterm` are gone from the dependency
-tree.
+**PTY layer** (`src/pty/`). A platform-neutral contract in `src/pty/mod.rs`
+selects a per-OS backend by `#[cfg]`; every consumer imports `crate::pty::PtySession`
+and is unaware of which backend is live. All PTY semantics are OdyTTY's own
+code; `portable-pty` and `crossterm` are gone from the dependency tree.
+
+- **Unix backend** (`src/pty/unix.rs`, `#[cfg(unix)]`). PTY allocation via
+  `openpt`/`grantpt`/`unlockpt`/`TIOCGPTPEER` through `rustix`. Child spawn as a
+  new session leader with a controlling terminal. `TIOCSWINSZ` resize.
+  Nonblocking reader and writer via file-descriptor clones. Foreground-job
+  detection via the controlling-terminal process group. Child reaping on drop.
+- **Windows backend** (`src/pty/windows.rs`, `#[cfg(windows)]`). A pseudoconsole
+  (ConPTY) via `CreatePseudoConsole` fed by a `CreatePipe` pair; the child is
+  launched with `CreateProcessW` attaching the pseudoconsole through
+  `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` on a `STARTUPINFOEXW` attribute list.
+  `ResizePseudoConsole` for resize; `TerminateProcess` for kill, which then
+  closes the pseudoconsole so the output reader hits EOF (mirroring the Unix
+  `EIO`→EOF teardown). There is no POSIX process group, so `foreground_job`
+  returns the contract's `ForegroundJob::Unknown` indeterminate default; the
+  default shell is `%ComSpec%` (cmd.exe) run with `/C`, not `$SHELL -lc`. The
+  pseudoconsole handle is owned by an RAII guard so it cannot leak.
+
+The `PtySession` surface (`spawn_default_shell{,_in}`, `spawn_shell_command`,
+`spawn_exec`, `spawn_command`, `resize`, `try_clone_reader`, `take_writer`,
+`foreground_job`, `try_wait`, `wait`, `kill`, `read_to_end`) is identical across
+backends; reader/writer are erased to `Box<dyn Read + Send>` / `Box<dyn Write +
+Send>` so the PTY pump and all native consumers are platform-agnostic. The
+`open_pty_pair` helper returns a POSIX `(File, File)` master/slave and therefore
+stays `#[cfg(unix)]`-only (a ConPTY has no termios-capable slave `File`); its
+sole caller is a Unix-only termios test.
 
 **VT parser** (`src/parser/`). A clean-room two-layer pipeline built solely
 from primary specifications (vt100.net DEC ANSI state diagram, ECMA-48, xterm
@@ -265,9 +288,12 @@ examples.
 Settings follow a three-level precedence chain, lowest to highest:
 
 1. **Built-in defaults** — compiled-in values for every setting.
-2. **Config file** — `$XDG_CONFIG_HOME/odytty/odytty.conf` (falling back to
-   `~/.config/odytty/odytty.conf`). A missing or unreadable file is silently
-   skipped; malformed lines and unknown keys warn to stderr and are skipped.
+2. **Config file** — on Unix, `$XDG_CONFIG_HOME/odytty/odytty.conf` (falling
+   back to `~/.config/odytty/odytty.conf`); on Windows, `%APPDATA%\odytty\odytty.conf`.
+   The same resolved path is used for live reload, in-app writeback, theme files,
+   and the first-run marker, so persistence works identically on every platform.
+   A missing or unreadable file is silently skipped; malformed lines and unknown
+   keys warn to stderr and are skipped.
 3. **Environment variables** (`ODYTTY_*`) — always win over both defaults and
    the config file.
 
@@ -847,8 +873,76 @@ its first stable layer.
 - Plugin systems, AI features, rich dashboards, or nonstandard terminal
   semantics
 - Heavy animation or effects that compromise readability or latency
-- Windows support (Linux is the primary target; macOS is an experimental
-  build-from-source target, exercised in CI, with no prebuilt artifact)
+
+## Cross-Platform Architecture
+
+Linux is the primary target. macOS and Windows are additional build targets,
+each exercised on its own CI runner; all three legs (`ubuntu-latest`,
+`macos-latest`, `windows-latest`) are blocking regression gates. The
+platform-divergent surface is small, localized, and `#[cfg]`-gated, so Windows
+code is physically absent from a Linux/macOS build and cannot regress it — the
+Linux/macOS byte path is unchanged by the port.
+
+**Per-OS PTY backend.** The PTY layer is the largest platform divergence and is
+documented under the Ownership Boundary above: `src/pty/mod.rs` defines a neutral
+`PtySession` contract and `#[cfg]`-selects `unix.rs` (rustix/termios PTY) or
+`windows.rs` (ConPTY `CreatePseudoConsole`). Every consumer is backend-agnostic.
+
+**Windows runtime resolution.** Where Unix uses XDG/POSIX paths, the Windows
+build substitutes platform-native equivalents, all behind `#[cfg]`:
+
+- **Config & themes** resolve under `%APPDATA%\odytty\` (see Configuration
+  Architecture); persistence, live reload, writeback, and the first-run marker
+  all function.
+- **Kitty image temp transports** (`t=f`/`t=t`) consult `std::env::temp_dir()`
+  (`%TEMP%`) instead of `/tmp` + `/dev/shm`, so file-based image transport works;
+  the POSIX shared-memory transport (`t=s`) has no Windows analogue and its
+  backend body is `#[cfg(unix)]`-only, returning a transport error elsewhere.
+- **Host font discovery** scans `%WINDIR%\Fonts` (machine) and
+  `%LOCALAPPDATA%\Microsoft\Windows\Fonts` (per-user) in addition to the always-
+  present bundled fonts, so host families (Consolas, Cascadia Code, …) are
+  selectable.
+- **Clickable paths** recognize Windows path shapes — drive-letter absolute
+  (`C:\…`, `C:/…`), UNC (`\\server\share`), and backslash separators — with a
+  drive-letter-aware `:line:col` suffix split so `C:\src\main.rs:10:5` peels the
+  position without consuming the drive colon.
+- **Default-open & reveal** route through `cmd /C start` (open) and
+  `explorer /select,` (reveal) instead of `xdg-open`.
+
+**Unix-only subsystems (gated off on Windows for v1).** Detachable/resumable
+sessions and the attach UI rest on Unix-domain sockets and POSIX runtime-dir
+semantics; the `session_host` transport (`socket.rs`/`host.rs`/`client.rs`/
+`registry.rs`), `src/native/attach.rs`, the attach overlays, the
+`SessionSource::Attached` Session variant and its match arms, and the
+`--interactive` headless raw-mode path (`src/app.rs`, a wholly POSIX module) are
+all `#[cfg(unix)]`-gated. The pure pieces stay cross-platform on purpose: the
+`session_host` wire `protocol.rs` (neutral core types), the `SessionCliCommand`
+parser (so `--help`/usage strings stay byte-identical), and the
+`BindableAction::SessionAttach` keybind variant (a no-op on Windows, keeping the
+shared keybind catalog and its test identical). The CLI execution boundary prints
+a clean "not supported on Windows yet" rather than panicking. Non-detached
+SSH-in-a-tab still works on Windows because it uses the local ConPTY path, not
+`session_host`.
+
+**v1 Windows scope — supported:** local terminal (tabs, splits, rendering,
+themes, effects, images in unsplit tabs), persistent config via `%APPDATA%`,
+host-font scanning of `C:\Windows\Fonts`, Windows clickable-path detection,
+default-open + reveal, and non-detached SSH-in-a-tab.
+
+**v1 Windows scope — deferred:** detachable sessions, detached/resumable SSH,
+`--interactive` headless mode, the full "Open With…" application list (desktop-
+entry enumeration is freedesktop-only), registry font display-name parsing, and
+PowerShell/PSReadLine history in the command palette.
+
+**v1 Windows silent-degrades (compile-clean, intentionally inert):** hostname is
+always `None` (OSC 7 foreign-host resolution disabled), command-palette shell
+history is empty, and the panic log lands in `%TEMP%`.
+
+**Known follow-up.** On Windows a tab whose child exits *on its own* (rather than
+via an explicit `kill`) does not yet auto-close, because there is no POSIX
+signal/process-group teardown; an explicit close still works. Closing this needs
+a per-child waiter thread that closes the pseudoconsole on natural exit — on-
+device polish, not a milestone blocker.
 
 ## Post-Process Pipeline Architecture
 
@@ -959,7 +1053,10 @@ The stack is: Rust, Linux-first, `winit` (windowing), `wgpu` (GPU/Vulkan),
 shaping, and color-font probe — emoji/color-font path only; normal text stays on
 `ab_glyph`), `unicode-width` (cell widths), `arboard` (clipboard), `rustix`
 (PTY/termios), `png` (PNG decode for Kitty `f=100`), `image` (PNG/JPEG/WebP
-wallpaper decode).
+wallpaper decode). Platform syscall crates are split by target: `rustix`/`libc`
+sit under `[target.'cfg(unix)'.dependencies]`, and the `windows` crate (pinned to
+the `0.62` line `wgpu` already locks, so no second copy enters the graph) sits
+under `[target.'cfg(windows)'.dependencies]` for the ConPTY backend.
 
 The terminal core is a distinct boundary from the native app. The `core` module
 never imports windowing, GPU, or rendering code; it consumes VT bytes via the

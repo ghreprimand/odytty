@@ -105,7 +105,7 @@ By making a contribution to this project, I certify that:
 ## Ownership boundary
 
 Every byte from the PTY to the glyph quad passes through OdyTTY-owned code.
-Changes to `src/pty.rs`, `src/parser/`, `src/core/`, `src/grid.rs`, and the
+Changes to `src/pty/`, `src/parser/`, `src/core/`, `src/grid.rs`, and the
 GPU shaders in `src/shaders/` must preserve that boundary — no new
 terminal-semantic dependencies belong inside it. External crates for font
 rasterization, GPU API, windowing, clipboard transport, and Unicode width data
@@ -127,13 +127,58 @@ The source tree is organized into clear ownership lanes:
 | `src/theme/` | `Theme` struct, `.theme` file format and parser (`spec.rs`), built-in registry (`builtins.rs`, `builtins/`), contrast validation, live reload. |
 | `src/settings/` | `Settings` struct, config file round-trip, live reload, atomic writeback, `SettingInfo` inventory for the in-app panel. |
 | `src/color.rs` | Perceptual color primitives: sRGB ↔ linear transfer, OKLab/OKLCH conversions, `dim_perceptual`, `mix_oklab`, `enforce_min_contrast`. Single source of truth for the sRGB transfer. |
-| `src/pty.rs` | Owned Linux PTY layer: openpt/grantpt/unlockpt, TIOCGPTPEER, TIOCSWINSZ, session-leader spawn. |
+| `src/pty/` | Owned PTY layer. `mod.rs` is the platform-neutral `PtySession` contract; `unix.rs` (`#[cfg(unix)]`) is the rustix/termios backend (openpt/grantpt/unlockpt, TIOCGPTPEER, TIOCSWINSZ, session-leader spawn); `windows.rs` (`#[cfg(windows)]`) is the ConPTY backend (CreatePseudoConsole + CreateProcessW). See the per-platform backend pattern below. |
 | `src/session_host/` | Detached-session subsystem: host process and socket lifecycle, wire protocol, snapshot envelope. Deliberately kept outside `src/native/`; the `attach` launcher reattaches a live native window to a running host. |
 | `src/ssh_config.rs` + `src/connection_hosts.rs` | Connection substrate for the connection manager: name-only host import (alias/HostName/User/Port — never key material), gated behind `ssh_config_hosts` (default off). |
 | `src/paths/` | Interactive-paths engine: path/URL detection, `:line:col` editor jump, bareword and image span recognition. Wired live through `src/native/app/interactive_paths.rs`; inert until the `interactive_paths` master gate is on. |
 
 All visual settings flow from `src/settings.rs` through the `Settings` struct
 to the renderer; the core is never aware of them.
+
+## Platform targets and the per-platform backend pattern
+
+OdyTTY builds on three targets, each on its own CI runner, and **all three are
+blocking regression gates**: `ubuntu-latest`, `macos-latest`, and
+`windows-latest` (`.github/workflows/ci.yml`). Linux is the primary target;
+macOS and Windows must stay green for a change to merge.
+
+The CI matrix is the enforcement, not discipline: Windows-specific code is
+`#[cfg]`-gated, so it is physically absent from a Linux/macOS build and cannot
+regress those targets. The invariant the matrix protects is that the Linux/macOS
+byte path is unchanged across the port — verified by the same lib-test suite
+passing identically on every leg.
+
+**The per-platform backend pattern.** When a subsystem genuinely differs by OS,
+follow the PTY layer as the template rather than scattering `#[cfg]` through
+shared code:
+
+1. Define a **platform-neutral contract** in a `mod.rs` (`src/pty/mod.rs` — the
+   `PtySession` surface, the `Box<dyn Read + Send>` / `Box<dyn Write + Send>`
+   erased I/O, the shared enums).
+2. Put each OS implementation in its **own sibling file** gated at the module
+   declaration: `src/pty/unix.rs` (`#[cfg(unix)]`), `src/pty/windows.rs`
+   (`#[cfg(windows)]`). `mod.rs` `#[cfg]`-selects and re-exports the right
+   `PtySession` so **no call site changes** — consumers import
+   `crate::pty::PtySession` and never see the backend.
+3. Adding a future platform = add `src/pty/<os>.rs` implementing the same
+   contract surface, plus one `#[cfg]` arm in `mod.rs`. No consumer edits.
+
+Two corollaries from the Windows port worth reusing:
+
+- **Keep pure code cross-platform; gate only the OS boundary.** Wire protocols,
+  CLI argument *parsing*, and shared enums (e.g. keybind variants) stay ungated
+  so `--help` text, the keybind catalog, and their tests are byte-identical on
+  every OS; gate only the *execution*/transport that actually touches the OS,
+  and print a clean "not supported on <os> yet" rather than panicking.
+- **Runtime correctness ≠ compilation.** Path/resource resolution can compile on
+  every OS while behaving wrong on one. Anything that resolves a config dir, temp
+  dir, or font dir needs a per-OS `#[cfg]` arm (XDG/POSIX vs `%APPDATA%`/`%TEMP%`/
+  `%WINDIR%\Fonts`) and must be verified to actually *function*, not just build.
+  See the Cross-Platform Architecture section in `SPEC.md` for the current arms.
+
+A practical CI note: line-ending normalization is pinned by `.gitattributes`
+(`* text=auto eol=lf`) so text fixtures (e.g. `.wgsl` shader sources split on
+`\n` in tests) check out LF on Windows runners too.
 
 ## Test battery
 
