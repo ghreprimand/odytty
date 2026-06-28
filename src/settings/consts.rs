@@ -281,11 +281,12 @@ pub const MIN_WINDOW_PADDING_PX: f32 = 0.0;
 pub const MAX_WINDOW_PADDING_PX: f32 = 64.0;
 
 /// Cell background opacity (`ODYTTY_CELL_BG_OPACITY`): the alpha multiplier on
-/// every cell's resolved background colour. `1.0` (default) leaves cells fully
-/// opaque so the cell-vertex output is byte-identical to before — the `image`
-/// background treatment then shows only in the window padding. Values `< 1.0`
-/// make cells translucent so a background image shows through behind text; the
-/// RV1 floor stays safe at any opacity via the readability scrim.
+/// every cell's resolved background colour. `0.8` (default, v0.6.0) makes cells
+/// slightly translucent so the bundled background shows through; `1.0` leaves
+/// cells fully opaque so the cell-vertex output is byte-identical to before,
+/// with the `image` treatment then showing only in the window padding. Values
+/// `< 1.0` make cells translucent so a background image shows through behind
+/// text; the RV1 floor stays safe at any opacity via the readability scrim.
 pub const DEFAULT_CELL_BG_OPACITY: f32 = 0.8;
 pub const MIN_CELL_BG_OPACITY: f32 = 0.0;
 pub const MAX_CELL_BG_OPACITY: f32 = 1.0;

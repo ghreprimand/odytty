@@ -4,14 +4,14 @@
 /// with a concise description, its accepted values, and its default.
 pub const STEM_DARKEN_DESC: &str = "Stem darkening: boosts glyph coverage so light-on-dark text holds weight at \
      small sizes. Accepts 0.0–1.0; 0.0 is off (identical to no boost), 1.0 is \
-     strongest. Default 0.5.";
+     strongest. Default 0.7.";
 
 /// Human-readable help for the minimum-contrast knob, shown in the in-app
 /// settings panel (UX2). Follows the every-knob-carries-a-description convention.
 pub const MIN_CONTRAST_DESC: &str = "Minimum contrast: lifts foreground text so its WCAG contrast against the \
      background meets at least this ratio, keeping low-contrast apps legible. \
      Accepts 1.0–21.0; 1.0 is off (no change), 4.5 is the WCAG AA body-text \
-     threshold, 7.0 is AAA. Hue is preserved. Default 13.0.";
+     threshold, 7.0 is AAA. Hue is preserved. Default 17.0.";
 
 /// Human-readable help for the focus-dimming knob (ID2), shown in the in-app
 /// settings panel. Follows the every-knob-carries-a-description convention.
@@ -30,29 +30,32 @@ pub const INACTIVE_PANE_DIM_DESC: &str = "Inactive-pane dimming: dims the non-fo
      focused pane is never dimmed and single-pane tabs are never affected. The \
      minimum-contrast floor still applies, so text stays legible. Default 0.0.";
 
-pub const RENDER_QUALITY_DESC: &str = "Renderer profile: balanced is the default quality path — all enabled effects \
+pub const RENDER_QUALITY_DESC: &str = "Renderer profile: high (default) is the full-quality path — all enabled effects \
      (bloom, CRT scanlines, background treatment, focus dimming, stem darkening, \
-     and the minimum-contrast floor) are honored. plain is the hard fast path: \
-     it forces all of those off even when their individual settings are enabled, \
-     giving raw speed with no post-process cost. high is reserved for future \
-     higher-cost quality paths and currently behaves like balanced.";
+     and the minimum-contrast floor) are honored. It is reserved for future \
+     higher-cost quality work and currently behaves like balanced, which honors \
+     the same effects. plain is the hard fast path: it forces all of those off \
+     even when their individual settings are enabled, giving raw speed with no \
+     post-process cost.";
 
 /// Human-readable help for the ID3/U5 background-treatment knob, shown in the
 /// in-app settings panel.
-pub const BACKGROUND_TREATMENT_DESC: &str = "Background treatment: subtly darkens the cell background by position so the \
-     window has depth. off (default) draws the background unchanged and is \
+pub const BACKGROUND_TREATMENT_DESC: &str = "Background treatment: draws a wallpaper or depth effect behind the terminal \
+     grid. image (default) draws a wallpaper behind the grid (see background_image \
+     + cell_bg_opacity); the shipped look pairs it with the bundled OdyTTY \
+     background. off (or color) draws the background unchanged and is \
      pixel-identical to before. gradient darkens toward the bottom; vignette \
-     darkens toward the edges and corners. image draws a wallpaper behind the grid \
-     (see background_image + cell_bg_opacity). The minimum-contrast floor is \
+     darkens toward the edges and corners. The minimum-contrast floor is \
      applied to the treated background, so text stays legible by construction. \
      Small extra per-frame cost only while a rebuild runs; off when the renderer \
      profile is plain.";
 
 pub const BACKGROUND_IMAGE_DESC: &str = "Background image: path to a PNG, JPEG, or WebP drawn behind the terminal grid when the \
-     background treatment is set to image. Empty (default) means no image. Pair \
-     with cell_bg_opacity below 1.0 to let it show through behind text; a \
-     readability scrim is computed automatically so text stays legible at any \
-     opacity. A missing or undecodable file is ignored with a warning.";
+     background treatment is set to image. default (the shipped value) draws the \
+     bundled OdyTTY background; set a real file path to use your own, or none for \
+     no image. Pair with cell_bg_opacity below 1.0 to let it show through behind \
+     text; a readability scrim is computed automatically so text stays legible at \
+     any opacity. A missing or undecodable file is ignored with a warning.";
 
 pub const BACKGROUND_BLUR_RADIUS_DESC: &str = "Background blur: pixel radius of a one-time blur applied to the background \
      image at load. 0 (default) keeps the image sharp. Larger values soften it \
@@ -60,14 +63,16 @@ pub const BACKGROUND_BLUR_RADIUS_DESC: &str = "Background blur: pixel radius of 
      per-frame cost.";
 
 pub const BACKGROUND_IMAGE_SCRIM_DESC: &str = "Wallpaper readability: auto or explicit 0.0-1.0 strength of the readability \
-     overlay blended over the wallpaper. auto (default) computes the minimum \
-     overlay that keeps text legible. Lower values keep the image clearer; \
-     higher values make text safer over busy images.";
+     overlay blended over the wallpaper. 0.5 (default) is a fixed mid-strength \
+     overlay that keeps the bundled background legible out of the box; auto \
+     instead computes the minimum overlay that keeps text legible. Lower values \
+     keep the image clearer; higher values make text safer over busy images.";
 
 pub const CELL_BG_OPACITY_DESC: &str = "Wallpaper visibility: how much of the wallpaper shows through terminal cell \
-     backgrounds. 0.0 (default) hides the wallpaper behind cells and preserves \
-     the original solid terminal look. Higher values reveal more of the image; \
-     the config/env key stores the inverse as cell background opacity.";
+     backgrounds. 0.2 (default) lets a little of the bundled background show \
+     through while keeping text on a mostly solid cell; 0.0 hides the wallpaper \
+     entirely for the original solid terminal look. Higher values reveal more of \
+     the image; the config/env key stores the inverse as cell background opacity.";
 
 pub const WINDOW_PADDING_DESC: &str = "Window padding: logical pixels of inset between the window edge and the \
      terminal grid. Accepts 0.0-64.0; 0.0 restores the historical edge-to-edge \
@@ -82,10 +87,10 @@ pub const BLOOM_DESC: &str = "Bloom: HDR phosphor glow over bright cells. On in 
      default and pixel-identical to the plain renderer when off. Requires a GPU with filterable \
      Rgba16Float render targets; unsupported adapters silently use the plain path.";
 pub const BLOOM_THRESHOLD_DESC: &str = "Bloom threshold: luminance level above which text begins to glow. The default is \
-     0.75 for the Odyssey ambient baseline; lower values glow more text, higher values reserve \
+     0.7 for the Odyssey ambient baseline; lower values glow more text, higher values reserve \
      bloom for brighter elements.";
 pub const BLOOM_INTENSITY_DESC: &str = "Bloom intensity: additive glow strength. Accepts 0.0–1.0; 0.0 emits no \
-     glow, 0.8 is the ambient default, and the cap keeps bloom bounded.";
+     glow, 0.7 is the ambient default, and the cap keeps bloom bounded.";
 pub const BLOOM_RADIUS_DESC: &str = "Bloom radius: blur spread in half-resolution pixels. Accepts 0.5–8.0; \
      8.0 is the ambient default wide phosphor radius.";
 
@@ -104,7 +109,8 @@ pub const CRT_CURVATURE_DESC: &str = "CRT curvature: subtle barrel-distortion sc
 pub const GEOMETRIC_BOXDRAW_DESC: &str = "Geometric box-drawing: renders line, block and Powerline glyphs from \
      cell-aligned geometry instead of the font, so TUI borders, progress bars \
      and powerline prompts are pixel-perfect and seamless at any size. On or \
-     off; off (default) uses the font glyph and is identical to before.";
+     off; on (default) draws them from geometry, off uses the font glyph and is \
+     identical to before.";
 
 /// Human-readable help for the symbol / Nerd-font fallback enable switch
 /// (RV6), shown in the in-app settings panel.

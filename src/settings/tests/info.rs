@@ -193,14 +193,18 @@ fn help1_cryptic_settings_have_actionable_descriptions() {
     assert!(
         render_quality
             .description
-            .contains("balanced is the default")
+            .contains("high (default) is the full-quality path")
     );
     assert!(
         render_quality
             .description
             .contains("plain is the hard fast path")
     );
-    assert!(render_quality.description.contains("high is reserved"));
+    assert!(
+        render_quality
+            .description
+            .contains("currently behaves like balanced")
+    );
 
     let scanline_period = row(&rows, "crt_scanline_period");
     assert_eq!(scanline_period.name, "CRT scanline spacing");

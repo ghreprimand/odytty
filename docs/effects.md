@@ -58,8 +58,8 @@ reference (all settings, types, defaults, and reload behaviour) is in
 | Setting | Env | Type | Default | Range |
 |---------|-----|------|---------|-------|
 | `bloom` | `ODYTTY_BLOOM` | `on` / `off` | `on` | — |
-| `bloom_threshold` | `ODYTTY_BLOOM_THRESHOLD` | float or `auto` | `0.75` | `0.70–1.25` |
-| `bloom_intensity` | `ODYTTY_BLOOM_INTENSITY` | float | `0.8` | `0.0–1.0` |
+| `bloom_threshold` | `ODYTTY_BLOOM_THRESHOLD` | float or `auto` | `0.70` | `0.70–1.25` |
+| `bloom_intensity` | `ODYTTY_BLOOM_INTENSITY` | float | `0.7` | `0.0–1.0` |
 | `bloom_radius` | `ODYTTY_BLOOM_RADIUS` | float | `8.0` | `0.5–8.0` |
 
 **`bloom`** — master switch. `on` enables the effect; `off` returns to the
@@ -67,16 +67,16 @@ direct scene path when no other post effect is active.
 
 **`bloom_threshold`** — linear luminance knee for the bright-pass. Pixels
 brighter than this value are eligible to glow; pixels below it are not. `auto`
-(and an empty value) resolves to the static built-in default `0.75`; it is not
+(and an empty value) resolves to the static built-in default `0.70`; it is not
 theme-derived today. A theme-foreground-seeded knee
 (`relative_luminance(foreground) + 0.12`, clamped to `0.70–1.25`) is reserved in
-the code but not yet wired into config resolution. The default `0.75` keeps
+the code but not yet wired into config resolution. The default `0.70` keeps
 normal body text below the knee so it does not glow — only genuinely bright
 elements (bold highlights, status indicators, and glyphs rendered against a
 bright background) participate. Specify a fixed float to override the default.
 
 **`bloom_intensity`** — additive glow strength. `0.0` produces no glow even
-when enabled; `0.8` is the default ambient glow strength; `1.0` is the cap.
+when enabled; `0.7` is the default ambient glow strength; `1.0` is the cap.
 Values above the cap are clamped.
 
 **`bloom_radius`** — blur spread in half-resolution pixels. Smaller values
@@ -88,15 +88,15 @@ ambient baseline.
 
 ```
 bloom = on
-bloom_threshold = 0.75
-bloom_intensity = 0.8
+bloom_threshold = 0.70
+bloom_intensity = 0.7
 bloom_radius = 8.0
 ```
 
 ### Enabling via environment
 
 ```sh
-ODYTTY_BLOOM=on ODYTTY_BLOOM_THRESHOLD=0.75 ODYTTY_BLOOM_INTENSITY=0.8 ODYTTY_BLOOM_RADIUS=8.0 odytty
+ODYTTY_BLOOM=on ODYTTY_BLOOM_THRESHOLD=0.70 ODYTTY_BLOOM_INTENSITY=0.7 ODYTTY_BLOOM_RADIUS=8.0 odytty
 ```
 
 ### Enabling via the settings overlay

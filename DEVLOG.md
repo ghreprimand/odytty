@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- Release v0.6.1 — settings-description drift fix + GUI restore-default-background
+
+A correctness follow-up to v0.6.0. Flipping sixteen compiled defaults in v0.6.0
+updated the canonical docs (`runtime-knobs.md`, `odytty.conf.example`) but left
+the **in-app settings-panel description strings** describing the *old* defaults —
+e.g. Smart Ctrl+C read "Off (default)" while the shipped default is now
+copy-or-interrupt. This release audits every "(default)" / "by default" claim in
+the panel against the actual `DEFAULT_*` constants and corrects the drifted ones:
+
+- `descriptions.rs`: `stem_darken` (0.5→0.7), `min_contrast` (13.0→17.0),
+  `render_quality` (balanced→high is now default), `background_treatment`
+  (off→image), `background_image` (empty→bundled `default`),
+  `background_image_scrim` (auto→0.5 fixed mid scrim), `cell_bg_opacity` /
+  "Wallpaper visibility" (0.0→0.2 displayed), `bloom_threshold` (0.75→0.7),
+  `bloom_intensity` (0.8→0.7), `geometric_boxdraw` (off→on).
+- `info.rs`: `cursor_easing` and `cursor_trail` ("Off"→"On by default"; the
+  trail note now flags that Cursor slide is off by default, so the trail only
+  shows once slide is enabled), and `smart_ctrl_c` ("Off"→"Copy-or-interrupt
+  (default)").
+- Stale numbers also corrected in `effects.md`, `SPEC.md`, and
+  `visual-architecture.md`, plus the `DEFAULT_CELL_BG_OPACITY` doc comment.
+
+`smart_ctrl_c` stays **copy-or-interrupt** by default — it has safe escape
+hatches (nothing-selected still interrupts; Esc-then-Ctrl+C or Ctrl+C twice
+forces interrupt with a selection) so it's a reasonable modern default.
+
+**Restore the bundled background from the GUI.** The background-image file
+picker was select-only, so once you replaced the wallpaper there was no
+GUI path back to the bundled default (only `background_image = default` in the
+config). The picker now lists two entries at the top — **Default (bundled)** and
+**None (no image)** — that commit the `default`/`none` tokens directly, so the
+round trip is fully reachable from Settings.
+
+Gates green: `cargo build`, `cargo fmt --check`, `cargo clippy --all-targets`
+(deny), `cargo test` (2568 lib + integration, 0 failed). Three new path-picker
+tests cover the synthetic action rows.
+
+---
+
 ## 2026-06-27 -- Release v0.6.0 — bundled default background + OdysseyOS identity defaults
 
 v0.6.0 makes the OdysseyOS visual identity the out-of-the-box experience.

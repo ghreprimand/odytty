@@ -251,12 +251,12 @@ highest-priority additions.
 - **Geometric box-drawing / Powerline rendering (landed):** U+2500–257F,
   U+2580–259F, Braille, and Powerline separators rendered as pixel-perfect
   geometry at exact cell size rather than font glyphs. Controlled by
-  `ODYTTY_GEOMETRIC_BOXDRAW` / `geometric_boxdraw`; default off.
+  `ODYTTY_GEOMETRIC_BOXDRAW` / `geometric_boxdraw`; default on (since v0.6.0).
 - **Smooth scrolling (landed):** interpolated viewport movement within a strict
   bounded 80 ms latency budget; instant/off mode preserved and default-safe.
 - **Stem darkening for light-on-dark text (landed, default-on):** a coverage
   boost that keeps glyph stroke weight on light-on-dark displays.
-  `ODYTTY_STEM_DARKEN` / `stem_darken`, range `0.0`–`1.0`, default `0.5`.
+  `ODYTTY_STEM_DARKEN` / `stem_darken`, range `0.0`–`1.0`, default `0.7`.
   Applied at rasterization time (`src/atlas/mod.rs`); `0.0` is the
   byte-identical opt-out to the classic raster.
 - **Nerd-font / symbol fallback (landed):** automatic PUA glyph fallback

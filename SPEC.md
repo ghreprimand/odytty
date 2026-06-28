@@ -894,7 +894,7 @@ Tier-3 atmospheric effects land in this order:
 3. **Bloom / phosphor glow (landed):** bright-pass threshold + half-res
    separable blur + additive composite, enabled in the fresh-install ambient
    baseline behind the `bloom` setting and gated on adapter HDR support. The
-   built-in threshold is fixed at `0.75`, while the `auto` value remains
+   built-in threshold is fixed at `0.70`, while the `auto` value remains
    available for theme-derived tuning.
 4. **CRT / retro profile core (landed):** bounded scanlines + vignette, enabled
    in the fresh-install ambient baseline behind `crt` and sharing the same

@@ -332,7 +332,10 @@ environment variable was not set at startup.
   add more readability overlay.
 - Path settings, including `background_image`, open an inline file picker in
   Settings. Directories are enumerated off the UI path so keyboard and mouse
-  navigation remain responsive while large folders load.
+  navigation remain responsive while large folders load. The `background_image`
+  picker also lists two entries at the top — **Default (bundled)** restores the
+  shipped OdyTTY background and **None (no image)** clears it — so the bundled
+  default is reachable from the GUI without editing the config.
 - `native_autoclose_ms` is a smoke-test helper and is startup-only.
 
 ## Key Bindings

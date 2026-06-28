@@ -54,6 +54,10 @@ struct PathEntry {
     name: String,
     path: PathBuf,
     is_dir: bool,
+    /// When `Some`, this is a synthetic action row (e.g. "Default (bundled)")
+    /// that commits this literal string instead of its (empty) path. `None`
+    /// for ordinary filesystem entries, which commit their path.
+    commit_override: Option<&'static str>,
 }
 
 type ReadResult = (PathBuf, Vec<PathEntry>);
@@ -102,12 +106,13 @@ impl PathPickerState {
     /// Navigate into `dir`, refreshing the entry list.
     fn navigate_to(&mut self, dir: PathBuf) {
         self.current_dir = dir;
-        if let Some(cached) = self.entries_cache.get(&self.current_dir) {
-            self.entries = cached.clone();
+        if let Some(cached) = self.entries_cache.get(&self.current_dir).cloned() {
+            self.entries = with_actions(self.key, cached);
             self.pending = None;
             self.loading = false;
         } else {
-            self.entries = parent_entry_for(&self.current_dir).into_iter().collect();
+            let base = parent_entry_for(&self.current_dir).into_iter().collect();
+            self.entries = with_actions(self.key, base);
             self.pending = Some(spawn_read_dir(
                 self.current_dir.clone(),
                 extension_filter(self.key),
@@ -144,13 +149,13 @@ impl PathPickerState {
         drop(rx);
         self.entries_cache.insert(dir.clone(), entries.clone());
         if dir == self.current_dir {
-            self.entries = entries;
+            self.entries = with_actions(self.key, entries);
             self.selected = 0;
             self.scroll = 0;
             self.loading = false;
             self.pending = None;
-        } else if let Some(cached) = self.entries_cache.get(&self.current_dir) {
-            self.entries = cached.clone();
+        } else if let Some(cached) = self.entries_cache.get(&self.current_dir).cloned() {
+            self.entries = with_actions(self.key, cached);
             self.selected = 0;
             self.scroll = 0;
             self.loading = false;
@@ -216,6 +221,8 @@ impl PathPickerState {
         if entry.is_dir {
             self.navigate_to(entry.path);
             PathPickerOutcome::Consumed
+        } else if let Some(value) = entry.commit_override {
+            PathPickerOutcome::Selected(value.to_owned())
         } else {
             PathPickerOutcome::Selected(entry.path.display().to_string())
         }
@@ -428,6 +435,7 @@ fn read_dir_entries(dir: &Path, ext_filter: &[&str]) -> Vec<PathEntry> {
                 name: format!("{name}/"),
                 path,
                 is_dir: true,
+                commit_override: None,
             });
         } else if file_type.is_file() {
             if !ext_filter.is_empty() {
@@ -444,6 +452,7 @@ fn read_dir_entries(dir: &Path, ext_filter: &[&str]) -> Vec<PathEntry> {
                 name: name.into_owned(),
                 path,
                 is_dir: false,
+                commit_override: None,
             });
         }
     }
@@ -459,11 +468,48 @@ fn read_dir_entries(dir: &Path, ext_filter: &[&str]) -> Vec<PathEntry> {
     dirs
 }
 
+/// Synthetic action rows shown at the top of the picker for certain keys, so a
+/// value the filesystem can't represent (the bundled default, or "no image") is
+/// always one keypress away. Currently only `background_image` has any.
+fn action_entries(key: &str) -> Vec<PathEntry> {
+    if key == "background_image" {
+        vec![
+            PathEntry {
+                name: "Default (bundled)".to_owned(),
+                path: PathBuf::new(),
+                is_dir: false,
+                commit_override: Some(crate::settings::BUNDLED_BACKGROUND_TOKEN),
+            },
+            PathEntry {
+                name: "None (no image)".to_owned(),
+                path: PathBuf::new(),
+                is_dir: false,
+                commit_override: Some("none"),
+            },
+        ]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Prepend the key's synthetic action rows (if any) to a freshly-built or cached
+/// filesystem entry list. The cache stores raw filesystem entries only; actions
+/// are injected here when assigning `self.entries` so they never get cached.
+fn with_actions(key: &str, entries: Vec<PathEntry>) -> Vec<PathEntry> {
+    let mut combined = action_entries(key);
+    if combined.is_empty() {
+        return entries;
+    }
+    combined.extend(entries);
+    combined
+}
+
 fn parent_entry_for(dir: &Path) -> Option<PathEntry> {
     dir.parent().map(|parent| PathEntry {
         name: "../".to_owned(),
         path: parent.to_path_buf(),
         is_dir: true,
+        commit_override: None,
     })
 }
 
@@ -516,6 +562,46 @@ mod tests {
         assert!(!names.contains(&"notes.txt"));
 
         fs::remove_dir_all(dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn background_image_picker_offers_default_and_none_actions() {
+        let dir = temp_dir("actions");
+        let picker = PathPickerState::new("background_image", dir.clone(), String::new());
+        // Synthetic actions sit at the very top, above the parent ("../") entry,
+        // so the bundled default is always reachable without editing the config.
+        assert_eq!(picker.entries[0].name, "Default (bundled)");
+        assert_eq!(
+            picker.entries[0].commit_override,
+            Some(crate::settings::BUNDLED_BACKGROUND_TOKEN)
+        );
+        assert_eq!(picker.entries[1].name, "None (no image)");
+        assert_eq!(picker.entries[1].commit_override, Some("none"));
+        fs::remove_dir_all(dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn activating_actions_commits_their_literal_tokens() {
+        let dir = temp_dir("actions-commit");
+        let mut default_picker =
+            PathPickerState::new("background_image", dir.clone(), String::new());
+        assert_eq!(
+            default_picker.activate_index(0),
+            PathPickerOutcome::Selected(crate::settings::BUNDLED_BACKGROUND_TOKEN.to_owned())
+        );
+        let mut none_picker = PathPickerState::new("background_image", dir.clone(), String::new());
+        assert_eq!(
+            none_picker.activate_index(1),
+            PathPickerOutcome::Selected("none".to_owned())
+        );
+        fs::remove_dir_all(dir).expect("remove temp dir");
+    }
+
+    #[test]
+    fn only_background_image_has_action_rows() {
+        assert!(action_entries("font").is_empty());
+        assert!(action_entries("symbol_font").is_empty());
+        assert_eq!(action_entries("background_image").len(), 2);
     }
 
     #[cfg(unix)]
