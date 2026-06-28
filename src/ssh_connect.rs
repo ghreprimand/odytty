@@ -8,10 +8,16 @@
 
 use std::ffi::OsString;
 use std::fmt;
+#[cfg(unix)]
 use std::path::PathBuf;
 
 use crate::connection_hosts::ConnectionHost;
+#[cfg(unix)]
 use crate::core::Dimensions;
+// The detached/resumable SSH path produces a session-host config; that transport
+// is Unix-only. The non-detached "SSH in a tab" path (`ssh_command_for_host` →
+// local PTY) stays cross-platform and works on Windows via the local ConPTY.
+#[cfg(unix)]
 use crate::session_host::{HostCommand, HostConfig};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +46,7 @@ impl SshCommand {
         (self.program, self.args)
     }
 
+    #[cfg(unix)]
     pub fn into_host_command(self, working_directory: Option<PathBuf>) -> HostCommand {
         HostCommand::Exec {
             program: self.program,
@@ -92,7 +99,9 @@ pub fn ssh_command_for_host(host: &ConnectionHost) -> Result<SshCommand, SshConn
 ///
 /// This is the Phase-2 pairing point: an SSH connection is a normal hosted
 /// child command, so reattach and bounded scrollback use the same local
-/// session-host protocol as shell sessions.
+/// session-host protocol as shell sessions. Unix-only (the session-host
+/// transport is `#[cfg(unix)]`).
+#[cfg(unix)]
 pub fn detached_ssh_host_config(
     session_id: impl Into<String>,
     host: &ConnectionHost,
@@ -243,6 +252,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn ssh_session_is_resumable_host_exec_command() {
         let mut entry = host("web1");

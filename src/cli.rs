@@ -12,7 +12,11 @@ use anyhow::{Context, Result as AnyResult, bail};
 use odytty::atlas::SubpixelMode;
 use odytty::core::{CursorStyle, SnapshotEnvelope, SnapshotEnvelopeCaps};
 use odytty::native::{NativeCommand, NativeOptions};
+// The detached-session execution surface (host/attach over Unix sockets) is
+// Unix-only; on Windows only the cross-platform PARSING below is compiled.
+#[cfg(unix)]
 use odytty::session_host::protocol::HostFrame;
+#[cfg(unix)]
 use odytty::session_host::{
     HostCommand, HostConfig, ListedSession, SessionHostClient, SessionMetadata,
     existing_runtime_dir, list_live_sessions, now_unix_ms, session_socket_path,
@@ -84,6 +88,7 @@ pub struct SessionAttachOptions {
     pub diagnostic: bool,
 }
 
+#[cfg(unix)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachAction {
     LiveWindow(String),
@@ -155,6 +160,7 @@ pub fn session_command_for_args(args: &[String]) -> Result<Option<SessionCliComm
     }
 }
 
+#[cfg(unix)]
 pub fn resolve_attach(options: &SessionAttachOptions) -> AnyResult<AttachAction> {
     if options.diagnostic {
         return run_attach_diagnostic(options.clone()).map(AttachAction::PrintCli);
@@ -166,6 +172,7 @@ pub fn resolve_attach(options: &SessionAttachOptions) -> AnyResult<AttachAction>
     resolve_attach_from_sessions(options, &sessions)
 }
 
+#[cfg(unix)]
 pub fn resolve_attach_from_sessions(
     options: &SessionAttachOptions,
     sessions: &[ListedSession],
@@ -187,6 +194,7 @@ pub fn resolve_attach_from_sessions(
     }
 }
 
+#[cfg(unix)]
 pub fn run_session_command(command: SessionCliCommand) -> AnyResult<String> {
     match command {
         SessionCliCommand::NewDetached(options) => run_new_detached(options),
@@ -196,6 +204,7 @@ pub fn run_session_command(command: SessionCliCommand) -> AnyResult<String> {
     }
 }
 
+#[cfg(unix)]
 pub fn list_sessions_output(sessions: &[ListedSession]) -> String {
     let mut out = String::new();
     for session in sessions {
@@ -205,6 +214,7 @@ pub fn list_sessions_output(sessions: &[ListedSession]) -> String {
     out
 }
 
+#[cfg(unix)]
 fn format_listed_session(session: &ListedSession) -> String {
     let label = display_field_value(if session.name == session.id {
         &session.id
@@ -227,6 +237,7 @@ fn format_listed_session(session: &ListedSession) -> String {
     }
 }
 
+#[cfg(unix)]
 fn humanize_age_ms(age_ms: u128) -> String {
     if age_ms < 1_000 {
         return format!("{age_ms}ms");
@@ -246,6 +257,7 @@ fn humanize_age_ms(age_ms: u128) -> String {
     format!("{}d", hours / 24)
 }
 
+#[cfg(unix)]
 fn display_field_value(value: &str) -> String {
     value
         .chars()
@@ -304,10 +316,12 @@ fn parse_session_new(args: &[String]) -> Result<DetachedSessionOptions, String> 
     Ok(options)
 }
 
+#[cfg(unix)]
 fn run_new_detached(options: DetachedSessionOptions) -> AnyResult<String> {
     run_new_detached_with_spawner(options, |config| spawn_host_on_demand(config).map(|_| ()))
 }
 
+#[cfg(unix)]
 pub fn run_new_detached_with_spawner(
     options: DetachedSessionOptions,
     spawner: impl FnOnce(&HostConfig) -> AnyResult<()>,
@@ -337,6 +351,7 @@ pub fn run_new_detached_with_spawner(
     Ok(format!("id={session_id}\n"))
 }
 
+#[cfg(unix)]
 fn run_attach_diagnostic(options: SessionAttachOptions) -> AnyResult<String> {
     let Some(runtime_dir) = existing_runtime_dir(options.runtime_base.as_deref())? else {
         bail!("session not found: {}", options.id);
@@ -359,6 +374,7 @@ fn run_attach_diagnostic(options: SessionAttachOptions) -> AnyResult<String> {
     ))
 }
 
+#[cfg(unix)]
 fn read_attach_snapshot(client: &mut SessionHostClient) -> AnyResult<Vec<u8>> {
     for _ in 0..40 {
         if let Some(frame) = client.read_frame(Duration::from_millis(50))? {
@@ -373,6 +389,7 @@ fn read_attach_snapshot(client: &mut SessionHostClient) -> AnyResult<Vec<u8>> {
     bail!("session attach timed out before snapshot")
 }
 
+#[cfg(unix)]
 fn generate_session_id() -> String {
     format!("s-{}-{}", std::process::id(), now_unix_ms())
 }
@@ -706,6 +723,7 @@ fn bool_value(value: bool) -> &'static str {
     if value { "on" } else { "off" }
 }
 
+#[cfg(unix)]
 fn cli_field_value(value: &str) -> String {
     let mut out = String::new();
     for ch in value.chars() {

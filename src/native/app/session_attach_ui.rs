@@ -25,7 +25,13 @@ impl App {
         if self.search.is_open() {
             self.close_search(true);
         }
+        // The live detached-session list comes from the Unix-only session-host
+        // registry; on Windows there are no detached sessions, so the overlay
+        // opens with an empty list and shows its "no live sessions" hint.
+        #[cfg(unix)]
         let entries = crate::session_host::list_live_sessions(None).unwrap_or_default();
+        #[cfg(not(unix))]
+        let entries: Vec<crate::session_host::ListedSession> = Vec::new();
         self.reset_pointer_state_for_overlay();
         self.overlay.open_session_attach(entries);
         self.request_selection_redraw();

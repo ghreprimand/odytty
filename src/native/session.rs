@@ -2,6 +2,8 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::ops::{Deref, DerefMut};
+// `Path` is only referenced by the Unix-only attach-by-id methods below.
+#[cfg(unix)]
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -24,6 +26,7 @@ use winit::event_loop::EventLoopProxy;
 use super::app::{
     CursorBlinkState, HintsUi, SessionScrollAnimState, SynchronizedOutputHold, TabBarSource,
 };
+#[cfg(unix)]
 use super::attach::{AttachClient, attach_input_writer, resolve_session_socket, spawn_attach_pump};
 use super::copy_mode::CopyModeState;
 use super::layout::{
@@ -54,7 +57,10 @@ pub(super) enum SessionSource {
     Local { pty: Arc<Mutex<PtySession>> },
     /// Attached to a detached session-host over a per-user unix socket. The
     /// client is shared with the input writer so input/resize/detach serialize
-    /// through one socket lock.
+    /// through one socket lock. Unix-only: the detached session-host transport is
+    /// `#[cfg(unix)]`, so on Windows a session is always `Local` and every match
+    /// on this enum is exhaustive with the `Local` arm alone.
+    #[cfg(unix)]
     Attached { client: Arc<Mutex<AttachClient>> },
 }
 
@@ -206,7 +212,9 @@ impl Session {
 
     /// Construct an attached (session-host-backed) session. Input flows through
     /// `writer` (an [`AttachInputWriter`](super::attach::AttachInputWriter)); the
-    /// `client` backs resize/detach.
+    /// `client` backs resize/detach. Unix-only (the session-host transport is
+    /// `#[cfg(unix)]`).
+    #[cfg(unix)]
     pub(super) fn new_attached(
         id: SessionToken,
         terminal: Arc<Mutex<Terminal>>,
@@ -335,6 +343,7 @@ impl Session {
     pub(super) fn local_pty(&self) -> Option<&Arc<Mutex<PtySession>>> {
         match &self.source {
             SessionSource::Local { pty } => Some(pty),
+            #[cfg(unix)]
             SessionSource::Attached { .. } => None,
         }
     }
@@ -348,6 +357,7 @@ impl Session {
             SessionSource::Local { pty } => pty
                 .lock()
                 .is_ok_and(|pty| pty.foreground_job() == ForegroundJob::Running),
+            #[cfg(unix)]
             SessionSource::Attached { .. } => false,
         }
     }
@@ -363,6 +373,7 @@ impl Session {
             // Closing an attached tab is a clean detach: the host keeps the PTY
             // + terminal model alive for later reattach by id. (`Drop` on the
             // client is the backstop; this makes the intent explicit.)
+            #[cfg(unix)]
             SessionSource::Attached { client } => {
                 if let Ok(mut client) = client.lock() {
                     let _ = client.detach();
@@ -393,6 +404,7 @@ impl Session {
             }
             // The host child already exited (or the link dropped). Detach is
             // best-effort and the pump thread is ending on its own; reap it.
+            #[cfg(unix)]
             SessionSource::Attached { client } => {
                 if let Ok(mut client) = client.lock() {
                     let _ = client.detach();
@@ -791,6 +803,7 @@ impl TabSet {
                             let _ = pty.resize(crate::core::Dimensions::new(cols, rows));
                         }
                     }
+                    #[cfg(unix)]
                     SessionSource::Attached { client } => {
                         if let Ok(mut client) = client.lock() {
                             let _ = client.resize(cols as u32, rows as u32);
@@ -976,6 +989,7 @@ impl TabSet {
     /// writer forwards to the same socket. `runtime_base` is `None` in
     /// production; tests pass an explicit base. The new tab is appended and not
     /// focused here (the caller switches to it), matching `spawn`.
+    #[cfg(unix)]
     pub(super) fn attach_in_new_tab(
         &mut self,
         runtime_base: Option<&Path>,
@@ -996,6 +1010,7 @@ impl TabSet {
     /// tab. Shared by production [`Self::attach_in_new_tab`] (sink = winit proxy)
     /// and the headless test seam (sink = channel), so the present/repaint path is
     /// exercisable without an event loop.
+    #[cfg(unix)]
     fn insert_attached_session(
         &mut self,
         socket: &Path,
@@ -1033,7 +1048,7 @@ impl TabSet {
     /// socket (CLI parity) and presents an attached tab driven by a caller-
     /// provided sink, so the full resolve → connect → restore → present flow is
     /// testable without a winit event loop.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(in crate::native) fn attach_in_new_tab_for_test(
         &mut self,
         runtime_base: Option<&Path>,

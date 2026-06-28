@@ -21,8 +21,12 @@
 //! close-original. A spawn or attach failure surfaces a transient
 //! [`super::open_notice::OpenNotice`] and leaves the original pane untouched.
 
+#[cfg(unix)]
 use std::path::PathBuf;
 
+// The managed-session spawn path uses the Unix-only session-host; on Windows the
+// Detach & switch action is stubbed to a transient "not supported" notice.
+#[cfg(unix)]
 use crate::session_host::{
     HostCommand, HostConfig, SessionMetadata, now_unix_ms, spawn_host_on_demand,
     write_session_metadata,
@@ -54,19 +58,34 @@ impl App {
 
     /// "Swap": spawn a managed session in `cwd`, attach + focus it, then close
     /// the original focused pane. Emitted by the dialog's `[S]` choice.
+    /// Unix-only orchestration; on Windows it raises a "not supported" notice.
     pub(in crate::native) fn detach_switch_swap(&mut self, cwd: String) {
+        #[cfg(unix)]
         self.detach_switch(cwd, true);
+        #[cfg(not(unix))]
+        {
+            let _ = cwd;
+            self.raise_open_notice("Detach & switch is not supported on Windows yet.".to_owned());
+        }
     }
 
     /// "Keep both": spawn a managed session in `cwd`, attach + focus it, and
     /// leave the original pane untouched. Emitted by the dialog's `[K]` choice.
+    /// Unix-only orchestration; on Windows it raises a "not supported" notice.
     pub(in crate::native) fn detach_switch_keep_both(&mut self, cwd: String) {
+        #[cfg(unix)]
         self.detach_switch(cwd, false);
+        #[cfg(not(unix))]
+        {
+            let _ = cwd;
+            self.raise_open_notice("Detach & switch is not supported on Windows yet.".to_owned());
+        }
     }
 
     /// Production entry: spawn through the real `spawn_host_on_demand` and run
     /// the swap/keep orchestration. `cwd` is empty when unknown (spawn in the
     /// default directory). Mapped to the testable [`Self::detach_switch_with_spawner`].
+    #[cfg(unix)]
     fn detach_switch(&mut self, cwd: String, swap: bool) {
         let working_directory = (!cwd.is_empty()).then(|| PathBuf::from(cwd));
         self.detach_switch_with_spawner(working_directory, None, swap, |config| {
@@ -83,6 +102,7 @@ impl App {
     /// just that pane). Any spawn/attach failure surfaces a transient notice and
     /// leaves the original pane untouched. `spawner` is a seam so tests can force
     /// a failure without spawning a real host process.
+    #[cfg(unix)]
     fn detach_switch_with_spawner(
         &mut self,
         working_directory: Option<PathBuf>,
@@ -140,6 +160,7 @@ impl App {
     /// the manager, and spawn it via `spawner`. Returns the new session id on a
     /// successful spawn. Metadata write is best-effort (the row falls back to the
     /// id); only a spawn failure is fatal.
+    #[cfg(unix)]
     fn spawn_managed_session(
         &mut self,
         working_directory: Option<PathBuf>,
@@ -166,7 +187,7 @@ impl App {
     /// Test seam: drive the full Detach & switch orchestration with a spawner
     /// that always fails, so the failure guard (notice raised + original pane
     /// untouched, nothing attached) is exercisable without a real host process.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(in crate::native) fn detach_switch_spawn_failure_for_test(&mut self, swap: bool) {
         self.detach_switch_with_spawner(
             Some(PathBuf::from("/home/user/proj")),

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use anyhow::Result;
+#[cfg(unix)]
 use odytty::app::run_interactive;
 use odytty::core::Terminal;
 use odytty::native::run_native;
@@ -36,40 +37,67 @@ fn main() -> Result<()> {
     }
 
     if args.first().map(String::as_str) == Some("session-host") {
-        return odytty::session_host::run_internal_host_from_args(&args[1..]);
+        #[cfg(unix)]
+        {
+            return odytty::session_host::run_internal_host_from_args(&args[1..]);
+        }
+        #[cfg(not(unix))]
+        {
+            anyhow::bail!("session-host is not supported on Windows yet");
+        }
     }
 
+    // Session subcommand PARSING is cross-platform (stable `--help`/usage), but
+    // the detached-session EXECUTION path (host/attach over Unix sockets) is
+    // Unix-only — on Windows the parsed command is rejected with a clean message
+    // rather than panicking or silently no-opping.
     if let Some(command) =
         cli::session_command_for_args(&args).map_err(|err| anyhow::anyhow!(err))?
     {
-        // Live `odytty attach <id>` opens a native window reattached to the
-        // hosted session (the operator-chosen v0.3.0 behavior). Every other
-        // session subcommand — including `attach --diagnostic` — stays CLI-only.
-        if let Some(session_id) = command.live_attach_id() {
-            let settings = Settings::from_env();
-            let options = cli::native_attach_options(session_id, &settings);
-            run_native(options, settings)?;
-            return Ok(());
-        }
-        if let cli::SessionCliCommand::Attach(options) = &command {
-            match cli::resolve_attach(options)? {
-                cli::AttachAction::LiveWindow(session_id) => {
-                    let settings = Settings::from_env();
-                    let options = cli::native_attach_options(&session_id, &settings);
-                    run_native(options, settings)?;
-                }
-                cli::AttachAction::PrintCli(output) => {
-                    print!("{output}");
-                }
+        #[cfg(unix)]
+        {
+            // Live `odytty attach <id>` opens a native window reattached to the
+            // hosted session (the operator-chosen v0.3.0 behavior). Every other
+            // session subcommand — including `attach --diagnostic` — stays
+            // CLI-only.
+            if let Some(session_id) = command.live_attach_id() {
+                let settings = Settings::from_env();
+                let options = cli::native_attach_options(session_id, &settings);
+                run_native(options, settings)?;
+                return Ok(());
             }
+            if let cli::SessionCliCommand::Attach(options) = &command {
+                match cli::resolve_attach(options)? {
+                    cli::AttachAction::LiveWindow(session_id) => {
+                        let settings = Settings::from_env();
+                        let options = cli::native_attach_options(&session_id, &settings);
+                        run_native(options, settings)?;
+                    }
+                    cli::AttachAction::PrintCli(output) => {
+                        print!("{output}");
+                    }
+                }
+                return Ok(());
+            }
+            print!("{}", cli::run_session_command(command)?);
             return Ok(());
         }
-        print!("{}", cli::run_session_command(command)?);
-        return Ok(());
+        #[cfg(not(unix))]
+        {
+            let _ = command;
+            anyhow::bail!("resumable sessions are not supported on Windows yet");
+        }
     }
 
     if args.first().map(String::as_str) == Some("--interactive") {
-        return run_interactive();
+        #[cfg(unix)]
+        {
+            return run_interactive();
+        }
+        #[cfg(not(unix))]
+        {
+            anyhow::bail!("--interactive is not supported on Windows yet");
+        }
     }
 
     let settings = Settings::from_env();

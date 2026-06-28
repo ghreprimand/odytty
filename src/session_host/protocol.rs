@@ -11,6 +11,23 @@ pub const HOST_PROTOCOL_VERSION: u16 = 1;
 pub const MAX_HANDSHAKE_STRING: usize = 4096;
 pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 
+/// A live detached session as surfaced to the attach overlay and the `list`
+/// CLI. This is a **pure data type** with no platform dependency, so it lives in
+/// `protocol` (always compiled) rather than in `registry` (Unix-only): the
+/// always-compiled attach overlay (`SessionAttachOverlay`) holds a
+/// `Vec<ListedSession>`, which on Windows is simply always empty (the Unix-only
+/// `registry::list_live_sessions` is the only producer). Keeping the type here
+/// lets the overlay and the `list` formatter compile cross-platform while the
+/// socket-backed data source stays `#[cfg(unix)]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedSession {
+    pub id: String,
+    pub name: String,
+    pub state: &'static str,
+    pub age_ms: u128,
+    pub pane_count: usize,
+}
+
 #[derive(Debug)]
 pub enum ProtocolError {
     Io(io::Error),

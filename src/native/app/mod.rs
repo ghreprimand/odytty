@@ -624,6 +624,7 @@ impl App {
     /// host snapshot is untouched. The next resize reconciles the mirror to this
     /// window's dimensions (a `Resize` frame to the host). `runtime_base` is
     /// `None` in production (derived from `XDG_RUNTIME_DIR`); tests pass a base.
+    #[cfg(unix)]
     pub(in crate::native) fn attach_session_in_new_tab(
         &mut self,
         runtime_base: Option<&Path>,
@@ -652,6 +653,22 @@ impl App {
         let _ = self.sessions.switch(token);
         self.on_active_session_changed();
         Ok(())
+    }
+
+    /// Windows stub: the detached session-host (Unix-domain socket transport) is
+    /// not available, so attach-by-id is rejected cleanly. Callers already treat
+    /// an `Err` as "attach failed" (surface a notice / leave panes untouched), so
+    /// the overlay-outcome paths and the startup `attach_session` hook stay
+    /// well-behaved on Windows without panicking.
+    #[cfg(not(unix))]
+    pub(in crate::native) fn attach_session_in_new_tab(
+        &mut self,
+        _runtime_base: Option<&Path>,
+        _session_id: &str,
+    ) -> std::io::Result<()> {
+        Err(std::io::Error::other(
+            "resumable sessions are not supported on Windows yet",
+        ))
     }
 
     /// Route an accepted session from the Attach-Session overlay (Phase 14).

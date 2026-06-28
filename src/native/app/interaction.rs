@@ -308,7 +308,13 @@ impl App {
             // already closed itself before emitting this.
             OverlayOutcome::KillSessionConfirmed(id) => {
                 self.flush_pending_overlay_settings();
+                // Killing a detached session goes through the Unix-only
+                // session-host registry; on Windows there are no detached
+                // sessions, so this is a no-op (the overlay still refreshes).
+                #[cfg(unix)]
                 let _ = crate::session_host::kill_session(None, &id);
+                #[cfg(not(unix))]
+                let _ = &id;
                 self.open_session_attach_overlay();
             }
             // Packet 2: "Detach & switch" was chosen on the focused pane. The

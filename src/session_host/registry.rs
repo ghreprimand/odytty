@@ -10,6 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 
 use super::SessionHostClient;
+use super::protocol::ListedSession;
 use super::socket::{
     existing_runtime_dir, session_id_from_socket_name, session_metadata_path, session_socket_path,
 };
@@ -21,15 +22,6 @@ pub struct SessionMetadata {
     pub id: String,
     pub name: String,
     pub created_unix_ms: u128,
-    pub pane_count: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ListedSession {
-    pub id: String,
-    pub name: String,
-    pub state: &'static str,
-    pub age_ms: u128,
     pub pane_count: usize,
 }
 

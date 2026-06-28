@@ -50,6 +50,9 @@
 
 mod about;
 mod app;
+// The attach client (Unix-domain socket transport to a detached session-host)
+// is Unix-only; the attach overlay UI stays cross-platform with an empty list.
+#[cfg(unix)]
 mod attach;
 mod bindings;
 mod clipboard;

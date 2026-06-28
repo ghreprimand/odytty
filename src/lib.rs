@@ -1,4 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
+// `app` is a POSIX module top-to-bottom (module-level `rustix::termios` /
+// `std::os::fd` imports for the `--interactive` headless raw-mode path), so it
+// is Unix-only. The native windowed terminal does not depend on it.
+#[cfg(unix)]
 pub mod app;
 pub mod atlas;
 pub mod boxdraw;
