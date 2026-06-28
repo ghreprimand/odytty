@@ -599,6 +599,7 @@ pub fn font_search_dirs() -> Vec<PathBuf> {
         PathBuf::from("/usr/share/fonts"),
         PathBuf::from("/usr/local/share/fonts"),
     ];
+    #[cfg(not(windows))]
     if let Some(home) = std::env::var_os("HOME") {
         let home = PathBuf::from(home);
         #[cfg(target_os = "macos")]

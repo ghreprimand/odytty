@@ -65,6 +65,7 @@ pub(super) enum TransportError {
     /// Path is outside the allowed temp directory set.
     PathNotAllowed,
     /// Path is a symlink (O_NOFOLLOW enforcement).
+    #[cfg_attr(not(unix), allow(dead_code))]
     SymlinkRejected,
     /// File open / read failed.
     IoError(String),
@@ -114,10 +115,10 @@ fn allowed_temp_dirs() -> Vec<PathBuf> {
     }
 
     #[cfg(windows)]
-    if let Ok(canonical) = std::fs::canonicalize(std::env::temp_dir()) {
-        if !dirs.contains(&canonical) {
-            dirs.push(canonical);
-        }
+    if let Ok(canonical) = std::fs::canonicalize(std::env::temp_dir())
+        && !dirs.contains(&canonical)
+    {
+        dirs.push(canonical);
     }
 
     dirs

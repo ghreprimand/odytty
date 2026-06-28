@@ -378,6 +378,7 @@ fn default_emoji_font_dirs() -> Vec<PathBuf> {
         PathBuf::from("/usr/share/fonts"),
         PathBuf::from("/usr/local/share/fonts"),
     ];
+    #[cfg(not(windows))]
     if let Some(home) = std::env::var_os("HOME") {
         let home = PathBuf::from(home);
         #[cfg(target_os = "macos")]

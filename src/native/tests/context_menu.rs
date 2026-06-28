@@ -1097,6 +1097,7 @@ fn clicking_detach_switch_opens_the_choice_dialog() {
 /// transient notice and leaves the original pane untouched — never close the
 /// original before the new managed session is confirmed live.
 #[test]
+#[cfg(unix)]
 fn detach_switch_spawn_failure_raises_notice_and_keeps_panes() {
     let Some((mut app, _terminal)) = app_for_test() else {
         eprintln!("skipping: no PTY available");

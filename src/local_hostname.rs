@@ -2,6 +2,7 @@
 //! Small front-end helper for acquiring the local hostname once and injecting it
 //! into the terminal core. The core remains syscall-free and deterministic.
 
+#[cfg(unix)]
 const HOSTNAME_BUF_LEN: usize = 256;
 
 /// Return the local hostname reported by the operating system, or `None` when
@@ -31,12 +32,11 @@ fn get_impl() -> Option<String> {
     None
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
     #[test]
-    #[cfg(unix)]
     fn hostname_helper_returns_non_empty_host() {
         let host = get().expect("local hostname");
         assert!(!host.trim().is_empty());

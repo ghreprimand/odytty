@@ -236,6 +236,7 @@ impl Session {
         session
     }
 
+    #[cfg(any(test, unix))]
     fn from_parts(
         id: SessionToken,
         terminal: Arc<Mutex<Terminal>>,
