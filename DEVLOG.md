@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- Windows: inherit the environment so the shell stops dying at startup
+
+The console-release fix removed the host's own console error but on-device the
+shell child still exited immediately with `0xC0000142`
+(`STATUS_DLL_INIT_FAILED`) — now caught and named by the diagnostic added in the
+previous entry instead of failing silently. A decisive cross-check: Windows
+Terminal launches cmd/PowerShell fine on the same machine over the identical
+ConPTY API, so ConPTY, cmd.exe, and the machine are healthy — the fault was ours.
+
+Root cause: `spawn_command` built its own `CREATE_UNICODE_ENVIRONMENT` block from
+`std::env::vars_os()`. That iterator silently drops the loader-critical hidden
+drive variables (the per-drive `=C:` working-directory vars and the leading
+`=::=::\` marker) because their keys are empty or contain `=`. A child whose
+environment is missing those entries fails DLL initialization with `0xC0000142` —
+exactly the observed symptom.
+
+Fix (all `#[cfg(windows)]`-gated; Linux/macOS byte-identical, suite unchanged at
+2578 passed):
+
+- `spawn_command` now passes `lpEnvironment = NULL` and drops
+  `CREATE_UNICODE_ENVIRONMENT`, so the child inherits this process's full,
+  loader-correct environment block — matching Microsoft's canonical ConPTY
+  sample (EchoCon) and Windows Terminal.
+- The only overrides OdyTTY sets are the constant terminal-identification vars
+  (`TERM`/`COLORTERM`/`TERM_PROGRAM`/`TERM_PROGRAM_VERSION`); they are now
+  published onto this process via `SetEnvironmentVariableW` before the spawn, so
+  the inherited block carries them. No per-session environment exists in the
+  tree, so this is idempotent.
+- The hand-built block path (`build_env_block` + helper and their two
+  Windows-only tests) is removed, deleting the whole failure class.
+
+This is the second unreleased Windows fix on top of `v0.6.2`; the version is cut
+only once a working shell prompt is confirmed on real hardware. The
+`windows-latest` CI leg continues to upload the built `odytty.exe` as a
+downloadable run artifact for that on-device check.
+
 ## 2026-06-28 -- Windows: release the inherited console so the shell can start
 
 First on-device test of the v0.6.2 Windows build surfaced a real ConPTY defect
