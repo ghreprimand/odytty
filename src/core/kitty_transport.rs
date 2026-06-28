@@ -185,6 +185,7 @@ pub(super) fn read_temp_transport(
 /// must contain no path separators — it is passed directly to `shm_open`.
 ///
 /// `max_read` is the maximum bytes to read.
+#[cfg(unix)]
 pub(super) fn read_shm_transport(
     raw_name: &[u8],
     max_read: usize,
@@ -239,6 +240,20 @@ pub(super) fn read_shm_transport(
     result
 }
 
+/// POSIX shared-memory transport (t=s) is unavailable on non-Unix platforms:
+/// `shm_open`/`mmap` have no portable analogue. Returns a transport error so
+/// the call site emits the standard Kitty failure response; the caller only
+/// reads [`TransportError::kitty_message`], never matches the variant.
+#[cfg(not(unix))]
+pub(super) fn read_shm_transport(
+    _raw_name: &[u8],
+    _max_read: usize,
+) -> Result<Vec<u8>, TransportError> {
+    Err(TransportError::ShmError(
+        "shm transport unsupported on this platform".into(),
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -270,11 +285,14 @@ fn read_regular_file(path: &Path, max_read: usize) -> Result<Vec<u8>, TransportE
     opts.custom_flags(libc::O_NOFOLLOW);
 
     let file = opts.open(path).map_err(|e| {
+        // O_NOFOLLOW symlink rejection surfaces as ELOOP on Unix; the flag and
+        // this classification are both Unix-only. Off Unix the open simply
+        // succeeds or fails as a plain I/O error.
+        #[cfg(unix)]
         if e.raw_os_error() == Some(libc::ELOOP) {
-            TransportError::SymlinkRejected
-        } else {
-            TransportError::IoError(format!("open: {e}"))
+            return TransportError::SymlinkRejected;
         }
+        TransportError::IoError(format!("open: {e}"))
     })?;
 
     // Check size before reading to avoid allocating for huge files.
@@ -306,6 +324,7 @@ fn read_regular_file(path: &Path, max_read: usize) -> Result<Vec<u8>, TransportE
 /// segment. The DoS byte cap is enforced *before* mapping: a segment larger
 /// than the cap is rejected outright, so we never map (or copy) more than the
 /// cap's worth of bytes.
+#[cfg(unix)]
 fn read_fd_via_mmap(fd: i32, max_read: usize) -> Result<Vec<u8>, TransportError> {
     let cap = max_read.min(MAX_TRANSPORT_READ_BYTES);
 

@@ -1,4 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
+//! POSIX PTY backend for [`crate::pty`].
+//!
+//! Implements [`PtySession`] over a rustix-managed master/slave pair with
+//! `setsid`/`TIOCSCTTY` controlling-terminal setup and process-group
+//! signalling. Selected via `#[cfg(unix)]` from the parent module, which also
+//! owns the platform-neutral [`CommandBuilder`]/[`ForegroundJob`] contract this
+//! backend builds on.
 use std::env;
 use std::ffi::OsString;
 use std::fs::File;
@@ -6,7 +13,7 @@ use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Child, ExitStatus, Stdio};
 
 use anyhow::{Context, Result, bail};
 use rustix::fd::AsFd;
@@ -16,31 +23,8 @@ use rustix::pty::ioctl_tiocgptpeer;
 use rustix::pty::{OpenptFlags, grantpt, openpt, unlockpt};
 use rustix::termios::{Winsize, tcgetpgrp, tcsetwinsize};
 
+use super::{CommandBuilder, ForegroundJob};
 use crate::core::Dimensions;
-
-/// Whether a foreground job — a process group on the controlling terminal other
-/// than the spawned shell itself — is currently running.
-///
-/// This is a *read-only* classification of the PTY master's foreground process
-/// group versus the shell's own group. It never reaps, waits on, or otherwise
-/// mutates the child; it only inspects kernel-owned terminal state.
-///
-/// `Unknown` is the deliberate safe default: callers (e.g. a close-confirmation
-/// prompt) treat both `None` and `Unknown` as "safe to close, do not prompt",
-/// so a dead PTY, an exited child, or a query error never blocks a close and
-/// never panics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ForegroundJob {
-    /// The shell itself owns the terminal foreground — nothing would be lost on
-    /// close.
-    None,
-    /// A process group other than the shell owns the terminal foreground — a job
-    /// is running in the foreground.
-    Running,
-    /// The foreground could not be determined (PTY closed, child exited, no
-    /// foreground group, or the query errored). Treated as "safe to close".
-    Unknown,
-}
 
 /// Classify the terminal foreground group of `fd` against `shell_pgid`.
 ///
@@ -53,73 +37,6 @@ fn classify_foreground<Fd: AsFd>(fd: Fd, shell_pgid: RawPid) -> ForegroundJob {
         Ok(foreground) if foreground.as_raw_pid() == shell_pgid => ForegroundJob::None,
         Ok(_) => ForegroundJob::Running,
         Err(_) => ForegroundJob::Unknown,
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct CommandBuilder {
-    program: OsString,
-    args: Vec<OsString>,
-    env: Vec<(OsString, OsString)>,
-    current_dir: Option<PathBuf>,
-}
-
-impl CommandBuilder {
-    pub fn new(program: impl Into<OsString>) -> Self {
-        Self {
-            program: program.into(),
-            args: Vec::new(),
-            env: Vec::new(),
-            current_dir: None,
-        }
-    }
-
-    pub fn arg(&mut self, arg: impl Into<OsString>) -> &mut Self {
-        self.args.push(arg.into());
-        self
-    }
-
-    pub fn env(&mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> &mut Self {
-        self.env.push((key.into(), value.into()));
-        self
-    }
-
-    /// Apply the standard OdyTTY terminal environment to a spawned child:
-    /// `TERM`/`COLORTERM` (capability advertisement, unchanged from before) plus
-    /// `TERM_PROGRAM`/`TERM_PROGRAM_VERSION` for terminal self-identification.
-    ///
-    /// fastfetch's generic version fallback reads `TERM_PROGRAM_VERSION` and
-    /// shows it when the detected terminal process name starts with
-    /// `TERM_PROGRAM`, so the literal must be exactly `"odytty"` (lowercase) to
-    /// match the binary name. The version comes from `CARGO_PKG_VERSION` at
-    /// compile time, staying in lockstep with `Cargo.toml` (same source
-    /// `main.rs` uses).
-    ///
-    /// Centralized so every spawn path advertises an identical environment and
-    /// the four variables can never drift between call sites.
-    fn apply_terminal_env(&mut self) -> &mut Self {
-        self.env("TERM", "xterm-256color");
-        self.env("COLORTERM", "truecolor");
-        self.env("TERM_PROGRAM", "odytty");
-        self.env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
-        self
-    }
-
-    pub fn current_dir(&mut self, path: impl Into<PathBuf>) -> &mut Self {
-        self.current_dir = Some(path.into());
-        self
-    }
-
-    fn into_command(self) -> Command {
-        let mut command = Command::new(self.program);
-        command.args(self.args);
-        if let Some(path) = self.current_dir {
-            command.current_dir(path);
-        }
-        for (key, value) in self.env {
-            command.env(key, value);
-        }
-        command
     }
 }
 
@@ -361,7 +278,7 @@ fn open_pty_slave<Fd: AsFd>(master: Fd, flags: OpenptFlags) -> Result<rustix::fd
     ioctl_tiocgptpeer(master, flags).context("open pty slave (TIOCGPTPEER)")
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(unix, not(target_os = "linux")))]
 fn open_pty_slave<Fd: AsFd>(master: Fd, _flags: OpenptFlags) -> Result<rustix::fd::OwnedFd> {
     use rustix::fs::{Mode, OFlags, open};
     use rustix::pty::ptsname;

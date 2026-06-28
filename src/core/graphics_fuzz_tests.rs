@@ -732,6 +732,10 @@ fn run_mixed_stream(iters: u64) {
 // Self-created-shm probe (deep tier only; creates + unlinks its own segment)
 // ---------------------------------------------------------------------------
 
+// POSIX shared memory (`shm_open`/`ftruncate`/`shm_unlink`) is Unix-only; the
+// self-roundtrip fixture is gated so the non-Unix test build carries no
+// ungated `libc` reference.
+#[cfg(unix)]
 #[test]
 #[ignore = "deep tier; creates and unlinks its own /dev/shm segment"]
 fn graphics_fuzz_self_shm_roundtrip_deep() {

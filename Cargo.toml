@@ -36,10 +36,8 @@ anyhow = "1.0.102"
 arboard = { version = "3.6.1", features = ["wayland-data-control"] }
 bytemuck = { version = "1.25.0", features = ["derive"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
-libc = "0.2.178"
 png = "0.18.1"
 pollster = "0.4.0"
-rustix = { version = "1.1.4", features = ["pty", "termios", "process"] }
 swash = "0.2.9"
 thiserror = "2.0.18"
 # Read-only access to font name/metadata tables (real family name, OS/2 weight,
@@ -52,6 +50,15 @@ tracing-subscriber = "0.3.23"
 unicode-width = "0.2.2"
 wgpu = "29.0.3"
 winit = "0.30.13"
+
+# POSIX-only dependencies. `libc` and `rustix` back the Unix PTY/termios layer
+# (`src/pty/unix.rs`) and the POSIX shared-memory Kitty transport; both are
+# gated `#[cfg(unix)]` in source, so they are pulled only on Unix targets and a
+# Windows build never sees them. Keep entries here in lockstep with the
+# `#[cfg(unix)]` gating that makes them reachable.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.178"
+rustix = { version = "1.1.4", features = ["pty", "termios", "process"] }
 
 # Windows port bring-up: the `windows` crate is added here with the required
 # Win32 feature set when the ConPTY backend lands.

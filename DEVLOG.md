@@ -7,6 +7,54 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- PTY backend split + Kitty transport gating (pure refactor)
+
+A behavior-preserving reorganization that localizes the POSIX-specific PTY and
+Kitty shared-memory code behind `#[cfg(unix)]`, so non-Unix builds carry no
+ungated `libc`/`rustix` reference. Linux/macOS behavior is byte-identical — this
+is purely a move plus compile-gating, valuable on its own regardless of the
+broader port.
+
+What landed:
+
+- **`src/pty.rs` → `src/pty/mod.rs` + `src/pty/unix.rs`.** The platform-neutral
+  contract (`ForegroundJob`, `CommandBuilder`) now lives in `mod.rs`; the POSIX
+  `PtySession` implementation, `PtyReader`, `classify_foreground`, `winsize`,
+  the `pub(crate)` `open_pty_pair`, and the PTY test module move to the
+  `#[cfg(unix)]` backend `unix.rs`. `mod.rs` re-exports `PtySession` and
+  `open_pty_pair`, so all `crate::pty::…` call sites compile unchanged — no
+  importer edits anywhere.
+- **`open_pty_slave` predicate fix:** the non-Linux slave-open arm was keyed on
+  `not(target_os = "linux")`, which also matched Windows; it is now
+  `all(unix, not(target_os = "linux"))`, so the rustix `ptsname` path can never
+  be selected off Unix.
+- **`src/core/kitty_transport.rs` split:** the POSIX shared-memory reader
+  (`read_shm_transport`) and its `mmap` helper (`read_fd_via_mmap`) are gated
+  `#[cfg(unix)]`, with a `#[cfg(not(unix))]` `read_shm_transport` stub returning
+  a transport error (the caller only reads `kitty_message()`). The previously
+  ungated `O_NOFOLLOW`/`ELOOP` symlink-rejection check is now `#[cfg(unix)]`. The
+  pure path-validation surface (`TransportError`, `kitty_message`,
+  `allowed_temp_dirs`, `validate_path`, `path_from_bytes`, `read_file_transport`,
+  `read_temp_transport`) stays ungated.
+- **Test gating:** `kitty_transport_tests` (all-`libc`) is now
+  `#[cfg(all(test, unix))]`; the single `libc`-using fuzz fixture
+  (`graphics_fuzz_self_shm_roundtrip_deep`) is `#[cfg(unix)]`.
+- **Manifest:** with the above in place, `libc` and `rustix` move from
+  `[dependencies]` to a new `[target.'cfg(unix)'.dependencies]` table, so a
+  Windows target never pulls them. The dependency graph on Unix hosts is
+  unchanged (`Cargo.lock` untouched); the gate-before-move ordering keeps every
+  intermediate state compiling.
+
+Verified locally on Linux: `cargo fmt --check`, `cargo build --release --locked`,
+`cargo clippy --all-targets --locked -- -D warnings`, and `cargo test --locked`
+all green. The moved `pty::unix::tests::*` and `kitty_transport_tests::*` run and
+pass at their new paths; full suite has zero failures.
+
+Known gap: other POSIX subsystems still carry ungated `libc`/`rustix` by design
+this packet — `app.rs` (whole-module gate) and `session_host` (transport gate) —
+and remain follow-up work before a Windows build can compile. They build cleanly
+on Linux/macOS (both are `unix`).
+
 ## 2026-06-28 -- Windows CI bring-up scaffold
 
 The CI matrix now includes `windows-latest` alongside Ubuntu and macOS. The

@@ -43,7 +43,7 @@ mod graphics_tests;
 mod kitty_delete_tests;
 #[cfg(test)]
 mod kitty_tests;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod kitty_transport_tests;
 #[cfg(test)]
 mod parser_oracle_tests;
