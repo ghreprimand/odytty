@@ -44,11 +44,11 @@ use windows::Win32::Foundation::{
 use windows::Win32::System::Console::{
     COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
 };
+use windows::Win32::System::Environment::SetEnvironmentVariableW;
 use windows::Win32::System::Pipes::CreatePipe;
 use windows::Win32::System::Threading::{
-    CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
-    EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess, GetExitCodeProcess, INFINITE,
-    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
+    CreateProcessW, DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
+    GetExitCodeProcess, INFINITE, InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
     PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, PROCESS_INFORMATION, STARTUPINFOEXW, STARTUPINFOW,
     TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
 };
@@ -188,9 +188,27 @@ impl PtySession {
             };
 
             // 5. Command line (CreateProcessW may mutate it, so it must be a
-            //    mutable, NUL-terminated UTF-16 buffer), environment block, cwd.
+            //    mutable, NUL-terminated UTF-16 buffer) and cwd.
+            //
+            //    Environment: we pass `lpEnvironment = NULL` (no
+            //    `CREATE_UNICODE_ENVIRONMENT`) so the child INHERITS this
+            //    process's environment block, exactly like Microsoft's canonical
+            //    ConPTY sample (EchoCon) and Windows Terminal. A hand-built block
+            //    via Rust's `std::env::vars_os()` silently drops the loader-
+            //    critical hidden drive variables (the `=C:` per-drive cwd vars and
+            //    the leading `=::=::\` marker — their keys are empty / contain
+            //    `=`, so `vars_os()` filters them out), and a child whose env is
+            //    missing those fails DLL initialization with `0xC0000142`
+            //    (STATUS_DLL_INIT_FAILED) — the exact on-device symptom. Letting
+            //    Windows hand the child our inherited block avoids the whole class.
+            //
+            //    The only overrides OdyTTY sets are the constant terminal-
+            //    identification vars (TERM/COLORTERM/TERM_PROGRAM[_VERSION]); we
+            //    publish them onto THIS process before the spawn so the inherited
+            //    block carries them. They are process-lifetime constants, so this
+            //    is idempotent and safe (no per-session env exists in the tree).
+            apply_env_overrides_to_self(&command.env);
             let mut command_line = build_command_line(&command);
-            let env_block = build_env_block(&command.env);
             let cwd_wide = command
                 .current_dir
                 .as_ref()
@@ -202,15 +220,16 @@ impl PtySession {
 
             let mut process_info = PROCESS_INFORMATION::default();
             // 6. Spawn. The pseudoconsole is injected via the attribute list, not
-            //    handle inheritance, so `bInheritHandles` is false.
+            //    handle inheritance, so `bInheritHandles` is false. `lpEnvironment`
+            //    is NULL → inherit this process's environment (see note above).
             CreateProcessW(
                 PCWSTR::null(),
                 Some(PWSTR(command_line.as_mut_ptr())),
                 None,
                 None,
                 false,
-                EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
-                Some(env_block.as_ptr().cast::<c_void>()),
+                EXTENDED_STARTUPINFO_PRESENT,
+                None,
                 cwd,
                 (&startup as *const STARTUPINFOEXW).cast::<STARTUPINFOW>(),
                 &mut process_info,
@@ -568,58 +587,25 @@ fn append_arg(line: &mut Vec<u16>, arg: &OsStr) {
     line.push(QUOTE);
 }
 
-/// Build a `CREATE_UNICODE_ENVIRONMENT` block: the current process environment
-/// merged with the builder's overrides, keys deduplicated case-insensitively
-/// (Windows env semantics), sorted case-insensitively, encoded as
-/// `KEY=VALUE\0…\0\0`.
-fn build_env_block(overrides: &[(OsString, OsString)]) -> Vec<u16> {
-    // (upper-cased key, original key, value); insertion order tracked for
-    // case-insensitive replacement.
-    let mut entries: Vec<(Vec<u16>, Vec<u16>, Vec<u16>)> = Vec::new();
-
-    let mut upsert = |key: &OsStr, value: &OsStr| {
-        let key_wide: Vec<u16> = key.encode_wide().collect();
-        let key_upper: Vec<u16> = key_wide.iter().map(|&u| ascii_upper(u)).collect();
-        let value_wide: Vec<u16> = value.encode_wide().collect();
-        if let Some(slot) = entries.iter_mut().find(|(upper, ..)| *upper == key_upper) {
-            slot.2 = value_wide;
-        } else {
-            entries.push((key_upper, key_wide, value_wide));
-        }
-    };
-
-    for (key, value) in std::env::vars_os() {
-        upsert(&key, &value);
-    }
+/// Publish the builder's environment overrides onto THIS process via
+/// `SetEnvironmentVariableW`, so a child spawned with `lpEnvironment = NULL`
+/// inherits them on top of the full (loader-correct) Windows environment block.
+///
+/// This replaces the previous hand-built `CREATE_UNICODE_ENVIRONMENT` block,
+/// which dropped the hidden `=`-prefixed drive variables and produced
+/// `0xC0000142` (STATUS_DLL_INIT_FAILED) in the child. The only overrides
+/// OdyTTY sets are the constant terminal-identification vars, so mutating our
+/// own environment is idempotent and side-effect-free in practice.
+fn apply_env_overrides_to_self(overrides: &[(OsString, OsString)]) {
     for (key, value) in overrides {
-        upsert(key, value);
-    }
-
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let mut block: Vec<u16> = Vec::new();
-    for (_, key, value) in &entries {
-        // Skip malformed entries with an empty key (an `=VALUE` line would be
-        // rejected by the loader).
-        if key.is_empty() {
-            continue;
+        let key_wide = to_wide_nul(key);
+        let value_wide = to_wide_nul(value);
+        // SAFETY: both buffers are NUL-terminated UTF-16; a failed set is
+        // non-fatal (the child simply does not see that var), so the result is
+        // intentionally ignored.
+        unsafe {
+            let _ = SetEnvironmentVariableW(PCWSTR(key_wide.as_ptr()), PCWSTR(value_wide.as_ptr()));
         }
-        block.extend_from_slice(key);
-        block.push(b'=' as u16);
-        block.extend_from_slice(value);
-        block.push(0);
-    }
-    block.push(0);
-    block
-}
-
-/// ASCII-uppercase a single UTF-16 code unit, leaving non-ASCII units intact.
-/// Sufficient for Windows environment-key case folding, which is ASCII-based.
-fn ascii_upper(unit: u16) -> u16 {
-    if (b'a' as u16..=b'z' as u16).contains(&unit) {
-        unit - 32
-    } else {
-        unit
     }
 }
 
@@ -676,39 +662,5 @@ mod tests {
         assert_eq!(line.last(), Some(&0));
         let text = decode(&line[..line.len() - 1]);
         assert_eq!(text, "\"cmd.exe\" \"/C\" \"echo hi\"");
-    }
-
-    #[test]
-    fn env_block_is_double_nul_terminated_and_sorted() {
-        let overrides = vec![
-            (OsString::from("ZZZ_ODYTTY_TEST"), OsString::from("1")),
-            (OsString::from("AAA_ODYTTY_TEST"), OsString::from("2")),
-        ];
-        let block = build_env_block(&overrides);
-        // Ends in the double-NUL block terminator.
-        assert_eq!(block.last(), Some(&0));
-        let text = decode(&block);
-        assert!(text.contains("AAA_ODYTTY_TEST=2\0"));
-        assert!(text.contains("ZZZ_ODYTTY_TEST=1\0"));
-        // Case-insensitive sort places AAA before ZZZ.
-        let aaa = text.find("AAA_ODYTTY_TEST").expect("AAA present");
-        let zzz = text.find("ZZZ_ODYTTY_TEST").expect("ZZZ present");
-        assert!(aaa < zzz, "entries must be sorted by key");
-    }
-
-    #[test]
-    fn env_block_override_replaces_case_insensitively() {
-        // A lower-case override of an existing PATH-like key replaces rather
-        // than duplicating it.
-        let overrides = vec![
-            (OsString::from("ODYTTY_DUP_KEY"), OsString::from("first")),
-            (OsString::from("odytty_dup_key"), OsString::from("second")),
-        ];
-        let block = build_env_block(&overrides);
-        let text = decode(&block);
-        let count = text.matches("DUP_KEY").count() + text.matches("dup_key").count();
-        assert_eq!(count, 1, "case-insensitive keys must collapse to one entry");
-        assert!(text.contains("second"));
-        assert!(!text.contains("first"));
     }
 }
