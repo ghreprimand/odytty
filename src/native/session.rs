@@ -340,7 +340,10 @@ impl Session {
     /// Test-only seam (the production foreground-job query uses
     /// [`Self::foreground_job_running`]); the dimension test reads the concrete
     /// PTY through this, and an attached session has no local PTY.
-    #[cfg(test)]
+    ///
+    /// Both callers (the `#[cfg(unix)]` local-resize test and the
+    /// `#[cfg(all(test, unix))]` dimension seam) are Unix-only.
+    #[cfg(all(test, unix))]
     pub(super) fn local_pty(&self) -> Option<&Arc<Mutex<PtySession>>> {
         match &self.source {
             SessionSource::Local { pty } => Some(pty),

@@ -8,9 +8,15 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+// anyhow is used only by the Unix-only detached-session execution surface; the
+// cross-platform parsing below returns `Result<_, String>`.
+#[cfg(unix)]
 use anyhow::{Context, Result as AnyResult, bail};
 use odytty::atlas::SubpixelMode;
-use odytty::core::{CursorStyle, SnapshotEnvelope, SnapshotEnvelopeCaps};
+use odytty::core::CursorStyle;
+// The snapshot envelope is decoded only by the Unix-only attach diagnostic.
+#[cfg(unix)]
+use odytty::core::{SnapshotEnvelope, SnapshotEnvelopeCaps};
 use odytty::native::{NativeCommand, NativeOptions};
 // The detached-session execution surface (host/attach over Unix sockets) is
 // Unix-only; on Windows only the cross-platform PARSING below is compiled.
@@ -103,6 +109,10 @@ impl SessionCliCommand {
     /// instead of printing a script-friendly string, so `main` uses this to
     /// route `odytty attach <id>` to [`native_attach_options`] + the native run
     /// path rather than [`run_session_command`].
+    ///
+    /// Unix-only: live attach rides the session-host transport, which is
+    /// `#[cfg(unix)]`. The sole caller (`main`) is gated the same way.
+    #[cfg(unix)]
     pub fn live_attach_id(&self) -> Option<&str> {
         match self {
             SessionCliCommand::Attach(options) if !options.diagnostic && !options.id.is_empty() => {
@@ -400,6 +410,9 @@ fn generate_session_id() -> String {
 /// attach launch differs from a normal launch by the attach target alone: the
 /// window opens its normal initial local session and then reattaches the hosted
 /// session as a live, focused tab (the wiring proven by the session-host e2e).
+///
+/// Unix-only: the only callers are the `#[cfg(unix)]` live-attach arms in `main`.
+#[cfg(unix)]
 pub fn native_attach_options(id: &str, settings: &Settings) -> NativeOptions {
     NativeOptions {
         attach_session: Some(id.to_owned()),
