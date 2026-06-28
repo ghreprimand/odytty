@@ -1,18 +1,71 @@
-# Installing OdyTTY On Linux
+# Installing OdyTTY
 
 OdyTTY ships as a versioned release. Each release provides:
 
 - a git tag (`vX.Y.Z`) and source tarball;
 - a GitHub Release entry with `SHA256SUMS` for every artifact;
 - a best-effort x86_64 **AppImage** (one download for most Linux distributions);
+- an unsigned Windows x86_64 portable **zip**;
 - an **AUR** package (`odytty`) for Arch-family systems;
 - source-build instructions for Odyssey/LFS and other developer systems;
 - a desktop entry, AppStream metadata, and icon installed into Freedesktop
   locations.
 
-Pick by system: AppImage for a no-install single-file run, the AUR package on
-Arch-family systems, and a pacman-tracked source package on Odyssey itself so
-the install is versioned, owned, removable, and visible to Odyssey-Mon.
+Pick by system: Scoop or winget on Windows, AppImage for a no-install
+single-file Linux run, the AUR package on Arch-family systems, and a
+pacman-tracked source package on Odyssey itself so the install is versioned,
+owned, removable, and visible to Odyssey-Mon.
+
+## Windows
+
+The Windows release is an unsigned portable `odytty.exe` inside
+`odytty-windows-x86_64.zip`. Scoop and winget are the recommended install
+paths because they install from the release URL and avoid most direct-download
+SmartScreen friction.
+
+### Scoop
+
+After the first Windows release is published, add the in-repo bucket and
+install:
+
+```powershell
+scoop bucket add odytty https://github.com/ghreprimand/odytty
+scoop install odytty
+```
+
+The bucket manifest is `bucket/odytty.json`. It uses version-pinned release URLs
+and its autoupdate metadata resolves hashes from the release `SHA256SUMS` asset.
+
+### winget
+
+The staged winget manifests live under `packaging/winget/`. They become live
+only after a maintainer submits them to `microsoft/winget-pkgs` after the first
+Windows release, with `InstallerSha256` filled from `SHA256SUMS`.
+
+The proposed package identifier is `Odyssey.OdyTTY` and needs maintainer
+confirmation before submission:
+
+```powershell
+winget install Odyssey.OdyTTY
+```
+
+### Portable zip
+
+Download the always-latest zip alias and checksum file, verify the hash, and
+run the executable:
+
+```powershell
+Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/odytty-windows-x86_64.zip -OutFile odytty-windows-x86_64.zip
+Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS -OutFile SHA256SUMS
+Get-FileHash odytty-windows-x86_64.zip -Algorithm SHA256
+Expand-Archive odytty-windows-x86_64.zip -DestinationPath .\odytty
+.\odytty\odytty.exe
+```
+
+Compare the hash with the `odytty-windows-x86_64.zip` row in `SHA256SUMS`.
+Directly launching an unsigned `.exe` from a downloaded zip can trigger a
+SmartScreen warning. Detached/resumable session hosting is Unix-only in this
+release; the Windows build opens local ConPTY-backed tabs and panes.
 
 ## AppImage (x86_64)
 
@@ -189,7 +242,7 @@ installing each release under a versioned directory and pointing
 `~/.local/bin/odytty` at the selected version:
 
 ```sh
-version=0.4.0
+version=0.6.1
 cargo build --release --locked
 install -Dm755 target/release/odytty \
   "$HOME/.local/opt/odytty/$version/bin/odytty"
@@ -212,8 +265,8 @@ To roll back, repoint the symlink to an older directory under
 ## Odyssey/LFS Versioned Install
 
 Odyssey source builds are versioned by pacman, not by leaving build products in
-the source tree. A release tag such as `v0.4.0` should be archived into
-`/sources/odytty-0.4.0.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
+the source tree. A release tag such as `v0.6.1` should be archived into
+`/sources/odytty-0.6.1.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
 with `odyssey-build`.
 
 Example PKGBUILD:
@@ -221,7 +274,7 @@ Example PKGBUILD:
 ```bash
 # Maintainer: Unfinished Works <maintainers@odytty.unfinished-works.com>
 pkgname=odytty
-pkgver=0.4.0
+pkgver=0.6.1
 pkgrel=1
 pkgdesc="GPU-rendered Rust terminal emulator with an Odyssey visual identity"
 arch=('x86_64')
@@ -388,6 +441,9 @@ For an upstream release that avoids maintaining many distro-specific packages:
 - create a GitHub Release for the tag so package monitors can track upstream
   versions;
 - attach the x86_64 AppImage built by `dist/appimage/build-appimage.sh`;
+- attach the unsigned Windows x86_64 zip built by the release workflow;
+- keep the Scoop bucket manifest and winget manifest templates in sync with
+  the release artifact names;
 - publish the AUR `odytty` package from `dist/aur/` (see its README runbook);
 - include `dist/linux/io.unfinished_works.odytty.desktop`;
 - include `dist/linux/io.unfinished_works.odytty.metainfo.xml`;

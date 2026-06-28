@@ -1,0 +1,6 @@
+# Proposed PackageIdentifier; confirm before submitting to microsoft/winget-pkgs.
+PackageIdentifier: Odyssey.OdyTTY
+PackageVersion: 0.6.1
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.9.0

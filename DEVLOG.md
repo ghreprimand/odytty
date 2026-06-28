@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- Windows packaging: portable zip release artifact + Scoop and winget manifests
+
+The release workflow now produces a Windows artifact, and the two friction-free
+install paths for it are staged in-repo. A `vX.Y.Z` tag push builds an unsigned,
+portable `odytty.exe` on `windows-latest`, smoke-tests it headlessly
+(`odytty.exe --version` exits before any GPU/window init), and packages it with
+`README.md`/`LICENSE`/`NOTICE` into `odytty-<version>-windows-x86_64.zip` — no
+`.pdb`, and `RUSTFLAGS=--remap-path-prefix` keeps the build path out of any
+embedded diagnostics. The release job now `needs: [source, appimage, windows]`
+(all-or-nothing), the collect/checksum step picks up `*.zip`, and the artifact
+ships under both the always-latest alias `odytty-windows-x86_64.zip` and the
+identical version-pinned twin, each checksummed in `SHA256SUMS`.
+
+Because an unsigned, browser-downloaded `.exe` is the worst SmartScreen
+experience, the preferred Windows install paths route around it — both reference
+the same release zip:
+
+- **Scoop** — an in-repo bucket (`bucket/odytty.json`) installable with
+  `scoop bucket add odytty <repo>` + `scoop install odytty`, with `checkver` +
+  `autoupdate` so the URL and hash resolve from each release's `SHA256SUMS`.
+- **winget** — a staged 3-file manifest under `packaging/winget/` (zip /
+  portable nested installer). Its `InstallerSha256` is a labelled placeholder and
+  the `PackageIdentifier` (`Odyssey.OdyTTY`) is marked provisional — both are
+  filled/confirmed when the manifest is submitted to `microsoft/winget-pkgs`
+  after the first Windows release.
+
+The manifests are deliberately non-functional until the first Windows release tag
+exists (they point at a release URL that is not yet published) — that is called
+out in-file. No fabricated hashes. `README.md`, `docs/install.md`,
+`PACKAGING.md`, and `docs/release.md` gain the Windows install section and
+artifact lists, and the stale `docs/release.md` "source only / v0.4.0" wording is
+corrected to the current three-OS, three-artifact reality.
+
+Packaging/docs only — no Rust changed, so the Linux suite is unchanged at 2578
+passed / 0 failed; `fmt`/`clippy --all-targets -D warnings`/`build --release
+--locked` stay green.
+
 ## 2026-06-28 -- Windows CI green: ConPTY teardown fix + the Windows leg is now a blocking gate
 
 Windows now **compiles, lints, and passes its unit tests** in CI alongside

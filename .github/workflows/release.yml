@@ -1,10 +1,10 @@
 name: Release
 
 # Publishes a GitHub Release when a version tag (vX.Y.Z) is pushed. OdyTTY ships
-# a source tarball (builds on Linux and macOS) plus a best-effort x86_64
-# AppImage, all checksummed in SHA256SUMS. Tag pushes are restricted to
-# maintainers, so this never runs from fork pull requests. A failed build in any
-# job publishes nothing (the release job needs both build jobs).
+# a source tarball, a best-effort Linux x86_64 AppImage, and an unsigned Windows
+# x86_64 zip, all checksummed in SHA256SUMS. Tag pushes are restricted to
+# maintainers, so this never runs from fork pull requests. A failed producer job
+# publishes nothing (the release job needs every build job).
 on:
   push:
     tags:
@@ -79,9 +79,51 @@ jobs:
           name: appimage
           path: odytty-*-x86_64.AppImage
 
+  windows:
+    name: Windows zip (x86_64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTFLAGS: "--remap-path-prefix=${{ github.workspace }}=."
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Smoke test the Windows binary
+        # --version exits before any GPU/window init, so it runs headlessly in CI.
+        run: ./target/release/odytty.exe --version
+
+      - name: Package Windows zip
+        shell: pwsh
+        run: |
+          $version = "${{ steps.ver.outputs.version }}"
+          New-Item -ItemType Directory -Force dist/windows/package | Out-Null
+          New-Item -ItemType Directory -Force dist/build | Out-Null
+          Copy-Item target/release/odytty.exe dist/windows/package/
+          Copy-Item README.md, LICENSE, NOTICE dist/windows/package/
+          Compress-Archive `
+            -Path dist/windows/package/* `
+            -DestinationPath "dist/build/odytty-$version-windows-x86_64.zip" `
+            -Force
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/build/*.zip
+
   release:
     name: Publish release
-    needs: [source, appimage]
+    needs: [source, appimage, windows]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
@@ -97,7 +139,7 @@ jobs:
         run: |
           mkdir -p out
           find artifacts -type f \
-            \( -name '*.tar.gz' -o -name '*.AppImage' \) -exec cp {} out/ \;
+            \( -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.zip' \) -exec cp {} out/ \;
           cd out
           # Version-less aliases so `releases/latest/download/<name>` resolves a
           # stable URL the README can use without ever naming a version. These
@@ -106,6 +148,7 @@ jobs:
           version="${{ steps.ver.outputs.version }}"
           cp "odytty-${version}.tar.gz" "odytty.tar.gz"
           cp "odytty-${version}-x86_64.AppImage" "odytty-x86_64.AppImage"
+          cp "odytty-${version}-windows-x86_64.zip" "odytty-windows-x86_64.zip"
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
 
@@ -115,19 +158,20 @@ jobs:
           files: |
             out/*.tar.gz
             out/*.AppImage
+            out/*.zip
             out/SHA256SUMS
           # Static preamble above the auto-generated notes, clarifying that the
           # version-less and version-pinned downloads are identical copies.
           body: |
             ### Downloads
 
-            `odytty-x86_64.AppImage` and `odytty.tar.gz` are the **always-latest**
-            names — use these for a stable URL that resolves to the newest
-            release. The `…-${{ steps.ver.outputs.version }}-…` files are the
-            **identical** version-pinned copies (same bytes), for when you want
-            to pin a specific version. Every file is checksummed in
-            `SHA256SUMS`; the two AppImages (and the two tarballs) therefore show
-            matching hashes.
+            `odytty-x86_64.AppImage`, `odytty-windows-x86_64.zip`, and
+            `odytty.tar.gz` are the **always-latest** names — use these for a
+            stable URL that resolves to the newest release. The
+            `…-${{ steps.ver.outputs.version }}-…` files are the **identical**
+            version-pinned copies (same bytes), for when you want to pin a
+            specific version. Every file is checksummed in `SHA256SUMS`; each
+            alias and its version-pinned twin therefore show matching hashes.
 
             ---
           generate_release_notes: true

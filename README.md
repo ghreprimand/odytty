@@ -5,7 +5,7 @@
 ![OdyTTY rendering a colorized git graph, project tree, and truecolor gradients under the default Odyssey theme with bloom](assets/demo.png)
 
 OdyTTY is a standalone, from-scratch, GPU-rendered Rust terminal emulator for
-Linux. It owns the terminal byte path from PTY allocation through escape
+Linux, macOS, and Windows. It owns the terminal byte path from PTY allocation through escape
 parsing, terminal state, render geometry, and shaders, while relying on focused
 external crates for lower-level infrastructure such as `wgpu`, `winit`,
 `ab_glyph`, `swash`, `arboard`, and Unicode width tables.
@@ -26,8 +26,8 @@ OdyTTY is in active development. It is already a broad prototype: a native
 window opens real local shells, supports multiple sessions with a tab bar,
 splits each tab into panes, renders text and inline graphics on the GPU, and has
 a substantial compatibility and smoke-test suite. It is still Linux-first and
-pre-release; macOS is supported as an experimental build-from-source target (see
-the macOS install notes below), while profiles remain a follow-up.
+pre-release; macOS is supported as an experimental build-from-source target, and
+Windows ships as an unsigned portable zip.
 
 ## Highlights
 
@@ -84,10 +84,9 @@ the macOS install notes below), while profiles remain a follow-up.
 
 ## Install And Run
 
-OdyTTY ships as source. Linux is the primary, battle-tested target; macOS is an
-experimental build-from-source target (see [macOS](#macos-experimental) below).
-Both build from the same source archive with `cargo build --release`. Windows is
-not yet supported.
+Linux is the primary, battle-tested target. macOS is an experimental
+build-from-source target (see [macOS](#macos-experimental) below). Windows ships
+as an unsigned portable zip; Scoop and winget are the preferred install paths.
 
 ### Linux
 
@@ -115,11 +114,12 @@ vendor driver); it deliberately does not bundle the GPU stack. This is a
 best-effort x86_64 artifact — if it fails to start, build from source below.
 
 Each release attaches both version-less and version-pinned downloads:
-`odytty-x86_64.AppImage` / `odytty.tar.gz` are the always-latest names used
-above (resolved by the `releases/latest/download/` URLs), while
-`odytty-<version>-x86_64.AppImage` / `odytty-<version>.tar.gz` are the
-**identical** copies for pinning a specific version. Both carry matching
-checksums in `SHA256SUMS`.
+`odytty-x86_64.AppImage` / `odytty-windows-x86_64.zip` / `odytty.tar.gz` are
+the always-latest names used above (resolved by the `releases/latest/download/`
+URLs), while `odytty-<version>-x86_64.AppImage` /
+`odytty-<version>-windows-x86_64.zip` / `odytty-<version>.tar.gz` are the
+**identical** copies for pinning a specific version. Each alias and its
+version-pinned twin carry matching checksums in `SHA256SUMS`.
 
 #### Build from source
 
@@ -170,6 +170,45 @@ application:
 ```sh
 odytty
 ```
+
+### Windows
+
+The Windows build is an unsigned portable `odytty.exe` packaged as a zip. The
+Scoop and winget paths are preferred because they install from the release URL
+and avoid most direct-download SmartScreen friction.
+
+After the first Windows release is published, install with the in-repo Scoop
+bucket:
+
+```powershell
+scoop bucket add odytty https://github.com/ghreprimand/odytty
+scoop install odytty
+```
+
+The winget manifest is staged under `packaging/winget/` and becomes usable only
+after it is submitted to `microsoft/winget-pkgs` following the first Windows
+release. The proposed package identifier is `Odyssey.OdyTTY` and needs
+maintainer confirmation before submission:
+
+```powershell
+winget install Odyssey.OdyTTY
+```
+
+For a portable fallback, download the latest zip and checksum file, verify, and
+run the executable:
+
+```powershell
+Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/odytty-windows-x86_64.zip -OutFile odytty-windows-x86_64.zip
+Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS -OutFile SHA256SUMS
+Get-FileHash odytty-windows-x86_64.zip -Algorithm SHA256
+Expand-Archive odytty-windows-x86_64.zip -DestinationPath .\odytty
+.\odytty\odytty.exe
+```
+
+Compare the hash with the `odytty-windows-x86_64.zip` row in `SHA256SUMS`.
+Directly launching an unsigned `.exe` from a downloaded zip can trigger a
+SmartScreen warning. Detached/resumable session hosting is Unix-only in this
+release; the Windows build opens local ConPTY-backed tabs and panes.
 
 ### macOS (experimental)
 
@@ -656,12 +695,13 @@ readability and accessibility settings, bloom/CRT/retro effects, background
 treatments, and a large compatibility test surface.
 
 **Platforms:** Linux is the primary, battle-tested target. macOS is an
-experimental build-from-source target (see Install And Run). Both are exercised
-in CI. Windows is not yet supported.
+experimental build-from-source target (see Install And Run). Windows is
+supported through ConPTY and ships as an unsigned portable zip. Linux, macOS,
+and Windows are all blocking CI legs.
 
-**Known gaps:** Windows support, profiles, per-pane inline graphics, Kitty
-animation, Kitty Unicode placeholders, iTerm2 graphics, COLR/CPAL color fonts,
-and broader ligature/stylistic-set shaping.
+**Known gaps:** Windows detached/resumable session hosting, profiles, per-pane
+inline graphics, Kitty animation, Kitty Unicode placeholders, iTerm2 graphics,
+COLR/CPAL color fonts, and broader ligature/stylistic-set shaping.
 
 The running history lives in [`DEVLOG.md`](DEVLOG.md). The current public
 roadmap lives in [`TODO.md`](TODO.md) and

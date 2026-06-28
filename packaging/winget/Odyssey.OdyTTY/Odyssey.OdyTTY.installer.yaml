@@ -1,0 +1,16 @@
+# Proposed PackageIdentifier; confirm before submitting to microsoft/winget-pkgs.
+PackageIdentifier: Odyssey.OdyTTY
+PackageVersion: 0.6.1
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: odytty.exe
+    PortableCommandAlias: odytty
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/ghreprimand/odytty/releases/download/v0.6.1/odytty-0.6.1-windows-x86_64.zip
+    # Replace with the SHA256 for odytty-0.6.1-windows-x86_64.zip from SHA256SUMS
+    # when preparing the post-release winget submission.
+    InstallerSha256: REPLACE_WITH_SHA256_FROM_SHA256SUMS
+ManifestType: installer
+ManifestVersion: 1.9.0

@@ -1,0 +1,12 @@
+# Proposed PackageIdentifier; confirm before submitting to microsoft/winget-pkgs.
+PackageIdentifier: Odyssey.OdyTTY
+PackageVersion: 0.6.1
+PackageLocale: en-US
+Publisher: Odyssey
+PackageName: OdyTTY
+ShortDescription: A from-scratch, GPU-rendered Rust terminal emulator with an Odyssey visual identity.
+License: GPL-3.0-only
+LicenseUrl: https://github.com/ghreprimand/odytty/blob/master/LICENSE
+PackageUrl: https://github.com/ghreprimand/odytty
+ManifestType: defaultLocale
+ManifestVersion: 1.9.0

@@ -1,8 +1,9 @@
 # Packaging OdyTTY
 
-The Linux release shape is a versioned source release (latest tag `v0.4.0`)
-plus desktop integration files that downstream packages can install in normal
-XDG locations.
+The release shape is a versioned source release, a best-effort Linux x86_64
+AppImage, and an unsigned Windows x86_64 portable zip. Linux desktop
+integration files are included so downstream packages can install them in
+normal XDG locations.
 
 This file describes the packaging surface for the source tree it ships with.
 For a tagged release, read the `PACKAGING.md` from that same tag.
@@ -31,7 +32,7 @@ at minimum the scalable SVG plus the 256x256 PNG cover the common cases.
 The desktop entry uses `Icon=io.unfinished_works.odytty`, so the hicolor icon
 theme assets need to be installed with that basename.
 
-The AppStream metadata is intentionally small for `v0.4.0`: it gives software
+The AppStream metadata is intentionally small: it gives software
 centers and inventory tools a stable component id, homepage, bug tracker,
 license, summary, and release version.
 
@@ -90,6 +91,10 @@ session host hard-errors if `XDG_RUNTIME_DIR` is unset, so packaging and
 launcher environments that use these subcommands must provide it. macOS falls
 back to the per-user Darwin temp dir and does not require it.
 
+Detached-session hosting is Unix-only in the current Windows port. Windows
+installers should treat `odytty.exe` as a normal local terminal binary and leave
+detached/resumable session integration out until a Windows host transport lands.
+
 Build requirements:
 
 ```text
@@ -130,6 +135,41 @@ tag_prefix: v
 
 See [`docs/release.md`](docs/release.md) for the release artifact checklist.
 
+## Windows Artifacts
+
+The release workflow publishes both Windows zip names:
+
+```text
+odytty-windows-x86_64.zip
+odytty-<version>-windows-x86_64.zip
+```
+
+They are byte-identical copies and both are listed in `SHA256SUMS`. The zip
+contains:
+
+```text
+odytty.exe
+README.md
+LICENSE
+NOTICE
+```
+
+It must not contain `.pdb` files, build directories, or installer work
+directories.
+
+The in-repo Scoop bucket manifest is `bucket/odytty.json`. A user can install
+the repo as a Scoop bucket after the first Windows release:
+
+```powershell
+scoop bucket add odytty https://github.com/ghreprimand/odytty
+scoop install odytty
+```
+
+The winget templates live under `packaging/winget/`. The proposed
+PackageIdentifier is `Odyssey.OdyTTY`; confirm that identifier before submitting
+to `microsoft/winget-pkgs`. The winget `InstallerSha256` placeholder must be
+filled from the release `SHA256SUMS` row before submission.
+
 ## Default-Terminal Integration
 
 OdyTTY's desktop entry advertises the relevant terminal execution keys for
@@ -149,7 +189,7 @@ a standard mechanism, then let the user choose it.
 
 On Odyssey, package OdyTTY as a normal source-build PKGBUILD in `~/pkgbuilds`
 and build it with `odyssey-build`. That makes pacman own `/usr/bin/odytty` and
-the desktop entry, giving a versioned install such as `odytty 0.4.0-1`.
+the desktop entry, giving a versioned install such as `odytty 0.6.1-1`.
 
 See [`docs/install.md`](docs/install.md) for a concrete Odyssey PKGBUILD
 example and default-terminal notes.
