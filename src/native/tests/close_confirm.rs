@@ -15,7 +15,7 @@ const ROWS: usize = 12;
 /// Build an `App` over a one-shot PTY. Returns `None` when no PTY is available.
 fn build_app() -> Option<App> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let pty = Arc::new(Mutex::new(session));

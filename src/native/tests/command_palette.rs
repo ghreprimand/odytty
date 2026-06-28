@@ -21,7 +21,7 @@ impl Write for RecordingWriter {
 
 fn app_with_recording_writer() -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
     let dims = Dimensions::new(80, 24);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let _ = session.take_writer().ok()?;
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();

@@ -1454,15 +1454,18 @@ impl DerefMut for TabSet {
 mod tests {
     use super::*;
     use crate::core::Dimensions;
+    use crate::native::test_support::spawn_test_pause_shell;
     use winit::event_loop::EventLoop;
     #[cfg(target_os = "linux")]
     use winit::platform::wayland::EventLoopBuilderExtWayland;
+    #[cfg(target_os = "windows")]
+    use winit::platform::windows::EventLoopBuilderExtWindows;
     #[cfg(target_os = "linux")]
     use winit::platform::x11::EventLoopBuilderExtX11;
 
     fn build_session_with_id(id: SessionToken) -> Session {
         let dims = Dimensions::new(20, 8);
-        let pty = PtySession::spawn_shell_command(dims, "sleep 1").expect("spawn test shell");
+        let pty = spawn_test_pause_shell(dims).expect("spawn test shell");
         let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().expect("writer")));
         let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
         let pty = Arc::new(Mutex::new(pty));
@@ -1479,6 +1482,10 @@ mod tests {
         {
             EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
             EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
+        }
+        #[cfg(target_os = "windows")]
+        {
+            EventLoopBuilderExtWindows::with_any_thread(&mut builder, true);
         }
         let event_loop = builder.build().ok()?;
         let proxy = event_loop.create_proxy();
@@ -1523,13 +1530,14 @@ mod tests {
     // macOS forbids constructing a winit `EventLoop` off the main thread
     // (winit panics: "Initializing the event loop outside of the main thread is
     // a significant cross-platform compatibility hazard"). `cargo test` runs
-    // each test on a worker thread, and Linux offers `with_any_thread(true)` to
-    // opt out of that check while macOS does not. This test only needs a real
-    // `EventLoopProxy` so the connect action can spawn a PTY-backed session;
-    // there is no headless seam for the concrete winit proxy type without
-    // abstracting the whole PTY-pump wake path, so it is ignored on macOS as an
-    // accepted v0.3.0 stopgap. The connect/spawn logic is identical across
-    // platforms and stays covered on Linux CI.
+    // each test on a worker thread, and Linux/Windows offer
+    // `with_any_thread(true)` to opt out of that check while macOS does not.
+    // This test only needs a real `EventLoopProxy` so the connect action can
+    // spawn a PTY-backed session; there is no headless seam for the concrete
+    // winit proxy type without abstracting the whole PTY-pump wake path, so it
+    // is ignored on macOS as an accepted v0.3.0 stopgap. The connect/spawn
+    // logic stays covered on Linux CI, with a Windows command arm ready for
+    // Phase 4 CI once the remaining Windows compile gates clear.
     #[cfg_attr(
         target_os = "macos",
         ignore = "winit EventLoop cannot be built off the main thread on macOS"
@@ -1539,11 +1547,20 @@ mod tests {
         let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
             return;
         };
+        #[cfg(not(windows))]
         let command = SshCommand::new(
             "/bin/sh",
             vec![
                 OsString::from("-lc"),
                 OsString::from("printf 'synthetic ssh child\\n'; sleep 1"),
+            ],
+        );
+        #[cfg(windows)]
+        let command = SshCommand::new(
+            "cmd.exe",
+            vec![
+                OsString::from("/C"),
+                OsString::from("echo synthetic ssh child & ping -n 2 127.0.0.1 >NUL"),
             ],
         );
 
@@ -1915,6 +1932,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn local_session_resize_routes_to_pty_unchanged() {
         // BYTE-IDENTITY GUARD: resizing a local session must push the exact same
         // TIOCSWINSZ to the concrete PTY as before Phase 2 — the `Local` match

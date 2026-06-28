@@ -93,6 +93,8 @@ mod gpu_tests;
 #[cfg(test)]
 mod image_layer_tests;
 #[cfg(test)]
+pub(in crate::native) mod test_support;
+#[cfg(test)]
 mod tests;
 
 use std::sync::{Arc, Mutex};

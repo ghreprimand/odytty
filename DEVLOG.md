@@ -7,6 +7,56 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- Windows Phase 4: gate Unix-only subsystems + Windows runtime correctness
+
+The library now compiles on Windows without the Unix-only subsystems, and the
+resolution sites that compiled-but-misbehaved on Windows now have correct
+`%APPDATA%`/`%TEMP%`/host-font branches. Linux/macOS stay **byte-identical**:
+the full suite is 2578 lib tests passing, unchanged from the previous entry —
+every change is a `#[cfg(unix)]` gate, a kept-cross-platform enum variant with a
+stubbed handler, a Windows-only resolution arm, or one pure type relocation.
+
+Gating (Phase 4a). Pure `#[cfg(unix)]` gating + one type move so the lib builds
+on Windows without the detached session-host, attach-client, or `--interactive`
+raw-mode paths:
+
+- The session-host transport (`socket`/`host`/`client`/`registry`) is Unix-only;
+  `protocol.rs` stays ungated (pure wire types — keeps a future named-pipe path
+  open). `ListedSession` moved `registry.rs` → `protocol.rs` so the always-built
+  attach overlay keeps compiling on Windows with an empty session list.
+- `SessionSource::Attached` (the one socket-backed variant) and its five match
+  arms gate together, leaving `Local` exhaustive on Windows.
+- Attach overlay/keybind **variants stay cross-platform** with stubbed handlers
+  (empty list, `Err` on attach, "not supported" notices), so the shared enums and
+  the golden keybind test are unchanged.
+- Non-detached SSH-in-a-tab keeps working on Windows over the local pseudoconsole
+  (only the detached host-config producers are gated).
+- CLI session-subcommand **parsing stays cross-platform** (stable `--help`); only
+  execution is gated, with clean "not supported on Windows yet" arms.
+
+Runtime correctness (Phase 4b). Sites that compiled on Windows but resolved to
+nothing:
+
+- Config + theme persistence: `config_file_path()`/`theme_dir_path()` gain a
+  `%APPDATA%\odytty\…` branch (via `env::var_os`, no new dependency); the XDG/HOME
+  path is unchanged on Unix. This restores live-reload, GUI Save, theme-builder
+  save, and the onboarding marker on Windows.
+- Kitty image transport: `allowed_temp_dirs()` consults `%TEMP%` on Windows so
+  `t=f`/`t=t` transports resolve instead of being rejected.
+- Fonts: host directories `%WINDIR%\Fonts` and
+  `%LOCALAPPDATA%\Microsoft\Windows\Fonts` are scanned on Windows, additive to the
+  always-present bundled face (Windows is never fontless).
+- Test tree: a portable pause-fixture helper routes 42 short-lived PTY spawns
+  (Unix `sleep` / Windows `ping` hold); Unix-only integration/live-PTY tests and
+  the `dimensions_for_test` seam are `#[cfg(unix)]`-gated; a Windows
+  `with_any_thread` EventLoop arm lets the windowed tests run off the main thread.
+
+Verified on Linux: `cargo fmt --check`, `cargo build --release --locked`,
+`cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked` — all
+green, 2578 passed / 0 failed. Windows behavior (config persisting to `%APPDATA%`,
+host fonts enumerating, image transports) is written to spec but **not** claimed
+verified here — that is a manual on-device pass; CI confirms the Windows compile.
+
 ## 2026-06-28 -- Windows opener arm + clickable-path detection (Phase 3)
 
 The per-OS file/URI open dispatch and the interactive clickable-path

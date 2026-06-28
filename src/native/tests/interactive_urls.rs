@@ -29,7 +29,7 @@ const URL_END_COL: usize = 22; // inclusive last cell of the 19-char URL
 
 fn build_app(content: &[u8]) -> Option<App> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     {

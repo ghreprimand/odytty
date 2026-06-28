@@ -1195,7 +1195,7 @@ impl App {
         })
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(in crate::native) fn session_pty_dimensions_for_test(
         &self,
         session: usize,

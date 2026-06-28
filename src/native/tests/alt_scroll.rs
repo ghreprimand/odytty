@@ -34,7 +34,7 @@ impl Write for RecordingWriter {
 /// only sees bytes the wheel produces. Returns `None` when no PTY is available.
 fn app_with_setup(setup: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));

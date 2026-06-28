@@ -113,6 +113,13 @@ fn allowed_temp_dirs() -> Vec<PathBuf> {
         }
     }
 
+    #[cfg(windows)]
+    if let Ok(canonical) = std::fs::canonicalize(std::env::temp_dir()) {
+        if !dirs.contains(&canonical) {
+            dirs.push(canonical);
+        }
+    }
+
     dirs
 }
 

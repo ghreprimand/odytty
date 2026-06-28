@@ -18,12 +18,14 @@ use super::*;
 use winit::event_loop::EventLoop;
 #[cfg(target_os = "linux")]
 use winit::platform::wayland::EventLoopBuilderExtWayland;
+#[cfg(target_os = "windows")]
+use winit::platform::windows::EventLoopBuilderExtWindows;
 #[cfg(target_os = "linux")]
 use winit::platform::x11::EventLoopBuilderExtX11;
 
 fn app_for_test() -> Option<(App, Arc<Mutex<Terminal>>)> {
     let dims = Dimensions::new(80, 24);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let pty = Arc::new(Mutex::new(session));
@@ -40,7 +42,7 @@ fn app_for_test() -> Option<(App, Arc<Mutex<Terminal>>)> {
 
 fn app_for_test_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
     let dims = Dimensions::new(80, 24);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let pty = Arc::new(Mutex::new(session));
@@ -49,6 +51,10 @@ fn app_for_test_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
     {
         EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
         EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        EventLoopBuilderExtWindows::with_any_thread(&mut builder, true);
     }
     let event_loop = builder.build().ok()?;
     let proxy = event_loop.create_proxy();
@@ -83,7 +89,7 @@ impl Write for RecordingWriter {
 
 fn app_with_recording_writer(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
     let dims = Dimensions::new(80, 24);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let _ = session.take_writer().ok()?;
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
@@ -361,7 +367,7 @@ fn right_clicking_tab_enables_rename_for_that_tab() {
         return;
     };
     let dims = Dimensions::new(80, 24);
-    let Some(session) = PtySession::spawn_shell_command(dims, "sleep 1").ok() else {
+    let Some(session) = spawn_test_pause_shell(dims).ok() else {
         eprintln!("skipping: no PTY available");
         return;
     };
@@ -398,7 +404,7 @@ fn plain_context_menu_open_disables_rename_tab() {
         return;
     };
     let dims = Dimensions::new(80, 24);
-    let Some(session) = PtySession::spawn_shell_command(dims, "sleep 1").ok() else {
+    let Some(session) = spawn_test_pause_shell(dims).ok() else {
         eprintln!("skipping: no PTY available");
         return;
     };
@@ -811,15 +817,15 @@ fn clicking_outside_the_menu_dismisses_it() {
     );
 }
 
-// Linux-only at runtime: the proxy harness (`app_for_test_with_proxy`) builds a
-// real winit `EventLoop` off the test thread. Linux permits that via the
-// `with_any_thread` builder shim; macOS has no equivalent because AppKit must
-// own the main thread, so constructing/using the loop off-main-thread aborts
-// (SIGSEGV). The new-tab path itself runs on the main thread in production and
-// is exercised on Linux here; the test stays compiled on macOS (so the helper
-// and its imports are still used) but is skipped at runtime.
+// The proxy harness (`app_for_test_with_proxy`) builds a real winit `EventLoop`
+// off the test thread. Linux and Windows permit that via `with_any_thread`;
+// macOS has no equivalent because AppKit must own the main thread, so
+// constructing/using the loop off-main-thread aborts (SIGSEGV). The new-tab path
+// itself runs on the main thread in production and is exercised on Linux here
+// and on Windows once Phase 4 CI is unblocked; the test stays compiled on macOS
+// (so the helper and its imports are still used) but is skipped at runtime.
 #[cfg_attr(
-    not(target_os = "linux"),
+    target_os = "macos",
     ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS (AppKit main-thread requirement)"
 )]
 #[test]
@@ -847,7 +853,7 @@ fn clicking_close_tab_closes_active_session_and_keeps_neighbor_active() {
         return;
     };
     let dims = Dimensions::new(80, 24);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok();
+    let session = spawn_test_pause_shell(dims).ok();
     let Some(session) = session else {
         eprintln!("skipping: no PTY available");
         return;

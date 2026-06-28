@@ -39,7 +39,7 @@ fn build_app(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
 
 fn build_app_with(content: &[u8], sh_click: bool) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     // Spawn provides the `pty` field; the writer is the recorder so the emitted
     // arrows are observable (the real PTY writer would swallow them into a shell).
     let _ = session.take_writer().ok()?;

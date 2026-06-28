@@ -37,7 +37,7 @@ fn recorded_session(
     Arc<Mutex<PtySession>>,
     Arc<Mutex<Vec<u8>>>,
 )> {
-    let session = PtySession::spawn_shell_command(dims, "sleep 1").ok()?;
+    let session = spawn_test_pause_shell(dims).ok()?;
     let _ = session.take_writer().ok()?;
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
@@ -163,8 +163,11 @@ fn resize_updates_both_terminals_and_ptys() {
 
     assert_eq!(app.session_dimensions_for_test(0), Some(expected));
     assert_eq!(app.session_dimensions_for_test(1), Some(expected));
-    assert_eq!(app.session_pty_dimensions_for_test(0), Some(expected));
-    assert_eq!(app.session_pty_dimensions_for_test(1), Some(expected));
+    #[cfg(unix)]
+    {
+        assert_eq!(app.session_pty_dimensions_for_test(0), Some(expected));
+        assert_eq!(app.session_pty_dimensions_for_test(1), Some(expected));
+    }
 }
 
 #[test]
