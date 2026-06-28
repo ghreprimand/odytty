@@ -115,6 +115,18 @@ use pty::{PtyWriter, UserEvent, spawn_pty_pump};
 use session::{Session, SessionToken, TabSet};
 
 pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), NativeError> {
+    // Windows only: release any console this process holds before creating a
+    // window or a ConPTY. A default console-subsystem binary is given its own
+    // console when launched from Explorer (and inherits one from a shell);
+    // holding a console while hosting a pseudoconsole makes the ConPTY's helper
+    // process fail initialization (`0xC0000142` / `STATUS_DLL_INIT_FAILED`), so
+    // the shell never starts and the pane stays blank. Releasing it here also
+    // removes the flashing console window on Explorer launch. Every CLI path
+    // (`--version`/`--help`/`--dump-command`/`session-host`/…) returns before
+    // `run_native`, so this never steals their stdout.
+    #[cfg(windows)]
+    detach_inherited_console();
+
     panic_log::install_panic_hook();
 
     let event_loop = EventLoop::<UserEvent>::with_user_event()
@@ -201,6 +213,21 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
             .map_err(|err| NativeError::Pty(err.to_string()))?,
     ));
 
+    // Windows only: a child that dies during its own initialization makes the
+    // spawn return `Ok` yet leaves the pane blank (the failure is a post-spawn
+    // exit, not a `CreateProcessW` error). Surface the real exit code as text in
+    // the pane and on stderr so the failure is never silent. Bounded one-time
+    // wait; a healthy (still-running) shell returns `None` immediately past the
+    // wait window. No-op on Unix.
+    #[cfg(windows)]
+    if let Some(diag) = session.diagnose_immediate_exit(std::time::Duration::from_millis(250)) {
+        eprintln!(
+            "odytty:{}",
+            diag.replace('\r', "").replace('\n', " ").trim()
+        );
+        lock_recover(&terminal).advance(diag.as_bytes());
+    }
+
     let proxy = event_loop.create_proxy();
     // One recorder handle shared between the initial session's pump thread and
     // the session itself, so recorded frames (when `session_replay` is on) land
@@ -266,6 +293,20 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
 
 fn rgb(color: (u8, u8, u8)) -> RgbColor {
     RgbColor::new(color.0, color.1, color.2)
+}
+
+/// Detach the process from any console it holds (Windows only).
+///
+/// See the call site at the top of [`run_native`] for the rationale: a
+/// console-owning host breaks ConPTY helper-process initialization. `FreeConsole`
+/// is benign when no console is attached, so the result is ignored.
+#[cfg(windows)]
+fn detach_inherited_console() {
+    // SAFETY: `FreeConsole` takes no arguments and is safe to call regardless of
+    // console state; a failure (no console attached) is expected and ignored.
+    unsafe {
+        let _ = windows::Win32::System::Console::FreeConsole();
+    }
 }
 
 /// Lock a `Mutex`, recovering the guard if a previous holder panicked while

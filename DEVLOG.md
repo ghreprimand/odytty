@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- Windows: release the inherited console so the shell can start
+
+First on-device test of the v0.6.2 Windows build surfaced a real ConPTY defect
+the bring-up series existed to catch: the window opened and rendered, app
+shortcuts worked, but no shell prompt appeared and typing did nothing — with an
+`0xC0000142` (`STATUS_DLL_INIT_FAILED`) dialog on an Explorer launch.
+
+Root cause: odytty is a default console-subsystem binary (no `windows_subsystem`
+attribute), so Windows hands it a console — freshly allocated on an Explorer
+double-click, inherited from the parent when launched from a shell. Creating a
+pseudoconsole while the host still holds its own console makes ConPTY's helper
+process fail initialization, so the shell plumbing is dead on arrival: output
+never flows and the pane stays blank while the window itself stays live. (The
+host renders because that failure is in the *child* console helper, not in
+odytty.)
+
+Fix (all `#[cfg(windows)]`-gated; Linux/macOS byte-identical, suite unchanged at
+2578 passed):
+
+- `run_native()` calls `FreeConsole()` at entry, before any window or
+  pseudoconsole is created, so the ConPTY helper initializes cleanly. Every
+  CLI/early-exit path returns before `run_native`, so their stdout is untouched;
+  as a bonus this removes the flashing console window on an Explorer launch.
+- A bring-up diagnostic (`diagnose_immediate_exit`) bounded-waits for the shell
+  child and, if it has already exited abnormally, writes a decoded line (naming
+  `0xC0000142`/`0xC0000135`/`0xC0000139`) into the pane instead of leaving a
+  silent blank session. A healthy shell returns immediately past the wait.
+
+This lands as an unreleased fix on top of `v0.6.2`; a clean `v0.6.3` is cut only
+after the fix is confirmed on real Windows hardware. To make that iteration
+cheap, the `windows-latest` CI leg temporarily uploads the built `odytty.exe` as
+a downloadable run artifact (clearly marked for removal), so on-device testing
+needs no per-attempt release.
+
 ## 2026-06-28 -- Release v0.6.2 — first Windows build (experimental bring-up)
 
 This release begins a Windows bring-up series in the `0.6.x` line. It ships the

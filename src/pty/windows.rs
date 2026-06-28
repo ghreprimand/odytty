@@ -39,7 +39,7 @@ use std::process::ExitStatus;
 use anyhow::{Context, Result};
 
 use windows::Win32::Foundation::{
-    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, WAIT_FAILED,
+    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, WAIT_FAILED, WAIT_OBJECT_0,
 };
 use windows::Win32::System::Console::{
     COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
@@ -337,6 +337,42 @@ impl PtySession {
         Ok(bytes)
     }
 
+    /// Bring-up diagnostic: detect a shell child that died during its own
+    /// initialization (e.g. a missing DLL, or a `STATUS_DLL_INIT_FAILED`
+    /// `0xC0000142` console/ConPTY conflict the child inherits).
+    ///
+    /// Such a child makes `CreateProcessW` *succeed* — the process is created —
+    /// and then exit a moment later during loader/init, so the spawn returns
+    /// `Ok` yet the pane stays blank with no error. This waits up to `timeout`
+    /// for the child and returns a human-readable line **iff** it has already
+    /// exited with an abnormal (non-zero, non-`STILL_ACTIVE`) code, so the
+    /// failure can be surfaced as text instead of a silent empty session.
+    ///
+    /// Returns `None` for a still-running child (the healthy path) or a clean
+    /// exit, so a working shell pays at most `timeout` once at startup. It does
+    /// **not** diagnose a pseudoconsole whose helper process is wedged without
+    /// the child exiting (the reader simply blocks); that case is addressed by
+    /// releasing the host's own console before ConPTY creation.
+    pub fn diagnose_immediate_exit(&self, timeout: std::time::Duration) -> Option<String> {
+        let ms = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
+        // SAFETY: `self.process` is a live, owned process handle.
+        let wait = unsafe { WaitForSingleObject(self.process_handle(), ms) };
+        if wait != WAIT_OBJECT_0 {
+            // Timed out (child still running → healthy) or the wait failed.
+            return None;
+        }
+        let mut code: u32 = 0;
+        // SAFETY: live owned process handle; the child has signaled exit.
+        if unsafe { GetExitCodeProcess(self.process_handle(), &mut code) }.is_err() {
+            return None;
+        }
+        if code == 0 || code == STILL_ACTIVE_CODE {
+            // A clean or `cmd /C`-style fast exit is not a failure to report.
+            return None;
+        }
+        Some(describe_immediate_exit(code))
+    }
+
     fn process_handle(&self) -> HANDLE {
         HANDLE(self.process.as_raw_handle())
     }
@@ -406,6 +442,23 @@ impl Drop for AttrListGuard {
 /// `%ComSpec%` (the OS-configured command processor) or `cmd.exe` as a fallback.
 fn default_shell() -> OsString {
     std::env::var_os("ComSpec").unwrap_or_else(|| OsString::from("cmd.exe"))
+}
+
+/// Format a terminal-pane diagnostic line for an abnormal immediate child exit,
+/// decoding the few NT status codes that point at a concrete cause. CRLF-framed
+/// so it renders cleanly when written straight into the terminal model.
+fn describe_immediate_exit(code: u32) -> String {
+    let detail = match code {
+        0xC0000142 => " — STATUS_DLL_INIT_FAILED, a console/ConPTY initialization conflict",
+        0xC0000135 => " — STATUS_DLL_NOT_FOUND, a required DLL is missing",
+        0xC0000139 => " — STATUS_ENTRYPOINT_NOT_FOUND",
+        _ => "",
+    };
+    format!(
+        "\r\n  OdyTTY: the shell exited immediately at startup \
+         (exit code 0x{code:08X}{detail}).\r\n  \
+         The pseudoconsole could not start a usable shell.\r\n"
+    )
 }
 
 /// Clamp a dimension into the signed 16-bit field `COORD` requires.
