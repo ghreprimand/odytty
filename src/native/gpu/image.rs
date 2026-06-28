@@ -75,7 +75,19 @@ impl BgImageGpu {
         theme: &Theme,
         cell_bg_opacity: f32,
     ) -> Option<Self> {
-        let (mut rgba, width, height) = match super::super::image_decode::decode_image_rgba(path) {
+        // The bundled default background is compiled into the binary, so it
+        // decodes from memory rather than a file — this is what makes the
+        // default resolve identically on every target (dev build, source build,
+        // relocatable AppImage, distro package) with no path lookup. A real
+        // user path still takes the normal on-disk decode below.
+        let decoded = if crate::settings::is_bundled_background(path) {
+            super::super::image_decode::decode_image_rgba_bytes(
+                super::default_background::DEFAULT_BACKGROUND_WEBP,
+            )
+        } else {
+            super::super::image_decode::decode_image_rgba(path)
+        };
+        let (mut rgba, width, height) = match decoded {
             Some(decoded) => decoded,
             None => {
                 eprintln!(

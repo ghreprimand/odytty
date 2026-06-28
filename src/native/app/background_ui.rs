@@ -139,15 +139,24 @@ mod tests {
         }
     }
 
-    /// KILL-SHOT (trap 1): the default (knob off) produces the identity params,
-    /// so the grid apply block is skipped and frames are byte-identical.
+    /// KILL-SHOT (trap 1): the `off`/`color` treatment produces the identity
+    /// params, so the grid apply block is skipped and frames are byte-identical.
+    /// (Since v0.6.0 the shipped default is `image`; this guards the opt-out
+    /// fast path — `background_treatment = color` — that disables the bundled
+    /// background.)
     #[test]
-    fn default_treatment_is_inactive_identity() {
-        let s = Settings::default();
+    fn off_treatment_is_inactive_identity() {
+        let s = settings_with(SettingTreatment::Off);
         let params = treatment_params_for(&s);
-        assert!(!params.active(), "default must be inactive");
+        assert!(!params.active(), "off must be inactive");
         assert_eq!(params, BackgroundTreatmentParams::default());
         assert_eq!(overlay_signature_for(&s), OverlayFragment::Inert);
+
+        // And the shipped default now selects the image treatment.
+        assert_eq!(
+            Settings::default().background_treatment,
+            SettingTreatment::Image
+        );
     }
 
     /// Trap 3: signature is `Inert` off, `Background` on, with a discriminant

@@ -166,12 +166,12 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
 /// Default body-font size on a fresh install. Tuned for the bundled default
 /// family (Victor Mono), which reads comfortably a notch smaller than the prior
 /// JetBrains-era default.
-pub const DEFAULT_FONT_SIZE_PX: f32 = 20.0;
+pub const DEFAULT_FONT_SIZE_PX: f32 = 21.0;
 pub const MIN_FONT_SIZE_PX: f32 = 6.0;
 pub const MAX_FONT_SIZE_PX: f32 = 72.0;
-pub const DEFAULT_THEME: Theme = Theme::ODYSSEY;
+pub const DEFAULT_THEME: Theme = Theme::ODYSSEY_DEFAULT;
 pub const DEFAULT_VISUAL: VisualEffect = VisualEffect::Ambient;
-pub const DEFAULT_TEXT_GAMMA: f32 = 1.5;
+pub const DEFAULT_TEXT_GAMMA: f32 = 1.2;
 pub const MIN_TEXT_GAMMA: f32 = 0.5;
 pub const MAX_TEXT_GAMMA: f32 = 3.0;
 
@@ -181,7 +181,7 @@ pub const MAX_TEXT_GAMMA: f32 = 3.0;
 /// `1.0` is the strongest boost. Ships default-on at `0.5` for a visible
 /// light-on-dark weight boost. Setting `0.0` is the opt-out and fully restores
 /// the classic, pre-feature raster.
-pub const DEFAULT_STEM_DARKEN: f32 = 0.5;
+pub const DEFAULT_STEM_DARKEN: f32 = 0.7;
 pub const MIN_STEM_DARKEN: f32 = 0.0;
 pub const MAX_STEM_DARKEN: f32 = 1.0;
 
@@ -190,7 +190,7 @@ pub const MAX_STEM_DARKEN: f32 = 1.0;
 /// render illegibly low-contrast text (RV1). The default is an assertive
 /// readability floor; `1.0` disables the floor and is pixel-identical to the
 /// pre-feature renderer. The lift moves only perceptual lightness, preserving hue.
-pub const DEFAULT_MIN_CONTRAST: f32 = 16.0;
+pub const DEFAULT_MIN_CONTRAST: f32 = 17.0;
 pub const MIN_MIN_CONTRAST: f32 = 1.0;
 pub const MAX_MIN_CONTRAST: f32 = 21.0;
 
@@ -286,7 +286,7 @@ pub const MAX_WINDOW_PADDING_PX: f32 = 64.0;
 /// background treatment then shows only in the window padding. Values `< 1.0`
 /// make cells translucent so a background image shows through behind text; the
 /// RV1 floor stays safe at any opacity via the readability scrim.
-pub const DEFAULT_CELL_BG_OPACITY: f32 = 1.0;
+pub const DEFAULT_CELL_BG_OPACITY: f32 = 0.8;
 pub const MIN_CELL_BG_OPACITY: f32 = 0.0;
 pub const MAX_CELL_BG_OPACITY: f32 = 1.0;
 
@@ -296,11 +296,42 @@ pub const MAX_CELL_BG_OPACITY: f32 = 1.0;
 pub const DEFAULT_BACKGROUND_BLUR_RADIUS: u32 = 0;
 pub const MAX_BACKGROUND_BLUR_RADIUS: u32 = 256;
 
+/// Sentinel stored in `Settings::background_image` to mean "the original
+/// background bundled into the binary" rather than a real on-disk file (v0.6.0).
+/// Deliberately an obviously-not-a-path token (angle brackets) so it can never
+/// collide with a real wallpaper path. The GPU loader recognizes it and decodes
+/// the compiled-in [`crate::native::gpu::default_background::DEFAULT_BACKGROUND_WEBP`]
+/// bytes from memory; the settings layer round-trips it through parse, writeback,
+/// and `--show-config` so users never see the raw marker.
+pub const BUNDLED_BACKGROUND_SENTINEL: &str = "<odytty-default-background>";
+
+/// The user-facing `background_image` config token that opts in to the bundled
+/// default, e.g. `background_image = default`. Written by writeback and shown by
+/// `--show-config`, and accepted (case-insensitively) by the parser.
+pub const BUNDLED_BACKGROUND_TOKEN: &str = "default";
+
+/// Whether a `background_image` value points at the bundled default rather than
+/// a real file. Compares against [`BUNDLED_BACKGROUND_SENTINEL`].
+pub fn is_bundled_background(path: &std::path::Path) -> bool {
+    path.as_os_str() == std::ffi::OsStr::new(BUNDLED_BACKGROUND_SENTINEL)
+}
+
+/// The `Settings::background_image` value representing the bundled default.
+pub fn bundled_background_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(BUNDLED_BACKGROUND_SENTINEL)
+}
+
 /// Bounds for the explicit background-image scrim override
 /// (`ODYTTY_BACKGROUND_IMAGE_SCRIM`). When unset the scrim is auto-computed to
 /// guarantee the RV1 floor; an explicit value is clamped to this range.
 pub const MIN_BACKGROUND_IMAGE_SCRIM: f32 = 0.0;
 pub const MAX_BACKGROUND_IMAGE_SCRIM: f32 = 1.0;
+
+/// Default background-image scrim (v0.6.0). The shipped identity pairs the
+/// bundled default background with a fixed mid scrim so text stays readable out
+/// of the box; set `background_image_scrim = auto` to restore the auto-computed
+/// floor-safe scrim, or any value in [`MIN_BACKGROUND_IMAGE_SCRIM`]..=[`MAX_BACKGROUND_IMAGE_SCRIM`].
+pub const DEFAULT_BACKGROUND_IMAGE_SCRIM: f32 = 0.5;
 
 /// Line-height multiplier (`ODYTTY_LINE_HEIGHT`, LINEHEIGHT): extra vertical
 /// leading baked into each glyph cell, expressed as a multiple of the natural
@@ -367,7 +398,7 @@ pub const DEFAULT_COPY_ON_SELECT: bool = false;
 /// a constant `1.0` and the blink off-phase hides the cursor outright, so the
 /// render path is byte-identical to before. Purely presentational; never
 /// affects cell semantics or the logical cursor position.
-pub const DEFAULT_CURSOR_EASING: bool = false;
+pub const DEFAULT_CURSOR_EASING: bool = true;
 
 /// Cursor slide motion (`ODYTTY_CURSOR_MOTION`, VE4): when on, the cursor glides
 /// a short sub-cell interpolation between adjacent steady-state positions
@@ -398,7 +429,7 @@ pub const DEFAULT_CURSOR_GLOW: bool = false;
 /// drawn behind the cursor block in the theme cursor color at low alpha, so
 /// they never obscure cell content or affect the logical cursor position.
 /// Visible only when `cursor_motion` is also on (the slide it trails).
-pub const DEFAULT_CURSOR_TRAIL: bool = false;
+pub const DEFAULT_CURSOR_TRAIL: bool = true;
 
 /// New-output fade-in (`ODYTTY_NEW_OUTPUT_FADE`, VE4): when on, rows of freshly
 /// arrived output at the live tail fade in over a short ease-out ramp instead of
@@ -536,11 +567,11 @@ pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = false;
 pub const DEFAULT_SH_CLICK: bool = false;
 
 pub const DEFAULT_BLOOM: bool = true;
-pub const DEFAULT_BLOOM_THRESHOLD: f32 = 0.75;
+pub const DEFAULT_BLOOM_THRESHOLD: f32 = 0.7;
 pub const BLOOM_THRESHOLD_MARGIN: f32 = 0.12;
 pub const MIN_BLOOM_THRESHOLD: f32 = 0.70;
 pub const MAX_BLOOM_THRESHOLD: f32 = 1.25;
-pub const DEFAULT_BLOOM_INTENSITY: f32 = 0.8;
+pub const DEFAULT_BLOOM_INTENSITY: f32 = 0.7;
 pub const MIN_BLOOM_INTENSITY: f32 = 0.0;
 pub const MAX_BLOOM_INTENSITY: f32 = 1.0;
 pub const DEFAULT_BLOOM_RADIUS: f32 = 8.0;
@@ -566,7 +597,7 @@ pub const MAX_CRT_SCANLINE_INTENSITY: f32 = 0.35;
 pub const DEFAULT_CRT_SCANLINE_PERIOD: f32 = 7.0;
 pub const MIN_CRT_SCANLINE_PERIOD: f32 = 2.0;
 pub const MAX_CRT_SCANLINE_PERIOD: f32 = 12.0;
-pub const DEFAULT_CRT_VIGNETTE_STRENGTH: f32 = 0.10;
+pub const DEFAULT_CRT_VIGNETTE_STRENGTH: f32 = 0.45;
 pub const MIN_CRT_VIGNETTE_STRENGTH: f32 = 0.0;
 pub const MAX_CRT_VIGNETTE_STRENGTH: f32 = 0.45;
 pub const DEFAULT_CRT_CURVATURE: f32 = 0.0;

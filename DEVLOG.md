@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-27 -- Release v0.6.0 — bundled default background + OdysseyOS identity defaults
+
+v0.6.0 makes the OdysseyOS visual identity the out-of-the-box experience.
+
+**Bundled default background.** OdyTTY now ships an original "Dark Waves"
+background image generated from scratch for the project (provenance + license in
+`assets/backgrounds/LICENSE`, GPL-3.0-only like the repo). The image is a
+0.81 MB WebP **embedded into the binary** via `include_bytes!`, exactly like the
+bundled fonts — so it resolves identically on a dev build, a source build, the
+relocatable AppImage, and the distro package with no external file to locate. A
+`background_image = default` sentinel selects it; the GPU loader decodes it from
+memory while real user paths take the unchanged on-disk loader. The image is
+shown by default; **to turn it off**, set `background_treatment = color` (theme
+background only) or `background_image = none`.
+
+**Flagship default theme.** The default theme is now `odyssey-default` — a deep
+forest-green palette (promoted from the former `odyssey-jungle`, which stays a
+working alias so existing configs don't break). The previous `odyssey` palette
+is unchanged and still selectable. The const baseline is pinned byte-identical
+to its embedded `.theme` source by test.
+
+**Identity defaults.** The compiled defaults now match the curated OdysseyOS
+look: `text_gamma=1.2`, `stem_darken=0.7`, `min_contrast=17`, `bloom_intensity=0.7`,
+`bloom_threshold=0.7`, `crt_vignette_strength=0.45`, `cursor_style=bar`,
+`cursor_blink=on`, `cursor_easing=on`, `cursor_trail=on`, `render_quality=high`,
+`font_size=21`, `geometric_boxdraw=on`, `smart_ctrl_c=copy-or-interrupt`,
+`cell_bg_opacity=0.8`, plus the image background. **Privacy/security-sensitive
+toggles stay OFF by default** — `session_replay`, `interactive_paths`, and
+`copy_on_select` are unchanged (opt-in only). Existing users who never set these
+keys adopt the new look on upgrade; the opt-outs above and per-key overrides
+remain available.
+
+**Verification.** `cargo build`, `cargo fmt --check`, `cargo clippy --all-targets`
+(deny gate), and `cargo test` (all binaries, 2500+ tests) are green. Default-
+asserting tests were updated to the new shipped defaults; the test-only opaque
+vertex seams were pinned to literal `1.0` so they stay byte-identical despite the
+new `cell_bg_opacity=0.8` default. A clean-env `--show-config` confirms the new
+identity end-to-end.
+
+---
+
 ## 2026-06-27 -- Release v0.5.5 — gate config live-reload poll on window focus
 
 v0.5.5 trims an unnecessary background wake from the idle event loop.

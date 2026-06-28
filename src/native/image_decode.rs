@@ -69,10 +69,10 @@ pub(in crate::native) fn decode_image_rgba(path: &Path) -> Option<(Vec<u8>, u32,
 
 /// Decode image **bytes** to tightly-packed RGBA8 + dimensions, bounded by
 /// [`image_limits`]. Same contract as [`decode_image_rgba`]; this is the
-/// file-free seam the robustness tests drive with synthetic byte buffers
-/// (truncated headers, decompression bombs, garbage) so no test ever touches
-/// the real filesystem. Test-only: production decodes from a path.
-#[cfg(test)]
+/// file-free seam used by two callers: the embedded default background
+/// ([`super::gpu::default_background`], which decodes compiled-in bytes), and
+/// the robustness tests that drive synthetic byte buffers (truncated headers,
+/// decompression bombs, garbage) so no test ever touches the real filesystem.
 pub(in crate::native) fn decode_image_rgba_bytes(bytes: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
     let cursor = std::io::Cursor::new(bytes);
     let mut reader = image::ImageReader::new(cursor).with_guessed_format().ok()?;

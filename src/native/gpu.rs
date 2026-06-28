@@ -20,6 +20,7 @@ use super::image_layer::{ImageLayer, ImageUpload};
 use super::options::{NativeError, NativeOptions};
 use super::viewport::WindowPadding;
 
+pub(super) mod default_background;
 pub(super) mod fonts;
 pub(super) mod image;
 pub(super) mod post;

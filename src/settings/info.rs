@@ -594,7 +594,13 @@ impl Settings {
                 value: self
                     .background_image
                     .as_ref()
-                    .map(|path| path.display().to_string())
+                    .map(|path| {
+                        if crate::settings::is_bundled_background(path) {
+                            format!("{} (bundled)", crate::settings::BUNDLED_BACKGROUND_TOKEN)
+                        } else {
+                            path.display().to_string()
+                        }
+                    })
                     .unwrap_or_else(|| "none".to_owned()),
                 description: BACKGROUND_IMAGE_DESC,
                 kind: SettingKind::Path,
@@ -1363,7 +1369,13 @@ impl Settings {
             "background_image" => self
                 .background_image
                 .as_ref()
-                .map(|path| path.display().to_string())
+                .map(|path| {
+                    if crate::settings::is_bundled_background(path) {
+                        format!("{} (bundled)", crate::settings::BUNDLED_BACKGROUND_TOKEN)
+                    } else {
+                        path.display().to_string()
+                    }
+                })
                 .unwrap_or_else(|| "none".to_owned()),
             "cell_bg_opacity" => format_float(1.0 - self.cell_bg_opacity),
             "background_blur_radius" => self.background_blur_radius.to_string(),

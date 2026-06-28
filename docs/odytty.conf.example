@@ -7,7 +7,9 @@
 # variables set at startup override these keys for the whole session.
 
 # Theme and OS appearance.
-theme = odyssey
+theme = odyssey-default
+# theme = odyssey          # the classic pre-v0.6.0 palette
+# theme = odyssey-jungle   # alias for odyssey-default
 # theme = system
 follow_os_theme = off
 # os_theme_dark = odyssey
@@ -18,10 +20,10 @@ themed_ui_roles = on
 font_family = Victor Mono
 # font =
 # font_weight =
-font_size = 20
+font_size = 21
 line_height = 1.0
-text_gamma = 1.5
-stem_darken = 0.5
+text_gamma = 1.2
+stem_darken = 0.7
 subpixel = off
 synthetic_styles = on
 symbol_fallback = on
@@ -29,49 +31,54 @@ symbol_fallback = on
 # symbol_map = U+E000-U+F8FF=Symbols Nerd Font
 
 # Readability and rendering.
-render_quality = balanced
-min_contrast = 16.0
+render_quality = high
+min_contrast = 17.0
 focus_dim = 0.0
 # Dim the non-focused panes of a multi-pane tab (0.0 = off, byte-identical).
 inactive_pane_dim = 0.0
-geometric_boxdraw = off
+geometric_boxdraw = on
 box_thickness = 1.0
 window_padding = 4
 window_border = off
 window_decorations = on
 
-# Background treatments.
-background_treatment = off
+# Background treatments. OdyTTY ships with the bundled "Dark Waves" background
+# on by default. To turn it OFF, use `background_treatment = color` (theme
+# background only) or `background_image = none`.
+background_treatment = image
+# background_treatment = color     # disable the image; theme background only
 # background_treatment = gradient
 # background_treatment = vignette
-# background_treatment = image
-# PNG, JPEG, and WebP wallpapers are supported.
-# background_image = /path/to/background.jpg
-cell_bg_opacity = 1.0
+# background_image selects the wallpaper. `default` = the bundled image;
+# `none` = no image; or an absolute PNG/JPEG/WebP path for your own.
+background_image = default
+# background_image = /path/to/background.png
+cell_bg_opacity = 0.8
 background_blur_radius = 0
-# background_image_scrim = auto
+background_image_scrim = 0.5
+# background_image_scrim = auto    # floor-safe auto-computed scrim
 
 # Post-process effects. "ambient" is a compatibility alias for the CRT path
 # when no explicit "crt" setting is present. "crt" always wins.
 visual = ambient
 bloom = on
-bloom_threshold = 0.75
-bloom_intensity = 0.8
+bloom_threshold = 0.7
+bloom_intensity = 0.7
 bloom_radius = 8.0
 retro = off
 crt = on
 crt_scanline_intensity = 0.17
 crt_scanline_period = 7.0
-crt_vignette_strength = 0.10
+crt_vignette_strength = 0.45
 crt_curvature = 0.0
 
 # Cursor and motion.
-cursor_style = block
-cursor_blink = auto
-cursor_easing = off
+cursor_style = bar
+cursor_blink = on
+cursor_easing = on
 cursor_motion = off
 cursor_glow = off
-cursor_trail = off
+cursor_trail = on
 new_output_fade = off
 
 # Input, selection, and tabs. Tab rename is available from the tab context menu.
@@ -90,7 +97,8 @@ copy_on_select = off
 # interrupt. To interrupt while text is selected, press Esc first or Ctrl+C
 # twice; Ctrl+Shift+C always copies. (Plain Ctrl+V stays verbatim-insert; bind
 # `keybinds = ctrl+v=paste` if you want plain Ctrl+V to paste.)
-smart_ctrl_c = off
+smart_ctrl_c = copy-or-interrupt
+# smart_ctrl_c = off   # plain Ctrl+C always interrupts (pre-v0.6.0 behavior)
 confirm_close = on
 # Terminal bell (BEL) handling. There is no audible bell; off/visual/urgent/all
 # are the accepted values (urgent raises the window's urgency hint).

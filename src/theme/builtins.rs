@@ -32,7 +32,8 @@
 //! `odyssey-lilac-light` (light), `odyssey-pearl-light` (light),
 //! `odyssey-apricot-light` (light), `odyssey-chartreuse`, `odyssey-violet`,
 //! `odyssey-fuchsia`, `odyssey-butter-light` (light), `odyssey-sage-light`
-//! (light), `odyssey-slate-light` (light), `odyssey-amber`, `odyssey-jungle`,
+//! (light), `odyssey-slate-light` (light), `odyssey-amber`, `odyssey-default`
+//! (the shipped default; formerly `odyssey-jungle`, still a working alias),
 //! `odyssey-orchid`, `odyssey-seafoam-light` (light), `odyssey-indigo`,
 //! `odyssey-raspberry`, `odyssey-citrus-light` (light),
 //! `odyssey-mauve-light` (light), `odyssey-terracotta`, `odyssey-harvest`,
@@ -242,8 +243,8 @@ const REGISTRY: &[(&str, &str)] = &[
         include_str!("builtins/odyssey-amber.theme"),
     ),
     (
-        "odyssey-jungle",
-        include_str!("builtins/odyssey-jungle.theme"),
+        "odyssey-default",
+        include_str!("builtins/odyssey-default.theme"),
     ),
     (
         "odyssey-orchid",
@@ -472,6 +473,24 @@ mod tests {
         assert_eq!(Theme::from_name("plain"), Some(Theme::PLAIN));
         assert_eq!(Theme::from_name("odyssey"), Some(Theme::ODYSSEY));
         assert_eq!(Theme::from_name("odyssey-noir"), Some(Theme::ODYSSEY_NOIR));
+        assert_eq!(
+            Theme::from_name("odyssey-default"),
+            Some(Theme::ODYSSEY_DEFAULT)
+        );
+    }
+
+    #[test]
+    fn odyssey_jungle_alias_resolves_to_the_default_palette() {
+        // `odyssey-jungle` is the pre-rename alias for the flagship default
+        // palette (v0.6.0), kept working so existing configs don't break.
+        assert_eq!(
+            Theme::from_name("odyssey-jungle"),
+            Some(Theme::ODYSSEY_DEFAULT)
+        );
+        assert_eq!(
+            Theme::from_name("odyssey-default"),
+            Theme::from_name("odyssey-jungle")
+        );
     }
 
     #[test]

@@ -227,11 +227,11 @@ fn copy_on_select_defaults_off_and_parses() {
 }
 
 #[test]
-fn smart_ctrl_c_defaults_off_and_parses() {
-    // Absent → off (byte-identical: plain Ctrl+C always sends the interrupt).
+fn smart_ctrl_c_defaults_on_and_parses() {
+    // v0.6.0 shipped identity: copy-or-interrupt is the default.
     let (settings, warnings) = settings_from([]);
-    assert_eq!(settings.smart_ctrl_c, SmartCtrlC::Off);
-    assert!(!settings.smart_ctrl_c.is_active());
+    assert_eq!(settings.smart_ctrl_c, SmartCtrlC::CopyOrInterrupt);
+    assert!(settings.smart_ctrl_c.is_active());
     assert!(warnings.is_empty());
 
     // Enabled via the env/config key (canonical token + aliases).
@@ -245,9 +245,9 @@ fn smart_ctrl_c_defaults_off_and_parses() {
     let (settings, _) = settings_from([(SMART_CTRL_C_ENV, "off")]);
     assert_eq!(settings.smart_ctrl_c, SmartCtrlC::Off);
 
-    // Unknown value warns and falls back to off.
+    // Unknown value warns and falls back to the default (copy-or-interrupt).
     let (settings, warnings) = settings_from([(SMART_CTRL_C_ENV, "bogus")]);
-    assert_eq!(settings.smart_ctrl_c, SmartCtrlC::Off);
+    assert_eq!(settings.smart_ctrl_c, SmartCtrlC::CopyOrInterrupt);
     assert_eq!(warnings.len(), 1);
 
     // Config-file key + alias map to the env key and back, and the value

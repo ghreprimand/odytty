@@ -68,7 +68,9 @@ fn plain_ctrl_c_with_policy_off_leaves_selection_for_interrupt() {
         eprintln!("skipping: no PTY available");
         return;
     };
-    // Default policy is Off — byte-identical interrupt path.
+    // Explicit off policy — byte-identical interrupt path. (The shipped default
+    // is now copy-or-interrupt, so the off path is set explicitly here.)
+    app.set_smart_ctrl_c_for_test(SmartCtrlC::Off);
     app.force_selection_for_test(0, 0, 0, 4);
     app.drive_char_with_mods_for_test('c', true, false);
 

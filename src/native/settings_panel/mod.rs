@@ -1271,7 +1271,7 @@ fn matches_query(entry: &SettingInfo, needle: &str) -> bool {
 
 fn edit_options(entry: &SettingInfo) -> Vec<&'static str> {
     match entry.key {
-        "theme" => vec!["plain", "odyssey", "odyssey-noir"],
+        "theme" => vec!["plain", "odyssey-default", "odyssey", "odyssey-noir"],
         "visual" => vec!["off", "ambient"],
         "subpixel" => vec!["off", "rgb", "bgr"],
         "cursor_style" => vec!["block", "underline", "bar"],
@@ -1993,7 +1993,13 @@ mod tests {
 
     #[test]
     fn background_scrim_auto_steps_to_numeric_override() {
-        let mut panel = SettingsPanel::new(&Settings::default());
+        // Start from the `auto` (None) scrim explicitly — the shipped default is
+        // now a fixed 0.5, so this sets auto to exercise the auto→numeric step.
+        let settings = Settings {
+            background_image_scrim: None,
+            ..Settings::default()
+        };
+        let mut panel = SettingsPanel::new(&settings);
         select_key(&mut panel, "background_image_scrim");
 
         let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Right) else {

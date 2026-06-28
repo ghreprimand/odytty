@@ -110,7 +110,8 @@ appearances: deep-space and interstellar cold (`odyssey`, `odyssey-deepspace`,
 `odyssey-garnet`, `odyssey-amber`, `odyssey-terracotta`, `odyssey-harvest`),
 cool natural (`odyssey-glacier`, `odyssey-voyager`, `odyssey-fathom`,
 `odyssey-harbor`, `odyssey-orchard`, `odyssey-tidepool`, `odyssey-slate`,
-`odyssey-jungle`, `odyssey-lagoon`), cosmic nebula (`odyssey-nebula`,
+`odyssey-default` (the shipped default; alias `odyssey-jungle`),
+`odyssey-lagoon`), cosmic nebula (`odyssey-nebula`,
 `odyssey-aurora`, `odyssey-ion`, `odyssey-twilight`, `odyssey-quasar`,
 `odyssey-cobalt`), natural greens and chartreuse (`odyssey-verdant`,
 `odyssey-moss`, `odyssey-chartreuse`, `odyssey-pine`), warm and cool text
@@ -198,7 +199,7 @@ OdyTTY has no affiliation with or endorsement from any of those vendors.
 | `odyssey-sage-light` | light | OdyTTY original (muted herbal sage-green daylight companion) |
 | `odyssey-slate-light` | light | OdyTTY original (cool blue-slate daylight companion) |
 | `odyssey-amber` | dark | OdyTTY original (warm golden amber on deep warm-dark) |
-| `odyssey-jungle` | dark | OdyTTY original (deep tropical green canopy on forest-floor dark) |
+| `odyssey-default` | dark | **Shipped default** (deep tropical green canopy on forest-floor dark); also reachable via the `odyssey-jungle` alias |
 | `odyssey-orchid` | dark | OdyTTY original (rich orchid purple-pink on deep mauve-dark) |
 | `odyssey-seafoam-light` | light | OdyTTY original (soft seafoam-green daylight companion) |
 | `odyssey-indigo` | dark | OdyTTY original (deep indigo blue-violet between the blue and purple clusters) |

@@ -211,20 +211,20 @@ pub(super) fn parse_cursor_style_setting(
     warn: &mut impl FnMut(&str),
 ) -> CursorStyle {
     let Some(raw) = raw else {
-        return CursorStyle::Block;
+        return CursorStyle::Bar;
     };
     let value = raw.to_string_lossy();
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return CursorStyle::Block;
+        return CursorStyle::Bar;
     }
     match parse_cursor_style(trimmed) {
         Some(style) => style,
         None => {
             warn(&format!(
-                "{CURSOR_STYLE_ENV}={trimmed:?} is not block|underline|bar; using block"
+                "{CURSOR_STYLE_ENV}={trimmed:?} is not block|underline|bar; using bar"
             ));
-            CursorStyle::Block
+            CursorStyle::Bar
         }
     }
 }
@@ -236,20 +236,20 @@ pub(super) fn parse_cursor_blink_setting(
     warn: &mut impl FnMut(&str),
 ) -> CursorBlink {
     let Some(raw) = raw else {
-        return CursorBlink::Auto;
+        return CursorBlink::On;
     };
     let value = raw.to_string_lossy();
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return CursorBlink::Auto;
+        return CursorBlink::On;
     }
     match CursorBlink::parse(trimmed) {
         Some(policy) => policy,
         None => {
             warn(&format!(
-                "{CURSOR_BLINK_ENV}={trimmed:?} is not on|off|auto; using auto"
+                "{CURSOR_BLINK_ENV}={trimmed:?} is not on|off|auto; using on"
             ));
-            CursorBlink::Auto
+            CursorBlink::On
         }
     }
 }
@@ -615,7 +615,7 @@ pub(super) fn parse_render_quality(
         Some(quality) => quality,
         None => {
             warn(&format!(
-                "{RENDER_QUALITY_ENV}={trimmed:?} is not plain|balanced|high; using balanced"
+                "{RENDER_QUALITY_ENV}={trimmed:?} is not plain|balanced|high; using high"
             ));
             RenderQuality::default()
         }

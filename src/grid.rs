@@ -518,9 +518,12 @@ pub fn build_cell_vertices_with_focus_dim_into(
         focus_dim,
         [0.0, 0.0],
         treatment,
-        // Identity opacity: this focus-dim/color-glyph entry never carries the
-        // image treatment, so it keeps cells fully opaque (byte-identical).
-        crate::settings::DEFAULT_CELL_BG_OPACITY,
+        // Identity opacity (literal 1.0): this focus-dim/color-glyph entry never
+        // carries the image treatment, so it keeps cells fully opaque
+        // (byte-identical). Pinned to 1.0 rather than the default `cell_bg_opacity`
+        // — the shipped default is 0.8 since v0.6.0, but this seam's contract is
+        // opaque cells regardless of that default.
+        1.0,
     );
 }
 

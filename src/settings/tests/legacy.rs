@@ -841,7 +841,7 @@ fn stem_darken_defaults_to_visible_boost() {
     // The opt-out is an explicit `0.0`, exercised by the clamp/parse tests below.
     let (settings, warnings) = settings_from([]);
     assert_eq!(settings.stem_darken, DEFAULT_STEM_DARKEN);
-    assert_eq!(settings.stem_darken, 0.5);
+    assert_eq!(settings.stem_darken, 0.7);
     assert!(warnings.is_empty());
 }
 
@@ -882,7 +882,7 @@ fn stem_darken_clamps_to_unit_range() {
 fn min_contrast_defaults_to_strong_floor() {
     let (settings, warnings) = settings_from([]);
     assert_eq!(settings.min_contrast, DEFAULT_MIN_CONTRAST);
-    assert_eq!(settings.min_contrast, 16.0);
+    assert_eq!(settings.min_contrast, 17.0);
     assert!(warnings.is_empty());
 }
 
@@ -1036,11 +1036,12 @@ fn inactive_pane_dim_forced_off_on_plain_profile() {
 }
 
 #[test]
-fn render_quality_defaults_to_balanced() {
+fn render_quality_defaults_to_high() {
+    // v0.6.0: the shipped identity defaults to the High render profile.
     let (settings, warnings) = settings_from([]);
 
-    assert_eq!(settings.render_quality, RenderQuality::Balanced);
-    assert_eq!(settings.render_quality.as_str(), "balanced");
+    assert_eq!(settings.render_quality, RenderQuality::High);
+    assert_eq!(settings.render_quality.as_str(), "high");
     assert!(!settings.plain_render_quality());
     assert!(warnings.is_empty());
 }
@@ -1064,7 +1065,7 @@ fn render_quality_parses_known_values_and_aliases() {
 fn garbage_render_quality_falls_back_with_warning() {
     let (settings, warnings) = settings_from([(RENDER_QUALITY_ENV, "cinematic")]);
 
-    assert_eq!(settings.render_quality, RenderQuality::Balanced);
+    assert_eq!(settings.render_quality, RenderQuality::High);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(RENDER_QUALITY_ENV));
 }
@@ -1489,9 +1490,10 @@ fn overlay_edit_to_missing_font_family_reports_clear_error() {
 
 #[test]
 fn cursor_defaults_without_env() {
+    // v0.6.0 shipped identity: bar cursor that blinks by default.
     let (settings, warnings) = settings_from([]);
-    assert_eq!(settings.cursor_style, CursorStyle::Block);
-    assert_eq!(settings.cursor_blink, CursorBlink::Auto);
+    assert_eq!(settings.cursor_style, CursorStyle::Bar);
+    assert_eq!(settings.cursor_blink, CursorBlink::On);
     assert!(settings.cursor_blink.enabled());
     assert!(warnings.is_empty());
 }
@@ -1525,7 +1527,7 @@ fn cursor_style_and_blink_parse_case_insensitively() {
 #[test]
 fn garbage_cursor_style_falls_back_with_one_warning() {
     let (settings, warnings) = settings_from([(CURSOR_STYLE_ENV, "diamond")]);
-    assert_eq!(settings.cursor_style, CursorStyle::Block);
+    assert_eq!(settings.cursor_style, CursorStyle::Bar);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(CURSOR_STYLE_ENV));
 }
@@ -1533,7 +1535,7 @@ fn garbage_cursor_style_falls_back_with_one_warning() {
 #[test]
 fn garbage_cursor_blink_falls_back_with_one_warning() {
     let (settings, warnings) = settings_from([(CURSOR_BLINK_ENV, "sometimes")]);
-    assert_eq!(settings.cursor_blink, CursorBlink::Auto);
+    assert_eq!(settings.cursor_blink, CursorBlink::On);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(CURSOR_BLINK_ENV));
 }
@@ -1590,27 +1592,53 @@ fn garbage_synthetic_styles_falls_back_on_with_warning() {
 }
 
 #[test]
-fn geometric_boxdraw_defaults_off_and_parses_on() {
+fn geometric_boxdraw_defaults_on_and_parses_off() {
+    // v0.6.0: geometric box-drawing ships on by default.
     let (settings, warnings) = settings_from([]);
+    assert!(settings.geometric_boxdraw);
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from([(GEOMETRIC_BOXDRAW_ENV, "off")]);
     assert!(!settings.geometric_boxdraw);
     assert!(warnings.is_empty());
 
-    let (settings, warnings) = settings_from([(GEOMETRIC_BOXDRAW_ENV, "on")]);
-    assert!(settings.geometric_boxdraw);
-    assert!(warnings.is_empty());
-
     // Config-file form maps onto the same setting.
-    let (settings, warnings) = settings_from_config_and_env("geometric_boxdraw = true", []);
-    assert!(settings.geometric_boxdraw);
+    let (settings, warnings) = settings_from_config_and_env("geometric_boxdraw = false", []);
+    assert!(!settings.geometric_boxdraw);
     assert!(warnings.is_empty());
 }
 
 #[test]
-fn garbage_geometric_boxdraw_falls_back_off_with_warning() {
+fn garbage_geometric_boxdraw_falls_back_on_with_warning() {
+    // Falls back to the (now on) default with one warning.
     let (settings, warnings) = settings_from([(GEOMETRIC_BOXDRAW_ENV, "sometimes")]);
-    assert!(!settings.geometric_boxdraw);
+    assert!(settings.geometric_boxdraw);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(GEOMETRIC_BOXDRAW_ENV));
+}
+
+#[test]
+fn background_treatment_defaults_to_image_and_color_opts_out() {
+    use crate::settings::BackgroundTreatment;
+
+    // v0.6.0: the shipped default treatment is the bundled image.
+    let (settings, warnings) = settings_from([]);
+    assert_eq!(settings.background_treatment, BackgroundTreatment::Image);
+    assert!(settings.background_image.is_some(), "bundled default set");
+    assert!(warnings.is_empty());
+
+    // The documented off-switch: `background_treatment = color` draws the theme
+    // background only (no image), with no warning.
+    let (settings, warnings) = settings_from([(BACKGROUND_TREATMENT_ENV, "color")]);
+    assert_eq!(settings.background_treatment, BackgroundTreatment::Off);
+    assert!(
+        warnings.is_empty(),
+        "`color` is a recognized alias: {warnings:?}"
+    );
+
+    // The other documented off-switch: `background_image = none`.
+    let (settings, _) = settings_from([(BACKGROUND_IMAGE_ENV, "none")]);
+    assert!(settings.background_image.is_none());
 }
 
 #[test]

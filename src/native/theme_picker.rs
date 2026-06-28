@@ -593,9 +593,12 @@ mod tests {
     #[test]
     fn click_row_persists_same_theme_as_set_selection() {
         // `new()` leaves message None, so the only prefix line is the header;
-        // entry K is at body row K+1.
+        // entry K is at body row K+1. `new()` also scrolls to the original
+        // theme's row (the default is now `odyssey-default`, deep in the list),
+        // so reset the scroll to the top first to keep the row↔index mapping.
         for target in 0..3usize {
             let mut by_click = ThemePicker::new(&Settings::default());
+            by_click.set_selection(0);
             let _ = by_click.visible_lines(80, 40);
             assert!(
                 by_click.click_row(target + 1, 80, 40),

@@ -21,11 +21,11 @@ valid rewrite appears.
 `odytty.conf` is a dependency-free `key = value` file with `#` comments:
 
 ```conf
-theme = odyssey
+theme = odyssey-default
 font_family = Victor Mono
-font_size = 20.0
-render_quality = balanced
-min_contrast = 16.0
+font_size = 21.0
+render_quality = high
+min_contrast = 17.0
 ```
 
 Blank lines are ignored. Duplicate keys are allowed; the last valid value wins.
@@ -195,7 +195,7 @@ environment variable was not set at startup.
 
 | Config key | Environment variable | Values | Default |
 | --- | --- | --- | --- |
-| `theme` | `ODYTTY_THEME` | Built-in name, user theme name, `.theme` path, or `system` | `odyssey` |
+| `theme` | `ODYTTY_THEME` | Built-in name, user theme name, `.theme` path, or `system` | `odyssey-default` |
 | `follow_os_theme` | `ODYTTY_FOLLOW_OS_THEME` | `on`, `off` | `off` |
 | `os_theme_dark` | `ODYTTY_OS_THEME_DARK` | Built-in theme name | unset |
 | `os_theme_light` | `ODYTTY_OS_THEME_LIGHT` | Built-in theme name | unset |
@@ -203,46 +203,46 @@ environment variable was not set at startup.
 | `font` | `ODYTTY_FONT` | `.ttf`, `.otf`, or `.ttc` path | unset |
 | `font_family` | `ODYTTY_FONT_FAMILY` | Monospace family name or font path | `Victor Mono` |
 | `font_weight` | `ODYTTY_FONT_WEIGHT` | Weight suffix such as `Light`, `Medium`, `SemiBold`, or empty | empty |
-| `font_size` | `ODYTTY_FONT_SIZE` | Float, `6.0..=72.0` px | `20.0` |
+| `font_size` | `ODYTTY_FONT_SIZE` | Float, `6.0..=72.0` px | `21.0` |
 | `line_height` | `ODYTTY_LINE_HEIGHT` | Float, `1.0..=2.0` | `1.0` |
-| `text_gamma` | `ODYTTY_TEXT_GAMMA` | Float, `0.5..=3.0` | `1.5` |
-| `stem_darken` | `ODYTTY_STEM_DARKEN` | Float, `0.0..=1.0` | `0.5` |
-| `min_contrast` | `ODYTTY_MIN_CONTRAST` | WCAG contrast ratio, `1.0..=21.0` | `16.0` |
+| `text_gamma` | `ODYTTY_TEXT_GAMMA` | Float, `0.5..=3.0` | `1.2` |
+| `stem_darken` | `ODYTTY_STEM_DARKEN` | Float, `0.0..=1.0` | `0.7` |
+| `min_contrast` | `ODYTTY_MIN_CONTRAST` | WCAG contrast ratio, `1.0..=21.0` | `17.0` |
 | `focus_dim` | `ODYTTY_FOCUS_DIM` | Float, `0.0..=1.0` | `0.0` |
 | `inactive_pane_dim` | `ODYTTY_INACTIVE_PANE_DIM` | Float, `0.0..=1.0` | `0.0` |
-| `render_quality` | `ODYTTY_RENDER_QUALITY` | `plain`, `balanced`, `high` | `balanced` |
+| `render_quality` | `ODYTTY_RENDER_QUALITY` | `plain`, `balanced`, `high` | `high` |
 | `window_padding` | `ODYTTY_WINDOW_PADDING` | Float, `0.0..=64.0` px | `4.0` |
 | `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` |
 | `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` |
-| `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`, `gradient`, `vignette`, `image` | `off` |
-| `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG, JPEG, or WebP path or empty | empty |
-| `cell_bg_opacity` | `ODYTTY_CELL_BG_OPACITY` | Float, `0.0..=1.0` | `1.0` |
+| `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`/`color`, `gradient`, `vignette`, `image` | `image` |
+| `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG/JPEG/WebP path, `default` (bundled), or `none` | `default` (bundled) |
+| `cell_bg_opacity` | `ODYTTY_CELL_BG_OPACITY` | Float, `0.0..=1.0` | `0.8` |
 | `background_blur_radius` | `ODYTTY_BACKGROUND_BLUR_RADIUS` | Integer, `0..=256` px | `0` |
-| `background_image_scrim` | `ODYTTY_BACKGROUND_IMAGE_SCRIM` | `auto`, empty, or float `0.0..=1.0` | auto |
+| `background_image_scrim` | `ODYTTY_BACKGROUND_IMAGE_SCRIM` | `auto`, empty, or float `0.0..=1.0` | `0.5` |
 | `bloom` | `ODYTTY_BLOOM` | `on`, `off` | `on` |
-| `bloom_threshold` | `ODYTTY_BLOOM_THRESHOLD` | Float, `0.70..=1.25`, or `auto` | `0.75` |
-| `bloom_intensity` | `ODYTTY_BLOOM_INTENSITY` | Float, `0.0..=1.0` | `0.8` |
+| `bloom_threshold` | `ODYTTY_BLOOM_THRESHOLD` | Float, `0.70..=1.25`, or `auto` | `0.7` |
+| `bloom_intensity` | `ODYTTY_BLOOM_INTENSITY` | Float, `0.0..=1.0` | `0.7` |
 | `bloom_radius` | `ODYTTY_BLOOM_RADIUS` | Float, `0.5..=8.0` px | `8.0` |
 | `retro` | `ODYTTY_RETRO` | `on`, `off` | `off` |
 | `crt` | `ODYTTY_CRT` | `on`, `off` | `on` |
 | `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | Float, `0.0..=0.35` | `0.17` |
 | `crt_scanline_period` | `ODYTTY_CRT_SCANLINE_PERIOD` | Float, `2.0..=12.0` px | `7.0` |
-| `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | Float, `0.0..=0.45` | `0.10` |
+| `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | Float, `0.0..=0.45` | `0.45` |
 | `crt_curvature` | `ODYTTY_CRT_CURVATURE` | Float, `0.0..=0.12` | `0.0` |
 | `subpixel` | `ODYTTY_SUBPIXEL` | `off`, `rgb`, `bgr` | `off` |
 | `synthetic_styles` | `ODYTTY_SYNTHETIC_STYLES` | `on`, `off` | `on` |
-| `geometric_boxdraw` | `ODYTTY_GEOMETRIC_BOXDRAW` | `on`, `off` | `off` |
+| `geometric_boxdraw` | `ODYTTY_GEOMETRIC_BOXDRAW` | `on`, `off` | `on` |
 | `box_thickness` | `ODYTTY_BOX_THICKNESS` | Float, `0.5..=3.0` | `1.0` |
 | `symbol_fallback` | `ODYTTY_SYMBOL_FALLBACK` | `on`, `off` | `on` |
 | `symbol_font` | `ODYTTY_SYMBOL_FONT` | `.ttf`/`.otf` path, empty, or `auto` | auto |
 | `symbol_map` | `ODYTTY_SYMBOL_MAP` | Semicolon-separated `range=family` entries | empty |
 | `themed_ui_roles` | `ODYTTY_THEMED_UI_ROLES` | `on`, `off` | `on` |
-| `cursor_style` | `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `block` |
-| `cursor_blink` | `ODYTTY_CURSOR_BLINK` | `auto`, `on`, `off` | `auto` |
-| `cursor_easing` | `ODYTTY_CURSOR_EASING` | `on`, `off` | `off` |
+| `cursor_style` | `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `bar` |
+| `cursor_blink` | `ODYTTY_CURSOR_BLINK` | `auto`, `on`, `off` | `on` |
+| `cursor_easing` | `ODYTTY_CURSOR_EASING` | `on`, `off` | `on` |
 | `cursor_motion` | `ODYTTY_CURSOR_MOTION` | `on`, `off` | `off` |
 | `cursor_glow` | `ODYTTY_CURSOR_GLOW` | `on`, `off` | `off` |
-| `cursor_trail` | `ODYTTY_CURSOR_TRAIL` | `on`, `off` | `off` |
+| `cursor_trail` | `ODYTTY_CURSOR_TRAIL` | `on`, `off` | `on` |
 | `new_output_fade` | `ODYTTY_NEW_OUTPUT_FADE` | `on`, `off` | `off` |
 | `keybinds` | `ODYTTY_KEYBINDS` | `chord=action` list | empty |
 | `pane_prefix` | `ODYTTY_PANE_PREFIX` | Key chord, or `off` to disable | `ctrl+b` |
@@ -266,7 +266,7 @@ environment variable was not set at startup.
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |
 | `copy_on_select` | `ODYTTY_COPY_ON_SELECT` | `on`, `off` | `off` |
-| `smart_ctrl_c` | `ODYTTY_SMART_CTRL_C` | `off`, `copy-or-interrupt` | `off` |
+| `smart_ctrl_c` | `ODYTTY_SMART_CTRL_C` | `off`, `copy-or-interrupt` | `copy-or-interrupt` |
 | `cvd_mode` | `ODYTTY_CVD_MODE` | `off`, `protan`, `deutan`, `tritan` | `off` |
 | `cvd_strength` | `ODYTTY_CVD_STRENGTH` | Float, `0.0..=1.0` | `1.0` |
 | `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer ms | unset |
@@ -514,12 +514,12 @@ copy.
 
 ### Smart Ctrl+C (`smart_ctrl_c`)
 
-`smart_ctrl_c` controls what plain `Ctrl+C` does, and is **off by default** — so
-plain `Ctrl+C` always sends the interrupt signal (`^C`), exactly as a terminal
-normally does. Set `smart_ctrl_c = copy-or-interrupt` (or
-`ODYTTY_SMART_CTRL_C=copy-or-interrupt`) for the Windows-Terminal-style behavior:
-when text is selected, `Ctrl+C` **copies the selection and clears it**; when
-nothing is selected, `Ctrl+C` still sends the interrupt. The toggle is in the
+`smart_ctrl_c` controls what plain `Ctrl+C` does. Since v0.6.0 it defaults to
+**`copy-or-interrupt`** (the Windows-Terminal-style behavior): when text is
+selected, `Ctrl+C` **copies the selection and clears it**; when nothing is
+selected, `Ctrl+C` still sends the interrupt signal (`^C`). Set
+`smart_ctrl_c = off` (or `ODYTTY_SMART_CTRL_C=off`) to restore the plain
+terminal behavior where `Ctrl+C` always sends the interrupt. The toggle is in the
 Settings panel's Clipboard section, where its value reads `copy-or-interrupt`
 verbatim.
 

@@ -485,7 +485,7 @@ fn list_and_attach_use_live_session_host_without_scrollback_dump() {
 fn show_config_output_formats_default_settings() {
     let output = cli::show_config_output(&odytty::settings::Settings::default());
 
-    assert_contains_line(&output, "theme=odyssey");
+    assert_contains_line(&output, "theme=odyssey-default");
     assert_contains_line(&output, "visual=ambient");
     assert_contains_line(
         &output,
@@ -498,7 +498,7 @@ fn show_config_output_formats_default_settings() {
             odytty::settings::DEFAULT_FONT_SIZE_PX as usize
         ),
     );
-    assert_contains_line(&output, "render_quality=balanced");
+    assert_contains_line(&output, "render_quality=high");
     assert_contains_line(&output, "retro=off");
     assert_contains_line(&output, "window_padding=4");
     assert_contains_line(&output, "bloom=on");

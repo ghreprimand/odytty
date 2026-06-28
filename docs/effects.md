@@ -243,8 +243,11 @@ the `crt_*` knobs above; `visual` exists so older configs keep working.
 
 ## Cursor animations
 
-Three optional cursor animations ship off by default; all are purely visual and
-never affect the logical cursor position or terminal state.
+OdyTTY has three optional cursor animations; all are purely visual and never
+affect the logical cursor position or terminal state. Since v0.6.0 the shipped
+defaults enable **cursor easing** and the **cursor trail** (`cursor_easing = on`,
+`cursor_trail = on`) as part of the OdysseyOS identity, while **cursor slide**
+(`cursor_motion`) stays off by default. Set any of them to `off` to disable.
 
 **Cursor slide** (`cursor_motion = on`): the cursor glides between adjacent
 positions (55 ms ease-out-cubic) instead of jumping. Large jumps, resizes,
@@ -273,15 +276,17 @@ resize snap. Off by default; only at the live tail.
 
 ## Background treatments
 
-`background_treatment` controls depth behind the terminal grid:
+`background_treatment` controls depth behind the terminal grid. Since v0.6.0
+OdyTTY ships with a bundled "Dark Waves" background **on by default**; turn it
+off with `background_treatment = color` or `background_image = none`.
 
 | Setting | Env | Type | Default |
 |---------|-----|------|---------|
-| `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`, `gradient`, `vignette`, `image` | `off` |
-| `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG, JPEG, or WebP path | unset |
-| `cell_bg_opacity` | `ODYTTY_CELL_BG_OPACITY` | float `0.0–1.0` | `1.0` |
+| `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`/`color`, `gradient`, `vignette`, `image` | `image` |
+| `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG/JPEG/WebP path, `default` (bundled), or `none` | `default` (bundled) |
+| `cell_bg_opacity` | `ODYTTY_CELL_BG_OPACITY` | float `0.0–1.0` | `0.8` |
 | `background_blur_radius` | `ODYTTY_BACKGROUND_BLUR_RADIUS` | integer px `0–256` | `0` |
-| `background_image_scrim` | `ODYTTY_BACKGROUND_IMAGE_SCRIM` | `auto`, empty, or float `0.0–1.0` | auto |
+| `background_image_scrim` | `ODYTTY_BACKGROUND_IMAGE_SCRIM` | `auto`, empty, or float `0.0–1.0` | `0.5` |
 
 `gradient` darkens toward the bottom of the grid. `vignette` darkens toward the
 edges and corners. Both are applied before the minimum-contrast floor, so the

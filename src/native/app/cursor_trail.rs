@@ -203,7 +203,7 @@ mod tests {
         let Some(mut app) = build_app() else {
             return;
         };
-        assert!(!app.settings.cursor_trail, "off by default");
+        app.settings.cursor_trail = false; // exercise the explicit off path
         arm_midslide(&mut app);
         // Even with a slide in flight, the off path emits zero quads.
         let mut quads = Vec::new();
@@ -335,6 +335,7 @@ mod tests {
         let Some(mut app) = build_app() else {
             return;
         };
+        app.settings.cursor_trail = false;
         assert_eq!(app.cursor_trail_overlay_signature(), OverlayFragment::Inert);
         app.settings.cursor_trail = true;
         assert_eq!(

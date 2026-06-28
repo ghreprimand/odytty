@@ -171,12 +171,53 @@ impl Theme {
         inactive: (0x55, 0x5C, 0x58),
     };
 
+    /// Odyssey Default: the v0.6.0 flagship default theme. A deep forest-green
+    /// field with soft mint text and a jungle-toned ANSI palette. The shipped
+    /// default ([`crate::settings::DEFAULT_THEME`]); also reachable under the
+    /// `odyssey-jungle` alias. Pinned byte-identical to its embedded
+    /// `odyssey-default.theme` source by test.
+    pub const ODYSSEY_DEFAULT: Theme = Theme {
+        name: "odyssey-default",
+        foreground: (0x88, 0xD8, 0xB0),
+        background: (0x03, 0x14, 0x08),
+        clear: (0x01, 0x0C, 0x06),
+        palette: [
+            (0x07, 0x1C, 0x0C), // 0  black
+            (0xDC, 0x48, 0x48), // 1  red
+            (0x38, 0xB0, 0x48), // 2  green
+            (0xC0, 0x94, 0x18), // 3  yellow
+            (0x38, 0x80, 0xC4), // 4  blue
+            (0xA0, 0x50, 0xC0), // 5  magenta
+            (0x18, 0xA8, 0x98), // 6  cyan
+            (0x7A, 0xB8, 0x98), // 7  white
+            (0x10, 0x30, 0x18), // 8  bright black
+            (0xF0, 0x70, 0x70), // 9  bright red
+            (0x50, 0xCC, 0x60), // 10 bright green
+            (0xD8, 0xB0, 0x30), // 11 bright yellow
+            (0x58, 0x98, 0xD8), // 12 bright blue
+            (0xB8, 0x70, 0xD0), // 13 bright magenta
+            (0x30, 0xC0, 0xB0), // 14 bright cyan
+            (0xC0, 0xE8, 0xD0), // 15 bright white
+        ],
+        cursor: (0x40, 0xC8, 0x98),
+        selection: (0x0A, 0x24, 0x14),
+        search: (0x1C, 0x2C, 0x10),
+        border: (0x10, 0x28, 0x14),
+        inactive: (0x40, 0x78, 0x60),
+    };
+
     /// The const core themes, authored directly in source. These are the parse
-    /// default ([`PLAIN`](Self::PLAIN) seeds [`ThemeSpec`] defaults) and the
-    /// fallback baselines; the *full* built-in library — including these three,
-    /// re-parsed from their embedded `.theme` files, plus the community palettes
-    /// — is [`Theme::all`]. The two are pinned equal by test.
-    pub const ALL: [Theme; 3] = [Theme::PLAIN, Theme::ODYSSEY, Theme::ODYSSEY_NOIR];
+    /// default and the fallback baselines ([`PLAIN`](Self::PLAIN) seeds
+    /// [`ThemeSpec`] defaults; [`ODYSSEY_DEFAULT`](Self::ODYSSEY_DEFAULT) is the
+    /// shipped default theme); the *full* built-in library — re-parsed from the
+    /// embedded `.theme` files plus the community palettes — is [`Theme::all`].
+    /// The const and parsed forms are pinned equal by test.
+    pub const ALL: [Theme; 4] = [
+        Theme::PLAIN,
+        Theme::ODYSSEY,
+        Theme::ODYSSEY_NOIR,
+        Theme::ODYSSEY_DEFAULT,
+    ];
 
     /// Resolve a theme by name against the full built-in library
     /// ([`Theme::all`]). Matching is case-insensitive and ignores surrounding
@@ -184,7 +225,14 @@ impl Theme {
     /// their own fallback; use [`Theme::from_name_or_default`] for the
     /// plain-fallback convenience.
     pub fn from_name(name: &str) -> Option<Theme> {
-        let key = name.trim().to_ascii_lowercase();
+        let mut key = name.trim().to_ascii_lowercase();
+        // Alias (v0.6.0): the flagship default palette was published as
+        // `odyssey-jungle` before being promoted to the shipped default and
+        // renamed `odyssey-default`. The old name stays a working alias so
+        // existing `theme = odyssey-jungle` configs keep resolving to it.
+        if key == "odyssey-jungle" {
+            key = "odyssey-default".to_string();
+        }
         all().iter().copied().find(|theme| theme.name == key)
     }
 

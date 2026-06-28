@@ -454,8 +454,8 @@ pub struct SettingsEditOverlay {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RenderQuality {
     Plain,
-    #[default]
     Balanced,
+    #[default]
     High,
 }
 
@@ -488,18 +488,19 @@ impl RenderQuality {
 /// grid cell-vertex path, before the RV1 minimum-contrast floor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BackgroundTreatment {
-    /// No treatment — background drawn unchanged (default).
-    #[default]
+    /// No treatment — background drawn unchanged.
     Off,
     /// Vertical gradient: darkens toward the bottom rows.
     Gradient,
     /// Radial vignette: darkens toward the edges and corners.
     Vignette,
-    /// PNG background image drawn behind the grid, with a readability scrim and
-    /// `cell_bg_opacity` controlling how much shows through behind text. Unlike
-    /// `Gradient`/`Vignette`, this treatment does **not** modulate per-cell
-    /// background colours — the image lives on its own GPU pass and the RV1
-    /// floor stays valid via the scrim (see [`Settings::cell_bg_opacity`]).
+    /// PNG/WebP background image drawn behind the grid, with a readability scrim
+    /// and `cell_bg_opacity` controlling how much shows through behind text.
+    /// Unlike `Gradient`/`Vignette`, this treatment does **not** modulate
+    /// per-cell background colours — the image lives on its own GPU pass and the
+    /// RV1 floor stays valid via the scrim (see [`Settings::cell_bg_opacity`]).
+    /// The shipped default (v0.6.0): paired with the bundled default background.
+    #[default]
     Image,
 }
 
@@ -515,7 +516,9 @@ impl BackgroundTreatment {
 
     fn parse(value: &str) -> Option<Self> {
         match normalize_name(value).as_str() {
-            "off" | "none" | "false" | "plain" => Some(Self::Off),
+            // `color` is the documented opt-out: draw the theme background colour
+            // only, disabling the bundled default image (v0.6.0).
+            "off" | "none" | "false" | "plain" | "color" | "colour" => Some(Self::Off),
             "gradient" | "linear" => Some(Self::Gradient),
             "vignette" | "radial" => Some(Self::Vignette),
             "image" | "picture" | "photo" => Some(Self::Image),
@@ -576,10 +579,10 @@ impl ScrollDragSpeed {
 pub enum SmartCtrlC {
     /// Plain `Ctrl+C` always sends the interrupt byte (`0x03`). Byte-identical
     /// to a build without the feature.
-    #[default]
     Off,
     /// Plain `Ctrl+C` copies and clears a local selection when one exists;
-    /// otherwise it sends the interrupt byte.
+    /// otherwise it sends the interrupt byte. The shipped default (v0.6.0).
+    #[default]
     CopyOrInterrupt,
 }
 
@@ -1058,9 +1061,9 @@ impl Default for Settings {
             inactive_pane_dim: DEFAULT_INACTIVE_PANE_DIM,
             render_quality: RenderQuality::default(),
             background_treatment: BackgroundTreatment::default(),
-            background_image: None,
+            background_image: Some(bundled_background_path()),
             background_blur_radius: 0,
-            background_image_scrim: None,
+            background_image_scrim: Some(DEFAULT_BACKGROUND_IMAGE_SCRIM),
             cell_bg_opacity: DEFAULT_CELL_BG_OPACITY,
             window_padding_px: DEFAULT_WINDOW_PADDING_PX,
             bloom: DEFAULT_BLOOM,
@@ -1078,15 +1081,15 @@ impl Default for Settings {
             box_thickness: DEFAULT_BOX_THICKNESS,
             key_bindings: Vec::new(),
             pane_prefix: default_pane_prefix(),
-            cursor_style: CursorStyle::Block,
-            cursor_blink: CursorBlink::Auto,
+            cursor_style: CursorStyle::Bar,
+            cursor_blink: CursorBlink::On,
             cursor_easing: DEFAULT_CURSOR_EASING,
             cursor_glow: DEFAULT_CURSOR_GLOW,
             cursor_trail: DEFAULT_CURSOR_TRAIL,
             cursor_motion: DEFAULT_CURSOR_MOTION,
             osc52_read: false,
             synthetic_styles: true,
-            geometric_boxdraw: false,
+            geometric_boxdraw: true,
             symbol_fallback: true,
             symbol_font: None,
             symbol_map: crate::text::SymbolMap::new(),
@@ -1462,13 +1465,33 @@ impl Settings {
         let render_quality = parse_render_quality(get(RENDER_QUALITY_ENV).as_deref(), &mut warn);
         let background_treatment =
             parse_background_treatment(get(BACKGROUND_TREATMENT_ENV).as_deref(), &mut warn);
-        let background_image = get(BACKGROUND_IMAGE_ENV)
-            .map(PathBuf::from)
-            .filter(|path| !path.as_os_str().is_empty());
+        // `background_image` resolution (v0.6.0):
+        //   * unset            -> the bundled default (compiled-in sentinel),
+        //   * `none`/`off`/""   -> explicitly no image (the documented off-switch),
+        //   * `default`/`bundled` -> the bundled default,
+        //   * anything else     -> a real on-disk path.
+        let background_image = match get(BACKGROUND_IMAGE_ENV) {
+            None => Some(bundled_background_path()),
+            Some(raw) => {
+                let lossy = raw.to_string_lossy();
+                let trimmed = lossy.trim();
+                match trimmed.to_ascii_lowercase().as_str() {
+                    "" | "none" | "off" | "false" => None,
+                    "default" | "bundled" | BUNDLED_BACKGROUND_SENTINEL => {
+                        Some(bundled_background_path())
+                    }
+                    _ => Some(PathBuf::from(trimmed)),
+                }
+            }
+        };
         let background_blur_radius =
             parse_background_blur_radius(get(BACKGROUND_BLUR_RADIUS_ENV).as_deref(), &mut warn);
-        let background_image_scrim =
-            parse_background_image_scrim(get(BACKGROUND_IMAGE_SCRIM_ENV).as_deref(), &mut warn);
+        // Unset -> the shipped default scrim (paired with the bundled default
+        // background); an explicit value (including `auto` -> None) overrides.
+        let background_image_scrim = match get(BACKGROUND_IMAGE_SCRIM_ENV) {
+            None => Some(DEFAULT_BACKGROUND_IMAGE_SCRIM),
+            some => parse_background_image_scrim(some.as_deref(), &mut warn),
+        };
         let cell_bg_opacity = parse_cell_bg_opacity(get(CELL_BG_OPACITY_ENV).as_deref(), &mut warn);
         let window_padding_px = parse_window_padding(get(WINDOW_PADDING_ENV).as_deref(), &mut warn);
         let bloom = parse_bool_setting(
@@ -1555,7 +1578,7 @@ impl Settings {
         let geometric_boxdraw = parse_bool_setting(
             get(GEOMETRIC_BOXDRAW_ENV).as_deref(),
             GEOMETRIC_BOXDRAW_ENV,
-            false,
+            true,
             &mut warn,
         );
         let symbol_fallback = parse_bool_setting(
@@ -1843,7 +1866,14 @@ impl Settings {
             self.background_treatment.as_str().to_owned(),
         );
         if let Some(path) = self.background_image.as_ref() {
-            values.insert(BACKGROUND_IMAGE_ENV, path.display().to_string());
+            // Render the bundled-default sentinel as the friendly opt-in token so
+            // the written config round-trips and never exposes the raw marker.
+            let rendered = if is_bundled_background(path) {
+                BUNDLED_BACKGROUND_TOKEN.to_owned()
+            } else {
+                path.display().to_string()
+            };
+            values.insert(BACKGROUND_IMAGE_ENV, rendered);
         }
         values.insert(
             BACKGROUND_BLUR_RADIUS_ENV,

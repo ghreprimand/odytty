@@ -215,8 +215,8 @@ fn settings_edit_overlay_tracks_edit_revert_and_clear_diff() {
 #[test]
 fn empty_cursor_settings_are_silent_defaults() {
     let (settings, warnings) = settings_from([(CURSOR_STYLE_ENV, "  "), (CURSOR_BLINK_ENV, "")]);
-    assert_eq!(settings.cursor_style, CursorStyle::Block);
-    assert_eq!(settings.cursor_blink, CursorBlink::Auto);
+    assert_eq!(settings.cursor_style, CursorStyle::Bar);
+    assert_eq!(settings.cursor_blink, CursorBlink::On);
     assert!(warnings.is_empty());
 }
 

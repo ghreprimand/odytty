@@ -558,6 +558,36 @@ preference using OdyTTY defaults (`odyssey` dark, `odyssey-light` light).
 Explicit `follow_os_theme`, `os_theme_dark`, and `os_theme_light` settings allow
 custom mappings.
 
+#### Default background image (and how to turn it off)
+
+Since v0.6.0 OdyTTY ships with its OdysseyOS visual identity on by default: the
+default theme is `odyssey-default` (a deep forest-green palette; also reachable
+under the `odyssey-jungle` alias), and an original "Dark Waves" background image
+is **bundled into the binary and shown by default** behind the grid. The image
+is embedded at build time, so it works identically on every install (source
+build, AppImage, and distro package) with no external file to manage. It carries
+the repository license (see [`assets/backgrounds/LICENSE`](assets/backgrounds/LICENSE)).
+
+To turn the background **off**, set either key in `odytty.conf`:
+
+```ini
+# odytty.conf — disable the bundled background entirely
+background_treatment = color   # draw the theme background only (no image)
+# — or —
+background_image = none        # keep image treatment available but use no image
+```
+
+To use **your own** image instead, point `background_image` at a file:
+
+```ini
+# odytty.conf — use a custom background
+background_treatment = image
+background_image = /path/to/your/wallpaper.png   # png / jpeg / webp
+background_image_scrim = 0.5                      # 0 = none, 1 = opaque scrim; `auto` = floor-safe
+```
+
+`background_image = default` (the unset value) selects the bundled image again.
+
 See:
 
 - [`docs/runtime-knobs.md`](docs/runtime-knobs.md) for every config key,

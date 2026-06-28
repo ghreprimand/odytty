@@ -642,13 +642,14 @@ its first stable layer.
 - Post-process pipeline foundation: lazy offscreen render target +
   fullscreen-triangle passthrough composite; default path stays
   direct-to-swapchain (byte-identical); GPU readback smoke guards the seam
-- Opt-in cursor animations (all off by default, purely visual, never move the
-  logical cursor): cursor blink fade (`cursor_easing`, 180 ms ease); cursor
-  slide (`cursor_motion`, 55 ms ease-out-cubic, snaps on large jumps/resize/
-  scrollback); cursor glow (`cursor_glow`, three faint concentric rings in the
-  theme foreground color behind the cursor block); cursor trail (`cursor_trail`,
-  short fading after-image trailing the gliding cursor in the theme cursor color,
-  only visible while cursor slide is on).
+- Cursor animations (purely visual, never move the logical cursor). Since v0.6.0
+  the shipped defaults enable cursor blink fade (`cursor_easing`, 180 ms ease)
+  and the cursor trail (`cursor_trail`, short fading after-image trailing the
+  gliding cursor in the theme cursor color), as part of the OdysseyOS identity;
+  cursor slide (`cursor_motion`, 55 ms ease-out-cubic, snaps on large jumps/
+  resize/scrollback) and cursor glow (`cursor_glow`, three faint concentric rings
+  in the theme foreground color behind the cursor block) stay off by default.
+  Each is independently disableable with `= off`.
 - New-output fade (`new_output_fade`, off by default): rows of freshly arrived
   output fade in over a short ramp at the live tail; scrollback and resize snap.
 - Themed window border (`window_border`, off by default): an optional thin
@@ -904,8 +905,8 @@ Tier-3 atmospheric effects land in this order:
    `retro=on` is a stronger preset over the same bloom/CRT path; curvature and
    chromatic aberration are deferred.
 
-Cursor motion trail (`cursor_trail`, off by default): a short fading after-image
-that trails the cursor as it glides between cells, drawn behind the cursor block
+Cursor motion trail (`cursor_trail`, on by default since v0.6.0): a short fading
+after-image that trails the cursor as it glides between cells, drawn behind the cursor block
 in the theme cursor color. Only visible while cursor slide (`cursor_motion`) is
 also on; fully decays as the glide settles. New-output fade (`new_output_fade`,
 off by default): rows of freshly arrived output fade in over a short ramp at the
@@ -934,15 +935,20 @@ be **structurally unable** to harm body-text legibility by construction:
   an intensity cap that keeps the worst-case dimming above the body-text
   legibility floor. The user-configured `min_contrast` floor is the explicit
   safety net at the CPU level; effects must not require it.
-- **Background treatments** (`background_treatment`, `off`/`gradient`/`vignette`,
-  `image`, default `off`): position-based per-cell background darkening
-  (gradient toward the bottom; vignette toward the edges/corners) and static
-  PNG/JPEG/WebP background images behind the grid. Legibility is safe-by-construction:
-  gradient/vignette darken is applied to the per-cell background **before** the
-  minimum-contrast floor resolves, and image backgrounds use a readability scrim
-  plus `cell_bg_opacity` so the floor sees a bounded background. The knob is
-  forced off under the plain renderer profile. Blur-behind transparency remains
-  a planned future extension.
+- **Background treatments** (`background_treatment`, `off`/`color`/`gradient`/`vignette`,
+  `image`, **default `image`** since v0.6.0): position-based per-cell background
+  darkening (gradient toward the bottom; vignette toward the edges/corners) and
+  static PNG/JPEG/WebP background images behind the grid. OdyTTY ships an original
+  "Dark Waves" background **embedded into the binary** (`assets/backgrounds/`,
+  selected by the `background_image = default` sentinel) and shown by default, so
+  the OdysseyOS identity is the out-of-the-box look on every install target with
+  no external asset to resolve. The opt-out is `background_treatment = color`
+  (theme background only) or `background_image = none`. Legibility is
+  safe-by-construction: gradient/vignette darken is applied to the per-cell
+  background **before** the minimum-contrast floor resolves, and image backgrounds
+  use a readability scrim plus `cell_bg_opacity` so the floor sees a bounded
+  background. The knob is forced off under the plain renderer profile. Blur-behind
+  transparency remains a planned future extension.
 - Any new Tier-3 effect must document its structural legibility guarantee
   before landing.
 
