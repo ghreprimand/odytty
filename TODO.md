@@ -1211,5 +1211,10 @@ feature validates against.
 - [ ] Plugin systems, AI features, dashboards, or rich nonstandard workflows.
 - [ ] Heavy animation or effects that can compromise readability or latency.
 - [ ] Broad cross-platform support beyond Linux-first validation.
+- [ ] Windows on-device validation (CI proves compile + unit tests; interactive
+      behaviour is unverified). Known follow-up: a Windows shell that exits on
+      its own does not yet close its pseudoconsole, so its tab will not
+      auto-close until a dedicated child-process waiter thread is added — an
+      architectural change best validated on a real Windows machine.
 - [ ] Daily-driver claims against Ghostty/Konsole before compatibility and
       performance are proven.

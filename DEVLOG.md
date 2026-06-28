@@ -7,6 +7,54 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- Windows CI green: ConPTY teardown fix + the Windows leg is now a blocking gate
+
+Windows now **compiles, lints, and passes its unit tests** in CI alongside
+Linux and macOS — the highest bar this stage targets (interactive, on-device
+behaviour is a separate manual pass). All three matrix legs are green on the
+same tree, so the `windows-latest` leg is promoted from advisory to a **blocking
+regression gate**: the `continue-on-error` shim that let the in-progress port
+surface its shrinking error list without failing the run is removed. From here a
+Windows break fails CI exactly like a Linux or macOS break.
+
+Getting the Windows test step to run to completion took two fixes on top of the
+Phase 4 gating, both **`#[cfg(windows)]`-only or test-only** (Linux/macOS stay
+byte-identical at 2578 lib tests):
+
+- **ConPTY teardown deadlock.** `Session::close()` does
+  `kill()` → `wait()` → `pump_thread.join()`, and the pump blocks on a read of
+  the pseudoconsole output pipe. Unlike a POSIX pty (where the child's death and
+  the slave closing make the master read return `EIO`→EOF), a ConPTY child dying
+  does **not** close the pipe ends — only `ClosePseudoConsole` does, and that
+  previously ran solely in `Drop`, which executes *after* `close()` has already
+  joined the pump. The reader never observed EOF, so the join blocked until the
+  CI job timeout. Fix: `kill()` now closes the pseudoconsole itself (idempotently,
+  guarded by a `hpcon_closed` flag so `Drop` never double-closes), mirroring the
+  observable effect of POSIX `kill()` — the blocked reader reaches EOF and the
+  close-path join completes. Zero change to the shared `Session` contract.
+- **Four Windows-only test failures**, once the suite ran to completion: a
+  cursor-icon test hardcoded the Unix opener argv (added a `#[cfg(windows)]`
+  `["cmd","/C","start","",…]` arm); two writeback tests built a temp dir from the
+  test thread's name, whose `::` separators are illegal in a Windows filename
+  (sanitized to alphanumeric/underscore — the `%APPDATA%` config resolution
+  itself was already correct); and a shader test split an `include_str!`-ed
+  `.wgsl` on a literal `\n` that a default Windows checkout had rewritten to CRLF
+  (added `.gitattributes` forcing LF on text and marking binaries, with no repo
+  renormalization — the blobs were already LF).
+
+Verified on Linux (`fmt` / `clippy --all-targets -D warnings` /
+`build --release --locked` / `test --locked`, 2578 passed / 0 failed) and on all
+three OSes in CI. macOS had one anomalous runner hang on byte-identical code that
+passed minutes earlier on an adjacent commit — flaky GitHub-runner infra, not a
+regression — and was green on the confirming run.
+
+**Known Windows follow-up (on-device polish, not CI-blocking):** a shell that
+exits on its own (rather than via close-tab) does not yet close the
+pseudoconsole, so its tab will not auto-close until a dedicated child-process
+waiter thread is added — an architectural change best validated on a real
+Windows machine. Tracked for the on-device pass; it does not affect the
+compile/test gate (the tests drive explicit close paths).
+
 ## 2026-06-28 -- Windows Phase 4: gate Unix-only subsystems + Windows runtime correctness
 
 The library now compiles on Windows without the Unix-only subsystems, and the

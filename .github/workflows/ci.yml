@@ -1,7 +1,8 @@
 name: CI
 
-# Build + test on the supported Unix platforms, with a non-blocking Windows leg
-# while the Windows port is being brought up. Runs on pushes to master and on
+# Build + test on all three supported platforms. The Windows leg is a blocking
+# regression gate alongside Linux and macOS now that the Windows port compiles
+# and its unit tests pass. Runs on pushes to master and on
 # pull requests. Uses only standard GitHub-hosted runners (ubuntu-latest,
 # macos-latest, windows-latest) — free with no quota for public repositories,
 # and ephemeral, so this never touches a self-hosted runner. Produces no
@@ -34,7 +35,6 @@ jobs:
     # still surfaces as a clean, quick failure rather than spinning until
     # GitHub's 6-hour default.
     timeout-minutes: 25
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     strategy:
       fail-fast: false
       matrix:
