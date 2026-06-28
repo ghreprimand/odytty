@@ -2,8 +2,8 @@
 
 OdyTTY releases create both a source tag and a GitHub Release entry that package
 monitors can discover. The first public release was `v0.1.0`; the current
-release is `v0.6.1`. `Cargo.toml` must match the release version. The version
-examples below use `0.6.1` as the current tag — substitute the tag you are
+release is `v0.6.2`. `Cargo.toml` must match the release version. The version
+examples below use `0.6.2` as the current tag — substitute the tag you are
 cutting.
 
 OdyTTY publishes a source tarball, a best-effort Linux x86_64 AppImage, an
@@ -77,11 +77,11 @@ register OdyTTY as available and let the user choose it.
 A release includes exactly:
 
 ```text
-odytty-0.6.1.tar.gz
+odytty-0.6.2.tar.gz
 odytty.tar.gz
-odytty-0.6.1-x86_64.AppImage
+odytty-0.6.2-x86_64.AppImage
 odytty-x86_64.AppImage
-odytty-0.6.1-windows-x86_64.zip
+odytty-0.6.2-windows-x86_64.zip
 odytty-windows-x86_64.zip
 SHA256SUMS
 ```
@@ -127,8 +127,8 @@ appstreamcli validate --pedantic dist/linux/io.unfinished_works.odytty.metainfo.
    GitHub Release:
 
 ```sh
-git tag -a v0.6.1 -m "OdyTTY v0.6.1"
-git push origin v0.6.1
+git tag -a v0.6.2 -m "OdyTTY v0.6.2"
+git push origin v0.6.2
 ```
 
 5. Confirm the published release has exactly the artifact set listed above and
@@ -138,16 +138,16 @@ git push origin v0.6.1
    To produce the same tarball locally without CI (fallback):
 
 ```sh
-git archive --format=tar.gz --prefix=odytty-0.6.1/ \
-  -o odytty-0.6.1.tar.gz v0.6.1
-sha256sum odytty-0.6.1.tar.gz > SHA256SUMS
+git archive --format=tar.gz --prefix=odytty-0.6.2/ \
+  -o odytty-0.6.2.tar.gz v0.6.2
+sha256sum odytty-0.6.2.tar.gz > SHA256SUMS
 ```
 
 6. For Windows distribution metadata:
 
    - the winget PackageIdentifier is `UnfinishedWorks.OdyTTY`;
    - fill `packaging/winget/UnfinishedWorks.OdyTTY/*.installer.yaml`
-     `InstallerSha256` from the `odytty-0.6.1-windows-x86_64.zip` row in
+     `InstallerSha256` from the `odytty-0.6.2-windows-x86_64.zip` row in
      `SHA256SUMS`;
    - submit the manifest to `microsoft/winget-pkgs` after the GitHub Release is
      live.
@@ -176,10 +176,10 @@ release title, source archive, checksum file, and `Cargo.toml` version should
 all agree:
 
 ```text
-tag: v0.6.1
-release title: v0.6.1
-Cargo.toml version: 0.6.1
-archive: odytty-0.6.1.tar.gz
+tag: v0.6.2
+release title: v0.6.2
+Cargo.toml version: 0.6.2
+archive: odytty-0.6.2.tar.gz
 ```
 
 Do not publish a release entry for a tag whose source archive cannot be built
@@ -188,7 +188,7 @@ with `cargo build --release --locked`.
 ## Odyssey-Mon Upstream Tracking
 
 After OdyTTY is installed as a local pacman package, Odyssey-Mon sees the local
-installed version from `pacman -Qi odytty`, for example `0.6.1-1`.
+installed version from `pacman -Qi odytty`, for example `0.6.2-1`.
 
 Configure upstream tracking as a GitHub source:
 
@@ -199,8 +199,8 @@ repo: odytty
 tag_prefix: v
 ```
 
-With that mapping, upstream releases such as `v0.6.1` can be compared against
-the installed pacman version `0.6.1-1`, after Odyssey-Mon normalizes the `v`
+With that mapping, upstream releases such as `v0.6.2` can be compared against
+the installed pacman version `0.6.2-1`, after Odyssey-Mon normalizes the `v`
 prefix and package-release suffix.
 
 ## Versioning

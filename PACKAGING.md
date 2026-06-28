@@ -190,7 +190,7 @@ a standard mechanism, then let the user choose it.
 
 On Odyssey, package OdyTTY as a normal source-build PKGBUILD in `~/pkgbuilds`
 and build it with `odyssey-build`. That makes pacman own `/usr/bin/odytty` and
-the desktop entry, giving a versioned install such as `odytty 0.6.1-1`.
+the desktop entry, giving a versioned install such as `odytty 0.6.2-1`.
 
 See [`docs/install.md`](docs/install.md) for a concrete Odyssey PKGBUILD
 example and default-terminal notes.

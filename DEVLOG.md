@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-28 -- Release v0.6.2 — first Windows build (experimental bring-up)
+
+This release begins a Windows bring-up series in the `0.6.x` line. It ships the
+first Windows artifact — an unsigned, portable `odytty.exe` packaged as
+`odytty-0.6.2-windows-x86_64.zip`, installable via the in-repo Scoop bucket or
+the staged winget manifest — alongside the usual Linux source tarball and
+AppImage and the macOS build-from-source path. Linux remains the primary,
+battle-tested target.
+
+**Windows status — read before installing.** This is an *experimental* build.
+CI compiles it and runs its unit tests on `windows-latest` as a blocking gate
+(the same bar as Linux and macOS), but the binary has **not** yet been validated
+interactively on real Windows hardware. Treat `0.6.x` Windows builds as a
+testing series: the goal is to bring Windows to functional parity with Linux —
+verified on-device — *before* an official `0.7.0`. Until then, expect rough
+edges. Known-deferred on Windows in this release: detachable/resumable session
+hosting and detached SSH (Unix-only), the headless `--interactive` mode, and the
+full "Open With" list; the hostname field and command-palette shell history are
+empty. One tracked behaviour gap: a Windows shell that exits on its own does not
+yet auto-close its tab. Supported now: local ConPTY tabs/panes with the full
+render/theme/effect/inline-graphics stack, persistent `%APPDATA%` config,
+host-font discovery from `C:\Windows\Fonts`, Windows clickable-path detection,
+`cmd`/`explorer` open and reveal, and SSH-in-a-tab over the local pseudoconsole.
+
+Packaging: a `vX.Y.Z` tag now builds the Windows zip on `windows-latest`
+(headless `odytty.exe --version` smoke test, no `.pdb`, build path remapped out
+of diagnostics) and publishes it under both the always-latest alias
+`odytty-windows-x86_64.zip` and the version-pinned twin, each checksummed in
+`SHA256SUMS`. The Scoop and winget paths reference the same zip and route around
+the unsigned-`.exe` SmartScreen prompt. No code changed from the previous entry
+beyond the version bump; the Linux suite stays at 2578 passed / 0 failed.
+
 ## 2026-06-28 -- Settle the winget package identifier as UnfinishedWorks.OdyTTY
 
 The provisional winget `PackageIdentifier` is finalized to
