@@ -46,6 +46,7 @@
 //!   The shared memory segment ceases to be addressable by name as soon
 //!   as possible.
 
+#[cfg(unix)]
 use std::ffi::CString;
 use std::io::Read;
 use std::path::{Path, PathBuf};

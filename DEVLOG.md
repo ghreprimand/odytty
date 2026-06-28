@@ -75,6 +75,15 @@ POSIX module) and the `session_host`/attach subsystems remain ungated and are th
 next phases' work. With this backend present, the prior `crate::pty::PtySession`
 unresolved-import errors on Windows are resolved.
 
+CI verdict (run on `windows-latest`): the backend compiles clean — **zero errors
+point at `src/pty/windows.rs`** and the four `crate::pty::PtySession`
+unresolved-import errors are gone. Windows error count dropped 37 → 33, and every
+residual is `app.rs`/`session_host`/`attach` POSIX surface (Phase 3/4), not PTY.
+Follow-up nit fixed here: gated the now-Unix-only `use std::ffi::CString;` in
+`kitty_transport.rs` `#[cfg(unix)]` (its sole consumer, the `shm_open` reader, was
+already gated in the Phase 1 split), clearing the last Windows build warning.
+ubuntu + macOS legs stayed green (the `cfg(windows)` code is invisible to them).
+
 ## 2026-06-28 -- PTY backend split + Kitty transport gating (pure refactor)
 
 A behavior-preserving reorganization that localizes the POSIX-specific PTY and
