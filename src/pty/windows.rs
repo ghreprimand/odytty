@@ -69,6 +69,10 @@ pub struct PtySession {
     /// Raw `HPCON` value. Stored as `isize` (its newtype payload) so the whole
     /// struct is trivially `Send`/`Sync`; rewrapped as `HPCON` at call sites.
     hpcon: isize,
+    /// Whether [`ClosePseudoConsole`] has already run for `hpcon`. Guards the
+    /// single-close invariant now that both `kill` and `Drop` may close the
+    /// pseudoconsole (see [`PtySession::close_pcon`]).
+    hpcon_closed: bool,
     /// The child process handle. Owned: closed when the session drops.
     process: OwnedHandle,
     /// Parent end of the input pipe (host → child). Kept as an owned handle so
@@ -225,6 +229,7 @@ impl PtySession {
 
             Ok(Self {
                 hpcon: hpcon.0,
+                hpcon_closed: false,
                 process,
                 input_write,
                 output_read,
@@ -281,15 +286,48 @@ impl PtySession {
     }
 
     pub fn kill(&mut self) -> Result<()> {
-        if self.try_wait()?.is_some() {
-            return Ok(());
+        // Terminate the child if it is still running. Unlike POSIX `kill` (which
+        // signals the process group, after which the master read returns
+        // EIO→EOF once the slave closes), a ConPTY child's death does NOT close
+        // the pseudoconsole's pipe ends. So after terminating we must also close
+        // the pseudoconsole here — that is the only thing that releases ConPTY's
+        // internal copy of the output pipe's write end and lets a blocked output
+        // reader observe EOF. Without it the session-close path's
+        // `pump_thread.join()` blocks forever on a reader that never completes
+        // (and the child may already have exited, so this runs unconditionally,
+        // not only when `TerminateProcess` fires).
+        let outcome = (|| -> Result<()> {
+            if self.try_wait()?.is_none() {
+                // SAFETY: live owned process handle. Terminates only the root
+                // process; child-tree teardown via a Job Object is a documented
+                // follow-up.
+                unsafe {
+                    TerminateProcess(self.process_handle(), KILL_EXIT_CODE)
+                        .context("kill child")?;
+                }
+            }
+            Ok(())
+        })();
+        // Always close the pseudoconsole — even if the poll/terminate above
+        // failed — so a blocked output reader still observes EOF and the close
+        // path's `pump_thread.join()` cannot deadlock.
+        self.close_pcon();
+        outcome
+    }
+
+    /// Close the pseudoconsole exactly once, releasing ConPTY's internal copy of
+    /// the output pipe's write end so any blocked output reader observes EOF.
+    /// Idempotent: both [`PtySession::kill`] and [`Drop`] may call it, guarded by
+    /// `hpcon_closed` to preserve the single-close invariant.
+    fn close_pcon(&mut self) {
+        if !self.hpcon_closed {
+            self.hpcon_closed = true;
+            // SAFETY: `self.hpcon` came from a successful `CreatePseudoConsole`
+            // and is closed exactly once (guarded by `hpcon_closed`).
+            unsafe {
+                ClosePseudoConsole(HPCON(self.hpcon));
+            }
         }
-        // SAFETY: live owned process handle. Terminates only the root process;
-        // child-tree teardown via a Job Object is a documented follow-up.
-        unsafe {
-            TerminateProcess(self.process_handle(), KILL_EXIT_CODE).context("kill child")?;
-        }
-        Ok(())
     }
 
     pub fn read_to_end(&self) -> Result<Vec<u8>> {
@@ -306,15 +344,14 @@ impl PtySession {
 
 impl Drop for PtySession {
     fn drop(&mut self) {
-        if matches!(self.try_wait(), Ok(None)) {
-            let _ = self.kill();
-            let _ = self.wait();
-        }
-        // SAFETY: close the pseudoconsole exactly once. The owned pipe/process
-        // handles close when their `OwnedHandle` fields drop after this body.
-        unsafe {
-            ClosePseudoConsole(HPCON(self.hpcon));
-        }
+        // `kill` terminates the child if it is still running and closes the
+        // pseudoconsole (idempotent via `hpcon_closed`, so a prior `close()` →
+        // `kill()` is not double-closed here). `wait` then reaps the child. The
+        // owned pipe/process handles close when their `OwnedHandle` fields drop
+        // after this body.
+        let _ = self.kill();
+        let _ = self.wait();
+        self.close_pcon();
     }
 }
 
