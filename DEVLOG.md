@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Windows: child-waiter thread tears the session down on shell exit
+
+On-device the shell now spawns, but a child that exited on its own (or whose
+ConPTY output write-end lingered open in conhost after the child died) left the
+pump's blocking `reader.read()` parked with no EOF — so the session never closed,
+keystrokes hit a dead pipe, and the pane appeared to hang. The fix is an
+event-driven teardown, not a poll: a per-session child-waiter thread blocks on a
+single `WaitForSingleObject(child, INFINITE)` (zero CPU while parked, no sleep
+loop), and the instant the child exits it closes the pseudoconsole — which
+releases ConPTY's copy of the output write-end, so the reader hits EOF and the
+existing single `ShellExited` path fires. One mechanism also closes the
+previously-deferred "auto-close the tab when the shell exits on its own" gap.
+
+Correctness details (all `#[cfg(windows)]`-gated; Linux/macOS byte-identical,
+suite unchanged at 2578 passed):
+
+- The close flag is an `Arc<AtomicBool>` shared by the waiter, `kill`, and
+  `Drop`; `close_pcon_once` uses an `AcqRel` swap so the pseudoconsole closes
+  exactly once regardless of which path reaches it first.
+- The waiter owns a *duplicated* process handle, so it never races
+  `try_wait`/`wait`/`Drop` on the session's own handle. `Drop` joins the waiter
+  *after* `kill`, so the waiter's blocking wait has already returned and the
+  join cannot hang or touch freed state. A handle-duplication failure degrades
+  gracefully (no waiter; the session still works, only natural-exit auto-close
+  is lost).
+- A companion `PtyWriter` wrapper gives the write side honest, consistent error
+  semantics (a write to a dead ConPTY reports a canonical `BrokenPipe` instead
+  of the raw `ERROR_NO_DATA`), symmetric with the reader's broken-pipe→EOF
+  mapping. Teardown is owned by the waiter thread, not the wrapper.
+
+A follow-up Windows-backend hardening pass (de-blocking the startup
+`diagnose_immediate_exit` wait, replacing the global env mutation with a merged
+environment block, and adding host-testable unit coverage for the error-mapping
+and shell-resolution helpers) is tracked and in progress.
+
 ## 2026-06-29 -- Windows: default to PowerShell so the modern command set works
 
 With the ConPTY handle fix landed, on-device testing surfaced a product gap, not
