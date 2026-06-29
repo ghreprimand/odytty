@@ -426,6 +426,15 @@ impl Screen {
         self.shell_owns_cursor_on_resize = value;
     }
 
+    /// Whether the backend's shell owns cursor placement on resize.
+    /// See [`Self::set_shell_owns_cursor_on_resize`]. Test-only: production code
+    /// only ever sets this (from the backend capability); the getter exists to
+    /// tie the flag to real resize behavior in the cross-platform guard tests.
+    #[cfg(test)]
+    pub(crate) fn shell_owns_cursor_on_resize(&self) -> bool {
+        self.shell_owns_cursor_on_resize
+    }
+
     /// Current cell pixel metrics. See [`Self::set_cell_metrics`].
     pub fn cell_metrics(&self) -> CellMetrics {
         self.cell_metrics
@@ -2070,6 +2079,14 @@ impl Terminal {
     /// See [`Screen::set_shell_owns_cursor_on_resize`].
     pub fn set_shell_owns_cursor_on_resize(&mut self, value: bool) {
         self.screen.set_shell_owns_cursor_on_resize(value);
+    }
+
+    /// Whether the backend's shell owns cursor placement on resize.
+    /// See [`Screen::shell_owns_cursor_on_resize`]. Test-only (see the Screen
+    /// getter): production only sets this from the backend capability.
+    #[cfg(test)]
+    pub(crate) fn shell_owns_cursor_on_resize(&self) -> bool {
+        self.screen.shell_owns_cursor_on_resize()
     }
 
     /// Current cell pixel metrics. See [`Screen::cell_metrics`].

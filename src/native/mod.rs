@@ -113,7 +113,7 @@ pub(crate) use viewport::WindowPadding;
 
 use app::App;
 use pty::{PtyWriter, UserEvent, spawn_pty_pump};
-use session::{Session, SessionToken, TabSet};
+use session::{Session, SessionToken, TabSet, apply_local_backend_caps};
 
 pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), NativeError> {
     panic_log::install_panic_hook();
@@ -177,9 +177,11 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // DECSTR return to it. Presentation policy only — the grid contents are
     // unaffected.
     model.set_cursor_defaults(settings.cursor_style, settings.cursor_blink.enabled());
-    let terminal = Arc::new(Mutex::new(model));
 
-    // Spawn the shell PTY and start pumping its output into the shared terminal.
+    // Spawn the shell PTY before wrapping the model so the backend capabilities
+    // can be applied to the model first. The spawn has no dependency on
+    // `terminal`, so this ordering is safe; the reader/writer/pump wiring stays
+    // below as before.
     let session = if let Some(command) = &options.command {
         PtySession::spawn_exec(
             options.initial_grid,
@@ -191,6 +193,13 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         PtySession::spawn_default_shell_in(options.initial_grid, options.working_directory.clone())
     }
     .map_err(|err| NativeError::Pty(err.to_string()))?;
+    // Defer resize cursor placement to the shell when the backend repaints
+    // absolutely (ConPTY on Windows). Funneled through the same helper as the
+    // split/new-tab path so the startup pane can't drift out of lockstep.
+    apply_local_backend_caps(&mut model, &session);
+    let terminal = Arc::new(Mutex::new(model));
+
+    // Start pumping the shell PTY output into the shared terminal.
     let reader = session
         .try_clone_reader()
         .map_err(|err| NativeError::Pty(err.to_string()))?;

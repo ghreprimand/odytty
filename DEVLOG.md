@@ -7,6 +7,48 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Windows: wire the shell-owns-cursor capability into the startup pane too
+
+Follow-up to the previous entry. An on-device resize trace showed the cursor
+still translating on a fraction of resizes after the deferral fix landed — the
+wrapping pane kept moving. Root cause: there are two local-pane creation paths,
+and only one was wired. Split / new-tab panes go through
+`TabSet::insert_local_session_with` (which set the capability), but the **startup
+pane** is hand-built in `run_native`, and that path never called
+`set_shell_owns_cursor_on_resize`, so the very first pane kept OdyTTY's
+cursor-translating reflow on Windows.
+
+This bug class is invisible to a Linux test by construction: on a POSIX backend
+the correct value (`false`) equals the model default, so a missing wire and a
+correct wire produce byte-identical Linux behavior — only Windows (where the
+correct value is `true`) exposes it. The fix funnels both paths through one
+helper so they can't drift again:
+
+- `apply_local_backend_caps(model, session)` in `native::session` is the single
+  source of truth, its doc naming both call sites and the drift rationale.
+- `insert_local_session_with` (split/new-tab) now calls the helper instead of
+  setting the flag inline — net behavior identical.
+- `run_native` (startup pane) spawns the PTY before wrapping the model into its
+  `Arc` (the spawn has no dependency on the shared terminal, so the reorder is
+  safe) and calls the same helper. One line, same funnel.
+
+Guarded with two tests that can be exercised on Windows CI, where the value is
+load-bearing: a setter/getter/behavior tie (`Terminal` with the flag true defers
+the cursor to the clamped incoming position; with it false the cursor translates
+to end-of-content — asserted unequal, so the flag can't rot to a no-op) and a
+per-path pane test asserting a spawned local pane carries the backend's
+capability. A test-only getter on `Screen`/`Terminal` backs the tie (production
+only ever sets the flag). Neutralizing the setter was confirmed to fail the tie
+test; restoring passes.
+
+Verified (Linux): `cargo fmt --check` / `cargo clippy --all-targets --locked --
+-D warnings` / `cargo build --release --locked` / `cargo test --locked` all
+clean; lib 2590 passed / 0 failed / 7 ignored (+2). On-device Windows re-capture
+remains the final proof for the startup pane specifically (there is no headless
+seam for `run_native`'s winit/GPU path).
+
+---
+
 ## 2026-06-29 -- Windows: defer resize cursor placement to the shell (ConPTY absolute repaint)
 
 Fixes the long-running Windows cursor-displacement-on-resize bug class — typing

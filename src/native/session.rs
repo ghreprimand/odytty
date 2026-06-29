@@ -43,6 +43,22 @@ use super::viewport::Viewport;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct SessionToken(pub(super) u64);
 
+/// Apply the local-PTY backend capabilities onto a freshly-created terminal
+/// model. Called from EVERY local-pane creation path so the wiring can't drift:
+///   * [`SessionSet::insert_local_session_with`] — the split / new-tab path.
+///   * [`super::run_native`] — the startup pane (hand-built in `run_native`).
+///
+/// Currently propagates one capability: whether the backend's shell repaints
+/// the cursor with absolute positioning on resize (ConPTY/Windows = true), so
+/// the terminal defers resize cursor placement to the shell instead of
+/// translating it. On a POSIX PTY this is false (= the model default), which is
+/// why a missing call is invisible on Linux/macOS and only Windows exposes a
+/// drift — keep this funnel the single source of truth and guard it on Windows
+/// CI via the setter/getter/behavior tie + the per-path pane tests.
+pub(super) fn apply_local_backend_caps(model: &mut Terminal, session: &PtySession) {
+    model.set_shell_owns_cursor_on_resize(session.shell_repaints_on_resize());
+}
+
 /// What backs a session's I/O. The default is a locally-spawned PTY (the
 /// byte-identical path that everything used before Phase 2); an attached session
 /// is instead backed by a socket to a detached session-host. Input is *not*
@@ -917,8 +933,9 @@ impl TabSet {
         model.set_local_hostname(self.local_hostname.clone());
         // Defer resize cursor placement to the shell when the backend repaints
         // absolutely (ConPTY on Windows). The POSIX PTY backend returns false,
-        // so Linux/macOS keep translating the cursor on resize as today.
-        model.set_shell_owns_cursor_on_resize(session.shell_repaints_on_resize());
+        // so Linux/macOS keep translating the cursor on resize as today. Funneled
+        // through the shared helper so the startup-pane path stays in lockstep.
+        apply_local_backend_caps(&mut model, &session);
         let terminal = Arc::new(Mutex::new(model));
         // One recorder handle shared between the pump (writer) and the session
         // (reader). Inherits the current recording-enabled state so a session
@@ -1548,6 +1565,47 @@ mod tests {
     // is ignored on macOS as an accepted v0.3.0 stopgap. The connect/spawn
     // logic stays covered on Linux CI, with a Windows command arm ready for
     // Phase 4 CI once the remaining Windows compile gates clear.
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[test]
+    fn spawned_local_pane_wires_shell_owns_cursor_from_backend() {
+        // Guards the split/new-tab local-pane path (`insert_local_session_with`,
+        // via `spawn`): the pane's terminal must carry the backend's resize
+        // cursor-authority capability. On Windows CI the spawned ConPTY backend
+        // returns true (≠ the model default false), so a missing/incorrect wire
+        // FAILS here; on Linux both are false (byte-identical), so this is the
+        // cross-platform funnel guard that only Windows can fully exercise.
+        let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        let token = sessions
+            .spawn(Dimensions::new(20, 8))
+            .expect("spawn local session");
+        assert!(sessions.switch(token));
+
+        let session = sessions.active();
+        let expected = session
+            .local_pty()
+            .expect("spawned pane is local")
+            .lock()
+            .expect("pty lock")
+            .shell_repaints_on_resize();
+        let wired = session
+            .terminal
+            .lock()
+            .expect("terminal lock")
+            .shell_owns_cursor_on_resize();
+        assert_eq!(
+            wired, expected,
+            "spawned pane must wire shell_owns_cursor_on_resize from the backend capability"
+        );
+
+        assert!(!sessions.close(token));
+        assert!(sessions.close(SessionToken(0)));
+    }
+
     #[cfg_attr(
         target_os = "macos",
         ignore = "winit EventLoop cannot be built off the main thread on macOS"

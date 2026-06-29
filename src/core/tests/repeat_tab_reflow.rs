@@ -406,6 +406,61 @@ fn reflow_keeps_cursor_clear_compatible_for_live_line() {
 }
 
 #[test]
+fn shell_owns_cursor_setter_getter_behavior_tie() {
+    // Ties the `shell_owns_cursor_on_resize` getter to REAL resize behavior so
+    // the flag (and its wiring) can't rot to a no-op. This is the cross-platform
+    // guard that catches a missing/incorrect wire on Windows CI, where the
+    // correct value (true) differs from the model default (false) — on Linux the
+    // two are byte-identical, so only an explicit true-path test exposes a drift.
+    //
+    // Both cases print the same wrapped line, then do the same width-changing
+    // resize. The DEFAULT path (false) TRANSLATES the cursor to end-of-content;
+    // the shell-owns path (true) DEFERS — keeps the incoming cursor clamped to
+    // the new dims for the shell's absolute repaint to own.
+    let line = b"$ hello"; // 7 cols; at width 4 wraps to "$ he" / "llo"
+
+    // false (default): getter false, resize translates to end-of-content.
+    let mut translate = Terminal::new(4, 3);
+    assert!(
+        !translate.shell_owns_cursor_on_resize(),
+        "model default must be false (the Linux/POSIX value)"
+    );
+    translate.advance(line);
+    let incoming = translate.screen().cursor();
+    translate.resize(20, 3);
+    let translated = translate.screen().cursor();
+    assert_eq!(
+        translated,
+        Position { row: 0, column: 7 },
+        "default path must translate the cursor to end-of-content"
+    );
+
+    // true (ConPTY/Windows): getter true, resize defers (incoming clamped).
+    let mut defer = Terminal::new(4, 3);
+    defer.set_shell_owns_cursor_on_resize(true);
+    assert!(
+        defer.shell_owns_cursor_on_resize(),
+        "getter must report the value the setter stored"
+    );
+    defer.advance(line);
+    assert_eq!(defer.screen().cursor(), incoming, "same pre-resize state");
+    defer.resize(20, 3);
+    let deferred = defer.screen().cursor();
+    assert_eq!(
+        deferred,
+        Position {
+            row: incoming.row.min(2),
+            column: incoming.column.min(19),
+        },
+        "shell-owns must keep the incoming cursor clamped to new dims"
+    );
+    assert_ne!(
+        deferred, translated,
+        "shell-owns must DEFER, not translate (proves the flag is load-bearing)"
+    );
+}
+
+#[test]
 fn repeated_split_close_without_typing_does_not_ratchet_cursor_into_prompt() {
     // End-to-end (Terminal-level) guard for the multi-cycle cursor RATCHET seen
     // on Windows/PowerShell: open and close pane splits repeatedly WITHOUT
