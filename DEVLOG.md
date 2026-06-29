@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Fix the black-screen-on-restore residual (bounded retry for a skipped frame)
+
+Closes the remaining black-on-restore path that the earlier reconfigure fix did
+not cover. The prior packet handled a *lost/outdated* surface
+(`FrameOutcome::NeedsReconfigure` → reconfigure + request a redraw). But a
+restore frame can instead come back **skipped**: `get_current_texture()` returns
+Timeout/Occluded while a Windows DX12/DWM surface is still recovering, so
+`render()` returns `FrameOutcome::Skipped`. The call site treated
+`Presented | Skipped` identically — schedule nothing — so under the app's
+event-driven `ControlFlow::Wait` the recovered surface stayed black until an
+unrelated event (a keystroke) happened to request the next redraw.
+
+The fix introduces a pure post-frame seam `after_frame(FrameOutcome) ->
+FrameAction` (`Idle` / `ReconfigureThenRedraw` / `RetryAfter`), replacing the
+earlier bool predicate. A skipped frame now schedules **one bounded retry**
+(~16ms, one 60Hz frame) folded into the existing `WaitUntil` wake set via a new
+`skipped_frame_retry_deadline` — a real timed wake, not a busy-poll. Two spin
+guards keep it bounded: a minimized (0×0) window never retries (nothing to
+paint), and a consecutive-skip budget (`MAX_SKIPPED_RETRIES = 8`, reset on any
+present/reconfigure and on restore) makes a persistently-unavailable surface
+fall back to event-driven `Wait` rather than wake-loop forever. At steady state
+the retry deadline is `None`, so the idle wake set is byte-identical and
+Linux/macOS are unaffected (skipped frames are rare there; a retry merely
+no-ops to a paint).
+
+The post-frame decision and the spin guards are split into pure, unit-testable
+functions: `after_frame_maps_outcomes_to_recovery_actions` pins Skipped ⇒
+bounded non-zero `RetryAfter`, NeedsReconfigure ⇒ `ReconfigureThenRedraw`,
+Presented ⇒ `Idle`; `skipped_retry_is_guarded_against_spin` pins minimized ⇒ no
+retry and budget-exhausted ⇒ no retry. Neutralizing the Skipped arm back to the
+old `Idle` dead-end was confirmed to fail the first test ("a skipped frame must
+schedule a bounded retry, got Idle"); restoring passes. Honest caveat: the
+surface-skip trigger itself (a live DX12 acquire returning Timeout/Occluded) is
+only reproducible on-device — these tests pin the recovery *decision*, which is
+the part that was wrong.
+
+Verified (Linux): `cargo fmt --check` / `cargo build --release --locked` /
+`cargo clippy --all-targets --locked -- -D warnings` / `cargo test --locked`
+all green; lib suite 2593 passed / 0 failed / 7 ignored.
+
 ## 2026-06-29 -- Resize-cursor diagnostics: per-resize capability in the trace + an end-to-end guard
 
 Investigation packet for the Windows on-device cursor-on-resize symptom (the

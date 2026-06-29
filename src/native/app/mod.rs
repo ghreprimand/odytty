@@ -264,6 +264,26 @@ pub(super) struct App {
     /// Linux clipboard contents remain served after Ctrl+Shift+C.
     clipboard: NativeClipboard,
     resize_debounce: ResizeDebouncer,
+    /// BLACK-SCREEN-ON-RESTORE: pending bounded retry for a transiently-skipped
+    /// frame. When a render returns [`FrameOutcome::Skipped`] (the surface
+    /// acquire timed out / was occluded, e.g. the first frame as a Windows DX12
+    /// surface recovers on restore), this holds the instant to retry. Folded
+    /// into [`Self::next_wake_deadline`] so the retry rides the existing
+    /// `WaitUntil` model (no busy-poll); cleared once due or once a frame
+    /// presents. `None` on the steady-state path, so the idle wake set is
+    /// unchanged when nothing is skipping.
+    skipped_frame_retry_deadline: Option<Instant>,
+    /// BLACK-SCREEN-ON-RESTORE: count of consecutive `Skipped` frames with no
+    /// successful present in between. Caps the bounded retry (see
+    /// [`MAX_SKIPPED_RETRIES`]) so a persistently-unavailable surface can't
+    /// wake-loop forever. Reset to 0 on any present / reconfigure and on a
+    /// restore (`Resized` to a non-zero size).
+    consecutive_skipped_frames: u32,
+    /// BLACK-SCREEN-ON-RESTORE: whether the window is currently minimized (its
+    /// surface reported a 0x0 size via `Resized`). Used to suppress the skipped-
+    /// frame retry while minimized — there is nothing to paint, so a retry would
+    /// only burn wakeups. Cleared on the next non-zero `Resized` (restore).
+    window_minimized: bool,
     /// Active divider drag: the tree-order index of the active tab's divider the
     /// pointer grabbed, while a left-drag is in progress (design doc §4.2). Only
     /// ever `Some` inside a multi-pane tab; `None` otherwise, so the single-pane
@@ -432,6 +452,9 @@ impl App {
             overlay,
             clipboard: NativeClipboard::default(),
             resize_debounce: ResizeDebouncer::new(RESIZE_DEBOUNCE_INTERVAL),
+            skipped_frame_retry_deadline: None,
+            consecutive_skipped_frames: 0,
+            window_minimized: false,
             divider_drag: None,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
@@ -918,6 +941,11 @@ impl App {
         [
             self.deadline,
             self.resize_debounce.deadline(),
+            // BLACK-SCREEN-ON-RESTORE: bounded retry for a transiently-skipped
+            // frame. `None` at rest, so the idle wake set is unchanged; when a
+            // frame was skipped this wakes the loop to repaint the recovered
+            // surface instead of leaving it black until an unrelated event.
+            self.skipped_frame_retry_deadline,
             // §7: wake when a pending multiplexer prefix times out, so the
             // pending state clears promptly even with no further input. `None`
             // (the at-rest case) leaves the min unchanged.
@@ -2173,6 +2201,20 @@ impl App {
             }
         }
 
+        // BLACK-SCREEN-ON-RESTORE: a due skipped-frame retry. Clear the pending
+        // deadline and request a redraw so the next `RedrawRequested` re-attempts
+        // the frame; if it skips again (and the guards still allow it) the
+        // RedrawRequested arm re-arms a fresh bounded retry. This is a timed,
+        // budget-capped retry — not a busy-poll.
+        if let Some(deadline) = self.skipped_frame_retry_deadline
+            && now >= deadline
+        {
+            self.skipped_frame_retry_deadline = None;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+
         self.poll_config_reload(now);
     }
 }
@@ -2319,6 +2361,15 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             }
             WindowEvent::Resized(size) => {
+                // BLACK-SCREEN-ON-RESTORE: track minimize (a 0x0 surface) so the
+                // skipped-frame retry is suppressed while there is nothing to
+                // paint. A restore (non-zero size) clears it AND resets the
+                // skipped-frame retry budget so the recovering surface gets a
+                // fresh set of bounded retries if its first acquire skips.
+                self.window_minimized = size.width == 0 || size.height == 0;
+                if !self.window_minimized {
+                    self.consecutive_skipped_frames = 0;
+                }
                 // Reconfigure the GPU surface (pixel size) and read the real
                 // per-cell metric so the grid fit matches what is drawn. The
                 // surface updates immediately; the terminal model + PTY winsize
@@ -2712,30 +2763,62 @@ impl ApplicationHandler<UserEvent> for App {
                         self.needs_rebuild = false;
                     }
                 }
-                let needs_redraw = {
+                let action = {
                     let Some(gpu) = self.gpu.as_mut() else {
                         return;
                     };
                     let outcome = gpu.render();
-                    // Surface lost/outdated/suboptimal (e.g. after a resize,
+                    let action = after_frame(outcome);
+                    // Surface lost/outdated/validation (e.g. after a resize,
                     // compositor change, or a Windows DX12 surface going Lost on
                     // idle-minimize): reconfigure here, then request a redraw
                     // below so the recovered surface is actually painted. Under
                     // `ControlFlow::Wait` there is no automatic next frame, so a
                     // reconfigure without a follow-up redraw leaves the surface
                     // valid-but-unpainted (black) until an unrelated event.
-                    let needs_redraw = redraw_after_outcome(outcome);
-                    if needs_redraw {
+                    if matches!(action, FrameAction::ReconfigureThenRedraw) {
                         gpu.reconfigure();
                     }
-                    needs_redraw
+                    action
                 };
                 // Drop the `gpu` borrow before touching `self.window` (disjoint
-                // fields, but `self.gpu.as_mut()` borrows all of `self`). Single
-                // redraw request — not a loop; post-reconfigure renders normally
-                // succeed.
-                if needs_redraw && let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
+                // fields, but `self.gpu.as_mut()` borrows all of `self`).
+                match action {
+                    FrameAction::Idle => {
+                        // A present resets the skipped-frame retry budget so a
+                        // future transient skip gets a fresh set of retries.
+                        self.consecutive_skipped_frames = 0;
+                        self.skipped_frame_retry_deadline = None;
+                    }
+                    FrameAction::ReconfigureThenRedraw => {
+                        self.consecutive_skipped_frames = 0;
+                        self.skipped_frame_retry_deadline = None;
+                        // Single redraw request — not a loop; the post-reconfigure
+                        // render normally succeeds.
+                        if let Some(window) = self.window.as_ref() {
+                            window.request_redraw();
+                        }
+                    }
+                    FrameAction::RetryAfter(delay) => {
+                        // BLACK-SCREEN-ON-RESTORE: a transiently-skipped frame
+                        // (Timeout/Occluded). Schedule ONE bounded timed retry —
+                        // folded into the `WaitUntil` wake set — unless the spin
+                        // guards veto it (window minimized, or the consecutive-
+                        // skip budget is spent). When vetoed we drop the pending
+                        // retry and rest at `Wait`; the next real event
+                        // (restore/focus/input) re-arms a paint. `about_to_wait`
+                        // folds the new deadline into the control flow.
+                        if should_schedule_skipped_retry(
+                            self.window_minimized,
+                            self.consecutive_skipped_frames,
+                        ) {
+                            self.consecutive_skipped_frames =
+                                self.consecutive_skipped_frames.saturating_add(1);
+                            self.skipped_frame_retry_deadline = Some(Instant::now() + delay);
+                        } else {
+                            self.skipped_frame_retry_deadline = None;
+                        }
+                    }
                 }
             }
             // `winit` reports modifier state separately from key presses; cache
@@ -2913,19 +2996,59 @@ fn should_show_onboarding(env_override: bool, config_path: Option<&std::path::Pa
     env_override || config_path.map(|path| !path.exists()).unwrap_or(false)
 }
 
-/// Whether the event loop must schedule another paint after a frame attempt.
-///
-/// Under `ControlFlow::Wait` there is no frame loop: a frame is painted only
-/// when something calls `window.request_redraw()`. A [`FrameOutcome::NeedsReconfigure`]
-/// (a lost/outdated/validation surface — Windows DX12 surfaces go Lost on
-/// idle-minimize) must therefore both reconfigure the surface AND request a
-/// redraw, or the recovered-but-unpainted surface stays black until an
-/// unrelated event triggers the next redraw. `Presented`/`Skipped` already
-/// settle, so they request nothing — matching the prior behavior. After a fresh
-/// `surface.configure()` the next `get_current_texture()` normally returns
-/// success, so this is a single retry, not a spin.
-fn redraw_after_outcome(outcome: FrameOutcome) -> bool {
-    matches!(outcome, FrameOutcome::NeedsReconfigure)
+/// What the event loop should do after a render attempt. Pure mapping from the
+/// [`FrameOutcome`]; the call site applies the spin guards (minimized window,
+/// retry-budget cap) before acting on a [`FrameAction::RetryAfter`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FrameAction {
+    /// The frame presented; nothing extra to schedule (rest at the normal
+    /// event-driven wake deadline). The default, byte-identical idle path.
+    Idle,
+    /// The surface was lost/outdated/validation-failed: reconfigure it, then
+    /// request a redraw so the recovered surface is actually painted.
+    ReconfigureThenRedraw,
+    /// The frame was transiently skipped (`get_current_texture` returned
+    /// Timeout/Occluded — e.g. the first frame as a Windows DX12 surface
+    /// recovers on restore). Retry the frame after a bounded delay rather than
+    /// busy-spinning. Subject to the call-site spin guards.
+    RetryAfter(Duration),
+}
+
+/// Bounded delay before retrying a transiently-skipped frame. ~16ms ≈ one 60Hz
+/// frame, so a recovering surface repaints within a frame without busy-spinning.
+/// This is a real timed wake folded into the existing `WaitUntil` model, NOT a
+/// poll loop.
+const SKIPPED_FRAME_RETRY: Duration = Duration::from_millis(16);
+
+/// Cap on consecutive `Skipped` retries with no successful present in between.
+/// A persistently-unavailable surface (e.g. a long minimize where every acquire
+/// times out) must not wake-loop forever; after this many tries the loop falls
+/// back to event-driven `Wait` and is re-armed by the next real event
+/// (restore / focus / input). The counter resets on any successful present.
+const MAX_SKIPPED_RETRIES: u32 = 8;
+
+/// Pure post-frame decision (see [`FrameAction`]). Split out so the
+/// black-screen-on-restore recovery policy is unit-testable with zero GPU/winit:
+/// `NeedsReconfigure` must reconfigure AND repaint (or the recovered surface
+/// stays black under `ControlFlow::Wait`), `Skipped` must schedule a bounded
+/// retry (or a surface that came back Timeout/Occluded on restore never gets a
+/// second chance and stays black), and `Presented` settles.
+fn after_frame(outcome: FrameOutcome) -> FrameAction {
+    match outcome {
+        FrameOutcome::Presented => FrameAction::Idle,
+        FrameOutcome::NeedsReconfigure => FrameAction::ReconfigureThenRedraw,
+        FrameOutcome::Skipped => FrameAction::RetryAfter(SKIPPED_FRAME_RETRY),
+    }
+}
+
+/// Whether a [`FrameAction::RetryAfter`] should actually be scheduled, given the
+/// spin guards. Pure (no surface/event-loop), so it is unit-testable. Returns
+/// `false` when the window is minimized (a 0x0 surface — retrying an invisible
+/// surface only burns wakeups) or once the consecutive-skip budget is exhausted
+/// (fall back to the event-driven `Wait`). This is what keeps the bounded retry
+/// from degrading into a busy-spin on a persistently-unavailable surface.
+fn should_schedule_skipped_retry(minimized: bool, consecutive_skipped: u32) -> bool {
+    !minimized && consecutive_skipped < MAX_SKIPPED_RETRIES
 }
 
 #[cfg(test)]
@@ -2936,25 +3059,67 @@ mod tests {
         CursorBlinkState::new(Duration::from_millis(500))
     }
 
-    /// Pins the lost-surface recovery invariant: a `NeedsReconfigure` outcome
-    /// MUST schedule another paint (reconfigure + request_redraw), while a
-    /// settled frame must not. Guards the black-screen-on-restore regression
-    /// (Windows DX12 surface goes Lost on idle-minimize; under ControlFlow::Wait
-    /// a reconfigure without a follow-up redraw leaves the surface black). The
-    /// GPU surface-lost trigger itself is on-device-only; this pins the decision.
+    /// Pins the black-screen-on-restore recovery policy at the pure seam, with
+    /// zero GPU/winit. Two failure modes are guarded:
+    ///
+    /// - `NeedsReconfigure` ⇒ reconfigure AND repaint (a lost/outdated surface,
+    ///   e.g. Windows DX12 on idle-minimize; without the follow-up redraw the
+    ///   recovered surface stays black under `ControlFlow::Wait`).
+    /// - `Skipped` ⇒ a BOUNDED retry (a surface that came back Timeout/Occluded
+    ///   on restore; the OLD policy did nothing here, so it stayed black until
+    ///   an unrelated event — this is the residual the packet fixes).
+    ///
+    /// `Presented` settles. The GPU triggers themselves are on-device-only;
+    /// this pins the decision deterministically.
     #[test]
-    fn needs_reconfigure_schedules_a_repaint() {
+    fn after_frame_maps_outcomes_to_recovery_actions() {
+        assert_eq!(
+            after_frame(FrameOutcome::NeedsReconfigure),
+            FrameAction::ReconfigureThenRedraw,
+            "a lost/outdated surface must reconfigure and request a redraw"
+        );
+        assert_eq!(
+            after_frame(FrameOutcome::Presented),
+            FrameAction::Idle,
+            "a presented frame must settle (no extra paint scheduled)"
+        );
+        // The load-bearing assertion for THIS packet: a skipped frame must
+        // schedule a bounded retry, not dead-end (the black-screen residual).
+        match after_frame(FrameOutcome::Skipped) {
+            FrameAction::RetryAfter(delay) => {
+                assert!(
+                    delay > Duration::ZERO && delay <= Duration::from_millis(100),
+                    "a skipped frame must retry after a bounded, non-zero delay, got {delay:?}"
+                );
+            }
+            other => panic!("a skipped frame must schedule a bounded retry, got {other:?}"),
+        }
+    }
+
+    /// Pins the spin guards on the skipped-frame retry: a minimized window never
+    /// retries (nothing to paint), and the consecutive-skip budget is finite so
+    /// a persistently-unavailable surface falls back to event-driven `Wait`
+    /// instead of wake-looping forever.
+    #[test]
+    fn skipped_retry_is_guarded_against_spin() {
+        // Visible window, fresh budget: retry is allowed.
         assert!(
-            redraw_after_outcome(FrameOutcome::NeedsReconfigure),
-            "a lost/outdated surface must request a redraw after reconfigure"
+            should_schedule_skipped_retry(false, 0),
+            "a visible window with budget remaining must retry a skipped frame"
+        );
+        // Minimized: never retry regardless of budget.
+        assert!(
+            !should_schedule_skipped_retry(true, 0),
+            "a minimized (0x0) window must not retry — nothing to paint"
+        );
+        // Budget exhausted: stop retrying (fall back to Wait).
+        assert!(
+            !should_schedule_skipped_retry(false, MAX_SKIPPED_RETRIES),
+            "the retry budget must be finite so a stuck surface can't wake-loop"
         );
         assert!(
-            !redraw_after_outcome(FrameOutcome::Presented),
-            "a presented frame must not request another redraw"
-        );
-        assert!(
-            !redraw_after_outcome(FrameOutcome::Skipped),
-            "an intentionally skipped frame must not request another redraw"
+            should_schedule_skipped_retry(false, MAX_SKIPPED_RETRIES - 1),
+            "the last retry within budget must still be allowed"
         );
     }
 
