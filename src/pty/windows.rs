@@ -488,6 +488,7 @@ const STARTUP_FAILURE_WINDOW: Duration = Duration::from_millis(500);
 ///      the pump's blocked output reader observe EOF; the app then tears the
 ///      session down through its single existing `ShellExited` path, and the
 ///      pump writes any recorded diagnostic into the pane on that EOF.
+///
 /// The thread then exits and its duplicated handle closes. Returns `None` if the
 /// handle could not be duplicated (non-fatal: the session still works, only
 /// natural-exit auto-close + the diagnostic are lost).
