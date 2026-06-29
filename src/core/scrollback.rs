@@ -52,7 +52,7 @@ use std::cell::{Ref, RefCell};
 use unicode_width::UnicodeWidthChar;
 
 use super::prompt_marks::PromptKind;
-use super::reflow::{ReflowOptions, reflow_lines_with_options, resize_keep_width};
+use super::reflow::{ReflowOptions, reflow_lines_with_options, resize_keep_width_with_options};
 use super::screen::Line;
 use super::types::{Cell, Dimensions, Position};
 
@@ -127,6 +127,10 @@ pub(in crate::core) struct ResizeOptions {
     /// expected to follow this one (the `preserve_cursor_physical_line`
     /// override is only safe to honor when true — see `ReflowOptions`).
     pub repaint_expected: bool,
+    /// Whether the backend authoritatively repaints with absolute positioning
+    /// on resize, so the terminal defers cursor placement to the shell (the
+    /// ConPTY backend — see `ReflowOptions::shell_owns_cursor_on_resize`).
+    pub shell_owns_cursor_on_resize: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -413,7 +417,13 @@ pub(in crate::core) fn resize_lazy_with_options(
     // to scrollback, `subset` becomes the new visible window.
     let mut overflow: Vec<Line> = Vec::new();
     let result = if width_unchanged {
-        let cursor = resize_keep_width(&mut overflow, &mut subset, new_dims, cursor_in);
+        let cursor = resize_keep_width_with_options(
+            &mut overflow,
+            &mut subset,
+            new_dims,
+            cursor_in,
+            options.shell_owns_cursor_on_resize,
+        );
         ResizeResult {
             cursor,
             pending_wrap: options.cursor_pending_wrap && cursor.column == new_width - 1,
@@ -433,6 +443,7 @@ pub(in crate::core) fn resize_lazy_with_options(
                 cursor_pending_wrap: options.cursor_pending_wrap,
                 collapse_prompt_start_row,
                 repaint_expected: options.repaint_expected,
+                shell_owns_cursor_on_resize: options.shell_owns_cursor_on_resize,
             },
         );
         ResizeResult {

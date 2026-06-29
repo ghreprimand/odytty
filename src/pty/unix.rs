@@ -130,6 +130,15 @@ impl PtySession {
         tcsetwinsize(&self.master, winsize(dimensions)).context("resize pty")
     }
 
+    /// Whether the shell on this backend authoritatively repaints with ABSOLUTE
+    /// cursor positioning on every resize. False for a POSIX PTY: resize raises
+    /// `SIGWINCH`, which Linux/macOS shells service with a RELATIVE repaint the
+    /// terminal's `preserve_cursor_physical_line` override is built to cooperate
+    /// with — so OdyTTY keeps translating the cursor on resize as today.
+    pub fn shell_repaints_on_resize(&self) -> bool {
+        false
+    }
+
     pub fn try_clone_reader(&self) -> Result<Box<dyn Read + Send>> {
         Ok(Box::new(PtyReader {
             file: self.master.try_clone().context("clone pty reader")?,
@@ -356,6 +365,20 @@ mod tests {
             env_value(&cmd, "TERM_PROGRAM_VERSION").map(|v| v.as_os_str()),
             Some(OsString::from(env!("CARGO_PKG_VERSION")).as_os_str()),
             "TERM_PROGRAM_VERSION must track CARGO_PKG_VERSION"
+        );
+    }
+
+    /// The POSIX PTY backend delegates resize repaint to the app's SIGWINCH
+    /// handler (a RELATIVE repaint), so it must report that the shell does NOT
+    /// authoritatively repaint with absolute positioning — keeping OdyTTY's
+    /// cursor-translating reflow active on Linux/macOS (byte-identical behavior).
+    #[test]
+    fn shell_does_not_repaint_absolutely_on_resize() {
+        let session =
+            PtySession::spawn_default_shell(TEST_DIMENSIONS).expect("spawn default shell");
+        assert!(
+            !session.shell_repaints_on_resize(),
+            "unix backend must defer resize repaint to SIGWINCH, not claim absolute repaint"
         );
     }
 

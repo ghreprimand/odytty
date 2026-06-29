@@ -143,6 +143,13 @@ pub struct Screen {
     /// (every interactive Linux resize is followed by a repaint, so this is
     /// `true` on the next resize there).
     output_since_last_resize: bool,
+    /// Whether the backend's shell authoritatively repaints with absolute
+    /// positioning on resize, so this terminal defers cursor placement to the
+    /// shell rather than translating the cursor itself. Set once by the native
+    /// layer from the PTY backend capability ([`Self::set_shell_owns_cursor_on_resize`]);
+    /// false for a POSIX PTY (Linux/macOS), true for the ConPTY (Windows)
+    /// backend. Passed into every resize as `ReflowOptions::shell_owns_cursor_on_resize`.
+    shell_owns_cursor_on_resize: bool,
     saved_cursor: Option<SavedCursor>,
     primary_screen: Option<StoredScreen>,
     scroll_region: Option<ScrollRegion>,
@@ -326,6 +333,7 @@ impl Screen {
             cursor_visible: true,
             pending_wrap: false,
             output_since_last_resize: false,
+            shell_owns_cursor_on_resize: false,
             saved_cursor: None,
             primary_screen: None,
             scroll_region: None,
@@ -406,6 +414,16 @@ impl Screen {
     /// use the updated metrics (new-placements-only policy, documented).
     pub fn set_cell_metrics(&mut self, width_px: u32, height_px: u32) {
         self.cell_metrics = CellMetrics::new(width_px, height_px);
+    }
+
+    /// Set whether the backend's shell owns cursor placement on resize (it
+    /// repaints with absolute positioning, e.g. ConPTY/conhost). When true, the
+    /// resize reflow keeps the incoming cursor clamped to the new dims and lets
+    /// the shell's repaint own placement, instead of translating the cursor (the
+    /// `preserve_cursor_physical_line` override + content map). Wired once from
+    /// the PTY backend capability when the native layer creates a local session.
+    pub fn set_shell_owns_cursor_on_resize(&mut self, value: bool) {
+        self.shell_owns_cursor_on_resize = value;
     }
 
     /// Current cell pixel metrics. See [`Self::set_cell_metrics`].
@@ -741,6 +759,11 @@ impl Screen {
                         // (preserve_cursor_physical_line is false here), so the
                         // discriminator is inert; pass false.
                         repaint_expected: false,
+                        // Defer cursor placement to the shell on a backend that
+                        // repaints absolutely (ConPTY). preserve is already
+                        // false here, so this just keeps the stored-primary
+                        // cursor at its incoming position clamped to new dims.
+                        shell_owns_cursor_on_resize: self.shell_owns_cursor_on_resize,
                     },
                 );
                 primary.cursor = result.cursor;
@@ -772,6 +795,7 @@ impl Screen {
                     cursor_pending_wrap: self.pending_wrap,
                     collapse_prompt_start_row,
                     repaint_expected: self.output_since_last_resize,
+                    shell_owns_cursor_on_resize: self.shell_owns_cursor_on_resize,
                 },
             );
             self.cursor = result.cursor;
@@ -2040,6 +2064,12 @@ impl Terminal {
     /// See [`Screen::set_cell_metrics`].
     pub fn set_cell_metrics(&mut self, width_px: u32, height_px: u32) {
         self.screen.set_cell_metrics(width_px, height_px);
+    }
+
+    /// Set whether the backend's shell owns cursor placement on resize.
+    /// See [`Screen::set_shell_owns_cursor_on_resize`].
+    pub fn set_shell_owns_cursor_on_resize(&mut self, value: bool) {
+        self.screen.set_shell_owns_cursor_on_resize(value);
     }
 
     /// Current cell pixel metrics. See [`Screen::cell_metrics`].

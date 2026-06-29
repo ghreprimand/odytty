@@ -7,6 +7,61 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Windows: defer resize cursor placement to the shell (ConPTY absolute repaint)
+
+Fixes the long-running Windows cursor-displacement-on-resize bug class — typing
+overwriting the prompt, the cursor jumping to the start of a path, and most
+recently the cursor landing several rows *below* the prompt when dragging the
+window with a long wrapped prompt and multiple panes. The on-device resize trace
+(previous entry) settled the mechanism empirically: under ConPTY, conhost
+reflows its own screen buffer and re-emits an **absolute** cursor position on
+every `ResizePseudoConsole`, and PSReadLine repaints aggressively after each
+resize. OdyTTY's cursor-translating reflow — built to *cooperate* with a POSIX
+shell's *relative* SIGWINCH repaint — fights that absolute repaint and flings
+the cursor away from where the shell places it.
+
+The fix adopts the `foot` terminal's model for backends whose shell authoritatively
+repaints on resize: **stop translating the cursor and keep it where it is, clamped
+to the new dimensions, letting the shell's repaint own placement.** It is a
+backend capability, default-off, with zero behavior change on Linux/macOS:
+
+- `PtySession::shell_repaints_on_resize()` — `false` on the POSIX backend
+  (relative SIGWINCH repaint), `true` on the ConPTY backend (absolute repaint).
+- The native local-session spawn wires that capability into the terminal model
+  once (`set_shell_owns_cursor_on_resize`). Attached/test-only sources stay false.
+- The reflow core threads the flag through `ReflowOptions`/`ResizeOptions` (both
+  `#[derive(Default)]` → false). When set, the width-changing path forces
+  `cursor_dest = None` (the existing arm that keeps the incoming cursor clamped),
+  and the width-unchanged fast path keeps the incoming column instead of snapping
+  to trailing content. The buffer/scrollback rewrap still runs in both paths
+  (history recovery — ConPTY does not resend scrollback); only cursor placement
+  is deferred.
+
+The Linux byte-identical guarantee is by construction: the POSIX backend reports
+`false`, so the new branch is never taken on Linux/macOS, and every existing
+`ReflowOptions`/`ResizeOptions` literal defaults the field to false. The earlier
+ratchet discriminator and collapse-guard fixes remain in place and correct for
+Linux (inert on Windows, where the new flag short-circuits first).
+
+Proven with deterministic Linux tests — the real gate, since the on-device
+symptoms are intermittent and sequence-dependent. Three new reflow tests pin the
+behavior: a trace-replay test feeds the three exact resize steps captured on
+device that flung the cursor and asserts it now stays put; a flag-true-vs-false
+test proves the flag is load-bearing on the width-changing path; a fast-path test
+proves it on the row-only (width-unchanged) path. Each was confirmed to **fail**
+with the documented fling when its production branch is neutralized and pass when
+restored. Backend capability tests assert `false` on unix and `true` on the
+ConPTY backend (the latter runs on Windows CI).
+
+Verified (Linux): `cargo fmt --check` / `cargo clippy --all-targets --locked --
+-D warnings` / `cargo build --release --locked` / `cargo test --locked` all
+clean; lib 2588 passed / 0 failed / 7 ignored (+4: 3 reflow + 1 unix backend
+capability; +1 more on Windows CI for the ConPTY capability test). On-device
+re-capture pending to confirm the cursor stays at the prompt across split/close
+and window-drag cycles.
+
+---
+
 ## 2026-06-29 -- Diagnostics: env-gated resize trace for cursor-placement investigation
 
 Adds a passive, opt-in diagnostic to capture how `Screen::resize` moves the

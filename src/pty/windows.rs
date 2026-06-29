@@ -320,6 +320,17 @@ impl PtySession {
         unsafe { ResizePseudoConsole(HPCON(self.hpcon), coord(dimensions)).context("resize pty") }
     }
 
+    /// Whether the shell on this backend authoritatively repaints with ABSOLUTE
+    /// cursor positioning on every resize. True for ConPTY: `ResizePseudoConsole`
+    /// makes conhost reflow its own screen buffer and re-emit an absolute `CUP`
+    /// on every resize, independent of the foreground app. So OdyTTY must NOT
+    /// translate the cursor itself — doing so fights conhost's repaint and
+    /// flings the cursor rows away from where PSReadLine places it. The terminal
+    /// defers cursor placement to the shell when this is true.
+    pub fn shell_repaints_on_resize(&self) -> bool {
+        true
+    }
+
     pub fn try_clone_reader(&self) -> Result<Box<dyn Read + Send>> {
         let file = duplicate(&self.output_read).context("clone pty reader")?;
         Ok(Box::new(PtyReader { file }))
@@ -1006,6 +1017,23 @@ mod tests {
         assert_eq!(clamp_i16(0), 0);
         assert_eq!(clamp_i16(80), 80);
         assert_eq!(clamp_i16(usize::MAX), i16::MAX);
+    }
+
+    #[test]
+    fn shell_repaints_absolutely_on_resize() {
+        // ConPTY/conhost reflows its own buffer and re-emits an absolute CUP on
+        // every ResizePseudoConsole, so the backend must report that the shell
+        // owns cursor placement on resize — this is what makes the terminal
+        // defer cursor translation to the shell on Windows.
+        let session = PtySession::spawn_default_shell(Dimensions {
+            rows: 24,
+            columns: 80,
+        })
+        .expect("spawn default shell");
+        assert!(
+            session.shell_repaints_on_resize(),
+            "ConPTY backend must report absolute resize repaint"
+        );
     }
 
     #[test]

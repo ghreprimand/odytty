@@ -75,6 +75,21 @@ pub(in crate::core) struct ReflowOptions {
     /// across cycles. When this is false, the override is skipped and the
     /// content-accurate cursor is kept.
     pub repaint_expected: bool,
+    /// Whether the backend's shell authoritatively repaints with ABSOLUTE
+    /// positioning on every resize, so the terminal must NOT move the cursor
+    /// itself. True for the ConPTY (Windows) backend: conhost reflows its own
+    /// screen buffer and re-emits an absolute `CUP` on every
+    /// `ResizePseudoConsole`, so any cursor translation OdyTTY performs only
+    /// fights that repaint (flinging the cursor rows away from where PSReadLine
+    /// places it). When true, cursor placement is deferred to the shell: the
+    /// content/scrollback rewrap still runs (history recovery — ConPTY does not
+    /// resend scrollback), but `cursor_dest` is forced to `None` so the cursor
+    /// is kept at its incoming position clamped to the new dims, then corrected
+    /// by the shell's repaint on the next pump tick. Default false: a POSIX PTY
+    /// delegates resize repaint to the app's SIGWINCH handler, which Linux
+    /// shells service with a RELATIVE repaint the override is built to
+    /// cooperate with, so the unix backend keeps today's behavior byte-identical.
+    pub shell_owns_cursor_on_resize: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -413,6 +428,16 @@ pub(in crate::core) fn reflow_lines_with_options(
     *scrollback = new_scrollback;
     *rows = visible;
 
+    // Backend authoritatively repaints with absolute positioning on resize
+    // (ConPTY/conhost): suppress ALL cursor translation and keep the incoming
+    // cursor clamped to the new dims (the `None` arm below). The content rewrap
+    // above still applied (history recovery); only cursor placement is deferred
+    // to the shell's repaint. Keep the incoming pending-wrap — the shell owns it.
+    if options.shell_owns_cursor_on_resize {
+        cursor_dest = None;
+        pending_wrap_dest = options.cursor_pending_wrap;
+    }
+
     let cursor = match cursor_dest {
         Some((abs_row, col)) => {
             let column = col.min(new_cols - 1);
@@ -456,11 +481,34 @@ pub(in crate::core) fn reflow_lines_with_options(
 /// Assumes the buffer is well-formed (a soft-wrapped row is full, never a blank
 /// continuation), which holds for every state real terminal operations produce;
 /// the width-changing path remains the general, unconditional reflow.
+///
+/// Thin `shell_owns_cursor=false` wrapper over [`resize_keep_width_with_options`],
+/// used by the differential parity oracle tests; production goes through
+/// `resize_keep_width_with_options` so the ConPTY cursor-deferral flag threads.
+#[cfg(test)]
 pub(in crate::core) fn resize_keep_width(
     scrollback: &mut Vec<Line>,
     rows: &mut Vec<Line>,
     dimensions: Dimensions,
     cursor: Position,
+) -> Position {
+    resize_keep_width_with_options(scrollback, rows, dimensions, cursor, false)
+}
+
+/// Width-unchanged fast path with the `shell_owns_cursor_on_resize` flag.
+///
+/// When `shell_owns_cursor` is true (the ConPTY backend), the cursor is kept at
+/// its incoming column clamped to the new width instead of being snapped to its
+/// row's trimmed content — mirroring the cursor-deferral the width-changing path
+/// applies, so the shell's absolute repaint owns placement. When false the
+/// behavior is byte-identical to today (the `resize_keep_width` wrapper above),
+/// keeping `reflow_fast_path_tests` parity with `reflow_lines`.
+pub(in crate::core) fn resize_keep_width_with_options(
+    scrollback: &mut Vec<Line>,
+    rows: &mut Vec<Line>,
+    dimensions: Dimensions,
+    cursor: Position,
+    shell_owns_cursor: bool,
 ) -> Position {
     let width = dimensions.columns;
     let new_rows = dimensions.rows;
@@ -474,9 +522,13 @@ pub(in crate::core) fn resize_keep_width(
     // Snap the cursor column to its row's trimmed content, mirroring
     // `reflow_lines`: a cursor sitting on (or past) trailing blanks lands at the
     // end of content. An interior soft-wrapped row is full, so its content
-    // length is the full width and the column is preserved.
+    // length is the full width and the column is preserved. When the shell owns
+    // the cursor (ConPTY), skip the snap and keep the incoming column clamped —
+    // the shell's absolute repaint will place it.
     let plain = Cell::blank();
-    let cursor_col = {
+    let cursor_col = if shell_owns_cursor {
+        cursor.column.min(width.saturating_sub(1))
+    } else {
         let row = &combined[cursor_abs];
         let content_len = if row.wrapped {
             width
@@ -788,6 +840,7 @@ mod tests {
                 // (row_offset >= produced_rows) is what protects this case, not
                 // the discriminator, so honor the override here.
                 repaint_expected: true,
+                shell_owns_cursor_on_resize: false,
             },
         );
 
@@ -876,6 +929,7 @@ mod tests {
                     // output between subsequent resizes, so the flag is true for
                     // the first resize and false thereafter.
                     repaint_expected: i == 0,
+                    shell_owns_cursor_on_resize: false,
                 },
             );
             cursor = result.cursor;
@@ -888,6 +942,209 @@ mod tests {
             cursor.column, len,
             "cursor ratcheted into the prompt (got col {})",
             cursor.column
+        );
+    }
+
+    /// Build a single long logical line of `text_len` 'x' chars, soft-wrapped at
+    /// `dims.columns` into as many physical rows as needed (full rows marked
+    /// `wrapped`, the tail `unwrapped` + blank-padded), then blank-padded to
+    /// `dims.rows`. Returns `(scrollback=empty, rows, cursor)`.
+    fn long_wrapped_line(
+        text_len: usize,
+        dims: Dimensions,
+        cursor_row: usize,
+        cursor_col: usize,
+    ) -> (Vec<Line>, Vec<Line>, Position) {
+        let w = dims.columns;
+        let mut rows: Vec<Line> = Vec::new();
+        let mut remaining = text_len;
+        while remaining > 0 {
+            let take = remaining.min(w);
+            let mut cells: Vec<Cell> = (0..take)
+                .map(|_| Cell::new('x', Attrs::default()))
+                .collect();
+            if remaining <= w {
+                while cells.len() < w {
+                    cells.push(Cell::blank());
+                }
+                rows.push(Line::unwrapped(cells));
+            } else {
+                rows.push(Line::wrapped(cells));
+            }
+            remaining -= take;
+        }
+        while rows.len() < dims.rows {
+            rows.push(blank_row(w));
+        }
+        (
+            Vec::new(),
+            rows,
+            Position {
+                row: cursor_row,
+                column: cursor_col,
+            },
+        )
+    }
+
+    #[test]
+    fn shell_owns_cursor_defers_placement_and_flag_false_unchanged() {
+        // A long logical line wrapped at width 50 with the cursor on a
+        // continuation row. With `shell_owns_cursor_on_resize` TRUE the cursor
+        // stays at its incoming position clamped to the new dims (the foot model:
+        // defer to the shell's absolute repaint). With the flag FALSE the same
+        // inputs translate the cursor (today's behavior) to a DIFFERENT position
+        // — proving the flag is load-bearing and the buffer is non-trivial.
+        let old = Dimensions::new(50, 28);
+        let new = Dimensions::new(100, 28);
+        let cin_row = 2;
+        let cin_col = 12;
+        let text_len = 140; // 3 wrapped rows at width 50 (50 + 50 + 40)
+
+        let (mut sb_t, mut rows_t, cursor) = long_wrapped_line(text_len, old, cin_row, cin_col);
+        let res_true = reflow_lines_with_options(
+            &mut sb_t,
+            &mut rows_t,
+            new,
+            cursor,
+            ReflowOptions {
+                preserve_cursor_physical_line: true,
+                cursor_pending_wrap: false,
+                collapse_prompt_start_row: None,
+                repaint_expected: true,
+                shell_owns_cursor_on_resize: true,
+            },
+        );
+        assert_eq!(
+            res_true.cursor,
+            Position {
+                row: cin_row.min(new.rows - 1),
+                column: cin_col.min(new.columns - 1),
+            },
+            "flag true must keep the incoming cursor clamped to new dims"
+        );
+
+        let (mut sb_f, mut rows_f, cursor_f) = long_wrapped_line(text_len, old, cin_row, cin_col);
+        let res_false = reflow_lines_with_options(
+            &mut sb_f,
+            &mut rows_f,
+            new,
+            cursor_f,
+            ReflowOptions {
+                preserve_cursor_physical_line: true,
+                cursor_pending_wrap: false,
+                collapse_prompt_start_row: None,
+                repaint_expected: true,
+                shell_owns_cursor_on_resize: false,
+            },
+        );
+        assert_ne!(
+            res_false.cursor, res_true.cursor,
+            "flag false must translate the cursor (proves the flag changes behavior)"
+        );
+    }
+
+    #[test]
+    fn shell_owns_cursor_trace_replay_pins_operator_failures() {
+        // The three real divergences captured in the on-device resize-storm
+        // trace, where today's reflow flung the cursor far from where
+        // PSReadLine's absolute repaint placed it. With
+        // `shell_owns_cursor_on_resize` true the cursor must stay at its
+        // incoming position clamped to the new dims — no row/col jump — so the
+        // shell's repaint owns placement.
+        //
+        // ((old_cols, old_rows), (in_row, in_col), (new_cols, new_rows),
+        //  (documented_bad_out_row, documented_bad_out_col))
+        let cases = [
+            (
+                (50usize, 28usize),
+                (8usize, 12usize),
+                (100usize, 28usize),
+                (5usize, 62usize),
+            ),
+            ((100, 28), (16, 34), (50, 28), (24, 34)),
+            ((31, 27), (24, 16), (100, 27), (26, 46)),
+        ];
+        for ((oc, or), (cin_row, cin_col), (nc, nr), (bad_row, bad_col)) in cases {
+            // A long line that wraps at the old width and is tall enough to put
+            // the cursor on a wrapped continuation row, so today's rewrap would
+            // genuinely relocate it.
+            let text_len = oc * (cin_row + 2);
+            let (mut sb, mut rows, cursor) =
+                long_wrapped_line(text_len, Dimensions::new(oc, or), cin_row, cin_col);
+
+            let result = reflow_lines_with_options(
+                &mut sb,
+                &mut rows,
+                Dimensions::new(nc, nr),
+                cursor,
+                ReflowOptions {
+                    preserve_cursor_physical_line: true,
+                    cursor_pending_wrap: false,
+                    collapse_prompt_start_row: None,
+                    repaint_expected: true,
+                    shell_owns_cursor_on_resize: true,
+                },
+            );
+
+            let expected = Position {
+                row: cin_row.min(nr - 1),
+                column: cin_col.min(nc - 1),
+            };
+            assert_eq!(
+                result.cursor, expected,
+                "shell-owns-cursor must keep incoming cursor clamped ({oc}x{or} -> {nc}x{nr})"
+            );
+            assert_ne!(
+                result.cursor,
+                Position {
+                    row: bad_row,
+                    column: bad_col,
+                },
+                "must not reproduce the captured fling ({oc}x{or} -> {nc}x{nr})"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_owns_cursor_fast_path_keeps_incoming_skips_trailing_snap() {
+        // The width-UNCHANGED fast path (`resize_keep_width_with_options`) is
+        // production-reachable on Windows via a row-only resize (dragging the
+        // window's bottom edge): `resize_lazy_with_options` routes it to the
+        // fast path, where ConPTY still repaints absolutely, so the cursor must
+        // be kept (not snapped to trailing content). Buffer: a short-content row
+        // with the cursor sitting in the trailing-blank region past the content.
+        let rows = vec![content("abc"), blank(), blank(), blank()];
+        // Cursor at column 6, well past "abc" (content end = 3), in the blanks.
+        let cursor = Position { row: 0, column: 6 };
+        // Same width W (fast path), shrink rows (row-only resize).
+        let dims = Dimensions::new(W, 3);
+
+        let mut sb_true = Vec::new();
+        let mut rows_true = rows.clone();
+        let cur_true =
+            resize_keep_width_with_options(&mut sb_true, &mut rows_true, dims, cursor, true);
+
+        let mut sb_false = Vec::new();
+        let mut rows_false = rows.clone();
+        let cur_false =
+            resize_keep_width_with_options(&mut sb_false, &mut rows_false, dims, cursor, false);
+
+        // shell_owns_cursor: keep the incoming column clamped to width, skip the
+        // trailing-content snap.
+        assert_eq!(
+            cur_true.column,
+            cursor.column.min(W - 1),
+            "fast path must keep the incoming cursor when the shell owns it"
+        );
+        // Default path snaps the cursor back to the content end (column 3), so
+        // the two must differ — proving the fast-path branch is load-bearing.
+        assert_eq!(
+            cur_false.column, 3,
+            "default fast path snaps to content end"
+        );
+        assert_ne!(
+            cur_true.column, cur_false.column,
+            "fast-path shell-owns-cursor branch must change behavior"
         );
     }
 }

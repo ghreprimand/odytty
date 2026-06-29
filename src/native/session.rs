@@ -915,6 +915,10 @@ impl TabSet {
         ));
         let mut model = Terminal::new(grid.columns, grid.rows);
         model.set_local_hostname(self.local_hostname.clone());
+        // Defer resize cursor placement to the shell when the backend repaints
+        // absolutely (ConPTY on Windows). The POSIX PTY backend returns false,
+        // so Linux/macOS keep translating the cursor on resize as today.
+        model.set_shell_owns_cursor_on_resize(session.shell_repaints_on_resize());
         let terminal = Arc::new(Mutex::new(model));
         // One recorder handle shared between the pump (writer) and the session
         // (reader). Inherits the current recording-enabled state so a session
