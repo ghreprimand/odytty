@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Windows app icon: PE-resource exe embed + runtime window icon
+
+OdyTTY now carries its icon on Windows two ways, done properly:
+
+- **`.exe` file icon** (Explorer, taskbar, Alt-Tab on the executable itself):
+  embedded as a PE resource at build time. `build.rs` calls `winresource`
+  (a `cfg(windows)` build-dependency — present in `Cargo.lock` but never compiled
+  on Linux/macOS and never in the runtime graph) to embed `dist/windows/odytty.ico`
+  (a committed multi-res 16–256 px icon). The embed is gated on
+  `CARGO_CFG_TARGET_OS == "windows"`, NOT the build script's own `#[cfg(windows)]`
+  — a build script's `cfg` reflects the host, not the target, so the env var is
+  the correct cross-compile-safe signal. A failed embed is non-fatal (warns,
+  produces a working icon-less exe), and the committed `.ico` keeps the
+  `git archive` tarball build working offline.
+- **Runtime window icon** (title-bar + Alt-Tab/taskbar on Windows and X11; a
+  deliberate no-op on macOS and Wayland, which winit handles): a new
+  `src/native/window_icon.rs` `include_bytes!`s the 256×256 hicolor PNG that
+  already backs the Linux `.desktop` entry, decodes it via the existing `image`
+  crate to RGBA8, and builds a `winit::window::Icon` wired onto the window
+  attributes at creation. Robust by construction: any decode/Icon failure logs
+  and yields `None`, so a bad icon can never break window creation. Adds ~7 KB
+  (the embedded PNG) to the binary on every platform.
+
+Cross-platform code (the runtime icon) compiles and is tested on Linux; the
+`winresource` exe embed is proven by the Windows CI leg. Linux/macOS behavior is
+otherwise byte-identical. Two host-runnable tests assert the embedded PNG decodes
+to a non-empty 256×256 RGBA buffer and that `Icon::from_rgba` accepts it; the
+suite is at 2580 passed (clippy/fmt clean). No `release.yml` change — the icon
+rides inside `odytty.exe`.
+
 ## 2026-06-29 -- Windows backend hardening: no startup tax, per-child env block, test coverage
 
 Production-clean pass over the ConPTY backend now that the core spawn/handle/

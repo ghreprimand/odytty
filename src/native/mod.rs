@@ -87,6 +87,7 @@ mod settings_panel;
 mod theme_builder;
 mod theme_picker;
 mod viewport;
+mod window_icon;
 
 #[cfg(test)]
 mod gpu_tests;

@@ -76,6 +76,15 @@ windows = { version = "0.62", features = [
     "Win32_System_Threading",
 ] }
 
+# Windows-only build dependency: embeds the application icon (and version
+# resource) into `odytty.exe` as a PE resource so Explorer/taskbar/Alt-Tab show
+# it. `winresource` is the maintained successor to `winres`. It is a BUILD-dep
+# gated to `cfg(windows)`, so it appears in Cargo.lock but is never compiled on
+# Linux/macOS and never enters the runtime graph. The actual embed in build.rs
+# is gated on `CARGO_CFG_TARGET_OS == "windows"` (the TARGET, not the host).
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
 # macOS-only: native "Open With…" app enumeration via NSWorkspace (Phase 17).
 # Pinned to the exact objc2 stack winit 0.30.13 already locks so no third copy
 # is pulled (objc2 0.5.2 / objc2-foundation 0.2.2 / objc2-app-kit 0.2.2). All
