@@ -34,6 +34,26 @@ impl App {
         self.resize_grid_with_padding(cell, WindowPadding::ZERO, width_px, height_px)
     }
 
+    /// Drive the same debounced model-resize path used by window resize events.
+    #[cfg(test)]
+    pub(in crate::native) fn record_pending_resize_for_test(
+        &mut self,
+        cell: CellSize,
+        width_px: u32,
+        height_px: u32,
+        now: Instant,
+    ) {
+        self.record_pending_resize(
+            PendingResize {
+                cell,
+                padding: WindowPadding::ZERO,
+                width_px,
+                height_px,
+            },
+            now,
+        );
+    }
+
     /// Test seam (UX4-P1): open the settings overlay through the production
     /// keyboard entry path (so the pointer-state reset is genuinely exercised),
     /// without a window/GPU.

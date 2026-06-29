@@ -539,6 +539,13 @@ impl App {
     }
 
     fn apply_grid_resize(&mut self, resize: PendingResize) {
+        // A minimized window can report a 0x0 drawable surface. The GPU surface
+        // ignores that size, and the terminal model must do the same: passing
+        // zero through grid fitting clamps to 1x1 and destructively reflows the
+        // live screen while there is no drawable area.
+        if resize.width_px == 0 || resize.height_px == 0 {
+            return;
+        }
         if self.resize_grid_with_padding(
             resize.cell,
             resize.padding,
