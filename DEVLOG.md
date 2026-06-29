@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Fix resize cursor drift with pulled scrollback (RC-1)
+
+Fixes the resize/pane-op cursor drift on the backend that defers cursor
+placement to the shell's absolute repaint (ConPTY): on a width-changing resize
+with non-empty pulled scrollback and a non-bottom cursor, the cursor drifted
+down and pinned to the bottom row.
+
+Root cause was a coordinate-space bug, not the deferral itself. When cursor
+placement is deferred, the reflow takes its `None` cursor arm, which clamped the
+incoming cursor's row to the new grid. But the lazy resize path feeds reflow a
+COMBINED-buffer row — `cursor_prefix` pulled-scrollback rows prepended to the
+old visible row — so clamping that combined offset drifted the cursor down by
+exactly `cursor_prefix`, saturating at the bottom. The translating (`Some`) arm
+was already correct because it subtracts `visible_start`; only the deferral arm
+was wrong.
+
+Fix: thread the true `cursor_prefix` into `ReflowOptions` and subtract it in the
+`None` arm to recover the incoming visible row. Subtracting the prefix (rather
+than `visible_start`) is exact even when content ABOVE the cursor rewraps into a
+different number of rows on a width change — where `visible_start` diverges from
+the prefix and would fling the cursor off its row. The new field defaults to `0`,
+so every direct caller (empty scrollback) is byte-identical and no shared Unix
+path changes behavior. The translating arm and the width-unchanged fast path are
+untouched.
+
+Two new tests drive the production `resize_lazy_with_options` path with
+non-empty pulled scrollback and a non-bottom cursor — the coverage gap that hid
+this for many commits (every prior `shell_owns` test used empty scrollback, where
+the buggy and correct arms are numerically identical): a basic-drift case, and a
+width-shrink-with-rewrap case that pins the chosen `cursor_prefix` fix over the
+`visible_start` alternative (which would land the cursor at the top there).
+
+Verified (Linux): `cargo fmt --check` / `cargo build --release --locked` /
+`cargo clippy --all-targets --locked -- -D warnings` / `cargo test --locked`
+green (2605 lib tests). Non-vacuity: neutralizing the production wiring
+(`cursor_prefix` → `0`) turns BOTH new tests RED, then restores green. The fixed
+arm is reached only when the backend defers cursor placement; on Unix every
+interactive resize is followed by a relative repaint, so this remains an
+on-device check there — gap noted for a later consolidated on-device pass.
+
 ## 2026-06-29 -- Windows CI follow-up: cfg-gate the Unix-only shell-integration seams
 
 The shell-integration packet's spawn-time helpers are consumed only by
