@@ -33,7 +33,7 @@ use std::mem::size_of;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::os::windows::process::ExitStatusExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
 use anyhow::{Context, Result};
@@ -93,7 +93,7 @@ impl PtySession {
         dimensions: Dimensions,
         working_directory: Option<PathBuf>,
     ) -> Result<Self> {
-        let mut command = CommandBuilder::new(default_shell());
+        let mut command = CommandBuilder::new(default_shell().program);
         command.apply_terminal_env();
         if let Some(path) = working_directory {
             command.current_dir(path);
@@ -102,11 +102,15 @@ impl PtySession {
     }
 
     pub fn spawn_shell_command(dimensions: Dimensions, command: &str) -> Result<Self> {
-        // ConPTY default shell is cmd.exe; there is no POSIX `$SHELL`/`-lc`.
-        // `cmd /C <command>` runs a single command line and exits.
-        let mut command_builder = CommandBuilder::new(default_shell());
-        command_builder.arg("/C");
-        command_builder.arg(command);
+        // One-shot: run `command` in the default shell and exit. The flag form
+        // differs by shell family (cmd `/C` vs PowerShell `-NoProfile -Command`),
+        // so resolve the shell and select the arguments accordingly — the
+        // Windows analogue of the Unix `$SHELL -lc` split, not a login shell.
+        let shell = default_shell();
+        let mut command_builder = CommandBuilder::new(shell.program);
+        for arg in one_shot_args(shell.kind, command) {
+            command_builder.arg(arg);
+        }
         command_builder.apply_terminal_env();
         Self::spawn_command(dimensions, command_builder)
     }
@@ -470,9 +474,103 @@ impl Drop for AttrListGuard {
     }
 }
 
-/// `%ComSpec%` (the OS-configured command processor) or `cmd.exe` as a fallback.
-fn default_shell() -> OsString {
-    std::env::var_os("ComSpec").unwrap_or_else(|| OsString::from("cmd.exe"))
+/// Which shell family the default resolved to. Selects the one-shot flag form
+/// in [`one_shot_args`] (`cmd /C` vs PowerShell `-NoProfile -Command`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ShellKind {
+    PowerShell,
+    Cmd,
+}
+
+/// The resolved default interactive shell: its executable and family.
+struct ResolvedShell {
+    program: OsString,
+    kind: ShellKind,
+}
+
+/// Resolve the default interactive shell, preferring PowerShell so OdyTTY
+/// matches Windows Terminal's command surface out of the box (so `ls`, `cat`,
+/// and other modern commands work — `cmd.exe` only has `dir` and friends).
+/// Precedence:
+///   1. `pwsh.exe` (PowerShell 7) — found on `%PATH%`, else the well-known
+///      `%ProgramFiles%\PowerShell\7\pwsh.exe`. Often absent.
+///   2. `powershell.exe` (Windows PowerShell 5.1) — resolved by its fixed
+///      absolute path under `%SystemRoot%\System32\WindowsPowerShell\v1.0\`,
+///      which is present on every Windows install (do not trust `%PATH%` alone).
+///   3. `%ComSpec%` / `cmd.exe` — last resort.
+fn default_shell() -> ResolvedShell {
+    if let Some(program) = resolve_pwsh() {
+        return ResolvedShell {
+            program,
+            kind: ShellKind::PowerShell,
+        };
+    }
+    if let Some(program) = resolve_windows_powershell() {
+        return ResolvedShell {
+            program,
+            kind: ShellKind::PowerShell,
+        };
+    }
+    ResolvedShell {
+        program: std::env::var_os("ComSpec").unwrap_or_else(|| OsString::from("cmd.exe")),
+        kind: ShellKind::Cmd,
+    }
+}
+
+/// The one-shot argument vector for running `command` in `kind` and exiting.
+/// cmd uses `/C <command>`; PowerShell uses `-NoProfile -Command <command>`
+/// (`-NoProfile` skips user profile scripts for a deterministic, faster start;
+/// `-Command` runs the string and exits). PowerShell's own parser handles the
+/// trailing command string; OdyTTY's only Windows caller passes a controlled
+/// command (the `--dump-command` default), so `-Command` is sufficient and
+/// `-EncodedCommand` (base64 UTF-16LE, for hostile quoting) is not needed here.
+fn one_shot_args(kind: ShellKind, command: &str) -> Vec<OsString> {
+    match kind {
+        ShellKind::Cmd => vec![OsString::from("/C"), OsString::from(command)],
+        ShellKind::PowerShell => vec![
+            OsString::from("-NoProfile"),
+            OsString::from("-Command"),
+            OsString::from(command),
+        ],
+    }
+}
+
+/// Locate `pwsh.exe` (PowerShell 7): `%PATH%` first, then the default install
+/// location under `%ProgramFiles%`. Returns `None` when PowerShell 7 is absent.
+fn resolve_pwsh() -> Option<OsString> {
+    if let Some(found) = find_on_path("pwsh.exe") {
+        return Some(found);
+    }
+    let program_files = std::env::var_os("ProgramFiles")?;
+    let candidate = Path::new(&program_files)
+        .join("PowerShell")
+        .join("7")
+        .join("pwsh.exe");
+    candidate.is_file().then(|| candidate.into_os_string())
+}
+
+/// Locate Windows PowerShell 5.1 at its fixed System32 path (present on every
+/// Windows install). Resolved by absolute path rather than `%PATH%` lookup so a
+/// stripped `PATH` cannot hide it.
+fn resolve_windows_powershell() -> Option<OsString> {
+    let system_root =
+        std::env::var_os("SystemRoot").unwrap_or_else(|| OsString::from(r"C:\Windows"));
+    let candidate = Path::new(&system_root)
+        .join("System32")
+        .join("WindowsPowerShell")
+        .join("v1.0")
+        .join("powershell.exe");
+    candidate.is_file().then(|| candidate.into_os_string())
+}
+
+/// Search `%PATH%` for `exe`, returning its full path if a file by that name
+/// exists in one of the entries.
+fn find_on_path(exe: &str) -> Option<OsString> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path)
+        .map(|dir| dir.join(exe))
+        .find(|candidate| candidate.is_file())
+        .map(PathBuf::into_os_string)
 }
 
 /// Format a terminal-pane diagnostic line for an abnormal immediate child exit,
@@ -637,10 +735,44 @@ mod tests {
     }
 
     #[test]
-    fn default_shell_is_non_empty() {
-        // %ComSpec% is set in normal Windows environments; the fallback is
-        // cmd.exe. Either way it is non-empty.
-        assert!(!default_shell().is_empty());
+    fn default_shell_resolves_to_a_non_empty_program() {
+        // On any normal Windows host the chain resolves to PowerShell (pwsh or
+        // Windows PowerShell 5.1) or, failing both, cmd.exe — never empty.
+        let shell = default_shell();
+        assert!(!shell.program.is_empty());
+    }
+
+    #[test]
+    fn one_shot_args_select_per_shell_flag_form() {
+        // cmd.exe one-shot: `/C <command>`.
+        assert_eq!(
+            one_shot_args(ShellKind::Cmd, "echo hi"),
+            vec![OsString::from("/C"), OsString::from("echo hi")],
+        );
+        // PowerShell one-shot: `-NoProfile -Command <command>` (NOT `/C`).
+        assert_eq!(
+            one_shot_args(ShellKind::PowerShell, "Get-ChildItem"),
+            vec![
+                OsString::from("-NoProfile"),
+                OsString::from("-Command"),
+                OsString::from("Get-ChildItem"),
+            ],
+        );
+    }
+
+    #[test]
+    fn find_on_path_locates_a_known_system_binary() {
+        // cmd.exe is on %PATH% (System32) on every Windows host, so the PATH
+        // search must find it; a nonexistent name must return None.
+        assert!(find_on_path("cmd.exe").is_some());
+        assert!(find_on_path("definitely-not-a-real-binary-xyz.exe").is_none());
+    }
+
+    #[test]
+    fn windows_powershell_5_1_resolves_by_absolute_path() {
+        // Windows PowerShell 5.1 ships on every Windows install at its fixed
+        // System32 location, so the absolute-path resolver must find it.
+        assert!(resolve_windows_powershell().is_some());
     }
 
     #[test]

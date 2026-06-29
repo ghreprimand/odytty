@@ -107,10 +107,14 @@ code; `portable-pty` and `crossterm` are gone from the dependency tree.
   closes the pseudoconsole so the output reader hits EOF (mirroring the Unix
   `EIO`→EOF teardown). There is no POSIX process group, so `foreground_job`
   returns the contract's `ForegroundJob::Unknown` indeterminate default. The
-  default interactive shell is `%ComSpec%` (cmd.exe) with no startup flag, and
-  `spawn_shell_command` runs a one-shot as `cmd /C <command>` — the Windows
-  analogue of the Unix `$SHELL` / `$SHELL -lc` split, not a `-lc` login shell.
-  The pseudoconsole handle is owned by an RAII guard so it cannot leak.
+  default interactive shell prefers PowerShell to match Windows Terminal's
+  command surface — `pwsh.exe` (PowerShell 7) if present, else Windows
+  PowerShell 5.1 (resolved by its fixed `%SystemRoot%\System32\WindowsPowerShell\v1.0\`
+  path), else `%ComSpec%` (cmd.exe) as a last resort. `spawn_shell_command`
+  selects the one-shot flag by shell family — `cmd /C <command>` for cmd,
+  `powershell -NoProfile -Command <command>` for PowerShell — the Windows
+  analogue of the Unix `$SHELL -lc` split, not a `-lc` login shell. The
+  pseudoconsole handle is owned by an RAII guard so it cannot leak.
 
 The `PtySession` surface (`spawn_default_shell{,_in}`, `spawn_shell_command`,
 `spawn_exec`, `spawn_command`, `resize`, `try_clone_reader`, `take_writer`,
