@@ -16,6 +16,7 @@ use super::kitty::{decode_base64_bytes, encode_base64_bytes};
 
 use super::prompt_marks::{self, PromptKind};
 use super::reflow::resize_buffer_rows;
+use super::reflow_trace::{ResizeTrace, trace_resize};
 use super::scrollback::{ResizeOptions, Scrollback, resize_lazy_with_options};
 use super::search::{SearchMatch, SearchOptions, SearchRow, search_rows};
 use super::snapshot_envelope::{
@@ -704,6 +705,16 @@ impl Screen {
         // shift; flag the change for the poll API (only when marks exist).
         let had_prompt_marks = self.has_any_prompt_mark();
 
+        // Capture the trace inputs BEFORE any mutation (old dims, incoming
+        // cursor + pending-wrap, and the load-bearing discriminator). Cheap
+        // plain copies; only formatted/written when ODYTTY_REFLOW_TRACE is on.
+        let trace_old_cols = self.dimensions.columns;
+        let trace_old_rows = self.dimensions.rows;
+        let trace_output_since_last_resize = self.output_since_last_resize;
+        let trace_alt_screen_active = self.primary_screen.is_some();
+        let trace_cursor_in = self.cursor;
+        let trace_pending_in = self.pending_wrap;
+
         if self.primary_screen.is_some() {
             // Alternate screen active: truncate/pad the app-managed grid (it
             // repaints), but never feed the alternate buffer into scrollback
@@ -786,6 +797,25 @@ impl Screen {
             .resize(self.dimensions.rows, self.dimensions.columns);
         self.prompt_marks_changed |= had_prompt_marks;
         self.mark_dirty();
+
+        // Passive, env-gated diagnostic (no-op unless ODYTTY_REFLOW_TRACE is
+        // set). Emits one line capturing how this resize moved the cursor and,
+        // critically, whether output had arrived since the previous resize.
+        trace_resize(&ResizeTrace {
+            old_cols: trace_old_cols,
+            old_rows: trace_old_rows,
+            new_cols: dimensions.columns,
+            new_rows: dimensions.rows,
+            width_unchanged,
+            output_since_last_resize: trace_output_since_last_resize,
+            alt_screen_active: trace_alt_screen_active,
+            cursor_in_row: trace_cursor_in.row,
+            cursor_in_col: trace_cursor_in.column,
+            pending_wrap_in: trace_pending_in,
+            cursor_out_row: self.cursor.row,
+            cursor_out_col: self.cursor.column,
+            pending_wrap_out: self.pending_wrap,
+        });
     }
 
     pub fn snapshot(&self) -> Snapshot {

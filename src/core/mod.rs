@@ -21,6 +21,7 @@ mod kitty;
 mod kitty_transport;
 mod prompt_marks;
 mod reflow;
+mod reflow_trace;
 mod screen;
 mod scrollback;
 mod search;

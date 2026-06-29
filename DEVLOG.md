@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Diagnostics: env-gated resize trace for cursor-placement investigation
+
+Adds a passive, opt-in diagnostic to capture how `Screen::resize` moves the
+cursor — built to answer one empirical question the source cannot: after the
+multi-cycle ratchet fix, does a shell repaint actually arrive between
+back-to-back resizes on every platform, or only on some? That distinction
+decides whether a remaining single-step cursor displacement needs a deeper fix.
+
+`src/core/reflow_trace.rs` is OFF by default and zero-cost when off: the resize
+path does a single atomic load and returns — no allocation, no formatting, no
+file handle — unless `ODYTTY_REFLOW_TRACE` is set to `1` or `true`. It is purely
+event-driven (one line per `Screen::resize`), never a poll or background thread.
+When enabled it appends one line per resize to
+`std::env::temp_dir()/odytty-reflow-trace.log`, capturing the resize geometry,
+the incoming/outgoing cursor and pending-wrap state, and the load-bearing
+`output_since_last_resize` discriminator. A file rather than stderr because the
+Windows build is a GUI-subsystem app with no visible stderr.
+
+Privacy by construction: a trace line records only dimensions, cursor
+coordinates, booleans, and a sequence counter — never cell contents, typed
+text, paths, or environment values. The destination is the OS temp dir (no
+developer path baked into source) and the env var name is generic. The
+line-formatting function is pure and unit-tested independently of the env gate
+and filesystem.
+
+Verified (Linux): `cargo fmt --check` / `cargo clippy --all-targets --locked --
+-D warnings` / `cargo build --release --locked` / `cargo test --locked` all
+clean; lib 2584 passed / 0 failed / 7 ignored (+1 formatter test). A real
+capture run with the trace enabled emits exactly the expected schema with no
+user-identifying content.
+
+---
+
 ## 2026-06-29 -- Reflow: stop the multi-cycle cursor ratchet across repeated pane splits
 
 Closes the second, deeper half of the Windows/PowerShell cursor desync: after
