@@ -280,7 +280,7 @@ impl PtySession {
 
     pub fn take_writer(&self) -> Result<Box<dyn Write + Send>> {
         let file = duplicate(&self.input_write).context("clone pty writer")?;
-        Ok(Box::new(file))
+        Ok(Box::new(PtyWriter { file }))
     }
 
     /// ConPTY has no POSIX foreground process group, so this is always
@@ -436,6 +436,53 @@ impl Read for PtyReader {
             Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(0),
             result => result,
         }
+    }
+}
+
+/// `ERROR_BROKEN_PIPE` (109): the pipe has been ended (read or write end closed).
+const ERROR_BROKEN_PIPE: i32 = 109;
+/// `ERROR_NO_DATA` (232): "The pipe is being closed" — returned to a writer when
+/// the ConPTY/child read end has gone away.
+const ERROR_NO_DATA: i32 = 232;
+
+/// Input-pipe writer that normalizes a dead-pipe write — surfaced by Windows as
+/// `ERROR_BROKEN_PIPE` (109, already `io::ErrorKind::BrokenPipe`) or the less
+/// obvious `ERROR_NO_DATA` (232, "the pipe is being closed", which Rust does NOT
+/// classify) — into a single canonical `io::ErrorKind::BrokenPipe` error.
+///
+/// This mirrors [`PtyReader`]'s `EIO`/broken-pipe → EOF mapping on the read
+/// side: the native write sites currently swallow raw write errors, so without
+/// this normalization a write to a dead ConPTY surfaces an inconsistent,
+/// platform-raw error (the "pipe is being closed" text). With it, a caller can
+/// reliably match `BrokenPipe` to drive a clean one-shot session teardown
+/// instead of treating the dead session as still writable.
+struct PtyWriter {
+    file: File,
+}
+
+impl PtyWriter {
+    /// Map a raw Windows pipe-closed error to a canonical `BrokenPipe`, leaving
+    /// every other error untouched.
+    fn normalize(error: io::Error) -> io::Error {
+        if error.kind() == io::ErrorKind::BrokenPipe {
+            return error;
+        }
+        match error.raw_os_error() {
+            Some(ERROR_BROKEN_PIPE | ERROR_NO_DATA) => {
+                io::Error::new(io::ErrorKind::BrokenPipe, "ConPTY input pipe closed")
+            }
+            _ => error,
+        }
+    }
+}
+
+impl Write for PtyWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.file.write(buf).map_err(Self::normalize)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush().map_err(Self::normalize)
     }
 }
 
