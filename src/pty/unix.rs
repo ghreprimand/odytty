@@ -25,6 +25,7 @@ use rustix::termios::{Winsize, tcgetpgrp, tcsetwinsize};
 
 use super::{CommandBuilder, ForegroundJob};
 use crate::core::Dimensions;
+use crate::settings::Settings;
 
 /// Classify the terminal foreground group of `fd` against `shell_pgid`.
 ///
@@ -54,9 +55,32 @@ impl PtySession {
         dimensions: Dimensions,
         working_directory: Option<PathBuf>,
     ) -> Result<Self> {
+        Self::spawn_default_shell_in_with_shell_integration(dimensions, working_directory, false)
+    }
+
+    pub fn spawn_default_shell_in_with_settings(
+        dimensions: Dimensions,
+        working_directory: Option<PathBuf>,
+        settings: &Settings,
+    ) -> Result<Self> {
+        Self::spawn_default_shell_in_with_shell_integration(
+            dimensions,
+            working_directory,
+            settings.shell_integration,
+        )
+    }
+
+    fn spawn_default_shell_in_with_shell_integration(
+        dimensions: Dimensions,
+        working_directory: Option<PathBuf>,
+        shell_integration: bool,
+    ) -> Result<Self> {
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
         let mut command = CommandBuilder::new(shell);
         command.apply_terminal_env();
+        if shell_integration {
+            crate::shell_integration::apply_spawn_integration(&mut command);
+        }
         if let Some(path) = working_directory {
             command.current_dir(path);
         }

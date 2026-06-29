@@ -488,6 +488,7 @@ Core local shortcuts:
 | `Ctrl+Shift+Space` | Keyboard copy mode |
 | `Ctrl+Shift+Up` / `Ctrl+Shift+Down` | Jump to previous / next prompt mark |
 | `Ctrl+Shift+K` | Clear editable prompt input when shell integration allows it |
+| `Delete` / `Backspace` | Delete selected editable prompt input when shell integration allows it |
 
 The command palette, connection manager, session replay, theme builder, and
 Manage Sessions each ship with a default `Ctrl+Shift+<letter>` chord and a
@@ -501,6 +502,33 @@ TUI cannot receive, so PTY input is unchanged. Prompt navigation is the
 # odytty.conf
 keybinds = ctrl+alt+p=command-palette
 ```
+
+#### Shell Integration
+
+Some prompt-aware actions need OSC 133 prompt marks from the shell:
+prompt jumps, clearing/deleting editable prompt input, command-status gutters,
+and click-to-position support when the shell advertises it. OdyTTY parses these
+marks by default but does not inject hooks unless you opt in.
+
+Set `shell_integration = on` in Settings or `odytty.conf` to make newly spawned
+local `bash`, `zsh`, and `fish` shells load OdyTTY's integration wrapper at
+startup. The wrapper sources your normal shell config first, then installs the
+OSC 133 hooks. Existing shells are unchanged until restarted. Bash integration
+uses an interactive `--rcfile`, so login-shell-only startup files remain your
+shell's responsibility.
+
+For manual setup, SSH/login shells, or users who prefer explicit rc edits, print
+the snippet and source it yourself:
+
+```sh
+eval "$(odytty shell-integration bash)"
+eval "$(odytty shell-integration zsh)"
+odytty shell-integration fish | source
+```
+
+Until prompt input marks are active, the right-click menu disables Cut/Delete
+for prompt input and shows an "Enable shell integration in Settings" hint;
+plain `Delete` / `Backspace` continue to pass through normally.
 
 For a one-off/dev override, run
 `ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" odytty`; env wins for that

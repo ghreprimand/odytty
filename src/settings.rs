@@ -930,6 +930,10 @@ pub struct Settings {
     /// shell having advertised `click_events=1`, so the off path (and a
     /// non-integrated shell) emits nothing and is byte-identical to today.
     pub sh_click: bool,
+    /// Automatic OSC 133 shell integration. When on, default local shell spawns
+    /// receive OdyTTY's prompt-mark hooks without editing user rc files. Off by
+    /// default; affects newly spawned shells only.
+    pub shell_integration: bool,
     /// Whether freshly arrived output rows fade in at the live tail (VE4). Off
     /// by default; the off path emits no fade quads, schedules no extra wakes,
     /// and is byte-identical to before. The fade is a background-color overlay
@@ -1104,6 +1108,7 @@ impl Default for Settings {
             wheel_zoom: DEFAULT_WHEEL_ZOOM,
             command_status_gutter: DEFAULT_COMMAND_STATUS_GUTTER,
             sh_click: DEFAULT_SH_CLICK,
+            shell_integration: DEFAULT_SHELL_INTEGRATION,
             new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
             window_border: DEFAULT_WINDOW_BORDER,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
@@ -1647,6 +1652,12 @@ impl Settings {
             DEFAULT_SH_CLICK,
             &mut warn,
         );
+        let shell_integration = parse_bool_setting(
+            get(SHELL_INTEGRATION_ENV).as_deref(),
+            SHELL_INTEGRATION_ENV,
+            DEFAULT_SHELL_INTEGRATION,
+            &mut warn,
+        );
         let new_output_fade = parse_bool_setting(
             get(NEW_OUTPUT_FADE_ENV).as_deref(),
             NEW_OUTPUT_FADE_ENV,
@@ -1804,6 +1815,7 @@ impl Settings {
             wheel_zoom,
             command_status_gutter,
             sh_click,
+            shell_integration,
             new_output_fade,
             window_border,
             window_decorations,
@@ -1974,6 +1986,10 @@ impl Settings {
             bool_display(self.command_status_gutter).to_owned(),
         );
         values.insert(SH_CLICK_ENV, bool_display(self.sh_click).to_owned());
+        values.insert(
+            SHELL_INTEGRATION_ENV,
+            bool_display(self.shell_integration).to_owned(),
+        );
         values.insert(
             NEW_OUTPUT_FADE_ENV,
             bool_display(self.new_output_fade).to_owned(),

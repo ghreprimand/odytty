@@ -78,6 +78,10 @@ impl CommandBuilder {
         }
     }
 
+    pub(crate) fn program(&self) -> &OsString {
+        &self.program
+    }
+
     pub fn arg(&mut self, arg: impl Into<OsString>) -> &mut Self {
         self.args.push(arg.into());
         self
@@ -86,6 +90,16 @@ impl CommandBuilder {
     pub fn env(&mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> &mut Self {
         self.env.push((key.into(), value.into()));
         self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn args_for_test(&self) -> &[OsString] {
+        &self.args
+    }
+
+    #[cfg(test)]
+    pub(crate) fn env_for_test(&self) -> &[(OsString, OsString)] {
+        &self.env
     }
 
     /// Apply the standard OdyTTY terminal environment to a spawned child:

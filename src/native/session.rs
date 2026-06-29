@@ -511,6 +511,9 @@ pub(super) struct TabSet {
     /// `file://host/path` URLs from the local shell can update cwd while remote
     /// hosts remain rejected by the core.
     local_hostname: Option<String>,
+    /// Whether newly spawned local default shells should receive OdyTTY's OSC
+    /// 133 integration wrapper. Existing sessions are not modified.
+    shell_integration_enabled: bool,
 }
 
 impl TabSet {
@@ -527,6 +530,7 @@ impl TabSet {
             proxy,
             recording_enabled: false,
             local_hostname: None,
+            shell_integration_enabled: false,
         }
     }
 
@@ -548,6 +552,10 @@ impl TabSet {
         for session in self.sessions.values() {
             session.recorder.set_enabled(on);
         }
+    }
+
+    pub(super) fn set_shell_integration_enabled(&mut self, on: bool) {
+        self.shell_integration_enabled = on;
     }
 
     /// A decoupled clone of the **focused** session's recorded frames, oldest
@@ -899,7 +907,14 @@ impl TabSet {
         &mut self,
         grid: crate::core::Dimensions,
     ) -> Result<SessionToken, std::io::Error> {
-        self.insert_local_session_with(grid, PtySession::spawn_default_shell)
+        let shell_integration = self.shell_integration_enabled;
+        self.insert_local_session_with(grid, |grid| {
+            let settings = crate::settings::Settings {
+                shell_integration,
+                ..crate::settings::Settings::default()
+            };
+            PtySession::spawn_default_shell_in_with_settings(grid, None, &settings)
+        })
     }
 
     /// Spawn an explicit child command in a local PTY and insert it into the

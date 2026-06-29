@@ -30,6 +30,7 @@ pub mod render;
 pub mod selection;
 pub mod session_host;
 pub mod settings;
+pub mod shell_integration;
 pub mod ssh_config;
 pub mod ssh_connect;
 pub mod text;

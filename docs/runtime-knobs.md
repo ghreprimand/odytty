@@ -255,6 +255,7 @@ environment variable was not set at startup.
 | `wheel_zoom` | `ODYTTY_WHEEL_ZOOM` | `on`, `off` | `on` |
 | `command_status_gutter` | `ODYTTY_COMMAND_STATUS_GUTTER` | `on`, `off` | `off` |
 | `sh_click` | `ODYTTY_SH_CLICK` | `on`, `off` | `off` |
+| `shell_integration` | `ODYTTY_SHELL_INTEGRATION` | `on`, `off` | `off` |
 | `interactive_urls` | `ODYTTY_INTERACTIVE_URLS` | `on`, `off` | `on` |
 | `interactive_paths` | `ODYTTY_INTERACTIVE_PATHS` | `on`, `off` | `off` |
 | `interactive_paths_barewords` | `ODYTTY_INTERACTIVE_PATHS_BAREWORDS` | `on`, `off` | `on` |

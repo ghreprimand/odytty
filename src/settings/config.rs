@@ -17,9 +17,9 @@ use super::{
     NATIVE_AUTOCLOSE_ENV, NEW_OUTPUT_FADE_ENV, OS_THEME_DARK_ENV, OS_THEME_LIGHT_ENV,
     OSC52_READ_ENV, PANE_PREFIX_ENV, RENDER_QUALITY_ENV, RETRO_ENV, SCROLL_DRAG_SPEED_ENV,
     SCROLL_WHEEL_LINES_ENV, SCROLLBACK_LINES_ENV, SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV,
-    SH_CLICK_ENV, SMART_CTRL_C_ENV, SMOOTH_SCROLL_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV,
-    SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV, TEXT_GAMMA_ENV,
-    THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV,
+    SH_CLICK_ENV, SHELL_INTEGRATION_ENV, SMART_CTRL_C_ENV, SMOOTH_SCROLL_ENV, STEM_DARKEN_ENV,
+    SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV,
+    TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV,
     WINDOW_DECORATIONS_ENV, WINDOW_PADDING_ENV, normalize_name,
 };
 use super::{
@@ -166,6 +166,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "wheelzoom" | "ctrlwheelzoom" | "fontzoom" => Some(WHEEL_ZOOM_ENV),
         "commandstatusgutter" | "statusgutter" | "commandgutter" => Some(COMMAND_STATUS_GUTTER_ENV),
         "shclick" | "clicktoposition" | "clicktomovecursor" | "promptclick" => Some(SH_CLICK_ENV),
+        "shellintegration" | "promptmarks" | "osc133" | "osc133integration" => {
+            Some(SHELL_INTEGRATION_ENV)
+        }
         "cvdmode" | "colorblindmode" | "colourblindmode" | "daltonize" => Some(CVD_MODE_ENV),
         "cvdstrength" | "colorblindstrength" | "colourblindstrength" => Some(CVD_STRENGTH_ENV),
         "bell" | "bellmode" | "audiblebell" | "visualbell" => Some(BELL_ENV),
@@ -260,6 +263,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         WHEEL_ZOOM_ENV => Some("wheel_zoom"),
         COMMAND_STATUS_GUTTER_ENV => Some("command_status_gutter"),
         SH_CLICK_ENV => Some("sh_click"),
+        SHELL_INTEGRATION_ENV => Some("shell_integration"),
         NEW_OUTPUT_FADE_ENV => Some("new_output_fade"),
         WINDOW_BORDER_ENV => Some("window_border"),
         WINDOW_DECORATIONS_ENV => Some("window_decorations"),

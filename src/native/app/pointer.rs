@@ -485,6 +485,16 @@ impl App {
         Some(EditableInputSelection { text, edit_bytes })
     }
 
+    pub(super) fn prompt_input_mark_missing_for_context_menu(&self) -> bool {
+        if self.selection_block || self.viewport.offset() != 0 || self.selection.range().is_none() {
+            return false;
+        }
+        self.terminal
+            .lock()
+            .ok()
+            .is_some_and(|terminal| terminal.active_prompt_input_start().is_none())
+    }
+
     pub(super) fn handle_context_menu_cut(&mut self) {
         let Some(selection) = self.editable_input_selection_for_context_menu() else {
             return;

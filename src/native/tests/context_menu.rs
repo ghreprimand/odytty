@@ -594,6 +594,46 @@ fn cut_delete_gating_requires_editable_prompt_input() {
 }
 
 #[test]
+fn cut_delete_disabled_hint_points_to_shell_integration_when_prompt_mark_missing() {
+    let Some((mut app, _bytes)) = app_with_recording_writer(b"$ abc") else {
+        return;
+    };
+    app.force_selection_for_test(0, 0, 0, 4);
+    app.set_pointer_cell_for_test(5, 10);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+
+    let sig = app.overlay_signature_for_test().context_menu;
+    assert!(!sig.cut_enabled);
+    assert!(!sig.delete_enabled);
+    assert!(sig.prompt_editing_hint);
+
+    let (cols, rows) = app.grid_dims_for_test();
+    let rendered = app.render_overlay_rows_for_test(cols, rows);
+    assert!(
+        rendered
+            .iter()
+            .any(|line| line.contains("Enable shell integration in Settings")),
+        "disabled Cut/Delete hint must render: {rendered:?}"
+    );
+}
+
+#[test]
+fn cut_delete_enabled_when_prompt_mark_is_present() {
+    let Some((mut app, _bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
+    else {
+        return;
+    };
+    app.force_selection_for_test(0, 0, 0, 4);
+    app.set_pointer_cell_for_test(5, 10);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+
+    let sig = app.overlay_signature_for_test().context_menu;
+    assert!(sig.cut_enabled);
+    assert!(sig.delete_enabled);
+    assert!(!sig.prompt_editing_hint);
+}
+
+#[test]
 fn delete_selected_input_sends_shell_edit_bytes_without_copying() {
     let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
     else {

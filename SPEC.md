@@ -456,6 +456,14 @@ setters. Aux `k=v` keys are accepted-and-ignored; the `D` exit code is parsed
 digits-only into `Option<i32>` (absent / non-numeric / overflow → `None`), and
 malformed payloads are consumed without panic or host reply.
 
+The supported way to enable marks for local shells is `shell_integration = on`
+or the manual `odytty shell-integration <bash|zsh|fish>` subcommand. The setting
+is off by default. When enabled, new local default-shell spawns for `bash`,
+`zsh`, and `fish` receive wrapper hooks that source the user's normal config
+first, then emit the same OSC 133 A/B/C/D marks. Unknown shells and Windows
+cmd/PowerShell receive no injection and degrade to normal startup; manual
+snippets remain useful for SSH and login-shell setups.
+
 Marks are **logical-line-anchored**: a mark is stored as `Option<PromptKind>`
 on the cursor's logical line (carried on the first physical row), so it survives
 scroll-out into scrollback and width-changing reflow. `RIS`, `ED 2/3`, `EL 2`,

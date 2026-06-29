@@ -501,6 +501,8 @@ impl App {
         // default) is a no-op.
         app.sessions
             .set_recording_enabled(app.settings.session_replay);
+        app.sessions
+            .set_shell_integration_enabled(app.settings.shell_integration);
         app
     }
 
@@ -1572,6 +1574,8 @@ impl App {
         };
         let copy_enabled = self.selection.range().is_some();
         let editable_selection = self.editable_input_selection_for_context_menu();
+        let prompt_editing_hint =
+            editable_selection.is_none() && self.prompt_input_mark_missing_for_context_menu();
         let paste_enabled = self.clipboard.read_text().is_some();
         // Part C: each item's *effective* keybind, derived from the live
         // `KeyBindings` (reverse action→chord lookup) so it reflects user
@@ -1607,12 +1611,13 @@ impl App {
         } else {
             None
         };
-        self.overlay.open_context_menu(
+        self.overlay.open_context_menu_with_prompt_editing_hint(
             spawn,
             copy_enabled,
             editable_selection.is_some(),
             paste_enabled,
             editable_selection.is_some(),
+            prompt_editing_hint,
             rename_target,
             multi_pane,
             path_target,
@@ -2039,6 +2044,8 @@ impl App {
         // also frees any buffered frames, so the plain path is unaffected.
         self.sessions
             .set_recording_enabled(self.settings.session_replay);
+        self.sessions
+            .set_shell_integration_enabled(self.settings.shell_integration);
         // WIN-DECOR: apply a live decorations change immediately so the panel
         // toggle takes effect without a restart. `set_decorations` is
         // idempotent (calling it with the current value is a no-op), so this is

@@ -190,7 +190,11 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
             options.working_directory.clone(),
         )
     } else {
-        PtySession::spawn_default_shell_in(options.initial_grid, options.working_directory.clone())
+        PtySession::spawn_default_shell_in_with_settings(
+            options.initial_grid,
+            options.working_directory.clone(),
+            &settings,
+        )
     }
     .map_err(|err| NativeError::Pty(err.to_string()))?;
     // Defer resize cursor placement to the shell when the backend repaints

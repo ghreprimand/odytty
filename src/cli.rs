@@ -31,6 +31,7 @@ use odytty::session_host::{
 use odytty::settings::{
     BindableAction, KeyBindingKey, KeyBindingNamedKey, KeyBindingOverride, KeyChord, Settings,
 };
+use odytty::shell_integration;
 use odytty::text::{self, FontInventoryEntry};
 use odytty::theme::{self, Theme, VisualEffect, relative_luminance};
 
@@ -42,6 +43,23 @@ pub fn output_for_args(args: &[String]) -> Option<String> {
         Some("--show-config") => Some(show_config_output(&Settings::from_env())),
         _ => None,
     }
+}
+
+pub fn shell_integration_output(args: &[String]) -> Result<Option<String>, String> {
+    if args.first().map(String::as_str) != Some("shell-integration") {
+        return Ok(None);
+    }
+    let shell = args.get(1).ok_or_else(|| {
+        "odytty shell-integration requires a shell: bash, zsh, or fish".to_owned()
+    })?;
+    if args.len() != 2 {
+        return Err("odytty shell-integration takes exactly one shell".to_owned());
+    }
+    let mut out = shell_integration::snippet_for_shell(shell)?.to_owned();
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    Ok(Some(out))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -444,6 +462,10 @@ pub fn usage_text() -> String {
     out.push_str("  --core-smoke    print a parser/core smoke transcript and exit\n");
     out.push_str("  -h, --help      print this help\n");
     out.push('\n');
+    out.push_str("Shell integration:\n");
+    out.push_str("  shell-integration SHELL\n");
+    out.push_str("                  print OSC 133 setup for bash, zsh, or fish\n");
+    out.push('\n');
     out.push_str("Session commands:\n");
     out.push_str("  new [--detached] [-e COMMAND...]\n");
     out.push_str("                  start a detached resumable session and print its id\n");
@@ -651,6 +673,10 @@ pub fn show_config_output(settings: &Settings) -> String {
             settings.render_quality.as_str().to_owned(),
         ),
         ("retro", bool_value(settings.retro).to_owned()),
+        (
+            "shell_integration",
+            bool_value(settings.shell_integration).to_owned(),
+        ),
         ("stem_darken", float_value(settings.stem_darken)),
         (
             "symbol_fallback",
@@ -921,6 +947,29 @@ mod tests {
                 .expect("parse")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn shell_integration_subcommand_prints_supported_shell_snippets() {
+        for shell in ["bash", "zsh", "fish"] {
+            let output = shell_integration_output(&strings(&["shell-integration", shell]))
+                .expect("parse")
+                .expect("output");
+            assert!(
+                output.contains("\\e]133;A"),
+                "{shell}: missing prompt start"
+            );
+            assert!(output.contains("133;B"), "{shell}: missing input start");
+            assert!(output.contains("133;C"), "{shell}: missing command start");
+            assert!(output.contains("133;D"), "{shell}: missing command end");
+        }
+    }
+
+    #[test]
+    fn shell_integration_subcommand_rejects_unknown_shell() {
+        let err = shell_integration_output(&strings(&["shell-integration", "cmd"]))
+            .expect_err("unknown shell");
+        assert!(err.contains("unsupported shell"));
     }
 
     #[test]

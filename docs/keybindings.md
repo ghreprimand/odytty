@@ -71,6 +71,33 @@ Notes that trip people up:
   single-pane tab — the pane prefix below is inert until a tab already has two
   or more panes.
 
+## Shell Integration
+
+Prompt-aware shortcuts depend on OSC 133 marks from the shell. Set
+`shell_integration = on` in Settings or `odytty.conf` to have newly spawned
+local `bash`, `zsh`, and `fish` shells load OdyTTY's integration wrapper. The
+wrapper sources your normal shell config first, then emits `133;A` prompt
+start, `133;B` prompt-end/input-start, `133;C` command start, and `133;D`
+command end marks.
+
+This unlocks prompt jumps, selected prompt-input Delete/Backspace,
+click-to-position support when advertised by the shell, and command-status
+features. Existing shells are not modified; restart the shell/tab after
+changing the setting. Bash integration is interactive non-login via `--rcfile`,
+so login-shell-only startup files remain a manual concern.
+
+Manual setup is available with:
+
+```sh
+eval "$(odytty shell-integration bash)"
+eval "$(odytty shell-integration zsh)"
+odytty shell-integration fish | source
+```
+
+Until prompt input marks are active, the context-menu Cut/Delete items are
+disabled with an "Enable shell integration in Settings" hint, and plain
+`Delete` / `Backspace` continue to behave as normal shell keys.
+
 Closing a tab (`Ctrl+Shift+W`) closes the **whole** tab — every pane it holds.
 Closing the last tab quits OdyTTY. The right-click context menu mirrors most of
 these actions and labels each with its live chord.

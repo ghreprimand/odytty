@@ -337,6 +337,42 @@ fn sh_click_defaults_off_and_round_trips_through_config_key() {
 }
 
 #[test]
+fn shell_integration_defaults_off_and_round_trips_through_config_key() {
+    let (settings, warnings) = settings_from([]);
+    assert!(!settings.shell_integration);
+    assert!(warnings.is_empty());
+
+    let (settings, _) = settings_from([(SHELL_INTEGRATION_ENV, "on")]);
+    assert!(settings.shell_integration);
+
+    let (settings, _) = settings_from([(SHELL_INTEGRATION_ENV, "off")]);
+    assert!(!settings.shell_integration);
+
+    assert_eq!(
+        config_key_to_env("shell_integration"),
+        Some(SHELL_INTEGRATION_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("prompt_marks"),
+        Some(SHELL_INTEGRATION_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(SHELL_INTEGRATION_ENV),
+        Some("shell_integration")
+    );
+    assert_eq!(
+        Settings {
+            shell_integration: true,
+            ..Settings::default()
+        }
+        .to_edit_values()
+        .get(SHELL_INTEGRATION_ENV)
+        .map(String::as_str),
+        Some("on")
+    );
+}
+
+#[test]
 fn selection_drag_extend_defaults_on_and_parses() {
     // Absent → on (operator default; drag-extend + Shift+click extend active).
     let (settings, warnings) = settings_from([]);

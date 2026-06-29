@@ -7,6 +7,56 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Opt-in shell integration: auto-inject OSC 133 marks + honest disabled-Cut/Delete UX
+
+Makes the prompt-aware features that need OSC 133 marks actually reachable from
+a default shell. Until now OdyTTY *parsed* prompt marks but shipped no way to
+make a shell *emit* them, so selected-prompt-input Delete/Backspace, prompt
+jumps, and click-to-position silently did nothing on a vanilla bash/zsh — on
+every platform, not just Windows. (When they appeared to work, the user's own
+prompt — starship/oh-my-zsh/an rc hook — was emitting the marks.)
+
+Two halves:
+
+- **A new `shell_integration` setting, off by default.** When on, newly spawned
+  local default shells receive OdyTTY's integration wrapper at spawn — no rc
+  editing required. The wrapper **sources the user's normal shell config first**,
+  then installs OSC 133 `A`/`B`/`C`/`D` hooks, so a wrapper failure can never
+  break shell startup. Per-shell: `bash` via an interactive `--rcfile` that
+  sources `~/.bashrc` then appends (never clobbers) `PROMPT_COMMAND` + a `DEBUG`
+  trap; `zsh` via a generated `ZDOTDIR` whose `.zshrc` restores the original
+  `ZDOTDIR`, sources the user's `.zshrc`, then adds `precmd`/`preexec` hooks;
+  `fish` via a `vendor_conf.d` drop-in on `XDG_DATA_DIRS`. Unknown shells and
+  Windows cmd/PowerShell receive no injection and start normally. The setting
+  follows the existing `sh_click` plumbing exactly (env `ODYTTY_SHELL_INTEGRATION`,
+  config aliases, `SettingInfo`, defaults-off round-trip test) and is wired into
+  both spawn paths (startup pane threads the real `Settings`; new-tab/split reads
+  a `TabSet` flag set at construction and on live settings-reload). Existing
+  shells are never modified.
+
+- **A cross-platform `odytty shell-integration <bash|zsh|fish>` subcommand** that
+  prints the same snippet for manual setup (SSH/login shells, or users who
+  prefer explicit rc edits): `eval "$(odytty shell-integration bash)"`.
+
+- **Honest disabled UX (no more silent dead feature).** When a selection exists
+  on the live row but no prompt-input mark is present, the right-click menu now
+  renders Cut/Delete **disabled** with an "Enable shell integration in Settings"
+  hint instead of a dead no-op; plain Delete/Backspace still pass through as
+  normal shell keys. End-to-end tests drive the real predicate through the App
+  (hint shown without marks, items enabled once `133;B` is seen).
+
+Also folded a small standards fix while gating: the two pre-hint context-menu
+`open` shims are now reachable only from tests, so they are gated `#[cfg(test)]`
+(honest test-only helpers) rather than carrying `#[allow(dead_code)]`.
+
+Verification (Linux): `cargo fmt --check` / `cargo build --release --locked` /
+`cargo clippy --all-targets --locked -- -D warnings` / `cargo test --locked` all
+green; lib suite 2603 passed / 0 failed / 7 ignored. Non-vacuity proven:
+neutralizing the spawn injector fails all three per-shell injection-wiring tests;
+neutralizing the disabled-hint predicate fails the end-to-end menu test. Honest
+scope: bash integration is interactive non-login (login-only startup files stay
+the user's concern), and Windows shell integration is deferred.
+
 ## 2026-06-29 -- Fix the black-screen-on-restore residual (bounded retry for a skipped frame)
 
 Closes the remaining black-on-restore path that the earlier reconfigure fix did

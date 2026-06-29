@@ -63,6 +63,7 @@ pub const SCROLLBAR_DRAG_ENV: &str = "ODYTTY_SCROLLBAR_DRAG";
 pub const WHEEL_ZOOM_ENV: &str = "ODYTTY_WHEEL_ZOOM";
 pub const COMMAND_STATUS_GUTTER_ENV: &str = "ODYTTY_COMMAND_STATUS_GUTTER";
 pub const SH_CLICK_ENV: &str = "ODYTTY_SH_CLICK";
+pub const SHELL_INTEGRATION_ENV: &str = "ODYTTY_SHELL_INTEGRATION";
 pub const CVD_MODE_ENV: &str = "ODYTTY_CVD_MODE";
 pub const CVD_STRENGTH_ENV: &str = "ODYTTY_CVD_STRENGTH";
 pub const BELL_ENV: &str = "ODYTTY_BELL";
@@ -145,6 +146,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SCROLLBAR_DRAG_ENV,
     WHEEL_ZOOM_ENV,
     SH_CLICK_ENV,
+    SHELL_INTEGRATION_ENV,
     CVD_MODE_ENV,
     CVD_STRENGTH_ENV,
     BELL_ENV,
@@ -566,6 +568,13 @@ pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = false;
 /// non-integrated shell never triggers it. While off the pointer path is
 /// byte-identical to today (no bytes emitted), and it never changes a pixel.
 pub const DEFAULT_SH_CLICK: bool = false;
+
+/// Automatic OSC 133 shell integration (`ODYTTY_SHELL_INTEGRATION`): when on,
+/// default local shell launches receive OdyTTY's prompt-mark hooks at spawn so
+/// features that need prompt/input boundaries (selection-delete, prompt jumps,
+/// click-to-position support from cooperating shells) can work without editing
+/// the user's rc files. Off by default; existing shells are never modified.
+pub const DEFAULT_SHELL_INTEGRATION: bool = false;
 
 pub const DEFAULT_BLOOM: bool = true;
 pub const DEFAULT_BLOOM_THRESHOLD: f32 = 0.7;

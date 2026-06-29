@@ -165,6 +165,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "wheel_zoom",
             "command_status_gutter",
             "sh_click",
+            "shell_integration",
             "confirm_close",
             "bell",
             "interactive_urls",

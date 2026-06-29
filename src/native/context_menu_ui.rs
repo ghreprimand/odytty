@@ -100,6 +100,8 @@ pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 20;
 /// accelerator column, so labels and accelerators never abut (Part C).
 pub(super) const ACCELERATOR_GAP: usize = 2;
 
+pub(super) const SHELL_INTEGRATION_DISABLED_HINT: &str = "Enable shell integration in Settings";
+
 /// The selectable actions in the menu, in display order (separator excluded).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ContextMenuItem {
@@ -380,6 +382,7 @@ pub(super) struct ContextMenuSignature {
     pub(super) cut_enabled: bool,
     pub(super) paste_enabled: bool,
     pub(super) delete_enabled: bool,
+    pub(super) prompt_editing_hint: bool,
     pub(super) rename_enabled: bool,
     /// Whether the active tab is multi-pane (drives the Close Pane item's
     /// visibility, so a pane-count change must repaint the menu).
@@ -411,6 +414,7 @@ pub(super) struct ContextMenuUi {
     cut_enabled: bool,
     paste_enabled: bool,
     delete_enabled: bool,
+    prompt_editing_hint: bool,
     rename_target: Option<SessionToken>,
     /// Whether the active tab is multi-pane, snapshotted at open time. Gates the
     /// visibility of the Close Pane item: `false` hides it entirely (single-pane
@@ -437,6 +441,7 @@ impl Default for ContextMenuUi {
             cut_enabled: false,
             paste_enabled: false,
             delete_enabled: false,
+            prompt_editing_hint: false,
             rename_target: None,
             multi_pane: false,
             path_target: None,
@@ -454,6 +459,10 @@ impl ContextMenuUi {
     /// the focus to the first item. The caller (the App) computes the enabled
     /// flags from the live selection / clipboard before opening. The arg list
     /// mirrors that snapshot rather than wrapping it in a one-use struct.
+    ///
+    /// Retained for tests that call the pre-hint form; production opens via
+    /// [`Self::open_with_prompt_editing_hint`] (this defaults the hint off).
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn open(
         &mut self,
@@ -466,11 +475,38 @@ impl ContextMenuUi {
         multi_pane: bool,
         path_target: Option<Resolved>,
     ) {
+        self.open_with_prompt_editing_hint(
+            spawn,
+            copy_enabled,
+            cut_enabled,
+            paste_enabled,
+            delete_enabled,
+            false,
+            rename_target,
+            multi_pane,
+            path_target,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn open_with_prompt_editing_hint(
+        &mut self,
+        spawn: CellPoint,
+        copy_enabled: bool,
+        cut_enabled: bool,
+        paste_enabled: bool,
+        delete_enabled: bool,
+        prompt_editing_hint: bool,
+        rename_target: Option<SessionToken>,
+        multi_pane: bool,
+        path_target: Option<Resolved>,
+    ) {
         self.spawn = spawn;
         self.copy_enabled = copy_enabled;
         self.cut_enabled = cut_enabled;
         self.paste_enabled = paste_enabled;
         self.delete_enabled = delete_enabled;
+        self.prompt_editing_hint = prompt_editing_hint;
         self.rename_target = rename_target;
         self.multi_pane = multi_pane;
         self.path_target = path_target;
@@ -644,6 +680,12 @@ impl ContextMenuUi {
     /// order the App fills the accelerator array), so it is stable regardless of
     /// which items are currently visible.
     fn accelerator_for_item(&self, item: ContextMenuItem) -> Option<&str> {
+        if self.prompt_editing_hint
+            && !self.item_enabled(item)
+            && matches!(item, ContextMenuItem::Cut | ContextMenuItem::Delete)
+        {
+            return Some(SHELL_INTEGRATION_DISABLED_HINT);
+        }
         let all_index = ContextMenuItem::ALL.iter().position(|it| *it == item)?;
         self.accelerators
             .get(all_index)
@@ -664,6 +706,10 @@ impl ContextMenuUi {
             .accelerators
             .iter()
             .filter_map(|slot| slot.as_deref())
+            .chain(
+                self.prompt_editing_hint
+                    .then_some(SHELL_INTEGRATION_DISABLED_HINT),
+            )
             .map(|accel| accel.chars().count())
             .max()
             .unwrap_or(0);
@@ -855,6 +901,7 @@ impl ContextMenuUi {
             cut_enabled: self.cut_enabled,
             paste_enabled: self.paste_enabled,
             delete_enabled: self.delete_enabled,
+            prompt_editing_hint: self.prompt_editing_hint,
             rename_enabled: self.rename_target.is_some(),
             multi_pane: self.multi_pane,
             has_path_target: self.path_target.is_some(),
@@ -1623,6 +1670,42 @@ mod tests {
             m.handle_press(3, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Consumed
         );
+    }
+
+    #[test]
+    fn cut_and_delete_disabled_can_carry_shell_integration_hint() {
+        let mut m = ContextMenuUi::new();
+        m.open_with_prompt_editing_hint(
+            CellPoint { row: 4, column: 7 },
+            true,
+            false,
+            true,
+            false,
+            true,
+            None,
+            false,
+            None,
+        );
+        let rows = m.rows();
+        assert_eq!(
+            rows[1],
+            ContextMenuRow::Item {
+                label: "Cut",
+                accelerator: Some(SHELL_INTEGRATION_DISABLED_HINT.to_owned()),
+                focused: false,
+                enabled: false,
+            }
+        );
+        assert_eq!(
+            rows[3],
+            ContextMenuRow::Item {
+                label: "Delete",
+                accelerator: Some(SHELL_INTEGRATION_DISABLED_HINT.to_owned()),
+                focused: false,
+                enabled: false,
+            }
+        );
+        assert!(m.render_signature().prompt_editing_hint);
     }
 
     #[test]

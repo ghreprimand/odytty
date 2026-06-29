@@ -327,9 +327,10 @@ impl OverlayUi {
     /// clipboard. Unlike the other openers this does NOT clear the selection —
     /// the Copy item needs it — so the App must not route through
     /// `reset_pointer_state_for_overlay` here.
-    // A thin forwarding shim: the App snapshots each item's enabled state and
-    // accelerator before opening, so the arg list mirrors that snapshot rather
-    // than wrapping it in a one-use struct.
+    // A thin forwarding shim retained for the existing overlay tests, which call
+    // the pre-hint 9-arg form. Production opens via
+    // `open_context_menu_with_prompt_editing_hint`; this defaults the hint off.
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn open_context_menu(
         &mut self,
@@ -343,13 +344,42 @@ impl OverlayUi {
         path_target: Option<crate::paths::Resolved>,
         accelerators: [Option<String>; CONTEXT_MENU_ITEMS],
     ) {
-        self.panel.end_slider_drag();
-        self.context_menu.open(
+        self.open_context_menu_with_prompt_editing_hint(
             spawn,
             copy,
             cut,
             paste,
             delete,
+            false,
+            rename_target,
+            multi_pane,
+            path_target,
+            accelerators,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn open_context_menu_with_prompt_editing_hint(
+        &mut self,
+        spawn: CellPoint,
+        copy: bool,
+        cut: bool,
+        paste: bool,
+        delete: bool,
+        prompt_editing_hint: bool,
+        rename_target: Option<SessionToken>,
+        multi_pane: bool,
+        path_target: Option<crate::paths::Resolved>,
+        accelerators: [Option<String>; CONTEXT_MENU_ITEMS],
+    ) {
+        self.panel.end_slider_drag();
+        self.context_menu.open_with_prompt_editing_hint(
+            spawn,
+            copy,
+            cut,
+            paste,
+            delete,
+            prompt_editing_hint,
             rename_target,
             multi_pane,
             path_target,

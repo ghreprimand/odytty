@@ -116,6 +116,18 @@ impl PtySession {
         dimensions: Dimensions,
         working_directory: Option<PathBuf>,
     ) -> Result<Self> {
+        Self::spawn_default_shell_in_with_settings(
+            dimensions,
+            working_directory,
+            &crate::settings::Settings::default(),
+        )
+    }
+
+    pub fn spawn_default_shell_in_with_settings(
+        dimensions: Dimensions,
+        working_directory: Option<PathBuf>,
+        _settings: &crate::settings::Settings,
+    ) -> Result<Self> {
         let mut command = CommandBuilder::new(default_shell().program);
         command.apply_terminal_env();
         if let Some(path) = working_directory {

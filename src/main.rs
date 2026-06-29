@@ -49,6 +49,13 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    if let Some(output) =
+        cli::shell_integration_output(&args).map_err(|err| anyhow::anyhow!(err))?
+    {
+        print!("{output}");
+        return Ok(());
+    }
+
     if args.first().map(String::as_str) == Some("--dump-command") {
         let command = args
             .get(1)
