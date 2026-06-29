@@ -1610,6 +1610,102 @@ mod tests {
         assert!(sessions.close(SessionToken(0)));
     }
 
+    #[test]
+    fn resize_all_panes_honors_shell_owns_cursor_through_app_entry_point() {
+        // END-TO-END guard for the path the OPERATOR'S window actually drives.
+        // The Screen-unit `shell_owns_cursor_setter_getter_behavior_tie` proves
+        // `Terminal::resize` honors the flag; this proves the flag survives and
+        // is honored when the resize is driven through `resize_all_panes` — the
+        // exact entry point the App calls on every `Resized` event. It closes
+        // the gap between "the flag is SET on the session terminal at creation"
+        // (the spawned-pane wire test) and "the flag is HONORED in the resize
+        // the operator sees," which the Windows on-device cursor-translation
+        // trace put in question.
+        //
+        // Both arms set up the identical wrapped buffer at 4x3 ("$ hello" →
+        // "$ he" / "llo", cursor on the continuation row), then drive a
+        // width-changing resize to 20x3 THROUGH `resize_all_panes` (cell 10x20,
+        // content 200x60 → 20 cols x 3 rows for the single pane). A translation
+        // would land the cursor at end-of-content (0,7); a clamp keeps it at the
+        // incoming continuation position (1,3). The two outcomes differ, so the
+        // assertion cannot pass by coincidence.
+        use crate::core::Position;
+        let content = PaneRect::new(0.0, 0.0, 200.0, 60.0);
+        let (cell_w, cell_h, divider_px) = (10u32, 20u32, 1.0f32);
+
+        // Shared setup: build a single-pane TabSet, force the pane's terminal to
+        // the wrapped 4x3 state, and return the incoming (pre-resize) cursor.
+        let setup = |shell_owns: bool| -> (TabSet, Position) {
+            let sessions = TabSet::new(build_session(), None);
+            let incoming = {
+                let session = sessions.active();
+                let mut terminal = session.terminal.lock().expect("terminal lock");
+                terminal.set_shell_owns_cursor_on_resize(shell_owns);
+                terminal.resize(4, 3);
+                terminal.advance(b"$ hello");
+                terminal.screen().cursor()
+            };
+            (sessions, incoming)
+        };
+
+        // DEFAULT (false): the App resize path TRANSLATES the cursor to
+        // end-of-content — the historical Linux/POSIX behavior and the exact
+        // symptom captured on Windows on-device when the flag is not live at
+        // resize time.
+        let (mut translate, incoming) = setup(false);
+        assert_eq!(
+            incoming,
+            Position { row: 1, column: 3 },
+            "pre-resize wrapped state must put the cursor on the continuation row"
+        );
+        translate.resize_all_panes(content, cell_w, cell_h, divider_px);
+        let translated = {
+            let session = translate.active();
+            let terminal = session.terminal.lock().expect("terminal lock");
+            terminal.screen().cursor()
+        };
+        assert_eq!(
+            translated,
+            Position { row: 0, column: 7 },
+            "default path must translate the cursor through resize_all_panes \
+             (this reproduces the on-device symptom when the flag is false)"
+        );
+
+        // SHELL-OWNS (true, the ConPTY/Windows capability): the App resize path
+        // must DEFER — keep the incoming cursor clamped to the new dims for the
+        // shell's absolute repaint to own. This is the assertion that fails if
+        // any layer between the wired terminal and `resize_all_panes` drops or
+        // ignores the flag.
+        let (mut defer, incoming_defer) = setup(true);
+        assert_eq!(incoming_defer, incoming, "identical pre-resize state");
+        defer.resize_all_panes(content, cell_w, cell_h, divider_px);
+        let (deferred, flag_survived) = {
+            let session = defer.active();
+            let terminal = session.terminal.lock().expect("terminal lock");
+            (
+                terminal.screen().cursor(),
+                terminal.shell_owns_cursor_on_resize(),
+            )
+        };
+        assert_eq!(
+            deferred,
+            Position {
+                row: incoming.row.min(2),
+                column: incoming.column.min(19),
+            },
+            "shell-owns path must defer (clamp) the cursor through resize_all_panes, \
+             not translate it"
+        );
+        assert!(
+            flag_survived,
+            "resize_all_panes must not clobber the shell_owns_cursor capability"
+        );
+        assert_ne!(
+            deferred, translated,
+            "clamp and translate must differ, or the guard is vacuous"
+        );
+    }
+
     #[cfg_attr(
         target_os = "macos",
         ignore = "winit EventLoop cannot be built off the main thread on macOS"

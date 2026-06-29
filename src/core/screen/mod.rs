@@ -842,6 +842,7 @@ impl Screen {
             width_unchanged,
             output_since_last_resize: trace_output_since_last_resize,
             alt_screen_active: trace_alt_screen_active,
+            shell_owns_cursor_on_resize: self.shell_owns_cursor_on_resize,
             cursor_in_row: trace_cursor_in.row,
             cursor_in_col: trace_cursor_in.column,
             pending_wrap_in: trace_pending_in,

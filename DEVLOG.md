@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Resize-cursor diagnostics: per-resize capability in the trace + an end-to-end guard
+
+Investigation packet for the Windows on-device cursor-on-resize symptom (the
+cursor lands in the wrong place after a window drag). No behavior change ships
+here — this is the instrument that makes the next on-device capture conclusive,
+plus a regression guard that exercises the real path.
+
+Two parts:
+
+- **Trace augmentation.** The optional resize trace (`ODYTTY_REFLOW_TRACE=1`)
+  now records `shell_owns_cursor=<bool>` per resize — the backend capability
+  that, when live, makes a resize *defer* cursor placement to the shell's
+  absolute repaint instead of reflow-translating it. Capturing it per-resize
+  distinguishes "the capability was never live at resize time" from "it was live
+  but the cursor moved for another reason," which a cursor-out value alone can't
+  tell apart. Additive, env-gated, zero-cost when off, and the value is a plain
+  bool (privacy-clean). The pure `format_trace_line` test pins the new column.
+
+- **End-to-end guard.** `resize_all_panes_honors_shell_owns_cursor_through_app_entry_point`
+  drives a width-changing resize through `resize_all_panes` — the entry point the
+  app calls on every window `Resized` event — rather than calling `Screen::resize`
+  directly. It builds an identical wrapped buffer in both arms and asserts the
+  default path *translates* the cursor to end-of-content while the shell-owns path
+  *clamps* it to the incoming position, that the capability survives the resize,
+  and that the two outcomes differ (so the guard can't pass vacuously). This
+  closes the gap between "the capability is set on the session terminal at
+  creation" and "it is honored in the resize the operator actually sees."
+  Neutralizing the reflow defer-branch was confirmed to fail this guard at the
+  clamp assertion; restoring passes.
+
+Honest status: the static resize path is now proven sound end-to-end on Linux,
+so the on-device translation means the capability was *false* at resize time on
+that build. The augmented trace resolves whether that is a Windows-only wiring
+failure or a different cursor source — deterministically, on the next capture —
+before any targeted fix lands. No speculative patch this packet.
+
+Verified (Linux): `cargo fmt --check` / `cargo build --release --locked` /
+`cargo clippy --all-targets --locked -- -D warnings` / `cargo test --locked`
+all green; lib suite 2592 passed / 0 failed / 7 ignored.
+
 ## 2026-06-29 -- Fix black screen after minimize/restore (repaint a recovered surface)
 
 Fixes a Windows-observed regression: leaving the window idle, then minimizing

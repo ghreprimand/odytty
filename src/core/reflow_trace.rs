@@ -60,6 +60,12 @@ pub(in crate::core) struct ResizeTrace {
     /// resize (so the `preserve_cursor_physical_line` override fired).
     pub output_since_last_resize: bool,
     pub alt_screen_active: bool,
+    /// Whether the resized screen had the backend "shell owns cursor on resize"
+    /// capability live at this resize (ConPTY ⇒ true). Captured so a trace can
+    /// distinguish "the flag was never wired/was clobbered" from "the flag was
+    /// live but the cursor moved for another reason" — the exact ambiguity the
+    /// Windows cursor-translation investigation needs settled per-resize.
+    pub shell_owns_cursor_on_resize: bool,
     pub cursor_in_row: usize,
     pub cursor_in_col: usize,
     pub pending_wrap_in: bool,
@@ -69,13 +75,13 @@ pub(in crate::core) struct ResizeTrace {
 }
 
 /// Column legend for the data lines, written once per process as a header.
-const LEGEND: &str = "seq old_dims->new_dims width_unchanged output_since_last_resize alt_screen cursor_in pending_in cursor_out pending_out";
+const LEGEND: &str = "seq old_dims->new_dims width_unchanged output_since_last_resize alt_screen shell_owns_cursor cursor_in pending_in cursor_out pending_out";
 
 /// Format one trace data line. Pure (no env, no I/O, no global state beyond the
 /// provided `seq`), so it is unit-testable without races.
 pub(in crate::core) fn format_trace_line(seq: u64, t: &ResizeTrace) -> String {
     format!(
-        "seq={seq} {old_cols}x{old_rows}->{new_cols}x{new_rows} width_unchanged={width_unchanged} output_since_last_resize={out_since} alt_screen={alt} cursor_in=({in_row},{in_col}) pending_in={pin} cursor_out=({out_row},{out_col}) pending_out={pout}",
+        "seq={seq} {old_cols}x{old_rows}->{new_cols}x{new_rows} width_unchanged={width_unchanged} output_since_last_resize={out_since} alt_screen={alt} shell_owns_cursor={shell_owns} cursor_in=({in_row},{in_col}) pending_in={pin} cursor_out=({out_row},{out_col}) pending_out={pout}",
         old_cols = t.old_cols,
         old_rows = t.old_rows,
         new_cols = t.new_cols,
@@ -83,6 +89,7 @@ pub(in crate::core) fn format_trace_line(seq: u64, t: &ResizeTrace) -> String {
         width_unchanged = t.width_unchanged,
         out_since = t.output_since_last_resize,
         alt = t.alt_screen_active,
+        shell_owns = t.shell_owns_cursor_on_resize,
         in_row = t.cursor_in_row,
         in_col = t.cursor_in_col,
         pin = t.pending_wrap_in,
@@ -140,6 +147,7 @@ mod tests {
             width_unchanged: false,
             output_since_last_resize: true,
             alt_screen_active: false,
+            shell_owns_cursor_on_resize: true,
             cursor_in_row: 0,
             cursor_in_col: 16,
             pending_wrap_in: false,
@@ -150,7 +158,7 @@ mod tests {
         let line = format_trace_line(7, &t);
         assert_eq!(
             line,
-            "seq=7 80x24->40x24 width_unchanged=false output_since_last_resize=true alt_screen=false cursor_in=(0,16) pending_in=false cursor_out=(1,7) pending_out=true"
+            "seq=7 80x24->40x24 width_unchanged=false output_since_last_resize=true alt_screen=false shell_owns_cursor=true cursor_in=(0,16) pending_in=false cursor_out=(1,7) pending_out=true"
         );
     }
 }
