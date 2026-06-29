@@ -2245,6 +2245,7 @@ fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
 "#;
 
 /// What the event loop should do after a frame attempt.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum FrameOutcome {
     /// A frame was presented successfully.
     Presented,

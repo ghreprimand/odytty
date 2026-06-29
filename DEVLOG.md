@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Fix black screen after minimize/restore (repaint a recovered surface)
+
+Fixes a Windows-observed regression: leaving the window idle, then minimizing
+and restoring it, left the terminal **all black** until an unrelated event (a
+keystroke) happened to trigger a repaint. Root cause is in the lost-surface
+recovery path, not the resize path: a Windows DX12/DWM surface goes
+`Lost`/`Outdated` while idle-minimized, so on restore the scheduled redraw runs
+`render()`, `get_current_texture()` reports the surface lost, and the handler
+returns `FrameOutcome::NeedsReconfigure` → `gpu.reconfigure()`. But under the
+app's event-driven `ControlFlow::Wait` there is no automatic next frame: the
+reconfigure recovered the surface yet **nothing repainted it**, so it stayed
+valid-but-black until the next input event. (The 0×0-minimize early-return and
+the restore `Resized`→`request_redraw` path were both already correct; the hole
+was one layer deeper.)
+
+The fix is one line of behavior: after reconfiguring a lost surface, also call
+`window.request_redraw()` so the recovered surface is painted on the next `Wait`
+wakeup. Because a fresh `surface.configure()` normally yields a successful
+`get_current_texture()`, this is a single retry, not a spin. Linux/macOS are
+unaffected in practice (their surfaces rarely report lost here), and the change
+is platform-neutral.
+
+To keep the recovery invariant from silently regressing, the post-frame decision
+is extracted into a pure predicate `redraw_after_outcome(FrameOutcome) -> bool`
+(true only for `NeedsReconfigure`) used at the call site, with a deterministic
+test pinning "a lost/outdated surface must request a redraw; a presented or
+skipped frame must not." Neutralizing the predicate was confirmed to fail the
+test; restoring passes. Honest caveat: this pins the *decision* invariant on all
+platforms — the actual GPU repaint on a real lost surface is only observable
+on-device (the surface-Lost trigger needs a live DX12/DWM surface).
+
+Verified (Linux): `cargo fmt --check` / `cargo clippy --all-targets --locked --
+-D warnings` / `cargo build --release --locked` / `cargo test --locked` all
+clean; lib 2591 passed / 0 failed / 7 ignored (+1). On-device confirmation
+(idle → minimize → restore stays painted) pending.
+
+---
+
 ## 2026-06-29 -- Windows: wire the shell-owns-cursor capability into the startup pane too
 
 Follow-up to the previous entry. An on-device resize trace showed the cursor

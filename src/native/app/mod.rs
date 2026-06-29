@@ -2712,14 +2712,30 @@ impl ApplicationHandler<UserEvent> for App {
                         self.needs_rebuild = false;
                     }
                 }
-                let Some(gpu) = self.gpu.as_mut() else {
-                    return;
+                let needs_redraw = {
+                    let Some(gpu) = self.gpu.as_mut() else {
+                        return;
+                    };
+                    let outcome = gpu.render();
+                    // Surface lost/outdated/suboptimal (e.g. after a resize,
+                    // compositor change, or a Windows DX12 surface going Lost on
+                    // idle-minimize): reconfigure here, then request a redraw
+                    // below so the recovered surface is actually painted. Under
+                    // `ControlFlow::Wait` there is no automatic next frame, so a
+                    // reconfigure without a follow-up redraw leaves the surface
+                    // valid-but-unpainted (black) until an unrelated event.
+                    let needs_redraw = redraw_after_outcome(outcome);
+                    if needs_redraw {
+                        gpu.reconfigure();
+                    }
+                    needs_redraw
                 };
-                match gpu.render() {
-                    FrameOutcome::Presented | FrameOutcome::Skipped => {}
-                    // Surface lost/outdated/suboptimal (e.g. after a resize or
-                    // compositor change): reconfigure and try again next frame.
-                    FrameOutcome::NeedsReconfigure => gpu.reconfigure(),
+                // Drop the `gpu` borrow before touching `self.window` (disjoint
+                // fields, but `self.gpu.as_mut()` borrows all of `self`). Single
+                // redraw request — not a loop; post-reconfigure renders normally
+                // succeed.
+                if needs_redraw && let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
                 }
             }
             // `winit` reports modifier state separately from key presses; cache
@@ -2897,12 +2913,49 @@ fn should_show_onboarding(env_override: bool, config_path: Option<&std::path::Pa
     env_override || config_path.map(|path| !path.exists()).unwrap_or(false)
 }
 
+/// Whether the event loop must schedule another paint after a frame attempt.
+///
+/// Under `ControlFlow::Wait` there is no frame loop: a frame is painted only
+/// when something calls `window.request_redraw()`. A [`FrameOutcome::NeedsReconfigure`]
+/// (a lost/outdated/validation surface — Windows DX12 surfaces go Lost on
+/// idle-minimize) must therefore both reconfigure the surface AND request a
+/// redraw, or the recovered-but-unpainted surface stays black until an
+/// unrelated event triggers the next redraw. `Presented`/`Skipped` already
+/// settle, so they request nothing — matching the prior behavior. After a fresh
+/// `surface.configure()` the next `get_current_texture()` normally returns
+/// success, so this is a single retry, not a spin.
+fn redraw_after_outcome(outcome: FrameOutcome) -> bool {
+    matches!(outcome, FrameOutcome::NeedsReconfigure)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn blink() -> CursorBlinkState {
         CursorBlinkState::new(Duration::from_millis(500))
+    }
+
+    /// Pins the lost-surface recovery invariant: a `NeedsReconfigure` outcome
+    /// MUST schedule another paint (reconfigure + request_redraw), while a
+    /// settled frame must not. Guards the black-screen-on-restore regression
+    /// (Windows DX12 surface goes Lost on idle-minimize; under ControlFlow::Wait
+    /// a reconfigure without a follow-up redraw leaves the surface black). The
+    /// GPU surface-lost trigger itself is on-device-only; this pins the decision.
+    #[test]
+    fn needs_reconfigure_schedules_a_repaint() {
+        assert!(
+            redraw_after_outcome(FrameOutcome::NeedsReconfigure),
+            "a lost/outdated surface must request a redraw after reconfigure"
+        );
+        assert!(
+            !redraw_after_outcome(FrameOutcome::Presented),
+            "a presented frame must not request another redraw"
+        );
+        assert!(
+            !redraw_after_outcome(FrameOutcome::Skipped),
+            "an intentionally skipped frame must not request another redraw"
+        );
     }
 
     /// Build a fresh, un-driven `App` for wake-scheduling tests. Spawns a real
