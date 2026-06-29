@@ -35,23 +35,25 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::os::windows::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
 use windows::Win32::Foundation::{
-    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, WAIT_FAILED, WAIT_OBJECT_0,
+    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, WAIT_FAILED,
 };
 use windows::Win32::System::Console::{
     COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
 };
-use windows::Win32::System::Environment::SetEnvironmentVariableW;
+use windows::Win32::System::Environment::{FreeEnvironmentStringsW, GetEnvironmentStringsW};
 use windows::Win32::System::Pipes::CreatePipe;
 use windows::Win32::System::Threading::{
-    CreateProcessW, DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess,
-    GetExitCodeProcess, INFINITE, InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
+    CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
+    EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess, GetExitCodeProcess, INFINITE,
+    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
     PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, PROCESS_INFORMATION, STARTUPINFOEXW, STARTUPINFOW,
     TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
 };
@@ -93,6 +95,16 @@ pub struct PtySession {
     /// until joined in `Drop`. This is what makes a shell that exits by itself
     /// (e.g. the user types `exit`) close its tab without an explicit `kill`.
     waiter: Option<JoinHandle<()>>,
+    /// One-shot slot for a startup-failure diagnostic. If the child exits
+    /// abnormally *shortly* after spawn (a loader/DLL-init failure — see
+    /// [`describe_immediate_exit`]), the child-waiter thread records a
+    /// human-readable line here before closing the pseudoconsole. The PTY pump
+    /// drains it on the resulting reader EOF and writes it into the pane exactly
+    /// once, so a shell that dies during its own initialization surfaces a
+    /// reason instead of a silently blank/vanishing session. `None` for the
+    /// healthy path and for normal (clean or late) exits. See
+    /// [`PtySession::pending_diagnostic_slot`].
+    pending_diagnostic: Arc<Mutex<Option<String>>>,
 }
 
 impl PtySession {
@@ -217,24 +229,23 @@ impl PtySession {
             // 5. Command line (CreateProcessW may mutate it, so it must be a
             //    mutable, NUL-terminated UTF-16 buffer) and cwd.
             //
-            //    Environment: we pass `lpEnvironment = NULL` (no
-            //    `CREATE_UNICODE_ENVIRONMENT`) so the child INHERITS this
-            //    process's environment block, exactly like Microsoft's canonical
-            //    ConPTY sample (EchoCon) and Windows Terminal. A hand-built block
-            //    via Rust's `std::env::vars_os()` silently drops the loader-
-            //    critical hidden drive variables (the `=C:` per-drive cwd vars and
-            //    the leading `=::=::\` marker — their keys are empty / contain
-            //    `=`, so `vars_os()` filters them out), and a child whose env is
-            //    missing those fails DLL initialization with `0xC0000142`
-            //    (STATUS_DLL_INIT_FAILED) — the exact on-device symptom. Letting
-            //    Windows hand the child our inherited block avoids the whole class.
-            //
-            //    The only overrides OdyTTY sets are the constant terminal-
-            //    identification vars (TERM/COLORTERM/TERM_PROGRAM[_VERSION]); we
-            //    publish them onto THIS process before the spawn so the inherited
-            //    block carries them. They are process-lifetime constants, so this
-            //    is idempotent and safe (no per-session env exists in the tree).
-            apply_env_overrides_to_self(&command.env);
+            //    Environment: we hand the child a PER-CHILD merged environment
+            //    block (see [`build_env_block`]) and pass `lpEnvironment` pointing
+            //    at it with `CREATE_UNICODE_ENVIRONMENT`. The block is THIS
+            //    process's full environment as reported by `GetEnvironmentStringsW`
+            //    — which (unlike Rust's `std::env::vars_os`) preserves the loader-
+            //    critical hidden `=`-prefixed per-drive working-directory variables
+            //    (`=C:=…`) and the leading `=::=::\` marker, whose absence makes a
+            //    child fail DLL initialization with `0xC0000142`
+            //    (STATUS_DLL_INIT_FAILED) — with OdyTTY's constant terminal-
+            //    identification overrides (TERM/COLORTERM/TERM_PROGRAM[_VERSION])
+            //    applied on top. Building a per-child block (rather than mutating
+            //    our OWN process env via `SetEnvironmentVariableW` and inheriting)
+            //    keeps every override scoped to the child it targets, with no
+            //    global process-env mutation — the latent cross-session leak/race
+            //    the moment any per-session env (per-profile TERM, SSH-in-a-tab)
+            //    exists. `env_block` must outlive the `CreateProcessW` call below.
+            let env_block = build_env_block(&command.env);
             let mut command_line = build_command_line(&command);
             let cwd_wide = command
                 .current_dir
@@ -247,16 +258,17 @@ impl PtySession {
 
             let mut process_info = PROCESS_INFORMATION::default();
             // 6. Spawn. The pseudoconsole is injected via the attribute list, not
-            //    handle inheritance, so `bInheritHandles` is false. `lpEnvironment`
-            //    is NULL → inherit this process's environment (see note above).
+            //    handle inheritance, so `bInheritHandles` is false.
+            //    `CREATE_UNICODE_ENVIRONMENT` marks `lpEnvironment` (our merged
+            //    UTF-16 block) as wide; see the note above.
             CreateProcessW(
                 PCWSTR::null(),
                 Some(PWSTR(command_line.as_mut_ptr())),
                 None,
                 None,
                 false,
-                EXTENDED_STARTUPINFO_PRESENT,
-                None,
+                EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+                Some(env_block.as_ptr().cast::<c_void>()),
                 cwd,
                 (&startup as *const STARTUPINFOEXW).cast::<STARTUPINFOW>(),
                 &mut process_info,
@@ -275,13 +287,21 @@ impl PtySession {
             std::mem::forget(hpcon_guard);
 
             // Start the child-waiter thread: it blocks on a duplicated process
-            // handle and closes the pseudoconsole when the child exits on its
-            // own, so a self-exiting shell tears its session down via the same
-            // reader-EOF path a `kill` uses. A dup failure is non-fatal — the
-            // session still works; only natural-exit auto-close is lost — so the
-            // waiter is `None` in that case.
+            // handle and, when the child exits on its own, (a) records a
+            // startup-failure diagnostic into `pending_diagnostic` if the exit
+            // was abnormal AND immediate, then (b) closes the pseudoconsole so a
+            // self-exiting shell tears its session down via the same reader-EOF
+            // path a `kill` uses (the pump drains the diagnostic on that EOF). A
+            // dup failure is non-fatal — the session still works; only natural-
+            // exit auto-close + diagnostic is lost — so the waiter is `None` then.
             let hpcon_closed = Arc::new(AtomicBool::new(false));
-            let waiter = spawn_child_waiter(&process, hpcon.0, Arc::clone(&hpcon_closed));
+            let pending_diagnostic = Arc::new(Mutex::new(None));
+            let waiter = spawn_child_waiter(
+                &process,
+                hpcon.0,
+                Arc::clone(&hpcon_closed),
+                Arc::clone(&pending_diagnostic),
+            );
 
             Ok(Self {
                 hpcon: hpcon.0,
@@ -290,6 +310,7 @@ impl PtySession {
                 input_write,
                 output_read,
                 waiter,
+                pending_diagnostic,
             })
         }
     }
@@ -387,40 +408,22 @@ impl PtySession {
         Ok(bytes)
     }
 
-    /// Bring-up diagnostic: detect a shell child that died during its own
-    /// initialization (e.g. a missing DLL, or a `STATUS_DLL_INIT_FAILED`
-    /// `0xC0000142` console/ConPTY conflict the child inherits).
+    /// A clone of this session's one-shot startup-failure diagnostic slot, for
+    /// the PTY pump to drain on reader EOF.
     ///
-    /// Such a child makes `CreateProcessW` *succeed* — the process is created —
-    /// and then exit a moment later during loader/init, so the spawn returns
-    /// `Ok` yet the pane stays blank with no error. This waits up to `timeout`
-    /// for the child and returns a human-readable line **iff** it has already
-    /// exited with an abnormal (non-zero, non-`STILL_ACTIVE`) code, so the
-    /// failure can be surfaced as text instead of a silent empty session.
-    ///
-    /// Returns `None` for a still-running child (the healthy path) or a clean
-    /// exit, so a working shell pays at most `timeout` once at startup. It does
-    /// **not** diagnose a pseudoconsole whose helper process is wedged without
-    /// the child exiting (the reader simply blocks); that case is addressed by
-    /// releasing the host's own console before ConPTY creation.
-    pub fn diagnose_immediate_exit(&self, timeout: std::time::Duration) -> Option<String> {
-        let ms = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
-        // SAFETY: `self.process` is a live, owned process handle.
-        let wait = unsafe { WaitForSingleObject(self.process_handle(), ms) };
-        if wait != WAIT_OBJECT_0 {
-            // Timed out (child still running → healthy) or the wait failed.
-            return None;
-        }
-        let mut code: u32 = 0;
-        // SAFETY: live owned process handle; the child has signaled exit.
-        if unsafe { GetExitCodeProcess(self.process_handle(), &mut code) }.is_err() {
-            return None;
-        }
-        if code == 0 || code == STILL_ACTIVE_CODE {
-            // A clean or `cmd /C`-style fast exit is not a failure to report.
-            return None;
-        }
-        Some(describe_immediate_exit(code))
+    /// A shell child that dies during its own initialization (missing DLL, bad
+    /// entrypoint, a `STATUS_DLL_INIT_FAILED` `0xC0000142`) makes `CreateProcessW`
+    /// *succeed* and then exits a moment later, so the spawn returns `Ok` yet the
+    /// pane would otherwise stay blank. The child-waiter thread detects that
+    /// abnormal-and-immediate exit, records a human-readable line into this slot
+    /// (and echoes it to stderr), then closes the pseudoconsole — which makes the
+    /// pump's output reader observe EOF. The pump takes the line from here on
+    /// that EOF and writes it into the pane exactly once, replacing the old
+    /// synchronous 250 ms spawn-path wait with a zero-cost path that surfaces the
+    /// reason through the normal `ShellExited` teardown instead of blocking
+    /// startup. Returns `None` for the healthy path and for normal exits.
+    pub fn pending_diagnostic_slot(&self) -> Option<Arc<Mutex<Option<String>>>> {
+        Some(Arc::clone(&self.pending_diagnostic))
     }
 
     fn process_handle(&self) -> HANDLE {
@@ -464,30 +467,65 @@ fn close_pcon_once(hpcon: isize, closed: &AtomicBool) {
     }
 }
 
+/// How soon after spawn an abnormal child exit is treated as a *startup*
+/// failure worth reporting (rather than a normal `exit 1` after real use). A
+/// shell that dies during loader/DLL init does so within milliseconds; this is
+/// a generous bound that still excludes any genuine interactive session.
+const STARTUP_FAILURE_WINDOW: Duration = Duration::from_millis(500);
+
 /// Spawn the child-waiter thread for a freshly created session.
 ///
 /// It owns a *duplicated* process handle (so it never races `try_wait`/`wait`/
 /// `Drop` on the session's own handle) and performs a single, blocking,
 /// zero-CPU `WaitForSingleObject(.., INFINITE)` — NOT a poll/sleep loop — that
-/// wakes exactly once when the child exits. On wake it closes the pseudoconsole
-/// (idempotent via the shared flag), which makes the pump's blocked output
-/// reader observe EOF; the app then tears the session down through its single
-/// existing `ShellExited` path. The thread then exits and its duplicated handle
-/// closes. Returns `None` if the handle could not be duplicated (non-fatal: the
-/// session still works, only natural-exit auto-close is lost).
+/// wakes exactly once when the child exits. On wake it:
+///   1. reads the child's exit code and, if it exited *abnormally and within*
+///      [`STARTUP_FAILURE_WINDOW`] of spawn, records a startup-failure line into
+///      `diagnostic` and echoes it to stderr (this folds the former synchronous
+///      250 ms `diagnose_immediate_exit` spawn-path wait into the wait that
+///      already exists — no startup tax); then
+///   2. closes the pseudoconsole (idempotent via the shared flag), which makes
+///      the pump's blocked output reader observe EOF; the app then tears the
+///      session down through its single existing `ShellExited` path, and the
+///      pump writes any recorded diagnostic into the pane on that EOF.
+/// The thread then exits and its duplicated handle closes. Returns `None` if the
+/// handle could not be duplicated (non-fatal: the session still works, only
+/// natural-exit auto-close + the diagnostic are lost).
 fn spawn_child_waiter(
     process: &OwnedHandle,
     hpcon: isize,
     closed: Arc<AtomicBool>,
+    diagnostic: Arc<Mutex<Option<String>>>,
 ) -> Option<JoinHandle<()>> {
     let dup = duplicate_owned_handle(process).ok()?;
     std::thread::Builder::new()
         .name("odytty-conpty-waiter".to_string())
         .spawn(move || {
+            let started = Instant::now();
+            let handle = HANDLE(dup.as_raw_handle());
             // SAFETY: `dup` is a live owned process handle for the wait's whole
             // duration (it is moved into this closure and dropped only after).
             // `INFINITE` parks the thread at zero CPU until the child exits.
-            let _ = unsafe { WaitForSingleObject(HANDLE(dup.as_raw_handle()), INFINITE) };
+            let _ = unsafe { WaitForSingleObject(handle, INFINITE) };
+            // The child has signalled exit; read its code and decide whether it
+            // was an immediate startup failure worth surfacing.
+            let elapsed = started.elapsed();
+            let mut code: u32 = 0;
+            // SAFETY: live owned process handle; the child has exited.
+            if unsafe { GetExitCodeProcess(handle, &mut code) }.is_ok()
+                && code != 0
+                && code != STILL_ACTIVE_CODE
+                && elapsed < STARTUP_FAILURE_WINDOW
+            {
+                let line = describe_immediate_exit(code);
+                // stderr (routed to the launching console via AttachConsole) is
+                // the durable channel; the pane copy is best-effort (the tab may
+                // close before a frame draws).
+                eprintln!("odytty:{}", line.replace(['\r', '\n'], " ").trim());
+                if let Ok(mut slot) = diagnostic.lock() {
+                    *slot = Some(line);
+                }
+            }
             close_pcon_once(hpcon, &closed);
         })
         .ok()
@@ -690,12 +728,16 @@ fn find_on_path(exe: &str) -> Option<OsString> {
         .map(PathBuf::into_os_string)
 }
 
-/// Format a terminal-pane diagnostic line for an abnormal immediate child exit,
-/// decoding the few NT status codes that point at a concrete cause. CRLF-framed
-/// so it renders cleanly when written straight into the terminal model.
+/// Format a diagnostic line for an abnormal *immediate* child exit — a shell
+/// that `CreateProcessW` created successfully but that then died during its own
+/// startup (loader/DLL init), leaving an otherwise-blank pane. It surfaces ANY
+/// such early failure as text; the `match` only decodes the few NT status codes
+/// that name a concrete cause, falling back to the bare exit code otherwise.
+/// CRLF-framed so it renders cleanly when written straight into the terminal
+/// model.
 fn describe_immediate_exit(code: u32) -> String {
     let detail = match code {
-        0xC0000142 => " — STATUS_DLL_INIT_FAILED, a console/ConPTY initialization conflict",
+        0xC0000142 => " — STATUS_DLL_INIT_FAILED, a DLL failed to initialize",
         0xC0000135 => " — STATUS_DLL_NOT_FOUND, a required DLL is missing",
         0xC0000139 => " — STATUS_ENTRYPOINT_NOT_FOUND",
         _ => "",
@@ -839,25 +881,114 @@ fn append_arg(line: &mut Vec<u16>, arg: &OsStr) {
     line.push(QUOTE);
 }
 
-/// Publish the builder's environment overrides onto THIS process via
-/// `SetEnvironmentVariableW`, so a child spawned with `lpEnvironment = NULL`
-/// inherits them on top of the full (loader-correct) Windows environment block.
+/// Build a per-child UTF-16 environment block: this process's full environment
+/// with `overrides` applied on top, terminated by the trailing NUL
+/// `CREATE_UNICODE_ENVIRONMENT` requires.
 ///
-/// This replaces the previous hand-built `CREATE_UNICODE_ENVIRONMENT` block,
-/// which dropped the hidden `=`-prefixed drive variables and produced
-/// `0xC0000142` (STATUS_DLL_INIT_FAILED) in the child. The only overrides
-/// OdyTTY sets are the constant terminal-identification vars, so mutating our
-/// own environment is idempotent and side-effect-free in practice.
-fn apply_env_overrides_to_self(overrides: &[(OsString, OsString)]) {
-    for (key, value) in overrides {
-        let key_wide = to_wide_nul(key);
-        let value_wide = to_wide_nul(value);
-        // SAFETY: both buffers are NUL-terminated UTF-16; a failed set is
-        // non-fatal (the child simply does not see that var), so the result is
-        // intentionally ignored.
-        unsafe {
-            let _ = SetEnvironmentVariableW(PCWSTR(key_wide.as_ptr()), PCWSTR(value_wide.as_ptr()));
+/// The base is taken from [`current_process_env`] (`GetEnvironmentStringsW`),
+/// NOT `std::env::vars_os`, because the former preserves the loader-critical
+/// hidden `=`-prefixed per-drive working-directory variables (`=C:=…`) and the
+/// `=::=::\` marker that the latter silently drops — their absence makes a child
+/// fail DLL initialization with `0xC0000142` (STATUS_DLL_INIT_FAILED). Any
+/// existing variable whose name matches an override (case-insensitively, as
+/// Windows env names are) is dropped so the override replaces it rather than
+/// duplicating it; the hidden `=`-prefixed vars never match a normal override
+/// name and are carried through verbatim.
+///
+/// Building a per-child block — rather than mutating this process's own
+/// environment and inheriting — keeps every override scoped to the child it
+/// targets, eliminating the global-mutation cross-session leak/race that would
+/// appear the moment per-session env (per-profile TERM, SSH-in-a-tab) exists.
+fn build_env_block(overrides: &[(OsString, OsString)]) -> Vec<u16> {
+    let override_keys: Vec<Vec<u16>> = overrides
+        .iter()
+        .map(|(key, _)| key.encode_wide().collect())
+        .collect();
+
+    let mut block: Vec<u16> = Vec::new();
+    for entry in current_process_env() {
+        let key = env_entry_key(&entry);
+        if override_keys
+            .iter()
+            .any(|candidate| utf16_eq_ignore_ascii_case(candidate, key))
+        {
+            continue;
         }
+        block.extend_from_slice(&entry);
+        block.push(0);
+    }
+    for (key, value) in overrides {
+        block.extend(key.encode_wide());
+        block.push(b'=' as u16);
+        block.extend(value.encode_wide());
+        block.push(0);
+    }
+    // Terminating NUL for the block. OdyTTY always sets the four terminal vars,
+    // so `block` is never empty and this yields the required `…\0\0` tail.
+    block.push(0);
+    block
+}
+
+/// Snapshot this process's environment as raw `KEY=VALUE` UTF-16 entries via
+/// `GetEnvironmentStringsW`, including the hidden `=`-prefixed drive variables
+/// that `std::env::vars_os` discards. The block is freed before returning.
+fn current_process_env() -> Vec<Vec<u16>> {
+    let mut entries = Vec::new();
+    // SAFETY: `GetEnvironmentStringsW` returns a pointer to a double-NUL-
+    // terminated block of NUL-terminated UTF-16 strings; we read it within
+    // bounds (stopping at the empty string that marks the end) and free it via
+    // `FreeEnvironmentStringsW` before returning.
+    unsafe {
+        let block = GetEnvironmentStringsW();
+        if block.is_null() {
+            return entries;
+        }
+        let mut cursor: *const u16 = block.0 as *const u16;
+        loop {
+            let mut len = 0usize;
+            while *cursor.add(len) != 0 {
+                len += 1;
+            }
+            if len == 0 {
+                // Empty string → the terminating double NUL was reached.
+                break;
+            }
+            entries.push(std::slice::from_raw_parts(cursor, len).to_vec());
+            cursor = cursor.add(len + 1);
+        }
+        let _ = FreeEnvironmentStringsW(PCWSTR(block.0 as *const u16));
+    }
+    entries
+}
+
+/// The key portion of a raw `KEY=VALUE` environment entry. Windows exposes
+/// hidden per-drive working-directory variables whose names START with `=`
+/// (e.g. `=C:=C:\dir`), so the split is the first `=` at index ≥ 1, not 0.
+fn env_entry_key(entry: &[u16]) -> &[u16] {
+    const EQ: u16 = b'=' as u16;
+    let start = usize::from(entry.first() == Some(&EQ));
+    match entry[start..].iter().position(|&unit| unit == EQ) {
+        Some(pos) => &entry[..start + pos],
+        None => entry,
+    }
+}
+
+/// ASCII-case-insensitive equality of two UTF-16 slices, for matching Windows
+/// environment-variable names (which are case-insensitive).
+fn utf16_eq_ignore_ascii_case(a: &[u16], b: &[u16]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(&x, &y)| ascii_lower_u16(x) == ascii_lower_u16(y))
+}
+
+/// Lowercase a UTF-16 code unit if it is an ASCII `A`–`Z`, else return it
+/// unchanged (non-ASCII units never need folding for env-name matching).
+fn ascii_lower_u16(unit: u16) -> u16 {
+    if (b'A' as u16..=b'Z' as u16).contains(&unit) {
+        unit + 32
+    } else {
+        unit
     }
 }
 
@@ -948,5 +1079,101 @@ mod tests {
         assert_eq!(line.last(), Some(&0));
         let text = decode(&line[..line.len() - 1]);
         assert_eq!(text, "\"cmd.exe\" \"/C\" \"echo hi\"");
+    }
+
+    #[test]
+    fn pty_writer_normalize_maps_pipe_closed_codes_to_broken_pipe() {
+        // ERROR_BROKEN_PIPE (109): Rust already classifies this as `BrokenPipe`,
+        // so it must pass through still classified as `BrokenPipe`.
+        let broken = PtyWriter::normalize(io::Error::from_raw_os_error(ERROR_BROKEN_PIPE));
+        assert_eq!(broken.kind(), io::ErrorKind::BrokenPipe);
+
+        // ERROR_NO_DATA (232), "the pipe is being closed": Rust does NOT classify
+        // it, so `normalize` is what must remap it to a canonical `BrokenPipe`.
+        let no_data = PtyWriter::normalize(io::Error::from_raw_os_error(ERROR_NO_DATA));
+        assert_eq!(no_data.kind(), io::ErrorKind::BrokenPipe);
+
+        // An unrelated OS error is left untouched (kind and raw code preserved).
+        let other = PtyWriter::normalize(io::Error::from_raw_os_error(2));
+        assert_eq!(other.raw_os_error(), Some(2));
+        assert_ne!(other.kind(), io::ErrorKind::BrokenPipe);
+    }
+
+    #[test]
+    fn describe_immediate_exit_decodes_known_codes_and_falls_back() {
+        let dll_init = describe_immediate_exit(0xC0000142);
+        assert!(dll_init.contains("0xC0000142"));
+        assert!(dll_init.contains("STATUS_DLL_INIT_FAILED"));
+
+        let dll_missing = describe_immediate_exit(0xC0000135);
+        assert!(dll_missing.contains("STATUS_DLL_NOT_FOUND"));
+
+        let entrypoint = describe_immediate_exit(0xC0000139);
+        assert!(entrypoint.contains("STATUS_ENTRYPOINT_NOT_FOUND"));
+
+        // An unknown code is still surfaced, just without a decoded NT name.
+        let unknown = describe_immediate_exit(0x0000_0001);
+        assert!(unknown.contains("0x00000001"));
+        assert!(!unknown.contains("STATUS_"));
+    }
+
+    #[test]
+    fn env_entry_key_splits_on_first_equals_after_index_zero() {
+        let wide = |s: &str| -> Vec<u16> { s.encode_utf16().collect() };
+        // Normal `KEY=VALUE`.
+        assert_eq!(
+            env_entry_key(&wide("PATH=C:\\bin")),
+            wide("PATH").as_slice()
+        );
+        // Hidden per-drive var: the key is `=C:`, found at the SECOND `=`.
+        assert_eq!(env_entry_key(&wide("=C:=C:\\dir")), wide("=C:").as_slice());
+        // No `=` at all: the whole entry is the key.
+        assert_eq!(env_entry_key(&wide("BARE")), wide("BARE").as_slice());
+    }
+
+    #[test]
+    fn utf16_eq_ignore_ascii_case_matches_env_names() {
+        let wide = |s: &str| -> Vec<u16> { s.encode_utf16().collect() };
+        assert!(utf16_eq_ignore_ascii_case(&wide("Path"), &wide("PATH")));
+        assert!(utf16_eq_ignore_ascii_case(&wide("term"), &wide("TERM")));
+        // Different lengths and different names must not match.
+        assert!(!utf16_eq_ignore_ascii_case(
+            &wide("TERM"),
+            &wide("TERMINAL")
+        ));
+        assert!(!utf16_eq_ignore_ascii_case(&wide("FOO"), &wide("BAR")));
+    }
+
+    #[test]
+    fn build_env_block_replaces_override_and_is_nul_terminated() {
+        // The override must REPLACE any inherited `TERM`, appearing exactly once,
+        // and the block must end with the terminating NUL.
+        let overrides = vec![(OsString::from("TERM"), OsString::from("xterm-256color"))];
+        let block = build_env_block(&overrides);
+        assert_eq!(block.last(), Some(&0));
+
+        let mut entries: Vec<String> = Vec::new();
+        let mut current: Vec<u16> = Vec::new();
+        for &unit in &block {
+            if unit == 0 {
+                if current.is_empty() {
+                    break; // terminating double NUL
+                }
+                entries.push(String::from_utf16_lossy(&current));
+                current.clear();
+            } else {
+                current.push(unit);
+            }
+        }
+        let term_entries: Vec<&String> = entries
+            .iter()
+            .filter(|entry| entry.to_ascii_uppercase().starts_with("TERM="))
+            .collect();
+        assert_eq!(
+            term_entries.len(),
+            1,
+            "TERM override must appear exactly once"
+        );
+        assert!(term_entries[0].eq_ignore_ascii_case("TERM=xterm-256color"));
     }
 }

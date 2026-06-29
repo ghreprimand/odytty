@@ -202,19 +202,14 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     ));
 
     // Windows only: a child that dies during its own initialization makes the
-    // spawn return `Ok` yet leaves the pane blank (the failure is a post-spawn
-    // exit, not a `CreateProcessW` error). Surface the real exit code as text in
-    // the pane and on stderr so the failure is never silent. Bounded one-time
-    // wait; a healthy (still-running) shell returns `None` immediately past the
-    // wait window. No-op on Unix.
-    #[cfg(windows)]
-    if let Some(diag) = session.diagnose_immediate_exit(std::time::Duration::from_millis(250)) {
-        eprintln!(
-            "odytty:{}",
-            diag.replace('\r', "").replace('\n', " ").trim()
-        );
-        lock_recover(&terminal).advance(diag.as_bytes());
-    }
+    // spawn return `Ok` yet would leave the pane blank (the failure is a
+    // post-spawn loader/init exit, not a `CreateProcessW` error). The ConPTY
+    // backend's child-waiter thread detects that abnormal-and-immediate exit,
+    // records a diagnostic into this slot (and stderr), and closes the
+    // pseudoconsole; the pump writes the slot into the pane on the resulting EOF.
+    // This replaces the former synchronous 250 ms spawn-path wait, so a healthy
+    // shell pays no startup tax. `None` on Unix (byte-identical).
+    let diagnostic = session.pending_diagnostic_slot();
 
     let proxy = event_loop.create_proxy();
     // One recorder handle shared between the initial session's pump thread and
@@ -228,6 +223,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         proxy.clone(),
         SessionToken(0),
         recorder.clone(),
+        diagnostic,
     );
 
     // Share the session: the App pushes window-size changes to it on resize,

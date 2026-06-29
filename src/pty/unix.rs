@@ -192,6 +192,16 @@ impl PtySession {
         Ok(bytes)
     }
 
+    /// Unix has no ConPTY startup-failure diagnostic (a POSIX child that fails to
+    /// exec reports the error synchronously at spawn), so there is no slot to
+    /// drain — always `None`. Mirrors the Windows backend's contract method so
+    /// the shared pump can take the slot uniformly across platforms.
+    pub fn pending_diagnostic_slot(
+        &self,
+    ) -> Option<std::sync::Arc<std::sync::Mutex<Option<String>>>> {
+        None
+    }
+
     #[cfg(test)]
     pub fn dimensions_for_test(&self) -> Result<Dimensions> {
         let mut winsize = Winsize {

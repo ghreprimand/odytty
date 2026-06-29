@@ -922,6 +922,7 @@ impl TabSet {
         // is a no-op handle. The pump only records while enabled.
         let recorder = RecorderHandle::new();
         recorder.set_enabled(self.recording_enabled);
+        let diagnostic = session.pending_diagnostic_slot();
         let pump_thread = spawn_pty_pump(
             reader,
             writer.clone(),
@@ -929,6 +930,7 @@ impl TabSet {
             proxy,
             session_id,
             recorder.clone(),
+            diagnostic,
         );
         let pty = Arc::new(Mutex::new(session));
         self.sessions.insert(
