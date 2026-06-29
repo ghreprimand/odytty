@@ -165,11 +165,23 @@ impl PtySession {
                 .context("InitializeProcThreadAttributeList")?;
             let _attr_guard = AttrListGuard(attr_list);
 
+            // CRITICAL: `lpValue` for PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE must be
+            // the HPCON handle VALUE itself, NOT a pointer to the local `hpcon`
+            // variable. Every canonical sample (Microsoft's EchoCon, the Console
+            // docs, node-pty, wezterm) passes `hPC` directly with
+            // `cbSize = sizeof(HPCON)`. Passing `&hpcon` instead hands the kernel
+            // a stack address in place of the pseudoconsole handle; the child
+            // then attaches to a garbage pseudoconsole and dies during console
+            // wireup in DLL init with exit code 0xC0000142 (STATUS_DLL_INIT_FAILED)
+            // — while our direct conhost child (created correctly by
+            // CreatePseudoConsole) stays alive. `HPCON` is `HPCON(pub isize)` in
+            // the `windows` crate, so `hpcon.0` is the handle value; reinterpret
+            // it as the `lpValue` pointer exactly as the C samples pass `hPC`.
             UpdateProcThreadAttribute(
                 attr_list,
                 0,
                 PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE as usize,
-                Some((&hpcon as *const HPCON).cast::<c_void>()),
+                Some(hpcon.0 as *const c_void),
                 size_of::<HPCON>(),
                 None,
                 None,
