@@ -1,4 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
+//
+// On Windows, OdyTTY is built as a GUI-subsystem binary (`windows_subsystem =
+// "windows"`) — the canonical posture for a windowed terminal (Windows
+// Terminal, Alacritty, WezTerm all do this). No console is allocated or
+// inherited at launch, which removes the console-vs-ConPTY interaction the
+// earlier `FreeConsole` workaround papered over and stops a console window
+// flashing on an Explorer double-click. The tradeoff: the CLI/introspection
+// paths (`--version`/`--help`/…) have no stdout by default, so
+// `attach_parent_console_for_cli` reattaches to the launching console when a
+// CLI argument is present. The Unix build is unaffected.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 use anyhow::Result;
 #[cfg(unix)]
 use odytty::app::run_interactive;
@@ -13,6 +24,16 @@ fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let args = std::env::args().skip(1).collect::<Vec<_>>();
+
+    // Windows GUI-subsystem builds start with no console, so a CLI invocation
+    // run from a shell would otherwise print nothing (stdout is null and Rust
+    // silently swallows the writes). When a CLI argument is present, reattach to
+    // the parent process's console BEFORE any output so `--version`/`--help`/
+    // `--dump-command`/`session-host`/`--core-smoke` print from a console;
+    // launched from Explorer there is no parent console and this is a harmless
+    // no-op. No-op on Unix.
+    #[cfg(windows)]
+    attach_parent_console_for_cli(&args);
     if let Some(output) = cli::output_for_args(&args) {
         print!("{output}");
         return Ok(());
@@ -145,4 +166,34 @@ fn dump_command(command: &str) -> Result<()> {
 
     println!("{}", terminal.screen().plain_text());
     Ok(())
+}
+
+/// Reattach a Windows GUI-subsystem build to its launching console for CLI
+/// invocations, so introspection output reaches the shell that ran it.
+///
+/// Under `windows_subsystem = "windows"` the process starts with no console, so
+/// any `println!` goes to a null handle and is silently dropped. When the
+/// command line carries an argument (every CLI/print path —
+/// `--version`/`--help`/`--dump-command`/`session-host`/the session verbs/
+/// `--core-smoke`/`--list-*`/`--show-config` — takes one), reattach to the
+/// parent process's console here, before `main` produces any output.
+///
+/// `AttachConsole(ATTACH_PARENT_PROCESS)` succeeds when the launcher owns a
+/// console (a shell) and the subsequent prints land there; it fails when there
+/// is no parent console (an Explorer double-click), in which case the prints are
+/// harmlessly swallowed — an Explorer launch of `--version` has no reader anyway.
+/// The no-argument GUI launch is intentionally left detached, so a console never
+/// flashes when opening the terminal window. The result is ignored either way.
+#[cfg(windows)]
+fn attach_parent_console_for_cli(args: &[String]) {
+    use windows::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
+
+    if args.is_empty() {
+        return;
+    }
+    // SAFETY: `AttachConsole` takes a process-id argument and is safe to call in
+    // any console state; a failure (no parent console) is expected and ignored.
+    unsafe {
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+    }
 }
