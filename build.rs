@@ -37,6 +37,50 @@ fn main() {
     // "1.96.0 (ac68faa20 2026-05-25)" string.
     let rustc_version = rustc_version().unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=ODYTTY_RUSTC_VERSION={rustc_version}");
+
+    embed_windows_icon();
+}
+
+/// Embed the application icon into `odytty.exe` as a PE resource (Windows
+/// targets only) so Explorer, the taskbar, and Alt-Tab show OdyTTY's icon on the
+/// executable itself. The runtime window/title-bar icon is set separately via
+/// winit (`src/native/window_icon.rs`).
+///
+/// CRITICAL: a build script's own `#[cfg(windows)]` reflects the HOST compiling
+/// the build script, not the TARGET being built. Gate on the
+/// `CARGO_CFG_TARGET_OS` env var cargo sets to the target OS instead, so a
+/// Linux/macOS host cross-compiling to Windows still embeds the icon.
+///
+/// Non-fatal by design: a missing toolchain resource compiler or a transient
+/// failure logs a warning and is ignored rather than failing the build — the exe
+/// is fully functional without the embedded icon. The `.ico` is committed
+/// (`dist/windows/odytty.ico`), so it is present in the `git archive` release
+/// tarball too; on the `windows-latest` MSVC runner the bundled `rc.exe`/
+/// `llvm-rc` performs the embed.
+fn embed_windows_icon() {
+    const ICON_PATH: &str = "dist/windows/odytty.ico";
+    // Rebuild the resource when the icon art changes.
+    println!("cargo:rerun-if-changed={ICON_PATH}");
+
+    let targets_windows = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows");
+
+    // `winresource` is a `cfg(windows)` build-dependency, so it only exists in
+    // the build graph when the build script itself runs on Windows. The env
+    // check restricts the embed to Windows *targets*; the `cfg(windows)` guards
+    // the *host* so the call compiles only where the crate is available. A
+    // cross-build from a non-Windows host silently skips the embed (the exe
+    // still works, just without the embedded file icon); `_ = targets_windows`
+    // keeps the binding live on hosts where the `cfg` block is compiled out.
+    #[cfg(windows)]
+    if targets_windows {
+        let mut resource = winresource::WindowsResource::new();
+        resource.set_icon(ICON_PATH);
+        if let Err(err) = resource.compile() {
+            // Non-fatal: warn and continue with an icon-less exe.
+            println!("cargo:warning=odytty: failed to embed Windows icon: {err}");
+        }
+    }
+    let _ = targets_windows;
 }
 
 /// `$RUSTC --version`, with the leading "rustc " stripped. Returns `None` if the

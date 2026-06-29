@@ -180,6 +180,25 @@ A practical CI note: line-ending normalization is pinned by `.gitattributes`
 (`* text=auto eol=lf`) so text fixtures (e.g. `.wgsl` shader sources split on
 `\n` in tests) check out LF on Windows runners too.
 
+### Application icons
+
+Two distinct icon paths, do not conflate them:
+
+- **`.exe` file icon** (Explorer/taskbar on the executable): a build-time PE
+  resource embed in `build.rs` via the `winresource` `cfg(windows)` build-dep,
+  from `dist/windows/odytty.ico`. Regenerate the multi-resolution `.ico` from
+  the 1024 master if the art changes:
+  ```sh
+  python3 -c "from PIL import Image; s=Image.open('dist/macos/odytty-1024.png').convert('RGBA'); s.save('dist/windows/odytty.ico', sizes=[(16,16),(24,24),(32,32),(48,48),(64,64),(128,128),(256,256)])"
+  ```
+- **Runtime window icon** (title-bar + Alt-Tab/taskbar on Windows and X11;
+  no-op on macOS/Wayland): `src/native/window_icon.rs` `include_bytes!`s the
+  256×256 hicolor PNG (`dist/icons/hicolor/256x256/apps/io.unfinished_works.odytty.png`),
+  decodes it via the `image` crate to RGBA8, and builds a `winit::window::Icon`.
+  Any decode failure yields `None` (logged), never a panic — a bad icon must
+  never block window creation. The PNG (~7 KB) is embedded in the binary on all
+  platforms.
+
 ## Test battery
 
 The default `cargo test` run is deterministic and host-independent. Integration

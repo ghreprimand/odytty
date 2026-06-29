@@ -157,6 +157,24 @@ NOTICE
 It must not contain `.pdb` files, build directories, or installer work
 directories.
 
+### Windows executable icon
+
+`odytty.exe` embeds its application icon as a PE resource at build time, so
+Explorer, the taskbar, and Alt-Tab show OdyTTY's icon on the executable itself —
+no separate icon file ships in the zip. The embed is performed by `build.rs`
+via the `winresource` build-dependency (a `cfg(windows)` build-dep: present in
+`Cargo.lock` but never compiled on Linux/macOS), gated on
+`CARGO_CFG_TARGET_OS == "windows"` so it fires for Windows *targets* regardless
+of build host. The source art is `dist/windows/odytty.ico` (committed, so it is
+present in the `git archive` tarball too); the `windows-latest` MSVC runner's
+bundled `rc.exe`/`llvm-rc` performs the embed. A failed embed is non-fatal — the
+build warns and produces a fully functional, icon-less exe. No `release.yml`
+change is needed: the icon rides inside `odytty.exe`.
+
+The *runtime* window/title-bar icon (and Alt-Tab/taskbar entry on X11) is set
+separately via winit from the 256×256 hicolor PNG embedded in the binary; see
+CONTRIBUTING.
+
 The in-repo Scoop bucket manifest is `bucket/odytty.json`. A user can install
 the repo as a Scoop bucket after the first Windows release:
 

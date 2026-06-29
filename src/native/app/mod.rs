@@ -2190,7 +2190,12 @@ impl ApplicationHandler<UserEvent> for App {
         let attributes = Window::default_attributes()
             .with_title(self.options.title.clone())
             .with_inner_size(LogicalSize::new(w, h))
-            .with_decorations(self.settings.window_decorations);
+            .with_decorations(self.settings.window_decorations)
+            // Runtime window/title-bar icon (Windows + X11; a no-op on macOS and
+            // Wayland). `None` on any decode failure, so a bad icon can never
+            // block window creation. The `.exe` file icon is embedded separately
+            // at build time (build.rs / winresource).
+            .with_window_icon(super::window_icon::load());
         #[cfg(all(unix, not(target_os = "macos")))]
         let attributes = {
             use winit::platform::wayland::WindowAttributesExtWayland;
