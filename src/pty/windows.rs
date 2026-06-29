@@ -35,6 +35,9 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::os::windows::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::ExitStatus;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
 
 use anyhow::{Context, Result};
 
@@ -69,10 +72,11 @@ pub struct PtySession {
     /// Raw `HPCON` value. Stored as `isize` (its newtype payload) so the whole
     /// struct is trivially `Send`/`Sync`; rewrapped as `HPCON` at call sites.
     hpcon: isize,
-    /// Whether [`ClosePseudoConsole`] has already run for `hpcon`. Guards the
-    /// single-close invariant now that both `kill` and `Drop` may close the
-    /// pseudoconsole (see [`PtySession::close_pcon`]).
-    hpcon_closed: bool,
+    /// Whether [`ClosePseudoConsole`] has already run for `hpcon`. Shared with
+    /// the child-waiter thread (and read by `kill`/`Drop`) so the pseudoconsole
+    /// is closed exactly once no matter which path reaches it first — natural
+    /// child exit (waiter), explicit `kill`, or `Drop`. See [`close_pcon_once`].
+    hpcon_closed: Arc<AtomicBool>,
     /// The child process handle. Owned: closed when the session drops.
     process: OwnedHandle,
     /// Parent end of the input pipe (host → child). Kept as an owned handle so
@@ -82,6 +86,13 @@ pub struct PtySession {
     /// Parent end of the output pipe (child → host). Source for the duplicated
     /// reader handed to `try_clone_reader`.
     output_read: OwnedHandle,
+    /// Child-waiter thread: a single blocking `WaitForSingleObject(.., INFINITE)`
+    /// on a *duplicated* process handle that wakes exactly once when the child
+    /// exits on its own, then closes the pseudoconsole so the output reader hits
+    /// EOF and the app tears the session down through its normal path. `Some`
+    /// until joined in `Drop`. This is what makes a shell that exits by itself
+    /// (e.g. the user types `exit`) close its tab without an explicit `kill`.
+    waiter: Option<JoinHandle<()>>,
 }
 
 impl PtySession {
@@ -254,16 +265,27 @@ impl PtySession {
             let process = OwnedHandle::from_raw_handle(process_info.hProcess.0 as RawHandle);
 
             // Spawn succeeded: transfer pseudoconsole ownership into `Self` so
-            // `Drop for PtySession` is the single `ClosePseudoConsole` caller.
-            // Forgetting the guard prevents a double-close.
+            // the close paths (waiter / kill / Drop) are the only
+            // `ClosePseudoConsole` callers. Forgetting the guard prevents a
+            // double-close.
             std::mem::forget(hpcon_guard);
+
+            // Start the child-waiter thread: it blocks on a duplicated process
+            // handle and closes the pseudoconsole when the child exits on its
+            // own, so a self-exiting shell tears its session down via the same
+            // reader-EOF path a `kill` uses. A dup failure is non-fatal — the
+            // session still works; only natural-exit auto-close is lost — so the
+            // waiter is `None` in that case.
+            let hpcon_closed = Arc::new(AtomicBool::new(false));
+            let waiter = spawn_child_waiter(&process, hpcon.0, Arc::clone(&hpcon_closed));
 
             Ok(Self {
                 hpcon: hpcon.0,
-                hpcon_closed: false,
+                hpcon_closed,
                 process,
                 input_write,
                 output_read,
+                waiter,
             })
         }
     }
@@ -348,17 +370,10 @@ impl PtySession {
 
     /// Close the pseudoconsole exactly once, releasing ConPTY's internal copy of
     /// the output pipe's write end so any blocked output reader observes EOF.
-    /// Idempotent: both [`PtySession::kill`] and [`Drop`] may call it, guarded by
-    /// `hpcon_closed` to preserve the single-close invariant.
+    /// Idempotent across all three closers — the child-waiter thread, `kill`,
+    /// and `Drop` — via the shared `hpcon_closed` flag (see [`close_pcon_once`]).
     fn close_pcon(&mut self) {
-        if !self.hpcon_closed {
-            self.hpcon_closed = true;
-            // SAFETY: `self.hpcon` came from a successful `CreatePseudoConsole`
-            // and is closed exactly once (guarded by `hpcon_closed`).
-            unsafe {
-                ClosePseudoConsole(HPCON(self.hpcon));
-            }
-        }
+        close_pcon_once(self.hpcon, &self.hpcon_closed);
     }
 
     pub fn read_to_end(&self) -> Result<Vec<u8>> {
@@ -419,7 +434,59 @@ impl Drop for PtySession {
         let _ = self.kill();
         let _ = self.wait();
         self.close_pcon();
+        // Join the child-waiter thread. `kill` has terminated the child (or it
+        // already exited), so the waiter's blocking `WaitForSingleObject` has
+        // returned and the thread is finishing — the join cannot hang, and it
+        // guarantees the waiter never touches state after the session drops.
+        if let Some(waiter) = self.waiter.take() {
+            let _ = waiter.join();
+        }
     }
+}
+
+/// Close the pseudoconsole exactly once across every closer (the child-waiter
+/// thread, `kill`, and `Drop`), guarded by the shared `closed` flag. Closing it
+/// releases ConPTY's internal copy of the output pipe's write end, so any
+/// blocked output reader observes EOF and the session tears down cleanly.
+fn close_pcon_once(hpcon: isize, closed: &AtomicBool) {
+    // `swap` returns the prior value: only the first caller (prior == false)
+    // performs the close; the rest are no-ops, preserving single-close.
+    if !closed.swap(true, Ordering::AcqRel) {
+        // SAFETY: `hpcon` came from a successful `CreatePseudoConsole` and is
+        // closed exactly once thanks to the atomic guard above.
+        unsafe {
+            ClosePseudoConsole(HPCON(hpcon));
+        }
+    }
+}
+
+/// Spawn the child-waiter thread for a freshly created session.
+///
+/// It owns a *duplicated* process handle (so it never races `try_wait`/`wait`/
+/// `Drop` on the session's own handle) and performs a single, blocking,
+/// zero-CPU `WaitForSingleObject(.., INFINITE)` — NOT a poll/sleep loop — that
+/// wakes exactly once when the child exits. On wake it closes the pseudoconsole
+/// (idempotent via the shared flag), which makes the pump's blocked output
+/// reader observe EOF; the app then tears the session down through its single
+/// existing `ShellExited` path. The thread then exits and its duplicated handle
+/// closes. Returns `None` if the handle could not be duplicated (non-fatal: the
+/// session still works, only natural-exit auto-close is lost).
+fn spawn_child_waiter(
+    process: &OwnedHandle,
+    hpcon: isize,
+    closed: Arc<AtomicBool>,
+) -> Option<JoinHandle<()>> {
+    let dup = duplicate_owned_handle(process).ok()?;
+    std::thread::Builder::new()
+        .name("odytty-conpty-waiter".to_string())
+        .spawn(move || {
+            // SAFETY: `dup` is a live owned process handle for the wait's whole
+            // duration (it is moved into this closure and dropped only after).
+            // `INFINITE` parks the thread at zero CPU until the child exits.
+            let _ = unsafe { WaitForSingleObject(HANDLE(dup.as_raw_handle()), INFINITE) };
+            close_pcon_once(hpcon, &closed);
+        })
+        .ok()
 }
 
 /// Output-pipe reader that maps a closed ConPTY/child (surfaced as
@@ -594,6 +661,31 @@ fn duplicate(handle: &OwnedHandle) -> Result<File> {
         Ok(File::from(OwnedHandle::from_raw_handle(
             target.0 as RawHandle,
         )))
+    }
+}
+
+/// Duplicate a handle into an independent [`OwnedHandle`] (used for the process
+/// handle handed to the child-waiter thread, so the waiter's blocking wait and
+/// the session's own `try_wait`/`wait`/`Drop` never race on a single handle's
+/// close). Unlike [`duplicate`], this keeps it as a handle rather than wrapping
+/// it in a `File`, which is the correct shape for a process handle.
+fn duplicate_owned_handle(handle: &OwnedHandle) -> Result<OwnedHandle> {
+    // SAFETY: `GetCurrentProcess` is a pseudo-handle; `handle` is live for the
+    // duration of the call; the duplicated handle is wrapped for ownership.
+    unsafe {
+        let current = GetCurrentProcess();
+        let mut target = HANDLE::default();
+        DuplicateHandle(
+            current,
+            handle_of(handle),
+            current,
+            &mut target,
+            0,
+            false,
+            DUPLICATE_SAME_ACCESS,
+        )
+        .context("DuplicateHandle (process)")?;
+        Ok(OwnedHandle::from_raw_handle(target.0 as RawHandle))
     }
 }
 
