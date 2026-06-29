@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Windows: default to PowerShell so the modern command set works
+
+With the ConPTY handle fix landed, on-device testing surfaced a product gap, not
+a crash: the spawned shell was `%ComSpec%` (cmd.exe), so `ls`/`cat`/`pwd` and the
+rest of the modern command set failed — only cmd's `dir`-era builtins worked. A
+terminal emulator hosts a shell; the shell defines the commands. Matching Windows
+Terminal's out-of-the-box feel means defaulting to PowerShell, which aliases the
+familiar commands.
+
+`default_shell()` now resolves a shell with a precedence chain (all
+`#[cfg(windows)]`-gated; Linux/macOS byte-identical, suite unchanged at 2578
+passed):
+
+1. `pwsh.exe` (PowerShell 7) — found on `%PATH%`, else the well-known
+   `%ProgramFiles%\PowerShell\7\pwsh.exe`. Often absent; preferred when present.
+2. `powershell.exe` (Windows PowerShell 5.1) — resolved by its fixed
+   `%SystemRoot%\System32\WindowsPowerShell\v1.0\` path (present on every Windows
+   install), not trusted to `%PATH%` alone so a stripped PATH cannot hide it.
+3. `%ComSpec%` / `cmd.exe` — last resort.
+
+The one-shot path (`spawn_shell_command`) now selects its flag by shell family —
+`cmd /C <command>` for cmd, `powershell -NoProfile -Command <command>` for
+PowerShell — since the two parse one-shots differently. The sole Windows caller
+passes a controlled command (`--dump-command`), so `-Command` is sufficient and
+`-EncodedCommand` is not needed. No new config surface is added (there is no
+shell-override setting in the tree today); a user-facing shell preference is a
+separate follow-up. SPEC updated to record the PowerShell-first default.
+
+Remaining Windows gaps tracked separately: a child shell that exits while the
+pseudoconsole output handle stays open does not yet tear the session down
+(type-into-dead-shell hang) — a cfg(windows) child-waiter thread is in progress;
+and the console-subsystem posture (a GUI-subsystem switch matching Windows
+Terminal / Alacritty) is pending an explicit decision. The `windows-latest` CI
+leg continues to upload `odytty.exe` as a run artifact for on-device testing.
+
 ## 2026-06-29 -- Windows: the real ConPTY 0xC0000142 fix — pass the pseudoconsole handle by value
 
 The previous two Windows fixes (release the inherited console; inherit the
