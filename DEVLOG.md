@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Windows backend hardening: no startup tax, per-child env block, test coverage
+
+Production-clean pass over the ConPTY backend now that the core spawn/handle/
+teardown is solid. Three changes, all `#[cfg(windows)]`-gated; Linux/macOS
+byte-identical (suite unchanged at 2578 passed, clippy/fmt clean):
+
+- **No startup tax.** The bring-up diagnostic used a synchronous
+  250 ms `WaitForSingleObject` on the spawn path to catch a shell that dies
+  during its own init — an over-charge now that the handle bug is fixed. That
+  detection is folded into the child-waiter thread, which already blocks on the
+  child: on an abnormal exit *within* a 500 ms startup window it records a
+  diagnostic line (and echoes it to stderr) before closing the pseudoconsole, so
+  the pump drains it into the pane on the resulting EOF — through the normal
+  `ShellExited` teardown, with no synchronous wait on a healthy launch. The
+  diagnostic now covers every session (not just the first) and its prose is
+  reframed to the general "shell exited immediately at startup" case rather than
+  the since-disproven inherited-console theory (the `0xC0000142` →
+  `STATUS_DLL_INIT_FAILED` decode stays as a real NT-status label).
+- **Per-child environment block, no global mutation.** The child's environment
+  is now a merged `CREATE_UNICODE_ENVIRONMENT` block built from
+  `GetEnvironmentStringsW` (which preserves the loader-critical hidden
+  `=`-prefixed per-drive variables that `std::env::vars_os` drops — their absence
+  is the original `0xC0000142` env-path failure) with OdyTTY's terminal-ID
+  overrides applied on top. This replaces mutating *our own* process env via
+  `SetEnvironmentVariableW` and inheriting — a latent cross-session leak/race the
+  moment any per-session env (per-profile `TERM`, SSH-in-a-tab) exists. Each
+  override is now scoped to the child it targets.
+- **Host-testable coverage.** Unit tests for `PtyWriter::normalize`
+  (`ERROR_NO_DATA`/`ERROR_BROKEN_PIPE` → canonical `BrokenPipe`, others
+  untouched), `describe_immediate_exit` (known NT codes decode, unknown codes
+  still surface), and the env-merge helpers (hidden-drive-var key split,
+  case-insensitive name match, override-replaces-once block shape). These run on
+  the Windows CI leg.
+
+The child-waiter still owns a *duplicated* process handle (never borrows the
+session's own handle into the thread), unchanged.
+
 ## 2026-06-29 -- Windows: build as a GUI-subsystem app; drop the FreeConsole workaround
 
 OdyTTY is now a GUI-subsystem binary on Windows (`#![cfg_attr(windows,
@@ -67,7 +104,7 @@ suite unchanged at 2578 passed):
 A follow-up Windows-backend hardening pass (de-blocking the startup
 `diagnose_immediate_exit` wait, replacing the global env mutation with a merged
 environment block, and adding host-testable unit coverage for the error-mapping
-and shell-resolution helpers) is tracked and in progress.
+and shell-resolution helpers) landed in the entry above.
 
 ## 2026-06-29 -- Windows: default to PowerShell so the modern command set works
 

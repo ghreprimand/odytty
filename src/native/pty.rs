@@ -66,12 +66,28 @@ pub(super) fn spawn_pty_pump(
     proxy: EventLoopProxy<UserEvent>,
     session: SessionToken,
     recorder: RecorderHandle,
+    diagnostic: Option<Arc<Mutex<Option<String>>>>,
 ) -> JoinHandle<()> {
+    // `diagnostic` is the Windows ConPTY backend's one-shot startup-failure slot
+    // (always `None` on Unix). On reader EOF — which the backend's child-waiter
+    // thread induces by closing the pseudoconsole after recording the line — the
+    // pump writes any recorded diagnostic into the pane exactly once, just before
+    // signalling `ShellExited`, so a shell that died during its own init surfaces
+    // a reason instead of a blank pane. The `None`/Unix path is byte-identical.
+    #[cfg(not(windows))]
+    let _ = &diagnostic;
     std::thread::spawn(move || {
         let mut buffer = [0u8; 8192];
         loop {
             match reader.read(&mut buffer) {
                 Ok(0) => {
+                    #[cfg(windows)]
+                    if let Some(slot) = diagnostic.as_ref()
+                        && let Ok(mut guard) = slot.lock()
+                        && let Some(message) = guard.take()
+                    {
+                        super::lock_recover(&terminal).advance(message.as_bytes());
+                    }
                     let _ = proxy.send_event(UserEvent::ShellExited { session });
                     break;
                 }
