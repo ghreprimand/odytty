@@ -406,6 +406,44 @@ fn reflow_keeps_cursor_clear_compatible_for_live_line() {
 }
 
 #[test]
+fn repeated_split_close_without_typing_does_not_ratchet_cursor_into_prompt() {
+    // End-to-end (Terminal-level) guard for the multi-cycle cursor RATCHET seen
+    // on Windows/PowerShell: open and close pane splits repeatedly WITHOUT
+    // typing between them, and the cursor must NOT walk backward into the path.
+    //
+    // The model stores the cursor only as physical (row, column) and re-derives
+    // the prompt's logical offset from it on every resize. The
+    // `preserve_cursor_physical_line` override clamps the cursor column to each
+    // narrow width; with no shell repaint to heal it (ConPTY/PSReadLine does not
+    // repaint on a bare resize), that clamp would feed back as the next resize's
+    // offset and ratchet the column toward 0. The `output_since_last_resize`
+    // discriminator (set in `print_char`, cleared at the end of `resize`) makes
+    // the override fire only when a repaint is actually in the loop — true for
+    // the first resize after the prompt print, false for the back-to-back
+    // resizes here — so the column never ratchets.
+    let prompt = b"PS C:\\Users\\foo>"; // 16 printable cols, empty input
+    let mut terminal = Terminal::new(80, 12);
+    terminal.advance(prompt);
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 16 });
+
+    // Recipe F: split (narrow) then close (widen back to 80), progressively
+    // narrower. No `advance` between resizes — exactly the no-repaint case.
+    // The first split (40) does not wrap the 16-col prompt; the later splits
+    // (10, 6, 2) do wrap, but arrive with no intervening output.
+    for &w in &[40usize, 80, 10, 80, 6, 80, 2, 80] {
+        terminal.resize(w, 12);
+    }
+
+    // Back at width 80 the prompt is a single 16-col line; the cursor must still
+    // sit just after it (col 16), not dragged into the path.
+    assert_eq!(
+        terminal.screen().cursor(),
+        Position { row: 0, column: 16 },
+        "cursor ratcheted into the prompt after repeated split/close"
+    );
+}
+
+#[test]
 fn reflow_grow_then_shrink_is_stable_for_short_lines() {
     // Lines that always fit are unaffected by reflow (no spurious joins or
     // blank bloat) across repeated resizes.

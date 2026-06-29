@@ -123,6 +123,10 @@ pub(in crate::core) struct ResizeOptions {
     pub preserve_cursor_physical_line: bool,
     pub cursor_pending_wrap: bool,
     pub collapse_prompt_start_row: Option<usize>,
+    /// Whether the shell applied output since the last resize, so a repaint is
+    /// expected to follow this one (the `preserve_cursor_physical_line`
+    /// override is only safe to honor when true — see `ReflowOptions`).
+    pub repaint_expected: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -428,6 +432,7 @@ pub(in crate::core) fn resize_lazy_with_options(
                 preserve_cursor_physical_line: options.preserve_cursor_physical_line,
                 cursor_pending_wrap: options.cursor_pending_wrap,
                 collapse_prompt_start_row,
+                repaint_expected: options.repaint_expected,
             },
         );
         ResizeResult {

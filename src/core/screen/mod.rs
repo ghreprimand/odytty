@@ -125,6 +125,23 @@ pub struct Screen {
     cursor: Position,
     cursor_visible: bool,
     pending_wrap: bool,
+    /// Discriminator for the `preserve_cursor_physical_line` resize override:
+    /// `true` once the shell has applied output (printed a cell) since the last
+    /// width-changing resize. The override re-anchors the cursor to its old
+    /// physical row offset on the bet that a SIGWINCH-driven shell repaint will
+    /// immediately follow and correct it (the Linux contract). That bet only
+    /// holds when a repaint is actually coming. For BACK-TO-BACK resizes with no
+    /// intervening output (the Windows pane split/close-without-typing case,
+    /// where ConPTY/PSReadLine does not repaint on a bare `ResizePseudoConsole`),
+    /// honoring the override clamps the cursor column and — because the model
+    /// re-derives the logical offset from the displaced physical cursor each
+    /// resize — RATCHETS it toward the prompt start. Set `true` in `print_char`;
+    /// cleared at the end of `Screen::resize`. When `false`, the override is
+    /// skipped and the content-accurate cursor is kept (lossless logical
+    /// position), breaking the ratchet without changing any Linux behavior
+    /// (every interactive Linux resize is followed by a repaint, so this is
+    /// `true` on the next resize there).
+    output_since_last_resize: bool,
     saved_cursor: Option<SavedCursor>,
     primary_screen: Option<StoredScreen>,
     scroll_region: Option<ScrollRegion>,
@@ -307,6 +324,7 @@ impl Screen {
             cursor: Position::default(),
             cursor_visible: true,
             pending_wrap: false,
+            output_since_last_resize: false,
             saved_cursor: None,
             primary_screen: None,
             scroll_region: None,
@@ -708,6 +726,10 @@ impl Screen {
                         preserve_cursor_physical_line: false,
                         cursor_pending_wrap: primary.pending_wrap,
                         collapse_prompt_start_row: None,
+                        // The override never fires for the stored primary
+                        // (preserve_cursor_physical_line is false here), so the
+                        // discriminator is inert; pass false.
+                        repaint_expected: false,
                     },
                 );
                 primary.cursor = result.cursor;
@@ -738,6 +760,7 @@ impl Screen {
                     preserve_cursor_physical_line: !width_unchanged,
                     cursor_pending_wrap: self.pending_wrap,
                     collapse_prompt_start_row,
+                    repaint_expected: self.output_since_last_resize,
                 },
             );
             self.cursor = result.cursor;
@@ -752,6 +775,11 @@ impl Screen {
         if self.primary_screen.is_some() {
             self.pending_wrap = false;
         }
+        // Reset the repaint discriminator: any output that arrives AFTER this
+        // resize re-arms the override for the NEXT resize. Back-to-back resizes
+        // with no intervening output therefore see `false` and skip the override
+        // (the no-repaint case that would otherwise ratchet the cursor).
+        self.output_since_last_resize = false;
         self.resize_tab_stops(dimensions.columns);
         self.scroll_region = clamp_scroll_region(self.scroll_region, dimensions);
         self.graphics
@@ -1356,6 +1384,10 @@ impl Screen {
         }
 
         self.last_graphic_char = Some(ch);
+        // The shell applied output: a width-changing resize that follows can
+        // trust that a repaint is in the loop and honor the cursor-anchor
+        // override (see `output_since_last_resize`).
+        self.output_since_last_resize = true;
 
         if self.pending_wrap {
             // The row we are leaving filled to the right edge and the logical

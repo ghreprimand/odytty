@@ -63,6 +63,18 @@ pub(in crate::core) struct ReflowOptions {
     pub preserve_cursor_physical_line: bool,
     pub cursor_pending_wrap: bool,
     pub collapse_prompt_start_row: Option<usize>,
+    /// Whether the shell applied output since the last resize. The
+    /// `preserve_cursor_physical_line` override re-anchors the cursor onto its
+    /// old physical row offset on the bet that a SIGWINCH-driven shell repaint
+    /// will immediately follow and correct it. That bet only holds when a
+    /// repaint is actually coming, i.e. when there was output since the last
+    /// resize (the Linux interactive case is always true). For back-to-back
+    /// resizes with no intervening output (the Windows split/close-without-typing
+    /// case over ConPTY, which does not repaint on a bare resize), honoring the
+    /// override clamps the cursor column and ratchets it toward the prompt start
+    /// across cycles. When this is false, the override is skipped and the
+    /// content-accurate cursor is kept.
+    pub repaint_expected: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -303,13 +315,21 @@ pub(in crate::core) fn reflow_lines_with_options(
         // last row of this logical line rather than spilling onto a new row, so
         // a full line keeps the cursor at the right edge (pending-wrap), exactly
         // as the pre-reflow grid did.
+        let mut cursor_end_of_content_pending = false;
         if cursor_target == Some(keep) {
             if !row_cells.is_empty() {
                 // Partial final row: cursor sits just after the last char.
                 cursor_dest = Some((new_combined.len(), row_cells.len().min(new_cols - 1)));
             } else if produced_any {
-                // The content exactly filled the last (still-wrapped) row.
+                // The content exactly filled the last (still-wrapped) row, so
+                // the end-of-content cursor sits PAST that row's last column —
+                // i.e. in the pending-wrap state. Record it so the physical
+                // cursor round-trips back to the true end-of-content offset on
+                // the next resize (the model re-derives the logical offset from
+                // the physical cursor; without pending-wrap an exact-fill end
+                // collapses to one column short and drifts across resizes).
                 cursor_dest = Some((new_combined.len() - 1, new_cols - 1));
+                cursor_end_of_content_pending = true;
             } else {
                 // Empty logical line: cursor at the start of the blank row.
                 cursor_dest = Some((new_combined.len(), 0));
@@ -337,16 +357,31 @@ pub(in crate::core) fn reflow_lines_with_options(
             // Rows this logical line produced after re-wrapping (always >= 1).
             let produced_rows = new_combined.len() - first_row;
             let row_offset = logical.cursor_row_offset.unwrap_or(0);
-            // Only honor the saved physical (row_offset, column) when that
-            // physical row still EXISTS in the re-wrapped line. When the line
-            // collapsed to FEWER rows (e.g. a wrapped 2-row prompt widened back
-            // to 1 row on a pane-close), the saved row_offset/column is stale
-            // and the old silent `.min()` clamp would drag the cursor backward
-            // into the prompt prefix; keep the content-accurate `cursor_dest`
-            // computed above (the true end-of-content). The GROW case
-            // (narrowing, more rows produced) keeps `row_offset < produced_rows`
-            // and is byte-identical to the prior clamp.
-            if row_offset < produced_rows {
+            // The override re-anchors the cursor to its saved physical
+            // (row_offset, column). It exists for the `4af1fd6` case: a wrapped
+            // prompt whose SIGWINCH-repainting shell emits a relative
+            // `CUU(row_offset) + ED` it expects to land on the prompt's first
+            // row, so the anchor keeps the cursor that many rows below the
+            // re-wrapped top for the clear to cover the whole prompt.
+            //
+            // Honor it ONLY when both hold:
+            //   * `options.repaint_expected` — the shell applied output since
+            //     the last resize, so a repaint is in the loop to correct the
+            //     anchored (clamped) cursor. When false (back-to-back resizes
+            //     with no intervening output — the Windows split/close case over
+            //     ConPTY, which does not repaint on a bare resize), the anchor's
+            //     column clamp is never healed and, because the model re-derives
+            //     the logical offset from the physical cursor each resize, it
+            //     RATCHETS the cursor toward the prompt start across cycles.
+            //     Skipping the override keeps the content-accurate end-of-content
+            //     cursor (lossless logical position) and breaks the ratchet. This
+            //     changes NO Linux behavior: every interactive Linux resize is
+            //     followed by a repaint, so this is true on the next resize there.
+            //   * `row_offset < produced_rows` — the saved physical row still
+            //     exists; when the line COLLAPSED to fewer rows (a wrapped prompt
+            //     widened back to one row on a pane-close) the saved offset is
+            //     stale and would drag the cursor backward into the prompt prefix.
+            if options.repaint_expected && row_offset < produced_rows {
                 let row = first_row + row_offset;
                 let column = logical
                     .cursor_column
@@ -354,7 +389,15 @@ pub(in crate::core) fn reflow_lines_with_options(
                     .min(new_cols - 1);
                 cursor_dest = Some((row, column));
                 pending_wrap_dest = options.cursor_pending_wrap && column == new_cols - 1;
+                cursor_end_of_content_pending = false;
             }
+        }
+
+        // An exact-fill end-of-content cursor that was NOT re-anchored above is
+        // in the pending-wrap state (it sits past the last column of a full
+        // row). Preserve that so it round-trips to the true offset next resize.
+        if cursor_end_of_content_pending {
+            pending_wrap_dest = true;
         }
     }
 
@@ -741,6 +784,10 @@ mod tests {
                 preserve_cursor_physical_line: true,
                 cursor_pending_wrap: false,
                 collapse_prompt_start_row: None,
+                // A repaint follows a real widen on Linux; the collapse guard
+                // (row_offset >= produced_rows) is what protects this case, not
+                // the discriminator, so honor the override here.
+                repaint_expected: true,
             },
         );
 
@@ -754,6 +801,93 @@ mod tests {
                 column: chars.len(),
             },
             "cursor dragged into prompt prefix on collapse-widen"
+        );
+    }
+
+    #[test]
+    fn multi_cycle_resize_does_not_ratchet_cursor_into_prompt() {
+        // The multi-cycle column RATCHET, exercised at the reflow layer with the
+        // `repaint_expected` discriminator set realistically. A single-line
+        // prompt with the cursor at end-of-content (empty input) is driven
+        // through repeated narrow->wide->narrower->wide reflows. The terminal
+        // model stores the cursor ONLY as physical (row, column) + pending_wrap,
+        // with no memory of the logical offset, so each reflow's output cursor
+        // becomes the next reflow's input. This harness mirrors `Screen::resize`
+        // EXACTLY — re-feeding BOTH `cursor` and `pending_wrap`, threading
+        // `cursor_pending_wrap` back in, and setting `repaint_expected` true ONLY
+        // for the first resize after the (single) prompt print and false for the
+        // back-to-back resizes that follow with no intervening output (the
+        // Windows split/close-without-typing case; the Screen sets the flag in
+        // `print_char` and clears it at the end of every `resize`).
+        //
+        // Without the discriminator gate the override clamps the column on each
+        // narrowing and — because the offset is re-derived from the displaced
+        // physical cursor — ratchets it monotonically toward the prompt start
+        // (col ~1 by the end). With the gate, only the first (non-wrapping)
+        // resize honors the override and every subsequent wrapping resize keeps
+        // the content-accurate cursor, which round-trips the true offset
+        // losslessly, so the column never ratchets.
+        let text = "PS C:\\Users\\foo>"; // 16 chars, no trailing input
+        let chars: Vec<char> = text.chars().collect();
+        let len = chars.len();
+        assert_eq!(len, 16);
+
+        // A single hard logical line of `text`, blank-padded to `width`.
+        fn prompt_line(width: usize, chars: &[char]) -> Vec<Line> {
+            let mut cells: Vec<Cell> = chars
+                .iter()
+                .map(|&c| Cell::new(c, Attrs::default()))
+                .collect();
+            while cells.len() < width {
+                cells.push(Cell::blank());
+            }
+            vec![Line::unwrapped(cells)]
+        }
+
+        // Tall enough that even width 2 (16 chars -> 8 rows) stays fully visible,
+        // so the logical line never straddles the scrollback boundary.
+        const H: usize = 12;
+        let mut scrollback: Vec<Line> = Vec::new();
+        let mut rows = prompt_line(80, &chars);
+        let mut cursor = Position {
+            row: 0,
+            column: len,
+        };
+        let mut pending = false;
+
+        // Recipe F: open a split (narrow), then close it (widen back to 80),
+        // progressively narrower. The FIRST narrow width (40) does NOT wrap the
+        // 16-col prompt — matching the real case where the first split rarely
+        // wraps a short prompt — so the one override that fires (repaint_expected
+        // true, set by the prompt print) is harmless. The later narrow widths
+        // (10, 6, 2) DO wrap, but arrive with repaint_expected false.
+        for (i, &w) in [40usize, 80, 10, 80, 6, 80, 2, 80].iter().enumerate() {
+            let dims = Dimensions::new(w, H);
+            let result = reflow_lines_with_options(
+                &mut scrollback,
+                &mut rows,
+                dims,
+                cursor,
+                ReflowOptions {
+                    preserve_cursor_physical_line: true,
+                    cursor_pending_wrap: pending,
+                    collapse_prompt_start_row: None,
+                    // Output (the prompt print) happened only before cycle 0; no
+                    // output between subsequent resizes, so the flag is true for
+                    // the first resize and false thereafter.
+                    repaint_expected: i == 0,
+                },
+            );
+            cursor = result.cursor;
+            pending = result.pending_wrap;
+        }
+
+        // After the final widen to 80 the prompt is one 16-col line; the cursor
+        // must still be at end-of-content (col 16), NOT ratcheted into the path.
+        assert_eq!(
+            cursor.column, len,
+            "cursor ratcheted into the prompt (got col {})",
+            cursor.column
         );
     }
 }

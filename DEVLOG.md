@@ -7,6 +7,75 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Reflow: stop the multi-cycle cursor ratchet across repeated pane splits
+
+Closes the second, deeper half of the Windows/PowerShell cursor desync: after
+the single-collapse fix landed, repeated pane split/close cycles *without typing
+between them* could still walk the cursor backward into the prompt prefix —
+intermittently, and eventually all the way to the path start. Like the first
+half, the root cause is shared reflow logic, so the fix is platform-neutral.
+
+Root cause — a feedback ratchet. The terminal model stores the cursor only as a
+physical `(row, column)` with no memory of its logical offset within a wrapped
+line, so every resize re-derives that offset from the current physical cursor.
+The `preserve_cursor_physical_line` override (which exists so a SIGWINCH-driven
+shell repaint's relative `CUU + ED` clears the whole prompt) clamps the cursor
+column to each narrow width. On Linux a shell repaint immediately follows every
+interactive resize and re-places the cursor with absolute positioning, healing
+the clamp before it matters. Over ConPTY, PSReadLine does **not** repaint on a
+bare `ResizePseudoConsole`, so the clamped column feeds back as the next
+resize's derived offset and ratchets monotonically toward the prompt start
+across narrowing cycles.
+
+The fix adds the one piece of information reflow was missing: **whether a shell
+repaint is actually coming.** A new `Screen::output_since_last_resize` flag is
+set in `print_char` (the single chokepoint where printed cells land) and cleared
+at the end of every `Screen::resize`. It threads through `ResizeOptions` /
+`ReflowOptions` as `repaint_expected`, and the override now fires only when it is
+true. For back-to-back resizes with no intervening output — the Windows
+split/close-without-typing case — the override is skipped and the
+content-accurate cursor (the lossless logical position) is kept, breaking the
+ratchet.
+
+Why this changes **no** Linux behavior: every interactive Linux resize is
+preceded by shell output (the prompt/repaint print), so the flag is true on the
+next resize and the override fires exactly as before. The discriminator only
+alters the no-output, back-to-back-resize path. Verified by the fact that all
+four `4af1fd6` prompt-duplication regressions and the single-row-prompt
+clear-compatibility guard (`reflow_keeps_cursor_clear_compatible_for_live_line`)
+stay green **with no test expectation changed** — each performs output before its
+resize, so the override still fires for them.
+
+Two new regression tests: a reflow-level mechanism test
+(`multi_cycle_resize_does_not_ratchet_cursor_into_prompt`) and an end-to-end
+Terminal-level test
+(`repeated_split_close_without_typing_does_not_ratchet_cursor_into_prompt`) that
+prints a prompt once then resizes through `[40,80,10,80,6,80,2,80]` with no
+output between, asserting the cursor returns to end-of-content (col 16) rather
+than ratcheting toward 0. Both fail before the gate (the Terminal-level test
+lands at col 1, the reported symptom) and pass after. Also retained from the
+prior packet: the `row_offset < produced_rows` collapse guard and an exact-fill
+end-of-content pending-wrap round-trip in the content map.
+
+Known residual (tracked, not in this packet): if the *first* split after typing
+is narrow enough to wrap the prompt, the one override that legitimately fires
+(output did precede it) displaces the cursor a single step; that value then
+stabilizes — it does **not** compound like the ratchet did. In practice the
+first split rarely wraps a short prompt (an 80→40 split fits `PS C:\Users\…>`),
+and a keystroke's repaint heals it. Fully eliminating it needs the model to
+carry the cursor's logical offset across resizes — a separate, larger change
+scheduled as a follow-up only if on-device testing still shows drift.
+
+Verified (Linux): `cargo fmt --check` clean; `cargo clippy --all-targets
+--locked -- -D warnings` clean; `cargo build --release --locked` clean;
+`cargo test --locked` — lib 2583 passed / 0 failed / 7 ignored (+2 new tests).
+Diff spans `src/core/reflow.rs`, `src/core/screen/mod.rs`,
+`src/core/scrollback.rs`, and the test module. On-device confirmation on
+Windows/PowerShell (repeated split/close without typing) is the remaining
+checkpoint.
+
+---
+
 ## 2026-06-29 -- Reflow: cursor no longer drags into the prompt prefix when a wrapped prompt widens
 
 Fixes a cursor desync first observed on Windows/PowerShell but rooted in
