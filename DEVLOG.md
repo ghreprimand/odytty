@@ -47,6 +47,15 @@ clean; lib 2590 passed / 0 failed / 7 ignored (+2). On-device Windows re-capture
 remains the final proof for the startup pane specifically (there is no headless
 seam for `run_native`'s winit/GPU path).
 
+Windows-compile follow-up: the new per-path pane test reads the backend
+capability through the `Session::local_pty()` test seam, which was gated
+`#[cfg(all(test, unix))]` and so did not exist on Windows — the Linux gate
+cannot see that, and Windows CI caught the compile error. Relaxed the seam to
+`#[cfg(test)]` (its body is platform-neutral; on Windows a session is always
+`Local`, so the match stays exhaustive). This keeps the guard test compiling and
+running on Windows CI, which is the only platform where its asserted value is
+load-bearing. Lib count unchanged on Linux.
+
 ---
 
 ## 2026-06-29 -- Windows: defer resize cursor placement to the shell (ConPTY absolute repaint)

@@ -354,12 +354,16 @@ impl Session {
 
     /// The local PTY backing this session, or `None` for an attached session.
     /// Test-only seam (the production foreground-job query uses
-    /// [`Self::foreground_job_running`]); the dimension test reads the concrete
-    /// PTY through this, and an attached session has no local PTY.
+    /// [`Self::foreground_job_running`]); tests read the concrete PTY through
+    /// this, and an attached session has no local PTY.
     ///
-    /// Both callers (the `#[cfg(unix)]` local-resize test and the
-    /// `#[cfg(all(test, unix))]` dimension seam) are Unix-only.
-    #[cfg(all(test, unix))]
+    /// Available in every test build (not just Unix): the cross-platform
+    /// pane-wiring guard reads the backend's resize cursor-authority capability
+    /// through this on Windows CI, where the value (`true`) differs from the
+    /// model default — the case Linux can't exercise. On Windows a session is
+    /// always `Local` (the `Attached` variant is `#[cfg(unix)]`), so the match
+    /// is exhaustive with the `Local` arm alone.
+    #[cfg(test)]
     pub(super) fn local_pty(&self) -> Option<&Arc<Mutex<PtySession>>> {
         match &self.source {
             SessionSource::Local { pty } => Some(pty),
