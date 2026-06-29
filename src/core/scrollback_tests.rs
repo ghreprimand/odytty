@@ -14,7 +14,8 @@
 use super::reflow::{reflow_lines, resize_keep_width};
 use super::screen::{Line, Terminal, blank_row};
 use super::scrollback::{
-    DEFAULT_SCROLLBACK_LIMIT, Scrollback, logical_from_physical, project_logical, resize_lazy,
+    DEFAULT_SCROLLBACK_LIMIT, ResizeOptions, Scrollback, logical_from_physical, project_logical,
+    resize_lazy, resize_lazy_with_options,
 };
 use super::search::SearchOptions;
 use super::types::{Attrs, Cell, Dimensions, Position};
@@ -537,6 +538,126 @@ fn open_logical_line_is_bounded_without_a_terminator() {
     assert!(
         total_cells <= (1 << 20) + W,
         "open line must stay bounded, got {total_cells} cells"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Shell-owns-cursor (ConPTY) resize through the production lazy path must keep
+// the cursor at its incoming VISIBLE row, not at a combined-buffer offset.
+//
+// `resize_lazy_with_options` prepends `cursor_prefix` pulled-scrollback rows to
+// the live grid before reflow and feeds the reflow a COMBINED-buffer cursor row
+// (`cursor_prefix + cursor.row`). When `shell_owns_cursor_on_resize` is true the
+// reflow takes its `None` cursor arm, which (pre-fix) treated that combined row
+// as a visible row and clamped it to the new grid — drifting the cursor down by
+// `cursor_prefix` and pinning it to the bottom. Every prior shell-owns test fed
+// EMPTY scrollback (`cursor_prefix == 0`) with a bottom-row cursor, where the
+// buggy and correct values coincide, so the drift hid for many commits. These
+// two tests use NON-empty pulled scrollback and a NON-bottom cursor through the
+// production path, which is the only place the combined coordinate is built.
+// ---------------------------------------------------------------------------
+
+/// Basic drift: with pulled scrollback (`cursor_prefix > 0`), a width
+/// change, and a non-bottom cursor, the shell-owns resize must keep the cursor
+/// at its incoming visible row (0). Pre-fix the `None` arm clamps the combined
+/// row (5) to the bottom row (4) — the observed downward drift.
+#[test]
+fn shell_owns_resize_with_pulled_scrollback_keeps_incoming_visible_row() {
+    // Five short hard-terminated scrollback lines (one physical row each at the
+    // new width), so the lazy pull prepends five prefix rows -> cursor_prefix=5.
+    let scrollback = vec![
+        content("s0"),
+        content("s1"),
+        content("s2"),
+        content("s3"),
+        content("s4"),
+    ];
+    // Live grid (width 8, height 5): content on the top row, cursor parked there
+    // (non-bottom), the rest blank.
+    let mut visible = vec![content("top"), blank(), blank(), blank(), blank()];
+    let cursor = Position { row: 0, column: 1 };
+
+    let mut sb = Scrollback::from_physical(&scrollback);
+    let result = resize_lazy_with_options(
+        &mut sb,
+        &mut visible,
+        Dimensions::new(6, 5), // width CHANGE (8 -> 6) forces the reflow path
+        cursor,
+        false, // width_unchanged = false
+        ResizeOptions {
+            shell_owns_cursor_on_resize: true,
+            ..ResizeOptions::default()
+        },
+    );
+
+    // The shell owns placement; the terminal must keep the incoming VISIBLE row
+    // (0), clamped to the new dims — NOT the combined row (5) clamped to the
+    // bottom (4) that the pre-fix `None` arm produced.
+    assert_eq!(
+        result.cursor,
+        Position { row: 0, column: 1 },
+        "shell-owns resize drifted the cursor off its incoming visible row"
+    );
+}
+
+/// Decision gate: a width SHRINK where the content ABOVE the cursor rewraps
+/// into MORE physical rows, so the post-rewrap `visible_start` (6) diverges from
+/// `cursor_prefix` (1). This is the case that separates the three candidate
+/// fixes, all of which agree when `visible_start == cursor_prefix`:
+///   (a) subtract `visible_start`  -> row 0 (cursor flung to the top) — WRONG
+///   (b) subtract `cursor_prefix`  -> row 1 (incoming visible row)    — CORRECT
+///   (c) recompute the visible row -> row 1 (same as b)
+/// Pre-fix the `None` arm subtracts nothing -> row 2. Asserting row 1 makes this
+/// test reject BOTH the pre-fix code AND candidate (a), pinning candidate (b).
+#[test]
+fn shell_owns_resize_shrink_rewrap_above_cursor_pins_cursor_prefix_fix() {
+    // One long hard-terminated scrollback line of 100 'x' (5 physical rows at
+    // width 20), which rewraps to 10 rows at the new width 10 — i.e. content
+    // above the cursor expands, pushing visible_start past cursor_prefix.
+    let long: Vec<Line> = {
+        let mut rows = Vec::new();
+        for r in 0..5 {
+            let cells: Vec<Cell> = (0..20).map(|_| Cell::new('x', Attrs::default())).collect();
+            // First four rows soft-wrap into the next; the fifth ends the line.
+            rows.push(if r < 4 {
+                Line::wrapped(cells)
+            } else {
+                Line::unwrapped(cells)
+            });
+        }
+        rows
+    };
+    // Live grid (width 20, height 6): two content rows then blanks; cursor on the
+    // second content row (visible row 1, non-bottom).
+    let mut visible = vec![
+        content_w("AAAA", 20),
+        content_w("BBBB", 20),
+        blank_row(20),
+        blank_row(20),
+        blank_row(20),
+        blank_row(20),
+    ];
+    let cursor = Position { row: 1, column: 2 };
+
+    let mut sb = Scrollback::from_physical(&long);
+    let result = resize_lazy_with_options(
+        &mut sb,
+        &mut visible,
+        Dimensions::new(10, 6), // width SHRINK 20 -> 10: the long line rewraps up
+        cursor,
+        false,
+        ResizeOptions {
+            shell_owns_cursor_on_resize: true,
+            ..ResizeOptions::default()
+        },
+    );
+
+    // Correct = incoming visible row (1), proving candidate (b): subtract the
+    // true cursor_prefix, NOT visible_start (which would give row 0 here).
+    assert_eq!(
+        result.cursor,
+        Position { row: 1, column: 2 },
+        "shrink-rewrap shell-owns resize must keep the incoming visible row (cursor_prefix fix)"
     );
 }
 

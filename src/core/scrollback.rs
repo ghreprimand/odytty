@@ -444,6 +444,11 @@ pub(in crate::core) fn resize_lazy_with_options(
                 collapse_prompt_start_row,
                 repaint_expected: options.repaint_expected,
                 shell_owns_cursor_on_resize: options.shell_owns_cursor_on_resize,
+                // The reflow sees `cursor_in.row = cursor_prefix + cursor.row`, a
+                // combined-buffer row. When cursor placement is deferred to the
+                // shell, the `None` arm subtracts this to recover the incoming
+                // visible row instead of clamping the combined offset.
+                combined_cursor_prefix: cursor_prefix,
             },
         );
         ResizeResult {

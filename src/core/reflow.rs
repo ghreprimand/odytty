@@ -90,6 +90,17 @@ pub(in crate::core) struct ReflowOptions {
     /// shells service with a RELATIVE repaint the override is built to
     /// cooperate with, so the unix backend keeps today's behavior byte-identical.
     pub shell_owns_cursor_on_resize: bool,
+    /// Number of combined-buffer rows that precede the OLD visible window, i.e.
+    /// the prefix rows the lazy resize prepended to the live grid before reflow
+    /// (`cursor_prefix` in `resize_lazy_with_options`). The incoming `cursor.row`
+    /// is a COMBINED-buffer row (`combined_cursor_prefix + old_visible_row`), so
+    /// subtracting this recovers the incoming VISIBLE row. Only the `None` cursor
+    /// arm (cursor placement deferred — the `shell_owns_cursor_on_resize` path)
+    /// reads it; the `Some` arm maps the cursor through its content cell and
+    /// already subtracts `visible_start`. Default `0`: direct callers pass a
+    /// `cursor.row` that is already visible-relative (empty scrollback), so the
+    /// subtraction is a no-op and their behavior is byte-identical.
+    pub combined_cursor_prefix: usize,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -447,8 +458,32 @@ pub(in crate::core) fn reflow_lines_with_options(
                 column,
             }
         }
+        // Cursor placement is deferred to the shell (the
+        // `shell_owns_cursor_on_resize` / ConPTY path forces `cursor_dest =
+        // None`): keep the incoming cursor at its old VISIBLE position, clamped
+        // to the new dims, so it does not jump before the shell's absolute
+        // repaint corrects it on the next pump tick.
+        //
+        // `cursor.row` here is a COMBINED-buffer row. In the production lazy
+        // path it equals `combined_cursor_prefix + old_visible_row` (the resize
+        // prepends `combined_cursor_prefix` pulled-scrollback rows to the live
+        // grid before reflow). Subtracting the TRUE prefix recovers exactly the
+        // old visible row regardless of how the prefix re-wrapped.
+        //
+        // We deliberately subtract `combined_cursor_prefix`, NOT `visible_start`:
+        // when content ABOVE the cursor rewraps into more (or fewer) rows on a
+        // width change, `visible_start` (= total - new_rows) diverges from the
+        // prefix, so `cursor.row - visible_start` would fling the cursor off its
+        // visible row (to the top on a shrink that expands the history above).
+        // Computing the old visible row from the old grid geometry is equivalent
+        // but needs the old dims threaded here too; subtracting the prefix is the
+        // minimal, exact recovery. Direct callers pass prefix `0`, so this is a
+        // no-op for them.
         None => Position {
-            row: cursor.row.min(new_rows - 1),
+            row: cursor
+                .row
+                .saturating_sub(options.combined_cursor_prefix)
+                .min(new_rows - 1),
             column: cursor.column.min(new_cols - 1),
         },
     };
@@ -841,6 +876,7 @@ mod tests {
                 // the discriminator, so honor the override here.
                 repaint_expected: true,
                 shell_owns_cursor_on_resize: false,
+                combined_cursor_prefix: 0,
             },
         );
 
@@ -930,6 +966,7 @@ mod tests {
                     // the first resize and false thereafter.
                     repaint_expected: i == 0,
                     shell_owns_cursor_on_resize: false,
+                    combined_cursor_prefix: 0,
                 },
             );
             cursor = result.cursor;
@@ -1012,6 +1049,7 @@ mod tests {
                 collapse_prompt_start_row: None,
                 repaint_expected: true,
                 shell_owns_cursor_on_resize: true,
+                combined_cursor_prefix: 0,
             },
         );
         assert_eq!(
@@ -1035,6 +1073,7 @@ mod tests {
                 collapse_prompt_start_row: None,
                 repaint_expected: true,
                 shell_owns_cursor_on_resize: false,
+                combined_cursor_prefix: 0,
             },
         );
         assert_ne!(
@@ -1083,6 +1122,7 @@ mod tests {
                     collapse_prompt_start_row: None,
                     repaint_expected: true,
                     shell_owns_cursor_on_resize: true,
+                    combined_cursor_prefix: 0,
                 },
             );
 
