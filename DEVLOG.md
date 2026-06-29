@@ -7,6 +7,53 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Reflow: cursor no longer drags into the prompt prefix when a wrapped prompt widens
+
+Fixes a cursor desync first observed on Windows/PowerShell but rooted in
+**shared reflow code**, so the fix benefits every platform. After opening then
+closing a pane split, the cursor could land *inside* the fixed prompt prefix
+(e.g. the path in `PS C:\path>`) and typed keystrokes overwrote the path
+instead of entering at the command position.
+
+Root cause: the `preserve_cursor_physical_line` override in
+`reflow_lines_with_options` (added to fix prompt **duplication** when a prompt
+*grows* to more physical rows on narrowing) also fired on the inverse case. When
+a prompt that had wrapped to two rows at a narrow width **widens back to one
+row** (a pane-close), the override silently `.min()`-clamped the cursor's saved
+physical row down to the surviving row while keeping the *stale narrow-row
+column* — dragging the cursor backward into the prompt prefix. The
+content-accurate cursor position computed earlier in the same pass (the true
+end-of-content) was correct and was being discarded.
+
+The fix makes the override **shape-aware**: it only honors the saved physical
+`(row_offset, column)` when that physical row still exists in the re-wrapped
+line (`row_offset < produced_rows`). When the line collapsed to fewer rows, it
+keeps the content-accurate destination instead of clamping. The grow/narrowing
+case (`row_offset < produced_rows`) is **byte-identical** to the prior clamp, so
+the original prompt-duplication fix and its regression tests are untouched.
+
+Why it surfaced on Windows but not Linux: bash/zsh/fish repaint on `SIGWINCH`
+with absolute cursor positioning, silently correcting the momentary
+misplacement; PSReadLine over ConPTY does not issue that corrective repaint, so
+the stale cursor persisted and became visible.
+
+New regression test
+`core::reflow::tests::widen_collapsing_wrapped_prompt_keeps_cursor_at_content_end`
+builds a 12-char prompt wrapped to two rows at width 8, widens to 16, and
+asserts the cursor lands at end-of-content (column 12), not the stale narrow-row
+column (4) inside the path. Verified failing before the fix, passing after.
+
+Verified (Linux): `cargo fmt --check` clean; `cargo clippy --all-targets
+--locked -- -D warnings` clean; `cargo build --release --locked` clean;
+`cargo test --locked` — lib 2581 passed / 0 failed / 7 ignored (+1 new test).
+Diff is confined to `src/core/reflow.rs` (production guard + test). A
+secondary, lower-severity question — whether opening a split at a long prompt
+(the *grow* direction) shows a residual offset on Windows, where ConPTY rather
+than the shell drives the resize repaint — is tracked for on-device
+measurement before any platform-specific follow-up.
+
+---
+
 ## 2026-06-29 -- Windows app icon: PE-resource exe embed + runtime window icon
 
 OdyTTY now carries its icon on Windows two ways, done properly:

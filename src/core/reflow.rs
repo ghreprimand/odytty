@@ -334,15 +334,27 @@ pub(in crate::core) fn reflow_lines_with_options(
         }
 
         if options.preserve_cursor_physical_line && logical.cursor_offset.is_some() {
-            let last_row = new_combined.len().saturating_sub(1);
+            // Rows this logical line produced after re-wrapping (always >= 1).
+            let produced_rows = new_combined.len() - first_row;
             let row_offset = logical.cursor_row_offset.unwrap_or(0);
-            let row = first_row + row_offset.min(last_row.saturating_sub(first_row));
-            let column = logical
-                .cursor_column
-                .unwrap_or(cursor.column)
-                .min(new_cols - 1);
-            cursor_dest = Some((row, column));
-            pending_wrap_dest = options.cursor_pending_wrap && column == new_cols - 1;
+            // Only honor the saved physical (row_offset, column) when that
+            // physical row still EXISTS in the re-wrapped line. When the line
+            // collapsed to FEWER rows (e.g. a wrapped 2-row prompt widened back
+            // to 1 row on a pane-close), the saved row_offset/column is stale
+            // and the old silent `.min()` clamp would drag the cursor backward
+            // into the prompt prefix; keep the content-accurate `cursor_dest`
+            // computed above (the true end-of-content). The GROW case
+            // (narrowing, more rows produced) keeps `row_offset < produced_rows`
+            // and is byte-identical to the prior clamp.
+            if row_offset < produced_rows {
+                let row = first_row + row_offset;
+                let column = logical
+                    .cursor_column
+                    .unwrap_or(cursor.column)
+                    .min(new_cols - 1);
+                cursor_dest = Some((row, column));
+                pending_wrap_dest = options.cursor_pending_wrap && column == new_cols - 1;
+            }
         }
     }
 
@@ -678,5 +690,70 @@ mod tests {
         assert_eq!(r[0], content("keep"));
         assert_eq!(r[1], content("me"));
         assert_eq!(cur, Position { row: 1, column: 2 });
+    }
+
+    #[test]
+    fn widen_collapsing_wrapped_prompt_keeps_cursor_at_content_end() {
+        // A prompt that WRAPPED to two physical rows at a narrow width, with the
+        // cursor parked at end-of-content (cursor_row_offset == 1). Widening so
+        // the whole prompt fits on ONE row collapses it back to a single row:
+        // the saved physical (row_offset, column) is now stale, and the
+        // `preserve_cursor_physical_line` override must NOT drag the cursor
+        // backward into the prompt prefix. It must keep the content-accurate
+        // end-of-content position. Regression for the PSReadLine-over-ConPTY
+        // cursor drag observed after a pane split closes (widen back to 1 row).
+        let prompt = "PS C:\\Users>"; // 12 chars
+        let chars: Vec<char> = prompt.chars().collect();
+        assert_eq!(chars.len(), 12);
+
+        // Build the narrow (width 8) grid exactly as it exists pre-resize: row0
+        // is a full, soft-wrapped row of the first 8 chars; row1 holds the
+        // remaining 4 chars, blank-padded, ending the logical line.
+        let narrow = 8usize;
+        let row0: Vec<Cell> = chars[..narrow]
+            .iter()
+            .map(|&c| Cell::new(c, Attrs::default()))
+            .collect();
+        let mut row1: Vec<Cell> = chars[narrow..]
+            .iter()
+            .map(|&c| Cell::new(c, Attrs::default()))
+            .collect();
+        let content_in_row1 = row1.len(); // 4: cursor sits just past these
+        while row1.len() < narrow {
+            row1.push(Cell::blank());
+        }
+
+        let mut scrollback: Vec<Line> = Vec::new();
+        let mut rows = vec![Line::wrapped(row0), Line::unwrapped(row1)];
+        // Cursor at end-of-content on the second physical row (row_offset == 1).
+        let cursor = Position {
+            row: 1,
+            column: content_in_row1,
+        };
+
+        // Widen to a width where the whole 12-char prompt fits on one row.
+        let result = reflow_lines_with_options(
+            &mut scrollback,
+            &mut rows,
+            Dimensions::new(16, 4),
+            cursor,
+            ReflowOptions {
+                preserve_cursor_physical_line: true,
+                cursor_pending_wrap: false,
+                collapse_prompt_start_row: None,
+            },
+        );
+
+        // The cursor must land at the true end of content (column == prompt
+        // length), NOT clamped to the stale narrow-row column (4) inside the
+        // path.
+        assert_eq!(
+            result.cursor,
+            Position {
+                row: 0,
+                column: chars.len(),
+            },
+            "cursor dragged into prompt prefix on collapse-widen"
+        );
     }
 }
