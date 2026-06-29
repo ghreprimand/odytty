@@ -78,6 +78,10 @@ impl CommandBuilder {
         }
     }
 
+    /// The resolved program. Only the Unix shell-integration injector inspects
+    /// it (to classify the shell), so it is `cfg(unix)` — the Windows backend
+    /// builds its command line from the program field directly.
+    #[cfg(unix)]
     pub(crate) fn program(&self) -> &OsString {
         &self.program
     }
@@ -92,12 +96,15 @@ impl CommandBuilder {
         self
     }
 
-    #[cfg(test)]
+    // Inspected only by the Unix shell-integration injection tests, so these
+    // are `cfg(all(test, unix))` — on Windows there is no spawn-time injection
+    // to assert against, so the seams would be unused.
+    #[cfg(all(test, unix))]
     pub(crate) fn args_for_test(&self) -> &[OsString] {
         &self.args
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn env_for_test(&self) -> &[(OsString, OsString)] {
         &self.env
     }

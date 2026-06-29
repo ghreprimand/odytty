@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Windows CI follow-up: cfg-gate the Unix-only shell-integration seams
+
+The shell-integration packet's spawn-time helpers are consumed only by
+`#[cfg(unix)]` code, but a few accessors were left un-gated, so the Windows
+`-D warnings` clippy leg failed on `dead_code` for `CommandBuilder::program`,
+`ShellKind::from_program`, and the `args_for_test`/`env_for_test` seams (the
+Linux leg passed because its Unix consumers keep them live). Gate each to match
+its only caller: `program`/`from_program` → `#[cfg(unix)]`, the test seams →
+`#[cfg(all(test, unix))]`, and the now-Unix-only `OsStr` import → `#[cfg(unix)]`.
+Also removed a genuinely-unused `ShellKind::name` (zero callers; `pub` exempted
+it from the lint but it was vestigial). No behavior change on any platform; the
+Unix injector and its tests are unaffected. Lesson recorded in CONTRIBUTING-worthy
+form: a `pub(crate)` accessor consumed only behind a `cfg` must carry that same
+`cfg`, or the other platform sees it as dead.
+
+Verified (Linux): `cargo fmt --check` / `cargo clippy --all-targets --locked -- -D warnings`
+/ `cargo build --release --locked` / `cargo test --locked` green; Windows leg
+re-checked in CI.
+
 ## 2026-06-29 -- Opt-in shell integration: auto-inject OSC 133 marks + honest disabled-Cut/Delete UX
 
 Makes the prompt-aware features that need OSC 133 marks actually reachable from

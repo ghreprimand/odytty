@@ -6,6 +6,7 @@
 //! points the detected shell at them; if anything fails, it leaves the command
 //! unchanged so shell startup never depends on integration plumbing.
 
+#[cfg(unix)]
 use std::ffi::OsStr;
 
 #[cfg(unix)]
@@ -33,6 +34,10 @@ impl ShellKind {
         }
     }
 
+    /// Classify a shell from a spawned program's basename. Only the Unix
+    /// spawn-time injector calls this, so it is `cfg(unix)`; the cross-platform
+    /// CLI snippet path classifies from the user-supplied name via [`parse`].
+    #[cfg(unix)]
     fn from_program(program: &OsStr) -> Option<Self> {
         let name = std::path::Path::new(program)
             .file_name()
@@ -40,14 +45,6 @@ impl ShellKind {
             .trim_start_matches('-')
             .to_ascii_lowercase();
         Self::parse(&name)
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Bash => "bash",
-            Self::Zsh => "zsh",
-            Self::Fish => "fish",
-        }
     }
 }
 
