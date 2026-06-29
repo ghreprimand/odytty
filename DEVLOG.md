@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Windows: build as a GUI-subsystem app; drop the FreeConsole workaround
+
+OdyTTY is now a GUI-subsystem binary on Windows (`#![cfg_attr(windows,
+windows_subsystem = "windows")]`) — the canonical posture for a windowed
+terminal, matching Windows Terminal, Alacritty, and WezTerm. It allocates and
+inherits no console at launch, which removes the launch-method-dependent
+behavior we were seeing (a console double-click behaved differently from a
+shell launch) and stops a console window flashing on an Explorer double-click.
+
+This deletes the `FreeConsole`/`detach_inherited_console` workaround entirely.
+That call was added mid-hunt under a since-disproven theory (that holding a
+console broke ConPTY init); the real cause was the pseudoconsole-handle bug
+fixed earlier. With no console ever held, there is nothing to free, and the
+workaround — and its stale `0xC0000142` rationale comment — are gone.
+
+To preserve CLI output under the GUI subsystem (where the process starts with a
+null stdout that silently swallows writes), `main` reattaches to the launching
+console via `AttachConsole(ATTACH_PARENT_PROCESS)` before any output, but only
+when a CLI argument is present — so `--version`/`--help`/`--dump-command`/
+`session-host`/`--core-smoke`/`--list-*`/`--show-config` print to the shell that
+ran them, while a plain windowed launch stays detached (no console flash). An
+Explorer launch has no parent console, so the reattach is a harmless no-op. The
+opener's `std::process::Command` already sets null stdio, so the GUI-subsystem
+`INVALID_HANDLE_VALUE` std-handle pitfall (rust-lang/rust#101645) does not apply.
+All `#[cfg(windows)]`-gated; the Unix build is byte-identical (suite unchanged at
+2578 passed).
+
 ## 2026-06-29 -- Windows: child-waiter thread tears the session down on shell exit
 
 On-device the shell now spawns, but a child that exited on its own (or whose
