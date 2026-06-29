@@ -101,6 +101,91 @@ fn resize_grid_is_idempotent_and_updates_model() {
     }
 }
 
+#[test]
+fn pending_zero_extent_resize_does_not_collapse_model_grid() {
+    let dims = Dimensions::new(80, 24);
+    let session = match spawn_test_pause_shell(dims) {
+        Ok(session) => session,
+        Err(_) => {
+            eprintln!("skipping: no PTY available");
+            return;
+        }
+    };
+    let writer: PtyWriter = match session.take_writer() {
+        Ok(writer) => Arc::new(Mutex::new(writer)),
+        Err(_) => {
+            eprintln!("skipping: could not take PTY writer");
+            return;
+        }
+    };
+    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let pty = Arc::new(Mutex::new(session));
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal.clone(),
+        writer,
+        pty.clone(),
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+
+    app.record_pending_resize_for_test(cell(8, 16), 0, 0, Instant::now());
+
+    assert_eq!(app.grid, dims);
+    assert_eq!(
+        terminal.lock().expect("terminal").snapshot().dimensions,
+        dims
+    );
+
+    if let Ok(mut session) = pty.lock() {
+        let _ = session.kill();
+        let _ = session.wait();
+    }
+}
+
+#[test]
+fn pending_nonzero_resize_still_updates_model_grid() {
+    let dims = Dimensions::new(80, 24);
+    let session = match spawn_test_pause_shell(dims) {
+        Ok(session) => session,
+        Err(_) => {
+            eprintln!("skipping: no PTY available");
+            return;
+        }
+    };
+    let writer: PtyWriter = match session.take_writer() {
+        Ok(writer) => Arc::new(Mutex::new(writer)),
+        Err(_) => {
+            eprintln!("skipping: could not take PTY writer");
+            return;
+        }
+    };
+    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let pty = Arc::new(Mutex::new(session));
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal.clone(),
+        writer,
+        pty.clone(),
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+
+    app.record_pending_resize_for_test(cell(8, 16), 800, 600, Instant::now());
+
+    let expected = Dimensions::new(100, 37);
+    assert_eq!(app.grid, expected);
+    assert_eq!(
+        terminal.lock().expect("terminal").snapshot().dimensions,
+        expected
+    );
+
+    if let Ok(mut session) = pty.lock() {
+        let _ = session.kill();
+        let _ = session.wait();
+    }
+}
+
 // ---------------------------------------------------------------------------
 // H3: HiDPI scale-matrix validation
 // ---------------------------------------------------------------------------

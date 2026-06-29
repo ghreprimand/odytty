@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Guard the model resize against a 0x0 (minimize) surface (RC-3)
+
+A minimized window can report a 0x0 drawable surface. The GPU surface already
+ignores that size (its resize early-returns on a zero extent), but the terminal
+MODEL path did not: the resize event handler still recorded a pending resize for
+the 0x0 surface, which flowed into grid fitting, clamped the dimensions to 1x1,
+and destructively reflowed every live session to a single column while there was
+nothing to draw — leaving the cursor off the prompt after restore.
+
+Fix: gate the model-resize apply on a non-zero extent (mirror the GPU surface's
+early-return), at the single choke point all debounced and drained model resizes
+route through. A minimize now leaves the terminal model untouched; restore already
+schedules a repaint unconditionally, so recovery is intact. A normal (non-zero)
+resize still reflows — the guard only short-circuits the zero-extent case.
+
+Two new tests drive the real debounced model-resize path via a test seam: a
+zero-extent resize must leave the grid unchanged (it collapsed to 1x1 before the
+fix), and a normal resize must still update the grid (guards against over-gating).
+
+Verified (Linux): `cargo fmt --check` / `cargo build --release --locked` /
+`cargo clippy --all-targets --locked -- -D warnings` / `cargo test --locked`
+green (2607 lib tests with RC-1 also landed). Non-vacuity: neutralizing the guard
+turns the zero-extent test RED (1x1 collapse) while the normal-resize test stays
+green, then restores. Open on-device question (later consolidated pass): whether
+the Windows console backend delivers a 0x0 resize on minimize or instead reports
+a lost/needs-reconfigure surface — the guard is correct and harmless either way.
+
 ## 2026-06-29 -- Fix resize cursor drift with pulled scrollback (RC-1)
 
 Fixes the resize/pane-op cursor drift on the backend that defers cursor
