@@ -7,6 +7,53 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-29 -- Windows: the real ConPTY 0xC0000142 fix — pass the pseudoconsole handle by value
+
+The previous two Windows fixes (release the inherited console; inherit the
+environment) were each correct hygiene but neither was the cause: on-device
+testing confirmed the shell still exited instantly with `0xC0000142`
+(`STATUS_DLL_INIT_FAILED`) after both. A from-scratch clean-room ConPTY harness
+on the same machine failed identically — even when driving a bundled
+`OpenConsole.exe` directly — which ruled the console-host binary out as the
+variable and pointed the hunt back at the spawn code shared by both.
+
+Root cause, found by converging code audit and external precedent: when building
+the `STARTUPINFOEXW` proc-thread attribute list, `spawn_command` passed the
+pseudoconsole to `UpdateProcThreadAttribute` as a **pointer to the local
+`hpcon` variable** rather than the `HPCON` handle **value** itself:
+
+```
+-   Some((&hpcon as *const HPCON).cast::<c_void>())   // a stack address
++   Some(hpcon.0 as *const c_void)                    // the handle value
+```
+
+`PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` expects `lpValue` to be the handle value
+with `cbSize = sizeof(HPCON)` — every canonical sample (Microsoft's EchoCon, the
+Console docs, node-pty, wezterm) passes `hPC` directly. Handing the kernel a
+stack address instead makes the child attach to a garbage pseudoconsole and die
+during console wireup in DLL init with `0xC0000142`, while the host's own conhost
+(created correctly by `CreatePseudoConsole`) stays alive — which is exactly the
+observed on-device signature (window renders, conhost alive, leaf shell dies). It
+also explains why env and FreeConsole changes did nothing: neither touches the
+handle, and `--version` works because that path spawns no ConPTY child.
+
+External confirmation: the same value-vs-pointer mistake, symptom
+(`0xC0000142` / `STATUS_DLL_INIT_FAILED` DLL-init popups), and one-line fix were
+independently reported and fixed in a sibling Rust ConPTY codebase.
+
+Fix (all `#[cfg(windows)]`-gated; Linux/macOS byte-identical, suite unchanged at
+2578 passed): pass `hpcon.0` (the `HPCON(pub isize)` payload) as `lpValue`,
+keeping `size_of::<HPCON>()`. The earlier console-release and inherited-env
+changes are retained as correct hygiene. A full audit of the rest of the spawn
+path (attribute-list sizing and lifetime, `bInheritHandles = false`, no
+`STARTF_USESTDHANDLES`, non-inheritable pipes, `EXTENDED_STARTUPINFO_PRESENT`)
+found it canonical-correct; this was the sole crash-causing deviation.
+
+This is the third unreleased Windows fix on top of `v0.6.2`; the version is cut
+only once a working shell prompt is confirmed on real hardware via the
+`windows-latest` CI `odytty.exe` run artifact. CI proves compile + unit tests;
+the interactive prompt is the on-device gate.
+
 ## 2026-06-28 -- Windows: inherit the environment so the shell stops dying at startup
 
 The console-release fix removed the host's own console error but on-device the
