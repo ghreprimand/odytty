@@ -2018,6 +2018,20 @@ impl App {
         }
     }
 
+    /// Whether a settings reload that touched `shell_integration` should raise
+    /// the "applies to new shells" notice. True only on a genuine OFF->ON
+    /// transition while a live session exists — silent on startup (no
+    /// transition), an ON->ON reload, the ON->OFF reverse toggle, or an OFF->ON
+    /// with no running shell to inform. Pure so the gating is exhaustively
+    /// unit-tested without standing up an App.
+    fn should_announce_shell_integration_to_new_shells(
+        was_enabled: bool,
+        now_enabled: bool,
+        has_live_session: bool,
+    ) -> bool {
+        !was_enabled && now_enabled && has_live_session
+    }
+
     fn apply_settings_through_reload_seam(
         &mut self,
         reloaded: Settings,
@@ -2027,6 +2041,11 @@ impl App {
         if !apply_reloadable_values(&mut next_settings, reloaded) {
             return;
         }
+        // Capture the prior shell-integration state BEFORE `self.settings` is
+        // replaced below, so a genuine OFF->ON toggle can be distinguished from
+        // an unchanged reload (the new-shells notice fires only on the
+        // transition, never on every reload).
+        let shell_integration_was_enabled = self.settings.shell_integration;
 
         let next_options = self.options_for_settings(&next_settings);
         let (text_rebuilt, padding_changed) = match self.gpu.as_mut() {
@@ -2056,6 +2075,21 @@ impl App {
             .set_recording_enabled(self.settings.session_replay);
         self.sessions
             .set_shell_integration_enabled(self.settings.shell_integration);
+        // Shell-integration hooks are injected only at spawn time, so enabling
+        // the setting mid-session cannot retroactively integrate the shell that
+        // is already running — only new tabs/panes pick it up. Surface an honest
+        // transient notice on the genuine OFF->ON transition while a shell is
+        // live, instead of silently appearing to do nothing.
+        if Self::should_announce_shell_integration_to_new_shells(
+            shell_integration_was_enabled,
+            self.settings.shell_integration,
+            !self.sessions.is_empty(),
+        ) {
+            self.raise_open_notice(
+                "Shell integration applies to new shells — open a new tab or split to activate."
+                    .to_owned(),
+            );
+        }
         // WIN-DECOR: apply a live decorations change immediately so the panel
         // toggle takes effect without a restart. `set_decorations` is
         // idempotent (calling it with the current value is a no-op), so this is
@@ -3356,5 +3390,88 @@ mod tests {
         // Losing focus forces solid-on and clears the scheduled wake.
         assert!(state.poll(t0 + Duration::from_millis(600), true, false));
         assert_eq!(state.deadline(), None);
+    }
+
+    // ---- Shell-integration "applies to new shells" notice ----
+
+    /// The gating decision is pure so EVERY combination is pinned here —
+    /// including the no-live-session case, which `build_idle_app` cannot
+    /// construct (`App::new` always seeds one session, and there is no public
+    /// close to drain it).
+    #[test]
+    fn new_shells_notice_fires_only_on_off_to_on_with_session() {
+        // prior, next, has_live_session
+        assert!(
+            App::should_announce_shell_integration_to_new_shells(false, true, true),
+            "OFF->ON with a live shell is the one honest case"
+        );
+        // No live session to inform -> stay silent.
+        assert!(!App::should_announce_shell_integration_to_new_shells(
+            false, true, false
+        ));
+        // ON at startup / ON->ON reload: no transition.
+        assert!(!App::should_announce_shell_integration_to_new_shells(
+            true, true, true
+        ));
+        // ON->OFF: the reverse toggle never nags.
+        assert!(!App::should_announce_shell_integration_to_new_shells(
+            true, false, true
+        ));
+        // OFF->OFF: no transition.
+        assert!(!App::should_announce_shell_integration_to_new_shells(
+            false, false, true
+        ));
+    }
+
+    /// Driving the real settings-reload seam OFF->ON while a live session
+    /// exists must surface the transient notice — the wiring this packet adds.
+    #[test]
+    fn off_to_on_reload_raises_new_shells_notice() {
+        // The reload seam republishes process-global render state (default
+        // colors / palette / contrast floor), so serialize against the other
+        // render-globals tests.
+        let _guard = crate::test_lock::render_globals_lock();
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        // `build_idle_app` starts shell_integration OFF (the default) with one
+        // live session, so flipping it ON is the genuine transition.
+        assert!(!app.settings.shell_integration);
+        assert!(!app.sessions.is_empty());
+        assert!(
+            app.open_notice_message_for_test().is_none(),
+            "no notice before the toggle"
+        );
+
+        let mut next = app.settings.clone();
+        next.shell_integration = true;
+        app.apply_settings_through_reload_seam(next, SettingsApplySource::OverlayEdit);
+
+        assert_eq!(
+            app.open_notice_message_for_test().as_deref(),
+            Some("Shell integration applies to new shells — open a new tab or split to activate."),
+            "an OFF->ON toggle with a live shell must surface the new-shells notice"
+        );
+    }
+
+    /// The reverse transition (ON->OFF) genuinely applies through the seam
+    /// (shell_integration changes, so it is not an early no-change return) yet
+    /// must never raise the notice.
+    #[test]
+    fn on_to_off_reload_raises_no_notice() {
+        let _guard = crate::test_lock::render_globals_lock();
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        app.settings.shell_integration = true;
+
+        let mut next = app.settings.clone();
+        next.shell_integration = false;
+        app.apply_settings_through_reload_seam(next, SettingsApplySource::OverlayEdit);
+
+        assert!(
+            app.open_notice_message_for_test().is_none(),
+            "an ON->OFF toggle must not surface the new-shells notice"
+        );
     }
 }

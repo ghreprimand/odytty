@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Notice that shell integration applies to new shells only
+
+Enabling shell integration from the settings panel mid-session appeared to do
+nothing: the integration hooks are injected only when a shell is spawned, so the
+already-running shell cannot be retrofitted — only new tabs and splits pick it
+up. That is a hard limit (no terminal can retroactively inject into a live
+shell), so instead of silently appearing broken, OdyTTY now surfaces an honest
+transient notice on a genuine OFF→ON toggle while a shell is live: "Shell
+integration applies to new shells — open a new tab or split to activate."
+
+The gating is a pure helper (`!was_enabled && now_enabled && has_live_session`)
+so every combination is pinned by a truth-table test, and the reload seam
+captures the prior setting before it is replaced so the notice fires only on the
+transition — never on startup, an unchanged reload, the ON→OFF reverse toggle,
+or an OFF→ON with no running shell. Reuses the existing transient-notice banner.
+
+Verified on Linux: `cargo fmt --check`, `cargo build --release --locked`,
+`cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked` all
+green. Tests drive the real settings-reload seam (OFF→ON raises the exact notice;
+ON→OFF stays silent) plus the exhaustive pure-helper truth table.
+
 ## 2026-06-30 -- Bound the OSC 8 hyperlink table (intern by identity)
 
 The terminal's OSC 8 hyperlink registry could grow without bound. Deduplication
