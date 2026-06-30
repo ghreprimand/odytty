@@ -661,6 +661,230 @@ fn shell_owns_resize_shrink_rewrap_above_cursor_pins_cursor_prefix_fix() {
     );
 }
 
+/// ConPTY no-rewrap binding test: on a `shell_owns_cursor_on_resize` backend (ConPTY),
+/// conhost authoritatively reflows and absolutely repaints the visible viewport
+/// on every resize. Running OdyTTY's own competing rewrap on the live grid
+/// strands the input-line tail at a stale wrap column, and the error
+/// ACCUMULATES across repeated narrow<->wide cycles. The fix mirrors the
+/// alt-screen non-reflow posture: on a width change with shell_owns=true, the
+/// live grid is truncate/padded (NOT rejoined+rewrapped) and conhost's repaint
+/// owns the viewport next tick.
+///
+/// This asserts the live grid took the truncate/pad path, NOT the rewrap path:
+/// the tail "GHIJ" stays on its own row instead of being redistributed, and the
+/// result is byte-identical to a plain truncate/pad of the original. Pre-fix the
+/// rewrap rejoins "0123456789ABCDEFGHIJ" and re-wraps it to width 6, moving
+/// "CDEFGH" onto row 2 -> RED.
+#[test]
+fn shell_owns_resize_does_not_rewrap_live_input_line() {
+    // A 20-char input line soft-wrapped across 3 rows at width 8, plus a blank
+    // tail row; cursor parked in the tail (row 2), as PSReadLine would leave it.
+    let original = || {
+        vec![
+            Line::wrapped(
+                "01234567"
+                    .chars()
+                    .map(|c| Cell::new(c, Attrs::default()))
+                    .collect(),
+            ),
+            Line::wrapped(
+                "89ABCDEF"
+                    .chars()
+                    .map(|c| Cell::new(c, Attrs::default()))
+                    .collect(),
+            ),
+            content_w("GHIJ", 8),
+            blank_row(8),
+        ]
+    };
+    let cursor = Position { row: 2, column: 3 };
+
+    // Truncate/pad oracle: each original row independently resized to width 6,
+    // with NO rejoin/rewrap (exactly what the alt-screen `resize_buffer_rows`
+    // primitive does, and what the fix routes the live grid through).
+    let truncate_pad = |rows: &mut Vec<Line>, width: usize| {
+        for row in rows.iter_mut() {
+            row.resize(width, Cell::blank());
+        }
+    };
+
+    // Single width change (8 -> 6) is enough to separate truncate/pad from rewrap.
+    let mut visible = original();
+    let mut sb = Scrollback::from_physical(&[]);
+    resize_lazy_with_options(
+        &mut sb,
+        &mut visible,
+        Dimensions::new(6, 4),
+        cursor,
+        false, // width CHANGE forces the reflow decision
+        ResizeOptions {
+            shell_owns_cursor_on_resize: true,
+            ..ResizeOptions::default()
+        },
+    );
+
+    let mut expected = original();
+    truncate_pad(&mut expected, 6);
+    assert_eq!(
+        visible, expected,
+        "shell-owns width change must truncate/pad the live grid, not rewrap it"
+    );
+    // The tail stays put on row 2 ("GHIJ"), proving it was not stranded onto a
+    // rewrapped row ("CDEFGH" is what the competing rewrap would place here).
+    let row2: String = visible[2].cells.iter().map(|c| c.ch).collect();
+    assert!(
+        row2.starts_with("GHIJ"),
+        "input-line tail stranded by a competing rewrap: row2 = {row2:?}"
+    );
+
+    // Accumulation signature: drag narrow<->wide repeatedly. Truncate/pad is
+    // idempotent at a fixed width (it converges), so after many cycles the grid
+    // at width 6 still equals the single truncate/pad — no compounding drift.
+    let mut grid = original();
+    let mut sb2 = Scrollback::from_physical(&[]);
+    let mut width = 8usize;
+    for _ in 0..3 {
+        let next = if width == 8 { 6 } else { 8 };
+        resize_lazy_with_options(
+            &mut sb2,
+            &mut grid,
+            Dimensions::new(next, 4),
+            cursor,
+            false,
+            ResizeOptions {
+                shell_owns_cursor_on_resize: true,
+                ..ResizeOptions::default()
+            },
+        );
+        width = next;
+    }
+    // End on width 6.
+    if width != 6 {
+        resize_lazy_with_options(
+            &mut sb2,
+            &mut grid,
+            Dimensions::new(6, 4),
+            cursor,
+            false,
+            ResizeOptions {
+                shell_owns_cursor_on_resize: true,
+                ..ResizeOptions::default()
+            },
+        );
+    }
+    let row2_cycled: String = grid[2].cells.iter().map(|c| c.ch).collect();
+    assert!(
+        row2_cycled.starts_with("GHIJ"),
+        "tail accumulated corruption across narrow<->wide cycles: row2 = {row2_cycled:?}"
+    );
+}
+
+/// Guard: with shell_owns=false (POSIX PTY / Linux + macOS), the live grid
+/// MUST still be rejoined and rewrapped to the new width exactly as before. This
+/// proves the no-rewrap gate is conditioned on the flag and that the unix
+/// backend's behavior stays byte-identical. Pre- and post-fix this stays GREEN;
+/// reverting the production gate must NOT make it fail.
+#[test]
+fn non_shell_owns_resize_still_rewraps() {
+    let mut visible = vec![
+        Line::wrapped(
+            "01234567"
+                .chars()
+                .map(|c| Cell::new(c, Attrs::default()))
+                .collect(),
+        ),
+        Line::wrapped(
+            "89ABCDEF"
+                .chars()
+                .map(|c| Cell::new(c, Attrs::default()))
+                .collect(),
+        ),
+        content_w("GHIJ", 8),
+        blank_row(8),
+    ];
+    let cursor = Position { row: 2, column: 3 };
+
+    let mut sb = Scrollback::from_physical(&[]);
+    resize_lazy_with_options(
+        &mut sb,
+        &mut visible,
+        Dimensions::new(6, 4),
+        cursor,
+        false,
+        ResizeOptions {
+            shell_owns_cursor_on_resize: false, // POSIX PTY: still rewraps
+            ..ResizeOptions::default()
+        },
+    );
+
+    // Rewrap rejoins "0123456789ABCDEFGHIJ" and re-wraps at width 6, so row 1 is
+    // "6789AB" (redistributed) -- NOT the truncate "89ABCD".
+    let row1: String = visible[1].cells.iter().map(|c| c.ch).collect();
+    assert_eq!(
+        row1, "6789AB",
+        "non-shell-owns resize must still rewrap the live grid (Linux/macOS path)"
+    );
+}
+
+/// Decision gate (scrollback projection, option (a) over (b)): on a shell_owns width
+/// change, scrollback above the viewport must STILL project to the new width
+/// (history readability) even though the live grid no longer rewraps. Scrollback
+/// is held as width-independent logical lines and projected on access, so a
+/// long line projects to MORE rows at a narrower width -- proving it re-adapts
+/// rather than being frozen or passed through (the rejected option (b)).
+#[test]
+fn shell_owns_resize_preserves_scrollback_projection() {
+    // One 24-char logical line in scrollback: 3 rows at width 8.
+    let long: Vec<Line> = vec![
+        Line::wrapped(
+            "01234567"
+                .chars()
+                .map(|c| Cell::new(c, Attrs::default()))
+                .collect(),
+        ),
+        Line::wrapped(
+            "89ABCDEF"
+                .chars()
+                .map(|c| Cell::new(c, Attrs::default()))
+                .collect(),
+        ),
+        content_w("GHIJKLMN", 8),
+    ];
+    let mut sb = Scrollback::from_physical(&long);
+    let mut visible = vec![content_w("live", 8), blank_row(8)];
+    let cursor = Position { row: 0, column: 0 };
+
+    resize_lazy_with_options(
+        &mut sb,
+        &mut visible,
+        Dimensions::new(6, 2),
+        cursor,
+        false,
+        ResizeOptions {
+            shell_owns_cursor_on_resize: true,
+            ..ResizeOptions::default()
+        },
+    );
+
+    // Project the remaining scrollback at the NEW width: the 24-char line now
+    // needs 4 rows (ceil(24/6)) instead of 3, and every row is exactly 6 wide.
+    let projected = sb.physical(6);
+    let joined: String = projected
+        .iter()
+        .flat_map(|r| r.cells.iter())
+        .map(|c| c.ch)
+        .filter(|c| *c != ' ')
+        .collect();
+    assert!(
+        joined.contains("0123456789ABCDEFGHIJKLMN"),
+        "scrollback content lost: {joined:?}"
+    );
+    assert!(
+        projected.iter().all(|r| r.cells.len() == 6),
+        "scrollback did not re-project to the new width (decision a violated)"
+    );
+}
+
 #[test]
 fn terminal_set_scrollback_limit_caps_live_history() {
     let mut term = Terminal::new(W, 3);

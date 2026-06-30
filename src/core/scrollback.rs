@@ -53,7 +53,7 @@ use unicode_width::UnicodeWidthChar;
 
 use super::prompt_marks::PromptKind;
 use super::reflow::{ReflowOptions, reflow_lines_with_options, resize_keep_width_with_options};
-use super::screen::Line;
+use super::screen::{Line, blank_row};
 use super::types::{Cell, Dimensions, Position};
 
 /// One logical line: a hard-terminated line whose soft-wrap runs have been
@@ -359,6 +359,18 @@ pub(in crate::core) fn resize_lazy_with_options(
     let new_rows = new_dims.rows;
     let new_width = new_dims.columns;
 
+    // ConPTY content-reflow suppression: on a backend whose shell authoritatively reflows + repaints the
+    // viewport on resize (ConPTY/conhost), a width change must NOT run our own
+    // competing rewrap of the live grid -- the two reflow engines disagree on
+    // soft-wrap boundaries and strand the input-line tail, compounding across
+    // repeated narrow<->wide cycles. Route the live grid through truncate/pad
+    // instead (mirroring the alt-screen non-reflow path) and let conhost's
+    // absolute repaint own the viewport next tick. The width-unchanged fast
+    // path already does no content rewrap, so this is gated on a width change.
+    if options.shell_owns_cursor_on_resize && !width_unchanged {
+        return resize_shell_owns_no_rewrap(sb, rows, new_dims, cursor, options);
+    }
+
     // Pull trailing logical lines into the re-wrap subset: enough to fill the new
     // window, always including the open tail (which continues into the live
     // grid), and through any trailing blank run so trailing-blank collapse
@@ -466,6 +478,67 @@ pub(in crate::core) fn resize_lazy_with_options(
     }
     sb.invalidate();
     result
+}
+
+/// Live-grid truncate/pad path for the `shell_owns_cursor_on_resize`
+/// backend (ConPTY/conhost) on a width change.
+///
+/// conhost reflows its own screen buffer and re-emits an absolute repaint of the
+/// visible viewport on every `ResizePseudoConsole`. OdyTTY must therefore NOT
+/// run its own competing rewrap on the live grid: the two engines disagree on
+/// where soft-wrap boundaries fall for the active input line, stranding the tail
+/// at a stale wrap column, and because each subsequent resize re-derives logical
+/// lines from the now-inconsistent rows the error ACCUMULATES across repeated
+/// narrow<->wide cycles. This mirrors the alternate-screen non-reflow posture
+/// (`reflow::resize_buffer_rows`, rationale "apps repaint"): the live grid is
+/// truncate/padded to the new width with no rejoin/rewrap, and conhost's
+/// absolute repaint redraws the viewport on the next pump tick.
+///
+/// Decision (a) (settled by `shell_owns_resize_preserves_scrollback_projection`,
+/// option (b) rejected): scrollback is left untouched here. It is stored as
+/// width-independent logical lines and re-projected to the new width on access,
+/// so history stays readable without a competing rewrap. We deliberately do NOT
+/// pull trailing scrollback into the viewport the way the normal lazy path does
+/// -- conhost owns the viewport, so pulling + rewrapping it would re-introduce
+/// the exact fight this path exists to avoid. Rows that overflow the new (taller
+/// -> shorter) window scroll into scrollback, since conhost does not resend it.
+///
+/// Cursor placement is already deferred to the shell under `shell_owns_cursor`;
+/// the incoming cursor is kept, clamped to the new dims, and corrected by the
+/// shell's absolute repaint next tick.
+fn resize_shell_owns_no_rewrap(
+    sb: &mut Scrollback,
+    rows: &mut Vec<Line>,
+    new_dims: Dimensions,
+    cursor: Position,
+    options: ResizeOptions,
+) -> ResizeResult {
+    let new_rows = new_dims.rows;
+    let new_width = new_dims.columns;
+
+    // Truncate/pad each live row to the new width (no rejoin/rewrap).
+    for row in rows.iter_mut() {
+        row.resize(new_width, Cell::blank());
+    }
+    // Rows above the new window scroll into scrollback (conhost does not resend
+    // it, so OdyTTY keeps its own history); pad a short grid up to new_rows.
+    if rows.len() > new_rows {
+        let removed = rows.len() - new_rows;
+        for row in rows.drain(0..removed) {
+            sb.push_row(row);
+        }
+    }
+    rows.resize_with(new_rows, || blank_row(new_width));
+    // Force scrollback to re-project at the new width on next access.
+    sb.invalidate();
+
+    let column = cursor.column.min(new_width - 1);
+    let row = cursor.row.min(new_rows - 1);
+    ResizeResult {
+        cursor: Position { row, column },
+        pending_wrap: options.cursor_pending_wrap && column == new_width - 1,
+        collapsed_prompt_start_row: None,
+    }
 }
 
 /// Rebuild logical lines from physical rows (the inverse of [`project_logical`]).
