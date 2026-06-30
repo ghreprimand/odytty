@@ -797,6 +797,45 @@ impl TabSet {
         cell_h: u32,
         divider_px: f32,
     ) {
+        self.resize_all_panes_impl(content, cell_w, cell_h, divider_px, true);
+    }
+
+    /// Reflow every pane's terminal **model + cell metrics** to the laid-out
+    /// dimensions WITHOUT issuing the kernel-side PTY (`TIOCSWINSZ`) / attached
+    /// (`Resize` frame) resize. The on-screen grid reflows live, but the shell
+    /// is NOT told its size changed.
+    ///
+    /// COALESCING (Phase H decision gate → option (a), flush-on-release): a
+    /// divider drag fires one pointer-move event per pixel. Routing each through
+    /// the full `resize_all_panes` flooded the shell with one
+    /// `ResizePseudoConsole`/`SIGWINCH` per move — on Windows ConPTY that
+    /// scrambles PSReadLine's prompt as it repaints mid-resize. So the live
+    /// per-move drag reflows the model only (this method) and the left-release
+    /// handler flushes exactly one real `resize_all_panes` (PTY included) at
+    /// drag-end, when the final size is settled. See `App::drag_divider_to_pointer`
+    /// and the RELEASE-SNAP block in `app::pointer`.
+    pub(super) fn reflow_all_panes_for_drag(
+        &mut self,
+        content: PaneRect,
+        cell_w: u32,
+        cell_h: u32,
+        divider_px: f32,
+    ) {
+        self.resize_all_panes_impl(content, cell_w, cell_h, divider_px, false);
+    }
+
+    /// Shared body of [`resize_all_panes`] (`resize_pty = true`) and
+    /// [`reflow_all_panes_for_drag`] (`resize_pty = false`). The model + cell-
+    /// metrics reflow is identical for both; only the kernel-side resize is
+    /// gated, so every existing `resize_all_panes` caller stays byte-identical.
+    fn resize_all_panes_impl(
+        &mut self,
+        content: PaneRect,
+        cell_w: u32,
+        cell_h: u32,
+        divider_px: f32,
+        resize_pty: bool,
+    ) {
         for tab in &self.tabs {
             // A zoomed tab sizes its focused pane to the whole content rect
             // (it is rendered full-bleed); background panes keep their layout
@@ -837,17 +876,22 @@ impl TabSet {
                 // Route the kernel-side resize to whichever source backs the
                 // session: a local PTY gets TIOCSWINSZ (byte-identical to before
                 // Phase 2); an attached session forwards a `Resize` frame so the
-                // host applies TIOCSWINSZ + reflow on its side.
-                match &session.source {
-                    SessionSource::Local { pty } => {
-                        if let Ok(pty) = pty.lock() {
-                            let _ = pty.resize(crate::core::Dimensions::new(cols, rows));
+                // host applies TIOCSWINSZ + reflow on its side. Skipped entirely
+                // for the live divider-drag path (`resize_pty = false`), which
+                // reflows the model only and lets the release handler issue the
+                // single coalesced kernel resize at drag-end.
+                if resize_pty {
+                    match &session.source {
+                        SessionSource::Local { pty } => {
+                            if let Ok(pty) = pty.lock() {
+                                let _ = pty.resize(crate::core::Dimensions::new(cols, rows));
+                            }
                         }
-                    }
-                    #[cfg(unix)]
-                    SessionSource::Attached { client } => {
-                        if let Ok(mut client) = client.lock() {
-                            let _ = client.resize(cols as u32, rows as u32);
+                        #[cfg(unix)]
+                        SessionSource::Attached { client } => {
+                            if let Ok(mut client) = client.lock() {
+                                let _ = client.resize(cols as u32, rows as u32);
+                            }
                         }
                     }
                 }

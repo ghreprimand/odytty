@@ -47,21 +47,33 @@ impl App {
             && button == WinitMouseButton::Left
             && state == ElementState::Released
         {
-            // RELEASE-SNAP: the smooth per-pixel drag leaves the active split at
-            // an arbitrary sub-cell ratio, whose floored-grid remainder breathes
-            // at the outer window margin as the divider moves. On release, snap
-            // the dragged split's divider onto a whole-cell boundary and reflow
-            // once, so every rest position leaves identical outer margins (the
-            // between-pane gap stays the 1px divider either way). Runs before
-            // clearing `divider_drag` so the dragged split index is still known;
-            // `multipane_geometry()` is `None` on a single-pane tab, so the
-            // byte-identical path never snaps.
-            if let Some((content, cell)) = self.multipane_geometry()
-                && self
-                    .sessions
-                    .snap_active_divider(content, PANE_DIVIDER_PX, target, cell.width, cell.height)
-                    .is_some()
-            {
+            // RELEASE-SNAP + COALESCED FLUSH (Phase H decision gate → option (a),
+            // flush-on-drag-end): the smooth per-pixel drag leaves the active
+            // split at an arbitrary sub-cell ratio, whose floored-grid remainder
+            // breathes at the outer window margin as the divider moves. On
+            // release, snap the dragged split's divider onto a whole-cell
+            // boundary (cosmetic; may be a no-op when already aligned), THEN
+            // flush exactly one full `resize_all_panes` — PTY included.
+            //
+            // The flush is UNCONDITIONAL whenever a divider drag was in progress
+            // (not gated on the snap changing the ratio): the live per-move drag
+            // reflowed only the terminal models via `reflow_all_panes_for_drag`,
+            // so the shell's PTY is still at the pre-drag size. This release is
+            // the one place the kernel learns the final dimensions; gating it on
+            // a snap delta would strand the PTY at the old size whenever the
+            // divider happened to land on a cell boundary. Runs before clearing
+            // `divider_drag` so the dragged split index is still known;
+            // `multipane_geometry()` is `None` on a single-pane tab (which never
+            // grabs a divider), so the byte-identical single-pane path is
+            // untouched.
+            if let Some((content, cell)) = self.multipane_geometry() {
+                self.sessions.snap_active_divider(
+                    content,
+                    PANE_DIVIDER_PX,
+                    target,
+                    cell.width,
+                    cell.height,
+                );
                 self.sessions
                     .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
                 self.sessions.active_mut().needs_rebuild = true;

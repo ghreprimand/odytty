@@ -1424,3 +1424,163 @@ fn drag_select_still_works_single_pane() {
     assert_eq!(start_row, end_row);
     assert_ne!(start_col, end_col);
 }
+
+#[test]
+fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
+    // Coalescing guard (Phase H): a divider drag fires one pointer-move event
+    // per pixel. Routing each through the full pane resize flooded the shell with
+    // one kernel resize (`ResizePseudoConsole`/`TIOCSWINSZ`) per move — on
+    // Windows ConPTY that scrambles PSReadLine's prompt as it repaints
+    // mid-resize. The fix reflows the on-screen grid LIVE per move but defers the
+    // single kernel resize to drag-end. This test crosses many cell boundaries
+    // during the drag and asserts ZERO kernel resizes fire until the release.
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a.clone(),
+        writer_a,
+        pty_a.clone(),
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    app.seed_split_pane_for_test(true, terminal_b.clone(), writer_b, pty_b.clone());
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    app.reflow_active_panes_for_test();
+    assert_eq!(
+        app.active_pane_count_for_test(),
+        2,
+        "precondition: two-pane column split"
+    );
+
+    // Helper: kernel-resize call count for both panes' PTYs.
+    let count = |a: &Arc<Mutex<PtySession>>, b: &Arc<Mutex<PtySession>>| -> (usize, usize) {
+        (
+            a.lock().expect("pty a").resize_call_count(),
+            b.lock().expect("pty b").resize_call_count(),
+        )
+    };
+    // Pane A's column count, to prove the model reflows LIVE during the drag.
+    let a_cols = || {
+        terminal_a
+            .lock()
+            .expect("term a")
+            .screen()
+            .dimensions()
+            .columns
+    };
+
+    // Snapshot the baseline AFTER setup (split + reflow already issued kernel
+    // resizes); the assertions below measure the delta caused by the drag.
+    let (a0, b0) = count(&pty_a, &pty_b);
+    let a_cols_before = a_cols();
+
+    // Grab the vertical divider at the content midpoint (x = 640/2 = 320).
+    const MID_X: f64 = (COLS as f64 * CW as f64) / 2.0; // 320.0
+    const MID_Y: f64 = (ROWS as f64 * CH as f64) / 2.0; // 192.0
+    app.set_pointer_px_for_test(MID_X, MID_Y);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+
+    // Drag the divider LEFT across nine whole-cell boundaries (8 px each). Each
+    // step crosses a cell edge so the grid model reflows live every move.
+    for step in 1..=9 {
+        let x = MID_X - f64::from(step) * f64::from(CW);
+        app.pointer_move_for_test(x, MID_Y);
+    }
+
+    // RED pre-fix: ~2 kernel resizes per move (one per pane) accumulate here.
+    // GREEN post-fix: zero kernel resizes during the whole drag.
+    let (a1, b1) = count(&pty_a, &pty_b);
+    assert_eq!(
+        (a1 - a0, b1 - b0),
+        (0, 0),
+        "no kernel PTY resize may fire during a divider drag (was {} / {} per pane)",
+        a1 - a0,
+        b1 - b0
+    );
+    // ...but the on-screen grid MUST have reflowed live (the visual is not
+    // frozen): dragging the divider left narrows pane A.
+    assert!(
+        a_cols() < a_cols_before,
+        "the grid model must reflow live during the drag (pane A cols {} -> {})",
+        a_cols_before,
+        a_cols()
+    );
+
+    // Release flushes exactly one coalesced kernel resize per pane.
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+    let (a2, b2) = count(&pty_a, &pty_b);
+    assert_eq!(
+        (a2 - a1, b2 - b1),
+        (1, 1),
+        "drag-end must flush exactly one kernel resize per pane"
+    );
+}
+
+#[test]
+fn single_pane_has_no_divider_drag_resize_path() {
+    // Rule D byte-identity guard: a single-pane tab has no divider, so a left
+    // press + drag + release never enters the divider-drag coalescing path and
+    // issues no extra kernel resize from it.
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal, writer, pty, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal,
+        writer,
+        pty.clone(),
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    assert_eq!(
+        app.active_pane_count_for_test(),
+        1,
+        "precondition: single pane"
+    );
+
+    let base = pty.lock().expect("pty").resize_call_count();
+    app.set_pointer_px_for_test(320.0, 192.0);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    app.pointer_move_for_test(240.0, 192.0);
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+    assert_eq!(
+        pty.lock().expect("pty").resize_call_count(),
+        base,
+        "a single-pane tab has no divider-drag resize path"
+    );
+}

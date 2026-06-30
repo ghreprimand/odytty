@@ -280,13 +280,20 @@ impl App {
     }
 
     /// Apply an in-progress divider drag to the current pointer position,
-    /// re-deriving the grabbed split's ratio and reflowing the affected panes
-    /// (per-pane terminal `resize` + PTY `TIOCSWINSZ` via
-    /// [`TabSet::resize_all_panes`]) before requesting a repaint. No-op unless a
-    /// divider is grabbed and the active tab is multi-pane. The full-window grid
-    /// is unchanged by a divider drag, so this reflows pane sub-rects directly
-    /// rather than through the window-resize debouncer (which keys on the
-    /// whole-window grid and would early-return).
+    /// re-deriving the grabbed split's ratio and reflowing the affected panes'
+    /// terminal **models + cell metrics** (via [`TabSet::reflow_all_panes_for_drag`])
+    /// before requesting a repaint. No-op unless a divider is grabbed and the
+    /// active tab is multi-pane. The full-window grid is unchanged by a divider
+    /// drag, so this reflows pane sub-rects directly rather than through the
+    /// window-resize debouncer (which keys on the whole-window grid and would
+    /// early-return).
+    ///
+    /// COALESCING (Phase H): a drag fires one move per pixel; the kernel-side
+    /// PTY resize is deliberately NOT issued here. The on-screen grid reflows
+    /// live per-move, but the shell learns its new size from exactly one
+    /// coalesced `resize_all_panes` the release handler flushes at drag-end —
+    /// avoiding a `ResizePseudoConsole`/`SIGWINCH` flood that scrambles the
+    /// shell's prompt repaint on ConPTY.
     pub(super) fn drag_divider_to_pointer(&mut self) {
         let Some(target) = self.divider_drag else {
             return;
@@ -302,8 +309,12 @@ impl App {
             .drag_active_divider(content, PANE_DIVIDER_PX, target, x as f32, y as f32)
             .is_some()
         {
-            self.sessions
-                .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
+            self.sessions.reflow_all_panes_for_drag(
+                content,
+                cell.width,
+                cell.height,
+                PANE_DIVIDER_PX,
+            );
             self.sessions.active_mut().needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();

@@ -35,7 +35,7 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::os::windows::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -105,6 +105,11 @@ pub struct PtySession {
     /// healthy path and for normal (clean or late) exits. See
     /// [`PtySession::pending_diagnostic_slot`].
     pending_diagnostic: Arc<Mutex<Option<String>>>,
+    /// Test-only counter of kernel `resize` calls (`ResizePseudoConsole`). Lets
+    /// a headless test assert the divider-drag coalescing fires ONE resize at
+    /// drag-end instead of one per pointer-move. Not built outside tests.
+    #[cfg(test)]
+    resize_calls: AtomicUsize,
 }
 
 impl PtySession {
@@ -329,13 +334,24 @@ impl PtySession {
                 output_read,
                 waiter,
                 pending_diagnostic,
+                #[cfg(test)]
+                resize_calls: AtomicUsize::new(0),
             })
         }
     }
 
     pub fn resize(&self, dimensions: Dimensions) -> Result<()> {
+        #[cfg(test)]
+        self.resize_calls.fetch_add(1, Ordering::Relaxed);
         // SAFETY: `self.hpcon` is a live pseudoconsole owned by this session.
         unsafe { ResizePseudoConsole(HPCON(self.hpcon), coord(dimensions)).context("resize pty") }
+    }
+
+    /// Test-only: how many times [`resize`](Self::resize) has been called on
+    /// this session. Drives the divider-drag coalescing assertion.
+    #[cfg(test)]
+    pub fn resize_call_count(&self) -> usize {
+        self.resize_calls.load(Ordering::Relaxed)
     }
 
     /// Whether the shell on this backend authoritatively repaints with ABSOLUTE

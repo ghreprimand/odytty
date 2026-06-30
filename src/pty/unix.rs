@@ -44,6 +44,11 @@ fn classify_foreground<Fd: AsFd>(fd: Fd, shell_pgid: RawPid) -> ForegroundJob {
 pub struct PtySession {
     master: File,
     child: Child,
+    /// Test-only counter of kernel `resize` calls (TIOCSWINSZ). Lets a headless
+    /// test assert the divider-drag coalescing fires ONE resize at drag-end
+    /// instead of one per pointer-move. Not built outside tests.
+    #[cfg(test)]
+    resize_calls: std::sync::atomic::AtomicUsize,
 }
 
 impl PtySession {
@@ -147,11 +152,26 @@ impl PtySession {
 
         let child = command.spawn().context("spawn pty command")?;
 
-        Ok(Self { master, child })
+        Ok(Self {
+            master,
+            child,
+            #[cfg(test)]
+            resize_calls: std::sync::atomic::AtomicUsize::new(0),
+        })
     }
 
     pub fn resize(&self, dimensions: Dimensions) -> Result<()> {
+        #[cfg(test)]
+        self.resize_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         tcsetwinsize(&self.master, winsize(dimensions)).context("resize pty")
+    }
+
+    /// Test-only: how many times [`resize`](Self::resize) has been called on
+    /// this session. Drives the divider-drag coalescing assertion.
+    #[cfg(test)]
+    pub fn resize_call_count(&self) -> usize {
+        self.resize_calls.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether the shell on this backend authoritatively repaints with ABSOLUTE
