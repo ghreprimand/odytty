@@ -410,6 +410,19 @@ mod tests {
     }
 
     #[test]
+    fn windows_drive_cwd_must_not_keep_file_url_leading_slash() {
+        let options = DetectionOptions { barewords: true };
+        let spans = detect_paths_with_options("a.txt", options);
+        assert_eq!(spans.len(), 1);
+
+        let probe = MapProbe::new([("C:/proj/a.txt", FsKind::File)]);
+        let resolved = resolve(&spans[0], Some("C:/proj"), None, &probe).unwrap();
+        assert_eq!(resolved.abs, "C:/proj/a.txt");
+
+        assert!(resolve(&spans[0], Some("/C:/proj"), None, &probe).is_none());
+    }
+
+    #[test]
     fn bareword_detect_then_resolve_keeps_default_mode_byte_identical() {
         assert!(detect_paths("carpet1.jpg").is_empty());
         assert!(detect_paths("README").is_empty());

@@ -82,7 +82,26 @@ pub(super) fn parse_osc7_cwd(parts: &[&[u8]], local_hostname: Option<&str>) -> O
     }
 
     let decoded = percent_decode_path(path)?;
-    Some(String::from_utf8_lossy(&decoded).into_owned())
+    let cwd = String::from_utf8_lossy(&decoded).into_owned();
+    #[cfg(windows)]
+    {
+        return Some(strip_leading_drive_slash(cwd));
+    }
+    Some(cwd)
+}
+
+#[cfg(any(windows, test))]
+fn strip_leading_drive_slash(path: String) -> String {
+    let bytes = path.as_bytes();
+    if bytes.len() >= 3
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && bytes[2] == b':'
+        && (bytes.len() == 3 || bytes[3] == b'\\' || bytes[3] == b'/')
+    {
+        return path[1..].to_owned();
+    }
+    path
 }
 
 fn osc7_host_is_local(host: &[u8], local_hostname: Option<&str>) -> bool {
@@ -243,4 +262,29 @@ pub(super) fn indexed_srgb(index: u8) -> RgbColor {
         }
     };
     RgbColor::new(red, green, blue)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strip_leading_drive_slash;
+
+    #[test]
+    fn strip_leading_drive_slash_normalizes_file_url_drive_paths() {
+        for (input, expected) in [
+            ("/C:/Users/x", "C:/Users/x"),
+            ("/c:/x", "c:/x"),
+            ("/C:\\x", "C:\\x"),
+            ("/C:", "C:"),
+            ("C:/x", "C:/x"),
+            ("/tmp/x", "/tmp/x"),
+            ("/", "/"),
+            ("", ""),
+        ] {
+            assert_eq!(
+                strip_leading_drive_slash(input.to_owned()),
+                expected,
+                "{input}"
+            );
+        }
+    }
 }

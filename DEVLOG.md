@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Normalize Windows drive paths from OSC 7 file URLs
+
+PowerShell shell integration was already emitting an RFC-correct OSC 7 working
+directory such as `file:///C:/Users/...`, but the parser kept the URL path's
+leading slash and stored the cwd as `/C:/Users/...` on Windows. Relative
+interactive paths were then joined under `/C:/...`, which Windows cannot stat,
+so bare filenames in shell output never became hoverable even though absolute
+`C:\...` paths still worked.
+
+Fix: the OSC 7 parser now strips the leading URL slash only for Windows drive
+forms (`/C:/...`, `/C:\...`, or `/C:`), and only in Windows builds. POSIX paths
+such as `/tmp/...` stay unchanged, and Linux/macOS production builds do not call
+the helper.
+
+Verified on Linux: a new unit test covers the drive-slash normalizer directly,
+including lowercase drives and POSIX non-matches. A resolver guard shows the
+bug's downstream effect: `C:/proj` plus a bare `a.txt` resolves through the
+synthetic stat probe, while `/C:/proj` does not. Neutralize-revert made the
+normalizer a no-op and the unit test went red. Full gate (fmt / clippy
+`-D warnings` / release build / test) green.
+
+---
+
 ## 2026-06-30 -- Coalesce divider-drag PTY resize to one flush at drag-end
 
 Dragging a split's divider fires one pointer-move event per pixel, and each
