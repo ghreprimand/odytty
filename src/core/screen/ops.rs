@@ -1032,6 +1032,11 @@ impl Screen {
         self.kitty_keyboard_stack.clear();
         self.focus_reporting = false;
         self.click_events_enabled = false;
+        // DEC private mode 1007 (alternate scroll) powers on enabled, so RIS
+        // returns it to that default. Like the focus-reporting / mouse /
+        // click-events input-reporting family above, it is reset by RIS only —
+        // soft_reset (DECSTR) deliberately leaves it.
+        self.alternate_scroll = true;
         self.active_prompt_input_start = None;
         self.active_prompt_start = None;
         // RIS returns the cursor shape/blink to the host default policy.

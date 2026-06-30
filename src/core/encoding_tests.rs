@@ -443,6 +443,42 @@ fn ris_resets_focus_reporting() {
 }
 
 #[test]
+fn ris_resets_alternate_scroll_to_power_on_default() {
+    // DEC private mode 1007 (alternate scroll) powers on enabled, so RIS must
+    // restore it to enabled after a DECRST turned it off — mirroring the
+    // focus-reporting / mouse / click-events input-reporting family that RIS
+    // returns to its power-on state.
+    let mut terminal = Terminal::new(4, 1);
+    assert!(terminal.alternate_scroll_enabled());
+
+    terminal.advance(b"\x1b[?1007l"); // DECRST 1007 -> off
+    assert!(!terminal.alternate_scroll_enabled());
+
+    terminal.advance(b"\x1bc"); // RIS
+    assert!(
+        terminal.alternate_scroll_enabled(),
+        "RIS must restore alternate scroll to its power-on default"
+    );
+}
+
+#[test]
+fn soft_reset_leaves_alternate_scroll_untouched() {
+    // DECSTR (soft reset) intentionally does NOT reset the input-reporting
+    // family (focus reporting / mouse / click events / alternate scroll) — only
+    // RIS does. This pins alternate scroll to that family: a DECRST 1007 stays
+    // in effect across a soft reset, matching how focus reporting behaves here.
+    let mut terminal = Terminal::new(4, 1);
+    terminal.advance(b"\x1b[?1007l"); // DECRST 1007 -> off
+    assert!(!terminal.alternate_scroll_enabled());
+
+    terminal.advance(b"\x1b[!p"); // DECSTR (soft reset)
+    assert!(
+        !terminal.alternate_scroll_enabled(),
+        "soft reset must not touch alternate scroll (RIS-only family)"
+    );
+}
+
+#[test]
 fn encode_focus_event_gated_and_directional() {
     // Disabled: nothing is emitted regardless of direction.
     assert_eq!(encode_focus_event(false, true), None);
