@@ -5,6 +5,7 @@
 //! never opens links from OSC input; native applies a scheme allowlist before a
 //! deliberate Ctrl+click action.
 
+use std::collections::HashMap;
 use std::num::NonZeroU32;
 
 use super::types::LinkId;
@@ -23,7 +24,15 @@ pub struct Hyperlink {
 #[derive(Debug, Clone, Default)]
 pub(in crate::core) struct HyperlinkTable {
     links: Vec<Hyperlink>,
+    by_key: HashMap<HyperlinkKey, LinkId>,
+    by_id: HashMap<LinkId, usize>,
     next_id: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct HyperlinkKey {
+    uri: String,
+    osc_id: Option<String>,
 }
 
 impl HyperlinkTable {
@@ -35,26 +44,42 @@ impl HyperlinkTable {
 
         let uri = String::from_utf8_lossy(&uri_bytes).into_owned();
         let osc_id = osc8_id(params);
-        if let Some(existing) = self.links.iter().find(|link| {
-            link.uri == uri && link.osc_id.as_deref() == osc_id.as_deref() && link.osc_id.is_some()
-        }) {
-            return Some(existing.id);
+        // Intern by the complete OSC 8 identity: explicit `id=` plus URI when
+        // present, otherwise the anonymous URI itself. Anonymous OSC 8 is what
+        // repaint-heavy TUIs commonly emit; sharing a LinkId for the same URI is
+        // behaviorally equivalent for hover/open while bounding table growth.
+        let key = HyperlinkKey {
+            uri: uri.clone(),
+            osc_id: osc_id.clone(),
+        };
+        if let Some(&id) = self.by_key.get(&key) {
+            return Some(id);
         }
 
         let next = self.next_id.checked_add(1).unwrap_or(1).max(1);
         self.next_id = next;
         let id = LinkId::new(NonZeroU32::new(next).expect("next hyperlink id is nonzero"));
+        let index = self.links.len();
         self.links.push(Hyperlink { id, uri, osc_id });
+        self.by_key.insert(key, id);
+        self.by_id.insert(id, index);
         Some(id)
     }
 
     pub(in crate::core) fn get(&self, id: LinkId) -> Option<&Hyperlink> {
-        self.links.iter().find(|link| link.id == id)
+        self.by_id.get(&id).and_then(|&index| self.links.get(index))
     }
 
     pub(in crate::core) fn clear(&mut self) {
         self.links.clear();
+        self.by_key.clear();
+        self.by_id.clear();
         self.next_id = 0;
+    }
+
+    #[cfg(test)]
+    pub(in crate::core) fn len(&self) -> usize {
+        self.links.len()
     }
 }
 
@@ -115,6 +140,36 @@ mod tests {
         assert_eq!(first, same);
         assert_ne!(first, different_uri);
         assert_ne!(first, no_id);
+    }
+
+    #[test]
+    fn anonymous_links_dedup_by_uri_to_bound_repaint_loops() {
+        let mut table = HyperlinkTable::default();
+        let mut first = None;
+
+        for _ in 0..5000 {
+            let id = table
+                .open(b"", &[b"https://example.com".as_slice()])
+                .unwrap();
+            first.get_or_insert(id);
+            assert_eq!(Some(id), first);
+        }
+
+        assert_eq!(
+            table.links.len(),
+            1,
+            "identical anonymous OSC 8 repaint loops must not grow the table"
+        );
+    }
+
+    #[test]
+    fn distinct_anonymous_uris_do_not_collapse() {
+        let mut table = HyperlinkTable::default();
+        let first = table.open(b"", &[b"https://example.com/a"]).unwrap();
+        let second = table.open(b"", &[b"https://example.com/b"]).unwrap();
+
+        assert_ne!(first, second);
+        assert_eq!(table.links.len(), 2);
     }
 
     #[test]

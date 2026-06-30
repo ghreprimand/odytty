@@ -209,6 +209,21 @@ fn osc8_id_dedups_discontiguous_regions() {
 }
 
 #[test]
+fn osc8_anonymous_repaint_loop_keeps_one_registry_entry() {
+    let mut terminal = Terminal::new(80, 24);
+
+    for _ in 0..5000 {
+        terminal.advance(b"\x1b]8;;https://example.com\x1b\\X\x1b]8;;\x1b\\");
+    }
+
+    assert_eq!(
+        terminal.hyperlink_count_for_test(),
+        1,
+        "identical anonymous OSC 8 links should share one interned entry"
+    );
+}
+
+#[test]
 fn osc8_link_state_survives_sgr_reset_until_osc_close() {
     let mut terminal = Terminal::new(20, 2);
     terminal.advance(b"\x1b]8;;https://example.com\x07A\x1b[0mB\x1b]8;;\x07C");

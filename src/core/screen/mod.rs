@@ -1257,6 +1257,11 @@ impl Screen {
         self.hyperlinks.get(id)
     }
 
+    #[cfg(test)]
+    pub(in crate::core) fn hyperlink_count(&self) -> usize {
+        self.hyperlinks.len()
+    }
+
     /// Search the combined scrollback + visible buffer for `query`, returning
     /// every match as an absolute cell range (row `0` = oldest scrollback;
     /// see [`super::search`] for the coordinate convention and limitations).
@@ -2044,6 +2049,11 @@ impl Terminal {
 
     pub fn hyperlink(&self, id: LinkId) -> Option<&Hyperlink> {
         self.screen.hyperlink(id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn hyperlink_count_for_test(&self) -> usize {
+        self.screen.hyperlink_count()
     }
 
     /// The cursor shape currently in effect (DECSCUSR or host default).

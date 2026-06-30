@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Bound the OSC 8 hyperlink table (intern by identity)
+
+The terminal's OSC 8 hyperlink registry could grow without bound. Deduplication
+only fired for links carrying an explicit `id=`, so the common *anonymous* form
+(`OSC 8 ; ; <uri> ST`) appended a fresh entry on every emission — even for the
+identical URI repeated. A TUI that repaints hyperlinks each frame (file managers
+with `--hyperlink`, `ls --hyperlink=auto` over many files) grew the table for the
+whole session, and because both `open` and `get` linear-scanned the vector, the
+cost was quadratic. The existing per-URI byte cap bounded each entry's *string*
+size but not the entry *count*, which was the real leak.
+
+Fix: intern links by their complete OSC 8 identity — the URI plus the optional
+`id=` — through a hash index, so identical anonymous URIs now share one
+`LinkId` instead of accumulating. A second id→index map makes `get` O(1) as well.
+Sharing a `LinkId` for the same URI is behaviorally identical for hover and open
+(the URI is all that matters), and explicit-`id` dedup semantics and distinct
+URIs are preserved. The table is still cleared on RIS as before.
+
+Verified on Linux: `cargo fmt --check`, `cargo build --release --locked`,
+`cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked` all
+green. Tests: 5 000 identical anonymous opens collapse to a single entry (both at
+the table API and end-to-end through the parser), and two distinct anonymous URIs
+stay distinct (dedup doesn't over-collapse).
+
 ## 2026-06-30 -- Repaint on restore from minimize without a resize
 
 On Windows, minimizing and then restoring the window could leave it black until
