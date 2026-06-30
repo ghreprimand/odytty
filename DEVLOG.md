@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Multi-pane drag-select fix
+
+Mouse drag-selection silently did nothing once a tab was split into multiple
+panes (single-pane selection always worked). Two independent defects on the
+multi-pane left-press path combined to break it:
+
+1. The left-press handler grabbed the press for divider-hit-test and
+   focus-follows-click, then returned *before* reaching `begin_selection` — so a
+   drag in a split tab never anchored a selection at all. A code comment marked
+   per-pane selection geometry as "a later checkbox"; this wires it.
+2. The pointer-to-cell mapping computed against the *window* origin, while the
+   selection model operates on the focused pane's offset sub-grid. So even once
+   a press reached the selection code, the anchor and extent columns collapsed
+   onto the same clamped edge.
+
+Fix: on an in-pane press (not a divider grab) the handler now focuses the
+clicked pane and begins a selection anchored in that pane, and
+`update_pointer_cell` maps through a new pane-relative cell helper
+(`active_pane_pointer_cell` → `pane_relative_cell`) whose origin is the focused
+pane's rect. Single-pane tabs take the `None` path and keep the byte-identical
+window-origin mapping. Two tests drive the real `update_pointer_cell` +
+`handle_mouse_input` seams: a horizontal-only drag inside a post-split focused
+pane sets a non-empty pane-relative range (proves both layers), and a single-pane
+guard stays green. Cross-platform; no behavior change on Linux/macOS single-pane.
+
+Verified on Linux: `cargo fmt --check`, `cargo build --release --locked`,
+`cargo clippy --all-targets --locked -- -D warnings`, and `cargo test --locked`
+all green (2624 lib tests). On-device confirm (split → drag-select) folds into
+the Windows pass.
+
 ## 2026-06-30 -- ConPTY resize content-corruption fix (competing reflow)
 
 On Windows/ConPTY the shell side (conhost) authoritatively reflows its own

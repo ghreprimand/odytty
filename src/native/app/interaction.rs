@@ -1263,7 +1263,14 @@ impl App {
         } else {
             y_px
         };
-        let point = selection::cell_at_physical_with_padding(x_px, y_px, cell, self.grid, padding);
+        // In a multi-pane tab the focused pane's grid is offset from the window
+        // origin, so the pointer must map relative to that pane's sub-rect — the
+        // basis `self.grid` / `self.selection` use. On a single-pane tab
+        // `active_pane_pointer_cell` is `None` and this falls back to the
+        // byte-identical window-origin mapping.
+        let point = self.active_pane_pointer_cell().unwrap_or_else(|| {
+            selection::cell_at_physical_with_padding(x_px, y_px, cell, self.grid, padding)
+        });
         self.pointer_cell = Some(point);
         // UX4-P1/P2: while an overlay is open it owns the pointer. Keep caching
         // the coordinates above (a press needs them), but skip link hover, local

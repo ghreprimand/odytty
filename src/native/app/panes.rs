@@ -89,6 +89,28 @@ fn window_overlay_cell(
     })
 }
 
+/// Map an absolute physical pointer position to a cell **relative to a pane's
+/// sub-rect** — origin at the pane's top-left, clamped into `dims` (the focused
+/// pane's grid). Mirrors [`selection::cell_at_physical_with_padding`] but uses
+/// the pane rect as the origin instead of the window padding, so a press inside
+/// an offset pane anchors at the right cell rather than against the window
+/// origin. Pure, so the per-pane selection mapping is unit-testable without a
+/// GPU.
+fn pane_relative_cell(
+    rect: PaneRect,
+    cell: CellSize,
+    dims: Dimensions,
+    x_px: f64,
+    y_px: f64,
+) -> CellPoint {
+    let column = ((x_px as f32 - rect.x).max(0.0) / cell.width.max(1) as f32) as usize;
+    let row = ((y_px as f32 - rect.y).max(0.0) / cell.height.max(1) as f32) as usize;
+    CellPoint {
+        row: row.min(dims.rows.saturating_sub(1)),
+        column: column.min(dims.columns.saturating_sub(1)),
+    }
+}
+
 /// Copy a rectangular sub-region of `src` into a new snapshot of size
 /// `width`×`height`, starting at cell `(top, left)`. Used to crop a painted
 /// window-overlay snapshot down to the panel's opaque rect so it composites as
@@ -192,6 +214,29 @@ impl App {
         };
         let (x_px, y_px) = self.pointer_px?;
         window_overlay_cell(content, cell, x_px, y_px)
+    }
+
+    /// The pointer cell **relative to the focused pane's sub-rect** in a
+    /// multi-pane tab — the basis local text selection anchors and extends
+    /// against, since `self.grid` / `self.terminal` / `self.selection` all
+    /// operate on the focused pane's sub-grid, which is offset from the window
+    /// origin. Returns `None` on a single-pane tab (where the byte-identical
+    /// window-origin mapping in `update_pointer_cell` is correct) or when the
+    /// geometry / cached pointer is unavailable. Uses the cached absolute
+    /// `pointer_px` — the same physical-pixel basis `multipane_geometry` and the
+    /// divider hit-tests use — and the focused pane's rect origin already
+    /// includes the tab-bar offset, so no separate tab-bar adjustment is needed.
+    pub(super) fn active_pane_pointer_cell(&self) -> Option<CellPoint> {
+        let (content, cell) = self.multipane_geometry()?;
+        let (x_px, y_px) = self.pointer_px?;
+        let focused = self.sessions.active_id();
+        let rect = self
+            .sessions
+            .active_pane_rects(content, PANE_DIVIDER_PX)
+            .into_iter()
+            .find(|(token, _)| *token == focused)
+            .map(|(_, rect)| rect)?;
+        Some(pane_relative_cell(rect, cell, self.grid, x_px, y_px))
     }
 
     /// Build the topmost window-level overlay panel for the multi-pane render

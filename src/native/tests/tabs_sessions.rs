@@ -1039,3 +1039,110 @@ fn closing_a_row_split_reflows_survivor_to_full_height() {
         "survivor must reflow to the full content grid after the split collapses"
     );
 }
+
+/// Drag-select must work inside a focused pane AFTER a split, through the exact
+/// production pointer routing (`update_pointer_cell` + `handle_mouse_input`).
+///
+/// Regression: in a multi-pane tab the left-press handler grabbed the press for
+/// divider-hit-test / focus-follows-click and then `return`ed BEFORE reaching
+/// `begin_selection`, so a drag never anchored a selection. A second-order bug
+/// compounded it: the pointer-cell mapping used the WINDOW origin while
+/// `self.grid`/`self.selection` operate on the focused pane's offset sub-rect,
+/// so even once the press fired the anchor/extent columns collapsed onto the
+/// same clamped edge.
+///
+/// The gesture here is HORIZONTAL-ONLY (same y, two different x inside the
+/// focused right pane), so a non-empty selection range proves BOTH layers: the
+/// press must reach `begin_selection` AND the columns must map pane-relative
+/// (window-origin mapping would clamp both x past the pane's right edge to the
+/// same column → an empty range).
+#[test]
+fn drag_select_works_inside_a_pane_after_split() {
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let Some(mut app) = split_app_at_surface(true, COLS, ROWS, CW, CH) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    assert_eq!(
+        app.active_pane_count_for_test(),
+        2,
+        "precondition: two-pane column split"
+    );
+    // Content rect is the full 640x384 surface (no padding, single tab → no tab
+    // bar). An even column split puts the focused (new) pane on the RIGHT:
+    // PaneRect(x=320, w=320) → cols [320,640) in window px.
+    // Press at window px (480, 100): pane-relative col = (480-320)/8 = 20.
+    // Move  to window px (560, 100): pane-relative col = (560-320)/8 = 30.
+    // Same row, distinct columns ⇒ a non-empty selection iff both layers work.
+    app.pointer_move_for_test(480.0, 100.0);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    app.pointer_move_for_test(560.0, 100.0);
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+
+    let range = app
+        .selection_range_for_test()
+        .expect("a horizontal drag inside the focused pane must set a selection range");
+    let (start_row, start_col, end_row, end_col) = range;
+    assert_eq!(start_row, end_row, "horizontal drag stays on one row");
+    assert_ne!(
+        start_col, end_col,
+        "anchor and focus must map to DISTINCT pane-relative columns"
+    );
+    // Pane-relative, not window-absolute: the focused pane is 40 cols wide, so
+    // both columns sit well inside it (window-absolute would be ~60/70).
+    assert!(
+        end_col < COLS / 2,
+        "columns must be pane-relative (< pane width), got {end_col}"
+    );
+}
+
+/// Single-pane guard: the same horizontal drag gesture still sets a selection on
+/// an unsplit tab. The multi-pane geometry path is `None` here, so this is the
+/// byte-identical historical mapping and must stay GREEN with or without the
+/// per-pane fix.
+#[test]
+fn drag_select_still_works_single_pane() {
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal, writer, pty, _fixtures)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal,
+        writer,
+        pty,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    assert_eq!(
+        app.active_pane_count_for_test(),
+        1,
+        "precondition: single pane"
+    );
+
+    app.pointer_move_for_test(160.0, 100.0);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    app.pointer_move_for_test(240.0, 100.0);
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+
+    let range = app
+        .selection_range_for_test()
+        .expect("single-pane horizontal drag must still set a selection range");
+    let (start_row, start_col, end_row, end_col) = range;
+    assert_eq!(start_row, end_row);
+    assert_ne!(start_col, end_col);
+}

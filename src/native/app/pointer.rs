@@ -102,12 +102,26 @@ impl App {
                 self.divider_drag = Some(idx);
                 return;
             }
+            // Not a divider grab: focus the clicked pane (focus-follows-click),
+            // then begin a text selection anchored in THAT pane's sub-rect.
+            // Recompute the pointer cell against the (possibly newly) focused
+            // pane so the anchor is correct after a focus change, then dispatch
+            // the same selection entry the single-pane press uses (click-count /
+            // Shift-extend / Alt-block all flow through `begin_selection`). A
+            // press in a divider gap resolves to no pane and just returns, as
+            // before — only the unconditional swallow of an in-pane press is
+            // removed.
             if let Some(token) = self
                 .sessions
                 .active_pane_at_point(content, PANE_DIVIDER_PX, x, y)
-                && self.sessions.set_active_focus(token)
             {
-                self.on_active_session_changed();
+                if self.sessions.set_active_focus(token) {
+                    self.on_active_session_changed();
+                }
+                if let Some(point) = self.active_pane_pointer_cell() {
+                    self.pointer_cell = Some(point);
+                }
+                self.begin_selection();
             }
             return;
         }
