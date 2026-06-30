@@ -83,10 +83,14 @@ pub(super) fn parse_osc7_cwd(parts: &[&[u8]], local_hostname: Option<&str>) -> O
 
     let decoded = percent_decode_path(path)?;
     let cwd = String::from_utf8_lossy(&decoded).into_owned();
+    // On Windows, `file:///C:/...` parses to a path with a leading slash before
+    // the drive letter (`/C:/...`) which Windows cannot stat, breaking relative
+    // interactive-path resolution. Strip it via a cfg-gated shadowing `let` so
+    // Linux/macOS production builds are byte-identical (and there is no
+    // unreachable trailing expression that `-D warnings` would reject on
+    // Windows).
     #[cfg(windows)]
-    {
-        return Some(strip_leading_drive_slash(cwd));
-    }
+    let cwd = strip_leading_drive_slash(cwd);
     Some(cwd)
 }
 
