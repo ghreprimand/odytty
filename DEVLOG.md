@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Suppress link hover over a non-focused pane in a split
+
+Completing the multi-pane pointer family (after selection and wheel): in a
+split-pane tab, the focused pane's grid and terminal back `self.grid` /
+`self.terminal`, so moving the pointer over a NON-focused pane mapped that
+pointer into the focused pane's grid and could light a false hyperlink / path /
+URL hit — and a hand cursor — at the focused pane's edge. The clamp went the
+undershoot way: hovering the left pane while the right pane is focused drove the
+pointer column negative, which clamped to the focused pane's column 0 and
+latched a link there.
+
+Fix: in `update_pointer_cell`, when the pointer is over a pane other than the
+focused one (or over a divider gap with no pane beneath), suppress hover
+resolution and clear any span left over from a prior focused-pane hover, instead
+of running the link/path/URL scans against the focused grid. Single-pane tabs
+and hovering the focused pane in a split are unaffected — the suppression helper
+is always false on a single-pane tab, so the common path is byte-identical.
+
+Verified on Linux: a new test where focus is on the right pane and the pointer
+moves over the left pane was red before the fix (it resolved a URL clamped into
+the focused pane and showed a hand cursor), green after. Two guard tests pin the
+precision: hovering the focused pane in a split still resolves its link, and the
+lone single-pane hover still resolves. Neutralize-revert disabled the
+suppression branch and the non-focused test went red again while both guards
+stayed green. Full gate (fmt / clippy -D warnings / release build / test, 2789
+passing) green.
+
+---
+
 ## 2026-06-30 -- RIS restores alternate-scroll default; serialize CVD wiring tests
 
 Two small correctness/hardening fixes.
