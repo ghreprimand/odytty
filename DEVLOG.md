@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Coalesce divider-drag PTY resize to one flush at drag-end
+
+Dragging a split's divider fires one pointer-move event per pixel, and each
+move ran the full per-pane resize — including the kernel-side PTY resize
+(`TIOCSWINSZ` on Unix, `ResizePseudoConsole` on Windows ConPTY). That flooded
+the shell with a resize notification per move; on Windows it scrambled
+PSReadLine's prompt as it repainted mid-resize.
+
+Fix: separate the on-screen reflow from the kernel resize. The live per-move
+drag now reflows only the terminal models and cell metrics (`reflow_all_panes_for_drag`),
+so panes resize smoothly on screen without telling the shell anything. The
+left-release handler flushes exactly one real resize — PTY included — at
+drag-end, when the final size is settled. The shared resize body is unchanged
+for every other caller (split / close / equalize / window resize), so those
+paths are byte-identical.
+
+The release flush is unconditional whenever a divider drag was in progress, not
+gated on the release-snap changing the divider ratio: the per-move path never
+touched the PTY, so gating the flush on a snap delta would strand the shell at
+the pre-drag size whenever the divider happened to land on a cell boundary.
+
+Verified on Linux: a new test grabs the midpoint divider, drags it across nine
+cell boundaries, and asserts zero kernel resizes fire during the drag while the
+grid model still reflows live (pane columns shrink), then exactly one resize per
+pane fires at release. Before the fix it was red (one resize per pane per move).
+A single-pane guard confirms the lone-pane press/drag/release path issues no
+divider-drag resize (Rule D). Neutralize-revert pointed the per-move path back
+at the full resize and the coalescing test went red again. Full gate (fmt /
+clippy -D warnings / release build / test, 2791 passing) green.
+
+---
+
 ## 2026-06-30 -- Suppress link hover over a non-focused pane in a split
 
 Completing the multi-pane pointer family (after selection and wheel): in a
