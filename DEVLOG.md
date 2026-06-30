@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- App-level regression lock for select+Delete across a resize
+
+Test-only follow-up to the prompt-input-mark re-anchor fix below. That fix
+landed with a core-level test pinning the screen invariant in isolation
+(`active_prompt_input_start` tracks the live cursor row through a width-change
+reflow). This adds an app-level lock at the actual consumer the bug bit — the
+right-click Cut/Delete gate (`editable_input_selection_for_context_menu`) —
+driven through the real `App::resize_grid` -> `resize_all_panes` ->
+`Terminal::resize` path a side-by-side split exercises. The test builds
+scrollback that rewraps on a width shrink, selects the prompt input and confirms
+the gate passes before the resize, applies a narrower resize, re-points the same
+logical selection at the prompt's new live row, and confirms the gate still
+passes. Neutralize-revert: gating the re-anchor block off sends both this
+app-level test and the core test red; restoring (byte-identical) returns both to
+green. No production code changed. Full gate (fmt / clippy `-D warnings` /
+release build / test) green, 2798 tests.
+
+---
+
 ## 2026-06-30 -- Re-anchor the prompt input mark through a width-change resize
 
 Prompt-aware select+Delete (mouse-select text on the prompt, press Delete to
