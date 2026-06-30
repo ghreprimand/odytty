@@ -78,10 +78,10 @@ impl CommandBuilder {
         }
     }
 
-    /// The resolved program. Only the Unix shell-integration injector inspects
-    /// it (to classify the shell), so it is `cfg(unix)` — the Windows backend
-    /// builds its command line from the program field directly.
-    #[cfg(unix)]
+    /// The resolved program. Inspected by the shell-integration injector to
+    /// classify the shell from its basename: the Unix injector and the Windows
+    /// (PowerShell) injector both call it, so it is `any(unix, windows)`.
+    #[cfg(any(unix, windows))]
     pub(crate) fn program(&self) -> &OsString {
         &self.program
     }

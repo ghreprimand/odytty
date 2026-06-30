@@ -6,15 +6,17 @@
 //! points the detected shell at them; if anything fails, it leaves the command
 //! unchanged so shell startup never depends on integration plumbing.
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::ffi::OsStr;
 
 #[cfg(unix)]
 use std::fs;
+#[cfg(any(unix, windows))]
+use std::path::Path;
 #[cfg(unix)]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use crate::pty::CommandBuilder;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,6 +24,7 @@ pub enum ShellKind {
     Bash,
     Zsh,
     Fish,
+    PowerShell,
 }
 
 impl ShellKind {
@@ -30,6 +33,7 @@ impl ShellKind {
             "bash" => Some(Self::Bash),
             "zsh" => Some(Self::Zsh),
             "fish" => Some(Self::Fish),
+            "powershell" | "pwsh" => Some(Self::PowerShell),
             _ => None,
         }
     }
@@ -46,11 +50,28 @@ impl ShellKind {
             .to_ascii_lowercase();
         Self::parse(&name)
     }
+
+    /// Classify a Windows shell from a spawned program's basename. Only the
+    /// Windows spawn-time injector calls this, so it is `cfg(windows)`.
+    /// PowerShell (`pwsh.exe` / `powershell.exe`) is the only family with an
+    /// OSC 133 hook surface; `cmd.exe` is intentionally unsupported.
+    #[cfg(windows)]
+    fn from_program(program: &OsStr) -> Option<Self> {
+        let name = Path::new(program)
+            .file_name()
+            .and_then(OsStr::to_str)?
+            .to_ascii_lowercase();
+        match name.as_str() {
+            "pwsh.exe" | "pwsh" | "powershell.exe" | "powershell" => Some(Self::PowerShell),
+            _ => None,
+        }
+    }
 }
 
 pub fn snippet_for_shell(shell: &str) -> Result<&'static str, String> {
-    let kind = ShellKind::parse(shell)
-        .ok_or_else(|| format!("unsupported shell {shell:?}; expected one of: bash, zsh, fish"))?;
+    let kind = ShellKind::parse(shell).ok_or_else(|| {
+        format!("unsupported shell {shell:?}; expected one of: bash, zsh, fish, powershell")
+    })?;
     Ok(snippet(kind))
 }
 
@@ -59,7 +80,23 @@ pub fn snippet(kind: ShellKind) -> &'static str {
         ShellKind::Bash => BASH_SNIPPET,
         ShellKind::Zsh => ZSH_SNIPPET,
         ShellKind::Fish => FISH_SNIPPET,
+        ShellKind::PowerShell => POWERSHELL_SNIPPET,
     }
+}
+
+/// Windows spawn-time injection. PowerShell is the only supported family
+/// (cmd.exe has no OSC 133 hook surface), so anything else is left unchanged.
+/// The generated profile is injected with `-NoExit -Command <snippet>`: the
+/// snippet wraps `prompt` and installs the PSReadLine Enter hook, and `-NoExit`
+/// keeps the session interactive afterwards. Mirrors the `cfg(unix)` injector's
+/// shape -- classify from the program basename, bail on the unsupported case,
+/// otherwise attach integration to the command.
+#[cfg(windows)]
+pub(crate) fn apply_spawn_integration(command: &mut CommandBuilder) {
+    let Some(kind) = ShellKind::from_program(command.program()) else {
+        return;
+    };
+    command.arg("-NoExit").arg("-Command").arg(snippet(kind));
 }
 
 #[cfg(unix)]
@@ -113,6 +150,11 @@ fn apply_spawn_integration_in_dir(command: &mut CommandBuilder, kind: ShellKind,
                 command.env("XDG_DATA_DIRS", data_dirs);
             }
         }
+        // PowerShell integration is Windows-only and injected inline via
+        // `-NoExit -Command` (no rcfile/profile is written into the config
+        // dir), so the Unix file-based injector never receives this kind. The
+        // arm exists only to keep the match exhaustive.
+        ShellKind::PowerShell => {}
     }
 }
 
@@ -260,6 +302,47 @@ const FISH_SNIPPET: &str = r#"if not set -q ODYTTY_SHELL_INTEGRATION
 end
 "#;
 
+// PowerShell shell-integration profile, injected on Windows with
+// `-NoExit -Command`. Windows PowerShell 5.1 lacks the backtick-e escape, so the
+// ESC/BEL bytes are built from `[char]27`/`[char]7`. The set-once
+// `ODYTTY_SHELL_INTEGRATION` guard mirrors the unix snippets, the wrapped
+// `prompt` emits `133;D` (previous command's `$LASTEXITCODE`) then
+// `133;A;click_events=1` then the user's prompt then `133;B`, and the PSReadLine
+// Enter handler emits `133;C` just before the command runs. `click_events=1`
+// matches the unix snippets; the click-to-position action stays consumer-gated
+// by `sh_click` (default off). cmd.exe has no equivalent hook surface and is
+// deliberately unsupported.
+const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
+    $env:ODYTTY_SHELL_INTEGRATION = "1"
+
+    if (Test-Path Function:\prompt) {
+        $global:__odytty_original_prompt = $function:prompt
+    } else {
+        $global:__odytty_original_prompt = { "PS $($executionContext.SessionState.Path.CurrentLocation)> " }
+    }
+
+    function global:prompt {
+        $__odytty_exit = $LASTEXITCODE
+        if ($null -eq $__odytty_exit) { $__odytty_exit = 0 }
+        $esc = [char]27
+        $bel = [char]7
+        $out = "$esc]133;D;$__odytty_exit$bel"
+        $out += "$esc]133;A;click_events=1$bel"
+        $out += & $global:__odytty_original_prompt
+        $out += "$esc]133;B$bel"
+        $out
+    }
+
+    if (Get-Module -ListAvailable -Name PSReadLine) {
+        Import-Module PSReadLine -ErrorAction SilentlyContinue
+        Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
+            [Console]::Write("$([char]27)]133;C$([char]7)")
+            [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+        }
+    }
+}
+"##;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,9 +361,48 @@ mod tests {
 
     #[test]
     fn unknown_shell_errors_cleanly() {
+        // cmd.exe has no OSC 133 hook surface, so it stays unsupported -- its
+        // name must not classify, and the error must list only what we ship.
         let err = snippet_for_shell("cmd").unwrap_err();
         assert!(err.contains("unsupported shell"));
-        assert!(err.contains("bash, zsh, fish"));
+        assert!(err.contains("bash, zsh, fish, powershell"));
+        assert!(ShellKind::parse("cmd").is_none());
+    }
+
+    #[test]
+    fn powershell_snippet_emits_all_osc_133_marks() {
+        // The PowerShell snippet is generated cross-platform (plain const), so
+        // this generator contract is asserted on Linux even though the spawn
+        // wiring that injects it only exists on Windows. PowerShell cannot use
+        // the ESC shorthand the unix snippets do, so it builds the escape from
+        // [char]27; assert on the OSC bodies, not the literal ESC byte.
+        let snippet = snippet(ShellKind::PowerShell);
+
+        // Set-once guard so a nested shell / re-source does not double-wrap.
+        assert!(
+            snippet.contains("ODYTTY_SHELL_INTEGRATION"),
+            "missing the set-once integration guard"
+        );
+        // Prompt-start (A) advertises click-to-position, matching the unix
+        // snippets that landed click_events=1.
+        assert!(
+            snippet.contains("133;A;click_events=1"),
+            "missing prompt-start A with click_events=1"
+        );
+        // Command-start (B) at end of prompt.
+        assert!(snippet.contains("133;B"), "missing command-start B");
+        // Command-executed (C) on submit.
+        assert!(snippet.contains("133;C"), "missing command-executed C");
+        // Command-finished (D) carries the previous command's exit status.
+        assert!(snippet.contains("133;D"), "missing command-finished D");
+        assert!(
+            snippet.contains("$LASTEXITCODE"),
+            "D marker must report the real exit code"
+        );
+
+        // Also reachable through the cross-platform CLI classifier.
+        assert_eq!(ShellKind::parse("powershell"), Some(ShellKind::PowerShell));
+        assert_eq!(ShellKind::parse("pwsh"), Some(ShellKind::PowerShell));
     }
 
     #[cfg(unix)]

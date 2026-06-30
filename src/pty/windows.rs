@@ -126,12 +126,18 @@ impl PtySession {
     pub fn spawn_default_shell_in_with_settings(
         dimensions: Dimensions,
         working_directory: Option<PathBuf>,
-        _settings: &crate::settings::Settings,
+        settings: &crate::settings::Settings,
     ) -> Result<Self> {
         let mut command = CommandBuilder::new(default_shell().program);
         command.apply_terminal_env();
         if let Some(path) = working_directory {
             command.current_dir(path);
+        }
+        // Gate on the same `shell_integration` setting the Unix path honors.
+        // The injector classifies the resolved program (pwsh/powershell) and
+        // attaches `-NoExit -Command <snippet>`; cmd.exe is left untouched.
+        if settings.shell_integration {
+            crate::shell_integration::apply_spawn_integration(&mut command);
         }
         Self::spawn_command(dimensions, command)
     }
