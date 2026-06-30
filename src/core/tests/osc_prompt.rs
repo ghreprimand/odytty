@@ -345,6 +345,109 @@ fn resize_without_marks_does_not_set_change_flag() {
     assert!(!terminal.take_prompt_marks_changed());
 }
 
+/// The consumer gate for prompt-aware select+Delete
+/// (`editable_input_selection_for_context_menu`) requires the cached input-start
+/// absolute row to equal the LIVE `scrollback_len + cursor.row`. A width-change
+/// resize rewraps scrollback to a different `physical_len`, so the cached row
+/// must be re-anchored through the resize or the gate silently fails (the
+/// after-a-side-by-side-split select+Delete regression). These pin that
+/// re-anchoring, the width-unchanged fast path, and the no-mark case.
+#[test]
+fn input_start_is_reanchored_through_a_width_change_resize() {
+    let mut terminal = Terminal::new(20, 3);
+    // Push enough history that scrollback has physical rows that will rewrap on
+    // a width shrink (so physical_len actually changes).
+    for _ in 0..6 {
+        terminal.advance(b"abcdefghijklmnop\r\n");
+    }
+    // A fresh prompt with an input mark on the live (single) input row.
+    terminal.advance(&osc133("A"));
+    terminal.advance(b"> ");
+    terminal.advance(&osc133("B"));
+
+    // Precondition: the gate would pass — input_row == scrollback_len + cursor.row.
+    let (input_row, _col) = terminal
+        .active_prompt_input_start()
+        .expect("input mark set after B");
+    let cursor_row = terminal.screen().scrollback_len() + terminal.screen().cursor().row;
+    assert_eq!(
+        input_row, cursor_row,
+        "precondition: input anchor equals the live cursor row before resize"
+    );
+
+    // Shrink the width: scrollback rewraps (16-col lines wrap at width 10), so
+    // physical_len changes and the cached absolute row goes stale.
+    terminal.resize(10, 3);
+
+    let (new_input_row, _) = terminal
+        .active_prompt_input_start()
+        .expect("input mark survives the resize");
+    let new_cursor_row = terminal.screen().scrollback_len() + terminal.screen().cursor().row;
+    assert_eq!(
+        new_input_row, new_cursor_row,
+        "input anchor must be re-anchored to the live cursor row after a width change"
+    );
+}
+
+#[test]
+fn input_start_survives_a_height_only_resize_unchanged() {
+    // Guard (width-unchanged fast path): a height-only resize does not rewrap
+    // scrollback, so the anchor stays valid and the gate keeps passing.
+    let mut terminal = Terminal::new(20, 4);
+    for _ in 0..3 {
+        terminal.advance(b"some output line\r\n");
+    }
+    terminal.advance(&osc133("A"));
+    terminal.advance(b"> ");
+    terminal.advance(&osc133("B"));
+
+    terminal.resize(20, 6); // same width, taller
+
+    let (input_row, _) = terminal
+        .active_prompt_input_start()
+        .expect("input mark survives a height-only resize");
+    let cursor_row = terminal.screen().scrollback_len() + terminal.screen().cursor().row;
+    assert_eq!(
+        input_row, cursor_row,
+        "width-unchanged resize keeps the anchor valid"
+    );
+}
+
+#[test]
+fn resize_leaves_no_input_anchor_when_none_was_set() {
+    // Guard (no-mark): with no active input mark (B never sent), a width-change
+    // resize must not fabricate an anchor.
+    let mut terminal = Terminal::new(20, 3);
+    for _ in 0..4 {
+        terminal.advance(b"abcdefghijklmnop\r\n");
+    }
+    terminal.advance(&osc133("A")); // prompt start only, no B
+    assert_eq!(terminal.active_prompt_input_start(), None);
+    terminal.resize(10, 3);
+    assert_eq!(
+        terminal.active_prompt_input_start(),
+        None,
+        "a width change must not invent an input anchor when none was set"
+    );
+}
+
+#[test]
+fn input_anchor_cleared_after_output_start_then_resize() {
+    // Guard: after C (OutputStart) the input anchor is None and a later width
+    // change must keep it None (the recompute only re-anchors a live input mark).
+    let mut terminal = Terminal::new(20, 3);
+    for _ in 0..4 {
+        terminal.advance(b"abcdefghijklmnop\r\n");
+    }
+    terminal.advance(&osc133("A"));
+    terminal.advance(b"> ");
+    terminal.advance(&osc133("B"));
+    terminal.advance(&osc133("C")); // command runs → input anchor cleared
+    assert_eq!(terminal.active_prompt_input_start(), None);
+    terminal.resize(10, 3);
+    assert_eq!(terminal.active_prompt_input_start(), None);
+}
+
 #[test]
 fn alt_screen_enter_leave_sets_change_flag_when_primary_had_marks() {
     let mut terminal = Terminal::new(8, 3);

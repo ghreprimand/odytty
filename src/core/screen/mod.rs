@@ -813,6 +813,45 @@ impl Screen {
                 let scrollback_rows = self.scrollback.physical_len(dimensions.columns);
                 self.active_prompt_start = Some(scrollback_rows + row);
             }
+            // Re-anchor the OSC 133 `B` input-start mark through the resize.
+            // `active_prompt_input_start` caches an ABSOLUTE row
+            // (`physical_len(old_columns) + cursor.row`) captured when `B`
+            // arrived. A width change rewraps scrollback to a different
+            // `physical_len`, so the cached row no longer equals the LIVE
+            // `scrollback_len + cursor.row` the consumer gate
+            // (`editable_input_selection_for_context_menu`) compares against —
+            // which silently disables prompt-aware select+Delete after a
+            // side-by-side split until the next prompt re-emits `A`/`B`. The
+            // input line is the cursor's logical line while editing, and the
+            // resize repositions the cursor faithfully, so recompute the anchor
+            // from the cursor's current logical-line start at the new width.
+            //
+            // Semantics (decision gate → reflow-preserved mark + cursor line):
+            // only re-anchor when the cursor still sits on a prompt-marked
+            // logical line (marks travel with their logical line through reflow).
+            // If the cursor has moved off the prompt (e.g. output without a `C`),
+            // the anchor is left as-is so the gate still declines — matching
+            // today's no-resize behavior. The column is preserved: the prompt
+            // prefix is unchanged by a rewrap of a single short input line, and
+            // `start = selected_start.max(input_column)` keeps bounding the
+            // editable region. Width-unchanged resizes keep `physical_len`
+            // constant, so the cached row stays valid and we skip the recompute
+            // (byte-identical fast path).
+            if !width_unchanged && let Some((_, input_column)) = self.active_prompt_input_start {
+                let mut row = self.cursor.row.min(self.rows.len().saturating_sub(1));
+                while row > 0 && self.rows[row - 1].wrapped {
+                    row -= 1;
+                }
+                if self
+                    .rows
+                    .get(row)
+                    .and_then(|line| line.prompt_mark)
+                    .is_some()
+                {
+                    let scrollback_rows = self.scrollback.physical_len(dimensions.columns);
+                    self.active_prompt_input_start = Some((scrollback_rows + row, input_column));
+                }
+            }
         }
 
         self.dimensions = dimensions;
