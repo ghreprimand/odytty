@@ -526,3 +526,42 @@ fn click_events_directive_does_not_leak_into_grid() {
     // The directive is consumed by the OSC handler; the render surface matches.
     assert_eq!(plain.snapshot(), marked.snapshot());
 }
+
+/// Extract the prompt-start (OSC 133 `A`) escape the given shell-integration
+/// snippet emits, translated from the snippet's shell-`printf` form (`\e`, `\a`)
+/// into the real bytes the shell writes to the PTY. Binds these tests to the
+/// ACTUAL bundled snippet text rather than a hand-written sequence, so a snippet
+/// that stops advertising click-events fails here.
+fn snippet_prompt_start_bytes(snippet: &str) -> Vec<u8> {
+    let start = snippet
+        .find(r"\e]133;A")
+        .expect("snippet emits an OSC 133 prompt-start");
+    let rest = &snippet[start..];
+    let end = rest.find(r"\a").expect("prompt-start is BEL-terminated") + r"\a".len();
+    rest[..end]
+        .replace(r"\e", "\x1b")
+        .replace(r"\a", "\x07")
+        .into_bytes()
+}
+
+/// The bundled shell-integration snippets must advertise `click_events=1` on
+/// their prompt-start, so a terminal that parses the real snippet output through
+/// the production OSC 133 dispatch ends up with click-to-position enabled. Without
+/// the attribute the consumer-side feature (gated additionally on the `sh_click`
+/// setting) can never turn on — the producer gap this closes. Bound to all three
+/// snippets so each one's emission is checked.
+#[test]
+fn bundled_snippets_enable_click_events_through_dispatch() {
+    use crate::shell_integration::{ShellKind, snippet};
+
+    for kind in [ShellKind::Bash, ShellKind::Zsh, ShellKind::Fish] {
+        let prompt_start = snippet_prompt_start_bytes(snippet(kind));
+        let mut terminal = Terminal::new(20, 6);
+        assert!(!terminal.click_events_enabled());
+        terminal.advance(&prompt_start);
+        assert!(
+            terminal.click_events_enabled(),
+            "{kind:?} snippet prompt-start must enable click-events through the OSC 133 dispatch"
+        );
+    }
+}

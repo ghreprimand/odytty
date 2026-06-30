@@ -164,6 +164,15 @@ fn fish_conf() -> &'static str {
     FISH_SNIPPET
 }
 
+// The prompt-start (`133;A`) carries `click_events=1` unconditionally — there is
+// deliberately no separate setting gating its emission. Advertising click-events
+// only tells the terminal the shell CAN reposition on a click; the actual
+// click-to-position action is gated on the consumer side by the `sh_click`
+// setting (default off), so emitting the attribute here changes no default
+// behavior. A snippet only ever ships when shell integration is enabled (also
+// off by default), and threading a settings value through these static const
+// snippets would be strictly worse for no behavioral gain. Re-asserting it on
+// every prompt (`A`, not just once) keeps it correct across resets.
 const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
   export ODYTTY_SHELL_INTEGRATION=1
 
@@ -173,7 +182,7 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
       printf '\e]133;D;%s\a' "$__odytty_status"
       unset __ODYTTY_COMMAND_STARTED
     fi
-    printf '\e]133;A\a'
+    printf '\e]133;A;click_events=1\a'
   }
 
   __odytty_debug_trap() {
@@ -211,7 +220,7 @@ const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" ]; then
       printf '\e]133;D;%s\a' "$__odytty_status"
       unset __ODYTTY_COMMAND_STARTED
     fi
-    printf '\e]133;A\a'
+    printf '\e]133;A;click_events=1\a'
   }
 
   __odytty_preexec() {
@@ -236,7 +245,7 @@ const FISH_SNIPPET: &str = r#"if not set -q ODYTTY_SHELL_INTEGRATION
     end
 
     function fish_prompt
-        printf '\e]133;A\a'
+        printf '\e]133;A;click_events=1\a'
         __odytty_original_fish_prompt
         printf '\e]133;B\a'
     end

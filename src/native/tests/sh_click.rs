@@ -79,6 +79,56 @@ fn click_at(app: &mut App, bytes: &Arc<Mutex<Vec<u8>>>, row: usize, column: usiz
     bytes.lock().expect("bytes").clone()
 }
 
+/// The prompt-start (OSC 133 `A`) bytes the bash shell-integration snippet
+/// emits, translated from the snippet's `printf` form into real PTY bytes,
+/// followed by `$ hello` so the cursor lands at column 7. Binds the click test
+/// below to the ACTUAL bundled snippet rather than a hand-written sequence.
+fn bash_snippet_live_prompt() -> Vec<u8> {
+    let snippet = crate::shell_integration::snippet(crate::shell_integration::ShellKind::Bash);
+    let start = snippet
+        .find(r"\e]133;A")
+        .expect("snippet emits an OSC 133 prompt-start");
+    let rest = &snippet[start..];
+    let end = rest.find(r"\a").expect("prompt-start is BEL-terminated") + r"\a".len();
+    let mut bytes = rest[..end]
+        .replace(r"\e", "\x1b")
+        .replace(r"\a", "\x07")
+        .into_bytes();
+    bytes.extend_from_slice(b"$ hello");
+    bytes
+}
+
+#[test]
+fn bundled_snippet_repositions_only_when_setting_on() {
+    // The bundled snippet now advertises click_events=1, so its prompt-start
+    // enables the core flag. With sh_click ON, a click on the live prompt
+    // repositions (the feature can finally turn on). With sh_click OFF (the
+    // default), the SAME snippet output is inert — proving the producer change
+    // does NOT alter default behavior: the consumer stays gated on the setting.
+    let content = bash_snippet_live_prompt();
+
+    // sh_click ON: cursor at column 7 ("$ hello"); click column 2 -> 5x Left.
+    let Some((mut app_on, bytes_on)) = build_app_with(&content, true) else {
+        return; // no PTY in this environment
+    };
+    let written_on = click_at(&mut app_on, &bytes_on, 0, 2);
+    assert_eq!(
+        written_on,
+        b"\x1b[D".repeat(5),
+        "with sh_click on, the bundled snippet's click_events=1 lets a click reposition"
+    );
+
+    // sh_click OFF (default): the same snippet output emits nothing.
+    let Some((mut app_off, bytes_off)) = build_app_with(&content, false) else {
+        return;
+    };
+    let written_off = click_at(&mut app_off, &bytes_off, 0, 2);
+    assert!(
+        written_off.is_empty(),
+        "with sh_click off (default), the snippet's click_events=1 must not change behavior"
+    );
+}
+
 #[test]
 fn click_left_of_cursor_emits_left_arrows_on_live_prompt() {
     let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
