@@ -1125,6 +1125,93 @@ impl App {
         self.write_pty_bytes(&bytes);
     }
 
+    /// BLACK-SCREEN-ON-RESTORE: clear the minimized flag and reset the
+    /// skipped-frame retry budget when the window returns from minimized via a
+    /// signal OTHER than a non-zero `Resized` (on Windows a restore can fire
+    /// only `Focused(true)` / `Occluded(false)`). While `window_minimized`
+    /// stays set, the first surface acquire after restore returns `Skipped` and
+    /// [`should_schedule_skipped_retry`] vetoes the retry-wake, so no frame
+    /// paints until an unrelated input event — the window is black until a
+    /// click. Clearing the flag + resetting the budget lets the bounded retry
+    /// schedule, and a repaint is requested so the recovered surface paints.
+    ///
+    /// Mirrors the recovery the non-zero `Resized` arm already performs, and is
+    /// idempotent: a normal restore also fires `Resized(non-zero)` which already
+    /// cleared the flag, so this is then a no-op; and on Linux/macOS, where
+    /// un-minimize goes through `Resized`, the flag is already false by the time
+    /// `Focused`/`Occluded` fire, so the callers below do nothing. Returns
+    /// whether a minimized state was actually cleared.
+    pub(super) fn restore_from_minimized(&mut self) -> bool {
+        if !self.window_minimized {
+            return false;
+        }
+        self.window_minimized = false;
+        self.consecutive_skipped_frames = 0;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+        true
+    }
+
+    /// Handle `WindowEvent::Focused`. Factored out of the event arm (so it needs
+    /// no `ActiveEventLoop` and is unit-testable) with behavior unchanged except
+    /// the added minimize-restore recovery: gaining focus while minimized
+    /// (Windows restore-without-`Resized`) clears the flag so the vetoed repaint
+    /// can schedule. The redraw the arm already requests then actually paints.
+    pub(super) fn on_window_focus_changed(&mut self, focused: bool) {
+        self.focused = focused;
+        if focused {
+            // A restore may deliver `Focused(true)` before (or without) a
+            // non-zero `Resized`; recover the paint here. No-op when not
+            // minimized, so the ordinary focus-gain path is unchanged.
+            self.restore_from_minimized();
+        } else {
+            self.cancel_overlay_drag_on_focus_loss();
+            // WHEEL-SENS (T-reset): drop any partially-accumulated wheel
+            // notch so a gesture interrupted by an alt-tab does not
+            // resume against the next surface on focus regain.
+            self.wheel_accum.reset();
+            // P1-8: drop the overlay damper's pixel carry too, for the
+            // same reason (a half-detent flick must not resume later).
+            self.overlay_wheel.reset();
+            // §7: drop any pending multiplexer prefix on focus loss so a
+            // half-entered prefix does not survive an alt-tab and capture
+            // the first key on focus regain.
+            self.prefix_engine.cancel();
+        }
+        // Force the cursor solid-on immediately on focus loss (and
+        // resume blinking on focus gain) by rebuilding next frame.
+        self.needs_rebuild = true;
+        // ID2 focus dimming: a focus transition changes the effective
+        // focus-dim amount applied to every cell, so the cell geometry
+        // (not just the cursor) must be rebuilt. Bump the presentation
+        // epoch — folded into the content render signature — so this
+        // frame resolves to a Full geometry update rather than a
+        // CursorOnly/Retained one. Harmless when focus_dim is off (the
+        // rebuilt vertices are byte-identical).
+        self.presentation_epoch = self.presentation_epoch.wrapping_add(1);
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+        self.send_focus_report(focused);
+    }
+
+    /// Handle `WindowEvent::Occluded`. Only the un-occlude (`false`) direction is
+    /// acted on: on some platforms a Windows restore surfaces as
+    /// `Occluded(false)` without a non-zero `Resized`, leaving the window black
+    /// until a click. The occlude (`true`) direction is deliberately NOT treated
+    /// as a minimize — occlusion (another window covering ours) is not minimize
+    /// on every platform, and true minimize is already tracked via the 0x0
+    /// `Resized` path — so setting the flag here could wrongly suppress repaints
+    /// of a merely-covered window. `restore_from_minimized` is a no-op unless a
+    /// minimized state is actually pending, so this is harmless on Linux/macOS
+    /// where un-minimize goes through `Resized`.
+    pub(super) fn on_window_occluded(&mut self, occluded: bool) {
+        if !occluded {
+            self.restore_from_minimized();
+        }
+    }
+
     pub(super) fn handle_reported_mouse_input(
         &mut self,
         state: ElementState,

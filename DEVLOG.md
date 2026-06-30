@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Repaint on restore from minimize without a resize
+
+On Windows, minimizing and then restoring the window could leave it black until
+the user clicked. A minimize surfaces as a 0×0 `Resized`, which sets an internal
+`window_minimized` flag that suppresses the bounded skipped-frame repaint retry
+(there is nothing to paint while minimized). The flag was cleared only by a
+*non-zero* `Resized` — but a Windows restore can arrive as `Focused(true)` or
+`Occluded(false)` *without* a non-zero `Resized` first. The flag stayed set, so
+the first surface acquire after restore was skipped and its retry-wake was
+vetoed; no frame painted until an unrelated input event (a click) woke the loop.
+
+Fix: a small idempotent `restore_from_minimized` helper clears the flag, resets
+the skipped-frame budget, and requests a redraw — invoked from `Focused(true)`
+and from a new `Occluded(false)` handler, mirroring the recovery the non-zero
+`Resized` arm already performs. The occlude (`true`) direction is deliberately
+*not* treated as minimize: a merely-covered window must keep repainting, and true
+minimize is already tracked via the 0×0 `Resized` path. The change is a no-op on
+the normal path (a real restore also fires a non-zero `Resized`, which already
+cleared the flag) and on Linux/macOS (un-minimize goes through `Resized`, so the
+flag is already false by the time `Focused`/`Occluded` fire). The `Focused` arm
+body was extracted into `on_window_focus_changed` (event-loop-free) so the
+transition is unit-testable; all prior focus behavior is preserved verbatim.
+
+Verified on Linux: `cargo fmt --check`, `cargo build --release --locked`,
+`cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked` all
+green. Three tests drive the real handlers: focus-gain and `Occluded(false)` each
+clear the flag and reset the budget so the retry is no longer vetoed, and a
+not-minimized restore is a harmless no-op. The DX12 repaint itself is on-device;
+what the tests pin is the state transition that unblocks the wake. On-device
+confirm (minimize → restore paints without a click) folds into the Windows pass.
+
 ## 2026-06-30 -- Interactive paths: report and seed the working directory
 
 Clickable/hoverable paths never worked for relative or bareword filenames, and

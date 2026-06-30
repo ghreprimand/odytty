@@ -2865,36 +2865,14 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             }
             WindowEvent::Focused(focused) => {
-                self.focused = focused;
-                if !focused {
-                    self.cancel_overlay_drag_on_focus_loss();
-                    // WHEEL-SENS (T-reset): drop any partially-accumulated wheel
-                    // notch so a gesture interrupted by an alt-tab does not
-                    // resume against the next surface on focus regain.
-                    self.wheel_accum.reset();
-                    // P1-8: drop the overlay damper's pixel carry too, for the
-                    // same reason (a half-detent flick must not resume later).
-                    self.overlay_wheel.reset();
-                    // §7: drop any pending multiplexer prefix on focus loss so a
-                    // half-entered prefix does not survive an alt-tab and capture
-                    // the first key on focus regain.
-                    self.prefix_engine.cancel();
-                }
-                // Force the cursor solid-on immediately on focus loss (and
-                // resume blinking on focus gain) by rebuilding next frame.
-                self.needs_rebuild = true;
-                // ID2 focus dimming: a focus transition changes the effective
-                // focus-dim amount applied to every cell, so the cell geometry
-                // (not just the cursor) must be rebuilt. Bump the presentation
-                // epoch — folded into the content render signature — so this
-                // frame resolves to a Full geometry update rather than a
-                // CursorOnly/Retained one. Harmless when focus_dim is off (the
-                // rebuilt vertices are byte-identical).
-                self.presentation_epoch = self.presentation_epoch.wrapping_add(1);
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
-                self.send_focus_report(focused);
+                self.on_window_focus_changed(focused);
+            }
+            // BLACK-SCREEN-ON-RESTORE: a Windows restore can surface as
+            // `Occluded(false)` without a non-zero `Resized`; recover the paint
+            // there. Only the un-occlude direction is handled (see the method
+            // doc) — occlusion is not treated as minimize.
+            WindowEvent::Occluded(occluded) => {
+                self.on_window_occluded(occluded);
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.update_pointer_cell(position.x, position.y);
@@ -3137,6 +3115,91 @@ mod tests {
         assert!(
             should_schedule_skipped_retry(false, MAX_SKIPPED_RETRIES - 1),
             "the last retry within budget must still be allowed"
+        );
+    }
+
+    /// BLACK-SCREEN-ON-RESTORE residual: a restore that arrives as `Focused(true)`
+    /// WITHOUT a non-zero `Resized` first (the Windows case) must still clear the
+    /// minimized state so the vetoed skipped-frame retry can schedule and the
+    /// surface repaints. Drives the real `on_window_focus_changed` handler (the
+    /// extracted event-arm body), not a reimplementation.
+    #[test]
+    fn focus_gain_clears_minimized_state_so_repaint_can_schedule() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        // Simulate a minimize (a 0x0 `Resized`) followed by some skipped frames,
+        // so the retry budget is partially spent and the spin guard is vetoing.
+        app.window_minimized = true;
+        app.consecutive_skipped_frames = 3;
+        assert!(
+            !should_schedule_skipped_retry(app.window_minimized, app.consecutive_skipped_frames),
+            "precondition: while minimized the skipped-frame retry is vetoed (black screen)"
+        );
+
+        // The restore arrives ONLY as focus-gain (no non-zero Resized).
+        app.on_window_focus_changed(true);
+
+        assert!(
+            !app.window_minimized,
+            "focus-gain restore must clear the minimized flag"
+        );
+        assert_eq!(
+            app.consecutive_skipped_frames, 0,
+            "focus-gain restore must reset the skipped-frame retry budget"
+        );
+        assert!(
+            should_schedule_skipped_retry(app.window_minimized, app.consecutive_skipped_frames),
+            "after restore the bounded retry-wake must no longer be vetoed"
+        );
+    }
+
+    /// Same residual via the other Windows restore signal: `Occluded(false)`
+    /// without a non-zero `Resized`. Drives the real `on_window_occluded`
+    /// handler. The occlude (`true`) direction must NOT set the flag (occlusion
+    /// is not minimize).
+    #[test]
+    fn un_occlude_clears_minimized_state_and_occlude_does_not_set_it() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        app.window_minimized = true;
+        app.consecutive_skipped_frames = 2;
+
+        app.on_window_occluded(false);
+        assert!(
+            !app.window_minimized,
+            "Occluded(false) restore must clear the minimized flag"
+        );
+        assert_eq!(
+            app.consecutive_skipped_frames, 0,
+            "Occluded(false) restore must reset the skipped-frame retry budget"
+        );
+
+        // Occlude (covered by another window) is NOT minimize: the flag must
+        // stay false so a merely-covered window keeps repainting.
+        app.on_window_occluded(true);
+        assert!(
+            !app.window_minimized,
+            "Occluded(true) must not be treated as minimize"
+        );
+    }
+
+    /// Guard: restoring when NOT minimized is a harmless no-op (the Linux/macOS
+    /// path, where un-minimize goes through `Resized` and the flag is already
+    /// false by the time Focused/Occluded fire). Must not clobber a live budget.
+    #[test]
+    fn restore_from_minimized_is_a_noop_when_not_minimized() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        app.window_minimized = false;
+        app.consecutive_skipped_frames = 4;
+        let cleared = app.restore_from_minimized();
+        assert!(!cleared, "no minimized state to clear");
+        assert_eq!(
+            app.consecutive_skipped_frames, 4,
+            "a no-op restore must not touch the retry budget"
         );
     }
 
