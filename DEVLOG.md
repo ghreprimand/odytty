@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Interactive paths: report and seed the working directory
+
+Clickable/hoverable paths never worked for relative or bareword filenames, and
+no hand cursor appeared on hover, because OdyTTY never actually learned the
+shell's working directory. Path resolution stat-checks candidates against the
+current working directory, but that was `None` for the entire session: the
+working directory was only ever set by parsing an OSC 7 escape, and nothing
+emitted one. The producer side of the feature was missing — the parser, store,
+and consumer were all present and well-tested, but no code path fed them.
+
+Two-part fix:
+
+1. **Emit OSC 7.** All four shell-integration snippets (bash, zsh, fish,
+   PowerShell) now report the working directory on each prompt via
+   `OSC 7 ; file://<path> ST`. PowerShell forward-slashes the path and uses the
+   `file:///` form. Emission is unconditional within the integration block,
+   which is itself opt-in.
+2. **Seed the spawn cwd.** New local terminal models are seeded with the
+   inherited/configured spawn directory at creation time (the initial model in
+   `run_native` and every `TabSet::spawn`), so absolute *and* relative paths
+   resolve from the very first prompt — and even for shells without integration
+   — before any OSC 7 arrives. A later OSC 7 remains authoritative and overwrites
+   the seed through the same parser and hostname policy.
+
+This is a cross-platform improvement (the cwd was unknown on every platform, not
+just Windows). Default behavior is unchanged where it matters: `interactive_paths`
+is opt-in, so the seeded cwd has no visible effect unless the user has enabled the
+feature. Tests: a producer assertion that every snippet emits an OSC 7 cwd, and
+an end-to-end test that a freshly spawned pane reports its inherited cwd *before*
+any OSC 7 and that a subsequent OSC 7 still overwrites it.
+
+Verified on Linux: `cargo fmt --check`, `cargo build --release --locked`,
+`cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked` all
+green (2626 lib tests). On-device confirm (hover a relative filename in `dir`
+output → hand cursor; Ctrl+click opens) folds into the Windows pass.
+
 ## 2026-06-30 -- Multi-pane drag-select fix
 
 Mouse drag-selection silently did nothing once a tab was split into multiple

@@ -1975,6 +1975,13 @@ impl Terminal {
         self.screen.current_working_directory()
     }
 
+    /// Seed the advisory working directory from the local spawn cwd before the
+    /// shell has a chance to emit OSC 7. Later OSC 7 updates still use the same
+    /// parser/hostname policy and overwrite this seed.
+    pub(crate) fn seed_working_directory(&mut self, cwd: String) {
+        self.screen.set_working_directory(cwd);
+    }
+
     /// Whether the working directory changed since the last poll; clears the
     /// flag.
     pub fn take_working_directory_changed(&mut self) -> bool {

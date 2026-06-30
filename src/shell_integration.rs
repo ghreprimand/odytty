@@ -224,6 +224,7 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
       printf '\e]133;D;%s\a' "$__odytty_status"
       unset __ODYTTY_COMMAND_STARTED
     fi
+    printf '\e]7;file://%s\a' "$PWD"
     printf '\e]133;A;click_events=1\a'
   }
 
@@ -262,6 +263,7 @@ const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" ]; then
       printf '\e]133;D;%s\a' "$__odytty_status"
       unset __ODYTTY_COMMAND_STARTED
     fi
+    printf '\e]7;file://%s\a' "$PWD"
     printf '\e]133;A;click_events=1\a'
   }
 
@@ -287,6 +289,7 @@ const FISH_SNIPPET: &str = r#"if not set -q ODYTTY_SHELL_INTEGRATION
     end
 
     function fish_prompt
+        printf '\e]7;file://%s\a' "$PWD"
         printf '\e]133;A;click_events=1\a'
         __odytty_original_fish_prompt
         printf '\e]133;B\a'
@@ -326,7 +329,9 @@ const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
         if ($null -eq $__odytty_exit) { $__odytty_exit = 0 }
         $esc = [char]27
         $bel = [char]7
+        $p = $PWD.Path -replace '\\','/'
         $out = "$esc]133;D;$__odytty_exit$bel"
+        $out += "$esc]7;file:///$p$bel"
         $out += "$esc]133;A;click_events=1$bel"
         $out += & $global:__odytty_original_prompt
         $out += "$esc]133;B$bel"
@@ -356,6 +361,17 @@ mod tests {
             assert!(snippet.contains("133;C"), "{shell}: missing C");
             assert!(snippet.contains("133;D"), "{shell}: missing D");
             assert!(!snippet.trim().is_empty());
+        }
+    }
+
+    #[test]
+    fn snippets_emit_osc7_working_directory() {
+        for shell in ["bash", "zsh", "fish", "powershell"] {
+            let snippet = snippet_for_shell(shell).expect("snippet");
+            assert!(
+                snippet.contains("]7;file://"),
+                "{shell}: missing OSC 7 cwd emission"
+            );
         }
     }
 

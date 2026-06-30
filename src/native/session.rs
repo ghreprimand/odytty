@@ -2,8 +2,6 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::ops::{Deref, DerefMut};
-// `Path` is only referenced by the Unix-only attach-by-id methods below.
-#[cfg(unix)]
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -57,6 +55,17 @@ pub(super) struct SessionToken(pub(super) u64);
 /// CI via the setter/getter/behavior tie + the per-path pane tests.
 pub(super) fn apply_local_backend_caps(model: &mut Terminal, session: &PtySession) {
     model.set_shell_owns_cursor_on_resize(session.shell_repaints_on_resize());
+}
+
+pub(super) fn seed_initial_working_directory(model: &mut Terminal, cwd: Option<&Path>) {
+    let cwd = match cwd {
+        Some(path) => path.to_path_buf(),
+        None => match std::env::current_dir() {
+            Ok(path) => path,
+            Err(_) => return,
+        },
+    };
+    model.seed_working_directory(cwd.to_string_lossy().into_owned());
 }
 
 /// What backs a session's I/O. The default is a locally-spawned PTY (the
@@ -950,6 +959,7 @@ impl TabSet {
         ));
         let mut model = Terminal::new(grid.columns, grid.rows);
         model.set_local_hostname(self.local_hostname.clone());
+        seed_initial_working_directory(&mut model, None);
         // Defer resize cursor placement to the shell when the backend repaints
         // absolutely (ConPTY on Windows). The POSIX PTY backend returns false,
         // so Linux/macOS keep translating the cursor on resize as today. Funneled
@@ -1620,6 +1630,49 @@ mod tests {
             wired, expected,
             "spawned pane must wire shell_owns_cursor_on_resize from the backend capability"
         );
+
+        assert!(!sessions.close(token));
+        assert!(sessions.close(SessionToken(0)));
+    }
+
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[test]
+    fn spawned_local_pane_seeds_working_directory_before_osc7() {
+        let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        let expected = std::env::current_dir()
+            .expect("current dir")
+            .to_string_lossy()
+            .into_owned();
+
+        let token = sessions
+            .spawn(Dimensions::new(20, 8))
+            .expect("spawn local session");
+        assert!(sessions.switch(token));
+
+        let session = sessions.active();
+        {
+            let terminal = session.terminal.lock().expect("terminal lock");
+            assert_eq!(
+                terminal.current_working_directory(),
+                Some(expected.as_str()),
+                "new local panes must know their inherited spawn cwd before the first OSC 7"
+            );
+        }
+
+        {
+            let mut terminal = session.terminal.lock().expect("terminal lock");
+            terminal.advance(b"\x1b]7;file:///tmp/odytty-osc7-updated\x07");
+            assert_eq!(
+                terminal.current_working_directory(),
+                Some("/tmp/odytty-osc7-updated"),
+                "OSC 7 remains authoritative after the spawn cwd seed"
+            );
+        }
 
         assert!(!sessions.close(token));
         assert!(sessions.close(SessionToken(0)));

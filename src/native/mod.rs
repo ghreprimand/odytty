@@ -113,7 +113,9 @@ pub(crate) use viewport::WindowPadding;
 
 use app::App;
 use pty::{PtyWriter, UserEvent, spawn_pty_pump};
-use session::{Session, SessionToken, TabSet, apply_local_backend_caps};
+use session::{
+    Session, SessionToken, TabSet, apply_local_backend_caps, seed_initial_working_directory,
+};
 
 pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), NativeError> {
     panic_log::install_panic_hook();
@@ -159,6 +161,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     let local_hostname = crate::local_hostname::get();
     let mut model = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);
     model.set_local_hostname(local_hostname.clone());
+    seed_initial_working_directory(&mut model, options.working_directory.as_deref());
     model.set_base_colors(
         rgb(theme.foreground),
         rgb(theme.background),
