@@ -7,6 +7,67 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Honest selection-delete UX without a prompt boundary (RC-4)
+
+A plain Delete/Backspace with an active selection on the prompt line routes
+through the same gated, shell-integration-aware path as the right-click
+Delete/Cut. Previously, when a selection existed but no OSC 133 input boundary
+was known (shell integration off, or no prompt mark yet), that path fell through
+and sent the raw Delete byte to the shell while the stale visual selection stayed
+on screen — silent, and a corruption risk if the user assumed the selected text
+was being deleted.
+
+Fix: on that fall-through, consume the key, clear the stale selection, and raise
+the existing disabled-feature hint chip pointing at shell integration — instead
+of sending blind edit bytes. The hint chip now carries a small message enum
+(open-modifier vs. shell-integration) so it can teach either case without a new
+overlay. With no selection, or with a selection that is not on editable input
+despite a known boundary, Delete/Backspace still falls through to the shell
+unchanged; the working integration-on delete path is untouched. No no-OSC
+heuristic fallback (rejected: corruption risk). Right-click context-menu
+Delete/Cut is unchanged (its disabled-hint already shipped separately).
+
+Two new tests: with a selection but a missing prompt mark, Delete must clear the
+selection, surface the hint, and send NO bytes (it sent raw Delete before the
+fix); with no selection it must still fall through. An existing
+delete-like-the-menu test now also asserts the integration-on path raises no
+disabled hint. Default frame stays byte-identical (the chip painter is a no-op
+when no hint is shown).
+
+Verified (Linux): `cargo fmt --check` / `cargo build --release --locked` /
+`cargo clippy --all-targets --locked -- -D warnings` / `cargo test --locked`
+green. Non-vacuity: neutralizing the fall-through call turns the missing-mark
+test RED ("must not send blind edit bytes"), then restores.
+
+## 2026-06-30 -- Advertise click_events on the shell-integration prompt (RC-5)
+
+Click-to-position (click on the prompt to move the shell cursor there) had a
+producer gap: the consumer side was wired and gated on the `sh_click` setting
+(default off), but the bundled shell-integration snippets never advertised
+`click_events=1`, so the core's `click_events_enabled()` flag could never turn
+on — the feature was unreachable even with `sh_click` enabled.
+
+Fix: emit `click_events=1` on the OSC 133 prompt-start (`133;A`) in all three
+bundled snippets (bash, zsh, fish). Emission is unconditional by design — there
+is deliberately no separate setting gating it: advertising the capability only
+tells the terminal the shell CAN reposition on a click; the actual action stays
+gated consumer-side on `sh_click` (default off), and a snippet only ever ships
+when shell integration is enabled (also off by default). Threading a settings
+value through the static const snippets would be strictly worse for no
+behavioral gain. Re-asserting on every prompt keeps it correct across resets.
+
+Two new tests, both bound to the ACTUAL bundled snippet text (not a hand-written
+sequence): parsing each snippet's real prompt-start through the production OSC
+133 dispatch must leave `click_events_enabled()` true; and the same snippet
+output must reposition a click only when `sh_click` is on, staying inert on the
+default-off path — binding the no-default-change claim in both directions.
+
+Verified (Linux): `cargo fmt --check` / `cargo build --release --locked` /
+`cargo clippy --all-targets --locked -- -D warnings` / `cargo test --locked`
+green. Non-vacuity: stripping `click_events=1` from the snippets turns both new
+tests RED, then restores. On-device confirmation that a live shell drives
+click-to-position is deferred to the consolidated Windows pass.
+
 ## 2026-06-29 -- Guard the model resize against a 0x0 (minimize) surface (RC-3)
 
 A minimized window can report a 0x0 drawable surface. The GPU surface already
