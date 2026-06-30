@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Re-anchor the prompt input mark through a width-change resize
+
+Prompt-aware select+Delete (mouse-select text on the prompt, press Delete to
+delete it) worked single-pane but silently stopped working in the first pane
+after a side-by-side split, until the next prompt. Root cause is cross-platform:
+the editable-input anchor (`active_prompt_input_start`) caches an absolute row,
+`scrollback.physical_len(columns) + cursor.row`, captured when the OSC 133 `B`
+input-start mark arrives. The consumer gate requires that cached row to equal
+the live `scrollback_len + cursor.row`. A side-by-side split makes the pane
+narrower, so a width-change resize rewraps the scrollback to a different
+`physical_len` and the cached row goes stale — the gate declines and Delete
+falls through to a raw keystroke. The resize path already re-anchored the
+prompt-start mark but never the input-start mark. Pressing Enter re-emitted the
+marks at the new width, which is why a fresh prompt fixed it.
+
+Fix: after a width-change resize, recompute `active_prompt_input_start` from the
+cursor's current logical-line start at the new width — but only when that line
+still carries a prompt mark (marks travel with their logical line through the
+rewrap). If the cursor has moved off the prompt, the anchor is left stale so the
+gate still declines, matching the no-resize behavior. Width-unchanged resizes
+keep `physical_len` constant and skip the recompute (byte-identical fast path).
+The column is preserved, so the editable-region bound is unchanged.
+
+Verified on Linux: a new test pushes history, sets an input mark, asserts the
+anchor matches the live cursor row, shrinks the width so the scrollback rewraps,
+and asserts the anchor is re-anchored to the live row again. Guards pin the
+width-unchanged fast path, the no-mark case, and the post-command (input anchor
+cleared) case. Neutralize-revert removed the recompute and the width-change test
+went red while all three guards stayed green; restored to green. Full gate (fmt
+/ clippy `-D warnings` / release build / test) green, +4 tests. On-device
+confirmation (split side-by-side, select prompt text, Delete without pressing
+Enter first) folds into the next pass.
+
+---
+
 ## 2026-06-30 -- Resolve interactive paths for filenames containing spaces
 
 Interactive paths gave no hand cursor for filenames with a space in the name:
