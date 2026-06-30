@@ -25,7 +25,9 @@
 
 pub mod detect;
 
-pub use detect::{DetectionOptions, PathSpan, detect_paths, detect_paths_with_options};
+pub use detect::{
+    DetectionOptions, PathSpan, detect_path_candidates_at, detect_paths, detect_paths_with_options,
+};
 
 /// What kind of filesystem entry a resolved path points at. The probe reports
 /// this; the open-action dispatch (Phase 8) branches on it.

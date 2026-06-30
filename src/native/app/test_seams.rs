@@ -426,6 +426,15 @@ impl App {
         self.hovered_path.as_ref()
     }
 
+    /// Test seam (INTERACTIVE-PATHS): the `(row, start, end)` cell extent of the
+    /// hovered resolved path, so a test can assert a spaced filename's hand /
+    /// underline covers the WHOLE name rather than a single split token.
+    #[cfg(test)]
+    pub(in crate::native) fn hovered_path_cells_for_test(&self) -> Option<(usize, usize, usize)> {
+        self.hovered_path_cells
+            .map(|cells| (cells.row, cells.start, cells.end))
+    }
+
     /// Test seam (INTERACTIVE-URLS): the bare-URL string currently under the
     /// pointer, so a test can assert the gate keeps it `None` when the feature is
     /// off, that an openable bare URL latches, and that an OSC 8 cell or a
@@ -487,6 +496,14 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn set_interactive_urls_for_test(&mut self, on: bool) {
         self.settings.interactive_urls = on;
+    }
+
+    /// Test seam (INTERACTIVE-PATHS): toggle the `interactive_paths_barewords`
+    /// setting so the basename-token (and spaced-filename) hover detection can be
+    /// pinned without an env var.
+    #[cfg(test)]
+    pub(in crate::native) fn set_interactive_paths_barewords_for_test(&mut self, on: bool) {
+        self.settings.interactive_paths_barewords = on;
     }
 
     /// Test seam (SMART-CTRLC): set the `smart_ctrl_c` policy so the plain-Ctrl+C

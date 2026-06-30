@@ -717,36 +717,46 @@ impl App {
     ) -> Option<(crate::paths::Resolved, super::click_hint::HoverPathCells)> {
         let point = self.pointer_cell?;
         let (line, column, cwd) = self.hovered_row_text_and_cwd(point)?;
-        // Map the pointer's cell column to a byte offset in the row string, then
-        // find the detected span covering that offset. Paths are ASCII/narrow,
-        // so one char per cell column keeps the column and char indices aligned.
+        // Map the pointer's cell column to a byte offset in the row string. Paths
+        // are ASCII/narrow, so one char per cell column keeps the column and char
+        // indices aligned.
         let target = line.char_indices().nth(column).map(|(byte, _)| byte)?;
-        let span = crate::paths::detect_paths_with_options(
-            &line,
-            crate::paths::DetectionOptions {
-                barewords: self.settings.interactive_paths_barewords,
-            },
-        )
-        .into_iter()
-        .find(|span| target >= span.start && target < span.end)?;
-        let resolved =
-            self.classify_hovered_path(&span, cwd.as_deref(), self.home_dir.as_deref())?;
-        // Panic-free byte→column mapping: count chars whose byte offset is below
-        // the span boundary (never indexes a String slice at a raw byte).
-        let start = line
-            .char_indices()
-            .filter(|(byte, _)| *byte < span.start)
-            .count();
-        let end = line
-            .char_indices()
-            .filter(|(byte, _)| *byte < span.end)
-            .count();
-        let cells = super::click_hint::HoverPathCells {
-            row: point.row,
-            start,
-            end,
+        let options = crate::paths::DetectionOptions {
+            barewords: self.settings.interactive_paths_barewords,
         };
-        Some((resolved, cells))
+        // Stat-guided span expansion: the scanner tokenizes on whitespace, so a
+        // filename containing a space is split into separate tokens and never
+        // resolves as one. Probe the contiguous token-run candidates that include
+        // the hovered token, longest-first; the FIRST one the stat-gate confirms
+        // exists wins. This picks the most-specific existing name (`my notes.txt`
+        // over `notes.txt`) while prose runs that name no real file stay inert.
+        // The single hovered token is always among the candidates, so a spaceless
+        // filename resolves byte-identically to the previous single-span path.
+        for span in crate::paths::detect_path_candidates_at(&line, target, options) {
+            let Some(resolved) =
+                self.classify_hovered_path(&span, cwd.as_deref(), self.home_dir.as_deref())
+            else {
+                continue;
+            };
+            // Panic-free byte→column mapping: count chars whose byte offset is
+            // below the span boundary (never indexes a String slice at a raw
+            // byte).
+            let start = line
+                .char_indices()
+                .filter(|(byte, _)| *byte < span.start)
+                .count();
+            let end = line
+                .char_indices()
+                .filter(|(byte, _)| *byte < span.end)
+                .count();
+            let cells = super::click_hint::HoverPathCells {
+                row: point.row,
+                start,
+                end,
+            };
+            return Some((resolved, cells));
+        }
+        None
     }
 
     /// UX-A (Phase 11): note a plain left-click that landed on a resolved path

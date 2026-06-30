@@ -259,6 +259,114 @@ fn unresolved_path_span_gets_no_hand() {
     assert!(app.hovered_path_for_test().is_none());
 }
 
+// ── INTERACTIVE-PATHS: spaced-filename hover span expansion ─────────────────
+//
+// A filename containing a space is split by the whitespace tokenizer, so neither
+// half resolves alone. With stat-guided span expansion the hover offers the
+// joined name; these pin that the hand + full-name extent resolve when the file
+// exists, that hovering either half works, that the longest-EXISTING name wins
+// over a shorter one, and that a spaceless filename is byte-identical. The cwd
+// is seeded via OSC 7 and the fs is the synthetic MapProbe — no real filesystem.
+
+/// Seed cwd `/proj` via OSC 7, then print `row0` at row 0. Barewords + paths on.
+fn build_app_with_cwd(row0: &str) -> Option<App> {
+    let mut content = b"\x1b]7;file://localhost/proj\x1b\\".to_vec();
+    content.extend_from_slice(row0.as_bytes());
+    let mut app = build_app(&content)?;
+    app.set_interactive_paths_for_test(true);
+    app.set_interactive_paths_barewords_for_test(true);
+    Some(app)
+}
+
+#[test]
+fn spaced_filename_resolves_when_hovering_either_half() {
+    // The real file is `my notes.txt`; hovering the `notes.txt` half OR the `my`
+    // half must resolve the whole joined name, and the hand-cursor extent must
+    // cover the entire name (cols 0..12), not just one split token.
+    let Some(mut app) = build_app_with_cwd("my notes.txt") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/my notes.txt", FsKind::File)]));
+
+    // Hover the `notes.txt` half (col 5).
+    app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
+    assert_eq!(app.cursor_icon_for_test(), CursorIcon::Pointer);
+    assert_eq!(
+        app.hovered_path_for_test().map(|r| r.abs.as_str()),
+        Some("/proj/my notes.txt")
+    );
+    assert_eq!(
+        app.hovered_path_cells_for_test(),
+        Some((0, 0, 12)),
+        "the hand/underline covers the whole spaced name"
+    );
+
+    // Hover the `my` half (col 0).
+    app.pointer_move_for_test(f64::from(CELL_W) * 0.5, f64::from(CELL_H) * 0.5);
+    assert_eq!(
+        app.hovered_path_for_test().map(|r| r.abs.as_str()),
+        Some("/proj/my notes.txt"),
+        "hovering the leading half resolves the joined name too"
+    );
+}
+
+#[test]
+fn longest_existing_spaced_name_wins_over_a_shorter_one() {
+    // Guard (b): in `see my file.txt here`, only `file.txt` exists — the joined
+    // `my file.txt` must NOT be chosen; the shorter existing name wins.
+    let Some(mut app) = build_app_with_cwd("see my file.txt here") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/file.txt", FsKind::File)]));
+
+    // `file.txt` begins at col 7 (`see my ` = 7 chars); hover col 9.
+    app.pointer_move_for_test(f64::from(CELL_W) * 9.5, f64::from(CELL_H) * 0.5);
+    assert_eq!(
+        app.hovered_path_for_test().map(|r| r.abs.as_str()),
+        Some("/proj/file.txt"),
+        "the shorter existing name wins; prose is not swept in"
+    );
+}
+
+#[test]
+fn spaceless_filename_resolves_byte_identically() {
+    // Rule D: a spaceless filename resolves to exactly the single token, with the
+    // single-token cell extent — the expansion never changes the no-space case.
+    let Some(mut app) = build_app_with_cwd("open notes.txt now") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/notes.txt", FsKind::File)]));
+
+    // `notes.txt` begins at col 5 (`open ` = 5 chars); hover col 8.
+    app.pointer_move_for_test(f64::from(CELL_W) * 8.5, f64::from(CELL_H) * 0.5);
+    assert_eq!(
+        app.hovered_path_for_test().map(|r| r.abs.as_str()),
+        Some("/proj/notes.txt")
+    );
+    assert_eq!(
+        app.hovered_path_cells_for_test(),
+        Some((0, 5, 14)),
+        "single-token extent: cols 5..14 (the 9-char name)"
+    );
+}
+
+#[test]
+fn spaced_filename_inert_when_feature_off() {
+    // Guard (c): with interactive_paths off the candidate scan never runs.
+    let Some(mut app) = build_app_with_cwd("my notes.txt") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_interactive_paths_for_test(false);
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/my notes.txt", FsKind::File)]));
+    app.pointer_move_for_test(f64::from(CELL_W) * 5.5, f64::from(CELL_H) * 0.5);
+    assert_eq!(app.cursor_icon_for_test(), CursorIcon::Text);
+    assert!(app.hovered_path_for_test().is_none());
+}
+
 // ── INTERACTIVE-PATHS (Phase 8 / C3): Ctrl+click open gate + dispatch argv ──
 //
 // The success branch spawns a process, so these tests only exercise the gate's
