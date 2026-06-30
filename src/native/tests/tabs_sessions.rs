@@ -1037,6 +1037,184 @@ fn wheel_scroll_still_scrolls_the_lone_single_pane() {
     );
 }
 
+// Fill every row of a terminal with a long bare URL so the hover scan finds an
+// openable URL under ANY cell the pointer (or a buggy clamp) maps to — making
+// the assertions independent of exact split-pane cell geometry.
+fn fill_grid_with_url(terminal: &Arc<Mutex<Terminal>>, rows: usize) {
+    let url = format!("https://example.com/{}", "a".repeat(120));
+    let mut t = terminal.lock().expect("terminal");
+    // Autowrap off so the over-long URL fills each row to its last column without
+    // wrapping into the next row (and without scrolling the grid on the last
+    // row); the trailing chars harmlessly overwrite the final cell.
+    t.advance(b"\x1b[?7l");
+    for row in 1..=rows {
+        t.advance(format!("\x1b[{row};1H").as_bytes());
+        t.advance(url.as_bytes());
+    }
+}
+
+#[test]
+fn hover_over_a_non_focused_pane_does_not_resolve_a_link_in_the_focused_pane() {
+    // Hover analog of focus-follows-click. After a column split focus is on the
+    // RIGHT pane (B); moving the pointer over the LEFT pane (A) must NOT map the
+    // pointer into the focused pane's grid and light a false bare-URL hit (+ hand
+    // cursor) from B. Before the fix `active_pane_pointer_cell` mapped the over-A
+    // pointer relative to B's rect — x_px − rect.x goes negative and clamps to
+    // B's column 0 — so a link at B's left edge latched while hovering pane A.
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a,
+        writer_a,
+        pty_a,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    let pane_b = app.seed_split_pane_for_test(true, terminal_b.clone(), writer_b, pty_b);
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    app.reflow_active_panes_for_test();
+
+    // The split focuses the new pane B (right half); leave focus there.
+    assert_eq!(
+        app.focused_pane_id_for_test(),
+        pane_b,
+        "precondition: focus is pane B (right) while the pointer will be over pane A (left)"
+    );
+    // Fill the focused pane (B) with links so the buggy clamp-to-column-0 would
+    // resolve one; the fix must suppress hover over the non-focused pane instead.
+    fill_grid_with_url(&terminal_b, ROWS);
+
+    // Pointer over pane A (left quarter) at row 12.
+    app.pointer_move_for_test((COLS as u32 * CW / 4) as f64, (ROWS as u32 * CH / 2) as f64);
+
+    assert_eq!(
+        app.hovered_url_for_test(),
+        None,
+        "hovering a non-focused pane must not resolve a link clamped into the focused pane"
+    );
+    assert_ne!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Pointer,
+        "no hand cursor while hovering a non-focused pane"
+    );
+}
+
+#[test]
+fn hover_over_the_focused_pane_in_a_split_still_resolves_a_link() {
+    // The suppression must be precise: hovering the FOCUSED pane in a split
+    // resolves links exactly as a single pane does (Rule D — not a blanket
+    // multi-pane hover kill).
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a,
+        writer_a,
+        pty_a,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    let pane_b = app.seed_split_pane_for_test(true, terminal_b.clone(), writer_b, pty_b);
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    app.reflow_active_panes_for_test();
+    // The split focuses the new pane B; leave focus there and hover over it.
+    assert_eq!(app.focused_pane_id_for_test(), pane_b);
+    fill_grid_with_url(&terminal_b, ROWS);
+
+    app.pointer_move_for_test(
+        (COLS as u32 * CW * 3 / 4) as f64,
+        (ROWS as u32 * CH / 2) as f64,
+    );
+
+    assert!(
+        app.hovered_url_for_test().is_some(),
+        "hovering the focused pane in a split must still resolve its link"
+    );
+}
+
+#[test]
+fn single_pane_hover_still_resolves_a_link() {
+    // Rule D: the lone single-pane hover path is byte-identical — the
+    // non-focused-pane suppression never engages (`multipane_geometry` is None).
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal, writer, pty, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    fill_grid_with_url(&terminal, ROWS);
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal,
+        writer,
+        pty,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+
+    // Pointer over the URL at row 12 (column 20 is well within the 40-cell span).
+    app.pointer_move_for_test(f64::from(CW) * 20.5, (ROWS as u32 * CH / 2) as f64);
+
+    assert!(
+        app.hovered_url_for_test().is_some(),
+        "single-pane hover must still resolve a bare URL under the pointer"
+    );
+}
+
 /// Build a two-pane split `App` headlessly at an exact `COLS×ROWS`-cell surface
 /// with zero padding and a single tab (no tab bar), then reflow so each pane
 /// holds its narrow split sub-grid. The active (focused) pane is the new one

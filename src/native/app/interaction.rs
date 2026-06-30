@@ -1280,6 +1280,54 @@ impl App {
         }
     }
 
+    /// True when, in a multi-pane tab, the pointer is over a pane OTHER than the
+    /// focused one — or in a divider gap with no pane content beneath it. This is
+    /// the case where hover resolution must be suppressed: `self.grid` /
+    /// `self.terminal` belong to the focused pane, so mapping an off-pane pointer
+    /// into them resolves a false link/path/URL. Always `false` on a single-pane
+    /// tab (`multipane_geometry` is `None`), keeping the single-pane and
+    /// focused-pane hover paths byte-identical.
+    fn pointer_over_nonfocused_pane(&self) -> bool {
+        let Some((content, _)) = self.multipane_geometry() else {
+            return false;
+        };
+        let Some((px, py)) = self.pointer_px else {
+            return false;
+        };
+        match self
+            .sessions
+            .active_pane_at_point(content, PANE_DIVIDER_PX, px as f32, py as f32)
+        {
+            Some(token) => token != self.sessions.active_id(),
+            None => true,
+        }
+    }
+
+    /// Drop any hovered hyperlink / path / URL span (and the armed-underline
+    /// cells that mirror them), requesting a rebuild/redraw only when something
+    /// was actually cleared. Used when hover must be suppressed (pointer over a
+    /// non-focused pane) so a stale span from a prior focused hover does not
+    /// keep a hand cursor or decoration alive.
+    fn clear_hovered_link_spans(&mut self) {
+        let had_span = self.hovered_hyperlink.is_some()
+            || self.hovered_path.is_some()
+            || self.hovered_path_cells.is_some()
+            || self.hovered_url.is_some()
+            || self.hovered_url_cells.is_some();
+        if !had_span {
+            return;
+        }
+        self.hovered_hyperlink = None;
+        self.hovered_path = None;
+        self.hovered_path_cells = None;
+        self.hovered_url = None;
+        self.hovered_url_cells = None;
+        self.needs_rebuild = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
     pub(super) fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
         let Some(cell) = self.resolved_cell() else {
             return;
@@ -1402,16 +1450,28 @@ impl App {
             self.apply_cursor_icon(Self::divider_resize_icon(axis));
             return;
         }
-        self.update_hover_hyperlink();
-        // INTERACTIVE-PATHS (Phase 7): recompute the hovered path span. Gated on
-        // the `interactive_paths` setting inside `update_hover_path`, so with the
-        // feature off (the default) it returns before scanning and this call is a
-        // single bool test — the hover path stays byte-identical.
-        self.update_hover_path();
-        // INTERACTIVE-URLS: recompute the hovered bare-URL span. Gated on the
-        // `interactive_urls` setting inside `update_hover_url`; off makes this a
-        // single bool test so the hover path stays byte-identical.
-        self.update_hover_url();
+        // Multi-pane hover analog of focus-follows-click: `self.grid` /
+        // `self.terminal` are the FOCUSED pane's, so resolving hover while the
+        // pointer is over a NON-focused pane (or a divider gap) would map the
+        // pointer into the focused pane and light a false hyperlink / path / URL
+        // hit (and hand cursor) there. Suppress hover in that case, clearing any
+        // span left over from a prior focused-pane hover. Single-pane and
+        // focused-pane hover are unaffected (`pointer_over_nonfocused_pane` is
+        // always false on a single-pane tab), so the common path is byte-identical.
+        if self.pointer_over_nonfocused_pane() {
+            self.clear_hovered_link_spans();
+        } else {
+            self.update_hover_hyperlink();
+            // INTERACTIVE-PATHS (Phase 7): recompute the hovered path span. Gated
+            // on the `interactive_paths` setting inside `update_hover_path`, so
+            // with the feature off (the default) it returns before scanning and
+            // this call is a single bool test — the hover path stays byte-identical.
+            self.update_hover_path();
+            // INTERACTIVE-URLS: recompute the hovered bare-URL span. Gated on the
+            // `interactive_urls` setting inside `update_hover_url`; off makes this
+            // a single bool test so the hover path stays byte-identical.
+            self.update_hover_url();
+        }
         // Cursor shape over the terminal grid: a hand on a hovered hyperlink OR a
         // resolved interactive path OR a bare URL, the arrow while a TUI has mouse
         // reporting enabled (it owns clicks, so an I-beam would mislead), and the
