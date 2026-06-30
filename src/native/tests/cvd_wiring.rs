@@ -65,6 +65,11 @@ fn default_off_publishes_the_authored_theme_unchanged() {
 
 #[test]
 fn enabling_a_mode_through_apply_settings_adapts_the_published_theme() {
+    // `apply_cvd_for_test` drives the real reload seam, which republishes the
+    // process-global render state (default colors / palette / contrast floor).
+    // Serialize against the other render-globals tests so a parallel run can't
+    // interleave a global write under another test's read.
+    let _guard = crate::test_lock::render_globals_lock();
     let theme = confusable_theme();
     let Some(mut app) = build_app(theme) else {
         eprintln!("skipping: no PTY available");
@@ -96,6 +101,9 @@ fn enabling_a_mode_through_apply_settings_adapts_the_published_theme() {
 
 #[test]
 fn zero_strength_with_a_mode_set_is_an_exact_passthrough() {
+    // Serialize against the other render-globals tests: `apply_cvd_for_test`
+    // republishes the process-global render state through the reload seam.
+    let _guard = crate::test_lock::render_globals_lock();
     let theme = confusable_theme();
     let Some(mut app) = build_app(theme) else {
         eprintln!("skipping: no PTY available");
