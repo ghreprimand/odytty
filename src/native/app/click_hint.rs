@@ -29,6 +29,7 @@ use std::time::{Duration, Instant};
 
 use crate::core::{Attrs, Cell, Color, Snapshot};
 
+use super::super::context_menu_ui::SHELL_INTEGRATION_DISABLED_HINT;
 use super::super::render_helpers::open_modifier_held;
 use super::{App, OverlayFragment};
 
@@ -75,6 +76,21 @@ pub(in crate::native) fn click_hint_text(os: super::platform_opener::OpenerOs) -
 /// launch). Reset per launch because the state is in-memory only.
 pub(in crate::native) const CLICK_HINT_MAX_SHOWS: u32 = 3;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::native) enum ClickHintMessage {
+    OpenModifier,
+    ShellIntegration,
+}
+
+impl ClickHintMessage {
+    fn text(self, os: super::platform_opener::OpenerOs) -> &'static str {
+        match self {
+            Self::OpenModifier => click_hint_text(os),
+            Self::ShellIntegration => SHELL_INTEGRATION_DISABLED_HINT,
+        }
+    }
+}
+
 /// In-memory, per-launch click-hint state (NOT persisted). Tracks the active
 /// transient hint plus the mis-click bookkeeping that decides when to raise it.
 /// Pure and platform-independent so the trigger logic is unit-tested directly.
@@ -94,6 +110,8 @@ pub(in crate::native) struct ClickHintState {
     /// nagging a user who keeps plain-clicking. In-memory only (resets per
     /// launch).
     times_shown: u32,
+    /// Which short teaching message the visible chip paints.
+    message: Option<ClickHintMessage>,
 }
 
 impl ClickHintState {
@@ -125,6 +143,7 @@ impl ClickHintState {
             .is_some_and(|prev| now.saturating_duration_since(prev) <= CLICK_HINT_MISCLICK_WINDOW);
         if paired {
             self.shown_at = Some(now);
+            self.message = Some(ClickHintMessage::OpenModifier);
             self.last_misclick = None;
             self.cooldown_until = Some(now + CLICK_HINT_DURATION + CLICK_HINT_COOLDOWN);
             self.times_shown = self.times_shown.saturating_add(1);
@@ -143,6 +162,7 @@ impl ClickHintState {
             && now.saturating_duration_since(shown) >= CLICK_HINT_DURATION
         {
             self.shown_at = None;
+            self.message = None;
         }
         if let Some(prev) = self.last_misclick
             && now.saturating_duration_since(prev) > CLICK_HINT_MISCLICK_WINDOW
@@ -154,6 +174,24 @@ impl ClickHintState {
     /// Whether the bottom-left hint is currently visible.
     pub(in crate::native) fn is_shown(&self) -> bool {
         self.shown_at.is_some()
+    }
+
+    pub(in crate::native) fn shown_text(
+        &self,
+        os: super::platform_opener::OpenerOs,
+    ) -> Option<&'static str> {
+        self.shown_at?;
+        self.message.map(|message| message.text(os))
+    }
+
+    pub(in crate::native) fn show_shell_integration_hint(&mut self, now: Instant) -> bool {
+        if self.shown_at.is_some() {
+            return false;
+        }
+        self.shown_at = Some(now);
+        self.message = Some(ClickHintMessage::ShellIntegration);
+        self.last_misclick = None;
+        true
     }
 
     /// The auto-expiry wake instant while the hint is visible, else `None` so an
@@ -262,6 +300,12 @@ impl App {
         self.click_hint.tick(now);
     }
 
+    pub(in crate::native) fn show_shell_integration_hint(&mut self, now: Instant) {
+        if self.click_hint.show_shell_integration_hint(now) {
+            self.request_selection_redraw();
+        }
+    }
+
     /// Paint the hint as a short inverse-video chip in the bottom-LEFT of the
     /// grid (distinct from the failure banner's full-width TOP bar). No-op when
     /// the hint is not shown, so the frame is byte-identical on the default path.
@@ -280,7 +324,11 @@ impl App {
         let attrs = hint_attrs();
         let base = (rows - 1) * columns;
         let mut x = 0usize;
-        for ch in click_hint_text(super::platform_opener::OpenerOs::host()).chars() {
+        let text = self
+            .click_hint
+            .shown_text(super::platform_opener::OpenerOs::host())
+            .unwrap_or_else(|| click_hint_text(super::platform_opener::OpenerOs::host()));
+        for ch in text.chars() {
             if ch.is_control() {
                 continue;
             }

@@ -535,6 +535,17 @@ impl App {
         true
     }
 
+    pub(super) fn try_handle_unavailable_selection_delete(&mut self) -> bool {
+        if !self.prompt_input_mark_missing_for_context_menu() {
+            return false;
+        }
+        self.selection.clear();
+        self.selection_block = false;
+        self.show_shell_integration_hint(std::time::Instant::now());
+        self.request_selection_redraw();
+        true
+    }
+
     fn delete_editable_input_selection(&mut self, selection: EditableInputSelection) {
         self.return_to_live();
         self.write_pty_bytes(&selection.edit_bytes);

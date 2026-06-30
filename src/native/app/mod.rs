@@ -1268,17 +1268,20 @@ impl App {
             // SELDEL-KEY: a plain Delete/Backspace with a local selection on the
             // editable prompt line deletes that selection through the same gated,
             // shell-integration-aware path as the right-click Delete/Cut, then
-            // swallows the key. Returns false (falls through to the normal key
-            // encode) with no selection, a selection not on editable input, or no
-            // shell integration — so the byte sent to the shell is unchanged in
-            // every case the menu's Delete item would be disabled. Gated to no
-            // Ctrl/Alt/Super so word-delete chords (Ctrl+W, Alt+Backspace) still
-            // reach the shell. Press-only via the enclosing guard.
+            // swallows the key. If a selection exists but no OSC 133 input
+            // boundary is known, consume the key, clear the stale visual
+            // selection, and show the shell-integration hint instead of sending
+            // blind edit bytes. With no selection, or with a selection that is
+            // not on editable input despite a known boundary, Delete/Backspace
+            // still falls through to the shell. Gated to no Ctrl/Alt/Super so
+            // word-delete chords (Ctrl+W, Alt+Backspace) still reach the shell.
+            // Press-only via the enclosing guard.
             if is_selection_delete_key(&logical)
                 && !mods.ctrl
                 && !mods.alt
                 && !self.super_key
-                && self.try_delete_selected_editable_input()
+                && (self.try_delete_selected_editable_input()
+                    || self.try_handle_unavailable_selection_delete())
             {
                 return;
             }

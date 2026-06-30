@@ -683,6 +683,10 @@ fn delete_key_deletes_editable_selection_like_menu() {
         app.selection_range_for_test().is_none(),
         "the Delete key clears the stale visual selection after editing"
     );
+    assert!(
+        !app.click_hint_shown_for_test(),
+        "successful prompt-aware delete does not show the disabled hint"
+    );
 }
 
 /// SELDEL-KEY: Backspace behaves the same as Delete for an editable selection
@@ -707,6 +711,35 @@ fn backspace_key_deletes_editable_selection() {
     assert!(app.selection_range_for_test().is_none());
 }
 
+#[test]
+fn delete_key_with_missing_prompt_mark_clears_selection_and_hints() {
+    let Some((mut app, bytes)) = app_with_recording_writer(b"$ abc") else {
+        return;
+    };
+    app.force_selection_for_test(0, 0, 0, 4);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert!(
+        written.is_empty(),
+        "selection-delete without a prompt boundary must not send blind edit bytes"
+    );
+    assert!(
+        app.selection_range_for_test().is_none(),
+        "unavailable prompt-aware editing clears the stale visual selection"
+    );
+    assert!(
+        app.click_hint_shown_for_test(),
+        "unavailable prompt-aware editing surfaces the shell-integration hint"
+    );
+    assert_eq!(
+        app.click_hint_text_for_test(),
+        Some("Enable shell integration in Settings")
+    );
+}
+
 /// SELDEL-KEY off path: a Delete with a selection that is NOT on editable input
 /// (prompt-only) falls through to the normal key encode — byte-identical to
 /// before the feature — and never touches the selection via the editable path.
@@ -727,6 +760,22 @@ fn delete_key_falls_through_when_selection_not_editable() {
         written, b"\x1b[3~",
         "a non-editable selection lets Delete encode normally to the shell"
     );
+}
+
+#[test]
+fn delete_key_without_selection_still_falls_through() {
+    let Some((mut app, bytes)) = app_with_recording_writer(b"$ abc") else {
+        return;
+    };
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert_eq!(
+        written, b"\x1b[3~",
+        "plain Delete with no selection still reaches the shell"
+    );
+    assert!(!app.click_hint_shown_for_test());
 }
 
 /// D-IN2-CUT-SAFE: if `write_text` returns `None`, Cut must NOT delete the

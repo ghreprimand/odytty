@@ -449,6 +449,12 @@ impl App {
         self.click_hint.is_shown()
     }
 
+    #[cfg(test)]
+    pub(in crate::native) fn click_hint_text_for_test(&self) -> Option<&'static str> {
+        self.click_hint
+            .shown_text(super::platform_opener::OpenerOs::Linux)
+    }
+
     /// Test seam (UX-A / Phase 11): the armed-underline span (row, start, end) as
     /// the painter + cache signature see it — `Some` only when `interactive_paths`
     /// is on, Ctrl is held, and a resolved path is hovered; `None` otherwise so
