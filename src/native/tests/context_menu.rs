@@ -108,6 +108,35 @@ fn app_with_recording_writer(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>
     Some((app, bytes))
 }
 
+/// RC-19b: same as [`app_with_recording_writer`], but also hands back the
+/// `Terminal` handle so a test can read the live absolute cursor row
+/// (`scrollback_len() + cursor().row`) before and after a resize — needed to
+/// re-point a screen-space selection at the prompt's new row across a
+/// width-change reflow.
+#[allow(clippy::type_complexity)]
+fn app_with_recording_writer_and_terminal(
+    content: &[u8],
+) -> Option<(App, Arc<Mutex<Vec<u8>>>, Arc<Mutex<Terminal>>)> {
+    let dims = Dimensions::new(80, 24);
+    let session = spawn_test_pause_shell(dims).ok()?;
+    let _ = session.take_writer().ok()?;
+    let recorder = RecordingWriter::default();
+    let bytes = recorder.bytes.clone();
+    let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
+    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    terminal.lock().expect("terminal").advance(content);
+    let pty = Arc::new(Mutex::new(session));
+    let app = App::new(
+        NativeOptions::default(),
+        terminal.clone(),
+        writer,
+        pty,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    Some((app, bytes, terminal))
+}
+
 /// Click the open context-menu item whose rendered row contains `needle`,
 /// resolving its grid row from the live composited menu at the App's real grid
 /// dims (so the rect/edge-clamp matches the click path exactly) and clicking at
@@ -1208,5 +1237,74 @@ fn detach_switch_spawn_failure_raises_notice_and_keeps_panes() {
         app.session_count_for_test(),
         before,
         "a spawn failure adds no session and closes none — original untouched"
+    );
+}
+
+/// RC-19b: app-level regression lock for RC-19 (commit 6d2baaf). The CORE-
+/// level test (`input_start_is_reanchored_through_a_width_change_resize` in
+/// `src/core/tests/osc_prompt.rs`) pins the screen invariant in isolation;
+/// this test pins the actual consumer the bug bit — the right-click/Delete
+/// gate `editable_input_selection_for_context_menu` — through a real
+/// width-change resize driven the same way a side-by-side split drives it
+/// (`App::resize_grid` -> `resize_all_panes` -> `Terminal::resize`).
+#[test]
+fn editable_input_selection_survives_a_width_change_resize() {
+    // Build enough scrollback that a width SHRINK forces a rewrap (so
+    // `scrollback_len()` grows and the cached prompt-input anchor goes stale
+    // without RC-19's re-anchor). Each pushed line is 70 cols: under the
+    // initial 80-col width it is exactly one physical row, but over the
+    // 40-col width resized to below, so it wraps into 2 rows post-resize and
+    // scrollback_len() is guaranteed to change.
+    let long_line = "0123456789".repeat(7); // 70 chars
+    let mut content = Vec::new();
+    for _ in 0..40 {
+        content.extend_from_slice(long_line.as_bytes());
+        content.extend_from_slice(b"\r\n");
+    }
+    // A fresh prompt with an input mark on the live input row — same `$ ` /
+    // `abc` shape as the other single-pane gate tests above.
+    content.extend_from_slice(b"\x1b]133;A\x07$ \x1b]133;B\x07abc");
+
+    let Some((mut app, _bytes, terminal)) = app_with_recording_writer_and_terminal(&content) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    // PRE: locate the live input row in absolute (scrollback + cursor) terms
+    // and select across the prompt text into the input, exactly like
+    // `cut_delete_enabled_when_prompt_mark_is_present` does.
+    let pre_row = {
+        let terminal = terminal.lock().expect("terminal");
+        terminal.screen().scrollback_len() + terminal.screen().cursor().row
+    };
+    app.force_selection_for_test(pre_row, 0, pre_row, 4);
+    assert_eq!(
+        app.editable_input_selection_text_for_test().as_deref(),
+        Some("abc"),
+        "precondition: the gate passes before any resize (single-pane today)"
+    );
+
+    // Apply a width-change resize (narrower) — the side-by-side-split
+    // scenario — through the exact same model path a real split drives.
+    let resized = app.resize_grid(cell(8, 16), 40 * 8, 24 * 16);
+    assert!(resized, "narrower width must be a genuine grid change");
+
+    // The selection is screen-space (an absolute row), and the resize above
+    // rewrapped scrollback, so the prompt's absolute row moved. Re-point the
+    // SAME logical selection ("abc") at the NEW live input row — this
+    // isolates exactly what RC-19 fixed: whether the cached prompt-input
+    // anchor (`active_prompt_input_start`) was re-anchored to track that
+    // move. If it was not (RC-19 reverted), the gate's `input_row !=
+    // cursor_row` check fails here and the POST assertion below sees `None`.
+    let post_row = {
+        let terminal = terminal.lock().expect("terminal");
+        terminal.screen().scrollback_len() + terminal.screen().cursor().row
+    };
+    app.force_selection_for_test(post_row, 0, post_row, 4);
+
+    assert_eq!(
+        app.editable_input_selection_text_for_test().as_deref(),
+        Some("abc"),
+        "select+Delete must still engage on the prompt input after a width-change resize"
     );
 }
