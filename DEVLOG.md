@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- RIS restores alternate-scroll default; serialize CVD wiring tests
+
+Two small correctness/hardening fixes.
+
+RIS (`ESC c`, full reset) now returns DEC private mode 1007 (alternate scroll)
+to its power-on default of enabled, alongside the focus-reporting / mouse /
+click-events input-reporting family it already restored. A DECRST that turned
+alternate scroll off previously survived a full reset. Soft reset (DECSTR,
+`ESC [ ! p`) deliberately leaves the input-reporting family alone, so it does
+NOT touch alternate scroll — matching xterm and the existing behavior of the
+sibling modes. Two tests pin both halves: RIS restores the default, soft reset
+leaves a DECRST in effect.
+
+Test hardening: two CVD-wiring tests drive the live settings-reload seam, which
+republishes process-global render state (default colors / palette / contrast
+floor). They now take the shared render-globals lock like their ~10 siblings, so
+a parallel run can't interleave a global write under another test's read. The
+read-only default-publish test stays lock-free — `App::new` does not write those
+globals, so it needs no guard.
+
+Verified on Linux: the RIS test was red before the reset line, green after;
+the soft-reset guard stayed green throughout. Full gate (fmt / clippy -D
+warnings / release build / test) green.
+
+---
+
 ## 2026-06-30 -- Wheel scroll targets the pane under the cursor
 
 In a split-pane tab, wheel scrolling always moved the focused pane's viewport,
