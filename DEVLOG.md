@@ -37,6 +37,12 @@ divider-drag resize (Rule D). Neutralize-revert pointed the per-move path back
 at the full resize and the coalescing test went red again. Full gate (fmt /
 clippy -D warnings / release build / test, 2791 passing) green.
 
+Follow-up: the new test-only resize counter imported `AtomicUsize` into the
+Windows PTY backend's shared `use`, where it is unused in a non-test build — the
+Linux gate never compiles that file, so Windows CI caught it as a clippy
+`-D warnings` failure. Gated the import behind `#[cfg(test)]` to match its only
+usage (the Unix backend already fully-qualifies it inline).
+
 ---
 
 ## 2026-06-30 -- Suppress link hover over a non-focused pane in a split

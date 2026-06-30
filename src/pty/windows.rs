@@ -35,7 +35,13 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::os::windows::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
+// `AtomicUsize` backs the test-only `resize_calls` counter, so it is unused in a
+// non-test Windows build — gate the import to match (Standing rule C: a Windows-
+// only file's lints are invisible to the Linux gate). The Unix backend sidesteps
+// this by fully-qualifying `std::sync::atomic::AtomicUsize` inline.
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
