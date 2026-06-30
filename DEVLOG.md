@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Resolve interactive paths for filenames containing spaces
+
+Interactive paths gave no hand cursor for filenames with a space in the name:
+a relative `report.log` opened, but `my notes.txt` (and image files with spaced
+names) stayed inert. Root cause is cross-platform, not Windows-specific: the
+path scanner tokenizes strictly on ASCII whitespace, so `my notes.txt` is split
+into `my` + `notes.txt`; the right half resolves `cwd/notes.txt` (no such file)
+and the left half is not a path shape, so neither lights up. There is no
+per-extension allowlist anywhere — the `.log`/`.txt` difference was the space,
+not the extension.
+
+Fix: stat-guided span expansion, gated behind `interactive_paths` so the
+default path is byte-identical. A new pure generator
+(`detect_path_candidates_at`) emits the contiguous token-run candidates that
+include the hovered token, built from the exact original line substring so
+internal spacing is preserved, ordered longest-first and bounded (at most 8
+candidates over a 6-token-per-side window). The hover layer stat-probes the
+candidates in order through the existing filesystem probe and the first one
+that exists wins, so the most-specific real name (`my notes.txt` over
+`notes.txt`) is chosen while a multi-token run over prose that names no real
+file stays inert. The single hovered token is always among the candidates, so a
+spaceless filename resolves to exactly the same name and cell extent as before.
+The relaxed bareword shape keeps the same extension / version / domain guards
+and requires the run to end in an extensioned token, so a run cannot extend past
+a filename into trailing prose.
+
+Verified on Linux: detect-level unit tests pin the longest-first expansion, the
+extensioned-tail requirement, the always-present single-token fallback,
+separator-based (non-bareword) spaced paths, the empty result on whitespace /
+out-of-range hovers, and the candidate-count bound. App-level hover tests drive
+the production pointer path against a synthetic filesystem: a spaced name
+resolves from hovering either half with the hand/underline covering the whole
+name, the shorter existing name wins when the joined name does not exist, a
+spaceless name resolves byte-identically, and the feature-off path never scans.
+Neutralize-revert collapsed the candidate window to the single hovered token and
+the spaced-name tests went red; restored to green. Full gate (fmt / clippy
+`-D warnings` / release build / test) green, +12 tests. On-device confirmation
+(hover a spaced filename in a `dir` listing) folds into the next Windows pass.
+
+---
+
 ## 2026-06-30 -- Normalize Windows drive paths from OSC 7 file URLs
 
 PowerShell shell integration was already emitting an RFC-correct OSC 7 working
