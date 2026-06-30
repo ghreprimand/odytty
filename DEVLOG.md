@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- PowerShell shell integration (OSC 133 on Windows) (RC-6)
+
+OdyTTY auto-injects OSC 133 shell integration for bash/zsh/fish on Unix, but the
+Windows spawn path ignored its settings argument entirely and had no PowerShell
+support — so the prompt-aware features (selection-delete, click-to-position) had
+no producer on Windows at all.
+
+Added `ShellKind::PowerShell` (cross-platform enum) and a PowerShell integration
+snippet emitting all four OSC 133 marks: a wrapped `prompt` function emits
+`133;D;$LASTEXITCODE` (previous command's exit status) then `133;A;click_events=1`
+(matching the Unix snippets so click-to-position can turn on) then the user's
+original prompt then `133;B`, and a PSReadLine Enter hook emits `133;C` just
+before the command runs. A set-once `ODYTTY_SHELL_INTEGRATION` guard mirrors the
+Unix snippets so a nested shell does not double-wrap. Windows PowerShell 5.1
+lacks the backtick-e escape, so ESC/BEL are built from `[char]27`/`[char]7`.
+
+The Windows spawn path now honors the previously-ignored `shell_integration`
+setting (the `_settings` parameter is no longer discarded): when enabled, it
+classifies the resolved program basename (`pwsh`/`powershell`) and injects the
+profile via `-NoExit -Command`. cmd.exe has no equivalent OSC 133 hook surface
+and stays deliberately unsupported. The click-to-position action remains gated
+consumer-side on the `sh_click` setting (default off), so this changes no default
+behavior. `CommandBuilder::program()` is broadened from `cfg(unix)` to
+`cfg(any(unix, windows))` so both injectors can classify the shell; on Linux it
+compiles and behaves identically.
+
+A new Linux-runnable test asserts the cross-platform snippet generator emits all
+four marks plus `click_events=1`, `$LASTEXITCODE`, and the set-once guard, and
+that `powershell`/`pwsh` classify while `cmd` stays unsupported. The actual
+`-NoExit -Command` spawn injection under ConPTY + PSReadLine repaint timing is
+verified on-device separately (not Linux-testable).
+
+Verified (Linux): `cargo fmt --check` / `cargo build --release --locked` /
+`cargo clippy --all-targets --locked -- -D warnings` / `cargo test --locked`
+green (2612 lib tests). Non-vacuity: neutralizing `click_events=1` in the
+PowerShell prompt-start turns the generator test RED, then restores.
+
 ## 2026-06-30 -- Honest selection-delete UX without a prompt boundary (RC-4)
 
 A plain Delete/Backspace with an active selection on the prompt line routes
