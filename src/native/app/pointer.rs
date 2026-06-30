@@ -393,9 +393,22 @@ impl App {
             if self.alternate_scroll_active() {
                 self.send_wheel_as_arrows(lines);
             } else {
-                self.scroll_viewport(lines);
+                let target = self.local_wheel_scroll_target();
+                self.scroll_viewport_of(target, lines);
             }
         }
+    }
+
+    fn local_wheel_scroll_target(&self) -> SessionToken {
+        if let Some((content, _)) = self.multipane_geometry()
+            && let Some((x, y)) = self.pointer_px
+            && let Some(token) =
+                self.sessions
+                    .active_pane_at_point(content, PANE_DIVIDER_PX, x as f32, y as f32)
+        {
+            return token;
+        }
+        self.sessions.active_id()
     }
 
     /// Adjust the live font size by `steps` pixels (MOUSE-WHEEL Ctrl+wheel

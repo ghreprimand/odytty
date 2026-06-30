@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Wheel scroll targets the pane under the cursor
+
+In a split-pane tab, wheel scrolling always moved the focused pane's viewport,
+even when the cursor was over a different pane. Each pane already had its own
+viewport and scrollback state; the bug was that the wheel path called the
+focused-pane `scroll_viewport` helper through `App`'s active-session deref.
+
+Fix: local scrollback wheel events now resolve the pane under the cached pointer
+position with the existing pane hit-test and route the viewport change to that
+session token. Keyboard/page scrolling keeps the focused-pane behavior by
+delegating through the old `scroll_viewport` entry point. Single-pane tabs and
+points outside pane content fall back to the focused pane, preserving the prior
+path. The token-aware viewport helper also marks the scrolled session for
+rebuild and clears/re-arms that session's smooth-scroll state.
+
+Verified on Linux: the new split-pane test was red before the fix (pane B under
+the cursor did not scroll while focused pane A did), then green after the routing
+change; the single-pane guard stayed green. Neutralize-revert restored the
+active-pane wheel call and made the split-pane test red again while the
+single-pane guard stayed green. Full gate status is recorded with the packet.
+
+---
+
 ## 2026-06-30 -- Notice that shell integration applies to new shells only
 
 Enabling shell integration from the settings panel mid-session appeared to do

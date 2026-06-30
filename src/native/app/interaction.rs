@@ -1881,34 +1881,52 @@ impl App {
     /// Current scrollback length from the shared model (0 if the lock is
     /// poisoned), used to clamp upward scrolling.
     pub(super) fn scrollback_len(&self) -> usize {
-        self.terminal
+        self.scrollback_len_of(self.sessions.active_id())
+    }
+
+    pub(super) fn scrollback_len_of(&self, token: SessionToken) -> usize {
+        let Some(session) = self.sessions.get(token) else {
+            return 0;
+        };
+        session
+            .terminal
             .lock()
             .map(|t| t.screen().scrollback_len())
             .unwrap_or(0)
     }
 
-    /// Adjust the scrollback viewport. `delta > 0` pages up into history,
-    /// `delta < 0` pages toward the live bottom. Selections are stored against
-    /// absolute rows, so moving the viewport keeps their anchors meaningful.
-    /// With no scrollback this is a clamped no-op (never panics).
     pub(super) fn scroll_viewport(&mut self, delta: isize) {
-        let scrollback_len = self.scrollback_len();
-        let changed = match delta.cmp(&0) {
-            std::cmp::Ordering::Greater => self.viewport.scroll_up(delta as usize, scrollback_len),
-            std::cmp::Ordering::Less => self.viewport.scroll_down((-delta) as usize),
-            std::cmp::Ordering::Equal => false,
+        self.scroll_viewport_of(self.sessions.active_id(), delta);
+    }
+
+    /// Adjust one pane's scrollback viewport. Wheel events in a split route to
+    /// the pane under the pointer; keyboard/page actions keep using the focused
+    /// pane through [`Self::scroll_viewport`].
+    pub(super) fn scroll_viewport_of(&mut self, token: SessionToken, delta: isize) {
+        let scrollback_len = self.scrollback_len_of(token);
+        let changed = {
+            let Some(session) = self.sessions.get_mut(token) else {
+                return;
+            };
+            match delta.cmp(&0) {
+                std::cmp::Ordering::Greater => {
+                    session.viewport.scroll_up(delta as usize, scrollback_len)
+                }
+                std::cmp::Ordering::Less => session.viewport.scroll_down((-delta) as usize),
+                std::cmp::Ordering::Equal => false,
+            }
         };
         if changed {
-            // `on_viewport_changed` clears any glide (snap by default, RV4
+            // `on_viewport_changed_of` clears any glide (snap by default, RV4
             // D-RV4-8). Re-arm the eased glide only for a user-initiated scroll
             // while `smooth_scroll` is on; a selection drag-autoscroll
             // (`pointer_drag.is_selecting()`) must snap to avoid nested easing
             // (D-RV4-10 / T5). The integer `Viewport::offset` already moved
             // above, so the scroll TARGET is updated with zero added latency —
             // only the visual catches up.
-            self.on_viewport_changed();
+            self.on_viewport_changed_of(token);
             if self.settings.smooth_scroll && !self.pointer_drag.is_selecting() {
-                self.begin_scroll_anim(delta);
+                self.begin_scroll_anim_of(token, delta);
             }
         }
     }
@@ -1958,15 +1976,21 @@ impl App {
     /// selections intact and request one rebuild/redraw so their visible
     /// intersection is recomputed.
     pub(super) fn on_viewport_changed(&mut self) {
+        self.on_viewport_changed_of(self.sessions.active_id());
+    }
+
+    pub(super) fn on_viewport_changed_of(&mut self, token: SessionToken) {
         // RV4: snap by default — clear any in-flight smooth-scroll glide. The
         // user `scroll_viewport` path re-arms it after this call, so every other
         // viewport change (return-to-live, search nav, scrollbar-thumb drag,
         // resize) snaps. No-op on the off path (the glide is always `None`).
-        self.clear_scroll_anim();
+        self.clear_scroll_anim_of(token);
         self.hovered_hyperlink = self
             .pointer_cell
             .and_then(|point| self.visible_cell_hyperlink(point));
-        self.needs_rebuild = true;
+        if let Some(session) = self.sessions.get_mut(token) {
+            session.needs_rebuild = true;
+        }
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }

@@ -53,30 +53,46 @@ impl App {
     /// never stacks offset (T3). A new scroll always REPLACES the prior glide.
     /// Only reached from the `scroll_viewport` trigger when `smooth_scroll` is on
     /// and the change is user-initiated (not a drag-autoscroll).
+    #[cfg(test)]
     pub(super) fn begin_scroll_anim(&mut self, delta: isize) {
+        self.begin_scroll_anim_of(self.sessions.active_id(), delta);
+    }
+
+    pub(super) fn begin_scroll_anim_of(&mut self, token: SessionToken, delta: isize) {
         let cell_h = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height) as f32;
+        let Some(session) = self.sessions.get_mut(token) else {
+            return;
+        };
         if cell_h <= 0.0 || delta == 0 {
             // No metrics yet (pre-GPU) or a no-op scroll: snap rather than glide.
-            self.clear_scroll_anim();
+            session.scroll_anim = None;
+            session.scroll_frac_offset = 0.0;
             return;
         }
         // scroll-up (delta > 0, viewing older content) → content enters from
         // above → start shifted DOWN (positive) and ease up to rest.
         let sign = if delta > 0 { 1.0 } else { -1.0 };
         let from_px = sign * cell_h;
-        self.scroll_anim = Some(ScrollAnimState {
+        session.scroll_anim = Some(ScrollAnimState {
             start: Instant::now(),
             from_px,
         });
-        self.scroll_frac_offset = from_px;
+        session.scroll_frac_offset = from_px;
     }
 
     /// Snap: clear any glide and zero the offset. The default for every viewport
     /// change (`on_viewport_changed`); the user `scroll_viewport` path re-arms
     /// after it when appropriate, so all programmatic jumps snap.
+    #[cfg(test)]
     pub(super) fn clear_scroll_anim(&mut self) {
-        self.scroll_anim = None;
-        self.scroll_frac_offset = 0.0;
+        self.clear_scroll_anim_of(self.sessions.active_id());
+    }
+
+    pub(super) fn clear_scroll_anim_of(&mut self, token: SessionToken) {
+        if let Some(session) = self.sessions.get_mut(token) {
+            session.scroll_anim = None;
+            session.scroll_frac_offset = 0.0;
+        }
     }
 
     /// Advance the glide for the current frame: recompute

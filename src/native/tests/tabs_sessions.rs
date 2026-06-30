@@ -937,6 +937,106 @@ fn doubled_prefix_passes_the_literal_byte_to_the_pty() {
     assert_eq!(&*bytes.lock().expect("bytes"), &[0x02]);
 }
 
+#[test]
+fn wheel_scrolls_the_pane_under_the_cursor_not_the_focused_pane() {
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    {
+        let mut terminal = terminal_b.lock().expect("terminal b");
+        terminal.advance(&scrollback_bytes(80));
+    }
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a,
+        writer_a,
+        pty_a,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    let pane_a = app.focused_pane_id_for_test();
+    let pane_b = app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b);
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    app.reflow_active_panes_for_test();
+    assert_eq!(app.focused_pane_id_for_test(), pane_b);
+
+    app.drive_char_with_mods_for_test('b', true, false);
+    app.drive_char_with_mods_for_test('o', false, false);
+    assert_eq!(
+        app.focused_pane_id_for_test(),
+        pane_a,
+        "precondition: focus is pane A while pointer is over pane B"
+    );
+    assert_eq!(
+        app.viewport_offset_for_token_for_test(pane_a),
+        Some(0),
+        "pane A starts at the live tail"
+    );
+    assert_eq!(
+        app.viewport_offset_for_token_for_test(pane_b),
+        Some(0),
+        "pane B starts at the live tail"
+    );
+
+    app.set_pointer_px_for_test(
+        (COLS as u32 * CW * 3 / 4) as f64,
+        (ROWS as u32 * CH / 2) as f64,
+    );
+    app.dispatch_wheel_for_test(1.0);
+
+    assert_eq!(
+        app.viewport_offset_for_token_for_test(pane_a),
+        Some(0),
+        "focused pane A must not scroll when the pointer is over pane B"
+    );
+    assert!(
+        app.viewport_offset_for_token_for_test(pane_b)
+            .unwrap_or_default()
+            > 0,
+        "wheel over pane B should scroll pane B's scrollback"
+    );
+}
+
+#[test]
+fn wheel_scroll_still_scrolls_the_lone_single_pane() {
+    let Some((mut app, _bytes)) = single_session_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    if let Ok(mut terminal) = app.terminal.lock() {
+        terminal.advance(&scrollback_bytes(80));
+    }
+    assert_eq!(app.viewport_offset_for_test(), 0, "starts at the live tail");
+
+    app.dispatch_wheel_for_test(1.0);
+
+    assert!(
+        app.viewport_offset_for_test() > 0,
+        "single-pane wheel routing should still scroll the active viewport"
+    );
+}
+
 /// Build a two-pane split `App` headlessly at an exact `COLS×ROWS`-cell surface
 /// with zero padding and a single tab (no tab bar), then reflow so each pane
 /// holds its narrow split sub-grid. The active (focused) pane is the new one

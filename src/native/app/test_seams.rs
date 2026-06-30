@@ -649,6 +649,19 @@ impl App {
         self.viewport.offset()
     }
 
+    /// Test seam (RC-16): viewport offset for a specific pane token, so a
+    /// multi-pane wheel test can prove routing targets the pane under the
+    /// pointer rather than the focused pane.
+    #[cfg(test)]
+    pub(in crate::native) fn viewport_offset_for_token_for_test(
+        &self,
+        token: usize,
+    ) -> Option<usize> {
+        self.sessions
+            .get(crate::native::session::SessionToken(token as u64))
+            .map(|session| session.viewport.offset())
+    }
+
     /// Test seam (MOUSE-SCROLLBAR): enable a TUI mouse-reporting mode (DECSET
     /// 1000) on the underlying terminal, so a press routes through the report
     /// path unless the scroll-thumb grab captures it first.
