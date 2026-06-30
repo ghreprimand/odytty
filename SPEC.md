@@ -459,10 +459,16 @@ malformed payloads are consumed without panic or host reply.
 The supported way to enable marks for local shells is `shell_integration = on`
 or the manual `odytty shell-integration <bash|zsh|fish>` subcommand. The setting
 is off by default. When enabled, new local default-shell spawns for `bash`,
-`zsh`, and `fish` receive wrapper hooks that source the user's normal config
-first, then emit the same OSC 133 A/B/C/D marks. Unknown shells and Windows
-cmd/PowerShell receive no injection and degrade to normal startup; manual
-snippets remain useful for SSH and login-shell setups.
+`zsh`, and `fish` (Unix) receive wrapper hooks that source the user's normal
+config first, then emit the same OSC 133 A/B/C/D marks. On Windows, a
+`powershell`/`pwsh` default-shell spawn is injected with a PowerShell profile via
+`-NoExit -Command`: a wrapped `prompt` emits `D` (carrying `$LASTEXITCODE`), `A`,
+the user's original prompt, then `B`, while a PSReadLine Enter hook emits `C`.
+The Windows snippet builds its ESC/BEL bytes from `[char]27`/`[char]7` for
+Windows PowerShell 5.1 compatibility and guards against double-wrapping with a
+set-once `ODYTTY_SHELL_INTEGRATION` export. `cmd.exe` has no equivalent OSC 133
+hook surface and is deliberately unsupported; unknown shells degrade to normal
+startup. Manual snippets remain useful for SSH and login-shell setups.
 
 Marks are **logical-line-anchored**: a mark is stored as `Option<PromptKind>`
 on the cursor's logical line (carried on the first physical row), so it survives
@@ -480,6 +486,41 @@ wired — `Ctrl+Shift+Up` / `Ctrl+Shift+Down` (and the matching command-palette
 actions) move the viewport between prompt marks — and a `command_status_gutter`
 setting marks command success/failure. Per-command output selection remains
 downstream work.
+
+**Prompt-aware editing UX is gated and fail-safe.** Two features consume the
+input boundary (`B` mark): selecting prompt text and pressing Delete/Backspace
+deletes only the selected editable input through shell-edit bytes, and (with the
+`sh_click` setting, off by default) clicking on the prompt repositions the shell
+cursor. Both require shell integration, because OdyTTY must know the prompt
+boundary before it can safely edit or position within shell input — it never
+guesses with a no-OSC heuristic that could corrupt the command line. When the
+boundary is unknown (integration off, or no prompt mark yet), a selection-delete
+does **not** send blind edit bytes: it clears the stale visual selection and
+raises a hint pointing at shell integration, so the UX is honest about why the
+action did not run. Click-to-position additionally requires the shell snippet to
+advertise `click_events=1` on its `A` mark — the bundled bash/zsh/fish and
+PowerShell snippets all do, so the capability can turn on once `sh_click` is
+enabled. These are deliberately fail-safe: no boundary means no prompt-aware
+deletion, no advertised click support means no click-to-position, and stale local
+state is cleared rather than acted on speculatively.
+
+### Cursor Keys & Paste Pass-Through
+
+Cursor-key and paste handling is intentionally a thin pass-through, so the shell
+line editor — not OdyTTY — owns multiline navigation within an editable command.
+Unmodified arrows encode as CSI (`ESC[A`) in normal cursor-key mode and SS3
+(`ESC O A`) under DECCKM application cursor mode; modified arrows use xterm-style
+CSI-with-modifier encoding first, so e.g. Ctrl+Right stays CSI-with-modifier
+regardless of cursor-key mode. Bare arrows are **not** bound in the flat global
+keymap; they reach the PTY. They are bound only as the pane-multiplexer prefix's
+second key (default `Ctrl-B`, then an arrow, focuses the adjacent pane), and copy
+mode or an open overlay consumes arrows only while explicitly active. Bracketed
+paste is emitted as a single envelope — one `ESC[200~`, the whole payload (chunked
+for transport but never split into per-line paste events), one `ESC[201~` — with
+embedded end markers stripped so a paste cannot self-terminate early. Because the
+correct cursor-key bytes and a single paste envelope reach the PTY, Up/Down
+navigation inside a pasted multiline buffer is owned by readline/zle/PSReadLine/
+fish, which is working as designed rather than a terminal defect.
 
 ### Bell (BEL)
 

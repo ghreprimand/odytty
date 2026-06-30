@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- Docs: prompt-aware features + cursor/paste known-behavior
+
+Public-doc reconciliation after the prompt-aware fixes landed (RC-1/RC-3/RC-4/
+RC-5/RC-6). SPEC's OSC 133 section now documents Windows PowerShell injection
+(`-NoExit -Command`, PSReadLine command-start hook, `cmd.exe` unsupported)
+alongside the Unix bash/zsh/fish path, plus a new paragraph on the gated,
+fail-safe prompt-aware editing UX: selection-delete and click-to-position both
+require shell integration, never guess with a no-OSC heuristic, and degrade
+honestly (clear the stale selection + hint) when the prompt boundary is unknown.
+
+A new SPEC "Cursor Keys & Paste Pass-Through" subsection captures the
+working-as-designed behavior behind the "arrow/multiline-paste navigation"
+symptom: unmodified arrows encode CSI (normal) / SS3 (DECCKM), modified arrows
+stay CSI-with-modifier; bare arrows reach the PTY and are bound only as the
+pane-multiplexer prefix's second key (default `Ctrl-B`); bracketed paste is a
+single envelope around the whole payload (no per-line split). Multiline Up/Down
+nav inside a pasted buffer is therefore owned by the shell line editor
+(readline/zle/PSReadLine/fish), not OdyTTY — captured so it is not re-investigated.
+
+README's Shell Integration section gains the Windows PowerShell note and a
+corrected selection-delete description (a plain Delete with no selection still
+passes through; with a selection and no boundary it clears the selection and
+hints rather than sending blind edit bytes). TODO records the PowerShell,
+click-events producer, and honest-selection-delete items.
+
+Docs-only change; no code touched. The single consolidated on-device Windows
+pass (resize cursor at prompt, minimize/restore, PowerShell integration driving
+selection-delete + click-to-position, and the ConPTY-minimize `Resized(0x0)`
+question) remains the one open item.
+
 ## 2026-06-30 -- PowerShell shell integration (OSC 133 on Windows) (RC-6)
 
 OdyTTY auto-injects OSC 133 shell integration for bash/zsh/fish on Unix, but the

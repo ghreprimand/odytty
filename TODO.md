@@ -819,7 +819,18 @@ feature validates against.
         select/copy path can highlight an exact command's output span.
   - [x] Click-to-position cursor via OSC 133 click events (`sh_click`, off by
         default): the click slice only, not a shell-input takeover, and inert
-        unless a cooperating shell advertises click support.
+        unless a cooperating shell advertises click support. The bundled
+        bash/zsh/fish and PowerShell snippets now advertise `click_events=1` on
+        the prompt-start mark, so the producer signal exists (the action stays
+        gated on `sh_click`, default off).
+  - [x] Windows PowerShell integration: `ShellKind::PowerShell` snippet emits
+        OSC 133 A/B/C/D (PSReadLine drives the command-start mark, `D` carries
+        `$LASTEXITCODE`), injected on a `powershell`/`pwsh` spawn via
+        `-NoExit -Command`; `cmd.exe` stays unsupported. On-device ConPTY pass
+        verifies the spawn wiring.
+  - [x] Honest fail-safe selection-delete: with a selection but no known prompt
+        boundary, Delete/Backspace clears the stale selection and surfaces the
+        shell-integration hint instead of sending blind edit bytes.
 - [ ] Perceptual color moat (OKLab/OKLCH pipeline + readability floor).
   - [x] Universal legibility: the contrast floor provably covers every
         text color type (ANSI, 256-color, truecolor, explicit underline color),

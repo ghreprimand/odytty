@@ -515,7 +515,9 @@ local `bash`, `zsh`, and `fish` shells load OdyTTY's integration wrapper at
 startup. The wrapper sources your normal shell config first, then installs the
 OSC 133 hooks. Existing shells are unchanged until restarted. Bash integration
 uses an interactive `--rcfile`, so login-shell-only startup files remain your
-shell's responsibility.
+shell's responsibility. On Windows, a `powershell`/`pwsh` shell is injected with
+an OdyTTY PowerShell profile via `-NoExit -Command` (PSReadLine drives the
+command-start mark); `cmd.exe` has no OSC 133 hook surface and is unsupported.
 
 For manual setup, SSH/login shells, or users who prefer explicit rc edits, print
 the snippet and source it yourself:
@@ -527,8 +529,11 @@ odytty shell-integration fish | source
 ```
 
 Until prompt input marks are active, the right-click menu disables Cut/Delete
-for prompt input and shows an "Enable shell integration in Settings" hint;
-plain `Delete` / `Backspace` continue to pass through normally.
+for prompt input and shows an "Enable shell integration in Settings" hint. A
+plain `Delete` / `Backspace` with **no** selection still passes through to the
+shell normally; with an active selection but no known prompt boundary, OdyTTY
+will not send blind edit bytes — it clears the stale selection and surfaces the
+same shell-integration hint instead of risking a corrupted command line.
 
 For a one-off/dev override, run
 `ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" odytty`; env wins for that
