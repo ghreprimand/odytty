@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-06-30 -- ConPTY resize content-corruption fix (competing reflow)
+
+On Windows/ConPTY the shell side (conhost) authoritatively reflows its own
+screen buffer and absolutely repaints the visible viewport on every resize.
+OdyTTY was ALSO rewrapping the live grid on the same width change, so the two
+reflow engines disagreed on where soft-wrap boundaries fall for the active input
+line: the line's tail was stranded at a stale wrap column, and because each
+subsequent resize re-derived logical lines from the now-inconsistent rows, the
+corruption ACCUMULATED across repeated narrow<->wide drags. (Surfaced by
+on-device Windows testing; the model-level cursor-row fix shipped earlier was
+working correctly — this is a separate content-placement defect on the same
+resize path.)
+
+Fix: on a width change with the shell-owns-cursor backend (the flag that marks
+absolute-repaint backends like ConPTY), the live grid is now truncate/padded to
+the new width instead of rejoined and rewrapped — mirroring the alternate-screen
+non-reflow path, whose rationale ("the app repaints, so no rewrap is needed") is
+exactly conhost's behavior. Rows that overflow a now-shorter window scroll into
+scrollback (conhost does not resend history). Scrollback itself is left as
+width-independent logical lines and re-projected to the new width on access, so
+history stays readable without a competing rewrap. The cursor is kept clamped to
+the new dims; the shell's absolute repaint corrects it next tick. The POSIX-PTY
+path (Linux/macOS, where the kernel PTY does not repaint) is untouched and still
+rewraps — byte-identical to before.
+
+Three Linux-deterministic tests bind it via the production resize path: the live
+grid takes the truncate/pad path and a repeated narrow<->wide cycle converges
+with no accumulation (RED before the fix); a non-shell-owns resize still rewraps
+(the guard that pins Linux/macOS behavior unchanged); and scrollback still
+re-projects to the new width (the chosen "keep projecting scrollback" semantics,
+over full passthrough). The earlier model-level cursor-row tests still pass: on a
+width change they now reach the no-rewrap path and yield the same incoming
+visible row, so the two fixes coexist.
+
+Verified (Linux): `cargo fmt --check` / `cargo build --release --locked` /
+`cargo clippy --all-targets --locked -- -D warnings` / `cargo test --locked`
+green (2615 lib tests). Non-vacuity: gating the new branch off turns the
+no-rewrap and scrollback-projection tests RED while the non-shell-owns guard
+stays green, then restores. On-device Windows validation (long wrapping line,
+drag narrow<->wide repeatedly → no stranded tail) folds into the next pass.
+
+---
+
 ## 2026-06-30 -- Docs: prompt-aware features + cursor/paste known-behavior
 
 Public-doc reconciliation after the prompt-aware fixes landed (RC-1/RC-3/RC-4/
