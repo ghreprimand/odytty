@@ -74,6 +74,18 @@ pub(in crate::native) struct ImageOverlayState {
 ///
 /// An empty argv is reported as `ErrorKind::InvalidInput` (defensive — the
 /// dispatch functions never return one).
+///
+/// REAPING (TEST-HANG fix): the spawned child is handed to a small detached
+/// reaper thread that blocks in `Child::wait` until the opener exits. Dropping
+/// the `Child` handle (the pre-fix behaviour) never waits, so on unix every
+/// opener spawn left a ZOMBIE process until the whole app exited — zombies
+/// accumulated one per open-click in a long-lived session, and the test suite's
+/// `true` spawn showed up as the "leftover `true` child" in a wedged
+/// `cargo test` process tree. The reaper thread is cheap (opens are rare,
+/// user-initiated events), does not block this call, and does not delay process
+/// exit (process teardown never joins detached threads). If the reaper thread
+/// itself cannot be spawned we degrade to the old drop-without-wait behaviour
+/// rather than failing the open.
 #[must_use = "a failed open must surface a visible notice, not be silently dropped"]
 pub(crate) fn spawn_detached(argv: &[String]) -> std::io::Result<()> {
     use std::process::{Command, Stdio};
@@ -83,13 +95,18 @@ pub(crate) fn spawn_detached(argv: &[String]) -> std::io::Result<()> {
             "empty argv",
         ));
     };
-    Command::new(program)
+    let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()
-        .map(|_child| ())
+        .spawn()?;
+    let _ = std::thread::Builder::new()
+        .name("odytty-open-reaper".to_owned())
+        .spawn(move || {
+            let _ = child.wait();
+        });
+    Ok(())
 }
 
 /// Build the argv vector that opens a [`Resolved`] path (design §3 dispatch
@@ -586,6 +603,73 @@ mod dispatch_tests {
         assert_eq!(
             path_open_argv(&fl, "", None, OpenerOs::Macos),
             vec!["open".to_owned(), "/proj/a.rs".to_owned()]
+        );
+    }
+}
+
+// TEST-HANG regression: `spawn_detached` must not leave zombie children. The
+// original code dropped the `Child` handle without ever waiting, so every
+// opener spawn (and every test exercising the spawn seam) left a zombie until
+// the whole process exited — the "leftover `true` child" seen in the wedged
+// `cargo test` process tree. Linux-only: zombie detection reads /proc.
+#[cfg(all(test, target_os = "linux"))]
+mod spawn_reap_tests {
+    use super::spawn_detached;
+    use std::time::{Duration, Instant};
+
+    /// True while ANY direct child of this process named `comm` exists in any
+    /// state (running or zombie). Reads `/proc/<pid>/stat` for every numeric
+    /// /proc entry; comm is parenthesised in field 2, state is field 3 (after
+    /// the closing paren, immune to spaces in comm), ppid is field 4.
+    fn have_child_named(comm: &str) -> bool {
+        let my_pid = std::process::id();
+        let needle = format!("({comm})");
+        let Ok(entries) = std::fs::read_dir("/proc") else {
+            return false;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            if !name.bytes().all(|b| b.is_ascii_digit()) {
+                continue;
+            }
+            let Ok(stat) = std::fs::read_to_string(format!("/proc/{name}/stat")) else {
+                continue;
+            };
+            // stat: "<pid> (<comm>) <state> <ppid> ..."
+            let Some(close) = stat.rfind(')') else {
+                continue;
+            };
+            if !stat[..close + 1].ends_with(&needle) {
+                continue;
+            }
+            let mut rest = stat[close + 1..].split_whitespace();
+            let _state = rest.next();
+            if rest.next() == Some(&my_pid.to_string()) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// A spawned opener child is REAPED after it exits — it must not linger as
+    /// a zombie until process exit. `true` exits immediately, so within the
+    /// deadline the child must disappear from our /proc children entirely.
+    /// Fails before the reaper fix: the dropped `Child` is never waited on, so
+    /// the zombie persists for the lifetime of the test binary.
+    #[test]
+    fn spawn_detached_reaps_exited_child() {
+        spawn_detached(&["true".to_owned()]).expect("spawn `true`");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if !have_child_named("true") {
+                return; // reaped — no running or zombie `true` child remains
+            }
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        panic!(
+            "spawned `true` child was never reaped — still a child of this \
+             process (zombie) 10s after spawn_detached returned"
         );
     }
 }

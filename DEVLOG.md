@@ -7,6 +7,51 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-01 -- Test-suite wedge on early pipe-close: opener zombie reap + piped-close CI guard
+
+TEST-HANG packet (operator-filed P2). Symptom: `cargo test 2>&1 | grep … |
+head -N` could wedge forever at 0% CPU after the tests completed, while a
+log-file-redirected run of the same suite finished green. Root-cause chain,
+reproduced deterministically: when the early-exiting consumer closes the pipe,
+libtest's next stdout write gets EPIPE ("io error when listing tests: …
+BrokenPipe"), its worker threads mass-panic unwrapping their result-channel
+sends (upstream `test/src/lib.rs:701`), and the binary crashes with
+SIGABRT/SIGSEGV plus glibc heap corruption ("corrupted size vs. prev_size") —
+upstream libtest + driver-teardown behaviour, not OdyTTY code. The wedge leg
+is environmental: systemd-coredump ingesting the core of the large,
+GPU-mapped test binary can stall for many minutes while cargo waits in
+`wait4` and the NVIDIA GLCache file locks stay held (`coredumpctl` shows the
+incident-time SIGABRT for the exact test binary).
+
+What's fixed in-repo:
+
+* `spawn_detached` (the single opener spawn point) dropped its `Child` handle
+  without ever waiting, so every open/reveal spawn left a ZOMBIE until the
+  whole process exited — one per open-click in a long-lived session, and the
+  "leftover `true` child" seen in the wedged test-process tree. The child is
+  now handed to a detached reaper thread that blocks in `Child::wait`; the
+  call still never blocks and process exit is not delayed. Regression test
+  `spawn_detached_reaps_exited_child` (Linux, /proc-based zombie scan) failed
+  before the fix — the `true` child was still unreaped 10s after spawn — and
+  passes after.
+* New `scripts/piped-test-guard.sh` + a Linux-only CI step: runs the lib
+  suite with its stdout pipe closed immediately, core dumps disabled, under a
+  hard `timeout`, and fails only if the run WEDGES rather than terminating
+  (the crash exit itself is expected upstream behaviour). This pins the
+  invariant that nothing in the binary — inherited stdio on a spawned child,
+  an unreaped process, a stuck teardown — can keep a piped-close test run
+  alive.
+
+Standing hygiene rule (documented in the guard script): never pipe `cargo
+test` through an early-exiting consumer; redirect full runs to a log file and
+grep the file, wrapping the run in `timeout`.
+
+Verified: full `cargo test` green on this packet's files (the single
+in-tree failure at the time of the run was a peer's in-flight, uncommitted
+Phase 2 IME work sharing the worktree — not part of this commit),
+`cargo clippy --all-targets --locked -- -D warnings` clean, `cargo fmt
+--check` clean, guard script passes locally in ~5s warm.
+
 ## 2026-07-01 -- Background image: rebuild pipeline on live CRT/bloom toggle — crash fix
 
 Tier 1 audit fix (C1). `rebuild_scene_pipelines` retargeted the cell,

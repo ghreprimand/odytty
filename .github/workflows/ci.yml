@@ -76,3 +76,12 @@ jobs:
       - name: Test
         run: cargo test --locked ${{ matrix.os == 'macos-latest' && '-- --test-threads=1' || '' }}
 
+      # TEST-HANG regression guard (Linux only — the wedge is a unix-pipe
+      # phenomenon): a `cargo test` whose stdout pipe closes early must
+      # TERMINATE, never wedge. See scripts/piped-test-guard.sh for the full
+      # failure-mode writeup. The binary is already built by the Test step, so
+      # this adds seconds, not minutes.
+      - name: Piped-close test guard
+        if: runner.os == 'Linux'
+        run: bash scripts/piped-test-guard.sh
+
