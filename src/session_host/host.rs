@@ -42,6 +42,14 @@ const CHILD_EXIT_DRAIN_GRACE: Duration = Duration::from_secs(2);
 const ATTACH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 const ATTACH_WRITE_TIMEOUT: Duration = Duration::from_millis(500);
 const STARTUP_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
+/// Upper bound on client-supplied resize dimensions. The wire protocol carries
+/// raw `u32` columns/rows and the socket is reachable by any same-user process,
+/// so the host must not trust them: unclamped, a hostile `Resize` frame
+/// (e.g. `0xFFFFFFFF × 0xFFFFFFFF`) drives `Terminal::resize` into a
+/// multi-exabyte grid allocation that aborts the host and kills the session for
+/// every attached client. 4096 columns/rows comfortably exceeds any real
+/// display while keeping the worst-case grid a few hundred MB.
+const MAX_CLIENT_RESIZE_DIM: usize = 4096;
 
 #[derive(Debug, Clone)]
 pub enum HostCommand {
@@ -568,7 +576,13 @@ fn drain_client_events(
             }
             ClientEvent::Frame(id, ClientFrame::Resize { columns, rows }) => {
                 if has_client(clients, id) {
-                    let dimensions = Dimensions::new(columns as usize, rows as usize);
+                    // Clamp untrusted wire dimensions BEFORE the terminal-model
+                    // resize allocates the grid (the PTY winsize u16 clamp in
+                    // `session.resize` runs too late to protect it).
+                    let dimensions = Dimensions::new(
+                        (columns as usize).min(MAX_CLIENT_RESIZE_DIM),
+                        (rows as usize).min(MAX_CLIENT_RESIZE_DIM),
+                    );
                     terminal.resize(dimensions.columns, dimensions.rows);
                     session.resize(dimensions)?;
                     broadcast(

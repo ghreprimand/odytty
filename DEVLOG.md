@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-01 -- Session host: clamp client-supplied resize dimensions — OOM fix
+
+Tier 1 audit fix (C25). The attach wire protocol carries raw `u32`
+columns/rows and the host trusted them: `drain_client_events` fed them
+straight into `Terminal::resize`, so any same-user process that completed the
+handshake and sent a `Resize` frame of `0xFFFFFFFF × 0xFFFFFFFF` drove a
+multi-exabyte grid allocation that aborted the host — killing the session for
+every attached client (the PTY winsize `u16` clamp in `session.resize` runs
+after the terminal-model resize, too late). Dimensions are now clamped to
+`MAX_CLIENT_RESIZE_DIM` (4096) before the terminal resize. Regression test
+`host_survives_hostile_resize_dimensions` fails before (SIGABRT: "memory
+allocation of 154618822620 bytes failed") and passes after: the host survives
+the hostile frame and keeps serving traffic. `cargo test` green, clippy `-D
+warnings` clean, fmt clean.
+
 ## 2026-07-01 -- Scrollback: cell ceiling now bounds the open (last) line — OOM fix
 
 Tier 1 audit fix (C2). `enforce_limit`'s defensive per-line cell ceiling

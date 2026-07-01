@@ -315,6 +315,42 @@ fn host_shutdown_frame_terminates_session_and_cleans_up_socket() {
 }
 
 #[test]
+fn host_survives_hostile_resize_dimensions() {
+    let temp = TempDir::new("sh-rsz");
+    // The child blocks on `read` until this client sends a byte, then prints
+    // its marker — proving the host is still serving traffic AFTER the hostile
+    // resize frame has been drained.
+    let config = host_config(
+        temp.path(),
+        "resize",
+        "read x; printf ready; sleep 2",
+        Duration::from_millis(500),
+    );
+    let socket_path = config.runtime_paths().expect("runtime paths").socket;
+    let host = thread::spawn(move || run_host(config));
+
+    wait_for_socket(&socket_path);
+    let mut client = SessionHostClient::connect(&socket_path, "resize").expect("attach");
+    expect_snapshot(&mut client);
+    // Hostile/buggy client: columns=rows=0xFFFFFFFF. The wire protocol carries
+    // raw u32 dimensions; unclamped, the host drove `Terminal::resize` into a
+    // ~1.8e19-cell grid allocation (capacity-overflow panic / OOM), killing the
+    // session for every attached client. The host must clamp and carry on.
+    client
+        .resize(u32::MAX, u32::MAX)
+        .expect("send hostile resize frame");
+    client
+        .send_input(b"\n")
+        .expect("input after hostile resize");
+    wait_for_output(&mut client, "ready");
+    client.shutdown().expect("send shutdown frame");
+    drop(client);
+
+    let exit = join_within(host, "session-host thread").expect("host exits cleanly");
+    assert_eq!(exit.reason, HostExitReason::Killed);
+}
+
+#[test]
 fn kill_session_terminates_a_live_host() {
     let temp = TempDir::new("sh-rk");
     let config = host_config(temp.path(), "rk", "sleep 30", Duration::from_secs(3600));
