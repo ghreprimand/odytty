@@ -3,6 +3,18 @@
 
 use super::*;
 
+/// The atlas backing-buffer byte length must survive products beyond
+/// `u32::MAX`. Width ~5552 × height ~266240 × 4 bpp ≈ 5.9 GB is a real shape
+/// at the 72 px font cap on a 4× HiDPI display once a full 8192-slot subpixel
+/// atlas has grown. Regression: computed in `u32` this overflowed — a debug
+/// build panicked, a release build wrapped to a tiny allocation and later
+/// raster writes went out of bounds (heap corruption).
+#[test]
+fn atlas_byte_len_survives_products_beyond_u32() {
+    assert_eq!(atlas_byte_len(5552, 266_240, 4), 5_912_657_920usize);
+    assert!(atlas_byte_len(5552, 266_240, 4) > u32::MAX as usize);
+}
+
 /// Box-drawing strokes must reach the cell edges so adjacent cells join
 /// seamlessly. The horizontal line U+2500 should ink the full cell width;
 /// the vertical line U+2502 should ink the full cell height.

@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-01 -- Glyph atlas: widen byte-size math to usize — heap-corruption fix
+
+Tier 1 audit fix (C28). `GlyphAtlas::build` and `grow_to_fit` computed the
+backing-buffer length as `(width * height * bytes_per_pixel) as usize` — the
+product evaluated in `u32` BEFORE the cast. At large HiDPI cells (~288 px
+physical: the 72 px font cap × 4.0 scale) a full 8192-slot subpixel atlas
+crosses `u32::MAX` bytes as distinct non-ASCII glyphs accumulate mid-session:
+a debug build panics at the multiply; a release build wraps to a tiny length,
+`data.resize` under-allocates, and subsequent rasterization writes go out of
+bounds (heap corruption). Both sites now share an `atlas_byte_len` helper that
+widens each factor to `usize` before multiplying. Regression test
+`atlas_byte_len_survives_products_beyond_u32` pins the exact 5552 × 266240 × 4
+(≈5.9 GB) shape — it fails (overflow panic) against the u32 form and passes
+against the widened one. `cargo test` green, clippy `-D warnings` clean, fmt
+clean.
+
 ## 2026-07-01 -- Kitty graphics: checked byte-size multiplies for declared dimensions
 
 Tier 1 audit fix (C4). In `rgba_from_payload`, `pixel_count(width, height)`

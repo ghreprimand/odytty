@@ -93,6 +93,16 @@ const FIRST_DYNAMIC_SLOT: u32 = LAST_CHAR - FIRST_CHAR + 2;
 // The gutter must be at least one pixel for the bleed guard to hold.
 const _: () = assert!(ATLAS_PAD >= 1);
 
+/// Byte length of the atlas backing bitmap for `width × height` pixels at
+/// `bytes_per_pixel`. Each factor is widened to `usize` BEFORE multiplying:
+/// at large HiDPI cells (~288 px physical: the 72 px font cap × 4.0 scale) a
+/// full [`MAX_ATLAS_SLOTS`] subpixel atlas exceeds `u32::MAX` bytes, so a
+/// `u32` multiply overflows — panicking in debug builds and under-allocating
+/// in release (out-of-bounds raster writes into a too-short buffer).
+fn atlas_byte_len(width: u32, height: u32, bytes_per_pixel: u32) -> usize {
+    width as usize * height as usize * bytes_per_pixel as usize
+}
+
 /// Shear ratio for synthetic italic: `tan(12deg)`. A sample `dy` pixels above
 /// the baseline is shifted right by `ITALIC_SHEAR * dy` pixels (below-baseline
 /// rows shift left), producing a standard ~12-degree oblique from an upright
@@ -871,7 +881,7 @@ impl GlyphAtlas {
         let capacity_rows = base_slots.div_ceil(cols);
         let width = cols * slot_w(cell);
         let height = capacity_rows * slot_h(cell);
-        let mut data = vec![0u8; (width * height * subpixel.bytes_per_pixel()) as usize];
+        let mut data = vec![0u8; atlas_byte_len(width, height, subpixel.bytes_per_pixel())];
 
         // Per-slot inked extent (index == slot). The fallback box keeps full-cell
         // bounds so a missing glyph renders exactly as before; ASCII slots record
@@ -1248,7 +1258,7 @@ impl GlyphAtlas {
             }
             self.height = self.capacity_rows * slot_h(self.cell);
             self.data.resize(
-                (self.width * self.height * self.subpixel.bytes_per_pixel()) as usize,
+                atlas_byte_len(self.width, self.height, self.subpixel.bytes_per_pixel()),
                 0,
             );
             self.revision += 1;
