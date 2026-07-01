@@ -1,12 +1,12 @@
 {
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "A from-scratch, GPU-rendered Rust terminal emulator with an Odyssey visual identity.",
   "homepage": "https://github.com/ghreprimand/odytty",
   "license": "GPL-3.0-only",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/ghreprimand/odytty/releases/download/v0.7.0/odytty-0.7.0-windows-x86_64.zip",
-      "hash": "bd325a8b1641b8aa1c4ee758b0a78423cf51da2779f864e8d434b620ba6a9106"
+      "url": "https://github.com/ghreprimand/odytty/releases/download/v0.7.1/odytty-0.7.1-windows-x86_64.zip",
+      "hash": "48b8cfec470c367fe36bd5212b88bea97ff94bfad2c74528cda9ae3f3aee0147"
     }
   },
   "bin": "odytty.exe",
