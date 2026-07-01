@@ -173,6 +173,25 @@ fn kitty_invalid_payload_returns_error_and_no_placement() {
 }
 
 #[test]
+fn kitty_huge_declared_dimensions_error_without_overflow() {
+    // s=v=4294967295: `pixel_count` fits u64 (u32::MAX² ≈ 1.844e19), but the
+    // follow-on `pixels * 4` / `pixels * 3` byte-size multiplies exceed u64.
+    // Regression: those were unchecked, panicking in debug builds (and wrapping
+    // in release, spoofing the length check). Must map to payload-too-large.
+    let mut t = Terminal::new(20, 4);
+    t.advance(b"\x1b_Gf=32,a=t,t=d,s=4294967295,v=4294967295;AAAA\x1b\\");
+    assert!(t.visible_graphics(0).is_empty());
+    let out = String::from_utf8(t.take_host_output()).unwrap();
+    assert!(out.contains("payload-too-large"), "f=32 response: {out:?}");
+
+    // f=24 hits the `pixels * 3` sibling site the same way.
+    t.advance(b"\x1b_Gf=24,a=t,t=d,s=4294967295,v=4294967295;AAAA\x1b\\");
+    assert!(t.visible_graphics(0).is_empty());
+    let out = String::from_utf8(t.take_host_output()).unwrap();
+    assert!(out.contains("payload-too-large"), "f=24 response: {out:?}");
+}
+
+#[test]
 fn kitty_png_transmit_and_display_decodes_to_rgba8() {
     let mut t = Terminal::new(20, 4);
     t.advance(&kitty_apc("f=100,a=T,t=d,s=2,v=1,i=11", &png_rgba_2x1()));

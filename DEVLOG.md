@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-01 -- Kitty graphics: checked byte-size multiplies for declared dimensions
+
+Tier 1 audit fix (C4). In `rgba_from_payload`, `pixel_count(width, height)`
+already used `checked_mul`, but the follow-on byte-size multiplies did not:
+`pixels * 4` (f=32), `pixels * 3` (f=24), and the `Vec::with_capacity(pixels *
+4)` expansion buffer. For attacker-controlled `s=`/`v=` near `u32::MAX` the
+pixel count still fits u64 but the byte product overflows — panicking in
+debug/test builds (violating the fuzz suite's never-panic invariant) and
+wrapping in release, where a wrapped value that happens to equal
+`decoded.len()` would smuggle an image with absurd claimed dimensions into the
+store. All three sites now use `checked_mul` mapping overflow to
+`KittyError::PayloadTooLarge`, and the store's `rgba_len` gets the same
+treatment (its `width * height * 4` had the identical unchecked overflow).
+Regression tests: `kitty_huge_declared_dimensions_error_without_overflow`
+(fails before: "attempt to multiply with overflow" at kitty.rs:598, through
+the real `Terminal::advance` path for both f=32 and f=24) and
+`rejects_overflowing_declared_dimensions_without_panicking` on the store.
+`cargo test` green, clippy `-D warnings` clean, fmt clean.
+
 ## 2026-07-01 -- Session host: clamp client-supplied resize dimensions — OOM fix
 
 Tier 1 audit fix (C25). The attach wire protocol carries raw `u32`

@@ -35,6 +35,25 @@ fn rejects_invalid_rgba_lengths() {
 }
 
 #[test]
+fn rejects_overflowing_declared_dimensions_without_panicking() {
+    // u32::MAX × u32::MAX × 4 exceeds u64: the unchecked byte-size multiply
+    // used to panic in debug builds (wrap in release). Must reject cleanly.
+    let mut store = ImageStore::default();
+
+    assert_eq!(
+        store
+            .insert_rgba(None, u32::MAX, u32::MAX, vec![0; 4])
+            .unwrap_err(),
+        ImageStoreError::InvalidRgbaLength {
+            width: u32::MAX,
+            height: u32::MAX,
+            expected: usize::MAX,
+            actual: 0,
+        }
+    );
+}
+
+#[test]
 fn evicts_lru_images_to_stay_under_decoded_byte_cap() {
     let mut store = ImageStore::new(ImageStoreLimits {
         max_decoded_bytes: 16,

@@ -594,8 +594,13 @@ fn rgba_from_payload(
         Some(32) => {
             let width = control.width.ok_or(KittyError::MissingDimensions)?;
             let height = control.height.ok_or(KittyError::MissingDimensions)?;
+            // `pixel_count` alone is not enough: u32::MAX² still fits u64, so
+            // the byte-size multiply must be checked too (an unchecked
+            // `pixels * 4` panics in debug builds and wraps in release,
+            // spoofing the length check for attacker-chosen dimensions).
             let pixels = pixel_count(width, height)?;
-            if decoded.len() != pixels * 4 {
+            let expected = pixels.checked_mul(4).ok_or(KittyError::PayloadTooLarge)?;
+            if decoded.len() != expected {
                 return Err(KittyError::InvalidPayload);
             }
             Ok((decoded, width, height))
@@ -604,10 +609,12 @@ fn rgba_from_payload(
             let width = control.width.ok_or(KittyError::MissingDimensions)?;
             let height = control.height.ok_or(KittyError::MissingDimensions)?;
             let pixels = pixel_count(width, height)?;
-            if decoded.len() != pixels * 3 {
+            let expected = pixels.checked_mul(3).ok_or(KittyError::PayloadTooLarge)?;
+            if decoded.len() != expected {
                 return Err(KittyError::InvalidPayload);
             }
-            let mut rgba = Vec::with_capacity(pixels * 4);
+            let capacity = pixels.checked_mul(4).ok_or(KittyError::PayloadTooLarge)?;
+            let mut rgba = Vec::with_capacity(capacity);
             for rgb in decoded.chunks_exact(3) {
                 rgba.extend_from_slice(rgb);
                 rgba.push(255);

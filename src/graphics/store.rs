@@ -215,5 +215,17 @@ fn rgba_len(width: u32, height: u32) -> Result<usize, ImageStoreError> {
     if width == 0 || height == 0 {
         return Err(ImageStoreError::EmptyImage);
     }
-    Ok(width as usize * height as usize * 4)
+    // Checked: u32::MAX² fits u64 but ×4 does not, so an unchecked multiply
+    // panics in debug builds (wraps in release) for hostile declared
+    // dimensions. Overflow means no real buffer can match the declared size;
+    // `expected: usize::MAX` marks the not-addressable case.
+    (width as usize)
+        .checked_mul(height as usize)
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or(ImageStoreError::InvalidRgbaLength {
+            width,
+            height,
+            expected: usize::MAX,
+            actual: 0,
+        })
 }
