@@ -49,9 +49,11 @@ scoop install odytty
 
 Scoop creates a shim under `~\scoop\shims` (on your PATH) so `odytty` launches
 from any shell, and adds an **OdyTTY** Start-menu entry. The bucket manifest is
-`bucket/odytty.json`: it pins the release URL and hash, and its autoupdate
-metadata resolves later versions' hashes from the release `SHA256SUMS` asset, so
-`scoop update odytty` stays current with no maintainer step per release.
+`bucket/odytty.json`: it pins the release URL and hash, which is what
+`scoop update odytty` reads. From your side there is nothing to do per release —
+CI bumps the manifest to each new version automatically shortly after the
+release publishes, so `scoop update odytty` picks up new versions on its own once
+that bump lands.
 
 ### Portable zip
 

@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-01 -- Docs — correct the Scoop per-release manifest bump story
+
+Doc fix following the automation change. `docs/release.md` step 6 and
+`docs/install.md` both claimed the manifest's `autoupdate` block kept `scoop
+update odytty` current "with no maintainer step per release" — false. The Scoop
+client reads only the pinned `version`/`url`/`hash`; `autoupdate` is maintainer
+tooling (checkver/Excavator). Rewrote step 6 to state the bump is required every
+release and can only happen after `SHA256SUMS` exists, with the new CI `scoop`
+job as the primary path (verify the commit landed) and a documented manual
+fallback. Reworded `install.md` so it stays accurate from the user's
+perspective: nothing to do per release because CI bumps the manifest shortly
+after each release publishes.
+
 ## 2026-07-01 -- Scoop release automation — auto-bump manifest on tag publish
 
 Release-process fix. `scoop update odytty` served a stale version until a

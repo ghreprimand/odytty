@@ -143,14 +143,31 @@ git archive --format=tar.gz --prefix=odytty-0.6.2/ \
 sha256sum odytty-0.6.2.tar.gz > SHA256SUMS
 ```
 
-6. For Windows distribution metadata, update the Scoop bucket manifest
-   (`bucket/odytty.json`): bump the pinned `version`, `url`, and `hash` (from
-   the `odytty-<version>-windows-x86_64.zip` row in `SHA256SUMS`) for the new
-   release. The manifest becomes installable from this repo after the first
-   release that includes `odytty-<version>-windows-x86_64.zip` and `SHA256SUMS`;
-   its autoupdate metadata resolves later versions' hashes from `SHA256SUMS`
-   automatically, so `scoop update odytty` stays current with no per-release
-   submission step.
+6. For Windows distribution metadata, the Scoop bucket manifest
+   (`bucket/odytty.json`) must be bumped to the new release — its pinned
+   `version`, `url`, and `hash` are the only fields the Scoop **client** reads,
+   so `scoop update odytty` serves the previous version until this bump lands.
+   (The manifest's `autoupdate` block is **not** client-side: it is metadata for
+   maintainer tooling — checkver scripts and Excavator bots — and does not keep
+   installed clients current on its own.) A manifest bump is therefore
+   **required every release**, and it can only happen **after** the release's
+   `SHA256SUMS` asset exists (the hash comes from the
+   `odytty-<version>-windows-x86_64.zip` row).
+
+   **Primary path — automatic (CI).** The `scoop` job in `release.yml` runs
+   after the release is published: it downloads `SHA256SUMS`, rewrites
+   `bucket/odytty.json` (version/url/hash), and commits `Scoop: bump manifest to
+   vX.Y.Z` to `master`. After tagging, confirm this commit landed on `master`
+   shortly after the release finishes publishing, and that the manifest's pinned
+   `version` matches the tag. No manual edit is needed when the job succeeds.
+
+   **Fallback — manual.** If the `scoop` job failed or was skipped (for example,
+   branch protection blocks `GITHUB_TOKEN` pushes to `master`), bump the
+   manifest by hand: set `version` to the release, set the `64bit` `url` to
+   `…/releases/download/v<version>/odytty-<version>-windows-x86_64.zip`, and set
+   `hash` to that file's row in the published `SHA256SUMS`; commit and push to
+   `master`. The manifest first became installable from this repo with the
+   release that included `odytty-<version>-windows-x86_64.zip` and `SHA256SUMS`.
 
 7. Build the Odyssey package from the published archive, not from the working
    tree, and verify file ownership:
