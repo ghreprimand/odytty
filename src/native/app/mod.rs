@@ -2853,21 +2853,29 @@ impl ApplicationHandler<UserEvent> for App {
                     FrameAction::RetryAfter(delay) => {
                         // BLACK-SCREEN-ON-RESTORE: a transiently-skipped frame
                         // (Timeout/Occluded). Schedule ONE bounded timed retry —
-                        // folded into the `WaitUntil` wake set — unless the spin
-                        // guards veto it (window minimized, or the consecutive-
-                        // skip budget is spent). When vetoed we drop the pending
-                        // retry and rest at `Wait`; the next real event
-                        // (restore/focus/input) re-arms a paint. `about_to_wait`
-                        // folds the new deadline into the control flow.
-                        if should_schedule_skipped_retry(
+                        // folded into the `WaitUntil` wake set. The delay is
+                        // chosen by the spin-guard policy: fast (~16ms) while the
+                        // consecutive-skip budget lasts, then a slow (~1s)
+                        // keep-alive once it is spent — so an idle background
+                        // window whose surface has recovered self-heals within a
+                        // second WITHOUT needing an external event, while never
+                        // busy-spinning. A minimized (0x0) window is the only
+                        // veto: nothing to paint, and a restore event always
+                        // re-arms it. `about_to_wait` folds the deadline into the
+                        // control flow.
+                        let _ = delay; // policy owns the delay (fast vs. slow)
+                        match next_skipped_retry_delay(
                             self.window_minimized,
                             self.consecutive_skipped_frames,
                         ) {
-                            self.consecutive_skipped_frames =
-                                self.consecutive_skipped_frames.saturating_add(1);
-                            self.skipped_frame_retry_deadline = Some(Instant::now() + delay);
-                        } else {
-                            self.skipped_frame_retry_deadline = None;
+                            Some(retry) => {
+                                self.consecutive_skipped_frames =
+                                    self.consecutive_skipped_frames.saturating_add(1);
+                                self.skipped_frame_retry_deadline = Some(Instant::now() + retry);
+                            }
+                            None => {
+                                self.skipped_frame_retry_deadline = None;
+                            }
                         }
                     }
                 }
@@ -3049,11 +3057,23 @@ enum FrameAction {
 /// poll loop.
 const SKIPPED_FRAME_RETRY: Duration = Duration::from_millis(16);
 
-/// Cap on consecutive `Skipped` retries with no successful present in between.
-/// A persistently-unavailable surface (e.g. a long minimize where every acquire
-/// times out) must not wake-loop forever; after this many tries the loop falls
-/// back to event-driven `Wait` and is re-armed by the next real event
-/// (restore / focus / input). The counter resets on any successful present.
+/// Slow keep-alive retry once the fast-retry budget ([`MAX_SKIPPED_RETRIES`]) is
+/// spent. ANTI-FREEZE: without this, a surface that kept returning
+/// Timeout/Occluded past the budget left the loop resting at `Wait` with NO
+/// pending paint — so a long-lived, non-interacted background window (nothing
+/// delivering a `Resized`/`Focused`/input event) latched into a permanent
+/// no-repaint freeze until the user forced a window event. A ~1s cadence is not
+/// a busy-spin (≤1 wake/sec) yet guarantees an idle window self-heals within a
+/// second of the surface actually recovering. Only a minimized (0x0) window
+/// opts out — it has nothing to paint and a restore event always re-arms it.
+const SKIPPED_FRAME_SLOW_RETRY: Duration = Duration::from_millis(1000);
+
+/// Cap on consecutive *fast* `Skipped` retries with no successful present in
+/// between. After this many fast tries the loop stops fast-retrying — but,
+/// unlike before, it does NOT go silent: it falls back to the
+/// [`SKIPPED_FRAME_SLOW_RETRY`] keep-alive (see [`next_skipped_retry_delay`]) so
+/// a persistently-unavailable-then-recovered surface always repaints. The
+/// counter resets on any successful present.
 const MAX_SKIPPED_RETRIES: u32 = 8;
 
 /// Pure post-frame decision (see [`FrameAction`]). Split out so the
@@ -3076,8 +3096,36 @@ fn after_frame(outcome: FrameOutcome) -> FrameAction {
 /// surface only burns wakeups) or once the consecutive-skip budget is exhausted
 /// (fall back to the event-driven `Wait`). This is what keeps the bounded retry
 /// from degrading into a busy-spin on a persistently-unavailable surface.
+///
+/// Production scheduling now goes through [`next_skipped_retry_delay`] (which
+/// additionally distinguishes the fast retry from the slow keep-alive); this
+/// predicate is retained as the "fast-retry allowed?" seam the restore/occlude
+/// regression tests assert against, so it is test-only.
+#[cfg(test)]
 fn should_schedule_skipped_retry(minimized: bool, consecutive_skipped: u32) -> bool {
     !minimized && consecutive_skipped < MAX_SKIPPED_RETRIES
+}
+
+/// The delay before the next skipped-frame retry, or `None` to schedule none.
+/// Pure (no surface/event-loop), so the whole recovery policy is unit-testable
+/// with zero GPU/winit. Three-way:
+/// - `None` — window minimized (0x0): nothing to paint; a restore event re-arms.
+/// - `Some(`[`SKIPPED_FRAME_RETRY`]`)` — under the fast-retry budget: recover
+///   within a frame.
+/// - `Some(`[`SKIPPED_FRAME_SLOW_RETRY`]`)` — budget spent: a slow keep-alive so
+///   an idle background window still self-heals once the surface recovers,
+///   instead of latching into a permanent freeze. This is the anti-freeze fix:
+///   the previous policy returned "schedule nothing" here, which under
+///   `ControlFlow::Wait` meant a window with no incoming events never repainted
+///   again.
+fn next_skipped_retry_delay(minimized: bool, consecutive_skipped: u32) -> Option<Duration> {
+    if minimized {
+        None
+    } else if consecutive_skipped < MAX_SKIPPED_RETRIES {
+        Some(SKIPPED_FRAME_RETRY)
+    } else {
+        Some(SKIPPED_FRAME_SLOW_RETRY)
+    }
 }
 
 #[cfg(test)]
@@ -3149,6 +3197,57 @@ mod tests {
         assert!(
             should_schedule_skipped_retry(false, MAX_SKIPPED_RETRIES - 1),
             "the last retry within budget must still be allowed"
+        );
+    }
+
+    /// ANTI-FREEZE regression lock: once the fast-retry budget is spent, a
+    /// visible surface must STILL schedule a retry — a slow keep-alive, not
+    /// `None`. The previous policy dead-ended here, which under
+    /// `ControlFlow::Wait` left a long-lived, non-interacted background window
+    /// permanently unpainted (and apparently input-dead) until an external
+    /// window event forced a repaint. The one legitimate opt-out is a minimized
+    /// (0x0) window, which has nothing to paint and is re-armed by its restore
+    /// event.
+    #[test]
+    fn skipped_retry_falls_back_to_slow_keepalive_never_silent() {
+        // Minimized: no retry regardless of budget (nothing to paint).
+        assert_eq!(
+            next_skipped_retry_delay(true, 0),
+            None,
+            "a minimized (0x0) window schedules no retry"
+        );
+        assert_eq!(
+            next_skipped_retry_delay(true, MAX_SKIPPED_RETRIES + 5),
+            None,
+            "a minimized window stays opted out even past the budget"
+        );
+
+        // Visible, under budget: fast retry (recover within a frame).
+        assert_eq!(
+            next_skipped_retry_delay(false, 0),
+            Some(SKIPPED_FRAME_RETRY),
+            "a fresh skip retries fast"
+        );
+        assert_eq!(
+            next_skipped_retry_delay(false, MAX_SKIPPED_RETRIES - 1),
+            Some(SKIPPED_FRAME_RETRY),
+            "the last skip within budget still retries fast"
+        );
+
+        // Visible, budget spent: slow keep-alive — the load-bearing invariant.
+        // It must be a real scheduled retry (never `None`), and slower than the
+        // fast cadence so it is not a busy-spin.
+        for spent in [MAX_SKIPPED_RETRIES, MAX_SKIPPED_RETRIES + 1, 10_000] {
+            let delay = next_skipped_retry_delay(false, spent);
+            assert_eq!(
+                delay,
+                Some(SKIPPED_FRAME_SLOW_RETRY),
+                "budget spent (n={spent}) must keep-alive, not go silent"
+            );
+        }
+        assert!(
+            SKIPPED_FRAME_SLOW_RETRY > SKIPPED_FRAME_RETRY,
+            "the keep-alive must be slower than the fast retry (no busy-spin)"
         );
     }
 

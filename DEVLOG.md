@@ -7,6 +7,55 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-01 -- Release v0.7.1 — fix idle-window render freeze (skipped-frame keep-alive)
+
+Bugfix point release. Fixes a genuine freeze where a long-lived, non-interacted
+OdyTTY window could stop repainting entirely — the surface stayed frozen on
+stale pixels, input appeared dead (no echo), and the window would not repaint
+even when dragged to another monitor, while the process burned 0% CPU. Diagnosed
+live from a 13h-frozen session: all threads were in normal idle waits (no
+deadlock, no GPU fence hang) — the render loop had simply stopped scheduling
+paints.
+
+Root cause: the skipped-frame recovery path. When `get_current_texture` returns
+Timeout/Occluded (a transient GPU/compositor surface hiccup, e.g. on a
+multi-GPU setup after a monitor/DPMS blip), the loop retries at ~16ms — but only
+`MAX_SKIPPED_RETRIES = 8` times. Once that budget was spent it scheduled NO
+further retry (`skipped_frame_retry_deadline = None`). Under `ControlFlow::Wait`,
+a window with no incoming events (`Resized`/`Focused`/input) then never repainted
+again — a permanent latch. The budget reset only on a successful present or a
+non-zero `Resized`, which is exactly why forcing a resize revived the frozen
+window. This is OdyTTY-specific: an anti-busy-spin cap that traded a busy-loop
+for a permanent freeze on an idle window.
+
+Fix: after the fast-retry budget is spent, fall back to a slow ~1s keep-alive
+retry (`SKIPPED_FRAME_SLOW_RETRY`) instead of going silent, via a new pure
+policy helper `next_skipped_retry_delay(minimized, consecutive_skipped) ->
+Option<Duration>` (None when minimized, fast under budget, slow once spent). One
+wake/second is not a busy-spin, and it guarantees an idle background window
+self-heals within a second of the surface actually recovering — no user
+interaction required. The minimized (0x0) veto is unchanged (nothing to paint; a
+restore event always re-arms it).
+
+Tests: added `skipped_retry_falls_back_to_slow_keepalive_never_silent`, a pure
+regression lock (no GPU/winit) asserting the loop never schedules `None` on a
+live surface past the budget, that the keep-alive is slower than the fast retry
+(no busy-spin), and that a minimized window still opts out. `cargo test` green
+(2655+ pass, 0 fail), `cargo clippy --all-targets` clean under the deny-all
+gate, `cargo fmt --check` clean.
+
+Verified/known gaps: the *trigger* that caused ≥8 consecutive skips was not
+captured — the frozen binary was the stripped release with stderr → /dev/null,
+so no symbolized stack or panic trail survived. The fix removes the permanent-
+latch failure mode that matches the observed signature and the resize-recovery
+regardless of which transient started the skip burst; it is not empirically
+proven against a live repro because the freeze is non-deterministic. Requires a
+rebuild + reinstall of the binary to take effect. A future opt-in, off-by-default
+render watchdog (a passive `RUST_LOG` breadcrumb, never taking corrective action)
+was considered and deliberately deferred out of this bugfix release.
+
+---
+
 ## 2026-07-01 -- Windows install docs: drop winget, Scoop Start-menu shortcut, honest SmartScreen
 
 Post-release documentation and packaging polish (no code, no version change).

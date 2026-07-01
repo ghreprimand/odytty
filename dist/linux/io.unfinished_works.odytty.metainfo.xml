@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.7.1" date="2026-07-01">
+      <description>
+        <p>Bugfix release. Fixes an idle-window render freeze: a long-lived, non-interacted OdyTTY window could stop repainting entirely — stale pixels, input with no echo, and no repaint even when dragged to another monitor — after a transient GPU/compositor surface hiccup. The skipped-frame recovery gave up permanently once its fast-retry budget was spent, so under an event-wait loop a window with no incoming events never repainted again. The fix adds a slow keep-alive retry so an idle window self-heals within about a second of the surface recovering, without busy-spinning.</p>
+      </description>
+    </release>
     <release version="0.7.0" date="2026-07-01">
       <description>
         <p>Cursor, selection, and multi-pane hardening release, and the first with a Windows install channel (Scoop). Fixes resize cursor drift on pulled scrollback, minimize/restore black-screen and 1x1 reflow, prompt-aware select+Delete surviving a side-by-side split, clickable paths for filenames containing spaces, multi-pane wheel scrolling the pane under the cursor and hover resolving to the correct pane, drag-selection after a split, and a divider-drag pseudoconsole resize flood. Adds PowerShell shell integration (OSC 133 marks) and OSC 7 working-directory reporting on Windows. Interactive Windows behaviour is validated on-device; Linux, macOS, and Windows are all blocking CI legs.</p>
