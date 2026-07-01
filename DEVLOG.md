@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-01 -- Scoop release automation — auto-bump manifest on tag publish
+
+Release-process fix. `scoop update odytty` served a stale version until a
+maintainer hand-edited `bucket/odytty.json` after each release — v0.7.1 lagged
+its tag by hours, and an operator who ran `scoop update` in that window got the
+previous version. Root cause was a doc-level misconception: the manifest's
+`autoupdate` block is maintainer tooling (checkver/Excavator) and is NOT read by
+the Scoop client, which resolves only the pinned `version`/`url`/`hash`. So a
+per-release manifest bump is genuinely required, and it can only happen after
+the release's `SHA256SUMS` asset exists.
+
+Added a `scoop` job to `.github/workflows/release.yml` that runs after the
+`release` job publishes. It downloads the just-published `SHA256SUMS` via `gh
+release download`, extracts the hash for
+`odytty-<version>-windows-x86_64.zip`, rewrites the pinned
+`version`/`url`/`hash` in `bucket/odytty.json` with `jq`, and commits + pushes
+to `master` as `github-actions[bot]`. The job is defensive: `set -euo
+pipefail` throughout, explicit `::error::` messages, a no-op skip when the
+manifest is already at the tag version, and a fetch/rebase/retry loop (5
+attempts) so a concurrent push to master can't wedge it. Uses the workflow's
+`contents: write` permission.
+
+Verified: `python3 -c "yaml.safe_load(...)"` parses the workflow. Caveat: the
+job's end-to-end behaviour can only be exercised by the next real tag push
+(GitHub Actions has no local runner here); the logic is written to fail loudly
+rather than silently if `SHA256SUMS` or the zip row is missing. If branch
+protection ever blocks `GITHUB_TOKEN` pushes to `master`, this job will fail at
+the push step and the manual fallback (below) applies.
+
 ## 2026-07-01 -- Release v0.7.1 — fix idle-window render freeze (skipped-frame keep-alive)
 
 Bugfix point release. Fixes a genuine freeze where a long-lived, non-interacted

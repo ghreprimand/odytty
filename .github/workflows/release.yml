@@ -176,3 +176,90 @@ jobs:
             ---
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+  scoop:
+    name: Bump Scoop manifest
+    # Runs only after the GitHub Release (and its SHA256SUMS asset) is published,
+    # then bumps bucket/odytty.json's pinned version/url/hash and pushes it to
+    # master. This closes the manual-lag window: without it, `scoop update
+    # odytty` serves the previous version until a maintainer hand-edits the
+    # manifest (v0.7.1 lagged its tag by hours). The Scoop CLIENT reads only the
+    # pinned fields — the manifest's autoupdate block is maintainer tooling
+    # (checkver/Excavator) and does NOT keep installed clients current on its
+    # own, so this per-release bump is required.
+    needs: [release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Derive version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download SHA256SUMS from the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern SHA256SUMS \
+            --output SHA256SUMS
+          test -s SHA256SUMS || { echo "::error::SHA256SUMS is empty or missing" >&2; exit 1; }
+
+      - name: Rewrite bucket/odytty.json
+        id: manifest
+        run: |
+          set -euo pipefail
+          version="${{ steps.ver.outputs.version }}"
+          zip="odytty-${version}-windows-x86_64.zip"
+          hash="$(awk -v f="$zip" '$2 == f { print $1 }' SHA256SUMS)"
+          if [ -z "$hash" ]; then
+            echo "::error::No SHA256 entry for ${zip} in SHA256SUMS" >&2
+            exit 1
+          fi
+          current="$(jq -r '.version' bucket/odytty.json)"
+          if [ "$current" = "$version" ]; then
+            echo "Manifest already at ${version}; nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${version}/${zip}"
+          tmp="$(mktemp)"
+          jq --arg v "$version" --arg u "$url" --arg h "$hash" \
+            '.version = $v
+             | .architecture["64bit"].url = $u
+             | .architecture["64bit"].hash = $h' \
+            bucket/odytty.json > "$tmp"
+          mv "$tmp" bucket/odytty.json
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "Bumped manifest to ${version} (hash ${hash})."
+
+      - name: Commit and push the manifest bump
+        if: steps.manifest.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          version="${{ steps.ver.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bucket/odytty.json
+          git commit -m "Scoop: bump manifest to v${version}"
+          # Guard against a concurrent push racing this one: on rejection, rebase
+          # the single manifest commit onto the latest master and retry.
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:master; then
+              echo "Pushed manifest bump on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}); rebasing on origin/master and retrying."
+            git fetch origin master
+            git rebase origin/master
+          done
+          echo "::error::Failed to push Scoop manifest bump after 5 attempts" >&2
+          exit 1
