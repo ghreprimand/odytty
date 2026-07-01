@@ -11,8 +11,8 @@ OdyTTY ships as a versioned release. Each release provides:
 - a desktop entry, AppStream metadata, and icon installed into Freedesktop
   locations.
 
-Pick by system: Scoop or winget on Windows, AppImage for a no-install
-single-file Linux run, the AUR package on Arch-family systems, and a
+Pick by system: Scoop (or a direct zip download) on Windows, AppImage for a
+no-install single-file Linux run, the AUR package on Arch-family systems, and a
 pacman-tracked source package on Odyssey itself so the install is versioned,
 owned, removable, and visible to Odyssey-Mon.
 
@@ -25,35 +25,33 @@ issue with your Windows version and a short repro.
 
 The Windows release is an unsigned portable `odytty.exe` inside
 `odytty-windows-x86_64.zip`. There is no installer, and nothing is written
-outside your profile — configuration lives under `%APPDATA%\odytty\`. Scoop and
-winget are the recommended install paths because they install from the release
-URL and avoid the direct-download SmartScreen prompt.
+outside your profile — configuration lives under `%APPDATA%\odytty\`. Scoop is
+the recommended install path because it puts `odytty` on your PATH, adds a
+Start-menu entry, and verifies the download checksum; you can also download the
+zip directly.
 
 ### Scoop
 
-After the first Windows release is published, add the in-repo bucket and
-install:
+[Scoop](https://scoop.sh) is a per-user package manager for Windows (no admin
+rights). If you don't already have it, install it once in PowerShell:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+```
+
+Then add the in-repo bucket and install:
 
 ```powershell
 scoop bucket add odytty https://github.com/ghreprimand/odytty
 scoop install odytty
 ```
 
-The bucket manifest is `bucket/odytty.json`. It uses version-pinned release URLs
-and its autoupdate metadata resolves hashes from the release `SHA256SUMS` asset.
-
-### winget
-
-The staged winget manifests live under `packaging/winget/`. They become live
-only after a maintainer submits them to `microsoft/winget-pkgs` after the first
-Windows release, with `InstallerSha256` filled from `SHA256SUMS`.
-
-The package identifier is `UnfinishedWorks.OdyTTY` (lookup is case-insensitive,
-so any casing resolves):
-
-```powershell
-winget install UnfinishedWorks.OdyTTY
-```
+Scoop creates a shim under `~\scoop\shims` (on your PATH) so `odytty` launches
+from any shell, and adds an **OdyTTY** Start-menu entry. The bucket manifest is
+`bucket/odytty.json`: it pins the release URL and hash, and its autoupdate
+metadata resolves later versions' hashes from the release `SHA256SUMS` asset, so
+`scoop update odytty` stays current with no maintainer step per release.
 
 ### Portable zip
 
@@ -71,17 +69,21 @@ Expand-Archive odytty-windows-x86_64.zip -DestinationPath .\odytty
 Compare the hash with the `odytty-windows-x86_64.zip` row in `SHA256SUMS`; they
 must match before you run the binary.
 
-Because OdyTTY is not code-signed yet, launching a directly-downloaded
-`odytty.exe` for the first time may raise a blue "Windows protected your PC"
-SmartScreen dialog naming an unknown publisher. This is expected for unsigned
-open-source software: click **More info**, then **Run anyway**. To clear the
-"downloaded from the internet" mark up front instead, run `Unblock-File
-.\odytty\odytty.exe` before launching. Installing via Scoop or winget avoids the
-prompt entirely, since they fetch the zip programmatically. Code-signed Windows
-binaries are a planned improvement.
+Because OdyTTY is not code-signed yet, launching it for the first time may
+raise a blue "Windows protected your PC" SmartScreen dialog naming an unknown
+publisher. This is expected for unsigned open-source software and can appear
+however you install it — a package manager removes the browser-download friction
+but does not, on its own, guarantee the first-run prompt won't show. Click
+**More info**, then **Run anyway**. To clear the "downloaded from the internet"
+mark up front instead, run `Unblock-File .\odytty\odytty.exe` before launching.
+Code-signed Windows binaries are a planned improvement.
 
-Detached/resumable session hosting is Unix-only in this release; the Windows
-build opens local ConPTY-backed tabs and panes.
+OdyTTY can't yet be set as the Windows *default terminal* (the app Windows hands
+console programs to when launched from Explorer or another program) — that needs
+the Windows default-terminal handoff protocol, which OdyTTY doesn't implement
+yet. Launch it directly instead: from the Start menu, by typing `odytty`, or
+from a pinned shortcut. Detached/resumable session hosting is Unix-only in this
+release; the Windows build opens local ConPTY-backed tabs and panes.
 
 ## AppImage (x86_64)
 

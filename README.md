@@ -86,7 +86,8 @@ Windows ships as an unsigned portable zip.
 
 Linux is the primary, battle-tested target. macOS is an experimental
 build-from-source target (see [macOS](#macos-experimental) below). Windows ships
-as an unsigned portable zip; Scoop and winget are the preferred install paths.
+as an unsigned portable zip; Scoop is the recommended install path, or download
+the zip directly.
 
 ### Linux
 
@@ -182,28 +183,30 @@ Windows version and a short repro if something misbehaves.
 
 The Windows build is a single unsigned, portable `odytty.exe` packaged as
 `odytty-windows-x86_64.zip`. There is no installer and nothing is written
-outside your profile — configuration lives under `%APPDATA%\odytty\`. Three
-install paths, in order of convenience:
+outside your profile — configuration lives under `%APPDATA%\odytty\`. Two
+install paths:
 
-**Scoop (recommended).** Scoop downloads and unpacks the release zip for you,
-which also avoids the browser SmartScreen prompt. After the first Windows
-release is published:
+**Scoop (recommended).** [Scoop](https://scoop.sh) is a per-user package
+manager for Windows — no admin rights, everything under your profile. If you
+don't already have it, install it once in PowerShell:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+```
+
+Then add the OdyTTY bucket and install:
 
 ```powershell
 scoop bucket add odytty https://github.com/ghreprimand/odytty
 scoop install odytty
 ```
 
-Update later with `scoop update odytty`.
-
-**winget.** The manifest is staged under `packaging/winget/` and goes live once
-it is submitted to `microsoft/winget-pkgs` following a Windows release. The
-package identifier is `UnfinishedWorks.OdyTTY` (lookup is case-insensitive, so
-any casing resolves):
-
-```powershell
-winget install UnfinishedWorks.OdyTTY
-```
+Scoop puts `odytty` on your PATH (a shim under `~\scoop\shims`), so you can
+launch it by typing `odytty` in any shell, and it adds an **OdyTTY** entry to
+the Start menu. It also verifies the download against the release checksum and
+unpacks the zip for you, so the browser "downloaded from the internet" file
+warning never comes up. Update later with `scoop update odytty`.
 
 **Portable zip (direct download).** Download the always-latest zip and checksum
 file, verify the hash, unpack, and run:
@@ -219,24 +222,32 @@ Expand-Archive odytty-windows-x86_64.zip -DestinationPath .\odytty
 Compare the printed hash against the `odytty-windows-x86_64.zip` row in
 `SHA256SUMS`; they must match before you run the binary. Put `odytty.exe`
 anywhere on your `PATH` (for example `%LOCALAPPDATA%\Microsoft\WindowsApps`) to
-launch it as `odytty` from any shell.
+launch it as `odytty` from any shell; right-click it in Explorer to pin it to
+Start or the taskbar for an easy launcher.
 
 **About the SmartScreen prompt.** OdyTTY is not code-signed yet, so the first
-time you launch a directly-downloaded `odytty.exe`, Windows may show a blue
-"Windows protected your PC" SmartScreen dialog naming an unknown publisher.
-This is expected for unsigned open-source software and is not specific to
-OdyTTY. To run it: click **More info**, then **Run anyway**. If the unpacked
-`.exe` also carries a "downloaded from the internet" mark you want to clear
-up front, you can unblock it in PowerShell before launching:
+time you launch it Windows may show a blue "Windows protected your PC"
+SmartScreen dialog naming an unknown publisher. This is expected for unsigned
+open-source software and can appear however you install it — a package manager
+removes the browser-download friction but does not, on its own, guarantee the
+first-run prompt won't show. To run OdyTTY: click **More info**, then **Run
+anyway**. To clear the "downloaded from the internet" mark up front instead,
+unblock the unpacked exe in PowerShell before launching:
 
 ```powershell
 Unblock-File .\odytty\odytty.exe
 ```
 
-Installing via Scoop or winget sidesteps this prompt entirely, since they fetch
-the zip programmatically rather than through the browser. Code-signed Windows
-binaries are a planned improvement; until then the SmartScreen click-through
-above is the intended one-time step.
+Code-signed Windows binaries are a planned improvement; until then the
+SmartScreen click-through above is the intended one-time step.
+
+**Not yet a Windows "default terminal."** You launch OdyTTY directly — from the
+Start menu, by typing `odytty`, or from a pinned shortcut — and it hosts your
+shells in its own tabs and panes. It can't yet be set as the system *default
+terminal* (the app Windows hands console programs to when they're launched from
+Explorer or another program): that requires implementing the Windows
+default-terminal handoff protocol, which OdyTTY doesn't do yet. It's tracked as
+future work.
 
 **Windows scope (v1).** The Windows build opens local ConPTY-backed tabs and
 panes with the full rendering, theme, effect, and inline-graphics stack, plus

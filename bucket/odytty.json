@@ -10,6 +10,12 @@
     }
   },
   "bin": "odytty.exe",
+  "shortcuts": [
+    [
+      "odytty.exe",
+      "OdyTTY"
+    ]
+  ],
   "checkver": {
     "github": "https://github.com/ghreprimand/odytty"
   },

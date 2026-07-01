@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-01 -- Windows install docs: Scoop Start-menu shortcut + honest SmartScreen
+
+Post-release documentation and packaging polish (no code, no version change).
+Scope decision: Scoop and a direct portable-zip download are the two supported
+Windows install paths; the winget path is not advertised because its manifest
+has not been submitted to `microsoft/winget-pkgs` (submitting is an external,
+per-release maintainer PR we've chosen to defer). The staged winget manifest
+files remain under `packaging/winget/` for a future submission.
+
+Changes:
+
+- **Scoop Start-menu entry.** Added a `shortcuts` field to `bucket/odytty.json`
+  so `scoop install odytty` creates an **OdyTTY** Start-menu shortcut (the exe
+  carries an embedded icon), in addition to the existing PATH shim that makes
+  `odytty` launch from any shell. The bucket manifest is served live from
+  master, so this applies without a re-release.
+- **Honest SmartScreen wording.** Corrected an overclaim: the old text said
+  installing via a package manager "sidesteps this prompt entirely." SmartScreen
+  is triggered by Mark-of-the-Web plus low reputation for an unsigned binary and
+  can appear on first run however the app is installed; a package manager only
+  removes the browser-download friction. README and `docs/install.md` now say so
+  and point to code signing as the real fix.
+- **Default-terminal honesty.** Documented that OdyTTY cannot yet be set as the
+  Windows default terminal — it doesn't implement the default-terminal handoff
+  protocol (DelegationConsole/DelegationTerminal) — and added that as tracked
+  future work in `TODO.md`. Users launch it directly (Start menu, `odytty`, or a
+  pinned shortcut).
+- Dropped the `winget install` command from the user-facing install sections in
+  README and `docs/install.md`; added the one-time Scoop bootstrap
+  (`get.scoop.sh`) so the recommended path is self-contained.
+
+Docs and manifest only; no build or test surface changed.
+
+---
+
 ## 2026-07-01 -- Release v0.7.0 — cursor/selection/minimize fixes + Windows install channels
 
 Tagged release. `v0.7.0` closes a focused cycle of cursor-placement,

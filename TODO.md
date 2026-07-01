@@ -1232,5 +1232,11 @@ feature validates against.
       so its tab will not auto-close until a dedicated child-process waiter
       thread is added — an architectural change best validated on a real
       Windows machine.
+- [ ] Windows default-terminal handoff. OdyTTY can be launched directly and
+      hosts ConPTY shells, but it does not implement the Windows
+      default-terminal handoff protocol (DelegationConsole/DelegationTerminal
+      registration), so it cannot be selected as the system default terminal
+      that Explorer/other apps hand consoles to. Future work; needs COM/registry
+      registration and on-device validation.
 - [ ] Daily-driver claims against Ghostty/Konsole before compatibility and
       performance are proven.
