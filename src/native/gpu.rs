@@ -1534,6 +1534,13 @@ impl GpuState {
         );
         self.image_layer
             .rebuild_pipeline(&self.device, target_format);
+        // C1: the background-image pipeline also draws inside the scene pass,
+        // so it must retarget with the rest — `set_background_image` skips the
+        // rebuild when path/blur are unchanged (needs_reload == false), which
+        // is exactly the live CRT/bloom-toggle path.
+        if let Some(bg) = self.bg_image.as_mut() {
+            bg.rebuild_pipeline(&self.device, target_format);
+        }
         self.scene_target_format = target_format;
     }
 

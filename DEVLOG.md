@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-01 -- Background image: rebuild pipeline on live CRT/bloom toggle — crash fix
+
+Tier 1 audit fix (C1). `rebuild_scene_pipelines` retargeted the cell,
+color-glyph, and image-layer placement pipelines when a live CRT/bloom toggle
+flips the scene-target format (surface format ⇄ Rgba16Float HDR offscreen) —
+but never `BgImageGpu`, whose render pipeline baked the format current at
+`set_background_image` time. The subsequent `set_background_image` call in the
+live-settings path skips the reload when path/blur are unchanged (exactly the
+toggle case), so `draw_scene` bound a stale-format pipeline inside the
+new-format pass: a wgpu color-target-mismatch validation error, i.e. a
+panicked/broken frame for anyone running a background image and toggling CRT
+or bloom. `BgImageGpu` now tracks its target format and exposes
+`rebuild_pipeline` (mirroring `ImageLayer::rebuild_pipeline`, no-op on same
+format), and `rebuild_scene_pipelines` calls it. Regression test
+`bg_image_pipeline_retargets_on_scene_format_change` runs on a headless wgpu
+device (self-skipping when no adapter): it captures the exact stale-format
+validation error via an error scope, then asserts the retargeted pipeline
+draws into the HDR pass cleanly and round-trips back to the surface format.
+Manual verification on a live window: set `background_treatment = image`, then
+toggle `crt` (and `bloom`) on/off in the settings overlay — pre-fix this
+panicked with a wgpu validation error on the next frame; post-fix the frame
+renders through every toggle. `cargo test` green, clippy `-D warnings` clean,
+fmt clean.
+
 ## 2026-07-01 -- Glyph atlas: widen byte-size math to usize — heap-corruption fix
 
 Tier 1 audit fix (C28). `GlyphAtlas::build` and `grow_to_fit` computed the

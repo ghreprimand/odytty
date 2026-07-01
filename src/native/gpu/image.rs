@@ -33,6 +33,13 @@ const LIGHT_THEME_LUMINANCE_THRESHOLD: f32 = 0.18;
 /// GPU resources + cached luminance bounds for the background image pass.
 pub(in crate::native) struct BgImageGpu {
     pipeline: wgpu::RenderPipeline,
+    /// Color-target format `pipeline` was built against. The scene-target
+    /// format flips between the surface format and the HDR offscreen format
+    /// when CRT/bloom toggle at runtime, and wgpu requires the pipeline's
+    /// color target to match the render pass it draws into — so the format is
+    /// tracked here and the pipeline rebuilt via [`Self::rebuild_pipeline`].
+    target_format: wgpu::TextureFormat,
+    bind_group_layout: wgpu::BindGroupLayout,
     bind_group: wgpu::BindGroup,
     uniform_buf: wgpu::Buffer,
     // Kept alive for the bind group; never read directly after creation.
@@ -226,6 +233,8 @@ impl BgImageGpu {
 
         Some(Self {
             pipeline,
+            target_format,
+            bind_group_layout,
             bind_group,
             uniform_buf,
             _texture: texture,
@@ -267,6 +276,27 @@ impl BgImageGpu {
     ) {
         let scrim_override = self.scrim_override;
         self.refresh_scrim(queue, theme, cell_bg_opacity, scrim_override);
+    }
+
+    /// Rebuild the render pipeline against a new scene-target format (C1
+    /// regression fix). Called from `GpuState::rebuild_scene_pipelines` when a
+    /// live CRT/bloom toggle flips the scene target between the surface format
+    /// and the HDR offscreen format; without this the stale-format pipeline is
+    /// bound inside the new pass and wgpu raises a color-target-mismatch
+    /// validation error (a crashed/broken frame). Mirrors
+    /// `ImageLayer::rebuild_pipeline`; no-op when the format is unchanged.
+    /// Texture, bind group, and scrim uniform are format-independent and
+    /// carried over untouched.
+    pub(in crate::native) fn rebuild_pipeline(
+        &mut self,
+        device: &wgpu::Device,
+        target_format: wgpu::TextureFormat,
+    ) {
+        if self.target_format == target_format {
+            return;
+        }
+        self.pipeline = create_pipeline(device, target_format, &self.bind_group_layout);
+        self.target_format = target_format;
     }
 
     /// Draw the full-window image quad. Bound first in `draw_scene` so it sits
@@ -571,5 +601,126 @@ mod tests {
         let (max, min) = worst_case_luminances(&rgba);
         assert!(max > 0.99, "white pixel pins the max");
         assert!(min < 0.01, "black pixel pins the min");
+    }
+
+    /// Headless device for pipeline-format tests. `None` (⇒ skip) when the
+    /// machine has no usable adapter (e.g. bare CI).
+    fn test_device() -> Option<(wgpu::Device, wgpu::Queue)> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::default(),
+            force_fallback_adapter: false,
+            compatible_surface: None,
+        }))
+        .ok()?;
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("odytty-bg-image-test-device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            memory_hints: wgpu::MemoryHints::default(),
+            trace: wgpu::Trace::Off,
+        }))
+        .ok()
+    }
+
+    /// Draw `bg` into a fresh render pass whose color target is `format`,
+    /// returning any wgpu validation error raised during encoding/submission.
+    fn draw_into(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        bg: &BgImageGpu,
+        format: wgpu::TextureFormat,
+    ) -> Option<wgpu::Error> {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("odytty-bg-image-test-target"),
+            size: wgpu::Extent3d {
+                width: 8,
+                height: 8,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("odytty-bg-image-test-pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            bg.draw(&mut pass);
+        }
+        queue.submit([encoder.finish()]);
+        pollster::block_on(scope.pop())
+    }
+
+    /// C1 regression: a live CRT/bloom toggle flips the scene-target format,
+    /// and the background-image pipeline must retarget with it. The stale
+    /// pipeline binding into the new-format pass is exactly the wgpu
+    /// validation error that crashed the frame; after `rebuild_pipeline` the
+    /// same draw must be clean, and the no-op path (same format) must keep
+    /// drawing cleanly too.
+    #[test]
+    fn bg_image_pipeline_retargets_on_scene_format_change() {
+        let Some((device, queue)) = test_device() else {
+            eprintln!("skipping: no usable GPU adapter");
+            return;
+        };
+        // The bundled default background decodes from memory — no file needed.
+        let path = std::path::Path::new(crate::settings::BUNDLED_BACKGROUND_SENTINEL);
+        let surface_format = wgpu::TextureFormat::Bgra8UnormSrgb;
+        let hdr_format = wgpu::TextureFormat::Rgba16Float;
+        let mut bg = BgImageGpu::load(
+            &device,
+            &queue,
+            surface_format,
+            path,
+            0,
+            None,
+            &dark_theme(),
+            1.0,
+        )
+        .expect("bundled background must load");
+
+        // Document the failure mode the fix exists for: the surface-format
+        // pipeline inside an HDR pass is a validation error (the C1 crash).
+        assert!(
+            draw_into(&device, &queue, &bg, hdr_format).is_some(),
+            "stale-format draw must raise a validation error"
+        );
+
+        // After retargeting (what rebuild_scene_pipelines now triggers on a
+        // CRT/bloom toggle), the HDR pass must encode cleanly.
+        bg.rebuild_pipeline(&device, hdr_format);
+        assert!(
+            draw_into(&device, &queue, &bg, hdr_format).is_none(),
+            "retargeted pipeline must draw into the HDR pass cleanly"
+        );
+
+        // Toggling back off retargets to the surface format again.
+        bg.rebuild_pipeline(&device, surface_format);
+        assert!(
+            draw_into(&device, &queue, &bg, surface_format).is_none(),
+            "round-trip back to the surface format must draw cleanly"
+        );
     }
 }
