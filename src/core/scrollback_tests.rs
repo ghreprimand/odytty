@@ -541,6 +541,27 @@ fn open_logical_line_is_bounded_without_a_terminator() {
     );
 }
 
+#[test]
+fn open_line_after_closed_history_is_bounded_without_a_terminator() {
+    // By the store's own invariant an open line is always the LAST line, so
+    // the per-line cell ceiling must bound the trailing open line even when
+    // closed history precedes it. Regression: the ceiling used to inspect
+    // `lines[0]` only, so `printf 'hello\n'` followed by a no-newline stream
+    // (`yes | tr -d '\n'`) grew the trailing open line without bound (OOM).
+    let mut sb = Scrollback::with_limit(10_000);
+    sb.push_row(content("hello")); // one closed line already in history
+    // 200k wrapped rows of width W → 1.6M cells in the trailing open line,
+    // above the 1<<20 (1.05M) cell ceiling, so its front must be trimmed.
+    for _ in 0..200_000 {
+        sb.push_row(wrapped_full('z'));
+    }
+    let total_cells: usize = sb.physical(W).iter().map(|r| r.cells.len()).sum();
+    assert!(
+        total_cells <= (1 << 20) + 2 * W,
+        "open line after closed history must stay bounded, got {total_cells} cells"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Shell-owns-cursor (ConPTY) resize through the production lazy path must keep
 // the cursor at its incoming VISIBLE row, not at a combined-buffer offset.

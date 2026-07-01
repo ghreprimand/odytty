@@ -260,8 +260,12 @@ impl Scrollback {
             trimmed = true;
         }
 
-        // Bound the pathological no-terminator case: a never-closed leading
-        // logical line accreting cells forever. Drop oldest cells from its front.
+        // Bound the pathological no-terminator case: a never-closed logical
+        // line accreting cells forever. By this store's invariant an open line
+        // is only ever the LAST line (see `LogicalLine::open`), so the ceiling
+        // must inspect `lines.last_mut()` — checking `lines[0]` bounds only the
+        // single-line store and lets a runaway stream after any closed history
+        // line grow without bound. Drop oldest cells from the line's front.
         //
         // Hysteresis: trim only when the line crosses the high-water mark
         // (`> MAX_LOGICAL_LINE_CELLS`), but when it does, drain all the way down
@@ -275,11 +279,11 @@ impl Scrollback {
         // push. Peak length stays ≤ MAX + (one over-ceiling push), so the
         // per-line ceiling and memory bound are preserved.
         const SLACK: usize = MAX_LOGICAL_LINE_CELLS / 2;
-        if let Some(first) = self.lines.first_mut()
-            && first.cells.len() > MAX_LOGICAL_LINE_CELLS
+        if let Some(last) = self.lines.last_mut()
+            && last.cells.len() > MAX_LOGICAL_LINE_CELLS
         {
-            let drop = first.cells.len() - (MAX_LOGICAL_LINE_CELLS - SLACK);
-            first.cells.drain(0..drop);
+            let drop = last.cells.len() - (MAX_LOGICAL_LINE_CELLS - SLACK);
+            last.cells.drain(0..drop);
             trimmed = true;
         }
 

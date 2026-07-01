@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-01 -- Scrollback: cell ceiling now bounds the open (last) line — OOM fix
+
+Tier 1 audit fix (C2). `enforce_limit`'s defensive per-line cell ceiling
+(`MAX_LOGICAL_LINE_CELLS`) inspected `lines[0]` only, but by the store's own
+invariant an open (never hard-terminated) logical line is always the LAST
+line — the check only worked while the store held a single line. Any closed
+history line followed by a no-newline stream (`printf 'hello\n'; yes | tr -d
+'\n'`) grew the trailing open line without bound: the line-count limit never
+fires because the runaway adds no new lines, so memory climbed until the OS
+killed the process. The ceiling now trims the last line, with the same
+high/low-water hysteresis. Regression test
+`open_line_after_closed_history_is_bounded_without_a_terminator` fails before
+(1.6M cells retained) and passes after. `cargo test` green, `cargo clippy
+--all-targets -- -D warnings` clean, `cargo fmt --check` clean.
+
 ## 2026-07-01 -- Docs — correct the Scoop per-release manifest bump story
 
 Doc fix following the automation change. `docs/release.md` step 6 and
