@@ -143,18 +143,14 @@ git archive --format=tar.gz --prefix=odytty-0.6.2/ \
 sha256sum odytty-0.6.2.tar.gz > SHA256SUMS
 ```
 
-6. For Windows distribution metadata:
-
-   - the winget PackageIdentifier is `UnfinishedWorks.OdyTTY`;
-   - fill `packaging/winget/UnfinishedWorks.OdyTTY/*.installer.yaml`
-     `InstallerSha256` from the `odytty-0.6.2-windows-x86_64.zip` row in
-     `SHA256SUMS`;
-   - submit the manifest to `microsoft/winget-pkgs` after the GitHub Release is
-     live.
-
-   The Scoop bucket manifest is version-pinned and autoupdate-driven. It
-   becomes installable from this repo after the first release that includes
-   `odytty-<version>-windows-x86_64.zip` and `SHA256SUMS`.
+6. For Windows distribution metadata, update the Scoop bucket manifest
+   (`bucket/odytty.json`): bump the pinned `version`, `url`, and `hash` (from
+   the `odytty-<version>-windows-x86_64.zip` row in `SHA256SUMS`) for the new
+   release. The manifest becomes installable from this repo after the first
+   release that includes `odytty-<version>-windows-x86_64.zip` and `SHA256SUMS`;
+   its autoupdate metadata resolves later versions' hashes from `SHA256SUMS`
+   automatically, so `scoop update odytty` stays current with no per-release
+   submission step.
 
 7. Build the Odyssey package from the published archive, not from the working
    tree, and verify file ownership:

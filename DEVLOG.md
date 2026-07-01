@@ -7,14 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-07-01 -- Windows install docs: Scoop Start-menu shortcut + honest SmartScreen
+## 2026-07-01 -- Windows install docs: drop winget, Scoop Start-menu shortcut, honest SmartScreen
 
 Post-release documentation and packaging polish (no code, no version change).
 Scope decision: Scoop and a direct portable-zip download are the two supported
-Windows install paths; the winget path is not advertised because its manifest
-has not been submitted to `microsoft/winget-pkgs` (submitting is an external,
-per-release maintainer PR we've chosen to defer). The staged winget manifest
-files remain under `packaging/winget/` for a future submission.
+Windows install paths, and winget is dropped entirely. The staged
+`packaging/winget/` manifests were removed and every winget reference scrubbed
+from the docs: submitting to `microsoft/winget-pkgs` is an external, per-release
+maintainer PR that also would not resolve the unsigned first-run SmartScreen
+prompt, so it is not worth the ongoing per-version submission cost for now.
+Scoop covers the package-manager audience (works the day we publish, resolves
+its own hashes from `SHA256SUMS`, no gatekeeper) and the portable zip covers
+everyone else. The removal is git-recoverable if winget is ever revisited.
 
 Changes:
 

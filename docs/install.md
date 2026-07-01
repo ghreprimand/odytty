@@ -460,8 +460,7 @@ For an upstream release that avoids maintaining many distro-specific packages:
   versions;
 - attach the x86_64 AppImage built by `dist/appimage/build-appimage.sh`;
 - attach the unsigned Windows x86_64 zip built by the release workflow;
-- keep the Scoop bucket manifest and winget manifest templates in sync with
-  the release artifact names;
+- keep the Scoop bucket manifest in sync with the release artifact names;
 - publish the AUR `odytty` package from `dist/aur/` (see its README runbook);
 - include `dist/linux/io.unfinished_works.odytty.desktop`;
 - include `dist/linux/io.unfinished_works.odytty.metainfo.xml`;

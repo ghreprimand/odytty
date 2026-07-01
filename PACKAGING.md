@@ -183,11 +183,9 @@ scoop bucket add odytty https://github.com/ghreprimand/odytty
 scoop install odytty
 ```
 
-The winget templates live under `packaging/winget/UnfinishedWorks.OdyTTY/`. The
-PackageIdentifier is `UnfinishedWorks.OdyTTY` (case-sensitive in storage but
-case-insensitive for `winget install`). The winget `InstallerSha256` placeholder
-must be filled from the release `SHA256SUMS` row before submitting to
-`microsoft/winget-pkgs`.
+Scoop puts `odytty` on the user's PATH (a shim) and creates an **OdyTTY**
+Start-menu entry (via the manifest's `shortcuts` field), and verifies the
+download against the pinned release checksum.
 
 ## Default-Terminal Integration
 
