@@ -10,8 +10,7 @@ NestedInstallerFiles:
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/ghreprimand/odytty/releases/download/v0.7.0/odytty-0.7.0-windows-x86_64.zip
-    # Replace with the SHA256 for odytty-0.7.0-windows-x86_64.zip from SHA256SUMS
-    # when preparing the post-release winget submission.
-    InstallerSha256: REPLACE_WITH_SHA256_FROM_SHA256SUMS
+    # SHA256 for odytty-0.7.0-windows-x86_64.zip from the v0.7.0 SHA256SUMS.
+    InstallerSha256: BD325A8B1641B8AA1C4EE758B0A78423CF51DA2779F864E8D434B620BA6A9106
 ManifestType: installer
 ManifestVersion: 1.9.0
