@@ -76,15 +76,3 @@ jobs:
       - name: Test
         run: cargo test --locked ${{ matrix.os == 'macos-latest' && '-- --test-threads=1' || '' }}
 
-      # BRING-UP TEMPORARY — remove once the Windows ConPTY spawn fix is
-      # confirmed on a real Windows machine. Publishes the release `odytty.exe`
-      # from the Windows leg as a downloadable run artifact so on-device testing
-      # does not need a cut release per debug iteration. Windows-only; no effect
-      # on the Linux/macOS legs and produces no GitHub Release.
-      - name: Upload Windows test binary (bring-up temporary)
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: odytty-windows-test-exe
-          path: target/release/odytty.exe
-          if-no-files-found: error

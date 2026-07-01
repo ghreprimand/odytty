@@ -7,6 +7,59 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-01 -- Release v0.7.0 — cursor/selection/minimize fixes + Windows install channels
+
+Tagged release. `v0.7.0` closes a focused cycle of cursor-placement,
+selection, multi-pane, and Windows-integration fixes surfaced by hands-on
+Windows passes, and adds the first documented Windows install channels
+(Scoop and winget). Every fix landed test-first (a deterministic Linux test
+red before, green after) and was verified on all three CI legs.
+
+What landed since `v0.6.2`:
+
+- **Resize cursor drift on pulled scrollback** — the reflow `None`-arm used a
+  combined row where it needed the visible-relative row, so the cursor jumped
+  to the bottom after a width change with non-empty scrollback. Fixed with the
+  correct coordinate in that arm only.
+- **Minimize/restore** — a `0x0` minimize surface no longer collapses the model
+  grid to `1x1`, and a Windows restore that arrives without a non-zero
+  `Resized` no longer leaves the window black until the first click.
+- **Prompt-aware select+Delete after a side-by-side split** — the OSC 133 input
+  mark is now re-anchored through a width-change resize, so selecting prompt
+  text and pressing Delete keeps working in a narrowed pane without pressing
+  Enter first.
+- **Clickable paths for filenames with spaces** — stat-guided span expansion
+  resolves `my notes.txt` (and spaced image names) that strict whitespace
+  tokenization previously split; longest-existing candidate wins.
+- **Multi-pane input routing** — the mouse wheel scrolls the pane under the
+  pointer (not the focused pane), hover resolves against the pane actually
+  under the cursor, and drag-selection works in either pane after a split.
+- **ConPTY resize behaviour** — the competing live-grid rewrap that fought
+  conhost's repaint is suppressed when the shell owns cursor placement, and
+  divider-drag pseudoconsole resizes are coalesced instead of flooding
+  PSReadLine.
+- **Windows shell integration** — PowerShell OSC 133 marks (with a PSReadLine
+  pre/post hook) and OSC 7 working-directory reporting, enabling prompt-aware
+  features and reliable relative-path resolution on Windows; a Windows
+  `file:///C:/…` cwd is normalized so relative paths stat correctly.
+- **Honest UX + robustness** — selection-delete falls back cleanly with a hint
+  when shell integration is off; a transient notice explains that toggling
+  shell integration applies to new shells; the OSC 8 hyperlink table dedups
+  instead of growing unbounded; RIS resets alternate-scroll (mode 1007).
+
+Packaging and docs: `Cargo.toml`/`Cargo.lock` bumped to `0.7.0`; the Scoop
+bucket and winget manifests retargeted to the `v0.7.0` artifacts (winget
+`InstallerSha256` filled post-release from `SHA256SUMS`); the AppStream
+`metainfo.xml` release history backfilled through `0.7.0`; README and
+`docs/install.md` now document all three Windows install paths (Scoop, winget,
+portable zip) in full, including the one-time SmartScreen click-through for the
+unsigned binary and a note that Windows is a newer target where bug reports are
+especially welcome. The temporary Windows test-exe CI upload from the Windows
+bring-up is retired. MSRV stays `1.96` (`rust-toolchain.toml` 1.96.0). Full
+gate green on Linux, macOS, and Windows.
+
+---
+
 ## 2026-06-30 -- App-level regression lock for select+Delete across a resize
 
 Test-only follow-up to the prompt-input-mark re-anchor fix below. That fix

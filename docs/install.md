@@ -18,10 +18,16 @@ owned, removable, and visible to Odyssey-Mon.
 
 ## Windows
 
+Windows support is new and still maturing — it builds and runs the full
+terminal and is exercised on a Windows CI leg every push, but the polish bar is
+behind Linux. Bug reports for the Windows build are especially welcome; open an
+issue with your Windows version and a short repro.
+
 The Windows release is an unsigned portable `odytty.exe` inside
-`odytty-windows-x86_64.zip`. Scoop and winget are the recommended install
-paths because they install from the release URL and avoid most direct-download
-SmartScreen friction.
+`odytty-windows-x86_64.zip`. There is no installer, and nothing is written
+outside your profile — configuration lives under `%APPDATA%\odytty\`. Scoop and
+winget are the recommended install paths because they install from the release
+URL and avoid the direct-download SmartScreen prompt.
 
 ### Scoop
 
@@ -62,10 +68,20 @@ Expand-Archive odytty-windows-x86_64.zip -DestinationPath .\odytty
 .\odytty\odytty.exe
 ```
 
-Compare the hash with the `odytty-windows-x86_64.zip` row in `SHA256SUMS`.
-Directly launching an unsigned `.exe` from a downloaded zip can trigger a
-SmartScreen warning. Detached/resumable session hosting is Unix-only in this
-release; the Windows build opens local ConPTY-backed tabs and panes.
+Compare the hash with the `odytty-windows-x86_64.zip` row in `SHA256SUMS`; they
+must match before you run the binary.
+
+Because OdyTTY is not code-signed yet, launching a directly-downloaded
+`odytty.exe` for the first time may raise a blue "Windows protected your PC"
+SmartScreen dialog naming an unknown publisher. This is expected for unsigned
+open-source software: click **More info**, then **Run anyway**. To clear the
+"downloaded from the internet" mark up front instead, run `Unblock-File
+.\odytty\odytty.exe` before launching. Installing via Scoop or winget avoids the
+prompt entirely, since they fetch the zip programmatically. Code-signed Windows
+binaries are a planned improvement.
+
+Detached/resumable session hosting is Unix-only in this release; the Windows
+build opens local ConPTY-backed tabs and panes.
 
 ## AppImage (x86_64)
 

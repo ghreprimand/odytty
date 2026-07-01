@@ -2,8 +2,8 @@
 
 OdyTTY releases create both a source tag and a GitHub Release entry that package
 monitors can discover. The first public release was `v0.1.0`; the current
-release is `v0.6.2`. `Cargo.toml` must match the release version. The version
-examples below use `0.6.2` as the current tag — substitute the tag you are
+release is `v0.7.0`. `Cargo.toml` must match the release version. The version
+examples below use `0.6.2` as an illustrative tag — substitute the tag you are
 cutting.
 
 OdyTTY publishes a source tarball, a best-effort Linux x86_64 AppImage, an

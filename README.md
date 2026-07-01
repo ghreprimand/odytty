@@ -173,29 +173,40 @@ odytty
 
 ### Windows
 
-The Windows build is an unsigned portable `odytty.exe` packaged as a zip. The
-Scoop and winget paths are preferred because they install from the release URL
-and avoid most direct-download SmartScreen friction.
+Windows support is new and still maturing — treat it as an early, actively
+supported target rather than a settled one. It builds and runs the full
+terminal, and every push is exercised on a Windows CI leg, but the polish bar
+is behind Linux. **Bug reports for the Windows build are especially welcome** —
+please [open an issue](https://github.com/ghreprimand/odytty/issues) with your
+Windows version and a short repro if something misbehaves.
 
-After the first Windows release is published, install with the in-repo Scoop
-bucket:
+The Windows build is a single unsigned, portable `odytty.exe` packaged as
+`odytty-windows-x86_64.zip`. There is no installer and nothing is written
+outside your profile — configuration lives under `%APPDATA%\odytty\`. Three
+install paths, in order of convenience:
+
+**Scoop (recommended).** Scoop downloads and unpacks the release zip for you,
+which also avoids the browser SmartScreen prompt. After the first Windows
+release is published:
 
 ```powershell
 scoop bucket add odytty https://github.com/ghreprimand/odytty
 scoop install odytty
 ```
 
-The winget manifest is staged under `packaging/winget/` and becomes usable only
-after it is submitted to `microsoft/winget-pkgs` following the first Windows
-release. The package identifier is `UnfinishedWorks.OdyTTY` (lookup is
-case-insensitive, so any casing resolves):
+Update later with `scoop update odytty`.
+
+**winget.** The manifest is staged under `packaging/winget/` and goes live once
+it is submitted to `microsoft/winget-pkgs` following a Windows release. The
+package identifier is `UnfinishedWorks.OdyTTY` (lookup is case-insensitive, so
+any casing resolves):
 
 ```powershell
 winget install UnfinishedWorks.OdyTTY
 ```
 
-For a portable fallback, download the latest zip and checksum file, verify, and
-run the executable:
+**Portable zip (direct download).** Download the always-latest zip and checksum
+file, verify the hash, unpack, and run:
 
 ```powershell
 Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/odytty-windows-x86_64.zip -OutFile odytty-windows-x86_64.zip
@@ -205,9 +216,27 @@ Expand-Archive odytty-windows-x86_64.zip -DestinationPath .\odytty
 .\odytty\odytty.exe
 ```
 
-Compare the hash with the `odytty-windows-x86_64.zip` row in `SHA256SUMS`.
-Directly launching an unsigned `.exe` from a downloaded zip can trigger a
-SmartScreen warning.
+Compare the printed hash against the `odytty-windows-x86_64.zip` row in
+`SHA256SUMS`; they must match before you run the binary. Put `odytty.exe`
+anywhere on your `PATH` (for example `%LOCALAPPDATA%\Microsoft\WindowsApps`) to
+launch it as `odytty` from any shell.
+
+**About the SmartScreen prompt.** OdyTTY is not code-signed yet, so the first
+time you launch a directly-downloaded `odytty.exe`, Windows may show a blue
+"Windows protected your PC" SmartScreen dialog naming an unknown publisher.
+This is expected for unsigned open-source software and is not specific to
+OdyTTY. To run it: click **More info**, then **Run anyway**. If the unpacked
+`.exe` also carries a "downloaded from the internet" mark you want to clear
+up front, you can unblock it in PowerShell before launching:
+
+```powershell
+Unblock-File .\odytty\odytty.exe
+```
+
+Installing via Scoop or winget sidesteps this prompt entirely, since they fetch
+the zip programmatically rather than through the browser. Code-signed Windows
+binaries are a planned improvement; until then the SmartScreen click-through
+above is the intended one-time step.
 
 **Windows scope (v1).** The Windows build opens local ConPTY-backed tabs and
 panes with the full rendering, theme, effect, and inline-graphics stack, plus

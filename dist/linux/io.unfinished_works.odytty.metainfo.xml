@@ -44,6 +44,26 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.7.0" date="2026-07-01">
+      <description>
+        <p>Cursor, selection, and multi-pane hardening release, and the first with Windows install channels (Scoop and winget). Fixes resize cursor drift on pulled scrollback, minimize/restore black-screen and 1x1 reflow, prompt-aware select+Delete surviving a side-by-side split, clickable paths for filenames containing spaces, multi-pane wheel scrolling the pane under the cursor and hover resolving to the correct pane, drag-selection after a split, and a divider-drag pseudoconsole resize flood. Adds PowerShell shell integration (OSC 133 marks) and OSC 7 working-directory reporting on Windows. Interactive Windows behaviour is validated on-device; Linux, macOS, and Windows are all blocking CI legs.</p>
+      </description>
+    </release>
+    <release version="0.6.2" date="2026-06-28">
+      <description>
+        <p>First experimental Windows build: OdyTTY compiles and runs on Windows through a ConPTY pseudoconsole backend, shipping as an unsigned portable x86_64 zip alongside the existing source, AppImage, and AUR artifacts. Local tabs, splits, rendering, themes, effects, inline graphics, and persistent configuration under %APPDATA% work; detachable/resumable session hosting stays Unix-only for this release.</p>
+      </description>
+    </release>
+    <release version="0.6.1" date="2026-06-28">
+      <description>
+        <p>Fixes settings-description drift so each setting's help text matches its actual behaviour, and restores the GUI "reset to default background" action.</p>
+      </description>
+    </release>
+    <release version="0.6.0" date="2026-06-27">
+      <description>
+        <p>Ships a bundled default background and OdysseyOS identity defaults, so a fresh install opens with the intended Odyssey visual identity out of the box.</p>
+      </description>
+    </release>
     <release version="0.5.4" date="2026-06-27">
       <description>
         <p>Adds an in-app About section to the settings overlay: a read-only view (the last row of the settings list) showing version, build provenance (git commit, build date, target, Rust version), and live GPU/renderer diagnostics (adapter, backend, driver), plus clickable project links and a one-click "Copy diagnostics" for bug reports. The diagnostics block deliberately omits filesystem paths so it can be shared without leaking a username.</p>
