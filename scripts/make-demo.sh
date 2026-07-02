@@ -74,13 +74,16 @@ clear
 printf '\n'
 
 # --- Banner: block-art "OdyTTY" in a magenta->cyan truecolor gradient ---
+# Kerned standard-font glyphs, composed programmatically so every column
+# aligns (the previous hand-typed art fused the second T with the Y and
+# dropped the T's right rail — visibly mangled in the README hero shot).
 banner=(
-'  ___      _      _____ _______   __'
-' / _ \  __| |_   _|_   _|_   _\ \ / /'
-'| | | |/ _` | | | | | |   | |  \ V / '
-'| |_| | (_| | |_| | | |   | |   | |  '
-' \___/ \__,_|\__, | |_|   |_|   |_|  '
-'            |___/                   '
+'  ___       _         _____  _____ __   __'
+' / _ \   __| | _   _ |_   _||_   _|\ \ / /'
+'| | | | / _` || | | |  | |    | |   \ V / '
+'| |_| || (_| || |_| |  | |    | |    | |  '
+' \___/  \__,_| \__, |  |_|    |_|    |_|  '
+'               |___/                      '
 )
 i=0
 for line in "${banner[@]}"; do
