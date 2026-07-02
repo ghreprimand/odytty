@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Session host: a failed attach handshake drops one connection, not the host (audit C6)
+
+Tier 4 audit fix (C6). Every error out of `handle_attach` — a hello/snapshot
+write to a peer that died mid-handshake (BrokenPipe), a rejection write, a
+bounded write timing out against a wedged client, an fd clone failing —
+concerns only that one connection, but `accept_pending_clients` propagated it
+(`?`) out of `run_host`, tearing down the whole host and killing the session
+for every attached client. Any same-user process that connected and closed
+without reading the reply could therefore kill a detached session. Fix: the
+accept loop now logs and drops the single failed connection and keeps serving;
+genuine `accept()` errors still propagate. Regression test
+`host_survives_client_that_vanishes_mid_handshake` (hello, close both halves,
+then a real client must attach and drive the session) failed before the fix
+with the host dead at the second attach. Full suite, clippy `-D warnings`, and
+`cargo fmt --check` green.
+
 ## 2026-07-02 -- Session host: resumable frame reader for poll-with-timeout clients (audit P1)
 
 Phase 6 confirmed defect (P1). The wire protocol's `read_frame` framed with

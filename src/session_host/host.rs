@@ -378,14 +378,25 @@ fn accept_pending_clients(
     loop {
         match listener.accept() {
             Ok((mut stream, _addr)) => {
-                handle_attach(
+                // Per-connection failures (audit C6): every error out of
+                // `handle_attach` — a hello/snapshot write to a peer that died
+                // mid-handshake (BrokenPipe), a rejection write, a bounded write
+                // timing out, an fd clone failing — concerns ONLY this one
+                // connection. Propagating it (the previous `?`) tore down the
+                // whole host and killed the session for every attached client;
+                // log and drop the single connection instead, and keep serving.
+                if let Err(error) = handle_attach(
                     &mut stream,
                     clients,
                     next_client_id,
                     client_tx,
                     terminal,
                     config,
-                )?;
+                ) {
+                    eprintln!(
+                        "odytty: session-host: dropping client after attach failure: {error:#}"
+                    );
+                }
             }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),
             Err(error) => return Err(error).context("accept session-host client"),

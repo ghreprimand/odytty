@@ -351,6 +351,47 @@ fn host_survives_hostile_resize_dimensions() {
 }
 
 #[test]
+fn host_survives_client_that_vanishes_mid_handshake() {
+    // audit C6: a per-connection failure during the attach handshake must
+    // log-and-drop THAT connection, not tear down the whole host. The classic
+    // trigger: a client that connects, sends a valid hello, and dies before
+    // reading the reply — the host's hello/snapshot writes then fail with
+    // BrokenPipe, which previously propagated out of accept_pending_clients and
+    // killed the session for everyone.
+    let temp = TempDir::new("sh-c6");
+    let config = host_config(
+        temp.path(),
+        "c6",
+        "read x; printf ready; sleep 2",
+        Duration::from_millis(800),
+    );
+    let socket_path = config.runtime_paths().expect("runtime paths").socket;
+    let host = thread::spawn(move || run_host(config));
+
+    wait_for_socket(&socket_path);
+    // The dying client: hello, then close both halves without reading the
+    // reply. Connect+write+drop completes long before the host's 10ms accept
+    // poll picks the connection up, so by the time the host answers the peer
+    // is definitively closed.
+    {
+        let mut bad = UnixStream::connect(&socket_path).expect("connect dying client");
+        write_client_hello(&mut bad, &ClientHello::current("c6")).expect("write hello");
+    }
+
+    // A real client must still be able to attach and drive the session.
+    let mut client =
+        SessionHostClient::connect(&socket_path, "c6").expect("attach after dying client");
+    expect_snapshot(&mut client);
+    client.send_input(b"\n").expect("input after bad handshake");
+    wait_for_output(&mut client, "ready");
+    client.shutdown().expect("send shutdown frame");
+    drop(client);
+
+    let exit = join_within(host, "session-host thread").expect("host exits cleanly");
+    assert_eq!(exit.reason, HostExitReason::Killed);
+}
+
+#[test]
 fn kill_session_terminates_a_live_host() {
     let temp = TempDir::new("sh-rk");
     let config = host_config(temp.path(), "rk", "sleep 30", Duration::from_secs(3600));
