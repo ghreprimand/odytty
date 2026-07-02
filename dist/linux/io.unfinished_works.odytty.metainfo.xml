@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.7.5" date="2026-07-02">
+      <description>
+        <p>Hardening and correctness release: a full audit of the terminal core, session host, graphics protocols, and native shell lands as thirty-plus individually tested fixes. Highlights: memory-safety ceilings on scrollback, image transfers, and the glyph atlas; Kitty graphics chunked transmissions and quiet modes; sixel and placement clipping fixes; VT conformance (IND/NEL, DECSTBM clamping, OSC color formats and palette queries); overlay and IME keystrokes no longer leak into the shell; prompt-aware select+Delete rebuilt on an explicit input-region model with per-shell certainty tiers; click-to-place cursor now on by default with multi-row wrapped-line support; crash/freeze hardening with a panic hook, watchdog, and default rotated logging. Windows: process trees are cleaned up via Job Objects, a ConPTY resize/close race is fixed, logs move to LOCALAPPDATA, missing symbol glyphs render via a Segoe UI Symbol fallback, and a "New Window" action and Keyboard Shortcuts menu item round out the UI.</p>
+      </description>
+    </release>
     <release version="0.7.1" date="2026-07-01">
       <description>
         <p>Bugfix release. Fixes an idle-window render freeze: a long-lived, non-interacted OdyTTY window could stop repainting entirely — stale pixels, input with no echo, and no repaint even when dragged to another monitor — after a transient GPU/compositor surface hiccup. The skipped-frame recovery gave up permanently once its fast-retry budget was spent, so under an event-wait loop a window with no incoming events never repainted again. The fix adds a slow keep-alive retry so an idle window self-heals within about a second of the surface recovering, without busy-spinning.</p>

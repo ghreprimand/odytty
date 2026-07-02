@@ -7,6 +7,76 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Release v0.7.5 — audit hardening, prompt-aware editing rework, Windows platform work
+
+OdyTTY v0.7.5 is the largest single release since the project started: a full
+independent audit of the terminal core, session host, graphics protocols, and
+native shell (30 findings, C1–C30) landed as individually tested, individually
+committed fixes, alongside a rebuilt prompt-aware editing model, crash/freeze
+hardening, and a dedicated Windows workstream. 2,963 tests pass with zero
+failures on Linux, macOS, and Windows (all blocking CI legs).
+
+**Memory safety and robustness (audit Tier 1/2).** Scrollback cell ceilings,
+Kitty image transfer size checks, and glyph-atlas allocation arithmetic can no
+longer overflow or OOM the process; the session host clamps client-supplied
+resize dimensions; a live CRT/bloom toggle with a background image no longer
+panics the GPU pipeline. Overlay, IME, and chord-capture keystrokes no longer
+leak into the shell or the PTY.
+
+**Terminal correctness (audit Tier 3).** Kitty chunked transmissions accept any
+chunk count and quiet modes (`q=1`/`q=2`) suppress the right responses; sixel
+color registers are range-checked; scrolled-off image placements clip
+correctly; IND/NEL are handled; CUU/CUD clamp to DECSTBM margins; OSC 4/10/11/12
+accept all xterm color formats and OSC 4 queries report the actual theme
+palette; reflow no longer corrupts wrapped rows around DL/IL, ED2, ECH, or
+wide-glyph cursor positions.
+
+**Prompt-aware select+Delete, rebuilt.** Selection deletion inside the shell
+prompt now runs on an explicit core-owned input-region model with per-shell
+certainty tiers instead of a visual heuristic. With the bundled zsh integration
+the region geometry is exact (a private edit-region mark carries length and
+cursor), including soft-wrapped multi-row input. On bash, PowerShell, and fish
+mid-edit — where the shell cannot report per-keystroke geometry — single-row
+selections use the previous clamped heuristic, and multi-row or uncertain
+geometry is an explicit no-op with a hint rather than a guess that could
+corrupt the command line. OdyTTY never sends edit bytes it cannot justify.
+
+**Click-to-place cursor (now on by default).** The existing "Click to position
+cursor" setting was rebuilt on the same input-region model: clicking in the
+typed command line moves the shell cursor there, now rune-precise (wide glyphs
+and emoji count correctly), across soft-wrapped multi-row input, with prompt
+decorations excluded. It stays inert without shell integration; hard-newline
+multi-line buffers (e.g. fish `begin…end`) are a safe no-op in this version.
+
+**Crash/freeze hardening.** A panic on any thread now logs message + backtrace
+and aborts instead of stranding a zombie window; a freeze watchdog logs app
+state (never terminal content) if frames stop presenting; a size-capped rotated
+log lives at `$XDG_STATE_HOME/odytty/odytty.log` (Windows:
+`%LOCALAPPDATA%\odytty\`) at WARN+ by default. No log path ever contains
+terminal content, PTY bytes, or window titles. Users on v0.7.0 who saw an idle
+window stop repainting: that was fixed in v0.7.1 — upgrade.
+
+**Windows.** Closing a session now kills the whole child process tree via a
+Job Object; a ConPTY resize-after-close race is fixed; logs move from `%TEMP%`
+to `%LOCALAPPDATA%`; standard symbol glyphs the bundled icon font lacks (✔,
+⎿, and friends) now render via a Segoe UI Symbol fallback tail; bash prompt
+integration no longer masks exit codes; PowerShell benefits from both editing
+features above. The Scoop manifest auto-bump job gets its first live exercise
+on this tag.
+
+**UI.** "New Window" context-menu action and `Ctrl+Shift+N` chord (opens with
+the default working directory in this version); a "Keyboard Shortcuts"
+context-menu item opens the key-remap editor directly; the Settings About
+view's back arrow responds to clicks; multi-pane frames now carry the
+wallpaper edge wash to the tile edge.
+
+Session host hardening (per-connection write failures no longer tear down the
+host, orphaned metadata is cleaned up, mid-frame protocol reads are resumable)
+and a batch of smaller fixes round out the release. See the entries below for
+the full per-packet record.
+
+---
+
 ## 2026-07-02 -- Windows symbol-glyph fallback tail — ✔ U+2714 / ⎿ U+23BF (NF16)
 
 Fixed operator-reported blank glyphs on Windows: Claude Code's ✔ heavy check
