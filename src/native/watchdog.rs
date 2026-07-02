@@ -1,0 +1,475 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//! Freeze watchdog (FREEZE-HARDEN item b).
+//!
+//! The v0.7.0 freeze presented as a live event loop that serviced compositor
+//! events mechanically while the render/input path was dead: pending input
+//! and redraws, but no frame ever presented, at 0% CPU. This module detects
+//! exactly that signature and logs the app's state machine so the next
+//! freeze names its latch instead of requiring a live debugger session.
+//!
+//! Design: [`WatchdogApp`] wraps the real [`App`] as the winit
+//! [`ApplicationHandler`], noting "work-implying" events (input, IME, redraw
+//! requests, PTY pump wakes) before delegating and mirroring a small state
+//! snapshot into shared atomics after delegating. A detached monitor thread
+//! wakes every couple of seconds and, when work has been pending for
+//! [`STALL_AFTER`] with no frame presented since, emits ONE `warn!` record
+//! with the mirrored state (re-emitted at most every [`RELOG_EVERY`] while
+//! the stall persists; re-armed by the next presented frame). On the healthy
+//! path the per-event cost is a handful of relaxed atomic stores and the
+//! monitor thread sleeps — no locks, no allocation.
+//!
+//! PRIVACY (hard release rule): the stall record is STATE ONLY — booleans,
+//! counters, and enum names baked into this file. No PTY bytes, no grid
+//! text, no window titles. The seam test below pins the record's charset so
+//! a future edit cannot quietly interpolate free-form strings.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
+
+use winit::application::ApplicationHandler;
+use winit::event::{DeviceEvent, DeviceId, StartCause, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::window::WindowId;
+
+use super::app::App;
+use super::pty::UserEvent;
+
+/// How long input/redraw work may stay pending with no presented frame
+/// before the watchdog logs a stall. Conservative: normal frames land in
+/// milliseconds; ten seconds of pending-but-unpresented work is a freeze.
+const STALL_AFTER: Duration = Duration::from_secs(10);
+/// While a stall persists, re-log at most this often.
+const RELOG_EVERY: Duration = Duration::from_secs(60);
+/// Monitor thread poll cadence. Coarse on purpose — the watchdog trades
+/// detection latency for near-zero idle cost.
+const POLL_EVERY: Duration = Duration::from_secs(2);
+
+/// State snapshot the probe (`App::watchdog_state`, see
+/// `app/watchdog_probe.rs`) hands the wrapper after every delegated event.
+/// Everything is a bool / counter / C-like enum by construction — the type
+/// itself enforces that no terminal content can flow into the stall record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct WatchdogAppState {
+    pub(super) focused: bool,
+    pub(super) window_minimized: bool,
+    pub(super) window_present: bool,
+    pub(super) gpu_present: bool,
+    pub(super) overlay_open: bool,
+    pub(super) context_menu_open: bool,
+    /// Discriminant of `ActiveModal` (0 = None, 1 = CopyMode,
+    /// 2 = HintsSelect, 3 = RenameTab).
+    pub(super) modal: u8,
+    pub(super) needs_rebuild: bool,
+    /// Frames that reached `present()` since GPU init.
+    pub(super) frames_presented: u64,
+    pub(super) consecutive_skipped_frames: u32,
+}
+
+/// Atomics shared between the wrapper (writer) and the monitor thread
+/// (reader). Millisecond timestamps are offsets from `epoch`.
+pub(super) struct WatchdogShared {
+    epoch: Instant,
+    /// Work-implying event seen and no frame presented since.
+    pending: AtomicBool,
+    pending_since_ms: AtomicU64,
+    /// Stall already logged for the current pending episode.
+    logged: AtomicBool,
+    last_log_ms: AtomicU64,
+    // --- mirrored state (last snapshot after a delegated event) ---
+    focused: AtomicBool,
+    window_minimized: AtomicBool,
+    window_present: AtomicBool,
+    gpu_present: AtomicBool,
+    overlay_open: AtomicBool,
+    context_menu_open: AtomicBool,
+    modal: AtomicU8,
+    needs_rebuild: AtomicBool,
+    frames_presented: AtomicU64,
+    consecutive_skipped_frames: AtomicU64,
+}
+
+impl WatchdogShared {
+    pub(super) fn new() -> Arc<Self> {
+        Arc::new(Self {
+            epoch: Instant::now(),
+            pending: AtomicBool::new(false),
+            pending_since_ms: AtomicU64::new(0),
+            logged: AtomicBool::new(false),
+            last_log_ms: AtomicU64::new(0),
+            focused: AtomicBool::new(true),
+            window_minimized: AtomicBool::new(false),
+            window_present: AtomicBool::new(false),
+            gpu_present: AtomicBool::new(false),
+            overlay_open: AtomicBool::new(false),
+            context_menu_open: AtomicBool::new(false),
+            modal: AtomicU8::new(0),
+            needs_rebuild: AtomicBool::new(false),
+            frames_presented: AtomicU64::new(0),
+            consecutive_skipped_frames: AtomicU64::new(0),
+        })
+    }
+
+    fn now_ms(&self) -> u64 {
+        u64::try_from(self.epoch.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
+    fn note_activity(&self) {
+        if !self.pending.swap(true, Ordering::Relaxed) {
+            self.pending_since_ms
+                .store(self.now_ms(), Ordering::Relaxed);
+            self.logged.store(false, Ordering::Relaxed);
+        }
+    }
+
+    fn note_present(&self) {
+        self.pending.store(false, Ordering::Relaxed);
+        self.logged.store(false, Ordering::Relaxed);
+    }
+
+    fn store_state(&self, state: &WatchdogAppState) {
+        self.focused.store(state.focused, Ordering::Relaxed);
+        self.window_minimized
+            .store(state.window_minimized, Ordering::Relaxed);
+        self.window_present
+            .store(state.window_present, Ordering::Relaxed);
+        self.gpu_present.store(state.gpu_present, Ordering::Relaxed);
+        self.overlay_open
+            .store(state.overlay_open, Ordering::Relaxed);
+        self.context_menu_open
+            .store(state.context_menu_open, Ordering::Relaxed);
+        self.modal.store(state.modal, Ordering::Relaxed);
+        self.needs_rebuild
+            .store(state.needs_rebuild, Ordering::Relaxed);
+        self.frames_presented
+            .store(state.frames_presented, Ordering::Relaxed);
+        self.consecutive_skipped_frames.store(
+            u64::from(state.consecutive_skipped_frames),
+            Ordering::Relaxed,
+        );
+    }
+
+    fn snapshot(&self) -> WatchdogAppState {
+        WatchdogAppState {
+            focused: self.focused.load(Ordering::Relaxed),
+            window_minimized: self.window_minimized.load(Ordering::Relaxed),
+            window_present: self.window_present.load(Ordering::Relaxed),
+            gpu_present: self.gpu_present.load(Ordering::Relaxed),
+            overlay_open: self.overlay_open.load(Ordering::Relaxed),
+            context_menu_open: self.context_menu_open.load(Ordering::Relaxed),
+            modal: self.modal.load(Ordering::Relaxed),
+            needs_rebuild: self.needs_rebuild.load(Ordering::Relaxed),
+            frames_presented: self.frames_presented.load(Ordering::Relaxed),
+            consecutive_skipped_frames: u32::try_from(
+                self.consecutive_skipped_frames.load(Ordering::Relaxed),
+            )
+            .unwrap_or(u32::MAX),
+        }
+    }
+
+    /// One monitor-thread evaluation step at `now_ms`. Returns the stall
+    /// record to log, if the stall condition holds and rate limits allow.
+    /// Pure decision logic, factored for the tests below.
+    fn evaluate(&self, now_ms: u64) -> Option<String> {
+        if !self.pending.load(Ordering::Relaxed) {
+            return None;
+        }
+        let pending_since = self.pending_since_ms.load(Ordering::Relaxed);
+        let pending_for = now_ms.saturating_sub(pending_since);
+        if pending_for < u64::try_from(STALL_AFTER.as_millis()).unwrap_or(u64::MAX) {
+            return None;
+        }
+        let already_logged = self.logged.load(Ordering::Relaxed);
+        let last_log = self.last_log_ms.load(Ordering::Relaxed);
+        if already_logged
+            && now_ms.saturating_sub(last_log)
+                < u64::try_from(RELOG_EVERY.as_millis()).unwrap_or(u64::MAX)
+        {
+            return None;
+        }
+        self.logged.store(true, Ordering::Relaxed);
+        self.last_log_ms.store(now_ms, Ordering::Relaxed);
+        Some(format_stall_record(pending_for / 1000, &self.snapshot()))
+    }
+}
+
+/// Spawn the detached monitor thread. It holds only a weak reference so it
+/// unwinds naturally when the event loop (and its `Arc`) is gone.
+pub(super) fn spawn_monitor(shared: &Arc<WatchdogShared>) {
+    let weak = Arc::downgrade(shared);
+    let _ = std::thread::Builder::new()
+        .name("odytty-freeze-watchdog".to_owned())
+        .spawn(move || {
+            loop {
+                std::thread::sleep(POLL_EVERY);
+                let Some(shared) = weak.upgrade() else {
+                    return;
+                };
+                if let Some(record) = shared.evaluate(shared.now_ms()) {
+                    tracing::warn!("{record}");
+                }
+            }
+        });
+}
+
+/// The stall record: STATE ONLY, single line, fixed key set. See the module
+/// privacy note and the charset seam test.
+fn format_stall_record(pending_secs: u64, state: &WatchdogAppState) -> String {
+    format!(
+        "freeze_watchdog: work pending {pending_secs}s with no presented frame; \
+         focused={} minimized={} window_present={} gpu_present={} overlay_open={} \
+         context_menu={} modal={} needs_rebuild={} frames_presented={} skipped_frames={}",
+        state.focused,
+        state.window_minimized,
+        state.window_present,
+        state.gpu_present,
+        state.overlay_open,
+        state.context_menu_open,
+        modal_name(state.modal),
+        state.needs_rebuild,
+        state.frames_presented,
+        state.consecutive_skipped_frames,
+    )
+}
+
+fn modal_name(discriminant: u8) -> &'static str {
+    match discriminant {
+        0 => "none",
+        1 => "copy_mode",
+        2 => "hints_select",
+        3 => "rename_tab",
+        _ => "unknown",
+    }
+}
+
+/// The winit handler odytty actually runs: the real [`App`] plus watchdog
+/// bookkeeping around every delegated event. All state and behavior stay in
+/// `App`; this wrapper only observes.
+pub(super) struct WatchdogApp {
+    app: App,
+    shared: Arc<WatchdogShared>,
+    last_seen_frames: u64,
+}
+
+impl WatchdogApp {
+    pub(super) fn new(app: App, shared: Arc<WatchdogShared>) -> Self {
+        Self {
+            app,
+            shared,
+            last_seen_frames: 0,
+        }
+    }
+
+    pub(super) fn into_inner(self) -> App {
+        self.app
+    }
+
+    /// Mirror the app state after a delegated event; a grown frame counter
+    /// means a frame presented since last time, which clears the pending
+    /// latch.
+    fn refresh(&mut self) {
+        let state = self.app.watchdog_state();
+        if state.frames_presented != self.last_seen_frames {
+            self.last_seen_frames = state.frames_presented;
+            self.shared.note_present();
+        }
+        self.shared.store_state(&state);
+    }
+}
+
+/// Whether a window event implies work the user can observe not happening:
+/// input that should reach the PTY/UI, or a redraw the compositor asked for.
+fn implies_pending_work(event: &WindowEvent) -> bool {
+    matches!(
+        event,
+        WindowEvent::RedrawRequested
+            | WindowEvent::KeyboardInput { .. }
+            | WindowEvent::MouseInput { .. }
+            | WindowEvent::MouseWheel { .. }
+            | WindowEvent::Ime(_)
+            | WindowEvent::Touch(_)
+    )
+}
+
+impl ApplicationHandler<UserEvent> for WatchdogApp {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        self.app.new_events(event_loop, cause);
+    }
+
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.app.resumed(event_loop);
+        self.refresh();
+    }
+
+    fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        self.app.suspended(event_loop);
+        self.refresh();
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        if implies_pending_work(&event) {
+            self.shared.note_activity();
+        }
+        self.app.window_event(event_loop, window_id, event);
+        self.refresh();
+    }
+
+    fn device_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        device_id: DeviceId,
+        event: DeviceEvent,
+    ) {
+        self.app.device_event(event_loop, device_id, event);
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
+        // PTY pump wakes and session events imply a redraw is wanted.
+        self.shared.note_activity();
+        self.app.user_event(event_loop, event);
+        self.refresh();
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.app.about_to_wait(event_loop);
+        self.refresh();
+    }
+
+    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+        self.app.exiting(event_loop);
+    }
+
+    fn memory_warning(&mut self, event_loop: &ActiveEventLoop) {
+        self.app.memory_warning(event_loop);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state() -> WatchdogAppState {
+        WatchdogAppState {
+            focused: true,
+            window_minimized: false,
+            window_present: true,
+            gpu_present: true,
+            overlay_open: false,
+            context_menu_open: false,
+            modal: 0,
+            needs_rebuild: true,
+            frames_presented: 1234,
+            consecutive_skipped_frames: 0,
+        }
+    }
+
+    /// PRIVACY SEAM (hard release rule): the stall record must be state-only.
+    /// Pin the full charset — lowercase key names, digits, `=`/`_`/spaces and
+    /// the fixed prefix — so no future edit can interpolate terminal content
+    /// (PTY bytes, grid text, window titles) without failing this test.
+    #[test]
+    fn stall_record_is_state_only() {
+        let record = format_stall_record(17, &state());
+        assert!(
+            record.starts_with("freeze_watchdog: work pending 17s with no presented frame; "),
+            "got: {record}"
+        );
+        let body = &record["freeze_watchdog: work pending 17s with no presented frame; ".len()..];
+        for token in body.split_whitespace() {
+            let (key, value) = token.split_once('=').expect("key=value tokens only");
+            assert!(
+                key.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "unexpected key charset: {key}"
+            );
+            assert!(
+                value
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+                "unexpected value charset: {value} (free-form strings are banned here)"
+            );
+        }
+    }
+
+    #[test]
+    fn stall_record_names_every_postmortem_field() {
+        let record = format_stall_record(10, &state());
+        for key in [
+            "focused=",
+            "minimized=",
+            "window_present=",
+            "gpu_present=",
+            "overlay_open=",
+            "context_menu=",
+            "modal=",
+            "needs_rebuild=",
+            "frames_presented=",
+            "skipped_frames=",
+        ] {
+            assert!(record.contains(key), "missing {key} in: {record}");
+        }
+    }
+
+    #[test]
+    fn evaluate_triggers_only_after_the_stall_window() {
+        let shared = WatchdogShared::new();
+        // No pending work: never triggers.
+        assert_eq!(shared.evaluate(1_000_000), None);
+
+        shared.note_activity();
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        // Inside the window: silent.
+        assert_eq!(shared.evaluate(since + 9_999), None);
+        // Past the window: logs once…
+        assert!(shared.evaluate(since + 10_000).is_some());
+        // …and not again immediately…
+        assert_eq!(shared.evaluate(since + 12_000), None);
+        // …until the re-log interval elapses.
+        assert!(shared.evaluate(since + 10_000 + 60_000).is_some());
+    }
+
+    #[test]
+    fn presented_frame_rearms_the_watchdog() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        assert!(shared.evaluate(since + 10_000).is_some());
+
+        shared.note_present();
+        assert_eq!(
+            shared.evaluate(since + 20_000),
+            None,
+            "present clears the pending latch"
+        );
+
+        shared.note_activity();
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        assert!(
+            shared.evaluate(since + 10_000).is_some(),
+            "a fresh episode logs again"
+        );
+    }
+
+    #[test]
+    fn mirrored_state_round_trips_through_the_atomics() {
+        let shared = WatchdogShared::new();
+        let state = WatchdogAppState {
+            focused: false,
+            window_minimized: true,
+            window_present: true,
+            gpu_present: false,
+            overlay_open: true,
+            context_menu_open: true,
+            modal: 2,
+            needs_rebuild: true,
+            frames_presented: 987,
+            consecutive_skipped_frames: 3,
+        };
+        shared.store_state(&state);
+        assert_eq!(shared.snapshot(), state);
+    }
+}

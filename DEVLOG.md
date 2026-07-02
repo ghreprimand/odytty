@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Freeze hardening (3/3): freeze watchdog logs the state machine on a stalled loop
+
+Final postmortem packet. The v0.7.0 freeze's signature was a live event loop
+servicing compositor events mechanically while the render/input path was
+dead: pending input and redraws, no frame presented, 0% CPU. The app now runs
+under a freeze watchdog built to catch exactly that: a thin
+`ApplicationHandler` wrapper around the real `App` notes work-implying events
+(keyboard/mouse/IME/touch input, redraw requests, PTY pump wakes) and mirrors
+a small state snapshot into shared atomics after every delegated event, and a
+detached monitor thread logs ONE `warn!` record when work has been pending
+for 10 seconds with no frame reaching `present()` (re-logged at most every
+60s while the stall persists; re-armed by the next presented frame). The
+record is STATE ONLY, the postmortem's requested fields: focused flag,
+minimized latch, window/GPU presence, overlay-open + context-menu flags, the
+active keyboard modal, `needs_rebuild`, a new frames-presented counter
+(incremented at the single `frame.present()` site), and the
+consecutive-skipped-frames count. On the healthy path the cost is a handful
+of relaxed atomic stores per event and a sleeping thread — no locks, no
+allocation. Privacy is enforced by construction and by test: the snapshot
+type admits only booleans, counters, and enum discriminants, and a seam test
+pins the record's exact charset so no future edit can interpolate free-form
+strings (PTY bytes, grid text, window titles) without failing it. The state
+probe lives as an `App` child module so no field visibility widens; the
+wrapper delegates every `ApplicationHandler` method unchanged.
+
 ## 2026-07-02 -- Freeze hardening (2/3): abort-on-panic hook with durable evidence
 
 Second postmortem packet. The freeze's most likely mechanism was a swallowed

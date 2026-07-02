@@ -112,6 +112,7 @@ mod tab_bar;
 #[cfg(test)]
 mod test_seams;
 mod theme_roles;
+mod watchdog_probe;
 mod window_border;
 
 pub(in crate::native) use self::hints_ui::HintsUi;

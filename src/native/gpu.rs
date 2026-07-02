@@ -755,6 +755,11 @@ pub(super) struct GpuState {
     /// origin byte-identical. Updated each animating frame via
     /// [`Self::set_scroll_frac_offset`].
     scroll_frac_offset: f32,
+    /// FREEZE-HARDEN (b): monotonically increasing count of frames actually
+    /// presented (`frame.present()` reached). Read by the freeze watchdog to
+    /// distinguish "work pending, frames flowing" from "work pending, render
+    /// path dead". Never reset.
+    frames_presented: u64,
     // Kept alive for the lifetime of the bind group; never read directly.
     atlas_texture: wgpu::Texture,
     atlas_sampler: wgpu::Sampler,
@@ -1144,6 +1149,7 @@ impl GpuState {
             font_family: options.font_family.clone(),
             font_weight: options.font_weight.clone(),
             scroll_frac_offset: 0.0,
+            frames_presented: 0,
             atlas_texture,
             atlas_sampler,
             color_glyph_atlas_texture,
@@ -1203,6 +1209,11 @@ impl GpuState {
     /// cell size must re-read this after [`Self::set_scale`] reports a rebuild.
     pub(super) fn cell(&self) -> crate::atlas::CellSize {
         self.atlas.cell
+    }
+
+    /// FREEZE-HARDEN (b): frames that reached `present()` since GPU init.
+    pub(super) fn frames_presented(&self) -> u64 {
+        self.frames_presented
     }
 
     /// The clamped scale factor the atlas is currently rasterized for.
@@ -2200,6 +2211,9 @@ impl GpuState {
         }
         self.queue.submit(std::iter::once(encoder.finish()));
         frame.present();
+        // FREEZE-HARDEN (b): count only frames that actually reached
+        // present(); skipped/failed acquires above never get here.
+        self.frames_presented = self.frames_presented.wrapping_add(1);
 
         if suboptimal {
             FrameOutcome::NeedsReconfigure

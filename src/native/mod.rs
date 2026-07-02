@@ -87,6 +87,7 @@ mod settings_panel;
 mod theme_builder;
 mod theme_picker;
 mod viewport;
+mod watchdog;
 mod window_icon;
 
 #[cfg(test)]
@@ -275,9 +276,18 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     {
         tracing::error!("attach session {session_id} failed: {err}");
     }
+    // FREEZE-HARDEN (b): run the app under the freeze watchdog — a thin
+    // ApplicationHandler wrapper noting input/redraw activity and mirroring a
+    // state snapshot, plus a detached monitor thread that logs the state
+    // machine when work stays pending >10s with no presented frame. The
+    // monitor holds only a weak reference, so it winds down with the loop.
+    let watchdog_shared = watchdog::WatchdogShared::new();
+    watchdog::spawn_monitor(&watchdog_shared);
+    let mut watched = watchdog::WatchdogApp::new(app, watchdog_shared);
     let run_result = event_loop
-        .run_app(&mut app)
+        .run_app(&mut watched)
         .map_err(|err| NativeError::EventLoop(err.to_string()));
+    let mut app = watched.into_inner();
 
     // Tear down deterministically: kill + reap the shell, which closes the PTY
     // master and unblocks the pump thread's `read`, then join the thread. The
