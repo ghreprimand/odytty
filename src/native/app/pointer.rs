@@ -555,10 +555,24 @@ impl App {
         if !touches_region {
             return SelectionDeleteOutcome::FallThrough;
         }
-        // R2 (certainty Unknown: stale mark / hard newlines) and R3
-        // (RightEdgeUnknown: no trustworthy right edge => decorations and
-        // autosuggestions are indistinguishable from input, ODP-3 default).
-        if region.certainty != InputCertainty::Exact {
+        // R2: certainty Unknown (stale mark / hard newlines) can never back a
+        // real buffer edit — unconditional no-op.
+        if region.certainty == InputCertainty::Unknown {
+            return SelectionDeleteOutcome::NoOpWithHint;
+        }
+        // R3, NF14-R (operator-ruled Option R): a SINGLE-ROW RightEdgeUnknown
+        // region falls through to the R4 clamp below using the core-computed
+        // heuristic right edge (last non-blank cell) — the shipped pre-B2
+        // behavior. This deliberately re-accepts the bounded risk that a
+        // right-aligned decoration on the input row is treated as input,
+        // because the strict ODP-3 gate made select+Delete a complete no-op
+        // for every shell without the private edit-region OSC (PowerShell on
+        // Windows, bash, fish mid-edit). MULTI-ROW RightEdgeUnknown stays a
+        // no-op: without a trustworthy edge, row joins cannot anchor a
+        // synthesized multi-row edit (the ODP-3 remainder).
+        if region.certainty == InputCertainty::RightEdgeUnknown
+            && region.start_row != region.end_row
+        {
             return SelectionDeleteOutcome::NoOpWithHint;
         }
         // R5 (B1 soft-wrap slice): an Exact multi-row region whose joins are

@@ -937,12 +937,14 @@ fn mid_input_cursor_reconciles_and_deletes_exactly() {
     );
 }
 
-/// B2/T14 (ODP-3 default): input with a `133;B` mark but NO edit-region report
-/// — bash always, zsh/fish before their snippets update — has no trustworthy
-/// right edge, so selecting it and pressing Delete is a hinted no-op instead
-/// of the old heuristic delete.
+/// NF14-R (operator-ruled Option R, replacing the B2/T14 ODP-3 pin): input
+/// with a `133;B` mark but NO edit-region report — bash always, PowerShell,
+/// zsh/fish before their snippets update — is a single-row `RightEdgeUnknown`
+/// region, and Delete falls back to the pre-B2 heuristic delete (last
+/// non-blank right edge) instead of the strict no-op that had turned
+/// select+Delete off for every shell without the private OSC.
 #[test]
-fn input_without_edit_region_report_no_ops_with_hint() {
+fn input_without_edit_region_report_deletes_single_row_heuristically() {
     let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
     else {
         return;
@@ -953,22 +955,113 @@ fn input_without_edit_region_report_no_ops_with_hint() {
     app.drive_named_key_for_test(NamedKey::Delete);
 
     let written = bytes.lock().expect("bytes").clone();
+    assert_eq!(
+        written,
+        [b"\x1b[D".repeat(3), b"\x1b[3~".repeat(3)].concat(),
+        "single-row RightEdgeUnknown falls back to the heuristic delete (Option R)"
+    );
+    assert!(
+        app.selection_range_for_test().is_none(),
+        "editing clears the stale visual selection"
+    );
+    assert!(
+        !app.click_hint_shown_for_test(),
+        "a successful heuristic delete does not show the disabled hint"
+    );
+}
+
+/// NF14-R: a PowerShell-shaped prompt (the Windows default shell; its snippet
+/// emits OSC 133 marks but no `odytty-edit` report) gets the same single-row
+/// heuristic delete — this is the case that made select+Delete a complete
+/// no-op on Windows under the strict ODP-3 gate.
+#[test]
+fn powershell_prompt_without_report_deletes_single_row_heuristically() {
+    let Some((mut app, bytes)) =
+        app_with_recording_writer(b"\x1b]133;A\x07PS C:\\> \x1b]133;B\x07dir")
+    else {
+        return;
+    };
+    // Prompt "PS C:\> " spans columns 0..7; input "dir" sits at columns 8..10.
+    app.force_selection_for_test(0, 8, 0, 10);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert_eq!(
+        written,
+        [b"\x1b[D".repeat(3), b"\x1b[3~".repeat(3)].concat(),
+        "PowerShell-style no-signal input deletes via the single-row heuristic"
+    );
+    assert!(app.selection_range_for_test().is_none());
+}
+
+/// NF14-R boundary pin (the ODP-3 remainder): a MULTI-ROW region without an
+/// edit-region report stays a hinted no-op — without a trustworthy right
+/// edge, row joins cannot anchor a synthesized multi-row edit. Option R
+/// restores only the single-row heuristic.
+#[test]
+fn multi_row_input_without_report_stays_a_hinted_no_op() {
+    // 78 bytes fill row 0 from column 2 to the 80-column right edge, so the
+    // input soft-wraps onto row 1 — a two-row region with no signal.
+    let content = wrapped_input_content(&[b'a'; 78], b"bbb", b"");
+    let Some((mut app, bytes)) = app_with_recording_writer(&content) else {
+        return;
+    };
+    app.force_selection_for_test(1, 0, 1, 2);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
     assert!(
         written.is_empty(),
-        "no signal => RightEdgeUnknown => no bytes, got {written:?}"
+        "multi-row RightEdgeUnknown must stay a no-op, got {written:?}"
     );
     assert!(app.selection_range_for_test().is_none());
     assert!(
         app.click_hint_shown_for_test(),
-        "the honest degradation surfaces the shell-integration hint"
+        "the multi-row degradation still surfaces the shell-integration hint"
     );
 }
 
-/// B2/T18 (consumer side): a malformed edit-region report is ignored — the
-/// region falls back to the heuristic path and Delete stays a safe no-op, not
-/// a panic and not a synthesized edit.
+/// NF14-R accepted-risk documentation (operator-ruled): WITHOUT an edit-region
+/// report, a right-aligned decoration on the input row is indistinguishable
+/// from input, so the restored heuristic treats it as deletable — selecting
+/// the decoration and pressing Delete sends motion+delete bytes for it. This
+/// was shipped behavior for the feature's whole pre-B2 life and is the
+/// bounded risk Option R deliberately re-accepts in exchange for the feature
+/// working at all on no-signal shells. Shells WITH the report keep the exact
+/// boundary (see `right_aligned_decoration_is_not_deletable_as_input`).
 #[test]
-fn malformed_edit_region_report_degrades_to_no_op() {
+fn no_signal_decoration_is_heuristically_deletable_by_design() {
+    // Prompt + "abc" (cursor restored to column 5), decoration at columns
+    // 15..19 — and NO edit-region report.
+    let content = b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b7\x1b[1;16H23.1s\x1b8";
+    let Some((mut app, bytes)) = app_with_recording_writer(content) else {
+        return;
+    };
+    // Select the decoration cells only (columns 15..19).
+    app.force_selection_for_test(0, 15, 0, 19);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert_eq!(
+        written,
+        [b"\x1b[C".repeat(10), b"\x1b[3~".repeat(5)].concat(),
+        "the heuristic right edge claims the decoration: motion right from the \
+         cursor (column 5) to the selection start (column 15), then 5 deletes"
+    );
+}
+
+/// B2/T18 (consumer side), updated for NF14-R: a malformed edit-region report
+/// is ignored — the region falls back to the heuristic path, which under
+/// Option R means the single-row heuristic DELETE (identical to the no-signal
+/// case), not a panic and not a bogus Exact-tier edit.
+#[test]
+fn malformed_edit_region_report_degrades_to_heuristic_delete() {
     let Some((mut app, bytes)) = app_with_recording_writer(
         b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=;cur=zzz\x07",
     ) else {
@@ -980,8 +1073,11 @@ fn malformed_edit_region_report_degrades_to_no_op() {
     app.drive_named_key_for_test(NamedKey::Delete);
 
     let written = bytes.lock().expect("bytes").clone();
-    assert!(written.is_empty(), "malformed report must not synthesize");
-    assert!(app.click_hint_shown_for_test());
+    assert_eq!(
+        written,
+        [b"\x1b[D".repeat(3), b"\x1b[3~".repeat(3)].concat(),
+        "a malformed report degrades to the same heuristic delete as no signal"
+    );
 }
 
 /// Wrapped-input content for the B1 (R5 soft-wrap) tests: prompt "$ " with the

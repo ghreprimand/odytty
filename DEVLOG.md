@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- select+Delete works again on no-signal shells (NF14-R, Option R)
+
+The B2 strict gate (`certainty != Exact` → hinted no-op) made select+Delete a
+complete no-op on every shell without the private `odytty-edit` OSC report:
+PowerShell (Windows's default shell), bash, and fish mid-edit. Operator ruled
+Option R: a SINGLE-ROW `RightEdgeUnknown` region now falls back to the
+pre-B2 heuristic delete, using the core-computed last-non-blank right edge
+that `derive_input_region` already carries — byte-equivalent to the shipped
+pre-B2 behavior. Everything else stays strict: `Unknown` certainty (stale
+mark / hard newlines) is an unconditional no-op, multi-row `RightEdgeUnknown`
+stays a hinted no-op (no trustworthy edge means row joins cannot anchor a
+multi-row edit), and the Exact tier — including the B1 soft-wrap flatten and
+the exact decoration boundary — is byte-unchanged. This deliberately
+re-accepts the bounded decoration-over-delete risk on the single visible row
+for no-signal shells; a new test documents that boundary explicitly, and the
+old ODP-3 pins are rewritten as Option-R expectations (real delete bytes for
+bash- and PowerShell-shaped prompts, fails-before verified). Full suite
+(2957 tests), clippy `-D warnings`, and `cargo fmt --check` green. Platform
+note: platform-neutral native logic, but this is the packet that turns
+select+Delete back on for Windows users.
+
 ## 2026-07-02 -- Remove the wedging ConPTY resize pressure test (P2-FIX fix-forward)
 
 The P2-FIX race-pressure test (`resize_racing_child_self_exit_never_faults`)
