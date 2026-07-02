@@ -50,6 +50,17 @@ pub(in crate::native) const CLICK_HINT_COOLDOWN: Duration = Duration::from_milli
 /// The teaching text (Linux). Kept short so it fits a few bottom-left cells.
 pub(in crate::native) const CLICK_HINT_TEXT: &str = " Ctrl+click to open ";
 
+/// NF17: the honest text for a select+Delete no-op whose cause is unavailable
+/// geometry — NOT missing shell integration. Raised when the input region
+/// exists (its mark is present) but its certainty can't back a real buffer edit:
+/// a stale/hard-newline `Unknown` region, a multi-row `RightEdgeUnknown` region
+/// (fish/bash/PowerShell mid-edit without an exact edge report), or a
+/// decoration-only span. Telling the user to "enable shell integration" there
+/// is wrong — integration is already active — so this variant says plainly that
+/// the selection can't be edited, without shell-specific jargon. Kept short to
+/// fit the bottom-left chip.
+pub(in crate::native) const SELECTION_GEOMETRY_HINT: &str = "Selection can't be edited here";
+
 /// The teaching text on macOS, where the open modifier is Cmd, not Ctrl (Ctrl
 /// is consumed by the OS as a secondary-click). ASCII "Cmd" is used rather than
 /// the ⌘ glyph to stay within the safe glyph-atlas character set.
@@ -80,6 +91,9 @@ pub(in crate::native) const CLICK_HINT_MAX_SHOWS: u32 = 3;
 pub(in crate::native) enum ClickHintMessage {
     OpenModifier,
     ShellIntegration,
+    /// NF17: select+Delete no-op caused by unavailable geometry (not missing
+    /// integration). Paints [`SELECTION_GEOMETRY_HINT`].
+    SelectionGeometry,
 }
 
 impl ClickHintMessage {
@@ -87,6 +101,7 @@ impl ClickHintMessage {
         match self {
             Self::OpenModifier => click_hint_text(os),
             Self::ShellIntegration => SHELL_INTEGRATION_DISABLED_HINT,
+            Self::SelectionGeometry => SELECTION_GEOMETRY_HINT,
         }
     }
 }
@@ -190,6 +205,19 @@ impl ClickHintState {
         }
         self.shown_at = Some(now);
         self.message = Some(ClickHintMessage::ShellIntegration);
+        self.last_misclick = None;
+        true
+    }
+
+    /// NF17: raise the geometry-unavailable hint (integration is on, but the
+    /// selection's geometry can't back an edit). Sibling of
+    /// [`Self::show_shell_integration_hint`]; same not-restack guard.
+    pub(in crate::native) fn show_selection_geometry_hint(&mut self, now: Instant) -> bool {
+        if self.shown_at.is_some() {
+            return false;
+        }
+        self.shown_at = Some(now);
+        self.message = Some(ClickHintMessage::SelectionGeometry);
         self.last_misclick = None;
         true
     }
@@ -302,6 +330,15 @@ impl App {
 
     pub(in crate::native) fn show_shell_integration_hint(&mut self, now: Instant) {
         if self.click_hint.show_shell_integration_hint(now) {
+            self.request_selection_redraw();
+        }
+    }
+
+    /// NF17: raise the geometry-unavailable select+Delete hint. Used by the
+    /// `NoOpWithHint` arm (mark present, geometry can't back the edit); the
+    /// mark-missing path keeps [`Self::show_shell_integration_hint`].
+    pub(in crate::native) fn show_selection_geometry_hint(&mut self, now: Instant) {
+        if self.click_hint.show_selection_geometry_hint(now) {
             self.request_selection_redraw();
         }
     }

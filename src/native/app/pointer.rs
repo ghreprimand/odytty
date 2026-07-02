@@ -683,11 +683,13 @@ impl App {
             // Ladder rungs R2/R3 + default (B-DESIGN §4): the selection is on
             // the input region but the geometry cannot back a real buffer
             // edit. Consume the key — never forward a blind Delete/Backspace —
-            // clear the selection, and point at shell integration.
+            // clear the selection, and (NF17) raise the geometry-unavailable
+            // hint. The input mark IS present here, so shell integration is
+            // active; pointing at Settings would be misleading.
             SelectionDeleteOutcome::NoOpWithHint => {
                 self.selection.clear();
                 self.selection_block = false;
-                self.show_shell_integration_hint(std::time::Instant::now());
+                self.show_selection_geometry_hint(std::time::Instant::now());
                 self.request_selection_redraw();
                 true
             }

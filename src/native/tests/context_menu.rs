@@ -1030,7 +1030,15 @@ fn multi_row_input_without_report_stays_a_hinted_no_op() {
     assert!(app.selection_range_for_test().is_none());
     assert!(
         app.click_hint_shown_for_test(),
-        "the multi-row degradation still surfaces the shell-integration hint"
+        "the multi-row degradation still surfaces a no-op hint"
+    );
+    // NF17: integration IS on here (the input mark is present, region computed
+    // to multi-row RightEdgeUnknown) — the hint must NOT tell the user to
+    // enable something already enabled. It reports unavailable geometry.
+    assert_eq!(
+        app.click_hint_text_for_test(),
+        Some("Selection can't be edited here"),
+        "the geometry-unavailable no-op must not reuse the enable-integration text"
     );
 }
 

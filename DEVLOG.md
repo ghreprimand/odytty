@@ -77,6 +77,36 @@ the full per-packet record.
 
 ---
 
+## 2026-07-02 -- Honest hint for geometry-unavailable select+Delete no-op (NF17)
+
+Operator-found during the v0.7.5 C1 manual verify: selecting wrapped multi-row
+prompt input in fish (shell integration ON) and pressing Delete correctly
+no-ops (Option R keeps multi-row `RightEdgeUnknown` a no-op) but the bottom-left
+hint chip read "Enable shell integration in Settings" — telling the user to
+enable something already enabled.
+
+Root cause: the `SelectionDeleteOutcome::NoOpWithHint` arm
+(`src/native/app/pointer.rs`) and the mark-missing path
+(`try_handle_unavailable_selection_delete`) both raised the same
+`ClickHintMessage::ShellIntegration` chip. That text is right only when the
+input mark is absent (integration genuinely off). When the region exists but
+its certainty can't back an edit (R2 `Unknown`, R3 multi-row `RightEdgeUnknown`,
+or a decoration-only span), integration IS active — the message was misleading.
+
+Fix: added a second hint variant `ClickHintMessage::SelectionGeometry` →
+`SELECTION_GEOMETRY_HINT = "Selection can't be edited here"` with a sibling
+`show_selection_geometry_hint` (`src/native/app/click_hint.rs`), and routed only
+the `NoOpWithHint` arm to it; the mark-missing path keeps the enable-integration
+text. Fails-before/passes-after: the existing
+`multi_row_input_without_report_stays_a_hinted_no_op` test now asserts the new
+text (reverting the call site reproduces the old misleading string), and
+`delete_key_with_missing_prompt_mark_clears_selection_and_hints` continues to
+assert the enable-integration text. Suite green (2808 lib + integration
+binaries, 0 failed), clippy `-D warnings` clean, fmt clean.
+
+Windows: platform-neutral UI text/logic; PowerShell hits the same
+`NoOpWithHint` arm, so Windows users also get the corrected message.
+
 ## 2026-07-02 -- Windows symbol-glyph fallback tail — ✔ U+2714 / ⎿ U+23BF (NF16)
 
 Fixed operator-reported blank glyphs on Windows: Claude Code's ✔ heavy check
