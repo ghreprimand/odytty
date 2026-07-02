@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- OSC color specs: accept XParseColor `#` and `rgbi:` forms (C17+C30)
+
+`parse_xterm_rgb` only accepted `rgb:R/G/B`, so OSC 4/10/11/12 payloads using
+the equally standard XParseColor `#RGB` / `#RRGGBB` / `#RRRGGGBBB` /
+`#RRRRGGGGBBBB` forms — emitted by plenty of theme scripts and tools — were
+silently ignored. Now all four `#` widths parse with correct XParseColor
+semantics (components LEFT-aligned into 16 bits, so `#F00` is 0xF000 → 0xF0,
+deliberately different scaling from `rgb:`), and `rgbi:` floating intensities
+(0.0–1.0) are accepted as well. Malformed specs (wrong group widths, non-hex,
+out-of-range intensities, wrong component counts) are still ignored without
+touching the color. Three regression tests (two fail-before, one malformed-
+rejection pin). Gates green.
+
 ## 2026-07-02 -- VT conformance: CUU/CUD now stop at DECSTBM margins (C7)
 
 Audit item C7: `CSI Ps A` / `CSI Ps B` clamped only to the screen edges, so a

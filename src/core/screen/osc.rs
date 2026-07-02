@@ -195,17 +195,67 @@ pub(super) fn osc52_selection_bytes(selection: ClipboardSelection) -> &'static [
     }
 }
 
+/// Parse an XParseColor-style color spec for OSC 4/10/11/12. Accepted forms
+/// (C17+C30): `rgb:R/G/B` (1–4 hex digits per component, independently
+/// scaled), `#RGB` / `#RRGGBB` / `#RRRGGGBBB` / `#RRRRGGGGBBBB` (equal-width
+/// components, LEFT-aligned into 16 bits per XParseColor — `#F00` is 0xF000,
+/// not full red), and `rgbi:R/G/B` (floating intensities 0.0–1.0).
 pub(super) fn parse_xterm_rgb(raw: &[u8]) -> Option<RgbColor> {
     let raw = std::str::from_utf8(raw).ok()?;
-    let components = raw.strip_prefix("rgb:")?;
-    let mut parts = components.split('/');
-    let red = parse_xterm_rgb_component(parts.next()?)?;
-    let green = parse_xterm_rgb_component(parts.next()?)?;
-    let blue = parse_xterm_rgb_component(parts.next()?)?;
-    parts
-        .next()
-        .is_none()
-        .then(|| RgbColor::new(red, green, blue))
+    if let Some(components) = raw.strip_prefix("rgb:") {
+        let mut parts = components.split('/');
+        let red = parse_xterm_rgb_component(parts.next()?)?;
+        let green = parse_xterm_rgb_component(parts.next()?)?;
+        let blue = parse_xterm_rgb_component(parts.next()?)?;
+        return parts
+            .next()
+            .is_none()
+            .then(|| RgbColor::new(red, green, blue));
+    }
+    if let Some(digits) = raw.strip_prefix('#') {
+        return parse_sharp_rgb(digits);
+    }
+    if let Some(components) = raw.strip_prefix("rgbi:") {
+        let mut parts = components.split('/');
+        let red = parse_rgbi_component(parts.next()?)?;
+        let green = parse_rgbi_component(parts.next()?)?;
+        let blue = parse_rgbi_component(parts.next()?)?;
+        return parts
+            .next()
+            .is_none()
+            .then(|| RgbColor::new(red, green, blue));
+    }
+    None
+}
+
+/// `#`-form component group: `digits` must be exactly 3 equal-width hex
+/// groups of 1–4 digits. Each group is left-aligned into a 16-bit channel
+/// (XParseColor semantics) and truncated to its top 8 bits.
+fn parse_sharp_rgb(digits: &str) -> Option<RgbColor> {
+    let len = digits.len();
+    if !matches!(len, 3 | 6 | 9 | 12) || !digits.is_ascii() {
+        return None;
+    }
+    let width = len / 3;
+    let mut channels = [0u8; 3];
+    for (slot, group) in channels
+        .iter_mut()
+        .zip((0..3).map(|i| &digits[i * width..(i + 1) * width]))
+    {
+        let value = u16::from_str_radix(group, 16).ok()?;
+        let value16 = value << (16 - 4 * width as u16);
+        *slot = (value16 >> 8) as u8;
+    }
+    Some(RgbColor::new(channels[0], channels[1], channels[2]))
+}
+
+/// `rgbi:` component: a floating intensity in 0.0–1.0, scaled to 0–255.
+fn parse_rgbi_component(component: &str) -> Option<u8> {
+    let value: f32 = component.parse().ok()?;
+    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+        return None;
+    }
+    Some((value * 255.0).round() as u8)
 }
 
 pub(super) fn parse_xterm_rgb_component(component: &str) -> Option<u8> {
