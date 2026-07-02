@@ -172,6 +172,9 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
             theme.foreground
         }),
     );
+    // C29: seed the base 16 ANSI palette so OSC 4 queries report the theme's
+    // colors rather than the hardcoded xterm table.
+    model.set_base_palette(theme.palette.map(rgb));
     model.set_osc52_read_enabled(settings.osc52_read);
     // Bound scrollback memory from the start so the very first session is capped
     // before any output streams in (`0` = unbounded). See SCROLLBACK-CAP.

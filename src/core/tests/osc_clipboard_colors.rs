@@ -94,6 +94,44 @@ fn osc_default_colors_set_query_and_reset_to_base() {
 }
 
 #[test]
+fn osc4_query_reports_seeded_theme_palette() {
+    // C29: OSC 4 queries must report the theme's base 16 colors (seeded via
+    // set_base_palette), not the hardcoded xterm table. A live OSC 4 override
+    // still wins, and OSC 104 reset returns to the THEME color; indices >= 16
+    // keep the xterm cube/grayscale table.
+    let mut terminal = Terminal::new(10, 2);
+    let mut palette = [RgbColor::new(0, 0, 0); 16];
+    palette[1] = RgbColor::new(0xAA, 0x10, 0x20); // theme red != xterm 0xCD0000
+    terminal.set_base_palette(palette);
+
+    terminal.advance(b"\x1b]4;1;?\x1b\\");
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1b]4;1;rgb:aaaa/1010/2020\x1b\\"
+    );
+
+    // Dynamic override wins over the seeded base...
+    terminal.advance(b"\x1b]4;1;rgb:0000/ffff/0000\x1b\\\x1b]4;1;?\x1b\\");
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1b]4;1;rgb:0000/ffff/0000\x1b\\"
+    );
+    // ...and OSC 104 returns to the theme color, not the xterm table.
+    terminal.advance(b"\x1b]104;1\x1b\\\x1b]4;1;?\x1b\\");
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1b]4;1;rgb:aaaa/1010/2020\x1b\\"
+    );
+
+    // Index >= 16: untouched by the seed, still the xterm 256-color table.
+    terminal.advance(b"\x1b]4;196;?\x1b\\");
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1b]4;196;rgb:ffff/0000/0000\x1b\\"
+    );
+}
+
+#[test]
 fn osc_colors_accept_sharp_hex_forms() {
     // C17+C30: XParseColor `#` forms for OSC 4/10/11/12. `#`-form components
     // are LEFT-aligned into 16 bits (XParseColor), so `#F00` is 0xF000 →

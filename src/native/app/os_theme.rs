@@ -89,6 +89,8 @@ impl App {
                 rgb(self.effective_theme.background),
                 cursor_default,
             );
+            // C29: keep OSC 4 replies in sync with the newly effective theme.
+            terminal.set_base_palette(self.effective_theme.palette.map(rgb));
         }
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_theme(self.effective_theme);

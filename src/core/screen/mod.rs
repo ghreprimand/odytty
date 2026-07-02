@@ -187,6 +187,11 @@ pub struct Screen {
     /// was requested.
     bell_pending: bool,
     base_colors: DynamicColors,
+    /// C29: the theme's base 16 ANSI colors, seeded by the native layer via
+    /// [`Self::set_base_palette`]. OSC 4 queries for indices 0..16 fall back
+    /// here (then to the xterm table) so applications probing the palette see
+    /// the colors actually rendered, not a hardcoded xterm table.
+    base_palette: [RgbColor; 16],
     dynamic_colors: DynamicColors,
     last_graphic_char: Option<char>,
     tab_stops: Vec<bool>,
@@ -363,6 +368,7 @@ impl Screen {
             osc52_read_enabled: false,
             bell_pending: false,
             base_colors: DynamicColors::default(),
+            base_palette: std::array::from_fn(|i| indexed_srgb(i as u8)),
             dynamic_colors: DynamicColors::default(),
             last_graphic_char: None,
             tab_stops: default_tab_stops(dimensions.columns),
@@ -479,6 +485,13 @@ impl Screen {
         self.dynamic_colors.background = background;
         self.dynamic_colors.cursor = cursor;
         self.mark_dirty();
+    }
+
+    /// C29: seed the base 16 ANSI palette from the active theme so OSC 4
+    /// queries report the colors actually rendered. Sibling of
+    /// [`Self::set_base_colors`]; called on startup and on every theme change.
+    pub fn set_base_palette(&mut self, palette: [RgbColor; 16]) {
+        self.base_palette = palette;
     }
 
     pub fn set_osc52_read_enabled(&mut self, enabled: bool) {
@@ -653,8 +666,15 @@ impl Screen {
         }
     }
 
+    /// Effective palette color for OSC 4 replies: a live OSC 4 override wins,
+    /// then the theme's base 16 (C29), then the xterm table for 16..=255.
     fn palette_color(&self, index: u8) -> RgbColor {
-        self.dynamic_colors.palette[index as usize].unwrap_or_else(|| indexed_srgb(index))
+        self.dynamic_colors.palette[index as usize].unwrap_or_else(|| {
+            self.base_palette
+                .get(index as usize)
+                .copied()
+                .unwrap_or_else(|| indexed_srgb(index))
+        })
     }
 
     fn osc_clipboard(&mut self, params: &[&[u8]]) {
@@ -2041,6 +2061,12 @@ impl Terminal {
         cursor: RgbColor,
     ) {
         self.screen.set_base_colors(foreground, background, cursor);
+    }
+
+    /// C29: seed the base 16 ANSI palette from the active theme. See
+    /// [`Screen::set_base_palette`].
+    pub fn set_base_palette(&mut self, palette: [RgbColor; 16]) {
+        self.screen.set_base_palette(palette);
     }
 
     pub fn bracketed_paste_enabled(&self) -> bool {

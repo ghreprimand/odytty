@@ -613,6 +613,8 @@ impl App {
                 rgb(effective_theme.background),
                 cursor_default,
             );
+            // C29: OSC 4 replies report the theme palette, not the xterm table.
+            terminal.set_base_palette(effective_theme.palette.map(rgb));
             terminal.set_osc52_read_enabled(osc52_read);
             terminal.set_scrollback_limit(scrollback_limit);
             terminal.set_cursor_defaults(cursor_style, cursor_blink.enabled());
@@ -2155,6 +2157,8 @@ impl App {
                 rgb(self.effective_theme.background),
                 cursor_default,
             );
+            // C29: OSC 4 replies report the theme palette, not the xterm table.
+            terminal.set_base_palette(self.effective_theme.palette.map(rgb));
             terminal.set_osc52_read_enabled(self.settings.osc52_read);
             terminal.set_cursor_defaults(
                 self.settings.cursor_style,

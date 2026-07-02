@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- OSC 4 queries report the theme palette, not the xterm table (C29)
+
+An application probing `OSC 4;n;?` got the hardcoded xterm sRGB table back
+even though OdyTTY renders the theme's own 16 ANSI colors — so palette-aware
+tools (vim `termguicolors` probes, theme detectors) mismatched what was on
+screen. The core now carries a `base_palette` seeded from the active theme via
+a new `set_base_palette` sibling of `set_base_colors`, wired at startup
+(`run_native`), on OS theme flips (`os_theme.rs`), on session init, and on
+settings/theme reload. Reply precedence: live OSC 4 override → theme base
+(0..16) → xterm table (16..=255); OSC 104 resets return to the THEME color.
+Regression test covers all four rungs. Gates green.
+
 ## 2026-07-02 -- OSC color specs: accept XParseColor `#` and `rgbi:` forms (C17+C30)
 
 `parse_xterm_rgb` only accepted `rgb:R/G/B`, so OSC 4/10/11/12 payloads using
