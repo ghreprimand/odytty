@@ -280,6 +280,59 @@ fn default_prefix_bindings() -> Vec<(KeyChord, BindableAction)> {
     ]
 }
 
+/// A read-only view of the pane-action PREFIX table (tmux-prefix second keys)
+/// for the KB-REMAP modal (C8).
+///
+/// Pane actions live ONLY in the multiplexer prefix space ([`PrefixEngine`]),
+/// never in the flat [`KeyBindings`] table (`KeyBindings::from_overrides` skips
+/// pane-action overrides). So the remap UI must resolve a pane action's display
+/// chord and its conflicts here rather than through the flat table — which
+/// always returned `None` for them, rendering a bound pane action as the
+/// self-contradictory "(unbound) *". The two spaces are disjoint: a prefix
+/// second-key never collides with a bare global chord at runtime, so a
+/// pane-action chord only conflicts with ANOTHER pane action's chord.
+///
+/// Chords are kept RAW (as authored), matching how [`KeyBindings`] stores
+/// override chords, so `format_key_chord` renders exactly what the user pressed
+/// and conflict comparison is raw-to-raw on both sides.
+pub(in crate::native) struct PanePrefixBindings {
+    bindings: Vec<(KeyChord, BindableAction)>,
+}
+
+impl PanePrefixBindings {
+    /// Build from the working overrides: the tmux defaults plus any pane-action
+    /// overrides (later entries win), mirroring [`PrefixEngine::new`]'s table
+    /// build minus the lookup normalization (the UI wants raw chords).
+    pub(in crate::native) fn from_overrides(overrides: &[KeyBindingOverride]) -> Self {
+        let mut bindings = default_prefix_bindings();
+        for override_ in overrides {
+            if !override_.action.is_pane_action() {
+                continue;
+            }
+            bindings.retain(|(_, action)| *action != override_.action);
+            bindings.push((override_.chord, override_.action));
+        }
+        Self { bindings }
+    }
+
+    /// The effective prefix second-key currently bound to `action`, newest-first
+    /// so an override wins over a default.
+    pub(in crate::native) fn chord_for_action(&self, action: BindableAction) -> Option<KeyChord> {
+        self.bindings
+            .iter()
+            .rev()
+            .find_map(|(chord, candidate)| (*candidate == action).then_some(*chord))
+    }
+
+    /// The pane action a prefix second-key resolves to, newest-first.
+    pub(in crate::native) fn action_for_chord(&self, chord: KeyChord) -> Option<BindableAction> {
+        self.bindings
+            .iter()
+            .rev()
+            .find_map(|(candidate, action)| (*candidate == chord).then_some(*action))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct KeyBindings {
     bindings: Vec<(KeyChord, BindableAction)>,

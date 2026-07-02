@@ -26,7 +26,7 @@ use crate::settings::{
     key_bindings_config_value,
 };
 
-use super::bindings::KeyBindings;
+use super::bindings::{KeyBindings, PanePrefixBindings};
 use super::overlay::OverlayInput;
 
 /// Every `BindableAction` the in-app remap UI exposes — the full config surface,
@@ -338,7 +338,19 @@ impl KeyRemapUi {
         // Conflict check against the CURRENT EFFECTIVE bindings (defaults +
         // working overrides), not the override vec alone — a chord that matches
         // a DEFAULT of another action must still be caught (R3).
-        match self.effective_bindings().action_for_chord(chord) {
+        //
+        // C8: pane actions and flat actions occupy DISJOINT chord spaces — a
+        // pane action's chord is a tmux-prefix second key that never collides
+        // with a bare global chord at runtime. So resolve a pane action's
+        // conflict within the prefix table (catching a clash with another pane
+        // action), and a flat action's within the flat table, rather than
+        // cross-checking the two.
+        let existing = if action.is_pane_action() {
+            self.pane_prefix_bindings().action_for_chord(chord)
+        } else {
+            self.effective_bindings().action_for_chord(chord)
+        };
+        match existing {
             Some(existing) if existing == action => {
                 self.capture = None;
                 self.message = Some(format!(
@@ -405,6 +417,30 @@ impl KeyRemapUi {
 
     fn effective_bindings(&self) -> KeyBindings {
         KeyBindings::from_overrides(&self.overrides)
+    }
+
+    /// The pane-action PREFIX view (C8): pane actions resolve their display chord
+    /// and conflicts here, not through the flat `KeyBindings` table which never
+    /// holds pane-action bindings.
+    fn pane_prefix_bindings(&self) -> PanePrefixBindings {
+        PanePrefixBindings::from_overrides(&self.overrides)
+    }
+
+    /// Render a pane action's effective chord as its tmux-prefix second key, so a
+    /// bound pane action never shows the flat-table "(unbound)". Labels it as a
+    /// prefix second key (`⟨prefix⟩ z`), or notes the prefix is disabled.
+    fn pane_action_chord_text(&self, action: BindableAction) -> String {
+        match self.pane_prefix_bindings().chord_for_action(action) {
+            Some(chord) => match self.base.pane_prefix {
+                Some(prefix) => format!(
+                    "{} then {}",
+                    format_key_chord(prefix),
+                    format_key_chord(chord)
+                ),
+                None => format!("{} (prefix disabled)", format_key_chord(chord)),
+            },
+            None => "(unbound)".to_owned(),
+        }
     }
 
     fn live_settings(&self) -> Settings {
@@ -507,6 +543,9 @@ impl KeyRemapUi {
             let name = bindable_action_display_name(*action);
             let chord_text = if self.capture == Some(*action) {
                 "press a chord…".to_owned()
+            } else if action.is_pane_action() {
+                // C8: pane actions live in the prefix table, not the flat one.
+                self.pane_action_chord_text(*action)
             } else {
                 match bindings.chord_for_action(*action) {
                     Some(chord) => format_key_chord(chord),
@@ -677,6 +716,92 @@ mod tests {
             ui.conflict.as_ref().map(|c| c.conflicts_with),
             Some(BindableAction::CommandPalette)
         );
+    }
+
+    /// Find the rendered row for `name` in a tall render (no scrolling).
+    fn row_text_for(ui: &KeyRemapUi, name: &str) -> String {
+        // Action rows are `{cursor}{name:<18} {chord}` — match on the leading
+        // name so the message banner (which may mention the same action) is not
+        // picked up.
+        ui.visible_lines(80, 100)
+            .into_iter()
+            .map(|line| line.text)
+            .find(|text| text.trim_start_matches(['>', ' ']).starts_with(name))
+            .unwrap_or_else(|| panic!("no row for {name}"))
+    }
+
+    #[test]
+    fn c8_pane_action_row_shows_prefix_chord_not_unbound() {
+        // C8: a pane action's default binding is a tmux-prefix second key (ZoomPane
+        // → prefix `z`). Before the fix the flat table returned None and the row
+        // read "(unbound)"; now it shows the prefix second key.
+        let ui = ui();
+        let row = row_text_for(&ui, "zoom-pane");
+        assert!(
+            row.contains("then "),
+            "pane-action row must label the prefix second key: {row:?}"
+        );
+        assert!(
+            !row.contains("(unbound)"),
+            "a defaulted pane action must not read (unbound): {row:?}"
+        );
+    }
+
+    #[test]
+    fn c8_bound_pane_action_row_is_not_self_contradictory() {
+        // C8: binding a pane action must show the NEW prefix chord, never the
+        // self-contradictory "(unbound) *" (unbound text with the override marker)
+        // the flat-table lookup produced.
+        let mut ui = ui();
+        select_action(&mut ui, BindableAction::ZoomPane);
+        ui.handle_input(OverlayInput::Activate);
+        ui.deliver_chord(Some(char_chord(true, true, 'z')));
+        let row = row_text_for(&ui, "zoom-pane");
+        assert!(
+            row.contains('*'),
+            "an overridden pane action keeps its override marker: {row:?}"
+        );
+        assert!(
+            !row.contains("(unbound)"),
+            "a bound pane action must never read (unbound): {row:?}"
+        );
+        assert!(
+            row.contains("then "),
+            "the new binding renders as a prefix second key: {row:?}"
+        );
+    }
+
+    #[test]
+    fn c8_pane_action_conflict_resolves_in_prefix_space() {
+        // C8: a pane action's chord conflicts only with ANOTHER pane action (the
+        // prefix space), which the flat table could never see. Capturing
+        // ClosePane's default prefix key (`x`) for ZoomPane must flag ClosePane.
+        let mut ui = ui();
+        select_action(&mut ui, BindableAction::ZoomPane);
+        ui.handle_input(OverlayInput::Activate);
+        let out = ui.deliver_chord(Some(char_chord(false, false, 'x')));
+        assert_eq!(out, KeyRemapOutcome::Consumed);
+        assert_eq!(
+            ui.conflict.as_ref().map(|c| c.conflicts_with),
+            Some(BindableAction::ClosePane),
+            "prefix-space conflict must be detected"
+        );
+    }
+
+    #[test]
+    fn c8_flat_and_prefix_chord_spaces_are_disjoint() {
+        // C8: a pane action's prefix second key (`x`) and a bare global chord are
+        // DISJOINT input spaces — they never collide at runtime. Binding a flat
+        // action (Copy) to bare `x` must NOT falsely conflict with ClosePane.
+        let mut ui = ui();
+        select_action(&mut ui, BindableAction::Copy);
+        ui.handle_input(OverlayInput::Activate);
+        let out = ui.deliver_chord(Some(char_chord(false, false, 'x')));
+        assert!(
+            matches!(out, KeyRemapOutcome::Preview(_)),
+            "a flat binding must not conflict with a pane action's prefix key"
+        );
+        assert!(ui.conflict.is_none(), "no cross-space conflict");
     }
 
     #[test]

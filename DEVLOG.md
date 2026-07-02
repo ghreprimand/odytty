@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Remap modal is pane-action aware: prefix second-keys shown and conflict-checked (C8)
+
+Pane actions (Zoom/Close/Focus*/Equalize/Split*) live only in the multiplexer
+PREFIX table, never the flat `KeyBindings` table (`from_overrides` skips
+pane-action overrides). But the remap modal resolved every row through the flat
+table, so a bound pane action rendered the self-contradictory `(unbound) *`
+(unbound text with the override marker), and the conflict check could never see
+a pane-action binding.
+
+The modal is now prefix-aware. A new `PanePrefixBindings` view (tmux defaults +
+pane-action overrides, raw chords) resolves pane-action rows and conflicts. Rows
+render the real prefix second key (`Ctrl+B then z`), or `… (prefix disabled)`
+when the prefix is off. Conflict detection resolves a pane action within the
+prefix space — catching a clash with another pane action — while flat actions
+stay in the flat space; the two are disjoint (a prefix second-key never collides
+with a bare global chord at runtime), so binding a flat action to a chord a pane
+action uses as its second key is correctly NOT a conflict.
+
+Tests: pane-action row shows its prefix chord not `(unbound)`; a bound pane
+action is never `(unbound) *`; a prefix-space conflict is detected; flat and
+prefix spaces stay disjoint. All fail-before/pass-after (except the disjointness
+guard, green both ways by design). Full suite green, clippy clean, fmt clean.
+
+---
+
 ## 2026-07-02 -- Focus-follows-click anchors the selection under the real click (C11)
 
 In a split, clicking an unfocused pane both focuses it and starts a text
