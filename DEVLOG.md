@@ -7,6 +7,17 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Connection overlay closes on Connect so it can't eat SSH keystrokes (C12)
+
+The connections overlay emitted its `Connect` outcome without closing itself,
+unlike the sibling OpenWith and command-palette arms. The overlay therefore
+stayed open on top of the freshly-spawned SSH tab and swallowed every
+subsequent keystroke — possibly an SSH password — into its type-to-filter box
+until the user pressed Esc. `handle_connections_input` now calls `self.close()`
+in the `Connect` arm before emitting the outcome, matching the other accept
+paths. Fails-before regression test asserts the overlay reports `!is_open()`
+after an `Activate` that yields `Connect`. Gates green.
+
 ## 2026-07-02 -- Desktop ids resolve the full dash→slash ladder (C15)
 
 The freedesktop desktop-entry spec derives a file's id by replacing every

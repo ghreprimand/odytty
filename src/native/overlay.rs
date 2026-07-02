@@ -1568,7 +1568,14 @@ impl OverlayUi {
         match self.connections.handle_input(input) {
             ConnectionOverlayOutcome::Consumed => OverlayOutcome::Consumed,
             ConnectionOverlayOutcome::Close => OverlayOutcome::Close,
-            ConnectionOverlayOutcome::Connect(host) => OverlayOutcome::Connect(host),
+            // C12: close the overlay before emitting Connect — otherwise it
+            // stays open on top of the freshly-spawned SSH tab and eats every
+            // keystroke (possibly a password) into its type-to-filter box until
+            // Esc. Mirrors the OpenWith / command-palette arms below.
+            ConnectionOverlayOutcome::Connect(host) => {
+                self.close();
+                OverlayOutcome::Connect(host)
+            }
         }
     }
 
@@ -3200,10 +3207,18 @@ mod tests {
         // the App's connect action; presentation stays in the overlay.
         let mut overlay = OverlayUi::default();
         overlay.open_connections(vec![connection_host("web1")]);
+        assert!(overlay.is_open());
         match overlay.handle_input(OverlayInput::Activate) {
             OverlayOutcome::Connect(host) => assert_eq!(host.alias, "web1"),
             other => panic!("expected Connect, got {other:?}"),
         }
+        // C12 regression: the overlay must close itself on Connect. If it stays
+        // open, keyboard dispatch keeps routing every key (possibly the SSH
+        // password) into the type-to-filter box instead of the new SSH tab.
+        assert!(
+            !overlay.is_open(),
+            "connection overlay must close after Connect"
+        );
     }
 
     /// A synthetic live session for the session-attach overlay tests.
