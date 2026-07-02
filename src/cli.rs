@@ -25,8 +25,8 @@ use odytty::session_host::protocol::HostFrame;
 #[cfg(unix)]
 use odytty::session_host::{
     HostCommand, HostConfig, ListedSession, SessionHostClient, SessionMetadata,
-    existing_runtime_dir, list_live_sessions, now_unix_ms, session_socket_path,
-    spawn_host_on_demand, write_session_metadata,
+    existing_runtime_dir, list_live_sessions, now_unix_ms, session_metadata_path,
+    session_socket_path, spawn_host_on_demand, write_session_metadata,
 };
 use odytty::settings::{
     BindableAction, KeyBindingKey, KeyBindingNamedKey, KeyBindingOverride, KeyChord, Settings,
@@ -375,7 +375,15 @@ pub fn run_new_detached_with_spawner(
         pane_count: 1,
     };
     write_session_metadata(&paths.dir, &metadata)?;
-    spawner(&config)?;
+    if let Err(error) = spawner(&config) {
+        // The metadata was written optimistically before the spawn; a session
+        // that never came up must not leave an orphaned `.meta` in the runtime
+        // dir (audit C27). Best-effort: the spawn error is the one to surface.
+        if let Ok(path) = session_metadata_path(&paths.dir, &session_id) {
+            let _ = std::fs::remove_file(path);
+        }
+        return Err(error);
+    }
     Ok(format!("id={session_id}\n"))
 }
 

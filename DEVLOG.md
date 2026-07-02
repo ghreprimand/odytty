@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Session registry: validate metadata version, clean up `.meta` on spawn failure (audit C27)
+
+Tier 4 audit fix (C27), two halves. Read side: `read_session_metadata`
+skipped the `version=` line its own writer always stamps, so a future-format
+(or corrupted-version) `.meta` file would be half-parsed with v1 semantics
+instead of being treated as unreadable; a declared version other than `1` now
+reads as `None` — the same graceful fallback as a missing file (a file with no
+version line is tolerated as v1). Write side: `odytty new` writes the `.meta`
+optimistically before spawning the host, and a spawn failure left that
+metadata orphaned in the runtime dir for a session that never existed; the
+failure path now best-effort-removes it before surfacing the spawn error
+(`detach_switch` is unaffected — it writes metadata only after a successful
+spawn). Regression tests: `metadata_with_unknown_version_is_ignored`
+(version=1 file rewritten to version=2 must read as None) and
+`new_detached_spawn_failure_cleans_up_orphaned_metadata` (failing spawner must
+leave no `.meta`); both failed before the fix. Full suite, clippy
+`-D warnings`, and `cargo fmt --check` green.
+
 ## 2026-07-02 -- Session host: reap the spawned host child when its socket never comes up (audit C26)
 
 Tier 4 audit fix (C26). `spawn_host_on_demand` spawns the detached host

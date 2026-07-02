@@ -53,6 +53,7 @@ pub fn read_session_metadata(runtime_dir: &Path, id: &str) -> Result<Option<Sess
         }
     };
 
+    let mut version: Option<&str> = None;
     let mut metadata_id = None;
     let mut name = None;
     let mut created_unix_ms = None;
@@ -62,6 +63,7 @@ pub fn read_session_metadata(runtime_dir: &Path, id: &str) -> Result<Option<Sess
             continue;
         };
         match key {
+            "version" => version = Some(value),
             "id" => metadata_id = Some(unescape_metadata_value(value)),
             "name" => name = Some(unescape_metadata_value(value)),
             "created_unix_ms" => created_unix_ms = value.parse::<u128>().ok(),
@@ -70,6 +72,16 @@ pub fn read_session_metadata(runtime_dir: &Path, id: &str) -> Result<Option<Sess
         }
     }
 
+    // Version gate (audit C27): every writer stamps `version=1`, and this
+    // reader only knows v1 semantics. A file declaring any other version (a
+    // newer binary's format, or a corrupted line) must not be half-parsed with
+    // v1 rules — treat it like a missing file so the caller falls back to
+    // defaults. A file with no `version=` line at all is tolerated as v1.
+    if let Some(version) = version
+        && version.trim() != "1"
+    {
+        return Ok(None);
+    }
     let Some(metadata_id) = metadata_id.filter(|metadata_id| metadata_id == id) else {
         return Ok(None);
     };

@@ -405,6 +405,36 @@ fn new_detached_prints_session_id_without_spawning_in_tests() {
 }
 
 #[test]
+fn new_detached_spawn_failure_cleans_up_orphaned_metadata() {
+    // audit C27: the `.meta` file is written BEFORE the host is spawned; when
+    // the spawn fails, the metadata for a session that never existed must not
+    // be left behind in the runtime dir.
+    let temp = TempDir::new("cli-nf");
+    let options = cli::DetachedSessionOptions {
+        id: Some("s-fail".to_owned()),
+        title: Some("Doomed".to_owned()),
+        runtime_base: Some(temp.path().to_owned()),
+        ..cli::DetachedSessionOptions::default()
+    };
+    let error = cli::run_new_detached_with_spawner(options, |_config| {
+        anyhow::bail!("spawn refused for the test")
+    })
+    .expect_err("spawner failure must propagate");
+    assert!(error.to_string().contains("spawn refused"));
+
+    let runtime_dir = odytty::session_host::existing_runtime_dir(Some(temp.path()))
+        .expect("runtime dir query")
+        .expect("runtime dir was created for the metadata write");
+    let meta_path =
+        odytty::session_host::session_metadata_path(&runtime_dir, "s-fail").expect("metadata path");
+    assert!(
+        !meta_path.exists(),
+        "spawn failure must remove the orphaned metadata file at {}",
+        meta_path.display()
+    );
+}
+
+#[test]
 fn attach_reports_unknown_session_without_creating_daemons() {
     let temp = TempDir::new("odytty-cli-attach-missing");
     let error =

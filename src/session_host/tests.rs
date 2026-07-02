@@ -351,6 +351,44 @@ fn host_survives_hostile_resize_dimensions() {
 }
 
 #[test]
+fn metadata_with_unknown_version_is_ignored() {
+    // audit C27: `read_session_metadata` skipped the `version=` line entirely,
+    // so a future-format (or corrupted-version) file would be parsed with v1
+    // semantics instead of being treated as unreadable. An unknown version must
+    // read as `None` (same graceful fallback as a missing file).
+    let temp = TempDir::new("sh-c27");
+    let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
+    super::write_session_metadata(
+        &runtime_dir,
+        &super::SessionMetadata {
+            id: "v".to_owned(),
+            name: "Versioned".to_owned(),
+            created_unix_ms: 42,
+            pane_count: 2,
+        },
+    )
+    .expect("write metadata");
+    // Sanity: the v1 file reads back.
+    assert!(
+        super::read_session_metadata(&runtime_dir, "v")
+            .expect("read v1")
+            .is_some()
+    );
+
+    let path = super::session_metadata_path(&runtime_dir, "v").expect("metadata path");
+    let future = fs::read_to_string(&path)
+        .expect("read metadata file")
+        .replace("version=1", "version=2");
+    fs::write(&path, future).expect("rewrite metadata file");
+    assert!(
+        super::read_session_metadata(&runtime_dir, "v")
+            .expect("read v2")
+            .is_none(),
+        "future-version metadata must not be parsed with v1 semantics"
+    );
+}
+
+#[test]
 fn spawn_socket_timeout_reaps_the_spawned_child() {
     // audit C26: when the freshly spawned host child never binds its socket
     // within the startup timeout, `spawn_host_on_demand` returned the error and
