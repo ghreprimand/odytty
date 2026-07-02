@@ -22,8 +22,10 @@
 //! ConPTY is a VT translation layer: the child's Win32 console-API activity is
 //! rendered to VT sequences on the output pipe, so output can differ from a raw
 //! Unix PTY. Echo and line discipline are owned by the console host, not POSIX
-//! termios. `kill` terminates only the root process (no process-group / job
-//! teardown yet — a Job Object is the documented follow-up).
+//! termios. `kill` terminates the whole child tree via a per-session Job
+//! Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` (WIN-JOB) — the ConPTY
+//! answer to the missing POSIX process-group kill — degrading to root-only
+//! `TerminateProcess` if job creation/assignment failed at spawn.
 
 use core::ffi::c_void;
 use std::ffi::{OsStr, OsString};
@@ -56,13 +58,23 @@ use windows::Win32::System::Console::{
     COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
 };
 use windows::Win32::System::Environment::{FreeEnvironmentStringsW, GetEnvironmentStringsW};
+use windows::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_BASIC_LIMIT_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JobObjectExtendedLimitInformation, SetInformationJobObject, TerminateJobObject,
+};
+#[cfg(test)]
+use windows::Win32::System::JobObjects::{
+    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JobObjectBasicAccountingInformation,
+    QueryInformationJobObject,
+};
 use windows::Win32::System::Pipes::CreatePipe;
 use windows::Win32::System::Threading::{
-    CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
+    CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
     EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess, GetExitCodeProcess, INFINITE,
     InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
-    PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, PROCESS_INFORMATION, STARTUPINFOEXW, STARTUPINFOW,
-    TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
+    PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, PROCESS_INFORMATION, ResumeThread, STARTUPINFOEXW,
+    STARTUPINFOW, TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
 };
 use windows::core::{PCWSTR, PWSTR};
 
@@ -86,6 +98,16 @@ pub struct PtySession {
     /// original close-exactly-once guarantee across the three closers —
     /// natural child exit (waiter), explicit `kill`, and `Drop`.
     pcon: Arc<PconShared>,
+    /// WIN-JOB: kill-on-close Job Object containing the child and every
+    /// descendant it spawns. The child is created suspended and assigned to
+    /// the job before its first instruction runs, so nothing it launches can
+    /// escape. `kill` terminates the whole tree via [`TerminateJobObject`];
+    /// dropping this last job handle is the OS-level backstop
+    /// (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) that reaps any survivors even
+    /// if the explicit kill failed. `None` when job creation or assignment
+    /// failed at spawn — the session then degrades to the old root-only
+    /// `TerminateProcess` behavior.
+    job: Option<OwnedHandle>,
     /// The child process handle. Owned: closed when the session drops.
     process: OwnedHandle,
     /// Parent end of the input pipe (host → child). Kept as an owned handle so
@@ -286,8 +308,20 @@ impl PtySession {
                 None => PCWSTR::null(),
             };
 
+            // 6. WIN-JOB: create the kill-on-close Job Object BEFORE the child
+            //    so the child can be created suspended and assigned to it
+            //    before its first instruction runs — otherwise a fast shell
+            //    could spawn a descendant in the gap and that descendant would
+            //    escape the job. Best-effort: on failure the session degrades
+            //    to the old root-only `TerminateProcess` teardown.
+            let job = create_kill_on_close_job();
+            let mut creation_flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT;
+            if job.is_some() {
+                creation_flags |= CREATE_SUSPENDED;
+            }
+
             let mut process_info = PROCESS_INFORMATION::default();
-            // 6. Spawn. The pseudoconsole is injected via the attribute list, not
+            // 7. Spawn. The pseudoconsole is injected via the attribute list, not
             //    handle inheritance, so `bInheritHandles` is false.
             //    `CREATE_UNICODE_ENVIRONMENT` marks `lpEnvironment` (our merged
             //    UTF-16 block) as wide; see the note above.
@@ -297,7 +331,7 @@ impl PtySession {
                 None,
                 None,
                 false,
-                EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+                creation_flags,
                 Some(env_block.as_ptr().cast::<c_void>()),
                 cwd,
                 (&startup as *const STARTUPINFOEXW).cast::<STARTUPINFOW>(),
@@ -305,7 +339,26 @@ impl PtySession {
             )
             .context("CreateProcessW")?;
 
-            // 7. Keep the process handle; the thread handle and attribute list
+            // 8. WIN-JOB: assign the (suspended) child to the job, then resume
+            //    it. Assignment failure is non-fatal — drop the job and degrade
+            //    to root-only kill — but the child MUST still be resumed, and a
+            //    resume failure is fatal (a permanently-frozen shell is a hung
+            //    blank pane; terminate it and surface the spawn error instead).
+            let suspended = job.is_some();
+            let job = job.filter(|job| {
+                AssignProcessToJobObject(HANDLE(job.as_raw_handle()), process_info.hProcess).is_ok()
+            });
+            if suspended && ResumeThread(process_info.hThread) == u32::MAX {
+                let resume_err = io::Error::last_os_error();
+                let _ = TerminateProcess(process_info.hProcess, KILL_EXIT_CODE);
+                let _ = CloseHandle(process_info.hThread);
+                let _ = CloseHandle(process_info.hProcess);
+                // `hpcon_guard` is still armed here, so the early return closes
+                // the pseudoconsole instead of leaking it.
+                return Err(resume_err).context("ResumeThread after job assignment");
+            }
+
+            // 9. Keep the process handle; the thread handle and attribute list
             //    are no longer needed. (`_attr_guard` deletes the list on drop.)
             let _ = CloseHandle(process_info.hThread);
             let process = OwnedHandle::from_raw_handle(process_info.hProcess.0 as RawHandle);
@@ -331,6 +384,7 @@ impl PtySession {
 
             Ok(Self {
                 pcon,
+                job,
                 process,
                 input_write,
                 output_read,
@@ -431,10 +485,20 @@ impl PtySession {
         // (and the child may already have exited, so this runs unconditionally,
         // not only when `TerminateProcess` fires).
         let outcome = (|| -> Result<()> {
-            if self.try_wait()?.is_none() {
-                // SAFETY: live owned process handle. Terminates only the root
-                // process; child-tree teardown via a Job Object is a documented
-                // follow-up.
+            if let Some(job) = &self.job {
+                // WIN-JOB: terminate the WHOLE tree — the shell and everything
+                // it spawned — in one call. Safe against already-exited
+                // members, so no `try_wait` pre-check is needed. Dropping the
+                // job handle later is the kill-on-close backstop.
+                // SAFETY: live owned job handle.
+                unsafe {
+                    TerminateJobObject(HANDLE(job.as_raw_handle()), KILL_EXIT_CODE)
+                        .context("kill child tree")?;
+                }
+            } else if self.try_wait()?.is_none() {
+                // No job (creation/assignment failed at spawn): degrade to the
+                // old root-only termination.
+                // SAFETY: live owned process handle.
                 unsafe {
                     TerminateProcess(self.process_handle(), KILL_EXIT_CODE)
                         .context("kill child")?;
@@ -591,6 +655,37 @@ impl PconShared {
                 ClosePseudoConsole(HPCON(self.hpcon));
             }
         }
+    }
+}
+
+/// WIN-JOB: create a Job Object configured with
+/// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, so that closing the last handle to
+/// the job terminates every process assigned to it. Combined with creating
+/// the child suspended and assigning it before resume, this contains the
+/// shell and every descendant it spawns — the ConPTY equivalent of the Unix
+/// backend's process-group kill. Returns `None` if any step fails (the
+/// session then degrades to root-only termination rather than failing spawn).
+fn create_kill_on_close_job() -> Option<OwnedHandle> {
+    // SAFETY: plain Win32 object creation/configuration; the raw handle is
+    // wrapped in an `OwnedHandle` immediately so every path frees it.
+    unsafe {
+        let job = CreateJobObjectW(None, PCWSTR::null()).ok()?;
+        let job = OwnedHandle::from_raw_handle(job.0 as RawHandle);
+        let info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION {
+            BasicLimitInformation: JOBOBJECT_BASIC_LIMIT_INFORMATION {
+                LimitFlags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        SetInformationJobObject(
+            HANDLE(job.as_raw_handle()),
+            JobObjectExtendedLimitInformation,
+            (&info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast::<c_void>(),
+            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+        .ok()?;
+        Some(job)
     }
 }
 
@@ -1132,6 +1227,75 @@ mod tests {
         assert_eq!(clamp_i16(0), 0);
         assert_eq!(clamp_i16(80), 80);
         assert_eq!(clamp_i16(usize::MAX), i16::MAX);
+    }
+
+    /// Active process count inside a job, via the basic accounting query.
+    fn job_active_processes(job: &OwnedHandle) -> u32 {
+        let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+        // SAFETY: live owned job handle; the buffer is exactly the size the
+        // requested information class writes.
+        unsafe {
+            QueryInformationJobObject(
+                Some(HANDLE(job.as_raw_handle())),
+                JobObjectBasicAccountingInformation,
+                (&mut info as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast::<c_void>(),
+                size_of::<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>() as u32,
+                None,
+            )
+            .expect("QueryInformationJobObject");
+        }
+        info.ActiveProcesses
+    }
+
+    #[test]
+    fn session_close_kills_the_whole_child_tree() {
+        // WIN-JOB regression: closing a session must kill the shell AND every
+        // descendant it spawned. Pre-fix only the root shell was terminated —
+        // the `ping` here would outlive the session by ~30 seconds.
+        let session = PtySession::spawn_shell_command(
+            Dimensions {
+                rows: 24,
+                columns: 80,
+            },
+            "ping -n 30 127.0.0.1",
+        )
+        .expect("spawn shell with lingering child");
+
+        // Duplicate the job handle so the tree can be observed after the
+        // session (and its own job handle) is gone.
+        let job = duplicate_owned_handle(session.job.as_ref().expect("job object present"))
+            .expect("duplicate job handle");
+
+        // Wait for the tree to form: the shell plus its ping child.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let active = job_active_processes(&job);
+            if active >= 2 {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "child tree never formed (active={active})"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+
+        // Close the session: kill → TerminateJobObject (whole tree), then the
+        // session's job handle drops (kill-on-close backstop).
+        drop(session);
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let active = job_active_processes(&job);
+            if active == 0 {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "child tree survived session close (active={active})"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 
     #[test]

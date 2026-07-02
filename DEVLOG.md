@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Windows session close kills the whole child tree (WIN-JOB)
+
+Closing a session on Windows only terminated the root shell — anything the
+shell had spawned (build watchers, `ping`, background tools) leaked, because
+ConPTY has no POSIX process-group kill. Each session now creates a Job Object
+with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, creates the child SUSPENDED,
+assigns it to the job before its first instruction runs (so nothing it
+launches can escape), then resumes it. `kill` terminates the whole tree in
+one `TerminateJobObject` call, and dropping the session's job handle is the
+OS-level kill-on-close backstop for any survivors. Every job step degrades
+gracefully: creation/assignment failure falls back to the old root-only
+`TerminateProcess` (a resume failure after suspension is the one fatal case —
+a frozen shell is worse than a failed spawn). New `cfg(windows)` regression
+test spawns a shell running `ping -n 30`, observes shell+ping active in the
+job via the accounting query, closes the session, and asserts the count hits
+zero. Adds the `Win32_System_JobObjects` feature (no Cargo.lock change).
+Windows-only surface; Linux gate green; the blocking windows-latest CI leg is
+the authoritative verification.
+
 ## 2026-07-02 -- ConPTY resize serialized against asynchronous close (P2-FIX)
 
 Confirmed race (P6-REPRO trace): the child-waiter thread closes the
