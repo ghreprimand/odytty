@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Click-to-place cursor: InputRegion gating, rune accuracy, multi-row soft-wrap travel (F2)
+
+Reworked SH-CLICK (`sh_click`, "Click to position cursor") from a raw same-row
+cell delta into a proper InputRegion consumer (operator-approved F2 design,
+`f2-click-to-place-cursor.md`). `try_click_to_position` now derives the
+core-owned `InputRegion` (the B0–B2 select+Delete machinery) and resolves the
+click through a certainty ladder in the new pure `click_travel_delta`:
+
+- **Exact** (fresh private `133;P;odytty-edit` signal — zsh/fish): rune-precise
+  travel over the reconciled `row_spans`, including soft-wrap multi-row travel
+  (click a wrapped row, the caret travels horizontally across the wrap — the
+  shipped code bailed off the cursor's row entirely). A click on a right-aligned
+  decoration clamps to the true input end instead of overshooting.
+- **RightEdgeUnknown** (bash / PowerShell / fish mid-edit): grapheme-cell
+  heuristic over the region bounds, also multi-row across soft wraps
+  (operator-accepted — motion is non-destructive; editors clamp at buffer ends,
+  so a mis-land is a click-again, never a wrong edit).
+- **Unknown** (stale mark, or hard-newline buffers per the signal's `nl=`
+  offsets — `begin…end`, PS2 continuations, PSReadLine Shift+Enter): clean
+  no-op in v1; exact hard-newline travel deferred post-0.7.5.
+
+Also fixed as part of the rework: clicks on the prompt text (left of the input
+start) are a proper no-op instead of walking the caret to buffer position 0
+(shell-clamped, but imprecise); wide-glyph lines no longer over-send arrows —
+one CJK/emoji glyph is one caret step, not two (F2-NF1, latent since SH-CLICK
+landed); an explicit alternate-screen gate. Only Left/Right are ever
+synthesized — never Up/Down, which carry history-recall semantics in every
+shell. DECCKM/SS3 encoding, the plain-click trigger, and the mouse-reporting /
+overlay / scrollback / live-prompt gates are unchanged. Core's
+`click_report`/`ClickReport` (raw column delta) retired; the OSC 133
+`click_events` attribute parsing stays.
+
+Tests: seven fails-before app-level tests (prompt-click no-op, wide-glyph
+count, Exact decoration clamp, Exact + heuristic multi-row travel, hard-newline
+no-op, empty-input no-op) plus fixtures for the shipped same-row pins updated
+to emit the OSC 133 `B` mark exactly as every bundled snippet does (asserted
+against the bash snippet). **Windows:** platform-neutral code; PSReadLine is a
+primary beneficiary — PowerShell has no per-keystroke emitter, so it rides the
+RightEdgeUnknown heuristic tier, which now travels multi-row too. Full suite
+green (2808 lib + suites), clippy `-D warnings` clean, `cargo fmt --check`
+clean, MSRV untouched.
+
+---
+
 ## 2026-07-02 -- Context-menu "Keyboard Shortcuts" item opens the key-remap editor (F3)
 
 The key-remap editor was reachable only via Settings → Input → "keybinds".

@@ -792,7 +792,12 @@ fn snapshot_row_text(snapshot: &Snapshot, row: usize, start: usize, end: usize) 
         .collect()
 }
 
-fn snapshot_row_cell_count(snapshot: &Snapshot, row: usize, start: usize, end: usize) -> usize {
+pub(super) fn snapshot_row_cell_count(
+    snapshot: &Snapshot,
+    row: usize,
+    start: usize,
+    end: usize,
+) -> usize {
     snapshot_row_cells(snapshot, row, start, end)
         .filter(|cell| !cell.wide_continuation)
         .count()

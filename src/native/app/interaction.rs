@@ -1867,8 +1867,9 @@ impl App {
                 .unwrap_or(false)
     }
 
-    /// SH-CLICK: emit the cursor-positioning key burst for a bare left click on
-    /// the live prompt line, returning whether the click was consumed.
+    /// SH-CLICK (F2): emit the cursor-positioning key burst for a bare left
+    /// click on the live prompt's input region, returning whether the click was
+    /// consumed.
     ///
     /// Returns `false` (the caller falls through to the historical finalize,
     /// byte-identical to today) in every case but the narrow one the feature
@@ -1879,23 +1880,31 @@ impl App {
     ///   click repositions (T2 — Shift seam preserved);
     /// - the viewport is scrolled off the live tail (a click in scrollback is
     ///   never a prompt edit);
+    /// - the alternate screen is active — a full-screen app owns its layout, so
+    ///   click-to-position never fires there (defense-in-depth; the live-prompt
+    ///   gate below already excludes it in practice);
     /// - the live command block is not awaiting input — i.e. there is no live
     ///   prompt because the command already executed (an `OutputStart` exists)
     ///   or there are no marks at all. This is the real prompt-context gate
     ///   (T4): the click-events flag alone can linger across a running command,
     ///   so we require the last [`crate::core::CommandBlock`] to have no output
     ///   yet;
-    /// - the click is not on the cursor's own visual row — v1 is same-row
-    ///   horizontal only (D-SHC-4); a click on a wrapped prompt's other row
-    ///   falls through rather than emitting a wrong jump;
-    /// - the click lands on the cursor's own cell, so [`crate::core::click_report`]
-    ///   yields no movement (T4 same-cell ⇒ None).
+    /// - there is no core-derived [`crate::core::InputRegion`] (no OSC 133 `B`
+    ///   input-start mark, or nothing typed): with no modeled input there is
+    ///   nothing to click into (F2 G1);
+    /// - the click resolves to no travel under the certainty ladder in
+    ///   [`click_travel_delta`] — off the region's rows, on the prompt side of
+    ///   the input start, on a hard-newline (multi-logical-line) buffer, or on
+    ///   the cursor's own position (F2 G2/R-None/same-cell).
     ///
-    /// When it does fire, the horizontal delta from [`crate::core::click_report`]
-    /// is encoded as `|delta|` Left/Right cursor keys through the live key modes
+    /// When it does fire, the glyph delta from [`click_travel_delta`] is encoded
+    /// as `|delta|` Left/Right cursor keys through the live key modes
     /// ([`click_position_bytes`]) — honoring DECCKM application-cursor mode, the
     /// load-bearing encoding trap — and written through the same PTY writer a
-    /// real arrow keypress uses (T5), after returning to the live tail.
+    /// real arrow keypress uses (T5), after returning to the live tail. Only
+    /// Left/Right are ever synthesized, never Up/Down (which carry
+    /// history-recall semantics in every shell — a synthesized Up could replace
+    /// the user's buffer with a history entry).
     ///
     /// TUI mouse reporting (DECSET 1000/1002/1003/1006…) never reaches here: the
     /// reporting gate in [`App::handle_mouse_input`] returns earlier, so a
@@ -1916,28 +1925,43 @@ impl App {
         let Some(point) = self.pointer_cell else {
             return false;
         };
-        let (cursor, report, at_live_prompt) = {
+        let delta = {
             let Ok(terminal) = self.terminal.lock() else {
                 return false;
             };
-            let cursor = terminal.screen().cursor();
+            // F11: a full-screen app on the alternate screen owns its layout.
+            if terminal.screen().on_alternate_screen() {
+                return false;
+            }
             // T4 prompt-context gate: the last command block must be awaiting
             // input (no OutputStart) for a live prompt to exist.
             let blocks = crate::core::command_blocks(&terminal.prompt_marks());
             let at_live_prompt = blocks
                 .last()
                 .is_some_and(|block| block.output_start.is_none());
-            let report = crate::core::click_report(true, cursor.column, point.column);
-            (cursor, report, at_live_prompt)
+            if !at_live_prompt {
+                return false;
+            }
+            // F2 G1: the core-derived input region is the click target model.
+            let Some(region) = terminal.input_region() else {
+                return false;
+            };
+            let scrollback_len = terminal.screen().scrollback_len();
+            let cursor = terminal.screen().cursor();
+            let snapshot = terminal.snapshot_with_scrollback(0);
+            click_travel_delta(
+                &snapshot,
+                &region,
+                point,
+                cursor,
+                scrollback_len,
+                self.grid.rows,
+            )
         };
-        // v1 same-row only (D-SHC-4) + the prompt-context gate (T4).
-        if !at_live_prompt || point.row != cursor.row {
+        let Some(delta) = delta else {
             return false;
-        }
-        let Some(report) = report else {
-            return false; // same-cell click ⇒ no movement (T4)
         };
-        let bytes = click_position_bytes(report, self.key_modes());
+        let bytes = click_position_bytes(delta, self.key_modes());
         if bytes.is_empty() {
             return false;
         }
@@ -2085,8 +2109,129 @@ impl App {
 /// clamps to pixel 1; a cursor at or past the right/bottom edge (e.g. while
 /// dragging outside the window) clamps to the last in-grid pixel, mirroring how
 /// [`selection::cell_at_physical_with_padding`] saturates the cell path.
+/// SH-CLICK (F2): resolve a plain click against the core-derived
+/// [`InputRegion`](crate::core::InputRegion) into a signed glyph delta —
+/// how many Left (negative) or Right (positive) presses move the shell's
+/// line-editor caret from the cursor to the clicked position. `None` means
+/// no travel: the click was off the region, on the prompt side of the input
+/// start, on an untrustworthy geometry, or on the cursor's own position.
+///
+/// Certainty ladder (F2 §3, operator-approved):
+/// - `Unknown` (stale mark, or a hard-newline multi-logical-line buffer per
+///   the signal's `nl=` offsets) → `None`. Left/Right DO cross hard newlines
+///   in every editor, but the continuation-prompt geometry (PS2 / `>>` /
+///   fish indent) is unmodeled, so an exact count is not computable — v1
+///   no-ops rather than landing the caret on the wrong logical line.
+/// - `Exact` (fresh private edit-region signal) → rune-precise travel over
+///   the reconciled `row_spans` (wrap fillers excluded), including soft-wrap
+///   multi-row travel.
+/// - `RightEdgeUnknown` (bash / PowerShell / fish mid-edit) → grapheme-cell
+///   heuristic over the region bounds, also multi-row across soft wraps.
+///   Off-by-one is tolerable here because motion is NON-destructive and
+///   every editor clamps the caret at the buffer ends: a mis-land is a
+///   click-again, never a wrong edit (contrast select+Delete's charter).
+///
+/// Click mapping within the region's rows: a click left of a row's input
+/// span start (the prompt) is a no-op (F2 G2 — the shipped code walked the
+/// caret to buffer position 0 there); a click at or right of the span end
+/// clamps to the end of that row's input (a decoration/autosuggestion click
+/// moves the caret to the true input end, extra motion absorbed by the
+/// shell's own clamp). Glyph counting skips wide-glyph continuation cells,
+/// so one wide glyph is one press — the shipped raw-cell delta over-sent
+/// arrows on CJK/emoji lines (F2-NF1).
+///
+/// Pure and GPU-free; `click` and `cursor` are in visible-viewport
+/// coordinates, the region is absolute (offset by `scrollback_len`).
+fn click_travel_delta(
+    snapshot: &Snapshot,
+    region: &crate::core::InputRegion,
+    click: CellPoint,
+    cursor: Position,
+    scrollback_len: usize,
+    grid_rows: usize,
+) -> Option<i32> {
+    use super::pointer::snapshot_row_cell_count;
+    if region.certainty == crate::core::InputCertainty::Unknown {
+        return None;
+    }
+    let base_visible = region.start_row.checked_sub(scrollback_len)?;
+    let row_count = region.end_row - region.start_row + 1;
+    if base_visible + row_count > grid_rows {
+        return None;
+    }
+    // F2 G2: the click must land on the region's rows.
+    if click.row < base_visible || click.row >= base_visible + row_count {
+        return None;
+    }
+    let columns = snapshot.dimensions.columns;
+    if columns == 0 {
+        return None;
+    }
+    // Per-row input spans `(start_col, end_col_exclusive)`: authoritative under
+    // Exact (core's reconciled rune walk); reconstructed from the region bounds
+    // under RightEdgeUnknown (row 0 starts at the `B` mark, wrapped
+    // continuation rows span the full width, the last row ends at the
+    // heuristic edge).
+    let spans: Vec<(usize, usize)> = if region.certainty == crate::core::InputCertainty::Exact
+        && region.row_spans.len() == row_count
+    {
+        region.row_spans.clone()
+    } else {
+        (0..row_count)
+            .map(|rel| {
+                let start = if rel == 0 { region.start_col } else { 0 };
+                let end = if rel == row_count - 1 {
+                    region.end_col.min(columns)
+                } else {
+                    columns
+                };
+                (start, end)
+            })
+            .collect()
+    };
+    // Flattened glyph offset at each row's span start (soft wraps carry no
+    // newline, so the spans concatenate into one logical horizontal axis —
+    // same flatten as the R5 delete rung).
+    let mut prefix = Vec::with_capacity(row_count);
+    let mut total = 0usize;
+    for (rel, &(start, end)) in spans.iter().enumerate() {
+        prefix.push(total);
+        if start < end {
+            total += snapshot_row_cell_count(snapshot, base_visible + rel, start, end - 1);
+        }
+    }
+    // Flattened glyph offset of a caret position on a region row: glyphs
+    // between the span start and `col`, clamped right to the span end.
+    let flat_at = |row_rel: usize, col: usize| -> usize {
+        let (start, end) = spans[row_rel];
+        let col = col.clamp(start, end);
+        prefix[row_rel]
+            + if col > start {
+                snapshot_row_cell_count(snapshot, base_visible + row_rel, start, col - 1)
+            } else {
+                0
+            }
+    };
+    let click_rel = click.row - base_visible;
+    // Prompt-side click (left of the input start on its row): a proper no-op,
+    // never a caret walk to buffer position 0.
+    if click.column < spans[click_rel].0 {
+        return None;
+    }
+    let target = flat_at(click_rel, click.column);
+    // The cursor sits on the region's rows whenever certainty != Unknown; a
+    // disagreement here means the region and grid raced — degrade to no-op.
+    let cursor_rel = cursor.row.checked_sub(base_visible)?;
+    if cursor_rel >= row_count {
+        return None;
+    }
+    let cursor_flat = flat_at(cursor_rel, cursor.column);
+    let delta = i32::try_from(target).ok()? - i32::try_from(cursor_flat).ok()?;
+    if delta == 0 { None } else { Some(delta) }
+}
+
 /// SH-CLICK: encode the cursor-positioning key burst for a click-to-position
-/// report — `|cell_delta|` repetitions of Left (negative delta) or Right
+/// travel delta — `|delta|` repetitions of Left (negative delta) or Right
 /// (positive delta), each encoded through the live [`KeyModes`] so a shell in
 /// DECCKM application-cursor mode receives the SS3 form (`\x1bOC`/`\x1bOD`), not
 /// the CSI form (`\x1b[C`/`\x1b[D`). This is the load-bearing encoding trap:
@@ -2095,14 +2240,13 @@ impl App {
 /// MUST be identical to a real arrow keypress in every mode.
 ///
 /// Pure and total: returns the exact bytes the PTY writer receives. A
-/// zero-delta report cannot reach here ([`crate::core::click_report`] returns
-/// `None` for a same-cell click), and the delta is already saturated into
-/// `i32` range by core, so `unsigned_abs` never overflows.
-fn click_position_bytes(report: crate::core::ClickReport, modes: KeyModes) -> Vec<u8> {
-    let (key, count) = if report.cell_delta < 0 {
-        (Key::Left, report.cell_delta.unsigned_abs() as usize)
+/// zero delta cannot reach here ([`click_travel_delta`] returns `None` for a
+/// same-position click), so `unsigned_abs` never overflows.
+fn click_position_bytes(delta: i32, modes: KeyModes) -> Vec<u8> {
+    let (key, count) = if delta < 0 {
+        (Key::Left, delta.unsigned_abs() as usize)
     } else {
-        (Key::Right, report.cell_delta as usize)
+        (Key::Right, delta as usize)
     };
     let arrow = input::encode_key_event(key, Modifiers::NONE, modes, KeyEventType::Press);
     arrow.repeat(count)
@@ -2128,7 +2272,7 @@ fn pixel_coords_for_report(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::{ClickReport, MouseTracking};
+    use crate::core::MouseTracking;
 
     fn resolved_path(abs: &str) -> crate::paths::Resolved {
         crate::paths::Resolved {
@@ -2228,14 +2372,14 @@ mod tests {
     fn click_position_emits_right_arrows_in_csi_mode() {
         // A positive delta (click right of the cursor) emits that many Right
         // cursor keys in the default CSI form.
-        let bytes = click_position_bytes(ClickReport { cell_delta: 5 }, KeyModes::default());
+        let bytes = click_position_bytes(5, KeyModes::default());
         assert_eq!(bytes, b"\x1b[C".repeat(5));
     }
 
     #[test]
     fn click_position_emits_left_arrows_in_csi_mode() {
         // A negative delta (click left of the cursor) emits Left cursor keys.
-        let bytes = click_position_bytes(ClickReport { cell_delta: -3 }, KeyModes::default());
+        let bytes = click_position_bytes(-3, KeyModes::default());
         assert_eq!(bytes, b"\x1b[D".repeat(3));
     }
 
@@ -2245,26 +2389,23 @@ mod tests {
         // application-cursor mode must receive the SS3 forms (\x1bOC / \x1bOD),
         // byte-identical to a real arrow keypress, NOT the CSI forms. This is
         // why the burst routes through `encode_key_event`, never hardcoded bytes.
-        let right = click_position_bytes(ClickReport { cell_delta: 5 }, app_cursor_modes());
+        let right = click_position_bytes(5, app_cursor_modes());
         assert_eq!(right, b"\x1bOC".repeat(5));
-        let left = click_position_bytes(ClickReport { cell_delta: -2 }, app_cursor_modes());
+        let left = click_position_bytes(-2, app_cursor_modes());
         assert_eq!(left, b"\x1bOD".repeat(2));
     }
 
     #[test]
     fn click_position_burst_length_matches_delta_magnitude() {
         // The number of arrows equals |delta|; a single-cell move emits one key.
+        assert_eq!(click_position_bytes(1, KeyModes::default()), b"\x1b[C");
         assert_eq!(
-            click_position_bytes(ClickReport { cell_delta: 1 }, KeyModes::default()),
-            b"\x1b[C"
-        );
-        assert_eq!(
-            click_position_bytes(ClickReport { cell_delta: -1 }, KeyModes::default()).len(),
+            click_position_bytes(-1, KeyModes::default()).len(),
             b"\x1b[D".len()
         );
         // A wide delta maps to exactly that many arrows (no off-by-one), without
         // exercising an absurd allocation.
-        let wide = click_position_bytes(ClickReport { cell_delta: 200 }, KeyModes::default());
+        let wide = click_position_bytes(200, KeyModes::default());
         assert_eq!(wide.len(), b"\x1b[C".len() * 200);
     }
 

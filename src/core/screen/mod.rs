@@ -236,9 +236,8 @@ pub struct Screen {
     /// per prompt via a `click_events=1` attribute (and clears it with `=0`); a
     /// plain prompt leaves it unchanged. Off at power-on; RIS resets it. Advisory
     /// state only — core never acts on it; the native pointer layer reads it and,
-    /// on a click on the active prompt line, maps [`prompt_marks::click_report`]
-    /// to cursor-key presses. Default-off means the emit path is inert until the
-    /// app opts in.
+    /// on a click on the live input region, synthesizes cursor-key presses
+    /// (F2). Default-off means the emit path is inert until the app opts in.
     click_events_enabled: bool,
     /// Column where the active OSC 133 `B` input boundary was reported, in the
     /// absolute row coordinate space used by prompt marks. This is advisory
@@ -1313,9 +1312,9 @@ impl Screen {
 
     /// Whether OSC 133 click-to-position (SH-CLICK) is currently enabled by the
     /// shell. Advisory: the native pointer layer reads this to decide whether a
-    /// click on the active prompt line should emit a
-    /// [`prompt_marks::click_report`]; core never acts on it. Off until a
-    /// `click_events=1` prompt attribute opts in.
+    /// click on the live input region should synthesize cursor-key presses
+    /// (F2); core never acts on it. Off until a `click_events=1` prompt
+    /// attribute opts in.
     pub fn click_events_enabled(&self) -> bool {
         self.click_events_enabled
     }

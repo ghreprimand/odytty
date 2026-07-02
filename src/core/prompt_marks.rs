@@ -87,13 +87,14 @@ fn parse_exit_code(part: &[u8]) -> Option<i32> {
 /// accept click-to-position: `click_events=1` enables it, `click_events=0`
 /// withdraws it. OdyTTY tracks the latest explicit directive as terminal state
 /// (default off); the native pointer layer reads that state and, on a click
-/// within the active prompt line, maps the [`ClickReport`] this module emits to
-/// the cursor-key presses that move the shell cursor.
+/// within the live input region (modeled by
+/// [`InputRegion`](super::input_region::InputRegion)), synthesizes the
+/// cursor-key presses that move the shell cursor (F2).
 ///
 /// **Charter boundary:** this is the click-to-position slice only. Core parses
-/// the enable/disable and emits a structured horizontal delta; it never takes
-/// over shell input, never does multi-cursor or undo, and never writes to the
-/// host on its own.
+/// the enable/disable and models the input geometry; it never takes over shell
+/// input, never does multi-cursor or undo, and never writes to the host on its
+/// own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClickEvents {
     /// `click_events=1`: the shell's line editor accepts click-to-position.
@@ -140,59 +141,6 @@ pub(in crate::core) fn parse_click_events(parts: &[&[u8]]) -> Option<ClickEvents
         };
     }
     None
-}
-
-/// A structured click-to-position request (SH-CLICK): the signed horizontal cell
-/// delta from the shell line-editor cursor to the clicked cell. Owned and
-/// `Copy` — it carries no borrow into grid/screen state, so the native layer can
-/// hold it freely (mirroring the [`AbsolutePoint`] owned-carrier pattern).
-///
-/// The native layer turns `cell_delta` into that many cursor-key presses
-/// (`Left` for a negative delta, `Right` for a positive one) sent to the host —
-/// the click-to-position action. Core computes the delta; native owns the wire.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ClickReport {
-    /// Net horizontal movement in cells from the cursor to the clicked cell:
-    /// negative = move left, positive = move right. Never zero — a click on the
-    /// cursor's own cell yields `None` from [`click_report`] (no event).
-    pub cell_delta: i32,
-}
-
-/// Derive the click-to-position request for a click on the active prompt line,
-/// or `None` when no movement should occur (SH-CLICK).
-///
-/// `enabled` is the OSC 133 click-events state ([`ClickEvents`], tracked by the
-/// screen). **Default-off contract:** when the app has not enabled click-events
-/// this returns `None` and touches nothing, so the emit path is byte-identical
-/// to today (no event produced, no host write).
-///
-/// `cursor_column` is the line-editor cursor's current column and `click_column`
-/// the clicked cell's column — both 0-based within the prompt row. The native
-/// layer confirms the click landed on the active prompt line (the row gate is a
-/// native concern) before calling; core's contract is purely the horizontal
-/// delta `click_column - cursor_column`. A click on the cursor's own cell yields
-/// `None`.
-///
-/// Pure; never panics. Column counts are clamped into `i32` range and the delta
-/// uses a saturating subtraction, so even absurd column values cannot overflow.
-pub fn click_report(
-    enabled: bool,
-    cursor_column: usize,
-    click_column: usize,
-) -> Option<ClickReport> {
-    if !enabled {
-        return None;
-    }
-    // Clamp into i32 range defensively (grid columns never approach this, but a
-    // malformed caller value must not overflow the cast or the subtraction).
-    let cursor = cursor_column.min(i32::MAX as usize) as i32;
-    let click = click_column.min(i32::MAX as usize) as i32;
-    let cell_delta = click.saturating_sub(cursor);
-    if cell_delta == 0 {
-        None
-    } else {
-        Some(ClickReport { cell_delta })
-    }
 }
 
 /// The output region of a [`CommandBlock`], derived from the marks that bound
@@ -689,55 +637,6 @@ mod tests {
             parse_click_events(&[b"A", b"click_events=1", b"click_events=0"]),
             Some(ClickEvents::Enable)
         );
-    }
-
-    #[test]
-    fn click_report_inert_when_disabled() {
-        // Default-off contract: not enabled → None regardless of the columns, so
-        // the emit path is byte-identical to today (no event).
-        assert_eq!(click_report(false, 5, 20), None);
-        assert_eq!(click_report(false, 0, 0), None);
-    }
-
-    #[test]
-    fn click_report_signed_delta_when_enabled() {
-        // Click right of the cursor → positive (move right); left → negative.
-        assert_eq!(
-            click_report(true, 4, 10),
-            Some(ClickReport { cell_delta: 6 })
-        );
-        assert_eq!(
-            click_report(true, 10, 4),
-            Some(ClickReport { cell_delta: -6 })
-        );
-    }
-
-    #[test]
-    fn click_report_same_cell_is_none() {
-        // A click on the cursor's own cell is a no-op (no movement event).
-        assert_eq!(click_report(true, 7, 7), None);
-        assert_eq!(click_report(true, 0, 0), None);
-    }
-
-    #[test]
-    fn click_report_does_not_overflow_on_absurd_columns() {
-        // Defensive: huge column values clamp into i32 range and the saturating
-        // subtraction never panics. usize::MAX click, 0 cursor → +i32::MAX.
-        assert_eq!(
-            click_report(true, 0, usize::MAX),
-            Some(ClickReport {
-                cell_delta: i32::MAX
-            })
-        );
-        // usize::MAX cursor, 0 click → -i32::MAX (saturates, no underflow).
-        assert_eq!(
-            click_report(true, usize::MAX, 0),
-            Some(ClickReport {
-                cell_delta: -i32::MAX
-            })
-        );
-        // Both clamped to i32::MAX → equal → None.
-        assert_eq!(click_report(true, usize::MAX, usize::MAX), None);
     }
 
     // --- CommandBlock derivation (SH2 core) ---
