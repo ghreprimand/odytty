@@ -178,17 +178,41 @@ fn handle_command(
     cell_metrics: CellMetrics,
 ) -> Result<KittyOutcome, KittyError> {
     if command.control.more_chunks {
-        if state.pending.is_some() {
-            return Err(KittyError::MalformedControl);
-        }
-        if command.payload.len() > MAX_PENDING_ENCODED_BYTES {
-            return Err(KittyError::PayloadTooLarge);
-        }
-        let prefix = command.control.response_prefix();
-        state.pending = Some(PendingTransmission {
-            control: command.control,
-            encoded_payload: command.payload,
-        });
+        // C3: a chunked transmission is FIRST chunk (full control data, m=1),
+        // then ANY NUMBER of intermediate chunks (m=1, payload only), then the
+        // final chunk (m=0). The old code treated an existing pending
+        // accumulation as malformed, capping every transmission at exactly two
+        // chunks and rejecting real emitters (kitty icat, timg, term-image)
+        // that split large images into many chunks. Intermediate chunks append
+        // to the pending payload under the same MAX_PENDING_ENCODED_BYTES
+        // budget the final-chunk merge enforces; their control keys (beyond
+        // `m`) are ignored, matching kitty's protocol where only the first
+        // chunk carries the transmission metadata.
+        let prefix = match state.pending.as_mut() {
+            Some(pending) => {
+                if pending
+                    .encoded_payload
+                    .len()
+                    .saturating_add(command.payload.len())
+                    > MAX_PENDING_ENCODED_BYTES
+                {
+                    return Err(KittyError::PayloadTooLarge);
+                }
+                pending.encoded_payload.extend_from_slice(&command.payload);
+                pending.control.response_prefix()
+            }
+            None => {
+                if command.payload.len() > MAX_PENDING_ENCODED_BYTES {
+                    return Err(KittyError::PayloadTooLarge);
+                }
+                let prefix = command.control.response_prefix();
+                state.pending = Some(PendingTransmission {
+                    control: command.control,
+                    encoded_payload: command.payload,
+                });
+                prefix
+            }
+        };
         return Ok(KittyOutcome {
             dirty: false,
             cursor: None,
@@ -933,4 +957,41 @@ pub(super) fn test_decode_base64(
     max_decoded: usize,
 ) -> Result<Vec<u8>, &'static str> {
     decode_base64(input, max_decoded).map_err(|err| err.message())
+}
+
+/// C3 test seam: drive `handle_command` with an intermediate (`m=1`) chunk of
+/// `chunk_len` bytes appended onto a pending accumulation of `pending_len`
+/// bytes, without round-tripping ~100 MB of base64 through the parser. Returns
+/// the error message, or `None` when the append is accepted.
+#[cfg(test)]
+pub(super) fn test_intermediate_chunk_append(
+    pending_len: usize,
+    chunk_len: usize,
+) -> Option<&'static str> {
+    let mut state = KittyState {
+        pending: Some(PendingTransmission {
+            control: ControlData::default(),
+            encoded_payload: vec![b'A'; pending_len],
+        }),
+    };
+    let mut graphics = ImageScene::default();
+    let command = Command {
+        control: ControlData {
+            more_chunks: true,
+            ..ControlData::default()
+        },
+        payload: vec![b'A'; chunk_len],
+    };
+    handle_command(
+        &mut state,
+        &mut graphics,
+        command,
+        0,
+        0,
+        4,
+        20,
+        CellMetrics::default(),
+    )
+    .err()
+    .map(|err| err.message())
 }

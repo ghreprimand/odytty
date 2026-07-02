@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Kitty graphics: accept N-chunk transmissions (audit C3)
+
+Tier 3 audit fix (C3). The Kitty graphics chunked-transmission accumulator
+treated a second `m=1` chunk as a protocol violation (`pending.is_some()` →
+`malformed-control`), capping every transmission at exactly TWO chunks
+(one `m=1` + the final `m=0`). Real emitters — kitty's own `icat`, timg,
+term-image — split large images into many 4 KB chunks, so any non-trivial
+image transfer was rejected. Per the kitty protocol, a transmission is one
+first chunk carrying the full control data, any number of intermediate
+`m=1` payload-only chunks, then the `m=0` final chunk. Intermediate chunks
+now append to the pending accumulation; each append enforces the same
+`MAX_PENDING_ENCODED_BYTES` (96 MB) budget the final-chunk merge already
+enforced, so a client cannot grow the pending buffer without bound one
+chunk at a time. Control keys on intermediate chunks (beyond `m`) are
+ignored, matching kitty. Regression tests: a four-chunk RGBA transmission
+(failed before with `malformed-control` on the second chunk; the image now
+assembles and places), and a budget test at the exact cap boundary via a
+private test seam (in-budget accepted, cap-inclusive accepted, one byte
+over rejected with `payload-too-large`). Existing two-chunk, RIS-clears-
+pending, and quiet-mode tests unchanged and green.
+
 ## 2026-07-01 -- Test-suite wedge on early pipe-close: opener zombie reap + piped-close CI guard
 
 TEST-HANG packet (operator-filed P2). Symptom: `cargo test 2>&1 | grep … |

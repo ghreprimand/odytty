@@ -148,6 +148,78 @@ fn kitty_chunked_transmission_accumulates_until_final_chunk() {
     assert_eq!(t.take_host_output(), b"\x1b_Gi=5;OK\x1b\\");
 }
 
+/// C3 regression: real emitters (kitty's own `icat`, timg, term-image) split
+/// large images into MANY `m=1` chunks before the final `m=0` — not just one.
+/// The old accumulator errored with `malformed-control` on the SECOND `m=1`
+/// chunk (`pending.is_some()` was treated as a protocol violation), so any
+/// image over two chunks was rejected.
+#[test]
+fn kitty_chunked_transmission_accepts_many_intermediate_chunks() {
+    let mut t = Terminal::new(20, 4);
+    let payload = rgba_2x1();
+    let encoded = b64(&payload);
+    assert!(encoded.len() >= 4, "need at least 4 bytes to split 4 ways");
+    let quarter = encoded.len() / 4;
+
+    let first = format!(
+        "\x1b_Gf=32,a=T,t=d,s=2,v=1,i=9,m=1;{}\x1b\\",
+        &encoded[..quarter]
+    );
+    t.advance(first.as_bytes());
+    assert_eq!(t.take_host_output(), b"\x1b_Gi=9;OK\x1b\\");
+
+    // Two more INTERMEDIATE chunks — the shape the old code rejected.
+    for part in [
+        &encoded[quarter..2 * quarter],
+        &encoded[2 * quarter..3 * quarter],
+    ] {
+        t.advance(format!("\x1b_Gm=1;{part}\x1b\\").as_bytes());
+        assert!(t.visible_graphics(0).is_empty());
+        let out = String::from_utf8(t.take_host_output()).unwrap();
+        assert!(
+            out.contains("OK"),
+            "intermediate chunk must be accepted, got: {out:?}"
+        );
+    }
+
+    t.advance(format!("\x1b_Gm=0;{}\x1b\\", &encoded[3 * quarter..]).as_bytes());
+    assert_eq!(t.visible_graphics(0).len(), 1);
+    let image = t
+        .graphics()
+        .store()
+        .get(t.visible_graphics(0)[0].image_id)
+        .unwrap();
+    assert_eq!(image.rgba, rgba_2x1());
+    assert_eq!(t.take_host_output(), b"\x1b_Gi=9;OK\x1b\\");
+}
+
+/// C3 budget: every intermediate-chunk append enforces the same
+/// `MAX_PENDING_ENCODED_BYTES` cap the final-chunk merge does — a client
+/// cannot grow the pending accumulation without bound one `m=1` chunk at a
+/// time. Uses the private test seam to avoid feeding ~100 MB of base64
+/// through the parser.
+#[test]
+fn kitty_intermediate_chunk_append_enforces_pending_budget() {
+    const MAX: usize = 96 * 1024 * 1024; // MAX_PENDING_ENCODED_BYTES
+
+    // Within budget: accepted.
+    assert_eq!(
+        super::kitty::test_intermediate_chunk_append(1024, 1024),
+        None
+    );
+    // Exactly at the cap: still accepted (inclusive bound, matches the
+    // final-merge check).
+    assert_eq!(
+        super::kitty::test_intermediate_chunk_append(MAX - 8, 8),
+        None
+    );
+    // One byte over: rejected.
+    assert_eq!(
+        super::kitty::test_intermediate_chunk_append(MAX - 8, 9),
+        Some("payload-too-large")
+    );
+}
+
 #[test]
 fn kitty_cursor_moves_only_when_c_flag_requests_it() {
     let mut t = Terminal::new(20, 4);
