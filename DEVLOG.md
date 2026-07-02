@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Reload keeps the command-status-gutter env override (C14)
+
+`ODYTTY_COMMAND_STATUS_GUTTER` was declared but missing from
+`SETTING_ENV_KEYS` — the list `reload::env_snapshot` uses to capture env
+overrides at startup — so the gutter's env setting silently vanished on the
+first config-file reload (the reloaded settings recomputed with the env value
+absent). Added to the list, and a new structural test parses
+`settings/consts.rs` at compile time and asserts every declared `*_ENV`
+const's key is listed (and, inversely, that the list holds no undeclared
+strays), so a future key can't repeat the omission. Fails-before verified:
+the test names exactly `ODYTTY_COMMAND_STATUS_GUTTER` on the pre-fix tree.
+Gates green.
+
 ## 2026-07-02 -- Multi-pane frames wash the wallpaper edges like single-pane (NF11)
 
 With a background image, translucent cell backgrounds, and 2+ panes, the
