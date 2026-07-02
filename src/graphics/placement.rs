@@ -493,6 +493,7 @@ impl ImageScene {
         offset_rows: usize,
         viewport_rows: usize,
         viewport_columns: usize,
+        cell_height_px: u32,
     ) -> Vec<VisiblePlacement> {
         let offset = offset_rows as isize;
         let active = self.active;
@@ -509,19 +510,36 @@ impl ImageScene {
             {
                 continue;
             }
+            // C21: a placement partially scrolled above the viewport top must
+            // show its LOWER portion, not re-anchor its top rows at row 0.
+            // Advance the source rect by the clipped pixel rows (placements
+            // render 1:1, so one display row == one cell height of source
+            // pixels). `height == 0` means "to the image bottom" and needs no
+            // reduction — the advanced `y` shrinks it implicitly.
+            let clipped_rows = usize::try_from(-projected_row).unwrap_or(0);
+            let mut source = placement.source;
+            if clipped_rows > 0 {
+                let clip_px = (clipped_rows as u32).saturating_mul(cell_height_px);
+                source.y = source.y.saturating_add(clip_px);
+                if source.height != 0 {
+                    source.height = source.height.saturating_sub(clip_px);
+                }
+            }
+            let row = projected_row.max(0) as usize;
             visible.push(VisiblePlacement {
                 id: placement.id,
                 image_id: placement.image_id,
                 protocol: placement.protocol,
-                row: projected_row.max(0) as usize,
+                row,
                 column: placement.anchor.column,
-                source: placement.source,
+                source,
                 display_columns: placement
                     .display_columns
                     .min(viewport_columns - placement.anchor.column),
                 display_rows: placement
                     .display_rows
-                    .min(viewport_rows - projected_row.max(0) as usize),
+                    .saturating_sub(clipped_rows)
+                    .min(viewport_rows - row),
                 pixel_offset_x: placement.pixel_offset_x,
                 pixel_offset_y: placement.pixel_offset_y,
                 z_index: placement.z_index,

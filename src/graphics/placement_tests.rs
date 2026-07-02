@@ -27,11 +27,69 @@ fn places_images_and_projects_visible_placements() {
         ))
         .unwrap();
 
-    let visible = scene.visible_placements(0, 5, 10);
+    let visible = scene.visible_placements(0, 5, 10, 16);
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].id, id);
     assert_eq!(visible[0].row, 1);
     assert_eq!(visible[0].column, 2);
+}
+
+#[test]
+fn clipped_top_placement_advances_source_by_clipped_rows() {
+    // C21: a placement scrolled partially above the viewport top must show
+    // its LOWER portion at row 0 — source.y advances by the clipped pixel
+    // rows and display_rows shrinks — instead of re-anchoring the image's
+    // top rows at the viewport top.
+    let mut scene = ImageScene::new(ImageStoreLimits::default());
+    let image_id = scene.insert_rgba(None, 8, 64, rgba(8, 64)).unwrap().id;
+    scene
+        .place(
+            PlacementRequest::new(image_id, GraphicsProtocol::Kitty, 0, 0, 1, 4).with_source(
+                SourceRect {
+                    x: 0,
+                    y: 0,
+                    width: 8,
+                    height: 64,
+                },
+            ),
+        )
+        .unwrap();
+
+    // Scroll the full screen up by 2 rows: anchor row 0 -> -2. With no
+    // scrollback rows retained, the top 2 display rows are clipped.
+    scene.scroll_full_up(2, 0);
+
+    let visible = scene.visible_placements(0, 5, 8, 16);
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].row, 0);
+    assert_eq!(visible[0].display_rows, 2, "2 of 4 rows remain visible");
+    assert_eq!(visible[0].source.y, 32, "2 clipped rows x 16px advanced");
+    assert_eq!(visible[0].source.height, 32, "height reduced to match");
+}
+
+#[test]
+fn clipped_top_placement_with_open_source_height_advances_y_only() {
+    // C21: `height == 0` means "to the image bottom"; the advanced `y`
+    // shrinks the effective rect implicitly and height must stay 0.
+    let mut scene = ImageScene::new(ImageStoreLimits::default());
+    let image_id = scene.insert_rgba(None, 8, 64, rgba(8, 64)).unwrap().id;
+    scene
+        .place(PlacementRequest::new(
+            image_id,
+            GraphicsProtocol::Sixel,
+            0,
+            0,
+            1,
+            4,
+        ))
+        .unwrap();
+    scene.scroll_full_up(1, 0);
+
+    let visible = scene.visible_placements(0, 5, 8, 16);
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].source.y, 16);
+    assert_eq!(visible[0].source.height, 0, "open height stays open");
+    assert_eq!(visible[0].display_rows, 3);
 }
 
 #[test]
@@ -50,8 +108,8 @@ fn full_scroll_moves_placements_into_scrollback_projection() {
 
     scene.scroll_full_up(1, 1);
 
-    assert!(scene.visible_placements(0, 3, 8).is_empty());
-    let scrolled_back = scene.visible_placements(1, 3, 8);
+    assert!(scene.visible_placements(0, 3, 8, 16).is_empty());
+    let scrolled_back = scene.visible_placements(1, 3, 8, 16);
     assert_eq!(scrolled_back.len(), 1);
     assert_eq!(scrolled_back[0].row, 0);
 }
@@ -72,7 +130,7 @@ fn erase_display_mode_two_clears_active_placements() {
 
     scene.erase_display(2, 0, 0, 4, 8);
 
-    assert!(scene.visible_placements(0, 4, 8).is_empty());
+    assert!(scene.visible_placements(0, 4, 8, 16).is_empty());
     assert!(scene.store().contains(image_id));
 }
 
@@ -91,7 +149,7 @@ fn alternate_screen_placements_are_isolated_and_discarded_on_leave() {
         .unwrap();
 
     scene.enter_alternate(true);
-    assert!(scene.visible_placements(0, 3, 8).is_empty());
+    assert!(scene.visible_placements(0, 3, 8, 16).is_empty());
     scene
         .place(PlacementRequest::new(
             image_id,
@@ -102,10 +160,10 @@ fn alternate_screen_placements_are_isolated_and_discarded_on_leave() {
             1,
         ))
         .unwrap();
-    assert_eq!(scene.visible_placements(0, 3, 8).len(), 1);
+    assert_eq!(scene.visible_placements(0, 3, 8, 16).len(), 1);
 
     scene.leave_alternate();
-    let visible = scene.visible_placements(0, 3, 8);
+    let visible = scene.visible_placements(0, 3, 8, 16);
     assert_eq!(visible.len(), 1);
     assert_eq!(visible[0].protocol, GraphicsProtocol::Kitty);
 }

@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Graphics placements clipped at the viewport top show the right pixels (C21)
+
+A placement partially scrolled above the viewport top was clamped to row 0
+with its source rect untouched, so the image's TOP rows re-anchored at the
+top of the screen instead of the correct lower portion — scrolling a tall
+inline image looked like it "stuck" and jumped rather than sliding off.
+`visible_placements` now takes the cell height and, for top-clipped
+placements, advances `source.y` by the clipped pixel rows (placements render
+1:1: one display row = one cell height of source pixels), reduces an explicit
+`source.height` to match (an open `height == 0` rect shrinks implicitly), and
+trims `display_rows` by the clipped rows. Two regression tests cover the
+explicit-rect and open-height cases; the pixel-smoke harness was updated for
+the new parameter and its goldens stay green. Gates green.
+
 ## 2026-07-02 -- Sixel: color register range-checked before u16 narrowing (C20)
 
 `color_command` narrowed the raw u32 register number to u16 BEFORE the

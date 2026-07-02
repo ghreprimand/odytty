@@ -1123,8 +1123,12 @@ impl Screen {
     /// follows [`Self::snapshot_with_scrollback`]: `0` is the live screen,
     /// positive values page upward into scrollback.
     pub fn visible_graphics(&self, offset_rows: usize) -> Vec<VisiblePlacement> {
-        self.graphics
-            .visible_placements(offset_rows, self.dimensions.rows, self.dimensions.columns)
+        self.graphics.visible_placements(
+            offset_rows,
+            self.dimensions.rows,
+            self.dimensions.columns,
+            self.cell_metrics.height_px,
+        )
     }
 
     /// Number of sixel decode failures since power-on (debug diagnostic).

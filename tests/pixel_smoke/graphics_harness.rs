@@ -276,7 +276,7 @@ pub(crate) fn composite_scene(
         .count();
     let split = bg_quads.min(quads.len());
 
-    let placements = scene.visible_placements(offset_rows, rows, cols);
+    let placements = scene.visible_placements(offset_rows, rows, cols, atlas.cell.height);
 
     for &q in &quads[..split] {
         composite_quad(&mut frame, atlas, q);
@@ -326,7 +326,7 @@ pub(crate) fn composite_scene_with_color_glyphs(
         .filter(|cell| !cell.wide_continuation)
         .count();
     let split = bg_quads.min(quads.len());
-    let placements = scene.visible_placements(offset_rows, rows, cols);
+    let placements = scene.visible_placements(offset_rows, rows, cols, atlas.cell.height);
 
     for &q in &quads[..split] {
         composite_quad(&mut frame, atlas, q);
