@@ -172,3 +172,71 @@ fn held_settings_chord_does_not_repeat_toggle_the_overlay() {
         "C22: a second auto-repeat must still leave the overlay open"
     );
 }
+
+#[test]
+fn new_window_chord_reaches_the_spawn_boundary() {
+    // F1: Ctrl+Shift+N routes through the full production key path
+    // (handle_key_event → action_for → the NewWindow arm → handle_new_window)
+    // and reaches the spawn boundary. Under the test target the handler records
+    // the argv it WOULD spawn instead of launching a real second instance, so
+    // this asserts dispatch without any process side effect.
+    let Some(mut app) = build_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    // Ctrl+Shift+N is New Window's default binding (F1 reclaimed it).
+    let n = WinitKey::Character("n".into());
+    assert_eq!(
+        app.live_action_for_chord_for_test(&n, true, true),
+        Some(BindableAction::NewWindow),
+        "Ctrl+Shift+N binds to New Window by default"
+    );
+
+    // Clear any prior recordings on this thread, then drive the chord as a Press.
+    let _ = app.drain_new_window_spawns_for_test();
+    app.drive_char_with_mods_typed_for_test('n', true, true, KeyEventType::Press);
+
+    let spawns = app.drain_new_window_spawns_for_test();
+    assert_eq!(
+        spawns.len(),
+        1,
+        "the chord fires exactly one new-window spawn request"
+    );
+    let argv = &spawns[0];
+    assert_eq!(
+        argv.len(),
+        1,
+        "v1 launches the current exe with no extra args"
+    );
+    let exe = std::env::current_exe()
+        .expect("current exe resolvable in tests")
+        .into_os_string()
+        .into_string()
+        .expect("test exe path is valid UTF-8");
+    assert_eq!(
+        argv[0], exe,
+        "new-window argv is the current executable (inherits env)"
+    );
+
+    // A plain 'n' (no Ctrl+Shift) must NOT spawn — it is ordinary shell input.
+    let _ = app.drain_new_window_spawns_for_test();
+    app.drive_char_with_mods_typed_for_test('n', false, false, KeyEventType::Press);
+    assert!(
+        app.drain_new_window_spawns_for_test().is_empty(),
+        "an unmodified 'n' is shell input, never a new-window spawn"
+    );
+}
+
+#[test]
+fn new_window_argv_is_the_current_executable() {
+    // F1: the pure argv builder returns exactly the current exe, no args.
+    let argv = App::new_window_argv_for_test().expect("current exe resolvable in tests");
+    assert_eq!(argv.len(), 1, "no extra args in v1");
+    let exe = std::env::current_exe()
+        .expect("current exe resolvable")
+        .into_os_string()
+        .into_string()
+        .expect("valid UTF-8");
+    assert_eq!(argv[0], exe);
+}

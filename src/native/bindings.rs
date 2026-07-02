@@ -440,6 +440,13 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             char_chord('t', true, true, false, false),
             BindableAction::NewTab,
         ),
+        // New Window (F1): launch another OdyTTY instance. `Ctrl+Shift+N` is the
+        // gnome-terminal / kitty convention; it was freed in v0.3.1 (the old
+        // prompt-jump letter fallback was dropped) and is reclaimed here.
+        (
+            char_chord('n', true, true, false, false),
+            BindableAction::NewWindow,
+        ),
         (
             char_chord('w', true, true, false, false),
             BindableAction::CloseTab,
@@ -842,7 +849,8 @@ mod tests {
     fn prompt_jump_keeps_arrow_chords_and_drops_letter_fallbacks() {
         // The arrow chords remain the primary (and now sole default) prompt-jump
         // bindings; the `Ctrl+Shift+P` / `Ctrl+Shift+N` letter fallbacks were
-        // reclaimed in v0.3.1 (P → command palette, N is simply unbound).
+        // reclaimed in v0.3.1 (P → command palette; N was freed then, and is now
+        // bound to New Window in F1).
         let bindings = KeyBindings::default();
         assert_eq!(
             bindings.action_for_chord(named_chord(
@@ -866,7 +874,8 @@ mod tests {
             Some(BindableAction::JumpPromptNext),
             "Ctrl+Shift+Down still jumps to the next prompt"
         );
-        // The reclaimed P no longer maps to prompt-jump, and N is now unbound.
+        // The reclaimed P no longer maps to prompt-jump; N now opens a new window
+        // (F1) rather than being unbound.
         assert_ne!(
             bindings.action_for_chord(char_chord('p', true, true, false, false)),
             Some(BindableAction::JumpPromptPrev),
@@ -874,8 +883,8 @@ mod tests {
         );
         assert_eq!(
             bindings.action_for_chord(char_chord('n', true, true, false, false)),
-            None,
-            "Ctrl+Shift+N is unbound after the fallback was dropped"
+            Some(BindableAction::NewWindow),
+            "Ctrl+Shift+N opens a new window (F1)"
         );
     }
 

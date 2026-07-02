@@ -139,6 +139,12 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.handle_new_tab();
             }
+            // F1: the context menu closed itself; launch another OdyTTY window
+            // through the same handler the Ctrl+Shift+N chord fires.
+            OverlayOutcome::ContextMenuNewWindow => {
+                self.flush_pending_overlay_settings();
+                self.handle_new_window();
+            }
             OverlayOutcome::ContextMenuRenameTab(target) => {
                 self.flush_pending_overlay_settings();
                 self.enter_rename_tab(target);

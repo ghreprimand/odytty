@@ -74,8 +74,9 @@ fn context_menu_keyboard_scrolls_rendered_rows() {
     assert!(has_arrow(&before, '▼'), "more-below arrow shows initially");
     assert!(!has_arrow(&before, '▲'), "no more-above arrow at the top");
 
-    // Walk focus to the last item; the window must scroll to reveal it.
-    down(&mut app, 10);
+    // Walk focus down to Settings (item index 11 after F1's New Window); the
+    // window must scroll to reveal it.
+    down(&mut app, 11);
     let after = app.render_overlay_rows_for_test(TINY_COLS, TINY_ROWS);
     assert_ne!(
         joined(&before),
@@ -86,10 +87,10 @@ fn context_menu_keyboard_scrolls_rendered_rows() {
         has_arrow(&after, '▲'),
         "more-above arrow shows after scrolling"
     );
-    // The last item (Settings) is now painted, i.e. reachable.
+    // The now-focused Settings item is painted, i.e. reachable via scrolling.
     assert!(
         after.iter().any(|r| r.contains("Settings")),
-        "the last item is rendered after scrolling: {after:?}"
+        "the scrolled-to item is rendered after scrolling: {after:?}"
     );
 }
 

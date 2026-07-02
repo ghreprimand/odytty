@@ -185,6 +185,17 @@ enum SettingsApplySource {
     OverlayEdit,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// F1 test seam: argv vectors that [`App::handle_new_window`] would have
+    /// spawned. Under the test target the handler records here instead of
+    /// launching a real second OdyTTY instance, so chord/menu dispatch can be
+    /// asserted at the spawn boundary. Thread-local, so each libtest thread sees
+    /// only its own recordings; tests clear it before driving the dispatch.
+    static NEW_WINDOW_SPAWN_ARGV: std::cell::RefCell<Vec<Vec<String>>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
 /// Application state driving the `winit` event loop.
 ///
 /// The window is created lazily on `resumed` per `winit`'s portability
@@ -648,6 +659,48 @@ impl App {
             let _ = self.sessions.switch(session_id);
             self.on_active_session_changed();
         }
+    }
+
+    /// F1: launch another top-level OdyTTY window — a fresh process instance,
+    /// not a tab. Spawned from [`std::env::current_exe`] with no extra args, so
+    /// the child inherits this process's environment (theme/env overrides carry
+    /// over naturally). Routed through the reaper-backed [`spawn_detached`]
+    /// (never a bare `Command::spawn`), so the child is reaped and never left a
+    /// zombie. Best-effort: an unresolvable executable path or a spawn failure
+    /// is logged and dropped — a new-window request must never crash the
+    /// running window (consistent with the C6 log-and-drop philosophy). V1 does
+    /// NOT propagate the focused pane's shell cwd (that needs OSC 7 / procfs
+    /// plumbing; tracked as a follow-up).
+    pub(in crate::native) fn handle_new_window(&mut self) {
+        let Some(argv) = Self::new_window_argv() else {
+            tracing::warn!(
+                "new-window: could not resolve the current executable; not launching a window"
+            );
+            return;
+        };
+        #[cfg(test)]
+        {
+            // Test seam: record the argv that WOULD be spawned instead of
+            // launching a real second instance, so the chord/menu dispatch can
+            // be asserted at the spawn boundary without side effects.
+            NEW_WINDOW_SPAWN_ARGV.with(|cell| cell.borrow_mut().push(argv));
+        }
+        #[cfg(not(test))]
+        {
+            if let Err(err) = interactive_paths::spawn_detached(&argv) {
+                tracing::warn!(error = %err, "new-window: failed to launch a new OdyTTY window");
+            }
+        }
+    }
+
+    /// The argv that opens a new OdyTTY window: just the current executable, no
+    /// args (the child inherits the environment). Pure — returns `None` when the
+    /// current-exe path cannot be resolved or is not valid UTF-8 (the argv seam
+    /// is `String`-based). Split out so the dispatch decision is unit-testable
+    /// without spawning.
+    fn new_window_argv() -> Option<Vec<String>> {
+        let exe = std::env::current_exe().ok()?;
+        Some(vec![exe.into_os_string().into_string().ok()?])
     }
 
     /// Attach to a detached, session-host-backed session by id and present it as
@@ -1232,6 +1285,10 @@ impl App {
                 }
                 Some(BindableAction::NewTab) => {
                     self.handle_new_tab();
+                    return;
+                }
+                Some(BindableAction::NewWindow) => {
+                    self.handle_new_window();
                     return;
                 }
                 Some(BindableAction::NextTab) => {

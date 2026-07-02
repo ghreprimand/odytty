@@ -1409,4 +1409,21 @@ impl App {
     pub(in crate::native) fn overlay_left_held_for_test(&self) -> bool {
         self.overlay_left_held
     }
+
+    /// Test seam (F1): drain and clear the argv vectors that
+    /// [`App::handle_new_window`] recorded instead of actually spawning a second
+    /// OdyTTY instance. Lets a chord/menu dispatch test assert a New Window
+    /// request reached the spawn boundary without launching a real process.
+    #[cfg(test)]
+    pub(in crate::native) fn drain_new_window_spawns_for_test(&self) -> Vec<Vec<String>> {
+        NEW_WINDOW_SPAWN_ARGV.with(|cell| std::mem::take(&mut *cell.borrow_mut()))
+    }
+
+    /// Test seam (F1): the argv the App would spawn for a new window (just the
+    /// current executable). Exposes the pure `new_window_argv` builder so a test
+    /// can assert the argv shape without driving a full dispatch.
+    #[cfg(test)]
+    pub(in crate::native) fn new_window_argv_for_test() -> Option<Vec<String>> {
+        Self::new_window_argv()
+    }
 }

@@ -52,17 +52,18 @@ use crate::selection::CellPoint;
 use crate::settings::BindableAction;
 
 /// Number of entries in [`ContextMenuItem::ALL`] (Copy / Cut / Paste / Delete /
-/// Select All / New Tab / Rename Tab / Close Tab / Split Right / Split Down /
-/// Close Pane / Settings / Connection Manager / Command Palette / Session
-/// Replay / Manage Sessions / Open / Open in OdyTTY / Open With… / Copy Path /
-/// Copy File / Reveal in File Manager) — the size of the accelerator array the App fills in
-/// `ALL` order. NOT the number of *visible* items: Close Pane is hidden in a
-/// single-pane tab; path-scoped menus show only file actions plus pinned
-/// Copy/Paste text actions; "Open in OdyTTY" is shown only when the resolved
-/// path is an image file (C4); and "Open With…" is shown only when the resolved
-/// path is a regular file (C3b). With no path and single-pane the visible count
-/// is 15; with no path and multi-pane it is 16.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 23;
+/// Select All / New Tab / New Window / Rename Tab / Close Tab / Split Right /
+/// Split Down / Close Pane / Settings / Connection Manager / Command Palette /
+/// Session Replay / Manage Sessions / Detach & switch / Open / Open in OdyTTY /
+/// Open With… / Copy Path / Copy File / Reveal in File Manager) — the size of
+/// the accelerator array the App fills in `ALL` order. NOT the number of
+/// *visible* items: Close Pane is hidden in a single-pane tab; path-scoped menus
+/// show only file actions plus pinned Copy/Paste text actions; "Open in OdyTTY"
+/// is shown only when the resolved path is an image file (C4); and "Open With…"
+/// is shown only when the resolved path is a regular file (C3b). With no path
+/// and single-pane the visible count is 17; with no path and multi-pane it is
+/// 18.
+pub(super) const CONTEXT_MENU_ITEMS: usize = 24;
 
 /// Body row index of the first visual separator (single-pane layout), between
 /// Select All and New Tab. The separators move when Close Pane appears in a
@@ -73,28 +74,31 @@ pub(super) const CONTEXT_MENU_ITEMS: usize = 23;
 pub(super) const CONTEXT_MENU_SEPARATOR_ROW: usize = 5;
 
 /// Body row index of the second visual separator (single-pane layout), between
-/// Close Tab and the split actions.
+/// Close Tab and the split actions. Shifted down one row by the F1 "New Window"
+/// item, which extends the tab-actions section (New Tab / New Window / Rename
+/// Tab / Close Tab).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 9;
+pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 10;
 
 /// Body row index of the third visual separator (single-pane layout), between
 /// the split actions and Settings.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 12;
+pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 13;
 
 /// Body row index of the fourth visual separator (single-pane layout), between
 /// Settings and the launcher section (Connection Manager / Command Palette /
 /// Session Replay) added in v0.3.1.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 14;
+pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 15;
 
-/// Total body rows in the **single-pane** layout: sixteen visible items plus
+/// Total body rows in the **single-pane** layout: seventeen visible items plus
 /// four separator lines (Close Pane hidden). The multi-pane layout has one
 /// more row; production uses [`ContextMenuUi::body_row_count`] for the live
-/// count. (The sixteenth item is "Detach & switch", appended to the launcher
-/// section after "Manage Sessions" in Packet 2.)
+/// count. (The seventeenth item is "Detach & switch", appended to the launcher
+/// section after "Manage Sessions"; the F1 "New Window" item raised the count
+/// from sixteen.)
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 20;
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 21;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -111,6 +115,9 @@ pub(super) enum ContextMenuItem {
     Delete,
     SelectAll,
     NewTab,
+    /// Launch another top-level OdyTTY window (F1). Same action as the
+    /// `Ctrl+Shift+N` chord; a fresh process instance, not a tab.
+    NewWindow,
     RenameTab,
     CloseTab,
     /// Split the focused pane into side-by-side columns (new pane right). Same
@@ -179,6 +186,7 @@ impl ContextMenuItem {
         Self::Delete,
         Self::SelectAll,
         Self::NewTab,
+        Self::NewWindow,
         Self::RenameTab,
         Self::CloseTab,
         Self::SplitColumns,
@@ -206,7 +214,7 @@ impl ContextMenuItem {
     fn section(self) -> u8 {
         match self {
             Self::Copy | Self::Cut | Self::Paste | Self::Delete | Self::SelectAll => 0,
-            Self::NewTab | Self::RenameTab | Self::CloseTab => 1,
+            Self::NewTab | Self::NewWindow | Self::RenameTab | Self::CloseTab => 1,
             Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
             Self::Settings => 3,
             Self::ConnectionManager
@@ -232,6 +240,7 @@ impl ContextMenuItem {
             Self::Delete => "Delete",
             Self::SelectAll => "Select All",
             Self::NewTab => "New Tab",
+            Self::NewWindow => "New Window",
             Self::RenameTab => "Rename Tab",
             Self::CloseTab => "Close Tab",
             Self::SplitColumns => "Split Right",
@@ -262,6 +271,7 @@ impl ContextMenuItem {
             Self::Copy => Some(BindableAction::Copy),
             Self::Paste => Some(BindableAction::Paste),
             Self::NewTab => Some(BindableAction::NewTab),
+            Self::NewWindow => Some(BindableAction::NewWindow),
             Self::CloseTab => Some(BindableAction::CloseTab),
             Self::SplitColumns => Some(BindableAction::SplitColumns),
             Self::SplitRows => Some(BindableAction::SplitRows),
@@ -295,17 +305,18 @@ impl ContextMenuItem {
 }
 
 /// Map a selectable item index to its body row, accounting for the four
-/// separators. Items 0–4 sit at body rows 0–4; items 5–7 (tab actions) sit at
-/// body rows 6–8; items 8–9 (splits) sit at body rows 10–11; Settings (index
-/// 10) sits at body row 13; the launcher items 11–13 (Connection Manager /
-/// Command Palette / Session Replay) sit at body rows 15–17.
+/// separators. Items 0–4 sit at body rows 0–4; items 5–8 (tab actions: New Tab /
+/// New Window / Rename Tab / Close Tab) sit at body rows 6–9; items 9–10
+/// (splits) sit at body rows 11–12; Settings (index 11) sits at body row 14; the
+/// launcher items 12–16 (Connection Manager / Command Palette / Session Replay /
+/// Manage Sessions / Detach & switch) sit at body rows 16–20.
 #[cfg(test)]
 fn item_to_body_row(item_index: usize) -> usize {
-    if item_index >= 11 {
+    if item_index >= 12 {
         item_index + 4
-    } else if item_index >= 10 {
+    } else if item_index >= 11 {
         item_index + 3
-    } else if item_index >= 8 {
+    } else if item_index >= 9 {
         item_index + 2
     } else if item_index >= CONTEXT_MENU_SEPARATOR_ROW {
         item_index + 1
@@ -544,6 +555,7 @@ impl ContextMenuUi {
             ContextMenuItem::Delete => self.delete_enabled,
             ContextMenuItem::SelectAll => true,
             ContextMenuItem::NewTab => true,
+            ContextMenuItem::NewWindow => true,
             ContextMenuItem::RenameTab => self.rename_target.is_some(),
             ContextMenuItem::CloseTab => true,
             ContextMenuItem::SplitColumns => true,
@@ -1135,10 +1147,10 @@ mod tests {
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
         // Wraps from 0 to the last *visible* item (Detach & switch). Single-pane
-        // hides Close Pane, so the visible count is 16 (10 original + 1 Settings
-        // + 4 launchers + Detach & switch) and the last index is 15.
+        // hides Close Pane, so the visible count is 17 (10 original + New Window
+        // + 1 Settings + 4 launchers + Detach & switch) and the last index is 16.
         assert_eq!(m.focused, m.item_count() - 1);
-        assert_eq!(m.item_count(), 16);
+        assert_eq!(m.item_count(), 17);
         m.handle_input(OverlayInput::Down);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Down);
@@ -1188,9 +1200,16 @@ mod tests {
             m.handle_press(6, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::NewTab)
         );
-        assert_eq!(item_to_body_row(6), 7, "Rename Tab item is at body row 7");
+        // F1: New Window follows New Tab in the tab-actions section (body row 7),
+        // shifting Rename/Close Tab down one row each.
+        assert_eq!(item_to_body_row(6), 7, "New Window item is at body row 7");
         assert_eq!(
             m.handle_press(7, m.body_row_count(), PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::NewWindow)
+        );
+        assert_eq!(item_to_body_row(7), 8, "Rename Tab item is at body row 8");
+        assert_eq!(
+            m.handle_press(8, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Consumed
         );
         m.open(
@@ -1204,13 +1223,13 @@ mod tests {
             None,
         );
         assert_eq!(
-            m.handle_press(7, m.body_row_count(), PointerButton::Left),
+            m.handle_press(8, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::RenameTab)
         );
         assert_eq!(m.rename_target(), Some(SessionToken(9)));
-        assert_eq!(item_to_body_row(7), 8, "Close Tab item is at body row 8");
+        assert_eq!(item_to_body_row(8), 9, "Close Tab item is at body row 9");
         assert_eq!(
-            m.handle_press(8, m.body_row_count(), PointerButton::Left),
+            m.handle_press(9, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::CloseTab)
         );
     }
@@ -1218,19 +1237,24 @@ mod tests {
     #[test]
     fn split_items_always_activate() {
         let mut m = menu(false, false);
-        // SplitColumns is item index 8 → body row 10; SplitRows index 9 → row 11.
+        // SplitColumns is item index 9 → body row 11; SplitRows index 10 → row 12
+        // (shifted +1 by the F1 New Window item in the tab-actions section).
         assert_eq!(
-            item_to_body_row(8),
-            10,
-            "Split Right item is at body row 10"
+            item_to_body_row(9),
+            11,
+            "Split Right item is at body row 11"
         );
-        assert_eq!(
-            m.handle_press(10, m.body_row_count(), PointerButton::Left),
-            ContextMenuOutcome::Activate(ContextMenuItem::SplitColumns)
-        );
-        assert_eq!(item_to_body_row(9), 11, "Split Down item is at body row 11");
         assert_eq!(
             m.handle_press(11, m.body_row_count(), PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::SplitColumns)
+        );
+        assert_eq!(
+            item_to_body_row(10),
+            12,
+            "Split Down item is at body row 12"
+        );
+        assert_eq!(
+            m.handle_press(12, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::SplitRows)
         );
     }
@@ -1238,25 +1262,25 @@ mod tests {
     #[test]
     fn settings_always_activates() {
         let mut m = menu(false, false);
-        // Settings is at item index 10 → body row 13.
-        assert_eq!(item_to_body_row(10), 13, "Settings item is at body row 13");
+        // Settings is at item index 11 → body row 14 (shifted +1 by New Window).
+        assert_eq!(item_to_body_row(11), 14, "Settings item is at body row 14");
         assert_eq!(
-            m.handle_press(13, m.body_row_count(), PointerButton::Left),
+            m.handle_press(14, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::Settings)
         );
     }
 
     #[test]
     fn single_pane_menu_hides_close_pane() {
-        // Single-pane: Close Pane is absent; the layout is the 20-row menu with
+        // Single-pane: Close Pane is absent; the layout is the 21-row menu with
         // the launcher section (Connection Manager / Command Palette / Session
-        // Replay / Manage Sessions / Detach & switch) below Settings. Settings
-        // stays at body row 13; the launcher items follow after the fourth
-        // separator.
+        // Replay / Manage Sessions / Detach & switch) below Settings. F1's New
+        // Window item shifts Settings to body row 14; the launcher items follow
+        // after the fourth separator.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 16);
+        assert_eq!(m.item_count(), 17);
         let rows = m.rows();
-        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 20
+        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 21
         assert!(
             !rows.iter().any(|r| matches!(
                 r,
@@ -1267,28 +1291,32 @@ mod tests {
             )),
             "Close Pane must not appear in a single-pane menu"
         );
+        // F1: New Window sits between New Tab and Rename Tab (body rows 6/7/8).
+        assert_eq!(rows[6], item("New Tab", false, true));
+        assert_eq!(rows[7], item("New Window", false, true));
+        assert_eq!(rows[8], item("Rename Tab", false, false));
         assert_eq!(
-            rows[13],
+            rows[14],
             item("Settings", false, true),
-            "Settings stays at body row 13 single-pane"
+            "Settings shifts to body row 14 single-pane (New Window added)"
         );
-        assert_eq!(rows[14], ContextMenuRow::Separator);
-        assert_eq!(rows[15], item("Connection Manager", false, true));
-        assert_eq!(rows[16], item("Command Palette", false, true));
-        assert_eq!(rows[17], item("Session Replay", false, true));
-        assert_eq!(rows[18], item("Manage Sessions", false, true));
-        assert_eq!(rows[19], item("Detach & switch", false, true));
+        assert_eq!(rows[15], ContextMenuRow::Separator);
+        assert_eq!(rows[16], item("Connection Manager", false, true));
+        assert_eq!(rows[17], item("Command Palette", false, true));
+        assert_eq!(rows[18], item("Session Replay", false, true));
+        assert_eq!(rows[19], item("Manage Sessions", false, true));
+        assert_eq!(rows[20], item("Detach & switch", false, true));
     }
 
     #[test]
     fn no_path_menu_hides_the_file_section() {
         // C3: with no resolved path under the click, the four file items are
-        // absent and the layout is byte-identical to before C3 (the 20-row
-        // single-pane menu). This is the byte-identity guarantee.
+        // absent and the layout is the 21-row single-pane menu (F1 New Window
+        // included). This is the no-file-section guarantee.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 16);
+        assert_eq!(m.item_count(), 17);
         let rows = m.rows();
-        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 20
+        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 21
         for label in ["Open", "Copy Path", "Copy File", "Reveal in File Manager"] {
             assert!(
                 !rows.iter().any(|r| matches!(
@@ -1554,36 +1582,36 @@ mod tests {
         // section; the third separator and Settings shift down one row, and the
         // v0.3.1 launcher section follows below Settings.
         let m = multipane_menu();
-        assert_eq!(m.item_count(), 17);
+        assert_eq!(m.item_count(), 18);
         let rows = m.rows();
-        assert_eq!(rows.len(), 21, "one more row than single-pane");
-        assert_eq!(rows[10], item("Split Right", false, true));
-        assert_eq!(rows[11], item("Split Down", false, true));
+        assert_eq!(rows.len(), 22, "one more row than single-pane");
+        assert_eq!(rows[11], item("Split Right", false, true));
+        assert_eq!(rows[12], item("Split Down", false, true));
         assert_eq!(
-            rows[12],
+            rows[13],
             item("Close Pane", false, true),
-            "Close Pane sits at body row 12, alongside the splits"
+            "Close Pane sits at body row 13, alongside the splits (F1 shift)"
         );
-        assert_eq!(rows[13], ContextMenuRow::Separator);
+        assert_eq!(rows[14], ContextMenuRow::Separator);
         assert_eq!(
-            rows[14],
+            rows[15],
             item("Settings", false, true),
-            "Settings shifts to body row 14 in the multi-pane layout"
+            "Settings shifts to body row 15 in the multi-pane layout (New Window added)"
         );
-        assert_eq!(rows[15], ContextMenuRow::Separator);
-        assert_eq!(rows[16], item("Connection Manager", false, true));
-        assert_eq!(rows[17], item("Command Palette", false, true));
-        assert_eq!(rows[18], item("Session Replay", false, true));
-        assert_eq!(rows[19], item("Manage Sessions", false, true));
-        assert_eq!(rows[20], item("Detach & switch", false, true));
+        assert_eq!(rows[16], ContextMenuRow::Separator);
+        assert_eq!(rows[17], item("Connection Manager", false, true));
+        assert_eq!(rows[18], item("Command Palette", false, true));
+        assert_eq!(rows[19], item("Session Replay", false, true));
+        assert_eq!(rows[20], item("Manage Sessions", false, true));
+        assert_eq!(rows[21], item("Detach & switch", false, true));
     }
 
     #[test]
     fn multi_pane_close_pane_activates_on_press() {
-        // Pressing the Close Pane body row (12) activates the item.
+        // Pressing the Close Pane body row (13, F1 shift) activates the item.
         let mut m = multipane_menu();
         assert_eq!(
-            m.handle_press(12, m.body_row_count(), PointerButton::Left),
+            m.handle_press(13, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::ClosePane)
         );
     }
@@ -1591,13 +1619,13 @@ mod tests {
     #[test]
     fn multi_pane_focus_wraps_through_all_items() {
         // Up from item 0 wraps to the last visible item (Detach & switch, index
-        // 16), proving Close Pane is in the focus cycle only when multi-pane and
+        // 17), proving Close Pane is in the focus cycle only when multi-pane and
         // the launcher items extend the cycle.
         let mut m = multipane_menu();
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        assert_eq!(m.focused, 16);
-        assert_eq!(m.item_count(), 17);
+        assert_eq!(m.focused, 17);
+        assert_eq!(m.item_count(), 18);
     }
 
     #[test]
@@ -1631,9 +1659,10 @@ mod tests {
             m.handle_hover(Some(sep), m.body_row_count());
             assert_eq!(m.focused, 2, "separator hover is inert");
         }
-        // Hovering Settings (body row 13) focuses it (item index 10).
-        m.handle_hover(Some(13), m.body_row_count());
-        assert_eq!(m.focused, 10, "hover Settings focuses it");
+        // Hovering Settings (body row 14, item index 11 after F1 New Window)
+        // focuses it.
+        m.handle_hover(Some(14), m.body_row_count());
+        assert_eq!(m.focused, 11, "hover Settings focuses it");
     }
 
     #[test]
@@ -1778,13 +1807,14 @@ mod tests {
         assert_eq!(rows[4], item("Select All", false, true));
         assert_eq!(rows[5], ContextMenuRow::Separator);
         assert_eq!(rows[6], item("New Tab", false, true));
-        assert_eq!(rows[7], item("Rename Tab", false, false));
-        assert_eq!(rows[8], item("Close Tab", false, true));
-        assert_eq!(rows[9], ContextMenuRow::Separator);
-        assert_eq!(rows[10], item("Split Right", false, true));
-        assert_eq!(rows[11], item("Split Down", false, true));
-        assert_eq!(rows[12], ContextMenuRow::Separator);
-        assert_eq!(rows[13], item("Settings", false, true));
+        assert_eq!(rows[7], item("New Window", false, true));
+        assert_eq!(rows[8], item("Rename Tab", false, false));
+        assert_eq!(rows[9], item("Close Tab", false, true));
+        assert_eq!(rows[10], ContextMenuRow::Separator);
+        assert_eq!(rows[11], item("Split Right", false, true));
+        assert_eq!(rows[12], item("Split Down", false, true));
+        assert_eq!(rows[13], ContextMenuRow::Separator);
+        assert_eq!(rows[14], item("Settings", false, true));
     }
 
     #[test]
@@ -1800,7 +1830,8 @@ mod tests {
         // Populate a couple of accelerators in ALL order: Copy and Split Right.
         let mut accels: [Option<String>; CONTEXT_MENU_ITEMS] = Default::default();
         accels[0] = Some("Ctrl+Shift+C".to_owned());
-        accels[8] = Some("Ctrl+Shift+E".to_owned());
+        // Split Right is item index 9 in ALL order after F1's New Window (index 6).
+        accels[9] = Some("Ctrl+Shift+E".to_owned());
         m.set_accelerators(accels);
 
         let rows = m.rows();
@@ -1813,9 +1844,9 @@ mod tests {
                 enabled: true,
             }
         );
-        // Split Right (item 8) sits at body row 10 and carries its accelerator.
+        // Split Right (item 9) sits at body row 11 and carries its accelerator.
         assert_eq!(
-            rows[10],
+            rows[11],
             ContextMenuRow::Item {
                 label: "Split Right",
                 accelerator: Some("Ctrl+Shift+E".to_owned()),
@@ -1869,20 +1900,23 @@ mod tests {
         assert_eq!(body_row_to_item(CONTEXT_MENU_SEPARATOR_ROW), None);
         assert_eq!(body_row_to_item(CONTEXT_MENU_SECOND_SEPARATOR_ROW), None);
         assert_eq!(body_row_to_item(CONTEXT_MENU_THIRD_SEPARATOR_ROW), None);
-        // Tab actions (5-7) shift past the first separator.
+        // Tab actions (5-8: New Tab / New Window / Rename Tab / Close Tab) shift
+        // past the first separator.
         assert_eq!(item_to_body_row(5), 6);
         assert_eq!(body_row_to_item(6), Some(5));
         assert_eq!(item_to_body_row(6), 7);
         assert_eq!(body_row_to_item(7), Some(6));
         assert_eq!(item_to_body_row(7), 8);
         assert_eq!(body_row_to_item(8), Some(7));
-        // Split actions (8-9) shift past the first two separators.
-        assert_eq!(item_to_body_row(8), 10);
-        assert_eq!(body_row_to_item(10), Some(8));
+        assert_eq!(item_to_body_row(8), 9);
+        assert_eq!(body_row_to_item(9), Some(8));
+        // Split actions (9-10) shift past the first two separators.
         assert_eq!(item_to_body_row(9), 11);
         assert_eq!(body_row_to_item(11), Some(9));
-        // Settings (10) shifts past all three separators.
-        assert_eq!(item_to_body_row(10), 13);
-        assert_eq!(body_row_to_item(13), Some(10));
+        assert_eq!(item_to_body_row(10), 12);
+        assert_eq!(body_row_to_item(12), Some(10));
+        // Settings (11) shifts past all three separators.
+        assert_eq!(item_to_body_row(11), 14);
+        assert_eq!(body_row_to_item(14), Some(11));
     }
 }

@@ -413,8 +413,8 @@ fn key_bindings_default_prompt_copymode_and_hints_chords() {
     );
     assert_eq!(
         bindings.action_for(&WinitKey::Character("n".into()), ctrl_shift, false),
-        None,
-        "Ctrl+Shift+N is unbound after the prompt-jump fallback was dropped"
+        Some(BindableAction::NewWindow),
+        "Ctrl+Shift+N opens a new window (F1)"
     );
     assert_eq!(
         bindings.action_for(&WinitKey::Named(NamedKey::Space), ctrl_shift, false),

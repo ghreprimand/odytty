@@ -1061,6 +1061,7 @@ pub(super) fn bindable_action_name(action: BindableAction) -> &'static str {
         BindableAction::ThemeBuilder => "theme-builder",
         BindableAction::SessionAttach => "session-attach",
         BindableAction::NewTab => "new-tab",
+        BindableAction::NewWindow => "new-window",
         BindableAction::NextTab => "next-tab",
         BindableAction::PrevTab => "prev-tab",
         BindableAction::CloseTab => "close-tab",

@@ -720,6 +720,7 @@ impl OverlayUi {
                     ContextMenuItem::Delete => OverlayOutcome::ContextMenuDelete,
                     ContextMenuItem::SelectAll => OverlayOutcome::ContextMenuSelectAll,
                     ContextMenuItem::NewTab => OverlayOutcome::ContextMenuNewTab,
+                    ContextMenuItem::NewWindow => OverlayOutcome::ContextMenuNewWindow,
                     ContextMenuItem::RenameTab => {
                         if let Some(target) = self.context_menu.rename_target() {
                             OverlayOutcome::ContextMenuRenameTab(target)
@@ -1644,6 +1645,10 @@ pub(super) enum OverlayOutcome {
     ContextMenuDelete,
     ContextMenuSelectAll,
     ContextMenuNewTab,
+    /// Launch another OdyTTY window from the context menu (F1). The overlay has
+    /// already closed itself; the App dispatches this to `handle_new_window`
+    /// (the same handler the `Ctrl+Shift+N` chord fires).
+    ContextMenuNewWindow,
     ContextMenuRenameTab(SessionToken),
     ContextMenuCloseTab,
     /// Split the focused pane from the context menu (Part B). The overlay has
@@ -3320,8 +3325,9 @@ mod tests {
             None,
             Default::default(),
         );
-        // Focus starts at item 0 (Copy); Split Right is item index 8.
-        for _ in 0..8 {
+        // Focus starts at item 0 (Copy); Split Right is item index 9 after F1's
+        // New Window (index 6) extended the tab-actions section.
+        for _ in 0..9 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -3329,7 +3335,7 @@ mod tests {
             OverlayOutcome::ContextMenuSplitColumns
         );
 
-        // Reopen and walk to Split Down (item index 9).
+        // Reopen and walk to Split Down (item index 10).
         overlay.open_context_menu(
             CellPoint { row: 0, column: 0 },
             true,
@@ -3341,7 +3347,7 @@ mod tests {
             None,
             Default::default(),
         );
-        for _ in 0..9 {
+        for _ in 0..10 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -3351,10 +3357,41 @@ mod tests {
     }
 
     #[test]
+    fn context_menu_new_window_emits_new_window_outcome() {
+        // F1: activating the New Window item (single-pane visible index 6, right
+        // after New Tab at 5) routes up as the ContextMenuNewWindow outcome the
+        // App dispatches to `handle_new_window` — the same handler the
+        // Ctrl+Shift+N chord fires.
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            None,
+            false,
+            None,
+            Default::default(),
+        );
+        for _ in 0..6 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuNewWindow
+        );
+        // The menu closes itself on activation (the App relies on this before
+        // dispatching the outcome).
+        assert!(!overlay.is_open(), "context menu closes on New Window");
+    }
+
+    #[test]
     fn context_menu_close_pane_emits_close_pane_outcome_only_multi_pane() {
-        // Multi-pane: Close Pane is visible item index 10 (right after Split
-        // Down at 9; Settings is 11); activating it routes up as the Close Pane
-        // outcome the App dispatches to `apply_pane_action(ClosePane)`.
+        // Multi-pane: Close Pane is visible item index 11 (right after Split
+        // Down at 10; Settings is 12) after F1's New Window shift; activating it
+        // routes up as the Close Pane outcome the App dispatches to
+        // `apply_pane_action(ClosePane)`.
         let mut overlay = OverlayUi::default();
         overlay.open_context_menu(
             CellPoint { row: 0, column: 0 },
@@ -3367,7 +3404,7 @@ mod tests {
             None,
             Default::default(),
         );
-        for _ in 0..10 {
+        for _ in 0..11 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -3375,7 +3412,7 @@ mod tests {
             OverlayOutcome::ContextMenuClosePane
         );
 
-        // Single-pane: Close Pane is hidden, so the 11th item is Settings — the
+        // Single-pane: Close Pane is hidden, so item index 11 is Settings — the
         // Close Pane outcome is unreachable.
         overlay.open_context_menu(
             CellPoint { row: 0, column: 0 },
@@ -3388,7 +3425,7 @@ mod tests {
             None,
             Default::default(),
         );
-        for _ in 0..10 {
+        for _ in 0..11 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -3469,14 +3506,15 @@ mod tests {
             None,
             Default::default(),
         );
-        // 15 visible items single-pane; index 14 is the last (Manage Sessions).
-        for _ in 0..14 {
+        // 17 visible items single-pane (F1 New Window added); Manage Sessions is
+        // now index 15 (Detach & switch is the last, index 16).
+        for _ in 0..15 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
             OverlayOutcome::ContextMenuSessionAttach,
-            "last single-pane item is Manage Sessions, not a file item"
+            "walking to the launcher section lands on Manage Sessions, not a file item"
         );
     }
 

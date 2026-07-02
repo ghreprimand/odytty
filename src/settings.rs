@@ -234,6 +234,11 @@ pub enum BindableAction {
     /// never attaches anything itself, it emits an attach request on accept.
     SessionAttach,
     NewTab,
+    /// Launch another top-level OdyTTY window (a fresh process instance). Bound
+    /// to `Ctrl+Shift+N` by default (gnome-terminal / kitty convention). The new
+    /// window inherits the parent environment; it is a separate process, not a
+    /// tab. Spawn failure is logged and dropped — never a crash.
+    NewWindow,
     NextTab,
     PrevTab,
     CloseTab,
@@ -269,7 +274,7 @@ impl BindableAction {
     /// coverage guard checks against, so a new variant cannot be silently
     /// omitted from the editor. Keep it exhaustive — the
     /// `all_bindable_actions_is_exhaustive` test pins it to the enum's size.
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 32] = [
         // Core non-tab actions.
         Self::Search,
         Self::SettingsPanel,
@@ -291,6 +296,7 @@ impl BindableAction {
         Self::SessionAttach,
         // Tab actions.
         Self::NewTab,
+        Self::NewWindow,
         Self::NextTab,
         Self::PrevTab,
         Self::CloseTab,
@@ -345,6 +351,7 @@ impl BindableAction {
                 Some(Self::SessionAttach)
             }
             "newtab" | "tabnew" => Some(Self::NewTab),
+            "newwindow" | "windownew" => Some(Self::NewWindow),
             "nexttab" | "tabnext" => Some(Self::NextTab),
             "prevtab" | "previoustab" | "tabprev" => Some(Self::PrevTab),
             "closetab" | "tabclose" => Some(Self::CloseTab),

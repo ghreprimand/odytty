@@ -212,8 +212,17 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
             ..
         }
     ));
+    // F1: New Window follows New Tab in the tab-actions section.
     assert!(matches!(
         rows[7],
+        ContextMenuRow::Item {
+            label: "New Window",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[8],
         ContextMenuRow::Item {
             label: "Rename Tab",
             enabled: false,
@@ -221,7 +230,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[8],
+        rows[9],
         ContextMenuRow::Item {
             label: "Close Tab",
             enabled: true,
@@ -229,7 +238,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[10],
+        rows[11],
         ContextMenuRow::Item {
             label: "Split Right",
             enabled: true,
@@ -237,7 +246,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[11],
+        rows[12],
         ContextMenuRow::Item {
             label: "Split Down",
             enabled: true,
@@ -245,7 +254,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[13],
+        rows[14],
         ContextMenuRow::Item {
             label: "Settings",
             enabled: true,
@@ -259,7 +268,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         ContextMenuRow::Separator
     ));
     assert!(matches!(
-        rows[15],
+        rows[16],
         ContextMenuRow::Item {
             label: "Connection Manager",
             enabled: true,
@@ -267,7 +276,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[16],
+        rows[17],
         ContextMenuRow::Item {
             label: "Command Palette",
             enabled: true,
@@ -275,7 +284,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[17],
+        rows[18],
         ContextMenuRow::Item {
             label: "Session Replay",
             enabled: true,
@@ -418,8 +427,9 @@ fn right_clicking_tab_enables_rename_for_that_tab() {
         "right-clicking a tab body enables Rename Tab"
     );
 
-    // Menu spawned at top-left: body row 7 = Rename Tab => grid row 8.
-    app.set_pointer_cell_for_test(8, 2);
+    // Menu spawned at top-left: body row 8 = Rename Tab => grid row 9 (F1's New
+    // Window item shifted the tab-actions section down one row).
+    app.set_pointer_cell_for_test(9, 2);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 
     assert!(app.rename_active_for_test());

@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- New Window: launch another OdyTTY instance from the menu or a chord (F1)
+
+Added an in-app way to open additional OdyTTY windows instead of launching the
+binary by hand. Two entry points, both routing to one handler:
+`ContextMenuItem::NewWindow` (right-click menu, between New Tab and Rename Tab)
+and `BindableAction::NewWindow`, a rebindable chord defaulting to `Ctrl+Shift+N`
+(the gnome-terminal / kitty convention; that chord was freed in v0.3.1 when the
+prompt-jump letter fallback was dropped, and is reclaimed here). The chord is
+remappable through the existing key-remap UI like any other action, and the menu
+item shows its effective accelerator.
+
+The handler `App::handle_new_window` spawns the current executable
+(`std::env::current_exe`) with no extra args through the reaper-backed
+`spawn_detached` — never a bare `Command::spawn`, so the child is reaped and
+never left a zombie (the same seam the TEST-HANG fix hardened). The new window
+inherits the parent environment, so theme/env overrides carry over naturally.
+Best-effort: an unresolvable executable path or a spawn failure is logged
+(`tracing::warn`) and dropped — a new-window request can never crash the running
+window (C6 log-and-drop philosophy). V1 does NOT propagate the focused pane's
+shell cwd (that needs OSC 7 / procfs plumbing; noted as a follow-up).
+
+Tests (GPU-free, spawn spied — no real second instance launches): the chord
+routes through the full production key path to the spawn boundary (a `#[cfg(test)]`
+thread-local records the argv that would be spawned) and an unmodified `n` never
+spawns; the pure `new_window_argv` builder returns the current exe; the menu item
+lifts to `OverlayOutcome::ContextMenuNewWindow` and closes the menu; and the
+`new-window` action name parses and remaps through the `keybinds` config. The
+menu's row-layout tests, the `BindableAction::ALL`/`CONTEXT_MENU_ITEMS`
+completeness guards, and the two "Ctrl+Shift+N is unbound" assertions were
+updated for the added item/action. Gates green (2931 tests), clippy and fmt
+clean, MSRV lockstep untouched.
+
 ## 2026-07-02 -- Settings/ThemePicker chords are rebindable and don't repeat-toggle (C10 + C22)
 
 The Settings and ThemePicker shortcuts are dispatched above the overlay-open

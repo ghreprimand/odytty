@@ -131,6 +131,22 @@ fn duplicate_key_binding_entries_preserve_input_order() {
 }
 
 #[test]
+fn new_window_action_parses_and_remaps() {
+    // F1: the "new-window" action name parses, and a user can rebind it to any
+    // chord through the same `keybinds` config the remap UI serializes. The
+    // default chord (Ctrl+Shift+N) lives in the native default table; here we
+    // prove the config surface accepts an override onto a different chord.
+    assert_eq!(
+        BindableAction::parse("new-window"),
+        Some(BindableAction::NewWindow),
+    );
+    let (settings, warnings) = settings_from([(KEYBINDS_ENV, "ctrl+shift+g=new-window")]);
+    assert_eq!(settings.key_bindings.len(), 1);
+    assert_eq!(settings.key_bindings[0].action, BindableAction::NewWindow);
+    assert!(warnings.is_empty());
+}
+
+#[test]
 fn bindable_action_names_round_trip_through_parse() {
     // Every variant — driven off the single `ALL` source of truth so a new
     // action is covered automatically.
@@ -194,7 +210,7 @@ fn all_bindable_actions_is_exhaustive() {
             Search | SettingsPanel | ThemePicker | Copy | Paste | ScrollPageUp | ScrollPageDown
             | JumpPromptPrev | JumpPromptNext | CopyMode | Hints | ClearInput => 0,
             CommandPalette | ConnectionManager | SessionReplay | ThemeBuilder | SessionAttach => 1,
-            NewTab | NextTab | PrevTab | CloseTab => 2,
+            NewTab | NewWindow | NextTab | PrevTab | CloseTab => 2,
             SplitColumns | SplitRows | FocusPaneLeft | FocusPaneRight | FocusPaneUp
             | FocusPaneDown | FocusPaneNext | ClosePane | ZoomPane | EqualizePanes => 3,
         }
