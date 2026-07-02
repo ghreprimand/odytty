@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Kitty graphics: q=2 suppresses error responses too (C19)
+
+The Kitty graphics error path always emitted an error response, ignoring the
+`q=` quiet level — but per the kitty protocol `q=2` means "suppress success
+AND error responses", and clients that set it (to avoid response bytes racing
+their own reads) got unexpected APC traffic on any failure. The quiet level is
+now captured before command handling — including from the FIRST chunk's
+control data for chunked transmissions, where later chunks carry only `m=` —
+and `q>=2` swallows the error response. `q=1` still reports errors (it only
+suppresses OK), pinned by a boundary test. Three tests: two fail-before
+(single-command error, first-chunk quiet honored at the final-chunk merge)
+plus the q=1 pin. Gates green.
+
 ## 2026-07-02 -- OSC 4 queries report the theme palette, not the xterm table (C29)
 
 An application probing `OSC 4;n;?` got the hardcoded xterm sRGB table back

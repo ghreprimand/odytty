@@ -142,6 +142,22 @@ pub(super) fn handle_apc(
         return Err(KittyError::NotKitty);
     }
 
+    // C19: q=2 suppresses ERROR responses as well as OK ones (kitty spec).
+    // Capture the quiet level before `command` is consumed; for chunked
+    // transmissions the level may live on the FIRST chunk's control data
+    // (`state.pending`), since intermediate/final chunks usually carry only
+    // `m=`. Must be read before the error arm clears `state.pending`.
+    let suppress_error_response = command
+        .control
+        .quiet
+        .or_else(|| {
+            state
+                .pending
+                .as_ref()
+                .and_then(|pending| pending.control.quiet)
+        })
+        .is_some_and(|quiet| quiet >= 2);
+
     let result = handle_command(
         state,
         graphics,
@@ -156,7 +172,11 @@ pub(super) fn handle_apc(
         Ok(outcome) => Ok(outcome),
         Err(err) => {
             state.pending = None;
-            let response = kitty_response(None, err.message());
+            let response = if suppress_error_response {
+                Vec::new()
+            } else {
+                kitty_response(None, err.message())
+            };
             Ok(KittyOutcome {
                 dirty: false,
                 cursor: None,

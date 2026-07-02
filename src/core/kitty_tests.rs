@@ -427,6 +427,44 @@ fn kitty_quiet_two_suppresses_success_response() {
 }
 
 #[test]
+fn kitty_quiet_two_suppresses_error_response() {
+    // C19: q=2 suppresses ERROR responses too (kitty spec), not just OK ones.
+    let mut t = Terminal::new(20, 4);
+    // invalid-payload error with q=2: no response bytes at all.
+    t.advance(b"\x1b_Gf=32,a=T,t=d,s=2,v=1,q=2;!!!!\x1b\\");
+    assert!(t.visible_graphics(0).is_empty());
+    assert!(
+        t.take_host_output().is_empty(),
+        "q=2 must suppress the error response"
+    );
+}
+
+#[test]
+fn kitty_quiet_on_first_chunk_suppresses_error_on_later_chunk() {
+    // C19: for chunked transmissions the quiet level rides on the FIRST
+    // chunk's control data; an error surfaced by a later chunk (bad payload at
+    // the final merge) must honor it.
+    let mut t = Terminal::new(20, 4);
+    t.advance(b"\x1b_Gf=32,a=T,t=d,s=2,v=1,q=2,m=1;AA\x1b\\");
+    let _ = t.take_host_output(); // chunk ack (if any) is not under test
+    t.advance(b"\x1b_Gm=0;!!!!\x1b\\"); // final chunk, undecodable payload
+    assert!(t.visible_graphics(0).is_empty());
+    assert!(
+        t.take_host_output().is_empty(),
+        "q=2 from the first chunk must suppress the final-chunk error"
+    );
+}
+
+#[test]
+fn kitty_quiet_one_still_reports_errors() {
+    // C19 boundary: q=1 suppresses only OK responses — errors still report.
+    let mut t = Terminal::new(20, 4);
+    t.advance(b"\x1b_Gf=32,a=T,t=d,s=2,v=1,q=1;!!!!\x1b\\");
+    let out = String::from_utf8(t.take_host_output()).unwrap();
+    assert!(out.contains("invalid-payload"), "q=1 keeps errors: {out:?}");
+}
+
+#[test]
 fn ris_clears_pending_kitty_chunks() {
     let mut t = Terminal::new(20, 4);
     let encoded = b64(&rgba_2x1());
