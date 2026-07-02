@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Bash integration coexists with user PROMPT_COMMAND helpers (NF1 + NF1-B)
+
+OdyTTY's bash OSC-133 snippet appended its handler to `PROMPT_COMMAND`, which
+breaks when a user already set one from `.bashrc` (git-prompt, powerline). Two
+defects, both fixed in `BASH_SNIPPET` (`src/shell_integration.rs`):
+
+- **NF1-B (exit-status masking, MEDIUM):** the user helper ran first and
+  clobbered `$?` before `__odytty_prompt_command` could read it, so `133;D`
+  reported the *helper's* status (0) — the command-status gutter showed success
+  for failed commands whenever a helper was installed. Fixed by PREPENDING
+  `__odytty_status_capture`, which snapshots `$?` into `__ODYTTY_LAST_STATUS` at
+  the very start of the `PROMPT_COMMAND` chain; the appended reporter now reads
+  the snapshot (`${__ODYTTY_LAST_STATUS:-$?}`).
+- **NF1 (phantom `133;C`, LOW):** the DEBUG trap fired before the user helper (a
+  top-level `PROMPT_COMMAND` command) and stamped a spurious OutputStart. Fixed
+  with a prompt-phase state flag (`__ODYTTY_PROMPT_EXECUTING`, the kitty/ghostty
+  pattern): the capturer arms it, the reporter clears it, and the trap suppresses
+  `133;C` while armed — excluding *all* PROMPT_COMMAND-internal commands by
+  state, robust against arbitrary user helper names.
+
+Verified fails-before/passes-after against real `bash -i` (nf1-repro.md §4): with
+a user helper present, `false` now reports `133;D;1` (was `;0`) and the stream no
+longer leads with a phantom `133;C`. Four new tests — two string-seam contracts
+plus two `bash -i` behavioral tests (cfg(unix), self-skip where bash is absent).
+zsh/fish/PowerShell snippets are untouched (their preexec/precmd hooks capture
+`$?` correctly and mark only real commands). **Windows:** no surface — the fix is
+confined to the bash snippet; PowerShell integration is unchanged. Full suite
+green (0 failed), clippy `-D warnings` clean, MSRV lockstep untouched.
+
 ## 2026-07-02 -- Kitty q=1 suppresses success responses per spec (NF9)
 
 `ControlData::suppress_response` only suppressed at `q=2`, so `q=1` — which

@@ -215,22 +215,49 @@ fn fish_conf() -> &'static str {
 // off by default), and threading a settings value through these static const
 // snippets would be strictly worse for no behavioral gain. Re-asserting it on
 // every prompt (`A`, not just once) keeps it correct across resets.
+// PROMPT_COMMAND coexistence (NF1/NF1-B): a user's pre-existing PROMPT_COMMAND
+// helper (git-prompt, powerline, ...) is loaded from `.bashrc` BEFORE this
+// snippet, so OdyTTY must not assume it owns PROMPT_COMMAND. Two hazards, both
+// fixed here:
+//   * exit-status masking (NF1-B) — the user helper runs first and clobbers
+//     `$?` before the reporter can read it, so `133;D` would report the
+//     helper's status (0), not the real command's. Fixed by PREPENDING
+//     `__odytty_status_capture`, which snapshots `$?` at the very start of the
+//     PROMPT_COMMAND chain into `__ODYTTY_LAST_STATUS`; the appended reporter
+//     reads the snapshot.
+//   * phantom OutputStart (NF1) — the DEBUG trap fires before the user helper
+//     (a top-level PROMPT_COMMAND command) and would emit a spurious `133;C`.
+//     Fixed with a state flag (`__ODYTTY_PROMPT_EXECUTING`, the kitty/ghostty
+//     pattern): the capturer arms it, the reporter clears it, and the trap
+//     suppresses `133;C` while armed. That excludes ALL PROMPT_COMMAND-internal
+//     commands by state — robust against arbitrary user helper names — while
+//     the capturer itself, which runs before the flag is armed, stays covered
+//     by the internal-name `case` filter.
 const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
   export ODYTTY_SHELL_INTEGRATION=1
 
+  __odytty_status_capture() {
+    __ODYTTY_LAST_STATUS=$?
+    __ODYTTY_PROMPT_EXECUTING=1
+  }
+
   __odytty_prompt_command() {
-    local __odytty_status=$?
+    local __odytty_status=${__ODYTTY_LAST_STATUS:-$?}
     if [ -n "${__ODYTTY_COMMAND_STARTED-}" ]; then
       printf '\e]133;D;%s\a' "$__odytty_status"
       unset __ODYTTY_COMMAND_STARTED
     fi
     printf '\e]7;file://%s\a' "$PWD"
     printf '\e]133;A;click_events=1\a'
+    unset __ODYTTY_PROMPT_EXECUTING
   }
 
   __odytty_debug_trap() {
+    if [ -n "${__ODYTTY_PROMPT_EXECUTING-}" ]; then
+      return
+    fi
     case "$BASH_COMMAND" in
-      __odytty_prompt_command*|__odytty_debug_trap*|__odytty_append_prompt_command*) return ;;
+      __odytty_status_capture*|__odytty_prompt_command*|__odytty_debug_trap*|__odytty_append_prompt_command*|__odytty_prepend_prompt_command*) return ;;
     esac
     printf '\e]133;C\a'
     __ODYTTY_COMMAND_STARTED=1
@@ -244,10 +271,19 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
     esac
   }
 
+  __odytty_prepend_prompt_command() {
+    case ";${PROMPT_COMMAND-};" in
+      *";$1;"*) ;;
+      ";"|";;" ) PROMPT_COMMAND="$1" ;;
+      *) PROMPT_COMMAND="$1;${PROMPT_COMMAND}" ;;
+    esac
+  }
+
   case "$PS1" in
     *'133;B'*) ;;
     *) PS1="${PS1}"'\[\e]133;B\a\]' ;;
   esac
+  __odytty_prepend_prompt_command __odytty_status_capture
   __odytty_append_prompt_command __odytty_prompt_command
   trap '__odytty_debug_trap' DEBUG
 fi
@@ -460,6 +496,58 @@ mod tests {
     }
 
     #[test]
+    fn bash_snippet_snapshots_exit_status_before_user_prompt_command() {
+        // NF1-B (exit-status masking): a user PROMPT_COMMAND helper is loaded
+        // from .bashrc BEFORE this snippet, so the reporter must read a status
+        // SNAPSHOT taken at the very start of the PROMPT_COMMAND chain
+        // (prepended), never `$?` after the user helper has clobbered it.
+        let bash = snippet(ShellKind::Bash);
+        assert!(
+            bash.contains("__odytty_status_capture"),
+            "missing the status capturer"
+        );
+        assert!(
+            bash.contains("__ODYTTY_LAST_STATUS=$?"),
+            "capturer must snapshot $?"
+        );
+        assert!(
+            bash.contains("__odytty_prepend_prompt_command __odytty_status_capture"),
+            "the capturer must be PREPENDED so it runs before any user helper"
+        );
+        assert!(
+            bash.contains("local __odytty_status=${__ODYTTY_LAST_STATUS:-$?}"),
+            "the reporter must read the snapshot, not raw $?"
+        );
+        // Fails-before: the old reporter captured raw `$?` directly, which the
+        // user helper had already overwritten.
+        assert!(
+            !bash.contains("local __odytty_status=$?"),
+            "reporter must not capture raw $? after user helpers clobber it"
+        );
+    }
+
+    #[test]
+    fn bash_snippet_guards_debug_trap_with_prompt_executing_flag() {
+        // NF1 (phantom 133;C): the DEBUG trap must suppress OutputStart for
+        // every command run *inside* PROMPT_COMMAND via a state flag — robust
+        // against arbitrary user helper names — not the name-only `case` filter
+        // (which cannot enumerate user helpers).
+        let bash = snippet(ShellKind::Bash);
+        assert!(
+            bash.contains("__ODYTTY_PROMPT_EXECUTING=1"),
+            "capturer must arm the prompt-phase flag"
+        );
+        assert!(
+            bash.contains("if [ -n \"${__ODYTTY_PROMPT_EXECUTING-}\" ]; then\n      return"),
+            "DEBUG trap must return early while the prompt-phase flag is armed"
+        );
+        assert!(
+            bash.contains("unset __ODYTTY_PROMPT_EXECUTING"),
+            "reporter must clear the flag so the next real command emits 133;C"
+        );
+    }
+
+    #[test]
     fn unknown_shell_errors_cleanly() {
         // cmd.exe has no OSC 133 hook surface, so it stays unsupported -- its
         // name must not classify, and the error must list only what we ship.
@@ -531,6 +619,125 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&path);
         path
+    }
+
+    /// Locate a `bash` binary for the behavioral OSC-133 tests. Returns `None`
+    /// (self-skip) where bash is absent so the tests stay green on minimal
+    /// build hosts; where present (Linux/macOS dev + CI legs) they exercise the
+    /// real DEBUG-trap / PROMPT_COMMAND interaction faithfully to nf1-repro.md.
+    #[cfg(unix)]
+    fn find_bash() -> Option<PathBuf> {
+        [
+            "/bin/bash",
+            "/usr/bin/bash",
+            "/usr/local/bin/bash",
+            "/opt/homebrew/bin/bash",
+        ]
+        .into_iter()
+        .map(PathBuf::from)
+        .find(|path| path.exists())
+    }
+
+    /// Drive an interactive bash with our rcfile, feed `input`, and return raw
+    /// stdout (OSC bytes intact). `input` must terminate the session (feed
+    /// `exit\n`); stdin EOF after the write is a second guard so the child can
+    /// never wedge.
+    #[cfg(unix)]
+    fn run_bash_rc(bash: &Path, rc: &Path, input: &str) -> String {
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+
+        let mut child = Command::new(bash)
+            .arg("--rcfile")
+            .arg(rc)
+            .arg("-i")
+            .env_remove("ODYTTY_SHELL_INTEGRATION")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn bash");
+        child
+            .stdin
+            .take()
+            .expect("stdin")
+            .write_all(input.as_bytes())
+            .expect("write stdin");
+        let output = child.wait_with_output().expect("wait bash");
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+
+    /// Build an rcfile that loads a user PROMPT_COMMAND helper BEFORE the real
+    /// `BASH_SNIPPET` — the realistic `.bashrc` ordering nf1-repro.md exercises.
+    #[cfg(unix)]
+    fn write_bash_rc_with_user_helper(dir: &Path) -> PathBuf {
+        fs::create_dir_all(dir).expect("dir");
+        let rc = dir.join("rc.bash");
+        let contents = format!(
+            "__user_prompt_helper() {{ : ; }}\n\
+             PROMPT_COMMAND='__user_prompt_helper'\n\
+             PS1='P\\$ '\n\
+             {BASH_SNIPPET}"
+        );
+        fs::write(&rc, contents).expect("write rc");
+        rc
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_reports_real_exit_status_past_a_user_prompt_command() {
+        // NF1-B fails-before/passes-after (faithful to nf1-repro.md §4): with a
+        // user PROMPT_COMMAND helper present, running `false` (exit 1) must
+        // report 133;D;1, never 133;D;0. Before the prepended capturer, the
+        // helper clobbered $? first and the reporter read 0.
+        let Some(bash) = find_bash() else {
+            return;
+        };
+        let dir = temp_integration_dir("bash-status");
+        let rc = write_bash_rc_with_user_helper(&dir);
+
+        let out = run_bash_rc(&bash, &rc, "false\nexit\n");
+        // Environment self-skip: if interactive integration did not engage at
+        // all (no prompt-start marker), do not assert on an inert stream.
+        if !out.contains("\x1b]133;A") {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        assert!(
+            out.contains("\x1b]133;D;1\x07"),
+            "failed command must report exit 1: {out:?}"
+        );
+        assert!(
+            !out.contains("\x1b]133;D;0\x07"),
+            "must not report success for a failed command: {out:?}"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_emits_no_phantom_output_start_before_first_prompt() {
+        // NF1 fails-before/passes-after: a user PROMPT_COMMAND helper must not
+        // make the DEBUG trap stamp a phantom 133;C before the first prompt's
+        // 133;A. Before the prompt-phase flag, the helper's call tripped the
+        // trap and the stream led with a stray OutputStart.
+        let Some(bash) = find_bash() else {
+            return;
+        };
+        let dir = temp_integration_dir("bash-phantom");
+        let rc = write_bash_rc_with_user_helper(&dir);
+
+        let out = run_bash_rc(&bash, &rc, "echo hi\nexit\n");
+        let Some(first_a) = out.find("\x1b]133;A") else {
+            // Integration did not engage in this environment; self-skip.
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        };
+        assert!(
+            !out[..first_a].contains("\x1b]133;C"),
+            "phantom OutputStart before the first prompt: {out:?}"
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[cfg(unix)]
