@@ -1112,13 +1112,28 @@ impl App {
             let action = self
                 .key_bindings
                 .action_for(&binding_key, mods, self.super_key);
-            if action == Some(BindableAction::SettingsPanel) {
-                self.toggle_settings_overlay();
-                return;
-            }
-            if action == Some(BindableAction::ThemePicker) {
-                self.open_theme_picker_overlay();
-                return;
+            // C10 + C22: the Settings/ThemePicker shortcuts sit ABOVE the
+            // overlay-open guard so they can open their overlay from the live
+            // terminal. Two guards keep that from misbehaving:
+            //  - `!is_capturing_chord()` (C10): while the key-remap UI is armed
+            //    to capture a chord, let the chord fall through to
+            //    `handle_overlay_key` so Ctrl+Shift+, / Ctrl+Shift+H can be
+            //    *assigned* to an action instead of pre-empting capture. The
+            //    normal open/close toggle is unaffected — capture is only armed
+            //    on a remap row.
+            //  - `Press`-only (C22): a held chord auto-repeats; firing the
+            //    toggle on every Repeat open/close-flickered the overlay. Act on
+            //    the initial Press only; Repeats fall through (to the overlay
+            //    key path once it is open) and are harmless.
+            if event_type == KeyEventType::Press && !self.overlay.is_capturing_chord() {
+                if action == Some(BindableAction::SettingsPanel) {
+                    self.toggle_settings_overlay();
+                    return;
+                }
+                if action == Some(BindableAction::ThemePicker) {
+                    self.open_theme_picker_overlay();
+                    return;
+                }
             }
             if self.overlay.is_open() {
                 self.handle_overlay_key(&logical, event_type);

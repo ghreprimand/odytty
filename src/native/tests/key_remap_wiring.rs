@@ -103,3 +103,72 @@ fn esc_while_capturing_cancels_without_binding() {
         "no binding was committed on cancel"
     );
 }
+
+#[test]
+fn settings_chord_reaches_capture_instead_of_toggling_overlay() {
+    // C10: the Settings chord (Ctrl+Shift+,) resolves to SettingsPanel and is
+    // checked ABOVE the overlay-open guard in handle_key_event. Before the fix
+    // that pre-empted chord capture — arming a remap row and pressing the
+    // Settings chord toggled the Settings panel instead of capturing, so
+    // Ctrl+Shift+, could never be assigned to any action. The fix gates the
+    // SettingsPanel/ThemePicker shortcuts on !is_capturing_chord(), so while a
+    // row is armed the chord falls through to the capture path.
+    let Some(mut app) = build_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    app.open_key_bindings_overlay_for_test();
+    // Arm capture on the default-selected row (Search).
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+    assert!(
+        app.overlay_capturing_chord_for_test(),
+        "Enter arms chord capture"
+    );
+
+    // Drive Ctrl+Shift+, through the FULL production key path. Ctrl+Shift+, is
+    // SettingsPanel's default binding, so capturing it onto the Search row is a
+    // conflict — deliver_chord raises a conflict-confirm and capture stays
+    // engaged. The discriminator: capture is STILL active, proving the chord
+    // reached the remap path and did NOT toggle the Settings overlay.
+    app.drive_char_with_mods_for_test(',', true, true);
+
+    assert!(
+        app.overlay_capturing_chord_for_test(),
+        "C10: the Settings chord must reach chord capture (conflict pending), \
+         not pre-empt it by toggling the Settings overlay"
+    );
+}
+
+#[test]
+fn held_settings_chord_does_not_repeat_toggle_the_overlay() {
+    // C22: a held Settings chord auto-repeats. The old code fired
+    // toggle_settings_overlay on every Repeat, open/close-flickering the panel.
+    // The fix acts on the initial Press only; Repeats fall through harmlessly.
+    let Some(mut app) = build_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    assert!(!app.overlay_open_for_test(), "starts with no overlay");
+
+    // Initial Press opens the Settings overlay.
+    app.drive_char_with_mods_typed_for_test(',', true, true, KeyEventType::Press);
+    assert!(
+        app.overlay_open_for_test(),
+        "the initial Press opens the Settings overlay"
+    );
+
+    // Each auto-repeat event from holding the chord must NOT toggle it. The old
+    // code toggled on every Repeat, so a SINGLE repeat closed the panel (and an
+    // even number would deceptively reopen it — assert after each repeat).
+    app.drive_char_with_mods_typed_for_test(',', true, true, KeyEventType::Repeat);
+    assert!(
+        app.overlay_open_for_test(),
+        "C22: the first held-chord auto-repeat must not toggle the overlay closed"
+    );
+    app.drive_char_with_mods_typed_for_test(',', true, true, KeyEventType::Repeat);
+    assert!(
+        app.overlay_open_for_test(),
+        "C22: a second auto-repeat must still leave the overlay open"
+    );
+}

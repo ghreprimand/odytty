@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Settings/ThemePicker chords are rebindable and don't repeat-toggle (C10 + C22)
+
+The Settings and ThemePicker shortcuts are dispatched above the overlay-open
+guard so they can open from the live terminal, but that placement had two
+faults. C10: while the key-remap UI was armed to capture a chord, pressing
+Ctrl+Shift+, (Settings) or Ctrl+Shift+H (ThemePicker) fired the toggle instead
+of being captured, so those default chords could never be *reassigned*. C22: a
+held chord auto-repeats, and the toggle fired on every Repeat, open/close-
+flickering the overlay. Both handlers are now gated on
+`event_type == KeyEventType::Press && !self.overlay.is_capturing_chord()`: during
+capture the chord falls through to `handle_overlay_key` so it can be assigned,
+and only the initial Press toggles (Repeats fall through harmlessly). The normal
+open/close toggle is unaffected — capture is armed only on a remap row.
+Fails-before tests cover capture-wins-over-toggle and no-repeat-toggle. Gates
+green.
+
 ## 2026-07-02 -- IME commits obey the overlay/search/modal gate instead of leaking to the PTY (C9)
 
 `commit_ime_text` wrote finalized IME text straight to the active PTY writer,

@@ -1097,6 +1097,34 @@ impl App {
         self.modifiers = prev;
     }
 
+    /// Test seam (C22): drive a character chord through `handle_key_event` with
+    /// an explicit `KeyEventType` (Press vs Repeat), so a test can prove a held
+    /// (auto-repeating) Settings/ThemePicker chord does not repeat-toggle its
+    /// overlay. Restores the prior modifier state after.
+    #[cfg(test)]
+    pub(in crate::native) fn drive_char_with_mods_typed_for_test(
+        &mut self,
+        ch: char,
+        ctrl: bool,
+        shift: bool,
+        event_type: KeyEventType,
+    ) {
+        let prev = self.modifiers;
+        self.modifiers = crate::input::Modifiers {
+            ctrl,
+            shift,
+            ..crate::input::Modifiers::default()
+        };
+        let logical = WinitKey::Character(ch.to_string().into());
+        self.handle_key_event(
+            logical.clone(),
+            logical,
+            PhysicalKey::Code(KeyCode::KeyB),
+            event_type,
+        );
+        self.modifiers = prev;
+    }
+
     /// Test seam (C22/C12/C5): whether any overlay is currently open — the
     /// predicate keyboard dispatch gates full-overlay key routing on.
     #[cfg(test)]
