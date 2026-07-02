@@ -1852,6 +1852,17 @@ impl Screen {
         match byte {
             b'7' => self.save_cursor(),
             b'8' => self.restore_cursor(),
+            // IND (ESC D): move down one row; at the bottom margin, scroll the
+            // active region up by one — exactly the LF motion (column
+            // untouched). Routing through `line_feed` inherits the shared
+            // scroll paths' C16 wrapped-flag seams and the full-screen-region
+            // scrollback equivalence.
+            b'D' => self.line_feed(),
+            // NEL (ESC E): IND + carriage return (next line, column 0).
+            b'E' => {
+                self.line_feed();
+                self.carriage_return();
+            }
             b'M' => self.reverse_index(),
             b'c' => self.hard_reset(),
             b'H' => self.set_tab_stop(),

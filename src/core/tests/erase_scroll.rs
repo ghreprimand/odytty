@@ -249,6 +249,70 @@ fn reverse_index_below_top_moves_cursor_up() {
 }
 
 #[test]
+fn index_moves_cursor_down_preserving_column() {
+    // NF5: ESC D (IND) mid-screen moves the cursor down one row, column
+    // untouched — previously a silent no-op (missing dispatch_esc arm).
+    let mut terminal = Terminal::new(8, 3);
+    terminal.advance(b"\x1b[1;3H"); // row 0, column 2
+    terminal.advance(b"\x1bD");
+    assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 2 });
+    assert_eq!(terminal.screen().plain_text(), "\n\n");
+}
+
+#[test]
+fn index_at_bottom_margin_scrolls_region() {
+    // NF5: ESC D at the DECSTBM bottom margin scrolls the region up by one;
+    // rows outside the region are untouched and nothing enters scrollback
+    // (partial region discards, matching xterm).
+    let mut terminal = Terminal::new(8, 4);
+    terminal.advance(b"top\r\none\r\ntwo\r\nbot");
+    terminal.advance(b"\x1b[2;3r"); // region rows index 1..=2; homes cursor
+    terminal.advance(b"\x1b[3;1H"); // region bottom (row index 2)
+    terminal.advance(b"\x1bD");
+    assert_eq!(terminal.screen().plain_text(), "top\ntwo\n\nbot");
+    assert_eq!(terminal.screen().scrollback_len(), 0);
+    assert_eq!(terminal.screen().cursor(), Position { row: 2, column: 0 });
+}
+
+#[test]
+fn index_at_screen_bottom_feeds_scrollback() {
+    // NF5: with no region, ESC D at the last row scrolls the full screen and
+    // the departing top line enters scrollback, exactly like LF.
+    let mut terminal = Terminal::new(8, 3);
+    terminal.advance(b"r0\r\nr1\r\nr2");
+    terminal.advance(b"\x1b[3;2H"); // last row, column 1
+    terminal.advance(b"\x1bD");
+    assert_eq!(terminal.screen().plain_text(), "r1\nr2\n");
+    assert_eq!(terminal.screen().scrollback_len(), 1);
+    // Column preserved: IND never touches the column.
+    assert_eq!(terminal.screen().cursor(), Position { row: 2, column: 1 });
+}
+
+#[test]
+fn nel_moves_to_next_row_column_zero() {
+    // NF5: ESC E (NEL) = IND + CR — next row, column 0.
+    let mut terminal = Terminal::new(8, 3);
+    terminal.advance(b"abc"); // row 0, cursor at column 3
+    terminal.advance(b"\x1bE");
+    assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 0 });
+    assert_eq!(terminal.screen().plain_text(), "abc\n\n");
+}
+
+#[test]
+fn nel_at_bottom_margin_scrolls_region_and_returns_carriage() {
+    // NF5: NEL at the DECSTBM bottom margin scrolls the region and lands the
+    // cursor at column 0 of the (still-bottom) row.
+    let mut terminal = Terminal::new(8, 4);
+    terminal.advance(b"top\r\none\r\ntwo\r\nbot");
+    terminal.advance(b"\x1b[2;3r");
+    terminal.advance(b"\x1b[3;4H"); // region bottom, column 3
+    terminal.advance(b"\x1bE");
+    assert_eq!(terminal.screen().plain_text(), "top\ntwo\n\nbot");
+    assert_eq!(terminal.screen().scrollback_len(), 0);
+    assert_eq!(terminal.screen().cursor(), Position { row: 2, column: 0 });
+}
+
+#[test]
 fn scroll_up_default_count_moves_content_up_one_line() {
     let mut terminal = Terminal::new(4, 4);
     terminal.advance(b"r0\r\nr1\r\nr2\r\nr3");

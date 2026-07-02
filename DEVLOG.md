@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- VT conformance: ESC D (IND) and ESC E (NEL) were silent no-ops
+
+NF5 (found during the wrapped-flag scroll-op audit): `dispatch_esc` had no
+arms for `ESC D` (Index) or `ESC E` (Next Line), so both VT100 controls were
+silently dropped. Programs that emit IND to advance/scroll — including
+termcap/terminfo `sf` users and hand-rolled TUIs — lost cursor motion and
+scrolling entirely. Fixed by routing `ESC D` through the existing `line_feed`
+(identical motion: down one row, scroll at the bottom margin honoring DECSTBM,
+full-screen-region scrollback equivalence intact) and `ESC E` through
+`line_feed` + `carriage_return`. Routing through the shared scroll paths
+inherits the C16 wrapped-flag seam handling reviewed in the earlier packet —
+no new seam logic. Five regression tests (all fail-before): mid-screen motion
+with column preservation, scroll-at-DECSTBM-bottom-margin for both controls,
+scrollback feed at the true screen bottom, and NEL's carriage return.
+`cargo test` green (2743 lib + suites), clippy `-D warnings` clean,
+`cargo fmt --check` clean.
+
 ## 2026-07-02 -- Freeze hardening (3/3): freeze watchdog logs the state machine on a stalled loop
 
 Final postmortem packet. The v0.7.0 freeze's signature was a live event loop
