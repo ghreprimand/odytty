@@ -268,6 +268,23 @@ fn robustness_out_of_range_color_register() {
     assert_eq!(img.width, 1);
 }
 
+/// C20: a register number past u16::MAX must be REJECTED, not truncated.
+/// 65537 as u16 truncates to 1 — before the fix this hijacked register 1's
+/// palette entry (and selected it), corrupting colors already defined there.
+#[test]
+fn robustness_u16_truncating_color_register_rejected() {
+    // Define register 1 = red, paint with it, then attempt to redefine via
+    // the aliasing register 65537 (= 1 mod 65536) as green and paint again.
+    let payload = b"#1;2;100;0;0~$#65537;2;0;100;0~~";
+    let img = img(payload).unwrap();
+    let red = [255, 0, 0, 255];
+    // Both columns stay red: the aliased definition was ignored, and the
+    // second paint ran with register 1's ORIGINAL color (the `#65537`
+    // selection was also ignored, leaving register 1 selected).
+    assert_eq!(pixel_at(&img, 0, 0), red);
+    assert_eq!(pixel_at(&img, 1, 0), red);
+}
+
 /// Multiple `$` (CR) overwrites same band without advancing y.
 #[test]
 fn robustness_multiple_cr_overwrites() {

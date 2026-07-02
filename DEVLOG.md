@@ -7,6 +7,17 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Sixel: color register range-checked before u16 narrowing (C20)
+
+`color_command` narrowed the raw u32 register number to u16 BEFORE the
+`MAX_COLOR_REG` range check, so `#65537` truncated to 1 and silently hijacked
+register 1's palette entry — any multiple of 65536 aliased a low register,
+letting a malformed (or malicious) sixel stream corrupt colors already defined.
+The raw u32 is now range-checked first; out-of-range registers are ignored
+exactly like the existing `#9999` case. Fails-before regression test paints
+with register 1, attempts the aliasing redefinition, and asserts the original
+color survives. Gates green.
+
 ## 2026-07-02 -- Kitty graphics: q=2 suppresses error responses too (C19)
 
 The Kitty graphics error path always emitted an error response, ignoring the

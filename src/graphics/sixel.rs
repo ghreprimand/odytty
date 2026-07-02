@@ -349,10 +349,13 @@ impl Decoder {
         if params.is_empty() {
             return;
         }
-        let reg = params[0] as u16;
-        if reg > MAX_COLOR_REG {
+        // C20: range-check the raw u32 BEFORE narrowing to u16 — a register
+        // number like 65536 would otherwise truncate to 0 and silently hijack
+        // register 0 (and any multiple of 65536 aliases a low register).
+        if params[0] > u32::from(MAX_COLOR_REG) {
             return;
         }
+        let reg = params[0] as u16;
         if params.len() >= 5 {
             let pu = params[1];
             let px = params[2];
