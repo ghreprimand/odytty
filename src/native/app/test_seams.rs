@@ -161,6 +161,15 @@ impl App {
         self.pointer_cell = None;
     }
 
+    /// Test seam (C11): read the active session's cached pointer cell — the
+    /// selection anchor `begin_selection` consumes. Lets the focus-follows-click
+    /// test assert the anchor lands under the live click, not a stale per-pane
+    /// coordinate.
+    #[cfg(test)]
+    pub(in crate::native) fn pointer_cell_for_test(&self) -> Option<CellPoint> {
+        self.pointer_cell
+    }
+
     /// Test seam (UX4-P1): the live overlay rect for the current grid.
     #[cfg(test)]
     pub(in crate::native) fn overlay_rect_for_test(

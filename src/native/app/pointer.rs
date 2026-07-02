@@ -144,7 +144,12 @@ impl App {
                 if self.sessions.set_active_focus(token) {
                     self.on_active_session_changed();
                 }
-                if let Some(point) = self.active_pane_pointer_cell() {
+                // C11: resolve the anchor from the click coords captured BEFORE
+                // the focus switch. `active_pane_pointer_cell()` would re-read
+                // `self.pointer_px`, which now derefs to the freshly-focused
+                // pane's stale stored coordinate — anchoring the drag at the
+                // wrong cell. `x_px`/`y_px` here are the live click position.
+                if let Some(point) = self.active_pane_pointer_cell_at(x_px, y_px) {
                     self.pointer_cell = Some(point);
                 }
                 self.begin_selection();

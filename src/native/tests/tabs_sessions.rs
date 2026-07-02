@@ -1037,6 +1037,94 @@ fn wheel_scroll_still_scrolls_the_lone_single_pane() {
     );
 }
 
+/// C11: focus-follows-click into a split must anchor the selection under the
+/// LIVE click, not the newly-focused pane's stale per-session `pointer_px`.
+///
+/// `pointer_px`/`pointer_cell` are per-session; before the fix the press
+/// switched focus to pane B and THEN read `self.pointer_px`, which now derefed
+/// to B's own last-stored (stale) coordinate — anchoring the first drag at the
+/// wrong cell. Seed B with a stale coord at its top-left (cell 0,0), focus A,
+/// click deep inside B, and assert the anchor lands under the click (row 10),
+/// not B's stale (0,0).
+#[test]
+fn focus_follows_click_anchors_under_the_live_click_not_stale_coords() {
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a,
+        writer_a,
+        pty_a,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    let pane_a = app.focused_pane_id_for_test();
+    let pane_b = app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b);
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    app.reflow_active_panes_for_test();
+    // The split leaves focus on pane B; seed B's stale pointer at its top-left.
+    assert_eq!(app.focused_pane_id_for_test(), pane_b);
+    app.set_pointer_px_for_test(0.0, 0.0);
+
+    // Move focus back to pane A (Ctrl-b o), so B is unfocused and holds its
+    // stale coordinate while A is the active session.
+    app.drive_char_with_mods_for_test('b', true, false);
+    app.drive_char_with_mods_for_test('o', false, false);
+    assert_eq!(
+        app.focused_pane_id_for_test(),
+        pane_a,
+        "precondition: focus is pane A"
+    );
+
+    // Live click deep inside pane B (right 3/4 width, row 10). This is the
+    // active session's (A's) live pointer, the coords the press resolves with.
+    app.set_pointer_px_for_test((COLS as u32 * CW * 3 / 4) as f64, (10 * CH) as f64);
+    let outcome = app.left_button_outcome_for_test(true);
+
+    assert_eq!(
+        outcome, "select",
+        "an in-pane left press begins a selection"
+    );
+    assert_eq!(
+        app.focused_pane_id_for_test(),
+        pane_b,
+        "the click focuses pane B (focus-follows-click)"
+    );
+    let anchor = app
+        .pointer_cell_for_test()
+        .expect("the press seeds a selection anchor");
+    assert_eq!(
+        anchor.row, 10,
+        "anchor row must follow the live click (row 10), not stale (0)"
+    );
+    assert!(
+        anchor.column > 0,
+        "anchor column must follow the live click deep in pane B, not stale column 0"
+    );
+}
+
 // Fill every row of a terminal with a long bare URL so the hover scan finds an
 // openable URL under ANY cell the pointer (or a buggy clamp) maps to — making
 // the assertions independent of exact split-pane cell geometry.

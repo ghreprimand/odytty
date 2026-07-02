@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Focus-follows-click anchors the selection under the real click (C11)
+
+In a split, clicking an unfocused pane both focuses it and starts a text
+selection. `pointer_px`/`pointer_cell` are per-*session* fields reached through
+App's `Deref` to the active session, so after `set_active_focus` switched the
+active session to the clicked pane, `active_pane_pointer_cell()` re-read
+`self.pointer_px` — now the freshly-focused pane's OWN last-stored coordinate
+(stale, from when it was last focused), not the click that switched focus. The
+first drag in a just-focused pane therefore anchored at the wrong cell.
+
+The press now captures the live click coordinates before the focus switch and
+resolves the anchor through a new `active_pane_pointer_cell_at(x, y)` that takes
+explicit coords instead of re-reading the stale per-pane field.
+
+Test: split two panes, seed pane B with a stale top-left coordinate, focus pane
+A, click deep inside B, assert the anchor lands under the click (row 10) not B's
+stale (0,0); fails-before/passes-after. Full suite green, clippy clean, fmt clean.
+
+---
+
 ## 2026-07-02 -- Reflow closes copy mode; the caret no longer strands on stale rows (C13)
 
 `apply_grid_resize` clears the selection, search, hover spans, and hints on a

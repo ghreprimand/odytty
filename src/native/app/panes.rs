@@ -227,8 +227,22 @@ impl App {
     /// divider hit-tests use — and the focused pane's rect origin already
     /// includes the tab-bar offset, so no separate tab-bar adjustment is needed.
     pub(super) fn active_pane_pointer_cell(&self) -> Option<CellPoint> {
-        let (content, cell) = self.multipane_geometry()?;
         let (x_px, y_px) = self.pointer_px?;
+        self.active_pane_pointer_cell_at(x_px, y_px)
+    }
+
+    /// Resolve the focused pane's cell for an EXPLICIT window-pixel coordinate,
+    /// rather than the active session's stored `pointer_px`.
+    ///
+    /// C11: `pointer_px` is a per-*session* field reached through App's `Deref`
+    /// to the active session. After a focus-follows-click `set_active_focus`,
+    /// `self.pointer_px` resolves to the newly-focused pane's OWN last-stored
+    /// coordinate (stale — from when it was previously focused), not the click
+    /// that is switching focus. The caller must therefore capture the live click
+    /// coords BEFORE the focus switch and pass them here so the selection anchor
+    /// lands under the actual click.
+    pub(super) fn active_pane_pointer_cell_at(&self, x_px: f64, y_px: f64) -> Option<CellPoint> {
+        let (content, cell) = self.multipane_geometry()?;
         let focused = self.sessions.active_id();
         let rect = self
             .sessions
