@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Desktop ids resolve the full dash→slash ladder (C15)
+
+The freedesktop desktop-entry spec derives a file's id by replacing every
+path separator under `applications/` with `-`, so resolving an id back to a
+file must try every progressive dash→slash split. `desktop_relpaths` only
+split the FIRST dash (`kde-foo.desktop` → `kde/foo.desktop`), so a
+vendor-nested id like `org-gnome-eog.desktop` installed at
+`applications/org/gnome/eog.desktop` never resolved and its app silently
+vanished from the Open-With list. The candidate ladder now converts the
+first `k` dashes for `k = 0..=n`, shallowest first, keeping the literal
+name's priority. Fails-before tests: the nested-subdir resolution end-to-end
+through `enumerate_open_with`, plus a direct ladder-shape check. Gates green.
+
 ## 2026-07-02 -- Copy-mode word motions resolve against the absolute buffer (C24)
 
 Copy-mode's `w`/`b`/`e` word motions were gated to the currently-visible

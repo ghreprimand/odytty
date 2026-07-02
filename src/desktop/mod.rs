@@ -203,15 +203,24 @@ fn read_desktop_file(env: &dyn DesktopEnv, data_dirs: &[PathBuf], id: &str) -> O
 }
 
 /// Candidate relative paths (under `applications/`) for a desktop id: the
-/// literal name, then the dash→slash subdirectory form for a prefixed id.
+/// literal name first, then the progressive dash→slash subdirectory forms.
+///
+/// C15: the freedesktop desktop-entry spec derives a file's id by replacing
+/// every path separator under `applications/` with `-`, so resolution must
+/// walk the ladder in reverse — `org-gnome-eog.desktop` may live at
+/// `org-gnome-eog.desktop`, `org/gnome-eog.desktop`, or `org/gnome/eog.desktop`.
+/// Candidates convert the first `k` dashes to slashes for `k = 0..=n`,
+/// shallowest first (the literal name wins a tie, matching the id-priority
+/// convention).
 fn desktop_relpaths(id: &str) -> Vec<String> {
     let mut out = vec![id.to_owned()];
-    if let Some(pos) = id.find('-') {
-        // `kde-foo.desktop` → `kde/foo.desktop`. Only the first dash splits.
-        let subdir = format!("{}/{}", &id[..pos], &id[pos + 1..]);
-        if subdir != id {
-            out.push(subdir);
-        }
+    let mut candidate = id.to_owned();
+    let mut from = 0;
+    while let Some(pos) = candidate[from..].find('-') {
+        let at = from + pos;
+        candidate.replace_range(at..=at, "/");
+        from = at + 1;
+        out.push(candidate.clone());
     }
     out
 }
@@ -414,6 +423,50 @@ mod tests {
         let apps = enumerate_open_with(&probe("image/png"), &env, "/x/a.png");
         assert_eq!(apps.len(), 1);
         assert_eq!(apps[0].name, "Okular");
+    }
+
+    /// C15: a multi-dash id resolves through the FULL progressive dash→slash
+    /// ladder — `org-gnome-eog.desktop` at `applications/org/gnome/eog.desktop`.
+    /// Pre-fix only the first dash split, so the two-level nesting never
+    /// resolved.
+    #[test]
+    fn multi_dash_id_resolves_nested_subdirs() {
+        let mut files = HashMap::new();
+        files.insert(
+            PathBuf::from("/data/applications/mimeinfo.cache"),
+            "[MIME Cache]\nimage/png=org-gnome-eog.desktop;\n".to_owned(),
+        );
+        files.insert(
+            PathBuf::from("/data/applications/org/gnome/eog.desktop"),
+            desktop("Eye of GNOME", "eog %f"),
+        );
+        let env = MapEnv {
+            config_dirs: vec![],
+            data_dirs: vec![PathBuf::from("/data")],
+            files,
+        };
+        let apps = enumerate_open_with(&probe("image/png"), &env, "/x/a.png");
+        assert_eq!(apps.len(), 1);
+        assert_eq!(apps[0].name, "Eye of GNOME");
+    }
+
+    /// C15: the candidate ladder is literal first, then progressively deeper —
+    /// so a literally-installed dash-named file wins over a nested twin.
+    #[test]
+    fn desktop_relpaths_ladder_is_progressive() {
+        assert_eq!(desktop_relpaths("foo.desktop"), vec!["foo.desktop"]);
+        assert_eq!(
+            desktop_relpaths("kde-foo.desktop"),
+            vec!["kde-foo.desktop", "kde/foo.desktop"]
+        );
+        assert_eq!(
+            desktop_relpaths("org-gnome-eog.desktop"),
+            vec![
+                "org-gnome-eog.desktop",
+                "org/gnome-eog.desktop",
+                "org/gnome/eog.desktop"
+            ]
+        );
     }
 
     #[test]
