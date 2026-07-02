@@ -713,6 +713,13 @@ impl App {
     /// picks New tab vs Replace current.
     pub(in crate::native) fn route_attach_session(&mut self, session_id: String) {
         if let Some(token) = self.sessions.find_attached_tab(&session_id) {
+            // C5: close the summon overlay before switching. Unlike the
+            // not-yet-attached branch below (which re-opens the overlay in
+            // AttachChoice mode), this early return left the SessionAttach
+            // overlay open==true, so keyboard dispatch kept routing every key
+            // into its type-to-filter box instead of the switched-to session
+            // until Esc was pressed.
+            self.overlay.close();
             if self.sessions.switch(token) {
                 self.on_active_session_changed();
             }

@@ -1584,3 +1584,32 @@ fn single_pane_has_no_divider_drag_resize_path() {
         "a single-pane tab has no divider-drag resize path"
     );
 }
+
+#[test]
+fn attach_overlay_closes_when_switching_to_already_attached_session() {
+    // C5: the session-attach summon overlay must close when the selected
+    // session is already attached in a tab. Before the fix, the already-attached
+    // branch of route_attach_session switched tabs but returned WITHOUT closing
+    // the overlay, so keyboard dispatch kept routing every key into the overlay's
+    // type-to-filter box (never the switched-to session) until Esc.
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        return;
+    };
+    // Tag the active session as attached to a known id so find_attached_tab
+    // resolves it (the dedup path), then open the summon overlay over it.
+    app.mark_active_session_attached_for_test("s-already");
+    app.open_session_attach_with_synthetic_sessions_for_test(&["s-already"]);
+    assert!(
+        app.overlay_open_for_test(),
+        "precondition: the attach overlay is open"
+    );
+
+    // Accept the already-attached session: dedup switches to its tab.
+    app.route_attach_session_for_test("s-already");
+
+    assert!(
+        !app.overlay_open_for_test(),
+        "C5: the attach overlay must close on the already-attached branch so \
+         keystrokes reach the switched-to session, not the filter box"
+    );
+}

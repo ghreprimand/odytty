@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Session-attach overlay closes on the already-attached branch (C5)
+
+`route_attach_session` re-opens the summon overlay in AttachChoice mode on the
+not-yet-attached branch, but the already-attached early-return branch (which
+just switches to the existing tab via `find_attached_tab`) left the
+SessionAttach overlay `open == true`. Keyboard dispatch then routed every key
+into the overlay's type-to-filter box instead of the switched-to session until
+Esc. The early-return branch now calls `self.overlay.close()` before switching,
+matching the other branch. Fails-before test drives `route_attach_session` on a
+session tagged attached and asserts the overlay is closed afterward. Gates
+green.
+
 ## 2026-07-02 -- Connection overlay closes on Connect so it can't eat SSH keystrokes (C12)
 
 The connections overlay emitted its `Connect` outcome without closing itself,

@@ -97,6 +97,31 @@ impl App {
         self.request_selection_redraw();
     }
 
+    /// Test seam (C5): open the session-attach summon overlay pre-loaded with
+    /// SYNTHETIC listed sessions (each `id` from `ids`), bypassing the real
+    /// session-host registry scan. Synthetic data only. Lets a headless test
+    /// drive the attach-overlay dedup/close path.
+    #[cfg(test)]
+    pub(in crate::native) fn open_session_attach_with_synthetic_sessions_for_test(
+        &mut self,
+        ids: &[&str],
+    ) {
+        use crate::session_host::ListedSession;
+        let entries = ids
+            .iter()
+            .map(|id| ListedSession {
+                id: (*id).to_owned(),
+                name: format!("session-{id}"),
+                state: "running",
+                age_ms: 1000,
+                pane_count: 1,
+            })
+            .collect();
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_session_attach(entries);
+        self.request_selection_redraw();
+    }
+
     /// Test seam (OVERLAY-SMALL-WINDOW): open the command palette pre-seeded
     /// with `count` SYNTHETIC history entries, bypassing the real shell-history
     /// read so a small-window scroll test overflows deterministically. Synthetic
@@ -1072,6 +1097,13 @@ impl App {
         self.modifiers = prev;
     }
 
+    /// Test seam (C22/C12/C5): whether any overlay is currently open — the
+    /// predicate keyboard dispatch gates full-overlay key routing on.
+    #[cfg(test)]
+    pub(in crate::native) fn overlay_open_for_test(&self) -> bool {
+        self.overlay.is_open()
+    }
+
     /// Test seam (§7 K2): the number of panes in the active tab (1 ⇒ the
     /// single-pane byte-identical path).
     #[cfg(test)]
@@ -1272,6 +1304,22 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn open_search_for_test(&mut self) {
         self.toggle_search();
+    }
+
+    /// Test seam (C5): tag the active session as attached to `session_id` so
+    /// `find_attached_tab` (attach dedup) resolves it, without spinning up a real
+    /// session host. Lets a headless test drive the already-attached branch of
+    /// `route_attach_session`.
+    #[cfg(test)]
+    pub(in crate::native) fn mark_active_session_attached_for_test(&mut self, session_id: &str) {
+        self.sessions.active_mut().attached_session_id = Some(session_id.to_owned());
+    }
+
+    /// Test seam (C5): drive the production `route_attach_session` dedup/attach
+    /// router directly, as the AttachSession overlay outcome does.
+    #[cfg(test)]
+    pub(in crate::native) fn route_attach_session_for_test(&mut self, session_id: &str) {
+        self.route_attach_session(session_id.to_owned());
     }
 
     #[cfg(test)]
