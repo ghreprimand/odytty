@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Session host: reap the spawned host child when its socket never comes up (audit C26)
+
+Tier 4 audit fix (C26). `spawn_host_on_demand` spawns the detached host
+process and then waits for its socket to bind; when `wait_for_socket` timed
+out, the error path dropped the `Child` handle without kill/wait — leaking a
+live orphan host process (or an unreaped zombie, if the child had already
+died) that nothing would ever `wait()` on. The wait now lives in a
+`await_host_socket` helper whose timeout path kills and reaps the child before
+surfacing the error; kill-then-wait is correct for both outcomes (kill on an
+already-exited child is an ignorable no-op, wait reaps either way).
+Regression test `spawn_socket_timeout_reaps_the_spawned_child` (stand-in
+child, socket that never appears) failed before the fix with the child still
+running unreaped. Full suite, clippy `-D warnings`, and `cargo fmt --check`
+green.
+
 ## 2026-07-02 -- Session host: a failed attach handshake drops one connection, not the host (audit C6)
 
 Tier 4 audit fix (C6). Every error out of `handle_attach` — a hello/snapshot

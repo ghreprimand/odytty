@@ -351,6 +351,35 @@ fn host_survives_hostile_resize_dimensions() {
 }
 
 #[test]
+fn spawn_socket_timeout_reaps_the_spawned_child() {
+    // audit C26: when the freshly spawned host child never binds its socket
+    // within the startup timeout, `spawn_host_on_demand` returned the error and
+    // DROPPED the `Child` — leaking a live orphan host process (or a zombie if
+    // it exited) with no owner ever calling kill/wait. The timeout path must
+    // kill and reap the child before surfacing the error.
+    let temp = TempDir::new("sh-c26");
+    let mut child = std::process::Command::new("sleep")
+        .arg("30")
+        .spawn()
+        .expect("spawn stand-in child");
+    let missing_socket = temp.path().join("never-bound.sock");
+    let error =
+        super::host::await_host_socket(&mut child, &missing_socket, Duration::from_millis(100))
+            .expect_err("socket never appears");
+    assert!(
+        error.to_string().contains("never-bound.sock"),
+        "error should name the socket: {error:#}"
+    );
+    let status = child
+        .try_wait()
+        .expect("query stand-in child after timeout");
+    assert!(
+        status.is_some(),
+        "timed-out spawn must kill and reap the child, not leak it"
+    );
+}
+
+#[test]
 fn host_survives_client_that_vanishes_mid_handshake() {
     // audit C6: a per-connection failure during the attach handshake must
     // log-and-drop THAT connection, not tear down the whole host. The classic

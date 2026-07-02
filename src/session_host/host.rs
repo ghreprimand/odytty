@@ -212,12 +212,32 @@ pub fn spawn_host_on_demand(config: &HostConfig) -> Result<SpawnedHost> {
         .arg(config.dimensions.rows.to_string());
     config.command.append_process_args(&mut command);
 
-    let child = command.spawn().context("spawn session-host process")?;
-    wait_for_socket(&paths.socket, STARTUP_CONNECT_TIMEOUT)?;
+    let mut child = command.spawn().context("spawn session-host process")?;
+    await_host_socket(&mut child, &paths.socket, STARTUP_CONNECT_TIMEOUT)?;
     Ok(SpawnedHost {
         child,
         socket_path: paths.socket,
     })
+}
+
+/// Wait for the just-spawned host child's socket to come up. If it never does
+/// (audit C26), the child is killed and reaped before the error surfaces —
+/// previously the `Child` was dropped on the error path, leaking a live orphan
+/// host process (or a zombie, if it had already exited) that nothing would ever
+/// `wait()` on. Kill-then-wait is safe on both outcomes: `kill` on an
+/// already-exited-but-unreaped child is a no-op error we ignore, and `wait`
+/// reaps either way.
+pub(crate) fn await_host_socket(
+    child: &mut Child,
+    socket_path: &std::path::Path,
+    timeout: Duration,
+) -> Result<()> {
+    if let Err(error) = wait_for_socket(socket_path, timeout) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
+    Ok(())
 }
 
 pub fn run_internal_host_from_args(args: &[String]) -> Result<()> {
