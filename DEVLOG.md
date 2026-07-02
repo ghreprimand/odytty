@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Copy-mode word motions resolve against the absolute buffer (C24)
+
+Copy-mode's `w`/`b`/`e` word motions were gated to the currently-visible
+viewport: `cell_char` returned `None` for any off-screen absolute row and
+`step_forward`/`step_back` refused to cross the viewport's top/bottom edge,
+so a motion at the edge silently stuck even though the caret model (and the
+selection/yank pipeline) is fully absolute. The context now carries an
+`offscreen_cell` provider: on-screen cells still read the viewport snapshot,
+and off-screen cells (scrollback above, live rows below while scrolled back)
+are served by the host windowing the terminal at the requested row — the same
+mapping `copy_mode_selection_text` uses — with a one-row memo so sequential
+word walks fetch each distinct row once. Steps are now bounded by the
+absolute buffer only; without a provider, off-screen cells stay opaque and
+scans stop at the edge (safe degradation). Three fails-before tests (forward
+across the viewport bottom, backward across the top, and an app-level
+end-to-end through the real provider from a caret parked in off-screen
+scrollback); the existing in-viewport row-crossing test stays green. The
+caret-follow scroll then brings the landing row on screen as before. Gates
+green.
+
 ## 2026-07-02 -- Reload keeps the command-status-gutter env override (C14)
 
 `ODYTTY_COMMAND_STATUS_GUTTER` was declared but missing from

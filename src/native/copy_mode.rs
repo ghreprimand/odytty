@@ -149,6 +149,13 @@ pub struct CopyModeContext<'a> {
     pub viewport_offset: usize,
     /// Number of scrollback rows above the live screen.
     pub scrollback_len: usize,
+    /// C24: character at an absolute cell NOT currently on screen (scrollback
+    /// above the viewport, or live rows below it while scrolled back), so
+    /// word/line motions resolve against the whole buffer instead of stopping
+    /// at the viewport edges. `None` (or a provider returning `None`) keeps
+    /// off-screen cells opaque — word scans then treat them as non-word
+    /// content and stop, which is the safe degradation.
+    pub offscreen_cell: Option<&'a dyn Fn(AbsoluteCellPoint) -> Option<char>>,
 }
 
 impl CopyModeContext<'_> {
@@ -187,21 +194,27 @@ impl CopyModeContext<'_> {
         (v < self.rows()).then_some(v)
     }
 
-    /// Character at an absolute cell, if the cell is on screen and in bounds.
+    /// Character at an absolute cell, if the cell is in bounds. On-screen cells
+    /// read the viewport snapshot; off-screen cells (C24) go through the
+    /// `offscreen_cell` provider so motions can resolve against the absolute
+    /// buffer. Without a provider, off-screen cells are opaque (`None`).
     fn cell_char(&self, p: AbsoluteCellPoint) -> Option<char> {
-        let vrow = self.visible_row(p.row)?;
         let cols = self.columns();
-        if p.column >= cols {
+        if p.column >= cols || p.row > self.max_row() {
             return None;
         }
-        self.snapshot
-            .cells
-            .get(vrow * cols + p.column)
-            .map(|c| c.ch)
+        if let Some(vrow) = self.visible_row(p.row) {
+            return self
+                .snapshot
+                .cells
+                .get(vrow * cols + p.column)
+                .map(|c| c.ch);
+        }
+        self.offscreen_cell.and_then(|fetch| fetch(p))
     }
 
-    /// Next cell in row-major order within the visible region, or `None` at the
-    /// end of the visible content.
+    /// Next cell in row-major order within the absolute buffer, or `None` at
+    /// the end of content (C24: no longer stops at the viewport bottom).
     fn step_forward(&self, p: AbsoluteCellPoint) -> Option<AbsoluteCellPoint> {
         let cols = self.columns();
         if cols == 0 {
@@ -212,7 +225,7 @@ impl CopyModeContext<'_> {
                 row: p.row,
                 column: p.column + 1,
             })
-        } else if p.row < self.max_row() && self.visible_row(p.row + 1).is_some() {
+        } else if p.row < self.max_row() {
             Some(AbsoluteCellPoint {
                 row: p.row + 1,
                 column: 0,
@@ -222,15 +235,15 @@ impl CopyModeContext<'_> {
         }
     }
 
-    /// Previous cell in row-major order within the visible region, or `None` at
-    /// the start of the visible content.
+    /// Previous cell in row-major order within the absolute buffer, or `None`
+    /// at the start of content (C24: no longer stops at the viewport top).
     fn step_back(&self, p: AbsoluteCellPoint) -> Option<AbsoluteCellPoint> {
         if p.column > 0 {
             Some(AbsoluteCellPoint {
                 row: p.row,
                 column: p.column - 1,
             })
-        } else if p.row > self.top_row() && self.visible_row(p.row - 1).is_some() {
+        } else if p.row > 0 {
             Some(AbsoluteCellPoint {
                 row: p.row - 1,
                 column: self.last_column(),
@@ -609,6 +622,7 @@ mod tests {
             snapshot,
             viewport_offset: 0,
             scrollback_len: 0,
+            offscreen_cell: None,
         }
     }
 
@@ -725,6 +739,74 @@ mod tests {
         let mut s = CopyModeState::new(at(0, 0));
         s.apply(CopyModeKey::WordForward, &c);
         assert_eq!(s.cursor(), at(1, 0)); // wraps to 'b' on next row
+    }
+
+    /// C24: `w` at the end of the viewport's LAST visible row continues into
+    /// the live row BELOW the viewport (scrolled back, live content below).
+    /// Pre-fix, `step_forward` stopped at the viewport bottom and the caret
+    /// stuck on the last visible word.
+    #[test]
+    fn word_forward_crosses_below_viewport_bottom() {
+        // 2-row viewport of a 3-row buffer: scrollback_len=1, offset=1 →
+        // top_row=0, visible abs rows 0..=1; abs row 2 (live bottom) is
+        // off-screen below. Provider serves its content.
+        let snap = snapshot(&["foo", "bar"], 4);
+        let below = |p: AbsoluteCellPoint| -> Option<char> {
+            (p.row == 2).then(|| "baz ".chars().nth(p.column)).flatten()
+        };
+        let c = CopyModeContext {
+            snapshot: &snap,
+            viewport_offset: 1,
+            scrollback_len: 1,
+            offscreen_cell: Some(&below),
+        };
+        let mut s = CopyModeState::new(at(1, 0)); // 'b' of bar (last visible row)
+        s.apply(CopyModeKey::WordForward, &c);
+        assert_eq!(s.cursor(), at(2, 0), "w continues onto the off-screen row");
+    }
+
+    /// C24: `b` at the start of the viewport's FIRST visible row continues into
+    /// the scrollback row ABOVE the viewport. Pre-fix, `step_back` stopped at
+    /// the viewport top.
+    #[test]
+    fn word_backward_crosses_above_viewport_top() {
+        // scrollback_len=1, offset=0 → top_row=1, visible abs rows 1..=2;
+        // abs row 0 is scrollback above the viewport.
+        let snap = snapshot(&["bar", "baz"], 4);
+        let above = |p: AbsoluteCellPoint| -> Option<char> {
+            (p.row == 0).then(|| "foo ".chars().nth(p.column)).flatten()
+        };
+        let c = CopyModeContext {
+            snapshot: &snap,
+            viewport_offset: 0,
+            scrollback_len: 1,
+            offscreen_cell: Some(&above),
+        };
+        let mut s = CopyModeState::new(at(1, 0)); // 'b' of bar (first visible row)
+        s.apply(CopyModeKey::WordBackward, &c);
+        assert_eq!(
+            s.cursor(),
+            at(0, 0),
+            "b reaches the word start in scrollback"
+        );
+    }
+
+    /// C24 degradation: without a provider, off-screen cells are opaque — a
+    /// word scan stops rather than walking blind.
+    #[test]
+    fn word_motion_without_provider_stops_at_opaque_rows() {
+        let snap = snapshot(&["bar", "baz"], 4);
+        let c = CopyModeContext {
+            snapshot: &snap,
+            viewport_offset: 0,
+            scrollback_len: 1,
+            offscreen_cell: None,
+        };
+        let mut s = CopyModeState::new(at(1, 0));
+        s.apply(CopyModeKey::WordBackward, &c);
+        // Steps into abs row 0 are allowed (the caret may be placed anywhere),
+        // but the scan finds no word chars there and settles at its edge.
+        assert!(s.cursor().row <= 1, "no panic, bounded motion");
     }
 
     #[test]
@@ -945,6 +1027,7 @@ mod tests {
             snapshot: &snap,
             viewport_offset: 3,
             scrollback_len: 5,
+            offscreen_cell: None,
         };
         // top_row = 5 - 3 = 2; absolute cursor seeded on the visible top row.
         let mut s = CopyModeState::new(at(2, 0));
@@ -967,6 +1050,7 @@ mod tests {
             snapshot: &snap,
             viewport_offset: 7,
             scrollback_len: 9,
+            offscreen_cell: None,
         };
         let _ = grown; // range() does not consult the context.
         assert_eq!(s.range(), before);

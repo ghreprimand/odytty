@@ -84,23 +84,53 @@ impl App {
             return;
         };
 
-        // Resolve motions against the currently-visible viewport snapshot.
+        // Resolve motions against the absolute buffer (C24): the visible
+        // viewport snapshot serves on-screen cells, and an off-screen provider
+        // windows the terminal at the requested row so word/line motions can
+        // scroll past the viewport edges. The terminal handle is cloned so the
+        // guard borrows a local, leaving `self` free for `copy_mode.as_mut()`.
         let offset = self.viewport.offset();
-        let (snapshot, scrollback_len) = {
-            let Ok(terminal) = self.terminal.lock() else {
+        let terminal = std::sync::Arc::clone(&self.terminal);
+        let response = {
+            let Ok(terminal) = terminal.lock() else {
                 return;
             };
-            (
-                terminal.snapshot_with_scrollback(offset),
-                terminal.screen().scrollback_len(),
-            )
-        };
-        let ctx = CopyModeContext {
-            snapshot: &snapshot,
-            viewport_offset: offset,
-            scrollback_len,
-        };
-        let response = {
+            let snapshot = terminal.snapshot_with_scrollback(offset);
+            let scrollback_len = terminal.screen().scrollback_len();
+            // One-row memo: word walks visit off-screen cells sequentially, so
+            // each distinct row is windowed once, not once per cell.
+            let row_memo: std::cell::RefCell<Option<(usize, Vec<char>)>> =
+                std::cell::RefCell::new(None);
+            let offscreen = |p: selection::AbsoluteCellPoint| -> Option<char> {
+                if let Some((row, chars)) = row_memo.borrow().as_ref()
+                    && *row == p.row
+                {
+                    return chars.get(p.column).copied();
+                }
+                // Window placing the row at (or below) the viewport top —
+                // same mapping as `copy_mode_selection_text`.
+                let w_offset = scrollback_len.saturating_sub(p.row);
+                let snap = terminal.snapshot_with_scrollback(w_offset);
+                let cols = snap.dimensions.columns;
+                let top = scrollback_len.saturating_sub(w_offset);
+                let vrow = p.row.checked_sub(top)?;
+                if vrow >= snap.dimensions.rows {
+                    return None;
+                }
+                let chars: Vec<char> = snap.cells[vrow * cols..(vrow + 1) * cols]
+                    .iter()
+                    .map(|c| c.ch)
+                    .collect();
+                let ch = chars.get(p.column).copied();
+                *row_memo.borrow_mut() = Some((p.row, chars));
+                ch
+            };
+            let ctx = CopyModeContext {
+                snapshot: &snapshot,
+                viewport_offset: offset,
+                scrollback_len,
+                offscreen_cell: Some(&offscreen),
+            };
             let cm = self.copy_mode.as_mut().expect("copy_mode is Some");
             cm.apply(cm_key, &ctx)
         };
@@ -659,6 +689,33 @@ mod tests {
             .copy_mode_selection_text(range)
             .expect("selection yields text");
         assert_eq!(text, "hello", "char-wise yank copies the exact run");
+    }
+
+    /// C24 (app-level, real provider): a word motion from a caret parked in
+    /// scrollback — entirely OFF-SCREEN while the viewport sits at the live
+    /// tail — resolves against the absolute buffer through the terminal-window
+    /// provider and lands on the next scrollback word.
+    #[test]
+    fn word_forward_resolves_in_offscreen_scrollback() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        // 10 lines on a 6-row grid → 4 scrollback rows (abs rows 0..=3 are
+        // w0..w3, off-screen while the viewport is at the live tail).
+        seed(
+            &app,
+            "w0\r\nw1\r\nw2\r\nw3\r\nw4\r\nw5\r\nw6\r\nw7\r\nw8\r\nw9",
+        );
+        let scrollback_len = app.scrollback_len();
+        assert!(scrollback_len >= 2, "test needs scrollback rows");
+        app.copy_mode = Some(CopyModeState::new(AbsoluteCellPoint { row: 0, column: 0 }));
+        app.copy_mode_key(&WinitKey::Character("w".into()));
+        let cursor = app.copy_mode.as_ref().expect("still active").cursor();
+        assert_eq!(
+            (cursor.row, cursor.column),
+            (1, 0),
+            "w walks across off-screen scrollback rows to the next word"
+        );
     }
 
     #[test]
