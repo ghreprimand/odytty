@@ -592,6 +592,12 @@ impl App {
             // HINTS label spans are absolute rows against the old layout; a
             // reflow makes them stale, so close the modal (trap #4).
             self.hints = None;
+            // COPY-MODE (C13): the caret + selection anchor are absolute-buffer
+            // coords computed against the old scrollback/row layout; a reflow
+            // re-wraps those rows and leaves them stale (a selection that no
+            // longer maps to the text under it, a caret off its intended cell).
+            // Close the modal alongside the other absolute-row overlays.
+            self.copy_mode = None;
             self.needs_rebuild = true;
         }
     }

@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Reflow closes copy mode; the caret no longer strands on stale rows (C13)
+
+`apply_grid_resize` clears the selection, search, hover spans, and hints on a
+geometry-changing reflow — precisely because their absolute row coordinates are
+computed against the old layout — but it never touched `copy_mode`. Copy mode's
+caret and selection anchor are absolute-buffer coordinates; a reflow re-wraps
+the scrollback to the new width, so the same absolute row maps to different
+content. The painted band/caret then covered unrelated rows (or vanished
+off-screen after the viewport reset), and a `y` yank copied text the user never
+selected. Copy mode now closes alongside the other absolute-row overlays in the
+resize block.
+
+Test: enter copy mode, drive a real grid reflow through `apply_grid_resize`,
+assert copy mode is closed; fails-before (mode survived with stale coords),
+passes-after. Full suite green, clippy `-D warnings` clean, fmt clean.
+
+---
+
 ## 2026-07-02 -- PTY winsize reports real pixel geometry over TIOCSWINSZ (C23)
 
 `TIOCSWINSZ` (and the slave winsize seeded at spawn) always advertised

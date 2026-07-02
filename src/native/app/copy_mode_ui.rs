@@ -718,6 +718,38 @@ mod tests {
         );
     }
 
+    /// C13: a grid reflow (window resize) closes copy mode, because the caret +
+    /// anchor are absolute-buffer coords against the old layout. Before the fix
+    /// copy mode survived the resize with stale coordinates.
+    #[test]
+    fn grid_resize_exits_copy_mode() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        seed(&app, "w0\r\nw1\r\nw2\r\nw3\r\nw4");
+        assert!(app.enter_copy_mode(), "copy mode must enter");
+        assert!(app.copy_mode_active(), "precondition: copy mode active");
+
+        // Drive the production resize path with a surface that yields a grid
+        // different from the current one, so the clearing block runs.
+        let cell = crate::atlas::CellSize {
+            width: 8,
+            height: 16,
+            baseline: 0,
+        };
+        app.apply_grid_resize(PendingResize {
+            cell,
+            padding: WindowPadding::ZERO,
+            width_px: 1000,
+            height_px: 1600,
+        });
+
+        assert!(
+            !app.copy_mode_active(),
+            "a grid reflow must close copy mode (stale absolute coords)"
+        );
+    }
+
     #[test]
     fn yank_exits_copy_mode() {
         let Some(mut app) = build_app() else {
