@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Select+Delete rework slice B1: soft-wrapped multi-line input (R5 flatten)
+
+Third slice of the approved design. A long command that soft-wraps across
+physical rows is ONE logical line in the shell's edit buffer, but until now
+any multi-row input region was an unconditional hinted no-op. Core's
+signal↔grid reconciliation now walks the shell's reported rune counts across
+every soft-wrapped row of the region, and an `InputRegion` that reconciles
+end-to-end carries authoritative per-row cell spans (`row_spans`). The
+selection-delete consumer gains the ladder's R5 rung: an `Exact` all-soft-wrap
+multi-row region flattens those spans into a single logical horizontal axis
+and synthesizes horizontal-only motion — Left/Right summed across the wrap
+boundary to the selection start, then one Delete per selected buffer glyph;
+no vertical motion is ever emitted. The subtle case is the wrap-filler cell: a
+wide glyph that does not fit at a row's right edge leaves a display-only blank
+that corresponds to no buffer character, and it is display-identical to a
+*typed* space that landed on the last column before a wide glyph. The walk
+enumerates both readings at each such boundary (capped) and accepts the signal
+only when EXACTLY ONE assignment satisfies length and cursor simultaneously —
+two coherent readings degrade to the no-op, per the charter that a wrong
+delete is worse than a no-op. Hard-newline joins (`begin…end`, continuation
+prompts) remain the explicit ODP-2 no-op + hint; the ODP-3 whole-selection
+no-op for unsigned input is unchanged; bash still never synthesizes. Twelve
+new core derivation tests (wrap spans, mid-wrap cursor, wrap-boundary cursor
+normalization, filler exclusion, typed-space twin, ambiguity rejection plus
+its unique-reading companion, stale/short-signal fallbacks) and five app-level
+regression tests (selection crossing the wrap, cross-wrap Right motion, wide
+glyph straddling the boundary, hard-newline no-op, beyond-input-end no-op);
+the three synthesizing tests fail before this change and pass after. Full
+suite, clippy `-D warnings`, and `cargo fmt --check` green.
+
 ## 2026-07-02 -- Select+Delete rework slice B2: exact right edge via the private edit-region OSC
 
 Second slice of the approved design (ODP-1 = yes, ODP-2 = hard-newline no-op,

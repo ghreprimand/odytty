@@ -974,6 +974,170 @@ fn malformed_edit_region_report_degrades_to_no_op() {
     assert!(app.click_hint_shown_for_test());
 }
 
+/// Wrapped-input content for the B1 (R5 soft-wrap) tests: prompt "$ " with the
+/// `133;B` mark at column 2, then `first` bytes filling row 0 from column 2 and
+/// `second` bytes on row 1, followed by the given edit-region report. At the
+/// 80-column test grid, 78 bytes of `first` exactly fill row 0.
+fn wrapped_input_content(first: &[u8], second: &[u8], report: &[u8]) -> Vec<u8> {
+    let mut content = b"\x1b]133;A\x07$ \x1b]133;B\x07".to_vec();
+    content.extend_from_slice(first);
+    content.extend_from_slice(second);
+    content.extend_from_slice(report);
+    content
+}
+
+/// B1/T8 (R5): a soft-wrapped command is ONE logical line; a selection
+/// crossing the wrap boundary flattens to horizontal-only motion — Left to the
+/// selection start (summed across the wrap), then Delete per selected glyph.
+#[test]
+fn wrapped_selection_crossing_wrap_deletes_exactly() {
+    // 78 'a' (row 0, cols 2..79) + 5 'b' (row 1, cols 0..4) = 83 runes,
+    // cursor at (1, 5).
+    let content = wrapped_input_content(
+        &[b'a'; 78],
+        &[b'b'; 5],
+        b"\x1b]133;P;odytty-edit;len=83;cur=83\x07",
+    );
+    let Some((mut app, bytes)) = app_with_recording_writer(&content) else {
+        return;
+    };
+    // Select row 0 cols 70..79 (10 glyphs) through row 1 cols 0..2 (3 glyphs).
+    app.force_selection_for_test(0, 70, 1, 2);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert_eq!(
+        written,
+        [b"\x1b[D".repeat(15), b"\x1b[3~".repeat(13)].concat(),
+        "cursor (offset 83) moves Left 15 to the selection start (offset 68), \
+         then deletes the 13 selected glyphs across the wrap"
+    );
+    assert!(
+        app.selection_range_for_test().is_none(),
+        "editing clears the stale visual selection"
+    );
+    assert!(
+        !app.click_hint_shown_for_test(),
+        "successful wrapped delete does not show the disabled hint"
+    );
+}
+
+/// B1 (R5): cursor repositioned mid-input BEFORE the wrap with the selection
+/// after it — motion must run Right across the wrap boundary, never a line
+/// motion.
+#[test]
+fn wrapped_cursor_before_wrap_synthesizes_right_motion() {
+    // Same 83-rune buffer, but the cursor was moved to offset 73 (row 0,
+    // col 75) and the shell reported cur=73.
+    let mut content = wrapped_input_content(
+        &[b'a'; 78],
+        &[b'b'; 5],
+        b"\x1b]133;P;odytty-edit;len=83;cur=73\x07",
+    );
+    content.extend_from_slice(b"\x1b[1;76H"); // cursor to (0, 75), 0-based
+    let Some((mut app, bytes)) = app_with_recording_writer(&content) else {
+        return;
+    };
+    // Select row 1 cols 1..3 (glyph offsets 79..81).
+    app.force_selection_for_test(1, 1, 1, 3);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert_eq!(
+        written,
+        [b"\x1b[C".repeat(6), b"\x1b[3~".repeat(3)].concat(),
+        "cursor (offset 73) moves Right 6 across the wrap to offset 79, then deletes 3"
+    );
+}
+
+/// B1/T9 (A4): a wide glyph that did not fit at the right edge leaves a
+/// display-only wrap-filler blank. The filler is NOT a buffer character: the
+/// motion/delete counts must skip it exactly.
+#[test]
+fn wide_glyph_straddling_wrap_counts_exactly() {
+    // 77 'a' (cols 2..78), then 漢 does not fit at col 79: filler blank at
+    // col 79, 漢 wraps to row 1 cols 0..1, then "xy". Buffer = 80 runes.
+    let mut second = "漢".as_bytes().to_vec();
+    second.extend_from_slice(b"xy");
+    let content = wrapped_input_content(
+        &[b'a'; 77],
+        &second,
+        b"\x1b]133;P;odytty-edit;len=80;cur=80\x07",
+    );
+    let Some((mut app, bytes)) = app_with_recording_writer(&content) else {
+        return;
+    };
+    // Select row 0 cols 75..79 (4 glyphs + the filler) through row 1 cols
+    // 0..1 (the wide glyph, 1 glyph): 5 buffer glyphs, filler excluded.
+    app.force_selection_for_test(0, 75, 1, 1);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert_eq!(
+        written,
+        [b"\x1b[D".repeat(7), b"\x1b[3~".repeat(5)].concat(),
+        "filler cell contributes no motion and no delete: Left 7 (80-73), Delete 5"
+    );
+}
+
+/// B1/T10 (ODP-2 default): a multi-line buffer (hard newlines, e.g. fish
+/// `begin…end` or a zsh continuation) reports `nl=` offsets; the region is
+/// Unknown and Delete over a selection touching it is a hinted no-op — no
+/// vertical motion is ever synthesized.
+#[test]
+fn hard_newline_report_no_ops_with_hint() {
+    let content =
+        b"\x1b]133;A\x07$ \x1b]133;B\x07for x in 1\r\necho\x1b]133;P;odytty-edit;len=15;cur=15;nl=10\x07";
+    let Some((mut app, bytes)) = app_with_recording_writer(content) else {
+        return;
+    };
+    app.force_selection_for_test(0, 2, 0, 8);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert!(
+        written.is_empty(),
+        "hard newlines => Unknown => no bytes, got {written:?}"
+    );
+    assert!(app.selection_range_for_test().is_none());
+    assert!(app.click_hint_shown_for_test());
+}
+
+/// B1 (ladder default on the flattened axis): a selection over only non-input
+/// cells of a wrapped region's last row (right of the reported input end) is a
+/// hinted no-op, exactly like the single-row decoration case.
+#[test]
+fn wrapped_selection_beyond_input_end_no_ops() {
+    let content = wrapped_input_content(
+        &[b'a'; 78],
+        &[b'b'; 5],
+        b"\x1b]133;P;odytty-edit;len=83;cur=83\x07",
+    );
+    let Some((mut app, bytes)) = app_with_recording_writer(&content) else {
+        return;
+    };
+    // Row 1 input ends at col 5 (exclusive); select cols 10..15.
+    app.force_selection_for_test(1, 10, 1, 15);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert!(
+        written.is_empty(),
+        "selection over non-input cells must not synthesize, got {written:?}"
+    );
+    assert!(app.click_hint_shown_for_test());
+}
+
 /// D-IN2-CUT-SAFE: if `write_text` returns `None`, Cut must NOT delete the
 /// editable input and must NOT clear the selection. The menu closes (item was
 /// activated) but the text and selection survive intact.

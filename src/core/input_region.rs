@@ -15,7 +15,7 @@
 //! GPU). `Screen::input_region()` assembles the live inputs.
 
 use super::screen::Line;
-use super::types::{Cell, Position};
+use super::types::Position;
 
 /// Authoritative bounds of the live editable input, computed in core.
 ///
@@ -47,6 +47,12 @@ pub struct InputRegion {
     /// Synthesis gate. Only [`InputCertainty::Exact`] is eligible for edit
     /// synthesis under the approved fallback ladder; everything else no-ops.
     pub certainty: InputCertainty,
+    /// Authoritative per-row input spans as `(start_col, end_col_exclusive)`,
+    /// index 0 = `start_row`. Populated ONLY under [`InputCertainty::Exact`]
+    /// (from the reconciled rune walk, with wrap-filler cells excluded —
+    /// B-DESIGN B1); empty otherwise. Consumers flatten these spans into the
+    /// single logical horizontal axis for R5 synthesis.
+    pub row_spans: Vec<(usize, usize)>,
 }
 
 /// Classification of one physical-row boundary inside the input region.
@@ -152,27 +158,30 @@ pub(in crate::core) fn derive_input_region(
                 end_col: input_col,
                 joins: vec![RowJoin::HardNewline; end_visible - start_visible],
                 certainty: InputCertainty::Unknown,
+                row_spans: Vec::new(),
             });
         }
-        // B2 covers the single-row case only; a wrapped (multi-row) region
-        // stays on the heuristic path until the B1 soft-wrap slice.
-        if end_visible == start_visible
-            && signal.len > 0
-            && let Some(exact) = reconcile_single_row_signal(
-                &rows[start_visible].cells,
-                input_col,
-                cursor,
+        // Rune walk across the region's rows (single-row = B2; soft-wrapped
+        // multi-row = B1). Any inconsistency falls through to the heuristic.
+        if signal.len > 0
+            && let Some(geometry) = reconcile_signal(
+                rows,
                 start_visible,
+                end_visible,
+                input_col,
+                columns,
+                cursor,
                 signal,
             )
         {
             return Some(InputRegion {
                 start_row: scrollback_len + start_visible,
                 start_col: input_col,
-                end_row: scrollback_len + start_visible,
-                end_col: exact,
-                joins: Vec::new(),
+                end_row: scrollback_len + end_visible,
+                end_col: geometry.end_col,
+                joins,
                 certainty: InputCertainty::Exact,
+                row_spans: geometry.row_spans,
             });
         }
     }
@@ -219,64 +228,199 @@ pub(in crate::core) fn derive_input_region(
         end_col,
         joins,
         certainty,
+        row_spans: Vec::new(),
     })
 }
 
-/// Reconcile a single-row edit-region signal against the grid (NF-D1).
-///
-/// The shell counts **runes** (characters); the grid stores **cells** (wide
-/// glyphs occupy two, combining marks fold into their base cell). Walk the row
-/// from the input start converting rune offsets to cell columns, and accept
-/// the signal as `Exact` only when BOTH walks land exactly and the
-/// signal-derived cursor cell equals the live grid cursor. The cursor check is
-/// the staleness detector: a signal emitted before further typing (or by a
-/// shell that only reports once per prompt) disagrees with the grid cursor and
-/// falls back to the heuristic path. Returns the exclusive exact right edge.
-fn reconcile_single_row_signal(
-    cells: &[Cell],
-    input_col: usize,
-    cursor: Position,
-    input_visible_row: usize,
-    signal: &EditRegionSignal,
-) -> Option<usize> {
-    let end_col = rune_offset_to_column(cells, input_col, signal.len)?;
-    let cursor_col = rune_offset_to_column(cells, input_col, signal.cur)?;
-    (cursor.row == input_visible_row && cursor.column == cursor_col).then_some(end_col)
+/// Result of a successful signal↔grid reconciliation.
+struct ReconciledGeometry {
+    /// Per-region-row `(start_col, end_col_exclusive)` input spans, index 0 =
+    /// the region's first row. Wrap-filler cells are excluded.
+    row_spans: Vec<(usize, usize)>,
+    /// Exclusive right edge on the region's LAST row.
+    end_col: usize,
 }
 
-/// Map a rune offset into the edit buffer to the grid column just past the
-/// consumed cells, starting at `start`. Continuation cells of a wide glyph
-/// count zero runes but advance the column; a cell's combining marks count as
-/// additional runes (the shell sees base + marks as separate characters). A
-/// walk that cannot land exactly on `runes` — offset inside a combining
-/// cluster, or the row runs out of cells first — returns `None` so the caller
-/// degrades rather than guesses.
-fn rune_offset_to_column(cells: &[Cell], start: usize, runes: usize) -> Option<usize> {
-    if runes == 0 {
-        return Some(start);
+/// Cap on ambiguous wrap-filler boundaries we are willing to enumerate
+/// (2^N assignments). Real inputs rarely have even one; past this the
+/// geometry is declared unresolvable and the caller degrades to a no-op.
+const MAX_AMBIGUOUS_WRAP_FILLERS: usize = 3;
+
+/// Reconcile an edit-region signal against the grid across the region's rows
+/// (NF-D1, generalized to soft-wrapped multi-row input for B1).
+///
+/// The shell counts **runes** (characters); the grid stores **cells** (wide
+/// glyphs occupy two, combining marks fold into their base cell, and a wide
+/// glyph that does not fit at a row's right edge leaves a display-only blank
+/// *wrap-filler* cell that corresponds to NO buffer character). Walk the
+/// buffer's runes across the region's rows and accept the signal as `Exact`
+/// only when the length lands exactly on the LAST row, the cursor offset lands
+/// exactly on a glyph boundary, and the signal-derived cursor cell equals the
+/// live grid cursor. The cursor check is the staleness detector: a signal
+/// emitted before further typing disagrees with the grid cursor and falls back
+/// to the heuristic path.
+///
+/// Wrap-filler ambiguity: a blank last cell on a wrapped row followed by a
+/// wide lead on the next row is indistinguishable from a *typed* space that
+/// happened to land on the last column before a wide glyph. Both readings are
+/// enumerated; the signal is accepted only when EXACTLY ONE assignment
+/// validates end-to-end — two coherent readings would mean two different edit
+/// geometries, and a wrong delete is worse than a no-op.
+fn reconcile_signal(
+    rows: &[Line],
+    start_visible: usize,
+    end_visible: usize,
+    input_col: usize,
+    columns: usize,
+    cursor: Position,
+    signal: &EditRegionSignal,
+) -> Option<ReconciledGeometry> {
+    let boundaries = end_visible - start_visible;
+    let ambiguous: Vec<usize> = (0..boundaries)
+        .filter(|&rel| {
+            wrap_filler_candidate(&rows[start_visible + rel], &rows[start_visible + rel + 1])
+        })
+        .collect();
+    if ambiguous.len() > MAX_AMBIGUOUS_WRAP_FILLERS {
+        return None;
     }
+    let mut accepted: Option<ReconciledGeometry> = None;
+    for mask in 0u32..(1 << ambiguous.len()) {
+        let mut skip_filler = vec![false; boundaries];
+        for (bit, &rel) in ambiguous.iter().enumerate() {
+            if mask & (1 << bit) != 0 {
+                skip_filler[rel] = true;
+            }
+        }
+        if let Some(geometry) = walk_assignment(
+            rows,
+            start_visible,
+            end_visible,
+            input_col,
+            columns,
+            cursor,
+            signal,
+            &skip_filler,
+        ) {
+            if accepted.is_some() {
+                // Two coherent readings: geometry is ambiguous => degrade.
+                return None;
+            }
+            accepted = Some(geometry);
+        }
+    }
+    accepted
+}
+
+/// Whether the boundary between `upper` (wrapped) and `lower` could carry a
+/// wrap-filler cell: `upper`'s last cell is a plain blank and `lower` starts
+/// with a wide lead (the only way `print_char` produces a filler).
+fn wrap_filler_candidate(upper: &Line, lower: &Line) -> bool {
+    let Some(last) = upper.cells.last() else {
+        return false;
+    };
+    let blank_last = !last.wide_continuation && last.ch == ' ' && last.combining().is_empty();
+    let wide_lead_first = lower
+        .cells
+        .first()
+        .is_some_and(|cell| !cell.wide_continuation)
+        && lower
+            .cells
+            .get(1)
+            .is_some_and(|cell| cell.wide_continuation);
+    blank_last && wide_lead_first
+}
+
+/// One rune walk under a fixed wrap-filler assignment. Returns the reconciled
+/// geometry only when the walk is fully coherent (see [`reconcile_signal`]).
+#[expect(
+    clippy::too_many_arguments,
+    reason = "pure derivation seam shared with reconcile_signal"
+)]
+fn walk_assignment(
+    rows: &[Line],
+    start_visible: usize,
+    end_visible: usize,
+    input_col: usize,
+    columns: usize,
+    cursor: Position,
+    signal: &EditRegionSignal,
+    skip_filler: &[bool],
+) -> Option<ReconciledGeometry> {
+    let last_rel = end_visible - start_visible;
     let mut consumed = 0usize;
-    let mut col = start;
-    while col < cells.len() {
-        let cell = &cells[col];
-        if cell.wide_continuation {
+    let mut cursor_landing: Option<(usize, usize)> = None;
+    let mut row_spans = Vec::with_capacity(last_rel + 1);
+    let mut end_col: Option<usize> = None;
+    'rows: for rel in 0..=last_rel {
+        let cells = &rows[start_visible + rel].cells;
+        let row_start = if rel == 0 { input_col } else { 0 };
+        // Non-final rows must be consumed to their input end: a wrapped row is
+        // full by construction, minus at most one filler cell before a wide
+        // lead on the next row.
+        let row_limit = if rel < last_rel && skip_filler[rel] {
+            columns - 1
+        } else {
+            columns
+        };
+        if consumed == signal.cur && cursor_landing.is_none() {
+            // Only reachable pre-consumption on the first row (cur == 0).
+            cursor_landing = Some((rel, row_start));
+        }
+        let mut col = row_start;
+        while col < row_limit && col < cells.len() {
+            if cells[col].wide_continuation {
+                col += 1;
+                continue;
+            }
+            consumed += 1 + cells[col].combining().len();
             col += 1;
-            continue;
+            // Absorb this glyph's trailing continuation cells so no boundary
+            // lands between a wide lead and its spacer.
+            while col < cells.len() && cells[col].wide_continuation {
+                col += 1;
+            }
+            if cursor_landing.is_none() {
+                match consumed.cmp(&signal.cur) {
+                    std::cmp::Ordering::Equal => {
+                        // At the end of a non-final row's input the shell
+                        // displays the cursor at the start of the next row.
+                        cursor_landing = Some(if rel < last_rel && col >= row_limit {
+                            (rel + 1, 0)
+                        } else {
+                            (rel, col)
+                        });
+                    }
+                    // cur points inside a combining cluster: no cell boundary.
+                    std::cmp::Ordering::Greater => return None,
+                    std::cmp::Ordering::Less => {}
+                }
+            }
+            match consumed.cmp(&signal.len) {
+                std::cmp::Ordering::Equal => {
+                    if rel != last_rel {
+                        // The buffer ends but the grid says the logical line
+                        // continues onto further wrapped rows: incoherent.
+                        return None;
+                    }
+                    end_col = Some(col);
+                    row_spans.push((row_start, col));
+                    break 'rows;
+                }
+                std::cmp::Ordering::Greater => return None,
+                std::cmp::Ordering::Less => {}
+            }
         }
-        consumed += 1 + cell.combining().len();
-        col += 1;
-        // Absorb this glyph's trailing continuation cells so the boundary
-        // never lands between a wide lead and its spacer.
-        while col < cells.len() && cells[col].wide_continuation {
-            col += 1;
+        if rel == last_rel {
+            // Ran out of cells on the last row before consuming `len`.
+            return None;
         }
-        match consumed.cmp(&runes) {
-            std::cmp::Ordering::Equal => return Some(col),
-            std::cmp::Ordering::Greater => return None,
-            std::cmp::Ordering::Less => {}
-        }
+        row_spans.push((row_start, row_limit));
     }
-    None
+    let end_col = end_col?;
+    let (landing_rel, landing_col) = cursor_landing?;
+    (cursor.row == start_visible + landing_rel && cursor.column == landing_col)
+        .then_some(ReconciledGeometry { row_spans, end_col })
 }
 
 /// Parse the payload of the OdyTTY-private edit-region OSC
@@ -588,6 +732,252 @@ mod tests {
             derive_input_region(&rows, 0, COLS, Some((0, 2)), at(0, 2), Some(&signal(0, 0))),
             None
         );
+    }
+
+    // ---- B1: soft-wrapped multi-row reconciliation (T8/T9) ----
+
+    /// T8 core seam: a wrapped logical line with a coherent signal becomes an
+    /// Exact multi-row region with authoritative per-row spans.
+    #[test]
+    fn soft_wrapped_signal_yields_exact_region_with_spans() {
+        // Row 0: "$ " + 18 input chars (cols 2..19), wrapped; row 1: 5 chars.
+        let rows = rows(&[("$ aaaaaaaaaaaaaaaaaa", true), ("bbbbb", false)]);
+        let region = derive_input_region(
+            &rows,
+            0,
+            COLS,
+            Some((0, 2)),
+            at(1, 5),
+            Some(&signal(23, 23)),
+        )
+        .expect("exact wrapped region");
+        assert_eq!(region.certainty, InputCertainty::Exact);
+        assert_eq!(region.start_row, 0);
+        assert_eq!(region.end_row, 1);
+        assert_eq!(region.end_col, 5);
+        assert_eq!(region.joins, vec![RowJoin::SoftWrap]);
+        assert_eq!(region.row_spans, vec![(2, COLS), (0, 5)]);
+    }
+
+    #[test]
+    fn three_row_wrap_reconciles_and_spans_all_rows() {
+        let rows = rows(&[
+            ("$ aaaaaaaaaaaaaaaaaa", true), // 18 runes
+            ("bbbbbbbbbbbbbbbbbbbb", true), // 20 runes
+            ("ccc", false),                 // 3 runes
+        ]);
+        let region = derive_input_region(
+            &rows,
+            0,
+            COLS,
+            Some((0, 2)),
+            at(2, 3),
+            Some(&signal(41, 41)),
+        )
+        .expect("exact 3-row region");
+        assert_eq!(region.certainty, InputCertainty::Exact);
+        assert_eq!(region.row_spans, vec![(2, COLS), (0, COLS), (0, 3)]);
+        assert_eq!(region.end_col, 3);
+    }
+
+    /// Cursor mid-wrap (not at the end of the buffer) still reconciles: the
+    /// staleness detector accepts the true mid-buffer cursor cell.
+    #[test]
+    fn cursor_mid_wrap_reconciles() {
+        let rows = rows(&[("$ aaaaaaaaaaaaaaaaaa", true), ("bbbbb", false)]);
+        // cur=20: 18 runes on row 0, 2 on row 1 => cursor cell (1, 2).
+        let region = derive_input_region(
+            &rows,
+            0,
+            COLS,
+            Some((0, 2)),
+            at(1, 2),
+            Some(&signal(23, 20)),
+        )
+        .expect("exact wrapped region");
+        assert_eq!(region.certainty, InputCertainty::Exact);
+    }
+
+    /// A cursor offset landing exactly on the wrap boundary maps to the start
+    /// of the next row (where the shell displays it), not one past row end.
+    #[test]
+    fn cursor_on_wrap_boundary_normalizes_to_next_row_start() {
+        let rows = rows(&[("$ aaaaaaaaaaaaaaaaaa", true), ("bbbbb", false)]);
+        // cur=18 consumes exactly row 0 => cursor cell (1, 0).
+        let region = derive_input_region(
+            &rows,
+            0,
+            COLS,
+            Some((0, 2)),
+            at(1, 0),
+            Some(&signal(23, 18)),
+        )
+        .expect("exact wrapped region");
+        assert_eq!(region.certainty, InputCertainty::Exact);
+    }
+
+    /// T9: a wide glyph that did not fit at the right edge leaves a wrap-filler
+    /// blank; the walk must skip it (it is no buffer character) and still land
+    /// exactly.
+    #[test]
+    fn wrap_filler_before_wide_glyph_is_excluded() {
+        // Row 0: "$ " + 17 chars (cols 2..18) + filler blank at col 19,
+        // wrapped; row 1: wide glyph + "xy".
+        let mut rows = rows(&[("$ aaaaaaaaaaaaaaaaa", true), ("", false)]);
+        rows[1].cells[0] = Cell::new('漢', Attrs::default());
+        rows[1].cells[1] = Cell::wide_spacer(Attrs::default());
+        rows[1].cells[2] = Cell::new('x', Attrs::default());
+        rows[1].cells[3] = Cell::new('y', Attrs::default());
+        // Buffer runes: 17 + 1 + 2 = 20; cursor at (1, 4).
+        let region = derive_input_region(
+            &rows,
+            0,
+            COLS,
+            Some((0, 2)),
+            at(1, 4),
+            Some(&signal(20, 20)),
+        )
+        .expect("exact region with filler skipped");
+        assert_eq!(region.certainty, InputCertainty::Exact);
+        // Filler cell (col 19) excluded from row 0's span.
+        assert_eq!(region.row_spans, vec![(2, COLS - 1), (0, 4)]);
+        assert_eq!(region.end_col, 4);
+    }
+
+    /// The ambiguous twin of the filler case: a TYPED space on the last column
+    /// before a wide glyph is a real buffer character. Only the reading that
+    /// counts it satisfies len+cursor, so it reconciles exactly.
+    #[test]
+    fn typed_space_before_wide_glyph_counts_as_a_rune() {
+        // Row 0: "$ " + 17 chars + typed ' ' at col 19, wrapped; row 1: wide.
+        let mut rows = rows(&[("$ aaaaaaaaaaaaaaaaa", true), ("", false)]);
+        rows[1].cells[0] = Cell::new('漢', Attrs::default());
+        rows[1].cells[1] = Cell::wide_spacer(Attrs::default());
+        // Buffer runes: 17 + 1 (space) + 1 (wide) = 19; cursor at (1, 2).
+        let region = derive_input_region(
+            &rows,
+            0,
+            COLS,
+            Some((0, 2)),
+            at(1, 2),
+            Some(&signal(19, 19)),
+        )
+        .expect("exact region counting the typed space");
+        assert_eq!(region.certainty, InputCertainty::Exact);
+        assert_eq!(region.row_spans, vec![(2, COLS), (0, 2)]);
+    }
+
+    /// Two ambiguous filler boundaries admitting two coherent readings: the
+    /// geometry cannot be trusted, so the signal must be REJECTED (charter: a
+    /// wrong delete is worse than a no-op).
+    #[test]
+    fn two_coherent_filler_readings_fall_back() {
+        // Row 0: 17 chars + blank at col 19, wrapped; row 1: wide + 17 chars
+        // + blank at col 19, wrapped; row 2: wide + "cc".
+        // skip-first-only and skip-second-only both total 38 runes.
+        let mut rows = rows(&[("$ aaaaaaaaaaaaaaaaa", true), ("", true), ("", false)]);
+        rows[1].cells[0] = Cell::new('漢', Attrs::default());
+        rows[1].cells[1] = Cell::wide_spacer(Attrs::default());
+        for col in 2..19 {
+            rows[1].cells[col] = Cell::new('b', Attrs::default());
+        }
+        rows[2].cells[0] = Cell::new('字', Attrs::default());
+        rows[2].cells[1] = Cell::wide_spacer(Attrs::default());
+        rows[2].cells[2] = Cell::new('c', Attrs::default());
+        rows[2].cells[3] = Cell::new('c', Attrs::default());
+        // skip-first: 17 + (1+17+1) + (1+2) = 39? Recomputed in-test below via
+        // the accepted len: skip-first-only = 17 + 19 + 3 = 39,
+        // skip-second-only = 18 + 18 + 3 = 39 — both coherent at cur=len with
+        // the cursor at (2, 4).
+        let region = derive_input_region(
+            &rows,
+            0,
+            COLS,
+            Some((0, 2)),
+            at(2, 4),
+            Some(&signal(39, 39)),
+        )
+        .expect("region still derived");
+        assert_eq!(
+            region.certainty,
+            InputCertainty::RightEdgeUnknown,
+            "two coherent readings must degrade, never pick one"
+        );
+    }
+
+    /// Companion to [`two_coherent_filler_readings_fall_back`]: the same grid
+    /// with a len that only the skip-BOTH reading satisfies reconciles Exact —
+    /// proving the enumeration finds filler assignments and the two-reading
+    /// rejection above is a genuine ambiguity, not a walk failure.
+    #[test]
+    fn unique_filler_reading_reconciles_exactly() {
+        let mut rows = rows(&[("$ aaaaaaaaaaaaaaaaa", true), ("", true), ("", false)]);
+        rows[1].cells[0] = Cell::new('漢', Attrs::default());
+        rows[1].cells[1] = Cell::wide_spacer(Attrs::default());
+        for col in 2..19 {
+            rows[1].cells[col] = Cell::new('b', Attrs::default());
+        }
+        rows[2].cells[0] = Cell::new('字', Attrs::default());
+        rows[2].cells[1] = Cell::wide_spacer(Attrs::default());
+        rows[2].cells[2] = Cell::new('c', Attrs::default());
+        rows[2].cells[3] = Cell::new('c', Attrs::default());
+        // len=38 is satisfied ONLY by skipping both fillers: 17 + 18 + 3.
+        let region = derive_input_region(
+            &rows,
+            0,
+            COLS,
+            Some((0, 2)),
+            at(2, 4),
+            Some(&signal(38, 38)),
+        )
+        .expect("exact region");
+        assert_eq!(region.certainty, InputCertainty::Exact);
+        assert_eq!(region.row_spans, vec![(2, COLS - 1), (0, COLS - 1), (0, 4)]);
+    }
+
+    /// A signal whose buffer ends before the grid's wrapped continuation is
+    /// incoherent (stale): fall back.
+    #[test]
+    fn signal_ending_before_last_wrapped_row_falls_back() {
+        let rows = rows(&[("$ aaaaaaaaaaaaaaaaaa", true), ("bbbbb", false)]);
+        // len=10 ends mid-row-0 while the grid says the line wraps on.
+        let region = derive_input_region(
+            &rows,
+            0,
+            COLS,
+            Some((0, 2)),
+            at(1, 5),
+            Some(&signal(10, 10)),
+        )
+        .expect("region still derived");
+        assert_eq!(region.certainty, InputCertainty::RightEdgeUnknown);
+    }
+
+    /// Stale multi-row signal (cursor disagrees) falls back to the heuristic.
+    #[test]
+    fn stale_multi_row_signal_falls_back() {
+        let rows = rows(&[("$ aaaaaaaaaaaaaaaaaa", true), ("bbbbb", false)]);
+        let region = derive_input_region(
+            &rows,
+            0,
+            COLS,
+            Some((0, 2)),
+            at(1, 5),
+            Some(&signal(23, 20)), // cur maps to (1,2), grid cursor at (1,5)
+        )
+        .expect("region still derived");
+        assert_eq!(region.certainty, InputCertainty::RightEdgeUnknown);
+    }
+
+    /// Heuristic (non-Exact) regions must not carry spans: only the reconciled
+    /// walk may feed R5 synthesis.
+    #[test]
+    fn heuristic_regions_have_no_row_spans() {
+        let rows = rows(&[("$ aaaaaaaaaaaaaaaaaa", true), ("bbbbb", false)]);
+        let region = derive_input_region(&rows, 0, COLS, Some((0, 2)), at(1, 5), None)
+            .expect("heuristic region");
+        assert_eq!(region.certainty, InputCertainty::RightEdgeUnknown);
+        assert!(region.row_spans.is_empty());
     }
 
     // ---- B2: private OSC parse (T18) ----
