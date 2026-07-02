@@ -35,13 +35,14 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::os::windows::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::sync::atomic::{AtomicBool, Ordering};
-// `AtomicUsize` backs the test-only `resize_calls` counter, so it is unused in a
-// non-test Windows build — gate the import to match (Standing rule C: a Windows-
-// only file's lints are invisible to the Linux gate). The Unix backend sidesteps
-// this by fully-qualifying `std::sync::atomic::AtomicUsize` inline.
+// `AtomicUsize`/`Ordering` back the test-only `resize_calls` /
+// `kernel_resizes` counters, so they are unused in a non-test Windows build —
+// gate the imports to match (Standing rule C: a Windows-only file's lints are
+// invisible to the Linux gate). P2-FIX removed the last non-test atomic (the
+// old `hpcon_closed: AtomicBool` became the mutex-guarded flag in
+// [`PconShared`]).
 #[cfg(test)]
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -77,14 +78,14 @@ const STILL_ACTIVE_CODE: u32 = 259;
 const KILL_EXIT_CODE: u32 = 1;
 
 pub struct PtySession {
-    /// Raw `HPCON` value. Stored as `isize` (its newtype payload) so the whole
-    /// struct is trivially `Send`/`Sync`; rewrapped as `HPCON` at call sites.
-    hpcon: isize,
-    /// Whether [`ClosePseudoConsole`] has already run for `hpcon`. Shared with
-    /// the child-waiter thread (and read by `kill`/`Drop`) so the pseudoconsole
-    /// is closed exactly once no matter which path reaches it first — natural
-    /// child exit (waiter), explicit `kill`, or `Drop`. See [`close_pcon_once`].
-    hpcon_closed: Arc<AtomicBool>,
+    /// The pseudoconsole handle plus its close state, shared with the
+    /// child-waiter thread. P2-FIX: `ResizePseudoConsole` and
+    /// `ClosePseudoConsole` are serialized under the [`PconShared`] mutex so a
+    /// UI-thread resize can never overlap the waiter's asynchronous close of
+    /// the same HPCON (a use-after-free inside conhost). Also carries the
+    /// original close-exactly-once guarantee across the three closers —
+    /// natural child exit (waiter), explicit `kill`, and `Drop`.
+    pcon: Arc<PconShared>,
     /// The child process handle. Owned: closed when the session drops.
     process: OwnedHandle,
     /// Parent end of the input pipe (host → child). Kept as an owned handle so
@@ -323,18 +324,13 @@ impl PtySession {
             // path a `kill` uses (the pump drains the diagnostic on that EOF). A
             // dup failure is non-fatal — the session still works; only natural-
             // exit auto-close + diagnostic is lost — so the waiter is `None` then.
-            let hpcon_closed = Arc::new(AtomicBool::new(false));
+            let pcon = Arc::new(PconShared::new(hpcon.0));
             let pending_diagnostic = Arc::new(Mutex::new(None));
-            let waiter = spawn_child_waiter(
-                &process,
-                hpcon.0,
-                Arc::clone(&hpcon_closed),
-                Arc::clone(&pending_diagnostic),
-            );
+            let waiter =
+                spawn_child_waiter(&process, Arc::clone(&pcon), Arc::clone(&pending_diagnostic));
 
             Ok(Self {
-                hpcon: hpcon.0,
-                hpcon_closed,
+                pcon,
                 process,
                 input_write,
                 output_read,
@@ -356,8 +352,10 @@ impl PtySession {
     pub fn resize(&self, dimensions: Dimensions) -> Result<()> {
         #[cfg(test)]
         self.resize_calls.fetch_add(1, Ordering::Relaxed);
-        // SAFETY: `self.hpcon` is a live pseudoconsole owned by this session.
-        unsafe { ResizePseudoConsole(HPCON(self.hpcon), coord(dimensions)).context("resize pty") }
+        // P2-FIX: serialized against `ClosePseudoConsole` inside `PconShared`;
+        // a resize racing the child-waiter's asynchronous close is either
+        // ordered before it (valid handle) or after it (clean no-op).
+        self.pcon.resize(coord(dimensions))
     }
 
     /// Test-only: how many times [`resize`](Self::resize) has been called on
@@ -454,9 +452,9 @@ impl PtySession {
     /// Close the pseudoconsole exactly once, releasing ConPTY's internal copy of
     /// the output pipe's write end so any blocked output reader observes EOF.
     /// Idempotent across all three closers — the child-waiter thread, `kill`,
-    /// and `Drop` — via the shared `hpcon_closed` flag (see [`close_pcon_once`]).
+    /// and `Drop` — and serialized against `resize` (see [`PconShared`]).
     fn close_pcon(&mut self) {
-        close_pcon_once(self.hpcon, &self.hpcon_closed);
+        self.pcon.close_once();
     }
 
     pub fn read_to_end(&self) -> Result<Vec<u8>> {
@@ -492,7 +490,7 @@ impl PtySession {
 impl Drop for PtySession {
     fn drop(&mut self) {
         // `kill` terminates the child if it is still running and closes the
-        // pseudoconsole (idempotent via `hpcon_closed`, so a prior `close()` →
+        // pseudoconsole (idempotent via `PconShared`, so a prior `close()` →
         // `kill()` is not double-closed here). `wait` then reaps the child. The
         // owned pipe/process handles close when their `OwnedHandle` fields drop
         // after this body.
@@ -509,18 +507,89 @@ impl Drop for PtySession {
     }
 }
 
-/// Close the pseudoconsole exactly once across every closer (the child-waiter
-/// thread, `kill`, and `Drop`), guarded by the shared `closed` flag. Closing it
-/// releases ConPTY's internal copy of the output pipe's write end, so any
-/// blocked output reader observes EOF and the session tears down cleanly.
-fn close_pcon_once(hpcon: isize, closed: &AtomicBool) {
-    // `swap` returns the prior value: only the first caller (prior == false)
-    // performs the close; the rest are no-ops, preserving single-close.
-    if !closed.swap(true, Ordering::AcqRel) {
-        // SAFETY: `hpcon` came from a successful `CreatePseudoConsole` and is
-        // closed exactly once thanks to the atomic guard above.
-        unsafe {
-            ClosePseudoConsole(HPCON(hpcon));
+/// The pseudoconsole handle and its close state, shared between the session
+/// and the child-waiter thread.
+///
+/// P2-FIX (confirmed by P6-REPRO trace): the child-waiter closes the HPCON
+/// asynchronously the instant the child self-exits, while a UI-thread resize
+/// (window resize / divider drag) can be in flight on the still-alive
+/// `PtySession` — `ResizePseudoConsole` racing `ClosePseudoConsole` on the
+/// same HPCON is a use-after-free inside conhost (ConPTY does not document
+/// thread-safety for concurrent Resize/Close). A flag-only check would be
+/// TOCTOU — the waiter can close between the load and the resize call — so
+/// the mutex spans the Win32 calls themselves: `resize` and `close_once` can
+/// never overlap, and resize observes a definitively open-or-closed handle.
+///
+/// The `closed` flag under the lock also carries the original
+/// close-exactly-once guarantee across the three closers (waiter, `kill`,
+/// `Drop`); closing releases ConPTY's internal copy of the output pipe's
+/// write end so a blocked output reader observes EOF.
+struct PconShared {
+    /// Raw `HPCON` value. Stored as `isize` (its newtype payload) so the
+    /// struct is trivially `Send`/`Sync`; rewrapped as `HPCON` at call sites.
+    hpcon: isize,
+    /// `true` once [`ClosePseudoConsole`] has run. Guarded by the mutex whose
+    /// critical sections span the `ResizePseudoConsole`/`ClosePseudoConsole`
+    /// calls (see the type docs for why a bare atomic is not enough).
+    closed: Mutex<bool>,
+    /// Test-only counter of `ResizePseudoConsole` calls that actually reached
+    /// the kernel (i.e. were NOT skipped by the closed fast-path). Lets the
+    /// resize-after-close regression test assert the skip structurally.
+    #[cfg(test)]
+    kernel_resizes: AtomicUsize,
+}
+
+impl PconShared {
+    fn new(hpcon: isize) -> Self {
+        Self {
+            hpcon,
+            closed: Mutex::new(false),
+            #[cfg(test)]
+            kernel_resizes: AtomicUsize::new(0),
+        }
+    }
+
+    /// Lock the close state, recovering from a poisoned mutex. The guarded
+    /// data is a plain `bool` with no invariants a panic could break, and both
+    /// critical sections must still run during teardown even if some other
+    /// holder panicked, so poison recovery is safe and required.
+    fn lock_closed(&self) -> std::sync::MutexGuard<'_, bool> {
+        self.closed
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    /// Resize the pseudoconsole, or no-op `Ok(())` if it has been closed.
+    /// Holding the lock across the Win32 call is the point: the waiter's
+    /// `close_once` cannot free the handle mid-resize.
+    fn resize(&self, size: COORD) -> Result<()> {
+        let closed = self.lock_closed();
+        if *closed {
+            // The pseudoconsole is already torn down (the session is on its
+            // way out through reader-EOF teardown); a late resize is a no-op,
+            // not an error — the caller's pane is about to disappear.
+            return Ok(());
+        }
+        #[cfg(test)]
+        self.kernel_resizes.fetch_add(1, Ordering::Relaxed);
+        // SAFETY: `hpcon` came from a successful `CreatePseudoConsole`; the
+        // held lock guarantees `ClosePseudoConsole` has not run and cannot run
+        // concurrently.
+        unsafe { ResizePseudoConsole(HPCON(self.hpcon), size).context("resize pty") }
+    }
+
+    /// Close the pseudoconsole exactly once across every closer (the
+    /// child-waiter thread, `kill`, and `Drop`); serialized against `resize`.
+    fn close_once(&self) {
+        let mut closed = self.lock_closed();
+        if !*closed {
+            *closed = true;
+            // SAFETY: `hpcon` came from a successful `CreatePseudoConsole` and
+            // is closed exactly once thanks to the flag under the held lock;
+            // no `ResizePseudoConsole` can be in flight while we hold it.
+            unsafe {
+                ClosePseudoConsole(HPCON(self.hpcon));
+            }
         }
     }
 }
@@ -552,8 +621,7 @@ const STARTUP_FAILURE_WINDOW: Duration = Duration::from_millis(500);
 /// natural-exit auto-close + the diagnostic are lost).
 fn spawn_child_waiter(
     process: &OwnedHandle,
-    hpcon: isize,
-    closed: Arc<AtomicBool>,
+    pcon: Arc<PconShared>,
     diagnostic: Arc<Mutex<Option<String>>>,
 ) -> Option<JoinHandle<()>> {
     let dup = duplicate_owned_handle(process).ok()?;
@@ -585,7 +653,7 @@ fn spawn_child_waiter(
                     *slot = Some(line);
                 }
             }
-            close_pcon_once(hpcon, &closed);
+            pcon.close_once();
         })
         .ok()
 }
@@ -1064,6 +1132,92 @@ mod tests {
         assert_eq!(clamp_i16(0), 0);
         assert_eq!(clamp_i16(80), 80);
         assert_eq!(clamp_i16(usize::MAX), i16::MAX);
+    }
+
+    #[test]
+    fn resize_after_pcon_close_is_a_clean_noop() {
+        // P2-FIX regression: a resize arriving after the pseudoconsole has
+        // been closed (the child-waiter does this asynchronously when the
+        // shell self-exits) must be a clean Ok(()) no-op that never reaches
+        // `ResizePseudoConsole` — pre-fix it called the kernel on a freed
+        // HPCON (use-after-free inside conhost).
+        let session = PtySession::spawn_default_shell(Dimensions {
+            rows: 24,
+            columns: 80,
+        })
+        .expect("spawn default shell");
+
+        // A resize on the live handle reaches the kernel.
+        session
+            .resize(Dimensions {
+                rows: 30,
+                columns: 100,
+            })
+            .expect("live resize");
+        assert_eq!(session.pcon.kernel_resizes.load(Ordering::Relaxed), 1);
+
+        // Simulate the waiter's close (same code path: `PconShared::close_once`),
+        // then resize again: Ok, and the kernel call count must NOT move.
+        session.pcon.close_once();
+        session
+            .resize(Dimensions {
+                rows: 24,
+                columns: 80,
+            })
+            .expect("post-close resize must be a clean no-op");
+        assert_eq!(
+            session.pcon.kernel_resizes.load(Ordering::Relaxed),
+            1,
+            "post-close resize must not reach ResizePseudoConsole"
+        );
+
+        // Idempotence: a second close (kill/Drop will issue more) is a no-op.
+        session.pcon.close_once();
+    }
+
+    #[test]
+    fn resize_racing_child_self_exit_never_faults() {
+        // P2-FIX race pressure: run a shell that exits immediately, so the
+        // child-waiter thread closes the pseudoconsole asynchronously while
+        // this thread hammers `resize`. Pre-fix this could order a
+        // `ResizePseudoConsole` against a concurrently-freed HPCON (UAF in
+        // conhost — intermittent crash); post-fix every resize is either
+        // ordered before the close (valid handle) or after it (clean no-op),
+        // so ALL calls must return Ok and the process must survive.
+        let session = PtySession::spawn_shell_command(
+            Dimensions {
+                rows: 24,
+                columns: 80,
+            },
+            "exit",
+        )
+        .expect("spawn one-shot shell");
+
+        let deadline = Instant::now() + Duration::from_millis(750);
+        let mut flip = false;
+        while Instant::now() < deadline {
+            flip = !flip;
+            let dims = if flip {
+                Dimensions {
+                    rows: 30,
+                    columns: 100,
+                }
+            } else {
+                Dimensions {
+                    rows: 24,
+                    columns: 80,
+                }
+            };
+            session
+                .resize(dims)
+                .expect("resize must never fail across the waiter's close");
+            // Stop early once the waiter has closed the pcon and the no-op
+            // path is proven (a few extra iterations keep pressure on it).
+            if *session.pcon.lock_closed() {
+                break;
+            }
+            std::thread::yield_now();
+        }
     }
 
     #[test]

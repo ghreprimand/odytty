@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- ConPTY resize serialized against asynchronous close (P2-FIX)
+
+Confirmed race (P6-REPRO trace): the child-waiter thread closes the
+pseudoconsole the instant the shell self-exits, while a UI-thread resize
+(window resize / divider drag) can be in flight on the still-alive session —
+`ResizePseudoConsole` racing `ClosePseudoConsole` on the same HPCON is a
+use-after-free inside conhost. A flag-only check would be TOCTOU, so the new
+`PconShared` wraps the handle with a `Mutex<bool>` whose critical sections
+span the Win32 calls themselves: resize and close can never overlap, a
+post-close resize is a clean `Ok(())` no-op, and the close-exactly-once
+guarantee across waiter/`kill`/`Drop` carries over from the old atomic flag
+(with poisoned-lock recovery so teardown always completes). Two new
+`cfg(windows)` tests: a deterministic resize-after-close no-op assertion via
+a test-only kernel-call counter, plus a race-pressure loop hammering resize
+across a self-exiting shell's asynchronous close. Windows-only surface; the
+Linux gate (full suite, clippy `-D warnings`, fmt) is green and the blocking
+windows-latest CI leg is the authoritative verification for the new tests.
+
 ## 2026-07-02 -- Windows log path uses %LOCALAPPDATA%, not %TEMP% (NF13)
 
 `platform_state_dir()` (`src/logging.rs`) had only macOS and `not(macos)` arms;
