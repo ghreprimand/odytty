@@ -405,6 +405,45 @@ fn reflow_keeps_cursor_clear_compatible_for_live_line() {
     assert_eq!(visible_text(&terminal), "");
 }
 
+/// C18 regression: a cursor parked on a wide glyph's CONTINUATION cell must
+/// follow the glyph through reflow, mapping to the lead cell's placed
+/// position. The rewrap loop advances two cells at a time over a wide pair,
+/// so the continuation index never matched the cursor-destination check —
+/// the cursor was silently dropped and fell back to the stale pre-resize
+/// visible position.
+#[test]
+fn reflow_maps_cursor_on_wide_continuation_to_lead() {
+    // The content-accurate mapping governs when the repaint-anchor override
+    // does not apply — i.e. a resize with NO shell output since the previous
+    // one (the back-to-back ConPTY case the override deliberately skips), so
+    // each scenario resizes twice: the first consumes the anchor override,
+    // the second exercises the content path under test.
+
+    // Rejoin case: three wide glyphs; cursor on the continuation cell of the
+    // SECOND glyph (col 3; the pair occupies cols 2-3 after rejoin).
+    let mut terminal = Terminal::new(4, 3);
+    terminal.advance("漢漢漢".as_bytes());
+    terminal.advance(b"\x1b[1;4H"); // col 3 = continuation of glyph 2
+    assert_eq!(visible_text(&terminal), "漢漢\n漢");
+    terminal.resize(10, 3); // anchor override path (repaint expected)
+    terminal.resize(8, 3); // content path: cursor offset 3 = continuation
+    assert_eq!(visible_text(&terminal), "漢漢漢");
+    // Pre-fix: the continuation offset matched no destination check, the
+    // cursor was dropped, and the stale visible position (0, 3) survived.
+    assert_eq!(terminal.screen().cursor(), Position { row: 0, column: 2 });
+
+    // Re-wrap case: narrowing pushes the glyph onto a later row; the cursor
+    // (on the continuation, col 9) must land on the lead's new position.
+    let mut terminal = Terminal::new(10, 3);
+    terminal.advance("abcdefgh漢".as_bytes()); // lead col 8, continuation col 9
+    terminal.advance(b"\x1b[1;10H"); // col 9 = continuation cell
+    terminal.resize(11, 3); // anchor override path; cursor stays (0, 9)
+    terminal.resize(6, 3); // content path
+    assert_eq!(visible_text(&terminal), "abcdef\ngh漢");
+    // Pre-fix: cursor dropped, left at the clamped stale (0, 5).
+    assert_eq!(terminal.screen().cursor(), Position { row: 1, column: 2 });
+}
+
 #[test]
 fn shell_owns_cursor_setter_getter_behavior_tie() {
     // Ties the `shell_owns_cursor_on_resize` getter to REAL resize behavior so

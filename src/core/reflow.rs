@@ -309,6 +309,18 @@ pub(in crate::core) fn reflow_lines_with_options(
             }
 
             if unit == 2 {
+                // C18: a cursor parked on the wide glyph's CONTINUATION cell
+                // must follow the glyph — map it to the lead's placed position.
+                // The `i += 2` below skips the continuation index, so the
+                // `cursor_target == Some(i)` check above can never match it;
+                // without this the cursor was silently dropped and fell back
+                // to the stale pre-resize visible position.
+                if i + 1 < cells.len()
+                    && cells[i + 1].wide_continuation
+                    && cursor_target == Some(i + 1)
+                {
+                    cursor_dest = Some((new_combined.len(), row_cells.len()));
+                }
                 row_cells.push(cell);
                 let cont = if i + 1 < cells.len() && cells[i + 1].wide_continuation {
                     cells[i + 1]

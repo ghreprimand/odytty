@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Reflow: map a cursor on a wide-glyph continuation cell to its lead (audit C18)
+
+Tier 3 audit fix (C18). The reflow rewrap loop advances two cells at a time
+over a wide pair (lead + continuation), so its cursor-destination check
+(`cursor_target == Some(i)`) could never match a cursor parked ON the
+continuation cell (e.g. CUP onto the second column of a CJK glyph). The cursor
+was silently dropped from the content mapping and fell back to the stale
+pre-resize visible position, clamped to the new width — visibly detached from
+the glyph it sat on. Fix: when placing a wide unit that consumes a real
+continuation cell, a cursor targeting the continuation index maps to the LEAD
+cell's placed position. This governs the content-accurate path — resizes with
+no intervening shell output (the back-to-back ConPTY case), where the
+repaint-anchor override deliberately does not apply. Regression test
+`reflow_maps_cursor_on_wide_continuation_to_lead` covers both directions
+(rejoin on widen, re-wrap onto a later row on narrow), double-resizing so the
+second resize exercises the content path; both scenarios showed the stale
+dropped-cursor position before the fix.
+
 ## 2026-07-02 -- Sever stale soft-wrap flags across DL/IL/scroll-region/RI/erase (audit C16)
 
 Tier 3 audit fix (C16). `Line::wrapped` on row N promises that row N+1 is the
