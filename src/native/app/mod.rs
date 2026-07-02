@@ -2002,11 +2002,11 @@ impl App {
             SettingsReloadOutcome::Reloaded(settings) => self.apply_reloaded_settings(settings),
             SettingsReloadOutcome::Invalid { warnings } => {
                 for warning in warnings {
-                    eprintln!("odytty: config reload ignored: {warning}");
+                    tracing::warn!(warning = %warning, "config reload ignored");
                 }
             }
             SettingsReloadOutcome::Unreadable { message } => {
-                eprintln!("odytty: config reload ignored: {message}");
+                tracing::warn!(message = %message, "config reload ignored");
             }
         }
     }
@@ -2044,7 +2044,7 @@ impl App {
             return;
         };
         if let Err(error) = ensure_config_file_exists_at(path) {
-            eprintln!("odytty: could not record first-run marker: {error}");
+            tracing::warn!(error = %error, "could not record first-run marker");
         }
     }
 
@@ -2143,7 +2143,7 @@ impl App {
                 {
                     Ok(changed) => changed,
                     Err(err) => {
-                        eprintln!("odytty: config reload ignored: {err}");
+                        tracing::warn!(error = %err, "config reload ignored: text options apply failed");
                         return;
                     }
                 };

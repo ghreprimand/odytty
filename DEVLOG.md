@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Config-reload diagnostics route through tracing, not stderr (FU1)
+
+FREEZE-HARDEN residual: the four remaining `eprintln!` diagnostic sites in the
+native app loop (three config-reload-ignored paths + the first-run-marker write
+failure) now emit structured `tracing::warn!` records, matching the F1 new-window
+handler and the default rotated-log sink FREEZE-HARDEN installed. Each carries
+only a config-parse warning or an IO error string — no terminal content (no PTY
+bytes, grid text, or window titles), per the release privacy rule. Mechanical
+conversion; full suite green, clippy `-D warnings` clean, fmt clean.
+
+---
+
 ## 2026-07-02 -- Remap modal is pane-action aware: prefix second-keys shown and conflict-checked (C8)
 
 Pane actions (Zoom/Close/Focus*/Equalize/Split*) live only in the multiplexer
