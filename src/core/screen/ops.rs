@@ -30,6 +30,22 @@ impl Screen {
         }
     }
 
+    /// NF10 (C16/NF6 family): sever whatever precedes `row` in the logical-
+    /// line chain when `row` is removed, replaced, or displaced. For `row > 0`
+    /// the predecessor is the visible row above (`sever_soft_wrap`). For
+    /// `row == 0` on the PRIMARY screen it is the trailing open scrollback
+    /// line, which claims visible row 0 as its continuation — the same seam
+    /// NF6 fixed for ED2. On the ALT screen row 0's predecessor is the SAVED
+    /// primary row 0, which is untouched by alt-grid shuffles, so nothing is
+    /// severed there (mirrors the NF6 alt-screen pin).
+    fn sever_above(&mut self, row: usize) {
+        if row > 0 {
+            self.sever_soft_wrap(row - 1);
+        } else if self.primary_screen.is_none() {
+            self.scrollback.sever_trailing_wrap();
+        }
+    }
+
     pub(super) fn scroll_up_full(&mut self) {
         let removed = self.rows.remove(0);
         let background = self.current_attrs.background;
@@ -60,9 +76,8 @@ impl Screen {
             // `wrapped` on the region's bottom row right before scrolling and
             // then writes the continuation onto the fresh blank — that
             // anticipatory flag is legitimate and reflow depends on it.
-            if region.top > 0 {
-                self.sever_soft_wrap(region.top - 1);
-            }
+            // NF10: region top at row 0 severs the scrollback tail instead.
+            self.sever_above(region.top);
             self.rows.remove(region.top);
             self.rows.insert(
                 region.bottom,
@@ -82,10 +97,9 @@ impl Screen {
         let count = count.max(1).min(bottom - top + 1);
         let background = self.current_attrs.background;
         // C16 top seam: the row above the region loses its successor (the
-        // region's first `count` rows are discarded).
-        if top > 0 {
-            self.sever_soft_wrap(top - 1);
-        }
+        // region's first `count` rows are discarded). NF10: at row 0 the
+        // predecessor is the scrollback tail.
+        self.sever_above(top);
         for _ in 0..count {
             self.rows.remove(top);
             self.rows.insert(
@@ -116,9 +130,8 @@ impl Screen {
         let background = self.current_attrs.background;
         // C16 top seam: the row above the region now precedes an inserted
         // blank instead of its continuation (which was displaced downward).
-        if top > 0 {
-            self.sever_soft_wrap(top - 1);
-        }
+        // NF10: at row 0 the predecessor is the scrollback tail.
+        self.sever_above(top);
         for _ in 0..count {
             self.rows.remove(bottom);
             self.rows
@@ -153,9 +166,8 @@ impl Screen {
             // C16 seams — same shape as `scroll_region_down` with count = 1:
             // the row above the region now precedes an inserted blank, and the
             // row displaced onto the region bottom lost its successor.
-            if top > 0 {
-                self.sever_soft_wrap(top - 1);
-            }
+            // NF10: at row 0 the predecessor is the scrollback tail.
+            self.sever_above(top);
             self.rows.remove(bottom);
             self.rows
                 .insert(top, blank_row_with_bg(self.dimensions.columns, background));
@@ -179,10 +191,9 @@ impl Screen {
         let count = count.max(1).min(bottom - self.cursor.row + 1);
         let background = self.current_attrs.background;
         // C16 top seam: the row above the insertion point now precedes an
-        // inserted blank instead of its displaced continuation.
-        if self.cursor.row > 0 {
-            self.sever_soft_wrap(self.cursor.row - 1);
-        }
+        // inserted blank instead of its displaced continuation. NF10: at
+        // row 0 the predecessor is the scrollback tail.
+        self.sever_above(self.cursor.row);
         for _ in 0..count {
             self.rows.remove(bottom);
             self.rows.insert(
@@ -214,10 +225,9 @@ impl Screen {
         let background = self.current_attrs.background;
         // C16 top seam: the row above the deletion point loses its successor
         // (the deleted rows) — without this it would claim whatever row
-        // scrolls up into the gap as its wrap continuation.
-        if self.cursor.row > 0 {
-            self.sever_soft_wrap(self.cursor.row - 1);
-        }
+        // scrolls up into the gap as its wrap continuation. NF10: at row 0
+        // the predecessor is the scrollback tail.
+        self.sever_above(self.cursor.row);
         for _ in 0..count {
             self.rows.remove(self.cursor.row);
             self.rows.insert(
@@ -421,6 +431,13 @@ impl Screen {
                 for row in 0..self.cursor.row {
                     self.rows[row] = blank_row_with_bg(self.dimensions.columns, background);
                 }
+                // NF10 (NF6 sibling): when the cursor is below row 0, row 0
+                // was replaced wholesale — a trailing open scrollback line
+                // must not keep claiming it as a continuation. Cursor AT
+                // row 0 only erases in place (row survives), so no sever.
+                if self.cursor.row > 0 {
+                    self.sever_above(0);
+                }
                 self.erase_line_to_cursor();
                 self.prompt_marks_changed |= cleared_mark;
             }
@@ -435,10 +452,9 @@ impl Screen {
                 // as its continuation — reflow would fuse scrolled-off history
                 // with whatever is printed next. Primary screen only: on the
                 // alt screen the scrollback tail still (validly) continues into
-                // the SAVED primary row 0, not into the alt grid.
-                if self.primary_screen.is_none() {
-                    self.scrollback.sever_trailing_wrap();
-                }
+                // the SAVED primary row 0, not into the alt grid (that
+                // distinction now lives in `sever_above`).
+                self.sever_above(0);
                 if mode == 3 {
                     self.scrollback.clear();
                 }
@@ -468,10 +484,9 @@ impl Screen {
                 self.rows[self.cursor.row] = self.current_blank_row();
                 // C16 seam: the row above must not claim the fresh blank as
                 // its wrap continuation (the erased content it wrapped into is
-                // gone).
-                if self.cursor.row > 0 {
-                    self.sever_soft_wrap(self.cursor.row - 1);
-                }
+                // gone). NF10: at row 0 the predecessor is the scrollback
+                // tail.
+                self.sever_above(self.cursor.row);
             }
             _ => {}
         }

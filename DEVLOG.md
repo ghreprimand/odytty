@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Scrollback tail severed at every row-0 replacement seam (NF10)
+
+NF6 fixed ED2 leaving a trailing open scrollback line claiming visible row 0
+as its wrap continuation; NF10 closes the sibling seams the C16 guards
+skipped whenever the seam sat at row 0 (`top > 0` / `cursor.row > 0`). New
+`Screen::sever_above(row)` severs the logical-line predecessor of a removed,
+replaced, or displaced row: the visible row above for `row > 0`, the
+scrollback tail for row 0 on the primary screen, and nothing on the alt
+screen (whose row-0 predecessor is the SAVED primary row 0). Swapped into
+ED1-below-cursor, EL2, DL, IL, SU/SD region scrolls, RI, the linefeed region
+scroll, and the NF6 ED2 site for consistency. Six new regression tests: five
+row-0 seams fail-before/pass-after, plus an alt-screen control pinning that
+none of the ops sever the primary tail from the alt grid. Full suite (2953
+tests), clippy `-D warnings`, and `cargo fmt --check` green. Platform note:
+pure core screen logic, no platform surface — identical on all platforms.
+
 ## 2026-07-02 -- Bash integration coexists with user PROMPT_COMMAND helpers (NF1 + NF1-B)
 
 OdyTTY's bash OSC-133 snippet appended its handler to `PROMPT_COMMAND`, which

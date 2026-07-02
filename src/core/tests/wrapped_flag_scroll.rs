@@ -200,6 +200,115 @@ fn erase_display_full_severs_trailing_scrollback_wrap() {
     assert_eq!(visible_text(&terminal), "aaaaaaaaaa\nXXX");
 }
 
+/// A 50-char logical line on a 10x4 grid: one physical row scrolls off as an
+/// OPEN scrollback line whose `wrapped` flag claims visible row 0 as its
+/// continuation. The NF10 seam fixture.
+fn scrollback_tail_into_row0() -> Terminal {
+    let mut terminal = Terminal::new(10, 4);
+    terminal.advance("a".repeat(50).as_bytes());
+    terminal
+}
+
+/// NF10 seam (a): ED1 (CSI 1J) with the cursor below row 0 replaces row 0
+/// wholesale — the trailing open scrollback line must not keep claiming it.
+#[test]
+fn erase_display_above_cursor_severs_trailing_scrollback_wrap() {
+    let mut terminal = scrollback_tail_into_row0();
+    terminal.advance(b"\x1b[2;1H\x1b[1J"); // cursor row 1: rows above replaced
+
+    terminal.resize(30, 4);
+    // Post-fix: history stays its own line, the blanked row 0 survives as a
+    // physical blank, and rows 1-3 reflow as their own 30-char logical line
+    // (minus the cell ED1 erased at the cursor). Pre-fix the scrollback tail
+    // swallowed blank row 0 and the blank vanished from the layout.
+    assert_eq!(
+        visible_text(&terminal),
+        format!("aaaaaaaaaa\n\n {}", "a".repeat(29))
+    );
+}
+
+/// NF10 seam (b): EL2 (CSI 2K) at row 0 replaces the row with a fresh blank;
+/// the guard `cursor.row > 0` skipped the predecessor entirely, leaving the
+/// scrollback tail claiming the blank.
+#[test]
+fn erase_line_full_at_row_zero_severs_trailing_scrollback_wrap() {
+    let mut terminal = scrollback_tail_into_row0();
+    terminal.advance(b"\x1b[1;1H\x1b[2K");
+
+    terminal.resize(30, 4);
+    // Post-fix: history / physical blank / 30-char line. Pre-fix the blank
+    // fused into the tail and disappeared.
+    assert_eq!(
+        visible_text(&terminal),
+        format!("aaaaaaaaaa\n\n{}", "a".repeat(30))
+    );
+}
+
+/// NF10 seam (c): DL (CSI M) at row 0 deletes the scrollback tail's
+/// continuation — the tail must not claim the row that shuffles up.
+#[test]
+fn delete_lines_at_row_zero_severs_trailing_scrollback_wrap() {
+    let mut terminal = scrollback_tail_into_row0();
+    terminal.advance(b"\x1b[1;1H\x1b[M");
+
+    terminal.resize(30, 4);
+    // Post-fix: history stays a 10-char line above the surviving 30-char
+    // line. Pre-fix they fused into one 40-char logical line.
+    assert_eq!(
+        visible_text(&terminal),
+        format!("aaaaaaaaaa\n{}", "a".repeat(30))
+    );
+}
+
+/// NF10 seam (c): IL (CSI L) at row 0 inserts a blank between the scrollback
+/// tail and its displaced continuation.
+#[test]
+fn insert_lines_at_row_zero_severs_trailing_scrollback_wrap() {
+    let mut terminal = scrollback_tail_into_row0();
+    terminal.advance(b"\x1b[1;1H\x1b[L");
+
+    terminal.resize(30, 4);
+    // Post-fix: history / physical blank / remaining 30 chars (the last
+    // visible row was pushed out). Pre-fix the tail swallowed the blank.
+    assert_eq!(
+        visible_text(&terminal),
+        format!("aaaaaaaaaa\n\n{}", "a".repeat(30))
+    );
+}
+
+/// NF10 seam (c): CSI S with a DECSTBM region whose top is row 0 discards
+/// the tail's continuation out of the region.
+#[test]
+fn scroll_region_up_at_row_zero_severs_trailing_scrollback_wrap() {
+    let mut terminal = scrollback_tail_into_row0();
+    terminal.advance(b"\x1b[1;2r\x1b[S\x1b[r"); // region rows 0..1, scroll up 1
+
+    terminal.resize(30, 4);
+    // Row 0 discarded, row 1 moved up, blank at row 1; rows 2-3 unmoved.
+    // The moved row starts its own logical line (scroll_region_up severs the
+    // shifted row's own flag at the bottom seam), rows 2-3 stay joined.
+    assert_eq!(
+        visible_text(&terminal),
+        format!("aaaaaaaaaa\naaaaaaaaaa\n\n{}", "a".repeat(20))
+    );
+}
+
+/// NF10 alt-screen control (mirrors the NF6 pin): the same row-0 ops issued
+/// on the ALT screen must NOT sever the primary scrollback tail — it still
+/// validly continues into the SAVED primary row 0.
+#[test]
+fn row_zero_ops_on_alt_screen_keep_scrollback_wrap() {
+    let mut terminal = scrollback_tail_into_row0();
+    terminal.advance(b"\x1b[?1049h\x1b[1;1H\x1b[M\x1b[L\x1b[2K\x1b[2;1H\x1b[1J\x1b[?1049l");
+
+    terminal.resize(30, 4);
+    // The 50-char logical line rejoins across the scrollback/visible seam.
+    assert_eq!(
+        visible_text(&terminal),
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\naaaaaaaaaaaaaaaaaaaa"
+    );
+}
+
 /// NF6 control: ED2 issued on the ALT screen must NOT sever the primary
 /// scrollback tail — it still validly continues into the saved primary
 /// row 0, and reflow after returning must rejoin the logical line.
