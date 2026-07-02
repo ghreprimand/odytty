@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Remove the wedging ConPTY resize pressure test (P2-FIX fix-forward)
+
+The P2-FIX race-pressure test (`resize_racing_child_self_exit_never_faults`)
+hung the windows-latest CI leg until the 25-minute job kill. Root cause: the
+test hammered `resize` without ever draining the ConPTY output pipe — every
+`ResizePseudoConsole` makes conhost re-render and emit VT bytes, so the pipe
+filled, conhost's write blocked, and the resize blocked in the kernel while
+holding the `PconShared` mutex, deadlocking the waiter's `close_once` (the
+only thing that could have unblocked conhost). The loop's 750ms wall-clock
+bound sat between iterations that stopped returning. This is a test-construction
+hazard, not a flaw in the guard: in production the pump thread continuously
+drains the pipe, so the serialized resize's blocking window is bounded. The
+pressure test is deleted (a wedged CI leg costs more than pressure coverage
+is worth); a postmortem comment marks the spot so it is not reintroduced
+without a concurrent drain. The deterministic
+`resize_after_pcon_close_is_a_clean_noop` test — which passed on the real
+runner — remains the P2-FIX regression coverage. Windows-only surface; Linux
+gate green.
+
 ## 2026-07-02 -- Windows session close kills the whole child tree (WIN-JOB)
 
 Closing a session on Windows only terminated the root shell — anything the
