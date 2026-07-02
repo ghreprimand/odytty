@@ -16,6 +16,20 @@ const ODYTTY_DA2_VERSION: usize = 1;
 const ODYTTY_DA2_ROM: usize = 0;
 
 impl Screen {
+    /// C16: sever the soft-wrap chain at `row`. `Line::wrapped` on row N
+    /// promises that row N+1 is the physical continuation of the same logical
+    /// line — reflow (`Screen::resize`) joins them back together. Every row
+    /// shuffle (DL/IL/SU/SD/RI) and full-row erase that removes, replaces, or
+    /// displaces row N+1 while keeping row N breaks that promise; the flag
+    /// must be cleared at the seam or the next resize fuses UNRELATED rows
+    /// into one logical line. Out-of-range rows are ignored so callers can
+    /// pass computed seam indices without bounds gymnastics.
+    fn sever_soft_wrap(&mut self, row: usize) {
+        if let Some(line) = self.rows.get_mut(row) {
+            line.wrapped = false;
+        }
+    }
+
     pub(super) fn scroll_up_full(&mut self) {
         let removed = self.rows.remove(0);
         let background = self.current_attrs.background;
@@ -39,6 +53,16 @@ impl Screen {
     pub(super) fn scroll_up_region(&mut self) {
         if let Some(region) = self.scroll_region {
             let background = self.current_attrs.background;
+            // C16 top seam: the row above the region keeps its position but
+            // loses its physical successor (the region's first row is
+            // discarded). The bottom seam is intentionally NOT severed: this
+            // is the linefeed-at-region-bottom path, where `put_char` sets
+            // `wrapped` on the region's bottom row right before scrolling and
+            // then writes the continuation onto the fresh blank — that
+            // anticipatory flag is legitimate and reflow depends on it.
+            if region.top > 0 {
+                self.sever_soft_wrap(region.top - 1);
+            }
             self.rows.remove(region.top);
             self.rows.insert(
                 region.bottom,
@@ -57,12 +81,26 @@ impl Screen {
         let (top, bottom) = self.effective_region();
         let count = count.max(1).min(bottom - top + 1);
         let background = self.current_attrs.background;
+        // C16 top seam: the row above the region loses its successor (the
+        // region's first `count` rows are discarded).
+        if top > 0 {
+            self.sever_soft_wrap(top - 1);
+        }
         for _ in 0..count {
             self.rows.remove(top);
             self.rows.insert(
                 bottom,
                 blank_row_with_bg(self.dimensions.columns, background),
             );
+        }
+        // C16 bottom seam: the last surviving shifted row (the old region
+        // bottom, now at `bottom - count`) sits above a fresh blank; if it
+        // wrapped into the row below the region, that join is now severed by
+        // the inserted blanks. Unlike the linefeed path, CSI S is an explicit
+        // scroll — there is no anticipatory-wrap flow to preserve. Skipped
+        // when the whole region was replaced (no shifted content remains).
+        if count <= bottom - top {
+            self.sever_soft_wrap(bottom - count);
         }
         self.graphics.scroll_region_up(top, bottom, count);
         self.mark_dirty();
@@ -76,11 +114,21 @@ impl Screen {
         let (top, bottom) = self.effective_region();
         let count = count.max(1).min(bottom - top + 1);
         let background = self.current_attrs.background;
+        // C16 top seam: the row above the region now precedes an inserted
+        // blank instead of its continuation (which was displaced downward).
+        if top > 0 {
+            self.sever_soft_wrap(top - 1);
+        }
         for _ in 0..count {
             self.rows.remove(bottom);
             self.rows
                 .insert(top, blank_row_with_bg(self.dimensions.columns, background));
         }
+        // C16 bottom seam: the row displaced onto the region bottom lost its
+        // successor (the region's last `count` rows were discarded) — without
+        // this it would claim the unmoved row below the region as its wrap
+        // continuation.
+        self.sever_soft_wrap(bottom);
         self.graphics.scroll_region_down(top, bottom, count);
         self.mark_dirty();
     }
@@ -102,9 +150,16 @@ impl Screen {
         let background = self.current_attrs.background;
 
         if self.cursor.row == top {
+            // C16 seams — same shape as `scroll_region_down` with count = 1:
+            // the row above the region now precedes an inserted blank, and the
+            // row displaced onto the region bottom lost its successor.
+            if top > 0 {
+                self.sever_soft_wrap(top - 1);
+            }
             self.rows.remove(bottom);
             self.rows
                 .insert(top, blank_row_with_bg(self.dimensions.columns, background));
+            self.sever_soft_wrap(bottom);
             self.graphics.scroll_region_down(top, bottom, 1);
         } else {
             self.cursor.row = self.cursor.row.saturating_sub(1);
@@ -123,6 +178,11 @@ impl Screen {
 
         let count = count.max(1).min(bottom - self.cursor.row + 1);
         let background = self.current_attrs.background;
+        // C16 top seam: the row above the insertion point now precedes an
+        // inserted blank instead of its displaced continuation.
+        if self.cursor.row > 0 {
+            self.sever_soft_wrap(self.cursor.row - 1);
+        }
         for _ in 0..count {
             self.rows.remove(bottom);
             self.rows.insert(
@@ -130,6 +190,9 @@ impl Screen {
                 blank_row_with_bg(self.dimensions.columns, background),
             );
         }
+        // C16 bottom seam: the row displaced onto the region bottom lost its
+        // successor (rows pushed past the bottom were discarded).
+        self.sever_soft_wrap(bottom);
 
         self.graphics
             .scroll_region_down(self.cursor.row, bottom, count);
@@ -149,12 +212,25 @@ impl Screen {
 
         let count = count.max(1).min(bottom - self.cursor.row + 1);
         let background = self.current_attrs.background;
+        // C16 top seam: the row above the deletion point loses its successor
+        // (the deleted rows) — without this it would claim whatever row
+        // scrolls up into the gap as its wrap continuation.
+        if self.cursor.row > 0 {
+            self.sever_soft_wrap(self.cursor.row - 1);
+        }
         for _ in 0..count {
             self.rows.remove(self.cursor.row);
             self.rows.insert(
                 bottom,
                 blank_row_with_bg(self.dimensions.columns, background),
             );
+        }
+        // C16 bottom seam: the last surviving shifted row now sits above a
+        // fresh blank; a wrap into the (unmoved) row below the region is
+        // severed by the inserted blanks. Skipped when the deletion consumed
+        // every row from the cursor to the region bottom.
+        if count <= bottom - self.cursor.row {
+            self.sever_soft_wrap(bottom - count);
         }
 
         self.graphics
@@ -359,6 +435,12 @@ impl Screen {
                 // dropping its mark; flag the change if it held one.
                 self.prompt_marks_changed |= self.rows[self.cursor.row].prompt_mark.is_some();
                 self.rows[self.cursor.row] = self.current_blank_row();
+                // C16 seam: the row above must not claim the fresh blank as
+                // its wrap continuation (the erased content it wrapped into is
+                // gone).
+                if self.cursor.row > 0 {
+                    self.sever_soft_wrap(self.cursor.row - 1);
+                }
             }
             _ => {}
         }
@@ -374,6 +456,10 @@ impl Screen {
         // Erasing the lead-side boundary can orphan a wide pair (a continuation
         // at the cursor whose lead is just left of it); repair the row.
         sanitize_wide_row(&mut self.rows[row], blank);
+        // C16: the erase reaches the right edge, destroying the content flow
+        // into the next row — this row no longer soft-wraps, so reflow must
+        // not fuse its remnant with the row below.
+        self.sever_soft_wrap(row);
         self.mark_dirty();
     }
 

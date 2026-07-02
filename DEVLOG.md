@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Sever stale soft-wrap flags across DL/IL/scroll-region/RI/erase (audit C16)
+
+Tier 3 audit fix (C16). `Line::wrapped` on row N promises that row N+1 is the
+physical continuation of the same logical line; resize-reflow joins the pair
+back together. Every row-shuffling op broke that promise without clearing the
+flag: DL (CSI M), IL (CSI L), SU/SD (CSI S/T), RI (ESC M) at the top margin,
+the linefeed-at-region-bottom scroll, EL2's full-row replacement, and EL0/ED0's
+erase-through-the-right-edge all remove, replace, or displace row N+1 while
+keeping row N. The stale flag then made the next width-changing resize fuse
+UNRELATED rows into one logical line — e.g. delete a wrap continuation with DL
+and the wrapped row above swallowed whatever content scrolled up into the gap
+("aaaaaaaaaaCCC"). Fix: a shared `Screen::sever_soft_wrap(row)` seam helper,
+called at every seam each op creates — the row above the shuffle at all five
+scroll/insert/delete sites plus RI, the displaced row at the region bottom for
+the scroll-down family, the last surviving shifted row for the scroll-up family
+(guarded so a full-region replacement skips it), the row above an EL2-blanked
+row, and the erased row itself for EL0/ED0 (the erase reaches the right edge,
+destroying the flow into the continuation). Deliberate exception: the
+linefeed-driven `scroll_up_region`/`scroll_up_full` bottom seam is NOT severed —
+`put_char` sets `wrapped` on the bottom row right before that scroll and writes
+the continuation onto the fresh blank; that anticipatory flag is what makes
+normal wrapped-output reflow work. Eight regression tests in
+`core/tests/wrapped_flag_scroll.rs`, each building a soft-wrapped pair, letting
+one op sever it, and asserting the widened reflow no longer fuses across the
+seam (all eight showed fused/corrupted text before the fix).
+
+Also surfaced while writing the tests: ESC D (IND) is not handled at all
+(`dispatch_esc` has no `b'D'` arm — a plain no-op), logged for triage rather
+than fixed here.
+
 ## 2026-07-02 -- Kitty graphics: accept N-chunk transmissions (audit C3)
 
 Tier 3 audit fix (C3). The Kitty graphics chunked-transmission accumulator
