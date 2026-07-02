@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Multi-pane frames wash the wallpaper edges like single-pane (NF11)
+
+With a background image, translucent cell backgrounds, and 2+ panes, the
+washed background region visibly inset from the window edge: the padding band
+and each pane's sub-cell remainder strips (pooled at the window margins by
+`pane_grid_origin`) showed raw wallpaper, because `update_from_panes` never
+emitted the edge wash — `wallpaper_edge_wash_quads` was only called from the
+single-pane path. New `multi_pane_wallpaper_edge_wash_quads` runs a horizontal
+band sweep over the pane grid rects and emits wash quads for every uncovered
+surface pixel (padding, remainder strips, divider gaps — themed dividers draw
+opaquely on top in a later segment); for a single grid it degenerates to
+exactly the single-pane function's four quads. The multi-pane vertex build
+appends the quads to the background segment under the same gate as
+single-pane (`bg_image && cell_bg_opacity < 1.0`), using the snapshot
+background color at the cell-bg opacity, and never overlaps a pane grid so
+translucent cell backgrounds are not double-tinted. Four GPU-free tests:
+exact area accounting (wash + grids tile the surface, pairwise disjoint) for
+a two-pane split and a 2x2 layout, single-grid parity with the single-pane
+function, and a flush-coverage control emitting nothing. Gates green.
+
 ## 2026-07-02 -- Residual C16 wrapped-flag seams: ED2 scrollback tail + ECH through the right edge (NF6+NF7)
 
 Two edges left over from the C16 soft-wrap severing sweep, both found during

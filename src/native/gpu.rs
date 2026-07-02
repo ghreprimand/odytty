@@ -434,6 +434,84 @@ pub(super) fn wallpaper_edge_wash_quads(
     quads
 }
 
+/// NF11: wash quads for a multi-pane composite. Every surface pixel NOT
+/// covered by a pane's cell grid gets a wash quad in the snapshot background
+/// color, exactly like the single-pane [`wallpaper_edge_wash_quads`]: with a
+/// background image and translucent cell backgrounds, the window-padding band
+/// and each pane's sub-cell remainder strips (pooled at the window margins by
+/// `layout::pane_grid_origin`) would otherwise show raw wallpaper, visibly
+/// insetting the washed region from the tile edge. Grids must be disjoint
+/// (pane rects tile the content area); wash quads never overlap a grid, so
+/// translucent cell backgrounds are never double-tinted. Divider gaps are
+/// washed too — themed divider quads draw opaquely on top in a later segment.
+///
+/// Horizontal band sweep: the surface is split at every grid edge, and each
+/// band emits quads for its x-gaps. For a single grid this degenerates to the
+/// same four quads (top / left / right / bottom) as the single-pane function.
+pub(super) fn multi_pane_wallpaper_edge_wash_quads(
+    grid_rects: &[[f32; 4]],
+    surface_size: [u32; 2],
+    color: [f32; 4],
+) -> Vec<SolidQuad> {
+    let surface_w = surface_size[0] as f32;
+    let surface_h = surface_size[1] as f32;
+    let grids: Vec<[f32; 4]> = grid_rects
+        .iter()
+        .filter_map(|r| {
+            let x0 = r[0].clamp(0.0, surface_w);
+            let y0 = r[1].clamp(0.0, surface_h);
+            let x1 = r[2].clamp(0.0, surface_w);
+            let y1 = r[3].clamp(0.0, surface_h);
+            (x1 > x0 && y1 > y0).then_some([x0, y0, x1, y1])
+        })
+        .collect();
+
+    let mut ys: Vec<f32> = Vec::with_capacity(grids.len() * 2 + 2);
+    ys.push(0.0);
+    ys.push(surface_h);
+    for grid in &grids {
+        ys.push(grid[1]);
+        ys.push(grid[3]);
+    }
+    ys.retain(|y| (0.0..=surface_h).contains(y));
+    ys.sort_by(f32::total_cmp);
+    ys.dedup();
+
+    let mut quads = Vec::new();
+    for band in ys.windows(2) {
+        let (band_y0, band_y1) = (band[0], band[1]);
+        if band_y1 <= band_y0 {
+            continue;
+        }
+        // Bands are split at every grid edge, so a grid intersecting a band
+        // spans it fully; only its x-interval matters within the band.
+        let mut spans: Vec<(f32, f32)> = grids
+            .iter()
+            .filter(|grid| grid[1] < band_y1 && grid[3] > band_y0)
+            .map(|grid| (grid[0], grid[2]))
+            .collect();
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+        let mut cursor_x = 0.0;
+        for (gx0, gx1) in spans {
+            if gx0 > cursor_x {
+                quads.push(SolidQuad {
+                    rect: [cursor_x, band_y0, gx0, band_y1],
+                    color,
+                });
+            }
+            cursor_x = cursor_x.max(gx1);
+        }
+        if cursor_x < surface_w {
+            quads.push(SolidQuad {
+                rect: [cursor_x, band_y0, surface_w, band_y1],
+                color,
+            });
+        }
+    }
+    quads
+}
+
 pub(super) fn grow_vertex_buffer_capacity(current: u64, needed: u64) -> u64 {
     if needed <= current {
         return current;
@@ -1696,6 +1774,44 @@ impl GpuState {
                     pane.origin,
                     CursorRenderParams::default(),
                 );
+            }
+        }
+
+        // NF11: wash the wallpaper wherever no pane grid covers it (padding
+        // band, sub-cell remainder strips, divider gaps) — same gate, color
+        // source, and opacity as the single-pane splice in
+        // `update_from_snapshot_with_overlays`. Appended at the end of the
+        // background segment: wash quads never overlap a grid (no double-tint
+        // under translucent cell backgrounds), and glyphs / dividers /
+        // overlays draw in later segments on top. Without a background image
+        // or with opaque cells, nothing is emitted — byte-identical frames.
+        if self.bg_image.is_some()
+            && self.cell_bg_opacity < 1.0
+            && let Some(first) = panes.first()
+        {
+            let cell_w = self.atlas.cell.width as f32;
+            let cell_h = self.atlas.cell.height as f32;
+            let grid_rects: Vec<[f32; 4]> = panes
+                .iter()
+                .map(|pane| {
+                    [
+                        pane.origin[0],
+                        pane.origin[1],
+                        pane.origin[0] + pane.snapshot.dimensions.columns as f32 * cell_w,
+                        pane.origin[1] + pane.snapshot.dimensions.rows as f32 * cell_h,
+                    ]
+                })
+                .collect();
+            let color = linear_rgba(first.snapshot.colors.background, self.cell_bg_opacity);
+            let edge_quads = multi_pane_wallpaper_edge_wash_quads(
+                &grid_rects,
+                [self.config.width, self.config.height],
+                color,
+            );
+            self.vertices
+                .reserve(edge_quads.len() * grid::VERTS_PER_QUAD);
+            for quad in edge_quads {
+                grid::push_solid_quad(&mut self.vertices, quad);
             }
         }
 

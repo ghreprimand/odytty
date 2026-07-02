@@ -2,7 +2,8 @@
 use super::gpu::{
     BloomOptions, CrtOptions, ViewportUniform, choose_surface_format, create_atlas_bind_group,
     create_cell_pipeline, create_color_atlas_bind_group, create_color_glyph_pipeline,
-    image::BgImageGpu, physical_font_px, post, scene_target_format, wallpaper_edge_wash_quads,
+    image::BgImageGpu, multi_pane_wallpaper_edge_wash_quads, physical_font_px, post,
+    scene_target_format, wallpaper_edge_wash_quads,
 };
 use crate::atlas::CellSize;
 use crate::core::Terminal;
@@ -116,6 +117,123 @@ fn wallpaper_edge_wash_covers_only_non_grid_regions() {
             .iter()
             .all(|quad| (quad.color[3] - 0.6).abs() < f32::EPSILON)
     );
+}
+
+/// NF11 helper: sum of quad areas (quads are asserted disjoint separately).
+fn quad_area(rect: [f32; 4]) -> f32 {
+    (rect[2] - rect[0]).max(0.0) * (rect[3] - rect[1]).max(0.0)
+}
+
+fn rects_intersect(a: [f32; 4], b: [f32; 4]) -> bool {
+    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
+}
+
+/// NF11: a multi-pane frame's wash quads must cover EVERY surface pixel a pane
+/// grid does not — padding band, sub-cell remainder strips, and divider gaps —
+/// without ever overlapping a grid (translucent cell backgrounds must not be
+/// double-tinted). Verified by exact area accounting: wash + grids == surface,
+/// with pairwise disjointness. Geometry mirrors a real two-pane vertical split
+/// with remainder strips pooled at the window margins.
+#[test]
+fn multi_pane_wash_covers_every_non_grid_pixel() {
+    // 200x100 surface; two grids inset like a vertical split with padding and
+    // remainder strips: left grid flush to the divider at x=99, right grid
+    // starting at x=101, both with margin-side gaps.
+    let grids = [[6.0, 4.0, 99.0, 96.0], [101.0, 4.0, 194.0, 96.0]];
+    let color = [0.1, 0.2, 0.3, 0.6];
+    let quads = multi_pane_wallpaper_edge_wash_quads(&grids, [200, 100], color);
+
+    assert!(!quads.is_empty(), "uncovered area must be washed");
+    for quad in &quads {
+        for grid in &grids {
+            assert!(
+                !rects_intersect(quad.rect, *grid),
+                "wash quad {:?} overlaps grid {grid:?} — double-tint",
+                quad.rect
+            );
+        }
+        assert_eq!(quad.color, color, "wash color/opacity must match the gate");
+    }
+    for (i, a) in quads.iter().enumerate() {
+        for b in &quads[i + 1..] {
+            assert!(
+                !rects_intersect(a.rect, b.rect),
+                "wash quads {:?} and {:?} overlap — double-tint",
+                a.rect,
+                b.rect
+            );
+        }
+    }
+    let wash_area: f32 = quads.iter().map(|q| quad_area(q.rect)).sum();
+    let grid_area: f32 = grids.iter().copied().map(quad_area).sum();
+    assert_eq!(
+        wash_area + grid_area,
+        200.0 * 100.0,
+        "wash + grids must tile the surface exactly (no inset band, no gap)"
+    );
+}
+
+/// NF11: same coverage invariant for a 2x2 pane layout (both axes have
+/// divider gaps and remainder strips).
+#[test]
+fn multi_pane_wash_covers_two_by_two_layout() {
+    let grids = [
+        [6.0, 4.0, 99.0, 47.0],
+        [101.0, 4.0, 194.0, 47.0],
+        [6.0, 49.0, 99.0, 96.0],
+        [101.0, 49.0, 194.0, 96.0],
+    ];
+    let quads = multi_pane_wallpaper_edge_wash_quads(&grids, [200, 100], [0.0, 0.0, 0.0, 0.5]);
+
+    for quad in &quads {
+        for grid in &grids {
+            assert!(!rects_intersect(quad.rect, *grid));
+        }
+    }
+    for (i, a) in quads.iter().enumerate() {
+        for b in &quads[i + 1..] {
+            assert!(!rects_intersect(a.rect, b.rect));
+        }
+    }
+    let wash_area: f32 = quads.iter().map(|q| quad_area(q.rect)).sum();
+    let grid_area: f32 = grids.iter().copied().map(quad_area).sum();
+    assert_eq!(wash_area + grid_area, 200.0 * 100.0);
+}
+
+/// NF11 parity: for a single grid the multi-pane sweep produces exactly the
+/// single-pane function's four quads (top / left / right / bottom), so the
+/// two paths wash identical geometry when a layout collapses to one pane.
+#[test]
+fn multi_pane_wash_single_grid_matches_single_pane_wash() {
+    let term = Terminal::new(10, 4);
+    let snapshot = term.snapshot();
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let single = wallpaper_edge_wash_quads(&snapshot, cell, [4.0, 4.0], [100, 80], 0.6);
+    let color = single[0].color;
+
+    let grid = [4.0, 4.0, 4.0 + 10.0 * 8.0, 4.0 + 4.0 * 16.0];
+    let multi = multi_pane_wallpaper_edge_wash_quads(&[grid], [100, 80], color);
+
+    assert_eq!(
+        multi.iter().map(|q| q.rect).collect::<Vec<_>>(),
+        single.iter().map(|q| q.rect).collect::<Vec<_>>(),
+    );
+}
+
+/// NF11 control: grids covering the whole surface produce no wash quads —
+/// the flush (no padding, no remainder) case emits nothing, matching the
+/// no-image / opaque-cells gate's byte-identical guarantee.
+#[test]
+fn multi_pane_wash_emits_nothing_when_grids_cover_surface() {
+    let grids = [[0.0, 0.0, 100.0, 80.0]];
+    assert!(multi_pane_wallpaper_edge_wash_quads(&grids, [100, 80], [0.0; 4]).is_empty());
+
+    let split = [[0.0, 0.0, 50.0, 80.0], [50.0, 0.0, 100.0, 80.0]];
+    assert!(multi_pane_wallpaper_edge_wash_quads(&split, [100, 80], [0.0; 4]).is_empty());
 }
 
 #[test]
