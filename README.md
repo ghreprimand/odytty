@@ -48,7 +48,9 @@ Windows ships as an unsigned portable zip.
 - **Daily workflow:** search, refined selection, PRIMARY selection,
   bracketed-paste hardening, chunked large paste, bounded scrollback history,
   right-click context menu,
-  command-aware prompt navigation from OSC 133, configurable bell (visual flash
+  command-aware prompt navigation from OSC 133, click-to-place cursor (with
+  shell integration, click in the typed command line to move the shell cursor
+  there — including across soft-wrapped lines), configurable bell (visual flash
   / window urgency), close confirmation, and tabs.
 - **Splits / panes:** split any tab into side-by-side or stacked panes, each
   with its own shell, scrollback, selection, search, and cursor. A configurable

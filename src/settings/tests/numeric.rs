@@ -306,11 +306,12 @@ fn interactive_urls_defaults_on_and_round_trips_through_config_key() {
 }
 
 #[test]
-fn sh_click_defaults_off_and_round_trips_through_config_key() {
-    // Absent → off (SH-CLICK click-to-position is off by default; the off path
-    // emits no bytes and is byte-identical to today).
+fn sh_click_defaults_on_and_round_trips_through_config_key() {
+    // Absent → on (F2: click-to-position defaults on; it stays inert unless a
+    // cooperating shell advertises click_events=1, so non-integrated shells
+    // see no behavior change).
     let (settings, warnings) = settings_from([]);
-    assert!(!settings.sh_click);
+    assert!(settings.sh_click);
     assert!(warnings.is_empty());
 
     let (settings, _) = settings_from([(SH_CLICK_ENV, "on")]);

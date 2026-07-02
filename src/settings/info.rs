@@ -1071,7 +1071,7 @@ impl Settings {
                 env: SH_CLICK_ENV,
                 name: "Click to position cursor",
                 value: bool_display(self.sh_click).to_owned(),
-                description: "When on, a plain left click on the shell prompt line moves the input cursor to the clicked column. Requires a shell that advertises click support via its command-boundary marks; a drag still selects and Shift+click still extends a selection. Off by default; without an integrated shell it does nothing.",
+                description: "When on, a plain left click in the typed command line moves the input cursor to the clicked spot, including across soft-wrapped lines. Requires a shell that advertises click support via its command-boundary marks; a drag still selects and Shift+click still extends a selection. On by default; without an integrated shell it does nothing.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

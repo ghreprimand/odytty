@@ -560,15 +560,16 @@ pub const DEFAULT_WHEEL_ZOOM: bool = true;
 /// exist, so the gutter is empty regardless of the setting.
 pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = false;
 
-/// Click-to-position-cursor (`ODYTTY_SH_CLICK`, SH-CLICK): when on, a plain left
-/// click on the live shell prompt line moves the shell's input cursor to the
-/// clicked column by emitting the matching number of Left/Right cursor keys —
+/// Click-to-position-cursor (`ODYTTY_SH_CLICK`, SH-CLICK/F2): when on, a plain
+/// left click on the live shell input moves the shell's cursor to the clicked
+/// position by emitting the matching number of Left/Right cursor keys —
 /// the click slice of OSC 133 `click_events`, never a shell-input takeover.
-/// Off by default, and doubly gated: even when on it acts only when a
+/// ON by default since F2 (operator-approved): it stays inert unless a
 /// cooperating shell has advertised `click_events=1` on its prompt, so a
-/// non-integrated shell never triggers it. While off the pointer path is
-/// byte-identical to today (no bytes emitted), and it never changes a pixel.
-pub const DEFAULT_SH_CLICK: bool = false;
+/// non-integrated shell never triggers it — the blast radius of the default is
+/// exactly the shells whose integration opted in. While off (or without an
+/// advertising shell) the pointer path emits no bytes and changes no pixel.
+pub const DEFAULT_SH_CLICK: bool = true;
 
 /// Automatic OSC 133 shell integration (`ODYTTY_SHELL_INTEGRATION`): when on,
 /// default local shell launches receive OdyTTY's prompt-mark hooks at spawn so

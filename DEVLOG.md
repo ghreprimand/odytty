@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Click-to-place cursor defaults ON (F2 default flip + docs)
+
+**Behavior change for integrated-shell users:** `sh_click` ("Click to position
+cursor", Settings → Input) now defaults **on** (operator-approved F2-ODP-1).
+The flip is the discoverability fix for a feature neither the operator nor the
+Windows tester knew existed — it was doubly hidden behind a default-off setting
+AND the shell-integration gate. The blast radius is exactly the shells whose
+integration advertises `click_events=1` (all four bundled snippets: bash, zsh,
+fish, PowerShell); a non-integrated shell still sees zero behavior change, and
+turning the setting off restores the previous default byte-for-byte. The
+Settings label stays "Click to position cursor" (operator kept the name); its
+description now reflects the multi-row F2 behavior. Docs updated: README
+feature line, `docs/runtime-knobs.md` default column, `docs/odytty.conf.example`.
+**Windows:** the default flip is what turns the feature on for the PowerShell
+tester who requested it — the PSReadLine snippet already advertises
+`click_events=1`. Full suite green, clippy `-D warnings` clean, fmt clean,
+MSRV untouched.
+
+---
+
 ## 2026-07-02 -- Click-to-place cursor: InputRegion gating, rune accuracy, multi-row soft-wrap travel (F2)
 
 Reworked SH-CLICK (`sh_click`, "Click to position cursor") from a raw same-row
