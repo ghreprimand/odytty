@@ -89,6 +89,17 @@ fn env_path(name: &str) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// Append `record` directly to the shared rotated log file, bypassing the
+/// `tracing` machinery. The panic hook uses this: it must not re-enter the
+/// subscriber (the panic may have originated inside it) and must work even
+/// when `init()` was never called. Errors are swallowed.
+pub(crate) fn append_record_directly(record: &str) {
+    shared_rotating_log()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .write_all_swallowing(record.as_bytes());
+}
+
 /// The single process-wide rotating file handle. Shared between the
 /// subscriber's tee writer and the panic hook's direct append so rotation
 /// accounting stays coherent.

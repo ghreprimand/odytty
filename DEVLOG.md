@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Freeze hardening (2/3): abort-on-panic hook with durable evidence
+
+Second postmortem packet. The freeze's most likely mechanism was a swallowed
+panic on a render/update/worker thread: the winit loop keeps mechanically
+servicing compositor events while the thread that did the real work is gone —
+a zombie window at 0% CPU, with the panic evidence discarded down a
+`/dev/null` stderr. The panic hook installed by `run_native` now makes that
+impossible: any panic on any thread writes the panic message, source
+location, thread name, and a force-captured backtrace to stderr, to the
+rotated `odytty.log` (via a direct append that bypasses the `tracing`
+subscriber, so it works even if the panic originated inside it), and to the
+structured `panic.log`, then **aborts the process**. Dying visibly beats
+running undead: detached session hosts survive, the window closes instead of
+freezing, and the logs name the culprit. Each of the three sinks is written
+independently and infallibly — an unwritable state dir or nulled stderr
+cannot keep the hook from reaching `abort()`. The panic-record format gains a
+`thread=` field; the `panic.log` record now carries the backtrace. Privacy
+seam test pins the human report to panic metadata + backtrace only (no
+terminal content in any sink); panic messages are code-authored assertion
+strings and must never interpolate terminal content.
+
 ## 2026-07-02 -- Freeze hardening (1/3): default rotated logging at $XDG_STATE_HOME/odytty/odytty.log
 
 First of three packets from the v0.7.0 freeze postmortem. The frozen process

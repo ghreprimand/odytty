@@ -1,5 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-only
+//! Abort-on-panic hook with durable evidence (FREEZE-HARDEN item a).
+//!
+//! The v0.7.0 freeze postmortem concluded that a swallowed panic on a
+//! render/update/worker thread would strand the winit event loop exactly as
+//! observed: the loop keeps servicing compositor events mechanically while
+//! the thread that did the real work is gone — a zombie window burning 0%
+//! CPU. The hook installed here makes that impossible: ANY panic on ANY
+//! thread writes the panic message, location, thread name, and a captured
+//! backtrace to stderr, to the rotated runtime log (`odytty.log`), and to the
+//! structured `panic.log`, then **aborts the process**. Dying visibly beats
+//! running undead: the session hosts survive (detached processes), the
+//! operator sees the window close, and the logs name the culprit.
+//!
+//! PRIVACY (hard release rule): panic records carry the panic message,
+//! source location, thread name, and code addresses/symbol names — never PTY
+//! bytes, grid text, or window titles. Panic messages are code-authored
+//! assertion strings; do not interpolate terminal content into panics.
 
+use std::backtrace::Backtrace;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::panic::PanicHookInfo;
@@ -9,10 +27,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const PANIC_LOG_FILE: &str = "panic.log";
 
 pub(crate) fn install_panic_hook() {
-    let previous_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
+    std::panic::set_hook(Box::new(|info| {
         log_panic_info(info);
-        previous_hook(info);
+        // FREEZE-HARDEN (a): die visibly. A panicking render/update/worker
+        // thread must never leave the event loop alive as a zombie window,
+        // and a panicking main thread must not linger half-unwound. abort()
+        // (not exit()) so a debugger/coredump still sees the crashed state.
+        std::process::abort();
     }));
 }
 
@@ -26,9 +47,24 @@ fn log_panic_info(info: &PanicHookInfo<'_>) {
             location.column()
         )
     });
-    let record = format_panic_record(&message, location.as_deref(), SystemTime::now());
+    let thread = std::thread::current();
+    let thread_name = thread.name().unwrap_or("<unnamed>").to_owned();
+    let backtrace = Backtrace::force_capture();
+    let record = format_panic_record(
+        &message,
+        location.as_deref(),
+        &thread_name,
+        SystemTime::now(),
+    );
+    let human = format_human_report(&message, location.as_deref(), &thread_name, &backtrace);
+    // Order matters only in that each write must be independent: any of the
+    // three sinks may be unavailable (stderr at /dev/null, unwritable state
+    // dir) and the others must still land. All errors are swallowed — the
+    // hook must reach abort() no matter what.
+    let _ = io::stderr().write_all(human.as_bytes());
+    crate::logging::append_record_directly(&human);
     let dir = panic_log_dir();
-    let _ = write_record(&dir, &record);
+    let _ = write_record(&dir, &format!("{record}{backtrace}\n"));
 }
 
 fn panic_message(info: &PanicHookInfo<'_>) -> String {
@@ -42,35 +78,38 @@ fn panic_message(info: &PanicHookInfo<'_>) -> String {
 }
 
 fn panic_log_dir() -> PathBuf {
-    platform_panic_log_dir().unwrap_or_else(|| std::env::temp_dir().join("odytty"))
+    crate::logging::state_log_dir()
 }
 
-#[cfg(target_os = "macos")]
-fn platform_panic_log_dir() -> Option<PathBuf> {
-    env_path("HOME").map(|home| home.join("Library").join("Logs").join("odytty"))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn platform_panic_log_dir() -> Option<PathBuf> {
-    if let Some(state_home) = env_path("XDG_STATE_HOME") {
-        Some(state_home.join("odytty"))
-    } else {
-        env_path("HOME").map(|home| home.join(".local").join("state").join("odytty"))
-    }
-}
-
-fn env_path(name: &str) -> Option<PathBuf> {
-    std::env::var_os(name)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-}
-
-fn format_panic_record(message: &str, location: Option<&str>, now: SystemTime) -> String {
+fn format_panic_record(
+    message: &str,
+    location: Option<&str>,
+    thread_name: &str,
+    now: SystemTime,
+) -> String {
     format!(
-        "odytty_panic timestamp_unix_ms={} panic_message=\"{}\" location=\"{}\"\n",
+        "odytty_panic timestamp_unix_ms={} thread=\"{}\" panic_message=\"{}\" location=\"{}\"\n",
         unix_millis(now),
+        escape_field(thread_name),
         escape_field(message),
         escape_field(location.unwrap_or("<unknown>")),
+    )
+}
+
+/// The multi-line report written to stderr and `odytty.log`: readable in a
+/// journal or terminal, with the backtrace verbatim.
+fn format_human_report(
+    message: &str,
+    location: Option<&str>,
+    thread_name: &str,
+    backtrace: &Backtrace,
+) -> String {
+    format!(
+        "odytty: PANIC (aborting): thread '{}' panicked at {}: {}\nbacktrace:\n{}\n",
+        thread_name,
+        location.unwrap_or("<unknown>"),
+        message,
+        backtrace,
     )
 }
 
@@ -115,6 +154,7 @@ mod tests {
         let record = format_panic_record(
             "synthetic panic\nquoted \"message\"",
             Some("src/native/mod.rs:108:5"),
+            "main",
             UNIX_EPOCH + Duration::from_millis(42_123),
         );
 
@@ -123,6 +163,7 @@ mod tests {
 
         assert_eq!(content.lines().count(), 1);
         assert!(content.starts_with("odytty_panic timestamp_unix_ms=42123 "));
+        assert!(content.contains("thread=\"main\""));
         assert!(content.contains("panic_message=\"synthetic panic\\nquoted \\\"message\\\"\""));
         assert!(content.contains("location=\"src/native/mod.rs:108:5\""));
     }
@@ -133,11 +174,13 @@ mod tests {
         let first = format_panic_record(
             "first",
             Some("src/native/mod.rs:1:2"),
+            "main",
             UNIX_EPOCH + Duration::from_millis(1),
         );
         let second = format_panic_record(
             "second",
             Some("src/native/mod.rs:3:4"),
+            "odytty-pty-pump",
             UNIX_EPOCH + Duration::from_millis(2),
         );
 
@@ -147,6 +190,20 @@ mod tests {
 
         assert_eq!(second_path, temp.path().join(PANIC_LOG_FILE));
         assert_eq!(content, format!("{first}{second}"));
+    }
+
+    /// The human report puts every caller-controlled string through plain
+    /// interpolation of panic metadata only — message, location, thread —
+    /// plus the backtrace. This seam test pins the exact shape so a future
+    /// edit cannot quietly start including extra state (privacy rule: no
+    /// terminal content in any log sink).
+    #[test]
+    fn human_report_contains_only_panic_metadata_and_backtrace() {
+        let backtrace = Backtrace::disabled();
+        let report = format_human_report("boom", Some("src/x.rs:1:1"), "render-worker", &backtrace);
+        let expected_prefix = "odytty: PANIC (aborting): thread 'render-worker' panicked at src/x.rs:1:1: boom\nbacktrace:\n";
+        assert!(report.starts_with(expected_prefix), "got: {report}");
+        assert!(report.ends_with('\n'));
     }
 
     struct TempDir {
