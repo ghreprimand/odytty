@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Settings About back-arrow responds to clicks (NF15)
+
+In Settings, the About view's `← About  (Esc = back)` title arrow ignored
+clicks, while every other drilled-in level's ← worked. `settings_title_back_hit`
+(`src/native/overlay.rs`) matched only `SettingsLevel::SectionDetail { .. }` —
+`SettingsLevel::About`, a late addition, was never added to the hit-test, so the
+click fell through. Esc still worked (the panel's own input path pops About),
+which masked the dead click. Fix: include `SettingsLevel::About` in the
+`matches!`; Close routing through `handle_input` already pops either level to
+the section list, the same path Esc takes. Fails-before/passes-after regression
+test drives the overlay to About (End→Activate) and asserts a title-row click
+returns to the section list. **Windows:** none — platform-neutral overlay UI
+logic. Full suite green, clippy `-D warnings` clean, MSRV untouched.
+
+---
+
 ## 2026-07-02 -- CI test steps fail fast on a wedge: step-level timeouts (CI-TIMEOUT-FIX)
 
 `.github/workflows/ci.yml` had a job-level `timeout-minutes: 25` but no

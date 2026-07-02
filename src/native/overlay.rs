@@ -1206,9 +1206,15 @@ impl OverlayUi {
 
     fn settings_title_back_hit(&self, cell: CellPoint, rect: OverlayRect) -> bool {
         self.mode == OverlayMode::Settings
+            // Both drilled-in levels draw the `← … (Esc = back)` title, so both
+            // must accept a click on the arrow. About was a late addition and
+            // was missed here (NF15): only SectionDetail matched, so the About
+            // back-arrow was click-dead while Esc still worked (the panel's own
+            // input path pops About). Close routing through `handle_input` pops
+            // either level to the section list — the same path Esc takes.
             && matches!(
                 self.panel.current_level(),
-                SettingsLevel::SectionDetail { .. }
+                SettingsLevel::SectionDetail { .. } | SettingsLevel::About
             )
             // The ← arrow is drawn at rect.top (the title/border row); also
             // accept rect.top + 1 (the gap row) for a forgiving click target.
@@ -4204,6 +4210,44 @@ mod tests {
             overlay.render_signature().panel.level,
             SettingsLevel::SectionList,
             "clicking one row below title also navigates back"
+        );
+    }
+
+    #[test]
+    fn pointer_press_on_about_back_arrow_returns_to_sections() {
+        // NF15: the About view draws the same `← … (Esc = back)` title as a
+        // SectionDetail, so clicking its arrow must navigate back too. Before
+        // the fix, settings_title_back_hit matched only SectionDetail, so this
+        // click fell through and left the panel stranded at About (Esc worked
+        // via the panel's own input path, masking the dead click).
+        let mut overlay = OverlayUi::default();
+        overlay.open_settings();
+        overlay.handle_input(OverlayInput::End); // select the synthetic About row
+        overlay.handle_input(OverlayInput::Activate); // drill into About
+        assert_eq!(
+            overlay.render_signature().panel.level,
+            SettingsLevel::About,
+            "precondition: at the About level"
+        );
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+
+        // Click the title row (rect.top) where the ← arrow is drawn.
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.top,
+                    column: rect.body_left,
+                },
+                button: PointerButton::Left,
+                x_in_body: None,
+            },
+            rect,
+        );
+        assert_eq!(outcome, OverlayOutcome::Consumed);
+        assert_eq!(
+            overlay.render_signature().panel.level,
+            SettingsLevel::SectionList,
+            "clicking the About title ← arrow returns to the section list"
         );
     }
 
