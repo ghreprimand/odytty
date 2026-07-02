@@ -63,8 +63,8 @@ fn env_level() -> tracing::Level {
 
 /// The odytty state directory used for `odytty.log` (and the panic log):
 /// `$XDG_STATE_HOME/odytty`, falling back to `~/.local/state/odytty`
-/// (`~/Library/Logs/odytty` on macOS), falling back to a temp-dir `odytty`
-/// folder when no home is resolvable.
+/// (`~/Library/Logs/odytty` on macOS, `%LOCALAPPDATA%\odytty` on Windows),
+/// falling back to a temp-dir `odytty` folder when nothing else is resolvable.
 pub(crate) fn state_log_dir() -> PathBuf {
     platform_state_dir().unwrap_or_else(|| std::env::temp_dir().join("odytty"))
 }
@@ -74,7 +74,24 @@ fn platform_state_dir() -> Option<PathBuf> {
     env_path("HOME").map(|home| home.join("Library").join("Logs").join("odytty"))
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Windows: `%LOCALAPPDATA%\odytty` — a persistent per-user location. Without
+/// this arm, `XDG_STATE_HOME`/`HOME` are typically unset on Windows, so the
+/// state dir fell through to `std::env::temp_dir()` (`%TEMP%`), which Windows
+/// periodically cleans — breaking the FREEZE-HARDEN "send me your odytty.log"
+/// support flow. Precedent for `LOCALAPPDATA`: `src/emoji/mod.rs`,
+/// `src/text.rs`. Kept split from the resolution so the mapping is unit-tested
+/// on the `windows-latest` CI leg without mutating process env.
+#[cfg(windows)]
+fn platform_state_dir() -> Option<PathBuf> {
+    windows_state_dir(env_path("LOCALAPPDATA"))
+}
+
+#[cfg(windows)]
+fn windows_state_dir(local_appdata: Option<PathBuf>) -> Option<PathBuf> {
+    local_appdata.map(|local| local.join("odytty"))
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
 fn platform_state_dir() -> Option<PathBuf> {
     if let Some(state_home) = env_path("XDG_STATE_HOME") {
         Some(state_home.join("odytty"))
@@ -270,6 +287,35 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.path);
         }
+    }
+
+    #[test]
+    fn state_log_dir_is_namespaced_to_odytty() {
+        // Whatever the platform resolution or fallback, the state dir must end
+        // in an `odytty` component so odytty.log / panic.log never scatter into
+        // a shared location. Always-on cross-platform contract.
+        let dir = state_log_dir();
+        assert_eq!(
+            dir.file_name().and_then(|name| name.to_str()),
+            Some("odytty"),
+            "state log dir must be namespaced under odytty: {dir:?}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_state_dir_uses_local_appdata_with_temp_fallback() {
+        // NF13: on Windows the log dir is %LOCALAPPDATA%\odytty (persistent),
+        // not %TEMP% (which Windows cleans). Pure mapping test — no env
+        // mutation; runs on the authoritative windows-latest CI leg.
+        let local = PathBuf::from(r"C:\Users\example\AppData\Local");
+        assert_eq!(
+            windows_state_dir(Some(local.clone())),
+            Some(local.join("odytty"))
+        );
+        // Unset LOCALAPPDATA => None, so state_log_dir uses the temp-dir
+        // fallback rather than panicking.
+        assert_eq!(windows_state_dir(None), None);
     }
 
     #[test]

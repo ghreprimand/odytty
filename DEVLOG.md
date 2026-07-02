@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Windows log path uses %LOCALAPPDATA%, not %TEMP% (NF13)
+
+`platform_state_dir()` (`src/logging.rs`) had only macOS and `not(macos)` arms;
+the `not(macos)` arm reads `XDG_STATE_HOME`/`HOME`, which are typically unset on
+Windows, so `state_log_dir()` fell through to `std::env::temp_dir()` (`%TEMP%`).
+Windows periodically cleans `%TEMP%`, so `odytty.log` and `panic.log` could
+vanish — breaking the FREEZE-HARDEN "send me your log" support flow for Windows
+users. Added a `cfg(windows)` arm resolving `%LOCALAPPDATA%\odytty` (persistent
+per-user; same `LOCALAPPDATA` precedent as `src/emoji/mod.rs` and `src/text.rs`),
+keeping the temp-dir as the final fallback when `LOCALAPPDATA` is also unset. The
+mapping is split into a pure `windows_state_dir` helper so it is unit-tested on
+the `windows-latest` CI leg without mutating process env; an always-on
+cross-platform test pins that the resolved dir is namespaced under `odytty`.
+**Windows:** this IS the Windows-facing change; verified by the cfg(windows) test
+on windows-latest CI. No docs stated the log path, so none needed updating. Full
+suite green (0 failed), clippy `-D warnings` clean, MSRV lockstep untouched.
+
 ## 2026-07-02 -- Scrollback tail severed at every row-0 replacement seam (NF10)
 
 NF6 fixed ED2 leaving a trailing open scrollback line claiming visible row 0
