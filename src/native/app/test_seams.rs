@@ -1327,6 +1327,13 @@ impl App {
         self.search.is_open()
     }
 
+    /// Test seam (C9): the live search-box query string, so a test can prove an
+    /// IME commit routes into the search field instead of leaking to the PTY.
+    #[cfg(test)]
+    pub(in crate::native) fn search_query_for_test(&self) -> String {
+        self.search.render_signature().query
+    }
+
     /// Test seam (1c-3c): open search on the focused session, type `query`, and
     /// refresh matches against the focused terminal (the production
     /// `refresh_search_matches` path). Lets a test exercise focused-pane search

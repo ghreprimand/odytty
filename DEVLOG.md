@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- IME commits obey the overlay/search/modal gate instead of leaking to the PTY (C9)
+
+`commit_ime_text` wrote finalized IME text straight to the active PTY writer,
+skipping the overlay/search/modal precedence the typed-`Character` path in
+`handle_key_event` enforces. A composed commit (CJK input, dead-key accents)
+therefore leaked into the shell behind a settings panel, picker, search box,
+rename field, or modal. The commit path now mirrors the key path's precedence
+— overlay → search → modal → terminal — routing finalized text to whichever
+surface owns the keyboard; only when the terminal itself has focus does it
+reach the shell (via the renamed `write_ime_text_to_pty`). Text is fed one char
+at a time to the overlay/modal mappers (which accept single-char `Character`s)
+and as a whole string to search. Fails-before tests assert an IME commit lands
+in the open search field and in an open overlay's type-to-filter query rather
+than the PTY. Gates green.
+
 ## 2026-07-02 -- Session-attach overlay closes on the already-attached branch (C5)
 
 `route_attach_session` re-opens the summon overlay in AttachChoice mode on the

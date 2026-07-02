@@ -42,6 +42,46 @@ impl App {
         }
     }
 
+    /// C9: finalize an IME commit under the SAME overlay/search/modal gate the
+    /// typed-`Character` path enforces in `handle_key_event`. Without this, a
+    /// composed commit (CJK, dead-key accents) bypasses every field and leaks
+    /// straight to the PTY behind a settings panel, picker, search box, rename
+    /// field, or modal. The finalized text is routed to whichever surface owns
+    /// the keyboard, matching the key path's precedence (overlay → search →
+    /// modal); only when the terminal itself has focus does it reach the shell.
+    ///
+    /// Returns nothing; empty commits are a no-op. Text is fed one char at a
+    /// time to the overlay/modal (their winit mapper only accepts single-char
+    /// `Character`s) and as a whole string to search (its handler iterates).
+    fn commit_ime_text(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        if self.overlay.is_open() {
+            for ch in text.chars() {
+                self.handle_overlay_key(
+                    &WinitKey::Character(ch.to_string().into()),
+                    KeyEventType::Press,
+                );
+            }
+            return;
+        }
+        if self.search.is_open() {
+            self.handle_search_key(WinitKey::Character(text.into()));
+            return;
+        }
+        let modal = self.active_modal();
+        if modal != ActiveModal::None {
+            for ch in text.chars() {
+                self.route_modal_key(modal, &WinitKey::Character(ch.to_string().into()));
+            }
+            return;
+        }
+        // Terminal owns the keyboard: committed text reaches the shell exactly
+        // like typed input — snap to the live tail, then write the UTF-8 bytes.
+        self.write_ime_text_to_pty(text);
+    }
+
     fn set_ime_preedit(&mut self, text: String) {
         if self.ime_preedit == text {
             return;
@@ -55,12 +95,14 @@ impl App {
         }
     }
 
-    fn commit_ime_text(&mut self, text: &str) {
+    /// Write finalized IME text to the active PTY (the terminal-focused path of
+    /// `commit_ime_text`). Committed text reaches the shell exactly like typed
+    /// input: snap to the live tail, then write the UTF-8 bytes through the
+    /// active PTY writer.
+    fn write_ime_text_to_pty(&mut self, text: &str) {
         if text.is_empty() {
             return;
         }
-        // Committed text reaches the shell exactly like typed input: snap to the
-        // live tail, then write the UTF-8 bytes through the active PTY writer.
         self.return_to_live();
         if let Ok(mut writer) = self.writer.lock() {
             let _ = writer.write_all(text.as_bytes());
@@ -214,6 +256,53 @@ mod tests {
         assert!(
             app.ime_preedit.is_empty(),
             "a cancelled IME leaves no ghost"
+        );
+    }
+
+    #[test]
+    fn ime_commit_routes_to_search_box_not_pty() {
+        // C9: with the search box open, an IME commit must land in the search
+        // field — not leak to the shell behind it. Before the fix the finalized
+        // text went straight to the PTY and the query stayed empty.
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.open_search_for_test();
+        assert!(app.search_open_for_test());
+        assert_eq!(app.search_query_for_test(), "");
+
+        app.handle_ime(Ime::Commit("hi".to_owned()));
+
+        assert_eq!(
+            app.search_query_for_test(),
+            "hi",
+            "IME commit must feed the open search field, not the PTY"
+        );
+    }
+
+    #[test]
+    fn ime_commit_routes_to_open_overlay_filter_not_pty() {
+        // C9: with an overlay open (here the connection manager's type-to-filter
+        // list), an IME commit must drive the overlay's filter — not leak to the
+        // shell behind it. Committing "01" lands in the overlay's query box; its
+        // "> 01" prompt line proves the commit reached the overlay. Before the
+        // fix the finalized text went to the PTY and the query stayed empty.
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.open_connections_with_synthetic_hosts_for_test(3);
+        assert!(app.overlay_open_for_test());
+
+        app.handle_ime(Ime::Commit("01".to_owned()));
+
+        let rows = app.render_overlay_rows_for_test(COLS, ROWS);
+        // The type-to-filter prompt row (rendered "> <query>") is distinct from
+        // any host row, so matching "> 01" isolates the query text from host
+        // aliases that may also contain "01".
+        assert!(
+            rows.iter().any(|row| row.contains("> 01")),
+            "IME commit must land in the overlay's type-to-filter query, not the \
+             PTY behind it; rows: {rows:?}"
         );
     }
 }
