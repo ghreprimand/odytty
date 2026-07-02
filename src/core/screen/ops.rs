@@ -323,14 +323,28 @@ impl Screen {
         }
     }
 
+    /// CUU (CSI Ps A). C7: when the cursor starts at or below the DECSTBM top
+    /// margin, it stops AT that margin (xterm/DEC STD 070); only a cursor
+    /// already above the region may travel to the screen top.
     pub(super) fn move_up(&mut self, count: usize) {
-        self.cursor.row = self.cursor.row.saturating_sub(count);
+        let (top, _) = self.effective_region();
+        let floor = if self.cursor.row >= top { top } else { 0 };
+        self.cursor.row = self.cursor.row.saturating_sub(count).max(floor);
         self.pending_wrap = false;
         self.mark_dirty();
     }
 
+    /// CUD (CSI Ps B). C7 mirror: a cursor at or above the DECSTBM bottom
+    /// margin stops AT that margin; only a cursor below the region may travel
+    /// to the last screen row.
     pub(super) fn move_down(&mut self, count: usize) {
-        self.cursor.row = (self.cursor.row + count).min(self.dimensions.rows - 1);
+        let (_, bottom) = self.effective_region();
+        let ceiling = if self.cursor.row <= bottom {
+            bottom
+        } else {
+            self.dimensions.rows - 1
+        };
+        self.cursor.row = (self.cursor.row + count).min(ceiling);
         self.pending_wrap = false;
         self.mark_dirty();
     }

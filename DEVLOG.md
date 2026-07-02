@@ -7,6 +7,17 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- VT conformance: CUU/CUD now stop at DECSTBM margins (C7)
+
+Audit item C7: `CSI Ps A` / `CSI Ps B` clamped only to the screen edges, so a
+cursor inside a DECSTBM region could walk out of it — full-screen TUIs that
+rely on margin-clamped relative motion (per xterm / DEC STD 070) mispositioned.
+`move_up`/`move_down` now stop AT the top/bottom margin when the cursor starts
+inside the region; a cursor already outside the region still travels to the
+screen edge, matching xterm. Four regression tests: the two margin-stop cases
+(fail-before) plus two outside-region cases pinning the preserved behavior.
+Gates green (full suite, clippy `-D warnings`, `cargo fmt --check`).
+
 ## 2026-07-02 -- VT conformance: ESC D (IND) and ESC E (NEL) were silent no-ops
 
 NF5 (found during the wrapped-flag scroll-op audit): `dispatch_esc` had no

@@ -382,6 +382,48 @@ fn scroll_down_fill_rows_use_background_color() {
 }
 
 #[test]
+fn cuu_stops_at_top_margin_when_cursor_inside_region() {
+    // C7: CUU from inside a DECSTBM region stops AT the top margin, never
+    // crossing into rows above the region (xterm / DEC STD 070).
+    let mut terminal = Terminal::new(8, 6);
+    terminal.advance(b"\x1b[3;5r"); // region rows index 2..=4; homes cursor
+    terminal.advance(b"\x1b[4;2H"); // inside region (row index 3), column 1
+    terminal.advance(b"\x1b[10A"); // CUU far past the margin
+    assert_eq!(terminal.screen().cursor(), Position { row: 2, column: 1 });
+}
+
+#[test]
+fn cuu_above_region_travels_to_screen_top() {
+    // C7: a cursor already ABOVE the region is outside the margins, so CUU
+    // clamps to the screen top as before.
+    let mut terminal = Terminal::new(8, 6);
+    terminal.advance(b"\x1b[3;5r");
+    terminal.advance(b"\x1b[2;1H"); // row index 1, above region top (2)
+    terminal.advance(b"\x1b[10A");
+    assert_eq!(terminal.screen().cursor().row, 0);
+}
+
+#[test]
+fn cud_stops_at_bottom_margin_when_cursor_inside_region() {
+    // C7 mirror: CUD from inside the region stops AT the bottom margin.
+    let mut terminal = Terminal::new(8, 6);
+    terminal.advance(b"\x1b[3;5r");
+    terminal.advance(b"\x1b[4;3H"); // inside region (row index 3), column 2
+    terminal.advance(b"\x1b[10B");
+    assert_eq!(terminal.screen().cursor(), Position { row: 4, column: 2 });
+}
+
+#[test]
+fn cud_below_region_travels_to_screen_bottom() {
+    // C7: a cursor already BELOW the region clamps to the last screen row.
+    let mut terminal = Terminal::new(8, 8);
+    terminal.advance(b"\x1b[3;5r"); // region rows index 2..=4
+    terminal.advance(b"\x1b[6;1H"); // row index 5, below region bottom (4)
+    terminal.advance(b"\x1b[10B");
+    assert_eq!(terminal.screen().cursor().row, 7);
+}
+
+#[test]
 fn origin_mode_makes_cup_relative_to_region_top() {
     let mut terminal = Terminal::new(8, 6);
     // Region rows index 2..=4 (1-based 3;5), enable DECOM.
