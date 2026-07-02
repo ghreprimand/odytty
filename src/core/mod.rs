@@ -17,6 +17,7 @@
 mod encoding;
 mod graphics_routing;
 mod hyperlink;
+mod input_region;
 mod kitty;
 mod kitty_transport;
 mod prompt_marks;
@@ -57,6 +58,7 @@ mod tests;
 
 pub use encoding::{encode_focus_event, encode_mouse_event, encode_mouse_event_pixel};
 pub use hyperlink::{Hyperlink, MAX_URI_BYTES, uri_has_openable_scheme};
+pub use input_region::{EditRegionSignal, InputCertainty, InputRegion, RowJoin};
 pub use prompt_marks::{
     Align, ClickReport, CommandBlock, CommandOutput, CommandStatus, JumpDirection, PromptKind,
     click_report, command_blocks, command_output_cell_range, command_output_range, command_status,

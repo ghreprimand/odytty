@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 #[cfg(test)]
 use crate::core::Terminal;
 use crate::core::{
-    ClipboardRequest, Color, Dimensions, LinkId, MouseButton as CoreMouseButton, MouseEncoding,
-    MouseEventKind, MouseModifiers, MouseProtocol, Position, RgbColor, Snapshot,
+    ClipboardRequest, Color, Dimensions, InputCertainty, LinkId, MouseButton as CoreMouseButton,
+    MouseEncoding, MouseEventKind, MouseModifiers, MouseProtocol, Position, RgbColor, Snapshot,
     encode_mouse_event_pixel,
 };
 use crate::grid::{CursorRenderParams, SolidQuad};

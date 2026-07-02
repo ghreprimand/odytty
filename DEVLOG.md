@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Select+Delete rework slice B0: input-region model moves into core
+
+First slice of the approved prompt-aware select+Delete design. The editable
+input geometry for the selection-delete feature (right-click Delete/Cut and
+the Delete/Backspace key on a selection) was computed in the native pointer
+layer over the flat `Snapshot` — which carries no per-row soft-wrap flag and
+no logical-line grouping, so any multi-row reasoning there would be guessing.
+New core module `src/core/input_region.rs`: an `InputRegion` type (absolute
+start/end row+col, per-boundary `SoftWrap`/`HardNewline` joins, and an
+`Exact` / `RightEdgeUnknown` / `Unknown` certainty gate) and a pure, screen-
+independent derivation over borrowed rows, exposed as `Screen::input_region()`
+and via the `Terminal` façade. The `Screen` also gains the `active_edit_region`
+slot for the upcoming private edit-region OSC (B2) with the same lifecycle as
+the OSC 133 `B` mark (cleared on `A`/`C`/`D`, reset, and alt-screen isolation).
+The pointer consumer now reads the region and accepts exactly the pre-existing
+shape — single-row, cursor on the row, heuristic right edge — so happy-path
+behavior is byte-identical (whole existing suite green unchanged); the one
+deliberate narrowing is that input which soft-wraps past its first row now
+derives as a multi-row region and no-ops instead of running the single-row
+heuristic against a wrapped line (charter: a wrong delete is worse than a
+no-op). Ten new GPU-free unit tests cover the derivation (mark/scrollback
+offsets, soft-wrap walk, wide-glyph edges, cursor-off-region downgrade). Full
+suite, clippy `-D warnings`, and `cargo fmt --check` green.
+
 ## 2026-07-02 -- Session registry: validate metadata version, clean up `.meta` on spawn failure (audit C27)
 
 Tier 4 audit fix (C27), two halves. Read side: `read_session_metadata`

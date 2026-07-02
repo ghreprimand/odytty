@@ -239,6 +239,13 @@ pub struct Screen {
     /// absolute row coordinate space used by prompt marks. This is advisory
     /// live-prompt state for native input editing; it never reaches snapshots.
     active_prompt_input_start: Option<(usize, usize)>,
+    /// Latest OdyTTY-private edit-region report
+    /// (`OSC 133;P;odytty-edit;len;cur[;nl]`) from a cooperating shell's line
+    /// editor: authoritative buffer length + cursor in runes. Same advisory
+    /// lifecycle as `active_prompt_input_start` (cleared by `A`/`C`/`D` and
+    /// reset); consumed by [`Screen::input_region`] to make the input region's
+    /// right edge exact. `None` until a shell emits the private OSC.
+    active_edit_region: Option<super::input_region::EditRegionSignal>,
     /// Absolute row of the active OSC 133 `A` prompt-start boundary. During a
     /// width-changing resize, rows from this anchor through the cursor belong
     /// to the shell's live prompt repaint and must not grow extra wrap rows.
@@ -294,6 +301,9 @@ struct StoredScreen {
     /// value on enter prevents the native input-editing layer from reading stale
     /// primary state while an alternate-screen TUI is running.
     active_prompt_input_start: Option<(usize, usize)>,
+    /// Private edit-region report saved with the primary buffer (same
+    /// isolation rationale as `active_prompt_input_start`).
+    active_edit_region: Option<super::input_region::EditRegionSignal>,
     /// OSC 133 `A` prompt-start anchor saved with the primary buffer.
     active_prompt_start: Option<usize>,
 }
@@ -368,6 +378,7 @@ impl Screen {
             focus_reporting: false,
             click_events_enabled: false,
             active_prompt_input_start: None,
+            active_edit_region: None,
             active_prompt_start: None,
             cursor_style: CursorStyle::default(),
             cursor_blink: true,
@@ -1292,6 +1303,23 @@ impl Screen {
         self.active_prompt_input_start
     }
 
+    /// The live editable prompt-input region, derived in core from the OSC 133
+    /// `B` mark, the soft-wrap flags, the cursor, and (when a cooperating
+    /// shell emits the private edit-region OSC) the authoritative buffer
+    /// geometry. `None` means no editable input is present — callers must
+    /// no-op rather than guess. See [`super::input_region`] for the model and
+    /// the certainty gate.
+    pub fn input_region(&self) -> Option<super::input_region::InputRegion> {
+        super::input_region::derive_input_region(
+            &self.rows,
+            self.scrollback.physical_len(self.dimensions.columns),
+            self.dimensions.columns,
+            self.active_prompt_input_start,
+            self.cursor,
+            self.active_edit_region.as_ref(),
+        )
+    }
+
     pub fn hyperlink(&self, id: LinkId) -> Option<&Hyperlink> {
         self.hyperlinks.get(id)
     }
@@ -1402,9 +1430,13 @@ impl Screen {
             }
             Some(b'C' | b'D') => {
                 self.active_prompt_input_start = None;
+                self.active_edit_region = None;
                 self.active_prompt_start = None;
             }
-            Some(b'A') => self.active_prompt_input_start = None,
+            Some(b'A') => {
+                self.active_prompt_input_start = None;
+                self.active_edit_region = None;
+            }
             _ => {}
         }
         // Walk back to the first physical row of the cursor's logical line: a
@@ -2086,6 +2118,11 @@ impl Terminal {
         self.screen.active_prompt_input_start()
     }
 
+    /// The live editable prompt-input region; see [`Screen::input_region`].
+    pub fn input_region(&self) -> Option<super::input_region::InputRegion> {
+        self.screen.input_region()
+    }
+
     pub fn hyperlink(&self, id: LinkId) -> Option<&Hyperlink> {
         self.screen.hyperlink(id)
     }
@@ -2246,6 +2283,7 @@ fn blank_stored_primary(dimensions: Dimensions) -> StoredScreen {
         kitty_keyboard_flags: 0,
         kitty_keyboard_stack: Vec::new(),
         active_prompt_input_start: None,
+        active_edit_region: None,
         active_prompt_start: None,
     }
 }
