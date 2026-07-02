@@ -18,6 +18,7 @@ pub mod grid;
 pub mod hints;
 pub mod input;
 pub(crate) mod local_hostname;
+pub mod logging;
 pub mod native;
 pub mod palette;
 pub mod palette_catalog;

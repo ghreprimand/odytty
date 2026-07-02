@@ -77,16 +77,16 @@ impl StyleFonts {
                 Some(path) => match text::load_font_at(&path) {
                     Ok(font) => font,
                     Err(err) => {
-                        eprintln!(
-                            "odytty: font_weight: {err}; falling back to the regular face for {family:?} {weight:?}"
+                        tracing::warn!(
+                            "font_weight: {err}; falling back to the regular face for {family:?} {weight:?}"
                         );
                         text::load_font_with_path(font_path)
                             .map_err(|err| NativeError::Text(err.to_string()))?
                     }
                 },
                 None => {
-                    eprintln!(
-                        "odytty: font_weight: no {weight:?} face found for family {family:?}; using the regular face"
+                    tracing::warn!(
+                        "font_weight: no {weight:?} face found for family {family:?}; using the regular face"
                     );
                     text::load_font_with_path(font_path)
                         .map_err(|err| NativeError::Text(err.to_string()))?
@@ -127,8 +127,8 @@ impl StyleFonts {
             match text::load_bundled_weight_for(family, font_weight.trim(), false) {
                 Some(font) => Ok(font),
                 None => {
-                    eprintln!(
-                        "odytty: font_weight: bundled {family} has no {:?} weight face; using the regular face",
+                    tracing::warn!(
+                        "font_weight: bundled {family} has no {:?} weight face; using the regular face",
                         font_weight.trim()
                     );
                     text::load_bundled_style_for(family, FontStyle::Regular)
@@ -278,12 +278,12 @@ pub(super) fn resolve_symbol_map_fonts(
         match text::resolve_font_family(rule.font(), &dirs) {
             Some(matched) => match text::load_font_at(&matched.regular) {
                 Ok(font) => result.push((start, end, Arc::new(font))),
-                Err(err) => eprintln!(
-                    "odytty: symbol_map: {err}; skipping override for U+{start:04X}-U+{end:04X}"
+                Err(err) => tracing::warn!(
+                    "symbol_map: {err}; skipping override for U+{start:04X}-U+{end:04X}"
                 ),
             },
-            None => eprintln!(
-                "odytty: symbol_map: font family {:?} not found (or not monospace); skipping override for U+{start:04X}-U+{end:04X}",
+            None => tracing::warn!(
+                "symbol_map: font family {:?} not found (or not monospace); skipping override for U+{start:04X}-U+{end:04X}",
                 rule.font()
             ),
         }

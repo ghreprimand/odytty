@@ -413,9 +413,7 @@ fn accept_pending_clients(
                     terminal,
                     config,
                 ) {
-                    eprintln!(
-                        "odytty: session-host: dropping client after attach failure: {error:#}"
-                    );
+                    tracing::warn!("session-host: dropping client after attach failure: {error:#}");
                 }
             }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(()),

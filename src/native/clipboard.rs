@@ -89,7 +89,7 @@ impl ClipboardSelectionIo for NativeClipboard {
             let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
                 Ok(clipboard) => clipboard,
                 Err(err) => {
-                    eprintln!("odytty: clipboard unavailable for paste: {err}");
+                    tracing::warn!("clipboard unavailable for paste: {err}");
                     return None;
                 }
             };
@@ -97,7 +97,7 @@ impl ClipboardSelectionIo for NativeClipboard {
             match clipboard.get_text() {
                 Ok(text) => Some(text),
                 Err(err) => {
-                    eprintln!("odytty: clipboard paste failed: {err}");
+                    tracing::warn!("clipboard paste failed: {err}");
                     self.slot.clear();
                     None
                 }
@@ -120,7 +120,7 @@ impl ClipboardSelectionIo for NativeClipboard {
             let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
                 Ok(clipboard) => clipboard,
                 Err(err) => {
-                    eprintln!("odytty: clipboard unavailable for copy: {err}");
+                    tracing::warn!("clipboard unavailable for copy: {err}");
                     return None;
                 }
             };
@@ -128,7 +128,7 @@ impl ClipboardSelectionIo for NativeClipboard {
             match clipboard.set_text(text.to_owned()) {
                 Ok(()) => Some(()),
                 Err(err) => {
-                    eprintln!("odytty: clipboard copy failed: {err}");
+                    tracing::warn!("clipboard copy failed: {err}");
                     self.slot.clear();
                     None
                 }
@@ -144,7 +144,7 @@ impl ClipboardSelectionIo for NativeClipboard {
         let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
             Ok(clipboard) => clipboard,
             Err(err) => {
-                eprintln!("odytty: primary selection unavailable for paste: {err}");
+                tracing::warn!("primary selection unavailable for paste: {err}");
                 return None;
             }
         };
@@ -156,7 +156,7 @@ impl ClipboardSelectionIo for NativeClipboard {
         {
             Ok(text) => Some(text),
             Err(err) => {
-                eprintln!("odytty: primary selection paste failed: {err}");
+                tracing::warn!("primary selection paste failed: {err}");
                 self.slot.clear();
                 None
             }
@@ -171,7 +171,7 @@ impl ClipboardSelectionIo for NativeClipboard {
         let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
             Ok(clipboard) => clipboard,
             Err(err) => {
-                eprintln!("odytty: primary selection unavailable for copy: {err}");
+                tracing::warn!("primary selection unavailable for copy: {err}");
                 return None;
             }
         };
@@ -183,7 +183,7 @@ impl ClipboardSelectionIo for NativeClipboard {
         {
             Ok(()) => Some(()),
             Err(err) => {
-                eprintln!("odytty: primary selection copy failed: {err}");
+                tracing::warn!("primary selection copy failed: {err}");
                 self.slot.clear();
                 None
             }

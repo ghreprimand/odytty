@@ -273,7 +273,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     if let Some(session_id) = attach_session
         && let Err(err) = app.attach_session_in_new_tab(None, &session_id)
     {
-        eprintln!("odytty: attach session {session_id} failed: {err}");
+        tracing::error!("attach session {session_id} failed: {err}");
     }
     let run_result = event_loop
         .run_app(&mut app)

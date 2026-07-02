@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Freeze hardening (1/3): default rotated logging at $XDG_STATE_HOME/odytty/odytty.log
+
+First of three packets from the v0.7.0 freeze postmortem. The frozen process
+had been launched with stderr redirected to `/dev/null`, so whatever the app
+said before the stall was discarded — the postmortem's blocking gap. OdyTTY
+now installs a default `tracing` subscriber that tees every record to stderr
+AND to a size-capped rotated log file at `$XDG_STATE_HOME/odytty/odytty.log`
+(macOS: `~/Library/Logs/odytty`; 2 MiB cap, one `.log.1` predecessor kept, so
+disk use is bounded). Default level is WARN; a bare `RUST_LOG=<level>` raises
+or lowers it. The file writer is lazy — created only when a record is actually
+emitted, so CLI invocations like `--version` never touch the state dir — and
+strictly best-effort: every I/O error is swallowed, logging can never take the
+terminal down. The scattered `eprintln!` diagnostics in the clipboard, font
+resolution, background-image, attach-failure, and session-host client-drop
+paths now go through `tracing::warn!`/`error!` so they reach the file (the
+few remaining sites in `app/mod.rs` follow once the in-flight Phase 2 work
+there lands). Privacy boundary for everything routed here (hard release
+rule): log records carry state, counters, and OS error strings only — never
+PTY bytes, grid text, or window titles. Unit tests cover lazy creation,
+rotation at the cap, pre-existing oversized files rotating before the first
+append, and unwritable destinations being swallowed.
+
 ## 2026-07-02 -- Select+Delete rework slice B1: soft-wrapped multi-line input (R5 flatten)
 
 Third slice of the approved design. A long command that soft-wraps across

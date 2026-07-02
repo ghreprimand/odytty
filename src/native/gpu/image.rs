@@ -97,18 +97,15 @@ impl BgImageGpu {
         let (mut rgba, width, height) = match decoded {
             Some(decoded) => decoded,
             None => {
-                eprintln!(
-                    "odytty: background_image: cannot load {}; no image",
-                    path.display()
-                );
+                tracing::warn!("background_image: cannot load {}; no image", path.display());
                 return None;
             }
         };
         let blur_radius = blur_radius.min(MAX_BACKGROUND_BLUR_RADIUS);
         if blur_radius > 0 {
             if width > MAX_BG_IMAGE_DIM || height > MAX_BG_IMAGE_DIM {
-                eprintln!(
-                    "odytty: background_image: {} is larger than {MAX_BG_IMAGE_DIM}px; skipping blur",
+                tracing::warn!(
+                    "background_image: {} is larger than {MAX_BG_IMAGE_DIM}px; skipping blur",
                     path.display()
                 );
             } else {
