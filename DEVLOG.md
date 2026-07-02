@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Kitty q=1 suppresses success responses per spec (NF9)
+
+`ControlData::suppress_response` only suppressed at `q=2`, so `q=1` — which
+the kitty graphics spec defines as "suppress SUCCESS responses" — still
+answered OK to every successful command. Now any explicit quiet level >= 1
+gates OK responses (the error path keeps its separate `quiet >= 2` check from
+C19). Chunk acknowledgements are success responses too, so the intermediate-
+chunk ack path now honors the quiet level riding on the FIRST chunk's control
+data, mirroring the C19 error-path lookup. Three new boundary tests pin the
+q=0/1/2 × ok/error matrix including a three-chunk q=1 transmission with no
+bytes emitted at any stage; fails-before verified against the old code. Full
+suite, clippy `-D warnings`, and `cargo fmt --check` green. Platform note:
+pure core escape-sequence logic, no platform surface — behavior identical on
+Linux/Windows/macOS.
+
 ## 2026-07-02 -- Config-reload diagnostics route through tracing, not stderr (FU1)
 
 FREEZE-HARDEN residual: the four remaining `eprintln!` diagnostic sites in the

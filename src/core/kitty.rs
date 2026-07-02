@@ -83,8 +83,12 @@ impl ControlData {
         parts.join(",")
     }
 
+    /// NF9: per the kitty graphics spec, `q=1` suppresses SUCCESS (OK)
+    /// responses and `q=2` suppresses both success and error responses. This
+    /// method gates only OK responses, so any explicit quiet level (>= 1)
+    /// suppresses; the error path checks `quiet >= 2` separately (C19).
     fn suppress_response(&self) -> bool {
-        self.quiet == Some(2)
+        self.quiet.is_some_and(|quiet| quiet >= 1)
     }
 }
 
@@ -208,7 +212,11 @@ fn handle_command(
         // budget the final-chunk merge enforces; their control keys (beyond
         // `m`) are ignored, matching kitty's protocol where only the first
         // chunk carries the transmission metadata.
-        let prefix = match state.pending.as_mut() {
+        // NF9: chunk acks are SUCCESS responses, so `q>=1` suppresses them
+        // too. For intermediate chunks (which usually carry only `m=`) the
+        // quiet level lives on the FIRST chunk's control data in
+        // `state.pending`, same as the C19 error-path lookup above.
+        let (prefix, suppress_ok) = match state.pending.as_mut() {
             Some(pending) => {
                 if pending
                     .encoded_payload
@@ -219,24 +227,32 @@ fn handle_command(
                     return Err(KittyError::PayloadTooLarge);
                 }
                 pending.encoded_payload.extend_from_slice(&command.payload);
-                pending.control.response_prefix()
+                (
+                    pending.control.response_prefix(),
+                    pending.control.suppress_response(),
+                )
             }
             None => {
                 if command.payload.len() > MAX_PENDING_ENCODED_BYTES {
                     return Err(KittyError::PayloadTooLarge);
                 }
                 let prefix = command.control.response_prefix();
+                let suppress_ok = command.control.suppress_response();
                 state.pending = Some(PendingTransmission {
                     control: command.control,
                     encoded_payload: command.payload,
                 });
-                prefix
+                (prefix, suppress_ok)
             }
         };
         return Ok(KittyOutcome {
             dirty: false,
             cursor: None,
-            response: kitty_response(Some(prefix), "OK"),
+            response: if suppress_ok {
+                Vec::new()
+            } else {
+                kitty_response(Some(prefix), "OK")
+            },
         });
     }
 

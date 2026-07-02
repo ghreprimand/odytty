@@ -465,6 +465,64 @@ fn kitty_quiet_one_still_reports_errors() {
 }
 
 #[test]
+fn kitty_quiet_one_suppresses_success_response() {
+    // NF9: per the kitty spec q=1 suppresses SUCCESS responses (q=2 both).
+    // The old code only suppressed at q=2, so every successful command
+    // answered OK even when the client asked for quiet.
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,q=1", &rgba_2x1()));
+
+    assert_eq!(t.visible_graphics(0).len(), 1);
+    assert!(
+        t.take_host_output().is_empty(),
+        "q=1 must suppress the OK response"
+    );
+}
+
+#[test]
+fn kitty_quiet_zero_reports_success_and_errors() {
+    // NF9 boundary pin: q=0 (or absent) keeps full response behavior.
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,q=0", &rgba_2x1()));
+    let out = String::from_utf8(t.take_host_output()).unwrap();
+    assert!(out.contains("OK"), "q=0 keeps OK responses: {out:?}");
+
+    t.advance(b"\x1b_Gf=32,a=T,t=d,s=2,v=1;!!!!\x1b\\");
+    let out = String::from_utf8(t.take_host_output()).unwrap();
+    assert!(
+        out.contains("invalid-payload"),
+        "no quiet keeps errors: {out:?}"
+    );
+}
+
+#[test]
+fn kitty_quiet_one_on_first_chunk_suppresses_chunk_acks_and_final_ok() {
+    // NF9: chunk acknowledgements are success responses; q=1 riding on the
+    // first chunk must silence the intermediate acks AND the final OK, while
+    // errors would still report (q=1 < 2).
+    let mut t = Terminal::new(20, 4);
+    let encoded = b64(&rgba_2x1());
+    let (first, rest) = encoded.split_at(4);
+    let (mid, last) = rest.split_at(4);
+    t.advance(format!("\x1b_Gf=32,a=T,t=d,s=2,v=1,q=1,m=1;{first}\x1b\\").as_bytes());
+    assert!(
+        t.take_host_output().is_empty(),
+        "q=1 must suppress the first-chunk ack"
+    );
+    t.advance(format!("\x1b_Gm=1;{mid}\x1b\\").as_bytes());
+    assert!(
+        t.take_host_output().is_empty(),
+        "q=1 must suppress intermediate-chunk acks"
+    );
+    t.advance(format!("\x1b_Gm=0;{last}\x1b\\").as_bytes());
+    assert_eq!(t.visible_graphics(0).len(), 1);
+    assert!(
+        t.take_host_output().is_empty(),
+        "q=1 must suppress the final OK"
+    );
+}
+
+#[test]
 fn ris_clears_pending_kitty_chunks() {
     let mut t = Terminal::new(20, 4);
     let encoded = b64(&rgba_2x1());
