@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- CI test steps fail fast on a wedge: step-level timeouts (CI-TIMEOUT-FIX)
+
+`.github/workflows/ci.yml` had a job-level `timeout-minutes: 25` but no
+step-level timeout on the `cargo test` step, so a wedged test ate the whole job
+budget before failing — run 28609779371 (a P2-FIX resize pressure test that
+deadlocked on an undrained ConPTY pipe) took 25m37s to report red. Added
+`timeout-minutes: 15` to the Test step and `timeout-minutes: 5` to the
+Linux-only piped-close guard step (which exists precisely to catch a wedge, so
+it must never become one). The job-level 25 stays as the outer backstop.
+Sized from recent green per-step durations (Test step ~103s ubuntu / ~126s
+macOS single-threaded / ~153s windows): 15 min is ~6× headroom over green while
+still tripping quickly on a hang. **Windows:** workflow-level change, applies to
+all three legs equally; CI on the push is the authoritative verify. YAML-only,
+no code change.
+
 ## 2026-07-02 -- select+Delete works again on no-signal shells (NF14-R, Option R)
 
 The B2 strict gate (`certainty != Exact` → hinted no-op) made select+Delete a

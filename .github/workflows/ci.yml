@@ -73,15 +73,28 @@ jobs:
 
       # macOS runs single-threaded to serialize parallel-PTY child-reap
       # contention (see the timeout-minutes note above); Ubuntu stays parallel.
+      #
+      # Step-level timeout: a wedged test must fail THIS step in ~15 min, not
+      # spin until the 25-min job backstop. Run 28609779371 (a P2-FIX resize
+      # pressure test that deadlocked on an undrained ConPTY pipe) ate 25m37s
+      # before reporting red — the job-level ceiling is too coarse to fail
+      # fast. Normal full-suite test steps finish in ~2-3 min across the matrix
+      # (windows ~153s is the slowest), so 15 min is ~6x headroom over green
+      # while still tripping quickly on a hang. The job-level 25 stays as the
+      # outer backstop for the whole build+clippy+test sequence.
       - name: Test
+        timeout-minutes: 15
         run: cargo test --locked ${{ matrix.os == 'macos-latest' && '-- --test-threads=1' || '' }}
 
       # TEST-HANG regression guard (Linux only — the wedge is a unix-pipe
       # phenomenon): a `cargo test` whose stdout pipe closes early must
       # TERMINATE, never wedge. See scripts/piped-test-guard.sh for the full
       # failure-mode writeup. The binary is already built by the Test step, so
-      # this adds seconds, not minutes.
+      # this adds seconds, not minutes. A tight step timeout is doubly apt here:
+      # this step exists precisely to catch a wedge, so it must never become one
+      # itself (runs in <1s green; 5 min is a generous tripwire).
       - name: Piped-close test guard
         if: runner.os == 'Linux'
+        timeout-minutes: 5
         run: bash scripts/piped-test-guard.sh
 
