@@ -733,6 +733,12 @@ impl OverlayUi {
                     ContextMenuItem::SplitRows => OverlayOutcome::ContextMenuSplitRows,
                     ContextMenuItem::ClosePane => OverlayOutcome::ContextMenuClosePane,
                     ContextMenuItem::Settings => OverlayOutcome::ContextMenuSettings,
+                    // F3: reuse the fully-wired OpenKeyBindings outcome (the
+                    // settings panel's "keybinds" row emits the same one); the
+                    // App handler flushes pending overlay settings and opens the
+                    // key-remap editor. The context menu already closed itself
+                    // above, matching the other launcher items.
+                    ContextMenuItem::KeyboardShortcuts => OverlayOutcome::OpenKeyBindings,
                     ContextMenuItem::ConnectionManager => {
                         OverlayOutcome::ContextMenuConnectionManager
                     }
@@ -3512,15 +3518,43 @@ mod tests {
             None,
             Default::default(),
         );
-        // 17 visible items single-pane (F1 New Window added); Manage Sessions is
-        // now index 15 (Detach & switch is the last, index 16).
-        for _ in 0..15 {
+        // 18 visible items single-pane (F1 New Window + F3 Keyboard Shortcuts
+        // added); Manage Sessions is now index 16 (Detach & switch is the last,
+        // index 17).
+        for _ in 0..16 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
             OverlayOutcome::ContextMenuSessionAttach,
             "walking to the launcher section lands on Manage Sessions, not a file item"
+        );
+    }
+
+    #[test]
+    fn context_menu_keyboard_shortcuts_opens_key_bindings() {
+        // F3: the "Keyboard Shortcuts" launcher item (first after Settings,
+        // visible index 12 single-pane) activates the key-remap editor via the
+        // same OpenKeyBindings outcome the settings "keybinds" row emits.
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            None,
+            false,
+            None,
+            Default::default(),
+        );
+        for _ in 0..12 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::OpenKeyBindings,
+            "activating Keyboard Shortcuts opens the key-remap editor"
         );
     }
 

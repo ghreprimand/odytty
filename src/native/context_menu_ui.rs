@@ -55,15 +55,15 @@ use crate::settings::BindableAction;
 /// Select All / New Tab / New Window / Rename Tab / Close Tab / Split Right /
 /// Split Down / Close Pane / Settings / Connection Manager / Command Palette /
 /// Session Replay / Manage Sessions / Detach & switch / Open / Open in OdyTTY /
-/// Open With… / Copy Path / Copy File / Reveal in File Manager) — the size of
-/// the accelerator array the App fills in `ALL` order. NOT the number of
-/// *visible* items: Close Pane is hidden in a single-pane tab; path-scoped menus
-/// show only file actions plus pinned Copy/Paste text actions; "Open in OdyTTY"
-/// is shown only when the resolved path is an image file (C4); and "Open With…"
-/// is shown only when the resolved path is a regular file (C3b). With no path
-/// and single-pane the visible count is 17; with no path and multi-pane it is
-/// 18.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 24;
+/// Open With… / Copy Path / Copy File / Reveal in File Manager) plus the F3
+/// "Keyboard Shortcuts" launcher item — the size of the accelerator array the
+/// App fills in `ALL` order. NOT the number of *visible* items: Close Pane is
+/// hidden in a single-pane tab; path-scoped menus show only file actions plus
+/// pinned Copy/Paste text actions; "Open in OdyTTY" is shown only when the
+/// resolved path is an image file (C4); and "Open With…" is shown only when the
+/// resolved path is a regular file (C3b). With no path and single-pane the
+/// visible count is 18; with no path and multi-pane it is 19.
+pub(super) const CONTEXT_MENU_ITEMS: usize = 25;
 
 /// Body row index of the first visual separator (single-pane layout), between
 /// Select All and New Tab. The separators move when Close Pane appears in a
@@ -91,14 +91,14 @@ pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 13;
 #[cfg(test)]
 pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 15;
 
-/// Total body rows in the **single-pane** layout: seventeen visible items plus
+/// Total body rows in the **single-pane** layout: eighteen visible items plus
 /// four separator lines (Close Pane hidden). The multi-pane layout has one
 /// more row; production uses [`ContextMenuUi::body_row_count`] for the live
-/// count. (The seventeenth item is "Detach & switch", appended to the launcher
-/// section after "Manage Sessions"; the F1 "New Window" item raised the count
-/// from sixteen.)
+/// count. (The F3 "Keyboard Shortcuts" item, first in the launcher section,
+/// raised the count from seventeen; the F1 "New Window" item raised it from
+/// sixteen before that.)
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 21;
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 22;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -132,6 +132,12 @@ pub(super) enum ContextMenuItem {
     ClosePane,
     /// Open the settings panel (always enabled, D-IN2-SETTINGS).
     Settings,
+    /// Open the key-remap editor overlay directly (F3). Always enabled; same
+    /// destination as Settings → Input → "keybinds" (`OverlayMode::KeyBindings`),
+    /// surfaced here for discoverability. Placed first in the launcher section
+    /// (right below Settings) so it groups with the other overlay-openers. No
+    /// default chord — the editor is a config surface, not a daily action.
+    KeyboardShortcuts,
     /// Open the connection manager overlay (v0.3.1 discoverability). Always
     /// enabled; same destination as the `Ctrl+Shift+S` chord.
     ConnectionManager,
@@ -193,6 +199,7 @@ impl ContextMenuItem {
         Self::SplitRows,
         Self::ClosePane,
         Self::Settings,
+        Self::KeyboardShortcuts,
         Self::ConnectionManager,
         Self::CommandPalette,
         Self::SessionReplay,
@@ -217,7 +224,8 @@ impl ContextMenuItem {
             Self::NewTab | Self::NewWindow | Self::RenameTab | Self::CloseTab => 1,
             Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
             Self::Settings => 3,
-            Self::ConnectionManager
+            Self::KeyboardShortcuts
+            | Self::ConnectionManager
             | Self::CommandPalette
             | Self::SessionReplay
             | Self::SessionAttach
@@ -247,6 +255,7 @@ impl ContextMenuItem {
             Self::SplitRows => "Split Down",
             Self::ClosePane => "Close Pane",
             Self::Settings => "Settings",
+            Self::KeyboardShortcuts => "Keyboard Shortcuts",
             Self::ConnectionManager => "Connection Manager",
             Self::CommandPalette => "Command Palette",
             Self::SessionReplay => "Session Replay",
@@ -297,6 +306,10 @@ impl ContextMenuItem {
             | Self::CopyPath
             | Self::CopyFile
             | Self::RevealPath
+            // Keyboard Shortcuts (F3) has no default chord — the editor is a
+            // config surface reached from Settings, so its accelerator slot is
+            // intentionally empty.
+            | Self::KeyboardShortcuts
             // Detach & switch is pointer-only (no global chord); skip the
             // flat-table lookup.
             | Self::DetachSwitch => None,
@@ -562,6 +575,7 @@ impl ContextMenuUi {
             ContextMenuItem::SplitRows => true,
             ContextMenuItem::ClosePane => true,
             ContextMenuItem::Settings => true,
+            ContextMenuItem::KeyboardShortcuts => true,
             ContextMenuItem::ConnectionManager => true,
             ContextMenuItem::CommandPalette => true,
             ContextMenuItem::SessionReplay => true,
@@ -1147,10 +1161,11 @@ mod tests {
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
         // Wraps from 0 to the last *visible* item (Detach & switch). Single-pane
-        // hides Close Pane, so the visible count is 17 (10 original + New Window
-        // + 1 Settings + 4 launchers + Detach & switch) and the last index is 16.
+        // hides Close Pane, so the visible count is 18 (10 original + New Window
+        // + Settings + Keyboard Shortcuts + 4 launchers + Detach & switch) and
+        // the last index is 17.
         assert_eq!(m.focused, m.item_count() - 1);
-        assert_eq!(m.item_count(), 17);
+        assert_eq!(m.item_count(), 18);
         m.handle_input(OverlayInput::Down);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Down);
@@ -1272,15 +1287,16 @@ mod tests {
 
     #[test]
     fn single_pane_menu_hides_close_pane() {
-        // Single-pane: Close Pane is absent; the layout is the 21-row menu with
-        // the launcher section (Connection Manager / Command Palette / Session
-        // Replay / Manage Sessions / Detach & switch) below Settings. F1's New
-        // Window item shifts Settings to body row 14; the launcher items follow
-        // after the fourth separator.
+        // Single-pane: Close Pane is absent; the layout is the 22-row menu with
+        // the launcher section (Keyboard Shortcuts / Connection Manager /
+        // Command Palette / Session Replay / Manage Sessions / Detach & switch)
+        // below Settings. F1's New Window shifts Settings to body row 14; F3's
+        // Keyboard Shortcuts is the first launcher item after the fourth
+        // separator.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 17);
+        assert_eq!(m.item_count(), 18);
         let rows = m.rows();
-        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 21
+        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 22
         assert!(
             !rows.iter().any(|r| matches!(
                 r,
@@ -1301,22 +1317,24 @@ mod tests {
             "Settings shifts to body row 14 single-pane (New Window added)"
         );
         assert_eq!(rows[15], ContextMenuRow::Separator);
-        assert_eq!(rows[16], item("Connection Manager", false, true));
-        assert_eq!(rows[17], item("Command Palette", false, true));
-        assert_eq!(rows[18], item("Session Replay", false, true));
-        assert_eq!(rows[19], item("Manage Sessions", false, true));
-        assert_eq!(rows[20], item("Detach & switch", false, true));
+        // F3: Keyboard Shortcuts is the first launcher item, right below Settings.
+        assert_eq!(rows[16], item("Keyboard Shortcuts", false, true));
+        assert_eq!(rows[17], item("Connection Manager", false, true));
+        assert_eq!(rows[18], item("Command Palette", false, true));
+        assert_eq!(rows[19], item("Session Replay", false, true));
+        assert_eq!(rows[20], item("Manage Sessions", false, true));
+        assert_eq!(rows[21], item("Detach & switch", false, true));
     }
 
     #[test]
     fn no_path_menu_hides_the_file_section() {
         // C3: with no resolved path under the click, the four file items are
-        // absent and the layout is the 21-row single-pane menu (F1 New Window
-        // included). This is the no-file-section guarantee.
+        // absent and the layout is the 22-row single-pane menu (F1 New Window +
+        // F3 Keyboard Shortcuts included). This is the no-file-section guarantee.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 17);
+        assert_eq!(m.item_count(), 18);
         let rows = m.rows();
-        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 21
+        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 22
         for label in ["Open", "Copy Path", "Copy File", "Reveal in File Manager"] {
             assert!(
                 !rows.iter().any(|r| matches!(
@@ -1582,9 +1600,9 @@ mod tests {
         // section; the third separator and Settings shift down one row, and the
         // v0.3.1 launcher section follows below Settings.
         let m = multipane_menu();
-        assert_eq!(m.item_count(), 18);
+        assert_eq!(m.item_count(), 19);
         let rows = m.rows();
-        assert_eq!(rows.len(), 22, "one more row than single-pane");
+        assert_eq!(rows.len(), 23, "one more row than single-pane");
         assert_eq!(rows[11], item("Split Right", false, true));
         assert_eq!(rows[12], item("Split Down", false, true));
         assert_eq!(
@@ -1599,11 +1617,13 @@ mod tests {
             "Settings shifts to body row 15 in the multi-pane layout (New Window added)"
         );
         assert_eq!(rows[16], ContextMenuRow::Separator);
-        assert_eq!(rows[17], item("Connection Manager", false, true));
-        assert_eq!(rows[18], item("Command Palette", false, true));
-        assert_eq!(rows[19], item("Session Replay", false, true));
-        assert_eq!(rows[20], item("Manage Sessions", false, true));
-        assert_eq!(rows[21], item("Detach & switch", false, true));
+        // F3: Keyboard Shortcuts is the first launcher item, below Settings.
+        assert_eq!(rows[17], item("Keyboard Shortcuts", false, true));
+        assert_eq!(rows[18], item("Connection Manager", false, true));
+        assert_eq!(rows[19], item("Command Palette", false, true));
+        assert_eq!(rows[20], item("Session Replay", false, true));
+        assert_eq!(rows[21], item("Manage Sessions", false, true));
+        assert_eq!(rows[22], item("Detach & switch", false, true));
     }
 
     #[test]
@@ -1619,13 +1639,13 @@ mod tests {
     #[test]
     fn multi_pane_focus_wraps_through_all_items() {
         // Up from item 0 wraps to the last visible item (Detach & switch, index
-        // 17), proving Close Pane is in the focus cycle only when multi-pane and
+        // 18), proving Close Pane is in the focus cycle only when multi-pane and
         // the launcher items extend the cycle.
         let mut m = multipane_menu();
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        assert_eq!(m.focused, 17);
-        assert_eq!(m.item_count(), 18);
+        assert_eq!(m.focused, 18);
+        assert_eq!(m.item_count(), 19);
     }
 
     #[test]

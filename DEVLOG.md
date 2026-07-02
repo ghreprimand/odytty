@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Context-menu "Keyboard Shortcuts" item opens the key-remap editor (F3)
+
+The key-remap editor was reachable only via Settings → Input → "keybinds".
+Added a "Keyboard Shortcuts" item to the right-click context menu (F1 New Window
+precedent): a new `ContextMenuItem::KeyboardShortcuts`, placed first in the
+launcher section directly below Settings so it groups with the other
+overlay-openers (Connection Manager / Command Palette / …). Activating it reuses
+the fully-wired `OverlayOutcome::OpenKeyBindings` — the same outcome the settings
+"keybinds" row emits — so the App handler (flush pending overlay settings, open
+`OverlayMode::KeyBindings`) needed no new plumbing. No default chord (the editor
+is a config surface, not a daily action), so its accelerator slot is
+intentionally empty. Positioning it first in the launcher section kept
+`item_to_body_row` and the separator constants unchanged; only the item count
+(24→25 total, 17→18 visible single-pane) and the launcher row assertions shifted.
+Fails-before/passes-after test drives the menu to the item and asserts the
+OpenKeyBindings outcome. **Windows:** none — platform-neutral overlay UI logic.
+Full suite green, clippy `-D warnings` clean, MSRV untouched.
+
+---
+
 ## 2026-07-02 -- Settings About back-arrow responds to clicks (NF15)
 
 In Settings, the About view's `← About  (Esc = back)` title arrow ignored

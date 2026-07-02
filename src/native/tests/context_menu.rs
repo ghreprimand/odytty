@@ -267,10 +267,11 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         rows[CONTEXT_MENU_FOURTH_SEPARATOR_ROW],
         ContextMenuRow::Separator
     ));
+    // F3: Keyboard Shortcuts is the first launcher item, right below Settings.
     assert!(matches!(
         rows[16],
         ContextMenuRow::Item {
-            label: "Connection Manager",
+            label: "Keyboard Shortcuts",
             enabled: true,
             ..
         }
@@ -278,13 +279,21 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
     assert!(matches!(
         rows[17],
         ContextMenuRow::Item {
-            label: "Command Palette",
+            label: "Connection Manager",
             enabled: true,
             ..
         }
     ));
     assert!(matches!(
         rows[18],
+        ContextMenuRow::Item {
+            label: "Command Palette",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[19],
         ContextMenuRow::Item {
             label: "Session Replay",
             enabled: true,
