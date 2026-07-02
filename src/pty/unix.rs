@@ -24,7 +24,7 @@ use rustix::pty::{OpenptFlags, grantpt, openpt, unlockpt};
 use rustix::termios::{Winsize, tcgetpgrp, tcsetwinsize};
 
 use super::{CommandBuilder, ForegroundJob};
-use crate::core::Dimensions;
+use crate::core::{CellMetrics, Dimensions};
 use crate::settings::Settings;
 
 /// Classify the terminal foreground group of `fd` against `shell_pgid`.
@@ -44,11 +44,29 @@ fn classify_foreground<Fd: AsFd>(fd: Fd, shell_pgid: RawPid) -> ForegroundJob {
 pub struct PtySession {
     master: File,
     child: Child,
+    /// Live cell pixel metrics packed as `(width_px << 32) | height_px`, used to
+    /// fill `ws_xpixel`/`ws_ypixel` on every TIOCSWINSZ so pixel-aware programs
+    /// (image protocols, some TUIs) see a real geometry instead of zero. Seeded
+    /// with [`CellMetrics::DEFAULT`] at spawn (the native layer has no live
+    /// metric until the first layout pass) and updated via
+    /// [`Self::set_cell_metrics`] on every resize. `&self` mutation → atomic.
+    cell_metrics: std::sync::atomic::AtomicU64,
     /// Test-only counter of kernel `resize` calls (TIOCSWINSZ). Lets a headless
     /// test assert the divider-drag coalescing fires ONE resize at drag-end
     /// instead of one per pointer-move. Not built outside tests.
     #[cfg(test)]
     resize_calls: std::sync::atomic::AtomicUsize,
+}
+
+/// Pack cell metrics into a single `u64` for atomic storage on [`PtySession`].
+fn pack_cell_metrics(metrics: CellMetrics) -> u64 {
+    ((metrics.width_px as u64) << 32) | metrics.height_px as u64
+}
+
+/// Inverse of [`pack_cell_metrics`]. Re-clamps through [`CellMetrics::new`] so a
+/// stored value can never widen the `[1, 1024]` invariant.
+fn unpack_cell_metrics(packed: u64) -> CellMetrics {
+    CellMetrics::new((packed >> 32) as u32, (packed & 0xffff_ffff) as u32)
 }
 
 impl PtySession {
@@ -155,16 +173,31 @@ impl PtySession {
         Ok(Self {
             master,
             child,
+            cell_metrics: std::sync::atomic::AtomicU64::new(pack_cell_metrics(
+                CellMetrics::DEFAULT,
+            )),
             #[cfg(test)]
             resize_calls: std::sync::atomic::AtomicUsize::new(0),
         })
+    }
+
+    /// Record the live cell pixel metrics so the next TIOCSWINSZ can report a
+    /// real `ws_xpixel`/`ws_ypixel`. The native layer calls this alongside
+    /// `TerminalModel::set_cell_metrics` on every resize/font rebuild.
+    pub fn set_cell_metrics(&self, metrics: CellMetrics) {
+        self.cell_metrics.store(
+            pack_cell_metrics(metrics),
+            std::sync::atomic::Ordering::Relaxed,
+        );
     }
 
     pub fn resize(&self, dimensions: Dimensions) -> Result<()> {
         #[cfg(test)]
         self.resize_calls
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        tcsetwinsize(&self.master, winsize(dimensions)).context("resize pty")
+        let metrics =
+            unpack_cell_metrics(self.cell_metrics.load(std::sync::atomic::Ordering::Relaxed));
+        tcsetwinsize(&self.master, winsize(dimensions, metrics)).context("resize pty")
     }
 
     /// Test-only: how many times [`resize`](Self::resize) has been called on
@@ -278,6 +311,30 @@ impl PtySession {
             winsize.ws_row as usize,
         ))
     }
+
+    /// Test-only: query the kernel `ws_xpixel`/`ws_ypixel` on the master via
+    /// TIOCGWINSZ. Drives the C23 regression asserting TIOCSWINSZ now reports a
+    /// real pixel geometry instead of zero.
+    #[cfg(test)]
+    pub fn pixel_dimensions_for_test(&self) -> Result<(u16, u16)> {
+        let mut winsize = Winsize {
+            ws_row: 0,
+            ws_col: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        let result = unsafe {
+            libc::ioctl(
+                self.master.as_raw_fd(),
+                libc::TIOCGWINSZ as libc::c_ulong,
+                &mut winsize,
+            )
+        };
+        if result == -1 {
+            return Err(std::io::Error::last_os_error()).context("query pty pixel size");
+        }
+        Ok((winsize.ws_xpixel, winsize.ws_ypixel))
+    }
 }
 
 struct PtyReader {
@@ -322,7 +379,12 @@ pub(crate) fn open_pty_pair(dimensions: Dimensions) -> Result<(File, File)> {
 
     let slave = open_pty_slave(&master, flags)?;
 
-    tcsetwinsize(&slave, winsize(dimensions)).context("set pty window size")?;
+    // At spawn the native layer has not run a layout pass yet, so the live cell
+    // metric is unknown; seed the slave winsize with the headless-default metric
+    // (8×16, matching `CellMetrics::DEFAULT`). The first real resize overwrites
+    // ws_xpixel/ws_ypixel with the true geometry via `PtySession::set_cell_metrics`.
+    tcsetwinsize(&slave, winsize(dimensions, CellMetrics::DEFAULT))
+        .context("set pty window size")?;
 
     let master = unsafe { File::from_raw_fd(master.into_raw_fd()) };
     let slave = unsafe { File::from_raw_fd(slave.into_raw_fd()) };
@@ -355,12 +417,23 @@ fn open_pty_slave<Fd: AsFd>(master: Fd, _flags: OpenptFlags) -> Result<rustix::f
     .context("open pty slave (ptsname)")
 }
 
-fn winsize(dimensions: Dimensions) -> Winsize {
+/// Build a `Winsize` from a grid geometry and its live cell metrics.
+///
+/// `ws_xpixel`/`ws_ypixel` carry `columns * width_px` and `rows * height_px` so
+/// pixel-aware clients (Sixel/Kitty sizing, some TUIs) read a real surface
+/// extent. The product is saturated to `u16::MAX` — the winsize pixel fields are
+/// `u16`, and a pathological grid can exceed that even though real windows
+/// (≤ 8K) never do. Rows/cols keep the pre-existing `u16` clamp.
+fn winsize(dimensions: Dimensions, cell_metrics: CellMetrics) -> Winsize {
+    let cols = dimensions.columns.min(u16::MAX as usize) as u16;
+    let rows = dimensions.rows.min(u16::MAX as usize) as u16;
+    let ws_xpixel = (cols as u32 * cell_metrics.width_px).min(u16::MAX as u32) as u16;
+    let ws_ypixel = (rows as u32 * cell_metrics.height_px).min(u16::MAX as u32) as u16;
     Winsize {
-        ws_row: dimensions.rows.min(u16::MAX as usize) as u16,
-        ws_col: dimensions.columns.min(u16::MAX as usize) as u16,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
+        ws_row: rows,
+        ws_col: cols,
+        ws_xpixel,
+        ws_ypixel,
     }
 }
 
@@ -497,5 +570,61 @@ mod tests {
         );
 
         let _ = session.kill();
+    }
+
+    /// C23: the `winsize` builder fills `ws_xpixel`/`ws_ypixel` from the grid
+    /// geometry × cell metrics (previously hard-coded to zero). Pure builder
+    /// check — no PTY needed.
+    #[test]
+    fn winsize_reports_pixel_geometry_from_cell_metrics() {
+        let ws = winsize(Dimensions::new(80, 24), CellMetrics::new(10, 20));
+        assert_eq!(ws.ws_col, 80);
+        assert_eq!(ws.ws_row, 24);
+        assert_eq!(ws.ws_xpixel, 800, "80 cols × 10px must report 800px wide");
+        assert_eq!(ws.ws_ypixel, 480, "24 rows × 20px must report 480px tall");
+
+        // The headless default metric (8×16) still yields a non-zero geometry,
+        // so a freshly spawned PTY never advertises a zero pixel size.
+        let ws_default = winsize(Dimensions::new(80, 24), CellMetrics::DEFAULT);
+        assert_eq!(ws_default.ws_xpixel, 640);
+        assert_eq!(ws_default.ws_ypixel, 384);
+    }
+
+    /// The pixel product is `u16`, so a pathological grid saturates instead of
+    /// wrapping — a real (≤ 8K) window never reaches this, but the arithmetic
+    /// must not truncate silently.
+    #[test]
+    fn winsize_saturates_pixel_geometry_at_u16_max() {
+        let ws = winsize(Dimensions::new(60000, 60000), CellMetrics::new(1024, 1024));
+        assert_eq!(ws.ws_xpixel, u16::MAX);
+        assert_eq!(ws.ws_ypixel, u16::MAX);
+    }
+
+    /// C23 end-to-end: a spawned PTY reports a real pixel geometry over
+    /// TIOCGWINSZ — the default metric at spawn, then the live metric fed via
+    /// `set_cell_metrics` before a resize. Before the fix both were zero.
+    #[test]
+    fn tiocswinsz_carries_real_pixel_dims_after_resize() {
+        let session =
+            PtySession::spawn_default_shell(TEST_DIMENSIONS).expect("spawn default shell");
+
+        // At spawn the slave winsize was seeded with the 8×16 default metric:
+        // 80×24 grid → 640×384 px. Non-zero is the whole point of C23.
+        let (spawn_x, spawn_y) = session
+            .pixel_dimensions_for_test()
+            .expect("query spawn pixel size");
+        assert_eq!((spawn_x, spawn_y), (640, 384), "spawn must seed default px");
+
+        // The native layer feeds the live metric, then resizes. TIOCSWINSZ must
+        // now carry 100×30 grid × 12×24 px = 1200×720 px.
+        session.set_cell_metrics(CellMetrics::new(12, 24));
+        session
+            .resize(Dimensions::new(100, 30))
+            .expect("resize with live metric");
+        let (x, y) = session
+            .pixel_dimensions_for_test()
+            .expect("query resized pixel size");
+        assert_eq!(x, 1200, "100 cols × 12px must report 1200px wide");
+        assert_eq!(y, 720, "30 rows × 24px must report 720px tall");
     }
 }

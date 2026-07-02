@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- PTY winsize reports real pixel geometry over TIOCSWINSZ (C23)
+
+`TIOCSWINSZ` (and the slave winsize seeded at spawn) always advertised
+`ws_xpixel = ws_ypixel = 0`, so pixel-aware clients — image protocols and TUIs
+that read the terminal's pixel extent — saw a zero surface and had to fall back
+to guesswork. The winsize builder now fills the pixel fields from the grid
+geometry × the live cell metric: `ws_xpixel = columns × width_px`,
+`ws_ypixel = rows × height_px`, saturated to the `u16` field width (a real ≤ 8K
+window never reaches the cap).
+
+`PtySession` gained an atomic `cell_metrics` (packed `width<<32 | height`), seeded
+with `CellMetrics::DEFAULT` (8×16 px) at spawn because the native layer has no
+live metric until its first layout pass, and updated via a new
+`set_cell_metrics` the session layer calls alongside `TerminalModel::set_cell_metrics`
+right before each `pty.resize`. So a freshly spawned PTY reports the default
+geometry (never zero) and the first real resize overwrites it with the true
+metric. The Windows backend carries a no-op `set_cell_metrics` for API parity —
+`ResizePseudoConsole` has only a `COORD`, no pixel field. `CellMetrics` is now
+re-exported from `crate::core`.
+
+Tests: a pure `winsize` builder check (geometry × metric + default), a `u16`
+saturation check, and an end-to-end spawn→`set_cell_metrics`→resize test that
+reads back `ws_xpixel`/`ws_ypixel` via `TIOCGWINSZ`; all three fail-before
+(pixel fields were zero) and pass-after. Full suite 2934 passing, clippy
+`-D warnings` clean, fmt clean, MSRV lockstep untouched.
+
+---
+
 ## 2026-07-02 -- New Window: launch another OdyTTY instance from the menu or a chord (F1)
 
 Added an in-app way to open additional OdyTTY windows instead of launching the

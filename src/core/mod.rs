@@ -75,8 +75,8 @@ pub use snapshot_envelope::{
     SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion, SnapshotTerminalState,
 };
 pub use types::{
-    Attrs, Cell, ClipboardRequest, ClipboardSelection, Color, CursorStyle, Dimensions, DirtyRegion,
-    DynamicColors, KeyboardModes, LinkId, MouseButton, MouseEncoding, MouseEventKind,
+    Attrs, Cell, CellMetrics, ClipboardRequest, ClipboardSelection, Color, CursorStyle, Dimensions,
+    DirtyRegion, DynamicColors, KeyboardModes, LinkId, MouseButton, MouseEncoding, MouseEventKind,
     MouseModifiers, MouseProtocol, MouseTracking, Position, RgbColor, Snapshot, TerminalModel,
     UnderlineStyle,
 };

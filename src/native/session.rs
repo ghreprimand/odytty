@@ -884,6 +884,9 @@ impl TabSet {
                     match &session.source {
                         SessionSource::Local { pty } => {
                             if let Ok(pty) = pty.lock() {
+                                // Feed the live cell metric so TIOCSWINSZ reports
+                                // a real ws_xpixel/ws_ypixel (C23), then resize.
+                                pty.set_cell_metrics(crate::core::CellMetrics::new(cell_w, cell_h));
                                 let _ = pty.resize(crate::core::Dimensions::new(cols, rows));
                             }
                         }

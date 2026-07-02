@@ -346,6 +346,13 @@ impl PtySession {
         }
     }
 
+    /// No-op on Windows: `ResizePseudoConsole` carries only a `COORD`
+    /// (columns × rows) — a ConPTY has no pixel-geometry field to populate.
+    /// Present for cross-platform API parity so the native layer can call
+    /// `pty.set_cell_metrics(..)` unconditionally (the Unix backend uses it to
+    /// fill `ws_xpixel`/`ws_ypixel` on TIOCSWINSZ).
+    pub fn set_cell_metrics(&self, _metrics: crate::core::CellMetrics) {}
+
     pub fn resize(&self, dimensions: Dimensions) -> Result<()> {
         #[cfg(test)]
         self.resize_calls.fetch_add(1, Ordering::Relaxed);
