@@ -589,8 +589,9 @@ fn copy_gating_reflects_live_selection() {
 
 #[test]
 fn cut_delete_gating_requires_editable_prompt_input() {
-    let Some((mut app, _bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
-    else {
+    let Some((mut app, _bytes)) = app_with_recording_writer(
+        b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
+    ) else {
         return;
     };
     app.set_pointer_cell_for_test(5, 10);
@@ -648,8 +649,9 @@ fn cut_delete_disabled_hint_points_to_shell_integration_when_prompt_mark_missing
 
 #[test]
 fn cut_delete_enabled_when_prompt_mark_is_present() {
-    let Some((mut app, _bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
-    else {
+    let Some((mut app, _bytes)) = app_with_recording_writer(
+        b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
+    ) else {
         return;
     };
     app.force_selection_for_test(0, 0, 0, 4);
@@ -664,8 +666,9 @@ fn cut_delete_enabled_when_prompt_mark_is_present() {
 
 #[test]
 fn delete_selected_input_sends_shell_edit_bytes_without_copying() {
-    let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
-    else {
+    let Some((mut app, bytes)) = app_with_recording_writer(
+        b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
+    ) else {
         return;
     };
     app.force_selection_for_test(0, 0, 0, 4);
@@ -693,8 +696,9 @@ fn delete_selected_input_sends_shell_edit_bytes_without_copying() {
 /// Delete item, and clears the stale visual selection.
 #[test]
 fn delete_key_deletes_editable_selection_like_menu() {
-    let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
-    else {
+    let Some((mut app, bytes)) = app_with_recording_writer(
+        b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
+    ) else {
         return;
     };
     app.force_selection_for_test(0, 0, 0, 4);
@@ -722,8 +726,9 @@ fn delete_key_deletes_editable_selection_like_menu() {
 /// (the universal GUI convention — either key removes the selection).
 #[test]
 fn backspace_key_deletes_editable_selection() {
-    let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
-    else {
+    let Some((mut app, bytes)) = app_with_recording_writer(
+        b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
+    ) else {
         return;
     };
     app.force_selection_for_test(0, 0, 0, 4);
@@ -773,9 +778,14 @@ fn delete_key_with_missing_prompt_mark_clears_selection_and_hints() {
 /// (prompt-only) falls through to the normal key encode — byte-identical to
 /// before the feature — and never touches the selection via the editable path.
 #[test]
-fn delete_key_falls_through_when_selection_not_editable() {
-    let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
-    else {
+fn delete_key_on_input_row_outside_input_no_ops_with_hint() {
+    // B-DESIGN ladder default: a selection ON the input row but entirely over
+    // non-input cells (here the prompt "$"; same rung as a right-aligned
+    // decoration) must consume the key as a hinted no-op — never forward a
+    // blind Delete byte that would eat a character at the cursor.
+    let Some((mut app, bytes)) = app_with_recording_writer(
+        b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
+    ) else {
         return;
     };
     // Prompt-only selection (column 0..1 covers "$"): no editable clipped text.
@@ -785,9 +795,40 @@ fn delete_key_falls_through_when_selection_not_editable() {
     app.drive_named_key_for_test(NamedKey::Delete);
 
     let written = bytes.lock().expect("bytes").clone();
+    assert!(
+        written.is_empty(),
+        "a non-input selection on the input row must not send any bytes, got {written:?}"
+    );
+    assert!(
+        app.selection_range_for_test().is_none(),
+        "the hinted no-op clears the stale visual selection"
+    );
+    assert!(
+        app.click_hint_shown_for_test(),
+        "the hinted no-op surfaces the shell-integration hint"
+    );
+}
+
+/// SELDEL-KEY off path: a Delete with a selection that does not touch the
+/// input region at all (here: a scrolled-out output row) falls through to the
+/// normal key encode — byte-identical to before the feature.
+#[test]
+fn delete_key_falls_through_when_selection_not_on_input_region() {
+    let Some((mut app, bytes)) = app_with_recording_writer(
+        b"output line\r\n\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
+    ) else {
+        return;
+    };
+    // Select on row 0 ("output line"), while the prompt input lives on row 1.
+    app.force_selection_for_test(0, 0, 0, 5);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
     assert_eq!(
         written, b"\x1b[3~",
-        "a non-editable selection lets Delete encode normally to the shell"
+        "a selection off the input region lets Delete encode normally to the shell"
     );
 }
 
@@ -807,13 +848,140 @@ fn delete_key_without_selection_still_falls_through() {
     assert!(!app.click_hint_shown_for_test());
 }
 
+/// B2/T3/T5: a right-aligned decoration on the input row (RPROMPT, fish
+/// duration, git status) renders as ordinary non-blank cells, indistinguishable
+/// from input on the wire. With the shell's edit-region report bounding the
+/// buffer exactly, selecting the decoration and pressing Delete must be a
+/// hinted no-op — before this slice the last-non-blank heuristic claimed the
+/// decoration as deletable input and sent motion+delete bytes for it.
+#[test]
+fn right_aligned_decoration_is_not_deletable_as_input() {
+    // Prompt + "abc", then a decoration painted at column 15 with the cursor
+    // saved/restored back to the input, then the edit-region report (len=3).
+    let content = b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b7\x1b[1;16H23.1s\x1b8\x1b]133;P;odytty-edit;len=3;cur=3\x07";
+    let Some((mut app, bytes)) = app_with_recording_writer(content) else {
+        return;
+    };
+    // Select the decoration cells only (columns 15..19).
+    app.force_selection_for_test(0, 15, 0, 19);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert!(
+        written.is_empty(),
+        "decoration cells must never synthesize edit bytes, got {written:?}"
+    );
+    assert!(app.selection_range_for_test().is_none());
+    assert!(app.click_hint_shown_for_test());
+}
+
+/// B2/T2: a whole-row selection over input + decoration deletes ONLY the real
+/// input span reported by the shell — the exact right edge clamps the
+/// selection, so the decoration cells contribute no motion and no deletes.
+#[test]
+fn whole_row_selection_deletes_only_the_reported_input() {
+    let content = b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b7\x1b[1;16H23.1s\x1b8\x1b]133;P;odytty-edit;len=3;cur=3\x07";
+    let Some((mut app, bytes)) = app_with_recording_writer(content) else {
+        return;
+    };
+    // Select the entire row: prompt, input, gap, decoration.
+    app.force_selection_for_test(0, 0, 0, 19);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert_eq!(
+        written,
+        [b"\x1b[D".repeat(3), b"\x1b[3~".repeat(3)].concat(),
+        "only the reported 3-cell input is moved-to and deleted"
+    );
+    assert!(app.selection_range_for_test().is_none());
+}
+
+/// B2/T2: cursor mid-input — the reported cursor offset must reconcile against
+/// the real grid cursor for the region to be Exact, and the synthesized motion
+/// starts from the true cursor cell.
+#[test]
+fn mid_input_cursor_reconciles_and_deletes_exactly() {
+    // Type "abcd", move the cursor left twice (to column 4, between b and c),
+    // then report len=4 cur=2.
+    let content =
+        b"\x1b]133;A\x07$ \x1b]133;B\x07abcd\x1b[2D\x1b]133;P;odytty-edit;len=4;cur=2\x07";
+    let Some((mut app, bytes)) = app_with_recording_writer(content) else {
+        return;
+    };
+    // Select all four input cells (columns 2..5).
+    app.force_selection_for_test(0, 2, 0, 5);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert_eq!(
+        written,
+        [b"\x1b[D".repeat(2), b"\x1b[3~".repeat(4)].concat(),
+        "motion runs from the true cursor (column 4) to the selection start, then deletes 4"
+    );
+}
+
+/// B2/T14 (ODP-3 default): input with a `133;B` mark but NO edit-region report
+/// — bash always, zsh/fish before their snippets update — has no trustworthy
+/// right edge, so selecting it and pressing Delete is a hinted no-op instead
+/// of the old heuristic delete.
+#[test]
+fn input_without_edit_region_report_no_ops_with_hint() {
+    let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
+    else {
+        return;
+    };
+    app.force_selection_for_test(0, 2, 0, 4);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert!(
+        written.is_empty(),
+        "no signal => RightEdgeUnknown => no bytes, got {written:?}"
+    );
+    assert!(app.selection_range_for_test().is_none());
+    assert!(
+        app.click_hint_shown_for_test(),
+        "the honest degradation surfaces the shell-integration hint"
+    );
+}
+
+/// B2/T18 (consumer side): a malformed edit-region report is ignored — the
+/// region falls back to the heuristic path and Delete stays a safe no-op, not
+/// a panic and not a synthesized edit.
+#[test]
+fn malformed_edit_region_report_degrades_to_no_op() {
+    let Some((mut app, bytes)) = app_with_recording_writer(
+        b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=;cur=zzz\x07",
+    ) else {
+        return;
+    };
+    app.force_selection_for_test(0, 2, 0, 4);
+    app.set_pointer_cell_for_test(5, 10);
+
+    app.drive_named_key_for_test(NamedKey::Delete);
+
+    let written = bytes.lock().expect("bytes").clone();
+    assert!(written.is_empty(), "malformed report must not synthesize");
+    assert!(app.click_hint_shown_for_test());
+}
+
 /// D-IN2-CUT-SAFE: if `write_text` returns `None`, Cut must NOT delete the
 /// editable input and must NOT clear the selection. The menu closes (item was
 /// activated) but the text and selection survive intact.
 #[test]
 fn cut_clipboard_failure_leaves_input_and_selection_intact() {
-    let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
-    else {
+    let Some((mut app, bytes)) = app_with_recording_writer(
+        b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
+    ) else {
         return;
     };
     // Force clipboard writes to fail so we exercise the fail-safe path.
@@ -852,8 +1020,9 @@ fn cut_clipboard_failure_leaves_input_and_selection_intact() {
 /// or PTY is available in the test environment.
 #[test]
 fn cut_selected_input_sends_edit_bytes_when_clipboard_succeeds() {
-    let Some((mut app, bytes)) = app_with_recording_writer(b"\x1b]133;A\x07$ \x1b]133;B\x07abc")
-    else {
+    let Some((mut app, bytes)) = app_with_recording_writer(
+        b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
+    ) else {
         return;
     };
 
@@ -1263,7 +1432,9 @@ fn editable_input_selection_survives_a_width_change_resize() {
     }
     // A fresh prompt with an input mark on the live input row — same `$ ` /
     // `abc` shape as the other single-pane gate tests above.
-    content.extend_from_slice(b"\x1b]133;A\x07$ \x1b]133;B\x07abc");
+    content.extend_from_slice(
+        b"\x1b]133;A\x07$ \x1b]133;B\x07abc\x1b]133;P;odytty-edit;len=3;cur=3\x07",
+    );
 
     let Some((mut app, _bytes, terminal)) = app_with_recording_writer_and_terminal(&content) else {
         eprintln!("skipping: no PTY available");

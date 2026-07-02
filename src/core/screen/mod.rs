@@ -1417,6 +1417,18 @@ impl Screen {
             self.click_events_enabled = matches!(directive, prompt_marks::ClickEvents::Enable);
         }
         let code = parts.first().and_then(|p| p.first()).copied();
+        // OdyTTY-private edit-region report (`133;P;odytty-edit;len;cur[;nl]`,
+        // B-DESIGN §3.1): a cooperating shell's line editor publishing its
+        // authoritative buffer length + cursor on every redraw. Pure advisory
+        // state for [`Self::input_region`]; no grid write, no mark stamping.
+        // A malformed payload (or an unknown/versioned signal name) is ignored
+        // and leaves existing state untouched.
+        if code == Some(b'P') {
+            if let Some(signal) = super::input_region::parse_edit_region_osc(parts) {
+                self.active_edit_region = Some(signal);
+            }
+            return;
+        }
         let Some(kind) = prompt_marks::parse_osc133(parts) else {
             return;
         };

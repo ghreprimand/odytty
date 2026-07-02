@@ -272,6 +272,40 @@ const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" ]; then
     __ODYTTY_COMMAND_STARTED=1
   }
 
+  # Edit-region report (B-DESIGN §3.2): publish the authoritative ZLE buffer
+  # length + cursor (rune counts; OdyTTY reconciles runes to display cells) on
+  # every redraw via the private OSC `133;P;odytty-edit`. Other terminals
+  # ignore the unknown 133 subcommand. Hot path per keystroke: parameter
+  # expansions and a builtin printf only -- no subshells, no forks. When the
+  # buffer contains hard newlines (PS2 continuations, quoted newlines) their
+  # rune offsets ride along as `;nl=` so the terminal never mistakes a
+  # multi-line buffer for a single-line one.
+  __odytty_edit_report() {
+    if [[ $BUFFER == *$'\n'* ]]; then
+      local -a __odytty_parts=("${(@ps:\n:)BUFFER}")
+      local __odytty_nl="" __odytty_acc=0 __odytty_i
+      for (( __odytty_i=1; __odytty_i < ${#__odytty_parts[@]}; __odytty_i++ )); do
+        (( __odytty_acc += ${#__odytty_parts[__odytty_i]} ))
+        __odytty_nl+="${__odytty_nl:+,}${__odytty_acc}"
+        (( __odytty_acc += 1 ))
+      done
+      printf '\e]133;P;odytty-edit;len=%d;cur=%d;nl=%s\a' ${#BUFFER} ${CURSOR} "$__odytty_nl"
+    else
+      printf '\e]133;P;odytty-edit;len=%d;cur=%d\a' ${#BUFFER} ${CURSOR}
+    fi
+  }
+  # Chain rather than clobber a user's existing pre-redraw widget.
+  if (( ${+widgets[zle-line-pre-redraw]} )); then
+    zle -A zle-line-pre-redraw __odytty_wrapped_line_pre_redraw
+    __odytty_line_pre_redraw() {
+      __odytty_edit_report
+      zle __odytty_wrapped_line_pre_redraw -- "$@"
+    }
+  else
+    __odytty_line_pre_redraw() { __odytty_edit_report }
+  fi
+  zle -N zle-line-pre-redraw __odytty_line_pre_redraw
+
   case "$PS1" in
     *'133;B'*) ;;
     *) PS1="${PS1}%{\e]133;B\a%}" ;;
@@ -288,11 +322,24 @@ const FISH_SNIPPET: &str = r#"if not set -q ODYTTY_SHELL_INTEGRATION
         functions -c fish_prompt __odytty_original_fish_prompt
     end
 
+    # Edit-region report (B-DESIGN §3.3): publish the buffer length + cursor
+    # from the `commandline` builtin (which excludes the autosuggestion and
+    # fish_right_prompt by construction) via the private OSC
+    # `133;P;odytty-edit`. fish has no per-keystroke redraw hook, so this
+    # fires on prompt events only; OdyTTY validates every report against its
+    # grid and treats a stale one as no-signal, so a mid-edit report can never
+    # back a wrong delete. Builtins only -- no forks.
+    function __odytty_edit_report
+        set -l __odytty_buf (commandline)
+        printf '\e]133;P;odytty-edit;len=%d;cur=%d\a' (string length -- "$__odytty_buf") (commandline --cursor)
+    end
+
     function fish_prompt
         printf '\e]7;file://%s\a' "$PWD"
         printf '\e]133;A;click_events=1\a'
         __odytty_original_fish_prompt
         printf '\e]133;B\a'
+        __odytty_edit_report
     end
 
     function __odytty_preexec --on-event fish_preexec
@@ -362,6 +409,43 @@ mod tests {
             assert!(snippet.contains("133;D"), "{shell}: missing D");
             assert!(!snippet.trim().is_empty());
         }
+    }
+
+    #[test]
+    fn zsh_and_fish_emit_the_private_edit_region_report() {
+        // B-DESIGN §3.2/§3.3: the TIER-A edit-region signal rides the private
+        // OSC `133;P;odytty-edit`. zsh publishes it per ZLE redraw
+        // (zle-line-pre-redraw); fish has no per-keystroke hook, so its report
+        // fires on prompt events and the terminal validates freshness.
+        for shell in ["zsh", "fish"] {
+            let snippet = snippet_for_shell(shell).expect("snippet");
+            assert!(
+                snippet.contains("133;P;odytty-edit;len=%d;cur=%d"),
+                "{shell}: missing the edit-region report"
+            );
+        }
+        let zsh = snippet_for_shell("zsh").expect("zsh");
+        assert!(
+            zsh.contains("zle-line-pre-redraw"),
+            "zsh: report must fire on every ZLE redraw"
+        );
+        assert!(
+            zsh.contains("nl="),
+            "zsh: hard newlines must ride along as nl= offsets"
+        );
+        let fish = snippet_for_shell("fish").expect("fish");
+        assert!(
+            fish.contains("commandline --cursor"),
+            "fish: cursor must come from the commandline builtin"
+        );
+        // bash/readline has no per-redraw hook: it must NOT claim the TIER-A
+        // signal (it would always be stale), staying on the honest
+        // RightEdgeUnknown => no-op path (B-DESIGN §3.4).
+        let bash = snippet_for_shell("bash").expect("bash");
+        assert!(
+            !bash.contains("odytty-edit"),
+            "bash must not emit the edit-region report"
+        );
     }
 
     #[test]

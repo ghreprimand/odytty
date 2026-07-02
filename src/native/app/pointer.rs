@@ -19,6 +19,19 @@ pub(super) struct EditableInputSelection {
     edit_bytes: Vec<u8>,
 }
 
+/// Resolution of the selection-delete fallback ladder (B-DESIGN §4) for the
+/// current selection; see [`App::selection_delete_outcome`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SelectionDeleteOutcome {
+    /// R4: exact geometry, real buffer edit — send these bytes.
+    Synthesize(EditableInputSelection),
+    /// R2/R3/default: on the input region, but no certain geometry — consume
+    /// the key, clear the selection, show the shell-integration hint.
+    NoOpWithHint,
+    /// R0 fail or selection not on the input region — normal key encode.
+    FallThrough,
+}
+
 impl App {
     /// Handle a window-level mouse button event (the `WindowEvent::MouseInput`
     /// dispatch). Precedence is unchanged: an open overlay captures the button
@@ -488,49 +501,103 @@ impl App {
     pub(super) fn editable_input_selection_for_context_menu(
         &self,
     ) -> Option<EditableInputSelection> {
+        match self.selection_delete_outcome() {
+            SelectionDeleteOutcome::Synthesize(selection) => Some(selection),
+            SelectionDeleteOutcome::NoOpWithHint | SelectionDeleteOutcome::FallThrough => None,
+        }
+    }
+
+    /// Resolve the approved fallback ladder (B-DESIGN §4) for the current
+    /// selection against the core-derived input region.
+    ///
+    /// * [`SelectionDeleteOutcome::Synthesize`] — rung R4: the region is
+    ///   `Exact`, single-row, and the selection clamps to a non-empty span of
+    ///   real input; the edit bytes correspond to a known buffer edit.
+    /// * [`SelectionDeleteOutcome::NoOpWithHint`] — rungs R2/R3 and the ladder
+    ///   default: the selection touches the input region but the geometry is
+    ///   not certain enough to synthesize (heuristic right edge, stale mark,
+    ///   multi-row until B1, or a selection entirely over non-input cells such
+    ///   as a right-prompt decoration). Consuming the key with a hint is the
+    ///   charter behavior: a wrong delete is worse than a no-op.
+    /// * [`SelectionDeleteOutcome::FallThrough`] — rung R0 fails (no local
+    ///   selection at the live tail) or the selection does not touch the input
+    ///   region at all: the key falls through to the normal encode path,
+    ///   exactly as before.
+    fn selection_delete_outcome(&self) -> SelectionDeleteOutcome {
         if self.selection_block || self.viewport.offset() != 0 {
-            return None;
+            return SelectionDeleteOutcome::FallThrough;
         }
-        let range = self.selection.range()?;
-        let terminal = self.terminal.lock().ok()?;
+        let Some(range) = self.selection.range() else {
+            return SelectionDeleteOutcome::FallThrough;
+        };
+        let Ok(terminal) = self.terminal.lock() else {
+            return SelectionDeleteOutcome::FallThrough;
+        };
         let modes = key_modes_from_core(terminal.keyboard_modes());
-        // Region geometry is computed in core (B-DESIGN B0): the derivation
-        // owns the mark/soft-wrap/cursor truth the flat Snapshot does not
-        // carry. This consumer accepts only the pre-existing shape — a
-        // single-row region with the cursor on it — so behavior stays
-        // byte-identical to the previous in-place heuristic; the multi-row and
-        // exact-right-edge rungs land in later slices.
-        let region = terminal.input_region()?;
-        if region.certainty == InputCertainty::Unknown || region.start_row != region.end_row {
-            return None;
-        }
-        let input_row = region.start_row;
-        let input_column = region.start_col;
+        // R1: region geometry is computed in core (B-DESIGN B0/B2). No region
+        // means no editable input (mark missing => the caller's separate hint
+        // path; mark present but nothing typed => pre-existing fall-through).
+        let Some(region) = terminal.input_region() else {
+            return SelectionDeleteOutcome::FallThrough;
+        };
         let scrollback_len = terminal.screen().scrollback_len();
         let cursor = terminal.screen().cursor();
-        let visible_row = input_row.checked_sub(scrollback_len)?;
-        if visible_row >= self.grid.rows {
-            return None;
+        // Scope the ladder to selections that touch the input region's rows;
+        // anything else keeps today's fall-through contract (a selection over
+        // unrelated output does not hijack Delete/Backspace).
+        let touches_region = range.start.row <= region.end_row && range.end.row >= region.start_row;
+        if !touches_region {
+            return SelectionDeleteOutcome::FallThrough;
         }
-        let (selected_start, selected_end) =
-            selected_columns_on_row(range, input_row, self.grid.columns)?;
-        let snapshot = terminal.snapshot_with_scrollback(0);
-        // `end_col` is exclusive in the region model; the clamp below works on
-        // the inclusive last editable column.
-        let editable_end = region.end_col.checked_sub(1)?;
-        let start = selected_start.max(input_column);
+        // R2 (certainty Unknown: stale mark / hard newlines) and R3
+        // (RightEdgeUnknown: no trustworthy right edge => decorations and
+        // autosuggestions are indistinguishable from input, ODP-3 default).
+        if region.certainty != InputCertainty::Exact {
+            return SelectionDeleteOutcome::NoOpWithHint;
+        }
+        // R5/R6 (multi-row) are not implemented yet (B1 slices): certain
+        // geometry, but no synthesis rung => safe no-op.
+        if region.start_row != region.end_row {
+            return SelectionDeleteOutcome::NoOpWithHint;
+        }
+        let input_row = region.start_row;
+        let Some(visible_row) = input_row.checked_sub(scrollback_len) else {
+            return SelectionDeleteOutcome::FallThrough;
+        };
+        if visible_row >= self.grid.rows {
+            return SelectionDeleteOutcome::FallThrough;
+        }
+        // R4: clamp the selection to the exact input span [start_col, end_col).
+        let Some((selected_start, selected_end)) =
+            selected_columns_on_row(range, input_row, self.grid.columns)
+        else {
+            // Touches the region span but not this row: single-row region, so
+            // unreachable in practice; be conservative.
+            return SelectionDeleteOutcome::NoOpWithHint;
+        };
+        let Some(editable_end) = region.end_col.checked_sub(1) else {
+            return SelectionDeleteOutcome::NoOpWithHint;
+        };
+        let start = selected_start.max(region.start_col);
         let end = selected_end.min(editable_end);
         if start > end {
-            return None;
+            // Selection is on the input row but entirely over non-input cells
+            // (prompt, right-aligned decoration, autosuggestion): ladder
+            // default => no-op, never a stray Delete byte.
+            return SelectionDeleteOutcome::NoOpWithHint;
         }
+        let snapshot = terminal.snapshot_with_scrollback(0);
         let text = snapshot_row_text(&snapshot, visible_row, start, end);
         let delete_count = snapshot_row_cell_count(&snapshot, visible_row, start, end);
         if text.is_empty() || delete_count == 0 {
-            return None;
+            return SelectionDeleteOutcome::NoOpWithHint;
         }
-        let edit_bytes =
-            delete_selection_bytes(&snapshot, visible_row, start, cursor, delete_count, modes)?;
-        Some(EditableInputSelection { text, edit_bytes })
+        match delete_selection_bytes(&snapshot, visible_row, start, cursor, delete_count, modes) {
+            Some(edit_bytes) => {
+                SelectionDeleteOutcome::Synthesize(EditableInputSelection { text, edit_bytes })
+            }
+            None => SelectionDeleteOutcome::NoOpWithHint,
+        }
     }
 
     pub(super) fn prompt_input_mark_missing_for_context_menu(&self) -> bool {
@@ -576,11 +643,24 @@ impl App {
     /// not on editable input, or without shell integration all behave exactly as
     /// before.
     pub(super) fn try_delete_selected_editable_input(&mut self) -> bool {
-        let Some(selection) = self.editable_input_selection_for_context_menu() else {
-            return false;
-        };
-        self.delete_editable_input_selection(selection);
-        true
+        match self.selection_delete_outcome() {
+            SelectionDeleteOutcome::Synthesize(selection) => {
+                self.delete_editable_input_selection(selection);
+                true
+            }
+            // Ladder rungs R2/R3 + default (B-DESIGN §4): the selection is on
+            // the input region but the geometry cannot back a real buffer
+            // edit. Consume the key — never forward a blind Delete/Backspace —
+            // clear the selection, and point at shell integration.
+            SelectionDeleteOutcome::NoOpWithHint => {
+                self.selection.clear();
+                self.selection_block = false;
+                self.show_shell_integration_hint(std::time::Instant::now());
+                self.request_selection_redraw();
+                true
+            }
+            SelectionDeleteOutcome::FallThrough => false,
+        }
     }
 
     pub(super) fn try_handle_unavailable_selection_delete(&mut self) -> bool {

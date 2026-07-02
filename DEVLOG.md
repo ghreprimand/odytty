@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Select+Delete rework slice B2: exact right edge via the private edit-region OSC
+
+Second slice of the approved design (ODP-1 = yes, ODP-2 = hard-newline no-op,
+ODP-3 = whole-selection no-op). Right-aligned decorations (RPROMPT, fish
+command duration, git status) and fish autosuggestions render as ordinary
+non-blank cells, indistinguishable from typed input on the wire — the old
+last-non-blank heuristic happily deleted them. Now a cooperating shell
+publishes its authoritative line-editor state through an OdyTTY-private OSC
+(`133;P;odytty-edit;len=<runes>;cur=<runes>[;nl=<offsets>]`): the zsh snippet
+emits it on every ZLE redraw via `zle-line-pre-redraw` (chaining any existing
+user widget; builtins only, no forks in the per-keystroke path), and the fish
+snippet emits it from the `commandline` builtin (which excludes the
+autosuggestion and `fish_right_prompt` by construction). Core parses the OSC
+at the `handle_osc133` seam, reconciles the shell's rune counts to display
+cells against its own grid (wide glyphs = two cells, combining marks fold into
+their base cell), and accepts the report as `Exact` only when the
+signal-derived cursor cell matches the live grid cursor — a stale report (or
+fish's once-per-prompt report mid-typing) degrades to the heuristic path, so a
+stale signal can never back a wrong delete. The selection-delete consumer now
+resolves the approved fallback ladder: Exact single-row synthesizes bounded
+edits; RightEdgeUnknown (bash always; zsh/fish without the updated snippet) and
+Unknown (stale mark, hard newlines per ODP-2) consume the key as a hinted
+no-op instead of forwarding a blind Delete; selections off the input region
+still fall through to the normal key encode unchanged. Deliberate behavior
+changes, all in the approved no-op direction: decorated rows and unsigned
+input are no longer deletable, and a selection over non-input cells on the
+input row (e.g. the prompt itself) no-ops instead of leaking a raw Delete
+byte. Known limitation, reported for triage: fish has no per-keystroke redraw
+hook (the spec's assumed "repaint binding" does not exist), so fish currently
+degrades to the same honest no-op as bash mid-edit; the emitter and the
+validation plumbing are in place for a future fish-side mechanism. Regression
+coverage: 11 new core unit tests (rune→cell reconcile incl. CJK/combining,
+staleness fallback, hard-newline downgrade, malformed-OSC parse) and 7
+app-level tests (decoration exclusion, whole-row clamp, mid-input cursor,
+no-signal and malformed-signal no-ops) — the decoration and no-signal cases
+verified failing against the pre-B2 tree. Full suite, clippy `-D warnings`,
+and `cargo fmt --check` green.
+
 ## 2026-07-02 -- Select+Delete rework slice B0: input-region model moves into core
 
 First slice of the approved prompt-aware select+Delete design. The editable
